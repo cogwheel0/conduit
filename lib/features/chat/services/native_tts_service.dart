@@ -135,6 +135,34 @@ class NativeTtsService {
     }
   }
 
+  /// Renders device speech to a local file so read-aloud can seek by time.
+  Future<NativeTtsAudio> synthesize({
+    required String text,
+    String? voiceIdentifier,
+    required double rate,
+    required double pitch,
+    required double volume,
+  }) async {
+    final response = await _methodChannel?.invokeMapMethod<String, Object?>(
+      'synthesize',
+      {
+        'text': text,
+        'voiceIdentifier': voiceIdentifier,
+        'rate': rate,
+        'pitch': pitch,
+        'volume': volume,
+      },
+    );
+    final path = response?['path'] as String?;
+    final milliseconds = (response?['durationMs'] as num?)?.round();
+    if (path == null || milliseconds == null || milliseconds <= 0) {
+      throw StateError('Device speech did not produce audio');
+    }
+    return NativeTtsAudio(path, Duration(milliseconds: milliseconds));
+  }
+
+  Future<bool> cancelSynthesis() => _invokeBool('cancelSynthesis');
+
   Future<bool> stop() => _invokeBool('stop');
 
   Future<bool> pause() => _invokeBool('pause');
@@ -164,4 +192,10 @@ class NativeTtsService {
     });
     return normalized;
   }
+}
+
+class NativeTtsAudio {
+  const NativeTtsAudio(this.path, this.duration);
+  final String path;
+  final Duration duration;
 }

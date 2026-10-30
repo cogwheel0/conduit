@@ -83,6 +83,7 @@ final class NativeIosTtsBridge: NSObject, ConduitBridge, FlutterStreamHandler, A
     private let synthesizer = AVSpeechSynthesizer()
     private let pendingStarts = NativeIosTtsPendingStarts()
     private var methodChannel: FlutterMethodChannel?
+    private var fileSynthesis: NativeIosTtsAudioFile?
     private var eventSink: FlutterEventSink?
 
     private override init() {
@@ -126,6 +127,29 @@ final class NativeIosTtsBridge: NSObject, ConduitBridge, FlutterStreamHandler, A
             result(true)
         case "getVoices":
             loadVoicesForPicker(result: result)
+        case "synthesize":
+            guard let arguments = call.arguments as? [String: Any],
+                  let text = arguments["text"] as? String, !text.isEmpty else {
+                result(FlutterError(code: "INVALID_TEXT", message: "Speech text is empty", details: nil))
+                return
+            }
+            fileSynthesis?.cancel()
+            let utterance = AVSpeechUtterance(string: text)
+            if let identifier = arguments["voiceIdentifier"] as? String {
+                utterance.voice = resolveVoice(identifier)
+            }
+            utterance.rate = Self.speechRate(from: arguments["rate"])
+            utterance.pitchMultiplier = Self.floatValue(arguments["pitch"], fallback: 1, min: 0.5, max: 2)
+            utterance.volume = Self.floatValue(arguments["volume"], fallback: 1, min: 0, max: 1)
+            let task = NativeIosTtsAudioFile(utterance: utterance) { [weak self] value in
+                self?.fileSynthesis = nil
+                result(value)
+            }
+            fileSynthesis = task
+            task.start()
+        case "cancelSynthesis":
+            fileSynthesis?.cancel()
+            result(true)
         case "speak":
             guard let arguments = call.arguments as? [String: Any],
                   let text = arguments["text"] as? String,
@@ -402,5 +426,78 @@ final class NativeIosTtsBridge: NSObject, ConduitBridge, FlutterStreamHandler, A
             "start": characterRange.location,
             "end": characterRange.location + characterRange.length,
         ])
+    }
+}
+
+/// File synthesis is separate from live conversational speech. Generated
+/// buffers are written serially on the main queue.
+private final class NativeIosTtsAudioFile: NSObject, AVSpeechSynthesizerDelegate {
+    private let synthesizer = AVSpeechSynthesizer()
+    private let utterance: AVSpeechUtterance
+    private let url = FileManager.default.temporaryDirectory
+        .appendingPathComponent("conduit-speech-\(UUID().uuidString).caf")
+    private var completion: FlutterResult?
+    private var file: AVAudioFile?
+    private var seconds: Double = 0
+    private var timeout: DispatchWorkItem?
+
+    init(utterance: AVSpeechUtterance, completion: @escaping FlutterResult) {
+        self.utterance = utterance
+        self.completion = completion
+        super.init()
+        synthesizer.delegate = self
+    }
+
+    func start() {
+        let timeout = DispatchWorkItem { [weak self] in self?.cancel() }
+        self.timeout = timeout
+        DispatchQueue.main.asyncAfter(deadline: .now() + 120, execute: timeout)
+        synthesizer.write(utterance) { [weak self] buffer in
+            guard let buffer = buffer as? AVAudioPCMBuffer else { return }
+            DispatchQueue.main.async { self?.append(buffer) }
+        }
+    }
+
+    private func append(_ buffer: AVAudioPCMBuffer) {
+        guard completion != nil else { return }
+        if buffer.frameLength == 0 {
+            if seconds > 0 {
+                finish(["path": url.path, "durationMs": seconds * 1000])
+            } else {
+                cancel()
+            }
+            return
+        }
+        do {
+            if file == nil {
+                file = try AVAudioFile(
+                    forWriting: url, settings: buffer.format.settings,
+                    commonFormat: buffer.format.commonFormat,
+                    interleaved: buffer.format.isInterleaved
+                )
+            }
+            try file?.write(from: buffer)
+            seconds += Double(buffer.frameLength) / buffer.format.sampleRate
+        } catch {
+            cancel()
+        }
+    }
+
+    func cancel() {
+        finish(FlutterError(code: "SYNTHESIS_FAILED", message: "Device speech could not be prepared", details: nil))
+        synthesizer.stopSpeaking(at: .immediate)
+    }
+
+    func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didCancel utterance: AVSpeechUtterance) {
+        cancel()
+    }
+
+    private func finish(_ value: Any) {
+        guard let completion else { return }
+        self.completion = nil
+        timeout?.cancel()
+        file = nil
+        if value is FlutterError { try? FileManager.default.removeItem(at: url) }
+        completion(value)
     }
 }
