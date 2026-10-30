@@ -557,10 +557,15 @@ class TtsManager {
     await stop();
   }
 
-  bool get canSeek =>
-      _activeSession?.seekable == true &&
-      _clipDurations.isNotEmpty &&
-      _clipDurations.length == _serverLastEnqueuedIndex + 1;
+  bool get canSeek {
+    if (_activeSession?.seekable != true || _serverLastEnqueuedIndex < 0) {
+      return false;
+    }
+    for (var index = 0; index <= _serverLastEnqueuedIndex; index++) {
+      if (!_clipDurations.containsKey(index)) return false;
+    }
+    return true;
+  }
 
   Duration? get playbackPosition {
     if (!canSeek) return null;
@@ -611,6 +616,7 @@ class TtsManager {
       }
 
       while (_activeSession?.id == session.id &&
+          canSeek &&
           target >= available() &&
           _serverLastEnqueuedIndex < session.chunks.length - 1) {
         final pending = _prefetchDone;
@@ -623,6 +629,12 @@ class TtsManager {
         if (!more) break;
       }
       if (_activeSession?.id != session.id) return null;
+      // A playable clip may not have duration metadata. Keep playback at its
+      // current position instead of turning an unavailable seek into an error.
+      if (!canSeek) {
+        if (_playbackRequested) await _playQueuedAudio(session);
+        return null;
+      }
       var remaining = target;
       var index = 0;
       while (index < session.chunks.length - 1) {

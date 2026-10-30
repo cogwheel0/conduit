@@ -26,6 +26,8 @@ void main() {
     player.duration = const Duration(seconds: 20);
     player.failDuration = false;
     player.failSeek = false;
+    player.addGate = null;
+    player.addWaiting = false;
     manager.setServerSpeech(null);
     await manager.debugSetNativeTtsService(device);
     await manager.initialize(config: const TtsConfig());
@@ -193,6 +195,66 @@ void main() {
     },
   );
 
+  for (final duration in [null, Duration.zero]) {
+    test(
+      'a pending seek preserves playable audio with duration $duration',
+      () async {
+        final events = <TtsEvent>[];
+        final sub = manager.events.listen(events.add);
+        addTearDown(sub.cancel);
+        final third = Completer<SynthesizedSpeech>();
+        manager.setServerSpeech(_Server()..pending['Third strip.'] = third);
+        await manager.updateConfig(
+          const TtsConfig(splitOn: TtsManager.splitOnParagraphs),
+        );
+        await manager.speak(
+          'First strip.\n\nSecond strip.\n\nThird strip.',
+          useServer: true,
+          seekable: true,
+        );
+        player.at(1, const Duration(seconds: 15));
+        final seek = manager.seekRelative(const Duration(seconds: 15));
+        await pumpEventQueue();
+        player.duration = duration;
+        third.complete(_audio);
+        expect(await seek.timeout(const Duration(seconds: 2)), isNull);
+        await pumpEventQueue();
+        expect(player.playing, isTrue);
+        expect(manager.canSeek, isFalse);
+        expect(events.whereType<TtsError>(), isEmpty);
+      },
+    );
+  }
+
+  test(
+    'probing the next clip does not hide seeking on the current queue',
+    () async {
+      final third = Completer<SynthesizedSpeech>();
+      final append = Completer<void>();
+      addTearDown(() {
+        if (!append.isCompleted) append.complete();
+      });
+      manager.setServerSpeech(_Server()..pending['Third strip.'] = third);
+      await manager.updateConfig(
+        const TtsConfig(splitOn: TtsManager.splitOnParagraphs),
+      );
+      await manager.speak(
+        'First strip.\n\nSecond strip.\n\nThird strip.',
+        useServer: true,
+        seekable: true,
+      );
+      player.addGate = append;
+      third.complete(_audio);
+      await _until(() => player.addWaiting);
+      expect(manager.canSeek, isTrue);
+      await manager.resume();
+      expect(manager.canSeek, isTrue);
+      append.complete();
+      await pumpEventQueue();
+      expect(manager.canSeek, isTrue);
+    },
+  );
+
   test('terminal seek failure stops audio and clears the session', () async {
     final events = <TtsEvent>[];
     final sub = manager.events.listen(events.add);
@@ -281,6 +343,14 @@ class _Player extends NullAudioPlayback {
   int index = 0;
   Duration location = Duration.zero;
   bool playing = false;
+  Completer<void>? addGate;
+  bool addWaiting = false;
+  @override
+  Future<void> addClip(AudioClip clip) async {
+    addWaiting = true;
+    await addGate?.future;
+  }
+
   bool failSeek = false;
   bool failDuration = false;
   Duration? duration = const Duration(seconds: 20);
