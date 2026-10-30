@@ -418,7 +418,7 @@ class TextToSpeechController extends Notifier<TextToSpeechState> {
       }
     } finally {
       if (ref.mounted && epoch == _requestEpoch) {
-        state = state.copyWith(seeking: false);
+        state = state.copyWith(seeking: false, canSeek: _service.canSeek);
       }
     }
   }

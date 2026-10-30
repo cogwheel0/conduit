@@ -161,6 +161,22 @@ void main() {
     );
   });
 
+  test('a cancelled paused seek refreshes control availability', () async {
+    speech.seekable = true;
+    await play();
+    await controller.pause();
+    final pending = Completer<Duration?>();
+    speech.seekResult = pending.future;
+    final seek = controller.skip(const Duration(seconds: 15));
+    speech.seekable = false;
+    pending.complete(null);
+    await seek;
+    final state = container.read(textToSpeechControllerProvider);
+    expect(state.canSeek, isFalse);
+    expect(state.seeking, isFalse);
+    expect(state.status, TtsPlaybackStatus.paused);
+  });
+
   test('a stopped seek cannot disable or retime a newer reply', () async {
     speech.seekable = true;
     await play();
