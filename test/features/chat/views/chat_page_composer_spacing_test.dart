@@ -1,5 +1,6 @@
 import 'package:conduit/features/chat/providers/text_to_speech_provider.dart';
 import 'package:conduit/features/chat/views/chat_page.dart';
+import 'package:conduit/features/chat/widgets/modern_chat_input.dart';
 import 'package:conduit/features/chat/voice_mode/chat_voice_mode_controller.dart';
 import 'package:conduit/features/chat/widgets/assistant_message_widget.dart';
 import 'package:conduit/features/chat/widgets/chat_timeline_viewport.dart';
@@ -159,6 +160,12 @@ void main() {
             ),
           );
           await tester.pumpAndSettle();
+          expect(
+            tester
+                .widget<ModernChatInput>(find.byType(ModernChatInput))
+                .managesSystemKeyboardInset,
+            platform == TargetPlatform.android,
+          );
           FocusManager.instance.primaryFocus?.unfocus();
           await tester.pumpAndSettle();
 
