@@ -342,6 +342,7 @@ class TtsManager {
         if (session == null || !session.usesAudioPlayer) return;
         if (state.processingState == AudioProcessingState.completed) {
           _onServerAudioComplete();
+          return;
         }
         if (state.playing) {
           // Clear transition flag when playback actually starts.
@@ -686,35 +687,69 @@ class TtsManager {
 
   Future<void> _startDeviceAudioPlayback(TtsPlaybackSession session) async {
     _clipDurations.clear();
-    final sources = <AudioClip>[];
-    for (var index = 0; index < session.chunks.length; index++) {
-      final audio = await _nativeTts.synthesize(
-        text: session.chunks[index],
-        voiceIdentifier: _config.voice,
-        rate: _config.speechRate,
-        pitch: _config.pitch,
-        volume: _config.volume,
-      );
-      final file = File(audio.path);
-      if (_activeSession?.id != session.id) {
-        await file.delete();
-        return;
-      }
-      _serverTempFiles.add(file);
-      _clipDurations[index] = audio.duration;
-      sources.add(AudioClip(uri: file.uri, tag: index));
-    }
-    _serverLastEnqueuedIndex = sources.length - 1;
+    _serverAudioBuffer.clear();
+    _serverCurrentIndex = -1;
+    _serverLastEnqueuedIndex = -1;
+    _serverWaitingForNext = false;
+    final first = await _synthesizeDeviceAudioChunk(session, 0);
+    if (first == null) return;
     await _startServerBackgroundLease(session.id);
     if (_activeSession?.id != session.id) return;
     _isTransitioningChunks = true;
     try {
-      await _player.setClips(sources);
+      await _player.setClips([first]);
       if (_activeSession?.id != session.id) return;
+      _serverLastEnqueuedIndex = 0;
       await _playQueuedAudio(session);
     } catch (_) {
       if (_activeSession?.id == session.id) _isTransitioningChunks = false;
       rethrow;
+    }
+    if (_activeSession?.id != session.id) return;
+    _prefetchDone = _prefetchDeviceAudio(session);
+    unawaited(_prefetchDone);
+  }
+
+  Future<AudioClip?> _synthesizeDeviceAudioChunk(
+    TtsPlaybackSession session,
+    int index,
+  ) async {
+    final audio = await _nativeTts.synthesize(
+      text: session.chunks[index],
+      voiceIdentifier: _config.voice,
+      rate: _config.speechRate,
+      pitch: _config.pitch,
+      volume: _config.volume,
+    );
+    final file = File(audio.path);
+    if (_activeSession?.id != session.id) {
+      await file.delete();
+      return null;
+    }
+    _serverTempFiles.add(file);
+    _clipDurations[index] = audio.duration;
+    return AudioClip(uri: file.uri, tag: index);
+  }
+
+  Future<void> _prefetchDeviceAudio(TtsPlaybackSession session) async {
+    try {
+      for (var index = 1; index < session.chunks.length; index++) {
+        if (_activeSession?.id != session.id) return;
+        final source = await _synthesizeDeviceAudioChunk(session, index);
+        if (source == null) return;
+        await _player.addClip(source);
+        if (_activeSession?.id != session.id) return;
+        _serverLastEnqueuedIndex = index;
+        _bufferProgress?.complete();
+        _bufferProgress = null;
+        if (_serverWaitingForNext) {
+          await _resumeServerQueueFromCompleted(
+            _player.currentIndex ?? _serverCurrentIndex,
+          );
+        }
+      }
+    } catch (error) {
+      _failAudioSession(session, error);
     }
   }
 
@@ -743,7 +778,13 @@ class TtsManager {
 
     try {
       if (session.usesAudioPlayer) {
-        await _playQueuedAudio(session);
+        if (_player.processingState == AudioProcessingState.completed) {
+          await _resumeServerQueueFromCompleted(
+            _player.currentIndex ?? _serverCurrentIndex,
+          );
+        } else {
+          await _playQueuedAudio(session);
+        }
         _emitEvent(const TtsResumed());
       } else {
         await _nativeTts.resume();
@@ -1415,6 +1456,11 @@ class TtsManager {
       return;
     }
 
+    if (!session.useServerTts) {
+      _serverWaitingForNext = true;
+      return;
+    }
+
     if (_hasBufferedServerChunk(nextIndex)) {
       _serverWaitingForNext = false;
       unawaited(_enqueueBufferedServerChunks(session));
@@ -1524,15 +1570,27 @@ class TtsManager {
   }
 
   Future<void> _resumeServerQueueFromCompleted(int currentIndex) async {
-    if (_player.processingState != AudioProcessingState.completed) {
+    final session = _activeSession;
+    if (session == null ||
+        _player.processingState != AudioProcessingState.completed ||
+        (session.seekable && !_playbackRequested)) {
       return;
     }
     final nextIndex = currentIndex + 1;
     if (nextIndex < 0 || nextIndex > _serverLastEnqueuedIndex) {
       return;
     }
-    await _player.seek(Duration.zero, index: nextIndex);
-    await _player.play();
+    try {
+      await _player.seek(Duration.zero, index: nextIndex);
+      if (_activeSession?.id != session.id ||
+          (session.seekable && !_playbackRequested)) {
+        return;
+      }
+      _serverWaitingForNext = false;
+      await _playQueuedAudio(session);
+    } catch (error) {
+      _failAudioSession(session, error);
+    }
   }
 
   Future<AudioClip> _audioSourceForServerChunk(

@@ -30,6 +30,8 @@ void main() {
     player.probes = 0;
     player.failSeek = false;
     player.addGate = null;
+    player.clips.clear();
+    player.processing = AudioProcessingState.ready;
     player.addWaiting = false;
     manager.setServerSpeech(null);
     await manager.debugSetNativeTtsService(device);
@@ -55,6 +57,7 @@ void main() {
         'One paper square.\n\nAnother paper square.',
         seekable: true,
       );
+      await _until(() => manager.playbackDuration != null);
       expect(device.rendered, ['One paper square.', 'Another paper square.']);
       expect(device.liveSpeech, 0);
       expect(manager.canSeek, isTrue);
@@ -73,6 +76,136 @@ void main() {
       );
       expect(player.currentIndex, 0);
       expect(player.position, const Duration(seconds: 12));
+    },
+  );
+
+  test(
+    'a completed notification cannot start a finished session again',
+    () async {
+      await manager.speak('A folded square.', seekable: true);
+      final events = <TtsEvent>[];
+      final sub = manager.events.listen(events.add);
+      addTearDown(sub.cancel);
+      player.complete();
+      await pumpEventQueue();
+      expect(manager.isPlaying, isFalse);
+      expect(events.whereType<TtsCompleted>(), hasLength(1));
+      expect(events.whereType<TtsStarted>(), isEmpty);
+    },
+  );
+
+  test(
+    'device speech starts before later synthesis and appends seekable clips',
+    () async {
+      final second = Completer<NativeTtsAudio>();
+      device.pendingChunks['Second strip.'] = second;
+      await manager.updateConfig(
+        const TtsConfig(splitOn: TtsManager.splitOnParagraphs),
+      );
+      final start = manager.speak(
+        'First strip.\n\nSecond strip.\n\nThird strip.',
+        seekable: true,
+      );
+      await _until(() => device.rendered.contains('Second strip.'));
+      try {
+        expect(player.playing, isTrue);
+        expect(player.clips.map((clip) => clip.tag), [0]);
+        expect(manager.playbackDuration, isNull);
+      } finally {
+        second.complete(await _syntheticAudio());
+        await start;
+        await _until(() => player.clips.length == 3);
+      }
+      expect(manager.playbackDuration, const Duration(seconds: 60));
+      player.at(0, const Duration(seconds: 12));
+      expect(
+        await manager.seekRelative(const Duration(seconds: 15)),
+        const Duration(seconds: 27),
+      );
+      expect(player.currentIndex, 1);
+      expect(player.position, const Duration(seconds: 7));
+    },
+  );
+
+  test(
+    'a device queue gap waits for synthesis and respects pause and resume',
+    () async {
+      final second = Completer<NativeTtsAudio>();
+      device.pendingChunks['Second strip.'] = second;
+      await manager.updateConfig(
+        const TtsConfig(splitOn: TtsManager.splitOnParagraphs),
+      );
+      final events = <TtsEvent>[];
+      final sub = manager.events.listen(events.add);
+      addTearDown(sub.cancel);
+      await manager.speak('First strip.\n\nSecond strip.', seekable: true);
+      player.complete();
+      await manager.pause();
+      second.complete(await _syntheticAudio());
+      await _until(() => player.clips.length == 2);
+      expect(player.playing, isFalse);
+      expect(events.whereType<TtsError>(), isEmpty);
+      expect(events.whereType<TtsCompleted>(), isEmpty);
+      await manager.resume();
+      expect(player.currentIndex, 1);
+      expect(player.playing, isTrue);
+      player.complete();
+      await pumpEventQueue();
+      expect(manager.isPlaying, isFalse);
+      expect(events.last, isA<TtsCompleted>());
+    },
+  );
+
+  test(
+    'a device queue gap automatically resumes the next prepared clip',
+    () async {
+      final second = Completer<NativeTtsAudio>();
+      device.pendingChunks['Second strip.'] = second;
+      await manager.updateConfig(
+        const TtsConfig(splitOn: TtsManager.splitOnParagraphs),
+      );
+      await manager.speak('First strip.\n\nSecond strip.', seekable: true);
+      player.complete();
+      second.complete(await _syntheticAudio());
+      await _until(() => player.currentIndex == 1);
+      expect(player.playing, isTrue);
+      expect(manager.isPlaying, isTrue);
+    },
+  );
+
+  test('late device prefetch cannot append to a replacement session', () async {
+    final second = Completer<NativeTtsAudio>();
+    device.pendingChunks['Second strip.'] = second;
+    await manager.updateConfig(
+      const TtsConfig(splitOn: TtsManager.splitOnParagraphs),
+    );
+    await manager.speak('First strip.\n\nSecond strip.', seekable: true);
+    await manager.speak('New square.', seekable: true);
+    final audio = await _syntheticAudio();
+    second.complete(audio);
+    await _until(() => !File(audio.path).existsSync());
+    expect(player.clips.map((clip) => clip.tag), [0]);
+    expect(manager.playbackDuration, const Duration(seconds: 20));
+    expect(manager.isPlaying, isTrue);
+  });
+
+  test(
+    'failed device prefetch terminates playback and clears seek state',
+    () async {
+      final second = Completer<NativeTtsAudio>();
+      device.pendingChunks['Second strip.'] = second;
+      await manager.updateConfig(
+        const TtsConfig(splitOn: TtsManager.splitOnParagraphs),
+      );
+      final events = <TtsEvent>[];
+      final sub = manager.events.listen(events.add);
+      addTearDown(sub.cancel);
+      await manager.speak('First strip.\n\nSecond strip.', seekable: true);
+      second.completeError(StateError('Synthetic synthesis failure'));
+      await _until(() => events.whereType<TtsError>().isNotEmpty);
+      expect(manager.isPlaying, isFalse);
+      expect(manager.canSeek, isFalse);
+      expect(player.playing, isFalse);
     },
   );
 
@@ -178,10 +311,12 @@ void main() {
         expect(player.playing, isFalse);
         expect(manager.canSeek, isFalse);
         events.clear();
-        player.states.add(const AudioPlaybackState(
-          playing: false,
-          processingState: AudioProcessingState.ready,
-        ));
+        player.states.add(
+          const AudioPlaybackState(
+            playing: false,
+            processingState: AudioProcessingState.ready,
+          ),
+        );
         await Future<void>.delayed(Duration.zero);
         expect(events, isEmpty);
         player.failDurationAfter = null;
@@ -334,6 +469,7 @@ class _Device extends NativeTtsService {
   final rendered = <String>[];
   int liveSpeech = 0;
   Completer<NativeTtsAudio>? pending;
+  final pendingChunks = <String, Completer<NativeTtsAudio>>{};
   @override
   Stream<NativeTtsEvent> get events => const Stream.empty();
   @override
@@ -366,7 +502,8 @@ class _Device extends NativeTtsService {
     required double volume,
   }) async {
     rendered.add(text);
-    if (pending != null) return pending!.future;
+    final waiting = pendingChunks[text] ?? pending;
+    if (waiting != null) return waiting.future;
     final file = await File(
       '${Directory.systemTemp.path}/speech-${DateTime.now().microsecondsSinceEpoch}-${rendered.length}.caf',
     ).writeAsString('synthetic');
@@ -382,10 +519,20 @@ class _Player extends NullAudioPlayback {
   bool playing = false;
   Completer<void>? addGate;
   bool addWaiting = false;
+  final clips = <AudioClip>[];
+  AudioProcessingState processing = AudioProcessingState.ready;
+  void complete() {
+    processing = AudioProcessingState.completed;
+    states.add(
+      AudioPlaybackState(playing: playing, processingState: processing),
+    );
+  }
+
   @override
   Future<void> addClip(AudioClip clip) async {
     addWaiting = true;
     await addGate?.future;
+    clips.add(clip);
   }
 
   bool failSeek = false;
@@ -415,7 +562,7 @@ class _Player extends NullAudioPlayback {
   @override
   Duration get position => location;
   @override
-  AudioProcessingState get processingState => AudioProcessingState.ready;
+  AudioProcessingState get processingState => processing;
   void at(int value, Duration position) {
     index = value;
     location = position;
@@ -428,6 +575,10 @@ class _Player extends NullAudioPlayback {
     int initialIndex = 0,
     Duration initialPosition = Duration.zero,
   }) async {
+    this.clips
+      ..clear()
+      ..addAll(clips);
+    processing = AudioProcessingState.ready;
     at(initialIndex, initialPosition);
     states.add(
       const AudioPlaybackState(
@@ -440,6 +591,7 @@ class _Player extends NullAudioPlayback {
   @override
   Future<void> seek(Duration? position, {int? index}) async {
     if (failSeek) throw StateError('Synthetic seek failure');
+    processing = AudioProcessingState.ready;
     at(index ?? this.index, position ?? Duration.zero);
   }
 
@@ -457,12 +609,7 @@ class _Player extends NullAudioPlayback {
   @override
   Future<void> pause() async {
     playing = false;
-    states.add(
-      const AudioPlaybackState(
-        playing: false,
-        processingState: AudioProcessingState.ready,
-      ),
-    );
+    states.add(AudioPlaybackState(playing: false, processingState: processing));
   }
 
   @override
@@ -491,4 +638,11 @@ Future<void> _until(bool Function() condition) async {
     await Future<void>.delayed(const Duration(milliseconds: 5));
   }
   fail('Synthetic operation did not start');
+}
+
+Future<NativeTtsAudio> _syntheticAudio() async {
+  final file = await File(
+    '${Directory.systemTemp.path}/speech-test-${DateTime.now().microsecondsSinceEpoch}.caf',
+  ).writeAsString('synthetic');
+  return NativeTtsAudio(file.path, const Duration(seconds: 20));
 }
