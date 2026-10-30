@@ -521,6 +521,7 @@ class NativeSheetBridge implements NativeSheetFlutterApi {
     String valueId = 'text',
     String sendActionId = 'send',
     String closeActionId = 'close',
+    bool emitChanges = false,
     bool rethrowErrors = false,
   }) async {
     if (!_isIOS) return null;
@@ -534,6 +535,7 @@ class NativeSheetBridge implements NativeSheetFlutterApi {
           valueId: valueId,
           sendActionId: sendActionId,
           closeActionId: closeActionId,
+          emitChanges: emitChanges,
         ),
       );
       return raw == null ? null : NativeSheetActionResult.fromPlatform(raw);

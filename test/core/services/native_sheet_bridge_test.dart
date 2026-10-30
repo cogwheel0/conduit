@@ -349,6 +349,54 @@ void main() {
     ]);
   });
 
+  test(
+    'text editor changes are opt-in and use the existing control stream',
+    () async {
+      NativeSheetBridge.instance.debugIsIOSOverride = true;
+      final channel = BasicMessageChannel<Object?>(
+        'dev.flutter.pigeon.conduit.NativeSheetHostApi.presentTextEditor',
+        NativeSheetHostApi.pigeonChannelCodec,
+      );
+      final received = <PlatformNativeSheetTextEditorRequest>[];
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      messenger.setMockDecodedMessageHandler<Object?>(channel, (message) async {
+        received.add(
+          (message! as List<Object?>).single!
+              as PlatformNativeSheetTextEditorRequest,
+        );
+        return <Object?>[null];
+      });
+      addTearDown(
+        () => messenger.setMockDecodedMessageHandler<Object?>(channel, null),
+      );
+      await NativeSheetBridge.instance.presentTextEditor(
+        title: 'Example',
+        value: 'First',
+      );
+      await NativeSheetBridge.instance.presentTextEditor(
+        title: 'Example',
+        value: 'Second',
+        valueId: 'example-input',
+        emitChanges: true,
+      );
+      expect(received.map((request) => request.emitChanges), [false, true]);
+      final event = NativeSheetBridge.instance.events
+          .where((event) => event is NativeSheetControlChanged)
+          .cast<NativeSheetControlChanged>()
+          .first;
+      NativeSheetBridge.instance.onControlChanged(
+        PlatformNativeSheetControlChangedEvent(
+          id: 'example-input',
+          value: 'Updated input',
+        ),
+      );
+      final changed = await event;
+      expect(changed.id, 'example-input');
+      expect(changed.value, 'Updated input');
+    },
+  );
+
   test('native sign-out publishes the selected retention value', () async {
     final event = NativeSheetBridge.instance.events
         .where((event) => event is NativeSheetControlChanged)

@@ -12,5 +12,6 @@ import SwiftUI
 struct ConduitWidgetBundle: WidgetBundle {
     var body: some Widget {
         ConduitWidget()
+        if #available(iOS 17.0, *) { ConduitRecordingActivity() }
     }
 }

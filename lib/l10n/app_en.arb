@@ -8871,5 +8871,22 @@
   "chatHandoffStayHere": "Stay here",
   "@chatHandoffStayHere": {
     "description": "Cancel button that keeps the user in the current chat instead of following the Open WebUI server's suggestion."
-  }
+  },
+  "composerDraftLoadFailed": "Your saved draft could not be loaded. Try again before replacing it.",
+  "@composerDraftLoadFailed": {"description": "Local input draft could not be read; retry leaves the stored draft untouched."},
+  "composerDraftSaveFailed": "Your draft could not be saved on this device. Keep the app open and try again.",
+  "@composerDraftSaveFailed": {"description": "Local composer draft persistence failed; the unsent input remains on screen."},
+  "savedRecording": "Saved recording",
+  "recordingDiscard": "Discard recording",
+  "recordingTranscriptionFailed": "Transcription failed. Recording saved.",
+  "recordingDiscardConfirmation": "Are you sure you want to discard this recording?",
+  "@recordingDiscardConfirmation": {"description": "Confirmation before permanently discarding an unsent audio recording."},
+  "recordingDiscardFailed": "Could not discard this recording. Try again.",
+  "recordingLoadFailed": "Could not load recordings. Retry",
+  "recordingSaveFailed": "Your recording could not be saved on this device. Keep the app open and retry.",
+  "transcribeOnServer": "Transcribe on server",
+  "transcribeOnDevice": "Transcribe on device",
+  "recordingRecoveryUnavailable": "This speech recognizer cannot keep audio recordings. Transcribed text is still saved with your draft. Choose Server speech-to-text to keep audio.",
+  "exportRecording": "Export recording",
+  "recordingExportFailed": "Could not export this recording. Try again."
 }

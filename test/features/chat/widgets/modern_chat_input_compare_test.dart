@@ -1,7 +1,9 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:conduit/features/chat/widgets/composer_overflow_menu.dart';
 import 'package:conduit/features/chat/widgets/modern_chat_input.dart';
+import 'package:conduit/features/chat/providers/composer_draft_provider.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/l10n/app_localizations_en.dart';
 import 'package:conduit/l10n/conduit_localizations.dart';
@@ -29,7 +31,10 @@ import 'package:drift/drift.dart' show Value;
 import 'package:drift/native.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter/services.dart';
 import 'package:material_ui/material_ui.dart';
+
+import '../../../support/native_database.dart';
 
 /// The composer's "Compare models" command, from the overflow menu through the
 /// setup sheet to the host's answer about whether the turn was admitted. What
@@ -52,6 +57,21 @@ void main() {
   late _SignInEpoch signIn;
   ProviderContainer? open;
 
+  setUpAll(() {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(
+          const MethodChannel('plugins.flutter.io/path_provider'),
+          (_) async => Directory.systemTemp.path,
+        );
+  });
+  tearDownAll(() {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(
+          const MethodChannel('plugins.flutter.io/path_provider'),
+          null,
+        );
+  });
+
   setUp(() {
     db = AppDatabase(NativeDatabase.memory());
     engine = _DrainEngine();
@@ -64,6 +84,7 @@ void main() {
   Future<void> settle(WidgetTester tester) async {
     for (var i = 0; i < 4; i++) {
       await tester.pump(const Duration(milliseconds: 400));
+      await tester.runAsync(() => Future<void>.delayed(Duration.zero));
     }
   }
 
@@ -73,6 +94,11 @@ void main() {
     WidgetTester tester, {
     String? chatId = 'chat-a',
     Future<ChatSendPlaceholderHandle?> Function()? host,
+    Future<ChatSendPlaceholderHandle?> Function(
+      String,
+      void Function(ChatSendPlaceholderHandle),
+    )?
+    draftHost,
     bool hostsComparison = true,
     List<Model>? savedComparison,
   }) async {
@@ -131,8 +157,9 @@ void main() {
           home: Scaffold(
             body: ModernChatInput(
               onSendMessage: ordinarySends.add,
+              onSendDraft: draftHost,
               onCompareSend: hostsComparison
-                  ? (text, models) async {
+                  ? (text, models, onPrepared) async {
                       sends.add((
                         text: text,
                         models: [for (final m in models) m.id],
@@ -143,6 +170,7 @@ void main() {
                         text,
                         null,
                         models: models,
+                        onAssistantPlaceholderCreated: onPrepared,
                       );
                       return handles.first;
                     }
@@ -176,6 +204,7 @@ void main() {
       find.widgetWithText(ElevatedButton, l10n.chatCompareStart),
     );
     await tester.pump();
+    await settle(tester);
   }
 
   /// Compares [draft] with the drain held: the turn is committed and the
@@ -204,16 +233,115 @@ void main() {
   ) {
     testWidgets(description, (tester) async {
       open = null;
-      await body(tester);
-      // Dropping the streaming placeholders and finishing the stream ends the
-      // task poll they started.
-      open?.read(chatMessagesProvider.notifier)
-        ?..clearMessages()
-        ..finishStreaming();
-      await tester.pumpWidget(const SizedBox.shrink());
-      open?.dispose();
+      try {
+        await body(tester);
+      } finally {
+        // Dropping the streaming placeholders and finishing the stream ends the
+        // task poll they started.
+        open?.read(chatMessagesProvider.notifier)
+          ?..clearMessages()
+          ..finishStreaming();
+        await tester.pumpWidget(const SizedBox.shrink());
+        open?.dispose();
+        // Let query subscriptions cancel before closing native SQLite.
+        await tester.pump(const Duration(milliseconds: 1));
+        // Input persistence uses native SQLite. Drain it outside FakeAsync before
+        // the owning account database closes.
+        await tester.runAsync(db.close);
+      }
     });
   }
+
+  Future<void> recording(
+    WidgetTester tester,
+    ProviderContainer container,
+    String id,
+  ) async {
+    await settle(tester);
+    await pumpDatabaseOperation(tester, () async {
+      final owner = container.read(composerDraftContextProvider);
+      final writer = await owner.store!.recordings.begin(
+        id: id,
+        scope: owner.scope,
+        chatId: owner.chatId,
+        onFailure: () => fail('Unexpected recording write failure'),
+      );
+      writer.add(Uint8List.fromList([1, 0, 2, 0]));
+      await writer.close();
+    });
+    await settle(tester);
+  }
+
+  composerTest('a refused ordinary send retains its text and audio draft', (
+    tester,
+  ) async {
+    final admission = Completer<ChatSendPlaceholderHandle?>();
+    final container = await pump(tester, draftHost: (_, _) => admission.future);
+    await recording(tester, container, 'first-recording');
+    await tester.enterText(find.byType(TextField), 'Keep this unsent input');
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('primary-btn-send')));
+    await settle(tester);
+    admission.complete(null);
+    await settle(tester);
+    expect(composerText(tester), 'Keep this unsent input');
+    expect(
+      await pumpDatabaseOperation(
+        tester,
+        () => db.composerRecordingsDao.readPcm('first-recording'),
+      ),
+      [1, 0, 2, 0],
+    );
+  });
+
+  composerTest(
+    'an accepted send retires only its captured audio and preserves a newer input',
+    (tester) async {
+      final admission = Completer<void>();
+      late ProviderContainer container;
+      container = await pump(
+        tester,
+        draftHost: (text, onPrepared) async {
+          await admission.future;
+          ChatSendPlaceholderHandle? committed;
+          await durableSend(
+            container,
+            text,
+            null,
+            onAssistantPlaceholderCreated: (handle) {
+              onPrepared(handle);
+              committed = handle;
+            },
+          );
+          return committed;
+        },
+      );
+      await recording(tester, container, 'sent-recording');
+      await tester.enterText(find.byType(TextField), 'Send the first input');
+      await tester.pump();
+      await tester.tap(find.byKey(const ValueKey('primary-btn-send')));
+      await settle(tester);
+      await tester.enterText(find.byType(TextField), 'Keep the newer input');
+      await recording(tester, container, 'new-recording');
+      admission.complete();
+      await settle(tester);
+      expect(composerText(tester), 'Keep the newer input');
+      expect(
+        await pumpDatabaseOperation(
+          tester,
+          () => db.composerRecordingsDao.readPcm('sent-recording'),
+        ),
+        isEmpty,
+      );
+      expect(
+        await pumpDatabaseOperation(
+          tester,
+          () => db.composerRecordingsDao.readPcm('new-recording'),
+        ),
+        [1, 0, 2, 0],
+      );
+    },
+  );
 
   composerTest('a screen that cannot admit a comparison offers no Compare '
       'models command', (tester) async {
@@ -275,6 +403,7 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('primary-btn-send')));
     await tester.pump();
 
+    await settle(tester);
     expect(sends.single.text, draft);
     expect(sends.single.models, ['alpha', 'beta']);
     expect(ordinarySends, isEmpty);
@@ -343,6 +472,9 @@ void main() {
     await settle(tester);
 
     expect(sends, isEmpty);
+    expect(composerText(tester), isEmpty);
+    container.read(activeConversationProvider.notifier).set(_stored('chat-a'));
+    await settle(tester);
     expect(composerText(tester), draft);
   });
 
@@ -424,9 +556,10 @@ void main() {
 
     container.read(activeConversationProvider.notifier).set(_stored('chat-b'));
     await tester.pump();
+    await tester.enterText(find.byType(TextField), draft);
     await finishCommit(tester);
 
-    // The composer still holds the text it was sent with, now in chat B.
+    // A separately edited input belongs to chat B, even with identical text.
     expect(composerText(tester), draft);
   });
 
@@ -437,6 +570,7 @@ void main() {
 
     container.read(activeConversationProvider.notifier).set(_stored('chat-b'));
     await tester.pump();
+    await tester.enterText(find.byType(TextField), draft);
     await finishCommit(tester);
 
     expect(composerText(tester), draft);

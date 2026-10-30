@@ -221,6 +221,7 @@ class IdRemapper {
           await _rewriteOutboxChatId(localId, serverId);
           await _deleteMessagesForChat(localId);
           await _deleteChatRow(localId);
+          await _db.composerDraftsDao.remapDraft('chat', localId, serverId);
           await _db.syncMetaDao.setChatRemapTarget(localId, serverId);
           return ChatRemapResult.rewritten;
         }
@@ -255,6 +256,7 @@ class IdRemapper {
       // (f) Record durable proof of this exact local->server relation in the
       // SAME transaction as the row/outbox rewrite. Recovery must never infer
       // ownership from a globally colliding message id.
+      await _db.composerDraftsDao.remapDraft('chat', localId, serverId);
       await _db.syncMetaDao.setChatRemapTarget(localId, serverId);
       return ChatRemapResult.rewritten;
     });

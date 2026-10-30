@@ -7949,5 +7949,18 @@
   "chatHandoffStayHere": "Zostań tutaj",
   "@chatHandoffStayHere": {
     "description": "Cancel button that keeps the user in the current chat instead of following the Open WebUI server's suggestion."
-  }
+  },
+  "composerDraftLoadFailed": "Nie udało się wczytać zapisanej wersji roboczej. Spróbuj ponownie, zanim ją zastąpisz.",
+  "@composerDraftLoadFailed": {"description": "Local input draft could not be read; retry leaves the stored draft untouched."},
+  "composerDraftSaveFailed": "Nie udało się zapisać wersji roboczej na tym urządzeniu. Pozostaw aplikację otwartą i spróbuj ponownie.",
+  "@composerDraftSaveFailed": {"description": "Local composer draft persistence failed; the unsent input remains on screen."},
+  "savedRecording": "Zapisane nagranie",
+  "recordingDiscard": "Odrzuć nagranie",
+  "recordingTranscriptionFailed": "Nie udało się utworzyć transkrypcji. Nagranie jest zapisane. Spróbuj ponownie lub wybierz inną metodę transkrypcji.",
+  "recordingDiscardFailed": "Nie udało się odrzucić nagrania. Spróbuj ponownie.",
+  "recordingLoadFailed": "Nie udało się wczytać nagrań. Ponów",
+  "recordingSaveFailed": "Nie udało się zapisać nagrania na tym urządzeniu. Nie zamykaj aplikacji i spróbuj ponownie.",
+  "transcribeOnServer": "Transkrypcja na serwerze",
+  "transcribeOnDevice": "Transkrypcja na urządzeniu",
+  "recordingRecoveryUnavailable": "Ten mechanizm rozpoznawania mowy nie może zapisywać nagrań. Transkrypcja nadal jest zapisywana w szkicu. Aby zachowywać nagrania, wybierz rozpoznawanie mowy na serwerze."
 }

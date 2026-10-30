@@ -2047,6 +2047,7 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
   }
 
   Future<void> _deleteChatRemapMetadata(String chatId) async {
+    await attachedDatabase.composerDraftsDao.deleteChatDraft(chatId);
     await attachedDatabase.syncMetaDao.deleteChatRemapTarget(chatId);
     await attachedDatabase.syncMetaDao.deleteChatRemapTargetsForServer(chatId);
   }

@@ -726,6 +726,7 @@ class _FolderPageState extends ConsumerState<FolderPage> {
   Future<chat.ChatSendPlaceholderHandle?> _handleCompareSend(
     String text,
     List<Model> models,
+    void Function(chat.ChatSendPlaceholderHandle) onPrepared,
   ) async {
     if (_isSendingComposerMessage ||
         ref.read(conversationSelectionProvider).isLoading) {
@@ -766,6 +767,7 @@ class _FolderPageState extends ConsumerState<FolderPage> {
         text,
         uploadedFileIds.isNotEmpty ? uploadedFileIds : null,
         models: models,
+        onAssistantPlaceholderCreated: onPrepared,
         toolIds: toolIds.isNotEmpty ? toolIds : null,
         onCommitted: () {
           if (!mounted || !(ModalRoute.isCurrentOf(context) ?? true)) return;
