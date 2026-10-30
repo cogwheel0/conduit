@@ -5,6 +5,17 @@ import 'package:path/path.dart' as p;
 import '../../tool/run_test_shards.dart';
 
 void main() {
+  test('non-resettable plugin registrations keep their own isolate', () {
+    final plan = planTestShards({
+      'test/browser_test.dart':
+          'InAppWebViewPlatform'
+          '.instance = fake;',
+      'test/widget_test.dart': 'testWidgets();',
+    }, shardCount: 2);
+    check(plan.standalone).deepEquals(['test/browser_test.dart']);
+    check(plan.shards.single).deepEquals(['test/widget_test.dart']);
+  });
+
   test('plan keeps socket files standalone and every file once', () {
     final sources = {
       'test/a_test.dart': 'x' * 400,
