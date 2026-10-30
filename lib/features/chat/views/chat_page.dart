@@ -4264,7 +4264,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     );
     var maxModelWidth = modelWidth();
     // Keep the model picker while preserving secondary actions in More.
-    if (showConnectionIssue && maxModelWidth < conduitScaledControlExtent(context)) {
+    if (maxModelWidth < conduitScaledControlExtent(context)) {
       actionDescriptors = buildActions(compact: true);
       maxModelWidth = modelWidth();
     }

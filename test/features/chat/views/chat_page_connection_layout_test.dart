@@ -103,107 +103,112 @@ class _Connectivity extends Fake implements ConnectivityService {
 }
 
 void main() {
-  for (final width in [320.0, 390.0]) {
-    for (final chatId in [null, 'saved-chat', 'local:paper']) {
-      testWidgets(
-        'connection warning keeps the model picker at ${width}px and 2x text for $chatId',
-        (tester) async {
-          tester.view.physicalSize = Size(width, 800);
-          tester.view.devicePixelRatio = 1;
-          addTearDown(tester.view.reset);
-          PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.iOS;
-          PlatformUiCapabilities.debugIOSMajorVersionOverride = 25;
-          addTearDown(PlatformUiCapabilities.resetDebugOverrides);
-          final container = ProviderContainer(
-            overrides: [
-              apiServiceProvider.overrideWithValue(
-                ApiService(
-                  serverConfig: const ServerConfig(
-                    id: 'connection',
-                    name: 'Example server',
-                    url: 'https://connection.example.test',
+  for (final disconnected in [true, false]) {
+    for (final width in [320.0, 390.0]) {
+      for (final chatId in [null, 'saved-chat', 'local:paper']) {
+        testWidgets(
+          'model picker at ${width}px and 2x text for $chatId, disconnected: $disconnected',
+          (tester) async {
+            tester.view.physicalSize = Size(width, 800);
+            tester.view.devicePixelRatio = 1;
+            addTearDown(tester.view.reset);
+            PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.iOS;
+            PlatformUiCapabilities.debugIOSMajorVersionOverride = 25;
+            addTearDown(PlatformUiCapabilities.resetDebugOverrides);
+            final container = ProviderContainer(
+              overrides: [
+                apiServiceProvider.overrideWithValue(
+                  ApiService(
+                    serverConfig: const ServerConfig(
+                      id: 'connection',
+                      name: 'Example server',
+                      url: 'https://connection.example.test',
+                    ),
+                    workerManager: WorkerManager(),
                   ),
-                  workerManager: WorkerManager(),
+                ),
+                if (chatId?.startsWith('local:') == true)
+                  temporaryChatEnabledProvider.overrideWith(_Temporary.new),
+                activeConversationProvider.overrideWith(
+                  () => _Active(
+                    chatId == null
+                        ? null
+                        : Conversation(
+                            id: chatId,
+                            title: 'Paper folds',
+                            createdAt: DateTime.utc(2026),
+                            updatedAt: DateTime.utc(2026),
+                          ),
+                  ),
+                ),
+                openWebUiChatSettingsMenuEntryProvider.overrideWith(
+                  (ref) => OpenWebUiChatSettingsMenuEntry.editor,
+                ),
+                appDatabaseProvider.overrideWith((ref) => null),
+                connectivityServiceProvider.overrideWithValue(_Connectivity()),
+                isAuthenticatedProvider2.overrideWithValue(false),
+                reviewerModeProvider.overrideWithValue(false),
+                selectedModelProvider.overrideWith(_SelectedModel.new),
+                chatMessagesProvider.overrideWith(_Messages.new),
+                optimizedStorageServiceProvider.overrideWithValue(_Storage()),
+                isChatStreamingProvider.overrideWith((ref) => false),
+                conversationsProvider.overrideWith(_Conversations.new),
+                modelsProvider.overrideWith(_Models.new),
+                foldersProvider.overrideWith(_Folders.new),
+                toolsListProvider.overrideWith(_Tools.new),
+                textToSpeechControllerProvider.overrideWith(_Speech.new),
+                liveConnectionDisconnectedProvider.overrideWith(
+                  (ref) => Stream.value(disconnected),
+                ),
+              ],
+            );
+            addTearDown(container.dispose);
+            await tester.pumpWidget(
+              UncontrolledProviderScope(
+                container: container,
+                child: MaterialApp(
+                  theme: AppTheme.light(TweakcnThemes.t3Chat)
+                      .copyWith(platform: TargetPlatform.iOS),
+                  localizationsDelegates: conduitLocalizationsDelegates,
+                  supportedLocales: AppLocalizations.supportedLocales,
+                  builder: (context, child) => MediaQuery(
+                    data: MediaQuery.of(context)
+                        .copyWith(textScaler: const TextScaler.linear(2)),
+                    child: child!,
+                  ),
+                  home: const ChatPage(),
                 ),
               ),
-              if (chatId?.startsWith('local:') == true)
-                temporaryChatEnabledProvider.overrideWith(_Temporary.new),
-              activeConversationProvider.overrideWith(
-                () => _Active(
-                  chatId == null
-                      ? null
-                      : Conversation(
-                          id: chatId,
-                          title: 'Paper folds',
-                          createdAt: DateTime.utc(2026),
-                          updatedAt: DateTime.utc(2026),
-                        ),
-                ),
-              ),
-              appDatabaseProvider.overrideWith((ref) => null),
-              connectivityServiceProvider.overrideWithValue(_Connectivity()),
-              isAuthenticatedProvider2.overrideWithValue(false),
-              reviewerModeProvider.overrideWithValue(false),
-              selectedModelProvider.overrideWith(_SelectedModel.new),
-              chatMessagesProvider.overrideWith(_Messages.new),
-              optimizedStorageServiceProvider.overrideWithValue(_Storage()),
-              isChatStreamingProvider.overrideWith((ref) => false),
-              conversationsProvider.overrideWith(_Conversations.new),
-              modelsProvider.overrideWith(_Models.new),
-              foldersProvider.overrideWith(_Folders.new),
-              toolsListProvider.overrideWith(_Tools.new),
-              textToSpeechControllerProvider.overrideWith(_Speech.new),
-              liveConnectionDisconnectedProvider.overrideWith(
-                (ref) => Stream.value(true),
-              ),
-            ],
-          );
-          addTearDown(container.dispose);
-          await tester.pumpWidget(
-            UncontrolledProviderScope(
-              container: container,
-              child: MaterialApp(
-                theme: AppTheme.light(TweakcnThemes.t3Chat)
-                    .copyWith(platform: TargetPlatform.iOS),
-                localizationsDelegates: conduitLocalizationsDelegates,
-                supportedLocales: AppLocalizations.supportedLocales,
-                builder: (context, child) => MediaQuery(
-                  data: MediaQuery.of(context)
-                      .copyWith(textScaler: const TextScaler.linear(2)),
-                  child: child!,
-                ),
-                home: const ChatPage(),
-              ),
-            ),
-          );
-          await tester.pumpAndSettle();
-          expect(
-            find.byKey(const ValueKey('live-connection-retry')),
-            findsOneWidget,
-          );
-          final model = find.byType(ConduitAdaptiveAppBarModelSelector);
-          expect(model, findsOneWidget);
-          expect(
-            tester.getSize(model).width,
-            greaterThanOrEqualTo(44),
-          );
-          final more = tester.widget<ConduitAdaptiveToolbarOverflowButton<int>>(
-            find.byType(ConduitAdaptiveToolbarOverflowButton<int>),
-          );
-          final labels = more.items.whereType<AdaptivePopupMenuItem<int>>().map(
-            (entry) => entry.label,
-          );
-          expect(labels, contains('New Chat'));
-          if (chatId == null) {
-            expect(labels, contains('Temporary Chat'));
-          } else if (chatId.startsWith('local:')) {
-            expect(labels, contains('Save Chat'));
-          }
-          expect(tester.takeException(), isNull);
-          await tester.pumpWidget(const SizedBox.shrink());
-          await tester.pumpAndSettle();
-        },
-      );
+            );
+            await tester.pumpAndSettle();
+            expect(
+              find.byKey(const ValueKey('live-connection-retry')),
+              disconnected ? findsOneWidget : findsNothing,
+            );
+            final model = find.byType(ConduitAdaptiveAppBarModelSelector);
+            expect(model, findsOneWidget);
+            expect(tester.getSize(model).width, greaterThanOrEqualTo(44));
+            final more = tester
+                .widget<ConduitAdaptiveToolbarOverflowButton<int>>(
+                  find.byType(ConduitAdaptiveToolbarOverflowButton<int>),
+                );
+            final labels = more.items
+                .whereType<AdaptivePopupMenuItem<int>>()
+                .map((entry) => entry.label);
+            if (disconnected || width == 320) {
+              expect(labels, contains('New Chat'));
+              if (chatId == null) {
+                expect(labels, contains('Temporary Chat'));
+              } else if (chatId.startsWith('local:')) {
+                expect(labels, contains('Save Chat'));
+              }
+            }
+            expect(tester.takeException(), isNull);
+            await tester.pumpWidget(const SizedBox.shrink());
+            await tester.pumpAndSettle();
+          },
+        );
+      }
     }
   }
 }
