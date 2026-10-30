@@ -3802,6 +3802,11 @@
   "@socketDisconnected": {
     "description": "Socket health status when disconnected."
   },
+  "liveConnectionRetryFailed": "Aktualizacje na żywo nadal są rozłączone. Stuknij ikonę połączenia, aby spróbować ponownie.",
+  "@liveConnectionRetryFailed": {"description": "Live update socket connection recovery in the chat toolbar."},
+  "liveConnectionDetails": "Aktualizacje na żywo są rozłączone. Wyświetl szczegóły połączenia.",
+  "liveConnectionDetailsTitle": "Aktualizacje na żywo",
+  "liveConnectionDetailsMessage": "Aktualizacje na żywo są rozłączone. Odpowiedzi i zmiany w czacie mogą być opóźnione. Sprawdź połączenie lub spróbuj połączyć się ponownie.",
   "socketLatencyLabel": "Opóźnienie",
   "@socketLatencyLabel": {
     "description": "Metric label for socket latency."

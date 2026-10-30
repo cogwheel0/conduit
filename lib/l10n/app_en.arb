@@ -4022,6 +4022,14 @@
   "@socketDisconnected": {
     "description": "Socket health status when disconnected."
   },
+  "liveConnectionDetails": "Live updates disconnected. View connection details.",
+  "@liveConnectionDetails": {"description": "Accessibility label for the live-update connection details button."},
+  "liveConnectionDetailsTitle": "Live updates",
+  "@liveConnectionDetailsTitle": {"description": "Title of the live-update connection details sheet."},
+  "liveConnectionDetailsMessage": "Live updates are disconnected. Replies and chat changes may be delayed. Check your connection or try reconnecting.",
+  "@liveConnectionDetailsMessage": {"description": "Explains a disconnected live-update connection without guessing its cause or exposing transport errors."},
+  "liveConnectionRetryFailed": "Live updates are still disconnected. Tap the connection icon to retry.",
+  "@liveConnectionRetryFailed": {"description": "Live update socket connection recovery in the chat toolbar."},
   "socketLatencyLabel": "Latency",
   "@socketLatencyLabel": {
     "description": "Metric label for socket latency."

@@ -3433,6 +3433,10 @@
   "@socketDisconnected": {
     "description": "Socket health status when disconnected."
   },
+  "liveConnectionDetails": "Živé aktualizácie sú odpojené. Zobraziť podrobnosti pripojenia.",
+  "liveConnectionDetailsTitle": "Živé aktualizácie",
+  "liveConnectionDetailsMessage": "Živé aktualizácie sú odpojené. Odpovede a zmeny četov sa môžu oneskoriť. Skontrolujte pripojenie alebo sa skúste znova pripojiť.",
+  "liveConnectionRetryFailed": "Živé aktualizácie sú stále odpojené. Klepnutím na ikonu pripojenia to skúste znova.",
   "socketLatencyLabel": "Latencia",
   "@socketLatencyLabel": {
     "description": "Metric label for socket latency."

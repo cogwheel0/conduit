@@ -66,6 +66,7 @@ import 'package:conduit_core/features/hermes/services/hermes_session_provenance.
 
 import '../../hermes/widgets/hermes_bot_avatar.dart';
 import '../../hermes/widgets/hermes_message_interactions.dart';
+import '../widgets/live_connection_button.dart';
 import '../../navigation/providers/chat_back_provider.dart';
 import '../../navigation/utils/chat_list_back.dart';
 
@@ -162,10 +163,12 @@ class _ChatToolbarActionDescriptor {
   const _ChatToolbarActionDescriptor({
     required this.widget,
     required this.nativeAction,
+    this.icon,
   });
 
   final Widget widget;
   final ConduitNativeToolbarAction nativeAction;
+  final IconData? icon;
 }
 
 @visibleForTesting
@@ -4195,7 +4198,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     // Model loading can take a moment on a cold cache. Show that on the
     // selector itself and reject overlapping taps instead of letting the
     // control look dead (#692).
-    if (_isOpeningModelSelector) return;
+    if (_isOpeningModelSelector || ref.read(isLoadingConversationProvider)) return;
     setState(() => _isOpeningModelSelector = true);
     try {
       final models = await ref
@@ -4235,20 +4238,53 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     final hasMessages = ref.watch(hasChatMessagesProvider);
     final showNewChatAction = activeConversation != null || hasMessages;
     final tintColor = context.conduitTheme.textPrimary;
-    final trailingActionCount = (showNewChatAction ? 1 : 0) + 1;
-    final maxModelWidth = resolveConduitAdaptiveLeadingPillWidth(
+    final selectedModel = ref.watch(selectedModelProvider);
+    final isHermes =
+        (selectedModel != null && isHermesModel(selectedModel)) ||
+        isNativeHermesConversation(activeConversation);
+    final showConnectionIssue =
+        !isHermes &&
+        ref.watch(liveConnectionDisconnectedProvider).value == true;
+    ({String label, bool enabled})? overflowModel;
+    List<_ChatToolbarActionDescriptor> buildActions({bool compact = false}) =>
+        _buildAdaptiveToolbarActions(
+          context: context,
+          activeConversation: activeConversation,
+          isHermes: isHermes,
+          isTemporary: isTemporary,
+          hasMessages: hasMessages,
+          showNewChatAction: showNewChatAction,
+          compact: compact,
+          overflowModel: overflowModel,
+        );
+    var actionDescriptors = buildActions();
+    double modelWidth() => resolveConduitAdaptiveLeadingPillWidth(
       context,
-      trailingActionCount: trailingActionCount,
+      trailingActionCount:
+          actionDescriptors.length + (showConnectionIssue ? 1 : 0),
       maxWidth: kConduitAdaptiveToolbarMaxModelSelectorWidth,
     );
+    var maxModelWidth = modelWidth();
+    // Keep the model picker while preserving secondary actions in More.
+    if (maxModelWidth < conduitScaledControlExtent(context)) {
+      actionDescriptors = buildActions(compact: true);
+      maxModelWidth = modelWidth();
+    }
     // Hide the picker only for a true single-agent Hermes-only install. Mixed
     // setups must retain a way to switch back to an OpenWebUI model.
-    final selectedModel = ref.watch(selectedModelProvider);
     final showModelDropdown = shouldShowChatModelDropdown(
       selectedModel: selectedModel,
       isHermesOnly: ref.watch(hermesOnlyModeProvider),
       isHermesBot: hermesBot != null,
     );
+    if (showModelDropdown && maxModelWidth < TouchTarget.minimum) {
+      overflowModel = (
+        label: modelLabel,
+        enabled: !isLoadingConversation && !_isOpeningModelSelector,
+      );
+      actionDescriptors = buildActions(compact: true);
+      maxModelWidth = 0;
+    }
     final title = _buildChatToolbarTitle(
       context: context,
       isLoadingConversation: isLoadingConversation,
@@ -4258,17 +4294,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       hermesBot: hermesBot,
       hermesBotActive: hermesBot != null && ref.watch(isChatStreamingProvider),
     );
-    final actionDescriptors = _buildAdaptiveToolbarActions(
-      context: context,
-      activeConversation: activeConversation,
-      isHermes:
-          (selectedModel != null && isHermesModel(selectedModel)) ||
-          isNativeHermesConversation(activeConversation),
-      isTemporary: isTemporary,
-      hasMessages: hasMessages,
-      showNewChatAction: showNewChatAction,
-    );
     final actionWidgets = buildConduitAdaptiveToolbarActionWidgets([
+      if (showConnectionIssue) const LiveConnectionButton(),
       for (final action in actionDescriptors) action.widget,
     ]);
     final useNativeActionGroup =
@@ -4277,9 +4304,15 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         actionDescriptors.isNotEmpty &&
         actionDescriptors.length <= 3;
     final cupertinoTrailing = useNativeActionGroup
-        ? ConduitNativeToolbarActionGroup(
-            actions: [
-              for (final action in actionDescriptors) action.nativeAction,
+        ? Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (showConnectionIssue) const LiveConnectionButton(),
+              ConduitNativeToolbarActionGroup(
+                actions: [
+                  for (final action in actionDescriptors) action.nativeAction,
+                ],
+              ),
             ],
           )
         : Row(mainAxisSize: MainAxisSize.min, children: actionWidgets);
@@ -4333,6 +4366,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     required bool isTemporary,
     required bool hasMessages,
     required bool showNewChatAction,
+    bool compact = false,
+    ({String label, bool enabled})? overflowModel,
   }) {
     final actions = <_ChatToolbarActionDescriptor>[];
     final defaultTint = context.conduitTheme.textPrimary;
@@ -4364,7 +4399,10 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       context: context,
       activeConversation: activeConversation,
       tintColor: defaultTint,
+      collapsedActions: compact ? List.of(actions) : const [],
+      overflowModel: overflowModel,
     );
+    if (compact) actions.clear();
     if (overflowButton != null) {
       actions.add(overflowButton);
     }
@@ -4381,6 +4419,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     final iosSymbol = conduitToolbarSfSymbolForIcon(icon);
     assert(iosSymbol != null);
     return _ChatToolbarActionDescriptor(
+      icon: icon,
       widget: ConduitAdaptiveAppBarIconButton(
         icon: icon,
         iosSymbol: iosSymbol,
@@ -4441,6 +4480,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     required BuildContext context,
     required Conversation? activeConversation,
     required Color tintColor,
+    List<_ChatToolbarActionDescriptor> collapsedActions = const [],
+    ({String label, bool enabled})? overflowModel,
   }) {
     final items = <AdaptivePopupMenuEntry>[];
     final callbacks = <Future<void> Function()>[];
@@ -4451,6 +4492,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       required Object icon,
       String? iosSymbol,
       bool isDestructive = false,
+      bool enabled = true,
       required Future<void> Function() onSelected,
     }) {
       final index = callbacks.length;
@@ -4461,6 +4503,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
           label: label,
           icon: icon,
           isDestructive: isDestructive,
+          enabled: enabled,
         ),
       );
       nativeItems.add(
@@ -4468,8 +4511,35 @@ class _ChatPageState extends ConsumerState<ChatPage> {
           label: label,
           iosSymbol: iosSymbol,
           isDestructive: isDestructive,
+          enabled: enabled,
           onSelected: () => unawaited(onSelected()),
         ),
+      );
+    }
+
+    if (overflowModel case final model?) {
+      addItem(
+        label: '${AppLocalizations.of(context)!.chooseModel}: ${model.label}',
+        icon: conduitAdaptivePopupMenuIcon(
+          iosSymbol: 'square.stack.3d.up',
+          materialIcon: Icons.smart_toy_outlined,
+        ),
+        iosSymbol: 'square.stack.3d.up',
+        enabled: model.enabled,
+        onSelected: () => _openModelSelector(context),
+      );
+    }
+    for (final descriptor in collapsedActions) {
+      final action = descriptor.nativeAction;
+      addItem(
+        label: action.accessibilityLabel,
+        icon: conduitAdaptivePopupMenuIcon(
+          iosSymbol: action.iosSymbol,
+          materialIcon: descriptor.icon!,
+        ),
+        iosSymbol: action.iosSymbol,
+        enabled: action.enabled,
+        onSelected: () async => action.onPressed?.call(),
       );
     }
 
