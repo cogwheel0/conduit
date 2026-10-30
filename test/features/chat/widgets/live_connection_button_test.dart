@@ -213,6 +213,29 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('retry survives reconnecting while details stay open', (
+    tester,
+  ) async {
+    final socket = _Socket()..connected = false;
+    addTearDown(socket.health.close);
+    await tester.pumpWidget(_harness(socket));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('live-connection-retry')));
+    await tester.pumpAndSettle();
+    socket.changeHealth(true);
+    await tester.pumpAndSettle();
+    expect(find.byType(LiveConnectionButton), findsNothing);
+    socket.changeHealth(false);
+    await tester.pumpAndSettle();
+    socket.pending = Completer<bool>();
+    await tester.tap(find.text('Retry'));
+    await tester.pump();
+    expect(socket.attempts, 1);
+    socket.pending!.complete(true);
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('dismissing details does not reconnect', (tester) async {
     final socket = _Socket()..connected = false;
     addTearDown(socket.health.close);

@@ -4028,5 +4028,10 @@
   "chatHandoffPromptTitle": "{model}(으)로 전환할까요?",
   "chatHandoffPromptMessage": "서버가 {model}와(과) 새 채팅에서 계속할 것을 제안합니다. 제안된 메시지는 보낼 때까지 입력창에 남아 있습니다.",
   "chatHandoffStartNewChat": "새 채팅 시작",
-  "chatHandoffStayHere": "여기 머무르기"
+  "chatHandoffStayHere": "여기 머무르기",
+  "liveConnectionDetails": "Live updates disconnected. View connection details.",
+  "liveConnectionDetailsTitle": "Live updates",
+  "liveConnectionDetailsMessage": "Live updates are disconnected. Replies and chat changes may be delayed. Check your connection or try reconnecting.",
+  "liveConnectionRetry": "Live updates disconnected. Tap to reconnect.",
+  "liveConnectionRetryFailed": "Live updates are still disconnected. Tap the connection icon to retry."
 }

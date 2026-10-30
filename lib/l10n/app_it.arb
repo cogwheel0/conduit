@@ -4256,5 +4256,10 @@
   "chatHandoffPromptTitle": "Passare a {model}?",
   "chatHandoffPromptMessage": "Il tuo server suggerisce di continuare in una nuova chat con {model}. Un eventuale messaggio suggerito resta nel campo di testo finché non lo invii.",
   "chatHandoffStartNewChat": "Inizia nuova chat",
-  "chatHandoffStayHere": "Resta qui"
+  "chatHandoffStayHere": "Resta qui",
+  "liveConnectionDetails": "Live updates disconnected. View connection details.",
+  "liveConnectionDetailsTitle": "Live updates",
+  "liveConnectionDetailsMessage": "Live updates are disconnected. Replies and chat changes may be delayed. Check your connection or try reconnecting.",
+  "liveConnectionRetry": "Live updates disconnected. Tap to reconnect.",
+  "liveConnectionRetryFailed": "Live updates are still disconnected. Tap the connection icon to retry."
 }

@@ -37,6 +37,10 @@ class _LiveConnectionButtonState extends ConsumerState<LiveConnectionButton> {
     if (_showingDetails || _reconnecting) return;
     final service = ref.read(socketServiceProvider);
     if (service == null) return;
+    // The navigator outlives this indicator if the socket reconnects while
+    // details are open. Retry still belongs to the same account/service.
+    final ownerContext = Navigator.of(context).context;
+    final container = ProviderScope.containerOf(ownerContext, listen: false);
     _showingDetails = true;
     try {
       final l10n = AppLocalizations.of(context)!;
@@ -57,10 +61,10 @@ class _LiveConnectionButtonState extends ConsumerState<LiveConnectionButton> {
       ].join('\n');
       final retry = await _showDetailsDialog(message);
       if (retry &&
-          mounted &&
-          ref.read(socketServiceProvider) == service &&
+          ownerContext.mounted &&
+          container.read(socketServiceProvider) == service &&
           !service.currentHealth.isConnected) {
-        await _reconnect();
+        await _reconnect(ownerContext);
       }
     } finally {
       _showingDetails = false;
@@ -127,23 +131,27 @@ class _LiveConnectionButtonState extends ConsumerState<LiveConnectionButton> {
     return retry;
   }
 
-  Future<void> _reconnect() async {
+  Future<void> _reconnect(BuildContext ownerContext) async {
     if (_reconnecting) return;
-    final service = ref.read(socketServiceProvider);
+    final container = ProviderScope.containerOf(ownerContext, listen: false);
+    final service = container.read(socketServiceProvider);
     if (service == null) return;
-    setState(() => _reconnecting = true);
+    _reconnecting = true;
+    if (mounted) setState(() {});
     var connected = false;
     try {
       connected = await service.ensureConnected();
     } catch (_) {
       // Show a localized recovery message, never raw transport details.
     }
-    if (!mounted) return;
-    setState(() => _reconnecting = false);
-    if (!connected && ref.read(socketServiceProvider) == service) {
+    _reconnecting = false;
+    if (mounted) setState(() {});
+    if (ownerContext.mounted &&
+        !connected &&
+        container.read(socketServiceProvider) == service) {
       AdaptiveSnackBar.show(
-        context,
-        message: AppLocalizations.of(context)!.liveConnectionRetryFailed,
+        ownerContext,
+        message: AppLocalizations.of(ownerContext)!.liveConnectionRetryFailed,
         type: AdaptiveSnackBarType.error,
       );
     }
