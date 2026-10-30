@@ -73,20 +73,28 @@ void main() {
         final toggle = find.byKey(
           const Key('appearance-composer-notes-toggle'),
         );
-        await tester.ensureVisible(toggle);
-        await tester.tap(toggle);
-        await tester.pumpAndSettle();
-        expect(
-          PreferencesStore.get<bool>(PreferenceKeys.showComposerNotesButton),
-          isFalse,
-        );
-        await tester.tap(toggle);
-        await tester.pumpAndSettle();
-        expect(
-          PreferencesStore.get<bool>(PreferenceKeys.showComposerNotesButton),
-          isTrue,
-        );
-        expect(tester.takeException(), isNull);
+        final semantics = tester.ensureSemantics();
+        try {
+          await tester.ensureVisible(toggle);
+          expect(tester.getSemantics(toggle), isSemantics(isToggled: true));
+          await tester.tap(toggle);
+          await tester.pumpAndSettle();
+          expect(
+            PreferencesStore.get<bool>(PreferenceKeys.showComposerNotesButton),
+            isFalse,
+          );
+          expect(tester.getSemantics(toggle), isSemantics(isToggled: false));
+          await tester.tap(toggle);
+          await tester.pumpAndSettle();
+          expect(
+            PreferencesStore.get<bool>(PreferenceKeys.showComposerNotesButton),
+            isTrue,
+          );
+          expect(tester.getSemantics(toggle), isSemantics(isToggled: true));
+          expect(tester.takeException(), isNull);
+        } finally {
+          semantics.dispose();
+        }
       },
     );
 

@@ -4256,5 +4256,7 @@
   "chatHandoffPromptTitle": "切换到 {model}？",
   "chatHandoffPromptMessage": "服务器建议使用 {model} 在新对话中继续。建议的消息会留在输入框中，直到你发送。",
   "chatHandoffStartNewChat": "开始新对话",
-  "chatHandoffStayHere": "留在这里"
+  "chatHandoffStayHere": "留在这里",
+  "showComposerNotesButton": "Show Notes button",
+  "showComposerNotesButtonDescription": "Show Create note in the chat composer."
 }

@@ -4256,5 +4256,7 @@
   "chatHandoffPromptTitle": "Zu {model} wechseln?",
   "chatHandoffPromptMessage": "Dein Server schlägt vor, in einem neuen Chat mit {model} weiterzumachen. Eine vorgeschlagene Nachricht wartet im Eingabefeld, bis du sie sendest.",
   "chatHandoffStartNewChat": "Neuen Chat starten",
-  "chatHandoffStayHere": "Hierbleiben"
+  "chatHandoffStayHere": "Hierbleiben",
+  "showComposerNotesButton": "Show Notes button",
+  "showComposerNotesButtonDescription": "Show Create note in the chat composer."
 }
