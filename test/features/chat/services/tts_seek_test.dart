@@ -177,6 +177,13 @@ void main() {
         await _until(() => events.whereType<TtsError>().isNotEmpty);
         expect(player.playing, isFalse);
         expect(manager.canSeek, isFalse);
+        events.clear();
+        player.states.add(const AudioPlaybackState(
+          playing: false,
+          processingState: AudioProcessingState.ready,
+        ));
+        await Future<void>.delayed(Duration.zero);
+        expect(events, isEmpty);
         player.failDurationAfter = null;
       },
     );

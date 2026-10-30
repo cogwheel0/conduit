@@ -338,6 +338,8 @@ class TtsManager {
     // Configure the host audio player for all platforms.
     if (!_playerConfigured) {
       _playerStateSub = _player.stateChanges.listen((state) {
+        final session = _activeSession;
+        if (session == null || !session.usesAudioPlayer) return;
         if (state.processingState == AudioProcessingState.completed) {
           _onServerAudioComplete();
         }
