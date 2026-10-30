@@ -4265,6 +4265,10 @@ class NativeKeyboardAttachmentFlutterApi: NativeKeyboardAttachmentFlutterApiProt
 /// Generated protocol from Pigeon that represents a handler of messages from Flutter.
 protocol NativeDropdownHostApi {
   func show(request: PlatformDropdownRequest, completion: @escaping (Result<String?, Error>) -> Void)
+  /// Prepares native menu presentation and reports availability.
+  func initializeContextMenu() throws -> Bool
+  func showContextMenu(requestId: Int64, request: PlatformDropdownRequest, previewPng: FlutterStandardTypedData, completion: @escaping (Result<String?, Error>) -> Void)
+  func cancelContextMenu(requestId: Int64) throws
 }
 
 /// Generated setup class from Pigeon to handle messages through the `binaryMessenger`.
@@ -4289,6 +4293,54 @@ class NativeDropdownHostApiSetup {
       }
     } else {
       showChannel.setMessageHandler(nil)
+    }
+    /// Prepares native menu presentation and reports availability.
+    let initializeContextMenuChannel = FlutterBasicMessageChannel(name: "dev.flutter.pigeon.conduit.NativeDropdownHostApi.initializeContextMenu\(channelSuffix)", binaryMessenger: binaryMessenger, codec: codec)
+    if let api = api {
+      initializeContextMenuChannel.setMessageHandler { _, reply in
+        do {
+          let result = try api.initializeContextMenu()
+          reply(wrapResult(result))
+        } catch {
+          reply(wrapError(error))
+        }
+      }
+    } else {
+      initializeContextMenuChannel.setMessageHandler(nil)
+    }
+    let showContextMenuChannel = FlutterBasicMessageChannel(name: "dev.flutter.pigeon.conduit.NativeDropdownHostApi.showContextMenu\(channelSuffix)", binaryMessenger: binaryMessenger, codec: codec)
+    if let api = api {
+      showContextMenuChannel.setMessageHandler { message, reply in
+        let args = message as! [Any?]
+        let requestIdArg = args[0] as! Int64
+        let requestArg = args[1] as! PlatformDropdownRequest
+        let previewPngArg = args[2] as! FlutterStandardTypedData
+        api.showContextMenu(requestId: requestIdArg, request: requestArg, previewPng: previewPngArg) { result in
+          switch result {
+          case .success(let res):
+            reply(wrapResult(res))
+          case .failure(let error):
+            reply(wrapError(error))
+          }
+        }
+      }
+    } else {
+      showContextMenuChannel.setMessageHandler(nil)
+    }
+    let cancelContextMenuChannel = FlutterBasicMessageChannel(name: "dev.flutter.pigeon.conduit.NativeDropdownHostApi.cancelContextMenu\(channelSuffix)", binaryMessenger: binaryMessenger, codec: codec)
+    if let api = api {
+      cancelContextMenuChannel.setMessageHandler { message, reply in
+        let args = message as! [Any?]
+        let requestIdArg = args[0] as! Int64
+        do {
+          try api.cancelContextMenu(requestId: requestIdArg)
+          reply(wrapResult(nil))
+        } catch {
+          reply(wrapError(error))
+        }
+      }
+    } else {
+      cancelContextMenuChannel.setMessageHandler(nil)
     }
   }
 }

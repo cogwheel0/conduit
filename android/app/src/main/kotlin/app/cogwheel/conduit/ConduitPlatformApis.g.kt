@@ -4377,6 +4377,10 @@ class NativeKeyboardAttachmentFlutterApi(private val binaryMessenger: BinaryMess
 /** Generated interface from Pigeon that represents a handler of messages from Flutter. */
 interface NativeDropdownHostApi {
   fun show(request: PlatformDropdownRequest, callback: (Result<String?>) -> Unit)
+  /** Prepares native menu presentation and reports availability. */
+  fun initializeContextMenu(): Boolean
+  fun showContextMenu(requestId: Long, request: PlatformDropdownRequest, previewPng: ByteArray, callback: (Result<String?>) -> Unit)
+  fun cancelContextMenu(requestId: Long)
 
   companion object {
     /** The codec used by NativeDropdownHostApi. */
@@ -4402,6 +4406,61 @@ interface NativeDropdownHostApi {
                 reply.reply(ConduitPlatformApisPigeonUtils.wrapResult(data))
               }
             }
+          }
+        } else {
+          channel.setMessageHandler(null)
+        }
+      }
+      run {
+        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.conduit.NativeDropdownHostApi.initializeContextMenu$separatedMessageChannelSuffix", codec)
+        if (api != null) {
+          channel.setMessageHandler { _, reply ->
+            val wrapped: List<Any?> = try {
+              listOf(api.initializeContextMenu())
+            } catch (exception: Throwable) {
+              ConduitPlatformApisPigeonUtils.wrapError(exception)
+            }
+            reply.reply(wrapped)
+          }
+        } else {
+          channel.setMessageHandler(null)
+        }
+      }
+      run {
+        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.conduit.NativeDropdownHostApi.showContextMenu$separatedMessageChannelSuffix", codec)
+        if (api != null) {
+          channel.setMessageHandler { message, reply ->
+            val args = message as List<Any?>
+            val requestIdArg = args[0] as Long
+            val requestArg = args[1] as PlatformDropdownRequest
+            val previewPngArg = args[2] as ByteArray
+            api.showContextMenu(requestIdArg, requestArg, previewPngArg) { result: Result<String?> ->
+              val error = result.exceptionOrNull()
+              if (error != null) {
+                reply.reply(ConduitPlatformApisPigeonUtils.wrapError(error))
+              } else {
+                val data = result.getOrNull()
+                reply.reply(ConduitPlatformApisPigeonUtils.wrapResult(data))
+              }
+            }
+          }
+        } else {
+          channel.setMessageHandler(null)
+        }
+      }
+      run {
+        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.conduit.NativeDropdownHostApi.cancelContextMenu$separatedMessageChannelSuffix", codec)
+        if (api != null) {
+          channel.setMessageHandler { message, reply ->
+            val args = message as List<Any?>
+            val requestIdArg = args[0] as Long
+            val wrapped: List<Any?> = try {
+              api.cancelContextMenu(requestIdArg)
+              listOf(null)
+            } catch (exception: Throwable) {
+              ConduitPlatformApisPigeonUtils.wrapError(exception)
+            }
+            reply.reply(wrapped)
           }
         } else {
           channel.setMessageHandler(null)

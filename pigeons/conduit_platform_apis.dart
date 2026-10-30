@@ -996,6 +996,18 @@ abstract class NativeKeyboardAttachmentFlutterApi {
 abstract class NativeDropdownHostApi {
   @async
   String? show(PlatformDropdownRequest request);
+
+  /// Prepares native menu presentation and reports availability.
+  bool initializeContextMenu();
+
+  @async
+  String? showContextMenu(
+    int requestId,
+    PlatformDropdownRequest request,
+    Uint8List previewPng,
+  );
+
+  void cancelContextMenu(int requestId);
 }
 
 /// iOS only. Presents local image files in Quick Look.
