@@ -1,3 +1,6 @@
+import 'dart:ui' show SemanticsAction;
+
+import 'package:flutter/semantics.dart' show SemanticsNode;
 import 'package:conduit/core/utils/tts_voice_utils.dart';
 import 'package:conduit/features/profile/widgets/tts_voice_picker_sheet.dart';
 import 'package:conduit/l10n/app_localizations.dart';
@@ -28,99 +31,130 @@ void main() {
         PlatformUiCapabilities.debugIOSMajorVersionOverride = 25;
         addTearDown(PlatformUiCapabilities.resetDebugOverrides);
         String? result;
-        await tester.pumpWidget(
-          MaterialApp(
-            theme: ThemeData(platform: platform),
-            localizationsDelegates: conduitLocalizationsDelegates,
-            supportedLocales: AppLocalizations.supportedLocales,
-            home: Builder(
-              builder: (context) => Scaffold(
-                body: TextButton(
-                  child: const Text('Choose voice'),
-                  onPressed: () async {
-                    result = await showAdaptiveSelectionSheet<String>(
-                      context: context,
-                      builder: (context) => TtsVoicePickerSheet(
-                        voices: buildTtsVoiceOptions(
-                          AppLocalizations.of(context)!,
-                          TtsEngine.server,
-                          voices,
+        final semantics = tester.ensureSemantics();
+        try {
+          await tester.pumpWidget(
+            MaterialApp(
+              theme: ThemeData(platform: platform),
+              localizationsDelegates: conduitLocalizationsDelegates,
+              supportedLocales: AppLocalizations.supportedLocales,
+              home: Builder(
+                builder: (context) => Scaffold(
+                  body: TextButton(
+                    child: const Text('Choose voice'),
+                    onPressed: () async {
+                      result = await showAdaptiveSelectionSheet<String>(
+                        context: context,
+                        builder: (context) => TtsVoicePickerSheet(
+                          voices: buildTtsVoiceOptions(
+                            AppLocalizations.of(context)!,
+                            TtsEngine.server,
+                            voices,
+                          ),
+                          selectedId: 'maple',
                         ),
-                        selectedId: 'maple',
-                      ),
-                    );
-                  },
+                      );
+                    },
+                  ),
                 ),
               ),
             ),
-          ),
-        );
-        await tester.tap(find.text('Choose voice'));
-        await tester.pumpAndSettle();
-        final pill = find.byKey(const Key('tts-voice-language-filter'));
-        final search = find.byKey(const Key('tts-voice-search'));
-        expect(find.text('All languages'), findsOneWidget);
-        expect(find.text('Maple'), findsOneWidget);
-        expect(find.text('Iris'), findsOneWidget);
-        expect(
-          tester.getBottomLeft(pill).dy,
-          lessThanOrEqualTo(tester.getTopLeft(search).dy),
-        );
-        expect(tester.getTopLeft(search).dy, greaterThan(400));
-        tester.view.viewInsets = FakeViewPadding(
-          bottom: 260 * tester.view.devicePixelRatio,
-        );
-        addTearDown(tester.view.resetViewInsets);
-        await tester.pumpAndSettle();
-        final keyboardTop =
-            tester.view.physicalSize.height / tester.view.devicePixelRatio -
-            260;
-        expect(tester.getBottomLeft(search).dy, lessThanOrEqualTo(keyboardTop));
-        expect(
-          tester.getBottomLeft(pill).dy,
-          lessThan(tester.getTopLeft(search).dy),
-        );
-        tester.view.resetViewInsets();
-        await tester.pumpAndSettle();
-        await tester.tap(pill);
-        await tester.pumpAndSettle();
-        await tester.tap(find.text('French').last);
-        await tester.pumpAndSettle();
-        expect(result, isNull);
-        expect(find.text('Maple'), findsNothing);
-        expect(find.text('Iris'), findsOneWidget);
-        expect(find.text('Reed'), findsOneWidget);
-        expect(find.text('System default'), findsOneWidget);
-        await tester.enterText(
-          find.descendant(of: search, matching: find.byType(EditableText)),
-          'IRIS',
-        );
-        await tester.pumpAndSettle();
-        expect(find.text('Iris'), findsOneWidget);
-        expect(find.text('Reed'), findsNothing);
-        expect(find.text('System default'), findsNothing);
-        await tester.tap(pill);
-        await tester.pumpAndSettle();
-        await tester.tap(find.text('All languages').last);
-        await tester.pumpAndSettle();
-        expect(find.text('Iris'), findsOneWidget);
-        expect(
-          find.text('Maple'),
-          findsNothing,
-        ); // The search query stays active.
-        await tester.enterText(
-          find.descendant(of: search, matching: find.byType(EditableText)),
-          '',
-        );
-        await tester.pumpAndSettle();
-        expect(find.text('Maple'), findsOneWidget);
-        await tester.tap(find.text('Iris'));
-        await tester.pumpAndSettle();
-        expect(result, 'iris');
-        await tester.tap(find.text('Choose voice'));
-        await tester.pumpAndSettle();
-        expect(find.text('All languages'), findsOneWidget);
-        expect(find.text('Maple'), findsOneWidget);
+          );
+          await tester.tap(find.text('Choose voice'));
+          await tester.pumpAndSettle();
+          final pill = find.byKey(const Key('tts-voice-language-filter'));
+          final search = find.byKey(const Key('tts-voice-search'));
+          void expectLanguageSemantics() {
+            final node = tester.getSemantics(
+              find.bySemanticsLabel(RegExp('^Language')),
+            );
+            expect(node.label, contains('Language'));
+            expect(node, isSemantics(isButton: true));
+            var hasActivation = false;
+            void visit(SemanticsNode child) {
+              hasActivation |= child.getSemanticsData().hasAction(
+                SemanticsAction.tap,
+              );
+              child.visitChildren((descendant) {
+                visit(descendant);
+                return true;
+              });
+            }
+
+            visit(node);
+            expect(hasActivation, isTrue, reason: node.toStringDeep());
+          }
+
+          expectLanguageSemantics();
+          expect(find.text('All languages'), findsOneWidget);
+          expect(find.text('Maple'), findsOneWidget);
+          expect(find.text('Iris'), findsOneWidget);
+          expect(
+            tester.getBottomLeft(pill).dy,
+            lessThanOrEqualTo(tester.getTopLeft(search).dy),
+          );
+          expect(tester.getTopLeft(search).dy, greaterThan(400));
+          tester.view.viewInsets = FakeViewPadding(
+            bottom: 260 * tester.view.devicePixelRatio,
+          );
+          addTearDown(tester.view.resetViewInsets);
+          await tester.pumpAndSettle();
+          final keyboardTop =
+              tester.view.physicalSize.height / tester.view.devicePixelRatio -
+              260;
+          expect(
+            tester.getBottomLeft(search).dy,
+            lessThanOrEqualTo(keyboardTop),
+          );
+          expect(
+            tester.getBottomLeft(pill).dy,
+            lessThan(tester.getTopLeft(search).dy),
+          );
+          tester.view.resetViewInsets();
+          await tester.pumpAndSettle();
+          await tester.tap(pill);
+          await tester.pumpAndSettle();
+          await tester.tap(find.text('French').last);
+          await tester.pumpAndSettle();
+          expect(result, isNull);
+          expect(find.text('Maple'), findsNothing);
+          expect(find.text('Iris'), findsOneWidget);
+          expect(find.text('Reed'), findsOneWidget);
+          expectLanguageSemantics();
+          expect(find.text('System default'), findsOneWidget);
+          await tester.enterText(
+            find.descendant(of: search, matching: find.byType(EditableText)),
+            'IRIS',
+          );
+          await tester.pumpAndSettle();
+          expect(find.text('Iris'), findsOneWidget);
+          expect(find.text('Reed'), findsNothing);
+          expect(find.text('System default'), findsNothing);
+          await tester.tap(pill);
+          await tester.pumpAndSettle();
+          await tester.tap(find.text('All languages').last);
+          await tester.pumpAndSettle();
+          expect(find.text('Iris'), findsOneWidget);
+          expect(
+            find.text('Maple'),
+            findsNothing,
+          ); // The search query stays active.
+          await tester.enterText(
+            find.descendant(of: search, matching: find.byType(EditableText)),
+            '',
+          );
+          await tester.pumpAndSettle();
+          expect(find.text('Maple'), findsOneWidget);
+          await tester.tap(find.text('Iris'));
+          await tester.pumpAndSettle();
+          expect(result, 'iris');
+          await tester.tap(find.text('Choose voice'));
+          await tester.pumpAndSettle();
+          expect(find.text('All languages'), findsOneWidget);
+          expect(find.text('Maple'), findsOneWidget);
+        } finally {
+          semantics.dispose();
+        }
       },
     );
   }
