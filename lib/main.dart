@@ -943,6 +943,17 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
             .setInlineMessageActions(ordered);
         return;
       }
+      if (event.id == 'message-actions-automatic' && value is bool) {
+        await ref
+            .read(appSettingsProvider.notifier)
+            .setInlineMessageActions(
+              value ? null : defaultInlineMessageActions,
+            );
+        await ref
+            .read(nativeSheetHydrationServiceProvider)
+            .hydrateDetail('message-actions');
+        return;
+      }
       if (event.id == 'message-actions-reset') {
         await ref
             .read(appSettingsProvider.notifier)

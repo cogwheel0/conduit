@@ -1742,6 +1742,8 @@
   "@autoSelectDescription": {
     "description": "Explains what the server-provided model setting does."
   },
+  "messageActionsAutomatic": "Automatyczne działania",
+  "@messageActionsAutomatic": {"description": "Toggle for choosing response actions automatically from the actions eligible for each message."},
   "messageActionsTitle": "Działania wiadomości",
   "@messageActionsTitle": {"description": "Response action customization in Chat settings."},
   "messageActionsDescription": "Wybierz działania widoczne pod odpowiedziami. Przeciągnij włączone działania, aby zmienić ich kolejność. Pozostałe znajdziesz w menu Więcej.",

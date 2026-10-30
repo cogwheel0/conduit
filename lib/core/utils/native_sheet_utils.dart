@@ -1577,7 +1577,8 @@ NativeSheetDetailConfig buildNativeMessageActionsDetail(
   AppLocalizations l10n,
   AppSettings settings,
 ) {
-  final selected = settings.inlineMessageActions ?? defaultInlineMessageActions;
+  final saved = settings.inlineMessageActions;
+  final selected = saved ?? const <String>[];
   final actions = messageActionSettings(l10n);
   NativeSheetItemConfig item(
     ({String id, String label, String symbol}) action,
@@ -1595,13 +1596,25 @@ NativeSheetDetailConfig buildNativeMessageActionsDetail(
         if (action.id == id) item(action, true),
   ];
   final overflow = [
-    for (final action in actions)
-      if (!selected.contains(action.id)) item(action, false),
+    if (saved != null)
+      for (final action in actions)
+        if (!selected.contains(action.id)) item(action, false),
   ];
   return NativeSheetDetailConfig(
     id: 'message-actions',
     title: l10n.messageActionsTitle,
     sections: [
+      NativeSheetSectionConfig(
+        footer: saved == null ? l10n.messageActionsDescription : null,
+        items: [
+          NativeSheetItemConfig(
+            id: 'message-actions-automatic',
+            title: l10n.messageActionsAutomatic,
+            kind: NativeSheetItemKind.toggle,
+            value: saved == null,
+          ),
+        ],
+      ),
       if (inline.isNotEmpty)
         NativeSheetSectionConfig(
           title: l10n.messageActionsInline,

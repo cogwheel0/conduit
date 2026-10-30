@@ -8,6 +8,11 @@ List<({String id, String label, String symbol})> messageActionSettings(
   (id: 'tts', label: l10n.ttsListen, symbol: 'speaker.wave.2'),
   (id: 'regenerate', label: l10n.regenerate, symbol: 'arrow.clockwise'),
   (
+    id: 'retry-without-effort',
+    label: l10n.retryWithoutReasoningEffort,
+    symbol: 'slash.circle',
+  ),
+  (
     id: 'merge',
     label: l10n.chatMergeResponsesAction,
     symbol: 'arrow.triangle.merge',

@@ -371,6 +371,8 @@
   "appCustomization": "Personnalisation",
   "appCustomizationSubtitle": "Thème, langue, voix et quick actions",
   "quickActionsDescription": "Raccourcis dans le chat",
+  "messageActionsAutomatic": "Actions automatiques",
+  "@messageActionsAutomatic": {"description": "Toggle for choosing response actions automatically from the actions eligible for each message."},
   "messageActionsTitle": "Message actions",
   "messageActionsDescription": "Choose which actions appear below responses. Drag enabled actions to change their order. Other actions stay in More.",
   "messageActionsInline": "Below responses",

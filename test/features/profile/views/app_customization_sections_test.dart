@@ -72,6 +72,13 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.text('Message actions'));
       await tester.pumpAndSettle();
+      expect(find.text('Automatic actions'), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('message-action-drag-copy')),
+        findsNothing,
+      );
+      await tester.tap(find.widgetWithText(UtilityRow, 'Automatic actions'));
+      await tester.pumpAndSettle();
       final handle = find.byKey(
         const ValueKey('message-action-drag-regenerate'),
       );
@@ -138,6 +145,13 @@ void main() {
       );
       await tester.pumpAndSettle();
       await tester.tap(find.text('Message actions'));
+      await tester.pumpAndSettle();
+      expect(find.text('Automatic actions'), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('message-action-drag-copy')),
+        findsNothing,
+      );
+      await tester.tap(find.widgetWithText(UtilityRow, 'Automatic actions'));
       await tester.pumpAndSettle();
       final copy = find.widgetWithText(UtilityRow, 'Copy');
       await tester.tap(copy);

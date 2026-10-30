@@ -16,9 +16,8 @@ class MessageActionsSettingsPage extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final l10n = AppLocalizations.of(context)!;
-    final selected =
-        ref.watch(appSettingsProvider).inlineMessageActions ??
-        defaultInlineMessageActions;
+    final saved = ref.watch(appSettingsProvider).inlineMessageActions;
+    final selected = saved ?? const <String>[];
     final notifier = ref.read(appSettingsProvider.notifier);
     final actions = messageActionSettings(l10n);
     final inline = [
@@ -26,7 +25,9 @@ class MessageActionsSettingsPage extends ConsumerWidget {
         for (final action in actions)
           if (action.id == id) action,
     ];
-    final overflow = actions.where((action) => !selected.contains(action.id));
+    final overflow = saved == null
+        ? const <({String id, String label, String symbol})>[]
+        : actions.where((action) => !selected.contains(action.id));
     Widget row(
       ({String id, String label, String symbol}) action, {
       int? index,
@@ -71,6 +72,21 @@ class MessageActionsSettingsPage extends ConsumerWidget {
       title: l10n.messageActionsTitle,
       children: [
         Text(l10n.messageActionsDescription),
+        InsetGroupedSection(
+          child: UtilityRow(
+            title: l10n.messageActionsAutomatic,
+            toggled: saved == null,
+            trailing: AdaptiveSwitch(
+              value: saved == null,
+              onChanged: (value) => notifier.setInlineMessageActions(
+                value ? null : defaultInlineMessageActions,
+              ),
+            ),
+            onTap: () => notifier.setInlineMessageActions(
+              saved == null ? defaultInlineMessageActions : null,
+            ),
+          ),
+        ),
         if (inline.isNotEmpty)
           InsetGroupedList(
             title: l10n.messageActionsInline,

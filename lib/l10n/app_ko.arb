@@ -488,6 +488,8 @@
     }
   },
   "autoSelectDescription": "서버에 구성된 기본 모델 사용",
+  "messageActionsAutomatic": "자동 작업",
+  "@messageActionsAutomatic": {"description": "Toggle for choosing response actions automatically from the actions eligible for each message."},
   "messageActionsTitle": "Message actions",
   "messageActionsDescription": "Choose which actions appear below responses. Drag enabled actions to change their order. Other actions stay in More.",
   "messageActionsInline": "Below responses",
