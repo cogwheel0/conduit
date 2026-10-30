@@ -30,6 +30,7 @@ import '../services/clipboard_attachment_service.dart';
 import '../services/file_attachment_service.dart';
 import '../services/ios_native_paste_service.dart';
 import '../services/ios_keyboard_attachment_bridge.dart';
+import 'speech_playback_bar.dart';
 
 import 'package:conduit_core/features/chat/providers/context_attachments_provider.dart';
 import 'package:conduit_core/features/chat/providers/knowledge_cache_provider.dart';
@@ -3950,7 +3951,10 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     return _wrapWithComposerLineMeasurement(
       compactControls: compactControls,
       child: _wrapWithFallbackAttachmentPanel(
-        composer: composer,
+        composer: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [const SpeechPlaybackBar(), composer],
+        ),
         localAttachmentsOnly: isHermesComposer,
         attachmentAvailability: attachmentAvailability,
       ),

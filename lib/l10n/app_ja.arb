@@ -1118,6 +1118,8 @@
   "@copy": {
     "description": "Action to copy text to clipboard."
   },
+  "ttsSkipBackward": "15秒戻る",
+  "ttsSkipForward": "15秒進む",
   "ttsListen": "聞く",
   "@ttsListen": {
     "description": "Action to play the assistant message using text to speech"

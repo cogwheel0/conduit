@@ -364,6 +364,8 @@
   "imageGeneration": "이미지 생성",
   "imageGenerationDescription": "프롬프트에서 이미지를 생성합니다.",
   "copy": "복사",
+  "ttsSkipBackward": "15초 뒤로",
+  "ttsSkipForward": "15초 앞으로",
   "ttsListen": "듣기",
   "ttsStop": "중지",
   "edit": "편집",

@@ -1356,6 +1356,8 @@
   "@copy": {
     "description": "Action to copy text to clipboard."
   },
+  "ttsSkipBackward": "Cofnij o 15 sekund",
+  "ttsSkipForward": "Przewiń do przodu o 15 sekund",
   "ttsListen": "Odsłuchaj",
   "@ttsListen": {
     "description": "Action to play the assistant message using text to speech"

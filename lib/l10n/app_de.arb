@@ -265,6 +265,8 @@
   "imageGeneration": "Bildgenerierung",
   "imageGenerationDescription": "Bilder aus deinen Prompts erstellen.",
   "copy": "Kopieren",
+  "ttsSkipBackward": "15 Sekunden zurück",
+  "ttsSkipForward": "15 Sekunden vor",
   "ttsListen": "Anhören",
   "ttsStop": "Stoppen",
   "edit": "Bearbeiten",

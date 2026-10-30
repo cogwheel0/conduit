@@ -263,6 +263,8 @@
   "imageGeneration": "Afbeeldingsgeneratie",
   "imageGenerationDescription": "Maak afbeeldingen van je prompts.",
   "copy": "Kopiëren",
+  "ttsSkipBackward": "15 seconden terug",
+  "ttsSkipForward": "15 seconden vooruit",
   "ttsListen": "Luisteren",
   "ttsStop": "Stoppen",
   "edit": "Bewerken",
