@@ -4256,5 +4256,10 @@
   "chatHandoffPromptTitle": "¿Cambiar a {model}?",
   "chatHandoffPromptMessage": "Tu servidor sugiere continuar en una nueva conversación con {model}. Cualquier mensaje sugerido esperará en el cuadro de texto hasta que lo envíes.",
   "chatHandoffStartNewChat": "Iniciar nueva conversación",
-  "chatHandoffStayHere": "Quedarme aquí"
+  "chatHandoffStayHere": "Quedarme aquí",
+  "messageActionsTitle": "Message actions",
+  "messageActionsDescription": "Choose which actions appear below responses. Drag enabled actions to change their order. Other actions stay in More.",
+  "messageActionsInline": "Below responses",
+  "messageActionsReorder": "Drag to reorder",
+  "messageActionsReset": "Reset to defaults"
 }

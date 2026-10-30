@@ -364,16 +364,18 @@ void main() {
 
       final chats = await reopenChats(tester, native.service, native.patches);
 
-      expect(chats.detailSheets?.any((detail) => detail.id == 'message-actions'), isTrue);
+      expect(
+        chats.detailSheets?.any((detail) => detail.id == 'message-actions'),
+        isTrue,
+      );
       final advanced = chats.sections.last;
       check(advanced.footer).equals(l10n.advancedFeaturesFooter);
       check(advanced.items.map((r) => r.id)).deepEquals(['advanced-features']);
       check(advanced.items.single.sfSymbol).equals('gearshape.2');
       // The citation titles toggle joins the chat behavior group, as on the
       // Flutter Chat page.
-      final citation = rows(chats).singleWhere(
-        (r) => r.id == 'citation-show-titles',
-      );
+      final citation = rows(chats)
+          .singleWhere((r) => r.id == 'citation-show-titles');
       check(citation.title).equals(l10n.citationShowTitles);
       check(citation.kind).equals(PlatformNativeSheetItemKind.toggle);
       check(citation.value).equals(false);
@@ -405,6 +407,10 @@ void main() {
       final chats = await reopenChats(tester, native.service, native.patches);
 
       final byId = {for (final row in rows(chats)) row.id: row};
+      expect(
+        chats.detailSheets?.any((detail) => detail.id == 'message-actions'),
+        isTrue,
+      );
       check(byId['advanced-features']!.value).equals(true);
       check(byId['send-on-enter']).isNotNull();
       check(byId['temporary-chat-default']).isNotNull();

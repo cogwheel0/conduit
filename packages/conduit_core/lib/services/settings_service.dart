@@ -384,10 +384,6 @@ class SettingsService {
     // Web search preferences are written only by their own setters, so a
     // bulk save of a stale snapshot can't undo a concurrent change.
     await PreferencesStore.putAll(scopedUpdates);
-    await _putOrRemove(
-      PreferenceKeys.inlineMessageActions,
-      settings.inlineMessageActions?.toList(),
-    );
 
     await _putOrRemove(_chatWebSearchEnabledKey, settings.chatWebSearchEnabled);
     await _putOrRemove(
@@ -767,7 +763,9 @@ class SettingsService {
       chatImageGenerationEnabled: get<bool>(
         _chatImageGenerationEnabledKey,
       ),
-      inlineMessageActions: getStringList(PreferenceKeys.inlineMessageActions),
+      inlineMessageActions: getStringList(PreferenceKeys.inlineMessageActions)
+          ?.toSet()
+          .toList(),
       sendOnEnter: get<bool>(_sendOnEnterKey) ?? false,
       ttsVoice: get<String>(PreferenceKeys.ttsVoice),
       ttsVoiceName: get<String>(PreferenceKeys.ttsVoiceName),
@@ -1413,7 +1411,7 @@ class AppSettingsNotifier extends _$AppSettingsNotifier {
   Future<void> setInlineMessageActions(List<String>? actions) async {
     await _pendingLoad;
     if (!ref.mounted) return;
-    final saved = actions == null ? null : List<String>.unmodifiable(actions);
+    final saved = actions == null ? null : List<String>.unmodifiable(actions.toSet());
     state = state.copyWith(inlineMessageActions: saved);
     await SettingsService._putOrRemove(
       PreferenceKeys.inlineMessageActions,
@@ -1647,6 +1645,10 @@ class AppSettingsNotifier extends _$AppSettingsNotifier {
     // Written only by its own setter, so the bulk save leaves it.
     await SettingsService._putOrRemove(
       PreferenceKeys.directVoiceProvider,
+      null,
+    );
+    await SettingsService._putOrRemove(
+      PreferenceKeys.inlineMessageActions,
       null,
     );
     state = defaultSettings;

@@ -2217,7 +2217,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     final visibleActions = preferred == null
         ? inlineCandidateActions.take(maxInlineActions).toList(growable: false)
         : [
-            for (final id in preferred)
+            for (final id in preferred.toSet())
               ...actions.where((action) => preferenceId(action) == id),
           ];
     final overflowActions = preferred == null

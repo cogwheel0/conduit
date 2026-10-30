@@ -4256,5 +4256,10 @@
   "chatHandoffPromptTitle": "切换到 {model}？",
   "chatHandoffPromptMessage": "服务器建议使用 {model} 在新对话中继续。建议的消息会留在输入框中，直到你发送。",
   "chatHandoffStartNewChat": "开始新对话",
-  "chatHandoffStayHere": "留在这里"
+  "chatHandoffStayHere": "留在这里",
+  "messageActionsTitle": "Message actions",
+  "messageActionsDescription": "Choose which actions appear below responses. Drag enabled actions to change their order. Other actions stay in More.",
+  "messageActionsInline": "Below responses",
+  "messageActionsReorder": "Drag to reorder",
+  "messageActionsReset": "Reset to defaults"
 }

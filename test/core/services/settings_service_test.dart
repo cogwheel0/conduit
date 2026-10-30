@@ -628,7 +628,7 @@ void main() {
       final container = ProviderContainer();
       addTearDown(container.dispose);
       final notifier = container.read(appSettingsProvider.notifier);
-      await notifier.setInlineMessageActions(['share', 'usage']);
+      await notifier.setInlineMessageActions(['share', 'usage', 'share']);
       expect((await SettingsService.loadSettings()).inlineMessageActions, [
         'share',
         'usage',
@@ -655,6 +655,23 @@ void main() {
       );
     });
 
+    test('bulk settings saves preserve independently saved actions', () async {
+      final container = ProviderContainer();
+      addTearDown(container.dispose);
+      final notifier = container.read(appSettingsProvider.notifier);
+      final stale = container.read(appSettingsProvider);
+      await notifier.setInlineMessageActions(['share']);
+      await SettingsService.saveSettings(stale.copyWith(ttsSpeechRate: 1.2));
+      expect((await SettingsService.loadSettings()).inlineMessageActions, [
+        'share',
+      ]);
+      await notifier.resetToDefaults();
+      expect(
+        (await SettingsService.loadSettings()).inlineMessageActions,
+        isNull,
+      );
+    });
+
     test('copy and equality distinguish defaults from an empty selection', () {
       const defaults = AppSettings();
       final empty = defaults.copyWith(inlineMessageActions: <String>[]);
@@ -667,5 +684,4 @@ void main() {
       );
     });
   });
-
 }
