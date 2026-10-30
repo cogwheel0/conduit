@@ -29,6 +29,7 @@ internal class NativeDictationAudioSource private constructor(
     private val stopped = CompletableDeferred<Unit>()
     private var job: Job? = null
 
+    /** Requires microphone permission; delivers mono 16 kHz PCM16 before recognition writes. */
     @SuppressLint("MissingPermission")
     fun start(scope: CoroutineScope) {
         check(!stopping.get())
@@ -55,6 +56,7 @@ internal class NativeDictationAudioSource private constructor(
         }
     }
 
+    /** Non-cancellable shutdown shared by concurrent callers; the input descriptor stays owned. */
     suspend fun stop() = withContext(NonCancellable + Dispatchers.IO) {
         if (!stopping.compareAndSet(false, true)) {
             stopped.await()
@@ -78,6 +80,7 @@ internal class NativeDictationAudioSource private constructor(
     }
 
     companion object {
+        /** Allocates an unstarted recorder; the caller owns stop and descriptor closure. */
         @SuppressLint("MissingPermission")
         fun create(onAudio: (ByteArray) -> Unit, onFailure: () -> Unit): NativeDictationAudioSource {
             val format = AudioFormat.Builder()

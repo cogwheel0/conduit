@@ -1282,6 +1282,7 @@ final class NativeDictationAudioEmitter {
     queue.setSpecific(key: queueKey, value: 1)
   }
 
+  /// Copies borrowed tap data before queuing conversion; preservation failure ends audio output.
   func append(_ source: AVAudioPCMBuffer) {
     guard let lease = pool.copyFromTap(source) else {
       queue.async { [self] in reportPreservationFailure() }
@@ -1302,6 +1303,7 @@ final class NativeDictationAudioEmitter {
     emit(["type": "error", "code": "AUDIO_PRESERVATION_FAILED", "message": "Unable to preserve dictation audio"])
   }
 
+  /// Runs on the conversion queue; nil flushes mono 16 kHz PCM16, unless preservation failed.
   private func convert(_ source: AVAudioPCMBuffer?) {
     guard !preservationFailed else { return }
     let capacity = source.map {
@@ -1329,6 +1331,7 @@ final class NativeDictationAudioEmitter {
     emit(["type": "audio", "pcm": FlutterStandardTypedData(bytes: pcm)])
   }
 
+  /// Stops admission and flushes queued audio; the first off-queue caller waits for the drain.
   func close() {
     lock.lock()
     guard !closed else { lock.unlock(); return }
@@ -1801,6 +1804,7 @@ final class NativeSttBridge: NSObject, ConduitBridge, FlutterStreamHandler {
     }
   }
 
+  /// Bounds shutdown acknowledgement to 30 seconds for recording drain, one second otherwise.
   private func waitForStopTransition(
     _ transition: NativeSttLifecycleTransition,
     waitForFullShutdown: Bool
@@ -2333,7 +2337,8 @@ private final class SpeechAnalyzerSttSession: NativeSttSession {
   }
 
   /// Transcribes saved PCM entirely on-device without opening a microphone,
-  /// creating a temporary audio file, or activating an audio session.
+  /// creating a temporary audio file, or activating an audio session. Input is mono 16 kHz PCM16.
+  /// Loads a supported locale's model and requests speech permission; empty results fail.
   static func transcribeRecording(_ pcm: Foundation.Data, localeId: String?) async throws -> String {
     let locale = try await requiredSupportedLocale(localeId: localeId)
     guard await isAvailable(localeId: localeId) else {

@@ -22,6 +22,8 @@ final class RecordingActivityBridge: NSObject, ConduitBridge {
         }
     }
 
+    /// Accepts UUID-scoped start/update/end requests; generations reject superseded starts.
+    /// Updates carry saved duration only and become stale after 20 seconds without a heartbeat.
     func attach(to host: ConduitBridgeHost) {
         channel?.setMethodCallHandler(nil)
         let channel = FlutterMethodChannel(name: "app.cogwheel.conduit/recording_activity", binaryMessenger: host.messenger)
@@ -72,6 +74,8 @@ final class RecordingActivityBridge: NSObject, ConduitBridge {
         }
     }
 
+    /// Awaits Dart acknowledgement for the active capture, or ends an interrupted activity.
+    /// Channel acknowledgement alone does not guarantee that capture has stopped.
     func stopFromActivity(_ id: String) async {
         guard let activity, activity.attributes.recordingId == id, let channel else {
             for interrupted in Activity<ConduitRecordingAttributes>.activities where interrupted.attributes.recordingId == id {

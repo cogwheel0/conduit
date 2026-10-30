@@ -384,6 +384,7 @@ class NativeSttBridge(private val activity: MainActivity) : MethodChannel.Method
         result.success(available(engineName) + ("audioRecoverySupported" to (source != null)))
     }
 
+    /** Prefers advanced recognition; only a current generation receives ownership. */
     private suspend fun prepareRecognizer(
         localeId: String?,
         generation: Int
@@ -410,6 +411,7 @@ class NativeSttBridge(private val activity: MainActivity) : MethodChannel.Method
             ?: prepare(SpeechRecognizerOptions.Mode.MODE_BASIC, "mlkit_basic")
     }
 
+    /** Transcribes validated PCM exclusively, with a duration-based deadline and one reply. */
     private fun transcribeRecording(pcm: ByteArray, localeId: String?, id: String, result: MethodChannel.Result) {
         if (pendingStarts > 0 || recordingTranscriptionId != null ||
             activeMlKitRecognizer != null || activePlatformRecognizer != null || recognitionJob?.isActive == true) {
@@ -465,7 +467,8 @@ class NativeSttBridge(private val activity: MainActivity) : MethodChannel.Method
         }
     }
 
-    /** The pinned ML Kit SDK accepts streaming PCM through a descriptor. */
+    /** Feeds mono 16 kHz PCM16 through a paced nonblocking pipe, closing it on every exit.
+     * Recognition that ends before all input is submitted fails instead of returning partial text. */
     private suspend fun transcribePcm(recognizer: MlKitSpeechRecognizer, pcm: ByteArray): String = coroutineScope {
         val pipe = NativePcmPipe.create()
         val submitted = CompletableDeferred<Unit>()
@@ -1041,6 +1044,7 @@ class NativeSttBridge(private val activity: MainActivity) : MethodChannel.Method
         }
     }
 
+    /** Allocates off-main, gates delivery by generation, and retires cancelled allocations. */
     private suspend fun createPcmSource(generation: Int): NativeDictationAudioSource {
         var allocated: NativeDictationAudioSource? = null
         try {
@@ -1075,6 +1079,7 @@ class NativeSttBridge(private val activity: MainActivity) : MethodChannel.Method
         }
     }
 
+    /** Stops without cancellation and drains admitted main-thread events before closing input. */
     private suspend fun retirePcmSource(source: NativeDictationAudioSource?) {
         if (source == null) return
         withContext(NonCancellable) {
