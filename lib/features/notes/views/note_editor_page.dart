@@ -1966,6 +1966,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
   /// without syncing would let the detail fetch return a server copy that is
   /// behind a not-yet-synced local edit and clobber it with stale/empty content.
   Future<void> _refreshNote() async {
+    ConduitHaptics.lightImpact();
     final noteBeforeRefresh = _note;
     final hadDraftChanges =
         noteBeforeRefresh != null &&

@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:conduit/core/services/haptic_service.dart';
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:material_ui/material_ui.dart';

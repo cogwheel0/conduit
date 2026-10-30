@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io' show Platform;
 
 import 'package:conduit/l10n/app_localizations.dart';
+import 'package:conduit/core/services/haptic_service.dart';
 import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -132,7 +133,10 @@ class _ServerFilePickerSheetState extends ConsumerState<ServerFilePickerSheet> {
                       }
 
                       return RefreshIndicator.adaptive(
-                        onRefresh: _refreshFiles,
+                        onRefresh: () {
+                          ConduitHaptics.lightImpact();
+                          return _refreshFiles();
+                        },
                         child: ListView.separated(
                           controller: scrollController,
                           physics: const AlwaysScrollableScrollPhysics(),

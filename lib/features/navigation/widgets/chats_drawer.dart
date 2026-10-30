@@ -316,7 +316,10 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
     final refreshableScroll = PrimaryScrollController(
       controller: _listController,
       child: RefreshIndicator.noSpinner(
-        onRefresh: _refreshChats,
+        onRefresh: () {
+          ConduitHaptics.lightImpact();
+          return _refreshChats();
+        },
         onStatusChange: _handleRefreshStatusChange,
         child: scroll,
       ),

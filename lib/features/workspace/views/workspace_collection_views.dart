@@ -195,7 +195,10 @@ class _WorkspaceCollectionPanel extends ConsumerWidget {
               child: collection.items.isEmpty
                   ? _emptyState(context, section, canCreate: canCreate)
                   : RefreshIndicator(
-                      onRefresh: binding.onRefresh,
+                      onRefresh: () {
+                        ConduitHaptics.lightImpact();
+                        return binding.onRefresh();
+                      },
                       child: ListView.builder(
                         key: Key('workspace-list-${section.name}'),
                         padding: EdgeInsets.only(
