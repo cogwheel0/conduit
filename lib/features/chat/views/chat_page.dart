@@ -4234,7 +4234,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     final activeConversation = ref.watch(activeConversationProvider);
     final isTemporary = ref.watch(temporaryChatEnabledProvider);
     final hasMessages = ref.watch(hasChatMessagesProvider);
-    final showNewChatAction = activeConversation != null || hasMessages;
+    var showNewChatAction = activeConversation != null || hasMessages;
     final tintColor = context.conduitTheme.textPrimary;
     final selectedModel = ref.watch(selectedModelProvider);
     final isHermes =
@@ -4245,11 +4245,21 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         ref.watch(liveConnectionDisconnectedProvider).value == true;
     final trailingActionCount =
         (showNewChatAction ? 1 : 0) + 1 + (showConnectionIssue ? 1 : 0);
-    final maxModelWidth = resolveConduitAdaptiveLeadingPillWidth(
+    var maxModelWidth = resolveConduitAdaptiveLeadingPillWidth(
       context,
       trailingActionCount: trailingActionCount,
       maxWidth: kConduitAdaptiveToolbarMaxModelSelectorWidth,
     );
+    // The model picker takes priority over the extra New Chat shortcut when
+    // a connection warning uses the last space in a narrow toolbar.
+    if (showConnectionIssue && showNewChatAction && maxModelWidth == 0) {
+      showNewChatAction = false;
+      maxModelWidth = resolveConduitAdaptiveLeadingPillWidth(
+        context,
+        trailingActionCount: trailingActionCount - 1,
+        maxWidth: kConduitAdaptiveToolbarMaxModelSelectorWidth,
+      );
+    }
     // Hide the picker only for a true single-agent Hermes-only install. Mixed
     // setups must retain a way to switch back to an OpenWebUI model.
     final showModelDropdown = shouldShowChatModelDropdown(

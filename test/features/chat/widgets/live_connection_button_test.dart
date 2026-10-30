@@ -163,6 +163,7 @@ void main() {
     await tester.pumpWidget(_harness(socket));
     await tester.pumpAndSettle();
     PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.iOS;
+    PlatformUiCapabilities.debugIOSMajorVersionOverride = 26;
     PlatformUiCapabilities.debugNativeIOS26Override = true;
     NativeSheetBridge.instance.debugIsIOSOverride = true;
     final response = Completer<PlatformNativeSheetActionResult?>();
@@ -260,6 +261,7 @@ void main() {
       find.byKey(const ValueKey('live-connection-retry')),
     );
     PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.iOS;
+    PlatformUiCapabilities.debugIOSMajorVersionOverride = 26;
     PlatformUiCapabilities.debugNativeIOS26Override = true;
     NativeSheetBridge.instance.debugIsIOSOverride = true;
     tester.binding.defaultBinaryMessenger.setMockDecodedMessageHandler<Object?>(
