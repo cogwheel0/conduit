@@ -439,6 +439,8 @@ class NativeSheetBridge implements NativeSheetFlutterApi {
     _reasoningEffortUpdateOwner = previousUpdateOwner;
   }
 
+  /// Returns the selected ID, or null on dismissal, unsupported input, or suppressed errors.
+  /// [filterAllLabel] enables group filtering; [rethrowErrors] preserves presentation failures.
   Future<String?> presentOptionsSelector({
     required String title,
     required List<NativeSheetOptionConfig> options,

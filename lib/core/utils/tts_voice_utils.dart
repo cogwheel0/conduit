@@ -6,12 +6,13 @@ const ttsSystemDefaultVoiceId = '__system_default__';
 
 typedef TtsVoiceLanguageOption = ({String code, String label});
 
+/// Normalizes the first nonblank locale or language; absent metadata stays null.
 String? _voiceLanguageCode(Map<String, dynamic> voice) =>
     (_cleanVoiceValue(voice['locale']) ?? _cleanVoiceValue(voice['language']))
         ?.replaceAll('_', '-')
         .toLowerCase();
 
-/// The displayed language group, or null when a voice has no locale metadata.
+/// Uses languageName or the uppercase locale/language code; absent metadata stays null.
 String? ttsVoiceLanguageLabel(Map<String, dynamic> voice) {
   final code = _voiceLanguageCode(voice);
   return code == null
@@ -19,6 +20,7 @@ String? ttsVoiceLanguageLabel(Map<String, dynamic> voice) {
       : _cleanVoiceValue(voice['languageName']) ?? code.toUpperCase();
 }
 
+/// Deduplicates normalized codes using their first label, then sorts by label.
 List<TtsVoiceLanguageOption> buildTtsVoiceLanguageOptions(
   Iterable<Map<String, dynamic>> voices,
 ) {
@@ -48,6 +50,8 @@ class TtsVoiceOptionData {
   final Map<String, dynamic> voice;
 }
 
+/// Filters full normalized language codes when supplied and keeps the first valid ID.
+/// Selected voices without language metadata are retained by the picker, not here.
 List<TtsVoiceOptionData> buildTtsVoiceOptions(
   AppLocalizations l10n,
   TtsEngine engine,

@@ -25,6 +25,7 @@ class _TtsVoicePickerSheetState extends State<TtsVoicePickerSheet> {
   String? _language;
   String _query = '';
 
+  /// Language filtering retains the selected unknown-language voice; search always applies.
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;

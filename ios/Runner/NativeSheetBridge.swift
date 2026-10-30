@@ -5562,6 +5562,8 @@ final class NativeOptionsSelectorTableViewController: UIViewController, UITableV
         })
     }
 
+    /// Empty groups bypass language filtering; unknown groups survive only when selected.
+    /// Text search still applies to every retained option.
     private func applyFilters() {
         filteredOptions = configuration.options.filter { option in
             let matchesGroup = selectedFilter == nil

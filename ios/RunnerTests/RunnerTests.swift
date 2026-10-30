@@ -632,6 +632,15 @@ class RunnerTests: XCTestCase {
       let controller = try XCTUnwrap(NativeOptionsSelectorTableViewController.makeForTesting(payload, filterGroup: filter))
       let table = try XCTUnwrap(controller.view.subviews.compactMap { $0 as? UITableView }.first)
       let source = try XCTUnwrap(table.dataSource)
+      if filter == "French" {
+        let search = try XCTUnwrap(controller.navigationItem.searchController)
+        let updater = try XCTUnwrap(controller as? UISearchResultsUpdating)
+        search.searchBar.text = "unmatched"
+        updater.updateSearchResults(for: search)
+        XCTAssertEqual(source.tableView(table, numberOfRowsInSection: 0), 0)
+        search.searchBar.text = nil
+        updater.updateSearchResults(for: search)
+      }
       let count = source.tableView(table, numberOfRowsInSection: 0)
       XCTAssertEqual(count, expected.count)
       var labels: [String] = []
