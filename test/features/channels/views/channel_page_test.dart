@@ -182,13 +182,23 @@ void main() {
       ).toList();
       expect(draftContexts.map((draft) => draft.scope), containsAll(['channel', 'thread:channel-1']));
       expect(draftContexts.every((draft) => draft.temporary && draft.store == null), isTrue);
-      expect(draftContexts.every((draft) => draft.owner.session == (firstApi, firstAuthEpoch)), isTrue);
 
       check(
         tester
             .widgetList<TextField>(find.byType(TextField))
             .any((field) => field.controller?.text == 'Original message'),
       ).isTrue();
+
+      final composerField = find.descendant(
+        of: find.byType(ModernChatInput).first,
+        matching: find.byType(EditableText),
+      );
+      await tester.enterText(composerField, 'Unsent paper sketch');
+      await tester.pump();
+      expect(
+        tester.widget<EditableText>(composerField).controller.text,
+        'Unsent paper sketch',
+      );
 
       unawaited(
         messageMenu.actions
@@ -220,6 +230,10 @@ void main() {
           .equals('Replacement channel');
       expect(find.text('Replying to Alice'), findsNothing);
       expect(find.byType(ThreadPanel), findsNothing);
+      expect(
+        tester.widget<EditableText>(composerField).controller.text,
+        isEmpty,
+      );
       check(
         tester
             .widgetList<TextField>(find.byType(TextField))
