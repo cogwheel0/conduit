@@ -1500,6 +1500,11 @@
   "@autoSelectDescription": {
     "description": "Explains what the server-provided model setting does."
   },
+  "messageActionsTitle": "Message actions",
+  "messageActionsDescription": "Choose which actions appear below responses. Drag enabled actions to change their order. Other actions stay in More.",
+  "messageActionsInline": "Below responses",
+  "messageActionsReorder": "Drag to reorder",
+  "messageActionsReset": "Reset to defaults",
   "chatSettings": "Chat",
   "@chatSettings": {
     "description": "Section header for chat-related customization options."
@@ -6171,10 +6176,5 @@
   "chatHandoffPromptTitle": "Přepnout na {model}?",
   "chatHandoffPromptMessage": "Váš server navrhuje pokračovat v novém chatu s modelem {model}. Navržená zpráva počká v poli pro psaní, dokud ji neodešlete.",
   "chatHandoffStartNewChat": "Začít nový chat",
-  "chatHandoffStayHere": "Zůstat tady",
-  "messageActionsTitle": "Message actions",
-  "messageActionsDescription": "Choose which actions appear below responses. Drag enabled actions to change their order. Other actions stay in More.",
-  "messageActionsInline": "Below responses",
-  "messageActionsReorder": "Drag to reorder",
-  "messageActionsReset": "Reset to defaults"
+  "chatHandoffStayHere": "Zůstat tady"
 }

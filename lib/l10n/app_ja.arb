@@ -1500,6 +1500,11 @@
   "@autoSelectDescription": {
     "description": "Explains what the server-provided model setting does."
   },
+  "messageActionsTitle": "Message actions",
+  "messageActionsDescription": "Choose which actions appear below responses. Drag enabled actions to change their order. Other actions stay in More.",
+  "messageActionsInline": "Below responses",
+  "messageActionsReorder": "Drag to reorder",
+  "messageActionsReset": "Reset to defaults",
   "chatSettings": "チャット",
   "@chatSettings": {
     "description": "Section header for chat-related customization options."
@@ -5865,10 +5870,5 @@
   "chatHandoffPromptTitle": "{model} に切り替えますか？",
   "chatHandoffPromptMessage": "サーバーが {model} との新しいチャットで続けることを提案しています。提案されたメッセージは、送信するまで入力欄に残ります。",
   "chatHandoffStartNewChat": "新しいチャットを開始",
-  "chatHandoffStayHere": "このままにする",
-  "messageActionsTitle": "Message actions",
-  "messageActionsDescription": "Choose which actions appear below responses. Drag enabled actions to change their order. Other actions stay in More.",
-  "messageActionsInline": "Below responses",
-  "messageActionsReorder": "Drag to reorder",
-  "messageActionsReset": "Reset to defaults"
+  "chatHandoffStayHere": "このままにする"
 }

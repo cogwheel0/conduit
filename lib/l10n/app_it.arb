@@ -371,6 +371,11 @@
   "appCustomization": "Personalizzazione",
   "appCustomizationSubtitle": "Tema, lingua, voce e quick actions",
   "quickActionsDescription": "Scorciatoie nella chat",
+  "messageActionsTitle": "Message actions",
+  "messageActionsDescription": "Choose which actions appear below responses. Drag enabled actions to change their order. Other actions stay in More.",
+  "messageActionsInline": "Below responses",
+  "messageActionsReorder": "Drag to reorder",
+  "messageActionsReset": "Reset to defaults",
   "chatSettings": "Chat",
   "sendOnEnter": "Invia con Invio",
   "sendOnEnterDescription": "Invio invia (tastiera software). Cmd/Ctrl+Invio disponibile",
@@ -4256,10 +4261,5 @@
   "chatHandoffPromptTitle": "Passare a {model}?",
   "chatHandoffPromptMessage": "Il tuo server suggerisce di continuare in una nuova chat con {model}. Un eventuale messaggio suggerito resta nel campo di testo finché non lo invii.",
   "chatHandoffStartNewChat": "Inizia nuova chat",
-  "chatHandoffStayHere": "Resta qui",
-  "messageActionsTitle": "Message actions",
-  "messageActionsDescription": "Choose which actions appear below responses. Drag enabled actions to change their order. Other actions stay in More.",
-  "messageActionsInline": "Below responses",
-  "messageActionsReorder": "Drag to reorder",
-  "messageActionsReset": "Reset to defaults"
+  "chatHandoffStayHere": "Resta qui"
 }

@@ -373,6 +373,11 @@
   "appCustomization": "Anpassung",
   "appCustomizationSubtitle": "Design, Sprache, Stimme und Quick Pills",
   "quickActionsDescription": "Schnellzugriffe im Chat",
+  "messageActionsTitle": "Message actions",
+  "messageActionsDescription": "Choose which actions appear below responses. Drag enabled actions to change their order. Other actions stay in More.",
+  "messageActionsInline": "Below responses",
+  "messageActionsReorder": "Drag to reorder",
+  "messageActionsReset": "Reset to defaults",
   "chatSettings": "Chat",
   "sendOnEnter": "Mit Enter senden",
   "sendOnEnterDescription": "Enter sendet (Soft-Tastatur). Cmd/Ctrl+Enter ebenfalls verfügbar",
@@ -4256,10 +4261,5 @@
   "chatHandoffPromptTitle": "Zu {model} wechseln?",
   "chatHandoffPromptMessage": "Dein Server schlägt vor, in einem neuen Chat mit {model} weiterzumachen. Eine vorgeschlagene Nachricht wartet im Eingabefeld, bis du sie sendest.",
   "chatHandoffStartNewChat": "Neuen Chat starten",
-  "chatHandoffStayHere": "Hierbleiben",
-  "messageActionsTitle": "Message actions",
-  "messageActionsDescription": "Choose which actions appear below responses. Drag enabled actions to change their order. Other actions stay in More.",
-  "messageActionsInline": "Below responses",
-  "messageActionsReorder": "Drag to reorder",
-  "messageActionsReset": "Reset to defaults"
+  "chatHandoffStayHere": "Hierbleiben"
 }
