@@ -259,6 +259,21 @@ void main() {
     await tester.pumpAndSettle();
   });
 
+  testWidgets('native presentation failure activates the existing fallback', (tester) async {
+    final fixture = _MenuFixture(failPresentation: true);
+    addTearDown(fixture.dispose);
+    final controller = ScrollController();
+    addTearDown(controller.dispose);
+    await tester.pumpWidget(_harness(controller, () {}, text: _text));
+    await tester.pumpAndSettle();
+    final gesture = await tester.startGesture(tester.getCenter(find.byType(NativeContextMenu)));
+    await _waitForMenu(tester, fixture);
+    await tester.pumpAndSettle();
+    expect(find.text('Fallback menu'), findsOneWidget);
+    expect(_focusBarrier, findsNothing);
+    await gesture.up();
+  });
+
   testWidgets('message actions are available to accessibility', (tester) async {
     final fixture = _MenuFixture();
     addTearDown(fixture.dispose);
@@ -398,7 +413,7 @@ class _MenuFixture {
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
   final _channels = <BasicMessageChannel<Object?>>[];
 
-  _MenuFixture({bool available = true}) {
+  _MenuFixture({bool available = true, bool failPresentation = false}) {
     _messenger.setMockMethodCallHandler(SystemChannels.platform, (call) async {
       if (call.method == 'HapticFeedback.vibrate') haptics.add(call.arguments);
       return null;
@@ -418,6 +433,7 @@ class _MenuFixture {
     });
     handle('showContextMenu', (message) async {
       if (!prepared.isCompleted) prepared.complete(message! as List<Object?>);
+      if (failPresentation) return ['PRESENTATION_FAILED', 'Synthetic host detached', null];
       return [await selection.future];
     });
     handle('cancelContextMenu', (message) async {

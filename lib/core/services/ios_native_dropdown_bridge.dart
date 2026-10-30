@@ -63,7 +63,7 @@ class IosNativeDropdownBridge {
       );
     } catch (error, stackTrace) {
       _logNativeDropdownBridgeError('showContextMenu', error, stackTrace);
-      return null;
+      rethrow;
     }
   }
 

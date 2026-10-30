@@ -168,7 +168,11 @@ final class NativeDropdownBridge: ConduitBridge, NativeDropdownHostApi {
     ) {
         guard let configuration = NativeDropdownConfiguration(request),
               let image = UIImage(data: previewPng.data) else {
-            completion(.success(nil))
+            completion(.failure(PigeonError(
+                code: "PRESENTATION_FAILED",
+                message: dropdownLocalized("native.unablePresentDropdown", "Unable to present native dropdown"),
+                details: nil
+            )))
             return
         }
         contextMenu.show(requestId, configuration, image, completion)
@@ -334,7 +338,11 @@ private final class NativeMessageContextMenuPresenter: UIControl {
     ) {
         guard !showing, sourceView?.window != nil,
               let rect = configuration.sourceRect, !rect.isEmpty else {
-            completion(.success(nil))
+            completion(.failure(PigeonError(
+                code: "PRESENTATION_FAILED",
+                message: dropdownLocalized("native.unablePresentDropdown", "Unable to present native dropdown"),
+                details: nil
+            )))
             return
         }
         finish()
