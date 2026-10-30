@@ -91,7 +91,9 @@ class _SignedInUser extends Notifier<User?> {
   void signIn(User? user) => state = user;
 }
 
-final _signedInUser = NotifierProvider<_SignedInUser, User?>(_SignedInUser.new);
+final _signedInUser = NotifierProvider<_SignedInUser, User?>(
+  _SignedInUser.new,
+);
 
 /// Records every detail patch the app sends to the native sheet.
 List<PlatformNativeSheetApplyDetailPatchRequest> _recordPatches() {
@@ -246,10 +248,7 @@ void main() {
         'copy',
         'tts',
       ]);
-      expect(
-        patches.where((patch) => patch.detailId == 'message-actions'),
-        isEmpty,
-      );
+      expect(patches.where((patch) => patch.detailId == 'message-actions'), isEmpty);
       for (final invalid in [
         ['message-action:share', 'message-action:copy', 'message-action:tts'],
         ['message-action:copy', 'message-action:copy', 'message-action:tts'],
@@ -317,10 +316,7 @@ void main() {
         if (visible) expect(extra, isA<NativeSheetNavigationOrigin>());
         // The sheet has already closed, so a stale row says why nothing
         // opened instead of failing silently.
-        expect(
-          find.text(_unavailable),
-          visible ? findsNothing : findsOneWidget,
-        );
+        expect(find.text(_unavailable), visible ? findsNothing : findsOneWidget);
       },
     );
   }
@@ -365,10 +361,7 @@ void main() {
         if (visible) expect(extra, isA<NativeSheetNavigationOrigin>());
         // The sheet has already closed, so a stale row says why nothing
         // opened instead of failing silently.
-        expect(
-          find.text(_unavailable),
-          visible ? findsNothing : findsOneWidget,
-        );
+        expect(find.text(_unavailable), visible ? findsNothing : findsOneWidget);
       },
     );
   }
@@ -411,10 +404,7 @@ void main() {
         if (visible) expect(extra, isA<NativeSheetNavigationOrigin>());
         // The sheet has already closed, so a stale row says why nothing
         // opened instead of failing silently.
-        expect(
-          find.text(_unavailable),
-          visible ? findsNothing : findsOneWidget,
-        );
+        expect(find.text(_unavailable), visible ? findsNothing : findsOneWidget);
       },
     );
   }
@@ -460,10 +450,7 @@ void main() {
         if (visible) expect(extra, isA<NativeSheetNavigationOrigin>());
         // The sheet has already closed, so a stale row says why nothing
         // opened instead of failing silently.
-        expect(
-          find.text(_unavailable),
-          visible ? findsNothing : findsOneWidget,
-        );
+        expect(find.text(_unavailable), visible ? findsNothing : findsOneWidget);
       },
     );
   }
@@ -520,9 +507,8 @@ void main() {
   );
 
   group('the open Settings root', () {
-    List<String> rootRows(PlatformNativeSheetApplyDetailPatchRequest patch) => [
-      for (final section in patch.sections) ...section.items.map((i) => i.id),
-    ];
+    List<String> rootRows(PlatformNativeSheetApplyDetailPatchRequest patch) =>
+        [for (final section in patch.sections) ...section.items.map((i) => i.id)];
 
     testWidgets('gains and loses the Advanced group as Advanced is toggled', (
       tester,
@@ -555,10 +541,12 @@ void main() {
       final on = patches.lastWhere((p) => p.detailId == 'profile-menu');
       check(on.title).equals('Settings');
       final advanced = on.sections.singleWhere((s) => s.title == 'Advanced');
-      check(advanced.footer)
-          .equals('Shown because Advanced is on in Settings > Chat.');
-      check(advanced.items.map((i) => i.id))
-          .deepEquals([NativeSheetRoutes.personalConnections]);
+      check(advanced.footer).equals(
+        'Shown because Advanced is on in Settings > Chat.',
+      );
+      check(
+        advanced.items.map((i) => i.id),
+      ).deepEquals([NativeSheetRoutes.personalConnections]);
 
       NativeSheetBridge.instance.onControlChanged(
         PlatformNativeSheetControlChangedEvent(
@@ -569,10 +557,12 @@ void main() {
       await tester.pumpAndSettle();
 
       final off = patches.lastWhere((p) => p.detailId == 'profile-menu');
-      check(off.sections.map((s) => s.title))
-          .not((it) => it.contains('Advanced'));
-      check(rootRows(off))
-          .not((it) => it.contains(NativeSheetRoutes.personalConnections));
+      check(off.sections.map((s) => s.title)).not(
+        (it) => it.contains('Advanced'),
+      );
+      check(rootRows(off)).not(
+        (it) => it.contains(NativeSheetRoutes.personalConnections),
+      );
       // A tap on the row it just lost is answered, not ignored.
       NativeSheetBridge.instance.onControlChanged(
         PlatformNativeSheetControlChangedEvent(
