@@ -7949,5 +7949,7 @@
   "chatHandoffStayHere": "Zostań tutaj",
   "@chatHandoffStayHere": {
     "description": "Cancel button that keeps the user in the current chat instead of following the Open WebUI server's suggestion."
-  }
+  },
+  "ttsSkipBackward": "Cofnij o 15 sekund",
+  "ttsSkipForward": "Przewiń o 15 sekund do przodu"
 }

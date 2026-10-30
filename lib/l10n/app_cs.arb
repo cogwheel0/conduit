@@ -6171,5 +6171,7 @@
   "chatHandoffPromptTitle": "Přepnout na {model}?",
   "chatHandoffPromptMessage": "Váš server navrhuje pokračovat v novém chatu s modelem {model}. Navržená zpráva počká v poli pro psaní, dokud ji neodešlete.",
   "chatHandoffStartNewChat": "Začít nový chat",
-  "chatHandoffStayHere": "Zůstat tady"
+  "chatHandoffStayHere": "Zůstat tady",
+  "ttsSkipBackward": "Go back 15 seconds",
+  "ttsSkipForward": "Go forward 15 seconds"
 }

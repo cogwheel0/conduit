@@ -4256,5 +4256,7 @@
   "chatHandoffPromptTitle": "¿Cambiar a {model}?",
   "chatHandoffPromptMessage": "Tu servidor sugiere continuar en una nueva conversación con {model}. Cualquier mensaje sugerido esperará en el cuadro de texto hasta que lo envíes.",
   "chatHandoffStartNewChat": "Iniciar nueva conversación",
-  "chatHandoffStayHere": "Quedarme aquí"
+  "chatHandoffStayHere": "Quedarme aquí",
+  "ttsSkipBackward": "Go back 15 seconds",
+  "ttsSkipForward": "Go forward 15 seconds"
 }
