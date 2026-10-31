@@ -2242,12 +2242,13 @@ class _TimelineRowDelegate extends SliverChildBuilderDelegate {
   final bool reverse;
   final Map<String, double> rowExtents;
   final double? Function(int sourceIndex)? estimateRowExtent;
-  // A viewport rebuild replaces this delegate, including after content or
-  // dimensions change. Measured heights below always override estimates.
-  late final _estimatedRowExtents = <double?>[
-    for (var index = 0; index < childCount!; index++)
-      estimateRowExtent?.call(_entryAt(index).sourceIndex),
-  ];
+
+  // Text estimates scan explicit lines; do that once per delegate, not once
+  // for every scroll frame. Measured extents still take precedence below.
+  late final _estimatedExtents = List<double?>.generate(
+    childCount!,
+    (index) => estimateRowExtent?.call(_entryAt(index).sourceIndex),
+  );
 
   ({String id, int sourceIndex, Object? rebuildKey}) _entryAt(int index) =>
       entries[reverse ? centerIndex - 1 - index : centerIndex + index];
@@ -2266,7 +2267,7 @@ class _TimelineRowDelegate extends SliverChildBuilderDelegate {
     var unknown = 0;
     for (var index = lastIndex + 1; index < count; index += 1) {
       final entry = _entryAt(index);
-      final extent = rowExtents[entry.id] ?? _estimatedRowExtents[index];
+      final extent = rowExtents[entry.id] ?? _estimatedExtents[index];
       if (extent == null) {
         unknown += 1;
       } else {
