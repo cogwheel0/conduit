@@ -2260,8 +2260,12 @@ class _TimelineRowDelegate extends SliverChildBuilderDelegate {
   final Map<String, double> rowExtents;
   final double? Function(int sourceIndex)? estimateRowExtent;
 
-  // Cache only missing estimates, including null, until the delegate is rebuilt.
-  final _estimatedExtents = <int, double?>{};
+  // Text estimates scan explicit lines; do that once per delegate, not once
+  // for every scroll frame. Measured extents still take precedence below.
+  late final _estimatedExtents = List<double?>.generate(
+    childCount!,
+    (index) => estimateRowExtent?.call(_entryAt(index).sourceIndex),
+  );
 
   ({String id, int sourceIndex, Object? rebuildKey}) _entryAt(int index) =>
       entries[reverse ? centerIndex - 1 - index : centerIndex + index];
@@ -2275,18 +2279,11 @@ class _TimelineRowDelegate extends SliverChildBuilderDelegate {
   ) {
     final count = childCount;
     if (count == null) return null;
-    final estimate = estimateRowExtent;
     var total = trailingScrollOffset;
     var unknown = 0;
     for (var index = lastIndex + 1; index < count; index += 1) {
       final entry = _entryAt(index);
-      final measured = rowExtents[entry.id];
-      if (measured == null &&
-          estimate != null &&
-          !_estimatedExtents.containsKey(index)) {
-        _estimatedExtents[index] = estimate(entry.sourceIndex);
-      }
-      final extent = measured ?? _estimatedExtents[index];
+      final extent = rowExtents[entry.id] ?? _estimatedExtents[index];
       if (extent == null) {
         unknown += 1;
       } else {
