@@ -23,6 +23,7 @@ void main() {
     double keyboardHeight = 0,
     required List<String> sent,
   }) async {
+    final isAndroid = defaultTargetPlatform == TargetPlatform.android;
     tester.view.devicePixelRatio = 1;
     tester.view.physicalSize = size;
     tester.view.viewInsets = FakeViewPadding(bottom: keyboardHeight);
@@ -53,9 +54,12 @@ void main() {
             child: child!,
           ),
           home: Scaffold(
+            resizeToAvoidBottomInset: !isAndroid,
             body: Align(
               alignment: Alignment.bottomCenter,
               child: ModernChatInput(
+                bottomPadding: 0,
+                managesSystemKeyboardInset: isAndroid,
                 onSendMessage: sent.add,
                 onFileAttachment: () {},
               ),
