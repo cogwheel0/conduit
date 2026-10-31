@@ -8,8 +8,14 @@ import 'package:conduit_core/providers/app_providers.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
+import 'package:cupertino_ui/cupertino_ui.dart';
+import 'package:flutter/foundation.dart';
 
 void main() {
+  const mobilePlatforms = TargetPlatformVariant({
+    TargetPlatform.android,
+    TargetPlatform.iOS,
+  });
   Future<void> pumpComposer(
     WidgetTester tester, {
     Size size = const Size(402, 874),
@@ -59,13 +65,25 @@ void main() {
       ),
     );
     await tester.pump();
+    expect(
+      find.byType(CupertinoTextField),
+      defaultTargetPlatform == TargetPlatform.iOS
+          ? findsOneWidget
+          : findsNothing,
+    );
+    expect(
+      find.byType(TextField),
+      defaultTargetPlatform == TargetPlatform.iOS
+          ? findsNothing
+          : findsOneWidget,
+    );
   }
 
   String draft(int lines) =>
       List.generate(lines, (i) => 'Paper sail marker ${i + 1}.').join('\n');
 
   Future<void> enterDraft(WidgetTester tester, String text) async {
-    await tester.enterText(find.byType(TextField), text);
+    await tester.enterText(find.byType(EditableText), text);
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 300));
   }
@@ -87,7 +105,7 @@ void main() {
     );
     expect((editable.offset as ScrollPosition).maxScrollExtent, greaterThan(0));
     expect(tester.takeException(), isNull);
-  });
+  }, variant: mobilePlatforms);
 
   testWidgets('suggestions yield height beside large text and a keyboard', (
     tester,
@@ -109,7 +127,7 @@ void main() {
     await tester.pump();
     expect(find.byKey(const ValueKey('prompt-overlay')), findsNothing);
     expect(tester.takeException(), isNull);
-  });
+  }, variant: mobilePlatforms);
 
   for (final scenario in [
     (name: 'portrait', size: const Size(402, 874), scale: 1.0, keyboard: 0.0),
@@ -180,6 +198,7 @@ void main() {
         expect(sent, [text]);
         expect(tester.takeException(), isNull);
       },
+      variant: mobilePlatforms,
     );
   }
 }

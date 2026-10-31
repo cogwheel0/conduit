@@ -1,6 +1,6 @@
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:flutter/foundation.dart'
-    show ValueNotifier, kIsWeb, visibleForTesting;
+    show TargetPlatform, ValueNotifier, kIsWeb, visibleForTesting;
 import 'package:material_ui/material_ui.dart';
 import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:flutter/scheduler.dart';
@@ -4221,7 +4221,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
               // the "confirm" action is used to commit characters, not to
               // send messages. The send-on-enter functionality is handled
               // by keyboard shortcuts (Enter key) instead.
-              if (!kIsWeb && Platform.isIOS) {
+              if (!kIsWeb && Theme.of(context).platform == TargetPlatform.iOS) {
                 final usesNativePlatformView = conduitSupportsNativeGlass();
                 return CupertinoTextField(
                   controller: _controller,
