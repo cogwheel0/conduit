@@ -8,6 +8,7 @@ struct NativeTextMagnifierGeometry {
 
   /// Rejects incomplete or non-finite geometry before handing it to UIKit.
   init?(_ arguments: [String: Any], in bounds: CGRect) {
+    /// Decodes finite logical coordinates from the standard method codec.
     func number(_ key: String) -> CGFloat? {
       guard let value = arguments[key] as? Double, value.isFinite else { return nil }
       return CGFloat(value)

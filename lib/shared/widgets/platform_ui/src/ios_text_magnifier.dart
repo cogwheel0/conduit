@@ -32,6 +32,7 @@ class _IosTextMagnifierState extends State<IosTextMagnifier> {
   static int _nextSession = 0;
 
   final int _session = _nextSession++;
+  late final AppLifecycleListener _lifecycleListener;
   bool _started = false;
   bool _nativeReady = false;
   bool _fallback = false;
@@ -39,6 +40,11 @@ class _IosTextMagnifierState extends State<IosTextMagnifier> {
   @override
   void initState() {
     super.initState();
+    _lifecycleListener = AppLifecycleListener(
+      onStateChange: (state) {
+        if (state != AppLifecycleState.resumed) _useFallback();
+      },
+    );
     widget.magnifierInfo.addListener(_move);
   }
 
@@ -96,6 +102,10 @@ class _IosTextMagnifierState extends State<IosTextMagnifier> {
   Future<void> _begin() async {
     final shown = await _invoke('begin', _geometry);
     if (!mounted) return;
+    if (_fallback) {
+      if (shown) unawaited(_invoke('end', {'session': _session}));
+      return;
+    }
     _nativeReady = shown;
     if (shown) {
       // The finger can move while the platform reply is in flight.
@@ -114,14 +124,21 @@ class _IosTextMagnifierState extends State<IosTextMagnifier> {
   Future<void> _moveNative() async {
     final moved = await _invoke('move', _geometry);
     if (!moved && mounted && !_fallback) {
-      _nativeReady = false;
-      unawaited(_invoke('end', {'session': _session}));
-      setState(() => _fallback = true);
+      _useFallback();
     }
+  }
+
+  /// Ends this gesture's native session before restoring the Flutter lens.
+  void _useFallback() {
+    if (_fallback) return;
+    _nativeReady = false;
+    unawaited(_invoke('end', {'session': _session}));
+    setState(() => _fallback = true);
   }
 
   @override
   void dispose() {
+    _lifecycleListener.dispose();
     widget.magnifierInfo.removeListener(_move);
     // Session ownership prevents a departing overlay from hiding a newer one.
     unawaited(_invoke('end', {'session': _session}));

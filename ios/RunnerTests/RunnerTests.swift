@@ -8,6 +8,7 @@ import XCTest
 @testable import Runner
 
 class RunnerTests: XCTestCase {
+  /// Verifies coordinate scaling and rejects malformed channel payloads.
   func testTextMagnifierMapsFullViewCoordinates() throws {
     let payload: [String: Any] = [
       "viewWidth": 400.0, "viewHeight": 800.0,

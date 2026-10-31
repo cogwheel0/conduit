@@ -160,6 +160,58 @@ void main() {
     await tester.pump();
   });
 
+  testWidgets('app deactivation restores a lens without another finger move', (
+    tester,
+  ) async {
+    final info = geometry();
+    addTearDown(info.dispose);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await pumpMagnifier(tester, info);
+    await tester.pump();
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    await tester.pump();
+    expect(find.byType(CupertinoTextMagnifier), findsOneWidget);
+    expect(calls.last.method, 'end');
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pump();
+    expect(find.byType(CupertinoTextMagnifier), findsOneWidget);
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump();
+    final count = calls.length;
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    await tester.pump();
+    expect(calls.length, count);
+    expect(tester.takeException(), isNull);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+  });
+
+  testWidgets('a delayed begin cannot revive a deactivated native lens', (
+    tester,
+  ) async {
+    final reply = Completer<bool>();
+    binding.defaultBinaryMessenger.setMockMethodCallHandler(channel, (
+      call,
+    ) async {
+      calls.add(call);
+      return call.method == 'begin' ? reply.future : true;
+    });
+    final info = geometry();
+    addTearDown(info.dispose);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await pumpMagnifier(tester, info);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    await tester.pump();
+    reply.complete(true);
+    await tester.pump();
+    expect(find.byType(CupertinoTextMagnifier), findsOneWidget);
+    expect(calls.where((call) => call.method == 'move'), isEmpty);
+    expect(calls.last.method, 'end');
+    expect(calls.last.arguments['session'], calls.first.arguments['session']);
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump();
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+  });
+
   testWidgets('a delayed reply cannot revive a disposed overlay', (
     tester,
   ) async {
