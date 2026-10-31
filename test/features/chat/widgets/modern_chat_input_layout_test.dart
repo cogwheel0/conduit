@@ -129,6 +129,31 @@ void main() {
     expect(tester.takeException(), isNull);
   }, variant: mobilePlatforms);
 
+  testWidgets('landscape suggestions retain a full scaled editor line', (
+    tester,
+  ) async {
+    await pumpComposer(
+      tester,
+      size: const Size(874, 402),
+      textScale: 2,
+      keyboardHeight: 180,
+      sent: [],
+    );
+    await enterDraft(tester, '/');
+    final editable = tester
+        .state<EditableTextState>(find.byType(EditableText))
+        .renderEditable;
+    expect(
+      editable.size.height,
+      greaterThanOrEqualTo(editable.preferredLineHeight),
+    );
+    expect(
+      find.byKey(const ValueKey('primary-btn-send')).hitTestable(),
+      findsOneWidget,
+    );
+    expect(tester.takeException(), isNull);
+  }, variant: mobilePlatforms);
+
   for (final scenario in [
     (name: 'portrait', size: const Size(402, 874), scale: 1.0, keyboard: 0.0),
     (

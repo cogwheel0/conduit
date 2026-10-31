@@ -3629,62 +3629,51 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
 
     if (!showCompactComposer) {
       final List<Widget> composerChildren = <Widget>[
-        if (_shouldShowPromptOverlay)
-          Flexible(
-            child: Padding(
-              key: const ValueKey('prompt-overlay'),
-              padding: const EdgeInsets.fromLTRB(
-                Spacing.sm,
-                0,
-                Spacing.sm,
-                Spacing.xs,
-              ),
-              child: _buildActiveOverlay(),
-            ),
-          ),
         Flexible(
-          child: Padding(
-            key: const ValueKey('composer-expanded-input'),
-            padding: const EdgeInsets.fromLTRB(
-              _composerHorizontalInset,
-              Spacing.sm,
-              _composerHorizontalInset,
-              Spacing.sm,
-            ),
-            child: Stack(
-              children: [
-                Padding(
-                  padding: EdgeInsetsDirectional.only(
-                    end: _showExpandButton && !_expandModalOpen
-                        ? conduitScaledIconExtent(context, IconSize.large) +
-                              (Spacing.xs * 3)
-                        : 0,
-                  ),
-                  child: _buildComposerTextField(
-                    brightness: brightness,
-                    sendOnEnter: sendOnEnter,
-                    voiceAvailable: voiceAvailable,
-                    isGenerating: isGenerating,
-                    desktopTurnRunning:
-                        isDesktopHermesComposer &&
-                        desktopTurnState == HermesDesktopTurnState.running,
-                    allUploadsComplete: allUploadsComplete,
-                    placeholderBase: placeholderBase,
-                    placeholderFocused: placeholderFocused,
-                    contentPadding: const EdgeInsets.symmetric(
-                      horizontal: Spacing.sm,
-                      vertical: Spacing.xs,
+          child: _buildExpandedComposerEditor(
+            Padding(
+              key: const ValueKey('composer-expanded-input'),
+              padding: const EdgeInsets.fromLTRB(
+                _composerHorizontalInset,
+                Spacing.sm,
+                _composerHorizontalInset,
+                Spacing.sm,
+              ),
+              child: Stack(
+                children: [
+                  Padding(
+                    padding: EdgeInsetsDirectional.only(
+                      end: _showExpandButton && !_expandModalOpen
+                          ? conduitScaledIconExtent(context, IconSize.large) +
+                                (Spacing.xs * 3)
+                          : 0,
                     ),
-                    isActive: isActive,
+                    child: _buildComposerTextField(
+                      brightness: brightness,
+                      sendOnEnter: sendOnEnter,
+                      voiceAvailable: voiceAvailable,
+                      isGenerating: isGenerating,
+                      desktopTurnRunning:
+                          isDesktopHermesComposer &&
+                          desktopTurnState == HermesDesktopTurnState.running,
+                      allUploadsComplete: allUploadsComplete,
+                      placeholderBase: placeholderBase,
+                      placeholderFocused: placeholderFocused,
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: Spacing.sm,
+                        vertical: Spacing.xs,
+                      ),
+                      isActive: isActive,
+                    ),
                   ),
-                ),
-                if (_showExpandButton && !_expandModalOpen)
-                  PositionedDirectional(
-                    top: Spacing.xs,
-                    end: Spacing.xs,
-                    child: _buildExpandButton(_showExpandTextModal),
-                  ),
-              ],
+                  if (_showExpandButton && !_expandModalOpen)
+                    PositionedDirectional(
+                      top: Spacing.xs,
+                      end: Spacing.xs,
+                      child: _buildExpandButton(_showExpandTextModal),
+                    ),
+                ],
+              ),
             ),
           ),
         ),
@@ -4092,6 +4081,55 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       }
     }
     return result;
+  }
+
+  /// Leaves room for one scaled editor line when suggestions share its height.
+  Widget _buildExpandedComposerEditor(Widget editor) {
+    if (!_shouldShowPromptOverlay) return editor;
+    final typography = _composerTypography(context);
+    final painter = TextPainter(
+      text: TextSpan(text: ' ', style: typography.style),
+      textDirection: typography.direction,
+      textScaler: typography.textScaler,
+      locale: typography.locale,
+    );
+    final double minimumEditorHeight;
+    try {
+      // Include the outer input padding and the text field's own padding.
+      minimumEditorHeight =
+          painter.preferredLineHeight + 2 * (Spacing.sm + Spacing.xs);
+    } finally {
+      painter.dispose();
+    }
+    return LayoutBuilder(
+      builder: (context, constraints) => Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          ConstrainedBox(
+            constraints: BoxConstraints(
+              maxHeight: math.max(
+                0,
+                math.min(
+                  constraints.maxHeight / 2,
+                  constraints.maxHeight - minimumEditorHeight,
+                ),
+              ),
+            ),
+            child: Padding(
+              key: const ValueKey('prompt-overlay'),
+              padding: const EdgeInsets.fromLTRB(
+                Spacing.sm,
+                0,
+                Spacing.sm,
+                Spacing.xs,
+              ),
+              child: _buildActiveOverlay(),
+            ),
+          ),
+          Flexible(child: editor),
+        ],
+      ),
+    );
   }
 
   Widget _buildComposerTextField({
