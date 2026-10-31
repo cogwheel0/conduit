@@ -134,7 +134,6 @@ final class NativeTextSelectionMenuBridge: NSObject, ConduitBridge, UIEditMenuIn
 
   /// Cancels only the presentation currently owned by this bridge.
   @objc private func dismiss() {
-    selectedAction = nil
     interaction?.dismissMenu()
     finish()
   }

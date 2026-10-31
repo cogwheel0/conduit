@@ -9,6 +9,59 @@ import XCTest
 
 class RunnerTests: XCTestCase {
 
+  @MainActor
+  func testNativeSelectionMenuKeepsChosenActionWhenAppResigns() throws {
+    guard #available(iOS 17.4, *) else { return }
+    let scene = try XCTUnwrap(
+      UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+    let previousKeyWindow = scene.windows.first(where: \.isKeyWindow)
+    let window = UIWindow(windowScene: scene)
+    window.frame = scene.coordinateSpace.bounds
+    let controller = UIViewController()
+    window.rootViewController = controller
+    window.makeKeyAndVisible()
+    window.layoutIfNeeded()
+    defer {
+      window.isHidden = true
+      previousKeyWindow?.makeKey()
+    }
+
+    for chosen in [0, 1, nil] {
+      let messenger = SelectionMenuTestMessenger()
+      let host = SelectionMenuTestHost(messenger: messenger, controller: controller)
+      let bridge = NativeTextSelectionMenuBridge()
+      bridge.attach(to: host)
+      let codec = FlutterStandardMethodCodec.sharedInstance()
+      var replies: [Int?] = []
+      let call = FlutterMethodCall(methodName: "show", arguments: [
+        "session": 1, "labels": ["Copy", "Ask Conduit"],
+        "rect": [20.0, 100.0, 160.0, 24.0],
+        "viewWidth": 390.0, "viewHeight": 844.0,
+      ])
+      let handler = try XCTUnwrap(messenger.handler)
+      handler(codec.encode(call)) { data in
+        guard let data else { XCTFail("Missing menu reply"); return }
+        replies.append((try? codec.decodeEnvelope(data)) as? Int)
+      }
+      let anchor = try XCTUnwrap(controller.view.subviews.last)
+      let interaction = try XCTUnwrap(anchor.interactions.first as? UIEditMenuInteraction)
+      let menu = try XCTUnwrap(bridge.editMenuInteraction(
+        interaction,
+        menuFor: UIEditMenuConfiguration(identifier: NSNumber(value: 1), sourcePoint: .zero),
+        suggestedActions: []))
+      if let chosen {
+        let action = try XCTUnwrap(menu.children[chosen] as? UIAction)
+        UIButton(primaryAction: action).performPrimaryAction()
+      }
+
+      // The app can resign after the action is chosen but before UIKit's
+      // dismissal animation completes. A second dismissal must not reply twice.
+      NotificationCenter.default.post(name: UIApplication.willResignActiveNotification, object: nil)
+      NotificationCenter.default.post(name: UIApplication.willResignActiveNotification, object: nil)
+      XCTAssertEqual(replies, [chosen])
+    }
+  }
+
   func testAppDelegateConformsToCallKitCallbacksAtRuntime() {
     // flutter_callkit_incoming reaches the callbacks with
     // `UIApplication.shared.delegate as? CallkitIncomingAppDelegate`, a Swift
@@ -4230,4 +4283,30 @@ private final class LinkedImageStubProtocol: URLProtocol {
   }
 
   override func stopLoading() {}
+}
+
+private final class SelectionMenuTestMessenger: NSObject, FlutterBinaryMessenger {
+  var handler: FlutterBinaryMessageHandler?
+
+  func send(onChannel channel: String, message: Data?) {}
+  func send(onChannel channel: String, message: Data?, binaryReply callback: FlutterBinaryReply?) {}
+  func setMessageHandlerOnChannel(
+    _ channel: String, binaryMessageHandler handler: FlutterBinaryMessageHandler?
+  ) -> FlutterBinaryMessengerConnection {
+    self.handler = handler
+    return 1
+  }
+  func cleanUpConnection(_ connection: FlutterBinaryMessengerConnection) {}
+}
+
+private final class SelectionMenuTestHost: ConduitBridgeHost {
+  let messenger: FlutterBinaryMessenger
+  let presentingViewController: UIViewController?
+  let activeWindowScene: UIWindowScene? = nil
+  let appGroupIdentifier: String? = nil
+
+  init(messenger: FlutterBinaryMessenger, controller: UIViewController) {
+    self.messenger = messenger
+    presentingViewController = controller
+  }
 }
