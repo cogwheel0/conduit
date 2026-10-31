@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:collection';
 import 'dart:math' as math;
 
+import 'package:conduit/shared/widgets/markdown/markdown_render_gate.dart';
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:flutter/foundation.dart' show listEquals, visibleForTesting;
@@ -11,6 +12,7 @@ import 'package:flutter/rendering.dart'
         MatrixUtils,
         RenderBox,
         RenderObject,
+        RenderProxyBox,
         ScrollCacheExtent,
         ScrollDirection;
 
@@ -802,6 +804,11 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
       final rect = MatrixUtils.transformRect(transform, Offset.zero & box.size);
       if (rect.isFinite) rects[id] = rect;
       final extent = box.size.height;
+      // A loading skeleton or partially inflated body is not a measured row.
+      final rowState = key.currentState;
+      if (rowState is _MountedTimelineRowState && !rowState.isLayoutComplete) {
+        continue;
+      }
       if (_rowExtents[id] != extent) {
         _rowExtents[id] = extent;
         final index = _messageIndexById[id];
@@ -1860,6 +1867,8 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
       messageId: id,
       onMounted: _registerMountedRow,
       onUnmounted: _unregisterMountedRow,
+      pendingExtent: () =>
+          _rowExtents[id] ?? widget.estimateRowExtent?.call(entry.sourceIndex),
       child: IndexedSemantics(
         index: chronologicalIndex,
         child: Builder(
@@ -2137,8 +2146,8 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
 }
 
 /// Rough height of a chat row in a [viewportWidth]-wide transcript. Only the
-/// row's own content feeds in, so the value is O(1) and never changes with
-/// scroll position; it stands in until the row is measured.
+/// row's own content feeds in, so the value never changes with scroll position;
+/// it stands in until the row has finished rendering and can be measured.
 double estimateChatRowExtent({
   required String text,
   required double viewportWidth,
@@ -2148,9 +2157,6 @@ double estimateChatRowExtent({
   int imageCount = 0,
   int followUpCount = 0,
 }) {
-  // ponytail: flat per-kind terms plus body-text lines, as paseo does; code
-  // blocks, tables, and markdown structure are not modelled. Refine only if
-  // the thumb still drifts.
   final chrome = isUser ? 56.0 : 88.0;
   final lineHeight = 22.0 * textScale;
   final glyphWidth = 8.0 * textScale;
@@ -2159,11 +2165,22 @@ double estimateChatRowExtent({
     minCharsPerLine,
     (viewportWidth - 96) / glyphWidth,
   );
-  final lines = text.isEmpty
-      ? 0
-      : math.max(1, (text.length / charsPerLine).ceil());
+  var bodyHeight = 0.0;
+  var previousLineWasBlank = false;
+  if (text.isNotEmpty) {
+    for (final line in text.split('\n')) {
+      final isBlank = line.trim().isEmpty;
+      if (isUser || !isBlank) {
+        bodyHeight +=
+            math.max(1, (line.length / charsPerLine).ceil()) * lineHeight;
+      } else if (!previousLineWasBlank) {
+        bodyHeight += 16;
+      }
+      previousLineWasBlank = isBlank;
+    }
+  }
   return chrome +
-      lines * lineHeight +
+      bodyHeight +
       attachmentCount * 72 +
       imageCount * 220 +
       followUpCount * 44 * textScale;
@@ -2224,7 +2241,7 @@ class ChatRowExtentMemory {
 /// the currently built rows, so one long response makes the scrollbar thumb
 /// jump as rows enter and leave the build window.
 class _TimelineRowDelegate extends SliverChildBuilderDelegate {
-  const _TimelineRowDelegate(
+  _TimelineRowDelegate(
     super.builder, {
     required super.childCount,
     required super.findChildIndexCallback,
@@ -2243,6 +2260,13 @@ class _TimelineRowDelegate extends SliverChildBuilderDelegate {
   final Map<String, double> rowExtents;
   final double? Function(int sourceIndex)? estimateRowExtent;
 
+  // Text estimates scan explicit lines; do that once per delegate, not once
+  // for every scroll frame. Measured extents still take precedence below.
+  late final _estimatedExtents = List<double?>.generate(
+    childCount!,
+    (index) => estimateRowExtent?.call(_entryAt(index).sourceIndex),
+  );
+
   ({String id, int sourceIndex, Object? rebuildKey}) _entryAt(int index) =>
       entries[reverse ? centerIndex - 1 - index : centerIndex + index];
 
@@ -2259,8 +2283,7 @@ class _TimelineRowDelegate extends SliverChildBuilderDelegate {
     var unknown = 0;
     for (var index = lastIndex + 1; index < count; index += 1) {
       final entry = _entryAt(index);
-      final extent =
-          rowExtents[entry.id] ?? estimateRowExtent?.call(entry.sourceIndex);
+      final extent = rowExtents[entry.id] ?? _estimatedExtents[index];
       if (extent == null) {
         unknown += 1;
       } else {
@@ -2292,6 +2315,7 @@ class _MountedTimelineRow extends StatefulWidget {
     required this.messageId,
     required this.onMounted,
     required this.onUnmounted,
+    required this.pendingExtent,
     required this.child,
     super.key,
   });
@@ -2299,6 +2323,7 @@ class _MountedTimelineRow extends StatefulWidget {
   final String messageId;
   final ValueChanged<String> onMounted;
   final ValueChanged<String> onUnmounted;
+  final ValueGetter<double?> pendingExtent;
   final Widget child;
 
   @override
@@ -2306,6 +2331,10 @@ class _MountedTimelineRow extends StatefulWidget {
 }
 
 class _MountedTimelineRowState extends State<_MountedTimelineRow> {
+  final _renderGate = MarkdownRenderGate();
+
+  bool get isLayoutComplete => _renderGate.isComplete;
+
   @override
   void initState() {
     super.initState();
@@ -2323,9 +2352,78 @@ class _MountedTimelineRowState extends State<_MountedTimelineRow> {
   @override
   void dispose() {
     widget.onUnmounted(widget.messageId);
+    _renderGate.dispose();
     super.dispose();
   }
 
   @override
-  Widget build(BuildContext context) => widget.child;
+  Widget build(BuildContext context) => MarkdownRenderGateScope(
+    gate: _renderGate,
+    child: _TimelineRowExtent(
+      gate: _renderGate,
+      pendingExtent: widget.pendingExtent,
+      child: widget.child,
+    ),
+  );
+}
+
+/// Reserves the full row while a loading skeleton or chunked body is visible.
+/// Read the gate during layout, after descendant builds register their pending
+/// regions. A build-time ConstrainedBox would see the gate one frame too early.
+class _TimelineRowExtent extends SingleChildRenderObjectWidget {
+  const _TimelineRowExtent({
+    required this.gate,
+    required this.pendingExtent,
+    required super.child,
+  });
+
+  final MarkdownRenderGate gate;
+  final ValueGetter<double?> pendingExtent;
+
+  @override
+  _RenderTimelineRowExtent createRenderObject(BuildContext context) =>
+      _RenderTimelineRowExtent(gate, pendingExtent);
+
+  @override
+  void updateRenderObject(
+    BuildContext context,
+    _RenderTimelineRowExtent renderObject,
+  ) {
+    renderObject
+      ..gate = gate
+      ..pendingExtent = pendingExtent
+      ..markNeedsLayout();
+  }
+}
+
+class _RenderTimelineRowExtent extends RenderProxyBox {
+  _RenderTimelineRowExtent(this.gate, this.pendingExtent);
+
+  MarkdownRenderGate gate;
+  ValueGetter<double?> pendingExtent;
+
+  double get _pendingHeight => gate.isComplete ? 0 : pendingExtent() ?? 0;
+
+  Size _reservePendingHeight(Size childSize, BoxConstraints constraints) =>
+      constraints.constrain(
+        Size(childSize.width, math.max(childSize.height, _pendingHeight)),
+      );
+
+  @override
+  Size computeDryLayout(BoxConstraints constraints) =>
+      _reservePendingHeight(super.computeDryLayout(constraints), constraints);
+
+  @override
+  double computeMinIntrinsicHeight(double width) =>
+      math.max(super.computeMinIntrinsicHeight(width), _pendingHeight);
+
+  @override
+  double computeMaxIntrinsicHeight(double width) =>
+      math.max(super.computeMaxIntrinsicHeight(width), _pendingHeight);
+
+  @override
+  void performLayout() {
+    super.performLayout();
+    size = _reservePendingHeight(size, constraints);
+  }
 }

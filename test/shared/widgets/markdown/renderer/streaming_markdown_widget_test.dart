@@ -19,6 +19,7 @@ import 'package:conduit/shared/widgets/markdown/markdown_config.dart';
 import 'package:conduit/shared/widgets/markdown/markdown_compile_service.dart';
 import 'package:conduit/shared/widgets/markdown/markdown_display_part.dart';
 import 'package:conduit/shared/widgets/markdown/markdown_loading_skeleton.dart';
+import 'package:conduit/shared/widgets/markdown/markdown_render_gate.dart';
 import 'package:conduit/shared/widgets/markdown/renderer/conduit_markdown_widget.dart';
 import 'package:conduit_core/utils/streaming_markdown_preparation.dart';
 import 'package:conduit/shared/widgets/markdown/streaming_markdown_widget.dart';
@@ -3647,6 +3648,8 @@ Tail keeps growing
       index += 1;
     }
     final content = longSettled.toString();
+    final gate = MarkdownRenderGate();
+    addTearDown(gate.dispose);
     final compiler = _GatedSettledPrepareMarkdownCompileService();
     addTearDown(() {
       compiler.releaseFirst();
@@ -3659,13 +3662,16 @@ Tail keeps growing
         child: MaterialApp(
           theme: AppTheme.light(TweakcnThemes.t3Chat),
           home: Scaffold(
-            body: SingleChildScrollView(
-              child: StreamingMarkdownWidget(
-                content: content,
-                isStreaming: false,
-                // Opt into the production mount path; the default
-                // widget-test detection forces the synchronous path.
-                debugTreatAsWidgetTest: false,
+            body: MarkdownRenderGateScope(
+              gate: gate,
+              child: SingleChildScrollView(
+                child: StreamingMarkdownWidget(
+                  content: content,
+                  isStreaming: false,
+                  // Opt into the production mount path; the default
+                  // widget-test detection forces the synchronous path.
+                  debugTreatAsWidgetTest: false,
+                ),
               ),
             ),
           ),
@@ -3674,13 +3680,16 @@ Tail keeps growing
     );
 
     check(tester.any(find.byType(MarkdownLoadingSkeleton))).isTrue();
+    expect(gate.isComplete, isFalse);
     check(tester.any(find.textContaining('Deferred giant line 0'))).isFalse();
 
     compiler.releaseFirst();
     await tester.pumpAndSettle();
 
     check(compiler.preparedInputs).deepEquals([content]);
+    expect(gate.isComplete, isTrue);
     check(tester.any(find.textContaining('Deferred giant line 0'))).isTrue();
+    await tester.pumpWidget(const SizedBox.shrink());
   });
 
   testWidgets(
@@ -3796,8 +3805,8 @@ Tail keeps growing
       expect(find.byType(SelectionArea), findsNothing);
 
       compiler.release();
-      await tester.pump();
-      await tester.pump();
+      // Selection waits for the final block layout as well as compilation.
+      await tester.pumpAndSettle();
 
       expect(skeletonFinder, findsNothing);
       expect(

@@ -126,6 +126,46 @@ void main() {
     },
   );
 
+  testWidgets('render gate completes after the last chunk is laid out', (
+    tester,
+  ) async {
+    final gate = MarkdownRenderGate();
+    addTearDown(gate.dispose);
+    final key = GlobalKey();
+    final layouts = <({bool complete, double height})>[];
+    void sampleLayout() {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        layouts.add((
+          complete: gate.isComplete,
+          height: tester.getSize(find.byKey(key)).height,
+        ));
+      });
+    }
+
+    sampleLayout();
+    await tester.pumpWidget(
+      _harness(
+        MarkdownRenderGateScope(
+          gate: gate,
+          child: ChunkedBlockColumn(
+            key: key,
+            children: List.generate(160, (_) => const SizedBox(height: 40)),
+          ),
+        ),
+      ),
+    );
+    sampleLayout();
+    await tester.pump();
+    sampleLayout();
+    await tester.pump();
+    expect(layouts, [
+      (complete: false, height: 48 * 40.0),
+      (complete: false, height: 144 * 40.0),
+      (complete: true, height: 160 * 40.0),
+    ]);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
   test('render gate tracks incomplete regions and notifies on edges', () {
     final gate = MarkdownRenderGate();
     var notifications = 0;
