@@ -3630,58 +3630,62 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     if (!showCompactComposer) {
       final List<Widget> composerChildren = <Widget>[
         if (_shouldShowPromptOverlay)
-          Padding(
-            key: const ValueKey('prompt-overlay'),
-            padding: const EdgeInsets.fromLTRB(
-              Spacing.sm,
-              0,
-              Spacing.sm,
-              Spacing.xs,
-            ),
-            child: _buildActiveOverlay(),
-          ),
-        Padding(
-          key: const ValueKey('composer-expanded-input'),
-          padding: const EdgeInsets.fromLTRB(
-            _composerHorizontalInset,
-            Spacing.sm,
-            _composerHorizontalInset,
-            Spacing.sm,
-          ),
-          child: Stack(
-            children: [
-              Padding(
-                padding: EdgeInsetsDirectional.only(
-                  end: _showExpandButton && !_expandModalOpen
-                      ? conduitScaledIconExtent(context, IconSize.large) +
-                            (Spacing.xs * 3)
-                      : 0,
-                ),
-                child: _buildComposerTextField(
-                  brightness: brightness,
-                  sendOnEnter: sendOnEnter,
-                  voiceAvailable: voiceAvailable,
-                  isGenerating: isGenerating,
-                  desktopTurnRunning:
-                      isDesktopHermesComposer &&
-                      desktopTurnState == HermesDesktopTurnState.running,
-                  allUploadsComplete: allUploadsComplete,
-                  placeholderBase: placeholderBase,
-                  placeholderFocused: placeholderFocused,
-                  contentPadding: const EdgeInsets.symmetric(
-                    horizontal: Spacing.sm,
-                    vertical: Spacing.xs,
-                  ),
-                  isActive: isActive,
-                ),
+          Flexible(
+            child: Padding(
+              key: const ValueKey('prompt-overlay'),
+              padding: const EdgeInsets.fromLTRB(
+                Spacing.sm,
+                0,
+                Spacing.sm,
+                Spacing.xs,
               ),
-              if (_showExpandButton && !_expandModalOpen)
-                PositionedDirectional(
-                  top: Spacing.xs,
-                  end: Spacing.xs,
-                  child: _buildExpandButton(_showExpandTextModal),
+              child: _buildActiveOverlay(),
+            ),
+          ),
+        Flexible(
+          child: Padding(
+            key: const ValueKey('composer-expanded-input'),
+            padding: const EdgeInsets.fromLTRB(
+              _composerHorizontalInset,
+              Spacing.sm,
+              _composerHorizontalInset,
+              Spacing.sm,
+            ),
+            child: Stack(
+              children: [
+                Padding(
+                  padding: EdgeInsetsDirectional.only(
+                    end: _showExpandButton && !_expandModalOpen
+                        ? conduitScaledIconExtent(context, IconSize.large) +
+                              (Spacing.xs * 3)
+                        : 0,
+                  ),
+                  child: _buildComposerTextField(
+                    brightness: brightness,
+                    sendOnEnter: sendOnEnter,
+                    voiceAvailable: voiceAvailable,
+                    isGenerating: isGenerating,
+                    desktopTurnRunning:
+                        isDesktopHermesComposer &&
+                        desktopTurnState == HermesDesktopTurnState.running,
+                    allUploadsComplete: allUploadsComplete,
+                    placeholderBase: placeholderBase,
+                    placeholderFocused: placeholderFocused,
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: Spacing.sm,
+                      vertical: Spacing.xs,
+                    ),
+                    isActive: isActive,
+                  ),
                 ),
-            ],
+                if (_showExpandButton && !_expandModalOpen)
+                  PositionedDirectional(
+                    top: Spacing.xs,
+                    end: Spacing.xs,
+                    child: _buildExpandButton(_showExpandTextModal),
+                  ),
+              ],
+            ),
           ),
         ),
         Padding(
@@ -3794,7 +3798,8 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
         ),
       ];
 
-      // Multiline and quick-pill states use the full two-tier shell.
+      // Only the editor and suggestions yield height; actions never scroll.
+      // The text field handles scrolling after reaching its line or height cap.
       shellContent = KeyedSubtree(
         key: const ValueKey('expanded-composer-shell'),
         child: ConstrainedBox(
@@ -3804,13 +3809,10 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
           // Keep text-entry height changes direct. AnimatedSize here runs on
           // each new or removed line, making the composer trail the user's
           // typing and repeatedly relaying out the chat viewport.
-          child: SingleChildScrollView(
-            physics: const ClampingScrollPhysics(),
-            child: RepaintBoundary(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: composerChildren,
-              ),
+          child: RepaintBoundary(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: composerChildren,
             ),
           ),
         ),
@@ -4231,7 +4233,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                   enabled: widget.enabled,
                   autofocus: false,
                   minLines: 1,
-                  maxLines: null,
+                  maxLines: 8,
                   textAlignVertical: TextAlignVertical.center,
                   keyboardType: TextInputType.multiline,
                   textCapitalization: TextCapitalization.sentences,
@@ -4276,7 +4278,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                 enabled: widget.enabled,
                 autofocus: false,
                 minLines: 1,
-                maxLines: null,
+                maxLines: 8,
                 textAlignVertical: TextAlignVertical.center,
                 keyboardType: TextInputType.multiline,
                 textCapitalization: TextCapitalization.sentences,
