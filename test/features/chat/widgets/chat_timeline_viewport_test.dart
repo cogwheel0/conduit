@@ -303,6 +303,22 @@ void main() {
         .isLessThan(estimateChatRowExtent(text: 'hi', viewportWidth: 400));
   });
 
+  test('row extent estimate accounts for explicit lines and paragraphs', () {
+    final lines = List.filled(160, 'Copper marker.');
+    double estimate(String text, {bool isUser = false}) =>
+        estimateChatRowExtent(text: text, viewportWidth: 390, isUser: isUser);
+    expect(
+      estimate(lines.join('\n\n')),
+      greaterThan(estimate(lines.join(' ')) * 2),
+    );
+    expect(estimate(lines.join('\n')), greaterThan(estimate(lines.join(' '))));
+    expect(estimate('Marker.\n\n\n\nSail.'), estimate('Marker.\n\nSail.'));
+    expect(
+      estimate('Marker.\n\n\n\nSail.', isUser: true),
+      greaterThan(estimate('Marker.\n\nSail.', isUser: true)),
+    );
+  });
+
   test('row extent memory returns recorded heights and evicts oldest', () {
     final memory = ChatRowExtentMemory.instance;
     addTearDown(memory.debugClear);
@@ -352,6 +368,40 @@ void main() {
     await tester.pumpAndSettle();
     check(reported[29]).equals(90);
     check(reported[28]).equals(52);
+  });
+
+  _viewportTest('completed rows can shrink below their remembered height', (
+    tester,
+  ) async {
+    final controller = _controller(tester);
+    final expanded = ValueNotifier(true);
+    addTearDown(expanded.dispose);
+    final measured = <int, double>{};
+    await tester.pumpWidget(
+      _viewportHost(
+        _viewport(
+          controller: controller,
+          ids: const ['expandable-row'],
+          followLatest: false,
+          initialAnchor: const ChatScrollAnchor(
+            messageId: 'expandable-row',
+            offsetWithinMessage: 0,
+            loadedCount: 1,
+          ),
+          estimateRowExtent: (_) => 600,
+          onRowExtentMeasured: (index, extent) => measured[index] = extent,
+          rowBuilder: (_, index) => ValueListenableBuilder<bool>(
+            valueListenable: expanded,
+            builder: (_, value, _) => SizedBox(height: value ? 600 : 52),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(measured[0], 600);
+    expanded.value = false;
+    await tester.pumpAndSettle();
+    expect(measured[0], 52);
   });
 
   _viewportTest('content extent stays exact once rows have been laid out', (

@@ -137,7 +137,6 @@ class _ChunkedBlockColumnState extends State<ChunkedBlockColumn> {
           widget.children.length,
         );
       });
-      _syncGate();
       _scheduleRevealIfNeeded();
     });
     binding.scheduleFrame();
@@ -145,6 +144,9 @@ class _ChunkedBlockColumnState extends State<ChunkedBlockColumn> {
 
   @override
   Widget build(BuildContext context) {
+    // Completion describes the children being built, not the next chunk
+    // scheduled by the previous frame's post-frame callback.
+    _syncGate();
     final children = _isComplete
         ? widget.children
         : widget.children.sublist(0, _revealed);
