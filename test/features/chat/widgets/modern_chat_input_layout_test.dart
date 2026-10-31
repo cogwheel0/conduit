@@ -218,6 +218,21 @@ void main() {
         await tester.pumpAndSettle();
         expect(editable.offset.pixels, lessThan(scrolledOffset));
         expect(tester.getRect(actions), initialRect);
+        final position = editable.offset as ScrollPosition;
+        position.jumpTo(position.maxScrollExtent);
+        await tester.pump();
+        final finalLine = editable.getBoxesForSelection(
+          TextSelection(
+            baseOffset: text.lastIndexOf('\n') + 1,
+            extentOffset: text.length,
+          ),
+        );
+        expect(finalLine, isNotEmpty);
+        for (final box in finalLine) {
+          expect(box.top, greaterThanOrEqualTo(0));
+          expect(box.bottom, lessThanOrEqualTo(editable.size.height));
+        }
+        expect(tester.getRect(actions), initialRect);
         await tester.tap(find.byKey(const ValueKey('primary-btn-send')));
         await tester.pump();
         expect(sent, [text]);
