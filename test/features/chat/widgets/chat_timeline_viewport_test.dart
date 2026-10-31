@@ -270,26 +270,38 @@ void main() {
     final controller = _controller(tester);
     final ids = List.generate(500, (index) => 'synthetic-row-$index');
     var estimate = 52.0;
-    double estimateRow(int index) => estimate;
-    Widget host() => _viewportHost(
-      _viewport(
-        controller: controller,
-        ids: ids,
-        initialAnchor: ChatScrollAnchor(
-          messageId: ids.first,
-          offsetWithinMessage: 0,
-          loadedCount: ids.length,
+    var rowBuilds = 0;
+    Widget rowBuilder(BuildContext context, int index) {
+      rowBuilds++;
+      return SizedBox(height: 52, child: Text(ids[index]));
+    }
+
+    Widget host() {
+      final capturedEstimate = estimate;
+      return _viewportHost(
+        _viewport(
+          controller: controller,
+          ids: ids,
+          rowBuilder: rowBuilder,
+          initialAnchor: ChatScrollAnchor(
+            messageId: ids.first,
+            offsetWithinMessage: 0,
+            loadedCount: ids.length,
+          ),
+          maintainVisibleAnchor: true,
+          followLatest: false,
+          estimateRowExtent: (_) => capturedEstimate,
         ),
-        maintainVisibleAnchor: true,
-        followLatest: false,
-        estimateRowExtent: estimateRow,
-      ),
-    );
+      );
+    }
+
     await tester.pumpWidget(host());
     await tester.pumpAndSettle();
     final previousExtent = controller.metrics!.maxScrollExtent;
+    final previousBuilds = rowBuilds;
     estimate = 104;
     await tester.pumpWidget(host());
+    expect(rowBuilds, previousBuilds);
     await tester.drag(find.byType(CustomScrollView), const Offset(0, -30));
     await tester.pumpAndSettle();
     expect(controller.metrics!.maxScrollExtent, greaterThan(previousExtent));
