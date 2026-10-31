@@ -2224,7 +2224,7 @@ class ChatRowExtentMemory {
 /// the currently built rows, so one long response makes the scrollbar thumb
 /// jump as rows enter and leave the build window.
 class _TimelineRowDelegate extends SliverChildBuilderDelegate {
-  const _TimelineRowDelegate(
+  _TimelineRowDelegate(
     super.builder, {
     required super.childCount,
     required super.findChildIndexCallback,
@@ -2242,10 +2242,17 @@ class _TimelineRowDelegate extends SliverChildBuilderDelegate {
   final bool reverse;
   final Map<String, double> rowExtents;
   final double? Function(int sourceIndex)? estimateRowExtent;
+  // A viewport rebuild replaces this delegate, including after content or
+  // dimensions change. Measured heights below always override estimates.
+  late final _estimatedRowExtents = <double?>[
+    for (var index = 0; index < childCount!; index++)
+      estimateRowExtent?.call(_entryAt(index).sourceIndex),
+  ];
 
   ({String id, int sourceIndex, Object? rebuildKey}) _entryAt(int index) =>
       entries[reverse ? centerIndex - 1 - index : centerIndex + index];
 
+  /// Reuses unchanged offscreen estimates instead of recomputing them per frame.
   @override
   double? estimateMaxScrollOffset(
     int firstIndex,
@@ -2259,8 +2266,7 @@ class _TimelineRowDelegate extends SliverChildBuilderDelegate {
     var unknown = 0;
     for (var index = lastIndex + 1; index < count; index += 1) {
       final entry = _entryAt(index);
-      final extent =
-          rowExtents[entry.id] ?? estimateRowExtent?.call(entry.sourceIndex);
+      final extent = rowExtents[entry.id] ?? _estimatedRowExtents[index];
       if (extent == null) {
         unknown += 1;
       } else {
