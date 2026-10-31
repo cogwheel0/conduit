@@ -9,6 +9,7 @@ import XCTest
 
 class RunnerTests: XCTestCase {
 
+  /// Checks action delivery and exactly-once cancellation during app resignation.
   @MainActor
   func testNativeSelectionMenuKeepsChosenActionWhenAppResigns() throws {
     guard #available(iOS 17.4, *) else { return }
@@ -62,6 +63,7 @@ class RunnerTests: XCTestCase {
     }
   }
 
+  /// Checks that host replacement isolates queued actions and animations.
   @MainActor
   func testNativeSelectionMenuIgnoresCallbacksFromPreviousHost() throws {
     guard #available(iOS 17.4, *) else { return }

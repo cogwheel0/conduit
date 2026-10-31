@@ -6,6 +6,7 @@ import 'package:material_ui/material_ui.dart';
 /// Uses UIKit's edit menu for read-only iOS selections, retaining Flutter's
 /// selection/actions and its standard toolbar on other or unavailable hosts.
 class AdaptiveTextSelectionMenu extends StatefulWidget {
+  /// Callers retain selection ownership and remove the menu on dismissal.
   const AdaptiveTextSelectionMenu({
     super.key,
     required this.selectionRect,
@@ -19,6 +20,7 @@ class AdaptiveTextSelectionMenu extends StatefulWidget {
   final List<ContextMenuButtonItem> buttonItems;
   final VoidCallback onDismiss;
 
+  /// Creates the presentation's session and fallback state.
   @override
   State<AdaptiveTextSelectionMenu> createState() =>
       _AdaptiveTextSelectionMenuState();
@@ -33,18 +35,21 @@ class _AdaptiveTextSelectionMenuState extends State<AdaptiveTextSelectionMenu> {
   bool _fallback = false;
   bool _scheduled = false;
 
+  /// Refreshes presentation after view, theme, or localization changes.
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
     _schedulePresentation();
   }
 
+  /// Replaces the menu when its selection geometry or actions change.
   @override
   void didUpdateWidget(AdaptiveTextSelectionMenu oldWidget) {
     super.didUpdateWidget(oldWidget);
     _schedulePresentation();
   }
 
+  /// Coalesces updates until layout has settled, keeping geometry consistent.
   void _schedulePresentation() {
     if (_fallback || _scheduled || !SystemContextMenu.isSupported(context)) {
       return;
@@ -90,6 +95,7 @@ class _AdaptiveTextSelectionMenuState extends State<AdaptiveTextSelectionMenu> {
     }
   }
 
+  /// Keeps selection usable when this presentation's native host is unavailable.
   void _useFallback(int session) {
     if (mounted && _session == session) setState(() => _fallback = true);
   }
@@ -105,6 +111,7 @@ class _AdaptiveTextSelectionMenuState extends State<AdaptiveTextSelectionMenu> {
     }
   }
 
+  /// Removes this session's menu without dismissing a newer selection's menu.
   @override
   void dispose() {
     final session = _session;
@@ -112,6 +119,7 @@ class _AdaptiveTextSelectionMenuState extends State<AdaptiveTextSelectionMenu> {
     super.dispose();
   }
 
+  /// Leaves the overlay empty while UIKit owns rendering and hit testing.
   @override
   Widget build(BuildContext context) =>
       _fallback || !SystemContextMenu.isSupported(context)

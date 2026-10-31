@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
 
+/// Covers fallback hosts, native action transport, and presentation ownership.
 void main() {
   const channel = MethodChannel('app.cogwheel.conduit/text_selection_menu');
   final binding = TestWidgetsFlutterBinding.ensureInitialized();

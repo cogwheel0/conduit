@@ -9,6 +9,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
 
+/// Exercises native Copy and Ask Conduit through a real SelectionArea.
 void main() {
   const channel = MethodChannel('app.cogwheel.conduit/text_selection_menu');
   final binding = TestWidgetsFlutterBinding.ensureInitialized();

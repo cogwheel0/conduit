@@ -19,6 +19,7 @@ final class NativeTextSelectionMenuBridge: NSObject, ConduitBridge, UIEditMenuIn
   private var targetRect: CGRect = .zero
   private var selectedAction: Int?
 
+  /// Resolves pending menus when the app gives up foreground interaction.
   override init() {
     super.init()
     NotificationCenter.default.addObserver(
@@ -91,6 +92,7 @@ final class NativeTextSelectionMenuBridge: NSObject, ConduitBridge, UIEditMenuIn
       sourcePoint: CGPoint(x: targetRect.midX, y: targetRect.midY)))
   }
 
+  /// Binds UIKit actions to the interaction that created them.
   func editMenuInteraction(
     _ interaction: UIEditMenuInteraction, menuFor configuration: UIEditMenuConfiguration,
     suggestedActions: [UIMenuElement]
@@ -105,10 +107,12 @@ final class NativeTextSelectionMenuBridge: NSObject, ConduitBridge, UIEditMenuIn
     })
   }
 
+  /// Anchors UIKit to the visible selection within the Flutter host view.
   func editMenuInteraction(
     _ interaction: UIEditMenuInteraction, targetRectFor configuration: UIEditMenuConfiguration
   ) -> CGRect { targetRect }
 
+  /// Returns the chosen action after the current interaction's animation.
   func editMenuInteraction(
     _ interaction: UIEditMenuInteraction, willDismissMenuFor configuration: UIEditMenuConfiguration,
     animator: UIEditMenuInteractionAnimating
@@ -121,7 +125,7 @@ final class NativeTextSelectionMenuBridge: NSObject, ConduitBridge, UIEditMenuIn
     }
   }
 
-  /// Resolves one request after UIKit dismisses the menu.
+  /// Delivers one result and releases this presentation's UIKit objects.
   private func finish() {
     let result = completion
     completion = nil
@@ -134,7 +138,7 @@ final class NativeTextSelectionMenuBridge: NSObject, ConduitBridge, UIEditMenuIn
     selectedAction = nil
   }
 
-  /// Cancels only the presentation currently owned by this bridge.
+  /// Dismisses the current menu while preserving an already chosen action.
   @objc private func dismiss() {
     interaction?.dismissMenu()
     finish()

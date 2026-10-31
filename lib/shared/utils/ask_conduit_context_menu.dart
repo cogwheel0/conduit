@@ -52,6 +52,7 @@ List<ContextMenuButtonItem> withAskConduitContextMenuItem({
   ];
 }
 
+/// Adapts presentation while preserving the region's selection and actions.
 Widget buildAskConduitSelectionAreaContextMenu({
   required SelectableRegionState selectableRegionState,
   required WidgetRef ref,
