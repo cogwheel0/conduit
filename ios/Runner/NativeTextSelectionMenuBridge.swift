@@ -53,6 +53,7 @@ final class NativeTextSelectionMenuBridge: NSObject, ConduitBridge, UIEditMenuIn
   /// Adds a non-intercepting anchor to the host's view. UIKit owns the menu's
   /// appearance, placement, accessibility, and presentation/dismissal animations.
   private func show(_ args: [String: Any], result: @escaping FlutterResult) {
+    dismiss()
     guard let id = args["session"] as? Int,
       let labels = args["labels"] as? [String], !labels.isEmpty,
       let rect = args["rect"] as? [Double], rect.count == 4,
@@ -64,7 +65,6 @@ final class NativeTextSelectionMenuBridge: NSObject, ConduitBridge, UIEditMenuIn
       result(FlutterError(code: "unavailable", message: "Selection menu unavailable", details: nil))
       return
     }
-    dismiss()
     let scaleX = view.bounds.width / width
     let scaleY = view.bounds.height / height
     let target = CGRect(

@@ -123,6 +123,51 @@ class RunnerTests: XCTestCase {
     }
   }
 
+  /// Verifies a rejected replacement cannot leave a previous native menu open.
+  @MainActor
+  func testNativeSelectionMenuDismissesBeforeRejectingReplacement() throws {
+    guard #available(iOS 16.0, *) else { return }
+    let scene = try XCTUnwrap(
+      UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+    let previousKeyWindow = scene.windows.first(where: \.isKeyWindow)
+    let window = UIWindow(windowScene: scene)
+    window.frame = scene.coordinateSpace.bounds
+    let controller = UIViewController()
+    window.rootViewController = controller
+    window.makeKeyAndVisible()
+    window.layoutIfNeeded()
+    defer {
+      window.isHidden = true
+      previousKeyWindow?.makeKey()
+    }
+    let messenger = SelectionMenuTestMessenger()
+    let host = SelectionMenuTestHost(messenger: messenger, controller: controller)
+    let bridge = NativeTextSelectionMenuBridge()
+    bridge.attach(to: host)
+    let codec = FlutterStandardMethodCodec.sharedInstance()
+    let handler = try XCTUnwrap(messenger.handler)
+    var args: [String: Any] = [
+      "session": 1, "labels": ["Copy"],
+      "rect": [20.0, 100.0, 160.0, 24.0],
+      "viewWidth": 390.0, "viewHeight": 844.0,
+    ]
+    var oldReplies = 0
+    handler(codec.encode(FlutterMethodCall(methodName: "show", arguments: args))) { _ in
+      oldReplies += 1
+    }
+    let anchor = try XCTUnwrap(controller.view.subviews.last)
+    args["session"] = 2
+    args["labels"] = [String]()
+    var rejected = false
+    handler(codec.encode(FlutterMethodCall(methodName: "show", arguments: args))) { data in
+      rejected = data.map { codec.decodeEnvelope($0) is FlutterError } ?? false
+    }
+    XCTAssertTrue(rejected)
+    XCTAssertEqual(oldReplies, 1)
+    XCTAssertNil(anchor.superview)
+    NotificationCenter.default.post(name: UIApplication.willResignActiveNotification, object: nil)
+  }
+
   func testAppDelegateConformsToCallKitCallbacksAtRuntime() {
     // flutter_callkit_incoming reaches the callbacks with
     // `UIApplication.shared.delegate as? CallkitIncomingAppDelegate`, a Swift

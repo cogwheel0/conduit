@@ -150,6 +150,43 @@ void main() {
   }, variant: const TargetPlatformVariant({TargetPlatform.iOS}));
 
   testWidgets(
+    'old dismissal before the replacement frame cannot close the new menu',
+    (tester) async {
+      await host(tester);
+      final oldSession = (calls.single.arguments as Map)['session'];
+      final element = tester.element(
+        find.byType(AdaptiveTextSelectionMenu),
+      ) as StatefulElement;
+      final previous = element.widget as AdaptiveTextSelectionMenu;
+      // Update before pumping a frame so the native reply can arrive while
+      // the replacement is still waiting for its post-layout presentation.
+      binding.buildOwner!.buildScope(
+        element,
+        () => element.update(
+          AdaptiveTextSelectionMenu(
+            selectionRect: const Rect.fromLTWH(20, 180, 160, 24),
+            anchors: previous.anchors,
+            buttonItems: previous.buttonItems,
+            onDismiss: () => dismissed++,
+          ),
+        ),
+      );
+      replies.first.complete(null);
+      await tester.idle();
+      expect(dismissed, 0);
+      expect(calls.last.method, 'hide');
+      expect((calls.last.arguments as Map)['session'], oldSession);
+      binding.scheduleFrame();
+      await tester.pump();
+      expect(replies, hasLength(2));
+      replies.last.complete(0);
+      await tester.pump();
+      expect(copied, 1);
+    },
+    variant: const TargetPlatformVariant({TargetPlatform.iOS}),
+  );
+
+  testWidgets(
     'replaced selections ignore old callbacks and keep their own action',
     (tester) async {
       await host(tester);

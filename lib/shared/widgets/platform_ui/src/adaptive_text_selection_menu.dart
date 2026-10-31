@@ -49,8 +49,11 @@ class _AdaptiveTextSelectionMenuState extends State<AdaptiveTextSelectionMenu> {
     _schedulePresentation();
   }
 
-  /// Coalesces updates until layout has settled, keeping geometry consistent.
+  /// Invalidates old replies immediately, then waits for consistent geometry.
   void _schedulePresentation() {
+    final session = _session;
+    _session = null;
+    if (session != null) unawaited(_hide(session));
     if (_fallback || _scheduled || !SystemContextMenu.isSupported(context)) {
       return;
     }
