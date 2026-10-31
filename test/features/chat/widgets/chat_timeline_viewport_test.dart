@@ -174,47 +174,94 @@ Future<void> _pumpSettleFrames(
 }
 
 void main() {
-  _viewportTest('reuses row estimates while scrolling unchanged history', (
+  for (final estimate in <double?>[52, null]) {
+    _viewportTest(
+      'reuses row estimates while scrolling unchanged history ($estimate)',
+      (tester) async {
+        final controller = _controller(tester);
+        final ids = List.generate(500, (index) => 'synthetic-row-$index');
+        final calls = <int, int>{};
+        await tester.pumpWidget(
+          _viewportHost(
+            _viewport(
+              controller: controller,
+              ids: ids,
+              initialAnchor: ChatScrollAnchor(
+                messageId: ids.first,
+                offsetWithinMessage: 0,
+                loadedCount: ids.length,
+              ),
+              maintainVisibleAnchor: true,
+              followLatest: false,
+              estimateRowExtent: (index) {
+                calls.update(index, (count) => count + 1, ifAbsent: () => 1);
+                return estimate;
+              },
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        calls.clear();
+        final startPixels = controller.metrics!.pixels;
+        final gesture = await _startTrackedGesture(
+          tester,
+          const Offset(400, 400),
+        );
+        for (var frame = 0; frame < 20; frame++) {
+          await gesture.moveBy(const Offset(0, -30));
+          await tester.pump(const Duration(milliseconds: 16));
+        }
+        await gesture.up();
+        await tester.pumpAndSettle();
+        expect(controller.metrics!.pixels, greaterThan(startPixels));
+        final maximumCalls = calls.values.fold<int>(
+          0,
+          (maximum, count) => count > maximum ? count : maximum,
+        );
+        expect(maximumCalls, lessThanOrEqualTo(1));
+      },
+    );
+  }
+
+  _viewportTest('does not estimate already measured rows after a rebuild', (
     tester,
   ) async {
     final controller = _controller(tester);
     final ids = List.generate(500, (index) => 'synthetic-row-$index');
-    final calls = <int, int>{};
-    await tester.pumpWidget(
-      _viewportHost(
-        _viewport(
-          controller: controller,
-          ids: ids,
-          initialAnchor: ChatScrollAnchor(
-            messageId: ids.first,
-            offsetWithinMessage: 0,
-            loadedCount: ids.length,
-          ),
-          maintainVisibleAnchor: true,
-          followLatest: false,
-          estimateRowExtent: (index) {
-            calls.update(index, (count) => count + 1, ifAbsent: () => 1);
-            return 52;
-          },
+    final measured = <int>{};
+    final estimated = <int>[];
+    Widget rowBuilder(BuildContext context, int index) =>
+        SizedBox(height: 52, child: Text(ids[index]));
+    double estimateRow(int index) {
+      estimated.add(index);
+      return 52;
+    }
+
+    Widget host() => _viewportHost(
+      _viewport(
+        controller: controller,
+        ids: ids,
+        rowBuilder: rowBuilder,
+        initialAnchor: ChatScrollAnchor(
+          messageId: ids.first,
+          offsetWithinMessage: 0,
+          loadedCount: ids.length,
         ),
+        maintainVisibleAnchor: true,
+        followLatest: false,
+        estimateRowExtent: estimateRow,
+        onRowExtentMeasured: (index, _) => measured.add(index),
       ),
     );
+    await tester.pumpWidget(host());
     await tester.pumpAndSettle();
-    calls.clear();
-    final startPixels = controller.metrics!.pixels;
-    final gesture = await _startTrackedGesture(tester, const Offset(400, 400));
-    for (var frame = 0; frame < 20; frame++) {
-      await gesture.moveBy(const Offset(0, -30));
-      await tester.pump(const Duration(milliseconds: 16));
-    }
-    await gesture.up();
+    final known = Set<int>.of(measured);
+    expect(known, isNotEmpty);
+    estimated.clear();
+    await tester.pumpWidget(host());
+    await tester.drag(find.byType(CustomScrollView), const Offset(0, -30));
     await tester.pumpAndSettle();
-    expect(controller.metrics!.pixels, greaterThan(startPixels));
-    final maximumCalls = calls.values.fold<int>(
-      0,
-      (maximum, count) => count > maximum ? count : maximum,
-    );
-    expect(maximumCalls, lessThanOrEqualTo(1));
+    expect(estimated.where(known.contains), isEmpty);
   });
 
   _viewportTest('refreshes estimates when the viewport widget changes', (
