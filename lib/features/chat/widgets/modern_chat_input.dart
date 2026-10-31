@@ -1,6 +1,6 @@
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:flutter/foundation.dart'
-    show ValueNotifier, kIsWeb, visibleForTesting;
+    show TargetPlatform, ValueNotifier, kIsWeb, visibleForTesting;
 import 'package:material_ui/material_ui.dart';
 import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:flutter/scheduler.dart';
@@ -3629,59 +3629,52 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
 
     if (!showCompactComposer) {
       final List<Widget> composerChildren = <Widget>[
-        if (_shouldShowPromptOverlay)
-          Padding(
-            key: const ValueKey('prompt-overlay'),
-            padding: const EdgeInsets.fromLTRB(
-              Spacing.sm,
-              0,
-              Spacing.sm,
-              Spacing.xs,
-            ),
-            child: _buildActiveOverlay(),
-          ),
-        Padding(
-          key: const ValueKey('composer-expanded-input'),
-          padding: const EdgeInsets.fromLTRB(
-            _composerHorizontalInset,
-            Spacing.sm,
-            _composerHorizontalInset,
-            Spacing.sm,
-          ),
-          child: Stack(
-            children: [
-              Padding(
-                padding: EdgeInsetsDirectional.only(
-                  end: _showExpandButton && !_expandModalOpen
-                      ? conduitScaledIconExtent(context, IconSize.large) +
-                            (Spacing.xs * 3)
-                      : 0,
-                ),
-                child: _buildComposerTextField(
-                  brightness: brightness,
-                  sendOnEnter: sendOnEnter,
-                  voiceAvailable: voiceAvailable,
-                  isGenerating: isGenerating,
-                  desktopTurnRunning:
-                      isDesktopHermesComposer &&
-                      desktopTurnState == HermesDesktopTurnState.running,
-                  allUploadsComplete: allUploadsComplete,
-                  placeholderBase: placeholderBase,
-                  placeholderFocused: placeholderFocused,
-                  contentPadding: const EdgeInsets.symmetric(
-                    horizontal: Spacing.sm,
-                    vertical: Spacing.xs,
-                  ),
-                  isActive: isActive,
-                ),
+        Flexible(
+          child: _buildExpandedComposerEditor(
+            Padding(
+              key: const ValueKey('composer-expanded-input'),
+              padding: const EdgeInsets.fromLTRB(
+                _composerHorizontalInset,
+                Spacing.sm,
+                _composerHorizontalInset,
+                Spacing.sm,
               ),
-              if (_showExpandButton && !_expandModalOpen)
-                PositionedDirectional(
-                  top: Spacing.xs,
-                  end: Spacing.xs,
-                  child: _buildExpandButton(_showExpandTextModal),
-                ),
-            ],
+              child: Stack(
+                children: [
+                  Padding(
+                    padding: EdgeInsetsDirectional.only(
+                      end: _showExpandButton && !_expandModalOpen
+                          ? conduitScaledIconExtent(context, IconSize.large) +
+                                (Spacing.xs * 3)
+                          : 0,
+                    ),
+                    child: _buildComposerTextField(
+                      brightness: brightness,
+                      sendOnEnter: sendOnEnter,
+                      voiceAvailable: voiceAvailable,
+                      isGenerating: isGenerating,
+                      desktopTurnRunning:
+                          isDesktopHermesComposer &&
+                          desktopTurnState == HermesDesktopTurnState.running,
+                      allUploadsComplete: allUploadsComplete,
+                      placeholderBase: placeholderBase,
+                      placeholderFocused: placeholderFocused,
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: Spacing.sm,
+                        vertical: Spacing.xs,
+                      ),
+                      isActive: isActive,
+                    ),
+                  ),
+                  if (_showExpandButton && !_expandModalOpen)
+                    PositionedDirectional(
+                      top: Spacing.xs,
+                      end: Spacing.xs,
+                      child: _buildExpandButton(_showExpandTextModal),
+                    ),
+                ],
+              ),
+            ),
           ),
         ),
         Padding(
@@ -3794,7 +3787,8 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
         ),
       ];
 
-      // Multiline and quick-pill states use the full two-tier shell.
+      // Only the editor and suggestions yield height; actions never scroll.
+      // The text field handles scrolling after reaching its line or height cap.
       shellContent = KeyedSubtree(
         key: const ValueKey('expanded-composer-shell'),
         child: ConstrainedBox(
@@ -3804,13 +3798,10 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
           // Keep text-entry height changes direct. AnimatedSize here runs on
           // each new or removed line, making the composer trail the user's
           // typing and repeatedly relaying out the chat viewport.
-          child: SingleChildScrollView(
-            physics: const ClampingScrollPhysics(),
-            child: RepaintBoundary(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: composerChildren,
-              ),
+          child: RepaintBoundary(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: composerChildren,
             ),
           ),
         ),
@@ -4092,6 +4083,55 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     return result;
   }
 
+  /// Leaves room for one scaled editor line when suggestions share its height.
+  Widget _buildExpandedComposerEditor(Widget editor) {
+    if (!_shouldShowPromptOverlay) return editor;
+    final typography = _composerTypography(context);
+    final painter = TextPainter(
+      text: TextSpan(text: ' ', style: typography.style),
+      textDirection: typography.direction,
+      textScaler: typography.textScaler,
+      locale: typography.locale,
+    );
+    final double minimumEditorHeight;
+    try {
+      // Include the outer input padding and the text field's own padding.
+      minimumEditorHeight =
+          painter.preferredLineHeight + 2 * (Spacing.sm + Spacing.xs);
+    } finally {
+      painter.dispose();
+    }
+    return LayoutBuilder(
+      builder: (context, constraints) => Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          ConstrainedBox(
+            constraints: BoxConstraints(
+              maxHeight: math.max(
+                0,
+                math.min(
+                  constraints.maxHeight / 2,
+                  constraints.maxHeight - minimumEditorHeight,
+                ),
+              ),
+            ),
+            child: Padding(
+              key: const ValueKey('prompt-overlay'),
+              padding: const EdgeInsets.fromLTRB(
+                Spacing.sm,
+                0,
+                Spacing.sm,
+                Spacing.xs,
+              ),
+              child: _buildActiveOverlay(),
+            ),
+          ),
+          Flexible(child: editor),
+        ],
+      ),
+    );
+  }
+
   Widget _buildComposerTextField({
     required Brightness brightness,
     required bool sendOnEnter,
@@ -4219,7 +4259,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
               // the "confirm" action is used to commit characters, not to
               // send messages. The send-on-enter functionality is handled
               // by keyboard shortcuts (Enter key) instead.
-              if (!kIsWeb && Platform.isIOS) {
+              if (!kIsWeb && Theme.of(context).platform == TargetPlatform.iOS) {
                 final usesNativePlatformView = conduitSupportsNativeGlass();
                 return CupertinoTextField(
                   controller: _controller,
@@ -4231,7 +4271,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                   enabled: widget.enabled,
                   autofocus: false,
                   minLines: 1,
-                  maxLines: null,
+                  maxLines: 8,
                   textAlignVertical: TextAlignVertical.center,
                   keyboardType: TextInputType.multiline,
                   textCapitalization: TextCapitalization.sentences,
@@ -4276,7 +4316,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                 enabled: widget.enabled,
                 autofocus: false,
                 minLines: 1,
-                maxLines: null,
+                maxLines: 8,
                 textAlignVertical: TextAlignVertical.center,
                 keyboardType: TextInputType.multiline,
                 textCapitalization: TextCapitalization.sentences,
