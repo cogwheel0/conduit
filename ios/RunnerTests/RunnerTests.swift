@@ -62,6 +62,65 @@ class RunnerTests: XCTestCase {
     }
   }
 
+  @MainActor
+  func testNativeSelectionMenuIgnoresCallbacksFromPreviousHost() throws {
+    guard #available(iOS 17.4, *) else { return }
+    let scene = try XCTUnwrap(
+      UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+    let previousKeyWindow = scene.windows.first(where: \.isKeyWindow)
+    let window = UIWindow(windowScene: scene)
+    window.frame = scene.coordinateSpace.bounds
+    let controller = UIViewController()
+    window.rootViewController = controller
+    window.makeKeyAndVisible()
+    window.layoutIfNeeded()
+    defer {
+      window.isHidden = true
+      previousKeyWindow?.makeKey()
+    }
+    let codec = FlutterStandardMethodCodec.sharedInstance()
+    let call = codec.encode(FlutterMethodCall(methodName: "show", arguments: [
+      "session": 1, "labels": ["Copy"],
+      "rect": [20.0, 100.0, 160.0, 24.0],
+      "viewWidth": 390.0, "viewHeight": 844.0,
+    ]))
+    for staleAction in [true, false] {
+      let oldMessenger = SelectionMenuTestMessenger()
+      let oldHost = SelectionMenuTestHost(messenger: oldMessenger, controller: controller)
+      let bridge = NativeTextSelectionMenuBridge()
+      bridge.attach(to: oldHost)
+      try XCTUnwrap(oldMessenger.handler)(call) { _ in }
+      let anchor = try XCTUnwrap(controller.view.subviews.last)
+      let interaction = try XCTUnwrap(anchor.interactions.first as? UIEditMenuInteraction)
+      let configuration = UIEditMenuConfiguration(
+        identifier: NSNumber(value: 1), sourcePoint: .zero)
+      let menu = try XCTUnwrap(bridge.editMenuInteraction(
+        interaction, menuFor: configuration, suggestedActions: []))
+      let oldAction = try XCTUnwrap(menu.children.first as? UIAction)
+      let animator = SelectionMenuTestAnimator()
+      bridge.editMenuInteraction(
+        interaction, willDismissMenuFor: configuration, animator: animator)
+
+      let newMessenger = SelectionMenuTestMessenger()
+      let newHost = SelectionMenuTestHost(messenger: newMessenger, controller: controller)
+      bridge.attach(to: newHost)
+      var replies: [Int?] = []
+      // A new engine starts its session counter again.
+      try XCTUnwrap(newMessenger.handler)(call) { data in
+        guard let data else { XCTFail("Missing menu reply"); return }
+        replies.append((try? codec.decodeEnvelope(data)) as? Int)
+      }
+      if staleAction {
+        UIButton(primaryAction: oldAction).performPrimaryAction()
+      } else {
+        animator.completion?()
+        XCTAssertTrue(replies.isEmpty, "Old dismissal must not close the new menu")
+      }
+      NotificationCenter.default.post(name: UIApplication.willResignActiveNotification, object: nil)
+      XCTAssertEqual(replies, [nil], "Old actions must not act on the new menu")
+    }
+  }
+
   func testAppDelegateConformsToCallKitCallbacksAtRuntime() {
     // flutter_callkit_incoming reaches the callbacks with
     // `UIApplication.shared.delegate as? CallkitIncomingAppDelegate`, a Swift
@@ -4297,6 +4356,12 @@ private final class SelectionMenuTestMessenger: NSObject, FlutterBinaryMessenger
     return 1
   }
   func cleanUpConnection(_ connection: FlutterBinaryMessengerConnection) {}
+}
+
+private final class SelectionMenuTestAnimator: NSObject, UIEditMenuInteractionAnimating {
+  var completion: (() -> Void)?
+  func addAnimations(_ animations: @escaping () -> Void) { animations() }
+  func addCompletion(_ completion: @escaping () -> Void) { self.completion = completion }
 }
 
 private final class SelectionMenuTestHost: ConduitBridgeHost {

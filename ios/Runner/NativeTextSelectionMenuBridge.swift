@@ -97,8 +97,9 @@ final class NativeTextSelectionMenuBridge: NSObject, ConduitBridge, UIEditMenuIn
   ) -> UIMenu? {
     let id = session
     return UIMenu(children: labels.enumerated().map { index, label in
-      UIAction(title: label) { [weak self] _ in
-        guard let self, self.session == id else { return }
+      UIAction(title: label) { [weak self, weak interaction] _ in
+        guard let self, let interaction,
+          self.interaction === interaction, self.session == id else { return }
         self.selectedAction = index
       }
     })
@@ -113,8 +114,9 @@ final class NativeTextSelectionMenuBridge: NSObject, ConduitBridge, UIEditMenuIn
     animator: UIEditMenuInteractionAnimating
   ) {
     let id = (configuration.identifier as? NSNumber)?.intValue
-    animator.addCompletion { [weak self] in
-      guard let self, self.session == id else { return }
+    animator.addCompletion { [weak self, weak interaction] in
+      guard let self, let interaction,
+        self.interaction === interaction, self.session == id else { return }
       self.finish()
     }
   }
