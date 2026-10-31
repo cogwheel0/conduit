@@ -103,6 +103,9 @@ enum ConduitBridgeRegistry {
     NativeDropdownBridge.shared.attach(to: host)
     NativeImageViewerBridge.shared.attach(to: host)
     NativeSymbolImageBridge.shared.attach(to: host)
+    if #available(iOS 26.0, *) {
+      NativeTextMagnifierBridge.shared.attach(to: host)
+    }
     NativeSttBridge.shared.attach(to: host)
     PccBridge.shared.attach(to: host)
     VoiceAudioRouteBridge.shared.attach(to: host)

@@ -8,6 +8,30 @@ import XCTest
 @testable import Runner
 
 class RunnerTests: XCTestCase {
+  /// Verifies coordinate scaling and rejects malformed channel payloads.
+  func testTextMagnifierMapsFullViewCoordinates() throws {
+    let payload: [String: Any] = [
+      "viewWidth": 400.0, "viewHeight": 800.0,
+      "x": 120.0, "y": 500.0,
+      "caretX": 118.0, "caretY": 490.0,
+      "caretWidth": 2.0, "caretHeight": 20.0,
+    ]
+    let geometry = try XCTUnwrap(NativeTextMagnifierGeometry(
+      payload, in: CGRect(x: 10, y: 20, width: 200, height: 400)
+    ))
+    XCTAssertEqual(geometry.point, CGPoint(x: 70, y: 270))
+    XCTAssertEqual(geometry.caretRect, CGRect(x: 69, y: 265, width: 1, height: 10))
+    for (key, value) in [
+      ("viewWidth", 0.0), ("viewHeight", -1.0), ("x", Double.nan),
+      ("y", Double.infinity), ("caretWidth", -2.0), ("caretHeight", -1.0),
+    ] {
+      var invalid = payload
+      invalid[key] = value
+      XCTAssertNil(NativeTextMagnifierGeometry(invalid, in: CGRect(x: 0, y: 0, width: 400, height: 800)))
+    }
+    XCTAssertNil(NativeTextMagnifierGeometry([:], in: .zero))
+  }
+
 
   func testAppDelegateConformsToCallKitCallbacksAtRuntime() {
     // flutter_callkit_incoming reaches the callbacks with
