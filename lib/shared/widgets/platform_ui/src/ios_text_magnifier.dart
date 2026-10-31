@@ -81,6 +81,7 @@ class _IosTextMagnifierState extends State<IosTextMagnifier> {
     };
   }
 
+  /// Treats an unavailable bridge as a request for the Cupertino fallback.
   Future<bool> _invoke(String method, Map<String, Object> arguments) async {
     try {
       return await _channel.invokeMethod<bool>(method, arguments) ?? false;
@@ -91,6 +92,7 @@ class _IosTextMagnifierState extends State<IosTextMagnifier> {
     }
   }
 
+  /// Starts this overlay's session and catches up after the native reply.
   Future<void> _begin() async {
     final shown = await _invoke('begin', _geometry);
     if (!mounted) return;
@@ -108,6 +110,7 @@ class _IosTextMagnifierState extends State<IosTextMagnifier> {
     unawaited(_moveNative());
   }
 
+  /// Restores the Flutter lens if the host loses the active native session.
   Future<void> _moveNative() async {
     final moved = await _invoke('move', _geometry);
     if (!moved && mounted && !_fallback) {

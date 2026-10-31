@@ -4092,6 +4092,8 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     return result;
   }
 
+  /// Builds the platform text field with shared shortcuts and editing controls.
+  /// Native glass fields use the system loupe while Flutter owns text editing.
   Widget _buildComposerTextField({
     required Brightness brightness,
     required bool sendOnEnter,
