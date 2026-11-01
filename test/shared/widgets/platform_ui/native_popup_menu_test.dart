@@ -1,6 +1,8 @@
 import 'package:conduit/l10n/conduit_localizations.dart';
 import 'package:conduit/shared/widgets/legacy_design_compatibility.dart';
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
+import 'package:cupertino_native_better/cupertino_native_better.dart'
+    show CNPopupMenuDivider;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
@@ -58,6 +60,13 @@ void main() {
     final menu = tester.widget<CNPopupMenuButton>(
       find.byType(CNPopupMenuButton),
     );
+    expect(menu.items, hasLength(4));
+    expect(menu.items[0], isA<CNPopupMenuItem>());
+    expect((menu.items[0] as CNPopupMenuItem).checked, isTrue);
+    expect((menu.items[0] as CNPopupMenuItem).enabled, isTrue);
+    expect(menu.items[1], isA<CNPopupMenuDivider>());
+    expect((menu.items[2] as CNPopupMenuItem).enabled, isFalse);
+    expect((menu.items[3] as CNPopupMenuItem).label, 'Export');
     menu.onSelected(3);
     expect(index, 3);
     expect(value, 7);
