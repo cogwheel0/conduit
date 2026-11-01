@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:math' as math;
 
+import 'package:conduit/shared/widgets/adaptive_toolbar_components.dart';
 import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -603,17 +604,12 @@ class _EditorState extends ConsumerState<_Editor> {
             ? l10n.scheduledTaskNewTitle
             : l10n.scheduledTaskEditTitle,
         trailing: PlatformInfo.isIOS
-            ? CupertinoButton(
+            ? ConduitAdaptiveAppBarTextButton(
                 key: const Key('scheduled-task-save'),
-                padding: const EdgeInsets.symmetric(horizontal: Spacing.xs),
-                minimumSize: const Size(0, TouchTarget.minimum),
+                label: l10n.save,
                 onPressed: canSave ? _save : null,
-                child: _saving
-                    ? const ConduitLoadingIndicator(
-                        size: IconSize.small,
-                        isCompact: true,
-                      )
-                    : Text(l10n.save),
+                isLoading: _saving,
+                prominent: true,
               )
             : null,
         children: [
@@ -821,9 +817,8 @@ class _EditorState extends ConsumerState<_Editor> {
             UtilityRow(
               key: const Key('scheduled-task-date'),
               title: l10n.scheduledTaskDateLabel,
-              subtitle: MaterialLocalizations.of(
-                context,
-              ).formatMediumDate(schedule.wallClock),
+              subtitle: MaterialLocalizations.of(context)
+                  .formatMediumDate(schedule.wallClock),
               showChevron: true,
               onTap: _saving ? null : () => _pickDate(schedule),
             ),
@@ -1018,9 +1013,8 @@ class _WeekdayPicker extends StatelessWidget {
                   key: Key('scheduled-task-day-${codes[index]}'),
                   label: weekdayLabel(context, codes[index]),
                   // 1 January 2024 was a Monday.
-                  fullName: DateFormat.EEEE(
-                    locale,
-                  ).format(DateTime(2024, 1, 1 + index)),
+                  fullName: DateFormat.EEEE(locale)
+                      .format(DateTime(2024, 1, 1 + index)),
                   selected: days.contains(codes[index]),
                   enabled: enabled,
                   onTap: () => onToggle(codes[index]),
@@ -1197,9 +1191,7 @@ class _OptionSheetState extends State<_OptionSheet> {
                   if (shown.isEmpty)
                     Padding(
                       key: const Key('scheduled-task-option-empty'),
-                      padding: const EdgeInsets.symmetric(
-                        vertical: Spacing.lg,
-                      ),
+                      padding: const EdgeInsets.symmetric(vertical: Spacing.lg),
                       child: Center(
                         child: Text(
                           l10n.noResults,

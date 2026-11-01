@@ -33,6 +33,8 @@ import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import '../../../support/native_platform_views.dart';
+
 final _en = AppLocalizationsEn();
 
 class _SeededActive extends ActiveConversationNotifier {
@@ -130,6 +132,16 @@ void main() {
   tearDown(() async {
     await db.close();
   });
+
+  Future<void> activateButton(WidgetTester tester, Finder target) async {
+    final native = find.descendant(of: target, matching: find.byType(CNButton));
+    if (native.evaluate().isEmpty) {
+      await tester.tap(target);
+    } else {
+      // The fake platform-view host cannot synthesize UIKit's pressed event.
+      tester.widget<CNButton>(native).onPressed!();
+    }
+  }
 
   Future<void> seed(String id, Map<String, dynamic> params) => db
       .into(db.chats)
@@ -754,6 +766,7 @@ void main() {
   });
 
   group('on the native iOS 26 sheet', () {
+    setUp(stubNativePlatformViews);
     testWidgets('edits, resets and saves from a phone with the keyboard up', (
       tester,
     ) async {
@@ -807,7 +820,7 @@ void main() {
 
       keyboard(tester, up: false);
       await tester.pumpAndSettle();
-      await tester.tap(saveButton());
+      await activateButton(tester, saveButton());
       await settle(tester);
 
       final saved = (await stored(tester, 'c1'))!;
@@ -826,7 +839,8 @@ void main() {
         () => db.outboxDao.pendingForChat('c1'),
       );
       expect(ops!.map((op) => op.kind), ['updateChat']);
-    });
+      await tester.pump(const Duration(milliseconds: 500));
+    }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
 
     testWidgets('Close without edits closes it and keeps what was saved', (
       tester,
@@ -842,12 +856,13 @@ void main() {
       // Typing a value and putting it back leaves nothing to discard.
       await typeInto(tester, field('temperature'), '1.5');
       await typeInto(tester, field('temperature'), '0.2');
-      await tester.tap(closeButton());
+      await activateButton(tester, closeButton());
       await settle(tester);
 
       expect(find.text(_en.chatSettingsTitle), findsNothing);
       expect(await stored(tester, 'c1'), {'temperature': 0.2});
-    });
+      await tester.pump(const Duration(milliseconds: 500));
+    }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
   });
 
   group('permissions', () {

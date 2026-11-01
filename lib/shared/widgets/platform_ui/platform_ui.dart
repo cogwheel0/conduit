@@ -2,6 +2,7 @@ library;
 
 export 'src/adaptive_app.dart';
 export 'src/adaptive_controls.dart';
+export 'src/sf_symbols.dart';
 export 'src/adaptive_glass_controls.dart';
 export 'src/adaptive_selection_controls.dart';
 export 'src/adaptive_feedback.dart';

@@ -251,11 +251,9 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
                   radius: IconSize.sm / 2,
                   color: context.conduitTheme.loadingIndicator,
                 )
-              : CircularProgressIndicator(
+              : AdaptiveProgressIndicator(
                   strokeWidth: 2,
-                  valueColor: AlwaysStoppedAnimation<Color>(
-                    context.conduitTheme.loadingIndicator,
-                  ),
+                  color: context.conduitTheme.loadingIndicator,
                 ),
         ),
       ),
@@ -358,11 +356,9 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
               ? SizedBox(
                   width: IconSize.sm,
                   height: IconSize.sm,
-                  child: CircularProgressIndicator(
+                  child: AdaptiveProgressIndicator(
                     strokeWidth: 2,
-                    valueColor: AlwaysStoppedAnimation<Color>(
-                      theme.loadingIndicator,
-                    ),
+                    color: theme.loadingIndicator,
                   ),
                 )
               : showManualLoadMore
@@ -393,11 +389,9 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
               ? SizedBox(
                   width: IconSize.sm,
                   height: IconSize.sm,
-                  child: CircularProgressIndicator(
+                  child: AdaptiveProgressIndicator(
                     strokeWidth: 2,
-                    valueColor: AlwaysStoppedAnimation<Color>(
-                      theme.loadingIndicator,
-                    ),
+                    color: theme.loadingIndicator,
                   ),
                 )
               : ConduitButton(
@@ -711,7 +705,7 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
                 child: SizedBox(
                   width: IconSize.sm,
                   height: IconSize.sm,
-                  child: CircularProgressIndicator(strokeWidth: 2),
+                  child: AdaptiveProgressIndicator(strokeWidth: 2),
                 ),
               ),
             ),
@@ -949,7 +943,7 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
           return _buildRefreshableScrollableSlivers(slivers: slivers);
         },
         loading: () =>
-            const Center(child: CircularProgressIndicator(strokeWidth: 2.0)),
+            const Center(child: AdaptiveProgressIndicator(strokeWidth: 2.0)),
         error: (e, _) => Center(
           child: Padding(
             padding: const EdgeInsets.all(Spacing.md),
@@ -1142,7 +1136,7 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
         return _buildRefreshableScrollableSlivers(slivers: slivers);
       },
       loading: () =>
-          const Center(child: CircularProgressIndicator(strokeWidth: 2.0)),
+          const Center(child: AdaptiveProgressIndicator(strokeWidth: 2.0)),
       error: (e, _) => Center(
         child: Padding(
           padding: const EdgeInsets.all(Spacing.md),

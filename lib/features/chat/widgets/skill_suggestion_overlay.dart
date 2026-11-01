@@ -3,6 +3,7 @@ import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/shared/theme/theme_extensions.dart';
 import 'package:riverpod/riverpod.dart';
 import 'package:material_ui/material_ui.dart';
+import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 
 class SkillSuggestionOverlay extends StatelessWidget {
   const SkillSuggestionOverlay({
@@ -126,7 +127,7 @@ class SkillSuggestionOverlay extends StatelessWidget {
         loading: () => _SkillOverlayPlaceholder(
           leading: SizedBox.square(
             dimension: IconSize.large,
-            child: CircularProgressIndicator(
+            child: AdaptiveProgressIndicator(
               strokeWidth: BorderWidth.regular,
               color: context.conduitTheme.loadingIndicator,
             ),

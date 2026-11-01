@@ -35,7 +35,7 @@ class TerminalIconActionButton extends StatelessWidget {
         button: true,
         enabled: onPressed != null,
         label: tooltip,
-        child: AdaptiveButton.child(
+        child: AdaptiveButton.icon(
           onPressed: onPressed,
           enabled: onPressed != null,
           style: usesOpaqueFallback
@@ -49,11 +49,11 @@ class TerminalIconActionButton extends StatelessWidget {
               : EdgeInsets.zero,
           borderRadius: BorderRadius.circular(AppBorderRadius.circular),
           useSmoothRectangleBorder: false,
-          child: Icon(
-            UiUtils.platformIcon(ios: iosIcon, android: materialIcon),
-            size: iconSize,
-            color: onPressed != null ? theme.iconSecondary : theme.iconDisabled,
-          ),
+          icon: UiUtils.platformIcon(ios: iosIcon, android: materialIcon),
+          iconSize: iconSize,
+          iconColor: onPressed != null
+              ? theme.iconSecondary
+              : theme.iconDisabled,
         ),
       ),
     );

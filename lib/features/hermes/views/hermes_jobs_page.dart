@@ -113,7 +113,7 @@ class _HermesJobsPageState extends ConsumerState<HermesJobsPage> {
           },
           loading: () => const Padding(
             padding: EdgeInsets.symmetric(vertical: Spacing.xl),
-            child: Center(child: CircularProgressIndicator()),
+            child: Center(child: AdaptiveProgressIndicator()),
           ),
           error: (error, _) => Padding(
             padding: const EdgeInsets.symmetric(vertical: Spacing.xl),
@@ -216,7 +216,7 @@ class _JobCardState extends ConsumerState<_JobCard> {
                   child: SizedBox(
                     width: 20,
                     height: 20,
-                    child: CircularProgressIndicator(strokeWidth: 2),
+                    child: AdaptiveProgressIndicator(strokeWidth: 2),
                   ),
                 )
               else
@@ -380,7 +380,7 @@ class _JobCardState extends ConsumerState<_JobCard> {
     return runs.when(
       loading: () => const Padding(
         padding: EdgeInsets.all(Spacing.sm),
-        child: Center(child: CircularProgressIndicator()),
+        child: Center(child: AdaptiveProgressIndicator()),
       ),
       error: (_, _) => Text(
         'Could not load run history.',

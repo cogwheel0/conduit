@@ -6,6 +6,7 @@ import 'package:material_ui/material_ui.dart';
 
 import '../../../../core/services/haptic_service.dart';
 import 'platform_ui_capabilities.dart';
+import 'sf_symbols.dart';
 
 /// Native SF Symbol extent for 44-point iOS toolbar and composer controls.
 const double kCupertinoNativeControlSymbolExtent = 20;
@@ -66,6 +67,7 @@ class AdaptiveButton extends StatelessWidget {
     super.key,
     required this.onPressed,
     required this.label,
+    this.sfSymbol,
     this.color,
     this.textColor,
     this.labelStyle,
@@ -81,7 +83,7 @@ class AdaptiveButton extends StatelessWidget {
   }) : child = null,
        icon = null,
        iconColor = null,
-       sfSymbol = null;
+       iconSize = null;
 
   const AdaptiveButton.child({
     super.key,
@@ -102,12 +104,14 @@ class AdaptiveButton extends StatelessWidget {
        labelStyle = null,
        icon = null,
        iconColor = null,
+       iconSize = null,
        sfSymbol = null;
 
   const AdaptiveButton.icon({
     super.key,
     required this.onPressed,
     required this.icon,
+    this.iconSize,
     this.color,
     this.iconColor,
     this.style = AdaptiveButtonStyle.filled,
@@ -144,7 +148,8 @@ class AdaptiveButton extends StatelessWidget {
        labelStyle = null,
        child = null,
        icon = null,
-       iconColor = null;
+       iconColor = null,
+       iconSize = null;
 
   final VoidCallback? onPressed;
   final String? label;
@@ -155,6 +160,7 @@ class AdaptiveButton extends StatelessWidget {
   final Color? textColor;
   final TextStyle? labelStyle;
   final Color? iconColor;
+  final double? iconSize;
   final AdaptiveButtonStyle style;
   final AdaptiveButtonSize size;
   final EdgeInsetsGeometry? padding;
@@ -191,12 +197,7 @@ class AdaptiveButton extends StatelessWidget {
   };
 
   @override
-  Widget build(BuildContext context) {
-    final button = _buildButton(context);
-    return semanticLabel == null || !_canUseNative(context)
-        ? button
-        : Semantics(label: semanticLabel, child: button);
-  }
+  Widget build(BuildContext context) => _buildButton(context);
 
   Widget _semanticContent(Widget content) => semanticLabel == null
       ? content
@@ -215,30 +216,53 @@ class AdaptiveButton extends StatelessWidget {
         style: _nativeStyle,
         labelColor: textColor,
         labelFontFamily: labelStyle?.fontFamily,
-        labelFontSize: labelStyle?.fontSize,
+        labelFontSize: labelStyle?.fontSize == null
+            ? null
+            : MediaQuery.textScalerOf(context).scale(labelStyle!.fontSize!),
         labelFontWeight: labelStyle?.fontWeight,
+        customIconSize: iconSize,
       );
       final active = enabled && onPressed != null;
       Widget button;
-      if (sfSymbol case final symbol?) {
+      final symbol = sfSymbol;
+      if (label != null) {
+        button = CNButton(
+          label: label!,
+          icon: symbol == null
+              ? null
+              : CNSymbol(symbol.name, size: symbol.size, color: symbol.color),
+          onPressed: onPressed,
+          enabled: active,
+          semanticLabel: semanticLabel,
+          tint: color,
+          config: config,
+        );
+      } else if (symbol != null) {
         button = CNButton.icon(
           icon: CNSymbol(symbol.name, size: symbol.size, color: symbol.color),
+          semanticLabel: semanticLabel,
           onPressed: onPressed,
           enabled: active,
           tint: color,
           config: config,
         );
       } else if (icon case final iconData?) {
+        final symbolName = conduitSfSymbolForIcon(iconData);
         button = CNButton.icon(
-          customIcon: iconData,
+          icon: symbolName == null
+              ? null
+              : CNSymbol(symbolName, size: iconSize ?? 20, color: iconColor),
+          customIcon: symbolName == null ? iconData : null,
+          semanticLabel: semanticLabel,
           onPressed: onPressed,
           enabled: active,
-          tint: iconColor ?? color,
+          tint: symbolName == null ? iconColor ?? color : color,
           config: config,
         );
       } else {
         button = CNButton(
           label: label ?? '',
+          semanticLabel: semanticLabel,
           onPressed: onPressed,
           enabled: active,
           tint: color,
@@ -263,6 +287,28 @@ class AdaptiveButton extends StatelessWidget {
   }
 
   Widget _content({required Color fallbackColor, bool wrapCustomChild = true}) {
+    if (label != null && sfSymbol != null) {
+      return Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            cupertinoIconForSFSymbol(sfSymbol!.name) ??
+                CupertinoIcons.circle_fill,
+            size: sfSymbol!.size,
+            color: sfSymbol!.color ?? fallbackColor,
+          ),
+          const SizedBox(width: 8),
+          Flexible(
+            child: Text(
+              label!,
+              style: (labelStyle ?? const TextStyle()).copyWith(
+                color: fallbackColor,
+              ),
+            ),
+          ),
+        ],
+      );
+    }
     if (sfSymbol case final symbol?) {
       return Icon(
         cupertinoIconForSFSymbol(symbol.name) ?? CupertinoIcons.circle_fill,
@@ -271,7 +317,7 @@ class AdaptiveButton extends StatelessWidget {
       );
     }
     if (icon case final iconData?) {
-      return Icon(iconData, color: iconColor ?? fallbackColor);
+      return Icon(iconData, size: iconSize, color: iconColor ?? fallbackColor);
     }
     if (child case final customChild?) {
       if (!wrapCustomChild) return customChild;
@@ -295,6 +341,11 @@ class AdaptiveButton extends StatelessWidget {
         textColor ?? CupertinoColors.label.resolveFrom(context),
       _ => textColor ?? primary,
     };
+    final customGlass =
+        useNative &&
+        PlatformUiCapabilities.usesNativeIOS26 &&
+        (style == AdaptiveButtonStyle.glass ||
+            style == AdaptiveButtonStyle.prominentGlass);
     final background = switch (style) {
       AdaptiveButtonStyle.filled => primary,
       AdaptiveButtonStyle.gray =>
@@ -309,7 +360,7 @@ class AdaptiveButton extends StatelessWidget {
       onPressed: enabled ? onPressed : null,
       padding: padding ?? _defaultPadding,
       borderRadius: resolvedRadius,
-      color: background,
+      color: customGlass ? null : background,
       minimumSize: minSize ?? Size(0, _defaultHeight),
       child: _semanticContent(_content(fallbackColor: foreground)),
     );
@@ -325,7 +376,23 @@ class AdaptiveButton extends StatelessWidget {
             borderRadius: resolvedRadius,
             side: borderSide,
           );
-    Widget result = button;
+    Widget result = customGlass
+        ? LiquidGlassContainer(
+            config: LiquidGlassConfig(
+              effect: style == AdaptiveButtonStyle.prominentGlass
+                  ? CNGlassEffect.prominent
+                  : CNGlassEffect.regular,
+              shape: CNGlassEffectShape.rect,
+              cornerRadius: resolvedRadius
+                  .resolve(Directionality.of(context))
+                  .topLeft
+                  .x,
+              tint: color,
+              interactive: false,
+            ),
+            child: button,
+          )
+        : button;
     if (style == AdaptiveButtonStyle.bordered) {
       result = DecoratedBox(
         decoration: ShapeDecoration(shape: shape),

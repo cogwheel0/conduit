@@ -203,9 +203,9 @@ class _AdaptiveFloatingButton extends StatelessWidget {
                 child: SizedBox(
                   width: IconSize.md,
                   height: IconSize.md,
-                  child: CircularProgressIndicator(
+                  child: AdaptiveProgressIndicator(
                     strokeWidth: BorderWidth.medium,
-                    valueColor: AlwaysStoppedAnimation(labelColor),
+                    color: labelColor,
                   ),
                 ),
               ),
@@ -257,9 +257,9 @@ class _AdaptiveFloatingButton extends StatelessWidget {
               ? SizedBox(
                   width: IconSize.md,
                   height: IconSize.md,
-                  child: CircularProgressIndicator(
+                  child: AdaptiveProgressIndicator(
                     strokeWidth: BorderWidth.medium,
-                    valueColor: AlwaysStoppedAnimation(labelColor),
+                    color: labelColor,
                   ),
                 )
               : Icon(

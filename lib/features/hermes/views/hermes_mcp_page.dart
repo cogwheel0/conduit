@@ -2,8 +2,10 @@ import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:material_ui/material_ui.dart';
+import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 
 import 'package:conduit_core/utils/debug_logger.dart';
+import 'package:conduit/shared/widgets/adaptive_toolbar_components.dart';
 
 import 'package:conduit_core/features/hermes/models/hermes_mcp.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
@@ -291,10 +293,10 @@ final class _HermesMcpPageState extends ConsumerState<HermesMcpPage> {
       appBar: AppBar(
         title: const Text('Hermes MCP'),
         actions: [
-          IconButton(
-            tooltip: 'Add from catalog',
+          ConduitAdaptiveAppBarIconButton(
+            semanticLabel: 'Add from catalog',
             onPressed: () => unawaited(_run(_addPreset)),
-            icon: const Icon(Icons.auto_awesome_outlined),
+            icon: Icons.auto_awesome_outlined,
           ),
         ],
       ),
@@ -379,10 +381,22 @@ final class _HermesMcpPageState extends ConsumerState<HermesMcpPage> {
           );
         },
       ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: () => unawaited(_run(_add)),
-        child: const Icon(Icons.add),
-      ),
+      floatingActionButton: PlatformUiCapabilities.usesNativeIOS26
+          ? SizedBox.square(
+              dimension: 56,
+              child: AdaptiveButton.sfSymbol(
+                onPressed: () => unawaited(_run(_add)),
+                sfSymbol: const SFSymbol('plus'),
+                style: AdaptiveButtonStyle.prominentGlass,
+                semanticLabel: 'Add MCP server',
+                minSize: const Size.square(56),
+                padding: EdgeInsets.zero,
+              ),
+            )
+          : FloatingActionButton(
+              onPressed: () => unawaited(_run(_add)),
+              child: const Icon(Icons.add),
+            ),
     );
   }
 }

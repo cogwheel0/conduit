@@ -15,6 +15,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../support/native_platform_views.dart';
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -304,6 +306,7 @@ void main() {
   testWidgets('primary control adapters stay Flutter before iOS 26', (
     tester,
   ) async {
+    stubNativePlatformViews();
     Widget host() => MaterialApp(
       home: LegacyDesignCompatibility(
         child: Scaffold(
@@ -339,6 +342,7 @@ void main() {
     expect(find.byType(CNButton), findsOneWidget);
     expect(find.byType(CNSlider), findsOneWidget);
     expect(find.byType(CNSegmentedControl), findsOneWidget);
+    await tester.pump(const Duration(milliseconds: 500));
     debugDefaultTargetPlatformOverride = null;
   });
 

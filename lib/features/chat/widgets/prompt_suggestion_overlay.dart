@@ -9,6 +9,7 @@ import '../../prompts/providers/prompts_providers.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 
 import 'package:conduit/l10n/app_localizations.dart';
+import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 
 /// Autocomplete overlay that appears when the user types `/` commands.
 ///
@@ -162,11 +163,9 @@ class PromptSuggestionOverlay extends ConsumerWidget {
           leading: SizedBox(
             width: IconSize.large,
             height: IconSize.large,
-            child: CircularProgressIndicator(
+            child: AdaptiveProgressIndicator(
               strokeWidth: BorderWidth.regular,
-              valueColor: AlwaysStoppedAnimation<Color>(
-                context.conduitTheme.loadingIndicator,
-              ),
+              color: context.conduitTheme.loadingIndicator,
             ),
           ),
         ),

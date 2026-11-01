@@ -331,6 +331,18 @@ class AdaptiveScaffold extends StatelessWidget {
   }
 
   Widget _cupertinoAction(AdaptiveAppBarAction action, Color? fallbackTint) {
+    if (PlatformUiCapabilities.usesNativeIOS26 && action.title != null) {
+      return AdaptiveButton(
+        label: action.title!,
+        onPressed: action.onPressed,
+        color: action.tintColor ?? fallbackTint,
+        style: action.prominent
+            ? AdaptiveButtonStyle.prominentGlass
+            : AdaptiveButtonStyle.glass,
+        minSize: const Size(0, 36),
+        padding: const EdgeInsets.symmetric(horizontal: 6),
+      );
+    }
     if (PlatformUiCapabilities.usesNativeIOS26 &&
         action.iosSymbol != null &&
         action.title == null) {

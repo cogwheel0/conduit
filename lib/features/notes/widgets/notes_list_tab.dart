@@ -29,6 +29,7 @@ import '../../navigation/providers/sidebar_tab_scroll_registry.dart';
 
 import 'package:conduit_core/features/navigation/models/sidebar_navigation_model.dart';
 import 'package:conduit_core/features/navigation/providers/drawer_section_notifiers.dart';
+import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 
 import '../../navigation/widgets/conversation_tile.dart';
 import '../../navigation/utils/sidebar_create_action.dart';
@@ -415,7 +416,7 @@ class _NotesListTabState extends ConsumerState<NotesListTab>
                   )
                 : Scrollbar(controller: _scrollController, child: primary);
           },
-          loading: () => const Center(child: CircularProgressIndicator()),
+          loading: () => const Center(child: AdaptiveProgressIndicator()),
           error: (err, _) => Center(child: Text(l10n.failedToLoadNotes)),
         );
       },

@@ -1483,7 +1483,7 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
                         data: (messages) =>
                             _buildMessageList(messages, theme, l10n),
                         loading: () =>
-                            const Center(child: CircularProgressIndicator()),
+                            const Center(child: AdaptiveProgressIndicator()),
                         error: (error, _) => Center(
                           child: Text(
                             error.toString(),
@@ -1608,7 +1608,7 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
               child: SizedBox(
                 width: 24,
                 height: 24,
-                child: CircularProgressIndicator(strokeWidth: 2),
+                child: AdaptiveProgressIndicator(strokeWidth: 2),
               ),
             ),
           );

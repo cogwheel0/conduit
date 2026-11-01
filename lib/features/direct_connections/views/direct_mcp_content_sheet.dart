@@ -7,6 +7,7 @@ import '../../../l10n/app_localizations.dart';
 import '../../../shared/theme/conduit_input_styles.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/adaptive_dropdown_field.dart';
+import '../../../shared/widgets/adaptive_toolbar_components.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/themed_sheets.dart';
 
@@ -15,6 +16,7 @@ import 'package:conduit_core/features/direct_connections/models/direct_completio
 import 'package:conduit_core/features/direct_connections/models/direct_mcp_content.dart';
 import 'package:conduit_core/features/direct_connections/models/direct_mcp_server.dart';
 import 'package:conduit_core/features/direct_connections/providers/direct_mcp_providers.dart';
+import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 
 class DirectMcpContentSheet extends ConsumerStatefulWidget {
   const DirectMcpContentSheet({super.key});
@@ -170,7 +172,7 @@ class _DirectMcpContentSheetState extends ConsumerState<DirectMcpContentSheet> {
       color: theme.surfaceBackground,
       child: SafeArea(
         child: serversAsync.when(
-          loading: () => const Center(child: CircularProgressIndicator()),
+          loading: () => const Center(child: AdaptiveProgressIndicator()),
           error: (_, _) => _buildMessage(l10n.directMcpContentLoadFailed),
           data: (allServers) {
             final servers = allServers
@@ -269,19 +271,18 @@ class _DirectMcpContentSheetState extends ConsumerState<DirectMcpContentSheet> {
             child: Text(l10n.directMcpContentTitle, style: theme.headingSmall),
           ),
           if (_preview == null && !_loading)
-            IconButton(
+            ConduitAdaptiveAppBarIconButton(
               key: const Key('direct-mcp-content-refresh'),
-              tooltip: l10n.directMcpContentRefresh,
+              semanticLabel: l10n.directMcpContentRefresh,
               onPressed: () {
                 ref.invalidate(directMcpContentInventoryProvider(selected.id));
                 setState(() => _error = null);
               },
-              icon: const Icon(Icons.refresh),
+              icon: Icons.refresh,
             ),
-          IconButton(
+          SheetCloseButton(
             tooltip: l10n.close,
             onPressed: () => Navigator.of(context).pop(),
-            icon: const Icon(Icons.close),
           ),
         ],
       ),
@@ -292,7 +293,7 @@ class _DirectMcpContentSheetState extends ConsumerState<DirectMcpContentSheet> {
     final l10n = AppLocalizations.of(context)!;
     final inventory = ref.watch(directMcpContentInventoryProvider(server.id));
     return inventory.when(
-      loading: () => const Center(child: CircularProgressIndicator()),
+      loading: () => const Center(child: AdaptiveProgressIndicator()),
       error: (_, _) => _buildMessage(
         l10n.directMcpContentLoadFailed,
         action: ConduitButton(
@@ -364,7 +365,7 @@ class _DirectMcpContentSheetState extends ConsumerState<DirectMcpContentSheet> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const CircularProgressIndicator(),
+            const AdaptiveProgressIndicator(),
             const SizedBox(height: Spacing.md),
             Text(l10n.directMcpContentLoading),
             const SizedBox(height: Spacing.md),

@@ -278,14 +278,10 @@ class WorkspaceEditorScaffold extends StatelessWidget {
       children: [
         for (final action in actions)
           if (action.title != null)
-            CupertinoButton(
-              padding: const EdgeInsets.symmetric(horizontal: Spacing.sm),
-              minimumSize: const Size(0, TouchTarget.minimum),
+            ConduitAdaptiveAppBarTextButton(
+              label: action.title!,
               onPressed: action.onPressed,
-              child: Text(
-                action.title!,
-                style: TextStyle(color: theme.buttonPrimary),
-              ),
+              prominent: action.prominent,
             )
           else
             ConduitAdaptiveAppBarIconButton(

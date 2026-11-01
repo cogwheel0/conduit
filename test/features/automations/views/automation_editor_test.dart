@@ -14,6 +14,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
 
 import 'automation_harness.dart';
+import '../../../support/native_platform_views.dart';
 
 const _editA = '/profile/scheduled-tasks/a/edit';
 const _weekly = 'RRULE:FREQ=WEEKLY;BYDAY=MO;BYHOUR=18;BYMINUTE=30';
@@ -703,6 +704,7 @@ void main() {
           'with $presenter', (tester) async {
         final session = await pumpPhone(tester, native: native);
         if (native) {
+          stubNativePlatformViews();
           PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.iOS;
           PlatformUiCapabilities.debugIOSMajorVersionOverride = 26;
           PlatformUiCapabilities.debugNativeIOS26Override = true;
@@ -779,7 +781,9 @@ void main() {
           'm17',
         );
         expect(tester.takeException(), isNull);
-      });
+      }, variant: TargetPlatformVariant.only(
+        native ? TargetPlatform.iOS : TargetPlatform.android,
+      ));
     }
 
     testWidgets('the last model clears the home indicator when the keyboard is '

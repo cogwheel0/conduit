@@ -103,7 +103,8 @@ void main() {
         .equals('person.2');
     check(conduitToolbarSfSymbolForIcon(Icons.circle, iosSymbol: 'ellipsis'))
         .equals('ellipsis');
-    check(conduitToolbarSfSymbolForIcon(Icons.delete)).isNull();
+    check(conduitToolbarSfSymbolForIcon(Icons.delete)).equals('trash');
+    check(conduitToolbarSfSymbolForIcon(Icons.ac_unit)).isNull();
   });
 
   test('native model-selector labels remain on one line within their cap', () {

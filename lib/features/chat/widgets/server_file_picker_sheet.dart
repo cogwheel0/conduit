@@ -8,6 +8,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:conduit_core/models/file_info.dart';
 import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/file_type_utils.dart';
@@ -153,7 +154,7 @@ class _ServerFilePickerSheetState extends ConsumerState<ServerFilePickerSheet> {
                       );
                     },
                     loading: () => const Center(
-                      child: CircularProgressIndicator(
+                      child: AdaptiveProgressIndicator(
                         strokeWidth: BorderWidth.thin,
                       ),
                     ),
