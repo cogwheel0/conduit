@@ -44,13 +44,19 @@ void main() {
       'test/live_test.dart':
           'class Binding extends '
           'LiveTestWidgetsFlutterBinding {}',
+      'test/prefixed_test.dart':
+          'class Binding extends '
+          'ft.AutomatedTestWidgetsFlutterBinding {}',
       'test/plain_test.dart': 'TestWidgetsFlutterBinding.ensureInitialized();',
     };
 
     final plan = planTestShards(sources, shardCount: 2);
 
-    check(plan.standalone)
-        .deepEquals(['test/automated_test.dart', 'test/live_test.dart']);
+    check(plan.standalone).deepEquals([
+      'test/automated_test.dart',
+      'test/live_test.dart',
+      'test/prefixed_test.dart',
+    ]);
     check(plan.shards.expand((shard) => shard).toList())
         .deepEquals(['test/plain_test.dart']);
   });

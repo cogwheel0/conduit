@@ -20,7 +20,7 @@
 import 'dart:io';
 
 final RegExp _customTestBinding = RegExp(
-  r'\bextends\s+(?:Automated|Live)?TestWidgetsFlutterBinding\b',
+  r'\bextends\s+(?:\w+\.)?(?:Automated|Live)?TestWidgetsFlutterBinding\b',
 );
 
 final RegExp _realSocketUse = RegExp(
