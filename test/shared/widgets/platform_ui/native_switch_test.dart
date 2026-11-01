@@ -91,6 +91,7 @@ void main() {
             isToggled: false,
             hasEnabledState: true,
             isEnabled: true,
+            isFocusable: true,
             hasTapAction: true,
           ),
         );
