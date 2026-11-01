@@ -305,27 +305,30 @@ class AdaptiveAlertDialog {
         actions.any(_isEnabled) &&
         actions.where((a) => a.style == AlertActionStyle.cancel).length <= 1 &&
         actions.where((a) => a.style == AlertActionStyle.primary).length <= 1) {
+      final presentedActions = List<AlertAction>.of(actions);
       final result = await CNAlert.show<int>(
         context: context,
         title: title,
         message: message,
         actions: [
-          for (var index = 0; index < actions.length; index++)
+          for (var index = 0; index < presentedActions.length; index++)
             CNAlertAction(
-              label: actions[index].title,
+              label: presentedActions[index].title,
               value: index,
-              isCancel: actions[index].style == AlertActionStyle.cancel,
-              isDefault: actions[index].style == AlertActionStyle.primary,
+              isCancel:
+                  presentedActions[index].style == AlertActionStyle.cancel,
+              isDefault:
+                  presentedActions[index].style == AlertActionStyle.primary,
               isDestructive:
-                  actions[index].style == AlertActionStyle.destructive,
-              enabled: _isEnabled(actions[index]),
+                  presentedActions[index].style == AlertActionStyle.destructive,
+              enabled: _isEnabled(presentedActions[index]),
             ),
         ],
       );
       if (!context.mounted) return;
       final index = result?.value;
-      if (index != null && _isEnabled(actions[index])) {
-        actions[index].onPressed();
+      if (index != null && _isEnabled(presentedActions[index])) {
+        presentedActions[index].onPressed();
       }
       return;
     }

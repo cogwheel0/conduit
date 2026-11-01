@@ -66,6 +66,29 @@ void main() {
     expect(cancels, 0);
   }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
 
+  testWidgets('native replies retain the actions that were presented', (
+    tester,
+  ) async {
+    final response = Completer<Map<String, Object?>>();
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, (_) => response.future);
+    await tester.pumpWidget(
+      const CupertinoApp(home: CupertinoPageScaffold(child: SizedBox())),
+    );
+    var answers = 0;
+    final actions = [AlertAction(title: 'Keep', onPressed: () => answers++)];
+    final result = AdaptiveAlertDialog.show(
+      context: tester.element(find.byType(CupertinoPageScaffold)),
+      title: 'Keep sample?',
+      actions: actions,
+    );
+    await tester.pump();
+    actions.clear();
+    response.complete({'index': 0});
+    await result;
+    expect(answers, 1);
+  }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
+
   testWidgets('an unanswered native alert invokes no action', (tester) async {
     await tester.pumpWidget(
       const CupertinoApp(home: CupertinoPageScaffold(child: SizedBox())),
