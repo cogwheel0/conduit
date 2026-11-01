@@ -200,7 +200,7 @@ void main() {
     );
   }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
 
-  testWidgets('default toolbar font leaves Dynamic Type sizing to UIKit', (
+  testWidgets('default toolbar labels retain Flutter text scaling', (
     tester,
   ) async {
     for (final scale in [1.0, 2.0]) {
@@ -216,8 +216,8 @@ void main() {
         ),
       );
       final button = tester.widget<CNButton>(find.byType(CNButton));
-      // A null size retains the SDK's preferred body font and Dynamic Type.
-      expect(button.config.labelFontSize, isNull);
+      // Match the Cupertino fallback's standard 17-point label at each scale.
+      expect(button.config.labelFontSize, 17 * scale);
       expect(button.config.labelFontFamily, isNull);
       expect(button.config.minHeight, TouchTarget.minimum);
       await tester.pump(const Duration(milliseconds: 500));

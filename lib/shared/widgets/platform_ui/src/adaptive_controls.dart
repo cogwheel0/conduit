@@ -216,9 +216,13 @@ class AdaptiveButton extends StatelessWidget {
         style: _nativeStyle,
         labelColor: textColor,
         labelFontFamily: labelStyle?.fontFamily,
-        labelFontSize: labelStyle?.fontSize == null
+        labelFontSize: label == null
             ? null
-            : MediaQuery.textScalerOf(context).scale(labelStyle!.fontSize!),
+            : MediaQuery.textScalerOf(context).scale(
+                labelStyle?.fontSize ??
+                    CupertinoTheme.of(context).textTheme.textStyle.fontSize ??
+                    17,
+              ),
         labelFontWeight: labelStyle?.fontWeight,
         imagePadding: label != null && sfSymbol != null ? 8 : null,
         customIconSize: iconSize,
