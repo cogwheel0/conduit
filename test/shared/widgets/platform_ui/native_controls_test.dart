@@ -40,39 +40,54 @@ void main() {
     ),
   );
 
-  for (final native in [true, false]) {
-    testWidgets('catalog action retains its tooltip when native=$native', (
-      tester,
-    ) async {
-      PlatformUiCapabilities.debugPlatformOverride = native
-          ? TargetPlatform.iOS
-          : TargetPlatform.android;
-      await tester.pumpWidget(
-        host(
-          ProviderScope(
-            overrides: [hermesApiServiceProvider.overrideWithValue(null)],
-            child: const HermesMcpPage(),
+  for (final iosMajorVersion in <int?>[27, 25, null]) {
+    testWidgets(
+      'catalog action retains its tooltip on ${iosMajorVersion == null ? 'Android' : 'iOS $iosMajorVersion'}',
+      (tester) async {
+        PlatformUiCapabilities.debugPlatformOverride = iosMajorVersion == null
+            ? TargetPlatform.android
+            : TargetPlatform.iOS;
+        PlatformUiCapabilities.debugIOSMajorVersionOverride = iosMajorVersion;
+        await tester.pumpWidget(
+          host(
+            ProviderScope(
+              overrides: [hermesApiServiceProvider.overrideWithValue(null)],
+              child: const HermesMcpPage(),
+            ),
           ),
-        ),
-      );
-      await tester.pump(const Duration(milliseconds: 500));
-      final tooltip = find.byWidgetPredicate(
-        (widget) =>
-            widget is AdaptiveTooltip && widget.message == 'Add from catalog',
-      );
-      expect(tooltip, findsOneWidget);
-      expect(
-        tester.widget<AdaptiveTooltip>(tooltip).excludeFromSemantics,
-        native,
-      );
-      final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
-      await mouse.addPointer();
-      await mouse.moveTo(tester.getCenter(tooltip));
-      await tester.pump(const Duration(milliseconds: 600));
-      expect(find.text('Add from catalog'), findsOneWidget);
-      await mouse.removePointer();
-      await tester.pumpAndSettle();
-    });
+        );
+        await tester.pump(const Duration(milliseconds: 500));
+        final tooltip = find.byWidgetPredicate(
+          (widget) =>
+              widget is AdaptiveTooltip && widget.message == 'Add from catalog',
+        );
+        expect(tooltip, findsOneWidget);
+        expect(
+          tester.widget<AdaptiveTooltip>(tooltip).excludeFromSemantics,
+          isTrue,
+        );
+        if (iosMajorVersion != 27) {
+          final semantics = tester.ensureSemantics();
+          try {
+            await tester.pump();
+            final node = tester.getSemantics(
+              find.byType(ConduitAdaptiveAppBarIconButton),
+            );
+            expect(node.label, 'Add from catalog');
+            expect(node.tooltip, isEmpty);
+          } finally {
+            semantics.dispose();
+          }
+        }
+        final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+        await mouse.addPointer();
+        await mouse.moveTo(tester.getCenter(tooltip));
+        await tester.pump(const Duration(milliseconds: 600));
+        expect(find.text('Add from catalog'), findsOneWidget);
+        await mouse.removePointer();
+        await tester.pumpAndSettle();
+      },
+    );
   }
 
   for (final enabled in [true, false]) {

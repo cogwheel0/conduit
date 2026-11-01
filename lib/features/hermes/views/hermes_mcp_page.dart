@@ -295,7 +295,7 @@ final class _HermesMcpPageState extends ConsumerState<HermesMcpPage> {
         actions: [
           AdaptiveTooltip(
             message: 'Add from catalog',
-            excludeFromSemantics: PlatformUiCapabilities.usesNativeIOS26,
+            excludeFromSemantics: true,
             child: ConduitAdaptiveAppBarIconButton(
               semanticLabel: 'Add from catalog',
               iosSymbol: 'sparkles',
