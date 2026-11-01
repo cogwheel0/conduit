@@ -957,6 +957,12 @@ exceptions:
     reason: "Existing use awaiting migration to the platform UI seam"
     removal: platform-ui-migration
   - path: lib/features/hermes/views/hermes_mcp_page.dart
+    symbol: "IconButton"
+    count: 1
+    owner: hermes
+    reason: "Existing use awaiting migration to the platform UI seam"
+    removal: platform-ui-migration
+  - path: lib/features/hermes/views/hermes_mcp_page.dart
     symbol: "SimpleDialog"
     count: 1
     owner: hermes
