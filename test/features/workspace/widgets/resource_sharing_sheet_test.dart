@@ -26,6 +26,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
 
+import '../../../support/native_platform_views.dart';
+
 const _server = ServerConfig(
   id: 'test-server',
   name: 'Test Server',
@@ -562,6 +564,7 @@ void main() {
           showKeyboard(tester, up: false);
           addTearDown(tester.view.reset);
           if (native) {
+            stubNativePlatformViews();
             PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.iOS;
             PlatformUiCapabilities.debugIOSMajorVersionOverride = 26;
             PlatformUiCapabilities.debugNativeIOS26Override = true;
@@ -667,6 +670,8 @@ void main() {
             _row('user', 'bob', 'read'),
             _row('user', 'u33', 'read'),
           ]);
+          // Complete the saved-feedback banner's native-view availability probe.
+          await tester.pump(const Duration(milliseconds: 500));
         },
       );
     }
