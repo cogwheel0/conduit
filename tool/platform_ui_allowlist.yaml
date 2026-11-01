@@ -278,12 +278,6 @@ exceptions:
     owner: channels
     reason: "Existing use awaiting migration to the platform UI seam"
     removal: platform-ui-migration
-  - path: lib/features/channels/widgets/channel_form_dialog.dart
-    symbol: "SwitchListTile"
-    count: 1
-    owner: channels
-    reason: "Existing use awaiting migration to the platform UI seam"
-    removal: platform-ui-migration
   - path: lib/features/channels/widgets/channel_list_tab.dart
     package: "package:cupertino_ui/cupertino_ui.dart"
     count: 1
@@ -845,12 +839,6 @@ exceptions:
   - path: lib/features/direct_connections/views/direct_mcp_server_editor_page.dart
     symbol: "DropdownMenuItem"
     count: 3
-    owner: direct-connections
-    reason: "Existing use awaiting migration to the platform UI seam"
-    removal: platform-ui-migration
-  - path: lib/features/direct_connections/views/direct_mcp_server_editor_page.dart
-    symbol: "SwitchListTile"
-    count: 2
     owner: direct-connections
     reason: "Existing use awaiting migration to the platform UI seam"
     removal: platform-ui-migration

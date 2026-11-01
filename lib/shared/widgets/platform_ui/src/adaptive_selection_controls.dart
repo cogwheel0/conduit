@@ -27,6 +27,29 @@ class AdaptiveSwitch extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final label = semanticLabel;
+    if (PlatformUiCapabilities.usesNativeIOS26 && thumbColor == null) {
+      var nativeValue = value;
+      void change(bool next) {
+        // SwiftUI also reports programmatic updates through onChange.
+        if (next == nativeValue) return;
+        nativeValue = next;
+        onChanged?.call(next);
+      }
+
+      return Semantics(
+        label: label,
+        toggled: value,
+        enabled: onChanged != null,
+        onTap: onChanged == null ? null : () => change(!nativeValue),
+        excludeSemantics: true,
+        child: CNSwitch(
+          value: value,
+          enabled: onChanged != null,
+          onChanged: change,
+          color: activeColor ?? CupertinoColors.activeGreen,
+        ),
+      );
+    }
     final control = _buildControl(context);
     if (label == null) return control;
     return Semantics(label: label, child: control);

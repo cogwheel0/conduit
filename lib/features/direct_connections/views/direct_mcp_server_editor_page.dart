@@ -9,6 +9,7 @@ import '../../../shared/services/navigation_service.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/themed_dialogs.dart';
+import '../../../shared/widgets/platform_ui/platform_ui.dart';
 import '../../../shared/widgets/utility_components.dart';
 
 import 'package:conduit_core/features/direct_connections/models/direct_mcp_server.dart';
@@ -647,14 +648,22 @@ class _DirectMcpServerEditorPageState
                       ),
                     ),
                   ],
-                  SwitchListTile.adaptive(
-                    key: const ValueKey('direct-mcp-enabled'),
-                    contentPadding: EdgeInsets.zero,
-                    title: Text(l10n.enabledLabel),
-                    value: _enabled,
-                    onChanged: _busy
-                        ? null
-                        : (value) => setState(() => _enabled = value),
+                  MergeSemantics(
+                    child: ListTile(
+                      key: const ValueKey('direct-mcp-enabled'),
+                      enabled: !_busy,
+                      contentPadding: EdgeInsets.zero,
+                      title: Text(l10n.enabledLabel),
+                      trailing: AdaptiveSwitch(
+                        value: _enabled,
+                        onChanged: _busy
+                            ? null
+                            : (value) => setState(() => _enabled = value),
+                      ),
+                      onTap: _busy
+                          ? null
+                          : () => setState(() => _enabled = !_enabled),
+                    ),
                   ),
                   if (_message != null) ...[
                     const SizedBox(height: 8),

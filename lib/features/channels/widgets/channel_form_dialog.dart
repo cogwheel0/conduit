@@ -5,6 +5,7 @@ import 'package:conduit/shared/theme/conduit_input_styles.dart';
 import 'package:conduit/shared/theme/theme_extensions.dart';
 import 'package:conduit/shared/widgets/conduit_components.dart';
 import 'package:conduit/shared/widgets/themed_dialogs.dart';
+import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:material_ui/material_ui.dart';
 
 /// Submitted values from the channel create/edit form.
@@ -110,14 +111,21 @@ Future<ChannelFormResult?> showChannelFormDialog(
               ),
               if (includePrivacyToggle) ...[
                 const SizedBox(height: Spacing.sm),
-                SwitchListTile(
-                  contentPadding: EdgeInsets.zero,
-                  title: Text(l10n.channelPrivate),
-                  value: isPrivate,
-                  onChanged: (value) {
-                    ConduitHaptics.selectionClick();
-                    setDialogState(() => isPrivate = value);
-                  },
+                MergeSemantics(
+                  child: ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: Text(l10n.channelPrivate),
+                    trailing: AdaptiveSwitch(
+                      value: isPrivate,
+                      onChanged: (value) {
+                        setDialogState(() => isPrivate = value);
+                      },
+                    ),
+                    onTap: () {
+                      ConduitHaptics.selectionClick();
+                      setDialogState(() => isPrivate = !isPrivate);
+                    },
+                  ),
                 ),
               ],
             ],
