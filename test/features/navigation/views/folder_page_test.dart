@@ -2481,6 +2481,9 @@ void main() {
         tester.view.viewInsets = FakeViewPadding.zero;
         tester.view.padding = const FakeViewPadding(top: 62, bottom: 34);
         await tester.pumpAndSettle();
+        final savedMessage = AppLocalizations.of(
+          tester.element(key('folder-project-form')),
+        )!.saved;
         await tester.tap(key('folder-project-save'));
         await settle(tester);
 
@@ -2497,6 +2500,7 @@ void main() {
         expect(data['system_prompt'], 'Answer in French');
         expect(data['custom'], {'k': 1});
         await tester.pump(const Duration(milliseconds: 500));
+        expect(find.text(savedMessage), findsOneWidget);
       },
     );
   });
