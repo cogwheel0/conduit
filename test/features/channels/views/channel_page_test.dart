@@ -41,6 +41,32 @@ final _channelAuthEpochProvider =
     );
 
 void main() {
+  testWidgets('channel previews exclude the composer as its height changes', (
+    tester,
+  ) async {
+    final api = _ChannelApi(messages: [_messageJson('A folded paper sketch.')]);
+    final container = _appRigContainer(api);
+    addTearDown(container.dispose);
+    await _pumpChannelPage(tester, container);
+    await tester.pumpAndSettle();
+    final composer = find.byType(ModernChatInput).first;
+    for (final lines in [1, 7]) {
+      await tester.enterText(
+        find
+            .descendant(of: composer, matching: find.byType(EditableText))
+            .first,
+        List.filled(lines, 'Fold the next corner.').join('\n'),
+      );
+      await tester.pumpAndSettle();
+      final visible = NativeContextMenuViewport.boundsOf(
+        tester.element(find.byType(ConduitContextMenu).first),
+      );
+      expect(visible, isNotNull);
+      expect(visible!.bottom, lessThanOrEqualTo(tester.getRect(composer).top));
+      expect(visible.height, greaterThan(0));
+    }
+  });
+
   testWidgets('a posted message is stored at once and gets its sender later', (
     tester,
   ) async {

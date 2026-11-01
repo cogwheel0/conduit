@@ -1486,8 +1486,15 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
                   children: [
                     Positioned.fill(
                       child: messagesAsync.when(
-                        data: (messages) =>
-                            _buildMessageList(messages, theme, l10n),
+                        data: (messages) => NativeContextMenuViewport(
+                          padding: EdgeInsets.only(
+                            top:
+                                MediaQuery.viewPaddingOf(context).top +
+                                conduitAdaptiveToolbarHeightOf(context),
+                            bottom: _composerHeight,
+                          ),
+                          child: _buildMessageList(messages, theme, l10n),
+                        ),
                         loading: () =>
                             const Center(child: CircularProgressIndicator()),
                         error: (error, _) => Center(
