@@ -4,6 +4,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:uuid/uuid.dart';
+import 'package:material_ui/material_ui.dart'
+    as material_ui
+    show InputDecoration;
 
 import '../../../shared/services/navigation_service.dart';
 import '../../../l10n/app_localizations.dart';
@@ -518,7 +521,7 @@ class _DirectMcpServerEditorPageState
                       'direct-mcp-auth-mode-${widget.serverId}-${_authMode.name}',
                     ),
                     value: _authMode,
-                    decoration: adaptive.InputDecoration(
+                    decoration: material_ui.InputDecoration(
                       labelText: l10n.directMcpAuthMode,
                     ),
                     options: [

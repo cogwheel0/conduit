@@ -4,8 +4,6 @@ import 'package:flutter/services.dart';
 
 import 'platform_ui_capabilities.dart';
 
-export 'package:material_ui/material_ui.dart' show InputDecoration;
-
 class AdaptiveTextField extends StatelessWidget {
   const AdaptiveTextField({
     super.key,
