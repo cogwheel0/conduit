@@ -22,7 +22,7 @@ final _focusBarrier = find.byWidgetPredicate(
 );
 
 void main() {
-  TestWidgetsFlutterBinding.ensureInitialized();
+  final binding = _MenuTestBinding();
 
   testWidgets(
     'ordinary Conduit menus use native presentation and retain action ordering',
@@ -274,6 +274,44 @@ void main() {
 
   for (final failCancellation in [false, true]) {
     testWidgets(
+      'dismissal before native registration prevents presentation: $failCancellation',
+      (tester) async {
+        final fixture = _MenuFixture(failCancellation: failCancellation);
+        addTearDown(fixture.dispose);
+        final controller = ScrollController();
+        addTearDown(controller.dispose);
+        await tester.pumpWidget(_harness(controller, () {}, text: _text));
+        await tester.pumpAndSettle();
+        binding.pauseBeforePresentation();
+        addTearDown(binding.resumePresentation);
+        final gesture = await tester.startGesture(
+          tester.getCenter(find.byType(NativeContextMenu)),
+        );
+        await tester.pump(const Duration(milliseconds: 600));
+        final elapsed = Stopwatch()..start();
+        while (!binding.presentationWaiting &&
+            elapsed.elapsed < const Duration(seconds: 5)) {
+          await tester.runAsync(
+            () => Future<void>.delayed(const Duration(milliseconds: 1)),
+          );
+          await tester.pump();
+        }
+        expect(binding.presentationWaiting, isTrue);
+        await tester.pump();
+        expect(fixture.prepared.isCompleted, isFalse);
+        tester.widget<ModalBarrier>(_focusBarrier).onDismiss!();
+        await tester.pump();
+        expect(fixture.cancellations, hasLength(1));
+        binding.resumePresentation();
+        await tester.pumpAndSettle();
+        expect(fixture.prepared.isCompleted, isFalse);
+        expect(_focusBarrier, findsNothing);
+        expect(tester.takeException(), isNull);
+        await gesture.up();
+      },
+    );
+
+    testWidgets(
       'dismissal invalidates the request before native cancellation: $failCancellation',
       (tester) async {
         final fixture = _MenuFixture(failCancellation: failCancellation);
@@ -402,6 +440,30 @@ void main() {
       semantics.dispose();
     }
   });
+}
+
+class _MenuTestBinding extends AutomatedTestWidgetsFlutterBinding {
+  Completer<void>? _presentationFrame;
+  int _frameRequests = 0;
+
+  bool get presentationWaiting => _frameRequests >= 2;
+
+  void pauseBeforePresentation() {
+    _frameRequests = 0;
+    _presentationFrame = Completer<void>();
+  }
+
+  void resumePresentation() {
+    _presentationFrame?.complete();
+    _presentationFrame = null;
+  }
+
+  @override
+  Future<void> get endOfFrame {
+    final frame = _presentationFrame;
+    if (frame != null && ++_frameRequests == 2) return frame.future;
+    return super.endOfFrame;
+  }
 }
 
 Future<List<Object?>> _waitForMenu(
