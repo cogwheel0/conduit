@@ -1,13 +1,13 @@
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
 import 'package:xterm/xterm.dart';
+import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/utils/utf16_sanitizer.dart';
 
 void _showTerminalSnackBar(BuildContext context, String message) {
-  ScaffoldMessenger.maybeOf(context)
-      ?.showSnackBar(SnackBar(content: Text(sanitizeUtf16(message))));
+  AdaptiveSnackBar.show(context, message: sanitizeUtf16(message));
 }
 
 /// Copies the current xterm selection to the system clipboard, surfacing a

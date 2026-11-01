@@ -21,6 +21,7 @@ import 'package:conduit_core/features/chat/voice_call/voice_call_eligibility.dar
 import '../l10n/app_localizations.dart';
 
 import 'package:conduit_core/utils/debug_logger.dart';
+import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 
 import 'app_intents_service.dart';
 import '../core/services/media_upload_controller.dart';
@@ -282,8 +283,7 @@ class HomeWidgetCoordinator extends _$HomeWidgetCoordinator {
           ? error.message.toString()
           : AppLocalizations.of(context)?.errorMessage ??
                 'Unable to start a voice call.';
-      ScaffoldMessenger.maybeOf(context)
-          ?.showSnackBar(SnackBar(content: Text(message)));
+      AdaptiveSnackBar.show(context, message: message);
     }
   }
 

@@ -29,6 +29,7 @@ import '../../navigation/widgets/conversation_tile.dart';
 import '../../navigation/utils/sidebar_create_action.dart';
 
 import 'package:conduit_core/features/channels/providers/channel_providers.dart';
+import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 
 import '../utils/channel_request_owner.dart';
 import 'channel_form_dialog.dart';
@@ -297,8 +298,7 @@ class _ChannelListTabState extends ConsumerState<ChannelListTab>
   }
 
   void _showChannelActionError(String message) {
-    ScaffoldMessenger.of(context)
-        .showSnackBar(SnackBar(content: Text(message)));
+    AdaptiveSnackBar.show(context, message: message);
   }
 
   @override

@@ -32,6 +32,7 @@ import 'package:conduit/core/network/self_signed_image_cache_manager.dart';
 import 'package:conduit/core/network/image_header_utils.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
 import 'package:conduit/shared/services/raster_media_policy.dart';
+import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 
 typedef MarkdownLinkTapCallback = void Function(String url, String title);
 
@@ -483,12 +484,10 @@ class ConduitMarkdown {
               if (!context.mounted) return;
               ScaffoldMessenger.of(context).hideCurrentSnackBar();
               final l10n = AppLocalizations.of(context);
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text(
+              AdaptiveSnackBar.show(
+                context,
+                message:
                     l10n?.codeCopiedToClipboard ?? 'Code copied to clipboard.',
-                  ),
-                ),
               );
             },
           ),

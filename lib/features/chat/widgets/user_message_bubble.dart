@@ -1058,8 +1058,9 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
         data: {'messageId': widget.message.id?.toString()},
       );
       if (mounted) {
-        ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-          SnackBar(content: Text(AppLocalizations.of(context)!.errorMessage)),
+        AdaptiveSnackBar.show(
+          context,
+          message: AppLocalizations.of(context)!.errorMessage,
         );
       }
     } finally {

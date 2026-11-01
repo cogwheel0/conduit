@@ -6,6 +6,7 @@ import 'package:material_ui/material_ui.dart';
 
 import '../../../theme/color_tokens.dart';
 import '../../../theme/theme_extensions.dart';
+import 'adaptive_glass_controls.dart';
 import 'platform_ui_capabilities.dart';
 
 enum AdaptiveSnackBarType { info, success, warning, error }
@@ -49,7 +50,7 @@ class AdaptiveSnackBar {
 
     if (!PlatformUiCapabilities.isIOS) {
       final status = _statusColors(context, type);
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
         SnackBar(
           content: Text(
             message,
@@ -201,7 +202,9 @@ class _IOSBannerState extends State<_IOSBanner> {
           liveRegion: true,
           child: DecoratedBox(
             decoration: BoxDecoration(
-              color: bannerColor,
+              color: PlatformUiCapabilities.usesNativeIOS26
+                  ? null
+                  : bannerColor,
               borderRadius: BorderRadius.circular(14),
               boxShadow: const [
                 BoxShadow(
@@ -211,34 +214,48 @@ class _IOSBannerState extends State<_IOSBanner> {
                 ),
               ],
             ),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-              child: Row(
-                children: [
-                  Icon(icon, color: tint, size: 20),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Text(
-                      widget.message,
-                      style: TextStyle(
-                        color:
-                            conduitTheme?.textPrimary ??
-                            CupertinoColors.label.resolveFrom(context),
-                      ),
+            child: Stack(
+              fit: StackFit.passthrough,
+              children: [
+                if (PlatformUiCapabilities.usesNativeIOS26)
+                  Positioned.fill(
+                    child: AdaptiveGlassBackdrop(
+                      borderRadius: BorderRadius.circular(14),
                     ),
                   ),
-                  if (widget.action != null)
-                    CupertinoButton(
-                      padding: const EdgeInsets.only(left: 10),
-                      minimumSize: const Size(36, 36),
-                      onPressed: () {
-                        widget.onActionPressed?.call();
-                        widget.onDismiss();
-                      },
-                      child: Text(widget.action!),
-                    ),
-                ],
-              ),
+                Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 12,
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(icon, color: tint, size: 20),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          widget.message,
+                          style: TextStyle(
+                            color:
+                                conduitTheme?.textPrimary ??
+                                CupertinoColors.label.resolveFrom(context),
+                          ),
+                        ),
+                      ),
+                      if (widget.action != null)
+                        CupertinoButton(
+                          padding: const EdgeInsets.only(left: 10),
+                          minimumSize: const Size(36, 36),
+                          onPressed: () {
+                            widget.onActionPressed?.call();
+                            widget.onDismiss();
+                          },
+                          child: Text(widget.action!),
+                        ),
+                    ],
+                  ),
+                ),
+              ],
             ),
           ),
         ),
