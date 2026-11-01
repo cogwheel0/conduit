@@ -293,11 +293,15 @@ final class _HermesMcpPageState extends ConsumerState<HermesMcpPage> {
       appBar: AppBar(
         title: const Text('Hermes MCP'),
         actions: [
-          ConduitAdaptiveAppBarIconButton(
-            semanticLabel: 'Add from catalog',
-            iosSymbol: 'sparkles',
-            onPressed: () => unawaited(_run(_addPreset)),
-            icon: Icons.auto_awesome_outlined,
+          AdaptiveTooltip(
+            message: 'Add from catalog',
+            excludeFromSemantics: PlatformUiCapabilities.usesNativeIOS26,
+            child: ConduitAdaptiveAppBarIconButton(
+              semanticLabel: 'Add from catalog',
+              iosSymbol: 'sparkles',
+              onPressed: () => unawaited(_run(_addPreset)),
+              icon: Icons.auto_awesome_outlined,
+            ),
           ),
         ],
       ),

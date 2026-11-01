@@ -1,4 +1,8 @@
+import 'dart:ui' show PointerDeviceKind;
+
 import 'package:conduit/l10n/conduit_localizations.dart';
+import 'package:conduit/features/hermes/views/hermes_mcp_page.dart';
+import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 import 'package:conduit/features/terminal/widgets/terminal_section_components.dart';
 import 'package:conduit/shared/theme/theme_extensions.dart';
 import 'package:conduit/shared/widgets/conduit_components.dart';
@@ -35,6 +39,41 @@ void main() {
       ),
     ),
   );
+
+  for (final native in [true, false]) {
+    testWidgets('catalog action retains its tooltip when native=$native', (
+      tester,
+    ) async {
+      PlatformUiCapabilities.debugPlatformOverride = native
+          ? TargetPlatform.iOS
+          : TargetPlatform.android;
+      await tester.pumpWidget(
+        host(
+          ProviderScope(
+            overrides: [hermesApiServiceProvider.overrideWithValue(null)],
+            child: const HermesMcpPage(),
+          ),
+        ),
+      );
+      await tester.pump(const Duration(milliseconds: 500));
+      final tooltip = find.byWidgetPredicate(
+        (widget) =>
+            widget is AdaptiveTooltip && widget.message == 'Add from catalog',
+      );
+      expect(tooltip, findsOneWidget);
+      expect(
+        tester.widget<AdaptiveTooltip>(tooltip).excludeFromSemantics,
+        native,
+      );
+      final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+      await mouse.addPointer();
+      await mouse.moveTo(tester.getCenter(tooltip));
+      await tester.pump(const Duration(milliseconds: 600));
+      expect(find.text('Add from catalog'), findsOneWidget);
+      await mouse.removePointer();
+      await tester.pumpAndSettle();
+    });
+  }
 
   for (final enabled in [true, false]) {
     testWidgets('toolbar icon has one native label when enabled=$enabled', (
