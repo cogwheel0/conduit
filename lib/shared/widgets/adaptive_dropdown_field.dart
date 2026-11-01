@@ -40,7 +40,7 @@ class AdaptiveDropdownField<T> extends StatelessWidget {
     this.isExpanded = true,
   });
 
-  final T value;
+  final T? value;
   final List<AdaptiveDropdownOption<T>> options;
   final ValueChanged<T>? onChanged;
   final InputDecoration decoration;
@@ -179,7 +179,7 @@ class AdaptiveSingleChoiceTrigger<T> extends StatelessWidget {
     this.fallbackReplacement,
   });
 
-  final T value;
+  final T? value;
   final List<AdaptiveDropdownOption<T>> options;
   final ValueChanged<T> onChanged;
   final Widget child;
@@ -258,7 +258,7 @@ class AdaptiveSingleChoiceResult<T> {
 
 Future<AdaptiveSingleChoiceResult<T>?> showAdaptiveNativeSingleChoice<T>({
   required BuildContext context,
-  required T value,
+  required T? value,
   required List<AdaptiveDropdownOption<T>> options,
   String? title,
   String? cancelLabel,
