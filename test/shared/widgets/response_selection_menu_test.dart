@@ -3,7 +3,9 @@ import 'dart:async';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/l10n/conduit_localizations.dart';
 import 'package:conduit/shared/utils/ask_conduit_context_menu.dart';
+import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:conduit_core/features/chat/providers/chat_providers.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -13,6 +15,41 @@ import 'package:material_ui/material_ui.dart';
 void main() {
   const channel = MethodChannel('app.cogwheel.conduit/text_selection_menu');
   final binding = TestWidgetsFlutterBinding.ensureInitialized();
+
+  testWidgets('pointer anchors do not require selection endpoint glyphs', (
+    tester,
+  ) async {
+    Widget? menu;
+    await tester.pumpWidget(
+      ProviderScope(
+        child: MaterialApp(
+          localizationsDelegates: conduitLocalizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: Scaffold(
+            body: Consumer(
+              builder: (context, ref, _) => TextButton(
+                onPressed: () {
+                  menu = buildAskConduitSelectionAreaContextMenu(
+                    selectableRegionState: _PointerRegion(context),
+                    ref: ref,
+                    selectedText: null,
+                    composerTargetId: null,
+                  );
+                },
+                child: const Text('Open pointer menu'),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('Open pointer menu'));
+    expect(tester.takeException(), isNull);
+    final native = menu! as AdaptiveTextSelectionMenu;
+    expect(native.selectionRect.contains(const Offset(100, 100)), isTrue);
+    expect(native.selectionRect.isEmpty, isFalse);
+    expect(native.buttonItems.single.type, ContextMenuButtonType.selectAll);
+  }, variant: const TargetPlatformVariant({TargetPlatform.iOS}));
 
   for (final action in ['Copy', 'Ask Conduit']) {
     testWidgets('iOS response selection keeps the native $action action', (
@@ -99,4 +136,32 @@ void main() {
       expect(find.byType(AdaptiveTextSelectionToolbar), findsNothing);
     }, variant: const TargetPlatformVariant({TargetPlatform.iOS}));
   }
+}
+
+/// A pointer menu can have a tap anchor before both selection endpoints exist.
+class _PointerRegion extends Fake
+    with Diagnosticable
+    implements SelectableRegionState {
+  _PointerRegion(this.context);
+
+  @override
+  final BuildContext context;
+
+  @override
+  TextSelectionToolbarAnchors get contextMenuAnchors =>
+      const TextSelectionToolbarAnchors(primaryAnchor: Offset(100, 100));
+
+  @override
+  List<ContextMenuButtonItem> get contextMenuButtonItems => [
+    ContextMenuButtonItem(
+      type: ContextMenuButtonType.selectAll,
+      onPressed: () {},
+    ),
+  ];
+
+  @override
+  double get startGlyphHeight => throw StateError('No start endpoint');
+
+  @override
+  double get endGlyphHeight => throw StateError('No end endpoint');
 }

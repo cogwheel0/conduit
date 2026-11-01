@@ -66,7 +66,24 @@ class _AdaptiveTextSelectionMenuState extends State<AdaptiveTextSelectionMenu> {
   @override
   void didUpdateWidget(AdaptiveTextSelectionMenu oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (_samePresentation(oldWidget, widget)) return;
     _schedulePresentation();
+  }
+
+  static bool _samePresentation(
+    AdaptiveTextSelectionMenu a,
+    AdaptiveTextSelectionMenu b,
+  ) {
+    if (a.selectionRect != b.selectionRect ||
+        a.buttonItems.length != b.buttonItems.length) {
+      return false;
+    }
+    for (var i = 0; i < a.buttonItems.length; i++) {
+      final x = a.buttonItems[i];
+      final y = b.buttonItems[i];
+      if (x.type != y.type || x.label != y.label) return false;
+    }
+    return true;
   }
 
   /// Invalidates old replies immediately, then waits for consistent geometry.
@@ -84,8 +101,7 @@ class _AdaptiveTextSelectionMenuState extends State<AdaptiveTextSelectionMenu> {
     });
   }
 
-  /// Freezes this presentation's callbacks and fences replies against a newer
-  /// selection, so a dismissed menu cannot act on a replacement selection.
+  /// Fences replies against a newer selection while retaining current callbacks.
   Future<void> _show() async {
     final session = _nextSession++;
     final items = List<ContextMenuButtonItem>.of(widget.buttonItems);
@@ -109,8 +125,8 @@ class _AdaptiveTextSelectionMenuState extends State<AdaptiveTextSelectionMenu> {
         ],
       });
       if (!mounted || _session != session) return;
-      if (action != null && action >= 0 && action < items.length) {
-        items[action].onPressed?.call();
+      if (action != null && action >= 0 && action < widget.buttonItems.length) {
+        widget.buttonItems[action].onPressed?.call();
       } else {
         widget.onDismiss();
       }

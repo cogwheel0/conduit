@@ -69,14 +69,18 @@ Widget buildAskConduitSelectionAreaContextMenu({
     label: AppLocalizations.of(selectableRegionState.context)!.askConduitAction,
   );
 
+  // Pointer menus use their tap position even before selection endpoints exist.
+  final anchors = selectableRegionState.contextMenuAnchors;
   return AdaptiveTextSelectionMenu(
-    selectionRect: TextSelectionToolbarAnchors.getSelectionRect(
-      selectableRegionState.context.findRenderObject()! as RenderBox,
-      selectableRegionState.startGlyphHeight,
-      selectableRegionState.endGlyphHeight,
-      selectableRegionState.selectionEndpoints,
-    ),
-    anchors: selectableRegionState.contextMenuAnchors,
+    selectionRect: anchors.secondaryAnchor == null
+        ? Rect.fromCenter(center: anchors.primaryAnchor, width: 1, height: 1)
+        : TextSelectionToolbarAnchors.getSelectionRect(
+            selectableRegionState.context.findRenderObject()! as RenderBox,
+            selectableRegionState.startGlyphHeight,
+            selectableRegionState.endGlyphHeight,
+            selectableRegionState.selectionEndpoints,
+          ),
+    anchors: anchors,
     buttonItems: items,
     onDismiss: () => selectableRegionState.hideToolbar(false),
   );

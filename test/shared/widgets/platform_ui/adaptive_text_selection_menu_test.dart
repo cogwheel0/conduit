@@ -36,6 +36,7 @@ void main() {
     WidgetTester tester, {
     bool supported = true,
     double y = 100,
+    VoidCallback? onCopy,
   }) async {
     await tester.pumpWidget(
       MaterialApp(
@@ -51,7 +52,7 @@ void main() {
               buttonItems: [
                 ContextMenuButtonItem(
                   type: ContextMenuButtonType.copy,
-                  onPressed: () => copied++,
+                  onPressed: onCopy ?? () => copied++,
                 ),
                 ContextMenuButtonItem(
                   type: ContextMenuButtonType.selectAll,
@@ -238,6 +239,19 @@ void main() {
     await tester.pump();
     expect(dismissed, 1);
     expect(copied + selected, 0);
+  }, variant: const TargetPlatformVariant({TargetPlatform.iOS}));
+
+  testWidgets('stable menus stay visible and use current callbacks', (
+    tester,
+  ) async {
+    final events = <String>[];
+    await host(tester, onCopy: () => events.add('old'));
+    await host(tester, onCopy: () => events.add('current'));
+    expect(calls.where((call) => call.method == 'show'), hasLength(1));
+    expect(calls.where((call) => call.method == 'hide'), isEmpty);
+    replies.single.complete(0);
+    await tester.pump();
+    expect(events, ['current']);
   }, variant: const TargetPlatformVariant({TargetPlatform.iOS}));
 
   testWidgets('late replies cannot act on a removed selection', (tester) async {
