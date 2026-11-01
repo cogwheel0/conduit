@@ -520,7 +520,9 @@ class ConduitAdaptiveAppBarTextButton extends StatelessWidget {
                 : AdaptiveButtonStyle.glass
           : AdaptiveButtonStyle.plain,
       color: nativeProminent ? theme.buttonPrimary : null,
-      textColor: nativeProminent
+      textColor: onPressed == null
+          ? theme.buttonDisabledText
+          : nativeProminent
           ? theme.buttonPrimaryText
           : theme.buttonPrimary,
       minSize: const Size(0, TouchTarget.minimum),

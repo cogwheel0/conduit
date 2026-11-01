@@ -134,12 +134,19 @@ void main() {
   });
 
   Future<void> activateButton(WidgetTester tester, Finder target) async {
-    final native = find.descendant(of: target, matching: find.byType(CNButton));
-    if (native.evaluate().isEmpty) {
+    final nativeView = find.descendant(
+      of: target,
+      matching: find.byType(UiKitView),
+    );
+    if (nativeView.evaluate().isEmpty) {
       await tester.tap(target);
     } else {
       // The fake platform-view host cannot synthesize UIKit's pressed event.
-      tester.widget<CNButton>(native).onPressed!();
+      final button = find.descendant(
+        of: target,
+        matching: find.byType(CNButton),
+      );
+      tester.widget<CNButton>(button).onPressed!();
     }
   }
 

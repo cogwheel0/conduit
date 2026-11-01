@@ -1,4 +1,5 @@
 import 'package:conduit/l10n/conduit_localizations.dart';
+import 'package:conduit/features/terminal/widgets/terminal_section_components.dart';
 import 'package:conduit/shared/theme/theme_extensions.dart';
 import 'package:conduit/shared/widgets/conduit_components.dart';
 import 'package:conduit/shared/widgets/markdown/markdown_config.dart';
@@ -101,6 +102,21 @@ void main() {
         .transformationController!;
     final initial = Matrix4.copy(controller.value);
     expect(action('Zoom in').style, AdaptiveButtonStyle.glass);
+    expect(
+      tester
+          .widget<AdaptiveTooltip>(
+            find.ancestor(
+              of: find.byWidgetPredicate(
+                (widget) =>
+                    widget is AdaptiveButton &&
+                    widget.semanticLabel == 'Zoom in',
+              ),
+              matching: find.byType(AdaptiveTooltip),
+            ),
+          )
+          .excludeFromSemantics,
+      isTrue,
+    );
     action('Zoom in').onPressed!();
     await tester.pump();
     expect(
@@ -160,6 +176,80 @@ void main() {
     await tester.pump(const Duration(milliseconds: 500));
   }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
 
+  testWidgets('older iOS toolbar actions show their disabled state', (
+    tester,
+  ) async {
+    PlatformUiCapabilities.debugIOSMajorVersionOverride = 25;
+    PlatformUiCapabilities.debugNativeIOS26Override = false;
+    await tester.pumpWidget(
+      host(
+        const ConduitAdaptiveAppBarTextButton(
+          label: 'Save sketch',
+          onPressed: null,
+        ),
+      ),
+    );
+    final text = tester.widget<Text>(find.text('Save sketch'));
+    final context = tester.element(
+      find.byType(ConduitAdaptiveAppBarTextButton),
+    );
+    expect(text.style?.color, context.conduitTheme.buttonDisabledText);
+    expect(
+      tester.widget<CupertinoButton>(find.byType(CupertinoButton)).onPressed,
+      isNull,
+    );
+  }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
+
+  testWidgets('default toolbar font leaves Dynamic Type sizing to UIKit', (
+    tester,
+  ) async {
+    for (final scale in [1.0, 2.0]) {
+      await tester.pumpWidget(
+        host(
+          MediaQuery(
+            data: MediaQueryData(textScaler: TextScaler.linear(scale)),
+            child: ConduitAdaptiveAppBarTextButton(
+              label: 'Save sketch',
+              onPressed: () {},
+            ),
+          ),
+        ),
+      );
+      final button = tester.widget<CNButton>(find.byType(CNButton));
+      // A null size retains the SDK's preferred body font and Dynamic Type.
+      expect(button.config.labelFontSize, isNull);
+      expect(button.config.labelFontFamily, isNull);
+      expect(button.config.minHeight, TouchTarget.minimum);
+      await tester.pump(const Duration(milliseconds: 500));
+    }
+  }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
+
+  testWidgets('terminal actions give UIKit one localized accessible label', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      host(
+        TerminalIconActionButton(
+          tooltip: 'Open sketch',
+          iosIcon: CupertinoIcons.folder,
+          materialIcon: Icons.folder,
+          onPressed: () {},
+        ),
+      ),
+    );
+    expect(
+      tester.widget<CNButton>(find.byType(CNButton)).semanticLabel,
+      'Open sketch',
+    );
+    expect(
+      tester
+          .widget<AdaptiveTooltip>(find.byType(AdaptiveTooltip))
+          .excludeFromSemantics,
+      isTrue,
+    );
+    await tester.pump(const Duration(milliseconds: 500));
+  }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
+
   testWidgets(
     'native icon foreground remains independent from prominent glass tint',
     (tester) async {
@@ -188,11 +278,17 @@ void main() {
     (tester) async {
       var closes = 0;
       await tester.pumpWidget(
-        host(SheetCloseButton(onPressed: () => closes++)),
+        host(
+          SheetCloseButton(tooltip: 'Close sketch', onPressed: () => closes++),
+        ),
       );
       final button = tester.widget<CNButton>(find.byType(CNButton));
       expect(button.icon?.name, 'xmark');
-      expect(button.semanticLabel, 'Close');
+      expect(button.semanticLabel, 'Close sketch');
+      expect(
+        tester.widget<Tooltip>(find.byType(Tooltip)).excludeFromSemantics,
+        isTrue,
+      );
       expect(
         tester.getSize(find.byType(SheetCloseButton)),
         const Size.square(44),

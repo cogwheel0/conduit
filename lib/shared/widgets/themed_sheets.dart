@@ -571,7 +571,11 @@ class SheetCloseButton extends StatelessWidget {
     if (tooltip == null) {
       return button;
     }
-    return Tooltip(message: tooltip!, child: button);
+    return Tooltip(
+      message: tooltip!,
+      excludeFromSemantics: true,
+      child: button,
+    );
   }
 }
 

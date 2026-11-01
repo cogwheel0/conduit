@@ -2770,6 +2770,7 @@ class _MermaidCanvasControlButton extends StatelessWidget {
     if (PlatformUiCapabilities.usesNativeIOS26) {
       return AdaptiveTooltip(
         message: label,
+        excludeFromSemantics: true,
         child: AdaptiveButton.icon(
           onPressed: onPressed,
           icon: icon,
