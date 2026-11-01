@@ -1024,72 +1024,77 @@ class ConduitIconButton extends StatelessWidget {
       isCircular ? AppBorderRadius.circular : AppBorderRadius.standard,
     );
 
-    return Semantics(
-      label: semanticLabel,
-      button: true,
-      enabled: onPressed != null,
-      child: SizedBox.square(
-        dimension: size,
-        child: AdaptiveTooltip(
-          message: tooltip ?? '',
-          child: PlatformUiCapabilities.usesNativeIOS26 && useGlass
-              ? AdaptiveButton.icon(
-                  onPressed: onPressed != null
-                      ? () {
-                          ConduitHaptics.selectionClick();
-                          onPressed!();
-                        }
-                      : null,
-                  icon: icon,
-                  iconSize: isCompact ? IconSize.small : IconSize.medium,
-                  iconColor: effectiveIconColor,
-                  semanticLabel: semanticLabel,
-                  style: AdaptiveButtonStyle.glass,
-                  minSize: Size.square(size),
-                  padding: EdgeInsets.zero,
-                  useSmoothRectangleBorder: !isCircular,
-                )
-              : AdaptiveButton.child(
-                  onPressed: onPressed != null
-                      ? () {
-                          ConduitHaptics.selectionClick();
-                          onPressed!();
-                        }
-                      : null,
-                  enabled: onPressed != null,
-                  color: effectiveBackgroundColor,
-                  style: variant.adaptiveStyle,
-                  borderRadius: borderRadius,
-                  minSize: Size(size, size),
-                  padding: EdgeInsets.zero,
-                  child: DecoratedBox(
-                    decoration: BoxDecoration(
-                      borderRadius: borderRadius,
-                      border: isActive
-                          ? Border.all(
-                              color: context.conduitTheme.buttonPrimary
-                                  .withValues(alpha: Alpha.standard),
-                              width: BorderWidth.standard,
-                            )
-                          : null,
-                    ),
-                    child: SizedBox(
-                      width: size,
-                      height: size,
-                      child: Center(
-                        child: Icon(
-                          icon,
-                          size: isCompact ? IconSize.small : IconSize.medium,
-                          color: effectiveIconColor,
-                          semanticLabel: tooltip,
-                        ),
+    final useNativeGlass = PlatformUiCapabilities.usesNativeIOS26 && useGlass;
+    final button = SizedBox.square(
+      dimension: size,
+      child: AdaptiveTooltip(
+        message: tooltip ?? '',
+        excludeFromSemantics: useNativeGlass ? true : null,
+        child: useNativeGlass
+            ? AdaptiveButton.icon(
+                onPressed: onPressed != null
+                    ? () {
+                        ConduitHaptics.selectionClick();
+                        onPressed!();
+                      }
+                    : null,
+                icon: icon,
+                iconSize: isCompact ? IconSize.small : IconSize.medium,
+                iconColor: effectiveIconColor,
+                semanticLabel: semanticLabel,
+                style: AdaptiveButtonStyle.glass,
+                minSize: Size.square(size),
+                padding: EdgeInsets.zero,
+                useSmoothRectangleBorder: !isCircular,
+              )
+            : AdaptiveButton.child(
+                onPressed: onPressed != null
+                    ? () {
+                        ConduitHaptics.selectionClick();
+                        onPressed!();
+                      }
+                    : null,
+                enabled: onPressed != null,
+                color: effectiveBackgroundColor,
+                style: variant.adaptiveStyle,
+                borderRadius: borderRadius,
+                minSize: Size(size, size),
+                padding: EdgeInsets.zero,
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    borderRadius: borderRadius,
+                    border: isActive
+                        ? Border.all(
+                            color: context.conduitTheme.buttonPrimary
+                                .withValues(alpha: Alpha.standard),
+                            width: BorderWidth.standard,
+                          )
+                        : null,
+                  ),
+                  child: SizedBox(
+                    width: size,
+                    height: size,
+                    child: Center(
+                      child: Icon(
+                        icon,
+                        size: isCompact ? IconSize.small : IconSize.medium,
+                        color: effectiveIconColor,
+                        semanticLabel: tooltip,
                       ),
                     ),
                   ),
                 ),
-        ),
+              ),
       ),
     );
+    return useNativeGlass
+        ? button
+        : Semantics(
+            label: semanticLabel,
+            button: true,
+            enabled: onPressed != null,
+            child: button,
+          );
   }
 }
 

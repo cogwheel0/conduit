@@ -296,6 +296,20 @@ void main() {
       );
       final button = tester.widget<CNButton>(find.byType(CNButton));
       expect(button.icon!.name, 'xmark');
+      expect(button.semanticLabel, 'Close preview');
+      // UIKit owns this name; Flutter must not add another labelled ancestor.
+      expect(
+        find.ancestor(
+          of: find.byType(CNButton),
+          matching: find.byWidgetPredicate(
+            (widget) =>
+                widget is Semantics &&
+                (widget.properties.label == 'Close preview' ||
+                    widget.properties.tooltip == 'Close preview'),
+          ),
+        ),
+        findsNothing,
+      );
       expect(button.config.style, CNButtonStyle.glass);
       expect(
         tester.getSize(find.byType(ConduitIconButton)),

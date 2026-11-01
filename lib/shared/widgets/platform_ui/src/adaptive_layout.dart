@@ -707,6 +707,7 @@ class AdaptiveTooltip extends StatelessWidget {
   const AdaptiveTooltip({
     super.key,
     required this.message,
+    this.excludeFromSemantics,
     this.preferBelow = true,
     this.verticalOffset,
     this.padding,
@@ -720,6 +721,7 @@ class AdaptiveTooltip extends StatelessWidget {
   });
 
   final String message;
+  final bool? excludeFromSemantics;
   final bool preferBelow;
   final double? verticalOffset;
   final EdgeInsetsGeometry? padding;
@@ -734,6 +736,7 @@ class AdaptiveTooltip extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Tooltip(
     message: message,
+    excludeFromSemantics: excludeFromSemantics,
     preferBelow: preferBelow,
     verticalOffset: verticalOffset,
     padding: padding,
