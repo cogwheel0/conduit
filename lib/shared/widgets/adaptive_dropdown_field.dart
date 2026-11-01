@@ -117,7 +117,7 @@ class AdaptiveDropdownField<T> extends StatelessWidget {
                   children: [
                     Expanded(
                       child: Text(
-                        selected?.label ?? effectiveDecoration.hintText ?? '',
+                        selected?.label ?? '',
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style:

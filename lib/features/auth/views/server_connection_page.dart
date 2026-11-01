@@ -2096,6 +2096,7 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
               const SizedBox(width: Spacing.md),
               AdaptiveSwitch(
                 value: _allowSelfSignedCertificates,
+                semanticLabel: l10n.allowSelfSignedCertificates,
                 onChanged: (value) {
                   setState(() {
                     _allowSelfSignedCertificates = value;

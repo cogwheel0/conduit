@@ -222,6 +222,7 @@ class _JobCardState extends ConsumerState<_JobCard> {
               else
                 AdaptiveSwitch(
                   value: job.enabled,
+                  semanticLabel: job.displayName,
                   onChanged: writable ? _setEnabled : null,
                 ),
             ],

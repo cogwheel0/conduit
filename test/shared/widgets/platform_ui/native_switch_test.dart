@@ -1,3 +1,4 @@
+import 'package:conduit/shared/widgets/adaptive_dropdown_field.dart';
 import 'package:conduit/l10n/conduit_localizations.dart';
 import 'package:conduit/shared/widgets/legacy_design_compatibility.dart';
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
@@ -30,6 +31,24 @@ void main() {
     ),
   );
 
+  testWidgets('empty native choice fields render their hint once', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      host(
+        AdaptiveDropdownField<String?>(
+          value: null,
+          options: const [
+            AdaptiveDropdownOption<String?>(value: 'boat', label: 'Paper boat'),
+          ],
+          onChanged: (_) {},
+          decoration: const InputDecoration(hintText: 'Choose a shape'),
+        ),
+      ),
+    );
+    expect(find.text('Choose a shape'), findsOneWidget);
+  }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
+
   testWidgets('native switch remains controlled and has an accessible action', (
     tester,
   ) async {
@@ -56,17 +75,36 @@ void main() {
         ),
       );
       expect(
-        tester.getSemantics(find.byType(AdaptiveSwitch)),
-        matchesSemantics(
-          label: 'Keep sketch',
-          hasToggledState: true,
-          isToggled: false,
-          hasEnabledState: true,
-          isEnabled: true,
-          hasTapAction: true,
-        ),
+        tester.widget<CNSwitch>(find.byType(CNSwitch)).semanticLabel,
+        'Keep sketch',
       );
-      tester.semantics.tap(find.semantics.byLabel('Keep sketch'));
+      final nativeView = find.descendant(
+        of: find.byType(CNSwitch),
+        matching: find.byType(UiKitView),
+      );
+      if (nativeView.evaluate().isEmpty) {
+        expect(
+          tester.getSemantics(find.byType(AdaptiveSwitch)),
+          matchesSemantics(
+            label: 'Keep sketch',
+            hasToggledState: true,
+            isToggled: false,
+            hasEnabledState: true,
+            isEnabled: true,
+            hasTapAction: true,
+          ),
+        );
+        tester.semantics.tap(find.semantics.byLabel('Keep sketch'));
+      } else {
+        // The stub has no UIKit accessibility tree. Check its creation data;
+        // native VoiceOver is verified on iOS, without a duplicate Flutter node.
+        expect(
+          tester.widget<UiKitView>(nativeView).creationParams,
+          containsPair('semanticLabel', 'Keep sketch'),
+        );
+        expect(find.bySemanticsLabel('Keep sketch'), findsNothing);
+        tester.widget<CNSwitch>(find.byType(CNSwitch)).onChanged(true);
+      }
       await tester.pump();
       expect(value, isTrue);
       expect(changes, 1);

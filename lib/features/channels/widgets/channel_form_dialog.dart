@@ -117,6 +117,7 @@ Future<ChannelFormResult?> showChannelFormDialog(
                     title: Text(l10n.channelPrivate),
                     trailing: AdaptiveSwitch(
                       value: isPrivate,
+                      semanticLabel: l10n.channelPrivate,
                       onChanged: (value) {
                         setDialogState(() => isPrivate = value);
                       },

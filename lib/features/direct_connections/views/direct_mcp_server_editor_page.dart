@@ -656,6 +656,7 @@ class _DirectMcpServerEditorPageState
                       title: Text(l10n.enabledLabel),
                       trailing: adaptive.AdaptiveSwitch(
                         value: _enabled,
+                        semanticLabel: l10n.enabledLabel,
                         onChanged: _busy
                             ? null
                             : (value) => setState(() => _enabled = value),

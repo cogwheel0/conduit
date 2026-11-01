@@ -60,7 +60,11 @@ final class DirectConnectionAvailabilitySection extends StatelessWidget {
               ),
             ),
             const SizedBox(width: Spacing.md),
-            AdaptiveSwitch(value: form.enabled, onChanged: form.setEnabled),
+            AdaptiveSwitch(
+              value: form.enabled,
+              semanticLabel: l10n.enabledLabel,
+              onChanged: form.setEnabled,
+            ),
           ],
         ),
       ),

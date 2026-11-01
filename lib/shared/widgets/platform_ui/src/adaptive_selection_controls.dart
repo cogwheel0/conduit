@@ -36,18 +36,12 @@ class AdaptiveSwitch extends StatelessWidget {
         onChanged?.call(next);
       }
 
-      return Semantics(
-        label: label,
-        toggled: value,
+      return CNSwitch(
+        value: value,
         enabled: onChanged != null,
-        onTap: onChanged == null ? null : () => change(!nativeValue),
-        excludeSemantics: true,
-        child: CNSwitch(
-          value: value,
-          enabled: onChanged != null,
-          onChanged: change,
-          color: activeColor ?? CupertinoColors.activeGreen,
-        ),
+        onChanged: change,
+        semanticLabel: label,
+        color: activeColor ?? CupertinoColors.activeGreen,
       );
     }
     final control = _buildControl(context);

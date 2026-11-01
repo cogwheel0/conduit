@@ -297,6 +297,7 @@ class AudioSettingsPage extends ConsumerWidget {
           subtitle: l10n.voiceBargeInDescription,
           trailing: AdaptiveSwitch(
             value: settings.voiceBargeInEnabled,
+            semanticLabel: l10n.voiceBargeIn,
             onChanged: notifier.setVoiceBargeInEnabled,
           ),
           showChevron: false,

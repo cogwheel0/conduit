@@ -226,6 +226,7 @@ class _WorkspaceValveFormState extends State<WorkspaceValveForm> {
           AdaptiveSwitch(
             key: controlKey,
             value: current,
+            semanticLabel: title,
             onChanged: widget.enabled
                 ? (value) => _setValue(property, value)
                 : null,

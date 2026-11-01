@@ -225,6 +225,7 @@ final class WorkspacePromptVersionSection extends StatelessWidget {
             subtitle: Text(l10n.workspacePromptSetProductionSubtitle),
             trailing: AdaptiveSwitch(
               value: isProduction,
+              semanticLabel: l10n.workspacePromptSetProduction,
               onChanged: readOnly ? null : onProductionChanged,
             ),
           ),

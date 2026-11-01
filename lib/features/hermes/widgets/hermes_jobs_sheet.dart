@@ -439,6 +439,7 @@ class _HermesJobSheetRowState extends ConsumerState<_HermesJobSheetRow> {
           else
             AdaptiveSwitch(
               value: job.enabled,
+              semanticLabel: job.displayName,
               onChanged: widget.writable ? _setEnabled : null,
             ),
         ],

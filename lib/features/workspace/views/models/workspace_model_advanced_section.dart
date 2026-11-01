@@ -116,6 +116,7 @@ final class WorkspaceModelAdvancedSection extends StatelessWidget {
               title: Text(entry.key),
               trailing: AdaptiveSwitch(
                 value: entry.value,
+                semanticLabel: entry.key,
                 onChanged: controller.readOnly
                     ? null
                     : (value) => controller.setCapability(entry.key, value),

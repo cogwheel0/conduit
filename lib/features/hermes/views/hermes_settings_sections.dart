@@ -168,6 +168,7 @@ class _HermesToolsetsSectionState extends ConsumerState<HermesToolsetsSection> {
                       trailing: desktop
                           ? AdaptiveSwitch(
                               value: toolset.enabled,
+                              semanticLabel: toolset.label,
                               onChanged: _pending.contains(toolset.name)
                                   ? null
                                   : (enabled) =>
@@ -310,6 +311,7 @@ class _HermesTransportSectionState extends State<HermesTransportSection> {
             subtitle: l10n.allowSelfSignedCertificatesDescription,
             trailing: AdaptiveSwitch(
               value: _controller.allowSelfSignedCertificates,
+              semanticLabel: l10n.allowSelfSignedCertificates,
               onChanged: _controller.setAllowSelfSignedCertificates,
             ),
             onTap: () => _controller.setAllowSelfSignedCertificates(
