@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:material_ui/material_ui.dart';
 
@@ -234,6 +235,8 @@ class _DirectMcpContentSheetState extends ConsumerState<DirectMcpContentSheet> {
                       textField: true,
                       label: l10n.directMcpContentSearch,
                       child: TextField(
+                        magnifierConfiguration:
+                            nativeIosTextMagnifierConfiguration,
                         key: const Key('direct-mcp-content-search'),
                         controller: _searchController,
                         onChanged: (_) => setState(() {}),
@@ -420,7 +423,11 @@ class _DirectMcpContentSheetState extends ConsumerState<DirectMcpContentSheet> {
               ),
               child: SingleChildScrollView(
                 padding: const EdgeInsets.all(Spacing.md),
-                child: SelectableText(preview),
+                child: SelectableText(
+                  preview,
+                  magnifierConfiguration: nativeIosTextMagnifierConfiguration,
+                  contextMenuBuilder: AdaptiveTextSelectionMenu.editableText,
+                ),
               ),
             ),
           ),
@@ -553,6 +560,8 @@ class _DirectMcpPromptArgumentsFormState
                       Padding(
                         padding: const EdgeInsets.only(bottom: Spacing.md),
                         child: TextFormField(
+                          magnifierConfiguration:
+                              nativeIosTextMagnifierConfiguration,
                           key: ValueKey('direct-mcp-argument-${argument.name}'),
                           controller: _controllers[argument.name],
                           decoration: context.conduitInputStyles

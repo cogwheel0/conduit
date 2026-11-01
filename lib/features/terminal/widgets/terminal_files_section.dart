@@ -147,9 +147,11 @@ class TerminalFilesSection extends StatelessWidget {
                 const SizedBox(height: Spacing.xs),
                 SelectableText(
                   sanitizeUtf16(currentPath),
+                  magnifierConfiguration: nativeIosTextMagnifierConfiguration,
                   style: AppTypography.codeStyle.copyWith(
                     color: theme.codeText,
                   ),
+                  contextMenuBuilder: AdaptiveTextSelectionMenu.editableText,
                 ),
               ],
             ),
@@ -459,6 +461,9 @@ Widget _terminalPreviewContent(
           key: PdfDocumentRefKey(preview.fileName, [preview.bytes!]),
         ),
         initialPageNumber: page != null && page > 0 ? page : 1,
+        params: const PdfViewerParams(
+          buildContextMenu: AdaptiveDocumentSelectionMenu.pdf,
+        ),
       ),
     );
   }
@@ -476,7 +481,9 @@ Widget _terminalPreviewContent(
           padding: const EdgeInsets.all(Spacing.md),
           child: SelectableText(
             sanitizeUtf16(preview.text ?? ''),
+            magnifierConfiguration: nativeIosTextMagnifierConfiguration,
             style: AppTypography.codeStyle.copyWith(color: theme.codeText),
+            contextMenuBuilder: AdaptiveTextSelectionMenu.editableText,
           ),
         ),
       ),

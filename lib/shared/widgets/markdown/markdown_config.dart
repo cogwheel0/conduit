@@ -3,6 +3,7 @@ import 'dart:collection';
 import 'dart:convert';
 import 'dart:math' as math;
 
+import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:cached_network_image_ce/cached_network_image.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
@@ -960,9 +961,11 @@ class ConduitMarkdown {
             textAlign: TextAlign.left,
             textDirection: TextDirection.ltr,
             textWidthBasis: TextWidthBasis.parent,
+            magnifierConfiguration: nativeIosTextMagnifierConfiguration,
             style: markdownStyle.detailCode.copyWith(
               color: conduitTheme.codeText,
             ),
+            contextMenuBuilder: AdaptiveTextSelectionMenu.editableText,
           ),
         ],
       ),
@@ -2503,8 +2506,10 @@ class _MermaidDiagramState extends State<MermaidDiagram> {
         padding: const EdgeInsets.all(Spacing.md),
         child: SelectableText(
           '$error',
+          magnifierConfiguration: nativeIosTextMagnifierConfiguration,
           style: Theme.of(context).textTheme.bodySmall
               ?.copyWith(color: Theme.of(context).colorScheme.error),
+          contextMenuBuilder: AdaptiveTextSelectionMenu.editableText,
         ),
       ),
     );

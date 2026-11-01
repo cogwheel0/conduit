@@ -2079,6 +2079,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
         controller: controller,
         focusNode: _contentFocusNode,
         readOnly: _readOnly,
+        contextMenuBuilder: AdaptiveDocumentSelectionMenu.richText,
         // Lives inside the page's SingleChildScrollView; the editor must not
         // scroll independently so the whole note grows with the content. Give
         // Fleather the parent controller so context-menu actions can reveal the

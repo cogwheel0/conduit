@@ -4290,6 +4290,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                 showCursor: true,
                 scrollPadding: const EdgeInsets.only(bottom: 80),
                 keyboardAppearance: brightness,
+                magnifierConfiguration: nativeIosTextMagnifierConfiguration,
                 style: baseChatStyle.copyWith(color: animatedTextColor),
                 decoration: context.conduitInputStyles
                     .borderless(hint: inputPlaceholder)

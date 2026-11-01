@@ -7,6 +7,7 @@ import 'package:material_ui/material_ui.dart';
 import '../../../theme/color_tokens.dart';
 import '../../../theme/theme_extensions.dart';
 import 'platform_ui_capabilities.dart';
+import 'ios_text_magnifier.dart';
 
 enum AdaptiveSnackBarType { info, success, warning, error }
 
@@ -373,6 +374,7 @@ class AdaptiveAlertDialog {
                 if (message != null) Text(message),
                 const SizedBox(height: 10),
                 CupertinoTextField(
+                  magnifierConfiguration: nativeIosTextMagnifierConfiguration,
                   controller: controller,
                   placeholder: input.placeholder,
                   keyboardType: input.keyboardType,
@@ -410,6 +412,7 @@ class AdaptiveAlertDialog {
         builder: (dialogContext) => AlertDialog(
           title: Text(title),
           content: TextField(
+            magnifierConfiguration: nativeIosTextMagnifierConfiguration,
             controller: controller,
             keyboardType: input.keyboardType,
             obscureText: input.obscureText,

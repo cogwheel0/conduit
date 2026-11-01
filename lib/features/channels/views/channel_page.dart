@@ -2045,6 +2045,8 @@ class _MessageBubble extends StatelessWidget {
                               ),
                             ),
                             onSubmitted: (_) => onSubmitEdit?.call(),
+                            magnifierConfiguration:
+                                nativeIosTextMagnifierConfiguration,
                           ),
                         ),
                         ConduitIconButton(

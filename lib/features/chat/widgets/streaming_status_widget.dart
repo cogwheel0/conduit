@@ -1,5 +1,6 @@
 import 'dart:io' show Platform;
 
+import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 
@@ -373,6 +374,10 @@ class _MinimalHistoryTimeline extends StatelessWidget {
                         style: AppTypography.bodySmallStyle.copyWith(
                           color: theme.textSecondary,
                         ),
+                        magnifierConfiguration:
+                            nativeIosTextMagnifierConfiguration,
+                        contextMenuBuilder:
+                            AdaptiveTextSelectionMenu.editableText,
                       ),
                     ),
                 ],

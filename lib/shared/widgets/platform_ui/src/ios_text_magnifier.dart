@@ -4,6 +4,14 @@ import 'package:conduit/core/services/haptic_service.dart';
 import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:flutter/services.dart';
 
+import 'platform_ui_capabilities.dart';
+
+/// Retains a field's platform default unless the native iOS loupe is supported.
+TextMagnifierConfiguration? get nativeIosTextMagnifierConfiguration =>
+    PlatformUiCapabilities.usesNativeIOS26
+    ? IosTextMagnifier.configuration
+    : null;
+
 /// Uses UIKit's loupe without replacing Flutter's text editing or gestures.
 ///
 /// Install on iOS 26+ fields through [configuration]. UIKit owns the lens's

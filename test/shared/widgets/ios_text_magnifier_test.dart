@@ -33,6 +33,7 @@ void main() {
   });
 
   tearDown(() {
+    PlatformUiCapabilities.resetDebugOverrides();
     binding.defaultBinaryMessenger.setMockMethodCallHandler(channel, null);
     binding.defaultBinaryMessenger.setMockMethodCallHandler(
       SystemChannels.platform,
@@ -63,6 +64,63 @@ void main() {
         ],
       ),
     ),
+  );
+
+  test(
+    'field configuration preserves platform defaults without native support',
+    () {
+      PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.android;
+      expect(nativeIosTextMagnifierConfiguration, isNull);
+      PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.iOS;
+      PlatformUiCapabilities.debugIOSMajorVersionOverride = 25;
+      expect(nativeIosTextMagnifierConfiguration, isNull);
+      PlatformUiCapabilities.debugIOSMajorVersionOverride = 27;
+      PlatformUiCapabilities.debugNativeIOS26Override = false;
+      expect(nativeIosTextMagnifierConfiguration, isNull);
+      PlatformUiCapabilities.debugNativeIOS26Override = true;
+      expect(
+        nativeIosTextMagnifierConfiguration,
+        same(IosTextMagnifier.configuration),
+      );
+    },
+  );
+
+  testWidgets(
+    'shared input retains editing and formatting with the native loupe',
+    (tester) async {
+      PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.iOS;
+      PlatformUiCapabilities.debugIOSMajorVersionOverride = 27;
+      PlatformUiCapabilities.debugNativeIOS26Override = true;
+      final controller = TextEditingController();
+      addTearDown(controller.dispose);
+      String? changed;
+      await tester.pumpWidget(
+        CupertinoApp(
+          home: CupertinoPageScaffold(
+            child: AdaptiveTextField(
+              controller: controller,
+              keyboardType: TextInputType.number,
+              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+              maxLength: 4,
+              onChanged: (value) => changed = value,
+            ),
+          ),
+        ),
+      );
+      final field = tester.widget<CupertinoTextField>(
+        find.byType(CupertinoTextField),
+      );
+      expect(
+        field.magnifierConfiguration,
+        same(IosTextMagnifier.configuration),
+      );
+      expect(field.keyboardType, TextInputType.number);
+      await tester.enterText(find.byType(CupertinoTextField), '12a345');
+      expect(controller.text, '1234');
+      expect(changed, '1234');
+      expect(controller.selection, const TextSelection.collapsed(offset: 4));
+    },
+    variant: TargetPlatformVariant.only(TargetPlatform.iOS),
   );
 
   testWidgets('native loupe gives one selection haptic per gesture', (

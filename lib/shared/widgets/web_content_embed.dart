@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:collection';
 
+import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:material_ui/material_ui.dart';
@@ -981,7 +982,9 @@ class _EmbedFallbackCard extends StatelessWidget {
               const SizedBox(height: Spacing.xs),
               SelectableText(
                 source.startsWith('//') ? 'https:$source' : source,
+                magnifierConfiguration: nativeIosTextMagnifierConfiguration,
                 style: AppTypography.codeStyle.copyWith(color: theme.codeText),
+                contextMenuBuilder: AdaptiveTextSelectionMenu.editableText,
               ),
             ],
           ],

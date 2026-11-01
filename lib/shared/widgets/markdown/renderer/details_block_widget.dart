@@ -1,3 +1,4 @@
+import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:material_ui/material_ui.dart';
 
 import 'package:conduit/l10n/app_localizations.dart';
@@ -501,7 +502,11 @@ class _MarkdownDetailsBlockState extends State<MarkdownDetailsBlock> {
                           Expanded(
                             child: SelectableText(
                               entry.value,
+                              magnifierConfiguration:
+                                  nativeIosTextMagnifierConfiguration,
                               style: markdownStyle.detailValue,
+                              contextMenuBuilder:
+                                  AdaptiveTextSelectionMenu.editableText,
                             ),
                           ),
                         ],
@@ -549,7 +554,9 @@ class _MarkdownDetailsBlockState extends State<MarkdownDetailsBlock> {
                 isTruncated
                     ? resultText.substring(0, _resultPreviewLimit)
                     : resultText,
+                magnifierConfiguration: nativeIosTextMagnifierConfiguration,
                 style: markdownStyle.detailCode,
+                contextMenuBuilder: AdaptiveTextSelectionMenu.editableText,
               ),
             );
             if (isTruncated) {

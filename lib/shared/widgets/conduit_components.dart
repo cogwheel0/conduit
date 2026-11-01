@@ -397,6 +397,7 @@ class ConduitGlassSearchField extends StatelessWidget {
         focusNode: focusNode,
         onChanged: onChanged,
         textAlignVertical: TextAlignVertical.center,
+        magnifierConfiguration: nativeIosTextMagnifierConfiguration,
         style: AppTypography.standard.copyWith(color: textColor),
         decoration: InputDecoration(
           isDense: true,
