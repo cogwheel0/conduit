@@ -928,7 +928,7 @@ exceptions:
     removal: platform-ui-migration
   - path: lib/features/hermes/views/hermes_mcp_page.dart
     symbol: "AlertDialog"
-    count: 3
+    count: 2
     owner: hermes
     reason: "Existing use awaiting migration to the platform UI seam"
     removal: platform-ui-migration
@@ -946,7 +946,7 @@ exceptions:
     removal: platform-ui-migration
   - path: lib/features/hermes/views/hermes_mcp_page.dart
     symbol: "FilledButton"
-    count: 3
+    count: 2
     owner: hermes
     reason: "Existing use awaiting migration to the platform UI seam"
     removal: platform-ui-migration
@@ -988,7 +988,7 @@ exceptions:
     removal: platform-ui-migration
   - path: lib/features/hermes/views/hermes_mcp_page.dart
     symbol: "TextButton"
-    count: 3
+    count: 2
     owner: hermes
     reason: "Existing use awaiting migration to the platform UI seam"
     removal: platform-ui-migration
