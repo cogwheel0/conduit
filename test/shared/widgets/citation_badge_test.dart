@@ -55,6 +55,20 @@ void main() {
       );
       expect(trigger.value, isNull);
       expect(trigger.options.map((option) => option.value), [2, 0]);
+      expect(
+        adaptiveSingleChoiceResultForId(
+          selectedId: '0',
+          options: trigger.options,
+        )?.value,
+        2,
+      );
+      expect(
+        adaptiveSingleChoiceResultForId(
+          selectedId: '1',
+          options: trigger.options,
+        )?.value,
+        0,
+      );
       expect(find.byType(PopupMenuButton<int>), findsNothing);
       expect(find.text('+2'), findsOneWidget);
       trigger.onChanged(0);
