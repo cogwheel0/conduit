@@ -223,6 +223,7 @@ void main() {
       );
       final button = tester.widget<CNButton>(find.byType(CNButton));
       expect(button.config.labelFontSize, AppTypography.standard.fontSize! * 2);
+      expect(button.config.imagePadding, 8);
       expect(
         tester.getSize(find.byType(ConduitButton)),
         const Size(480, TouchTarget.comfortable),

@@ -220,6 +220,7 @@ class AdaptiveButton extends StatelessWidget {
             ? null
             : MediaQuery.textScalerOf(context).scale(labelStyle!.fontSize!),
         labelFontWeight: labelStyle?.fontWeight,
+        imagePadding: label != null && sfSymbol != null ? 8 : null,
         customIconSize: iconSize,
       );
       final active = enabled && onPressed != null;
