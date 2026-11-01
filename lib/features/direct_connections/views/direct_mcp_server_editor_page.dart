@@ -15,7 +15,8 @@ import 'package:conduit_core/features/direct_connections/models/direct_mcp_serve
 import 'package:conduit_core/features/direct_connections/providers/direct_mcp_providers.dart';
 import 'package:conduit_core/features/direct_connections/services/direct_mcp_client.dart';
 import 'package:conduit_core/features/direct_connections/services/direct_mcp_oauth.dart';
-import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
+import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart'
+    show nativeIosTextMagnifierConfiguration;
 
 class DirectMcpServerEditorPage extends ConsumerStatefulWidget {
   const DirectMcpServerEditorPage({super.key, required this.serverId});
