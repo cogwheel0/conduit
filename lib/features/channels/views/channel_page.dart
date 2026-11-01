@@ -1491,7 +1491,7 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
                             top:
                                 MediaQuery.viewPaddingOf(context).top +
                                 conduitAdaptiveToolbarHeightOf(context),
-                            bottom: _composerHeight,
+                            bottom: math.max(0, _composerHeight - Spacing.xl),
                           ),
                           child: _buildMessageList(messages, theme, l10n),
                         ),

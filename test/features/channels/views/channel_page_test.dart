@@ -62,7 +62,7 @@ void main() {
         tester.element(find.byType(ConduitContextMenu).first),
       );
       expect(visible, isNotNull);
-      expect(visible!.bottom, lessThanOrEqualTo(tester.getRect(composer).top));
+      expect(visible!.bottom, closeTo(tester.getRect(composer).top, 0.01));
       expect(visible.height, greaterThan(0));
     }
   });
