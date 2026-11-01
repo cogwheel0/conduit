@@ -1,8 +1,6 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:material_ui/material_ui.dart' as adaptive_material
-    show InputDecoration;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:uuid/uuid.dart';
@@ -12,7 +10,7 @@ import '../../../l10n/app_localizations.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/adaptive_dropdown_field.dart';
 import '../../../shared/widgets/themed_dialogs.dart';
-import '../../../shared/widgets/platform_ui/platform_ui.dart';
+import '../../../shared/widgets/platform_ui/platform_ui.dart' as adaptive;
 import '../../../shared/widgets/utility_components.dart';
 
 import 'package:conduit_core/features/direct_connections/models/direct_mcp_server.dart';
@@ -520,7 +518,7 @@ class _DirectMcpServerEditorPageState
                       'direct-mcp-auth-mode-${widget.serverId}-${_authMode.name}',
                     ),
                     value: _authMode,
-                    decoration: adaptive_material.InputDecoration(
+                    decoration: adaptive.InputDecoration(
                       labelText: l10n.directMcpAuthMode,
                     ),
                     options: [
@@ -656,7 +654,7 @@ class _DirectMcpServerEditorPageState
                       enabled: !_busy,
                       contentPadding: EdgeInsets.zero,
                       title: Text(l10n.enabledLabel),
-                      trailing: AdaptiveSwitch(
+                      trailing: adaptive.AdaptiveSwitch(
                         value: _enabled,
                         onChanged: _busy
                             ? null
