@@ -588,6 +588,7 @@ class AdaptivePopupMenuButton<T> {
   static Widget icon<T>({
     Key? key,
     required dynamic icon,
+    String? semanticLabel,
     required List<AdaptivePopupMenuEntry> items,
     required void Function(int index, AdaptivePopupMenuItem<T> entry)
     onSelected,
@@ -602,6 +603,7 @@ class AdaptivePopupMenuButton<T> {
     if (_canUseNative<T>(items) && (icon is String || icon is IconData)) {
       button = CNPopupMenuButton.icon(
         key: key,
+        semanticLabel: semanticLabel,
         buttonIcon: icon is String
             ? iconSize == null
                   ? CNSymbol(icon, color: iconColor)
@@ -623,6 +625,7 @@ class AdaptivePopupMenuButton<T> {
       button = _flutterMenu<T>(
         key: key,
         icon: icon,
+        semanticLabel: semanticLabel,
         items: items,
         onSelected: (index, entry) {
           if (enabled) onSelected(index, entry);
@@ -664,9 +667,8 @@ class AdaptivePopupMenuButton<T> {
   static bool _canUseNative<T>(List<AdaptivePopupMenuEntry> items) {
     if (!PlatformUiCapabilities.usesNativeIOS26 || items.isEmpty) return false;
     return items.every((entry) {
-      // Divider callback indices vary between the native and Flutter menus.
-      // Keep these menus in Flutter so generic values remain exact.
-      if (entry is AdaptivePopupMenuDivider) return false;
+      // UIKit reports original entry indices, including separator slots.
+      if (entry is AdaptivePopupMenuDivider) return true;
       if (entry is! AdaptivePopupMenuItem<T>) return false;
       return entry.subtitle?.isNotEmpty != true &&
           entry.imageBytes == null &&
@@ -730,6 +732,7 @@ class AdaptivePopupMenuButton<T> {
   static Widget _flutterMenu<T>({
     Key? key,
     String? label,
+    String? semanticLabel,
     dynamic icon,
     required List<AdaptivePopupMenuEntry> items,
     required void Function(int index, AdaptivePopupMenuItem<T> entry)
@@ -754,6 +757,7 @@ class AdaptivePopupMenuButton<T> {
                 : Icon(
                     icon is IconData ? icon : CupertinoIcons.ellipsis,
                     color: tint,
+                    semanticLabel: semanticLabel,
                   ),
           ),
         ),
@@ -761,7 +765,7 @@ class AdaptivePopupMenuButton<T> {
     }
     return PopupMenuButton<int>(
       key: key,
-      tooltip: label,
+      tooltip: semanticLabel ?? label,
       onSelected: (index) => _dispatch<T>(items, index, onSelected),
       itemBuilder: (context) => [
         for (var index = 0; index < items.length; index++)

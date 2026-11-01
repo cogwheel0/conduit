@@ -331,8 +331,14 @@ final class _HermesMcpPageState extends ConsumerState<HermesMcpPage> {
                   isThreeLine: true,
                   trailing: _oauthPending.contains(server.name)
                       ? const CircularProgressIndicator.adaptive()
-                      : PopupMenuButton<String>(
-                          onSelected: (action) {
+                      : AdaptivePopupMenuButton.icon<String>(
+                          semanticLabel: MaterialLocalizations.of(context)
+                              .showMenuTooltip,
+                          icon: PlatformInfo.isIOS
+                              ? 'ellipsis'
+                              : Icons.more_vert,
+                          onSelected: (_, entry) {
+                            final action = entry.value;
                             final name = server.name;
                             if (action == 'test') {
                               unawaited(_run(() => _test(name)));
@@ -353,31 +359,32 @@ final class _HermesMcpPageState extends ConsumerState<HermesMcpPage> {
                               unawaited(_run(() => _remove(name)));
                             }
                           },
-                          itemBuilder: (_) => [
-                            const PopupMenuItem(
+                          items: [
+                            const AdaptivePopupMenuItem<String>(
                               value: 'test',
-                              child: Text('Test'),
+                              label: 'Test',
                             ),
-                            const PopupMenuItem(
+                            const AdaptivePopupMenuItem<String>(
                               value: 'oauth',
-                              child: Text('Authenticate'),
+                              label: 'Authenticate',
                             ),
                             if (supportsCredentialUpdate)
-                              const PopupMenuItem(
+                              const AdaptivePopupMenuItem<String>(
                                 value: 'key',
-                                child: Text('Set API key'),
+                                label: 'Set API key',
                               ),
-                            const PopupMenuItem(
+                            const AdaptivePopupMenuItem<String>(
                               value: 'enable',
-                              child: Text('Enable tools'),
+                              label: 'Enable tools',
                             ),
-                            const PopupMenuItem(
+                            const AdaptivePopupMenuItem<String>(
                               value: 'disable',
-                              child: Text('Disable tools'),
+                              label: 'Disable tools',
                             ),
-                            const PopupMenuItem(
+                            const AdaptivePopupMenuItem<String>(
                               value: 'remove',
-                              child: Text('Remove'),
+                              label: 'Remove',
+                              isDestructive: true,
                             ),
                           ],
                         ),
