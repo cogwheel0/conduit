@@ -52,6 +52,9 @@ class ConduitContextMenu extends StatefulWidget {
   final List<ConduitContextMenuAction> actions;
   final Widget child;
   final WidgetBuilder? topWidgetBuilder;
+
+  /// Legacy Flutter preview decoration. Native menus lift the existing child
+  /// without rebuilding it, so its text and source appearance stay stable.
   final Widget Function(BuildContext context, Widget child)? previewBuilder;
   final bool stabilizePreviewSize;
   final bool useNativeMenu;
@@ -63,7 +66,7 @@ class ConduitContextMenu extends StatefulWidget {
     this.topWidgetBuilder,
     this.previewBuilder,
     this.stabilizePreviewSize = true,
-    this.useNativeMenu = false,
+    this.useNativeMenu = true,
   });
 
   @override
@@ -107,7 +110,11 @@ class _ConduitContextMenuState extends State<ConduitContextMenu> {
             0,
           ),
         ),
-        child: widget.useNativeMenu && PlatformUiCapabilities.usesNativeIOS26
+        child:
+            widget.useNativeMenu &&
+                widget.topWidgetBuilder == null &&
+                widget.actions.every((action) => action.sfSymbol != null) &&
+                PlatformUiCapabilities.usesNativeIOS26
             ? NativeContextMenu(
                 actions: adaptiveActions,
                 fallbackBuilder: _buildCupertinoContextMenu,

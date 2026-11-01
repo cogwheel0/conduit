@@ -105,6 +105,7 @@ class _ChannelListTabState extends ConsumerState<ChannelListTab>
     return [
       ConduitContextMenuAction(
         cupertinoIcon: muted ? CupertinoIcons.bell : CupertinoIcons.checkmark,
+        sfSymbol: muted ? 'bell' : 'checkmark',
         materialIcon: muted
             ? Icons.notifications_none_rounded
             : Icons.check_rounded,
@@ -115,6 +116,7 @@ class _ChannelListTabState extends ConsumerState<ChannelListTab>
         cupertinoIcon: muted
             ? CupertinoIcons.checkmark
             : CupertinoIcons.bell_slash,
+        sfSymbol: muted ? 'checkmark' : 'bell.slash',
         materialIcon: muted
             ? Icons.check_rounded
             : Icons.notifications_off_outlined,
@@ -132,6 +134,7 @@ class _ChannelListTabState extends ConsumerState<ChannelListTab>
         ...notificationActions,
         ConduitContextMenuAction(
           cupertinoIcon: CupertinoIcons.xmark,
+          sfSymbol: 'xmark',
           materialIcon: Icons.close_rounded,
           label: l10n.channelLeave,
           onSelected: () async => _leaveChannel(channel),
@@ -152,6 +155,7 @@ class _ChannelListTabState extends ConsumerState<ChannelListTab>
       ...notificationActions,
       ConduitContextMenuAction(
         cupertinoIcon: CupertinoIcons.gear,
+        sfSymbol: 'gearshape',
         materialIcon: Icons.settings_rounded,
         label: l10n.channelEdit,
         onSelected: () async => _editChannel(channel),

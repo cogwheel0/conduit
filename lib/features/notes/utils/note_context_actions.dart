@@ -100,6 +100,7 @@ List<ConduitContextMenuAction> buildNoteContextMenuActions({
   return [
     ConduitContextMenuAction(
       cupertinoIcon: canEdit ? CupertinoIcons.pencil : CupertinoIcons.doc_text,
+      sfSymbol: canEdit ? 'pencil' : 'doc.text',
       materialIcon: canEdit ? Icons.edit_rounded : Icons.description_outlined,
       label: canEdit ? l10n.edit : l10n.libraryNoteOpen,
       onBeforeClose: () => ConduitHaptics.selectionClick(),
@@ -107,6 +108,7 @@ List<ConduitContextMenuAction> buildNoteContextMenuActions({
     ),
     ConduitContextMenuAction(
       cupertinoIcon: CupertinoIcons.doc_on_clipboard,
+      sfSymbol: 'doc.on.clipboard',
       materialIcon: Icons.copy_rounded,
       label: l10n.copy,
       onBeforeClose: () => ConduitHaptics.selectionClick(),
@@ -116,6 +118,7 @@ List<ConduitContextMenuAction> buildNoteContextMenuActions({
       cupertinoIcon: note.isPinned
           ? CupertinoIcons.pin_slash
           : CupertinoIcons.pin,
+      sfSymbol: note.isPinned ? 'pin.slash' : 'pin',
       materialIcon: note.isPinned ? UiUtils.unpinIcon : UiUtils.pinIcon,
       label: note.isPinned ? l10n.unpin : l10n.pin,
       onBeforeClose: () => ConduitHaptics.selectionClick(),
@@ -124,6 +127,7 @@ List<ConduitContextMenuAction> buildNoteContextMenuActions({
     if (canShareNote(ref, note))
       ConduitContextMenuAction(
         cupertinoIcon: CupertinoIcons.person_2,
+        sfSymbol: 'person.2',
         materialIcon: Icons.group_outlined,
         label: l10n.noteShare,
         onBeforeClose: () => ConduitHaptics.selectionClick(),
@@ -134,6 +138,7 @@ List<ConduitContextMenuAction> buildNoteContextMenuActions({
     if (canEdit)
       ConduitContextMenuAction(
         cupertinoIcon: CupertinoIcons.delete,
+        sfSymbol: 'trash',
         materialIcon: Icons.delete_rounded,
         label: l10n.delete,
         destructive: true,

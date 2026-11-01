@@ -1,4 +1,6 @@
 import 'package:conduit/core/services/ios_native_dropdown_bridge.dart';
+import 'package:conduit/shared/utils/conversation_context_menu.dart';
+import 'package:cupertino_ui/cupertino_ui.dart';
 
 import 'dart:async';
 import 'dart:ui' as ui;
@@ -21,6 +23,82 @@ final _focusBarrier = find.byWidgetPredicate(
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  testWidgets(
+    'ordinary Conduit menus use native presentation and retain action ordering',
+    (tester) async {
+      PlatformUiCapabilities.debugIOSMajorVersionOverride = 27;
+      PlatformUiCapabilities.debugNativeIOS26Override = true;
+      addTearDown(PlatformUiCapabilities.resetDebugOverrides);
+      final fixture = _MenuFixture();
+      addTearDown(fixture.dispose);
+      final events = <String>[];
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Center(
+              child: ConduitContextMenu(
+                actions: [
+                  ConduitContextMenuAction(
+                    cupertinoIcon: CupertinoIcons.pencil,
+                    sfSymbol: 'pencil',
+                    materialIcon: Icons.edit,
+                    label: 'Rename sketch',
+                    onBeforeClose: () => events.add('before'),
+                    onSelected: () async => events.add('selected'),
+                  ),
+                ],
+                child: const Text('Paper sketches'),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.byType(NativeContextMenu), findsOneWidget);
+      final gesture = await tester.startGesture(
+        tester.getCenter(find.text('Paper sketches')),
+      );
+      final args = await _waitForMenu(tester, fixture);
+      final options = (args[1]! as PlatformDropdownRequest).options;
+      expect(options.single.label, 'Rename sketch');
+      expect(options.single.sfSymbol, 'pencil');
+      fixture.selection.complete('0');
+      await tester.pumpAndSettle();
+      await gesture.up();
+      expect(events, ['before', 'selected']);
+    },
+    variant: TargetPlatformVariant.only(TargetPlatform.iOS),
+  );
+
+  testWidgets('custom menu headers retain the Flutter presentation', (
+    tester,
+  ) async {
+    PlatformUiCapabilities.debugIOSMajorVersionOverride = 27;
+    PlatformUiCapabilities.debugNativeIOS26Override = true;
+    addTearDown(PlatformUiCapabilities.resetDebugOverrides);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: ConduitContextMenu(
+            actions: [
+              ConduitContextMenuAction(
+                cupertinoIcon: CupertinoIcons.pencil,
+                sfSymbol: 'pencil',
+                materialIcon: Icons.edit,
+                label: 'Rename sketch',
+                onSelected: () async {},
+              ),
+            ],
+            topWidgetBuilder: (_) => const Text('Additional controls'),
+            child: const Text('Paper sketches'),
+          ),
+        ),
+      ),
+    );
+    expect(find.byType(NativeContextMenu), findsNothing);
+    expect(find.byType(CupertinoContextMenu), findsOneWidget);
+  }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
 
   for (final text in [_text, _longText]) {
     testWidgets(
