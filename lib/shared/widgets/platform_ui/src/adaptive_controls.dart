@@ -592,9 +592,8 @@ class AdaptivePopupMenuButton<T> {
   static bool _canUseNative<T>(List<AdaptivePopupMenuEntry> items) {
     if (!PlatformUiCapabilities.usesNativeIOS26 || items.isEmpty) return false;
     return items.every((entry) {
-      // Divider callback indices vary between the native and Flutter menus.
-      // Keep these menus in Flutter so generic values remain exact.
-      if (entry is AdaptivePopupMenuDivider) return false;
+      // UIKit reports original entry indices, including separator slots.
+      if (entry is AdaptivePopupMenuDivider) return true;
       if (entry is! AdaptivePopupMenuItem<T>) return false;
       return entry.subtitle?.isNotEmpty != true &&
           entry.imageBytes == null &&
