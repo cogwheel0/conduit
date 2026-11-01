@@ -245,6 +245,8 @@ void main() {
               ConduitButton(
                 text: 'Add sketch',
                 icon: Icons.add,
+                // The Linux SDK fallback uses the wider Ahem test font.
+                width: 320,
                 onPressed: () => taps++,
               ),
               ConduitIconButton(
