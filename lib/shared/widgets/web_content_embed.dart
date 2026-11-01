@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:collection';
 
-import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:material_ui/material_ui.dart';
@@ -9,6 +8,7 @@ import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit_core/features/web_embed/web_embed_document.dart';
 import 'package:conduit_core/features/web_embed/web_embed_policy.dart';
+import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 
 import '../theme/theme_extensions.dart';
 import '../utils/external_link_launcher.dart';

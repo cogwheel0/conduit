@@ -1,9 +1,9 @@
-import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:material_ui/material_ui.dart';
 
 import 'package:conduit/l10n/app_localizations.dart';
 
 import 'package:conduit_markdown/conduit_markdown.dart';
+import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 
 import '../../assistant_detail_header.dart';
 import '../../themed_sheets.dart';

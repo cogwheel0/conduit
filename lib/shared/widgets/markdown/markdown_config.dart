@@ -3,7 +3,6 @@ import 'dart:collection';
 import 'dart:convert';
 import 'dart:math' as math;
 
-import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:cached_network_image_ce/cached_network_image.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
@@ -33,6 +32,7 @@ import 'package:conduit/core/network/self_signed_image_cache_manager.dart';
 import 'package:conduit/core/network/image_header_utils.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
 import 'package:conduit/shared/services/raster_media_policy.dart';
+import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 
 typedef MarkdownLinkTapCallback = void Function(String url, String title);
 

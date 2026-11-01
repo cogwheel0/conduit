@@ -1,6 +1,5 @@
 import 'dart:async';
 
-import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:material_ui/material_ui.dart';
 
@@ -16,6 +15,7 @@ import 'package:conduit_core/features/direct_connections/models/direct_completio
 import 'package:conduit_core/features/direct_connections/models/direct_mcp_content.dart';
 import 'package:conduit_core/features/direct_connections/models/direct_mcp_server.dart';
 import 'package:conduit_core/features/direct_connections/providers/direct_mcp_providers.dart';
+import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 
 class DirectMcpContentSheet extends ConsumerStatefulWidget {
   const DirectMcpContentSheet({super.key});
