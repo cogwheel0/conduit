@@ -563,7 +563,12 @@ class ConduitAdaptiveAppBarIconButton extends StatelessWidget {
   Widget build(BuildContext context) {
     final label = semanticLabel;
     final button = _buildButton(context);
-    if (label == null) return button;
+    if (label == null ||
+        (conduitSupportsNativeGlass() &&
+            conduitToolbarSfSymbolForIcon(icon, iosSymbol: iosSymbol) !=
+                null)) {
+      return button;
+    }
     return Semantics(
       label: label,
       button: true,
@@ -602,6 +607,7 @@ class ConduitAdaptiveAppBarIconButton extends StatelessWidget {
       child: conduitSupportsNativeGlass() && nativeSymbol != null
           ? AdaptiveButton.sfSymbol(
               onPressed: onPressed,
+              semanticLabel: semanticLabel,
               sfSymbol: SFSymbol(
                 nativeSymbol,
                 size: kConduitNativeSingleActionSymbolExtent,

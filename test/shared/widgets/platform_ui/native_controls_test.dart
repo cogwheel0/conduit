@@ -36,6 +36,38 @@ void main() {
     ),
   );
 
+  for (final enabled in [true, false]) {
+    testWidgets('toolbar icon has one native label when enabled=$enabled', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        host(
+          ConduitAdaptiveAppBarIconButton(
+            icon: Icons.auto_awesome_outlined,
+            iosSymbol: 'sparkles',
+            semanticLabel: 'Add from catalog',
+            onPressed: enabled ? () {} : null,
+          ),
+        ),
+      );
+      final button = tester.widget<CNButton>(find.byType(CNButton));
+      expect(button.semanticLabel, 'Add from catalog');
+      expect(button.enabled, enabled);
+      expect(
+        find.ancestor(
+          of: find.byType(CNButton),
+          matching: find.byWidgetPredicate(
+            (widget) =>
+                widget is Semantics &&
+                widget.properties.label == 'Add from catalog',
+          ),
+        ),
+        findsNothing,
+      );
+      await tester.pump(const Duration(milliseconds: 500));
+    });
+  }
+
   testWidgets('iOS progress retains its unconstrained design size', (
     tester,
   ) async {
