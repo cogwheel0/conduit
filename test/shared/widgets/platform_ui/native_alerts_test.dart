@@ -60,6 +60,10 @@ void main() {
     final payload = calls.single.arguments as Map;
     expect(payload['title'], 'Remove sample?');
     expect(payload['message'], 'The sample will be removed.');
+    expect(payload['actions'], [
+      containsPair('style', 'cancel'),
+      containsPair('style', 'destructive'),
+    ]);
     expect(find.byType(CupertinoAlertDialog), findsNothing);
     await result;
     expect(confirms, 1);
