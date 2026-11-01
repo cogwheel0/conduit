@@ -74,8 +74,9 @@ class AdaptiveProgressIndicator extends StatelessWidget {
             (value == null ? null : '${(value! * 100).round()}%'),
         child: FittedBox(
           child: value == null
-              ? CupertinoActivityIndicator(color: color)
+              ? CupertinoActivityIndicator(radius: 18, color: color)
               : CupertinoActivityIndicator.partiallyRevealed(
+                  radius: 18,
                   color: color,
                   progress: value!.clamp(0, 1),
                 ),

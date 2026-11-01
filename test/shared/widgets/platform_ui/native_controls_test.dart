@@ -36,6 +36,18 @@ void main() {
     ),
   );
 
+  testWidgets('iOS progress retains its unconstrained design size', (
+    tester,
+  ) async {
+    for (final value in <double?>[null, 0.4]) {
+      await tester.pumpWidget(host(AdaptiveProgressIndicator(value: value)));
+      expect(
+        tester.getSize(find.byType(AdaptiveProgressIndicator)),
+        const Size(36, 36),
+      );
+    }
+  }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
+
   testWidgets('iOS progress preserves bounds, color and accessible progress', (
     tester,
   ) async {
