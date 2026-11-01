@@ -175,8 +175,12 @@ class _NativeContextMenuState extends State<NativeContextMenu> {
             Positioned.fill(
               child: ModalBarrier(
                 color: const Color(0x33000000),
-                onDismiss: () =>
-                    unawaited(_bridge.cancelContextMenu(requestId)),
+                onDismiss: () {
+                  if (_requestId != requestId) return;
+                  _requestId = null;
+                  _clearFocus();
+                  unawaited(_bridge.cancelContextMenu(requestId));
+                },
               ),
             ),
             Positioned.fromRect(

@@ -272,6 +272,34 @@ void main() {
     await gesture.up();
   });
 
+  for (final failCancellation in [false, true]) {
+    testWidgets(
+      'dismissal invalidates the request before native cancellation: $failCancellation',
+      (tester) async {
+        final fixture = _MenuFixture(failCancellation: failCancellation);
+        addTearDown(fixture.dispose);
+        final controller = ScrollController();
+        addTearDown(controller.dispose);
+        var copies = 0;
+        await tester.pumpWidget(_harness(controller, () => copies++, text: _text));
+        await tester.pumpAndSettle();
+        final gesture = await tester.startGesture(
+          tester.getCenter(find.byType(NativeContextMenu)),
+        );
+        await _waitForMenu(tester, fixture);
+        tester.widget<ModalBarrier>(_focusBarrier).onDismiss!();
+        await tester.pump();
+        expect(_focusBarrier, findsNothing);
+        expect(fixture.cancellations, hasLength(1));
+        fixture.selection.complete('0');
+        await tester.pumpAndSettle();
+        expect(copies, 0);
+        expect(tester.takeException(), isNull);
+        await gesture.up();
+      },
+    );
+  }
+
   testWidgets('a quick tap and a scroll keep their normal behavior', (
     tester,
   ) async {
@@ -491,7 +519,11 @@ class _MenuFixture {
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
   final _channels = <BasicMessageChannel<Object?>>[];
 
-  _MenuFixture({bool available = true, bool failPresentation = false}) {
+  _MenuFixture({
+    bool available = true,
+    bool failPresentation = false,
+    bool failCancellation = false,
+  }) {
     _messenger.setMockMethodCallHandler(SystemChannels.platform, (call) async {
       if (call.method == 'HapticFeedback.vibrate') haptics.add(call.arguments);
       return null;
@@ -516,6 +548,9 @@ class _MenuFixture {
     });
     handle('cancelContextMenu', (message) async {
       cancellations.add(message! as List<Object?>);
+      if (failCancellation) {
+        return ['CANCEL_FAILED', 'Synthetic host detached', null];
+      }
       return [null];
     });
   }
