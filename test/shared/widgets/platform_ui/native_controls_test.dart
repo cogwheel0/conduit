@@ -214,6 +214,8 @@ void main() {
             child: ConduitButton(
               text: 'Add sketch',
               icon: Icons.add,
+              // Linux lays out the SDK fallback using the wider Ahem test font.
+              width: 480,
               onPressed: () {},
             ),
           ),
@@ -222,8 +224,8 @@ void main() {
       final button = tester.widget<CNButton>(find.byType(CNButton));
       expect(button.config.labelFontSize, AppTypography.standard.fontSize! * 2);
       expect(
-        tester.getSize(find.byType(ConduitButton)).height,
-        TouchTarget.comfortable,
+        tester.getSize(find.byType(ConduitButton)),
+        const Size(480, TouchTarget.comfortable),
       );
       await tester.pump(const Duration(milliseconds: 500));
     },
