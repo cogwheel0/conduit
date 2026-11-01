@@ -66,7 +66,7 @@ void main() {
     expect(profileRow.titleFontWeight, FontWeight.w400);
     expect(profileRow.showChevron, isTrue);
     expect(find.text('This device'), findsNothing);
-  });
+  }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
 
   testWidgets('management content shows profiles and history policy', (
     tester,

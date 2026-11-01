@@ -1,6 +1,8 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart' as adaptive_material
+    show InputDecoration;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:uuid/uuid.dart';
@@ -8,6 +10,7 @@ import 'package:uuid/uuid.dart';
 import '../../../shared/services/navigation_service.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/widgets/conduit_components.dart';
+import '../../../shared/widgets/adaptive_dropdown_field.dart';
 import '../../../shared/widgets/themed_dialogs.dart';
 import '../../../shared/widgets/platform_ui/platform_ui.dart';
 import '../../../shared/widgets/utility_components.dart';
@@ -512,32 +515,31 @@ class _DirectMcpServerEditorPageState
                     ),
                   ),
                   const SizedBox(height: 12),
-                  DropdownButtonFormField<DirectMcpAuthMode>(
+                  AdaptiveDropdownField<DirectMcpAuthMode>(
                     key: ValueKey(
                       'direct-mcp-auth-mode-${widget.serverId}-${_authMode.name}',
                     ),
-                    initialValue: _authMode,
-                    decoration: InputDecoration(
+                    value: _authMode,
+                    decoration: adaptive_material.InputDecoration(
                       labelText: l10n.directMcpAuthMode,
                     ),
-                    items: [
-                      DropdownMenuItem(
+                    options: [
+                      AdaptiveDropdownOption(
                         value: DirectMcpAuthMode.none,
-                        child: Text(l10n.directMcpAuthNone),
+                        label: l10n.directMcpAuthNone,
                       ),
-                      DropdownMenuItem(
+                      AdaptiveDropdownOption(
                         value: DirectMcpAuthMode.bearer,
-                        child: Text(l10n.directMcpAuthBearer),
+                        label: l10n.directMcpAuthBearer,
                       ),
-                      DropdownMenuItem(
+                      AdaptiveDropdownOption(
                         value: DirectMcpAuthMode.oauth,
-                        child: Text(l10n.directMcpAuthOAuth),
+                        label: l10n.directMcpAuthOAuth,
                       ),
                     ],
                     onChanged: _busy || oauthPending
                         ? null
                         : (mode) {
-                            if (mode == null) return;
                             setState(() {
                               _authMode = mode;
                               _message = null;

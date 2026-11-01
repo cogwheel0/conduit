@@ -831,18 +831,6 @@ exceptions:
     reason: "Existing use awaiting migration to the platform UI seam"
     removal: platform-ui-migration
   - path: lib/features/direct_connections/views/direct_mcp_server_editor_page.dart
-    symbol: "DropdownButtonFormField"
-    count: 1
-    owner: direct-connections
-    reason: "Existing use awaiting migration to the platform UI seam"
-    removal: platform-ui-migration
-  - path: lib/features/direct_connections/views/direct_mcp_server_editor_page.dart
-    symbol: "DropdownMenuItem"
-    count: 3
-    owner: direct-connections
-    reason: "Existing use awaiting migration to the platform UI seam"
-    removal: platform-ui-migration
-  - path: lib/features/direct_connections/views/direct_mcp_server_editor_page.dart
     symbol: "TextButton"
     count: 2
     owner: direct-connections
@@ -2152,18 +2140,6 @@ exceptions:
     removal: platform-ui-migration
   - path: lib/shared/services/flutter_ui_requests.dart
     package: "package:material_ui/material_ui.dart"
-    count: 1
-    owner: shared-widgets
-    reason: "Existing use awaiting migration to the platform UI seam"
-    removal: platform-ui-migration
-  - path: lib/shared/services/flutter_ui_requests.dart
-    symbol: "DropdownButtonFormField"
-    count: 1
-    owner: shared-widgets
-    reason: "Existing use awaiting migration to the platform UI seam"
-    removal: platform-ui-migration
-  - path: lib/shared/services/flutter_ui_requests.dart
-    symbol: "DropdownMenuItem"
     count: 1
     owner: shared-widgets
     reason: "Existing use awaiting migration to the platform UI seam"

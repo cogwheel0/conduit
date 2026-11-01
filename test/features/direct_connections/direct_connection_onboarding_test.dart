@@ -255,6 +255,7 @@ void main() {
       );
       expect(find.byType(AdaptiveSegmentedControl), findsNothing);
     },
+    variant: TargetPlatformVariant.only(TargetPlatform.iOS),
   );
 
   testWidgets('onboarding does not save an unreachable direct provider', (

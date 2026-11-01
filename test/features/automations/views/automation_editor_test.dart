@@ -779,7 +779,9 @@ void main() {
           'm17',
         );
         expect(tester.takeException(), isNull);
-      });
+      }, variant: TargetPlatformVariant.only(
+        native ? TargetPlatform.iOS : TargetPlatform.android,
+      ));
     }
 
     testWidgets('the last model clears the home indicator when the keyboard is '
