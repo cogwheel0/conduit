@@ -100,11 +100,6 @@ class AdaptiveDropdownField<T> extends StatelessWidget {
           builder: (anchorContext) => Semantics(
             button: true,
             enabled: onChanged != null,
-            label: [
-              if (effectiveDecoration.labelText != null)
-                effectiveDecoration.labelText!,
-              if (selected != null) selected.label,
-            ].join(', '),
             child: InkWell(
               borderRadius: BorderRadius.circular(AppBorderRadius.standard),
               onTap: onChanged == null

@@ -49,6 +49,39 @@ void main() {
     expect(find.text('Choose a shape'), findsOneWidget);
   }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
 
+  for (final enabled in [true, false]) {
+    testWidgets('choice labels are announced once (enabled: $enabled)', (
+      tester,
+    ) async {
+      final semantics = tester.ensureSemantics();
+      try {
+        await tester.pumpWidget(
+          host(
+            AdaptiveDropdownField<String>(
+              value: 'kite',
+              options: const [
+                AdaptiveDropdownOption(value: 'kite', label: 'Kite'),
+              ],
+              onChanged: enabled ? (_) {} : null,
+              decoration: const InputDecoration(
+                labelText: 'Shape',
+                errorText: 'Choose another shape',
+              ),
+            ),
+          ),
+        );
+        final label = tester
+            .getSemantics(find.byType(AdaptiveDropdownField<String>))
+            .label;
+        expect('Kite'.allMatches(label), hasLength(1));
+        expect('Shape'.allMatches(label), hasLength(1));
+        expect(find.bySemanticsLabel('Choose another shape'), findsOneWidget);
+      } finally {
+        semantics.dispose();
+      }
+    }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
+  }
+
   testWidgets('native switch remains controlled and has an accessible action', (
     tester,
   ) async {
