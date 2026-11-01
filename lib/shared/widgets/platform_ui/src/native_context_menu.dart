@@ -138,7 +138,9 @@ class _NativeContextMenuState extends State<NativeContextMenu> {
     await WidgetsBinding.instance.endOfFrame;
     if (!mounted || _requestId != requestId) return;
     final boundary = _boundaryKey.currentContext?.findRenderObject();
-    if (boundary is! _PreviewBoundary || !boundary.hasSize) return;
+    if (boundary is! _PreviewBoundary || !boundary.hasSize) {
+      throw StateError('Preview boundary is unavailable');
+    }
     final bounds = boundary.localToGlobal(Offset.zero) & boundary.size;
     var rect = bounds;
     final viewport = RenderAbstractViewport.maybeOf(boundary);
@@ -149,7 +151,9 @@ class _NativeContextMenuState extends State<NativeContextMenu> {
       rect = rect.intersect(visibleBounds);
     }
     rect = rect.intersect(Offset.zero & MediaQuery.sizeOf(context));
-    if (rect.isEmpty) return;
+    if (rect.isEmpty) {
+      throw StateError('Preview capture rectangle is empty');
+    }
     // UIKit needs a visible preview to anchor its menu. Capture only the
     // visible pixels; never rebuild the bubble under different constraints.
     final image = await boundary.capture(
@@ -159,7 +163,10 @@ class _NativeContextMenuState extends State<NativeContextMenu> {
     OverlayEntry? focus;
     try {
       final bytes = await image.toByteData(format: ui.ImageByteFormat.png);
-      if (!mounted || _requestId != requestId || bytes == null) return;
+      if (!mounted || _requestId != requestId) return;
+      if (bytes == null) {
+        throw StateError('Preview capture returned no bytes');
+      }
       final overlay = Overlay.of(context, rootOverlay: true);
       final box = overlay.context.findRenderObject()! as RenderBox;
       final previewRect = Rect.fromPoints(

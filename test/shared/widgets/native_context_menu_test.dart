@@ -403,6 +403,30 @@ void main() {
     await tester.pumpAndSettle();
   });
 
+  testWidgets('fully obscured capture activates the existing fallback', (
+    tester,
+  ) async {
+    final fixture = _MenuFixture();
+    addTearDown(fixture.dispose);
+    final controller = ScrollController();
+    addTearDown(controller.dispose);
+    await tester.pumpWidget(_harness(controller, () {}, text: _text));
+    await tester.pumpAndSettle();
+    final gesture = await tester.startGesture(
+      tester.getCenter(find.byType(NativeContextMenu)),
+    );
+    // The composer can cover the message while its long press is pending.
+    await tester.pumpWidget(
+      _harness(controller, () {}, text: _text, obscuredBottom: 240),
+    );
+    await tester.pump(const Duration(milliseconds: 600));
+    await tester.pumpAndSettle();
+    expect(find.text('Fallback menu'), findsOneWidget);
+    expect(fixture.prepared.isCompleted, isFalse);
+    expect(_focusBarrier, findsNothing);
+    await gesture.up();
+  });
+
   testWidgets('native presentation failure activates the existing fallback', (tester) async {
     final fixture = _MenuFixture(failPresentation: true);
     addTearDown(fixture.dispose);
