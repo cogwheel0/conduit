@@ -9,14 +9,17 @@
 // named after it), runs them, and deletes them afterwards. Options other than --shards go to
 // `flutter test` unchanged.
 //
-// Files that share an entrypoint share an isolate. Files that talk to a real
-// socket keep their own: the first widget test installs the test binding,
-// whose HttpOverrides answer every request with 400. Tests that register a
-// plugin singleton that cannot be reset also keep their own isolate.
+// Files sharing an entrypoint share an isolate. Custom test bindings and
+// plugin singletons that cannot be reset need their own isolate. Real socket
+// tests also keep their own: the test binding answers every request with 400.
 // Other tests must set up the preferences and statics they rely on.
 //
 // Run a single file with plain `flutter test <file>` as usual.
 import 'dart:io';
+
+final RegExp _customTestBinding = RegExp(
+  r'\bextends\s+(?:\w+\.)?(?:Automated|Live)?TestWidgetsFlutterBinding\b',
+);
 
 final RegExp _requiresOwnIsolate = RegExp(
   r'HttpServer\.bind|ServerSocket\.bind|SecureServerSocket|HttpClient\(|'
@@ -99,7 +102,9 @@ TestShardPlan planTestShards(
   final paths = sources.keys.toList()..sort();
   final standalone = [
     for (final path in paths)
-      if (_requiresOwnIsolate.hasMatch(sources[path]!)) path,
+      if (_requiresOwnIsolate.hasMatch(sources[path]!) ||
+          _customTestBinding.hasMatch(sources[path]!))
+        path,
   ];
   final shardable = [
     for (final path in paths)

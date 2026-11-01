@@ -46,6 +46,32 @@ void main() {
     ).deepEquals(ordered);
   });
 
+  test('custom test bindings keep their own isolate', () {
+    final sources = {
+      // Split so these fixture declarations do not isolate this file.
+      'test/automated_test.dart':
+          'class Binding extends '
+          'AutomatedTestWidgetsFlutterBinding {}',
+      'test/live_test.dart':
+          'class Binding extends '
+          'LiveTestWidgetsFlutterBinding {}',
+      'test/prefixed_test.dart':
+          'class Binding extends '
+          'ft.AutomatedTestWidgetsFlutterBinding {}',
+      'test/plain_test.dart': 'TestWidgetsFlutterBinding.ensureInitialized();',
+    };
+
+    final plan = planTestShards(sources, shardCount: 2);
+
+    check(plan.standalone).deepEquals([
+      'test/automated_test.dart',
+      'test/live_test.dart',
+      'test/prefixed_test.dart',
+    ]);
+    check(plan.shards.expand((shard) => shard).toList())
+        .deepEquals(['test/plain_test.dart']);
+  });
+
   test('a shard imports and registers every file it is given', () {
     const paths = ['test/a_test.dart', 'test/c/d_test.dart'];
     const shardDirectory = 'test/.shards_x';
