@@ -1,11 +1,16 @@
+import 'package:conduit/features/channels/widgets/channel_form_dialog.dart';
+import 'package:conduit/features/direct_connections/views/direct_mcp_server_editor_page.dart';
 import 'package:conduit/shared/widgets/adaptive_dropdown_field.dart';
+import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/l10n/conduit_localizations.dart';
 import 'package:conduit/shared/widgets/legacy_design_compatibility.dart';
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
+import 'package:conduit_core/features/direct_connections/providers/direct_mcp_providers.dart';
 
 import '../../../support/native_platform_views.dart';
 
@@ -30,6 +35,105 @@ void main() {
       ),
     ),
   );
+
+  for (final configuration in [
+    (platform: TargetPlatform.android, native: false),
+    (platform: TargetPlatform.iOS, native: false),
+    (platform: TargetPlatform.iOS, native: true),
+  ]) {
+    testWidgets(
+      'merged switch rows announce one label (native: ${configuration.native})',
+      (tester) async {
+        PlatformUiCapabilities.debugPlatformOverride = configuration.platform;
+        PlatformUiCapabilities.debugIOSMajorVersionOverride =
+            configuration.native ? 27 : 18;
+        PlatformUiCapabilities.debugNativeIOS26Override = configuration.native;
+        FlutterSecureStorage.setMockInitialValues({});
+        final semantics = tester.ensureSemantics();
+        try {
+          late BuildContext context;
+          await tester.pumpWidget(
+            host(
+              Builder(
+                builder: (value) {
+                  context = value;
+                  return const SizedBox();
+                },
+              ),
+            ),
+          );
+          final l10n = AppLocalizations.of(context)!;
+          final form = showCreateChannelFormDialog(context);
+          await tester.pumpAndSettle();
+          final privacyRow = find.widgetWithText(ListTile, l10n.channelPrivate);
+          final privacyLabel = tester
+              .getSemantics(
+                find
+                    .ancestor(
+                      of: privacyRow,
+                      matching: find.byType(MergeSemantics),
+                    )
+                    .first,
+              )
+              .label;
+          if (configuration.native) {
+            expect(
+              tester.widget<CNSwitch>(find.byType(CNSwitch)).semanticLabel,
+              l10n.channelPrivate,
+            );
+          }
+          Navigator.of(context).pop();
+          await tester.pumpAndSettle();
+          await form;
+          await tester.pumpWidget(const SizedBox());
+
+          await tester.pumpWidget(
+            ProviderScope(
+              overrides: [
+                directMcpServersProvider.overrideWithBuild(
+                  (ref, notifier) async => const [],
+                ),
+              ],
+              child: host(const DirectMcpServerEditorPage(serverId: 'new')),
+            ),
+          );
+          await tester.pumpAndSettle();
+          final enabledRow = find.byKey(const ValueKey('direct-mcp-enabled'));
+          await tester.ensureVisible(enabledRow);
+          await tester.pumpAndSettle();
+          final enabledLabel = tester
+              .getSemantics(
+                find
+                    .ancestor(
+                      of: enabledRow,
+                      matching: find.byType(MergeSemantics),
+                    )
+                    .first,
+              )
+              .label;
+          if (!configuration.native) {
+            expect(
+              {
+                'privacy': l10n.channelPrivate.allMatches(privacyLabel).length,
+                'enabled': l10n.enabledLabel.allMatches(enabledLabel).length,
+              },
+              {'privacy': 1, 'enabled': 1},
+              reason: 'Merged row labels: $privacyLabel / $enabledLabel',
+            );
+          }
+          if (configuration.native) {
+            expect(
+              tester.widget<CNSwitch>(find.byType(CNSwitch)).semanticLabel,
+              l10n.enabledLabel,
+            );
+          }
+        } finally {
+          semantics.dispose();
+        }
+      },
+      variant: TargetPlatformVariant.only(configuration.platform),
+    );
+  }
 
   testWidgets('empty native choice fields render their hint once', (
     tester,
