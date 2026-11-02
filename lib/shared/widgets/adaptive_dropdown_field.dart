@@ -49,7 +49,7 @@ class AdaptiveDropdownField<T> extends StatelessWidget {
   final FormFieldValidator<T>? validator;
   final String? nativeTitle;
 
-  /// Accessible name when the native control has no selected label or hint.
+  /// Field name included in the native control's accessibility label.
   final String? semanticLabel;
   final String? cancelLabel;
   final bool isExpanded;
@@ -104,9 +104,14 @@ class AdaptiveDropdownField<T> extends StatelessWidget {
             options.isNotEmpty &&
             options.every((option) => option.subtitle?.isNotEmpty != true)) {
           final label = selected?.label ?? decoration.hintText ?? '';
-          final emptySemanticLabel = label.isEmpty
-              ? semanticLabel ?? decoration.labelText ?? nativeTitle
-              : null;
+          final fieldName =
+              semanticLabel ?? decoration.labelText ?? nativeTitle;
+          String? accessibleLabel;
+          if (fieldName != null && fieldName.isNotEmpty) {
+            accessibleLabel = label.isEmpty || label == fieldName
+                ? fieldName
+                : '$fieldName, $label';
+          }
           return InputDecorator(
             // Keep the form decoration; UIKit presents the anchored menu.
             decoration: effectiveDecoration.copyWith(
@@ -118,7 +123,7 @@ class AdaptiveDropdownField<T> extends StatelessWidget {
               child: onChanged == null
                   ? CNButton(
                       label: label,
-                      semanticLabel: emptySemanticLabel,
+                      semanticLabel: accessibleLabel,
                       enabled: false,
                       tint: context.conduitTheme.inputText,
                       config: const CNButtonConfig(
@@ -128,7 +133,7 @@ class AdaptiveDropdownField<T> extends StatelessWidget {
                     )
                   : CNPopupMenuButton(
                       buttonLabel: label,
-                      semanticLabel: emptySemanticLabel,
+                      semanticLabel: accessibleLabel,
                       height: 44,
                       tint: context.conduitTheme.inputText,
                       buttonStyle: CNButtonStyle.plain,

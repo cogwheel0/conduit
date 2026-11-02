@@ -166,42 +166,57 @@ void main() {
   }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
 
   for (final enabled in [true, false]) {
-    testWidgets('choice labels are announced once (enabled: $enabled)', (
-      tester,
-    ) async {
-      final semantics = tester.ensureSemantics();
-      try {
-        await tester.pumpWidget(
-          host(
-            AdaptiveDropdownField<String>(
-              value: 'kite',
-              options: const [
-                AdaptiveDropdownOption(value: 'kite', label: 'Kite'),
-              ],
-              onChanged: enabled ? (_) {} : null,
-              decoration: const InputDecoration(
-                labelText: 'Shape',
-                errorText: 'Choose another shape',
+    testWidgets(
+      'choice values are announced once with a field name (enabled: $enabled)',
+      (tester) async {
+        final semantics = tester.ensureSemantics();
+        try {
+          await tester.pumpWidget(
+            host(
+              AdaptiveDropdownField<String>(
+                value: 'kite',
+                options: const [
+                  AdaptiveDropdownOption(value: 'kite', label: 'Kite'),
+                ],
+                onChanged: enabled ? (_) {} : null,
+                decoration: const InputDecoration(
+                  labelText: 'Shape',
+                  errorText: 'Choose another shape',
+                ),
               ),
             ),
-          ),
-        );
-        await tester.pumpAndSettle();
-        final label = tester.semantics
-            .simulatedAccessibilityTraversal()
-            .map((node) => node.getSemanticsData().label)
-            .join('\n');
-        final nativeView = find.byType(UiKitView);
-        expect(
-          'Kite'.allMatches(label),
-          hasLength(nativeView.evaluate().isEmpty ? 1 : 0),
-        );
-        expect('Shape'.allMatches(label), hasLength(1));
-        expect(find.bySemanticsLabel('Choose another shape'), findsOneWidget);
-      } finally {
-        semantics.dispose();
-      }
-    }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
+          );
+          await tester.pumpAndSettle();
+          final label = tester.semantics
+              .simulatedAccessibilityTraversal()
+              .map((node) => node.getSemanticsData().label)
+              .join('\n');
+          final nativeView = find.byType(UiKitView);
+          expect(
+            'Kite'.allMatches(label),
+            hasLength(nativeView.evaluate().isEmpty ? 1 : 0),
+          );
+          expect(
+            enabled
+                ? tester
+                      .widget<CNPopupMenuButton>(find.byType(CNPopupMenuButton))
+                      .semanticLabel
+                : tester.widget<CNButton>(find.byType(CNButton)).semanticLabel,
+            'Shape, Kite',
+          );
+          // The form caption is separate from the control's complete name.
+          // UIKit's name is outside Flutter's tree; its fallback is inside it.
+          expect(
+            'Shape'.allMatches(label),
+            hasLength(nativeView.evaluate().isEmpty ? 2 : 1),
+          );
+          expect(find.bySemanticsLabel('Choose another shape'), findsOneWidget);
+        } finally {
+          semantics.dispose();
+        }
+      },
+      variant: TargetPlatformVariant.only(TargetPlatform.iOS),
+    );
   }
 
   testWidgets('native switch remains controlled and has an accessible action', (

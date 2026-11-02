@@ -73,29 +73,45 @@ void main() {
     }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
   }
 
-  testWidgets('native names preserve visible selections and hints', (
+  testWidgets('native names identify fields and preserve visible labels', (
     tester,
   ) async {
-    for (final value in <String?>[null, 'kite']) {
-      await tester.pumpWidget(
-        host(
-          AdaptiveDropdownField<String>(
-            value: value,
-            options: const [
-              AdaptiveDropdownOption(value: 'kite', label: 'Kite'),
-            ],
-            onChanged: (_) {},
-            decoration: const InputDecoration(hintText: 'Choose shape'),
-            semanticLabel: 'Shape',
+    for (final enabled in [true, false]) {
+      for (final (value, hint, name, expectedName)
+          in <(String?, String, String?, String?)>[
+            (null, 'Choose shape', 'Shape', 'Shape, Choose shape'),
+            ('kite', 'Choose shape', 'Shape', 'Shape, Kite'),
+            (null, 'Shape', 'Shape', 'Shape'),
+            ('kite', 'Choose shape', null, null),
+            ('kite', 'Choose shape', '', null),
+          ]) {
+        await tester.pumpWidget(
+          host(
+            AdaptiveDropdownField<String>(
+              value: value,
+              options: const [
+                AdaptiveDropdownOption(value: 'kite', label: 'Kite'),
+              ],
+              onChanged: enabled ? (_) {} : null,
+              decoration: InputDecoration(hintText: hint),
+              semanticLabel: name,
+            ),
           ),
-        ),
-      );
-      await tester.pumpAndSettle();
-      final button = tester.widget<CNPopupMenuButton>(
-        find.byType(CNPopupMenuButton),
-      );
-      expect(button.buttonLabel, value == null ? 'Choose shape' : 'Kite');
-      expect(button.semanticLabel, isNull);
+        );
+        await tester.pumpAndSettle();
+        final visibleLabel = value == null ? hint : 'Kite';
+        if (enabled) {
+          final button = tester.widget<CNPopupMenuButton>(
+            find.byType(CNPopupMenuButton),
+          );
+          expect(button.buttonLabel, visibleLabel);
+          expect(button.semanticLabel, expectedName);
+        } else {
+          final button = tester.widget<CNButton>(find.byType(CNButton));
+          expect(button.label, visibleLabel);
+          expect(button.semanticLabel, expectedName);
+        }
+      }
     }
   }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
 
