@@ -64,6 +64,9 @@ class CitationBadge extends ConsumerWidget {
     final showTitles = ref.watch(
       appSettingsProvider.select((settings) => settings.citationShowTitles),
     );
+    final showBackground = ref.watch(
+      appSettingsProvider.select((settings) => settings.citationBackground),
+    );
     final theme = context.conduitTheme;
     final badgeTextStyle = _badgeLabelTextStyle(context, theme.textSecondary);
 
@@ -98,8 +101,10 @@ class CitationBadge extends ConsumerWidget {
           padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
           margin: const EdgeInsets.symmetric(horizontal: 1),
           decoration: BoxDecoration(
-            color: theme.surfaceContainer.withValues(alpha: 0.24),
-            borderRadius: BorderRadius.circular(12),
+            color: showBackground
+                ? theme.surfaceContainerHighest.withValues(alpha: 0.95)
+                : Colors.transparent,
+            borderRadius: BorderRadius.circular(AppBorderRadius.small),
           ),
           child: Text(
             displayTitle,
@@ -137,6 +142,9 @@ class CitationBadgeGroup extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final showTitles = ref.watch(
       appSettingsProvider.select((settings) => settings.citationShowTitles),
+    );
+    final showBackground = ref.watch(
+      appSettingsProvider.select((settings) => settings.citationBackground),
     );
     if (sourceIndices.isEmpty) {
       return const SizedBox.shrink();
@@ -226,8 +234,10 @@ class CitationBadgeGroup extends ConsumerWidget {
           padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
           margin: const EdgeInsets.symmetric(horizontal: 1),
           decoration: BoxDecoration(
-            color: theme.surfaceContainer.withValues(alpha: 0.24),
-            borderRadius: BorderRadius.circular(12),
+            color: showBackground
+                ? theme.surfaceContainerHighest.withValues(alpha: 0.95)
+                : Colors.transparent,
+            borderRadius: BorderRadius.circular(AppBorderRadius.small),
           ),
           child: Row(
             mainAxisSize: MainAxisSize.min,
@@ -248,7 +258,9 @@ class CitationBadgeGroup extends ConsumerWidget {
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
                 decoration: BoxDecoration(
-                  color: theme.surfaceContainerHighest.withValues(alpha: 0.6),
+                  color: showBackground
+                      ? theme.surfaceContainerHighest.withValues(alpha: 0.6)
+                      : Colors.transparent,
                   borderRadius: BorderRadius.circular(AppBorderRadius.small),
                 ),
                 child: Text('+$additionalCount', style: countTextStyle),

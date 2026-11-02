@@ -735,6 +735,7 @@ class SettingsService {
       citationShowTitles:
           get<bool>(PreferenceKeys.citationShowTitles) ??
           false,
+      citationBackground: get<bool>(PreferenceKeys.citationBackground) ?? true,
       highContrast: get<bool>(_highContrastKey) ?? false,
       darkMode: get<bool>(_darkModeKey) ?? true,
       defaultModel: get<String>(_defaultModelKey),
@@ -855,6 +856,8 @@ class AppSettings {
   final double animationSpeed;
   final bool disableHapticsWhileStreaming;
   final bool citationShowTitles;
+  /// Whether inline citations use the filled Sources badge surface.
+  final bool citationBackground;
   final bool highContrast;
   final bool darkMode;
   final String? defaultModel;
@@ -907,6 +910,7 @@ class AppSettings {
     this.animationSpeed = 1.0,
     this.disableHapticsWhileStreaming = false,
     this.citationShowTitles = false,
+    this.citationBackground = true,
     this.highContrast = false,
     this.darkMode = true,
     this.defaultModel,
@@ -954,6 +958,7 @@ class AppSettings {
     double? animationSpeed,
     bool? disableHapticsWhileStreaming,
     bool? citationShowTitles,
+    bool? citationBackground,
     bool? highContrast,
     bool? darkMode,
     Object? defaultModel = const _DefaultValue(),
@@ -1001,6 +1006,7 @@ class AppSettings {
       disableHapticsWhileStreaming:
           disableHapticsWhileStreaming ?? this.disableHapticsWhileStreaming,
       citationShowTitles: citationShowTitles ?? this.citationShowTitles,
+      citationBackground: citationBackground ?? this.citationBackground,
       highContrast: highContrast ?? this.highContrast,
       darkMode: darkMode ?? this.darkMode,
       defaultModel: defaultModel is _DefaultValue
@@ -1079,6 +1085,7 @@ class AppSettings {
         other.animationSpeed == animationSpeed &&
         other.disableHapticsWhileStreaming == disableHapticsWhileStreaming &&
         other.citationShowTitles == citationShowTitles &&
+        other.citationBackground == citationBackground &&
         other.highContrast == highContrast &&
         other.darkMode == darkMode &&
         other.defaultModel == defaultModel &&
@@ -1129,6 +1136,7 @@ class AppSettings {
       animationSpeed,
       disableHapticsWhileStreaming,
       citationShowTitles,
+      citationBackground,
       highContrast,
       darkMode,
       defaultModel,
@@ -1236,6 +1244,16 @@ class AppSettingsNotifier extends _$AppSettingsNotifier {
     state = state.copyWith(citationShowTitles: value);
     await SettingsService._putPreference(
       PreferenceKeys.citationShowTitles,
+      value,
+    );
+  }
+
+  Future<void> setCitationBackground(bool value) async {
+    if (!await _awaitHydration()) return;
+    state = state.copyWith(citationBackground: value);
+    // Bulk saves may contain an older snapshot of this appearance setting.
+    await SettingsService._putPreference(
+      PreferenceKeys.citationBackground,
       value,
     );
   }
@@ -1600,6 +1618,7 @@ class AppSettingsNotifier extends _$AppSettingsNotifier {
   Future<void> resetToDefaults() async {
     const defaultSettings = AppSettings();
     await SettingsService.saveSettings(defaultSettings);
+    await SettingsService._putOrRemove(PreferenceKeys.citationBackground, null);
     // Written only by its own setter, so the bulk save leaves it.
     await SettingsService._putOrRemove(
       PreferenceKeys.directVoiceProvider,

@@ -3457,6 +3457,8 @@
   "backendChooserAppleSectionTitle": "Apple Intelligence",
   "backendChooserModelApisSectionTitle": "API de modèles",
   "backendChooserSelfHostedSectionTitle": "Services auto-hébergés",
+  "citationBackground": "Arrière-plan des citations",
+  "citationBackgroundDescription": "Désactiver pour rendre les citations intégrées transparentes",
   "citationShowTitles": "Afficher les titres des pages citées",
   "citationShowTitlesDescription": "Utiliser les titres de page plutôt que les domaines dans les badges de citation",
   "directContextCompactionDescription": "Ces modèles n'indiquent pas de fenêtre de contexte. Conduit utilise la limite sélectionnée pour compacter les anciens messages avant que les requêtes ne deviennent trop volumineuses.",

@@ -99,6 +99,27 @@ class AppCustomizationPage extends ConsumerWidget {
         ),
         _sectionGap,
         _buildLanguageSection(context, ref, currentLanguageCode, languageLabel),
+        _sectionGap,
+        CustomizationTile(
+          leading: _buildIconBadge(
+            context,
+            Icons.format_quote_rounded,
+            color: context.conduitTheme.buttonPrimary,
+          ),
+          title: l10n.citationBackground,
+          subtitle: l10n.citationBackgroundDescription,
+          toggled: settings.citationBackground,
+          trailing: AdaptiveSwitch(
+            value: settings.citationBackground,
+            onChanged: (value) => ref
+                .read(appSettingsProvider.notifier)
+                .setCitationBackground(value),
+          ),
+          showChevron: false,
+          onTap: () => ref
+              .read(appSettingsProvider.notifier)
+              .setCitationBackground(!settings.citationBackground),
+        ),
       ],
       AppCustomizationSection.chat => <Widget>[
         if (hasOpenWebUiAccount) ...[

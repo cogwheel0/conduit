@@ -527,6 +527,46 @@ void main() {
     });
   });
 
+  group('Citation background preference', () {
+    setUp(() {
+      PreferencesStore.debugReset();
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+    });
+
+    tearDown(PreferencesStore.debugReset);
+
+    test('defaults to filled and participates in settings equality', () {
+      const defaults = AppSettings();
+      final transparent = defaults.copyWith(citationBackground: false);
+      check(defaults.citationBackground).isTrue();
+      check(transparent.citationBackground).isFalse();
+      check(transparent).not((it) => it.equals(defaults));
+      check(transparent.copyWith()).equals(transparent);
+    });
+
+    test('transparent survives restart and bulk save; reset restores filled',
+        () async {
+      final container = ProviderContainer();
+      addTearDown(container.dispose);
+      await container
+          .read(appSettingsProvider.notifier)
+          .setCitationBackground(false);
+      check(container.read(appSettingsProvider).citationBackground).isFalse();
+
+      final restarted = ProviderContainer();
+      addTearDown(restarted.dispose);
+      check(restarted.read(appSettingsProvider).citationBackground).isFalse();
+      // A stale unrelated settings save must not reset the local appearance.
+      await SettingsService.saveSettings(const AppSettings());
+      check((await SettingsService.loadSettings()).citationBackground).isFalse();
+
+      await restarted.read(appSettingsProvider.notifier).resetToDefaults();
+      final afterReset = ProviderContainer();
+      addTearDown(afterReset.dispose);
+      check(afterReset.read(appSettingsProvider).citationBackground).isTrue();
+    });
+  });
+
   group('AppSettingsNotifier Voice provider', () {
     setUp(() {
       PreferencesStore.debugReset();

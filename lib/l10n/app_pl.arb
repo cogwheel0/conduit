@@ -1762,6 +1762,8 @@
   "@disableHapticsWhileStreamingDescription": {
     "description": "Subtitle for the setting that suppresses assistant response streaming haptics."
   },
+  "citationBackground": "Tło cytowań",
+  "citationBackgroundDescription": "Wyłącz, aby cytowania w tekście miały przezroczyste tło",
   "citationShowTitles": "Pokazuj tytuły stron w cytowaniach",
   "@citationShowTitles": {
     "description": "Toggle title for labeling inline citation badges with page titles instead of domains."

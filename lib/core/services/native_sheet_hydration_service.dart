@@ -1307,6 +1307,18 @@ class NativeSheetHydrationService {
           sections: [
             NativeSheetSectionConfig(items: themeItems),
             NativeSheetSectionConfig(items: [languageItem]),
+            NativeSheetSectionConfig(
+              items: [
+                NativeSheetItemConfig(
+                  id: nativeCitationBackgroundId,
+                  title: l10n.citationBackground,
+                  subtitle: l10n.citationBackgroundDescription,
+                  sfSymbol: 'quote.bubble',
+                  kind: NativeSheetItemKind.toggle,
+                  value: _ref.read(appSettingsProvider).citationBackground,
+                ),
+              ],
+            ),
           ],
         ),
       );

@@ -3457,6 +3457,8 @@
   "backendChooserAppleSectionTitle": "Apple Intelligence",
   "backendChooserModelApisSectionTitle": "Model-API's",
   "backendChooserSelfHostedSectionTitle": "Zelfgehoste diensten",
+  "citationBackground": "Achtergrond van bronvermeldingen",
+  "citationBackgroundDescription": "Schakel uit voor transparante bronvermeldingen in de tekst",
   "citationShowTitles": "Paginatitels in bronvermeldingen tonen",
   "citationShowTitlesDescription": "Paginatitels gebruiken in plaats van websitedomeinen in bronlabels",
   "directContextCompactionDescription": "Deze modellen geven geen contextvenster op. Conduit gebruikt de gekozen limiet om oudere berichten te comprimeren voordat verzoeken te groot worden.",

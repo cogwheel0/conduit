@@ -143,6 +143,14 @@ void main() {
     check(appearance.last.title).equals(spanish.settingsAppearance);
     check(appearance.last.title)
         .not((it) => it.equals(english.settingsAppearance));
+    final citationBackground = [
+      for (final section in appearance.last.sections) ...section.items,
+    ].singleWhere((row) => row.id == 'citation-background');
+    check(citationBackground.title).equals(spanish.citationBackground);
+    check(citationBackground.subtitle)
+        .equals(spanish.citationBackgroundDescription);
+    check(citationBackground.kind).equals(PlatformNativeSheetItemKind.toggle);
+    check(citationBackground.value).equals(true);
   });
 
   testWidgets('the Voice provider page is patched alone, without the voices', (
@@ -321,6 +329,24 @@ void main() {
     List<PlatformNativeSheetItem> rows(
       PlatformNativeSheetApplyDetailPatchRequest patch,
     ) => [for (final section in patch.sections) ...section.items];
+
+    testWidgets('Appearance reflects the saved citation background', (
+      tester,
+    ) async {
+      final native = await openNativeSettings(tester, models: _NoModels.new);
+      await native.container
+          .read(appSettingsProvider.notifier)
+          .setCitationBackground(false);
+      final opened = native.service.hydrateDetail(NativeSheetRoutes.appearance);
+      await tester.pump();
+      await opened;
+      final appearance = native.patches.lastWhere(
+        (patch) => patch.detailId == NativeSheetRoutes.appearance,
+      );
+      check(
+        rows(appearance).singleWhere((row) => row.id == 'citation-background').value,
+      ).equals(false);
+    });
 
     testWidgets('is off on first open and follows the saved preference', (
       tester,

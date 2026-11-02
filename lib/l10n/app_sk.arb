@@ -5372,6 +5372,8 @@
   "backendChooserAppleSectionTitle": "Apple Intelligence",
   "backendChooserModelApisSectionTitle": "API modelov",
   "backendChooserSelfHostedSectionTitle": "Vlastné hostované služby",
+  "citationBackground": "Pozadie citácií",
+  "citationBackgroundDescription": "Vypnite pre priehľadné citácie v texte",
   "citationShowTitles": "Zobrazovať názvy stránok pri citáciách",
   "citationShowTitlesDescription": "V odznakoch citácií používať názvy stránok namiesto domén webov",
   "directContextCompactionDescription": "Tieto modely neuvádzajú veľkosť kontextového okna. Conduit použije zvolený limit na zhustenie starších správ skôr, než budú požiadavky príliš veľké.",

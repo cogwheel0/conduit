@@ -3457,6 +3457,8 @@
   "backendChooserAppleSectionTitle": "Apple Intelligence",
   "backendChooserModelApisSectionTitle": "模型 API",
   "backendChooserSelfHostedSectionTitle": "自托管服务",
+  "citationBackground": "引用背景",
+  "citationBackgroundDescription": "关闭后，文内引用的背景将透明",
   "citationShowTitles": "显示引用页面标题",
   "citationShowTitlesDescription": "在引用标记中使用页面标题而非网站域名",
   "directContextCompactionDescription": "这些模型不会报告上下文窗口。Conduit 会在请求过大之前，使用所选上限压缩较早的消息。",

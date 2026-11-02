@@ -527,6 +527,33 @@ void main() {
     });
   });
 
+  testWidgets('the native citation background toggle saves only booleans', (
+    tester,
+  ) async {
+    final container = await pumpApp(tester);
+    bool saved() => container.read(appSettingsProvider).citationBackground;
+    check(saved()).isTrue();
+
+    NativeSheetBridge.instance.onControlChanged(
+      PlatformNativeSheetControlChangedEvent(
+        id: nativeCitationBackgroundId,
+        value: 'false',
+      ),
+    );
+    await tester.pumpAndSettle();
+    check(saved()).isTrue();
+
+    NativeSheetBridge.instance.onControlChanged(
+      PlatformNativeSheetControlChangedEvent(
+        id: nativeCitationBackgroundId,
+        value: false,
+      ),
+    );
+    await tester.pumpAndSettle();
+    check(saved()).isFalse();
+    check((await SettingsService.loadSettings()).citationBackground).isFalse();
+  });
+
   testWidgets('the native citation titles toggle saves its boolean', (
     tester,
   ) async {

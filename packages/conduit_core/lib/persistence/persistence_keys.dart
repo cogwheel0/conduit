@@ -6,6 +6,7 @@ final class PreferenceKeys {
   static const String disableHapticsWhileStreaming =
       'disable_haptics_while_streaming';
   static const String citationShowTitles = 'citation_show_titles';
+  static const String citationBackground = 'citation_background';
   static const String highContrast = 'high_contrast';
   static const String darkMode = 'dark_mode';
   static const String defaultModel = 'default_model';
