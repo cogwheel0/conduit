@@ -156,7 +156,13 @@ void main() {
         ),
       ),
     );
-    expect(find.text('Choose a shape'), findsOneWidget);
+    await tester.pumpAndSettle();
+    expect(
+      tester
+          .widget<CNPopupMenuButton>(find.byType(CNPopupMenuButton))
+          .buttonLabel,
+      'Choose a shape',
+    );
   }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
 
   for (final enabled in [true, false]) {
@@ -180,10 +186,16 @@ void main() {
             ),
           ),
         );
-        final label = tester
-            .getSemantics(find.byType(AdaptiveDropdownField<String>))
-            .label;
-        expect('Kite'.allMatches(label), hasLength(1));
+        await tester.pumpAndSettle();
+        final label = tester.semantics
+            .simulatedAccessibilityTraversal()
+            .map((node) => node.getSemanticsData().label)
+            .join('\n');
+        final nativeView = find.byType(UiKitView);
+        expect(
+          'Kite'.allMatches(label),
+          hasLength(nativeView.evaluate().isEmpty ? 1 : 0),
+        );
         expect('Shape'.allMatches(label), hasLength(1));
         expect(find.bySemanticsLabel('Choose another shape'), findsOneWidget);
       } finally {

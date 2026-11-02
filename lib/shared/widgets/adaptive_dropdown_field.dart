@@ -24,7 +24,7 @@ class AdaptiveDropdownOption<T> {
   final bool enabled;
 }
 
-/// Form-aware single-choice field that uses the native iOS dropdown bridge
+/// Form-aware single-choice field that uses native iOS controls
 /// and preserves the standard Material dropdown on other platforms.
 class AdaptiveDropdownField<T> extends StatelessWidget {
   const AdaptiveDropdownField({
@@ -96,6 +96,60 @@ class AdaptiveDropdownField<T> extends StatelessWidget {
           enabled: onChanged != null,
           errorText: state.errorText,
         );
+        if (PlatformUiCapabilities.usesNativeIOS26 &&
+            options.isNotEmpty &&
+            options.every((option) => option.subtitle?.isNotEmpty != true)) {
+          final label = selected?.label ?? decoration.hintText ?? '';
+          return InputDecorator(
+            // Keep the form decoration; UIKit presents the anchored menu.
+            decoration: effectiveDecoration.copyWith(
+              contentPadding: EdgeInsets.zero,
+            ),
+            isEmpty: false,
+            child: SizedBox(
+              width: double.infinity,
+              child: onChanged == null
+                  ? CNButton(
+                      label: label,
+                      enabled: false,
+                      tint: context.conduitTheme.inputText,
+                      config: const CNButtonConfig(
+                        style: CNButtonStyle.plain,
+                        minHeight: 44,
+                      ),
+                    )
+                  : CNPopupMenuButton(
+                      buttonLabel: label,
+                      height: 44,
+                      tint: context.conduitTheme.inputText,
+                      buttonStyle: CNButtonStyle.plain,
+                      items: [
+                        for (final option in options)
+                          CNPopupMenuItem(
+                            label: option.label,
+                            enabled: option.enabled,
+                            checked: option.value == state.value,
+                            icon: option.iosSymbol == null
+                                ? null
+                                : CNSymbol(option.iosSymbol!),
+                          ),
+                      ],
+                      onSelected: (index) {
+                        if (!state.mounted ||
+                            !state.widget.enabled ||
+                            index < 0 ||
+                            index >= options.length) {
+                          return;
+                        }
+                        final option = options[index];
+                        if (!option.enabled) return;
+                        state.didChange(option.value);
+                        onChanged?.call(option.value);
+                      },
+                    ),
+            ),
+          );
+        }
         return Builder(
           builder: (anchorContext) => Semantics(
             button: true,
