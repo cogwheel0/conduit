@@ -103,7 +103,10 @@ class AppCustomizationPage extends ConsumerWidget {
         CustomizationTile(
           leading: _buildIconBadge(
             context,
-            Icons.format_quote_rounded,
+            UiUtils.platformIcon(
+              ios: CupertinoIcons.quote_bubble,
+              android: Icons.format_quote_rounded,
+            ),
             color: context.conduitTheme.buttonPrimary,
           ),
           title: l10n.citationBackground,

@@ -344,7 +344,9 @@ void main() {
         (patch) => patch.detailId == NativeSheetRoutes.appearance,
       );
       check(
-        rows(appearance).singleWhere((row) => row.id == 'citation-background').value,
+        rows(appearance)
+            .singleWhere((row) => row.id == 'citation-background')
+            .value,
       ).equals(false);
     });
 

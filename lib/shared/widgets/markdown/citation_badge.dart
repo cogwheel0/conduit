@@ -8,7 +8,10 @@ import '../../../core/services/haptic_service.dart';
 import 'package:conduit_core/services/settings_service.dart';
 
 import '../../theme/theme_extensions.dart';
+import '../adaptive_dropdown_field.dart';
+import '../platform_ui/platform_ui.dart';
 import '../../utils/external_link_launcher.dart';
+
 import 'package:conduit_core/utils/source_reference_helper.dart';
 
 TextStyle _badgeLabelTextStyle(BuildContext context, Color color) {
@@ -186,6 +189,80 @@ class CitationBadgeGroup extends ConsumerWidget {
         .where((index) => index >= 0 && index < sources.length)
         .toList(growable: false);
 
+    void selectSource(int index) {
+      ConduitHaptics.selectionClick();
+      if (onSourceTap != null) {
+        onSourceTap!(index);
+        return;
+      }
+
+      if (index >= 0 && index < sources.length) {
+        final url = SourceReferenceHelper.getSourceUrl(sources[index]);
+        if (url != null) {
+          launchExternalLink(url, scope: 'markdown/citation');
+        }
+      }
+    }
+
+    final badge = Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+      margin: const EdgeInsets.symmetric(horizontal: 1),
+      decoration: BoxDecoration(
+        color: showBackground
+            ? theme.surfaceContainerHighest.withValues(alpha: 0.95)
+            : Colors.transparent,
+        borderRadius: BorderRadius.circular(AppBorderRadius.small),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            Icons.link_rounded,
+            size: 11,
+            color: theme.textSecondary.withValues(alpha: 0.7),
+          ),
+          const SizedBox(width: 3),
+          Text(
+            displayTitle,
+            style: badgeTextStyle,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+          const SizedBox(width: 3),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+            decoration: BoxDecoration(
+              color: showBackground
+                  ? theme.surfaceContainerHighest.withValues(alpha: 0.6)
+                  : Colors.transparent,
+              borderRadius: BorderRadius.circular(AppBorderRadius.small),
+            ),
+            child: Text('+$additionalCount', style: countTextStyle),
+          ),
+        ],
+      ),
+    );
+    if (PlatformInfo.isIOS) {
+      return AdaptiveSingleChoiceTrigger<int>(
+        value: null,
+        options: [
+          for (final index in validIndices)
+            AdaptiveDropdownOption(
+              value: index,
+              label: SourceReferenceHelper.formatDisplayTitle(
+                SourceReferenceHelper.getInlineSourceLabel(
+                  sources[index],
+                  index,
+                  preferTitle: showTitles,
+                ),
+              ),
+            ),
+        ],
+        onChanged: selectSource,
+        child: badge,
+      );
+    }
+
     return Material(
       type: MaterialType.transparency,
       child: PopupMenuButton<int>(
@@ -214,60 +291,10 @@ class CitationBadgeGroup extends ConsumerWidget {
               ),
             ),
         ],
-        onSelected: (index) {
-          ConduitHaptics.selectionClick();
-          if (onSourceTap != null) {
-            onSourceTap!(index);
-            return;
-          }
-
-          if (index >= 0 && index < sources.length) {
-            final url = SourceReferenceHelper.getSourceUrl(sources[index]);
-            if (url != null) {
-              launchExternalLink(url, scope: 'markdown/citation');
-            }
-          }
-        },
+        onSelected: selectSource,
         padding: EdgeInsets.zero,
         tooltip: '',
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
-          margin: const EdgeInsets.symmetric(horizontal: 1),
-          decoration: BoxDecoration(
-            color: showBackground
-                ? theme.surfaceContainerHighest.withValues(alpha: 0.95)
-                : Colors.transparent,
-            borderRadius: BorderRadius.circular(AppBorderRadius.small),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(
-                Icons.link_rounded,
-                size: 11,
-                color: theme.textSecondary.withValues(alpha: 0.7),
-              ),
-              const SizedBox(width: 3),
-              Text(
-                displayTitle,
-                style: badgeTextStyle,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-              const SizedBox(width: 3),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
-                decoration: BoxDecoration(
-                  color: showBackground
-                      ? theme.surfaceContainerHighest.withValues(alpha: 0.6)
-                      : Colors.transparent,
-                  borderRadius: BorderRadius.circular(AppBorderRadius.small),
-                ),
-                child: Text('+$additionalCount', style: countTextStyle),
-              ),
-            ],
-          ),
-        ),
+        child: badge,
       ),
     );
   }
