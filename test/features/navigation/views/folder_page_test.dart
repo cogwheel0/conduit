@@ -55,12 +55,15 @@ import 'package:conduit/shared/utils/conversation_context_menu.dart';
 import 'package:conduit/shared/theme/app_theme.dart';
 import 'package:conduit/shared/theme/tweakcn_themes.dart';
 import 'package:conduit/shared/widgets/conduit_components.dart';
+import 'package:conduit/shared/widgets/legacy_design_compatibility.dart';
+import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:drift/drift.dart' show Value;
 import 'package:drift/native.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/misc.dart';
 import 'package:flutter/services.dart' show MethodChannel, SystemChannels;
+import 'package:flutter/foundation.dart' show defaultTargetPlatform;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 
@@ -274,58 +277,83 @@ void main() {
     FlutterError.onError = originalFlutterErrorOnError;
   });
 
-  testWidgets('edit folder menu action loads and saves folder updates', (
-    tester,
-  ) async {
-    final originalErrorWidgetBuilder = ErrorWidget.builder;
-    final originalFlutterErrorOnError = FlutterError.onError;
-    addTearDown(() async {
+  testWidgets(
+    'edit folder menu action loads and saves folder updates',
+    (tester) async {
+      final originalErrorWidgetBuilder = ErrorWidget.builder;
+      final originalFlutterErrorOnError = FlutterError.onError;
+      addTearDown(() async {
+        await tester.pumpWidget(const SizedBox.shrink());
+        ErrorWidget.builder = originalErrorWidgetBuilder;
+        FlutterError.onError = originalFlutterErrorOnError;
+      });
+
+      PlatformUiCapabilities.debugPlatformOverride = defaultTargetPlatform;
+      PlatformUiCapabilities.debugIOSMajorVersionOverride = 18;
+      PlatformUiCapabilities.debugNativeIOS26Override = false;
+      addTearDown(PlatformUiCapabilities.resetDebugOverrides);
+      final api = _FakeFolderApiService();
+
+      await tester.pumpWidget(
+        _buildHarness(
+          api: api,
+          useCupertino: defaultTargetPlatform == TargetPlatform.iOS,
+          folders: const [Folder(id: 'work', name: 'Work')],
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(
+        find.byKey(const ValueKey<String>('folder-page-overflow-button')),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Edit Folder'));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const ValueKey<String>('folder-edit-name-field')),
+        findsOneWidget,
+      );
+      expect(find.text('Server Work'), findsOneWidget);
+
+      await tester.enterText(
+        find.byKey(const ValueKey<String>('folder-edit-name-field')),
+        'Renamed Work',
+      );
+      final formContext = tester.element(
+        find.byKey(const ValueKey<String>('folder-edit-name-field')),
+      );
+      final savedMessage = AppLocalizations.of(formContext)!.saved;
+      if (defaultTargetPlatform == TargetPlatform.iOS) {
+        expect(ScaffoldMessenger.maybeOf(formContext), isNull);
+      }
+      await tester.ensureVisible(find.text('Save'));
+      await tester.tap(find.text('Save'));
+      await tester.pumpAndSettle();
+
+      expect(api.lastUpdatedName, 'Renamed Work');
+      expect(api.lastUpdatedMeta?['icon'], 'briefcase');
+      expect(api.lastUpdatedData, isNull);
+      expect(find.text('Renamed Work'), findsOneWidget);
+
+      expect(
+        find.byKey(const ValueKey<String>('folder-edit-name-field')),
+        findsNothing,
+      );
+      expect(find.text(savedMessage), findsOneWidget);
+      await tester.pump(const Duration(milliseconds: 500));
+      expect(find.text(savedMessage), findsOneWidget);
+
       await tester.pumpWidget(const SizedBox.shrink());
       ErrorWidget.builder = originalErrorWidgetBuilder;
       FlutterError.onError = originalFlutterErrorOnError;
-    });
-
-    final api = _FakeFolderApiService();
-
-    await tester.pumpWidget(
-      _buildHarness(
-        api: api,
-        folders: const [Folder(id: 'work', name: 'Work')],
-      ),
-    );
-    await tester.pumpAndSettle();
-
-    await tester.tap(
-      find.byKey(const ValueKey<String>('folder-page-overflow-button')),
-    );
-    await tester.pumpAndSettle();
-
-    await tester.tap(find.text('Edit Folder'));
-    await tester.pumpAndSettle();
-
-    expect(
-      find.byKey(const ValueKey<String>('folder-edit-name-field')),
-      findsOneWidget,
-    );
-    expect(find.text('Server Work'), findsOneWidget);
-
-    await tester.enterText(
-      find.byKey(const ValueKey<String>('folder-edit-name-field')),
-      'Renamed Work',
-    );
-    await tester.ensureVisible(find.text('Save'));
-    await tester.tap(find.text('Save'));
-    await tester.pumpAndSettle();
-
-    expect(api.lastUpdatedName, 'Renamed Work');
-    expect(api.lastUpdatedMeta?['icon'], 'briefcase');
-    expect(api.lastUpdatedData, isNull);
-    expect(find.text('Renamed Work'), findsOneWidget);
-
-    await tester.pumpWidget(const SizedBox.shrink());
-    ErrorWidget.builder = originalErrorWidgetBuilder;
-    FlutterError.onError = originalFlutterErrorOnError;
-  });
+    },
+    variant: TargetPlatformVariant({
+      TargetPlatform.android,
+      TargetPlatform.iOS,
+    }),
+  );
 
   group('folder Share folder', () {
     Future<void> openFolderMenu(
@@ -430,57 +458,82 @@ void main() {
     });
   });
 
-  testWidgets('system prompt menu action loads and saves prompt updates', (
-    tester,
-  ) async {
-    final originalErrorWidgetBuilder = ErrorWidget.builder;
-    final originalFlutterErrorOnError = FlutterError.onError;
-    addTearDown(() async {
+  testWidgets(
+    'system prompt menu action loads and saves prompt updates',
+    (tester) async {
+      final originalErrorWidgetBuilder = ErrorWidget.builder;
+      final originalFlutterErrorOnError = FlutterError.onError;
+      addTearDown(() async {
+        await tester.pumpWidget(const SizedBox.shrink());
+        ErrorWidget.builder = originalErrorWidgetBuilder;
+        FlutterError.onError = originalFlutterErrorOnError;
+      });
+
+      PlatformUiCapabilities.debugPlatformOverride = defaultTargetPlatform;
+      PlatformUiCapabilities.debugIOSMajorVersionOverride = 18;
+      PlatformUiCapabilities.debugNativeIOS26Override = false;
+      addTearDown(PlatformUiCapabilities.resetDebugOverrides);
+      final api = _FakeFolderApiService();
+
+      await tester.pumpWidget(
+        _buildHarness(
+          api: api,
+          useCupertino: defaultTargetPlatform == TargetPlatform.iOS,
+          folders: const [Folder(id: 'work', name: 'Work')],
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(
+        find.byKey(const ValueKey<String>('folder-page-overflow-button')),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('System Prompt'));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const ValueKey<String>('folder-system-prompt-field')),
+        findsOneWidget,
+      );
+      expect(find.text('Be helpful'), findsOneWidget);
+
+      await tester.enterText(
+        find.byKey(const ValueKey<String>('folder-system-prompt-field')),
+        'Be concise',
+      );
+      final formContext = tester.element(
+        find.byKey(const ValueKey<String>('folder-system-prompt-field')),
+      );
+      final savedMessage = AppLocalizations.of(formContext)!.saved;
+      if (defaultTargetPlatform == TargetPlatform.iOS) {
+        expect(ScaffoldMessenger.maybeOf(formContext), isNull);
+      }
+      await tester.ensureVisible(find.text('Save'));
+      await tester.tap(find.text('Save'));
+      await tester.pumpAndSettle();
+
+      expect(api.lastUpdatedName, isNull);
+      expect(api.lastUpdatedMeta, isNull);
+      expect(api.lastUpdatedData?['system_prompt'], 'Be concise');
+
+      expect(
+        find.byKey(const ValueKey<String>('folder-system-prompt-field')),
+        findsNothing,
+      );
+      expect(find.text(savedMessage), findsOneWidget);
+      await tester.pump(const Duration(milliseconds: 500));
+      expect(find.text(savedMessage), findsOneWidget);
+
       await tester.pumpWidget(const SizedBox.shrink());
       ErrorWidget.builder = originalErrorWidgetBuilder;
       FlutterError.onError = originalFlutterErrorOnError;
-    });
-
-    final api = _FakeFolderApiService();
-
-    await tester.pumpWidget(
-      _buildHarness(
-        api: api,
-        folders: const [Folder(id: 'work', name: 'Work')],
-      ),
-    );
-    await tester.pumpAndSettle();
-
-    await tester.tap(
-      find.byKey(const ValueKey<String>('folder-page-overflow-button')),
-    );
-    await tester.pumpAndSettle();
-
-    await tester.tap(find.text('System Prompt'));
-    await tester.pumpAndSettle();
-
-    expect(
-      find.byKey(const ValueKey<String>('folder-system-prompt-field')),
-      findsOneWidget,
-    );
-    expect(find.text('Be helpful'), findsOneWidget);
-
-    await tester.enterText(
-      find.byKey(const ValueKey<String>('folder-system-prompt-field')),
-      'Be concise',
-    );
-    await tester.ensureVisible(find.text('Save'));
-    await tester.tap(find.text('Save'));
-    await tester.pumpAndSettle();
-
-    expect(api.lastUpdatedName, isNull);
-    expect(api.lastUpdatedMeta, isNull);
-    expect(api.lastUpdatedData?['system_prompt'], 'Be concise');
-
-    await tester.pumpWidget(const SizedBox.shrink());
-    ErrorWidget.builder = originalErrorWidgetBuilder;
-    FlutterError.onError = originalFlutterErrorOnError;
-  });
+    },
+    variant: TargetPlatformVariant({
+      TargetPlatform.android,
+      TargetPlatform.iOS,
+    }),
+  );
 
   testWidgets('new chat button clears folder context for a global chat', (
     tester,
@@ -2511,6 +2564,7 @@ Widget _buildHarness({
   List<Conversation> conversations = const <Conversation>[],
   List<Folder> folders = const <Folder>[],
   AppSettings settings = const AppSettings(),
+  bool useCupertino = false,
 }) {
   final container = _createContainer(
     api: api,
@@ -2519,7 +2573,7 @@ Widget _buildHarness({
     settings: settings,
   );
   addTearDown(container.dispose);
-  return _buildHarnessFromContainer(container);
+  return _buildHarnessFromContainer(container, useCupertino: useCupertino);
 }
 
 ProviderContainer _createContainer({
@@ -2577,6 +2631,7 @@ ProviderContainer _createContainer({
 
 Widget _buildHarnessFromContainer(
   ProviderContainer container, {
+  bool useCupertino = false,
   Listenable? routerRefreshListenable,
   // Puts the folder under the chat list, as the app's shell route does.
   GlobalKey<ResponsiveDrawerLayoutState>? chatList,
@@ -2623,12 +2678,20 @@ Widget _buildHarnessFromContainer(
 
   return UncontrolledProviderScope(
     container: container,
-    child: MaterialApp.router(
-      theme: AppTheme.light(TweakcnThemes.t3Chat),
-      localizationsDelegates: conduitLocalizationsDelegates,
-      supportedLocales: AppLocalizations.supportedLocales,
-      routerConfig: router,
-    ),
+    child: useCupertino
+        ? CupertinoApp.router(
+            localizationsDelegates: conduitLocalizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            builder: (context, child) =>
+                LegacyDesignCompatibility(child: child!),
+            routerConfig: router,
+          )
+        : MaterialApp.router(
+            theme: AppTheme.light(TweakcnThemes.t3Chat),
+            localizationsDelegates: conduitLocalizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            routerConfig: router,
+          ),
   );
 }
 
