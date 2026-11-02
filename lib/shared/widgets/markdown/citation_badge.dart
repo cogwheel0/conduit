@@ -19,28 +19,26 @@ TextStyle _badgeLabelTextStyle(BuildContext context, Color color) {
   return textTheme.labelSmall?.copyWith(
         color: color,
         fontWeight: FontWeight.w500,
-        height: 1.1,
+        height: 1.2,
       ) ??
       AppTypography.labelSmallStyle.copyWith(
         color: color,
         fontWeight: FontWeight.w500,
-        height: 1.1,
+        height: 1.2,
       );
 }
 
-TextStyle _badgeCountTextStyle(BuildContext context, Color color) {
-  final textTheme = Theme.of(context).textTheme;
-  return textTheme.labelSmall?.copyWith(
-        color: color,
-        fontWeight: FontWeight.w600,
-        height: 1.1,
-      ) ??
-      AppTypography.labelSmallStyle.copyWith(
-        color: color,
-        fontWeight: FontWeight.w600,
-        height: 1.1,
-      );
-}
+BoxDecoration _badgeDecoration(BuildContext context, bool showBackground) =>
+    BoxDecoration(
+      color: !showBackground
+          ? Colors.transparent
+          : PlatformInfo.isIOS
+          ? CupertinoColors.secondarySystemFill.resolveFrom(context)
+          : context.conduitTheme.surfaceContainerHighest.withValues(
+              alpha: 0.95,
+            ),
+      borderRadius: BorderRadius.circular(AppBorderRadius.pill),
+    );
 
 /// A compact inline citation badge showing source domain/title.
 ///
@@ -101,14 +99,12 @@ class CitationBadge extends ConsumerWidget {
           }
         },
         child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
-          margin: const EdgeInsets.symmetric(horizontal: 1),
-          decoration: BoxDecoration(
-            color: showBackground
-                ? theme.surfaceContainerHighest.withValues(alpha: 0.95)
-                : Colors.transparent,
-            borderRadius: BorderRadius.circular(AppBorderRadius.small),
+          padding: const EdgeInsets.symmetric(
+            horizontal: Spacing.sm,
+            vertical: Spacing.xxs,
           ),
+          margin: const EdgeInsets.symmetric(horizontal: 1),
+          decoration: _badgeDecoration(context, showBackground),
           child: Text(
             displayTitle,
             style: badgeTextStyle,
@@ -166,7 +162,6 @@ class CitationBadgeGroup extends ConsumerWidget {
 
     final theme = context.conduitTheme;
     final badgeTextStyle = _badgeLabelTextStyle(context, theme.textSecondary);
-    final countTextStyle = _badgeCountTextStyle(context, theme.textPrimary);
 
     // Get first valid source for display
     final firstIndex = sourceIndices.first;
@@ -205,40 +200,23 @@ class CitationBadgeGroup extends ConsumerWidget {
     }
 
     final badge = Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
-      margin: const EdgeInsets.symmetric(horizontal: 1),
-      decoration: BoxDecoration(
-        color: showBackground
-            ? theme.surfaceContainerHighest.withValues(alpha: 0.95)
-            : Colors.transparent,
-        borderRadius: BorderRadius.circular(AppBorderRadius.small),
+      padding: const EdgeInsets.symmetric(
+        horizontal: Spacing.sm,
+        vertical: Spacing.xxs,
       ),
+      margin: const EdgeInsets.symmetric(horizontal: 1),
+      decoration: _badgeDecoration(context, showBackground),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(
-            Icons.link_rounded,
-            size: 11,
-            color: theme.textSecondary.withValues(alpha: 0.7),
-          ),
-          const SizedBox(width: 3),
           Text(
             displayTitle,
             style: badgeTextStyle,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
           ),
-          const SizedBox(width: 3),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
-            decoration: BoxDecoration(
-              color: showBackground
-                  ? theme.surfaceContainerHighest.withValues(alpha: 0.6)
-                  : Colors.transparent,
-              borderRadius: BorderRadius.circular(AppBorderRadius.small),
-            ),
-            child: Text('+$additionalCount', style: countTextStyle),
-          ),
+          const SizedBox(width: Spacing.xs),
+          Text('+$additionalCount', style: badgeTextStyle),
         ],
       ),
     );

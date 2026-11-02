@@ -1,5 +1,7 @@
 library;
 
+export 'package:cupertino_ui/cupertino_ui.dart' show CupertinoColors;
+
 export 'src/adaptive_app.dart';
 export 'src/adaptive_controls.dart';
 export 'src/adaptive_glass_controls.dart';
