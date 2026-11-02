@@ -368,13 +368,16 @@ class _HermesJobSheetRowState extends ConsumerState<_HermesJobSheetRow> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  job.displayName,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: AppTypography.standard.copyWith(
-                    color: theme.textPrimary,
-                    fontWeight: FontWeight.w600,
+                ExcludeSemantics(
+                  excluding: !_toggling,
+                  child: Text(
+                    job.displayName,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppTypography.standard.copyWith(
+                      color: theme.textPrimary,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
                 ),
                 const SizedBox(height: Spacing.xxs),

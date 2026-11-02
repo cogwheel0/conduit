@@ -200,13 +200,16 @@ class _JobCardState extends ConsumerState<_JobCard> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Expanded(
-                child: Text(
-                  job.displayName,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: AppTypography.standard.copyWith(
-                    color: theme.textPrimary,
-                    fontWeight: FontWeight.w600,
+                child: ExcludeSemantics(
+                  excluding: !_busy,
+                  child: Text(
+                    job.displayName,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppTypography.standard.copyWith(
+                      color: theme.textPrimary,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
                 ),
               ),
