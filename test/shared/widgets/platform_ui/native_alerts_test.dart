@@ -70,6 +70,48 @@ void main() {
     expect(cancels, 0);
   }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
 
+  for (final disabled in [
+    (
+      name: 'enabled flag',
+      enabled: false,
+      style: AlertActionStyle.defaultAction,
+    ),
+    (name: 'disabled style', enabled: true, style: AlertActionStyle.disabled),
+  ]) {
+    testWidgets('native alerts preserve the ${disabled.name}', (tester) async {
+      await tester.pumpWidget(
+        const CupertinoApp(home: CupertinoPageScaffold(child: SizedBox())),
+      );
+      var disabledCalls = 0;
+      var enabledCalls = 0;
+      reply = {'index': 0, 'textFields': <String>[]};
+      final result = AdaptiveAlertDialog.show(
+        context: tester.element(find.byType(CupertinoPageScaffold)),
+        title: 'Keep sample?',
+        actions: [
+          AlertAction(
+            title: 'Unavailable',
+            enabled: disabled.enabled,
+            style: disabled.style,
+            onPressed: () => disabledCalls++,
+          ),
+          AlertAction(title: 'Keep', onPressed: () => enabledCalls++),
+        ],
+      );
+      await tester.pumpAndSettle();
+      expect(calls, hasLength(1));
+      final payload = calls.single.arguments as Map;
+      expect(payload['actions'], [
+        containsPair('enabled', false),
+        containsPair('enabled', true),
+      ]);
+      expect(find.byType(CupertinoAlertDialog), findsNothing);
+      await result;
+      expect(disabledCalls, 0);
+      expect(enabledCalls, 0);
+    }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
+  }
+
   testWidgets('native replies retain the actions that were presented', (
     tester,
   ) async {
