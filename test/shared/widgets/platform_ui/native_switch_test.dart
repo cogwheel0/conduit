@@ -111,16 +111,16 @@ void main() {
                     .first,
               )
               .label;
-          if (!configuration.native) {
-            expect(
-              {
-                'privacy': l10n.channelPrivate.allMatches(privacyLabel).length,
-                'enabled': l10n.enabledLabel.allMatches(enabledLabel).length,
-              },
-              {'privacy': 1, 'enabled': 1},
-              reason: 'Merged row labels: $privacyLabel / $enabledLabel',
-            );
-          }
+          // UIKit owns native labels; Flutter must not repeat them.
+          final flutterLabelCount = configuration.native ? 0 : 1;
+          expect(
+            {
+              'privacy': l10n.channelPrivate.allMatches(privacyLabel).length,
+              'enabled': l10n.enabledLabel.allMatches(enabledLabel).length,
+            },
+            {'privacy': flutterLabelCount, 'enabled': flutterLabelCount},
+            reason: 'Merged row labels: $privacyLabel / $enabledLabel',
+          );
           if (configuration.native) {
             expect(
               tester.widget<CNSwitch>(find.byType(CNSwitch)).semanticLabel,
