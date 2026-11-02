@@ -257,6 +257,7 @@ class _PromptVariableDialogState extends State<PromptVariableDialog> {
 
     return AdaptiveDropdownField<String?>(
       value: _selectValues[variable.name],
+      semanticLabel: variable.displayLabel,
       decoration: context.conduitInputStyles.standard(
         hint: variable.placeholder,
       ),

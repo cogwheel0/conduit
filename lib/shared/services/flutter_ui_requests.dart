@@ -163,6 +163,7 @@ class _TextInputDialogState extends State<_TextInputDialog> {
           if (_isSelect)
             AdaptiveDropdownField<String>(
               value: _selection,
+              semanticLabel: widget.title,
               isExpanded: true,
               decoration: InputDecoration(hintText: widget.placeholder),
               options: [

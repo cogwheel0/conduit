@@ -20,6 +20,85 @@ void main() {
     home: Scaffold(body: child),
   );
 
+  for (final enabled in [true, false]) {
+    testWidgets('empty native fields get a name (enabled: $enabled)', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        host(
+          AdaptiveDropdownField<String>(
+            value: null,
+            options: const [
+              AdaptiveDropdownOption(value: 'kite', label: 'Kite'),
+            ],
+            onChanged: enabled ? (_) {} : null,
+            decoration: const InputDecoration(labelText: 'Shape'),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      if (enabled) {
+        final button = tester.widget<CNPopupMenuButton>(
+          find.byType(CNPopupMenuButton),
+        );
+        expect(button.buttonLabel, isEmpty);
+        expect(button.semanticLabel, 'Shape');
+      } else {
+        final button = tester.widget<CNButton>(find.byType(CNButton));
+        expect(button.label, isEmpty);
+        expect(button.semanticLabel, 'Shape');
+      }
+      await tester.pumpWidget(
+        host(
+          AdaptiveDropdownField<String>(
+            value: null,
+            options: const [
+              AdaptiveDropdownOption(value: 'kite', label: 'Kite'),
+            ],
+            onChanged: enabled ? (_) {} : null,
+            decoration: const InputDecoration(),
+            semanticLabel: 'Request shape',
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(
+        enabled
+            ? tester
+                  .widget<CNPopupMenuButton>(find.byType(CNPopupMenuButton))
+                  .semanticLabel
+            : tester.widget<CNButton>(find.byType(CNButton)).semanticLabel,
+        'Request shape',
+      );
+    }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
+  }
+
+  testWidgets('native names preserve visible selections and hints', (
+    tester,
+  ) async {
+    for (final value in <String?>[null, 'kite']) {
+      await tester.pumpWidget(
+        host(
+          AdaptiveDropdownField<String>(
+            value: value,
+            options: const [
+              AdaptiveDropdownOption(value: 'kite', label: 'Kite'),
+            ],
+            onChanged: (_) {},
+            decoration: const InputDecoration(hintText: 'Choose shape'),
+            semanticLabel: 'Shape',
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final button = tester.widget<CNPopupMenuButton>(
+        find.byType(CNPopupMenuButton),
+      );
+      expect(button.buttonLabel, value == null ? 'Choose shape' : 'Kite');
+      expect(button.semanticLabel, isNull);
+    }
+  }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
+
   testWidgets('native choices preserve nullable values and checked state', (
     tester,
   ) async {

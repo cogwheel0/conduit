@@ -36,6 +36,7 @@ class AdaptiveDropdownField<T> extends StatelessWidget {
     this.textStyle,
     this.validator,
     this.nativeTitle,
+    this.semanticLabel,
     this.cancelLabel,
     this.isExpanded = true,
   });
@@ -47,6 +48,9 @@ class AdaptiveDropdownField<T> extends StatelessWidget {
   final TextStyle? textStyle;
   final FormFieldValidator<T>? validator;
   final String? nativeTitle;
+
+  /// Accessible name when the native control has no selected label or hint.
+  final String? semanticLabel;
   final String? cancelLabel;
   final bool isExpanded;
 
@@ -100,6 +104,9 @@ class AdaptiveDropdownField<T> extends StatelessWidget {
             options.isNotEmpty &&
             options.every((option) => option.subtitle?.isNotEmpty != true)) {
           final label = selected?.label ?? decoration.hintText ?? '';
+          final emptySemanticLabel = label.isEmpty
+              ? semanticLabel ?? decoration.labelText ?? nativeTitle
+              : null;
           return InputDecorator(
             // Keep the form decoration; UIKit presents the anchored menu.
             decoration: effectiveDecoration.copyWith(
@@ -111,6 +118,7 @@ class AdaptiveDropdownField<T> extends StatelessWidget {
               child: onChanged == null
                   ? CNButton(
                       label: label,
+                      semanticLabel: emptySemanticLabel,
                       enabled: false,
                       tint: context.conduitTheme.inputText,
                       config: const CNButtonConfig(
@@ -120,6 +128,7 @@ class AdaptiveDropdownField<T> extends StatelessWidget {
                     )
                   : CNPopupMenuButton(
                       buttonLabel: label,
+                      semanticLabel: emptySemanticLabel,
                       height: 44,
                       tint: context.conduitTheme.inputText,
                       buttonStyle: CNButtonStyle.plain,
