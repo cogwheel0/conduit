@@ -553,6 +553,16 @@ void main() {
           .setCitationBackground(false);
       check(container.read(appSettingsProvider).citationBackground).isFalse();
 
+      // Reload the persisted mock values into a fresh host store.
+      final preferences = await SharedPreferences.getInstance();
+      await preferences.reload();
+      final saved = <String, Object>{
+        for (final key in preferences.getKeys()) key: preferences.get(key)!,
+      };
+      SharedPreferences.setMockInitialValues(saved);
+      PreferencesStore.debugReset();
+      PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
+
       final restarted = ProviderContainer();
       addTearDown(restarted.dispose);
       check(restarted.read(appSettingsProvider).citationBackground).isFalse();
