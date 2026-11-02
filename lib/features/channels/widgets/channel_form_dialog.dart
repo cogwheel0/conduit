@@ -114,7 +114,7 @@ Future<ChannelFormResult?> showChannelFormDialog(
                 MergeSemantics(
                   child: ListTile(
                     contentPadding: EdgeInsets.zero,
-                    title: Text(l10n.channelPrivate),
+                    title: ExcludeSemantics(child: Text(l10n.channelPrivate)),
                     trailing: AdaptiveSwitch(
                       value: isPrivate,
                       semanticLabel: l10n.channelPrivate,

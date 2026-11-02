@@ -653,7 +653,7 @@ class _DirectMcpServerEditorPageState
                       key: const ValueKey('direct-mcp-enabled'),
                       enabled: !_busy,
                       contentPadding: EdgeInsets.zero,
-                      title: Text(l10n.enabledLabel),
+                      title: ExcludeSemantics(child: Text(l10n.enabledLabel)),
                       trailing: adaptive.AdaptiveSwitch(
                         value: _enabled,
                         semanticLabel: l10n.enabledLabel,

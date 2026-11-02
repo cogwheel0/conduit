@@ -75,6 +75,7 @@ void main() {
                     )
                     .first,
               )
+              .getSemanticsData()
               .label;
           if (configuration.native) {
             expect(
@@ -110,8 +111,9 @@ void main() {
                     )
                     .first,
               )
+              .getSemanticsData()
               .label;
-          // CNSwitch itself falls back to Flutter on hosts without native glass.
+          // UIKit supplies its own label; Flutter fallbacks supply the row label.
           final nativeView = find.descendant(
             of: find.byType(CNSwitch),
             matching: find.byType(UiKitView),
