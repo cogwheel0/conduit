@@ -527,6 +527,32 @@ void main() {
     });
   });
 
+  testWidgets('the native citation titles toggle saves its boolean', (
+    tester,
+  ) async {
+    final container = await pumpApp(tester);
+    bool saved() => container.read(appSettingsProvider).citationShowTitles;
+    check(saved()).isFalse();
+
+    NativeSheetBridge.instance.onControlChanged(
+      PlatformNativeSheetControlChangedEvent(
+        id: 'citation-show-titles',
+        value: 'yes',
+      ),
+    );
+    await tester.pumpAndSettle();
+    check(saved()).isFalse();
+
+    NativeSheetBridge.instance.onControlChanged(
+      PlatformNativeSheetControlChangedEvent(
+        id: 'citation-show-titles',
+        value: true,
+      ),
+    );
+    await tester.pumpAndSettle();
+    check(saved()).isTrue();
+  });
+
   testWidgets('the native citation background toggle saves only booleans', (
     tester,
   ) async {
@@ -552,32 +578,6 @@ void main() {
     await tester.pumpAndSettle();
     check(saved()).isFalse();
     check((await SettingsService.loadSettings()).citationBackground).isFalse();
-  });
-
-  testWidgets('the native citation titles toggle saves its boolean', (
-    tester,
-  ) async {
-    final container = await pumpApp(tester);
-    bool saved() => container.read(appSettingsProvider).citationShowTitles;
-    check(saved()).isFalse();
-
-    NativeSheetBridge.instance.onControlChanged(
-      PlatformNativeSheetControlChangedEvent(
-        id: 'citation-show-titles',
-        value: 'yes',
-      ),
-    );
-    await tester.pumpAndSettle();
-    check(saved()).isFalse();
-
-    NativeSheetBridge.instance.onControlChanged(
-      PlatformNativeSheetControlChangedEvent(
-        id: 'citation-show-titles',
-        value: true,
-      ),
-    );
-    await tester.pumpAndSettle();
-    check(saved()).isTrue();
   });
 
   testWidgets('Licenses open as the sheet closes itself, with no second '

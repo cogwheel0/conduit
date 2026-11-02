@@ -1616,9 +1616,9 @@ class AppSettingsNotifier extends _$AppSettingsNotifier {
   }
 
   Future<void> resetToDefaults() async {
+    await SettingsService._putOrRemove(PreferenceKeys.citationBackground, null);
     const defaultSettings = AppSettings();
     await SettingsService.saveSettings(defaultSettings);
-    await SettingsService._putOrRemove(PreferenceKeys.citationBackground, null);
     // Written only by its own setter, so the bulk save leaves it.
     await SettingsService._putOrRemove(
       PreferenceKeys.directVoiceProvider,

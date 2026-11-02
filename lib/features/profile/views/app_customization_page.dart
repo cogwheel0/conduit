@@ -96,33 +96,10 @@ class AppCustomizationPage extends ConsumerWidget {
           themeMode,
           themeDescription,
           activeTheme,
+          citationBackground: settings.citationBackground,
         ),
         _sectionGap,
         _buildLanguageSection(context, ref, currentLanguageCode, languageLabel),
-        _sectionGap,
-        CustomizationTile(
-          leading: _buildIconBadge(
-            context,
-            UiUtils.platformIcon(
-              ios: CupertinoIcons.quote_bubble,
-              android: Icons.format_quote_rounded,
-            ),
-            color: context.conduitTheme.buttonPrimary,
-          ),
-          title: l10n.citationBackground,
-          subtitle: l10n.citationBackgroundDescription,
-          toggled: settings.citationBackground,
-          trailing: AdaptiveSwitch(
-            value: settings.citationBackground,
-            onChanged: (value) => ref
-                .read(appSettingsProvider.notifier)
-                .setCitationBackground(value),
-          ),
-          showChevron: false,
-          onTap: () => ref
-              .read(appSettingsProvider.notifier)
-              .setCitationBackground(!settings.citationBackground),
-        ),
       ],
       AppCustomizationSection.chat => <Widget>[
         if (hasOpenWebUiAccount) ...[
@@ -154,9 +131,11 @@ class AppCustomizationPage extends ConsumerWidget {
     WidgetRef ref,
     ThemeMode themeMode,
     String themeDescription,
-    TweakcnThemeDefinition activeTheme,
-  ) {
+    TweakcnThemeDefinition activeTheme, {
+    required bool citationBackground,
+  }) {
     final theme = context.conduitTheme;
+    final l10n = AppLocalizations.of(context)!;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -189,6 +168,30 @@ class AppCustomizationPage extends ConsumerWidget {
         const SizedBox(height: Spacing.sm),
         InsetGroupedList(
           children: [_buildPaletteSelector(context, ref, activeTheme)],
+        ),
+        _sectionGap,
+        CustomizationTile(
+          leading: _buildIconBadge(
+            context,
+            UiUtils.platformIcon(
+              ios: CupertinoIcons.quote_bubble,
+              android: Icons.format_quote_rounded,
+            ),
+            color: context.conduitTheme.buttonPrimary,
+          ),
+          title: l10n.citationBackground,
+          subtitle: l10n.citationBackgroundDescription,
+          toggled: citationBackground,
+          trailing: AdaptiveSwitch(
+            value: citationBackground,
+            onChanged: (value) => ref
+                .read(appSettingsProvider.notifier)
+                .setCitationBackground(value),
+          ),
+          showChevron: false,
+          onTap: () => ref
+              .read(appSettingsProvider.notifier)
+              .setCitationBackground(!citationBackground),
         ),
       ],
     );
