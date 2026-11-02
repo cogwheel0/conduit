@@ -111,8 +111,12 @@ void main() {
                     .first,
               )
               .label;
-          // UIKit owns native labels; Flutter must not repeat them.
-          final flutterLabelCount = configuration.native ? 0 : 1;
+          // CNSwitch itself falls back to Flutter on hosts without native glass.
+          final nativeView = find.descendant(
+            of: find.byType(CNSwitch),
+            matching: find.byType(UiKitView),
+          );
+          final flutterLabelCount = nativeView.evaluate().isEmpty ? 1 : 0;
           expect(
             {
               'privacy': l10n.channelPrivate.allMatches(privacyLabel).length,
