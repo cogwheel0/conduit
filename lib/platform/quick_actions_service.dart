@@ -19,6 +19,7 @@ import '../shared/services/navigation_service.dart';
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
 
 import 'package:conduit_core/features/chat/voice_call/voice_call_eligibility.dart';
+import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 
 import '../shared/theme/theme_providers.dart';
 
@@ -246,8 +247,7 @@ class QuickActionsCoordinator extends _$QuickActionsCoordinator {
               ? error.message.toString()
               : AppLocalizations.of(context)?.errorMessage ??
                     'Unable to start a voice call.';
-          ScaffoldMessenger.maybeOf(context)
-              ?.showSnackBar(SnackBar(content: Text(message)));
+          AdaptiveSnackBar.show(context, message: message);
         }
         return;
       default:

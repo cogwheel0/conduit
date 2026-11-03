@@ -3621,8 +3621,9 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       isStillCurrent: () => mounted,
     );
     if (outcome != ChatMessageDeleteOutcome.persistFailed || !mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(AppLocalizations.of(context)!.errorMessage)),
+    AdaptiveSnackBar.show(
+      context,
+      message: AppLocalizations.of(context)!.errorMessage,
     );
   }
 

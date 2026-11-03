@@ -118,12 +118,9 @@ class _HermesToolsetsSectionState extends ConsumerState<HermesToolsetsSection> {
         data: {'errorType': error.runtimeType.toString()},
       );
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              AppLocalizations.of(context)!.hermesToolsetUpdateFailed,
-            ),
-          ),
+        AdaptiveSnackBar.show(
+          context,
+          message: AppLocalizations.of(context)!.hermesToolsetUpdateFailed,
         );
       }
     } finally {
@@ -353,10 +350,9 @@ class _HermesDesktopManagementSectionState
         data: {'errorType': error.runtimeType.toString()},
       );
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(AppLocalizations.of(context)!.hermesActionFailed),
-          ),
+        AdaptiveSnackBar.show(
+          context,
+          message: AppLocalizations.of(context)!.hermesActionFailed,
         );
       }
     } finally {

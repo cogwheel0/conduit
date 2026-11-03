@@ -482,14 +482,12 @@ class ConduitMarkdown {
             onCopy: () async {
               await Clipboard.setData(ClipboardData(text: code));
               if (!context.mounted) return;
-              ScaffoldMessenger.of(context).hideCurrentSnackBar();
+              ScaffoldMessenger.maybeOf(context)?.hideCurrentSnackBar();
               final l10n = AppLocalizations.of(context);
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text(
+              AdaptiveSnackBar.show(
+                context,
+                message:
                     l10n?.codeCopiedToClipboard ?? 'Code copied to clipboard.',
-                  ),
-                ),
               );
             },
           ),

@@ -302,8 +302,7 @@ class _ChannelListTabState extends ConsumerState<ChannelListTab>
   }
 
   void _showChannelActionError(String message) {
-    ScaffoldMessenger.of(context)
-        .showSnackBar(SnackBar(content: Text(message)));
+    AdaptiveSnackBar.show(context, message: message);
   }
 
   @override

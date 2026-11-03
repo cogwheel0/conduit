@@ -64,9 +64,7 @@ final class _HermesMcpPageState extends ConsumerState<HermesMcpPage> {
         data: {'errorType': error.runtimeType.toString()},
       );
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Hermes MCP action failed.')),
-      );
+      AdaptiveSnackBar.show(context, message: 'Hermes MCP action failed.');
     }
   }
 
@@ -160,14 +158,11 @@ final class _HermesMcpPageState extends ConsumerState<HermesMcpPage> {
     final result = await _service.testMcpServer(name);
     if (!mounted) return;
     setState(() => _testResults[name] = result);
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          result.ok
-              ? 'Connected · ${result.tools} tools · ${result.resources} resources · ${result.prompts} prompts'
-              : result.error ?? 'MCP test failed',
-        ),
-      ),
+    AdaptiveSnackBar.show(
+      context,
+      message: result.ok
+          ? 'Connected · ${result.tools} tools · ${result.resources} resources · ${result.prompts} prompts'
+          : result.error ?? 'MCP test failed',
     );
   }
 

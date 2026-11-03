@@ -1054,8 +1054,7 @@ class _FolderPageState extends ConsumerState<FolderPage> {
           : error is StateError
           ? error.message.toString()
           : l10n.errorMessage;
-      ScaffoldMessenger.maybeOf(context)
-          ?.showSnackBar(SnackBar(content: Text(message)));
+      AdaptiveSnackBar.show(context, message: message);
     }
   }
 
@@ -2102,7 +2101,7 @@ class _FolderEditSheetState extends ConsumerState<_FolderEditSheet> {
     }
 
     setState(() => _isSaving = true);
-    final messenger = ScaffoldMessenger.maybeOf(context);
+    final overlay = Overlay.maybeOf(context, rootOverlay: true);
 
     final nextMeta = Map<String, dynamic>.from(_folder.meta ?? const {});
     nextMeta['icon'] = _selectedIconAlias ?? '';
@@ -2125,8 +2124,8 @@ class _FolderEditSheetState extends ConsumerState<_FolderEditSheet> {
 
       Navigator.of(context).pop(updatedFolder);
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (messenger?.mounted ?? false) {
-          messenger!.showSnackBar(SnackBar(content: Text(l10n.saved)));
+        if (overlay?.mounted ?? false) {
+          AdaptiveSnackBar.show(overlay!.context, message: l10n.saved);
         }
       });
     } catch (_) {
@@ -2139,8 +2138,7 @@ class _FolderEditSheetState extends ConsumerState<_FolderEditSheet> {
   }
 
   void _showSnackBar(String message) {
-    ScaffoldMessenger.maybeOf(context)
-        ?.showSnackBar(SnackBar(content: Text(message)));
+    AdaptiveSnackBar.show(context, message: message);
   }
 
   void _selectIcon(String? alias) {
@@ -2333,10 +2331,9 @@ class _FolderSystemPromptSheetState
       if (!mounted) {
         return;
       }
-      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-        SnackBar(
-          content: Text(AppLocalizations.of(context)!.unableToLoadFolder),
-        ),
+      AdaptiveSnackBar.show(
+        context,
+        message: AppLocalizations.of(context)!.unableToLoadFolder,
       );
     } finally {
       if (mounted) {
@@ -2353,13 +2350,12 @@ class _FolderSystemPromptSheetState
     final l10n = AppLocalizations.of(context)!;
     final api = ref.read(apiServiceProvider);
     if (api == null) {
-      ScaffoldMessenger.maybeOf(context)
-          ?.showSnackBar(SnackBar(content: Text(l10n.errorMessage)));
+      AdaptiveSnackBar.show(context, message: l10n.errorMessage);
       return;
     }
 
     setState(() => _isSaving = true);
-    final messenger = ScaffoldMessenger.maybeOf(context);
+    final overlay = Overlay.maybeOf(context, rootOverlay: true);
     final nextData = Map<String, dynamic>.from(_folder.data ?? const {});
     nextData['system_prompt'] = _systemPromptController.text.trim();
 
@@ -2377,8 +2373,8 @@ class _FolderSystemPromptSheetState
 
       Navigator.of(context).pop(updatedFolder);
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (messenger?.mounted ?? false) {
-          messenger!.showSnackBar(SnackBar(content: Text(l10n.saved)));
+        if (overlay?.mounted ?? false) {
+          AdaptiveSnackBar.show(overlay!.context, message: l10n.saved);
         }
       });
     } catch (_) {
@@ -2386,8 +2382,7 @@ class _FolderSystemPromptSheetState
         return;
       }
       setState(() => _isSaving = false);
-      ScaffoldMessenger.maybeOf(context)
-          ?.showSnackBar(SnackBar(content: Text(l10n.errorMessage)));
+      AdaptiveSnackBar.show(context, message: l10n.errorMessage);
     }
   }
 

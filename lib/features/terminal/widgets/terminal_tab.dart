@@ -9,6 +9,7 @@ import '../../../shared/utils/platform_page_route.dart';
 import '../../../shared/utils/utf16_sanitizer.dart';
 
 import 'package:conduit_core/features/navigation/models/sidebar_navigation_model.dart';
+import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 
 import '../../navigation/providers/sidebar_search_providers.dart';
 import '../../navigation/providers/sidebar_tab_scroll_registry.dart';
@@ -188,8 +189,7 @@ class _TerminalTabState extends ConsumerState<TerminalTab>
   }
 
   void _showSnackBar(String message) {
-    ScaffoldMessenger.maybeOf(context)
-        ?.showSnackBar(SnackBar(content: Text(sanitizeUtf16(message))));
+    AdaptiveSnackBar.show(context, message: sanitizeUtf16(message));
   }
 
   TerminalFileRequest? _displayingRequest;

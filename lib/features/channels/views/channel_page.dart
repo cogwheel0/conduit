@@ -406,8 +406,7 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
       }
       final l10n = AppLocalizations.of(context);
       if (l10n != null) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(l10n.channelSendError)));
+        AdaptiveSnackBar.show(context, message: l10n.channelSendError);
       }
     } finally {
       if (mounted && operationGeneration == _operationGeneration) {
@@ -579,10 +578,9 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
               )) {
             return;
           }
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(AppLocalizations.of(context)!.channelSendError),
-            ),
+          AdaptiveSnackBar.show(
+            context,
+            message: AppLocalizations.of(context)!.channelSendError,
           );
           return;
         }
@@ -691,8 +689,9 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
           )) {
         return;
       }
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(AppLocalizations.of(context)!.channelSendError)),
+      AdaptiveSnackBar.show(
+        context,
+        message: AppLocalizations.of(context)!.channelSendError,
       );
     } finally {
       if (mounted && operationGeneration == _operationGeneration) {
@@ -1121,9 +1120,7 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
           )) {
         return;
       }
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(l10n.errorMessage)));
+      AdaptiveSnackBar.show(context, message: l10n.errorMessage);
     } finally {
       _mutePending = false;
     }
