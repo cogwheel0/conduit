@@ -687,4 +687,167 @@ void main() {
     final canonical = decodeNoteData((await db.notesDao.getNote('n1'))!.data);
     check(notePageMarkdown(canonical, 'p2')).equals('two edited there');
   });
+
+  test('recordings an earlier build listed on a paged note are moved into '
+      'its main page', () async {
+    server.notePagesEnabled = true;
+    server.seedNote(
+      id: 'n1',
+      title: 'Doc',
+      data: {
+        'content': {'json': null, 'html': '', 'md': 'body'},
+      },
+      createdAt: kT1,
+      updatedAt: kT1,
+    );
+    await pull();
+    // The earlier build added the recording to `files` of the paged row.
+    await locks.runExclusive('n1', () async {
+      final data = decodeNoteData((await db.notesDao.getNote('n1'))!.data);
+      await db.notesDao.updateNoteWithOutbox(
+        'n1',
+        data: Value(
+          jsonEncode({
+            ...data,
+            'files': [
+              {'type': 'file', 'id': 'rec', 'name': 'Rec.m4a'},
+            ],
+          }),
+        ),
+        localUpdatedAtNs: kT2,
+        enqueue: true,
+      );
+    });
+
+    await push().pushNoteUpdate('n1', const {});
+
+    check(server.noteAttachedFileIds('n1')).deepEquals(['rec']);
+    final sent = client.notePatches.single.patch['data'] as Map;
+    check(sent.keys.toSet()).deepEquals({'content'});
+  });
+
+  test('a recording on a note with no text goes out as its list, or as a '
+      'link on 0.12.5', () async {
+    for (final pagesNow in [false, true]) {
+      final id = 'blank-$pagesNow';
+      server.notePagesEnabled = false;
+      server.seedNote(
+        id: id,
+        title: 'Blank',
+        data: const {},
+        createdAt: kT1,
+        updatedAt: kT1,
+      );
+      await pull();
+      server.notePagesEnabled = pagesNow;
+      pagesServer = pagesNow;
+      await locks.runExclusive(id, () {
+        return db.notesDao.updateNoteWithOutbox(
+          id,
+          data: Value(
+            jsonEncode({
+              'files': [
+                {'type': 'file', 'id': 'rec', 'name': 'Rec.m4a'},
+              ],
+            }),
+          ),
+          localUpdatedAtNs: kT2,
+          enqueue: true,
+        );
+      });
+
+      await push().pushNoteUpdate(id, const {});
+
+      if (pagesNow) {
+        check(server.noteAttachedFileIds(id)).deepEquals(['rec']);
+      } else {
+        check(serverData(id)['files'] as List).length.equals(1);
+      }
+    }
+  });
+
+  test('an earlier build\'s combined edit is copied once, even when a page '
+      'edit is sent with it and the first try fails', () async {
+    server.notePagesEnabled = true;
+    server.seedNote(
+      id: 'n1',
+      title: 'Doc',
+      data: twoPages(),
+      createdAt: kT1,
+      updatedAt: kT1,
+    );
+    await pull();
+    await locks.runExclusive('n1', () async {
+      final data = decodeNoteData((await db.notesDao.getNote('n1'))!.data);
+      await db.notesDao.updateNoteWithOutbox(
+        'n1',
+        data: Value(
+          jsonEncode({
+            ...data,
+            'content': {'json': null, 'html': '', 'md': 'whole note, edited'},
+          }),
+        ),
+        localUpdatedAtNs: kT2,
+        enqueue: true,
+      );
+    });
+    // Then this build edits the second page.
+    await editContent('n1', 'two edited', pageId: 'p2');
+
+    client.failNoteWriteIds.add('n1');
+    await check(push().pushNoteUpdate('n1', const {})).throws<StateError>();
+    client.failNoteWriteIds.remove('n1');
+    await push().pushNoteUpdate('n1', const {});
+
+    final copies = await (db.select(
+      db.notes,
+    )..where((t) => t.isConflictCopy.equals(true))).get();
+    check(copies).length.equals(1);
+    check((decodeNoteData(copies.single.data)['content'] as Map)['md'])
+        .equals('whole note, edited');
+    check(serverPageMd('n1', 'p2')).equals('two edited');
+    check(serverPageMd('n1', 'main')).equals('one');
+  });
+
+  test(
+    'a create is not matched to a note alike but for its recordings',
+    () async {
+      const localId = 'local:with-rec';
+      final data = {
+        'content': {'json': null, 'html': '', 'md': 'same'},
+        'files': [
+          {'type': 'file', 'id': 'mine', 'name': 'Mine.m4a'},
+        ],
+      };
+      await locks.runExclusive(localId, () async {
+        await db.notesDao.insertLocalNoteWithCreateOp(
+          note: NotesCompanion.insert(
+            id: localId,
+            title: 'Same',
+            data: Value(jsonEncode(data)),
+            createdAt: kT1,
+            updatedAt: kT1,
+          ),
+        );
+      });
+      server.seedNote(
+        id: 'other',
+        title: 'Same',
+        data: {
+          'content': {'json': null, 'html': '', 'md': 'same'},
+          'files': [
+            {'type': 'file', 'id': 'theirs', 'name': 'Theirs.m4a'},
+          ],
+        },
+        createdAt: kT1,
+        updatedAt: kT2,
+      );
+
+      await pull();
+
+      check(await db.notesDao.getNote(localId)).isNotNull();
+      check((await db.outboxDao.pendingForChat(localId)).map((op) => op.kind))
+          .contains(OutboxKind.noteCreate.name);
+    },
+  );
 }

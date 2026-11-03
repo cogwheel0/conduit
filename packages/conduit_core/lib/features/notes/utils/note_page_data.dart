@@ -158,12 +158,24 @@ Map<String, dynamic> applyNoteContentEdit(
   final int index = pages.indexWhere((page) => page['id'] == target);
   if (index < 0) throw NotePageMissingException(target);
   final Map<String, dynamic> pageContent = Map<String, dynamic>.from(content);
+  // The combined view of a note with several pages follows its pages, unless
+  // an earlier build edited it as a whole: that edit is kept for the sync to
+  // find ([noteCombinedContentEdited]).
+  final bool followsPages =
+      pages.length > 1 && !noteCombinedContentEdited(existing);
   pages[index] = <String, dynamic>{...pages[index], 'content': pageContent};
   return <String, dynamic>{
     ...existing,
     ...rest,
     'pages': pages,
     if (pages.length == 1) 'content': pageContent,
+    if (followsPages)
+      'content': noteContentWithMarkdown(
+        existing['content'] is Map
+            ? Map<String, dynamic>.from(existing['content'] as Map)
+            : null,
+        noteCombinedMarkdown(pages),
+      ),
     kNoteDirtyPagesKey: <String>{
       ...noteDirtyPageIds(existing),
       target,
@@ -273,11 +285,11 @@ Map<String, dynamic> noteContentWithMarkdown(
 /// before 0.12.5 keep attachments in; null leaves it out. `page_id` names the
 /// page for 0.12.5 servers; older ones ignore it.
 Map<String, dynamic> noteContentUpdateBody(
-  Map<String, dynamic> content, {
+  Map<String, dynamic>? content, {
   required String pageId,
   List<Object?>? files,
 }) => <String, dynamic>{
-  'data': <String, dynamic>{'content': content, 'files': ?files},
+  'data': <String, dynamic>{'content': ?content, 'files': ?files},
   'page_id': pageId,
 };
 
@@ -398,16 +410,59 @@ String appendNoteFileLinks(
     for (final NoteFileLink link in noteFileLinksInMarkdown(markdown)) link.id,
   };
   final StringBuffer out = StringBuffer(markdown);
+  // A link written inside an unclosed code block would be code, not an
+  // attachment: the block is closed first.
+  var fence = _openFence(markdown);
   for (final Map<String, dynamic> file in files) {
     if (file['type'] == 'image') continue;
     final Object? id = file['id'];
     if (id is! String || !_fileIdPattern.hasMatch(id)) continue;
     if (!linked.add(id)) continue;
+    if (fence != null) {
+      out
+        ..write('\n')
+        ..write(fence);
+      fence = null;
+    }
     final Object? name = file['name'];
     out
       ..write('\n\n')
       ..write(noteFileLinkMarkdown(id: id, name: name is String ? name : id));
   }
+  return out.toString();
+}
+
+/// The fence marker of a code block [markdown] leaves open at its end, or
+/// null when it ends outside one.
+String? _openFence(String markdown) {
+  String? open;
+  for (final String line in markdown.split('\n')) {
+    final String trimmed = line.trimLeft();
+    for (final String marker in const ['```', '~~~']) {
+      if (!trimmed.startsWith(marker)) continue;
+      if (open == null) {
+        open = marker;
+      } else if (open == marker) {
+        open = null;
+      }
+      break;
+    }
+  }
+  return open;
+}
+
+/// [line] with [replace] applied to the text outside its inline code spans,
+/// whose text is no link and stays as written.
+String _outsideInlineCode(String line, String Function(String) replace) {
+  final StringBuffer out = StringBuffer();
+  var start = 0;
+  for (final Match code in _inlineCodePattern.allMatches(line)) {
+    out
+      ..write(replace(line.substring(start, code.start)))
+      ..write(code.group(0));
+    start = code.end;
+  }
+  out.write(replace(line.substring(start)));
   return out.toString();
 }
 
@@ -442,9 +497,12 @@ String removeNoteFileLinks(String markdown, String id) {
       kept.add(line);
       continue;
     }
-    final String stripped = line.replaceAllMapped(
-      _fileLinkPattern,
-      (Match match) => match.group(2) == id ? '' : match.group(0)!,
+    final String stripped = _outsideInlineCode(
+      line,
+      (String text) => text.replaceAllMapped(
+        _fileLinkPattern,
+        (Match match) => match.group(2) == id ? '' : match.group(0)!,
+      ),
     );
     if (stripped.trim().isNotEmpty || line.trim().isEmpty) {
       kept.add(stripped);

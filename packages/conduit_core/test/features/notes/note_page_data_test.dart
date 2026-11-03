@@ -338,4 +338,26 @@ void main() {
       ).deepEquals(['b']);
     });
   });
+
+  group('code', () {
+    test('a link added after an unclosed code block closes the block first', () {
+      final md = appendNoteFileLinks('```\ncode', <Map<String, dynamic>>[
+        <String, dynamic>{'type': 'file', 'id': 'f1', 'name': 'R'},
+      ]);
+      check(noteFileLinksInMarkdown(md).map((link) => link.id)).deepEquals([
+        'f1',
+      ]);
+      check(md).startsWith('```\ncode\n```');
+    });
+
+    test('removing a file keeps the same link quoted in inline code', () {
+      const quoted = '`[x](/api/v1/files/f1/content)`';
+      check(
+        removeNoteFileLinks(
+          'see $quoted and [R](/api/v1/files/f1/content)',
+          'f1',
+        ),
+      ).equals('see $quoted and ');
+    });
+  });
 }

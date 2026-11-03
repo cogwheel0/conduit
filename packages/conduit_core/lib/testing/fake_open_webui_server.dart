@@ -809,7 +809,21 @@ class FakeOpenWebUiServer {
       var changed = false;
       for (final file in legacyFiles.whereType<Map>()) {
         final id = file['id'];
-        if (id is! String || file['type'] == 'image') continue;
+        if (id is! String) continue;
+        if (file['type'] == 'image') {
+          // Images stay images: their `data://` references take the URL.
+          final url = file['url'];
+          if (url is String && url.isNotEmpty) {
+            for (final key in const ['md', 'html']) {
+              final text = content[key];
+              if (text is String && text.contains('data://$id')) {
+                content[key] = text.replaceAll('data://$id', url);
+                changed = true;
+              }
+            }
+          }
+          continue;
+        }
         if (!attached.add(id)) continue;
         final href = '/api/v1/files/$id/content';
         final rawName = file['name'] is String ? file['name'] as String : id;
@@ -818,7 +832,8 @@ class FakeOpenWebUiServer {
             ? content['html'] as String
             : _markdownToHtml(md);
         content['html'] =
-            '$html<div data-file-id="$id"><a href="$href">$rawName</a></div>';
+            '$html<div data-file-id="${_escapeHtml(id)}">'
+            '<a href="${_escapeHtml(href)}">${_escapeHtml(rawName)}</a></div>';
         final name = rawName.replaceAll('[', '').replaceAll(']', '');
         content['md'] = '$md\n\n[$name]($href)';
         final json = content['json'];
@@ -846,17 +861,26 @@ class FakeOpenWebUiServer {
       return md is String ? md : '';
     }
 
+    // `page_paths`: each page by the titles down to it.
+    final paths = <String, String>{};
+    for (final page in pages) {
+      final parent = paths[page['parent_id']];
+      paths[page['id'] as String] = parent == null
+          ? '${page['title']}'
+          : '$parent / ${page['title']}';
+    }
     data['content'] = pages.length == 1
         ? _deepCopy(Map<String, dynamic>.from(pages.single['content'] as Map))
         : <String, dynamic>{
             'json': null,
             'md': [
-              for (final page in pages) '## ${page['title']}\n\n${mdOf(page)}',
+              for (final page in pages)
+                '## ${paths[page['id']]}\n\n${mdOf(page)}',
             ].join('\n\n'),
             'html': '',
           };
     data['search_text'] = [
-      for (final page in pages) '${page['title']}\n${mdOf(page)}',
+      for (final page in pages) '${paths[page['id']]}\n${mdOf(page)}',
     ].join('\n\n');
     return data;
   }
@@ -903,12 +927,18 @@ class FakeOpenWebUiServer {
           );
     final ids = <String>[];
     for (final match in RegExp(
-      r'href="/api/v1/files/([\w-]+)/content"',
+      r'''href\s*=\s*["']/api/v1/files/([\w-]+)/content["']''',
     ).allMatches(html)) {
       if (!ids.contains(match.group(1))) ids.add(match.group(1)!);
     }
     return ids;
   }
+
+  static String _escapeHtml(String text) => text
+      .replaceAll('&', '&amp;')
+      .replaceAll('<', '&lt;')
+      .replaceAll('>', '&gt;')
+      .replaceAll('"', '&quot;');
 
   /// Just enough of `markdown.markdown` for file links: each link (not an
   /// image) becomes an anchor; code is not modelled.

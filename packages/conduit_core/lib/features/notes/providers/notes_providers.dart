@@ -672,10 +672,24 @@ class NotesList extends _$NotesList {
     final db = sourceDb;
     if (db == null) return;
     if (!_isCurrentDatabase(ref, db)) return;
+    // A note's pages (Open WebUI 0.12.5+) are left out of its JSON, which
+    // goes to the server in saves; the stored row keeps them, so the note is
+    // edited page by page.
+    final raw = note.toJson();
+    final rawData = raw['data'];
+    final stored = note.data.hasPages && rawData is Map
+        ? <String, dynamic>{
+            ...raw,
+            'data': <String, dynamic>{
+              ...Map<String, dynamic>.from(rawData),
+              'pages': [for (final page in note.data.pages) page.toJson()],
+            },
+          }
+        : raw;
     unawaited(
       _persistServerNoteRow(
         db,
-        note.toJson(),
+        stored,
         noteId: note.id,
         readerId: ref.read(currentUserProvider2)?.id,
       ),

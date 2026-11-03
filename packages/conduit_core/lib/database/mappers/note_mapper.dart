@@ -164,11 +164,27 @@ List<String> noteCreateContentHashesFromServer(Map<String, dynamic> server) {
 /// note's `data` in its paged shape, with `pages` and `search_text` added and
 /// `files` moved into the content, so the whole `data` no longer comes back
 /// as sent; its content does.
+///
+/// The ids of the files in an older-shape `files` list are part of it, so
+/// two notes alike but for their recordings are told apart. A 0.12.5 server
+/// moves such files into the content, so a create that carried them is not
+/// recognised there; it is sent again instead, never matched to another note.
 String noteCreateContentHash({
   required String title,
   required Map<String, dynamic> data,
 }) {
-  final stable = <String, dynamic>{'title': title, 'content': data['content']};
+  final Object? files = data['files'];
+  final fileIds = <String>[
+    if (files is List)
+      for (final Object? file in files)
+        if (file is Map && file['type'] != 'image' && file['id'] is String)
+          file['id'] as String,
+  ]..sort();
+  final stable = <String, dynamic>{
+    'title': title,
+    'content': data['content'],
+    'files': fileIds,
+  };
   return sha256.convert(utf8.encode(_canonicalJson(stable))).toString();
 }
 

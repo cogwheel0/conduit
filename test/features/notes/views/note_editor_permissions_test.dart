@@ -292,6 +292,49 @@ void main() {
     expect(api.updates, 0);
   });
 
+  testWidgets('text typed before a sync brings new pages is still saved, to '
+      'the main page', (tester) async {
+    final onePage = _noteJson(
+      writeAccess: true,
+      pages: [
+        {
+          'id': 'main',
+          'title': 'Shared note',
+          'content': {'md': 'original', 'html': '', 'json': null},
+        },
+      ],
+    );
+    await storeLocally(onePage);
+    await pumpEditor(tester, _DetailApi(detail: onePage));
+    typeInto(tester, 'draft ');
+    await tester.pump();
+
+    // A sync stores the note with a second page before the draft is saved.
+    await storeLocally(
+      _noteJson(
+        writeAccess: true,
+        md: '## Shared note\n\noriginal\n\n## Two\n\ntwo',
+        pages: [
+          {
+            'id': 'main',
+            'title': 'Shared note',
+            'content': {'md': 'original', 'html': '', 'json': null},
+          },
+          {
+            'id': 'p2',
+            'title': 'Two',
+            'content': {'md': 'two', 'html': '', 'json': null},
+          },
+        ],
+      ),
+    );
+    await letAutosaveRun(tester);
+
+    final data = decodeNoteData((await db.notesDao.getNote('note-1'))!.data);
+    expect(notePageMarkdown(data, 'main'), startsWith('draft original'));
+    expect(notePageMarkdown(data, 'p2'), 'two');
+  });
+
   testWidgets('a note with several pages opens whole and read-only', (
     tester,
   ) async {

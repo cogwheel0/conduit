@@ -432,10 +432,12 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
   /// that opened it, or a save was refused. A note with several pages (Open
   /// WebUI 0.12.5+) is shown whole and read-only: its content is a view of
   /// every page, which the server will not take back as one page's text.
+  /// Unsaved text keeps the editor writable, so it is saved, to the main
+  /// page, rather than trapped when a sync brings the note's new pages.
   bool get _readOnly =>
       _writeRefused ||
       _note == null ||
-      _note!.isMultiPage ||
+      (_note!.isMultiPage && !_hasChanges) ||
       noteWriteAccess(_note!, accountId: _openUserId) !=
           NoteWriteAccess.allowed;
 

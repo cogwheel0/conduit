@@ -383,7 +383,10 @@ LIMIT 1
   /// holds the text edited here ([noteDataForConflictCopy]) without the
   /// pages, which belong to the original. Runs in the caller's transaction,
   /// or its own.
-  Future<void> spawnConflictCopy(NoteRow existing) {
+  Future<void> spawnConflictCopy(
+    NoteRow existing, {
+    Map<String, dynamic>? data,
+  }) {
     return transaction(() async {
       final copyId = 'local:${_uuid.v4()}';
       await into(notes).insert(
@@ -392,7 +395,9 @@ LIMIT 1
           // Local title (+ suffix) preserved on the copy.
           title: existing.title + kNoteConflictCopySuffix,
           data: Value(
-            jsonEncode(noteDataForConflictCopy(decodeJsonMap(existing.data))),
+            jsonEncode(
+              data ?? noteDataForConflictCopy(decodeJsonMap(existing.data)),
+            ),
           ),
           meta: Value(existing.meta),
           isPinned: const Value(false),
@@ -414,6 +419,37 @@ LIMIT 1
         chatId: copyId,
         contentHash: noteCreateContentHashFromRow(copy!),
       );
+    });
+  }
+
+  /// Keeps an edit an earlier build made to the combined view of [note], a
+  /// note with several pages, as a conflict copy holding that text, and puts
+  /// the combined view back to what the pages hold, in one transaction: the
+  /// edit belongs to no page, and a retry must not copy it again. Returns
+  /// the note's data as now stored. Caller holds the note lock.
+  Future<Map<String, dynamic>> keepCombinedEditAsCopy(NoteRow note) {
+    return transaction(() async {
+      final data = decodeJsonMap(note.data);
+      final Object? content = data['content'];
+      await spawnConflictCopy(
+        note,
+        data: <String, dynamic>{
+          'content': content is Map
+              ? Map<String, dynamic>.from(content)
+              : noteContentWithMarkdown(null, ''),
+        },
+      );
+      final restored = <String, dynamic>{
+        ...data,
+        'content': noteContentWithMarkdown(
+          content is Map ? Map<String, dynamic>.from(content) : null,
+          noteCombinedMarkdown(notePagesOf(data)),
+        ),
+      };
+      await (update(notes)..where((t) => t.id.equals(note.id))).write(
+        NotesCompanion(data: Value(jsonEncode(restored))),
+      );
+      return restored;
     });
   }
 

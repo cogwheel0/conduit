@@ -350,15 +350,14 @@ class NotePushSync {
       // coalescing collapsed several edits. `data` is sent iff the row's data
       // axis is dirty (or the patch explicitly carried it).
       final includeData = note.dirtyData || patch.containsKey('data');
-      final data = decodeNoteData(note.data);
+      var data = decodeNoteData(note.data);
       if (includeData &&
           noteDataIsMultiPage(data) &&
-          noteDirtyPageIds(data).isEmpty &&
           noteCombinedContentEdited(data)) {
         // A build before page-aware edits changed the combined view of every
         // page, which belongs to no page: it is kept as a note of its own, and
-        // this one takes the server's pages.
-        await _db.notesDao.spawnConflictCopy(note);
+        // the pages edited here are sent as usual.
+        data = await _db.notesDao.keepCombinedEditAsCopy(note);
       }
       final saves = includeData
           ? _contentSaves(noteId, data)
@@ -408,6 +407,21 @@ class NotePushSync {
   ) {
     if (noteDataHasPages(data)) {
       var pageIds = noteDirtyPageIds(data);
+      // An earlier build attached recordings to the file list of a note
+      // already in this shape; 0.12.5 refuses the list, so they are written
+      // into the main page as links, as the server moves them.
+      final Object? rawFiles = data['files'];
+      final Map<String, dynamic>? linkedMain =
+          rawFiles is List && rawFiles.isNotEmpty
+          ? noteContentWithLinkedFiles(
+              notePageContent(data, kNoteMainPageId) ??
+                  noteContentWithMarkdown(null, ''),
+              rawFiles,
+            )
+          : null;
+      if (linkedMain != null && !pageIds.contains(kNoteMainPageId)) {
+        pageIds = <String>[kNoteMainPageId, ...pageIds];
+      }
       if (pageIds.isEmpty) {
         final single = noteSinglePageId(data);
         if (single == null) {
@@ -425,22 +439,32 @@ class NotePushSync {
         for (final pageId in pageIds)
           _NoteContentSave(
             noteContentUpdateBody(
-              notePageContent(data, pageId)!,
+              pageId == kNoteMainPageId && linkedMain != null
+                  ? linkedMain
+                  : notePageContent(data, pageId),
               pageId: pageId,
             ),
           ),
       ];
     }
     final Object? rawContent = data['content'];
-    if (rawContent is! Map) return const <_NoteContentSave>[];
-    final content = Map<String, dynamic>.from(rawContent);
     final Object? rawFiles = data['files'];
     final files = rawFiles is List ? rawFiles : null;
+    // A note with no text that gained a recording has only its file list.
+    if (rawContent is! Map && files == null) {
+      return const <_NoteContentSave>[];
+    }
+    final Map<String, dynamic>? content = rawContent is Map
+        ? Map<String, dynamic>.from(rawContent)
+        : null;
     final pagesServer = _notePagesServer?.call();
     final linked = files == null
         ? null
         : noteContentUpdateBody(
-            noteContentWithLinkedFiles(content, files),
+            noteContentWithLinkedFiles(
+              content ?? noteContentWithMarkdown(null, ''),
+              files,
+            ),
             pageId: kNoteMainPageId,
           );
     if (pagesServer == true) {

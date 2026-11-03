@@ -17,10 +17,16 @@ void appendNoteFileLinksToDocument(
     final index = document.length - 1;
     final prefix = document.toPlainText().trim().isEmpty ? '' : '\n';
     controller.replaceText(index, 0, '$prefix${link.name}');
-    controller.formatText(
-      index + prefix.length,
-      link.name.length,
-      ParchmentAttribute.link.fromString('/api/v1/files/${link.id}/content'),
-    );
+    final start = index + prefix.length;
+    // A new line takes the style of the one it follows: a link in a code
+    // block, list, quote or heading is no attachment, so the line is plain.
+    controller
+      ..formatText(start, 0, ParchmentAttribute.block.unset)
+      ..formatText(start, 0, ParchmentAttribute.heading.unset)
+      ..formatText(
+        start,
+        link.name.length,
+        ParchmentAttribute.link.fromString('/api/v1/files/${link.id}/content'),
+      );
   }
 }
