@@ -260,12 +260,6 @@ exceptions:
     owner: channels
     reason: "Existing use awaiting migration to the platform UI seam"
     removal: platform-ui-migration
-  - path: lib/features/channels/widgets/channel_form_dialog.dart
-    symbol: "SwitchListTile"
-    count: 1
-    owner: channels
-    reason: "Existing use awaiting migration to the platform UI seam"
-    removal: platform-ui-migration
   - path: lib/features/channels/widgets/channel_list_tab.dart
     package: "package:cupertino_ui/cupertino_ui.dart"
     count: 1
@@ -730,24 +724,6 @@ exceptions:
     removal: platform-ui-migration
   - path: lib/features/direct_connections/views/direct_mcp_server_editor_page.dart
     symbol: "CircularProgressIndicator"
-    count: 2
-    owner: direct-connections
-    reason: "Existing use awaiting migration to the platform UI seam"
-    removal: platform-ui-migration
-  - path: lib/features/direct_connections/views/direct_mcp_server_editor_page.dart
-    symbol: "DropdownButtonFormField"
-    count: 1
-    owner: direct-connections
-    reason: "Existing use awaiting migration to the platform UI seam"
-    removal: platform-ui-migration
-  - path: lib/features/direct_connections/views/direct_mcp_server_editor_page.dart
-    symbol: "DropdownMenuItem"
-    count: 3
-    owner: direct-connections
-    reason: "Existing use awaiting migration to the platform UI seam"
-    removal: platform-ui-migration
-  - path: lib/features/direct_connections/views/direct_mcp_server_editor_page.dart
-    symbol: "SwitchListTile"
     count: 2
     owner: direct-connections
     reason: "Existing use awaiting migration to the platform UI seam"
@@ -1912,18 +1888,6 @@ exceptions:
     removal: platform-ui-migration
   - path: lib/shared/services/flutter_ui_requests.dart
     package: "package:material_ui/material_ui.dart"
-    count: 1
-    owner: shared-widgets
-    reason: "Existing use awaiting migration to the platform UI seam"
-    removal: platform-ui-migration
-  - path: lib/shared/services/flutter_ui_requests.dart
-    symbol: "DropdownButtonFormField"
-    count: 1
-    owner: shared-widgets
-    reason: "Existing use awaiting migration to the platform UI seam"
-    removal: platform-ui-migration
-  - path: lib/shared/services/flutter_ui_requests.dart
-    symbol: "DropdownMenuItem"
     count: 1
     owner: shared-widgets
     reason: "Existing use awaiting migration to the platform UI seam"

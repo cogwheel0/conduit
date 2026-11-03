@@ -5,6 +5,8 @@ import 'package:flutter/services.dart';
 import 'platform_ui_capabilities.dart';
 import 'ios_text_magnifier.dart';
 
+export 'package:material_ui/material_ui.dart' show InputDecoration;
+
 class AdaptiveTextField extends StatelessWidget {
   const AdaptiveTextField({
     super.key,

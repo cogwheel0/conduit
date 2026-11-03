@@ -469,6 +469,7 @@ class AppCustomizationPage extends ConsumerWidget {
           toggled: settings.sendOnEnter,
           trailing: AdaptiveSwitch(
             value: settings.sendOnEnter,
+            semanticLabel: l10n.sendOnEnter,
             onChanged: (value) =>
                 ref.read(appSettingsProvider.notifier).setSendOnEnter(value),
           ),
@@ -489,6 +490,7 @@ class AppCustomizationPage extends ConsumerWidget {
           toggled: settings.temporaryChatByDefault,
           trailing: AdaptiveSwitch(
             value: settings.temporaryChatByDefault,
+            semanticLabel: l10n.temporaryChatByDefault,
             onChanged: (value) => ref
                 .read(appSettingsProvider.notifier)
                 .setTemporaryChatByDefault(value),
@@ -510,6 +512,7 @@ class AppCustomizationPage extends ConsumerWidget {
           toggled: settings.citationShowTitles,
           trailing: AdaptiveSwitch(
             value: settings.citationShowTitles,
+            semanticLabel: l10n.citationShowTitles,
             onChanged: (value) => ref
                 .read(appSettingsProvider.notifier)
                 .setCitationShowTitles(value),
@@ -565,7 +568,11 @@ class AppCustomizationPage extends ConsumerWidget {
           subtitle: l10n.advancedFeaturesDescription,
           subtitleMaxLines: 2,
           toggled: enabled,
-          trailing: AdaptiveSwitch(value: enabled, onChanged: setEnabled),
+          trailing: AdaptiveSwitch(
+            value: enabled,
+            semanticLabel: l10n.advancedFeatures,
+            onChanged: setEnabled,
+          ),
           onTap: () => setEnabled(!enabled),
         ),
       ],
@@ -638,6 +645,7 @@ class AppCustomizationPage extends ConsumerWidget {
           toggled: settings.disableHapticsWhileStreaming,
           trailing: AdaptiveSwitch(
             value: settings.disableHapticsWhileStreaming,
+            semanticLabel: l10n.disableHapticsWhileStreaming,
             onChanged: (value) => ref
                 .read(appSettingsProvider.notifier)
                 .setDisableHapticsWhileStreaming(value),

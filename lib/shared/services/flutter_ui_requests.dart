@@ -4,6 +4,7 @@ import 'package:material_ui/material_ui.dart';
 
 import '../theme/theme_extensions.dart';
 import '../widgets/themed_dialogs.dart';
+import '../widgets/adaptive_dropdown_field.dart';
 import 'navigation_service.dart';
 
 /// The Flutter app's [UiRequestPort].
@@ -160,15 +161,14 @@ class _TextInputDialogState extends State<_TextInputDialog> {
             const SizedBox(height: Spacing.md),
           ],
           if (_isSelect)
-            DropdownButtonFormField<String>(
-              initialValue: _selection,
+            AdaptiveDropdownField<String>(
+              value: _selection,
+              semanticLabel: widget.title,
               isExpanded: true,
-              hint: widget.placeholder == null
-                  ? null
-                  : Text(widget.placeholder!),
-              items: [
+              decoration: InputDecoration(hintText: widget.placeholder),
+              options: [
                 for (final entry in _choices.entries)
-                  DropdownMenuItem(value: entry.key, child: Text(entry.value)),
+                  AdaptiveDropdownOption(value: entry.key, label: entry.value),
               ],
               onChanged: (value) => setState(() => _selection = value),
             )

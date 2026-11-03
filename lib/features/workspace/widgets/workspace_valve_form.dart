@@ -115,6 +115,11 @@ class _WorkspaceValveFormState extends State<WorkspaceValveForm> {
     final isRequired = widget.spec.required.contains(property);
     final isDefault = _values[property] == null;
     final description = spec['description']?.toString();
+    final enumValues = spec['enum'];
+    final hasBooleanControl =
+        !isDefault &&
+        spec['type'] == 'boolean' &&
+        !(enumValues is List && enumValues.isNotEmpty);
 
     return Padding(
       key: Key('workspace-tool-valve-$property'),
@@ -125,19 +130,22 @@ class _WorkspaceValveFormState extends State<WorkspaceValveForm> {
           Row(
             children: [
               Expanded(
-                child: Text.rich(
-                  TextSpan(
-                    text: title,
-                    style: theme.label,
-                    children: [
-                      if (isRequired)
-                        TextSpan(
-                          text: '  ${l10n.workspaceValveRequired}',
-                          style: theme.bodySmall?.copyWith(
-                            color: theme.textSecondary,
+                child: ExcludeSemantics(
+                  excluding: hasBooleanControl,
+                  child: Text.rich(
+                    TextSpan(
+                      text: title,
+                      style: theme.label,
+                      children: [
+                        if (isRequired)
+                          TextSpan(
+                            text: '  ${l10n.workspaceValveRequired}',
+                            style: theme.bodySmall?.copyWith(
+                              color: theme.textSecondary,
+                            ),
                           ),
-                        ),
-                    ],
+                      ],
+                    ),
                   ),
                 ),
               ),
@@ -226,6 +234,9 @@ class _WorkspaceValveFormState extends State<WorkspaceValveForm> {
           AdaptiveSwitch(
             key: controlKey,
             value: current,
+            semanticLabel: widget.spec.required.contains(property)
+                ? '$title, ${l10n.workspaceValveRequired}'
+                : title,
             onChanged: widget.enabled
                 ? (value) => _setValue(property, value)
                 : null,

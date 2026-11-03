@@ -178,9 +178,10 @@ void main() {
     expect(find.byType(MaterialApp), findsNothing);
   });
 
-  testWidgets('switch adapter stays constrained and legible on iOS 26', (
+  testWidgets('switch adapter uses the system control on iOS 26', (
     tester,
   ) async {
+    stubNativePlatformViews();
     Widget host({Brightness brightness = Brightness.light}) => CupertinoApp(
       theme: CupertinoThemeData(brightness: brightness),
       home: LegacyDesignCompatibility(
@@ -203,17 +204,11 @@ void main() {
     PlatformUiCapabilities.debugIOSMajorVersionOverride = 26;
     PlatformUiCapabilities.debugNativeIOS26Override = true;
     await tester.pumpWidget(host(brightness: Brightness.dark));
-    expect(find.byType(CNSwitch), findsNothing);
-    expect(find.byType(CupertinoSwitch), findsOneWidget);
-    expect(
-      tester.getSize(
-        find.byKey(const ValueKey<String>('adaptive-switch-frame')),
-      ),
-      const Size(51, 31),
-    );
-    final toggle = tester.widget<CupertinoSwitch>(find.byType(CupertinoSwitch));
-    expect(toggle.activeTrackColor, CupertinoColors.activeGreen);
-    expect(toggle.inactiveTrackColor, isNot(CupertinoColors.white));
+    expect(find.byType(CNSwitch), findsOneWidget);
+    expect(find.byType(CupertinoSwitch), findsNothing);
+    final toggle = tester.widget<CNSwitch>(find.byType(CNSwitch));
+    expect(toggle.color, CupertinoColors.activeGreen);
+    expect(toggle.height, greaterThanOrEqualTo(44));
     debugDefaultTargetPlatformOverride = null;
   });
 

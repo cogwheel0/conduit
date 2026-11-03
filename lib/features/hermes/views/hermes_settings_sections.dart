@@ -165,9 +165,14 @@ class _HermesToolsetsSectionState extends ConsumerState<HermesToolsetsSection> {
                     UtilityRow(
                       title: toolset.label,
                       subtitle: l10n.hermesToolCount(toolset.tools.length),
+                      preserveTrailingSemantics: desktop,
+                      semanticLabel: desktop
+                          ? l10n.hermesToolCount(toolset.tools.length)
+                          : null,
                       trailing: desktop
                           ? AdaptiveSwitch(
                               value: toolset.enabled,
+                              semanticLabel: toolset.label,
                               onChanged: _pending.contains(toolset.name)
                                   ? null
                                   : (enabled) =>
@@ -308,8 +313,10 @@ class _HermesTransportSectionState extends State<HermesTransportSection> {
             key: const ValueKey<String>('hermes-allow-self-signed'),
             title: l10n.allowSelfSignedCertificates,
             subtitle: l10n.allowSelfSignedCertificatesDescription,
+            toggled: _controller.allowSelfSignedCertificates,
             trailing: AdaptiveSwitch(
               value: _controller.allowSelfSignedCertificates,
+              semanticLabel: l10n.allowSelfSignedCertificates,
               onChanged: _controller.setAllowSelfSignedCertificates,
             ),
             onTap: () => _controller.setAllowSelfSignedCertificates(

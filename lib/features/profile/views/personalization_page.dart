@@ -290,6 +290,7 @@ class _PersonalizationPageState extends ConsumerState<PersonalizationPage> {
               toggled: enabled,
               trailing: AdaptiveSwitch(
                 value: enabled,
+                semanticLabel: l10n.memoryTitle,
                 onChanged: (value) async {
                   await ref
                       .read(personalizationSettingsProvider.notifier)

@@ -113,14 +113,22 @@ Future<ChannelFormResult?> showChannelFormDialog(
               ),
               if (includePrivacyToggle) ...[
                 const SizedBox(height: Spacing.sm),
-                SwitchListTile(
-                  contentPadding: EdgeInsets.zero,
-                  title: Text(l10n.channelPrivate),
-                  value: isPrivate,
-                  onChanged: (value) {
-                    ConduitHaptics.selectionClick();
-                    setDialogState(() => isPrivate = value);
-                  },
+                MergeSemantics(
+                  child: ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: ExcludeSemantics(child: Text(l10n.channelPrivate)),
+                    trailing: AdaptiveSwitch(
+                      value: isPrivate,
+                      semanticLabel: l10n.channelPrivate,
+                      onChanged: (value) {
+                        setDialogState(() => isPrivate = value);
+                      },
+                    ),
+                    onTap: () {
+                      ConduitHaptics.selectionClick();
+                      setDialogState(() => isPrivate = !isPrivate);
+                    },
+                  ),
                 ),
               ],
             ],
