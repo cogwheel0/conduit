@@ -2189,6 +2189,7 @@ class _FolderEditSheetState extends ConsumerState<_FolderEditSheet> {
               const SizedBox(width: Spacing.md),
               Expanded(
                 child: TextField(
+                  magnifierConfiguration: nativeIosTextMagnifierConfiguration,
                   key: const ValueKey<String>('folder-edit-name-field'),
                   controller: _nameController,
                   enabled: !_isSaving,
@@ -2410,6 +2411,7 @@ class _FolderSystemPromptSheetState
             const SizedBox(height: Spacing.md),
           ],
           TextField(
+            magnifierConfiguration: nativeIosTextMagnifierConfiguration,
             key: const ValueKey<String>('folder-system-prompt-field'),
             controller: _systemPromptController,
             readOnly: _isSaving,

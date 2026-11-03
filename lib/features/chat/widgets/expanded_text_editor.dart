@@ -131,6 +131,7 @@ class _ExpandedTextEditorSheetState extends State<ExpandedTextEditorSheet> {
               maxLines: null,
               expands: true,
               textAlignVertical: TextAlignVertical.top,
+              magnifierConfiguration: nativeIosTextMagnifierConfiguration,
               style: AppTypography.chatMessageStyle.copyWith(
                 color: theme.textPrimary,
                 height: 1.5,

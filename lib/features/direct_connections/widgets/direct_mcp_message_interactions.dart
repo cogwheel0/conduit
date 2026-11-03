@@ -1,3 +1,4 @@
+import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:material_ui/material_ui.dart';
 
@@ -154,10 +155,12 @@ final class _DirectMcpComposerPromptOverlayState
           const SizedBox(height: Spacing.sm),
           SelectableText(
             arguments,
+            magnifierConfiguration: nativeIosTextMagnifierConfiguration,
             style: AppTypography.bodySmallStyle.copyWith(
               color: theme.textSecondary,
               fontFamily: 'monospace',
             ),
+            contextMenuBuilder: AdaptiveTextSelectionMenu.editableText,
           ),
           const SizedBox(height: Spacing.md),
           Wrap(

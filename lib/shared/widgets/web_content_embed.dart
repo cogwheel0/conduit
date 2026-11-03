@@ -8,6 +8,7 @@ import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit_core/features/web_embed/web_embed_document.dart';
 import 'package:conduit_core/features/web_embed/web_embed_policy.dart';
+import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 
 import '../theme/theme_extensions.dart';
 import '../utils/external_link_launcher.dart';
@@ -981,7 +982,9 @@ class _EmbedFallbackCard extends StatelessWidget {
               const SizedBox(height: Spacing.xs),
               SelectableText(
                 source.startsWith('//') ? 'https:$source' : source,
+                magnifierConfiguration: nativeIosTextMagnifierConfiguration,
                 style: AppTypography.codeStyle.copyWith(color: theme.codeText),
+                contextMenuBuilder: AdaptiveTextSelectionMenu.editableText,
               ),
             ],
           ],

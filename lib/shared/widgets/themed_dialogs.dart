@@ -367,6 +367,7 @@ class _TextInputDialogContentState extends State<_TextInputDialogContent> {
         keyboardType: widget.keyboardType,
         textCapitalization: widget.textCapitalization,
         maxLength: widget.maxLength,
+        magnifierConfiguration: nativeIosTextMagnifierConfiguration,
         style: AppTypography.bodyMediumStyle.copyWith(color: theme.textPrimary),
         decoration: context.conduitInputStyles
             .underline(hint: widget.hintText)

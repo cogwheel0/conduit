@@ -8,6 +8,7 @@ import 'package:conduit_core/utils/debug_logger.dart';
 import 'package:conduit_core/features/hermes/models/hermes_mcp.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 import 'package:conduit_core/features/hermes/services/hermes_desktop_api_service.dart';
+import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 
 final class HermesMcpPage extends ConsumerStatefulWidget {
   const HermesMcpPage({super.key});
@@ -83,24 +84,29 @@ final class _HermesMcpPageState extends ConsumerState<HermesMcpPage> {
             mainAxisSize: MainAxisSize.min,
             children: [
               TextField(
+                magnifierConfiguration: nativeIosTextMagnifierConfiguration,
                 controller: name,
                 decoration: const InputDecoration(labelText: 'Name'),
               ),
               TextField(
+                magnifierConfiguration: nativeIosTextMagnifierConfiguration,
                 controller: url,
                 decoration: const InputDecoration(labelText: 'HTTP URL'),
               ),
               TextField(
+                magnifierConfiguration: nativeIosTextMagnifierConfiguration,
                 controller: command,
                 decoration: const InputDecoration(labelText: 'stdio command'),
               ),
               TextField(
+                magnifierConfiguration: nativeIosTextMagnifierConfiguration,
                 controller: args,
                 decoration: const InputDecoration(
                   labelText: 'Arguments (one per line)',
                 ),
               ),
               TextField(
+                magnifierConfiguration: nativeIosTextMagnifierConfiguration,
                 controller: secret,
                 obscureText: true,
                 enableSuggestions: false,
@@ -197,6 +203,7 @@ final class _HermesMcpPageState extends ConsumerState<HermesMcpPage> {
       builder: (context) => AlertDialog(
         title: Text('Set API key for $name'),
         content: TextField(
+          magnifierConfiguration: nativeIosTextMagnifierConfiguration,
           controller: value,
           obscureText: true,
           enableSuggestions: false,

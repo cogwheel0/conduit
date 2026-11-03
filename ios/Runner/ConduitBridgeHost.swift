@@ -102,8 +102,14 @@ enum ConduitBridgeRegistry {
     ConduitCarPlayBridge.shared.attach(to: host)
     NativeSheetBridge.shared.attach(to: host)
     NativeDropdownBridge.shared.attach(to: host)
+    if #available(iOS 16.0, *) {
+      NativeTextSelectionMenuBridge.shared.attach(to: host)
+    }
     NativeImageViewerBridge.shared.attach(to: host)
     NativeSymbolImageBridge.shared.attach(to: host)
+    if #available(iOS 26.0, *) {
+      NativeTextMagnifierBridge.shared.attach(to: host)
+    }
     NativeSttBridge.shared.attach(to: host)
     if #available(iOS 16.2, *) { RecordingActivityBridge.shared.attach(to: host) }
     PccBridge.shared.attach(to: host)

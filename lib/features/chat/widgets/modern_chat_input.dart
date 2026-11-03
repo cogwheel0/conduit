@@ -4466,6 +4466,9 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                     usesNativePlatformView: usesNativePlatformView,
                   ),
                   cursorColor: Theme.of(context).textSelectionTheme.cursorColor,
+                  magnifierConfiguration: usesNativePlatformView
+                      ? IosTextMagnifier.configuration
+                      : null,
                   scrollPadding: const EdgeInsets.only(bottom: 80),
                   keyboardAppearance: brightness,
                   style: baseChatStyle.copyWith(color: animatedTextColor),
@@ -4509,6 +4512,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                 showCursor: true,
                 scrollPadding: const EdgeInsets.only(bottom: 80),
                 keyboardAppearance: brightness,
+                magnifierConfiguration: nativeIosTextMagnifierConfiguration,
                 style: baseChatStyle.copyWith(color: animatedTextColor),
                 decoration: context.conduitInputStyles
                     .borderless(hint: inputPlaceholder)

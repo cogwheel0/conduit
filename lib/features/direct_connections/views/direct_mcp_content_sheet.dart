@@ -15,6 +15,7 @@ import 'package:conduit_core/features/direct_connections/models/direct_completio
 import 'package:conduit_core/features/direct_connections/models/direct_mcp_content.dart';
 import 'package:conduit_core/features/direct_connections/models/direct_mcp_server.dart';
 import 'package:conduit_core/features/direct_connections/providers/direct_mcp_providers.dart';
+import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 
 class DirectMcpContentSheet extends ConsumerStatefulWidget {
   const DirectMcpContentSheet({super.key});
@@ -234,6 +235,8 @@ class _DirectMcpContentSheetState extends ConsumerState<DirectMcpContentSheet> {
                       textField: true,
                       label: l10n.directMcpContentSearch,
                       child: TextField(
+                        magnifierConfiguration:
+                            nativeIosTextMagnifierConfiguration,
                         key: const Key('direct-mcp-content-search'),
                         controller: _searchController,
                         onChanged: (_) => setState(() {}),
@@ -420,7 +423,11 @@ class _DirectMcpContentSheetState extends ConsumerState<DirectMcpContentSheet> {
               ),
               child: SingleChildScrollView(
                 padding: const EdgeInsets.all(Spacing.md),
-                child: SelectableText(preview),
+                child: SelectableText(
+                  preview,
+                  magnifierConfiguration: nativeIosTextMagnifierConfiguration,
+                  contextMenuBuilder: AdaptiveTextSelectionMenu.editableText,
+                ),
               ),
             ),
           ),
@@ -553,6 +560,8 @@ class _DirectMcpPromptArgumentsFormState
                       Padding(
                         padding: const EdgeInsets.only(bottom: Spacing.md),
                         child: TextFormField(
+                          magnifierConfiguration:
+                              nativeIosTextMagnifierConfiguration,
                           key: ValueKey('direct-mcp-argument-${argument.name}'),
                           controller: _controllers[argument.name],
                           decoration: context.conduitInputStyles

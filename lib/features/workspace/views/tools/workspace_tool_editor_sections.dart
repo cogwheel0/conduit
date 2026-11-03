@@ -114,7 +114,9 @@ final class WorkspaceToolContentEditor extends StatelessWidget {
             ),
             child: SelectableText(
               controller.text,
+              magnifierConfiguration: nativeIosTextMagnifierConfiguration,
               style: theme.code?.copyWith(color: theme.textPrimary),
+              contextMenuBuilder: AdaptiveTextSelectionMenu.editableText,
             ),
           )
         else

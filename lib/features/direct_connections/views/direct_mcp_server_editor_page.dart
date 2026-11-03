@@ -15,6 +15,8 @@ import 'package:conduit_core/features/direct_connections/models/direct_mcp_serve
 import 'package:conduit_core/features/direct_connections/providers/direct_mcp_providers.dart';
 import 'package:conduit_core/features/direct_connections/services/direct_mcp_client.dart';
 import 'package:conduit_core/features/direct_connections/services/direct_mcp_oauth.dart';
+import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart'
+    show nativeIosTextMagnifierConfiguration;
 
 class DirectMcpServerEditorPage extends ConsumerStatefulWidget {
   const DirectMcpServerEditorPage({super.key, required this.serverId});
@@ -494,6 +496,7 @@ class _DirectMcpServerEditorPageState
                   Text(l10n.directMcpReachabilityHelp),
                   const SizedBox(height: 16),
                   TextField(
+                    magnifierConfiguration: nativeIosTextMagnifierConfiguration,
                     key: const ValueKey('direct-mcp-name'),
                     controller: _name,
                     enabled: !_busy,
@@ -501,6 +504,7 @@ class _DirectMcpServerEditorPageState
                   ),
                   const SizedBox(height: 12),
                   TextField(
+                    magnifierConfiguration: nativeIosTextMagnifierConfiguration,
                     key: const ValueKey('direct-mcp-endpoint'),
                     controller: _endpoint,
                     enabled: !_busy && !oauthPending,
@@ -549,6 +553,8 @@ class _DirectMcpServerEditorPageState
                   if (_authMode == DirectMcpAuthMode.bearer) ...[
                     const SizedBox(height: 12),
                     TextField(
+                      magnifierConfiguration:
+                          nativeIosTextMagnifierConfiguration,
                       key: const ValueKey('direct-mcp-token'),
                       controller: _token,
                       enabled: !_busy,
@@ -595,6 +601,7 @@ class _DirectMcpServerEditorPageState
                   ],
                   const SizedBox(height: 12),
                   TextField(
+                    magnifierConfiguration: nativeIosTextMagnifierConfiguration,
                     key: const ValueKey('direct-mcp-headers'),
                     controller: _headers,
                     enabled: !_busy,

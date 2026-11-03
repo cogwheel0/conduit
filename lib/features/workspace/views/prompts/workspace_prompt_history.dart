@@ -384,7 +384,9 @@ class _WorkspacePromptHistorySectionState
             child: SingleChildScrollView(
               child: SelectableText(
                 content,
+                magnifierConfiguration: nativeIosTextMagnifierConfiguration,
                 style: theme.code?.copyWith(color: theme.textPrimary),
+                contextMenuBuilder: AdaptiveTextSelectionMenu.editableText,
               ),
             ),
           ),

@@ -32,6 +32,7 @@ import 'package:conduit/core/network/self_signed_image_cache_manager.dart';
 import 'package:conduit/core/network/image_header_utils.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
 import 'package:conduit/shared/services/raster_media_policy.dart';
+import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 
 typedef MarkdownLinkTapCallback = void Function(String url, String title);
 
@@ -960,9 +961,11 @@ class ConduitMarkdown {
             textAlign: TextAlign.left,
             textDirection: TextDirection.ltr,
             textWidthBasis: TextWidthBasis.parent,
+            magnifierConfiguration: nativeIosTextMagnifierConfiguration,
             style: markdownStyle.detailCode.copyWith(
               color: conduitTheme.codeText,
             ),
+            contextMenuBuilder: AdaptiveTextSelectionMenu.editableText,
           ),
         ],
       ),
@@ -2503,8 +2506,10 @@ class _MermaidDiagramState extends State<MermaidDiagram> {
         padding: const EdgeInsets.all(Spacing.md),
         child: SelectableText(
           '$error',
+          magnifierConfiguration: nativeIosTextMagnifierConfiguration,
           style: Theme.of(context).textTheme.bodySmall
               ?.copyWith(color: Theme.of(context).colorScheme.error),
+          contextMenuBuilder: AdaptiveTextSelectionMenu.editableText,
         ),
       ),
     );
