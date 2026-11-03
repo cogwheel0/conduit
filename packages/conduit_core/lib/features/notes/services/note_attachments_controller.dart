@@ -59,6 +59,7 @@ class NoteAttachmentsController {
     required void Function(Note note) onNoteUpdated,
     required void Function() onChanged,
     required void Function(NoteAudioNotice notice) onNotice,
+    String? Function()? currentPageId,
   }) : _container = container,
        _store = store,
        _noteId = noteId,
@@ -66,7 +67,8 @@ class NoteAttachmentsController {
        _resolvedTitle = resolvedTitle,
        _onNoteUpdated = onNoteUpdated,
        _onChanged = onChanged,
-       _onNotice = onNotice;
+       _onNotice = onNotice,
+       _currentPageId = currentPageId;
 
   final ProviderContainer _container;
   final NoteAudioUploadStore _store;
@@ -76,6 +78,19 @@ class NoteAttachmentsController {
   final void Function(Note note) _onNoteUpdated;
   final void Function() _onChanged;
   final void Function(NoteAudioNotice notice) _onNotice;
+
+  /// The page of a note with several pages (Open WebUI 0.12.5+) the editor
+  /// shows: a recording is attached there, and a file is detached from it.
+  /// Null, or a page the note no longer has, means the main page.
+  final String? Function()? _currentPageId;
+
+  String _pageIn(Map<String, dynamic> data, [String? page]) =>
+      notePageIdIn(data, page ?? _currentPageId?.call());
+
+  /// The page each recording staged here was made on, so it is attached
+  /// there even when the editor shows another page by the time it uploads.
+  /// A recording picked up from an earlier run goes to the page shown.
+  final Map<String, String?> _stagedPages = <String, String?>{};
 
   final List<PendingNoteAudioUpload> _pending = <PendingNoteAudioUpload>[];
   final Set<String> _inFlight = <String>{};
@@ -201,6 +216,7 @@ class NoteAttachmentsController {
         noteId: note.id,
         fileName: fileName,
       );
+      _stagedPages[item.id] = _currentPageId?.call();
       if (!_isCurrent(api: api, db: db, authEpoch: authEpoch)) return true;
       _mutationGeneration++;
       _hidden.remove(item.id);
@@ -534,11 +550,11 @@ class NoteAttachmentsController {
       // Only the stored row decides on the durable path: a list read from a
       // stale copy must not be merged into a note that is paged by now.
       data: db == null
-          ? noteDataWithoutFile(shown, fileId)
+          ? noteDataWithoutFile(shown, fileId, pageId: _pageIn(shown))
           : const <String, dynamic>{},
       dataFrom: (Map<String, dynamic> existing) =>
-          noteDataWithoutFile(existing, fileId),
-      pageId: kNoteMainPageId,
+          noteDataWithoutFile(existing, fileId, pageId: _pageIn(existing)),
+      pageId: _pageIn(shown),
       isStillOpen: () => !_disposed,
     );
     if (updated == null ||
@@ -558,6 +574,7 @@ class NoteAttachmentsController {
     required String id,
     required Map<String, dynamic> attachment,
     required bool Function() canCommit,
+    String? page,
   }) async {
     // The account the recording was attached under, taken before the first
     // await; `canCommit` below fences the epoch it belongs to.
@@ -588,6 +605,7 @@ class NoteAttachmentsController {
         final Map<String, dynamic>? linked = noteDataWithFileLink(
           existingData,
           attachment,
+          pageId: _pageIn(existingData, page),
         );
         if (linked == null || !canCommit()) return;
         await db.notesDao.updateNoteWithOutbox(
@@ -658,12 +676,14 @@ class NoteAttachmentsController {
     if (note == null) throw StateError('The note is no longer available');
 
     final Map<String, dynamic> attachment = noteAudioAttachment(item, fileId);
+    final String? page = _stagedPages[item.id];
 
     Note? updatedNote;
     if (db != null) {
       updatedNote = await _durableAttach(
         db,
         id: note.id,
+        page: page,
         attachment: attachment,
         canCommit: () => _isCurrent(api: api, db: db, authEpoch: authEpoch),
       );
@@ -676,9 +696,11 @@ class NoteAttachmentsController {
             for (final NotePage page in note.data.pages) page.toJson(),
           ],
       };
+      final String pageId = _pageIn(existing, page);
       final Map<String, dynamic>? linked = noteDataWithFileLink(
         existing,
         attachment,
+        pageId: pageId,
       );
       if (linked == null) return;
       updatedNote = await persistNoteUpdate(
@@ -688,10 +710,8 @@ class NoteAttachmentsController {
         api: api,
         db: db,
         title: _resolvedTitle(),
-        data: <String, dynamic>{
-          'content': notePageContent(linked, kNoteMainPageId),
-        },
-        pageId: kNoteMainPageId,
+        data: <String, dynamic>{'content': notePageContent(linked, pageId)},
+        pageId: pageId,
         authEpoch: authEpoch,
         authSnapshot: authSnapshot,
         cancelToken: cancelToken,
@@ -922,15 +942,17 @@ Map<String, dynamic> noteAudioAttachment(
   'itemId': item.id,
 };
 
-/// [data] with [attachment] linked at the end of the main page's content,
-/// the page Conduit edits, as an Open WebUI 0.12.5 server attaches files; null
-/// when the page links it already. The content's rich-text forms are cleared,
-/// so the server and the web editor read the markdown that holds the link.
+/// [data] with [attachment] linked at the end of the content of page
+/// [pageId] (by default the main page), as an Open WebUI 0.12.5 server
+/// attaches files; null when the page links it already. The content's
+/// rich-text forms are cleared, so the server and the web editor read the
+/// markdown that holds the link.
 Map<String, dynamic>? noteDataWithFileLink(
   Map<String, dynamic> data,
-  Map<String, dynamic> attachment,
-) {
-  final String md = notePageMarkdown(data, kNoteMainPageId);
+  Map<String, dynamic> attachment, {
+  String pageId = kNoteMainPageId,
+}) {
+  final String md = notePageMarkdown(data, pageId);
   final String? fileId = attachment['id']?.toString();
   if (fileId == null ||
       noteFileLinksInMarkdown(
@@ -940,10 +962,10 @@ Map<String, dynamic>? noteDataWithFileLink(
   }
   return applyNoteContentEdit(data, <String, dynamic>{
     'content': noteContentWithMarkdown(
-      notePageContent(data, kNoteMainPageId),
+      notePageContent(data, pageId),
       appendNoteFileLinks(md, <Map<String, dynamic>>[attachment]),
     ),
-  }, pageId: kNoteMainPageId);
+  }, pageId: pageId);
 }
 
 /// Whether [files] already holds [attachment], by server file id or by the

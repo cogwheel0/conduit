@@ -1,65 +1,59 @@
-import 'package:conduit/features/notes/utils/note_document_codec.dart';
 import 'package:conduit/features/notes/utils/note_file_link_insertion.dart';
+import 'package:conduit_core/features/notes/utils/note_file_cards.dart';
 import 'package:conduit_core/features/notes/utils/note_page_data.dart';
 import 'package:fleather/fleather.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+const rec = NoteFileLink(id: 'f1', name: 'Rec.m4a');
+const doc = NoteFileLink(id: 'f2', name: 'Doc.pdf');
+
 void main() {
-  test('a link added to a note comes out as the markdown the server reads', () {
+  test('a card added to a note writes back as the link the server reads', () {
     final controller = FleatherController(
-      document: documentFromMarkdown('hello'),
+      document: noteDocumentFromMarkdown('hello'),
     );
     addTearDown(controller.dispose);
 
-    appendNoteFileLinksToDocument(controller, const [
-      NoteFileLink(id: 'f1', name: 'Rec.m4a'),
-    ]);
+    insertNoteFileCardsInEditor(controller, const [rec]);
 
-    final markdown = markdownFromDocument(controller.document);
-    expect(noteFileLinksInMarkdown(markdown), const [
-      NoteFileLink(id: 'f1', name: 'Rec.m4a'),
-    ]);
+    final markdown = noteMarkdownFromDocument(controller.document);
+    expect(noteFileLinksInMarkdown(markdown), const [rec]);
     expect(markdown, startsWith('hello'));
-    // The link sits on a line of its own, after the text.
     expect(
       markdown.trimRight(),
       endsWith('\n[Rec.m4a](/api/v1/files/f1/content)'),
     );
   });
 
-  test('links added to an empty note start on its first line', () {
-    final controller = FleatherController(document: documentFromMarkdown(''));
+  test('cards go in at the cursor, in order, each on its own line', () {
+    final controller = FleatherController(
+      document: noteDocumentFromMarkdown('first\n\nsecond'),
+    );
     addTearDown(controller.dispose);
 
-    appendNoteFileLinksToDocument(controller, const [
-      NoteFileLink(id: 'a', name: 'A'),
-      NoteFileLink(id: 'b', name: 'B'),
-    ]);
+    insertNoteFileCardsInEditor(controller, const [rec, doc], index: 6);
 
-    final markdown = markdownFromDocument(controller.document);
-    expect(markdown.trimLeft(), startsWith('[A](/api/v1/files/a/content)'));
-    expect(noteFileLinksInMarkdown(markdown).map((link) => link.id), [
-      'a',
-      'b',
-    ]);
+    expect(noteFileCardsIn(controller.document), const [rec, doc]);
+    final markdown = noteMarkdownFromDocument(controller.document);
+    expect(markdown.indexOf('first'), lessThan(markdown.indexOf('Rec.m4a')));
+    expect(markdown.indexOf('Doc.pdf'), lessThan(markdown.indexOf('second')));
   });
 
-  test('a link removed from the markdown leaves the rest of the note', () {
+  test('a removed card leaves the rest of the note', () {
     final controller = FleatherController(
-      document: documentFromMarkdown('hello'),
+      document: noteDocumentFromMarkdown(
+        'hello\n\n[Rec.m4a](/api/v1/files/f1/content)\n\nbye',
+      ),
     );
     addTearDown(controller.dispose);
-    appendNoteFileLinksToDocument(controller, const [
-      NoteFileLink(id: 'f1', name: 'Rec.m4a'),
-    ]);
 
-    final removed = removeNoteFileLinks(
-      markdownFromDocument(controller.document),
-      'f1',
-    );
+    expect(removeNoteFileCardsInEditor(controller, 'f1'), isTrue);
+    expect(removeNoteFileCardsInEditor(controller, 'f1'), isFalse);
 
-    expect(noteFileLinksInMarkdown(removed), isEmpty);
-    expect(documentFromMarkdown(removed).toPlainText().trim(), 'hello');
+    final markdown = noteMarkdownFromDocument(controller.document);
+    expect(noteFileLinksInMarkdown(markdown), isEmpty);
+    expect(markdown, contains('hello'));
+    expect(markdown, contains('bye'));
   });
 
   for (final md in ['```\ncode\n```', '- item', '# Heading', '> quote']) {

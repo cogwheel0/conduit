@@ -340,6 +340,63 @@ void main() {
       check(noteDirtyPageIds(data)).deepEquals(['main']);
     });
 
+    test('a recording is attached to the page it was made on', () async {
+      var shownPage = 'p2';
+      await db
+          .into(db.notes)
+          .insertOnConflictUpdate(
+            serverToNoteRow({
+              'id': 'note-1',
+              'user_id': 'user-1',
+              'title': 'Meeting',
+              'data': {
+                'content': {'json': null, 'md': '## Meeting', 'html': ''},
+                'pages': [
+                  {
+                    'id': 'main',
+                    'title': 'Meeting',
+                    'content': {'json': null, 'md': 'one', 'html': ''},
+                  },
+                  {
+                    'id': 'p2',
+                    'title': 'Two',
+                    'content': {'json': null, 'md': 'two', 'html': ''},
+                  },
+                ],
+              },
+              'meta': {},
+              'is_pinned': false,
+              'created_at': 1713786305000000000,
+              'updated_at': 1713786305000000000,
+            }),
+          );
+      openNote = await readNote('note-1');
+      controller.dispose();
+      controller = NoteAttachmentsController(
+        container: container,
+        store: store,
+        noteId: 'note-1',
+        currentNote: () => openNote,
+        resolvedTitle: () => openNote.title,
+        onNoteUpdated: (updated) => openNote = updated,
+        onChanged: () => changes++,
+        onNotice: notices.add,
+        currentPageId: () => shownPage,
+      )..start();
+
+      final file = await recording('note_recording_1.wav');
+      check(await controller.stage(file)).isTrue();
+      // The user moves to the main page while the recording uploads; it was
+      // made on the second page, and goes there.
+      shownPage = 'main';
+      await waitFor(() => notices.isNotEmpty && controller.pending.isEmpty);
+
+      final data = decodeNoteData((await db.notesDao.getNote('note-1'))!.data);
+      check(notePageMarkdown(data, 'main')).equals('one');
+      check(notePageMarkdown(data, 'p2')).startsWith('two\n\n[');
+      check(noteDirtyPageIds(data)).deepEquals(['p2']);
+    });
+
     test('a note stored in the older shape is linked when the server is '
         'known to be 0.12.5', () async {
       container.dispose();

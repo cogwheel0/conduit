@@ -61,6 +61,10 @@ sealed class NotePage with _$NotePage {
 
     /// Counts the page's content saves; the server's conflict check.
     @Default(0) int revision,
+
+    /// Whether the main page is titled with the note, as it is until it is
+    /// renamed on its own.
+    @JsonKey(name: 'inherit_note_title') @Default(true) bool inheritNoteTitle,
   }) = _NotePage;
 
   factory NotePage.fromJson(Map<String, dynamic> json) =>

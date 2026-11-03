@@ -2,7 +2,7 @@ import 'dart:async';
 
 import 'package:conduit/features/notes/views/note_editor_page.dart';
 import 'package:conduit/features/notes/widgets/note_file_attachment.dart';
-import 'package:conduit/features/notes/utils/note_document_codec.dart';
+import 'package:conduit_core/features/notes/utils/note_file_cards.dart';
 import 'package:conduit_core/features/notes/utils/note_page_data.dart';
 import 'package:conduit/features/workspace/models/workspace_capabilities.dart';
 import 'package:conduit/features/workspace/providers/workspace_capabilities_provider.dart';
@@ -335,45 +335,140 @@ void main() {
     expect(notePageMarkdown(data, 'p2'), 'two');
   });
 
-  testWidgets('a note with several pages opens whole and read-only', (
+  Map<String, dynamic> twoPageNote() => _noteJson(
+    writeAccess: true,
+    md: '## Shared note\n\none\n\n## Two\n\ntwo',
+    pages: [
+      {
+        'id': 'main',
+        'title': 'Shared note',
+        'content': {'md': 'one', 'html': '', 'json': null},
+      },
+      {
+        'id': 'p2',
+        'title': 'Two',
+        'content': {'md': 'two', 'html': '', 'json': null},
+      },
+    ],
+  );
+
+  testWidgets('a note with several pages opens on its main page, editable, '
+      'and moves to another page from the Pages sheet', (tester) async {
+    final note = twoPageNote();
+    await storeLocally(note);
+    await pumpEditor(tester, _DetailApi(detail: note));
+
+    expect(
+      tester.widget<FleatherEditor>(find.byType(FleatherEditor)).readOnly,
+      isFalse,
+    );
+    expect(contentController(tester).document.toPlainText().trim(), 'one');
+
+    await tester.tap(find.byKey(const ValueKey<String>('note-page-chip')));
+    await tester.pumpAndSettle();
+    expect(find.text(l10n(tester).notePages), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey<String>('note-page-p2')));
+    await tester.pumpAndSettle();
+
+    expect(contentController(tester).document.toPlainText().trim(), 'two');
+    typeInto(tester, 'more ');
+    await letAutosaveRun(tester);
+
+    final data = decodeNoteData((await db.notesDao.getNote('note-1'))!.data);
+    expect(notePageMarkdown(data, 'p2'), startsWith('more two'));
+    expect(notePageMarkdown(data, 'main'), 'one');
+    expect(noteDirtyPageIds(data), ['p2']);
+  });
+
+  testWidgets('a page edit is saved before the editor moves to another page', (
     tester,
   ) async {
-    final note = _noteJson(
+    final note = twoPageNote();
+    await storeLocally(note);
+    await pumpEditor(tester, _DetailApi(detail: note));
+
+    typeInto(tester, 'first ');
+    await tester.tap(find.byKey(const ValueKey<String>('note-page-chip')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey<String>('note-page-p2')));
+    await tester.pumpAndSettle();
+
+    final data = decodeNoteData((await db.notesDao.getNote('note-1'))!.data);
+    expect(notePageMarkdown(data, 'main'), startsWith('first one'));
+    expect(contentController(tester).document.toPlainText().trim(), 'two');
+  });
+
+  testWidgets('moving to a page shows it as stored now', (tester) async {
+    final note = twoPageNote();
+    await storeLocally(note);
+    await pumpEditor(tester, _DetailApi(detail: note));
+
+    // A sync brings a newer copy of the second page while the editor is open.
+    final newer = twoPageNote();
+    (((newer['data'] as Map)['pages'] as List)[1] as Map)['content'] = {
+      'md': 'two, edited on the web',
+      'html': '',
+      'json': null,
+    };
+    await storeLocally(newer);
+
+    await tester.tap(find.byKey(const ValueKey<String>('note-page-chip')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey<String>('note-page-p2')));
+    await tester.pumpAndSettle();
+
+    expect(
+      contentController(tester).document.toPlainText().trim(),
+      'two, edited on the web',
+    );
+  });
+
+  testWidgets('text written on a page a sync removed is kept, to save as a '
+      'note of its own or discard', (tester) async {
+    final note = twoPageNote();
+    await storeLocally(note);
+    await pumpEditor(tester, _DetailApi(detail: note));
+    await tester.tap(find.byKey(const ValueKey<String>('note-page-chip')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey<String>('note-page-p2')));
+    await tester.pumpAndSettle();
+
+    // The web removes the second page; a sync stores the note without it.
+    final onePage = _noteJson(
       writeAccess: true,
-      md: '## Shared note\n\none\n\n## Two\n\ntwo',
+      md: 'one',
       pages: [
         {
           'id': 'main',
           'title': 'Shared note',
           'content': {'md': 'one', 'html': '', 'json': null},
         },
-        {
-          'id': 'p2',
-          'title': 'Two',
-          'content': {'md': 'two', 'html': '', 'json': null},
-        },
       ],
     );
-    final api = _DetailApi(detail: note);
-    await storeLocally(note);
-    await pumpEditor(tester, api);
+    await storeLocally(onePage);
+    typeInto(tester, 'lost? ');
+    await letAutosaveRun(tester);
+    await tester.pump();
 
+    expect(find.text(l10n(tester).notePageMissingNotice), findsOneWidget);
     expect(
       tester.widget<FleatherEditor>(find.byType(FleatherEditor)).readOnly,
       isTrue,
     );
-    expect(find.text(l10n(tester).noteMultiPageReadOnlyNotice), findsOneWidget);
-    final text = contentController(tester).document.toPlainText();
-    expect(text, contains('one'));
-    expect(text, contains('two'));
+    expect(contentController(tester).document.toPlainText(), contains('lost?'));
+    expect(
+      find.byKey(const ValueKey<String>('note-save-as-own')),
+      findsOneWidget,
+    );
 
-    typeInto(tester, 'flattened ');
-    await letAutosaveRun(tester);
-    await expectNothingQueued();
+    await tester.tap(find.byKey(const ValueKey<String>('note-discard-draft')));
+    await tester.pumpAndSettle();
+    expect(find.text(l10n(tester).notePageMissingNotice), findsNothing);
+    expect(contentController(tester).document.toPlainText().trim(), 'one');
   });
 
-  testWidgets('a one-page note from 0.12.5 is editable and lists the files '
-      'its content links', (tester) async {
+  testWidgets('a one-page note from 0.12.5 shows the files its content links '
+      'as cards in the text', (tester) async {
     const md = 'original\n\n[Rec.m4a](/api/v1/files/f1/content)';
     final note = _noteJson(
       writeAccess: true,
@@ -394,12 +489,53 @@ void main() {
       tester.widget<FleatherEditor>(find.byType(FleatherEditor)).readOnly,
       isFalse,
     );
-    expect(find.text(l10n(tester).noteMultiPageReadOnlyNotice), findsNothing);
-    final attachment = tester.widget<NoteFileAttachment>(
-      find.byType(NoteFileAttachment),
+    expect(find.byKey(const ValueKey<String>('note-page-chip')), findsNothing);
+    final card = tester.widget<NoteFileAttachment>(
+      find.descendant(
+        of: find.byKey(const ValueKey<String>('note-file-card-f1')),
+        matching: find.byType(NoteFileAttachment),
+      ),
     );
-    expect(attachment.file['id'], 'f1');
-    expect(attachment.file['name'], 'Rec.m4a');
+    expect(card.file['id'], 'f1');
+    expect(card.file['name'], 'Rec.m4a');
+    // No separate list: the card is the attachment.
+    expect(find.byType(NoteFileAttachment), findsOneWidget);
+  });
+
+  testWidgets('removing a file card detaches the file on the next save', (
+    tester,
+  ) async {
+    const md = 'original\n\n[Rec.m4a](/api/v1/files/f1/content)';
+    final note = _noteJson(
+      writeAccess: true,
+      md: md,
+      pages: [
+        {
+          'id': 'main',
+          'title': 'Shared note',
+          'content': {'md': md, 'html': '', 'json': null},
+        },
+      ],
+    );
+    await storeLocally(note);
+    await pumpEditor(tester, _DetailApi(detail: note));
+
+    // A real tap on the card's remove button, inside the editor's text.
+    await tester.tap(
+      find.descendant(
+        of: find.byKey(const ValueKey<String>('note-file-card-f1')),
+        matching: find.byIcon(Icons.cancel_rounded),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(l10n(tester).delete).last);
+    await tester.pumpAndSettle();
+    await letAutosaveRun(tester);
+
+    expect(find.byType(NoteFileAttachment), findsNothing);
+    final data = decodeNoteData((await db.notesDao.getNote('note-1'))!.data);
+    expect(notePageMarkdown(data, 'main'), isNot(contains('/files/f1/')));
+    expect(notePageMarkdown(data, 'main'), contains('original'));
   });
 
   testWidgets('a file link a sync wrote while the note was open survives '
@@ -446,7 +582,7 @@ void main() {
     expect(saved, startsWith('more original'));
     expect(saved, contains(link));
     expect(
-      markdownFromDocument(contentController(tester).document),
+      noteMarkdownFromDocument(contentController(tester).document),
       contains(link),
     );
   });
@@ -471,9 +607,8 @@ void main() {
     await pumpEditor(tester, _DetailApi(detail: note));
 
     final controller = contentController(tester);
-    final plain = controller.document.toPlainText();
-    final start = plain.indexOf('Rec.m4a');
-    controller.replaceText(start, 'Rec.m4a'.length, '');
+    final card = noteFileCardOffsets(controller.document, 'f1').single;
+    controller.replaceText(card, 1, '');
     await letAutosaveRun(tester);
 
     final row = (await db.notesDao.getNote('note-1'))!;
