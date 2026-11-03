@@ -109,11 +109,15 @@ class SidebarOverlayDismissListener extends ConsumerStatefulWidget {
 
 class _SidebarOverlayDismissListenerState
     extends ConsumerState<SidebarOverlayDismissListener> {
-  /// The file request this listener last saw, and the route revision when it
-  /// did, until it is handled. Opening Terminal for it after the person chose
-  /// another page would override that choice.
+  /// The file request this listener last saw, and the route and backend
+  /// choices when it did, until it is handled. Opening Terminal for it after
+  /// the person chose another page or history would override that choice.
   Object? _request;
   int? _requestRouteRevision;
+  int? _requestHistoryRevision;
+
+  /// Counts backend history choices, which leave the route as it is.
+  int _historyRevision = 0;
 
   void _displayRequestedFile() {
     final request = ref.read(terminalDisplayFileProvider);
@@ -124,6 +128,7 @@ class _SidebarOverlayDismissListenerState
     if (!identical(request, _request)) {
       _request = request;
       _requestRouteRevision = NavigationService.currentRouteRevision;
+      _requestHistoryRevision = _historyRevision;
     }
     final hasBackend =
         !ref.read(hermesOnlyModeProvider) &&
@@ -134,10 +139,15 @@ class _SidebarOverlayDismissListenerState
       ref.read(terminalDisplayFileProvider.notifier).clear();
       return;
     }
-    final requested = _requestRouteRevision;
+    final requestedRoute = _requestRouteRevision;
+    final requestedHistory = _requestHistoryRevision;
     _requestRouteRevision = null;
+    _requestHistoryRevision = null;
     // Terminal still shows the file when the person opens it.
-    if (requested != NavigationService.currentRouteRevision) return;
+    if (requestedRoute != NavigationService.currentRouteRevision ||
+        requestedHistory != _historyRevision) {
+      return;
+    }
     if (NavigationService.currentRoute != Routes.terminal) {
       NavigationService.router.go(Routes.terminal);
     }
@@ -149,6 +159,7 @@ class _SidebarOverlayDismissListenerState
     ref.listen(sidebarOverlayDismissRequestProvider, (_, _) {
       closeSidebarDrawerIfOverlay(context);
     });
+    ref.listen(sidebarHistoryTabProvider, (_, _) => _historyRevision++);
     ref.listen(terminalDisplayFileProvider, (_, _) => _displayRequestedFile());
     ref.listen(
       terminalAvailableServersProvider,

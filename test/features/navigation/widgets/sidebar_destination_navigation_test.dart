@@ -4,6 +4,7 @@ import 'package:conduit_core/services/settings_service.dart';
 import 'package:conduit_core/features/navigation/models/sidebar_navigation_model.dart';
 
 import 'package:conduit/features/navigation/widgets/sidebar_destination_page.dart';
+import 'package:conduit/features/navigation/providers/sidebar_providers.dart';
 import 'package:conduit/features/navigation/widgets/sidebar_page.dart';
 import 'package:conduit/features/navigation/widgets/responsive_drawer_layout.dart';
 import 'package:conduit/features/navigation/widgets/chats_drawer.dart';
@@ -467,6 +468,45 @@ void main() {
     discovery.complete(sidebarTestDefaultTerminalServers());
     await tester.pumpAndSettle();
     expect(NavigationService.currentRoute, Routes.channels);
+    expect(container.read(terminalDisplayFileProvider), same(request));
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('a newer backend choice outlasts a file request in discovery', (
+    tester,
+  ) async {
+    final discovery = Completer<List<TerminalServerInfo>>();
+    var probes = 0;
+    await tester.pumpWidget(
+      sidebarTestBuildHarness(
+        controllers: SidebarTestSidebarHarnessControllers(),
+        shellChat: _chat(),
+        hermesEnabled: true,
+        loadTerminalServers: () async => ++probes == 1
+            ? sidebarTestDefaultTerminalServers()
+            : discovery.future,
+      ),
+    );
+    await tester.pumpAndSettle();
+    final container = ProviderScope.containerOf(
+      tester.element(find.byType(SidebarPage)),
+      listen: false,
+    );
+    container.invalidate(terminalAvailableServersProvider);
+    await tester.pump();
+    expect(container.read(terminalAvailableServersProvider).isLoading, isTrue);
+    container
+        .read(terminalDisplayFileProvider.notifier)
+        .show('/demo/report.txt');
+    final request = container.read(terminalDisplayFileProvider);
+    await tester.pumpAndSettle();
+    container
+        .read(sidebarHistoryTabProvider.notifier)
+        .select(SidebarTabId.hermes);
+    await tester.pumpAndSettle();
+    discovery.complete(sidebarTestDefaultTerminalServers());
+    await tester.pumpAndSettle();
+    expect(NavigationService.currentRoute, Routes.chat);
     expect(container.read(terminalDisplayFileProvider), same(request));
     expect(tester.takeException(), isNull);
   });
