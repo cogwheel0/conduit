@@ -31,8 +31,15 @@ final chatModelPickProvider =
     );
 
 class ChatModelPickNotifier extends Notifier<ChatModelPick?> {
+  /// A pick belongs to the account that made it: another account, or the
+  /// same one signed in again, starts without one.
   @override
-  ChatModelPick? build() => null;
+  ChatModelPick? build() {
+    ref
+      ..watch(currentUserProvider2.select((user) => user?.id))
+      ..watch(openWebUiAuthSessionEpochProvider);
+    return null;
+  }
 
   void record({
     required String chatId,
@@ -95,33 +102,32 @@ Future<void> saveChatModelChoice(dynamic ref, Model model) async {
 /// a lock, which could overwrite the reply. After the server takes it, the
 /// list is stored again, since a pull read before the pick may have put the
 /// old one back, and the server's copy keeps its date, so no later pull
-/// would correct it. Lists still waiting are dropped when the account
-/// changes.
+/// would correct it. A list belongs to the account that picked it: once
+/// another account is signed in, or the same one again, it is neither sent
+/// nor stored.
 final chatModelSaveQueueProvider = NotifierProvider<ChatModelSaveQueue, void>(
   ChatModelSaveQueue.new,
 );
 
 class ChatModelSaveQueue extends Notifier<void> {
-  final Map<String, List<String>> _pending = <String, List<String>>{};
+  final Map<String, ({List<String> models, Object account})> _pending =
+      <String, ({List<String> models, Object account})>{};
   Future<void>? _running;
-  Object? _account;
 
   @override
-  void build() {
-    final account = (
-      ref.watch(currentUserProvider2.select((user) => user?.id)),
-      ref.watch(openWebUiAuthSessionEpochProvider),
-    );
-    if (account != _account) {
-      _account = account;
-      _pending.clear();
-    }
-  }
+  void build() {}
+
+  /// The account signed in now. Read, not watched: this queue is only ever
+  /// read, so it would not rebuild while a save is under way.
+  Object _account() => (
+    ref.read(currentUserProvider2)?.id,
+    ref.read(openWebUiAuthSessionEpochProvider),
+  );
 
   /// Saves [models] as chat [chatId]'s list; completes once the queue has
   /// nothing left to send.
   Future<void> save(String chatId, List<String> models) {
-    _pending[chatId] = models;
+    _pending[chatId] = (models: models, account: _account());
     unawaited(_store(chatId, models));
     return _running ??= _drain().whenComplete(() => _running = null);
   }
@@ -144,7 +150,11 @@ class ChatModelSaveQueue extends Notifier<void> {
   Future<void> _drain() async {
     while (_pending.isNotEmpty) {
       final chatId = _pending.keys.first;
-      final models = _pending[chatId]!;
+      final (:models, :account) = _pending[chatId]!;
+      if (account != _account()) {
+        _pending.remove(chatId);
+        continue;
+      }
       if (_streamingIn(chatId)) {
         await _untilNotStreamingIn(chatId);
         if (!ref.mounted) return;
@@ -160,7 +170,11 @@ class ChatModelSaveQueue extends Notifier<void> {
         continue;
       }
       // A newer list for the chat is stored and sent in its own turn.
-      if (!_pending.containsKey(chatId)) await _store(chatId, models);
+      if (ref.mounted &&
+          account == _account() &&
+          !_pending.containsKey(chatId)) {
+        await _store(chatId, models);
+      }
     }
   }
 

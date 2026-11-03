@@ -6642,6 +6642,74 @@ void main() {
       ).isA<List>().deepEquals(['model-3']);
     });
 
+    test('a model pick is forgotten when another sign-in begins', () async {
+      const other = Model(id: 'model-2', name: 'Model 2');
+      final (:api, :socket, :container) = await open(
+        available: const [duplicate, other],
+        trackSignIn: true,
+      );
+      await saveChatModelChoice(container, other);
+      check(container.read(chatModelPickProvider)).isNotNull();
+
+      container.read(_signInEpochProvider.notifier).rotate();
+
+      check(container.read(chatModelPickProvider)).isNull();
+    });
+
+    test('a model list answered after another sign-in is not stored for '
+        'it', () async {
+      const other = Model(id: 'model-2', name: 'Model 2');
+      final (:api, :socket, :container) = await open(
+        available: const [duplicate, other],
+        trackSignIn: true,
+      );
+      api.holdModelSave = Completer<void>();
+      final saving = saveChatModelChoice(container, other);
+      for (var i = 0; i < 5; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+      check(api.savedModels).length.equals(1);
+
+      container.read(_signInEpochProvider.notifier).rotate();
+      // What the next account's sync stores for the chat.
+      await db.chatsDao.setChatModels(chatId, const ['model-1']);
+      api.holdModelSave!.complete();
+      await saving;
+
+      final row = await db.chatsDao.getChat(chatId);
+      check(
+        (jsonDecode(row!.rawExtra) as Map<String, dynamic>)['models'],
+      ).isA<List>().deepEquals(['model-1']);
+    });
+
+    test('a model list still waiting when another sign-in begins is not '
+        'sent', () async {
+      const other = Model(id: 'model-2', name: 'Model 2');
+      const third = Model(id: 'model-3', name: 'Model 3');
+      final (:api, :socket, :container) = await open(
+        available: const [duplicate, other, third],
+        trackSignIn: true,
+      );
+      api.holdModelSave = Completer<void>();
+      final first = saveChatModelChoice(container, other);
+      for (var i = 0; i < 5; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+      // Another pick waits for the first save to be answered.
+      final second = saveChatModelChoice(container, third);
+      for (var i = 0; i < 5; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+
+      container.read(_signInEpochProvider.notifier).rotate();
+      api.holdModelSave!.complete();
+      await Future.wait([first, second]);
+
+      check(api.savedModels.map((saved) => saved.$2)).deepEquals([
+        ['model-2'],
+      ]);
+    });
+
     test('a model picked before a comparison was sent leaves its answers '
         'their own models', () async {
       const other = Model(id: 'model-2', name: 'Model 2');
@@ -8714,6 +8782,9 @@ class _FanOutApi extends ApiService implements _AssistantIdSource {
   /// Model lists saved with `updateConversation`, by chat id.
   final List<(String, List<String>?)> savedModels = [];
 
+  /// While set, a model list save is answered only once this completes.
+  Completer<void>? holdModelSave;
+
   @override
   Future<void> updateConversation(
     String id, {
@@ -8723,6 +8794,7 @@ class _FanOutApi extends ApiService implements _AssistantIdSource {
     ApiAuthSnapshot? authSnapshot,
   }) async {
     savedModels.add((id, models));
+    await holdModelSave?.future;
   }
   final List<String> stoppedChats = [];
   bool answerSynchronously = false;
