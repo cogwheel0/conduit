@@ -847,7 +847,7 @@ class _EnhancedImageAttachmentState
                     child: SizedBox(
                       width: 20,
                       height: 20,
-                      child: CircularProgressIndicator(
+                      child: AdaptiveProgressIndicator(
                         color: theme.buttonPrimary,
                         strokeWidth: 2,
                       ),
@@ -1113,7 +1113,7 @@ class _EnhancedImageAttachmentState
                               child: const Center(
                                 child: SizedBox.square(
                                   dimension: 20,
-                                  child: CircularProgressIndicator(
+                                  child: AdaptiveProgressIndicator(
                                     color: Colors.white,
                                     strokeWidth: 2,
                                   ),

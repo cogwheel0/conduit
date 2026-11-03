@@ -16,11 +16,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'direct_connections_ui_test_support.dart';
+import '../../support/native_platform_views.dart';
 
 void main() {
   tearDown(PlatformUiCapabilities.resetDebugOverrides);
 
   testWidgets('iOS management uses native grouped rows', (tester) async {
+    stubNativePlatformViews();
     PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.iOS;
     PlatformUiCapabilities.debugIOSMajorVersionOverride = 26;
     PlatformUiCapabilities.debugNativeIOS26Override = true;
@@ -66,7 +68,7 @@ void main() {
     expect(profileRow.titleFontWeight, FontWeight.w400);
     expect(profileRow.showChevron, isTrue);
     expect(find.text('This device'), findsNothing);
-  });
+  }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
 
   testWidgets('management content shows profiles and history policy', (
     tester,

@@ -2672,7 +2672,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                               flex: 2,
                               child: loading
                                   ? const Center(
-                                      child: CircularProgressIndicator(),
+                                      child: AdaptiveProgressIndicator(),
                                     )
                                   : ListView.builder(
                                       itemCount: files.length,
@@ -2792,11 +2792,9 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
           leading: SizedBox(
             width: IconSize.large,
             height: IconSize.large,
-            child: CircularProgressIndicator(
+            child: AdaptiveProgressIndicator(
               strokeWidth: BorderWidth.regular,
-              valueColor: AlwaysStoppedAnimation<Color>(
-                context.conduitTheme.loadingIndicator,
-              ),
+              color: context.conduitTheme.loadingIndicator,
             ),
           ),
         ),
@@ -4839,7 +4837,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
             ? SizedBox(
                 width: iconSize,
                 height: iconSize,
-                child: CircularProgressIndicator(
+                child: AdaptiveProgressIndicator(
                   strokeWidth: 2.5,
                   color: context.conduitTheme.textSecondary,
                 ),
@@ -4923,7 +4921,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
           ? SizedBox(
               width: primaryIconSize,
               height: primaryIconSize,
-              child: CircularProgressIndicator(
+              child: AdaptiveProgressIndicator(
                 strokeWidth: 2.5,
                 color: context.conduitTheme.textSecondary,
               ),

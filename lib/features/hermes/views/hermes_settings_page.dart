@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:conduit/shared/widgets/adaptive_toolbar_components.dart';
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -836,21 +837,13 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
     return UtilityPageScaffold.settings(
       title: savedName ?? l10n.hermesNewConnectionTitle,
       trailing: PlatformInfo.isIOS
-          ? CupertinoButton(
+          ? ConduitAdaptiveAppBarTextButton(
               key: const ValueKey<String>('hermes-save-toolbar-button'),
-              padding: const EdgeInsets.symmetric(horizontal: Spacing.xs),
-              minimumSize: const Size(0, TouchTarget.minimum),
+              label: l10n.save,
               onPressed: draftUsable ? _saveSettings : null,
-              child: controller.operation == HermesConnectionOperation.saving
-                  ? const CupertinoActivityIndicator(radius: 8)
-                  : Text(
-                      l10n.save,
-                      style: TextStyle(
-                        color: draftUsable
-                            ? context.conduitTheme.buttonPrimary
-                            : context.conduitTheme.textDisabled,
-                      ),
-                    ),
+              isLoading:
+                  controller.operation == HermesConnectionOperation.saving,
+              prominent: true,
             )
           : null,
       children: content,

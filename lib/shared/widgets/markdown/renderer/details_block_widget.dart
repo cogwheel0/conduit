@@ -370,7 +370,7 @@ class _MarkdownDetailsBlockState extends State<MarkdownDetailsBlock> {
       return SizedBox(
         width: spinnerSize,
         height: spinnerSize,
-        child: CircularProgressIndicator(
+        child: AdaptiveProgressIndicator(
           strokeWidth: 1.8,
           color: theme.textSecondary,
         ),

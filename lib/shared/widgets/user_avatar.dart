@@ -6,6 +6,7 @@ import 'package:conduit/core/network/image_header_utils.dart';
 import 'package:conduit/core/network/self_signed_image_cache_manager.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 
 import '../services/raster_media_policy.dart';
 import '../services/brand_service.dart';
@@ -133,11 +134,9 @@ class AvatarImage extends ConsumerWidget {
       child: SizedBox(
         width: size * 0.35,
         height: size * 0.35,
-        child: CircularProgressIndicator(
+        child: AdaptiveProgressIndicator(
           strokeWidth: 2,
-          valueColor: AlwaysStoppedAnimation(
-            context.conduitTheme.buttonPrimary,
-          ),
+          color: context.conduitTheme.buttonPrimary,
         ),
       ),
     );

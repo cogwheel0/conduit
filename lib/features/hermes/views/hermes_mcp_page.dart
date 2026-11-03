@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:conduit/shared/widgets/adaptive_toolbar_components.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:material_ui/material_ui.dart';
 
@@ -298,10 +299,15 @@ final class _HermesMcpPageState extends ConsumerState<HermesMcpPage> {
       appBar: AppBar(
         title: const Text('Hermes MCP'),
         actions: [
-          IconButton(
-            tooltip: 'Add from catalog',
-            onPressed: () => unawaited(_run(_addPreset)),
-            icon: const Icon(Icons.auto_awesome_outlined),
+          AdaptiveTooltip(
+            message: 'Add from catalog',
+            excludeFromSemantics: true,
+            child: ConduitAdaptiveAppBarIconButton(
+              semanticLabel: 'Add from catalog',
+              iosSymbol: 'sparkles',
+              onPressed: () => unawaited(_run(_addPreset)),
+              icon: Icons.auto_awesome_outlined,
+            ),
           ),
         ],
       ),
@@ -331,8 +337,14 @@ final class _HermesMcpPageState extends ConsumerState<HermesMcpPage> {
                   isThreeLine: true,
                   trailing: _oauthPending.contains(server.name)
                       ? const CircularProgressIndicator.adaptive()
-                      : PopupMenuButton<String>(
-                          onSelected: (action) {
+                      : AdaptivePopupMenuButton.icon<String>(
+                          semanticLabel: MaterialLocalizations.of(context)
+                              .showMenuTooltip,
+                          icon: PlatformInfo.isIOS
+                              ? 'ellipsis'
+                              : Icons.more_vert,
+                          onSelected: (_, entry) {
+                            final action = entry.value;
                             final name = server.name;
                             if (action == 'test') {
                               unawaited(_run(() => _test(name)));
@@ -353,31 +365,32 @@ final class _HermesMcpPageState extends ConsumerState<HermesMcpPage> {
                               unawaited(_run(() => _remove(name)));
                             }
                           },
-                          itemBuilder: (_) => [
-                            const PopupMenuItem(
+                          items: [
+                            const AdaptivePopupMenuItem<String>(
                               value: 'test',
-                              child: Text('Test'),
+                              label: 'Test',
                             ),
-                            const PopupMenuItem(
+                            const AdaptivePopupMenuItem<String>(
                               value: 'oauth',
-                              child: Text('Authenticate'),
+                              label: 'Authenticate',
                             ),
                             if (supportsCredentialUpdate)
-                              const PopupMenuItem(
+                              const AdaptivePopupMenuItem<String>(
                                 value: 'key',
-                                child: Text('Set API key'),
+                                label: 'Set API key',
                               ),
-                            const PopupMenuItem(
+                            const AdaptivePopupMenuItem<String>(
                               value: 'enable',
-                              child: Text('Enable tools'),
+                              label: 'Enable tools',
                             ),
-                            const PopupMenuItem(
+                            const AdaptivePopupMenuItem<String>(
                               value: 'disable',
-                              child: Text('Disable tools'),
+                              label: 'Disable tools',
                             ),
-                            const PopupMenuItem(
+                            const AdaptivePopupMenuItem<String>(
                               value: 'remove',
-                              child: Text('Remove'),
+                              label: 'Remove',
+                              isDestructive: true,
                             ),
                           ],
                         ),
@@ -386,10 +399,22 @@ final class _HermesMcpPageState extends ConsumerState<HermesMcpPage> {
           );
         },
       ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: () => unawaited(_run(_add)),
-        child: const Icon(Icons.add),
-      ),
+      floatingActionButton: PlatformUiCapabilities.usesNativeIOS26
+          ? SizedBox.square(
+              dimension: 56,
+              child: AdaptiveButton.sfSymbol(
+                onPressed: () => unawaited(_run(_add)),
+                sfSymbol: const SFSymbol('plus'),
+                style: AdaptiveButtonStyle.prominentGlass,
+                semanticLabel: 'Add MCP server',
+                minSize: const Size.square(56),
+                padding: EdgeInsets.zero,
+              ),
+            )
+          : FloatingActionButton(
+              onPressed: () => unawaited(_run(_add)),
+              child: const Icon(Icons.add),
+            ),
     );
   }
 }

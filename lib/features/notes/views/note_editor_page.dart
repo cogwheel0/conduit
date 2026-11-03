@@ -1483,11 +1483,9 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
                           SizedBox(
                             width: IconSize.sm,
                             height: IconSize.sm,
-                            child: CircularProgressIndicator(
+                            child: AdaptiveProgressIndicator(
                               strokeWidth: BorderWidth.medium,
-                              valueColor: AlwaysStoppedAnimation(
-                                conduitTheme.loadingIndicator,
-                              ),
+                              color: conduitTheme.loadingIndicator,
                             ),
                           ),
                           const SizedBox(width: Spacing.sm),
@@ -1571,11 +1569,9 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
                   child: SizedBox(
                     width: IconSize.sm,
                     height: IconSize.sm,
-                    child: CircularProgressIndicator(
+                    child: AdaptiveProgressIndicator(
                       strokeWidth: BorderWidth.medium,
-                      valueColor: AlwaysStoppedAnimation(
-                        conduitTheme.loadingIndicator,
-                      ),
+                      color: conduitTheme.loadingIndicator,
                     ),
                   ),
                 ),

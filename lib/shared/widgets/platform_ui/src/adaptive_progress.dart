@@ -1,6 +1,8 @@
 import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:material_ui/material_ui.dart';
 
+import 'platform_ui_capabilities.dart';
+
 /// Progress remains a value in [0, 1]; null means work with no known total.
 class AdaptiveProgressIndicator extends StatelessWidget {
   const AdaptiveProgressIndicator({
@@ -62,6 +64,23 @@ class AdaptiveProgressIndicator extends StatelessWidget {
         minHeight: minHeight,
         semanticsLabel: semanticLabel,
         semanticsValue: semanticValue,
+      );
+    }
+    if (PlatformUiCapabilities.isIOS) {
+      return Semantics(
+        label: semanticLabel,
+        value:
+            semanticValue ??
+            (value == null ? null : '${(value! * 100).round()}%'),
+        child: FittedBox(
+          child: value == null
+              ? CupertinoActivityIndicator(radius: 18, color: color)
+              : CupertinoActivityIndicator.partiallyRevealed(
+                  radius: 18,
+                  color: color,
+                  progress: value!.clamp(0, 1),
+                ),
+        ),
       );
     }
     return CircularProgressIndicator(

@@ -13,6 +13,7 @@ import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/model_avatar.dart';
 
 import 'package:conduit/l10n/app_localizations.dart';
+import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 
 /// Autocomplete overlay that appears when the user types `@` to
 /// switch the active AI model, similar to OpenWebUI.
@@ -189,11 +190,9 @@ class ModelSuggestionOverlay extends ConsumerWidget {
           leading: SizedBox(
             width: IconSize.large,
             height: IconSize.large,
-            child: CircularProgressIndicator(
+            child: AdaptiveProgressIndicator(
               strokeWidth: BorderWidth.regular,
-              valueColor: AlwaysStoppedAnimation<Color>(
-                context.conduitTheme.loadingIndicator,
-              ),
+              color: context.conduitTheme.loadingIndicator,
             ),
           ),
         ),

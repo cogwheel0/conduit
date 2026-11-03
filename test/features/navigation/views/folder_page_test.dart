@@ -66,6 +66,8 @@ import 'package:flutter/services.dart' show MethodChannel, SystemChannels;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../support/native_platform_views.dart';
+
 void main() {
   test('pasted attachments acknowledge before terminal uploads', () async {
     final directory = await Directory.systemTemp.createTemp(
@@ -1203,6 +1205,7 @@ void main() {
         FlutterError.onError = originalFlutterErrorOnError;
       });
       if (native) {
+        stubNativePlatformViews();
         // The presenter iOS 26 devices use: CNBottomSheet supplies Flutter's
         // own Material, not the material_ui one these controls look up.
         PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.iOS;

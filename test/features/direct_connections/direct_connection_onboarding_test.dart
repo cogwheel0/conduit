@@ -17,6 +17,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'direct_connections_ui_test_support.dart';
+import '../../support/native_platform_views.dart';
 import '../../support/test_fonts.dart';
 
 void main() {
@@ -164,6 +165,7 @@ void main() {
   testWidgets(
     'iOS editor removes repeated headers and uses compact selectors',
     (tester) async {
+      stubNativePlatformViews();
       tester.view.physicalSize = const Size(320, 800);
       tester.view.devicePixelRatio = 1;
       addTearDown(tester.view.resetPhysicalSize);
@@ -255,6 +257,7 @@ void main() {
       );
       expect(find.byType(AdaptiveSegmentedControl), findsNothing);
     },
+    variant: TargetPlatformVariant.only(TargetPlatform.iOS),
   );
 
   testWidgets('onboarding does not save an unreachable direct provider', (

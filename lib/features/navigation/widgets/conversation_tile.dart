@@ -3,6 +3,7 @@ import 'dart:io' show Platform;
 import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
+import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 
 import '../../../shared/theme/theme_extensions.dart';
 
@@ -460,9 +461,9 @@ class ConversationTileContent extends StatelessWidget {
               : null,
           width: IconSize.sm,
           height: IconSize.sm,
-          child: CircularProgressIndicator(
+          child: AdaptiveProgressIndicator(
             strokeWidth: BorderWidth.medium,
-            valueColor: AlwaysStoppedAnimation<Color>(theme.loadingIndicator),
+            color: theme.loadingIndicator,
           ),
         ),
       ]);

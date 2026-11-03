@@ -26,6 +26,7 @@ import '../../chat/widgets/modern_chat_input.dart';
 
 import 'package:conduit_core/features/channels/providers/channel_app_replies.dart';
 import 'package:conduit_core/features/channels/providers/channel_providers.dart';
+import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 
 import '../utils/channel_request_owner.dart';
 import '../utils/mention_utils.dart';
@@ -214,7 +215,7 @@ class _ThreadPanelState extends ConsumerState<ThreadPanel> {
                           ),
                           loading: () => _ThreadStatus(
                             bottomPadding: repliesBottomPadding,
-                            child: const CircularProgressIndicator(),
+                            child: const AdaptiveProgressIndicator(),
                           ),
                           error: (e, _) => _ThreadStatus(
                             bottomPadding: repliesBottomPadding,

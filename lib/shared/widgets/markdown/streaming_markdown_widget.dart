@@ -1135,7 +1135,7 @@ class MarkdownWithLoading extends StatelessWidget {
   Widget build(BuildContext context) {
     final value = content ?? '';
     if (isLoading && value.trim().isEmpty) {
-      return const Center(child: CircularProgressIndicator());
+      return const Center(child: AdaptiveProgressIndicator());
     }
 
     return StreamingMarkdownWidget(

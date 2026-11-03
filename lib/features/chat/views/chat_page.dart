@@ -1895,7 +1895,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                       ? const SizedBox(
                           width: 16,
                           height: 16,
-                          child: CircularProgressIndicator(strokeWidth: 2),
+                          child: AdaptiveProgressIndicator(strokeWidth: 2),
                         )
                       : Text(l10n.attach),
                 ),

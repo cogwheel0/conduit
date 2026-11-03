@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:conduit/shared/widgets/adaptive_toolbar_components.dart';
 import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -538,12 +539,10 @@ class _TaskDetailState extends ConsumerState<_TaskDetail> {
   Widget _editButton(AppLocalizations l10n) {
     final onPressed = _deleting ? null : _edit;
     if (PlatformInfo.isIOS) {
-      return CupertinoButton(
+      return ConduitAdaptiveAppBarTextButton(
         key: const Key('scheduled-task-edit'),
-        padding: const EdgeInsets.symmetric(horizontal: Spacing.xs),
-        minimumSize: const Size(0, TouchTarget.minimum),
+        label: l10n.edit,
         onPressed: onPressed,
-        child: Text(l10n.edit),
       );
     }
     return TextButton(

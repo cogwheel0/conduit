@@ -651,7 +651,7 @@ class _WebContentEmbedState extends State<WebContentEmbed> {
     if (!_shouldRenderWebView) {
       _scheduleControllerInitialization(context);
       if (!widget.showChrome) {
-        return const Center(child: CircularProgressIndicator());
+        return const Center(child: AdaptiveProgressIndicator());
       }
       return const _EmbedLoadingCard();
     }
@@ -733,7 +733,7 @@ class _WebContentEmbedState extends State<WebContentEmbed> {
           const Positioned.fill(
             child: ColoredBox(
               color: Colors.transparent,
-              child: Center(child: CircularProgressIndicator()),
+              child: Center(child: AdaptiveProgressIndicator()),
             ),
           ),
       ],
@@ -884,7 +884,7 @@ class _EmbedLoadingCard extends StatelessWidget {
       ),
       child: const SizedBox(
         height: _embedFallbackHeight,
-        child: Center(child: CircularProgressIndicator()),
+        child: Center(child: AdaptiveProgressIndicator()),
       ),
     );
   }

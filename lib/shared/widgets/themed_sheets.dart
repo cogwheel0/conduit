@@ -553,7 +553,7 @@ class SheetCloseButton extends StatelessWidget {
       );
     }
 
-    final button = AdaptiveButton.child(
+    final button = AdaptiveButton.sfSymbol(
       onPressed: onPressed,
       enabled: onPressed != null,
       style: AdaptiveButtonStyle.glass,
@@ -564,12 +564,18 @@ class SheetCloseButton extends StatelessWidget {
       minSize: Size.square(buttonSize),
       borderRadius: BorderRadius.circular(buttonSize),
       useSmoothRectangleBorder: false,
-      child: icon,
+      sfSymbol: SFSymbol('xmark', size: iconSize, color: iconColor),
+      semanticLabel:
+          tooltip ?? MaterialLocalizations.of(context).closeButtonTooltip,
     );
     if (tooltip == null) {
       return button;
     }
-    return Tooltip(message: tooltip!, child: button);
+    return Tooltip(
+      message: tooltip!,
+      excludeFromSemantics: true,
+      child: button,
+    );
   }
 }
 

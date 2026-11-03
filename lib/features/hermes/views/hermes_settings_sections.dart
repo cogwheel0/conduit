@@ -181,7 +181,7 @@ class _HermesToolsetsSectionState extends ConsumerState<HermesToolsetsSection> {
             loading: () => const SizedBox(
               height: 18,
               width: 18,
-              child: CircularProgressIndicator(strokeWidth: 2),
+              child: AdaptiveProgressIndicator(strokeWidth: 2),
             ),
             error: (_, _) => Text(
               l10n.directConnectionUnavailableLabel,
@@ -450,7 +450,7 @@ class HermesServerStatusSection extends ConsumerWidget {
             loading: () => const SizedBox(
               height: 18,
               width: 18,
-              child: CircularProgressIndicator(strokeWidth: 2),
+              child: AdaptiveProgressIndicator(strokeWidth: 2),
             ),
             error: (_, _) => Text(
               l10n.directConnectionUnavailableLabel,
