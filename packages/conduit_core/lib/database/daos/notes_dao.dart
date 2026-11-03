@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:drift/drift.dart';
 import 'package:uuid/uuid.dart';
 
+import '../../features/notes/utils/note_page_data.dart';
 import '../../sync/note_conflict.dart';
 import '../app_database.dart';
 import '../mappers/note_mapper.dart';
@@ -348,33 +349,7 @@ LIMIT 1
     // Spawn the conflict copy BEFORE overwriting the canonical row's local
     // data, so the LOCAL data is captured intact.
     if (decision.spawnConflictCopy) {
-      final copyId = 'local:${_uuid.v4()}';
-      await into(notes).insert(
-        NotesCompanion.insert(
-          id: copyId,
-          // Local title (+ suffix) preserved on the copy.
-          title: existing.title + kNoteConflictCopySuffix,
-          data: Value(existing.data),
-          meta: Value(existing.meta),
-          isPinned: const Value(false),
-          createdAt: existing.createdAt,
-          updatedAt: existing.updatedAt,
-          serverUpdatedAt: const Value(null),
-          dirtyTitle: const Value(true),
-          dirtyData: const Value(true),
-          dirtyPinned: const Value(false),
-          deleted: const Value(false),
-          rawExtra: Value(existing.rawExtra),
-          isConflictCopy: const Value(true),
-          conflictOf: Value(existing.id),
-        ),
-      );
-      final copy = await getNote(copyId);
-      await _outboxDao.enqueue(
-        kind: OutboxKind.noteCreate,
-        chatId: copyId,
-        contentHash: noteCreateContentHashFromRow(copy!),
-      );
+      await spawnConflictCopy(existing);
     }
 
     // Canonical row: title/data each follow the field-LWW decision. Conflict
@@ -401,6 +376,45 @@ LIMIT 1
         rawExtra: serverRow.rawExtra,
       ),
     );
+  }
+
+  /// Keeps the local edit of [existing] as a note of its own: a `local:` row
+  /// marked as its conflict copy, with a `noteCreate` op. A paged note's copy
+  /// holds the text edited here ([noteDataForConflictCopy]) without the
+  /// pages, which belong to the original. Runs in the caller's transaction,
+  /// or its own.
+  Future<void> spawnConflictCopy(NoteRow existing) {
+    return transaction(() async {
+      final copyId = 'local:${_uuid.v4()}';
+      await into(notes).insert(
+        NotesCompanion.insert(
+          id: copyId,
+          // Local title (+ suffix) preserved on the copy.
+          title: existing.title + kNoteConflictCopySuffix,
+          data: Value(
+            jsonEncode(noteDataForConflictCopy(decodeJsonMap(existing.data))),
+          ),
+          meta: Value(existing.meta),
+          isPinned: const Value(false),
+          createdAt: existing.createdAt,
+          updatedAt: existing.updatedAt,
+          serverUpdatedAt: const Value(null),
+          dirtyTitle: const Value(true),
+          dirtyData: const Value(true),
+          dirtyPinned: const Value(false),
+          deleted: const Value(false),
+          rawExtra: Value(existing.rawExtra),
+          isConflictCopy: const Value(true),
+          conflictOf: Value(existing.id),
+        ),
+      );
+      final copy = await getNote(copyId);
+      await _outboxDao.enqueue(
+        kind: OutboxKind.noteCreate,
+        chatId: copyId,
+        contentHash: noteCreateContentHashFromRow(copy!),
+      );
+    });
   }
 
   // ---- local-mutation *WithOutbox (row + op in one tx; caller holds lock) ----

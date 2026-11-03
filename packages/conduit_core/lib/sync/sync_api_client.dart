@@ -27,6 +27,24 @@ class SyncTerminalException implements Exception {
   String toString() => 'SyncTerminalException($statusCode): $message';
 }
 
+/// The server refused a write's body as malformed (HTTP 400 or 422).
+///
+/// Unlike [SyncTerminalException] this is retried like any transient error,
+/// since a 400 can also stand for a server fault. It lets a writer that knows
+/// another accepted shape for the same change try that one, as a note save
+/// does for an Open WebUI 0.12.5 server that no longer takes a file list.
+class SyncRejectedException implements Exception {
+  const SyncRejectedException({required this.statusCode, this.detail});
+
+  final int statusCode;
+
+  /// The server's `detail`, when it gave one.
+  final String? detail;
+
+  @override
+  String toString() => 'SyncRejectedException($statusCode): ${detail ?? ''}';
+}
+
 /// Thin client seam so `PullSync`/`PushSync` are unit-testable against
 /// `FakeOpenWebUiServer` (CDT-RFC-001 Phase 1 + Phase 2).
 abstract interface class SyncApiClient {
@@ -186,9 +204,10 @@ abstract interface class SyncApiClient {
   });
 
   /// POST `/api/v1/notes/{id}/update` body = the patch map ([patch] ALWAYS
-  /// carries `title`; `data` only when the data axis changed — WARNING B).
-  /// Returns the updated `NoteModel` map; null on 404 (gone). 401/403 throws
-  /// [SyncTerminalException].
+  /// carries `title`; `data` and `page_id` only when the data axis changed —
+  /// WARNING B). Returns the updated `NoteModel` map; null on 404 (gone).
+  /// 401/403 throws [SyncTerminalException]; a body the server refuses
+  /// (400/422) throws [SyncRejectedException].
   Future<Map<String, dynamic>?> updateNote(
     String id,
     Map<String, dynamic> patch,
