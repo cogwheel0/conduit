@@ -1,10 +1,11 @@
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit_core/features/notes/utils/note_page_data.dart';
 import 'package:conduit_core/models/note.dart';
-import 'package:material_ui/material_ui.dart';
+import 'package:flutter/widgets.dart';
 
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/adaptive_selection_sheet.dart';
+import '../../../shared/widgets/platform_ui/vocabulary.dart';
 import '../../../shared/widgets/utility/utility_rows.dart';
 
 /// A page of a note as the Pages sheet lists it: its title, the path of
