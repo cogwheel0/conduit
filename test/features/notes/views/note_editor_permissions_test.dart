@@ -502,6 +502,35 @@ void main() {
     expect(find.byType(NoteFileAttachment), findsOneWidget);
   });
 
+  testWidgets('removing a listed file also takes its link out of a sentence', (
+    tester,
+  ) async {
+    const md = 'see [Rec.m4a](/api/v1/files/f1/content) here';
+    final note = _noteJson(writeAccess: true, md: md);
+    (note['data'] as Map)['files'] = [
+      {'type': 'file', 'id': 'f1', 'name': 'Rec.m4a'},
+    ];
+    await storeLocally(note);
+    await pumpEditor(tester, _DetailApi(detail: note));
+
+    final listed = find.byType(NoteFileAttachment);
+    expect(listed, findsOneWidget);
+    await tester.tap(
+      find.descendant(of: listed, matching: find.byIcon(Icons.cancel_rounded)),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(l10n(tester).delete).last);
+    await tester.pumpAndSettle();
+    await letAutosaveRun(tester);
+
+    final data = decodeNoteData((await db.notesDao.getNote('note-1'))!.data);
+    expect(data['files'], isEmpty);
+    expect(
+      (data['content'] as Map)['md'],
+      isNot(contains('/api/v1/files/f1/content')),
+    );
+  });
+
   testWidgets('removing a file card detaches the file on the next save', (
     tester,
   ) async {

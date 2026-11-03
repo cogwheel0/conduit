@@ -87,11 +87,6 @@ class NoteAttachmentsController {
   String _pageIn(Map<String, dynamic> data, [String? page]) =>
       notePageIdIn(data, page ?? _currentPageId?.call());
 
-  /// The page each recording staged here was made on, so it is attached
-  /// there even when the editor shows another page by the time it uploads.
-  /// A recording picked up from an earlier run goes to the page shown.
-  final Map<String, String?> _stagedPages = <String, String?>{};
-
   final List<PendingNoteAudioUpload> _pending = <PendingNoteAudioUpload>[];
   final Set<String> _inFlight = <String>{};
   final Set<String> _queued = <String>{};
@@ -208,6 +203,10 @@ class NoteAttachmentsController {
     }
 
     final String fileName = noteRecordingFileName(audioFile.path);
+    // The page the recording was made on, read with the note: it is stored
+    // with the recording, which is attached there even when the editor
+    // shows another page, or is closed, by the time it uploads.
+    final String? pageId = _currentPageId?.call();
     try {
       final PendingNoteAudioUpload item = await _store.stage(
         source: audioFile,
@@ -215,8 +214,8 @@ class NoteAttachmentsController {
         accountId: scope.accountId,
         noteId: note.id,
         fileName: fileName,
+        pageId: pageId,
       );
-      _stagedPages[item.id] = _currentPageId?.call();
       if (!_isCurrent(api: api, db: db, authEpoch: authEpoch)) return true;
       _mutationGeneration++;
       _hidden.remove(item.id);
@@ -676,7 +675,7 @@ class NoteAttachmentsController {
     if (note == null) throw StateError('The note is no longer available');
 
     final Map<String, dynamic> attachment = noteAudioAttachment(item, fileId);
-    final String? page = _stagedPages[item.id];
+    final String? page = item.pageId;
 
     Note? updatedNote;
     if (db != null) {

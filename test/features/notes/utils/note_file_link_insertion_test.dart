@@ -57,25 +57,23 @@ void main() {
   });
 
   for (final md in ['```\ncode\n```', '- item', '# Heading', '> quote']) {
-    test('a link added after "$md" is a plain line of its own', () {
-      final controller = FleatherController(document: documentFromMarkdown(md));
+    test('a card added after "$md" is a line of its own', () {
+      final controller = FleatherController(
+        document: noteDocumentFromMarkdown(md),
+      );
       addTearDown(controller.dispose);
 
-      appendNoteFileLinksToDocument(controller, const [
-        NoteFileLink(id: 'f1', name: 'Rec.m4a'),
-      ]);
+      insertNoteFileCardsInEditor(controller, const [rec]);
 
-      final markdown = markdownFromDocument(controller.document);
-      expect(
-        noteFileLinksInMarkdown(markdown),
-        const [NoteFileLink(id: 'f1', name: 'Rec.m4a')],
-        reason: markdown,
-      );
+      final markdown = noteMarkdownFromDocument(controller.document);
+      expect(noteFileLinksInMarkdown(markdown), const [rec], reason: markdown);
       expect(
         markdown.trimRight(),
         endsWith('\n[Rec.m4a](/api/v1/files/f1/content)'),
         reason: markdown,
       );
+      // Read again, it is a card again.
+      expect(noteFileCardsIn(noteDocumentFromMarkdown(markdown)), const [rec]);
     });
   }
 }

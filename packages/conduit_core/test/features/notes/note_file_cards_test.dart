@@ -61,4 +61,9 @@ void main() {
     final doc = noteDocumentFromMarkdown('- $linkA\n\n## $linkB');
     check(noteFileCardsIn(doc)).isEmpty();
   });
+
+  test('a link written as code stays code', () {
+    final doc = noteDocumentFromMarkdown('`$linkA`');
+    check(noteFileCardsIn(doc)).isEmpty();
+  });
 }

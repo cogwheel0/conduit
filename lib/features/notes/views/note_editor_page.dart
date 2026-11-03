@@ -495,6 +495,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
     if (_hasPage(note, _pageId)) return;
     if (_contentMarkdown != _savedMarkdown) {
       _pageMissing = true;
+      _hasChanges = true;
       return;
     }
     _settlePage(note);
@@ -540,10 +541,12 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
     // Text typed while a save ran is not saved yet; the debounce it started
     // still compares against [_savedMarkdown] and saves it.
     final wasSaved = _contentMarkdown == _savedMarkdown;
-    insertNoteFileCardsInEditor(controller, gained, index: _cardInsertIndex());
-    if (wasSaved) {
-      // The stored note already holds these files: nothing new to save,
-      // though the editor may hold them elsewhere in the page.
+    final index = _cardInsertIndex();
+    insertNoteFileCardsInEditor(controller, gained, index: index);
+    if (wasSaved && index == null) {
+      // The stored note already holds these files, at the end of the page as
+      // here: nothing new to save. Cards put in at the cursor sit elsewhere
+      // than the stored links, so that place is saved.
       _savedMarkdown = _contentMarkdown;
     }
   }
@@ -572,10 +575,17 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
     if (!mounted) return;
     _saveDebounce?.cancel();
     await _autoSave();
-    if (!mounted || _contentMarkdown != _savedMarkdown || _isEnhancing) return;
+    // A title or text the save left unsaved, or refused, keeps the editor
+    // here with its recovery choices.
+    bool unsaved() =>
+        _contentMarkdown != _savedMarkdown ||
+        _hasChanges ||
+        _writeRefused ||
+        _pageMissing;
+    if (!mounted || unsaved() || _isEnhancing) return;
     // A sync may have brought newer pages since this editor last read them.
     final stored = await _readStoredNote();
-    if (!mounted || _contentMarkdown != _savedMarkdown) return;
+    if (!mounted || unsaved()) return;
     final note = stored ?? _note!;
     setState(() {
       _note = note;
@@ -1852,8 +1862,9 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
+          // The page's path gives way first on a narrow screen.
           if (_note?.isMultiPage ?? false) ...[
-            _buildPageChip(context, _note!),
+            Flexible(child: _buildPageChip(context, _note!)),
             _buildMetadataSeparator(context),
           ],
           _buildMetadataChip(
@@ -1917,6 +1928,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
       button: true,
       label: l10n.notePageChipLabel(path),
       excludeSemantics: true,
+      onTap: () => unawaited(_openPagesSheet()),
       child: GestureDetector(
         key: const ValueKey<String>('note-page-chip'),
         behavior: HitTestBehavior.opaque,
@@ -1938,15 +1950,17 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
                 size: IconSize.xs,
               ),
               const SizedBox(width: Spacing.xxs),
-              ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 140),
-                child: Text(
-                  path,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: AppTypography.tiny.copyWith(
-                    color: secondaryColor,
-                    fontWeight: FontWeight.w600,
+              Flexible(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 140),
+                  child: Text(
+                    path,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppTypography.tiny.copyWith(
+                      color: secondaryColor,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
                 ),
               ),
@@ -2479,6 +2493,12 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
       return;
     }
     removeNoteFileCardsInEditor(controller, file.id);
+    // An older note may also list the file; the list goes the same way.
+    final listed = _note?.data.files ?? const <Map<String, dynamic>>[];
+    if (listed.any((entry) => entry['id']?.toString() == file.id)) {
+      final updated = await _attachments.removeAttachedFile(file.id);
+      if (mounted && updated != null) setState(() => _note = updated);
+    }
   }
 
   /// Builds a Fleather theme derived from the app's typography and colours so
@@ -2575,6 +2595,16 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
             final controller = _contentController;
             if (shownInText && controller != null) {
               removeNoteFileCardsInEditor(controller, fileId);
+              // A link in a sentence or list is not a card; it goes too.
+              if (noteFileLinksInMarkdown(
+                _contentMarkdown,
+              ).any((link) => link.id == fileId)) {
+                _installContentDocument(
+                  noteDocumentFromMarkdown(
+                    removeNoteFileLinks(_contentMarkdown, fileId),
+                  ),
+                );
+              }
               _hasChanges = true;
               _updateWordCount();
             }

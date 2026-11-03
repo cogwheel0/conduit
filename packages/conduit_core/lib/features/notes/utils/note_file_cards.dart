@@ -127,6 +127,11 @@ NoteFileLink? _fileOfLine(List<Operation> ops) {
   for (final op in ops) {
     final data = op.data;
     if (data is! String) return null;
+    // Code is text, however much it looks like a link.
+    if (op.attributes?.containsKey(ParchmentAttribute.inlineCode.key) ??
+        false) {
+      return null;
+    }
     final link = op.attributes?[ParchmentAttribute.link.key];
     if (link is! String) {
       if (data.trim().isNotEmpty) return null;

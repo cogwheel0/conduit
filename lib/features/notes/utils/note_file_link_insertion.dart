@@ -22,6 +22,14 @@ int insertNoteFileCardsInEditor(
     controller.replaceText(at, 0, noteFileEmbed(id: file.id, name: file.name));
     final text = controller.document.toPlainText();
     final card = text.indexOf(EmbedNode.kObjectReplacementCharacter, at);
+    if (card >= 0) {
+      // A new line takes the style of the one it follows: a card in a code
+      // block, list, quote or heading would be written back as no
+      // attachment, so its line is plain.
+      controller
+        ..formatText(card, 0, ParchmentAttribute.block.unset)
+        ..formatText(card, 0, ParchmentAttribute.heading.unset);
+    }
     // Past the card and the line break it ends with.
     at = card < 0 ? at : (card + 2).clamp(0, controller.document.length - 1);
   }
