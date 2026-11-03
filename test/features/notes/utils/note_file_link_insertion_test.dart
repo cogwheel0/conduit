@@ -101,6 +101,34 @@ void main() {
     expect(controller.selection.baseOffset, controller.document.length - 1);
   });
 
+  test('undo after a card was removed brings the card back, and nothing '
+      'else', () async {
+    final controller = FleatherController(
+      document: noteDocumentFromMarkdown(
+        'hello\n\n[Rec.m4a](/api/v1/files/f1/content)\n\nbye',
+      ),
+    );
+    addTearDown(controller.dispose);
+    // An edit typed first, which the undo history holds.
+    final end = controller.document.length - 1;
+    controller.replaceText(
+      end,
+      0,
+      '!',
+      selection: TextSelection.collapsed(offset: end + 1),
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 600));
+
+    removeNoteFileCardsInEditor(controller, 'f1');
+    await Future<void>.delayed(const Duration(milliseconds: 600));
+    controller.undo();
+
+    expect(noteFileCardsIn(controller.document), const [rec]);
+    final text = controller.document.toPlainText();
+    expect(text, startsWith('hello\n'));
+    expect(text, contains('bye!'));
+  });
+
   test('a removed card leaves the rest of the note', () {
     final controller = FleatherController(
       document: noteDocumentFromMarkdown(

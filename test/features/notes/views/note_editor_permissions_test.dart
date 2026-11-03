@@ -583,6 +583,81 @@ void main() {
     expect(find.byType(NoteFileAttachment), findsOneWidget);
   });
 
+  testWidgets('a file a 0.12.5 note links in a sentence is listed, to be '
+      'played', (tester) async {
+    const md =
+        'Listen to [Rec.m4a](/api/v1/files/f1/content)\n\n'
+        '[Doc.pdf](/api/v1/files/f2/content)';
+    final note = _noteJson(
+      writeAccess: true,
+      md: md,
+      pages: [
+        {
+          'id': 'main',
+          'title': 'Shared note',
+          'content': {'md': md, 'html': '', 'json': null},
+        },
+      ],
+    );
+    await storeLocally(note);
+    await pumpEditor(tester, _DetailApi(detail: note));
+
+    // The link on a line of its own is a card; the one in a sentence is
+    // listed above the text.
+    expect(
+      find.byKey(const ValueKey<String>('note-file-card-f2')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey<String>('note-file-card-f1')),
+      findsNothing,
+    );
+    final shown = [
+      for (final widget in tester.widgetList<NoteFileAttachment>(
+        find.byType(NoteFileAttachment),
+      ))
+        widget.file['id'],
+    ];
+    expect(shown, unorderedEquals(['f1', 'f2']));
+  });
+
+  testWidgets('a card removal the server refuses keeps the draft and stops '
+      'saving', (tester) async {
+    const md = 'original\n\n[Rec.m4a](/api/v1/files/f1/content)';
+    final note = _noteJson(
+      writeAccess: true,
+      md: md,
+      pages: [
+        {
+          'id': 'main',
+          'title': 'Shared note',
+          'content': {'md': md, 'html': '', 'json': null},
+        },
+      ],
+    );
+    // An earlier build also listed the file.
+    (note['data'] as Map)['files'] = [
+      {'type': 'file', 'id': 'f1', 'name': 'Rec.m4a'},
+    ];
+    await storeLocally(note);
+    await pumpEditor(tester, _DetailApi(detail: note));
+
+    await tester.tap(
+      find.descendant(
+        of: find.byKey(const ValueKey<String>('note-file-card-f1')),
+        matching: find.byIcon(Icons.cancel_rounded),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await db.notesDao.storeNoteAccessProjection('note-1', writeAccess: false);
+    await tester.tap(find.text(l10n(tester).delete).last);
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
+    expect(find.text(l10n(tester).noteAccessRevokedNotice), findsOneWidget);
+    await expectNothingQueued();
+  });
+
   testWidgets('removing a listed file also takes its link out of a sentence', (
     tester,
   ) async {

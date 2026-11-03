@@ -902,6 +902,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
       return;
     }
 
+    final pageId = _pageId;
     try {
       final title = _titleController.text.trim();
 
@@ -909,7 +910,6 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
       // content changes here.
       final savedMarkdown = _contentMarkdown;
       final linkBase = _linkBase;
-      final pageId = _pageId;
       final data = _composeUpdatedNoteData();
 
       final resolvedTitle = title.isEmpty
@@ -939,6 +939,13 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
             _isSaving = false;
             _sessionChanged = true;
           });
+          return;
+        }
+
+        // A save that ends after the editor moved to another page holds text
+        // that page never showed: it is no baseline for it.
+        if (pageId != _pageId) {
+          setState(() => _isSaving = false);
           return;
         }
 
@@ -977,6 +984,12 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
       // A sync removed the page this text was written on. Keep the text and
       // let the user keep it as a note of its own; the note as stored now is
       // what Discard goes back to.
+      // The page is only switched once its text is saved, so a refusal that
+      // ends after a switch holds nothing to keep.
+      if (pageId != _pageId) {
+        if (mounted) setState(() => _isSaving = false);
+        return;
+      }
       _saveDebounce?.cancel();
       final stored = await _readStoredNote();
       if (mounted) {
@@ -2060,9 +2073,25 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
     // Adaptive app bar height + metadata bar (~40).
     final appBarHeight = conduitAdaptiveToolbarHeightOf(context) + 40;
 
-    // The file list servers before 0.12.5 keep; 0.12.5 attaches files by
-    // links in the page, which the editor shows as cards where they sit.
-    final files = _note?.data.files ?? <Map<String, dynamic>>[];
+    // The file list servers before 0.12.5 keep, and the files the page links
+    // where no card shows them: 0.12.5 attaches files by links in the page,
+    // which the editor shows as cards where a link stands on its own line,
+    // but a link in a sentence, list or quote stays text, and is listed here
+    // to be played or opened.
+    final listed = _note?.data.files ?? <Map<String, dynamic>>[];
+    final controller = _contentController;
+    final carded = <String>{
+      if (controller != null)
+        for (final card in noteFileCardsIn(controller.document)) card.id,
+    };
+    final files = [
+      ...listed,
+      if (controller != null)
+        for (final link in noteFileLinksInMarkdown(_contentMarkdown))
+          if (!carded.contains(link.id) &&
+              !listed.any((file) => file['id']?.toString() == link.id))
+            link.toAttachment(),
+    ];
 
     return GestureDetector(
       onTap: () => _contentFocusNode.requestFocus(),
@@ -2517,8 +2546,16 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
     // An older note may also list the file; the list goes the same way.
     final listed = _note?.data.files ?? const <Map<String, dynamic>>[];
     if (listed.any((entry) => entry['id']?.toString() == file.id)) {
-      final updated = await _attachments.removeAttachedFile(file.id);
-      if (mounted && updated != null) setState(() => _note = updated);
+      try {
+        final updated = await _attachments.removeAttachedFile(file.id);
+        if (mounted && updated != null) setState(() => _note = updated);
+      } on NoteWriteDeniedException {
+        // Access went away: the draft stays, and is not saved again.
+        _saveDebounce?.cancel();
+        if (mounted) setState(() => _writeRefused = true);
+      } catch (e) {
+        _showError(e.toString());
+      }
     }
   }
 

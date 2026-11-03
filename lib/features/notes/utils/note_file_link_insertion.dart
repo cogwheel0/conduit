@@ -52,10 +52,15 @@ bool removeNoteFileCardsInEditor(FleatherController controller, String id) {
   // Last first, so the offsets still to go stay where they were.
   final offsets = noteFileCardOffsets(controller.document, id);
   for (final offset in offsets) {
-    // A card is one character; the selection is moved before it goes, so it
-    // never points past the end of the shorter document.
-    _carrySelection(controller, controller.selection, at: offset, change: -1);
-    controller.replaceText(offset, 1, '');
+    // A card is one character. Handing the moved selection over with the
+    // edit keeps it inside the shorter document, and records the edit in
+    // the undo history, which an Undo would otherwise apply out of place.
+    controller.replaceText(
+      offset,
+      1,
+      '',
+      selection: _carried(controller.selection, at: offset, change: -1),
+    );
   }
   return offsets.isNotEmpty;
 }
@@ -68,18 +73,28 @@ void _carrySelection(
   required int at,
   required int change,
 }) {
-  if (!selection.isValid || change == 0) return;
+  final moved = _carried(selection, at: at, change: change);
+  if (moved != selection) {
+    controller.updateSelection(moved, source: ChangeSource.local);
+  }
+}
+
+/// [selection] moved past [change] characters put in at [at], or taken out
+/// there for a negative [change].
+TextSelection _carried(
+  TextSelection selection, {
+  required int at,
+  required int change,
+}) {
+  if (!selection.isValid || change == 0) return selection;
   int carry(int offset) {
     if (offset < at) return offset;
     final moved = offset + change;
     return moved < at ? at : moved;
   }
 
-  final moved = selection.copyWith(
+  return selection.copyWith(
     baseOffset: carry(selection.baseOffset),
     extentOffset: carry(selection.extentOffset),
   );
-  if (moved != selection) {
-    controller.updateSelection(moved, source: ChangeSource.local);
-  }
 }
