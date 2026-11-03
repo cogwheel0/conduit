@@ -45,40 +45,56 @@ void main() {
     AdaptiveFloatingTabBar.debugIconRenderer = (_, asset, _, _) async =>
         Uint8List.fromList(asset.codeUnits);
     addTearDown(AdaptiveFloatingTabBar.debugReset);
-    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
-      SystemChannels.platform_views,
-      (_) async => null,
-    );
-    addTearDown(
-      () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
-        SystemChannels.platform_views,
-        null,
-      ),
-    );
-
-    List<Object?> labels() => [
-      for (final tab
-          in ((tester.widget<UiKitView>(find.byType(UiKitView)).creationParams
-                      as Map)['tabs']
-                  as List)
-              .cast<Map>())
-        tab['label'],
-    ];
+    // Updates the created native view receives, by tab labels.
+    final updates = <List<Object?>>[];
+    final viewChannels = <MethodChannel>[];
+    final messenger = tester.binding.defaultBinaryMessenger;
+    messenger.setMockMethodCallHandler(SystemChannels.platform_views, (
+      call,
+    ) async {
+      if (call.method == 'create') {
+        final arguments = call.arguments as Map;
+        final channel = MethodChannel(
+          '${arguments['viewType']}_${arguments['id']}',
+        );
+        viewChannels.add(channel);
+        messenger.setMockMethodCallHandler(channel, (call) async {
+          if (call.method == 'update') {
+            updates.add([
+              for (final tab
+                  in ((call.arguments as Map)['tabs'] as List).cast<Map>())
+                tab['label'],
+            ]);
+          }
+          return null;
+        });
+      }
+      return null;
+    });
+    addTearDown(() {
+      messenger.setMockMethodCallHandler(SystemChannels.platform_views, null);
+      for (final channel in viewChannels) {
+        messenger.setMockMethodCallHandler(channel, null);
+      }
+    });
 
     await tester.pumpWidget(_bar(const []));
-    await tester.pump();
-    expect(labels(), isEmpty);
+    await tester.pumpAndSettle();
+    expect(viewChannels, hasLength(1));
+    final created = updates.length;
 
     // A second backend appears before its icons have rendered.
     await tester.pumpWidget(_bar(const [_openWebUi, _hermes]));
     expect(tester.takeException(), isNull);
     expect(find.byType(UiKitView), findsOneWidget);
-
-    expect(labels(), isEmpty);
+    expect(updates.skip(created), isEmpty);
 
     await tester.pump();
     expect(tester.takeException(), isNull);
-    expect(labels(), ['Open WebUI', 'Hermes']);
+    expect(viewChannels, hasLength(1));
+    expect(updates.skip(created), [
+      ['Open WebUI', 'Hermes'],
+    ]);
     await tester.pumpWidget(const SizedBox.shrink());
   });
 
