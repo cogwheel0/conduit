@@ -299,6 +299,40 @@ class AdaptiveAlertDialog {
     String? message,
     required List<AlertAction> actions,
   }) async {
+    // CNAlert inherits the native host appearance, not Flutter theme overrides.
+    if (PlatformUiCapabilities.usesNativeIOS26 &&
+        CupertinoTheme.brightnessOf(context) ==
+            MediaQuery.platformBrightnessOf(context) &&
+        actions.any(_isEnabled) &&
+        actions.where((a) => a.style == AlertActionStyle.cancel).length <= 1 &&
+        actions.where((a) => a.style == AlertActionStyle.primary).length <= 1) {
+      final presentedActions = List<AlertAction>.of(actions);
+      final result = await CNAlert.show<int>(
+        context: context,
+        title: title,
+        message: message,
+        actions: [
+          for (var index = 0; index < presentedActions.length; index++)
+            CNAlertAction(
+              label: presentedActions[index].title,
+              value: index,
+              isCancel:
+                  presentedActions[index].style == AlertActionStyle.cancel,
+              isDefault:
+                  presentedActions[index].style == AlertActionStyle.primary,
+              isDestructive:
+                  presentedActions[index].style == AlertActionStyle.destructive,
+              enabled: _isEnabled(presentedActions[index]),
+            ),
+        ],
+      );
+      if (!context.mounted) return;
+      final index = result?.value;
+      if (index != null && _isEnabled(presentedActions[index])) {
+        presentedActions[index].onPressed();
+      }
+      return;
+    }
     if (PlatformUiCapabilities.isIOS) {
       await showCupertinoDialog<void>(
         context: context,
@@ -353,6 +387,9 @@ class AdaptiveAlertDialog {
       ),
     );
   }
+
+  static bool _isEnabled(AlertAction action) =>
+      action.enabled && action.style != AlertActionStyle.disabled;
 
   static Future<String?> inputShow({
     required BuildContext context,

@@ -252,24 +252,25 @@ final class _HermesMcpPageState extends ConsumerState<HermesMcpPage> {
   }
 
   Future<void> _remove(String name) async {
-    final confirmed = await showDialog<bool>(
+    var confirmed = false;
+    await AdaptiveAlertDialog.show(
       context: context,
-      builder: (context) => AlertDialog(
-        title: Text('Remove $name?'),
-        content: const Text('This removes the server from Hermes.'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Remove'),
-          ),
-        ],
-      ),
+      title: 'Remove $name?',
+      message: 'This removes the server from Hermes.',
+      actions: [
+        AlertAction(
+          title: 'Cancel',
+          style: AlertActionStyle.cancel,
+          onPressed: () {},
+        ),
+        AlertAction(
+          title: 'Remove',
+          style: AlertActionStyle.destructive,
+          onPressed: () => confirmed = true,
+        ),
+      ],
     );
-    if (confirmed != true) return;
+    if (!confirmed) return;
     await _service.removeMcpServer(name);
     _refresh();
   }
