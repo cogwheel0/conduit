@@ -3489,6 +3489,8 @@
   "backendChooserAppleSectionTitle": "Apple Intelligence",
   "backendChooserModelApisSectionTitle": "Modell-APIs",
   "backendChooserSelfHostedSectionTitle": "Selbst gehostete Dienste",
+  "citationBackground": "Hintergrund von Quellenangaben",
+  "citationBackgroundDescription": "Deaktivieren, um Inline-Quellenangaben transparent anzuzeigen",
   "citationShowTitles": "Seitentitel in Quellenangaben anzeigen",
   "citationShowTitlesDescription": "In Quellen-Badges Seitentitel statt Website-Domains verwenden",
   "directContextCompactionDescription": "Diese Modelle geben kein Kontextfenster an. Conduit verwendet das gewählte Limit, um ältere Nachrichten zu komprimieren, bevor Anfragen zu groß werden.",

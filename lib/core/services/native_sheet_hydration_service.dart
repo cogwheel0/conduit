@@ -1301,6 +1301,14 @@ class NativeSheetHydrationService {
               NativeSheetOptionConfig(id: theme.id, label: theme.label(l10n)),
           ],
         ),
+        NativeSheetItemConfig(
+          id: nativeCitationBackgroundId,
+          title: l10n.citationBackground,
+          subtitle: l10n.citationBackgroundDescription,
+          sfSymbol: 'quote.bubble',
+          kind: NativeSheetItemKind.toggle,
+          value: _ref.read(appSettingsProvider).citationBackground,
+        ),
       ];
       final languageItem = NativeSheetItemConfig(
         id: 'language',

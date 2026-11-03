@@ -3535,6 +3535,8 @@
   },
   "directBearerDescription": "Отправляет учётные данные в заголовке Authorization: Bearer. Большинство OpenAI-совместимых серверов (llama.cpp, vLLM, LM Studio, Ollama) ожидают именно это.",
   "directApiKeyHeaderAzureOnlyDescription": "Отправляет учётные данные в заголовке api-key. Используйте только для Azure OpenAI; другие OpenAI-совместимые серверы ожидают токен Bearer.",
+  "citationBackground": "Фон ссылок на источники",
+  "citationBackgroundDescription": "Отключите, чтобы ссылки в тексте были с прозрачным фоном",
   "citationShowTitles": "Показывать заголовки страниц в источниках",
   "citationShowTitlesDescription": "Использовать заголовки страниц вместо доменов сайтов в значках источников",
   "notificationSystemSettingsDescription": "Измените разрешения, звук и параметры баннеров для Conduit.",

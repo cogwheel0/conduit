@@ -5098,6 +5098,8 @@
   "backendChooserAppleSectionTitle": "Apple Intelligence",
   "backendChooserModelApisSectionTitle": "モデル API",
   "backendChooserSelfHostedSectionTitle": "セルフホストのサービス",
+  "citationBackground": "引用の背景",
+  "citationBackgroundDescription": "オフにすると文中の引用の背景が透明になります",
   "citationShowTitles": "引用にページタイトルを表示",
   "citationShowTitlesDescription": "引用バッジにサイトのドメインではなくページタイトルを使用します",
   "directContextCompactionDescription": "これらのモデルはコンテキストウィンドウを報告しません。Conduit はリクエストが大きくなりすぎる前に、選択した上限を使って古いメッセージを圧縮します。",

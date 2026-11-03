@@ -3267,6 +3267,8 @@
   "backendChooserAppleSectionTitle": "Apple Intelligence",
   "backendChooserModelApisSectionTitle": "모델 API",
   "backendChooserSelfHostedSectionTitle": "자체 호스팅 서비스",
+  "citationBackground": "인용 배경",
+  "citationBackgroundDescription": "끄면 본문의 인용 배경이 투명해집니다",
   "citationShowTitles": "인용에 페이지 제목 표시",
   "citationShowTitlesDescription": "인용 배지에 웹사이트 도메인 대신 페이지 제목 사용",
   "directContextCompactionDescription": "이 모델은 컨텍스트 창을 알려주지 않습니다. Conduit은 요청이 너무 커지기 전에 선택한 한도를 사용해 오래된 메시지를 압축합니다.",

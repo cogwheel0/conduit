@@ -591,6 +591,9 @@ const nativeAdvancedFeaturesId = 'advanced-features';
 /// page.
 const nativeCitationShowTitlesId = 'citation-show-titles';
 
+/// Control id of the citation background toggle in native Appearance settings.
+const nativeCitationBackgroundId = 'citation-background';
+
 /// Control id the accountless "Connect to Open WebUI" root row sends.
 const nativeConnectOpenWebUiActionId = 'add-owui-server';
 

@@ -8,7 +8,10 @@ import '../../../core/services/haptic_service.dart';
 import 'package:conduit_core/services/settings_service.dart';
 
 import '../../theme/theme_extensions.dart';
+import '../adaptive_dropdown_field.dart';
+import '../platform_ui/platform_ui.dart';
 import '../../utils/external_link_launcher.dart';
+
 import 'package:conduit_core/utils/source_reference_helper.dart';
 
 TextStyle _badgeLabelTextStyle(BuildContext context, Color color) {
@@ -16,28 +19,26 @@ TextStyle _badgeLabelTextStyle(BuildContext context, Color color) {
   return textTheme.labelSmall?.copyWith(
         color: color,
         fontWeight: FontWeight.w500,
-        height: 1.1,
+        height: 1.2,
       ) ??
       AppTypography.labelSmallStyle.copyWith(
         color: color,
         fontWeight: FontWeight.w500,
-        height: 1.1,
+        height: 1.2,
       );
 }
 
-TextStyle _badgeCountTextStyle(BuildContext context, Color color) {
-  final textTheme = Theme.of(context).textTheme;
-  return textTheme.labelSmall?.copyWith(
-        color: color,
-        fontWeight: FontWeight.w600,
-        height: 1.1,
-      ) ??
-      AppTypography.labelSmallStyle.copyWith(
-        color: color,
-        fontWeight: FontWeight.w600,
-        height: 1.1,
-      );
-}
+BoxDecoration _badgeDecoration(BuildContext context, bool showBackground) =>
+    BoxDecoration(
+      color: !showBackground
+          ? Colors.transparent
+          : PlatformInfo.isIOS
+          ? CupertinoColors.secondarySystemFill.resolveFrom(context)
+          : context.conduitTheme.surfaceContainerHighest.withValues(
+              alpha: 0.95,
+            ),
+      borderRadius: BorderRadius.circular(AppBorderRadius.pill),
+    );
 
 /// A compact inline citation badge showing source domain/title.
 ///
@@ -63,6 +64,9 @@ class CitationBadge extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final showTitles = ref.watch(
       appSettingsProvider.select((settings) => settings.citationShowTitles),
+    );
+    final showBackground = ref.watch(
+      appSettingsProvider.select((settings) => settings.citationBackground),
     );
     final theme = context.conduitTheme;
     final badgeTextStyle = _badgeLabelTextStyle(context, theme.textSecondary);
@@ -95,12 +99,12 @@ class CitationBadge extends ConsumerWidget {
           }
         },
         child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
-          margin: const EdgeInsets.symmetric(horizontal: 1),
-          decoration: BoxDecoration(
-            color: theme.surfaceContainer.withValues(alpha: 0.24),
-            borderRadius: BorderRadius.circular(12),
+          padding: const EdgeInsets.symmetric(
+            horizontal: Spacing.sm,
+            vertical: Spacing.xxs,
           ),
+          margin: const EdgeInsets.symmetric(horizontal: 1),
+          decoration: _badgeDecoration(context, showBackground),
           child: Text(
             displayTitle,
             style: badgeTextStyle,
@@ -138,6 +142,9 @@ class CitationBadgeGroup extends ConsumerWidget {
     final showTitles = ref.watch(
       appSettingsProvider.select((settings) => settings.citationShowTitles),
     );
+    final showBackground = ref.watch(
+      appSettingsProvider.select((settings) => settings.citationBackground),
+    );
     if (sourceIndices.isEmpty) {
       return const SizedBox.shrink();
     }
@@ -155,7 +162,6 @@ class CitationBadgeGroup extends ConsumerWidget {
 
     final theme = context.conduitTheme;
     final badgeTextStyle = _badgeLabelTextStyle(context, theme.textSecondary);
-    final countTextStyle = _badgeCountTextStyle(context, theme.textPrimary);
 
     // Get first valid source for display
     final firstIndex = sourceIndices.first;
@@ -177,6 +183,63 @@ class CitationBadgeGroup extends ConsumerWidget {
     final validIndices = sourceIndices
         .where((index) => index >= 0 && index < sources.length)
         .toList(growable: false);
+
+    void selectSource(int index) {
+      ConduitHaptics.selectionClick();
+      if (onSourceTap != null) {
+        onSourceTap!(index);
+        return;
+      }
+
+      if (index >= 0 && index < sources.length) {
+        final url = SourceReferenceHelper.getSourceUrl(sources[index]);
+        if (url != null) {
+          launchExternalLink(url, scope: 'markdown/citation');
+        }
+      }
+    }
+
+    final badge = Container(
+      padding: const EdgeInsets.symmetric(
+        horizontal: Spacing.sm,
+        vertical: Spacing.xxs,
+      ),
+      margin: const EdgeInsets.symmetric(horizontal: 1),
+      decoration: _badgeDecoration(context, showBackground),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            displayTitle,
+            style: badgeTextStyle,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+          const SizedBox(width: Spacing.xs),
+          Text('+$additionalCount', style: badgeTextStyle),
+        ],
+      ),
+    );
+    if (PlatformInfo.isIOS) {
+      return AdaptiveSingleChoiceTrigger<int>(
+        value: null,
+        options: [
+          for (final index in validIndices)
+            AdaptiveDropdownOption(
+              value: index,
+              label: SourceReferenceHelper.formatDisplayTitle(
+                SourceReferenceHelper.getInlineSourceLabel(
+                  sources[index],
+                  index,
+                  preferTitle: showTitles,
+                ),
+              ),
+            ),
+        ],
+        onChanged: selectSource,
+        child: badge,
+      );
+    }
 
     return Material(
       type: MaterialType.transparency,
@@ -206,56 +269,10 @@ class CitationBadgeGroup extends ConsumerWidget {
               ),
             ),
         ],
-        onSelected: (index) {
-          ConduitHaptics.selectionClick();
-          if (onSourceTap != null) {
-            onSourceTap!(index);
-            return;
-          }
-
-          if (index >= 0 && index < sources.length) {
-            final url = SourceReferenceHelper.getSourceUrl(sources[index]);
-            if (url != null) {
-              launchExternalLink(url, scope: 'markdown/citation');
-            }
-          }
-        },
+        onSelected: selectSource,
         padding: EdgeInsets.zero,
         tooltip: '',
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
-          margin: const EdgeInsets.symmetric(horizontal: 1),
-          decoration: BoxDecoration(
-            color: theme.surfaceContainer.withValues(alpha: 0.24),
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(
-                Icons.link_rounded,
-                size: 11,
-                color: theme.textSecondary.withValues(alpha: 0.7),
-              ),
-              const SizedBox(width: 3),
-              Text(
-                displayTitle,
-                style: badgeTextStyle,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-              const SizedBox(width: 3),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
-                decoration: BoxDecoration(
-                  color: theme.surfaceContainerHighest.withValues(alpha: 0.6),
-                  borderRadius: BorderRadius.circular(AppBorderRadius.small),
-                ),
-                child: Text('+$additionalCount', style: countTextStyle),
-              ),
-            ],
-          ),
-        ),
+        child: badge,
       ),
     );
   }

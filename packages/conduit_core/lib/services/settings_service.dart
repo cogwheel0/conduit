@@ -735,6 +735,7 @@ class SettingsService {
       citationShowTitles:
           get<bool>(PreferenceKeys.citationShowTitles) ??
           false,
+      citationBackground: get<bool>(PreferenceKeys.citationBackground) ?? true,
       highContrast: get<bool>(_highContrastKey) ?? false,
       showComposerNotesButton:
           get<bool>(PreferenceKeys.showComposerNotesButton) ?? true,
@@ -863,6 +864,8 @@ class AppSettings {
   final double animationSpeed;
   final bool disableHapticsWhileStreaming;
   final bool citationShowTitles;
+  /// Whether inline citations use the filled Sources badge surface.
+  final bool citationBackground;
   final bool highContrast;
   final bool showComposerNotesButton;
   final bool darkMode;
@@ -919,6 +922,7 @@ class AppSettings {
     this.animationSpeed = 1.0,
     this.disableHapticsWhileStreaming = false,
     this.citationShowTitles = false,
+    this.citationBackground = true,
     this.highContrast = false,
     this.showComposerNotesButton = true,
     this.darkMode = true,
@@ -968,6 +972,7 @@ class AppSettings {
     double? animationSpeed,
     bool? disableHapticsWhileStreaming,
     bool? citationShowTitles,
+    bool? citationBackground,
     bool? highContrast,
     bool? showComposerNotesButton,
     bool? darkMode,
@@ -1017,6 +1022,7 @@ class AppSettings {
       disableHapticsWhileStreaming:
           disableHapticsWhileStreaming ?? this.disableHapticsWhileStreaming,
       citationShowTitles: citationShowTitles ?? this.citationShowTitles,
+      citationBackground: citationBackground ?? this.citationBackground,
       highContrast: highContrast ?? this.highContrast,
       showComposerNotesButton:
           showComposerNotesButton ?? this.showComposerNotesButton,
@@ -1100,6 +1106,7 @@ class AppSettings {
         other.animationSpeed == animationSpeed &&
         other.disableHapticsWhileStreaming == disableHapticsWhileStreaming &&
         other.citationShowTitles == citationShowTitles &&
+        other.citationBackground == citationBackground &&
         other.highContrast == highContrast &&
         other.showComposerNotesButton == showComposerNotesButton &&
         other.darkMode == darkMode &&
@@ -1152,6 +1159,7 @@ class AppSettings {
       animationSpeed,
       disableHapticsWhileStreaming,
       citationShowTitles,
+      citationBackground,
       highContrast,
       showComposerNotesButton,
       darkMode,
@@ -1266,6 +1274,16 @@ class AppSettingsNotifier extends _$AppSettingsNotifier {
     state = state.copyWith(citationShowTitles: value);
     await SettingsService._putPreference(
       PreferenceKeys.citationShowTitles,
+      value,
+    );
+  }
+
+  Future<void> setCitationBackground(bool value) async {
+    if (!await _awaitHydration()) return;
+    state = state.copyWith(citationBackground: value);
+    // Bulk saves may contain an older snapshot of this appearance setting.
+    await SettingsService._putPreference(
+      PreferenceKeys.citationBackground,
       value,
     );
   }
@@ -1658,6 +1676,7 @@ class AppSettingsNotifier extends _$AppSettingsNotifier {
   }
 
   Future<void> resetToDefaults() async {
+    await SettingsService._putOrRemove(PreferenceKeys.citationBackground, null);
     const defaultSettings = AppSettings();
     await SettingsService._putOrRemove(
       PreferenceKeys.showComposerNotesButton,
