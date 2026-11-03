@@ -1118,6 +1118,8 @@
   "@copy": {
     "description": "Action to copy text to clipboard."
   },
+  "ttsSkipBackward": "O 15 sekúnd späť",
+  "ttsSkipForward": "O 15 sekúnd dopredu",
   "ttsListen": "Vypočuť",
   "@ttsListen": {
     "description": "Action to play the assistant message using text to speech"

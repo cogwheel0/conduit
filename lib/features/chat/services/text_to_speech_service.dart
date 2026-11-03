@@ -162,7 +162,7 @@ class TextToSpeechService implements VoiceModeSpeech {
   }
 
   /// Speaks the given text.
-  Future<void> speak(String text) async {
+  Future<void> speak(String text, {bool seekable = false}) async {
     if (text.trim().isEmpty) {
       throw ArgumentError('Cannot speak empty text');
     }
@@ -171,8 +171,14 @@ class TextToSpeechService implements VoiceModeSpeech {
       await initialize();
     }
 
-    await TtsManager.instance.speak(text);
+    await TtsManager.instance.speak(text, seekable: seekable);
   }
+
+  bool get canSeek => TtsManager.instance.canSeek;
+  Duration? get playbackPosition => TtsManager.instance.playbackPosition;
+  Duration? get playbackDuration => TtsManager.instance.playbackDuration;
+  Future<Duration?> seekRelative(Duration offset) =>
+      TtsManager.instance.seekRelative(offset);
 
   /// Starts an incremental TTS session for streaming assistant responses.
   @override
@@ -281,8 +287,8 @@ class TextToSpeechService implements VoiceModeSpeech {
 
   /// Splits text into chunks for TTS playback.
   @override
-  List<String> splitTextForSpeech(String text) {
-    return TtsManager.instance.splitTextForSpeech(text);
+  List<String> splitTextForSpeech(String text, {bool seekable = false}) {
+    return TtsManager.instance.splitTextForSpeech(text, seekable: seekable);
   }
 
   /// Applies updated backend defaults from cached backend config.

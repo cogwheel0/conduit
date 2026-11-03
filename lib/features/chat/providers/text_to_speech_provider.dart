@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:riverpod/riverpod.dart';
+import 'package:clock/clock.dart';
 
 import 'package:conduit_core/models/backend_config.dart';
 import 'package:conduit_core/services/settings_service.dart';
@@ -21,6 +22,10 @@ class TextToSpeechState {
   final TtsPlaybackStatus status;
   final String? activeMessageId;
   final String? errorMessage;
+  final Duration elapsed;
+  final Duration duration;
+  final bool canSeek;
+  final bool seeking;
   final List<String> sentences;
   final List<int> sentenceOffsets; // start indices in full text
   final int activeSentenceIndex; // -1 when none
@@ -33,6 +38,10 @@ class TextToSpeechState {
     this.status = TtsPlaybackStatus.idle,
     this.activeMessageId,
     this.errorMessage,
+    this.elapsed = Duration.zero,
+    this.duration = Duration.zero,
+    this.canSeek = false,
+    this.seeking = false,
     this.sentences = const [],
     this.sentenceOffsets = const [],
     this.activeSentenceIndex = -1,
@@ -53,6 +62,10 @@ class TextToSpeechState {
     bool clearActiveMessageId = false,
     String? errorMessage,
     bool clearErrorMessage = false,
+    Duration? elapsed,
+    Duration? duration,
+    bool? canSeek,
+    bool? seeking,
     List<String>? sentences,
     List<int>? sentenceOffsets,
     int? activeSentenceIndex,
@@ -70,6 +83,10 @@ class TextToSpeechState {
       errorMessage: clearErrorMessage
           ? null
           : errorMessage ?? this.errorMessage,
+      elapsed: elapsed ?? this.elapsed,
+      duration: duration ?? this.duration,
+      canSeek: canSeek ?? this.canSeek,
+      seeking: seeking ?? this.seeking,
       sentences: sentences ?? this.sentences,
       sentenceOffsets: sentenceOffsets ?? this.sentenceOffsets,
       activeSentenceIndex: activeSentenceIndex ?? this.activeSentenceIndex,
@@ -86,10 +103,18 @@ class TextToSpeechState {
 class TextToSpeechController extends Notifier<TextToSpeechState> {
   late TextToSpeechService _service;
   bool _handlersBound = false;
+  late Stopwatch _playbackClock;
+  Timer? _playbackTicker;
   Future<bool>? _initializationFuture;
+  int _requestEpoch = 0;
+  ({String messageId, String text})? _lastRequest;
 
   @override
   TextToSpeechState build() {
+    _playbackTicker?.cancel();
+    _playbackClock = clock.stopwatch();
+    _requestEpoch++;
+    _lastRequest = null;
     _service = ref.watch(textToSpeechServiceProvider);
 
     if (!_handlersBound) {
@@ -106,6 +131,7 @@ class TextToSpeechController extends Notifier<TextToSpeechState> {
       );
 
       ref.onDispose(() {
+        _stopPlaybackClock();
         unawaited(_service.stop());
       });
     }
@@ -170,7 +196,6 @@ class TextToSpeechController extends Notifier<TextToSpeechState> {
             available: false,
             status: TtsPlaybackStatus.error,
             errorMessage: error.toString(),
-            clearActiveMessageId: true,
           );
           return false;
         });
@@ -210,7 +235,11 @@ class TextToSpeechController extends Notifier<TextToSpeechState> {
       return;
     }
 
+    final epoch = ++_requestEpoch;
+    _lastRequest = (messageId: messageId, text: text);
+    state = state.copyWith(activeMessageId: messageId);
     final available = await _ensureInitialized();
+    if (!ref.mounted || epoch != _requestEpoch) return;
     if (!available) {
       if (!ref.mounted) {
         return;
@@ -218,24 +247,29 @@ class TextToSpeechController extends Notifier<TextToSpeechState> {
       state = state.copyWith(
         status: TtsPlaybackStatus.error,
         errorMessage: 'Text-to-speech unavailable',
-        clearActiveMessageId: true,
+        activeMessageId: messageId,
       );
       return;
     }
 
-    // Finish cancelling any previous playback BEFORE assigning the new
-    // message id; the cancellation callback would otherwise clear it and the
-    // next tap restarts instead of stopping (issue #709).
-    await stop();
-    if (!ref.mounted) return;
+    // Finish the previous cancellation before publishing the playing state;
+    // its callback clears the active message id (issue #709).
+    if (!await _stopPlayback(epoch)) return;
+    _lastRequest = (messageId: messageId, text: text);
+
+    _playbackClock.reset();
 
     // Prepare sentence split for highlighting
     final cleanText = ConduitMarkdownPreprocessor.cleanText(text);
-    final sentences = _service.splitTextForSpeech(cleanText);
+    final sentences = _service.splitTextForSpeech(cleanText, seekable: true);
     final offsets = _computeOffsets(cleanText, sentences);
 
     state = state.copyWith(
       status: TtsPlaybackStatus.loading,
+      elapsed: Duration.zero,
+      duration: Duration.zero,
+      canSeek: false,
+      seeking: false,
       activeMessageId: messageId,
       clearErrorMessage: true,
       sentences: sentences,
@@ -251,6 +285,7 @@ class TextToSpeechController extends Notifier<TextToSpeechState> {
         if (!ref.mounted) {
           return;
         }
+        _lastRequest = null;
         state = state.copyWith(
           status: TtsPlaybackStatus.idle,
           clearActiveMessageId: true,
@@ -258,22 +293,21 @@ class TextToSpeechController extends Notifier<TextToSpeechState> {
         return;
       }
 
-      await _service.speak(cleanText);
-      if (!ref.mounted) {
+      await _service.speak(cleanText, seekable: true);
+      if (!ref.mounted || epoch != _requestEpoch) {
         return;
       }
       if (state.status == TtsPlaybackStatus.loading) {
-        state = state.copyWith(status: TtsPlaybackStatus.speaking);
+        state = state.copyWith(
+          status: TtsPlaybackStatus.speaking,
+          canSeek: _service.canSeek,
+        );
       }
     } catch (e) {
-      if (!ref.mounted) {
+      if (!ref.mounted || epoch != _requestEpoch) {
         return;
       }
-      state = state.copyWith(
-        status: TtsPlaybackStatus.error,
-        errorMessage: e.toString(),
-        clearActiveMessageId: true,
-      );
+      _handleError(e.toString());
     }
   }
 
@@ -303,50 +337,134 @@ class TextToSpeechController extends Notifier<TextToSpeechState> {
     if (!state.initialized || !state.available) {
       return;
     }
-    await _service.pause();
+    final epoch = _requestEpoch;
+    try {
+      await _service.pause();
+      if (ref.mounted &&
+          epoch == _requestEpoch &&
+          state.seeking &&
+          (state.status == TtsPlaybackStatus.speaking ||
+              state.status == TtsPlaybackStatus.paused)) {
+        _handlePause(userInitiated: true);
+      }
+    } catch (error) {
+      if (ref.mounted && epoch == _requestEpoch) {
+        _handleError(error.toString());
+      }
+    }
   }
 
   Future<void> resume() async {
     if (!state.initialized || !state.available) {
       return;
     }
+    final epoch = _requestEpoch;
     try {
       await _service.resume();
     } catch (e) {
-      if (!ref.mounted) {
+      if (!ref.mounted || epoch != _requestEpoch) {
         return;
       }
-      state = state.copyWith(
-        status: TtsPlaybackStatus.error,
-        errorMessage: e.toString(),
-        clearActiveMessageId: true,
-      );
+      _handleError(e.toString());
     }
   }
 
   Future<void> stop() async {
-    await _service.stop();
-    if (!ref.mounted) {
-      return;
-    }
+    final epoch = ++_requestEpoch;
+    if (!await _stopPlayback(epoch)) return;
+    _lastRequest = null;
+    _playbackClock.reset();
     state = state.copyWith(
       status: TtsPlaybackStatus.idle,
+      elapsed: Duration.zero,
+      canSeek: false,
+      seeking: false,
       clearActiveMessageId: true,
       clearErrorMessage: true,
     );
+  }
+
+  Future<void> retry() async {
+    final request = _lastRequest;
+    if (state.status != TtsPlaybackStatus.error || request == null) return;
+    await toggleForMessage(messageId: request.messageId, text: request.text);
+  }
+
+  Future<bool> _stopPlayback(int epoch) async {
+    try {
+      await _service.stop();
+    } catch (error) {
+      if (ref.mounted && epoch == _requestEpoch) {
+        _handleError(error.toString());
+      }
+      return false;
+    }
+    return ref.mounted && epoch == _requestEpoch;
+  }
+
+  Future<void> skip(Duration offset) async {
+    if (!state.canSeek || state.seeking || state.isBusy) return;
+    final epoch = _requestEpoch;
+    final message = state.activeMessageId;
+    state = state.copyWith(seeking: true);
+    try {
+      final position = await _service.seekRelative(offset);
+      if (ref.mounted &&
+          epoch == _requestEpoch &&
+          state.activeMessageId == message &&
+          position != null) {
+        state = state.copyWith(
+          elapsed: position,
+          duration: _service.playbackDuration ?? Duration.zero,
+        );
+      }
+    } catch (error) {
+      if (ref.mounted && epoch == _requestEpoch) {
+        _handleError(error.toString());
+      }
+    } finally {
+      if (ref.mounted && epoch == _requestEpoch) {
+        state = state.copyWith(seeking: false, canSeek: _service.canSeek);
+      }
+    }
+  }
+
+  void _startPlaybackClock() {
+    if (state.activeMessageId == null || _playbackClock.isRunning) return;
+    _playbackClock.start();
+    _playbackTicker = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (ref.mounted) {
+        state = state.copyWith(
+          elapsed: _service.playbackPosition ?? _playbackClock.elapsed,
+          duration: _service.playbackDuration ?? Duration.zero,
+        );
+      }
+    });
+  }
+
+  void _stopPlaybackClock() {
+    _playbackClock.stop();
+    _playbackTicker?.cancel();
+    _playbackTicker = null;
   }
 
   void _handleStart() {
     if (!ref.mounted) {
       return;
     }
-    state = state.copyWith(status: TtsPlaybackStatus.speaking);
+    state = state.copyWith(
+      status: TtsPlaybackStatus.speaking,
+      canSeek: _service.canSeek,
+    );
+    _startPlaybackClock();
   }
 
   void _handleCompletion() {
     if (!ref.mounted) {
       return;
     }
+    _lastRequest = null;
+    _stopPlaybackClock();
     state = state.copyWith(
       status: TtsPlaybackStatus.idle,
       clearActiveMessageId: true,
@@ -357,34 +475,46 @@ class TextToSpeechController extends Notifier<TextToSpeechState> {
     if (!ref.mounted) {
       return;
     }
+    _stopPlaybackClock();
     state = state.copyWith(
       status: TtsPlaybackStatus.idle,
       clearActiveMessageId: true,
     );
   }
 
-  void _handlePause() {
-    if (!ref.mounted) {
+  void _handlePause({bool userInitiated = false}) {
+    if (!ref.mounted || (state.seeking && !userInitiated)) {
       return;
     }
-    state = state.copyWith(status: TtsPlaybackStatus.paused);
+    _stopPlaybackClock();
+    state = state.copyWith(
+      status: TtsPlaybackStatus.paused,
+      elapsed: _service.playbackPosition ?? _playbackClock.elapsed,
+      duration: _service.playbackDuration ?? Duration.zero,
+    );
   }
 
   void _handleContinue() {
     if (!ref.mounted) {
       return;
     }
-    state = state.copyWith(status: TtsPlaybackStatus.speaking);
+    state = state.copyWith(
+      status: TtsPlaybackStatus.speaking,
+      canSeek: _service.canSeek,
+    );
+    _startPlaybackClock();
   }
 
   void _handleError(String message) {
     if (!ref.mounted) {
       return;
     }
+    _stopPlaybackClock();
     state = state.copyWith(
       status: TtsPlaybackStatus.error,
       errorMessage: message,
-      clearActiveMessageId: true,
+      activeMessageId: _lastRequest?.messageId,
+      clearActiveMessageId: _lastRequest == null,
     );
   }
 

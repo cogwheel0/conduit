@@ -263,6 +263,8 @@
   "imageGeneration": "Génération d'images",
   "imageGenerationDescription": "Créez des images à partir de vos prompts.",
   "copy": "Copier",
+  "ttsSkipBackward": "Reculer de 15 secondes",
+  "ttsSkipForward": "Avancer de 15 secondes",
   "ttsListen": "Écouter",
   "ttsStop": "Arrêter",
   "edit": "Modifier",

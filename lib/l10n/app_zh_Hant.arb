@@ -263,6 +263,8 @@
   "imageGeneration": "圖像生成",
   "imageGenerationDescription": "從您的提示創建圖像。",
   "copy": "複製",
+  "ttsSkipBackward": "倒退15秒",
+  "ttsSkipForward": "快轉15秒",
   "ttsListen": "收聽",
   "ttsStop": "停止",
   "edit": "編輯",
