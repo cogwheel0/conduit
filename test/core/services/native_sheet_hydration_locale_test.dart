@@ -220,6 +220,9 @@ void main() {
       overrides: [
         optimizedStorageServiceProvider.overrideWithValue(storage),
         modelsProvider.overrideWith(_FailingModels.new),
+        appSettingsProvider.overrideWithValue(
+          const AppSettings(showComposerNotesButton: false),
+        ),
       ],
     );
     addTearDown(container.dispose);
@@ -239,6 +242,11 @@ void main() {
 
     final appearance = patches.where((p) => p.detailId == 'appearance');
     check(appearance).length.equals(1);
+    final notes = appearance.single.sections
+        .expand((section) => section.items)
+        .singleWhere((item) => item.id == 'composer-notes-button');
+    check(notes.value).equals(false);
+    check(notes.title).equals('Show Notes button');
     final ids = [
       for (final section in appearance.single.sections)
         for (final item in section.items) item.id,
