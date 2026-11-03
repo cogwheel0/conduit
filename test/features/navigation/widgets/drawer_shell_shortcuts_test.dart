@@ -5,6 +5,10 @@ import 'package:conduit/features/navigation/widgets/sidebar_page.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/models/model.dart';
 import 'package:conduit_core/models/conversation.dart';
+import 'package:conduit_core/models/chat_message.dart';
+import 'package:conduit_core/models/server_config.dart';
+import 'package:conduit_core/features/chat/providers/chat_providers.dart'
+    show chatMessagesProvider;
 import 'package:conduit_core/database/chat_database_repository.dart';
 import 'package:conduit/features/navigation/providers/conversation_selection_provider.dart';
 import 'package:conduit_core/features/hermes/models/hermes_model.dart';
@@ -568,6 +572,56 @@ void main() {
     expect(NavigationService.currentRoute, Routes.notes);
     expect(container.read(selectedModelProvider)?.id, hermes.id);
     expect(container.read(pendingFolderIdProvider), 'demo-folder');
+  });
+
+  testWidgets('a delayed server default cannot clear a newer message', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1024, 768);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final result = Completer<String?>();
+    await tester.pumpWidget(
+      sidebarTestBuildHarness(
+        controllers: SidebarTestSidebarHarnessControllers(),
+        models: const [Model(id: 'server-model', name: 'Server model')],
+        loadServerDefaultModel: () => result.future,
+        apiServerConfig: const ServerConfig(
+          id: 'demo-server',
+          name: 'Demo server',
+          url: 'https://demo.example.test',
+        ),
+        shellChat: const Scaffold(body: Text('Chat content')),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final container = ProviderScope.containerOf(
+      tester.element(find.byType(SidebarPage)),
+      listen: false,
+    );
+    // The chat page keeps the transcript alive while it is shown.
+    container.listen(chatMessagesProvider, (_, _) {});
+    container.read(pendingFolderIdProvider.notifier).set('demo-folder');
+    await tester.tap(
+      find.byKey(const ValueKey<String>('sidebar-create-button')),
+    );
+    await tester.pump();
+    container
+        .read(chatMessagesProvider.notifier)
+        .addMessage(
+          ChatMessage(
+            id: 'demo-sent',
+            role: 'user',
+            content: 'Example question',
+            timestamp: DateTime.utc(2026),
+          ),
+        );
+    result.complete('server-model');
+    await tester.pumpAndSettle();
+    expect(container.read(pendingFolderIdProvider), 'demo-folder');
+    expect([
+      for (final message in container.read(chatMessagesProvider)) message.id,
+    ], ['demo-sent']);
   });
 
   testWidgets('accountless New Chat keeps the generic creation path', (

@@ -107,7 +107,14 @@ Future<void> _startNewChat(BuildContext context, WidgetRef ref) async {
         .generation;
     final selected = ref.read(selectedModelProvider);
     final manual = ref.read(isManualModelSelectionProvider);
+    // A message sent while the model is looked up starts or continues a
+    // conversation the late New Chat must not clear. Streaming replies change
+    // neither.
+    final conversationId = ref.read(activeConversationProvider)?.id;
+    final sentMessages = _userMessageCount(ref);
     bool isCurrent() =>
+        ref.read(activeConversationProvider)?.id == conversationId &&
+        _userMessageCount(ref) == sentMessages &&
         ref.read(appSettingsProvider).slidingSidebarEnabled &&
         ref.read(openWebUiAuthSessionEpochProvider) == epoch &&
         identical(ref.read(apiServiceProvider), api) &&
@@ -158,6 +165,16 @@ Future<void> _startNewChat(BuildContext context, WidgetRef ref) async {
   }
   NavigationService.router.go(Routes.chat);
   _closeSidebarIfNeeded(context);
+}
+
+/// Messages the person has sent in the open transcript. Without one there is
+/// nothing a late New Chat could clear.
+int _userMessageCount(WidgetRef ref) {
+  if (!ref.exists(chat.chatMessagesProvider)) return 0;
+  return ref
+      .read(chat.chatMessagesProvider)
+      .where((message) => message.role == 'user')
+      .length;
 }
 
 Future<void> _startNewHermesChat(BuildContext context, WidgetRef ref) async {

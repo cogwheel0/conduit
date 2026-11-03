@@ -97,46 +97,74 @@ class DrawerShellPage extends ConsumerWidget {
 
 /// Closes the overlay sidebar when [sidebarOverlayDismissRequestProvider]
 /// asks. It sits under the drawer, where the drawer's controller is in scope.
-class SidebarOverlayDismissListener extends ConsumerWidget {
+class SidebarOverlayDismissListener extends ConsumerStatefulWidget {
   const SidebarOverlayDismissListener({super.key, required this.child});
 
   final Widget child;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<SidebarOverlayDismissListener> createState() =>
+      _SidebarOverlayDismissListenerState();
+}
+
+class _SidebarOverlayDismissListenerState
+    extends ConsumerState<SidebarOverlayDismissListener> {
+  /// Route revision when the pending file request arrived. Opening Terminal
+  /// for it after the person chose another page would override that choice.
+  int? _requestRouteRevision;
+
+  @override
+  void initState() {
+    super.initState();
+    if (ref.read(terminalDisplayFileProvider) != null) {
+      _requestRouteRevision = NavigationService.currentRouteRevision;
+    }
+  }
+
+  void _displayRequestedFile() {
+    if (!ref.read(appSettingsProvider).slidingSidebarEnabled ||
+        ref.read(terminalDisplayFileProvider) == null) {
+      return;
+    }
+    final hasBackend =
+        !ref.read(hermesOnlyModeProvider) &&
+        ref.read(openWebUiAccountAvailableProvider);
+    final servers = ref.read(terminalAvailableServersProvider);
+    if (hasBackend && (servers.isLoading || servers.hasError)) return;
+    if (!hasBackend || servers.requireValue.isEmpty) {
+      ref.read(terminalDisplayFileProvider.notifier).clear();
+      return;
+    }
+    final requested = _requestRouteRevision;
+    _requestRouteRevision = null;
+    // Terminal still shows the file when the person opens it.
+    if (requested != NavigationService.currentRouteRevision) return;
+    if (NavigationService.currentRoute != Routes.terminal) {
+      NavigationService.router.go(Routes.terminal);
+    }
+    closeSidebarDrawerIfOverlay(context);
+  }
+
+  @override
+  Widget build(BuildContext context) {
     ref.listen(sidebarOverlayDismissRequestProvider, (_, _) {
       closeSidebarDrawerIfOverlay(context);
     });
-    void displayRequestedFile() {
-      if (!ref.read(appSettingsProvider).slidingSidebarEnabled ||
-          ref.read(terminalDisplayFileProvider) == null) {
-        return;
+    ref.listen(terminalDisplayFileProvider, (previous, next) {
+      if (next != null && !identical(previous, next)) {
+        _requestRouteRevision = NavigationService.currentRouteRevision;
       }
-      final hasBackend =
-          !ref.read(hermesOnlyModeProvider) &&
-          ref.read(openWebUiAccountAvailableProvider);
-      final servers = ref.read(terminalAvailableServersProvider);
-      if (hasBackend && (servers.isLoading || servers.hasError)) return;
-      if (!hasBackend || servers.requireValue.isEmpty) {
-        ref.read(terminalDisplayFileProvider.notifier).clear();
-        return;
-      }
-      if (NavigationService.currentRoute != Routes.terminal) {
-        NavigationService.router.go(Routes.terminal);
-      }
-      closeSidebarDrawerIfOverlay(context);
-    }
-
-    ref.listen(terminalDisplayFileProvider, (_, _) => displayRequestedFile());
+      _displayRequestedFile();
+    });
     ref.listen(
       terminalAvailableServersProvider,
-      (_, _) => displayRequestedFile(),
+      (_, _) => _displayRequestedFile(),
     );
     ref.listen(
       sidebarNavigationSnapshotProvider,
-      (_, _) => displayRequestedFile(),
+      (_, _) => _displayRequestedFile(),
     );
-    return child;
+    return widget.child;
   }
 }
 

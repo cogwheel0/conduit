@@ -434,6 +434,43 @@ void main() {
     );
   }
 
+  testWidgets('a newer page choice outlasts a file request in discovery', (
+    tester,
+  ) async {
+    final discovery = Completer<List<TerminalServerInfo>>();
+    var probes = 0;
+    await tester.pumpWidget(
+      sidebarTestBuildHarness(
+        controllers: SidebarTestSidebarHarnessControllers(),
+        shellChat: _chat(),
+        initialLocation: Routes.notes,
+        loadTerminalServers: () async => ++probes == 1
+            ? sidebarTestDefaultTerminalServers()
+            : discovery.future,
+      ),
+    );
+    await tester.pumpAndSettle();
+    final container = ProviderScope.containerOf(
+      tester.element(find.byType(SidebarDestinationPage)),
+      listen: false,
+    );
+    container.invalidate(terminalAvailableServersProvider);
+    await tester.pump();
+    expect(container.read(terminalAvailableServersProvider).isLoading, isTrue);
+    container
+        .read(terminalDisplayFileProvider.notifier)
+        .show('/demo/report.txt');
+    final request = container.read(terminalDisplayFileProvider);
+    await tester.pumpAndSettle();
+    NavigationService.router.go(Routes.channels);
+    await tester.pumpAndSettle();
+    discovery.complete(sidebarTestDefaultTerminalServers());
+    await tester.pumpAndSettle();
+    expect(NavigationService.currentRoute, Routes.channels);
+    expect(container.read(terminalDisplayFileProvider), same(request));
+    expect(tester.takeException(), isNull);
+  });
+
   for (final detail in [
     '/folder/paper',
     '/notes/supplies',

@@ -12,6 +12,7 @@ import 'package:conduit_core/models/folder.dart';
 import 'package:conduit_core/models/model.dart';
 import 'package:conduit_core/models/note.dart';
 import 'package:conduit_core/models/user.dart';
+import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit/shared/services/navigation_service.dart';
 import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit_core/services/connectivity_service.dart';
@@ -153,6 +154,7 @@ Widget sidebarTestBuildHarness({
   Future<List<Model>>? pendingModels,
   Model? cachedDefaultModel,
   Future<String?> Function()? loadServerDefaultModel,
+  ServerConfig? apiServerConfig,
   AppSettingsNotifier? settingsNotifier,
   bool slidingSidebarEnabled = true,
   bool hermesOnly = false,
@@ -276,6 +278,7 @@ Widget sidebarTestBuildHarness({
         hasApiService
             ? SidebarTestSidebarApiService(
                 loadServerDefaultModel: loadServerDefaultModel,
+                serverConfig: apiServerConfig,
               )
             : null,
       ),
@@ -408,9 +411,20 @@ Widget sidebarTestBuildHarness({
 }
 
 final class SidebarTestSidebarApiService extends Mock implements ApiService {
-  SidebarTestSidebarApiService({this.loadServerDefaultModel});
+  SidebarTestSidebarApiService({
+    this.loadServerDefaultModel,
+    ServerConfig? serverConfig,
+  }) : _serverConfig = serverConfig;
 
   final Future<String?> Function()? loadServerDefaultModel;
+  final ServerConfig? _serverConfig;
+
+  /// Left unset like other lightweight fakes unless a test builds the chat
+  /// transcript, which reads it.
+  @override
+  ServerConfig get serverConfig => _serverConfig ?? super.noSuchMethod(
+    Invocation.getter(#serverConfig),
+  ) as ServerConfig;
 
   @override
   Future<String?> getDefaultModel() async => loadServerDefaultModel?.call();
