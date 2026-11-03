@@ -278,6 +278,80 @@ void main() {
     );
   });
 
+  test(
+    'voice filter metadata reaches both native selector entry points',
+    () async {
+      NativeSheetBridge.instance.debugIsIOSOverride = true;
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      const option = NativeSheetOptionConfig(
+        id: 'maple',
+        label: 'Maple',
+        filterGroup: 'English',
+      );
+      final channel = BasicMessageChannel<Object?>(
+        'dev.flutter.pigeon.conduit.NativeSheetHostApi.presentOptionsSelector',
+        NativeSheetHostApi.pigeonChannelCodec,
+      );
+      PlatformNativeSheetOptionsSelectorRequest? received;
+      messenger.setMockDecodedMessageHandler<Object?>(channel, (message) async {
+        received =
+            (message! as List<Object?>).single!
+                as PlatformNativeSheetOptionsSelectorRequest;
+        return <Object?>[null];
+      });
+      addTearDown(
+        () => messenger.setMockDecodedMessageHandler<Object?>(channel, null),
+      );
+      await NativeSheetBridge.instance.presentOptionsSelector(
+        title: 'Voices',
+        options: [option],
+        filterAllLabel: 'All',
+      );
+      expect(received!.filterAllLabel, 'All');
+      expect(received!.options.single.filterGroup, 'English');
+
+      // The profile sheet uses the same metadata via a searchable picker item.
+      final updates = <PlatformNativeSheetApplyDetailPatchRequest>[];
+      messenger.setMockDecodedMessageHandler<Object?>(
+        _applyDetailPatchChannel,
+        (message) async {
+          updates.add(
+            (message! as List<Object?>).single!
+                as PlatformNativeSheetApplyDetailPatchRequest,
+          );
+          return <Object?>[true];
+        },
+      );
+      addTearDown(
+        () => messenger.setMockDecodedMessageHandler<Object?>(
+          _applyDetailPatchChannel,
+          null,
+        ),
+      );
+      await NativeSheetBridge.instance.applyDetailPatch(
+        detailId: 'voices',
+        items: const [
+          NativeSheetItemConfig(
+            id: 'voice',
+            title: 'Voice',
+            kind: NativeSheetItemKind.searchablePicker,
+            options: [option],
+            filterAllLabel: 'All',
+          ),
+        ],
+      );
+      final item = updates.single.items.single;
+      expect(item.filterAllLabel, 'All');
+      expect(item.options.single.filterGroup, 'English');
+      expect(option.toMap()['filterGroup'], 'English');
+      expect(
+        const NativeSheetItemConfig(id: 'plain', title: 'Plain').toMap(),
+        isNot(contains('filterAllLabel')),
+      );
+    },
+  );
+
   test('sheet item serializes generic dismiss action metadata', () {
     const item = NativeSheetItemConfig(
       id: 'workspace-row',

@@ -610,6 +610,49 @@ class RunnerTests: XCTestCase {
     wait(for: [applied], timeout: 1)
   }
 
+  @MainActor
+  func testNativeVoiceLanguageFilterKeepsOnlySelectedUnknownVoice() throws {
+    let payload: [String: Any] = [
+      "title": "Voices", "filterAllLabel": "All languages", "selectedOptionId": "cloud",
+      "options": [
+        ["id": "default", "label": "System default", "filterGroup": ""],
+        ["id": "iris", "label": "Iris", "filterGroup": "French"],
+        ["id": "maple", "label": "Maple", "filterGroup": "English"],
+        ["id": "cloud", "label": "Cloud voice"],
+        ["id": "other", "label": "Other cloud voice"],
+      ],
+    ]
+    func texts(in view: UIView) -> [String] {
+      (view as? UILabel).flatMap(\.text).map { [$0] } ?? view.subviews.flatMap { texts(in: $0) }
+    }
+    for (filter, expected) in [
+      (nil as String?, ["System default", "Iris", "Maple", "Cloud voice", "Other cloud voice"]),
+      ("French", ["System default", "Iris", "Cloud voice"]),
+    ] {
+      let controller = try XCTUnwrap(NativeOptionsSelectorTableViewController.makeForTesting(payload, filterGroup: filter))
+      let table = try XCTUnwrap(controller.view.subviews.compactMap { $0 as? UITableView }.first)
+      let source = try XCTUnwrap(table.dataSource)
+      if filter == "French" {
+        let search = try XCTUnwrap(controller.navigationItem.searchController)
+        let updater = try XCTUnwrap(controller as? UISearchResultsUpdating)
+        search.searchBar.text = "unmatched"
+        updater.updateSearchResults(for: search)
+        XCTAssertEqual(source.tableView(table, numberOfRowsInSection: 0), 0)
+        search.searchBar.text = nil
+        updater.updateSearchResults(for: search)
+      }
+      let count = source.tableView(table, numberOfRowsInSection: 0)
+      XCTAssertEqual(count, expected.count)
+      var labels: [String] = []
+      for row in 0..<count {
+        let cell = source.tableView(table, cellForRowAt: IndexPath(row: row, section: 0))
+        labels.append(contentsOf: texts(in: cell.contentView))
+        XCTAssertEqual(cell.accessoryType, labels.last == "Cloud voice" ? .checkmark : .none)
+      }
+      XCTAssertEqual(labels, expected)
+    }
+  }
+
   func testNativeSheetModelUpdateRejectsStalePresentation() {
     var didApply = false
 

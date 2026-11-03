@@ -312,6 +312,7 @@ class PlatformNativeSheetOption {
     required this.ancestorHasMoreSiblings,
     required this.showBranch,
     required this.hasMoreSiblings,
+    this.filterGroup,
   });
 
   String id;
@@ -323,6 +324,8 @@ class PlatformNativeSheetOption {
   List<bool> ancestorHasMoreSiblings;
   bool showBranch;
   bool hasMoreSiblings;
+
+  String? filterGroup;
 }
 
 class PlatformNativeSheetTheme {
@@ -389,6 +392,7 @@ class PlatformNativeSheetItem {
     this.checked,
     this.accent,
     this.usesProfileAvatar,
+    this.filterAllLabel,
   });
 
   String id;
@@ -433,6 +437,8 @@ class PlatformNativeSheetItem {
   /// Draws the row as the sheet's profile summary: its large avatar beside
   /// the row's own title and subtitle.
   bool? usesProfileAvatar;
+
+  String? filterAllLabel;
 }
 
 class PlatformNativeSheetLink {
@@ -658,6 +664,7 @@ class PlatformNativeSheetOptionsSelectorRequest {
     this.selectedOptionId,
     required this.searchable,
     required this.options,
+    this.filterAllLabel,
   });
 
   String title;
@@ -665,6 +672,8 @@ class PlatformNativeSheetOptionsSelectorRequest {
   String? selectedOptionId;
   bool searchable;
   List<PlatformNativeSheetOption> options;
+
+  String? filterAllLabel;
 }
 
 class PlatformNativeSheetDatePickerRequest {

@@ -9,6 +9,52 @@ void main() {
   final l10n = AppLocalizationsEn();
 
   group('TTS voice utils', () {
+    const catalog = <Map<String, dynamic>>[
+      {
+        'id': 'maple',
+        'name': 'Maple',
+        'locale': 'en_US',
+        'languageName': 'English (US)',
+      },
+      {
+        'id': 'willow',
+        'name': 'Willow',
+        'locale': 'EN-us',
+        'languageName': 'English (US)',
+      },
+      {
+        'id': 'iris',
+        'name': 'Iris',
+        'language': 'fr-FR',
+        'languageName': 'French',
+      },
+      {'id': 'plain', 'name': 'Plain'},
+    ];
+
+    test('language filters normalize locales and remove duplicate groups', () {
+      expect(buildTtsVoiceLanguageOptions(catalog), [
+        (code: 'en-us', label: 'English (US)'),
+        (code: 'fr-fr', label: 'French'),
+      ]);
+    });
+
+    test('a language filter keeps only matching voices', () {
+      final voices = buildTtsVoiceOptions(
+        l10n,
+        TtsEngine.server,
+        catalog,
+        languageCode: 'EN_us',
+      );
+      expect(voices.map((v) => v.id), ['maple', 'willow']);
+    });
+
+    test('all languages retains voices without language metadata', () {
+      expect(
+        buildTtsVoiceOptions(l10n, TtsEngine.server, catalog),
+        hasLength(4),
+      );
+    });
+
     test('device voice ids prefer native identifiers', () {
       final voice = {
         'id': 'com.apple.voice.compact.en-US.Samantha',
