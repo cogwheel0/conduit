@@ -2,6 +2,7 @@ import 'package:conduit/features/notes/utils/note_file_link_insertion.dart';
 import 'package:conduit_core/features/notes/utils/note_file_cards.dart';
 import 'package:conduit_core/features/notes/utils/note_page_data.dart';
 import 'package:fleather/fleather.dart';
+import 'package:flutter/services.dart' show TextSelection;
 import 'package:flutter_test/flutter_test.dart';
 
 const rec = NoteFileLink(id: 'f1', name: 'Rec.m4a');
@@ -37,6 +38,67 @@ void main() {
     final markdown = noteMarkdownFromDocument(controller.document);
     expect(markdown.indexOf('first'), lessThan(markdown.indexOf('Rec.m4a')));
     expect(markdown.indexOf('Doc.pdf'), lessThan(markdown.indexOf('second')));
+  });
+
+  test('typing goes on after cards put in at the cursor mid-sentence', () {
+    final controller = FleatherController(
+      document: noteDocumentFromMarkdown('hello world'),
+    );
+    addTearDown(controller.dispose);
+    controller.updateSelection(const TextSelection.collapsed(offset: 5));
+
+    insertNoteFileCardsInEditor(controller, const [rec, doc], index: 5);
+    final cursor = controller.selection.baseOffset;
+    controller.replaceText(
+      cursor,
+      0,
+      '!',
+      selection: TextSelection.collapsed(offset: cursor + 1),
+    );
+
+    final text = controller.document.toPlainText();
+    expect(text.indexOf('!'), greaterThan(text.lastIndexOf('￼')));
+    expect(text, contains('! world'));
+    expect(text, startsWith('hello\n'));
+  });
+
+  test('a selection after a removed card keeps its text', () {
+    final controller = FleatherController(
+      document: noteDocumentFromMarkdown(
+        'hello\n\n[Rec.m4a](/api/v1/files/f1/content)\n\nbye',
+      ),
+    );
+    addTearDown(controller.dispose);
+    final bye = controller.document.toPlainText().indexOf('bye');
+    controller.updateSelection(
+      TextSelection(baseOffset: bye, extentOffset: bye + 3),
+    );
+
+    removeNoteFileCardsInEditor(controller, 'f1');
+
+    final selection = controller.selection;
+    expect(
+      controller.document.toPlainText().substring(
+        selection.start,
+        selection.end,
+      ),
+      'bye',
+    );
+  });
+
+  test('a cursor at the end stays inside the note when a card goes', () {
+    final controller = FleatherController(
+      document: noteDocumentFromMarkdown(
+        'hello\n\n[Rec.m4a](/api/v1/files/f1/content)',
+      ),
+    );
+    addTearDown(controller.dispose);
+    final end = controller.document.length - 1;
+    controller.updateSelection(TextSelection.collapsed(offset: end));
+
+    removeNoteFileCardsInEditor(controller, 'f1');
+
+    expect(controller.selection.baseOffset, controller.document.length - 1);
   });
 
   test('a removed card leaves the rest of the note', () {

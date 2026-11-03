@@ -80,12 +80,11 @@ class NoteAttachmentsController {
   final void Function(NoteAudioNotice notice) _onNotice;
 
   /// The page of a note with several pages (Open WebUI 0.12.5+) the editor
-  /// shows: a recording is attached there, and a file is detached from it.
-  /// Null, or a page the note no longer has, means the main page.
+  /// shows, read once when a recording is made or a file removed: the
+  /// recording is attached there, and the file detached from it. Null, or a
+  /// page the note no longer has, means the main page, as it does for a
+  /// recording staged before pages were known.
   final String? Function()? _currentPageId;
-
-  String _pageIn(Map<String, dynamic> data, [String? page]) =>
-      notePageIdIn(data, page ?? _currentPageId?.call());
 
   final List<PendingNoteAudioUpload> _pending = <PendingNoteAudioUpload>[];
   final Set<String> _inFlight = <String>{};
@@ -526,6 +525,9 @@ class NoteAttachmentsController {
     final Object authEpoch = _container.read(openWebUiAuthSessionEpochProvider);
 
     if (fileId == null) return null;
+    // The page the file is removed from, read once: the editor may show
+    // another page by the time the stored row is read.
+    final String? page = _currentPageId?.call();
     // The note as this page has it, for the API path; with a database the
     // patch is built from the stored row inside the note lock, so an
     // attachment added since [note] was read (a recording finishing, a pull),
@@ -549,11 +551,18 @@ class NoteAttachmentsController {
       // Only the stored row decides on the durable path: a list read from a
       // stale copy must not be merged into a note that is paged by now.
       data: db == null
-          ? noteDataWithoutFile(shown, fileId, pageId: _pageIn(shown))
+          ? noteDataWithoutFile(
+              shown,
+              fileId,
+              pageId: notePageIdIn(shown, page),
+            )
           : const <String, dynamic>{},
-      dataFrom: (Map<String, dynamic> existing) =>
-          noteDataWithoutFile(existing, fileId, pageId: _pageIn(existing)),
-      pageId: _pageIn(shown),
+      dataFrom: (Map<String, dynamic> existing) => noteDataWithoutFile(
+        existing,
+        fileId,
+        pageId: notePageIdIn(existing, page),
+      ),
+      pageId: notePageIdIn(shown, page),
       isStillOpen: () => !_disposed,
     );
     if (updated == null ||
@@ -604,7 +613,7 @@ class NoteAttachmentsController {
         final Map<String, dynamic>? linked = noteDataWithFileLink(
           existingData,
           attachment,
-          pageId: _pageIn(existingData, page),
+          pageId: notePageIdIn(existingData, page),
         );
         if (linked == null || !canCommit()) return;
         await db.notesDao.updateNoteWithOutbox(
@@ -695,7 +704,7 @@ class NoteAttachmentsController {
             for (final NotePage page in note.data.pages) page.toJson(),
           ],
       };
-      final String pageId = _pageIn(existing, page);
+      final String pageId = notePageIdIn(existing, page);
       final Map<String, dynamic>? linked = noteDataWithFileLink(
         existing,
         attachment,

@@ -397,6 +397,93 @@ void main() {
       check(noteDirtyPageIds(data)).deepEquals(['p2']);
     });
 
+    Future<void> storeTwoPages({required String main, required String two}) {
+      return db
+          .into(db.notes)
+          .insertOnConflictUpdate(
+            serverToNoteRow({
+              'id': 'note-1',
+              'user_id': 'user-1',
+              'title': 'Meeting',
+              'data': {
+                'content': {'json': null, 'md': '## Meeting', 'html': ''},
+                'pages': [
+                  {
+                    'id': 'main',
+                    'title': 'Meeting',
+                    'content': {'json': null, 'md': main, 'html': ''},
+                  },
+                  {
+                    'id': 'p2',
+                    'title': 'Two',
+                    'content': {'json': null, 'md': two, 'html': ''},
+                  },
+                ],
+              },
+              'meta': {},
+              'is_pinned': false,
+              'created_at': 1713786305000000000,
+              'updated_at': 1713786305000000000,
+            }),
+          );
+    }
+
+    NoteAttachmentsController showingPages(String? Function() page) {
+      controller.dispose();
+      return controller = NoteAttachmentsController(
+        container: container,
+        store: store,
+        noteId: 'note-1',
+        currentNote: () => openNote,
+        resolvedTitle: () => openNote.title,
+        onNoteUpdated: (updated) => openNote = updated,
+        onChanged: () => changes++,
+        onNotice: notices.add,
+        currentPageId: page,
+      )..start();
+    }
+
+    test('a recording staged before pages were known goes to the main page, '
+        'not the page shown', () async {
+      await storeTwoPages(main: 'one', two: 'two');
+      openNote = await readNote('note-1');
+      showingPages(() => 'p2');
+      await store.stage(
+        source: await recording('old.m4a'),
+        serverId: 'server-1',
+        accountId: 'user:user-1',
+        noteId: 'note-1',
+        fileName: 'recording_9.m4a',
+      );
+
+      await controller.loadPending();
+      check(controller.pending).isNotEmpty();
+      // A recording from an earlier run attaches without a notice.
+      await waitFor(
+        () => controller.pending.isEmpty && !controller.isUploading,
+      );
+
+      final data = decodeNoteData((await db.notesDao.getNote('note-1'))!.data);
+      check(notePageMarkdown(data, 'main')).startsWith('one\n\n[');
+      check(notePageMarkdown(data, 'p2')).equals('two');
+    });
+
+    test('a file is removed from the page shown when the removal started',
+        () async {
+      const link = '[f.pdf](/api/v1/files/f/content)';
+      await storeTwoPages(main: 'one\n\n$link', two: 'two\n\n$link');
+      openNote = await readNote('note-1');
+      // The editor moves to the main page while the removal runs.
+      var reads = 0;
+      showingPages(() => reads++ == 0 ? 'p2' : 'main');
+
+      check(await controller.removeAttachedFile('f')).isNotNull();
+
+      final data = decodeNoteData((await db.notesDao.getNote('note-1'))!.data);
+      check(notePageMarkdown(data, 'p2')).equals('two');
+      check(notePageMarkdown(data, 'main')).equals('one\n\n$link');
+    });
+
     test('a note stored in the older shape is linked when the server is '
         'known to be 0.12.5', () async {
       container.dispose();

@@ -26,6 +26,7 @@ import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit_core/services/connectivity_service.dart';
 import 'package:conduit_core/services/worker_manager.dart';
+import 'package:conduit_core/sync/chat_locks.dart';
 import 'package:conduit_core/sync/pull_sync.dart';
 import 'package:conduit_core/sync/sync_engine.dart';
 import 'package:dio/dio.dart';
@@ -423,6 +424,86 @@ void main() {
     );
   });
 
+  testWidgets('moving to a page takes the title a sync gave the note', (
+    tester,
+  ) async {
+    final note = twoPageNote();
+    await storeLocally(note);
+    await pumpEditor(tester, _DetailApi(detail: note));
+    await storeLocally(twoPageNote()..['title'] = 'Renamed on the web');
+
+    await tester.tap(find.byKey(const ValueKey<String>('note-page-chip')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey<String>('note-page-p2')));
+    await tester.pumpAndSettle();
+    typeInto(tester, 'more ');
+    await letAutosaveRun(tester);
+
+    expect(find.text('Renamed on the web'), findsWidgets);
+    final row = (await db.notesDao.getNote('note-1'))!;
+    expect(row.title, 'Renamed on the web');
+    expect(
+      notePageMarkdown(decodeNoteData(row.data), 'p2'),
+      startsWith('more two'),
+    );
+  });
+
+  testWidgets('the page chip is a labelled button that opens the Pages sheet', (
+    tester,
+  ) async {
+    final handle = tester.ensureSemantics();
+    final note = twoPageNote();
+    await storeLocally(note);
+    await pumpEditor(tester, _DetailApi(detail: note));
+
+    final chip = find.bySemanticsLabel(
+      l10n(tester).notePageChipLabel('Shared note'),
+    );
+    expect(chip, findsOneWidget);
+    expect(
+      tester.getSemantics(chip),
+      matchesSemantics(
+        label: l10n(tester).notePageChipLabel('Shared note'),
+        isButton: true,
+        hasTapAction: true,
+      ),
+    );
+    tester.semantics.tap(
+      find.semantics.byLabel(l10n(tester).notePageChipLabel('Shared note')),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text(l10n(tester).notePages), findsOneWidget);
+    handle.dispose();
+  });
+
+  testWidgets('text typed while a save runs is still unsaved after it', (
+    tester,
+  ) async {
+    final note = _noteJson(writeAccess: true);
+    await storeLocally(note);
+    final container = await pumpEditor(tester, _DetailApi(detail: note));
+    // Something else holds the note while the first save waits for it.
+    final held = Completer<void>();
+    unawaited(
+      container.read(noteLocksProvider).runExclusive('note-1', () => held.future),
+    );
+
+    typeInto(tester, 'first ');
+    await letAutosaveRun(tester);
+    typeInto(tester, 'second ');
+    held.complete();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+
+    final pop = tester.widget<PopScope<Object?>>(
+      find.byWidgetPredicate((widget) => widget is PopScope),
+    );
+    expect(pop.canPop, isFalse);
+    await letAutosaveRun(tester);
+    final data = decodeNoteData((await db.notesDao.getNote('note-1'))!.data);
+    expect((data['content'] as Map)['md'], startsWith('second first original'));
+  });
+
   testWidgets('text written on a page a sync removed is kept, to save as a '
       'note of its own or discard', (tester) async {
     final note = twoPageNote();
@@ -565,6 +646,41 @@ void main() {
     final data = decodeNoteData((await db.notesDao.getNote('note-1'))!.data);
     expect(notePageMarkdown(data, 'main'), isNot(contains('/files/f1/')));
     expect(notePageMarkdown(data, 'main'), contains('original'));
+  });
+
+  testWidgets('a file card is kept when the account changed during its '
+      'removal', (tester) async {
+    const md = 'original\n\n[Rec.m4a](/api/v1/files/f1/content)';
+    final note = _noteJson(
+      writeAccess: true,
+      md: md,
+      pages: [
+        {
+          'id': 'main',
+          'title': 'Shared note',
+          'content': {'md': md, 'html': '', 'json': null},
+        },
+      ],
+    );
+    await storeLocally(note);
+    final container = await pumpEditor(tester, _DetailApi(detail: note));
+
+    await tester.tap(
+      find.descendant(
+        of: find.byKey(const ValueKey<String>('note-file-card-f1')),
+        matching: find.byIcon(Icons.cancel_rounded),
+      ),
+    );
+    await tester.pumpAndSettle();
+    container.read(_currentUser.notifier).switchTo(_bob);
+    await tester.tap(find.text(l10n(tester).delete).last);
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const ValueKey<String>('note-file-card-f1')),
+      findsOneWidget,
+    );
+    expect(find.text(l10n(tester).noteSessionChangedNotice), findsOneWidget);
   });
 
   testWidgets('a file link a sync wrote while the note was open survives '

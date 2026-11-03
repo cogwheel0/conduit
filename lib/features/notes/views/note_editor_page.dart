@@ -502,7 +502,9 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
     _installContentDocument(noteDocumentFromMarkdown(_pageMarkdown(note)));
     _savedMarkdown = _contentMarkdown;
     _linkBase = _pageMarkdown(note);
-    _hasChanges = false;
+    // The title belongs to the note, not the page: one typed meanwhile is
+    // still to be saved.
+    _hasChanges = _resolvedTitle() != note.title;
     _updateWordCount();
     if (mounted) {
       final l10n = AppLocalizations.of(context)!;
@@ -585,8 +587,14 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
     if (!mounted || unsaved() || _isEnhancing) return;
     // A sync may have brought newer pages since this editor last read them.
     final stored = await _readStoredNote();
-    if (!mounted || unsaved()) return;
+    // An enhancement or dictation started meanwhile works on this page.
+    if (!mounted || unsaved() || _isEnhancing || _isRecording) return;
     final note = stored ?? _note!;
+    // A sync may have renamed the note; the old title would be saved over the
+    // new one with the next edit.
+    if (_titleController.text != note.title) {
+      _titleController.text = note.title;
+    }
     setState(() {
       _note = note;
       _pageId = pageId;
@@ -597,6 +605,8 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
       _hasChanges = false;
       _updateWordCount();
     });
+    // Taking the stored title is no edit to save.
+    _saveDebounce?.cancel();
   }
 
   /// The note as stored now, or null without a database (or a stored copy).
@@ -933,10 +943,15 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
         }
 
         if (updatedNote != null) {
+          // A title or text typed while the save ran is not in it: it stays
+          // unsaved, so leaving the page saves it first.
+          final editedDuringSave =
+              _titleController.text.trim() != title ||
+              _contentMarkdown != savedMarkdown;
           setState(() {
             _savedMarkdown = savedMarkdown;
             _isSaving = false;
-            _hasChanges = false;
+            _hasChanges = editedDuringSave;
             _takeStoredNote(updatedNote);
             _showFileLinksOf(updatedNote);
           });
@@ -2490,6 +2505,12 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
     );
     final controller = _contentController;
     if (confirmed != true || !mounted || _readOnly || controller == null) {
+      return;
+    }
+    // The removal is saved through the session active now, which must be the
+    // one the page opened under.
+    if (!_isOpenSessionCurrent) {
+      _showError(l10n.noteSessionChangedNotice);
       return;
     }
     removeNoteFileCardsInEditor(controller, file.id);
