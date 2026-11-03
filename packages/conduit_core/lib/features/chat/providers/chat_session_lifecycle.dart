@@ -22,6 +22,9 @@ void resetDirectRunsForNewChat(dynamic ref) {
 void clearSelectedFiltersForConversationBoundary(dynamic ref) {
   ref.read(selectedFilterIdsProvider.notifier).reset();
   ref.read(codeInterpreterEnabledProvider.notifier).clear();
+  // The tools, terminal and features the user picked belong to the chat they
+  // were picked in.
+  ref.read(chatPicksSessionProvider.notifier).newConversation();
 }
 
 /// Returns only selected toggle filters exposed by [model].

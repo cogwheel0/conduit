@@ -40,6 +40,7 @@ import 'package:conduit_core/testing.dart'
     show FakeOpenWebUiServer, FakeSyncApiClient, openWebUiStorageOpenOverrides;
 import 'package:conduit_core/sync/sync_api_client.dart';
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
+import 'package:conduit_core/features/chat/providers/chat_model_choice.dart';
 import 'package:conduit_core/features/chat/providers/chat_providers.dart';
 import 'package:conduit_core/features/chat/providers/context_attachments_provider.dart';
 import 'package:conduit_core/features/chat/providers/reasoning_effort_provider.dart'
@@ -939,6 +940,7 @@ class _VoiceMetadataApi extends _GatedCompletionApi {
     String id, {
     String? title,
     String? systemPrompt,
+    List<String>? models,
     ApiAuthSnapshot? authSnapshot,
   }) async {
     requests['rename'] = authSnapshot != null;
@@ -6529,6 +6531,99 @@ void main() {
       check(regenerated.modelSlot).equals(1);
     });
 
+    test('once another model is picked, regenerating a compared answer asks '
+        'that model, in the answer\'s column', () async {
+      const other = Model(id: 'model-2', name: 'Model 2');
+      const third = Model(id: 'model-3', name: 'Model 3');
+      final (:api, :socket, :container) = await open(
+        available: const [duplicate, other, third],
+      );
+      final handles = await durableCompareSend(
+        container,
+        'compare these',
+        null,
+        models: const [duplicate, other],
+      );
+      final [a, b] = [for (final h in handles) h.assistantMessageId];
+      await replay(container);
+      socket.deliver(a, 'chat:completion', {'content': 'A', 'done': true});
+      socket.deliver(b, 'chat:completion', {'content': 'B', 'done': true});
+
+      // The user picks a third model after the comparison was sent: Open
+      // WebUI 0.12.5 regenerates with the model picked now.
+      await saveChatModelChoice(container, third);
+      check(api.savedModels.map((saved) => saved.$2)).deepEquals([
+        ['model-3'],
+      ]);
+      final row = await db.chatsDao.getChat(chatId);
+      check(
+        (jsonDecode(row!.rawExtra) as Map<String, dynamic>)['models'],
+      ).isA<List>().deepEquals(['model-3']);
+
+      await regenerateMessage(container, 'compare these', null);
+
+      final request = api.requests.last;
+      check(request.model).equals('model-3');
+      check(request.messageIds!.single.modelIdx).equals(1);
+    });
+
+    test('a model picked while a reply streams is kept locally and not sent '
+        'until the chat syncs', () async {
+      const other = Model(id: 'model-2', name: 'Model 2');
+      final (:api, :socket, :container) = await open(
+        available: const [duplicate, other],
+      );
+      final handles = await durableCompareSend(
+        container,
+        'compare these',
+        null,
+        models: const [duplicate, other],
+      );
+      await replay(container);
+      check(container.read(isChatStreamingProvider)).isTrue();
+
+      await saveChatModelChoice(container, other);
+
+      // A server before 0.12 rewrites the whole chat to merge one key, which
+      // could overwrite the streaming reply.
+      check(api.savedModels).isEmpty();
+      final row = await db.chatsDao.getChat(chatId);
+      check(
+        (jsonDecode(row!.rawExtra) as Map<String, dynamic>)['models'],
+      ).isA<List>().deepEquals(['model-2']);
+      for (final h in handles) {
+        socket.deliver(h.assistantMessageId, 'chat:completion', {
+          'content': 'done',
+          'done': true,
+        });
+      }
+    });
+
+    test('a model picked before a comparison was sent leaves its answers '
+        'their own models', () async {
+      const other = Model(id: 'model-2', name: 'Model 2');
+      final (:api, :socket, :container) = await open(
+        available: const [duplicate, other],
+      );
+      container
+          .read(chatModelPickProvider.notifier)
+          .record(chatId: chatId, modelId: duplicate.id, afterMessageId: null);
+      final handles = await durableCompareSend(
+        container,
+        'compare these',
+        null,
+        models: const [duplicate, other],
+      );
+      final [a, b] = [for (final h in handles) h.assistantMessageId];
+      await replay(container);
+      socket.deliver(a, 'chat:completion', {'content': 'A', 'done': true});
+      socket.deliver(b, 'chat:completion', {'content': 'B', 'done': true});
+
+      await regenerateMessage(container, 'compare these', null);
+
+      check(api.requests.last.model).equals('model-2');
+    });
+
     test('a model the server does not list is refused before anything is '
         'written', () async {
       final (:api, :socket, :container) = await open();
@@ -7948,6 +8043,119 @@ void main() {
       ).deepEquals(['other-user']);
     });
 
+    for (final author in [null, 'me', 'someone-else']) {
+      test('the composer offers Stop only for a reply of this account '
+          '(author: $author)', () async {
+        final (:api, :socket, :client, :container) = await openDraft(
+          account: const User(
+            id: 'me',
+            username: 'Me',
+            email: 'me@example.com',
+            role: 'user',
+          ),
+        );
+        container
+            .read(activeConversationProvider.notifier)
+            .set(
+              _conversation('shared-chat', [
+                _user('shared-u', 'hello'),
+                ChatMessage(
+                  id: 'shared-a',
+                  role: 'assistant',
+                  content: 'writing',
+                  timestamp: DateTime.utc(2026, 7, 13, 0, 0, 1),
+                  model: duplicate.id,
+                  isStreaming: true,
+                  metadata: <String, dynamic>{
+                    kMessageAuthorIdMetadataKey: ?author,
+                  },
+                ),
+              ], ChatStorageKind.openWebUi),
+            );
+
+        check(container.read(isChatStreamingProvider)).isTrue();
+        check(
+          container.read(isOwnChatStreamingProvider),
+        ).equals(author != 'someone-else');
+      });
+
+      test(
+        author == 'someone-else'
+            ? 'another person\'s unfinished answers stay running when this '
+                  'account runs no task in the chat'
+            : 'answers a server restart cut off are finished once the chat '
+                  'runs no task (author: $author)',
+        () async {
+          final (:api, :socket, :client, :container) = await openDraft(
+            account: const User(
+              id: 'me',
+              username: 'Me',
+              email: 'me@example.com',
+              role: 'user',
+            ),
+          );
+          api.activeTaskIds = const [];
+          // Open WebUI 0.12.5 marks each answer not done when it starts; a
+          // restart left these so for good.
+          final shown = ChatMessage(
+            id: 'cut-a',
+            role: 'assistant',
+            content: 'A so far',
+            timestamp: DateTime.utc(2026, 7, 13, 0, 0, 1),
+            model: duplicate.id,
+            metadata: <String, dynamic>{
+              kMessageModelIdxMetadataKey: 0,
+              kMessageUnfinishedAnswersMetadataKey: const ['cut-a', 'cut-b'],
+              kMessageAuthorIdMetadataKey: ?author,
+            },
+          );
+          container
+              .read(activeConversationProvider.notifier)
+              .set(
+                _conversation('cut-chat', [
+                  _user('cut-u', 'compare these'),
+                  shown,
+                ], ChatStorageKind.openWebUi),
+              );
+          await until(() => api.taskListRequests > 0);
+          for (var i = 0; i < 5; i++) {
+            await Future<void>.delayed(Duration.zero);
+          }
+
+          ChatMessage tail() => container.read(chatMessagesProvider).last;
+          if (author == 'someone-else') {
+            check(
+              tail().metadata?[kMessageUnfinishedAnswersMetadataKey],
+            ).isA<List>().deepEquals(['cut-a', 'cut-b']);
+          } else {
+            check(tail().metadata?[kMessageUnfinishedAnswersMetadataKey])
+                .isNull();
+            check(
+              ChatComparisonGroup.fromMessage(
+                tail(),
+              ).slots.expand((slot) => slot.answers).any((a) => a.isStreaming),
+            ).isFalse();
+
+            // The server keeps them not done for good: its next copy of the
+            // chat does not bring them back as running.
+            container
+                .read(activeConversationProvider.notifier)
+                .set(
+                  _conversation('cut-chat', [
+                    _user('cut-u', 'compare these'),
+                    shown,
+                  ], ChatStorageKind.openWebUi).copyWith(
+                    updatedAt: DateTime.utc(2026, 7, 14),
+                  ),
+                );
+            await Future<void>.delayed(Duration.zero);
+            check(tail().metadata?[kMessageUnfinishedAnswersMetadataKey])
+                .isNull();
+          }
+        },
+      );
+    }
+
     test('a new sign-in while the server is asked for the chat\'s tasks leaves '
         'the old account\'s unfinished answers as they were', () async {
       final (:api, :socket, :client, :container) = await openDraft(
@@ -8412,6 +8620,20 @@ class _FanOutApi extends ApiService implements _AssistantIdSource {
 
   final List<_FanOutRequest> requests = [];
   final List<String> stoppedTasks = [];
+
+  /// Model lists saved with `updateConversation`, by chat id.
+  final List<(String, List<String>?)> savedModels = [];
+
+  @override
+  Future<void> updateConversation(
+    String id, {
+    String? title,
+    String? systemPrompt,
+    List<String>? models,
+    ApiAuthSnapshot? authSnapshot,
+  }) async {
+    savedModels.add((id, models));
+  }
   final List<String> stoppedChats = [];
   bool answerSynchronously = false;
 
@@ -8474,6 +8696,7 @@ class _FanOutApi extends ApiService implements _AssistantIdSource {
 
   /// The tasks the server reports as still running for a chat.
   List<String> activeTaskIds = const [];
+  int taskListRequests = 0;
 
   /// When set, the task list is answered only once this completes, and
   /// [taskListEntered] marks the wait: the window in which the account can
@@ -8483,6 +8706,7 @@ class _FanOutApi extends ApiService implements _AssistantIdSource {
 
   @override
   Future<List<String>> getTaskIdsByChat(String chatId) async {
+    taskListRequests++;
     final hold = holdTaskList;
     if (hold == null) return activeTaskIds;
     if (!taskListEntered.isCompleted) taskListEntered.complete();

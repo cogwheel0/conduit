@@ -7,6 +7,7 @@ import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'package:conduit_core/features/chat/providers/chat_model_choice.dart';
 import 'package:conduit_core/models/model.dart';
 
 import 'package:conduit_core/providers/app_providers.dart';
@@ -546,6 +547,7 @@ class _ModelGroup extends ConsumerWidget {
                 onPick(model);
               } else {
                 ref.read(selectedModelProvider.notifier).set(model);
+                unawaited(saveChatModelChoice(ref, model));
               }
               Navigator.of(context).pop();
             },

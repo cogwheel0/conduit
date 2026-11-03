@@ -158,6 +158,34 @@ final isChatStreamingProvider = Provider<bool>((ref) {
   return ref.watch(chatMessagesProvider.select(_messagesAreStreaming));
 });
 
+/// Whether every reply streaming at the end of [messages] was written by
+/// someone other than [userId].
+bool _onlyOthersAreStreaming(List<ChatMessage> messages, String? userId) {
+  var others = false;
+  for (var index = messages.length - 1; index >= 0; index -= 1) {
+    final message = messages[index];
+    if (message.role != 'assistant') break;
+    if (!message.isStreaming) continue;
+    if (message.isWrittenBy(userId)) return false;
+    others = true;
+  }
+  return others;
+}
+
+/// Whether a reply this account asked for is streaming, the one the composer
+/// offers to stop. In a chat shared with Allow replies another person's reply
+/// can be running; it streams here too, but only they can stop it, so
+/// Open WebUI's web client shows no Stop for it, and neither does Conduit.
+final isOwnChatStreamingProvider = Provider<bool>((ref) {
+  if (!ref.watch(isChatStreamingProvider)) return false;
+  final userId = ref.watch(currentUserProvider2.select((user) => user?.id));
+  return !ref.watch(
+    chatMessagesProvider.select(
+      (messages) => _onlyOthersAreStreaming(messages, userId),
+    ),
+  );
+});
+
 /// Platform hook used by [chatWakelockCoordinatorProvider]; tests swap it to
 /// observe toggles without a platform channel.
 typedef ChatWakelockToggle = Future<void> Function({required bool enable});

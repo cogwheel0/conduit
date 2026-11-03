@@ -551,6 +551,13 @@ Map<String, dynamic>? _extractOpenWebUiMessageMetadata(
         (historyMsg?['done'] ?? msgData['done']) != true;
   }
 
+  final rawAuthor = historyMsg?['user_id'] ?? msgData['user_id'];
+  if (rawAuthor is String && rawAuthor.trim().isNotEmpty) {
+    metadata[kMessageAuthorIdMetadataKey] = rawAuthor.trim();
+  } else {
+    metadata.remove(kMessageAuthorIdMetadataKey);
+  }
+
   final rawParentId = historyMsg?['parentId'] ?? msgData['parentId'];
   if (rawParentId != null) {
     final parentId = rawParentId.toString().trim();

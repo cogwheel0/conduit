@@ -207,16 +207,21 @@ mixin _ChatsApi on _ApiServiceBase {
     }
   }
 
+  /// Changes only the given keys of chat [id]: every supported server merges
+  /// the chat's top-level keys, and leaves its date alone when no messages
+  /// are sent. [models] is the chat's model list.
   Future<void> updateConversation(
     String id, {
     String? title,
     String? systemPrompt,
+    List<String>? models,
     ApiAuthSnapshot? authSnapshot,
   }) async {
     // OpenWebUI expects POST to /api/v1/chats/{id} with ChatForm { chat: {...} }
     final chatPayload = <String, dynamic>{
       'title': ?title,
       'system': ?systemPrompt,
+      'models': ?models,
     };
     await _dio.post(
       '/api/v1/chats/$id',

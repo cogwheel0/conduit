@@ -63,4 +63,46 @@ void main() {
   test('nothing usable is empty', () {
     expect(UsageSummary.fromUsage(<String, dynamic>{'x': 'y'}).isEmpty, isTrue);
   });
+
+  test('Open WebUI 0.12.5: a reply over tool rounds counts every call', () {
+    // `prompt_tokens`/`completion_tokens` hold the last call; the canonical
+    // counts are the reply's.
+    final summary = UsageSummary.fromUsage(<String, dynamic>{
+      'prompt_tokens': 900,
+      'completion_tokens': 40,
+      'input_tokens': 1500,
+      'output_tokens': 120,
+      'total_tokens': 1620,
+    });
+    expect(summary.promptTokens, 1500);
+    expect(summary.generationTokens, 120);
+    // The total is the two counts shown, so it is not repeated.
+    expect(summary.totalTokens, isNull);
+  });
+
+  test('a rate keeps its call\'s count, and the reply\'s total shows', () {
+    final summary = UsageSummary.fromUsage(<String, dynamic>{
+      'completion_tokens': 40,
+      'completion_time': 2,
+      'prompt_tokens': 900,
+      'prompt_time': 1,
+      'input_tokens': 1500,
+      'output_tokens': 120,
+      'total_tokens': 1620,
+    });
+    expect(summary.generationPerSecond, 20);
+    expect(summary.generationTokens, 40);
+    expect(summary.promptTokens, 900);
+    expect(summary.totalTokens, 1620);
+  });
+
+  test('usage holding only the incomplete mark reports nothing', () {
+    expect(usageHasReport(<String, dynamic>{'incomplete': true}), isFalse);
+    expect(usageHasReport(null), isFalse);
+    expect(usageHasReport(<String, dynamic>{}), isFalse);
+    expect(
+      usageHasReport(<String, dynamic>{'incomplete': true, 'output_tokens': 3}),
+      isTrue,
+    );
+  });
 }

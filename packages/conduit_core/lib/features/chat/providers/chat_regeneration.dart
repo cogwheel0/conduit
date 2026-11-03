@@ -586,13 +586,16 @@ Future<void> regenerateEditedHermesUserMessage(
 /// The model and column a regeneration belongs to when the answer being
 /// regenerated is one of several models' answers to one prompt.
 ///
-/// Open WebUI regenerates such an answer with ITS model and keeps its column
-/// (`modelIdx`), whatever the picker holds now; a duplicate-model chat is
-/// told apart by the column alone. A single-model turn returns null and
-/// regenerates with the picker's model as before.
+/// The answer keeps its column (`modelIdx`); a duplicate-model chat is told
+/// apart by the column alone, and is asked of that column's model. Open
+/// WebUI 0.12.5 regenerates with the model picked now instead of the one that
+/// wrote the answer: so once the user picked a model ([picked]) after the turn
+/// was sent, that model answers in the column. A single-model turn returns
+/// null and regenerates with the picker's model as before.
 ({String modelId, int slot})? _comparisonRegenerationTarget(
-  List<ChatMessage> messages,
-) {
+  List<ChatMessage> messages, {
+  ChatModelPick? picked,
+}) {
   if (messages.isEmpty || messages.last.role != 'assistant') return null;
   final tail = messages.last;
   final modelId = tail.model?.trim() ?? '';
@@ -602,7 +605,16 @@ Future<void> regenerateEditedHermesUserMessage(
     if (candidate.role != 'user') continue;
     final models = candidate.metadata?['models'];
     if (models is List && models.length > 1) {
-      return (modelId: modelId, slot: tail.modelSlot);
+      final pickedSince =
+          picked != null &&
+          messages.indexWhere(
+                (message) => message.id == picked.afterMessageId,
+              ) >=
+              index;
+      return (
+        modelId: pickedSince ? picked.modelId : modelId,
+        slot: tail.modelSlot,
+      );
     }
     return null;
   }
@@ -738,6 +750,10 @@ Future<void> regenerateMessage(
       ? null
       : _comparisonRegenerationTarget(
           ref.read(chatMessagesProvider) as List<ChatMessage>,
+          picked: switch (ref.read(chatModelPickProvider) as ChatModelPick?) {
+            final pick? when pick.chatId == activeConversation.id => pick,
+            _ => null,
+          },
         );
   if (comparisonTarget != null) {
     final listed =

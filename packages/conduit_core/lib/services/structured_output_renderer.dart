@@ -928,6 +928,8 @@ int _logicalLength(
             1;
       case StructuredOutputCodeInterpreterBlock(:final code, :final output):
         length += code.length + _valueLogicalLength(output);
+      case StructuredOutputImageBlock(:final url):
+        length += url.length;
     }
   }
   return length;
@@ -1507,6 +1509,9 @@ List<SemanticMessageBlock> structuredOutputBlocksToSemanticMessage(
             embeds: embeds,
           ),
         );
+      case StructuredOutputImageBlock(:final url):
+        // Shown as the web client shows it: the image on its own.
+        semanticBlocks.add(SemanticTextBlock.openWebUI('\n\n![]($url)\n\n'));
       case StructuredOutputCodeInterpreterBlock(
         :final code,
         :final language,

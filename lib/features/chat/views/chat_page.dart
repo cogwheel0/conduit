@@ -21,6 +21,7 @@ import '../../../shared/widgets/sidebar_layout_contract.dart';
 
 import 'dart:async';
 
+import 'package:conduit_core/features/chat/providers/chat_model_choice.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 
 import 'package:conduit_core/services/interaction_activity.dart';
@@ -4777,6 +4778,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
             }
           }
           ref.read(selectedModelProvider.notifier).set(selected);
+          if (selected != null) unawaited(saveChatModelChoice(ref, selected));
         }
         await restoreFocusIfNeeded();
         return;

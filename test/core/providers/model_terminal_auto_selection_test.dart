@@ -27,7 +27,8 @@ void main() {
     });
 
     test(
-      'preserves manual selection until a new model default overrides it',
+      'a terminal the user chose stays through a switch of model, as on '
+      'Open WebUI 0.12.5',
       () async {
         final container = ProviderContainer();
         addTearDown(container.dispose);
@@ -49,9 +50,27 @@ void main() {
             .set(_model('code-model', terminalId: 'model-terminal'));
         await _flushMicrotasks();
 
-        expect(container.read(selectedTerminalIdProvider), 'model-terminal');
+        expect(container.read(selectedTerminalIdProvider), 'manual-terminal');
       },
     );
+
+    test('a model\'s default terminal goes with it on a switch to a model '
+        'with none', () async {
+      final container = ProviderContainer();
+      addTearDown(container.dispose);
+
+      container.read(modelTerminalAutoSelectionProvider);
+      container
+          .read(selectedModelProvider.notifier)
+          .set(_model('code-model', terminalId: 'model-terminal'));
+      await _flushMicrotasks();
+      expect(container.read(selectedTerminalIdProvider), 'model-terminal');
+
+      container.read(selectedModelProvider.notifier).set(_model('chat-model'));
+      await _flushMicrotasks();
+
+      expect(container.read(selectedTerminalIdProvider), isNull);
+    });
   });
 }
 

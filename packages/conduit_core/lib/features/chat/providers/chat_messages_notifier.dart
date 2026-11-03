@@ -246,6 +246,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
         }
 
         final modelRebindGeneration = ++_modelRebindGeneration;
+        _answersFinishedWithoutTask.clear();
         // Cancel any existing message stream when switching conversations
         _cancelMessageStream();
         _stopRemoteTaskMonitor();
@@ -959,7 +960,9 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     List<ChatMessage> storedMessages, {
     required String source,
   }) {
-    final serverMessages = _keepRunningComparisonAnswers(storedMessages);
+    final serverMessages = _keepRunningComparisonAnswers(
+      _withoutAnswersFinishedHere(storedMessages),
+    );
     if (!_shouldAdoptServerMessages(serverMessages)) {
       return;
     }
@@ -2496,6 +2499,71 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
   /// an OpenWebUI-backed chat, but its lifecycle remains owned by that provider
   /// and must never start an OpenWebUI task poll. A null transport marker is a
   /// normal OpenWebUI preseed/resume shape and therefore remains eligible.
+  /// Finishes the answers of this account that the server still reports as
+  /// not done while it runs no task of the account's for the chat.
+  ///
+  /// Open WebUI 0.12.5 marks a reply `done: false` itself when it starts and
+  /// done when it ends, so a reply cut off by a server restart is never done.
+  /// Its web client takes such replies as finished once no task runs, and so
+  /// does this: a multi-model answer would otherwise show as still being
+  /// written for good. Another person's reply in a shared chat may be running
+  /// under their task, which this account's task list does not show.
+  void _finishAnswersWithoutTask() {
+    final userId = ref.read(currentUserProvider2)?.id;
+    // A message that names no author is the chat owner's, as the web client
+    // takes it.
+    final owner = ref.read(activeConversationProvider)?.userId;
+    bool ownedHere(ChatMessage message) {
+      final author = message.authorUserId ?? owner;
+      return author == null || userId == null || author == userId;
+    }
+
+    for (final message in state) {
+      final unfinished = message.metadata?[kMessageUnfinishedAnswersMetadataKey];
+      if (unfinished is List && ownedHere(message)) {
+        _answersFinishedWithoutTask.addAll(unfinished.whereType<String>());
+      }
+    }
+    final next = _withoutAnswersFinishedHere(state);
+    if (!identical(next, state)) state = next;
+  }
+
+  /// Answers [_finishAnswersWithoutTask] finished in the open chat. The
+  /// server keeps them not done for good, so each later copy of it would
+  /// show them running again; they stay finished here.
+  final Set<String> _answersFinishedWithoutTask = <String>{};
+
+  /// [messages] with the answers finished here no longer listed as
+  /// unfinished; [messages] itself when none was.
+  List<ChatMessage> _withoutAnswersFinishedHere(List<ChatMessage> messages) {
+    if (_answersFinishedWithoutTask.isEmpty) return messages;
+    var changed = false;
+    final next = <ChatMessage>[
+      for (final message in messages)
+        switch (message.metadata?[kMessageUnfinishedAnswersMetadataKey]) {
+          final List<Object?> unfinished
+              when unfinished.any(_answersFinishedWithoutTask.contains) =>
+            () {
+              changed = true;
+              final left = [
+                for (final id in unfinished)
+                  if (!_answersFinishedWithoutTask.contains(id)) id,
+              ];
+              return message.copyWith(
+                metadata: <String, dynamic>{...message.metadata!}
+                  ..remove(kMessageUnfinishedAnswersMetadataKey)
+                  ..addAll({
+                    if (left.isNotEmpty)
+                      kMessageUnfinishedAnswersMetadataKey: left,
+                  }),
+              );
+            }(),
+          _ => message,
+        },
+    ];
+    return changed ? next : messages;
+  }
+
   bool _hasOpenWebUiTaskRecoverableTail(
     Conversation? conversation, {
     bool requireStreaming = true,
@@ -2763,6 +2831,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     }
 
     if (!isActive) {
+      _finishAnswersWithoutTask();
       if (!openedAsStreaming) {
         _reopenedStreamingMessageId = null;
         _stopRemoteTaskMonitor();
@@ -2908,7 +2977,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
         return false;
       }
       final adopted = _reconcileReopenedServerSnapshot(
-        serverConversation.messages,
+        _withoutAnswersFinishedHere(serverConversation.messages),
         expectedLocalMessageId: expectedLocalMessageId,
         streaming: streaming,
         source: source,

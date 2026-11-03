@@ -7,6 +7,7 @@ import 'chat_message.dart';
 /// Present only when the chat saved more than one model.
 const String kConversationModelsMetadataKey = 'openwebui_models';
 
+
 /// Where an answer's model slot lives in its metadata: a non-negative int, or
 /// absent when the stored message has no `modelIdx`.
 const String kMessageModelIdxMetadataKey = 'modelIdx';
@@ -18,11 +19,29 @@ const String kMessageModelIdxMetadataKey = 'modelIdx';
 /// when the server reports none unfinished.
 const String kMessageUnfinishedAnswersMetadataKey = 'unfinishedAnswerIds';
 
+/// Where a message's metadata names the account that wrote it: Open WebUI's
+/// `user_id` on the message, which a chat shared with Allow replies holds for
+/// each person. Absent when the server did not say.
+const String kMessageAuthorIdMetadataKey = 'authorUserId';
+
 /// Where an answer's saved merge lives in its metadata: the upstream
 /// `{status, content}` object, or absent.
 const String kMessageMergedMetadataKey = 'merged';
 
 extension ChatMessageComparisonFields on ChatMessage {
+  /// The account that wrote this message, when the server said.
+  String? get authorUserId {
+    final stored = metadata?[kMessageAuthorIdMetadataKey];
+    return stored is String && stored.isNotEmpty ? stored : null;
+  }
+
+  /// Whether account [userId] wrote this message: a message that names no
+  /// author is the chat owner's, as Open WebUI's web client takes it.
+  bool isWrittenBy(String? userId) {
+    final author = authorUserId;
+    return author == null || userId == null || author == userId;
+  }
+
   /// The model slot this answer belongs to; slot 0 when none was stored.
   int get modelSlot {
     final stored = metadata?[kMessageModelIdxMetadataKey];

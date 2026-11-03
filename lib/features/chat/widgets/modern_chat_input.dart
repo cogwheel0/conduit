@@ -20,6 +20,7 @@ import 'dart:async';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 
+import 'package:conduit_core/features/chat/providers/chat_model_choice.dart';
 import 'package:conduit_core/features/chat/composer/composer_commands.dart';
 import 'package:conduit_core/features/chat/providers/chat_providers.dart';
 import 'package:conduit_core/features/chat/services/chat_draft_queue.dart';
@@ -2212,8 +2213,10 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       label: model.name,
     );
 
-    // Switch to the selected model.
+    // Switch to the selected model, and keep it as the chat's, as Open
+    // WebUI 0.12.5 does for a model mentioned with @.
     ref.read(selectedModelProvider.notifier).set(model);
+    unawaited(saveChatModelChoice(ref, model));
 
     setState(() {
       _hasText = newText.trim().isNotEmpty;
@@ -3433,8 +3436,10 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       _scheduleNativeKeyboardAttachmentSync();
     });
 
-    // Use dedicated streaming provider to avoid rebuilding on every message change
-    final localTurnIsGenerating = ref.watch(isChatStreamingProvider);
+    // Use dedicated streaming provider to avoid rebuilding on every message
+    // change. Another person's reply running in a shared chat is not this
+    // account's to stop, so it leaves the composer as it is.
+    final localTurnIsGenerating = ref.watch(isOwnChatStreamingProvider);
     final stopGeneration = ref.read(stopGenerationProvider);
 
     // Watch only upload send-state booleans so metadata/progress churn does not

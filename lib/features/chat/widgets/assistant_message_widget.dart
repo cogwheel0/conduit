@@ -12,6 +12,9 @@ import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/markdown/streaming_markdown_widget.dart';
 import '../../../shared/widgets/markdown/renderer/markdown_style.dart';
 
+import 'package:conduit_core/services/structured_output.dart'
+    show displayedChatFiles;
+import 'package:conduit_core/utils/usage_summary.dart';
 import 'package:conduit_core/models/chat_comparison.dart';
 import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit_core/models/message_voice.dart';
@@ -1278,6 +1281,11 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     final activeFiles = showingVersion
         ? widget.message.versions[_activeVersionIndex].files
         : widget.message.files;
+    final shownFiles = displayedChatFiles(
+      showingVersion
+          ? widget.message.versions[_activeVersionIndex].output
+          : widget.message.output,
+    );
     final activeEmbeds = _resolveActiveEmbeds();
     final queuedCompletionAsync = ref.watch(
       queuedCompletionInfoForMessageProvider(_messageId),
@@ -1358,12 +1366,19 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
               children: [
                 // Display attachments - prioritize files array over attachmentIds to avoid duplication
                 if (activeFiles != null && activeFiles.isNotEmpty) ...[
-                  _buildFilesFromArray(),
+                  _buildFilesFromArray(shownFiles),
                   const SizedBox(height: Spacing.md),
-                ] else if (widget.message.attachmentIds != null &&
-                    widget.message.attachmentIds!.isNotEmpty) ...[
-                  _buildAttachmentItems(),
-                  const SizedBox(height: Spacing.md),
+                ] else ...[
+                  if (widget.message.attachmentIds != null &&
+                      widget.message.attachmentIds!.isNotEmpty) ...[
+                    _buildAttachmentItems(),
+                    const SizedBox(height: Spacing.md),
+                  ],
+                  // Files the model showed come with the reply either way.
+                  if (shownFiles.isNotEmpty) ...[
+                    _buildFilesFromArray(shownFiles),
+                    const SizedBox(height: Spacing.md),
+                  ],
                 ],
 
                 if (activeEmbeds != null && activeEmbeds.isNotEmpty) ...[
@@ -1990,11 +2005,26 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     );
   }
 
-  Widget _buildFilesFromArray() {
-    final filesArray = _activeVersionIndex >= 0
+  /// The message's files, with [shownFiles]: files the model showed with
+  /// Open WebUI's display_file tool (0.12.5+), which the web client shows
+  /// with the reply, and the model is told the user sees.
+  Widget _buildFilesFromArray(List<Map<String, dynamic>> shownFiles) {
+    final storedFiles = _activeVersionIndex >= 0
         ? widget.message.versions[_activeVersionIndex].files
         : widget.message.files;
-    if (filesArray == null || filesArray.isEmpty) {
+    final listedIds = <String>{
+      for (final file in storedFiles ?? const <dynamic>[])
+        if (file is Map)
+          for (final key in const ['id', 'file_id'])
+            if (file[key] is String) file[key] as String,
+      ...?widget.message.attachmentIds,
+    };
+    final filesArray = [
+      ...?storedFiles,
+      for (final shown in shownFiles)
+        if (!listedIds.contains(shown['id'])) shown,
+    ];
+    if (filesArray.isEmpty) {
       return const SizedBox.shrink();
     }
 
@@ -2743,7 +2773,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
           onTap: () => unawaited(_mergeResponses(comparisonGroup)),
           sfSymbol: 'arrow.triangle.merge',
         ),
-      if (activeUsage != null && activeUsage.isNotEmpty)
+      if (activeUsage != null && usageHasReport(activeUsage))
         _AssistantFooterAction(
           id: 'usage',
           icon: Platform.isIOS ? CupertinoIcons.info : Icons.info_outline,
