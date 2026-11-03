@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:conduit_core/features/chat/composer/composer_mentions.dart';
 import 'package:material_ui/material_ui.dart';
 
@@ -47,6 +49,86 @@ class MentionTextEditingController extends TextEditingController {
   /// Replaces each tracked mention span (e.g. `@GPT-4`)
   /// with `<@M:model_id|GPT-4>`.
   String toWireFormat() => _mentions.toWireFormat(text);
+
+  /// Saves only visible input and explicitly registered mentions. Literal
+  /// wire-looking text must remain literal when the input is restored.
+  String snapshotDraft() => text.isEmpty
+      ? ''
+      : jsonEncode({
+          'v': 1,
+          'text': text,
+          'mentions': [
+            for (final mention in _mentions.mentions)
+              {
+                'start': mention.start,
+                'end': mention.end,
+                'idType': mention.idType,
+                'id': mention.id,
+                'label': mention.label,
+                'kind': mention.kind.name,
+              },
+          ],
+        });
+
+  bool restoreDraft(String snapshot) {
+    if (snapshot.isEmpty) {
+      clearMentions();
+      clear();
+      return true;
+    }
+    Object? decoded;
+    try {
+      decoded = jsonDecode(snapshot);
+    } on FormatException {
+      return false;
+    }
+    if (decoded is! Map || decoded['v'] != 1 || decoded['text'] is! String) {
+      return false;
+    }
+    final restoredText = decoded['text'] as String;
+    clearMentions();
+    value = TextEditingValue(
+      text: restoredText,
+      selection: TextSelection.collapsed(offset: restoredText.length),
+    );
+    final mentions = decoded['mentions'];
+    if (mentions is List) {
+      for (final item in mentions) {
+        if (item is! Map) continue;
+        final start = item['start'];
+        final end = item['end'];
+        final id = item['id'];
+        final label = item['label'];
+        final idType = item['idType'];
+        final kind = switch (item['kind']) {
+          'entity' => ComposerMentionKind.entity,
+          'skill' => ComposerMentionKind.skill,
+          _ => null,
+        };
+        if (start is! int ||
+            end is! int ||
+            start < 0 ||
+            end <= start ||
+            end > restoredText.length ||
+            id is! String ||
+            label is! String ||
+            idType is! String ||
+            kind == null) {
+          continue;
+        }
+        addMention(
+          start,
+          end,
+          id: id,
+          label: label,
+          idType: idType,
+          kind: kind,
+        );
+      }
+    }
+    notifyListeners();
+    return true;
+  }
 
   @override
   set value(TextEditingValue newValue) {

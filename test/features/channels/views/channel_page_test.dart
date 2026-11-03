@@ -19,6 +19,7 @@ import 'package:conduit/features/channels/views/channel_page.dart';
 import 'package:conduit/features/channels/widgets/channel_app_content.dart';
 import 'package:conduit/features/channels/widgets/thread_panel.dart';
 import 'package:conduit/features/chat/widgets/modern_chat_input.dart';
+import 'package:conduit/features/chat/providers/composer_draft_provider.dart';
 import 'package:conduit/features/navigation/utils/chat_list_back.dart';
 import 'package:conduit/features/navigation/widgets/responsive_drawer_layout.dart';
 import 'package:conduit/l10n/app_localizations.dart';
@@ -176,11 +177,28 @@ void main() {
       }
       expect(find.text('Replying to Alice'), findsOneWidget);
       expect(find.byType(ThreadPanel), findsOneWidget);
+      final draftContexts = tester.elementList(find.byType(ModernChatInput)).map(
+        (element) => ProviderScope.containerOf(element).read(composerDraftContextProvider),
+      ).toList();
+      expect(draftContexts.map((draft) => draft.scope), containsAll(['channel', 'thread:channel-1']));
+      expect(draftContexts.every((draft) => draft.temporary && draft.store == null), isTrue);
+
       check(
         tester
             .widgetList<TextField>(find.byType(TextField))
             .any((field) => field.controller?.text == 'Original message'),
       ).isTrue();
+
+      final composerField = find.descendant(
+        of: find.byType(ModernChatInput).first,
+        matching: find.byType(EditableText),
+      );
+      await tester.enterText(composerField, 'Unsent paper sketch');
+      await tester.pump();
+      expect(
+        tester.widget<EditableText>(composerField).controller.text,
+        'Unsent paper sketch',
+      );
 
       unawaited(
         messageMenu.actions
@@ -212,6 +230,10 @@ void main() {
           .equals('Replacement channel');
       expect(find.text('Replying to Alice'), findsNothing);
       expect(find.byType(ThreadPanel), findsNothing);
+      expect(
+        tester.widget<EditableText>(composerField).controller.text,
+        isEmpty,
+      );
       check(
         tester
             .widgetList<TextField>(find.byType(TextField))

@@ -2820,6 +2820,7 @@ class PlatformNativeSheetTextEditorRequest {
     required this.valueId,
     required this.sendActionId,
     required this.closeActionId,
+    this.emitChanges = false,
   });
 
   String title;
@@ -2836,6 +2837,8 @@ class PlatformNativeSheetTextEditorRequest {
 
   String closeActionId;
 
+  bool emitChanges;
+
   List<Object?> _toList() {
     return <Object?>[
       title,
@@ -2845,6 +2848,7 @@ class PlatformNativeSheetTextEditorRequest {
       valueId,
       sendActionId,
       closeActionId,
+      emitChanges,
     ];
   }
 
@@ -2862,6 +2866,7 @@ class PlatformNativeSheetTextEditorRequest {
       valueId: result[4]! as String,
       sendActionId: result[5]! as String,
       closeActionId: result[6]! as String,
+      emitChanges: result[7]! as bool,
     );
   }
 
@@ -2881,7 +2886,8 @@ class PlatformNativeSheetTextEditorRequest {
         _deepEquals(sendLabel, other.sendLabel) &&
         _deepEquals(valueId, other.valueId) &&
         _deepEquals(sendActionId, other.sendActionId) &&
-        _deepEquals(closeActionId, other.closeActionId);
+        _deepEquals(closeActionId, other.closeActionId) &&
+        _deepEquals(emitChanges, other.emitChanges);
   }
 
   @override
@@ -2890,7 +2896,7 @@ class PlatformNativeSheetTextEditorRequest {
 
   @override
   String toString() {
-    return 'PlatformNativeSheetTextEditorRequest(title: $title, value: $value, placeholder: $placeholder, sendLabel: $sendLabel, valueId: $valueId, sendActionId: $sendActionId, closeActionId: $closeActionId)';
+    return 'PlatformNativeSheetTextEditorRequest(title: $title, value: $value, placeholder: $placeholder, sendLabel: $sendLabel, valueId: $valueId, sendActionId: $sendActionId, closeActionId: $closeActionId, emitChanges: $emitChanges)';
   }
 }
 

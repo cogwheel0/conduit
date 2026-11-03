@@ -36,7 +36,10 @@ import 'package:flutter_riverpod/misc.dart' show Override;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
 
+import '../../../support/native_database.dart';
+
 const _chatId = 'chat-1';
+final _openDatabases = <AppDatabase>[];
 
 class _ActiveChat extends ActiveConversationNotifier {
   _ActiveChat(this.initial);
@@ -187,10 +190,7 @@ List<ChatMessage> _comparisonTurn({required Set<String> running}) =>
           timestamp: DateTime.utc(2026, 10, 6, 0, 0, 1 + slot),
           model: 'model-${slot + 1}',
           isStreaming: running.contains('c$slot'),
-          metadata: <String, dynamic>{
-            'parentId': 'cu',
-            'modelIdx': slot,
-          },
+          metadata: <String, dynamic>{'parentId': 'cu', 'modelIdx': slot},
         ),
     ];
 
@@ -213,9 +213,8 @@ class _Rig {
     await tester.pump();
   }
 
-  String get typed => tester.widget<TextField>(find.byType(TextField).first)
-      .controller!
-      .text;
+  String get typed =>
+      tester.widget<TextField>(find.byType(TextField).first).controller!.text;
 
   Future<List<String>> userTurns() async => [
     for (final row in await db.messagesDao.getForChat(_chatId))
@@ -246,7 +245,7 @@ Future<_Rig> _pump(
   List<Override> overrides = const [],
 }) async {
   final db = AppDatabase(NativeDatabase.memory());
-  addTearDown(db.close);
+  _openDatabases.add(db);
   await tester.runAsync(
     () => db
         .into(db.chats)
@@ -326,14 +325,27 @@ Future<_Rig> _pump(
   );
   await tester.pump();
   final rig = _Rig(tester, db, api, sent);
-  rig.container
-      .read(chatMessagesProvider.notifier)
-      .setMessages(messages);
+  rig.container.read(chatMessagesProvider.notifier).setMessages(messages);
   await tester.pump();
   return rig;
 }
 
 void main() {
+  void testQueue(String description, WidgetTesterCallback body) {
+    testWidgets(description, (tester) async {
+      try {
+        await body(tester);
+      } finally {
+        await tester.pumpWidget(const SizedBox.shrink());
+        await tester.pump(const Duration(milliseconds: 1));
+        for (final db in _openDatabases) {
+          await pumpDatabaseOperation(tester, db.close);
+        }
+        _openDatabases.clear();
+      }
+    });
+  }
+
   const queueLabel = 'Queue';
   final stop = find.byKey(const ValueKey('primary-btn-stop'));
   final en = lookupAppLocalizations(const Locale('en'));
@@ -371,7 +383,7 @@ void main() {
     return haptics;
   }
 
-  testWidgets('with Advanced off, Queue holds the typed message behind the '
+  testQueue('with Advanced off, Queue holds the typed message behind the '
       'response and leaves Stop and Send alone', (tester) async {
     final rig = await _pump(tester, advanced: false);
 
@@ -391,11 +403,12 @@ void main() {
     expect(stop, findsOneWidget);
     expect(find.text(queueLabel), findsNothing);
     // Nothing was sent to the server: the response is still running.
-    expect(await tester.runAsync(rig.userTurns), isEmpty);
+    expect(await pumpDatabaseOperation(tester, rig.userTurns), isEmpty);
   });
 
-  testWidgets('Enter queues instead of starting a second turn mid-response',
-      (tester) async {
+  testQueue('Enter queues instead of starting a second turn mid-response', (
+    tester,
+  ) async {
     final rig = await _pump(tester);
 
     await rig.type('by keyboard');
@@ -407,20 +420,22 @@ void main() {
     expect(rig.typed, isEmpty);
   });
 
-  testWidgets('without a running response Enter still sends, and no Queue shows',
-      (tester) async {
-    final rig = await _pump(tester, streaming: false);
+  testQueue(
+    'without a running response Enter still sends, and no Queue shows',
+    (tester) async {
+      final rig = await _pump(tester, streaming: false);
 
-    await rig.type('ordinary');
-    expect(find.text(queueLabel), findsNothing);
-    await tester.sendKeyEvent(LogicalKeyboardKey.enter);
-    await tester.pump();
+      await rig.type('ordinary');
+      expect(find.text(queueLabel), findsNothing);
+      await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+      await tester.pump();
 
-    expect(rig.sent, ['ordinary']);
-    expect(rig.drafts, isEmpty);
-  });
+      expect(rig.sent, ['ordinary']);
+      expect(rig.drafts, isEmpty);
+    },
+  );
 
-  testWidgets('the sheet edits and removes by draft, and send now stops the '
+  testQueue('the sheet edits and removes by draft, and send now stops the '
       'response and sends only that draft', (tester) async {
     final rig = await _pump(tester);
     for (final text in ['first', 'second', 'third']) {
@@ -433,7 +448,9 @@ void main() {
     await openQueue(tester);
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byKey(Key('chat-draft-edit-action-${ids['second']}')));
+    await tester.tap(
+      find.byKey(Key('chat-draft-edit-action-${ids['second']}')),
+    );
     await tester.pump();
     await tester.enterText(
       find.byKey(Key('chat-draft-edit-${ids['second']}')),
@@ -456,19 +473,17 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(rig.api.stoppedChats, [_chatId]);
-    expect(await tester.runAsync(rig.userTurns), ['first']);
+    expect(await pumpDatabaseOperation(tester, rig.userTurns), ['first']);
     expect(rig.drafts.map((d) => d.text), ['second, edited']);
     expect(rig.sent, isEmpty);
   });
 
-  testWidgets('while one answer of a comparison still runs the composer keeps '
-      'Stop and Queue, and the queue goes out when the last answer ends',
-      (tester) async {
+  testQueue('while one answer of a comparison still runs the composer keeps '
+      'Stop and Queue, and the queue goes out when the last answer ends', (
+    tester,
+  ) async {
     // The second model has finished; the first is still answering.
-    final rig = await _pump(
-      tester,
-      turn: _comparisonTurn(running: {'c0'}),
-    );
+    final rig = await _pump(tester, turn: _comparisonTurn(running: {'c0'}));
 
     await rig.type('next question');
     expect(find.text(queueLabel), findsOneWidget);
@@ -478,16 +493,15 @@ void main() {
     expect(rig.drafts.map((d) => d.text), ['next question']);
 
     // The queued draft stays in view and Stop stays, whatever Advanced says.
-    (rig.container.read(appSettingsProvider.notifier) as _Settings)
-        .setAdvanced(false);
+    (rig.container.read(appSettingsProvider.notifier) as _Settings).setAdvanced(
+      false,
+    );
     await tester.pump();
     expect(find.byKey(const Key('chat-draft-queue-row')), findsOneWidget);
     expect(stop, findsOneWidget);
-    expect(await tester.runAsync(rig.userTurns), isEmpty);
+    expect(await pumpDatabaseOperation(tester, rig.userTurns), isEmpty);
 
-    rig.container
-        .read(chatMessagesProvider.notifier)
-        .finishSlotMessage('c0');
+    rig.container.read(chatMessagesProvider.notifier).finishSlotMessage('c0');
     await tester.runAsync(() async {
       for (var i = 0; i < 200 && rig.drafts.isNotEmpty; i++) {
         await Future<void>.delayed(const Duration(milliseconds: 10));
@@ -495,21 +509,23 @@ void main() {
     });
     await tester.pumpAndSettle();
 
-    expect(await tester.runAsync(rig.userTurns), ['next question']);
+    expect(await pumpDatabaseOperation(tester, rig.userTurns), [
+      'next question',
+    ]);
     expect(rig.drafts, isEmpty);
     expect(rig.sent, isEmpty);
   });
 
-  testWidgets('a draft with a file that is still uploading says so and cannot '
+  testQueue('a draft with a file that is still uploading says so and cannot '
       'be sent now', (tester) async {
     final rig = await _pump(tester);
     // A picked file whose upload has not finished is still waiting.
     final directory = Directory.systemTemp.createTempSync('queue-widget-');
     addTearDown(() => directory.deleteSync(recursive: true));
     final picked = File('${directory.path}/slow.txt')..writeAsBytesSync([1]);
-    rig.container
-        .read(attachedFilesProvider.notifier)
-        .addFiles([LocalAttachment(file: picked, displayName: 'slow.txt')]);
+    rig.container.read(attachedFilesProvider.notifier).addFiles([
+      LocalAttachment(file: picked, displayName: 'slow.txt'),
+    ]);
     await rig.type('with a file');
     await tester.tap(find.text(queueLabel));
     await tester.pump();
@@ -519,17 +535,14 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('slow.txt'), findsOneWidget);
-    expect(
-      find.text('Waiting for a file to finish uploading'),
-      findsOneWidget,
-    );
+    expect(find.text('Waiting for a file to finish uploading'), findsOneWidget);
     final sendNow = tester.widget<ConduitButton>(
       find.byKey(Key('chat-draft-send-now-$id')),
     );
     expect(sendNow.onPressed, isNull);
   });
 
-  testWidgets('a failed file can be uploaded again from its own draft', (
+  testQueue('a failed file can be uploaded again from its own draft', (
     tester,
   ) async {
     late _RecordingUploads uploads;
@@ -544,9 +557,9 @@ void main() {
     final directory = Directory.systemTemp.createTempSync('queue-widget-');
     addTearDown(() => directory.deleteSync(recursive: true));
     final picked = File('${directory.path}/shared.txt')..writeAsBytesSync([1]);
-    rig.container
-        .read(attachedFilesProvider.notifier)
-        .addFiles([LocalAttachment(file: picked, displayName: 'shared.txt')]);
+    rig.container.read(attachedFilesProvider.notifier).addFiles([
+      LocalAttachment(file: picked, displayName: 'shared.txt'),
+    ]);
     await rig.type('with a file');
     await tester.tap(find.text(queueLabel));
     await tester.pump();
@@ -579,7 +592,7 @@ void main() {
     expect(uploads.retried, [(held.queueId, held.id)]);
   });
 
-  testWidgets('Queue gives one medium haptic, and the row grows in above the '
+  testQueue('Queue gives one medium haptic, and the row grows in above the '
       'composer', (tester) async {
     final rig = await _pump(tester);
     final haptics = recordHaptics(tester);
@@ -600,7 +613,7 @@ void main() {
     expect(rig.drafts, hasLength(1));
   });
 
-  testWidgets('a removed draft can be put back with Undo, in the sheet while '
+  testQueue('a removed draft can be put back with Undo, in the sheet while '
       'it stays open', (tester) async {
     final rig = await _pump(tester);
     for (final text in ['first', 'second']) {
@@ -631,7 +644,7 @@ void main() {
     (['b', 'a'], ['a', 'b']),
     (['c', 'a'], ['c', 'a']),
   ]) {
-    testWidgets('drafts removed as $removeOrder and put back as $undoOrder '
+    testQueue('drafts removed as $removeOrder and put back as $undoOrder '
         'keep their order', (tester) async {
       final rig = await _pump(tester);
       for (final text in ['a', 'b', 'c']) {
@@ -652,9 +665,7 @@ void main() {
       double top(String text) {
         final undo = find.byKey(Key('chat-draft-undo-${byText[text]}'));
         final card = find.byKey(Key('chat-draft-delete-${byText[text]}'));
-        return tester
-            .getTopLeft(undo.evaluate().isEmpty ? card : undo)
-            .dy;
+        return tester.getTopLeft(undo.evaluate().isEmpty ? card : undo).dy;
       }
 
       expect(top('a'), lessThan(top('b')));
@@ -668,7 +679,7 @@ void main() {
     });
   }
 
-  testWidgets('the offer to put a draft back goes away after a while', (
+  testQueue('the offer to put a draft back goes away after a while', (
     tester,
   ) async {
     final rig = await _pump(tester);
@@ -690,7 +701,7 @@ void main() {
     expect(rig.drafts.map((d) => d.text), ['second']);
   });
 
-  testWidgets('removing the last draft closes the sheet and offers Undo on '
+  testQueue('removing the last draft closes the sheet and offers Undo on '
       'the screen below', (tester) async {
     final rig = await _pump(tester);
     await rig.type('only');
@@ -712,7 +723,7 @@ void main() {
     expect(rig.drafts.map((d) => d.text), ['only']);
   });
 
-  testWidgets('Save stays off while the edited text is empty', (tester) async {
+  testQueue('Save stays off while the edited text is empty', (tester) async {
     final rig = await _pump(tester);
     await rig.type('first');
     await tester.tap(find.text(queueLabel));
@@ -723,7 +734,10 @@ void main() {
 
     await tester.tap(find.byKey(Key('chat-draft-edit-action-${draft.id}')));
     await tester.pump();
-    await tester.enterText(find.byKey(Key('chat-draft-edit-${draft.id}')), '  ');
+    await tester.enterText(
+      find.byKey(Key('chat-draft-edit-${draft.id}')),
+      '  ',
+    );
     await tester.pump();
     final save = find.byKey(Key('chat-draft-save-${draft.id}'));
     expect(tester.widget<ConduitButton>(save).onPressed, isNull);
@@ -740,7 +754,7 @@ void main() {
     expect(find.byKey(Key('chat-draft-edit-${draft.id}')), findsNothing);
   });
 
-  testWidgets('Stop & send that cannot stop the reply says the message is '
+  testQueue('Stop & send that cannot stop the reply says the message is '
       'still queued', (tester) async {
     final rig = await _pump(tester);
     rig.api.stopError = DioException(

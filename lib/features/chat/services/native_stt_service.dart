@@ -2,17 +2,20 @@ import 'dart:async';
 import 'dart:io' show Platform;
 
 import 'package:flutter/services.dart';
+import 'package:uuid/uuid.dart';
 
 class NativeSttAvailability {
   const NativeSttAvailability({
     required this.available,
     this.engine,
     this.reason,
+    this.audioRecoverySupported,
   });
 
   final bool available;
   final String? engine;
   final String? reason;
+  final bool? audioRecoverySupported;
 
   factory NativeSttAvailability.fromMap(Map<Object?, Object?>? map) {
     if (map == null) {
@@ -26,6 +29,7 @@ class NativeSttAvailability {
       available: map['available'] == true,
       engine: map['engine'] as String?,
       reason: map['reason'] as String?,
+      audioRecoverySupported: map['audioRecoverySupported'] as bool?,
     );
   }
 }
@@ -38,6 +42,7 @@ class NativeSttEvent {
     this.engine,
     this.code,
     this.message,
+    this.pcm,
   });
 
   final String type;
@@ -46,6 +51,7 @@ class NativeSttEvent {
   final String? engine;
   final String? code;
   final String? message;
+  final Uint8List? pcm;
 
   factory NativeSttEvent.fromMap(Map<Object?, Object?> map) {
     return NativeSttEvent(
@@ -55,6 +61,7 @@ class NativeSttEvent {
       engine: map['engine'] as String?,
       code: map['code'] as String?,
       message: map['message'] as String?,
+      pcm: map['pcm'] as Uint8List?,
     );
   }
 }
@@ -118,6 +125,9 @@ class NativeSttException implements Exception {
 }
 
 class NativeSttService {
+  bool _audioRecoverySupported = true;
+  bool get audioRecoverySupported => _audioRecoverySupported;
+  String? _recordingRequestId;
   static const MethodChannel _methodChannel = MethodChannel(
     'app.cogwheel.conduit/native_stt',
   );
@@ -188,6 +198,7 @@ class NativeSttService {
     bool emitPartialResults = true,
     bool accumulateResults = true,
     bool allowOnlineFallback = true,
+    bool emitAudio = false,
   }) async {
     if (!isSupportedPlatform) {
       throw const NativeSttException('Unsupported platform');
@@ -223,10 +234,12 @@ class NativeSttService {
           'preserveAudioSession': preserveAudioSession,
           'emitPartialResults': emitPartialResults,
           'accumulateResults': accumulateResults,
+          'emitAudio': emitAudio,
           'allowOnlineFallback': allowOnlineFallback,
         },
       );
       final availability = NativeSttAvailability.fromMap(response);
+      _audioRecoverySupported = availability.audioRecoverySupported ?? true;
       if (!availability.available) {
         throw NativeSttException(
           availability.reason ?? 'Native STT unavailable',
@@ -237,6 +250,42 @@ class NativeSttService {
     } catch (_) {
       await stopListening();
       rethrow;
+    }
+  }
+
+  Future<String> transcribeRecording(Uint8List pcm, {String? localeId}) async {
+    if (_recordingRequestId != null) {
+      throw const NativeSttException(
+        'A recording transcription is already in progress',
+      );
+    }
+    final id = _recordingRequestId = const Uuid().v4();
+    try {
+      final text = await _methodChannel.invokeMethod<String>(
+        'transcribeRecording',
+        {'pcm': pcm, 'localeId': localeId, 'requestId': id},
+      );
+      if (text == null || text.trim().isEmpty) {
+        throw const NativeSttException('No speech was recognized');
+      }
+      return text.trim();
+    } finally {
+      if (_recordingRequestId == id) _recordingRequestId = null;
+    }
+  }
+
+  Future<void> cancelRecordingTranscription() async {
+    final id = _recordingRequestId;
+    if (id == null) return;
+    _recordingRequestId = null;
+    try {
+      await _methodChannel.invokeMethod<void>('cancelRecordingTranscription', {
+        'requestId': id,
+      });
+    } on MissingPluginException {
+      // Saved-audio transcription is optional on older hosts.
+    } on PlatformException {
+      // The owning request may already have finished.
     }
   }
 

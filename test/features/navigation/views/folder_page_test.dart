@@ -1,4 +1,6 @@
 import 'dart:async';
+
+import '../../../support/native_database.dart';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
@@ -905,7 +907,10 @@ void main() {
     expect(container.read(selectedFilterIdsProvider), isEmpty);
 
     await tester.pumpWidget(const SizedBox.shrink());
-    ErrorWidget.builder = originalErrorWidgetBuilder;
+      await tester.pumpAndSettle();
+      await tester.pump();
+    await tester.pump(const Duration(milliseconds: 1));
+      ErrorWidget.builder = originalErrorWidgetBuilder;
     FlutterError.onError = originalFlutterErrorOnError;
   });
 
@@ -1030,6 +1035,9 @@ void main() {
       expect(container.read(activeConversationProvider)?.id, conversation.id);
 
       await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pumpAndSettle();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 1));
       ErrorWidget.builder = originalErrorWidgetBuilder;
       FlutterError.onError = originalFlutterErrorOnError;
     },
@@ -1213,7 +1221,7 @@ void main() {
       }
       addTearDown(tester.view.reset);
       db = AppDatabase(NativeDatabase.memory());
-      addTearDown(db.close);
+
       api = _ProjectApi(detail, fileStatus);
       addTearDown(api.dispose);
       await tester.runAsync(() => db.foldersDao.replaceServerFolders([raw]));
@@ -1246,7 +1254,11 @@ void main() {
         ],
         liveFolders: liveFolders,
       );
-      addTearDown(container.dispose);
+      addTearDown(() async {
+        await tester.pumpWidget(const SizedBox.shrink());
+        container.dispose();
+        await pumpDatabaseOperation(tester, db.close);
+      });
       // The app has resolved its active server long before a menu can be
       // opened; an account is only captured against a resolved server.
       container.listen(activeServerProvider, (_, _) {});
@@ -1869,11 +1881,11 @@ void main() {
       }
 
       Future<List<String>> chatIds(WidgetTester tester) async {
-        final chats = await tester.runAsync(
-          () => db.chatsDao.watchChatList().first,
+        final chats = await pumpDatabaseOperation(
+          tester, () => db.chatsDao.watchChatList().first,
         );
         return [
-          for (final chat in chats!)
+          for (final chat in chats)
             if (chat.id.startsWith('local:')) chat.id,
         ];
       }
@@ -1973,8 +1985,8 @@ void main() {
           await enterDraft(tester, 'Compare these two');
           await tester.tap(sendButton());
           await tester.pump();
-          await tester.runAsync(
-            () => api.settingsEntered.future.timeout(
+          await pumpDatabaseOperation(
+            tester, () => api.settingsEntered.future.timeout(
               const Duration(seconds: 10),
             ),
           );

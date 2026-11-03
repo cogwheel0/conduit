@@ -33,7 +33,6 @@ import 'package:conduit_core/services/performance_profiler.dart';
 import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit_core/services/connectivity_service.dart';
 
-
 import 'package:conduit_core/database/database_provider.dart';
 
 import 'package:conduit_core/database/app_database.dart';
@@ -968,6 +967,31 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     await _sendMessage(text, includeComposerContext: true);
   }
 
+  Future<ChatSendPlaceholderHandle?> _handleDraftSend(
+    String text,
+    void Function(ChatSendPlaceholderHandle) onPrepared,
+  ) {
+    final committed = Completer<ChatSendPlaceholderHandle?>();
+    unawaited(
+      _sendMessage(
+        text,
+        includeComposerContext: true,
+        onSendPrepared: onPrepared,
+        onDraftCommitted: (handle) {
+          if (!committed.isCompleted) committed.complete(handle);
+        },
+      ).then(
+        (_) {
+          if (!committed.isCompleted) committed.complete(null);
+        },
+        onError: (Object error, StackTrace stack) {
+          if (!committed.isCompleted) committed.completeError(error, stack);
+        },
+      ),
+    );
+    return committed.future;
+  }
+
   /// Sends the composer's message to the chosen models as one comparison turn.
   /// The result names the committed turn, so the composer can tell whether it
   /// still shows that chat. It is null when the turn was refused or not
@@ -975,12 +999,14 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   Future<ChatSendPlaceholderHandle?> _handleCompareSend(
     String text,
     List<Model> models,
+    void Function(ChatSendPlaceholderHandle) onPrepared,
   ) async {
     ChatSendPlaceholderHandle? committed;
     final result = await _sendMessage(
       text,
       includeComposerContext: true,
       compareModels: models,
+      onSendPrepared: onPrepared,
       onComparisonCommitted: (handle) => committed = handle,
     );
     return result.dispatched ? committed : null;
@@ -1232,6 +1258,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     required bool includeComposerContext,
     List<Model>? compareModels,
     void Function(ChatSendPlaceholderHandle committed)? onComparisonCommitted,
+    void Function(ChatSendPlaceholderHandle)? onSendPrepared,
+    void Function(ChatSendPlaceholderHandle)? onDraftCommitted,
   }) async {
     if (!debugCanSubmitChatMessageForTesting(
       isLoadingConversation: ref.read(isLoadingConversationProvider),
@@ -1251,6 +1279,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         sendOwner: sendOwner,
         compareModels: compareModels,
         onComparisonCommitted: onComparisonCommitted,
+        onSendPrepared: onSendPrepared,
+        onDraftCommitted: onDraftCommitted,
       );
     } finally {
       _releaseMessageSendAdmission(sendOwner);
@@ -1264,6 +1294,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     required Object sendOwner,
     List<Model>? compareModels,
     void Function(ChatSendPlaceholderHandle committed)? onComparisonCommitted,
+    void Function(ChatSendPlaceholderHandle)? onSendPrepared,
+    void Function(ChatSendPlaceholderHandle)? onDraftCommitted,
   }) async {
     final settlePinImmediately = debugShouldSettlePinImmediatelyForTesting(
       transcriptWasEmpty: ref.read(chatMessagesProvider).isEmpty,
@@ -1333,6 +1365,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
           text,
           uploadedFileIds.isNotEmpty ? uploadedFileIds : null,
           models: compareModels,
+          onAssistantPlaceholderCreated: onSendPrepared,
           toolIds: toolIds.isNotEmpty ? toolIds : null,
         );
         pendingSends = handles;
@@ -1343,6 +1376,12 @@ class _ChatPageState extends ConsumerState<ChatPage> {
           settleImmediately: settlePinImmediately,
         );
       } else {
+        var admissionConfirmed = false;
+        final usesOutbox =
+            hasDurableOutbox &&
+            !isHermesModel(selectedModel) &&
+            ref.read(directModelRegistryProvider).resolve(selectedModel) ==
+                null;
         await durableSend(
           ref,
           text,
@@ -1352,12 +1391,24 @@ class _ChatPageState extends ConsumerState<ChatPage> {
             didDispatch = true;
             _releaseMessageSendAdmission(sendOwner);
             pendingSend = handle;
+            onSendPrepared?.call(handle);
             _activatePinToTopAnchor(
               handle,
               settleImmediately: settlePinImmediately,
             );
           },
+          onAdmissionCommitted: usesOutbox && onDraftCommitted != null
+              ? (_) {
+                  admissionConfirmed = true;
+                  onDraftCommitted(pendingSend!);
+                }
+              : null,
         );
+        // Inline backends have no outbox receipt. Keep their draft until
+        // the existing send path has accepted it successfully.
+        if (!admissionConfirmed && pendingSend != null) {
+          onDraftCommitted?.call(pendingSend!);
+        }
       }
       didDispatch = true;
 
@@ -3334,7 +3385,10 @@ class _ChatPageState extends ConsumerState<ChatPage> {
           return Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [bubble, ChatBranchSwitcher(messageId: messageId)],
+            children: [
+              bubble,
+              ChatBranchSwitcher(messageId: messageId),
+            ],
           );
         },
       );
@@ -3910,6 +3964,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                   }
                   return ModernChatInput(
                     onSendMessage: _handleMessageSend,
+                    onSendDraft: _handleDraftSend,
                     onCompareSend: _handleCompareSend,
                     enabled: debugCanSubmitChatMessageForTesting(
                       isLoadingConversation: isLoadingConversation,

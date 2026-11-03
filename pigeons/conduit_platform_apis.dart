@@ -703,6 +703,7 @@ class PlatformNativeSheetTextEditorRequest {
     required this.valueId,
     required this.sendActionId,
     required this.closeActionId,
+    this.emitChanges = false,
   });
 
   String title;
@@ -712,6 +713,7 @@ class PlatformNativeSheetTextEditorRequest {
   String valueId;
   String sendActionId;
   String closeActionId;
+  bool emitChanges;
 }
 
 class PlatformNativeSheetResultRequest {

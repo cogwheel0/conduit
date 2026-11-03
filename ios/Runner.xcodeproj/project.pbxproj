@@ -44,6 +44,8 @@
 		D2A0B2352F5E4D6C7B8A9012 /* NativeShareLinkedImage.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2A0B2342F5E4D6C7B8A9012 /* NativeShareLinkedImage.swift */; };
 		D2A0B2412F5E4D6C7B8A9012 /* PccBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2A0B2402F5E4D6C7B8A9012 /* PccBridge.swift */; };
 		D2A0B2512F5E4D6C7B8A9012 /* DisplayBoostBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2A0B2502F5E4D6C7B8A9012 /* DisplayBoostBridge.swift */; };
+		D2A0B4022F5E4D6C7B8A9012 /* RecordingActivityBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2A0B4012F5E4D6C7B8A9012 /* RecordingActivityBridge.swift */; };
+		D2A0B4042F5E4D6C7B8A9012 /* ConduitRecordingActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2A0B4032F5E4D6C7B8A9012 /* ConduitRecordingActivity.swift */; };
 		E6C41A0C2F9E4D6C7B8A9012 /* NativeImageViewerBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = E6C41A0B2F9E4D6C7B8A9012 /* NativeImageViewerBridge.swift */; };
 		F15AFEC42EE5499D00A1FABB /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = F15AFEC32EE5499D00A1FABB /* WidgetKit.framework */; };
 		F15AFEC62EE5499D00A1FABB /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = F15AFEC52EE5499D00A1FABB /* SwiftUI.framework */; };
@@ -159,6 +161,8 @@
 		D2A0B3022F5E4D6C7B8A9012 /* ShareExtension.debug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = ShareExtension/ShareExtension.debug.xcconfig; sourceTree = "<group>"; };
 		D2A0B3032F5E4D6C7B8A9012 /* ShareExtension.release.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = ShareExtension/ShareExtension.release.xcconfig; sourceTree = "<group>"; };
 		D2A0B3042F5E4D6C7B8A9012 /* ShareExtension.profile.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = ShareExtension/ShareExtension.profile.xcconfig; sourceTree = "<group>"; };
+		D2A0B4012F5E4D6C7B8A9012 /* RecordingActivityBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordingActivityBridge.swift; sourceTree = "<group>"; };
+		D2A0B4032F5E4D6C7B8A9012 /* ConduitRecordingActivity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ../ConduitWidget/ConduitRecordingActivity.swift; sourceTree = "<group>"; };
 		E590F0BC5DD9A3EFB1FDDDBF /* Pods-RunnerTests.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-RunnerTests.release.xcconfig"; path = "Target Support Files/Pods-RunnerTests/Pods-RunnerTests.release.xcconfig"; sourceTree = "<group>"; };
 		E6C41A0B2F9E4D6C7B8A9012 /* NativeImageViewerBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeImageViewerBridge.swift; sourceTree = "<group>"; };
 		E952EFF81F1FEABA348FE2CC /* Pods_Runner.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = Pods_Runner.framework; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -389,6 +393,8 @@
 				E6C41A0B2F9E4D6C7B8A9012 /* NativeImageViewerBridge.swift */,
 				D2A0B1F52F5E4D6C7B8A9013 /* NativeSymbolImageBridge.swift */,
 				D2A0B2032F5E4D6C7B8A9012 /* NativeSttBridge.swift */,
+				D2A0B4012F5E4D6C7B8A9012 /* RecordingActivityBridge.swift */,
+				D2A0B4032F5E4D6C7B8A9012 /* ConduitRecordingActivity.swift */,
 				D2A0B2402F5E4D6C7B8A9012 /* PccBridge.swift */,
 				D2A0B2502F5E4D6C7B8A9012 /* DisplayBoostBridge.swift */,
 				D2A0B2052F5E4D6C7B8A9012 /* ConduitSceneDelegate.swift */,
@@ -690,6 +696,8 @@
 				D2A0B1E42F5E4D6C7B8A9012 /* NativeSheetBridge.swift in Sources */,
 				D2A0B1E52F5E4D6C7B8A9012 /* NativeSheetUIFoundation.swift in Sources */,
 				D2A0B2042F5E4D6C7B8A9012 /* NativeSttBridge.swift in Sources */,
+				D2A0B4022F5E4D6C7B8A9012 /* RecordingActivityBridge.swift in Sources */,
+				D2A0B4042F5E4D6C7B8A9012 /* ConduitRecordingActivity.swift in Sources */,
 				D2A0B2412F5E4D6C7B8A9012 /* PccBridge.swift in Sources */,
 				D2A0B2512F5E4D6C7B8A9012 /* DisplayBoostBridge.swift in Sources */,
 				D2A0B1D42F5E4D6C7B8A9012 /* NativeKeyboardAttachmentBridge.swift in Sources */,

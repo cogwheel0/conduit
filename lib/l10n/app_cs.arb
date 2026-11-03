@@ -548,6 +548,21 @@
   "@filters": {
     "description": "Header for toggle filters section."
   },
+  "composerDraftLoadFailed": "Uložený koncept se nepodařilo načíst. Než ho nahradíte, zkuste to znovu.",
+  "composerDraftSaveFailed": "Koncept se nepodařilo uložit do tohoto zařízení. Nechte aplikaci otevřenou a zkuste to znovu.",
+  "savedRecording": "Uložená nahrávka",
+  "recordingDiscard": "Zahodit nahrávku",
+  "recordingTranscriptionFailed": "Přepis se nezdařil. Nahrávka je uložená.",
+  "recordingDiscardConfirmation": "Opravdu chcete tuto nahrávku zahodit?",
+  "recordingDiscardFailed": "Nahrávku se nepodařilo zahodit. Zkuste to znovu.",
+  "recordingCaptureInterrupted": "Nahrávání bylo přerušeno. Uložený zvuk nemusí být úplný.",
+  "recordingLoadFailed": "Nahrávky se nepodařilo načíst. Zkusit znovu",
+  "recordingSaveFailed": "Nahrávku se nepodařilo uložit do tohoto zařízení. Nechte aplikaci otevřenou a zkuste to znovu.",
+  "transcribeOnServer": "Přepsat na serveru",
+  "transcribeOnDevice": "Přepsat v zařízení",
+  "recordingRecoveryUnavailable": "Tento rozpoznávač řeči neumí uchovávat zvukové nahrávky. Přepsaný text se nadále ukládá s konceptem. Chcete-li uchovávat zvuk, zvolte převod řeči na text na serveru.",
+  "exportRecording": "Exportovat nahrávku",
+  "recordingExportFailed": "Nahrávku se nepodařilo exportovat. Zkuste to znovu.",
   "voiceInput": "Hlasový vstup",
   "@voiceInput": {
     "description": "Label for voice input feature."
