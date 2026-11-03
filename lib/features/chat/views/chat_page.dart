@@ -2165,7 +2165,11 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     final voiceOverlayHeight = voice.isActive
         ? (voice.isCollapsed ? 72.0 : 180.0)
         : 0.0;
-    return Spacing.lg + _inputHeight + voiceOverlayHeight;
+    // The measured composer includes transparent headroom for the scroll fade.
+    // The last message already has its own bottom margin.
+    return voice.isActive
+        ? Spacing.lg + _inputHeight + voiceOverlayHeight
+        : math.max(0, _inputHeight - Spacing.xl);
   }
 
   /// User-initiated scroll to bottom (e.g. button tap).
@@ -3816,8 +3820,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
           top: false,
           left: false,
           right: false,
-          bottom: !Platform.isAndroid,
-          minimum: Platform.isAndroid
+          bottom: !PlatformUiCapabilities.isAndroid,
+          minimum: PlatformUiCapabilities.isAndroid
               ? EdgeInsets.zero
               : const EdgeInsets.only(bottom: Spacing.sm),
           child: Column(
@@ -3973,7 +3977,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                       isPreparingMessageSend: _messageSendAdmission.isHeld,
                     ),
                     bottomPadding: 0,
-                    managesSystemKeyboardInset: Platform.isAndroid,
+                    managesSystemKeyboardInset:
+                        PlatformUiCapabilities.isAndroid,
                     composerTextInsertionTargetId:
                         chatComposerTextInsertionTargetId,
                     attachedOverlay: attachedOverlay,
@@ -4110,7 +4115,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       },
       child: AdaptiveScaffold(
         resizeToAvoidBottomInset: chatResizeToAvoidBottomInset(
-          isAndroid: Platform.isAndroid,
+          isAndroid: PlatformUiCapabilities.isAndroid,
           isIOSAppOnMac: PlatformInfo.isIOSAppOnMac,
         ),
         // Replace Scaffold drawer with a tunable slide drawer for gentler snap behavior.
