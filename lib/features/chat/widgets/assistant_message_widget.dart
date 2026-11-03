@@ -2017,7 +2017,9 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
         if (file is Map)
           for (final key in const ['id', 'file_id'])
             if (file[key] is String) file[key] as String,
-      ...?widget.message.attachmentIds,
+      // The reply's other attachments show only while it lists no files.
+      if (storedFiles == null || storedFiles.isEmpty)
+        ...?widget.message.attachmentIds,
     };
     final filesArray = [
       ...?storedFiles,

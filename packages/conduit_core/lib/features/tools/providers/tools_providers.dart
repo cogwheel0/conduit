@@ -147,8 +147,15 @@ List<String> defaultFilterIdsForModel(Model? model) {
   ];
 }
 
-(String?, String) _defaultFiltersKey(Model? model) =>
-    (model?.id, defaultFilterIdsForModel(model).join('\n'));
+/// What the selected filters follow: the model, its defaults, and the
+/// filters it offers, so a filter the user turned on comes back when the
+/// model offers it again.
+(String?, String, String) _defaultFiltersKey(Model? model) => (
+  model?.id,
+  defaultFilterIdsForModel(model).join('\n'),
+  [for (final filter in model?.filters ?? const <ToggleFilter>[]) filter.id]
+      .join('\n'),
+);
 
 /// Provider for selected filter IDs (toggle filters enabled by user).
 ///

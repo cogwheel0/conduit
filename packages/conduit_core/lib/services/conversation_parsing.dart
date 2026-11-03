@@ -287,9 +287,20 @@ void _addVersionsFromSiblings(
         answer['id'].toString(),
   ];
   if (unfinished.isNotEmpty) {
+    final authors = <String, String>{
+      for (final answer in [
+        msgData,
+        ...siblings.whereType<Map<String, dynamic>>(),
+      ])
+        if (unfinished.contains(answer['id']?.toString()) &&
+            answer['user_id'] is String &&
+            (answer['user_id'] as String).isNotEmpty)
+          answer['id'].toString(): answer['user_id'] as String,
+    };
     parsed['metadata'] = <String, dynamic>{
       ..._coerceJsonMap(parsed['metadata']),
       kMessageUnfinishedAnswersMetadataKey: unfinished,
+      if (authors.isNotEmpty) kMessageUnfinishedAnswerAuthorsMetadataKey: authors,
     };
   }
 }
@@ -543,6 +554,7 @@ Map<String, dynamic>? _extractOpenWebUiMessageMetadata(
   // copy that came back round-trip through the server is stale, and would keep
   // answers live that the server has since finished.
   metadata.remove(kMessageUnfinishedAnswersMetadataKey);
+  metadata.remove(kMessageUnfinishedAnswerAuthorsMetadataKey);
 
   if (role == 'assistant' &&
       _extractErrorData(msgData, historyMsg) != null &&
@@ -551,11 +563,11 @@ Map<String, dynamic>? _extractOpenWebUiMessageMetadata(
         (historyMsg?['done'] ?? msgData['done']) != true;
   }
 
+  // The server's word wins; without it, an author a local checkpoint kept
+  // stays.
   final rawAuthor = historyMsg?['user_id'] ?? msgData['user_id'];
   if (rawAuthor is String && rawAuthor.trim().isNotEmpty) {
     metadata[kMessageAuthorIdMetadataKey] = rawAuthor.trim();
-  } else {
-    metadata.remove(kMessageAuthorIdMetadataKey);
   }
 
   final rawParentId = historyMsg?['parentId'] ?? msgData['parentId'];

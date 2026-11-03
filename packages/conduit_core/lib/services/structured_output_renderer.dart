@@ -1210,6 +1210,12 @@ bool _requiresImmediateReplacement(
         )) {
           return true;
         }
+      case (
+        StructuredOutputImageBlock(url: final beforeUrl),
+        StructuredOutputImageBlock(url: final afterUrl),
+      ):
+        // A finished image does not change; only another one does.
+        if (beforeUrl != afterUrl) return true;
       default:
         return true;
     }
@@ -1337,6 +1343,11 @@ bool _blocksEquivalent(
             onPrefixValidation: onPrefixValidation,
           ) &&
           _deepEquals(aOutput, bOutput),
+    (
+      StructuredOutputImageBlock(url: final aUrl),
+      StructuredOutputImageBlock(url: final bUrl),
+    ) =>
+      aUrl == bUrl,
     _ => false,
   };
 }

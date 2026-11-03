@@ -6567,8 +6567,8 @@ void main() {
       check(request.messageIds!.single.modelIdx).equals(1);
     });
 
-    test('a model picked while a reply streams is kept locally and not sent '
-        'until the chat syncs', () async {
+    test('a model picked while a reply streams is stored at once and sent '
+        'once the reply ends', () async {
       const other = Model(id: 'model-2', name: 'Model 2');
       final (:api, :socket, :container) = await open(
         available: const [duplicate, other],
@@ -6582,21 +6582,64 @@ void main() {
       await replay(container);
       check(container.read(isChatStreamingProvider)).isTrue();
 
-      await saveChatModelChoice(container, other);
+      final saving = saveChatModelChoice(container, other);
+      for (var i = 0; i < 5; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
 
       // A server before 0.12 rewrites the whole chat to merge one key, which
-      // could overwrite the streaming reply.
+      // could overwrite the streaming reply: nothing is sent yet.
       check(api.savedModels).isEmpty();
       final row = await db.chatsDao.getChat(chatId);
       check(
         (jsonDecode(row!.rawExtra) as Map<String, dynamic>)['models'],
       ).isA<List>().deepEquals(['model-2']);
+
       for (final h in handles) {
         socket.deliver(h.assistantMessageId, 'chat:completion', {
           'content': 'done',
           'done': true,
         });
       }
+      await saving;
+      check(api.savedModels.map((saved) => saved.$2)).deepEquals([
+        ['model-2'],
+      ]);
+    });
+
+    test('of two quick picks the later one is saved', () async {
+      const other = Model(id: 'model-2', name: 'Model 2');
+      const third = Model(id: 'model-3', name: 'Model 3');
+      final (:api, :socket, :container) = await open(
+        available: const [duplicate, other, third],
+      );
+      final handles = await durableCompareSend(
+        container,
+        'compare these',
+        null,
+        models: const [duplicate, other],
+      );
+      await replay(container);
+      final first = saveChatModelChoice(container, other);
+      final second = saveChatModelChoice(container, third);
+      for (var i = 0; i < 5; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+      for (final h in handles) {
+        socket.deliver(h.assistantMessageId, 'chat:completion', {
+          'content': 'done',
+          'done': true,
+        });
+      }
+      await Future.wait([first, second]);
+
+      check(api.savedModels.map((saved) => saved.$2)).deepEquals([
+        ['model-3'],
+      ]);
+      final row = await db.chatsDao.getChat(chatId);
+      check(
+        (jsonDecode(row!.rawExtra) as Map<String, dynamic>)['models'],
+      ).isA<List>().deepEquals(['model-3']);
     });
 
     test('a model picked before a comparison was sent leaves its answers '
@@ -8041,6 +8084,53 @@ void main() {
       check(
         container.read(chatMessagesProvider).map((message) => message.id),
       ).deepEquals(['other-user']);
+    });
+
+    test('another person\'s answer in a shared comparison stays running '
+        'when this account runs no task', () async {
+      final (:api, :socket, :client, :container) = await openDraft(
+        account: const User(
+          id: 'me',
+          username: 'Me',
+          email: 'me@example.com',
+          role: 'user',
+        ),
+      );
+      api.activeTaskIds = const [];
+      container
+          .read(activeConversationProvider.notifier)
+          .set(
+            _conversation('mixed-chat', [
+              _user('mixed-u', 'compare these'),
+              ChatMessage(
+                id: 'mine',
+                role: 'assistant',
+                content: 'mine so far',
+                timestamp: DateTime.utc(2026, 7, 13, 0, 0, 1),
+                model: duplicate.id,
+                metadata: const <String, dynamic>{
+                  kMessageModelIdxMetadataKey: 0,
+                  kMessageAuthorIdMetadataKey: 'me',
+                  kMessageUnfinishedAnswersMetadataKey: ['mine', 'theirs'],
+                  kMessageUnfinishedAnswerAuthorsMetadataKey: {
+                    'mine': 'me',
+                    'theirs': 'someone-else',
+                  },
+                },
+              ),
+            ], ChatStorageKind.openWebUi),
+          );
+      await until(() => api.taskListRequests > 0);
+      for (var i = 0; i < 5; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+
+      check(
+        container
+            .read(chatMessagesProvider)
+            .last
+            .metadata?[kMessageUnfinishedAnswersMetadataKey],
+      ).isA<List>().deepEquals(['theirs']);
     });
 
     for (final author in [null, 'me', 'someone-else']) {

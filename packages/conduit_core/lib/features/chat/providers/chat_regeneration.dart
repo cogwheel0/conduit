@@ -605,12 +605,18 @@ Future<void> regenerateEditedHermesUserMessage(
     if (candidate.role != 'user') continue;
     final models = candidate.metadata?['models'];
     if (models is List && models.length > 1) {
+      // The last message when the model was picked. Regenerating an earlier
+      // turn cuts the transcript back to it first, so a pick whose message
+      // is gone was made after this turn too.
+      final pickedAt = picked?.afterMessageId == null
+          ? null
+          : messages.indexWhere(
+              (message) => message.id == picked!.afterMessageId,
+            );
       final pickedSince =
           picked != null &&
-          messages.indexWhere(
-                (message) => message.id == picked.afterMessageId,
-              ) >=
-              index;
+          pickedAt != null &&
+          (pickedAt < 0 || pickedAt >= index);
       return (
         modelId: pickedSince ? picked.modelId : modelId,
         slot: tail.modelSlot,

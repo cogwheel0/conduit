@@ -19,6 +19,12 @@ const String kMessageModelIdxMetadataKey = 'modelIdx';
 /// when the server reports none unfinished.
 const String kMessageUnfinishedAnswersMetadataKey = 'unfinishedAnswerIds';
 
+/// Where a multi-model turn's shown answer names, by answer id, the account
+/// that wrote each answer its [kMessageUnfinishedAnswersMetadataKey] lists,
+/// when the server said: in a shared chat they can be different people's.
+const String kMessageUnfinishedAnswerAuthorsMetadataKey =
+    'unfinishedAnswerAuthors';
+
 /// Where a message's metadata names the account that wrote it: Open WebUI's
 /// `user_id` on the message, which a chat shared with Allow replies holds for
 /// each person. Absent when the server did not say.

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:riverpod/riverpod.dart';
 
 import 'package:conduit_core/database/account_storage_isolation.dart';
@@ -5,10 +7,8 @@ import 'package:conduit_core/database/database_provider.dart';
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit_core/features/direct_connections/services/direct_model_registry.dart';
 import 'package:conduit_core/features/hermes/models/hermes_model.dart';
-import 'package:conduit_core/database/app_database.dart';
 import 'package:conduit_core/features/chat/providers/chat_providers.dart'
     show chatMessagesProvider, isChatStreamingProvider;
-import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit_core/models/model.dart';
 import 'package:conduit_core/providers/app_providers.dart';
@@ -48,11 +48,12 @@ class ChatModelPickNotifier extends Notifier<ChatModelPick?> {
 ///
 /// Open WebUI 0.12.5's web client saves the chat's model list as soon as the
 /// model is changed, so the chat reopens on it even when nothing was sent
-/// since. Conduit does the same: the list is stored with the local chat and
-/// sent as the chat's only changed key, which every supported server merges
-/// without touching the chat's date. Only a saved Open WebUI chat this account
-/// owns is changed, and only to a model of that server; a new or temporary
-/// chat, someone else's chat, and a Direct or Hermes model are left alone.
+/// since. Conduit does the same, through [chatModelSaveQueueProvider]: the
+/// list is stored with the local chat and sent as the chat's only changed
+/// key, which every supported server merges without touching the chat's
+/// date. Only a saved Open WebUI chat this account owns is changed, and only
+/// to a model of that server; a new or temporary chat, someone else's chat,
+/// and a Direct or Hermes model are left alone.
 ///
 /// [ref] is a `Ref` or `WidgetRef`, read only before the first await.
 /// Failures are logged and otherwise ignored: the pick still applies to what
@@ -81,32 +82,102 @@ Future<void> saveChatModelChoice(dynamic ref, Model model) async {
         afterMessageId: messages.isEmpty ? null : messages.last.id,
       );
 
-  // Everything is read now: [ref] may belong to a sheet that closes while
-  // the chat lock is awaited.
-  final AppDatabase? db = ref.read(appDatabaseProvider);
-  final ChatLocks locks = ref.read(chatLocksProvider);
-  final ApiService? api = ref.read(apiServiceProvider);
-  // A server before 0.12 rewrites the whole chat to merge the change, without
-  // a lock, so a reply streaming meanwhile could be overwritten. The list is
-  // stored here, and the chat's next sync carries it.
-  final bool streaming = ref.read(isChatStreamingProvider);
+  // The queue outlives [ref], which may belong to a sheet closing now.
+  return ref.read(chatModelSaveQueueProvider.notifier).save(chatId, models);
+}
 
-  Future<void> store() async {
-    if (db == null) return;
-    await locks.runExclusive(
-      chatId,
-      () => db.chatsDao.setChatModels(chatId, models),
+/// Saves chats' model lists, one save at a time.
+///
+/// Only the newest list asked for each chat is saved, so an earlier pick can
+/// never land after a later one. The list is stored with the local chat at
+/// once. It is sent to the server once no reply is streaming in the chat: a
+/// server before 0.12 merges the change by rewriting the whole chat without
+/// a lock, which could overwrite the reply. After the server takes it, the
+/// list is stored again, since a pull read before the pick may have put the
+/// old one back, and the server's copy keeps its date, so no later pull
+/// would correct it. Lists still waiting are dropped when the account
+/// changes.
+final chatModelSaveQueueProvider = NotifierProvider<ChatModelSaveQueue, void>(
+  ChatModelSaveQueue.new,
+);
+
+class ChatModelSaveQueue extends Notifier<void> {
+  final Map<String, List<String>> _pending = <String, List<String>>{};
+  Future<void>? _running;
+  Object? _account;
+
+  @override
+  void build() {
+    final account = (
+      ref.watch(currentUserProvider2.select((user) => user?.id)),
+      ref.watch(openWebUiAuthSessionEpochProvider),
     );
+    if (account != _account) {
+      _account = account;
+      _pending.clear();
+    }
   }
 
-  try {
-    await store();
-    if (api == null || streaming) return;
-    await api.updateConversation(chatId, models: models);
-    // A pull read before the pick, and written since, may have put the old
-    // list back; the server's copy keeps its date, so no later pull would.
-    await store();
-  } catch (error) {
+  /// Saves [models] as chat [chatId]'s list; completes once the queue has
+  /// nothing left to send.
+  Future<void> save(String chatId, List<String> models) {
+    _pending[chatId] = models;
+    unawaited(_store(chatId, models));
+    return _running ??= _drain().whenComplete(() => _running = null);
+  }
+
+  Future<void> _store(String chatId, List<String> models) async {
+    final db = ref.read(appDatabaseProvider);
+    if (db == null) return;
+    try {
+      await ref
+          .read(chatLocksProvider)
+          .runExclusive(
+            chatId,
+            () => db.chatsDao.setChatModels(chatId, models),
+          );
+    } catch (error) {
+      _logFailure(chatId, error);
+    }
+  }
+
+  Future<void> _drain() async {
+    while (_pending.isNotEmpty) {
+      final chatId = _pending.keys.first;
+      final models = _pending[chatId]!;
+      if (_streamingIn(chatId)) {
+        await _untilNotStreamingIn(chatId);
+        if (!ref.mounted) return;
+        continue; // A newer list may have come in meanwhile.
+      }
+      _pending.remove(chatId);
+      final api = ref.read(apiServiceProvider);
+      if (api == null) continue;
+      try {
+        await api.updateConversation(chatId, models: models);
+      } catch (error) {
+        _logFailure(chatId, error);
+        continue;
+      }
+      // A newer list for the chat is stored and sent in its own turn.
+      if (!_pending.containsKey(chatId)) await _store(chatId, models);
+    }
+  }
+
+  bool _streamingIn(String chatId) =>
+      ref.read(activeConversationProvider)?.id == chatId &&
+      ref.read(isChatStreamingProvider);
+
+  /// Waits until no reply streams in chat [chatId]. The streaming state is
+  /// read again every moment: this queue is only ever read, and Riverpod
+  /// pauses the listeners of a provider nothing listens to.
+  Future<void> _untilNotStreamingIn(String chatId) async {
+    while (ref.mounted && _streamingIn(chatId)) {
+      await Future<void>.delayed(const Duration(milliseconds: 250));
+    }
+  }
+
+  void _logFailure(String chatId, Object error) {
     DebugLogger.warning(
       'chat-model-choice-not-saved',
       scope: 'chat/model',

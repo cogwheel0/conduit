@@ -7,6 +7,7 @@ import 'package:conduit_core/auth/auth_state_manager.dart';
 import 'package:conduit_core/features/chat/providers/chat_providers.dart';
 import 'package:conduit_core/features/tools/providers/tools_providers.dart';
 import 'package:conduit_core/models/model.dart';
+import 'package:conduit_core/models/toggle_filter.dart';
 import 'package:conduit_core/models/tool.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/providers/chat_picks_session.dart';
@@ -134,5 +135,33 @@ void main() {
 
     container.invalidate(chatPicksSessionProvider);
     check(container.read(webSearchEnabledProvider)).isTrue();
+  });
+
+  test('a tool the user turned on stays theirs after a model that also '
+      'defaults to it', () async {
+    container.read(modelToolsAutoSelectionProvider);
+    choose(_model('a'));
+    await _settle();
+    container.read(selectedToolIdsProvider.notifier).set(['t3']);
+
+    choose(_model('b', toolIds: ['t3']));
+    await _settle();
+    check(container.read(selectedToolIdsProvider)).deepEquals(['t3']);
+
+    choose(_model('c'));
+    await _settle();
+    check(container.read(selectedToolIdsProvider)).deepEquals(['t3']);
+  });
+
+  test('a filter turned on comes back when the model offers it again', () {
+    const filter = ToggleFilter(id: 'f', name: 'F');
+    choose(const Model(id: 'a', name: 'a', filters: [filter]));
+    container.read(selectedFilterIdsProvider.notifier).set(['f']);
+
+    choose(const Model(id: 'a', name: 'a'));
+    check(container.read(selectedFilterIdsProvider)).isEmpty();
+    // The same model, now offering the filter again.
+    choose(const Model(id: 'a', name: 'a', filters: [filter]));
+    check(container.read(selectedFilterIdsProvider)).deepEquals(['f']);
   });
 }

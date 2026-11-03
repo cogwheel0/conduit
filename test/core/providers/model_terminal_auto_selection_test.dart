@@ -1,5 +1,6 @@
 import 'package:conduit_core/models/model.dart';
 import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/providers/chat_picks_session.dart';
 import 'package:conduit_core/features/tools/providers/tools_providers.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -53,6 +54,26 @@ void main() {
         expect(container.read(selectedTerminalIdProvider), 'manual-terminal');
       },
     );
+
+    test('a new chat on the same model starts from its default terminal',
+        () async {
+      final container = ProviderContainer();
+      addTearDown(container.dispose);
+
+      container.read(modelTerminalAutoSelectionProvider);
+      container
+          .read(selectedModelProvider.notifier)
+          .set(_model('code-model', terminalId: 'model-terminal'));
+      await _flushMicrotasks();
+      container.read(selectedTerminalIdProvider.notifier).set('other');
+      await _flushMicrotasks();
+
+      // The next chat keeps the same model, which emits nothing.
+      container.read(chatPicksSessionProvider.notifier).newConversation();
+      await _flushMicrotasks();
+
+      expect(container.read(selectedTerminalIdProvider), 'model-terminal');
+    });
 
     test('a model\'s default terminal goes with it on a switch to a model '
         'with none', () async {

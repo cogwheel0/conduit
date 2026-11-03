@@ -2513,15 +2513,21 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     // A message that names no author is the chat owner's, as the web client
     // takes it.
     final owner = ref.read(activeConversationProvider)?.userId;
-    bool ownedHere(ChatMessage message) {
-      final author = message.authorUserId ?? owner;
-      return author == null || userId == null || author == userId;
-    }
-
     for (final message in state) {
       final unfinished = message.metadata?[kMessageUnfinishedAnswersMetadataKey];
-      if (unfinished is List && ownedHere(message)) {
-        _answersFinishedWithoutTask.addAll(unfinished.whereType<String>());
+      if (unfinished is! List) continue;
+      // Each answer by its own author: in a shared chat another person's
+      // answer may run under their task, which this account's list omits.
+      final authors =
+          message.metadata?[kMessageUnfinishedAnswerAuthorsMetadataKey];
+      for (final id in unfinished.whereType<String>()) {
+        final named = authors is Map ? authors[id] : null;
+        final author = named is String
+            ? named
+            : message.authorUserId ?? owner;
+        if (author == null || userId == null || author == userId) {
+          _answersFinishedWithoutTask.add(id);
+        }
       }
     }
     final next = _withoutAnswersFinishedHere(state);

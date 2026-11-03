@@ -112,9 +112,12 @@ final modelToolsAutoSelectionProvider = Provider<void>((ref) {
         .toList();
   }
 
-  // The model's default tools as last applied, with those the user turned
-  // off since: what tells the user's own picks from the model's.
-  var baseline = <String>{};
+  // The tools as last set here, and what the user turned on and off since
+  // the chat began: each stays the user's choice through later switches,
+  // even where a model in between had the same default.
+  var lastApplied = <String>[];
+  final added = <String>{};
+  final removed = <String>{};
 
   /// The tools for a switch to a model whose default tools are [defaults]. As
   /// on Open WebUI 0.12.5, the new defaults apply while the user's picks
@@ -127,22 +130,26 @@ final modelToolsAutoSelectionProvider = Provider<void>((ref) {
     required bool Function(String id) isOffered,
   }) {
     final preserved = preserveDirectServerSelections(current);
-    final removed = baseline.difference(current.toSet());
-    final added = [
-      for (final id in current)
-        if (!baseline.contains(id) &&
-            !preserved.contains(id) &&
-            !defaults.contains(id) &&
-            isOffered(id))
-          id,
-    ];
-    baseline = {...defaults, ...removed};
-    return [
+    final before = lastApplied.toSet();
+    final now = current.toSet();
+    for (final id in now.difference(before)) {
+      if (preserved.contains(id)) continue;
+      added.add(id);
+      removed.remove(id);
+    }
+    for (final id in before.difference(now)) {
+      removed.add(id);
+      added.remove(id);
+    }
+    final next = [
       for (final id in defaults)
         if (!removed.contains(id)) id,
-      ...added,
+      for (final id in added)
+        if (!defaults.contains(id) && isOffered(id)) id,
       ...preserved,
     ];
+    lastApplied = next;
+    return next;
   }
 
   Future<void> applyTools(Model? model) async {
@@ -253,7 +260,9 @@ final modelToolsAutoSelectionProvider = Provider<void>((ref) {
   // Another chat or account: the user's picks belong to the chat they were
   // made in, so the tools start again from the model's defaults.
   ref.listen<Object>(chatPicksSessionProvider, (previous, next) {
-    baseline = <String>{};
+    lastApplied = <String>[];
+    added.clear();
+    removed.clear();
     final current = ref.read(selectedToolIdsProvider);
     final preserved = preserveDirectServerSelections(current);
     if (!const ListEquality<Object?>().equals(current, preserved)) {
@@ -286,24 +295,26 @@ final modelTerminalAutoSelectionProvider = Provider<void>((ref) {
     return terminalId;
   }
 
-  // The model's default terminal as last applied. A terminal other than it
-  // is the user's own choice, which a switch of model keeps, as on Open WebUI
-  // 0.12.5; otherwise the new model's default applies, none included. No
-  // terminal at all is never held as a choice, so a default can apply.
-  String? baseline;
-
-  // In another chat or account the terminal in use counts as carried in,
-  // not chosen, so the next model's default replaces it.
-  ref.listen<Object>(chatPicksSessionProvider, (previous, next) {
-    baseline = ref.read(selectedTerminalIdProvider);
-  });
+  // The terminal as last set here. A change since is the user's choice,
+  // none included, which switches of model keep, as on Open WebUI 0.12.5;
+  // otherwise each model's default applies, none included.
+  String? lastApplied;
+  var chosen = false;
+  String? choice;
 
   void applyTerminalSelection(Model? model) {
     final terminalId = extractModelTerminalId(model);
     final current = ref.read(selectedTerminalIdProvider);
-    final chosenByUser = current != null && current != baseline;
-    baseline = terminalId;
-    if (chosenByUser || current == terminalId) {
+    if (current != lastApplied) {
+      chosen = true;
+      choice = current;
+    }
+    final next = chosen ? choice : terminalId;
+    lastApplied = next;
+    if (current == next) {
+      return;
+    }
+    if (chosen) {
       return;
     }
 
@@ -328,6 +339,17 @@ final modelTerminalAutoSelectionProvider = Provider<void>((ref) {
 
   ref.listen<Model?>(selectedModelProvider, (previous, next) {
     Future.microtask(() => applyTerminalSelection(next));
+  });
+
+  // Another chat or account starts from the model's default terminal, even
+  // when its model is the one already selected, which emits nothing.
+  ref.listen<Object>(chatPicksSessionProvider, (previous, next) {
+    chosen = false;
+    choice = null;
+    lastApplied = ref.read(selectedTerminalIdProvider);
+    Future.microtask(() {
+      if (ref.mounted) applyTerminalSelection(ref.read(selectedModelProvider));
+    });
   });
 });
 
