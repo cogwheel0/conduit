@@ -3610,6 +3610,7 @@
   "personalToolSettingsOwnerChanged": "已登入的帳號已變更，因此未儲存任何內容。請重新開啟設定後繼續。",
   "personalToolSettingsInvalid": "伺服器未接受這些值。",
   "noteReadOnlyNotice": "此筆記為唯讀。您可以閱讀，但無法變更。",
+  "noteMultiPageReadOnlyNotice": "此筆記包含多個頁面。您可以在此閱讀所有頁面，如需編輯請在網頁版 Open WebUI 中進行。",
   "noteAccessUnverifiedNotice": "請重新連線，以確認您可以編輯此筆記。",
   "noteAccessRevokedNotice": "您已無法再編輯此筆記。尚未儲存的變更會保留在此處。",
   "noteSaveAsOwnNote": "另存為我自己的筆記",

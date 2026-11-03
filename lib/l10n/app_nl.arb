@@ -3610,6 +3610,7 @@
   "personalToolSettingsOwnerChanged": "Het ingelogde account is gewijzigd, dus er is niets opgeslagen. Open de instellingen opnieuw om door te gaan.",
   "personalToolSettingsInvalid": "De server heeft deze waarden niet geaccepteerd.",
   "noteReadOnlyNotice": "Deze notitie is alleen-lezen. Je kunt de notitie lezen, maar niet wijzigen.",
+  "noteMultiPageReadOnlyNotice": "Deze notitie heeft meerdere pagina's. Je kunt hier alle pagina's lezen; bewerk de notitie in Open WebUI op het web.",
   "noteAccessUnverifiedNotice": "Maak opnieuw verbinding om te bevestigen dat je deze notitie kunt bewerken.",
   "noteAccessRevokedNotice": "Je kunt deze notitie niet meer bewerken. Je niet-opgeslagen wijzigingen blijven hier bewaard.",
   "noteSaveAsOwnNote": "Opslaan als eigen notitie",

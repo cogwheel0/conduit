@@ -3610,6 +3610,7 @@
   "personalToolSettingsOwnerChanged": "Das angemeldete Konto hat sich geändert, daher wurde nichts gespeichert. Öffne die Einstellungen erneut, um fortzufahren.",
   "personalToolSettingsInvalid": "Der Server hat diese Werte nicht akzeptiert.",
   "noteReadOnlyNotice": "Diese Notiz ist schreibgeschützt. Du kannst sie lesen, aber nicht ändern.",
+  "noteMultiPageReadOnlyNotice": "Diese Notiz hat mehrere Seiten. Du kannst hier alle Seiten lesen; bearbeiten kannst du sie in Open WebUI im Web.",
   "noteAccessUnverifiedNotice": "Verbinde dich erneut, um zu bestätigen, dass du diese Notiz bearbeiten kannst.",
   "noteAccessRevokedNotice": "Du kannst diese Notiz nicht mehr bearbeiten. Deine ungespeicherten Änderungen bleiben hier erhalten.",
   "noteSaveAsOwnNote": "Als eigene Notiz speichern",

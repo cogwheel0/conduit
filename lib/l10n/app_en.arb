@@ -7035,6 +7035,8 @@
   "@personalToolSettingsInvalid": {"description": "Fallback error shown when the server rejects the personal tool setting values without giving a reason."},
   "noteReadOnlyNotice": "This note is read-only. You can read it, but not change it.",
   "@noteReadOnlyNotice": {"description": "Banner shown in the note editor when the server says the signed-in account cannot edit the note."},
+  "noteMultiPageReadOnlyNotice": "This note has several pages. You can read every page here; edit it in Open WebUI on the web.",
+  "@noteMultiPageReadOnlyNotice": {"description": "Banner shown in the note editor for a note with several pages (Open WebUI 0.12.5 and later), which Conduit shows read-only."},
   "noteAccessUnverifiedNotice": "Reconnect to confirm you can edit this note.",
   "@noteAccessUnverifiedNotice": {"description": "Banner shown in the note editor for a shared note whose edit access could not be confirmed with the server."},
   "noteAccessRevokedNotice": "You can no longer edit this note. Your unsaved changes are kept here.",
