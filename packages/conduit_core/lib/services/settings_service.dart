@@ -763,6 +763,9 @@ class SettingsService {
       chatImageGenerationEnabled: get<bool>(
         _chatImageGenerationEnabledKey,
       ),
+      inlineMessageActions: getStringList(PreferenceKeys.inlineMessageActions)
+          ?.toSet()
+          .toList(),
       sendOnEnter: get<bool>(_sendOnEnterKey) ?? false,
       ttsVoice: get<String>(PreferenceKeys.ttsVoice),
       ttsVoiceName: get<String>(PreferenceKeys.ttsVoiceName),
@@ -849,6 +852,9 @@ class _DefaultValue {
   const _DefaultValue();
 }
 
+/// Actions shown before customization; null settings retain the adaptive layout.
+const defaultInlineMessageActions = ['copy', 'tts', 'regenerate'];
+
 /// Data class for app settings
 class AppSettings {
   final bool reduceMotion;
@@ -868,6 +874,9 @@ class AppSettings {
   final List<String> quickPills; // e.g., ['web','image']
   final bool? chatWebSearchEnabled;
   final bool? chatImageGenerationEnabled;
+
+  /// Null preserves the default layout; an empty list puts every action in More.
+  final List<String>? inlineMessageActions;
   final bool sendOnEnter;
   final SttPreference sttPreference;
   final String? sttLanguageCode;
@@ -920,6 +929,7 @@ class AppSettings {
     this.quickPills = const [],
     this.chatWebSearchEnabled,
     this.chatImageGenerationEnabled,
+    this.inlineMessageActions,
     this.sendOnEnter = false,
     this.sttPreference = SttPreference.deviceOnly,
     this.sttLanguageCode,
@@ -967,6 +977,7 @@ class AppSettings {
     List<String>? quickPills,
     bool? chatWebSearchEnabled,
     bool? chatImageGenerationEnabled,
+    Object? inlineMessageActions = const _DefaultValue(),
     bool? sendOnEnter,
     SttPreference? sttPreference,
     Object? sttLanguageCode = const _DefaultValue(),
@@ -1022,6 +1033,9 @@ class AppSettings {
       chatWebSearchEnabled: chatWebSearchEnabled ?? this.chatWebSearchEnabled,
       chatImageGenerationEnabled:
           chatImageGenerationEnabled ?? this.chatImageGenerationEnabled,
+      inlineMessageActions: inlineMessageActions is _DefaultValue
+          ? this.inlineMessageActions
+          : inlineMessageActions as List<String>?,
       sendOnEnter: sendOnEnter ?? this.sendOnEnter,
       sttPreference: sttPreference ?? this.sttPreference,
       sttLanguageCode: sttLanguageCode is _DefaultValue
@@ -1093,6 +1107,7 @@ class AppSettings {
         other.chatImageGenerationEnabled == chatImageGenerationEnabled &&
         other.sttPreference == sttPreference &&
         other.sttLanguageCode == sttLanguageCode &&
+        _listEqualsNullable(other.inlineMessageActions, inlineMessageActions) &&
         other.sendOnEnter == sendOnEnter &&
         other.ttsVoice == ttsVoice &&
         other.ttsVoiceName == ttsVoiceName &&
@@ -1166,11 +1181,17 @@ class AppSettings {
       webSearchSafeSearch,
       webSearchRegion,
       directVoiceProvider,
+      inlineMessageActions == null
+          ? null
+          : Object.hashAll(inlineMessageActions!),
       Object.hashAllUnordered(quickPills),
       Object.hashAll(pinnedModels),
     ]);
   }
 }
+
+bool _listEqualsNullable(List<String>? a, List<String>? b) =>
+    a == null || b == null ? a == b : _listEquals(a, b);
 
 bool _listEquals(List<String> a, List<String> b) {
   if (identical(a, b)) return true;
@@ -1385,6 +1406,27 @@ class AppSettingsNotifier extends _$AppSettingsNotifier {
       state = state.copyWith(socketTransportMode: sanitized);
     }
     await SettingsService.setSocketTransportMode(sanitized);
+  }
+
+  Future<void> setInlineMessageActions(List<String>? actions) async {
+    await _pendingLoad;
+    if (!ref.mounted) return;
+    final saved = actions == null ? null : List<String>.unmodifiable(actions.toSet());
+    state = state.copyWith(inlineMessageActions: saved);
+    await SettingsService._putOrRemove(
+      PreferenceKeys.inlineMessageActions,
+      saved,
+    );
+  }
+
+  Future<void> setMessageActionVisible(String id, bool visible) async {
+    await _pendingLoad;
+    if (!ref.mounted) return;
+    final current = state.inlineMessageActions;
+    if (current == null) return;
+    final selected = {...current};
+    visible ? selected.add(id) : selected.remove(id);
+    return setInlineMessageActions(selected.toList());
   }
 
   Future<void> setQuickPills(List<String> pills) async {
@@ -1603,6 +1645,10 @@ class AppSettingsNotifier extends _$AppSettingsNotifier {
     // Written only by its own setter, so the bulk save leaves it.
     await SettingsService._putOrRemove(
       PreferenceKeys.directVoiceProvider,
+      null,
+    );
+    await SettingsService._putOrRemove(
+      PreferenceKeys.inlineMessageActions,
       null,
     );
     state = defaultSettings;

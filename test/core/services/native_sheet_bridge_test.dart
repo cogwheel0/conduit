@@ -262,6 +262,39 @@ void main() {
     });
   });
 
+  test(
+    'detail patches carry optional reorder metadata through Pigeon',
+    () async {
+      NativeSheetBridge.instance.debugIsIOSOverride = true;
+      PlatformNativeSheetApplyDetailPatchRequest? received;
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockDecodedMessageHandler<Object?>(_applyDetailPatchChannel, (
+            message,
+          ) async {
+            received =
+                (message! as List<Object?>).single!
+                    as PlatformNativeSheetApplyDetailPatchRequest;
+            return <Object?>[true];
+          });
+      await NativeSheetBridge.instance.applyDetailPatch(
+        detailId: 'message-actions',
+        items: const [],
+        sections: const [
+          NativeSheetSectionConfig(
+            reorderActionId: 'message-actions-reorder',
+            items: [
+              NativeSheetItemConfig(id: 'message-action:copy', title: 'Copy'),
+            ],
+          ),
+        ],
+      );
+      expect(
+        received!.sections.single.reorderActionId,
+        'message-actions-reorder',
+      );
+    },
+  );
+
   test('detail patch rejects mixed flat and sectioned content', () async {
     await expectLater(
       NativeSheetBridge.instance.applyDetailPatch(

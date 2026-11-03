@@ -1672,7 +1672,8 @@ data class PlatformNativeSheetLink (
 data class PlatformNativeSheetSection (
   val title: String? = null,
   val footer: String? = null,
-  val items: List<PlatformNativeSheetItem>
+  val items: List<PlatformNativeSheetItem>,
+  val reorderActionId: String? = null
 )
  {
   companion object {
@@ -1680,7 +1681,8 @@ data class PlatformNativeSheetSection (
       val title = pigeonVar_list[0] as String?
       val footer = pigeonVar_list[1] as String?
       val items = pigeonVar_list[2] as List<PlatformNativeSheetItem>
-      return PlatformNativeSheetSection(title, footer, items)
+      val reorderActionId = pigeonVar_list[3] as String?
+      return PlatformNativeSheetSection(title, footer, items, reorderActionId)
     }
   }
   fun toList(): List<Any?> {
@@ -1688,6 +1690,7 @@ data class PlatformNativeSheetSection (
       title,
       footer,
       items,
+      reorderActionId,
     )
   }
   override fun equals(other: Any?): Boolean {
@@ -1698,7 +1701,7 @@ data class PlatformNativeSheetSection (
       return true
     }
     val other = other as PlatformNativeSheetSection
-    return ConduitPlatformApisPigeonUtils.deepEquals(this.title, other.title) && ConduitPlatformApisPigeonUtils.deepEquals(this.footer, other.footer) && ConduitPlatformApisPigeonUtils.deepEquals(this.items, other.items)
+    return ConduitPlatformApisPigeonUtils.deepEquals(this.title, other.title) && ConduitPlatformApisPigeonUtils.deepEquals(this.footer, other.footer) && ConduitPlatformApisPigeonUtils.deepEquals(this.items, other.items) && ConduitPlatformApisPigeonUtils.deepEquals(this.reorderActionId, other.reorderActionId)
   }
 
   override fun hashCode(): Int {
@@ -1706,10 +1709,11 @@ data class PlatformNativeSheetSection (
     result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.title)
     result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.footer)
     result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.items)
+    result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.reorderActionId)
     return result
   }
   override fun toString(): String {
-    return "PlatformNativeSheetSection(title=$title, footer=$footer, items=$items)"
+    return "PlatformNativeSheetSection(title=$title, footer=$footer, items=$items, reorderActionId=$reorderActionId)"
   }
 }
 
