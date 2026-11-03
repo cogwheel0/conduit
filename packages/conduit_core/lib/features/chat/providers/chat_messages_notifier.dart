@@ -298,6 +298,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
             }
           } else {
             _stopRemoteTaskMonitor();
+            unawaited(_finishEarlierAnswersWithoutTask(next));
           }
         } else {
           state = [];
@@ -374,10 +375,6 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
             !isSameStoredConversation(
               ref.read(activeConversationProvider),
               activeConversation,
-            ) ||
-            !_hasOpenWebUiTaskRecoverableTail(
-              activeConversation,
-              requireStreaming: false,
             ) ||
             _shouldProtectLocalStreamingState) {
           return;
@@ -2521,10 +2518,14 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
       final authors =
           message.metadata?[kMessageUnfinishedAnswerAuthorsMetadataKey];
       for (final id in unfinished.whereType<String>()) {
+        // The list names only the authors the server gave; another answer
+        // that names none is the owner's, whoever wrote the one shown.
         final named = authors is Map ? authors[id] : null;
         final author = named is String
             ? named
-            : message.authorUserId ?? owner;
+            : id == message.id
+            ? message.authorUserId ?? owner
+            : owner;
         if (author == null || userId == null || author == userId) {
           _answersFinishedWithoutTask.add(id);
         }
@@ -2532,6 +2533,47 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     }
     final next = _withoutAnswersFinishedHere(state);
     if (!identical(next, state)) state = next;
+  }
+
+  /// Finishes answers of an earlier turn that the server still reports as
+  /// not done once the chat runs no task of this account's: a chat whose
+  /// last message is not an answer, say a prompt sent after a comparison a
+  /// server restart cut off, has nothing for [_detectActiveOnOpen] to resume.
+  /// The chat's tasks are asked for only when such answers show.
+  Future<void> _finishEarlierAnswersWithoutTask(
+    Conversation conversation,
+  ) async {
+    if (!_conversationUsesOpenWebUiContext(conversation) ||
+        _shouldProtectLocalStreamingState ||
+        !state.any(
+          (message) =>
+              message.metadata?[kMessageUnfinishedAnswersMetadataKey] is List,
+        )) {
+      return;
+    }
+    final chatId = conversation.id;
+    if (ref.read(activeChatIdsProvider).contains(chatId)) return;
+    final api = _readApiServiceOrNull(ref);
+    if (api is! ApiService) return;
+    final owner = captureOpenWebUiCompletionOwner(
+      ref,
+      chatId: chatId,
+      api: api,
+    );
+    if (activeOpenWebUiChatIdForMutation(ref, owner) == null) return;
+    try {
+      final taskIds = await api.getTaskIdsByChat(chatId);
+      if (taskIds.isNotEmpty) return;
+    } catch (_) {
+      // Unknown: the answers stay as the server has them.
+      return;
+    }
+    if (_disposed ||
+        activeOpenWebUiChatIdForMutation(ref, owner) == null ||
+        _shouldProtectLocalStreamingState) {
+      return;
+    }
+    _finishAnswersWithoutTask();
   }
 
   /// Answers [_finishAnswersWithoutTask] finished in the open chat. The
@@ -2770,12 +2812,12 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
   /// in-flight chat would otherwise render as an empty/partial response.
   Future<void> _detectActiveOnOpen(Conversation conversation) async {
     final chatId = conversation.id;
-    if (_disposed ||
-        isTemporaryChat(chatId) ||
-        !_hasOpenWebUiTaskRecoverableTail(
-          conversation,
-          requireStreaming: false,
-        )) {
+    if (_disposed || isTemporaryChat(chatId)) return;
+    if (!_hasOpenWebUiTaskRecoverableTail(
+      conversation,
+      requireStreaming: false,
+    )) {
+      await _finishEarlierAnswersWithoutTask(conversation);
       return;
     }
     // A genuine local stream owns this chat. A restored `isStreaming` value,
@@ -3659,6 +3701,9 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
         }
         if (reconciled) {
           _cancelMessageStream();
+          // The account runs no task in the chat any more: answers a server
+          // restart cut off are finished, as on open.
+          _finishAnswersWithoutTask();
         } else {
           completionNeedsRetry = true;
         }

@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:checks/checks.dart';
 import 'package:conduit_core/database/chat_database_repository.dart';
 import 'package:conduit_core/database/database_provider.dart';
+import 'package:conduit_core/models/chat_comparison.dart';
 import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/models/model.dart';
@@ -2115,6 +2116,64 @@ void main() {
       check(container.read(chatMessagesProvider).last.content)
           .equals('Final answer');
       check(container.read(chatMessagesProvider).last.isStreaming).isFalse();
+    });
+
+    test('answers a server restart cut off are finished once the polled task '
+        'ends', () async {
+      final timestamp = DateTime.now();
+      final opened = [
+        _userMessage('user-1', 'Compare', timestamp),
+        _assistantMessage(
+          'assistant-1',
+          'Partial',
+          timestamp,
+        ).copyWith(isStreaming: true),
+      ];
+      final api = _FakeApiService(_conversation('chat-1', opened, timestamp))
+        ..taskIds = const <String>['task-1'];
+      final container = ProviderContainer(
+        overrides: [
+          secureStorageProvider.overrideWithValue(FlutterSecureKeyValueStore()),
+          ...openWebUiStorageOpenOverrides(),
+          activeConversationProvider.overrideWith(
+            () => _TestActiveConversationNotifier(),
+          ),
+          socketServiceProvider.overrideWithValue(null),
+          apiServiceProvider.overrideWithValue(api),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      check(container.read(chatMessagesProvider)).isEmpty();
+      final notifier = container.read(chatMessagesProvider.notifier);
+      container
+          .read(activeConversationProvider.notifier)
+          .set(_conversation('chat-1', opened, timestamp));
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      await _drainRemoteTaskStatusCheck(notifier);
+      check(container.read(chatMessagesProvider).last.isStreaming).isTrue();
+
+      // The server restarted: no task runs, and its copy still reports the
+      // comparison's answers as not done, which it will do for good.
+      api.taskIds = const <String>[];
+      api.conversation = _conversation('chat-1', [
+        opened.first,
+        _assistantMessage('assistant-1', 'Partial, cut off', timestamp)
+            .copyWith(
+              metadata: const <String, dynamic>{
+                kMessageUnfinishedAnswersMetadataKey: [
+                  'assistant-1',
+                  'assistant-2',
+                ],
+              },
+            ),
+      ], timestamp);
+      await notifier.debugSyncRemoteTaskStatus();
+
+      final tail = container.read(chatMessagesProvider).last;
+      check(tail.isStreaming).isFalse();
+      check(tail.content).equals('Partial, cut off');
+      check(tail.metadata?[kMessageUnfinishedAnswersMetadataKey]).isNull();
     });
 
     test(

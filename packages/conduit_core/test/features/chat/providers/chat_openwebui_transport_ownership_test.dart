@@ -6642,6 +6642,53 @@ void main() {
       ).isA<List>().deepEquals(['model-3']);
     });
 
+    test('a model list is sent only once a push of the chat begun before it '
+        'has ended', () async {
+      const other = Model(id: 'model-2', name: 'Model 2');
+      final (:api, :socket, :container) = await open(
+        available: const [duplicate, other],
+      );
+      // A push of the whole chat, with the old list, holds the chat.
+      final pushing = Completer<void>();
+      unawaited(
+        container
+            .read(chatLocksProvider)
+            .runExclusive(chatId, () => pushing.future),
+      );
+
+      final saving = saveChatModelChoice(container, other);
+      for (var i = 0; i < 5; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+      check(api.savedModels).isEmpty();
+
+      pushing.complete();
+      await saving;
+      check(api.savedModels.map((saved) => saved.$2)).deepEquals([
+        ['model-2'],
+      ]);
+    });
+
+    test('a model list waits while the server runs a task in the chat, '
+        'though no reply streams on screen', () async {
+      const other = Model(id: 'model-2', name: 'Model 2');
+      final (:api, :socket, :container) = await open(
+        available: const [duplicate, other],
+      );
+      container.read(activeChatIdsProvider.notifier).setActive(chatId);
+      check(container.read(isChatStreamingProvider)).isFalse();
+
+      final saving = saveChatModelChoice(container, other);
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+      check(api.savedModels).isEmpty();
+
+      container.read(activeChatIdsProvider.notifier).setInactive(chatId);
+      await saving;
+      check(api.savedModels.map((saved) => saved.$2)).deepEquals([
+        ['model-2'],
+      ]);
+    });
+
     test('a model pick is forgotten when another sign-in begins', () async {
       const other = Model(id: 'model-2', name: 'Model 2');
       final (:api, :socket, :container) = await open(
@@ -6718,7 +6765,7 @@ void main() {
       );
       container
           .read(chatModelPickProvider.notifier)
-          .record(chatId: chatId, modelId: duplicate.id, afterMessageId: null);
+          .record(chatId: chatId, modelId: duplicate.id, turns: 1);
       final handles = await durableCompareSend(
         container,
         'compare these',
@@ -8201,6 +8248,92 @@ void main() {
       ).isA<List>().deepEquals(['theirs']);
     });
 
+    test('an unfinished answer whose author is not named is the chat '
+        'owner\'s, whoever wrote the answer shown', () async {
+      final (:api, :socket, :client, :container) = await openDraft(
+        account: const User(
+          id: 'me',
+          username: 'Me',
+          email: 'me@example.com',
+          role: 'user',
+        ),
+      );
+      api.activeTaskIds = const [];
+      container
+          .read(activeConversationProvider.notifier)
+          .set(
+            _conversation('owned-chat', [
+              _user('owned-u', 'compare these'),
+              ChatMessage(
+                id: 'mine',
+                role: 'assistant',
+                content: 'mine so far',
+                timestamp: DateTime.utc(2026, 7, 13, 0, 0, 1),
+                model: duplicate.id,
+                metadata: const <String, dynamic>{
+                  kMessageModelIdxMetadataKey: 0,
+                  kMessageAuthorIdMetadataKey: 'me',
+                  kMessageUnfinishedAnswersMetadataKey: ['mine', 'owners'],
+                  // The server named no author for the owner's answer.
+                  kMessageUnfinishedAnswerAuthorsMetadataKey: {'mine': 'me'},
+                },
+              ),
+            ], ChatStorageKind.openWebUi).copyWith(userId: 'owner'),
+          );
+      await until(() => api.taskListRequests > 0);
+      for (var i = 0; i < 5; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+
+      check(
+        container
+            .read(chatMessagesProvider)
+            .last
+            .metadata?[kMessageUnfinishedAnswersMetadataKey],
+      ).isA<List>().deepEquals(['owners']);
+    });
+
+    test('answers cut off before a later prompt are finished once the chat '
+        'runs no task', () async {
+      final (:api, :socket, :client, :container) = await openDraft(
+        account: const User(
+          id: 'me',
+          username: 'Me',
+          email: 'me@example.com',
+          role: 'user',
+        ),
+      );
+      api.activeTaskIds = const [];
+      container
+          .read(activeConversationProvider.notifier)
+          .set(
+            _conversation('later-chat', [
+              _user('later-u0', 'compare these'),
+              ChatMessage(
+                id: 'cut-a',
+                role: 'assistant',
+                content: 'A so far',
+                timestamp: DateTime.utc(2026, 7, 13, 0, 0, 1),
+                model: duplicate.id,
+                metadata: const <String, dynamic>{
+                  kMessageModelIdxMetadataKey: 0,
+                  kMessageUnfinishedAnswersMetadataKey: ['cut-a', 'cut-b'],
+                },
+              ),
+              _user('later-u1', 'and then?'),
+            ], ChatStorageKind.openWebUi),
+          );
+      await until(() => api.taskListRequests > 0);
+      for (var i = 0; i < 5; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+
+      final cut = container
+          .read(chatMessagesProvider)
+          .firstWhere((message) => message.id == 'cut-a');
+      check(cut.metadata?[kMessageUnfinishedAnswersMetadataKey]).isNull();
+    });
+
     for (final author in [null, 'me', 'someone-else']) {
       test('the composer offers Stop only for a reply of this account '
           '(author: $author)', () async {
@@ -8265,6 +8398,12 @@ void main() {
               kMessageModelIdxMetadataKey: 0,
               kMessageUnfinishedAnswersMetadataKey: const ['cut-a', 'cut-b'],
               kMessageAuthorIdMetadataKey: ?author,
+              // The server named the same author for both answers.
+              if (author != null)
+                kMessageUnfinishedAnswerAuthorsMetadataKey: <String, String>{
+                  'cut-a': author,
+                  'cut-b': author,
+                },
             },
           );
           container

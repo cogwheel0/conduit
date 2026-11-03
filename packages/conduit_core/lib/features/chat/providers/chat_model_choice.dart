@@ -15,15 +15,13 @@ import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/sync/chat_locks.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
 
-/// The model the user last picked in an open chat, with the last message at
-/// that moment. Open WebUI 0.12.5 regenerates an answer with the model picked
-/// now; Conduit's comparisons are per turn, so an answer of a multi-model turn
-/// keeps its own model unless a model was picked after that turn was sent.
-typedef ChatModelPick = ({
-  String chatId,
-  String modelId,
-  String? afterMessageId,
-});
+/// The model the user last picked in an open chat, with the number of turns
+/// (prompts) the chat had then. Open WebUI 0.12.5 regenerates an answer with
+/// the model picked now; Conduit's comparisons are per turn, so an answer of
+/// a multi-model turn keeps its own model unless a model was picked after
+/// that turn was sent. Turns are counted rather than marked by a message,
+/// since regenerating an answer replaces it.
+typedef ChatModelPick = ({String chatId, String modelId, int turns});
 
 final chatModelPickProvider =
     NotifierProvider<ChatModelPickNotifier, ChatModelPick?>(
@@ -44,9 +42,9 @@ class ChatModelPickNotifier extends Notifier<ChatModelPick?> {
   void record({
     required String chatId,
     required String modelId,
-    String? afterMessageId,
+    required int turns,
   }) {
-    state = (chatId: chatId, modelId: modelId, afterMessageId: afterMessageId);
+    state = (chatId: chatId, modelId: modelId, turns: turns);
   }
 }
 
@@ -86,7 +84,7 @@ Future<void> saveChatModelChoice(dynamic ref, Model model) async {
       .record(
         chatId: chatId,
         modelId: model.id,
-        afterMessageId: messages.isEmpty ? null : messages.last.id,
+        turns: messages.where((message) => message.role == 'user').length,
       );
 
   // The queue outlives [ref], which may belong to a sheet closing now.
@@ -102,7 +100,8 @@ Future<void> saveChatModelChoice(dynamic ref, Model model) async {
 /// a lock, which could overwrite the reply. After the server takes it, the
 /// list is stored again, since a pull read before the pick may have put the
 /// old one back, and the server's copy keeps its date, so no later pull
-/// would correct it. A list belongs to the account that picked it: once
+/// would correct it. It is sent under the chat's lock, as a push of the
+/// whole chat is, so a push begun with the old list cannot land after it. A list belongs to the account that picked it: once
 /// another account is signed in, or the same one again, it is neither sent
 /// nor stored.
 final chatModelSaveQueueProvider = NotifierProvider<ChatModelSaveQueue, void>(
@@ -164,7 +163,12 @@ class ChatModelSaveQueue extends Notifier<void> {
       final api = ref.read(apiServiceProvider);
       if (api == null) continue;
       try {
-        await api.updateConversation(chatId, models: models);
+        await ref
+            .read(chatLocksProvider)
+            .runExclusive(
+              chatId,
+              () => api.updateConversation(chatId, models: models),
+            );
       } catch (error) {
         _logFailure(chatId, error);
         continue;
@@ -178,13 +182,16 @@ class ChatModelSaveQueue extends Notifier<void> {
     }
   }
 
+  /// Whether a reply runs in chat [chatId]: one streaming on screen, or a
+  /// task the server runs for it while another chat is open.
   bool _streamingIn(String chatId) =>
-      ref.read(activeConversationProvider)?.id == chatId &&
-      ref.read(isChatStreamingProvider);
+      (ref.read(activeConversationProvider)?.id == chatId &&
+          ref.read(isChatStreamingProvider)) ||
+      ref.read(activeChatIdsProvider).contains(chatId);
 
-  /// Waits until no reply streams in chat [chatId]. The streaming state is
-  /// read again every moment: this queue is only ever read, and Riverpod
-  /// pauses the listeners of a provider nothing listens to.
+  /// Waits until no reply runs in chat [chatId]. The state is read again
+  /// every moment: this queue is only ever read, and Riverpod pauses the
+  /// listeners of a provider nothing listens to.
   Future<void> _untilNotStreamingIn(String chatId) async {
     while (ref.mounted && _streamingIn(chatId)) {
       await Future<void>.delayed(const Duration(milliseconds: 250));

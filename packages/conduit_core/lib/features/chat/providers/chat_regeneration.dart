@@ -605,18 +605,14 @@ Future<void> regenerateEditedHermesUserMessage(
     if (candidate.role != 'user') continue;
     final models = candidate.metadata?['models'];
     if (models is List && models.length > 1) {
-      // The last message when the model was picked. Regenerating an earlier
-      // turn cuts the transcript back to it first, so a pick whose message
-      // is gone was made after this turn too.
-      final pickedAt = picked?.afterMessageId == null
-          ? null
-          : messages.indexWhere(
-              (message) => message.id == picked!.afterMessageId,
-            );
-      final pickedSince =
-          picked != null &&
-          pickedAt != null &&
-          (pickedAt < 0 || pickedAt >= index);
+      // This turn's number. A pick made once the chat had it applies; one
+      // made before it was sent does not. Regenerating an earlier turn cuts
+      // the later ones off, which leaves its number as it was.
+      final turn = messages
+          .take(index + 1)
+          .where((message) => message.role == 'user')
+          .length;
+      final pickedSince = picked != null && turn <= picked.turns;
       return (
         modelId: pickedSince ? picked.modelId : modelId,
         slot: tail.modelSlot,
@@ -626,6 +622,13 @@ Future<void> regenerateEditedHermesUserMessage(
   }
   return null;
 }
+
+/// [_comparisonRegenerationTarget], for tests.
+@visibleForTesting
+({String modelId, int slot})? debugComparisonRegenerationTarget(
+  List<ChatMessage> messages, {
+  ChatModelPick? picked,
+}) => _comparisonRegenerationTarget(messages, picked: picked);
 
 Future<void> regenerateMessage(
   dynamic ref,

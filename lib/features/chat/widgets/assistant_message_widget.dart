@@ -2012,20 +2012,12 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     final storedFiles = _activeVersionIndex >= 0
         ? widget.message.versions[_activeVersionIndex].files
         : widget.message.files;
-    final listedIds = <String>{
-      for (final file in storedFiles ?? const <dynamic>[])
-        if (file is Map)
-          for (final key in const ['id', 'file_id'])
-            if (file[key] is String) file[key] as String,
-      // The reply's other attachments show only while it lists no files.
-      if (storedFiles == null || storedFiles.isEmpty)
-        ...?widget.message.attachmentIds,
-    };
-    final filesArray = [
-      ...?storedFiles,
-      for (final shown in shownFiles)
-        if (!listedIds.contains(shown['id'])) shown,
-    ];
+    // The reply's other attachments show only while it lists no files.
+    final filesArray = chatFilesWithShown(
+      storedFiles,
+      shownFiles,
+      attachmentIds: widget.message.attachmentIds,
+    );
     if (filesArray.isEmpty) {
       return const SizedBox.shrink();
     }
@@ -2199,17 +2191,9 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
         final fileUrl = getFileUrl(file);
         if (fileUrl == null) return const SizedBox.shrink();
 
-        // Extract file ID from URL - handle formats:
-        // - Bare file ID (new OpenWebUI format): "abc-123-def"
-        // - /api/v1/files/{id} (legacy format)
-        // - /api/v1/files/{id}/content (legacy format)
-        String attachmentId = fileUrl;
-        if (fileUrl.contains('/api/v1/files/')) {
-          final fileIdMatch = _fileIdPattern.firstMatch(fileUrl);
-          if (fileIdMatch != null) {
-            attachmentId = fileIdMatch.group(1)!;
-          }
-        }
+        // A bare file id (newer Open WebUI), or /api/v1/files/{id} with or
+        // without /content (older).
+        final attachmentId = chatFileShownId(file) ?? fileUrl;
 
         return EnhancedAttachment(
           key: ValueKey('file_attachment_$attachmentId'),
