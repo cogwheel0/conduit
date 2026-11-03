@@ -362,6 +362,21 @@ void main() {
       check(removeNoteFileLinks(md, 'a')).equals(md);
     });
 
+    test('fences are found on lines that end in CRLF', () {
+      check(
+        noteFileLinksInMarkdown(
+          '~~~\r\n[a](/api/v1/files/a/content)\r\n~~~\r\n'
+          '[b](/api/v1/files/b/content)',
+        ).map((link) => link.id),
+      ).deepEquals(['b']);
+      final md = appendNoteFileLinks('```\r\ncode', <Map<String, dynamic>>[
+        <String, dynamic>{'type': 'file', 'id': 'f1', 'name': 'R'},
+      ]);
+      check(noteFileLinksInMarkdown(md).map((link) => link.id)).deepEquals([
+        'f1',
+      ]);
+    });
+
     test('a closer with text after it leaves the block open', () {
       check(
         noteFileLinksInMarkdown(
