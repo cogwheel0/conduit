@@ -349,6 +349,15 @@ LIMIT 1
     // Spawn the conflict copy BEFORE overwriting the canonical row's local
     // data, so the LOCAL data is captured intact.
     if (decision.spawnConflictCopy) {
+      // An earlier build's edit of a paged note's combined view belongs to no
+      // page, and the copy of the edited pages leaves it out: it is kept in
+      // a copy of its own.
+      final Map<String, dynamic> local = decodeJsonMap(existing.data);
+      if (noteDataIsMultiPage(local) &&
+          noteDirtyPageIds(local).isNotEmpty &&
+          noteCombinedContentEdited(local)) {
+        await spawnConflictCopy(existing, data: _combinedEditCopyData(local));
+      }
       await spawnConflictCopy(existing);
     }
 
@@ -431,14 +440,7 @@ LIMIT 1
     return transaction(() async {
       final data = decodeJsonMap(note.data);
       final Object? content = data['content'];
-      await spawnConflictCopy(
-        note,
-        data: <String, dynamic>{
-          'content': content is Map
-              ? Map<String, dynamic>.from(content)
-              : noteContentWithMarkdown(null, ''),
-        },
-      );
+      await spawnConflictCopy(note, data: _combinedEditCopyData(data));
       final restored = <String, dynamic>{
         ...data,
         'content': noteContentWithMarkdown(
@@ -451,6 +453,17 @@ LIMIT 1
       );
       return restored;
     });
+  }
+
+  /// The data of a conflict copy holding the combined view of [data], a note
+  /// with several pages, as an earlier build edited it.
+  static Map<String, dynamic> _combinedEditCopyData(Map<String, dynamic> data) {
+    final Object? content = data['content'];
+    return <String, dynamic>{
+      'content': content is Map
+          ? Map<String, dynamic>.from(content)
+          : noteContentWithMarkdown(null, ''),
+    };
   }
 
   // ---- local-mutation *WithOutbox (row + op in one tx; caller holds lock) ----

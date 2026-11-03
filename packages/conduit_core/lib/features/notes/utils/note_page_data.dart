@@ -367,19 +367,45 @@ String noteFileLinkMarkdown({required String id, required String name}) {
   return '[${label.isEmpty ? id : label}](/api/v1/files/$id/content)';
 }
 
-/// [markdown]'s lines, each with whether it lies in a fenced code block.
-Iterable<(String, bool)> _linesWithFences(String markdown) sync* {
-  var fenced = false;
+/// A line that may open or close a fenced code block: a run of three or more
+/// backticks or tildes, then the rest of the line.
+final RegExp _fencePattern = RegExp(r'^\s*(`{3,}|~{3,})(.*)$');
+
+/// [markdown]'s lines, each with whether it lies in a fenced code block, and
+/// the fence of a block left open at its end. As in CommonMark, a block
+/// closes only on a run of its own character at least as long as the one
+/// that opened it, with nothing after; a backtick run with a backtick after
+/// it opens none.
+({List<(String, bool)> lines, String? open}) _scanFences(String markdown) {
+  final List<(String, bool)> lines = <(String, bool)>[];
+  String? open;
   for (final String line in markdown.split('\n')) {
-    final String fence = line.trimLeft();
-    if (fence.startsWith('```') || fence.startsWith('~~~')) {
-      fenced = !fenced;
-      yield (line, true);
+    final RegExpMatch? fence = _fencePattern.firstMatch(line);
+    if (fence == null) {
+      lines.add((line, open != null));
       continue;
     }
-    yield (line, fenced);
+    final String run = fence.group(1)!;
+    final String rest = fence.group(2)!;
+    if (open == null) {
+      if (run.startsWith('`') && rest.contains('`')) {
+        lines.add((line, false));
+        continue;
+      }
+      open = run;
+    } else if (run[0] == open[0] &&
+        run.length >= open.length &&
+        rest.trim().isEmpty) {
+      open = null;
+    }
+    lines.add((line, true));
   }
+  return (lines: lines, open: open);
 }
+
+/// [markdown]'s lines, each with whether it lies in a fenced code block.
+List<(String, bool)> _linesWithFences(String markdown) =>
+    _scanFences(markdown).lines;
 
 /// The files [markdown] attaches, in order, each id once. Images, code spans
 /// and fenced code are left out, as the server reads them.
@@ -432,24 +458,9 @@ String appendNoteFileLinks(
   return out.toString();
 }
 
-/// The fence marker of a code block [markdown] leaves open at its end, or
-/// null when it ends outside one.
-String? _openFence(String markdown) {
-  String? open;
-  for (final String line in markdown.split('\n')) {
-    final String trimmed = line.trimLeft();
-    for (final String marker in const ['```', '~~~']) {
-      if (!trimmed.startsWith(marker)) continue;
-      if (open == null) {
-        open = marker;
-      } else if (open == marker) {
-        open = null;
-      }
-      break;
-    }
-  }
-  return open;
-}
+/// The fence of a code block [markdown] leaves open at its end, which also
+/// closes it, or null when it ends outside one.
+String? _openFence(String markdown) => _scanFences(markdown).open;
 
 /// [line] with [replace] applied to the text outside its inline code spans,
 /// whose text is no link and stays as written.
@@ -489,7 +500,7 @@ String mergeNoteFileLinks({
 /// link goes, with the blank line that set it apart; other text stays as it
 /// was.
 String removeNoteFileLinks(String markdown, String id) {
-  final List<(String, bool)> lines = _linesWithFences(markdown).toList();
+  final List<(String, bool)> lines = _linesWithFences(markdown);
   final List<String> kept = <String>[];
   for (var i = 0; i < lines.length; i++) {
     final (String line, bool fenced) = lines[i];

@@ -350,6 +350,44 @@ void main() {
       check(md).startsWith('```\ncode\n```');
     });
 
+    test('a code block closes only on a fence of its own kind and length', () {
+      // The ``` and ~~~~ lines sit inside blocks they do not close.
+      const md =
+          '~~~\n```\n[a](/api/v1/files/a/content)\n~~~\n'
+          '````\n```\n[b](/api/v1/files/b/content)\n````\n'
+          '[c](/api/v1/files/c/content)';
+      check(noteFileLinksInMarkdown(md).map((link) => link.id)).deepEquals([
+        'c',
+      ]);
+      check(removeNoteFileLinks(md, 'a')).equals(md);
+    });
+
+    test('a closer with text after it leaves the block open', () {
+      check(
+        noteFileLinksInMarkdown(
+          '```\n``` not a closer\n[a](/api/v1/files/a/content)\n```',
+        ),
+      ).isEmpty();
+    });
+
+    test('backticks with a backtick after them open no block', () {
+      check(
+        noteFileLinksInMarkdown(
+          '``` `x` ```\n[a](/api/v1/files/a/content)',
+        ).map((link) => link.id),
+      ).deepEquals(['a']);
+    });
+
+    test('a link added after an unclosed longer fence closes it in kind', () {
+      final md = appendNoteFileLinks('````\n```\ncode', <Map<String, dynamic>>[
+        <String, dynamic>{'type': 'file', 'id': 'f1', 'name': 'R'},
+      ]);
+      check(noteFileLinksInMarkdown(md).map((link) => link.id)).deepEquals([
+        'f1',
+      ]);
+      check(md).startsWith('````\n```\ncode\n````');
+    });
+
     test('removing a file keeps the same link quoted in inline code', () {
       const quoted = '`[x](/api/v1/files/f1/content)`';
       check(

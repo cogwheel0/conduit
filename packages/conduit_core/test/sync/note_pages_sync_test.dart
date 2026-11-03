@@ -809,6 +809,61 @@ void main() {
     check(serverPageMd('n1', 'main')).equals('one');
   });
 
+  test('a newer edit there keeps both an earlier build\'s combined edit and '
+      'a page edit here, each in a copy', () async {
+    server.notePagesEnabled = true;
+    server.seedNote(
+      id: 'n1',
+      title: 'Doc',
+      data: twoPages(),
+      createdAt: kT1,
+      updatedAt: kT1,
+    );
+    await pull();
+    await locks.runExclusive('n1', () async {
+      final data = decodeNoteData((await db.notesDao.getNote('n1'))!.data);
+      await db.notesDao.updateNoteWithOutbox(
+        'n1',
+        data: Value(
+          jsonEncode({
+            ...data,
+            'content': {'json': null, 'html': '', 'md': 'whole note, edited'},
+          }),
+        ),
+        localUpdatedAtNs: kT2,
+        enqueue: true,
+      );
+    });
+    await editContent('n1', 'two edited here', pageId: 'p2');
+    // Someone else edits the note before either edit is sent.
+    final there = twoPages();
+    ((there['pages'] as List)[0] as Map)['content'] = {
+      'json': null,
+      'html': '',
+      'md': 'one edited there',
+    };
+    server.seedNote(
+      id: 'n1',
+      title: 'Doc',
+      data: there,
+      createdAt: kT1,
+      updatedAt: kT2 + 1000000000,
+    );
+
+    await pull();
+
+    final copies = await (db.select(
+      db.notes,
+    )..where((t) => t.isConflictCopy.equals(true))).get();
+    check(
+      copies.map(
+        (copy) => (decodeNoteData(copy.data)['content'] as Map)['md'],
+      ),
+    ).unorderedEquals(['whole note, edited', 'two edited here']);
+    final canonical = decodeNoteData((await db.notesDao.getNote('n1'))!.data);
+    check(notePageMarkdown(canonical, 'main')).equals('one edited there');
+  });
+
   test(
     'a create is not matched to a note alike but for its recordings',
     () async {
