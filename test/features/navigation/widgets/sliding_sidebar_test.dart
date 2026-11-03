@@ -1,16 +1,16 @@
-import 'dart:ui' show SemanticsAction;
 
+import 'package:conduit/features/hermes/widgets/hermes_sessions_tab.dart';
 import 'package:conduit/features/navigation/widgets/drawer_shell_page.dart';
 import 'package:conduit/features/navigation/widgets/responsive_drawer_layout.dart';
 import 'package:conduit/features/navigation/providers/sidebar_providers.dart';
+import 'package:conduit/features/navigation/widgets/sidebar_user_pill.dart';
+import 'package:conduit/shared/widgets/chrome_gradient_fade.dart';
 import 'package:conduit/shared/widgets/sidebar_layout_contract.dart';
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/models/user.dart';
 import 'package:conduit_core/features/navigation/models/sidebar_navigation_model.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter/foundation.dart'
-    show debugDefaultTargetPlatformOverride;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
@@ -127,10 +127,7 @@ void main() {
       find.byKey(const ValueKey<String>('sidebar-create-button')),
       findsNothing,
     );
-    expect(
-      find.byKey(const ValueKey<String>('sidebar-settings-button')),
-      findsNothing,
-    );
+    expect(find.byType(SidebarProfileAppBarLeading), findsNothing);
     await tester.pumpWidget(
       DrawerChromeCompositionScope(composeNativeChrome: true, child: child),
     );
@@ -138,211 +135,246 @@ void main() {
     expect(search, findsOneWidget);
   });
 
-  testWidgets(
-    'backend, settings and creation stay at the bottom while history scrolls',
-    (tester) async {
-      final date = DateTime(2026, 1, 1);
-      await tester.pumpWidget(
-        sidebarTestBuildHarness(
-          controllers: SidebarTestSidebarHarnessControllers(),
-          currentUser: _user,
-          conversations: List.generate(
-            40,
-            (i) => Conversation(
-              id: 'demo-$i',
-              title: 'Example $i',
-              createdAt: date,
-              updatedAt: date,
-            ),
+  testWidgets('header and bottom bar float over the scrolling history', (
+    tester,
+  ) async {
+    final date = DateTime(2026, 1, 1);
+    await tester.pumpWidget(
+      sidebarTestBuildHarness(
+        controllers: SidebarTestSidebarHarnessControllers(),
+        currentUser: _user,
+        conversations: List.generate(
+          40,
+          (i) => Conversation(
+            id: 'demo-$i',
+            title: 'Example $i',
+            createdAt: date,
+            updatedAt: date,
           ),
         ),
-      );
-      await tester.pumpAndSettle();
-      final settings = find.byKey(
-        const ValueKey<String>('sidebar-settings-button'),
-      );
-      expect(settings, findsOneWidget);
-      final create = find.byKey(
-        const ValueKey<String>('sidebar-create-button'),
-      );
-      final search = find.byKey(
-        const ValueKey<String>('sidebar-search-button'),
-      );
-      expect(find.bySemanticsLabel('New Chat'), findsOneWidget);
-      expect(tester.getCenter(create).dy, tester.getCenter(settings).dy);
-      expect(
-        tester.getCenter(settings).dy,
-        greaterThan(tester.getCenter(search).dy),
-      );
-      expect(
-        tester
-            .getCenter(
-              find.byKey(const ValueKey<String>('sidebar-backend-selector')),
-            )
-            .dy,
-        tester.getCenter(settings).dy,
-      );
-      expect(
-        tester.getCenter(search).dy,
-        tester.getCenter(find.text('Conduit')).dy,
-      );
-      final before = tester.getTopLeft(settings);
-      final createBefore = tester.getTopLeft(create);
-      await tester.drag(
-        find.byKey(const PageStorageKey<String>('chats_drawer_scroll')),
-        const Offset(0, -600),
-      );
-      await tester.pumpAndSettle();
-      expect(tester.getTopLeft(settings), before);
-      expect(tester.getTopLeft(create), createBefore);
-      expect(
-        tester
-            .getBottomLeft(
-              find.byKey(const ValueKey<String>('sidebar-destinations')),
-            )
-            .dy,
-        lessThan(createBefore.dy),
-      );
-    },
-  );
+      ),
+    );
+    await tester.pumpAndSettle();
+    final profile = find.byType(SidebarProfileAppBarLeading);
+    final search = find.byKey(const ValueKey<String>('sidebar-search-button'));
+    final create = find.byKey(const ValueKey<String>('sidebar-create-button'));
+    final destinations = find.byKey(
+      const ValueKey<String>('sidebar-destinations'),
+    );
+    final history = find.byKey(
+      const PageStorageKey<String>('chats_drawer_scroll'),
+    );
+    expect(find.text('Conduit'), findsNothing);
+    expect(sidebarTestTooltip('New Chat'), findsOneWidget);
+    expect(tester.getCenter(profile).dy, tester.getCenter(search).dy);
+    expect(
+      tester.getCenter(profile).dx,
+      lessThan(tester.getCenter(search).dx),
+    );
+    expect(find.byType(ConduitChromeGradientFade), findsNWidgets(2));
+    // The destinations lead the history, which runs under both bars.
+    expect(
+      find.descendant(of: history, matching: destinations),
+      findsOneWidget,
+    );
+    expect(
+      tester.getTopLeft(destinations).dy,
+      greaterThanOrEqualTo(tester.getBottomLeft(search).dy),
+    );
+    final surface = find.byKey(const ValueKey<String>('sidebar-page-surface'));
+    expect(tester.getRect(history).top, tester.getRect(surface).top);
+    expect(tester.getRect(history).bottom, tester.getRect(surface).bottom);
+    expect(
+      tester.getBottomLeft(create).dy,
+      greaterThan(tester.getBottomLeft(find.text('Example 0')).dy),
+    );
 
-  testWidgets('iOS sidebar controls use native circular glass buttons', (
+    final searchBefore = tester.getTopLeft(search);
+    final createBefore = tester.getTopLeft(create);
+    final destinationsBefore = tester.getTopLeft(destinations).dy;
+    await tester.drag(history, const Offset(0, -120));
+    await tester.pumpAndSettle();
+    expect(tester.getTopLeft(search), searchBefore);
+    expect(tester.getTopLeft(create), createBefore);
+    expect(tester.getTopLeft(destinations).dy, lessThan(destinationsBefore));
+  });
+
+  testWidgets('destinations stay above an empty history', (tester) async {
+    await tester.pumpWidget(
+      sidebarTestBuildHarness(
+        controllers: SidebarTestSidebarHarnessControllers(),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final empty = find.text('No conversations yet');
+    expect(empty, findsOneWidget);
+    expect(
+      tester.getTopLeft(empty).dy,
+      greaterThan(tester.getBottomLeft(sidebarTestDestinationLabel('Chats')).dy),
+    );
+    final history = find.descendant(
+      of: find.byKey(const ValueKey<String>('sidebar-chat-history')),
+      matching: find.byType(Scrollable),
+    );
+    final position = tester.state<ScrollableState>(history.first).position;
+    expect(position.maxScrollExtent, 0);
+  });
+
+  testWidgets('iOS 26 draws the bottom bar as one native view', (
     tester,
   ) async {
     PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.iOS;
     PlatformUiCapabilities.debugIOSMajorVersionOverride = 26;
     PlatformUiCapabilities.debugNativeIOS26Override = true;
     addTearDown(PlatformUiCapabilities.resetDebugOverrides);
+    final updates = <Map<Object?, Object?>>[];
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+      SystemChannels.platform_views,
+      (_) async => null,
+    );
+    const channel = MethodChannel('conduit/floating_tab_bar_4242');
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(channel, (
+      call,
+    ) async {
+      if (call.method == 'update') {
+        updates.add(call.arguments as Map<Object?, Object?>);
+      }
+      return null;
+    });
+    try {
+      await tester.pumpWidget(
+        sidebarTestBuildHarness(
+          controllers: SidebarTestSidebarHarnessControllers(),
+          currentUser: _user,
+          hermesEnabled: true,
+        ),
+      );
+      await tester.pump(const Duration(milliseconds: 500));
+      final search = tester.widget<CNButton>(
+        find.descendant(
+          of: find.byKey(const ValueKey<String>('sidebar-search-button')),
+          matching: find.byType(CNButton),
+        ),
+      );
+      expect(search.icon?.name, 'magnifyingglass');
+      expect(search.config.style, CNButtonStyle.glass);
+      expect(find.byType(CNTabBar), findsNothing);
+
+      final bar = find.byKey(const ValueKey<String>('sidebar-backend-selector'));
+      final icons = tester.widget<FutureBuilder<List<Uint8List>>>(
+        find.descendant(
+          of: bar,
+          matching: find.byType(FutureBuilder<List<Uint8List>>),
+        ),
+      );
+      await tester.runAsync(() => icons.future!);
+      await tester.pump();
+      final view = tester.widget<UiKitView>(
+        find.descendant(of: bar, matching: find.byType(UiKitView)),
+      );
+      expect(view.viewType, 'conduit/floating_tab_bar');
+      final params = view.creationParams as Map;
+      final tabs = (params['tabs'] as List).cast<Map>();
+      expect([for (final tab in tabs) tab['label']], ['Open WebUI', 'Hermes']);
+      for (final tab in tabs) {
+        final png = ByteData.sublistView(tab['image'] as Uint8List);
+        expect(png.getUint32(0), 0x89504E47);
+      }
+      expect(params['selectedIndex'], 0);
+      expect(params['actionSymbol'], 'square.and.pencil');
+      expect(params['actionLabel'], 'New Chat');
+
+      view.onPlatformViewCreated!(4242);
+      await tester.binding.defaultBinaryMessenger.handlePlatformMessage(
+        channel.name,
+        const StandardMethodCodec().encodeMethodCall(
+          const MethodCall('select', 1),
+        ),
+        (_) {},
+      );
+      await tester.pump();
+      final container = ProviderScope.containerOf(tester.element(bar));
+      expect(container.read(sidebarHistoryTabProvider), SidebarTabId.hermes);
+      expect(updates.last['selectedIndex'], 1);
+      expect(tester.takeException(), isNull);
+    } finally {
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pumpAndSettle();
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform_views,
+        null,
+      );
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        channel,
+        null,
+      );
+    }
+  });
+
+  testWidgets('Material backend tabs are an icon-only pill beside a FAB', (
+    tester,
+  ) async {
+    final semantics = tester.ensureSemantics();
+    try {
+      await tester.pumpWidget(
+        sidebarTestBuildHarness(
+          controllers: SidebarTestSidebarHarnessControllers(),
+          hermesEnabled: true,
+        ),
+      );
+      await tester.pumpAndSettle();
+      final pill = tester.widget<NavigationBar>(
+        find.descendant(
+          of: find.byKey(const ValueKey<String>('sidebar-backend-tabs')),
+          matching: find.byType(NavigationBar),
+        ),
+      );
+      expect(
+        pill.labelBehavior,
+        NavigationDestinationLabelBehavior.alwaysHide,
+      );
+      expect(pill.selectedIndex, 0);
+      final create = find.byKey(const ValueKey<String>('sidebar-create-button'));
+      expect(
+        find.descendant(of: create, matching: find.byType(FloatingActionButton)),
+        findsOneWidget,
+      );
+      expect(
+        tester.getCenter(create).dy,
+        tester.getCenter(sidebarTestBackendTab('Hermes')).dy,
+      );
+      expect(
+        tester.getCenter(sidebarTestBackendTab('Hermes')).dx,
+        lessThan(tester.getCenter(create).dx),
+      );
+      await tester.tap(sidebarTestBackendTab('Hermes'));
+      await tester.pumpAndSettle();
+      final container = ProviderScope.containerOf(tester.element(create));
+      expect(container.read(sidebarHistoryTabProvider), SidebarTabId.hermes);
+      expect(find.byType(HermesSessionsTab).hitTestable(), findsOneWidget);
+    } finally {
+      semantics.dispose();
+    }
+  });
+
+  testWidgets('a single backend leaves only New Chat in the bottom bar', (
+    tester,
+  ) async {
     await tester.pumpWidget(
       sidebarTestBuildHarness(
         controllers: SidebarTestSidebarHarnessControllers(),
-        currentUser: _user,
       ),
     );
-    await tester.pump(const Duration(milliseconds: 500));
-    CNButton control(String key) => tester.widget<CNButton>(
-      find.descendant(
-        of: find.byKey(ValueKey<String>(key)),
-        matching: find.byType(CNButton),
-      ),
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey<String>('sidebar-backend-tabs')),
+      findsNothing,
     );
-    final search = control('sidebar-search-button');
-    final create = control('sidebar-create-button');
-    final settings = control('sidebar-settings-button');
-    expect(search.icon?.name, 'magnifyingglass');
-    expect(search.config.style, CNButtonStyle.glass);
-    expect(create.label, isNull);
-    expect(create.config.width, create.config.minHeight);
-    expect(create.icon?.name, 'square.and.pencil');
-    expect(create.config.style, CNButtonStyle.glass);
-    expect(settings.icon?.name, 'gearshape');
-    expect(settings.config.style, CNButtonStyle.glass);
-    expect(tester.takeException(), isNull);
+    expect(
+      find.byKey(const ValueKey<String>('sidebar-create-button')),
+      findsOneWidget,
+    );
   });
-
-  for (final native in [false, true]) {
-    testWidgets('backend picker uses platform menus (native: $native)', (
-      tester,
-    ) async {
-      final semantics = tester.ensureSemantics();
-      try {
-        PlatformUiCapabilities.debugPlatformOverride = native
-            ? TargetPlatform.iOS
-            : TargetPlatform.android;
-        PlatformUiCapabilities.debugIOSMajorVersionOverride = 26;
-        PlatformUiCapabilities.debugNativeIOS26Override = native;
-        addTearDown(PlatformUiCapabilities.resetDebugOverrides);
-        if (native) {
-          debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
-          tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
-            SystemChannels.platform_views,
-            (_) async => null,
-          );
-        }
-        await tester.pumpWidget(
-          sidebarTestBuildHarness(
-            controllers: SidebarTestSidebarHarnessControllers(),
-            hermesEnabled: true,
-          ),
-        );
-        await tester.pumpAndSettle();
-        if (native) {
-          final picker = find.byType(NativeGlassMenuButton);
-          final loadingButton = tester.widget<CNButton>(
-            find.descendant(of: picker, matching: find.byType(CNButton)),
-          );
-          expect(loadingButton.label, 'Open WebUI');
-          expect(loadingButton.config.style, CNButtonStyle.glass);
-          expect(loadingButton.onPressed, isNull);
-          expect(loadingButton.enabled, isFalse);
-          expect(
-            find.descendant(
-              of: picker,
-              matching: find.byWidgetPredicate(
-                (widget) =>
-                    widget is UiKitView &&
-                    widget.viewType == 'CupertinoNativePopupMenuButton',
-              ),
-            ),
-            findsNothing,
-          );
-          final imageLoader = tester.widget<FutureBuilder<Uint8List>>(
-            find.descendant(
-              of: picker,
-              matching: find.byType(FutureBuilder<Uint8List>),
-            ),
-          );
-          await tester.runAsync(() => imageLoader.future!);
-          await tester.pumpAndSettle();
-          final view = tester.widget<UiKitView>(
-            find.descendant(of: picker, matching: find.byType(UiKitView)),
-          );
-          expect(view.viewType, 'CupertinoNativePopupMenuButton');
-          expect((view.creationParams as Map)['buttonTitle'], 'Open WebUI');
-          final params = view.creationParams as Map;
-          final image = params['buttonImageData'] as Uint8List;
-          final pixels =
-              (24 * MediaQuery.devicePixelRatioOf(tester.element(picker)))
-                  .round();
-          final png = ByteData.sublistView(image);
-          expect(png.getUint32(16), pixels);
-          expect(png.getUint32(20), pixels);
-          view.onPlatformViewCreated!(4242);
-          await tester.binding.defaultBinaryMessenger.handlePlatformMessage(
-            'CupertinoNativePopupMenuButton_4242',
-            const StandardMethodCodec().encodeMethodCall(
-              const MethodCall('itemSelected', {'index': 1}),
-            ),
-            (_) {},
-          );
-          await tester.pumpAndSettle();
-          final container = ProviderScope.containerOf(tester.element(picker));
-          expect(
-            container.read(sidebarHistoryTabProvider),
-            SidebarTabId.hermes,
-          );
-          expect(tester.widget<NativeGlassMenuButton>(picker).label, 'Hermes');
-          return;
-        }
-        final button = find.bySemanticsLabel('Open WebUI');
-        expect(button, findsOneWidget);
-        final data = tester.getSemantics(button).getSemanticsData();
-        expect(data.flagsCollection.isButton, true);
-        expect(data.hasAction(SemanticsAction.tap), true);
-      } finally {
-        if (native) {
-          await tester.pumpWidget(const SizedBox.shrink());
-          await tester.pumpAndSettle();
-          debugDefaultTargetPlatformOverride = null;
-          tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
-            SystemChannels.platform_views,
-            null,
-          );
-        }
-        semantics.dispose();
-      }
-    });
-  }
 
   for (final size in [const Size(320, 568), const Size(844, 390)]) {
     testWidgets('sidebar controls stay reachable at 2x text in $size', (
@@ -369,8 +401,12 @@ void main() {
         expect(tester.takeException(), isNull);
       }
       expect(
+        find.byType(SidebarProfileAppBarLeading).hitTestable(),
+        findsOneWidget,
+      );
+      expect(
         find
-            .byKey(const ValueKey<String>('sidebar-settings-button'))
+            .byKey(const ValueKey<String>('sidebar-create-button'))
             .hitTestable(),
         findsOneWidget,
       );

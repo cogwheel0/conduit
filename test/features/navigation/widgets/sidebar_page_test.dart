@@ -333,7 +333,7 @@ void main() {
     expect(find.byType(ChatsDrawer), findsOneWidget);
   });
 
-  testWidgets('shows branded vertical navigation above the retained lists', (
+  testWidgets('leads the retained lists with vertical navigation', (
     tester,
   ) async {
     await tester.pumpWidget(
@@ -342,20 +342,21 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    expect(find.text('Conduit'), findsOneWidget);
-    expect(find.byType(NavigationBar), findsNothing);
+    expect(find.text('Conduit'), findsNothing);
+    expect(sidebarTestTabbedNavigationBar(), findsNothing);
     final navigation = find.byKey(
       const ValueKey<String>('sidebar-destinations'),
     );
     expect(
-      tester.getBottomLeft(navigation).dy,
-      lessThanOrEqualTo(
-        tester
-            .getTopLeft(
-              find.byKey(const ValueKey<String>('sidebar-chat-history')),
-            )
-            .dy,
+      find.descendant(
+        of: find.byKey(const ValueKey<String>('sidebar-chat-history')),
+        matching: navigation,
       ),
+      findsOneWidget,
+    );
+    expect(
+      tester.getBottomLeft(find.byType(SidebarProfileAppBarLeading)).dy,
+      lessThanOrEqualTo(tester.getTopLeft(navigation).dy),
     );
     for (final label in ['Chats', 'Notes', 'Terminal', 'Channels']) {
       expect(sidebarTestDestinationLabel(label), findsOneWidget);
@@ -377,7 +378,7 @@ void main() {
       find.byKey(const ValueKey<String>('sidebar-tablet-navigation')),
       findsNothing,
     );
-    expect(find.byType(NavigationBar), findsNothing);
+    expect(sidebarTestTabbedNavigationBar(), findsNothing);
     for (final label in ['Chats', 'Notes', 'Terminal', 'Channels']) {
       expect(sidebarTestDestinationLabel(label), findsOneWidget);
     }
@@ -402,6 +403,16 @@ void main() {
       PlatformUiCapabilities.debugIOSMajorVersionOverride = 26;
       PlatformUiCapabilities.debugNativeIOS26Override = true;
       addTearDown(PlatformUiCapabilities.resetDebugOverrides);
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform_views,
+        (_) async => null,
+      );
+      addTearDown(
+        () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+          SystemChannels.platform_views,
+          null,
+        ),
+      );
       await tester.pumpWidget(
         sidebarTestBuildHarness(
           controllers: SidebarTestSidebarHarnessControllers(),
@@ -414,19 +425,29 @@ void main() {
       for (final label in ['Chats', 'Notes', 'Terminal', 'Channels']) {
         expect(sidebarTestDestinationLabel(label), findsOneWidget);
       }
-      final picker = find.byKey(
+      final bar = find.byKey(
         const ValueKey<String>('sidebar-backend-selector'),
       );
-      final menu = tester.widget<NativeGlassMenuButton>(
+      final icons = tester.widget<FutureBuilder<List<Uint8List>>>(
         find.descendant(
-          of: picker,
-          matching: find.byType(NativeGlassMenuButton),
+          of: bar,
+          matching: find.byType(FutureBuilder<List<Uint8List>>),
         ),
       );
-      expect(menu.options, ['Open WebUI', 'Hermes']);
-      expect(menu.label, 'Open WebUI');
-      expect(menu.assetName, 'assets/icons/open_webui.png');
-      expect(menu.selectedIndex, 0);
+      await tester.runAsync(() => icons.future!);
+      await tester.pump();
+      final params =
+          tester
+                  .widget<UiKitView>(
+                    find.descendant(of: bar, matching: find.byType(UiKitView)),
+                  )
+                  .creationParams
+              as Map;
+      expect([
+        for (final tab in (params['tabs'] as List).cast<Map>()) tab['label'],
+      ], ['Open WebUI', 'Hermes']);
+      expect(params['selectedIndex'], 0);
+      await tester.pumpWidget(const SizedBox.shrink());
     },
   );
 
@@ -457,7 +478,7 @@ void main() {
       find.byKey(const ValueKey<String>('sidebar-tablet-navigation')),
       findsNothing,
     );
-    expect(find.byType(NavigationBar), findsNothing);
+    expect(sidebarTestTabbedNavigationBar(), findsNothing);
     await sidebarTestSelectDestination(tester, 'Notes');
     await tester.pumpAndSettle();
     expect(controllers.activeTabNotifier.currentValue, SidebarTabId.notes);
@@ -478,8 +499,17 @@ void main() {
       expect(NavigationService.currentRoute, Routes.notes);
       await sidebarTestSelectDestination(tester, 'Hermes');
       expect(NavigationService.currentRoute, Routes.notes);
-      expect(find.text('Open WebUI'), findsNothing);
-      expect(find.text('Hermes'), findsOneWidget);
+      expect(
+        tester
+            .widget<NavigationBar>(
+              find.descendant(
+                of: find.byKey(const ValueKey<String>('sidebar-backend-tabs')),
+                matching: find.byType(NavigationBar),
+              ),
+            )
+            .selectedIndex,
+        1,
+      );
       expect(find.byType(HermesSessionsTab).hitTestable(), findsOneWidget);
       expect(find.byType(ChatsDrawer).hitTestable(), findsNothing);
       await sidebarTestSelectDestination(tester, 'Open WebUI');
@@ -502,7 +532,11 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byType(HermesSessionsTab), findsOneWidget);
-    expect(find.byType(NavigationBar), findsNothing);
+    expect(sidebarTestTabbedNavigationBar(), findsNothing);
+    expect(
+      find.byKey(const ValueKey<String>('sidebar-backend-tabs')),
+      findsNothing,
+    );
   });
 
   testWidgets(

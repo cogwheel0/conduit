@@ -72,6 +72,7 @@ class _HermesSessionsTabState extends ConsumerState<HermesSessionsTab>
         SliverToBoxAdapter(
           child: SizedBox(height: sidebarTabContentTopPadding(context)),
         ),
+        ...sidebarHistoryHeaderSlivers(context),
         // Names the active connection; switches when several are saved.
         const SliverToBoxAdapter(child: HermesConnectionSwitcherTile()),
         ..._botSlivers(context, ref.watch(hermesBotsProvider).asData?.value),

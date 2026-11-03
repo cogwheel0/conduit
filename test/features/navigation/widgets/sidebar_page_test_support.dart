@@ -48,15 +48,38 @@ import 'package:mocktail/mocktail.dart';
 
 import 'package:conduit_core/testing.dart';
 
-/// Label in the sidebar destination list.
-Finder sidebarTestDestinationLabel(String label) => find.descendant(
-  of: find.byKey(
-    ValueKey<String>(
-      label == 'Hermes' ? 'sidebar-backend-selector' : 'sidebar-destinations',
-    ),
-  ),
-  matching: find.text(label),
+/// Label in the sidebar destination list, or a backend's icon-only tab.
+Finder sidebarTestDestinationLabel(String label) =>
+    label == 'Hermes' || label == 'Open WebUI'
+    ? sidebarTestBackendTab(label)
+    : find.descendant(
+        of: find.byKey(const ValueKey<String>('sidebar-destinations')),
+        matching: find.text(label),
+      );
+
+/// A backend's icon-only tab in the sliding sidebar's bottom bar.
+Finder sidebarTestBackendTab(String label) => find.descendant(
+  of: find.byKey(const ValueKey<String>('sidebar-backend-tabs')),
+  matching: sidebarTestTooltip(label),
 );
+
+/// A Material control's tooltip, which also labels icon-only controls.
+Finder sidebarTestTooltip(String message) => find.byWidgetPredicate(
+  (widget) => widget is Tooltip && widget.message == message,
+);
+
+/// The tabbed layout's destination bar, as opposed to the sliding sidebar's
+/// backend tabs.
+Finder sidebarTestTabbedNavigationBar() => find.byElementPredicate((element) {
+  if (element.widget is! NavigationBar) return false;
+  var inBackendTabs = false;
+  element.visitAncestorElements((ancestor) {
+    inBackendTabs =
+        ancestor.widget.key == const ValueKey<String>('sidebar-backend-tabs');
+    return !inBackendTabs;
+  });
+  return !inBackendTabs;
+});
 
 enum SidebarTestSidebarTabLayer { chats, terminal, notes, channels }
 
@@ -909,11 +932,7 @@ Future<void> sidebarTestSelectDestination(
   String label,
 ) async {
   if (label == 'Hermes' || label == 'Open WebUI') {
-    await tester.tap(
-      find.byKey(const ValueKey<String>('sidebar-backend-selector')),
-    );
-    await tester.pumpAndSettle();
-    await tester.tap(find.text(label).last);
+    await tester.tap(sidebarTestBackendTab(label));
     await tester.pumpAndSettle();
     return;
   }

@@ -5,6 +5,7 @@ import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 import 'package:go_router/go_router.dart';
 
 import 'package:conduit_core/services/settings_service.dart';
@@ -17,8 +18,6 @@ import '../../../shared/services/navigation_service.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/ui_utils.dart';
 import '../../../shared/widgets/adaptive_toolbar_components.dart';
-import '../../../shared/widgets/adaptive_dropdown_field.dart';
-import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/chrome_gradient_fade.dart';
 import '../../../shared/widgets/sidebar_layout_contract.dart';
 import '../../../shared/widgets/sidebar_layout_constants.dart';
@@ -26,6 +25,7 @@ import '../../../shared/widgets/sidebar_ios26_scaffold.dart';
 import '../../../shared/widgets/themed_sheets.dart';
 import '../providers/sidebar_providers.dart';
 import '../providers/sidebar_tab_scroll_registry.dart';
+import '../utils/sidebar_create_action.dart';
 import 'sidebar_user_pill.dart';
 import 'sidebar_tab_registry.dart';
 import 'chats_drawer.dart';
@@ -648,7 +648,11 @@ void _selectSlidingSidebarTab(BuildContext context, WidgetRef ref, int index) {
   closeSidebarDrawerIfOverlay(context);
 }
 
-/// Opt-in navigation with main-pane destinations and separate backend histories.
+/// Width of each backend in the sliding sidebar's bottom tab bar.
+const double _kSlidingSidebarBackendWidth = 72;
+
+/// Opt-in navigation with main-pane destinations and separate backend
+/// histories, under a floating header and bottom bar.
 class _SlidingSidebarPage extends ConsumerWidget {
   const _SlidingSidebarPage();
 
@@ -657,22 +661,13 @@ class _SlidingSidebarPage extends ConsumerWidget {
     final l10n = AppLocalizations.of(context)!;
     final theme = context.conduitTheme;
     final navigation = ref.watch(sidebarNavigationSnapshotProvider);
-    final tabs = [for (final id in navigation.tabs) sidebarTabDescriptor(id)];
-    final routeTab = sidebarTabForLocation(GoRouterState.of(context).uri.path);
-    final historyTabs = tabs
-        .where(
-          (tab) =>
-              tab.id == SidebarTabId.chats || tab.id == SidebarTabId.hermes,
-        )
-        .toList();
-    final destinations = tabs
-        .where((tab) => tab.id != SidebarTabId.hermes)
-        .toList();
+    final historyTabs = [
+      for (final id in navigation.tabs)
+        if (id == SidebarTabId.chats || id == SidebarTabId.hermes)
+          sidebarTabDescriptor(id),
+    ];
     final historyTab = ref.watch(sidebarSelectedHistoryTabProvider);
     final chatTab = historyTabs.firstWhere((tab) => tab.id == historyTab);
-    final selectedTab = navigation.tabs.contains(routeTab)
-        ? routeTab
-        : chatTab.id;
     final isSearching = ref.watch(sidebarHeaderSearchExpandedProvider);
     final composeChrome = DrawerChromeCompositionScope.shouldCompose(context);
     final display = View.of(context).display.size;
@@ -685,210 +680,144 @@ class _SlidingSidebarPage extends ConsumerWidget {
           display.shortestSide != viewport.shortestSide,
       isIOSAppOnMac: PlatformInfo.isIOSAppOnMac,
     );
+    final surface = theme.surfaceContainerHighest;
+    final safePadding = MediaQuery.paddingOf(context);
+    final controlExtent = conduitScaledControlExtent(context);
+    final toolbarHeight = conduitAdaptiveToolbarHeightOf(context);
+    final chromeInsets = EdgeInsets.only(
+      top: safePadding.top + toolbarHeight,
+      bottom: AdaptiveFloatingTabBar.extentOf(context),
+    );
 
     return Material(
       key: const ValueKey<String>('sidebar-page-surface'),
-      color: theme.surfaceContainerHighest,
+      color: surface,
       child: SafeArea(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
+        top: false,
+        bottom: false,
+        child: Stack(
+          fit: StackFit.expand,
           children: [
-            Padding(
-              padding: EdgeInsetsDirectional.fromSTEB(
-                Spacing.lg + leadingInset,
-                Spacing.sm,
-                Spacing.md,
-                Spacing.sm,
-              ),
-              child: LayoutBuilder(
-                builder: (context, constraints) => Row(
-                  children: [
-                    Expanded(
-                      child: isSearching
-                          ? SidebarSearchAppBarLeading(
-                              hintText: l10n.searchConversations,
-                              maxWidth:
-                                  constraints.maxWidth - TouchTarget.minimum,
-                            )
-                          : Text(
-                              'Conduit',
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: TextStyle(
-                                color: theme.textPrimary,
-                                fontSize: 26,
-                                fontWeight: FontWeight.w700,
+            SidebarTabLayoutScope(
+              parentOwnsHeaderInset: false,
+              bottomNavigationVisible: true,
+              floatingChromeInsets: chromeInsets,
+              child: SidebarHistoryHeaderScope(
+                header: const _SlidingSidebarDestinations(),
+                child: KeyedSubtree(
+                  key: const ValueKey<String>('sidebar-chat-history'),
+                  child: IndexedStack(
+                    index: historyTabs.indexOf(chatTab),
+                    children: [
+                      for (final tab in historyTabs)
+                        tab.id == SidebarTabId.chats
+                            ? const ChatsDrawer()
+                            : const HermesSessionsTab(
+                                showBottomNavigationBar: false,
                               ),
-                            ),
-                    ),
-                    if (!composeChrome)
-                      const SizedBox(width: TouchTarget.minimum),
-                    if (composeChrome) ...[
-                      ConduitAdaptiveAppBarIconButton(
-                        key: const ValueKey<String>('sidebar-search-button'),
-                        icon: isSearching ? UiUtils.closeIcon : Icons.search,
-                        iosSymbol: isSearching ? 'xmark' : 'magnifyingglass',
-                        semanticLabel: isSearching
-                            ? l10n.close
-                            : l10n.searchConversations,
-                        onPressed: () => isSearching
-                            ? closeSidebarSearch(ref)
-                            : openSidebarSearch(ref),
-                        iconColor: theme.textPrimary,
-                      ),
                     ],
-                  ],
+                  ),
                 ),
               ),
             ),
-            Expanded(
-              child: LayoutBuilder(
-                builder: (context, constraints) => Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    if (destinations.isNotEmpty)
-                      ConstrainedBox(
-                        constraints: BoxConstraints(
-                          maxHeight: constraints.maxHeight * 0.5,
-                        ),
-                        child: SingleChildScrollView(
-                          key: const ValueKey<String>('sidebar-destinations'),
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: Spacing.sm,
-                          ),
-                          child: Column(
-                            children: [
-                              for (
-                                var index = 0;
-                                index < destinations.length;
-                                index++
-                              )
-                                ListTile(
-                                  key: ValueKey<String>(
-                                    'sidebar-destination-${destinations[index].id.name}',
-                                  ),
-                                  minTileHeight: 48,
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(12),
-                                  ),
-                                  selected:
-                                      destinations[index].id == selectedTab,
-                                  tileColor: Colors.transparent,
-                                  selectedTileColor: theme.textPrimary
-                                      .withValues(alpha: 0.08),
-                                  selectedColor: theme.textPrimary,
-                                  iconColor: theme.textSecondary,
-                                  textColor: theme.textPrimary,
-                                  leading: destinations[index].assetName != null
-                                      ? ImageIcon(
-                                          AssetImage(
-                                            destinations[index].assetName!,
-                                          ),
-                                          size:
-                                              destinations[index]
-                                                  .assetIconSize ??
-                                              22,
-                                        )
-                                      : Icon(
-                                          destinations[index].materialIcon,
-                                          size: 22,
-                                        ),
-                                  title: Text(destinations[index].label(l10n)),
-                                  onTap: () {
-                                    ConduitHaptics.selectionClick();
-                                    _selectSlidingSidebarTab(
-                                      context,
-                                      ref,
-                                      navigation.tabs.indexOf(
-                                        destinations[index].id,
-                                      ),
-                                    );
-                                  },
-                                ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    const Divider(indent: Spacing.md, endIndent: Spacing.md),
-                    Expanded(
-                      child: SidebarTabLayoutScope(
-                        parentOwnsHeaderInset: true,
-                        bottomNavigationVisible: false,
-                        child: Stack(
-                          fit: StackFit.expand,
-                          children: [
-                            KeyedSubtree(
-                              key: const ValueKey<String>(
-                                'sidebar-chat-history',
-                              ),
-                              child: IndexedStack(
-                                index: historyTabs.indexOf(chatTab),
-                                children: [
-                                  for (final tab in historyTabs)
-                                    tab.id == SidebarTabId.chats
-                                        ? const ChatsDrawer()
-                                        : const HermesSessionsTab(
-                                            showBottomNavigationBar: false,
-                                          ),
-                                ],
-                              ),
-                            ),
-                            Positioned(
-                              top: 0,
-                              left: Spacing.md,
-                              right: Spacing.md,
-                              child: Consumer(
-                                builder: (context, ref, _) =>
-                                    _SidebarSyncProgressBar(
-                                      status: ref.watch(syncEngineProvider),
-                                    ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ],
+            Positioned(
+              top: 0,
+              left: 0,
+              right: 0,
+              child: ConduitChromeGradientFade.top(
+                contentHeight: chromeInsets.top,
+                backgroundColor: surface,
+              ),
+            ),
+            Positioned(
+              top: chromeInsets.top,
+              left: Spacing.md,
+              right: Spacing.md,
+              child: Consumer(
+                builder: (context, ref, _) => _SidebarSyncProgressBar(
+                  status: ref.watch(syncEngineProvider),
                 ),
               ),
             ),
-            Padding(
-              padding: const EdgeInsets.all(Spacing.md),
-              child: composeChrome
-                  ? Row(
-                      children: [
-                        Expanded(
-                          child: _SidebarBackendPicker(
-                            key: const ValueKey<String>(
-                              'sidebar-backend-selector',
-                            ),
-                            tabs: historyTabs,
-                            selectedTab: chatTab.id,
-                            onSelected: (tab) {
-                              closeSidebarSearch(ref);
-                              ref
-                                  .read(sidebarHistoryTabProvider.notifier)
-                                  .select(tab);
-                            },
-                          ),
+            Positioned(
+              top: safePadding.top,
+              left: 0,
+              right: 0,
+              height: toolbarHeight,
+              child: Padding(
+                padding: EdgeInsetsDirectional.only(
+                  start: Spacing.inputPadding + leadingInset,
+                  end: Spacing.inputPadding,
+                ),
+                child: LayoutBuilder(
+                  builder: (context, constraints) => Row(
+                    children: [
+                      Expanded(
+                        child: Align(
+                          alignment: AlignmentDirectional.centerStart,
+                          child: isSearching
+                              ? SidebarSearchAppBarLeading(
+                                  hintText: l10n.searchConversations,
+                                  maxWidth:
+                                      constraints.maxWidth -
+                                      controlExtent -
+                                      Spacing.sm,
+                                )
+                              : composeChrome
+                              ? const SidebarProfileAppBarLeading()
+                              : SizedBox.square(dimension: controlExtent),
                         ),
-                        const SizedBox(width: Spacing.sm),
-                        const SidebarProfileAppBarLeading(
-                          showSettingsIcon: true,
-                        ),
-                        const SizedBox(width: Spacing.sm),
+                      ),
+                      const SizedBox(width: Spacing.sm),
+                      if (composeChrome)
                         ConduitAdaptiveAppBarIconButton(
-                          key: const ValueKey<String>('sidebar-create-button'),
-                          icon: chatTab.createAction!.icon,
-                          iosSymbol: chatTab.createAction!.sfSymbol,
-                          semanticLabel: chatTab.createAction!.label(l10n),
-                          onPressed: () => unawaited(
-                            chatTab.createAction!.run(context, ref),
-                          ),
-                        ),
-                      ],
+                          key: const ValueKey<String>('sidebar-search-button'),
+                          icon: isSearching ? UiUtils.closeIcon : Icons.search,
+                          iosSymbol: isSearching ? 'xmark' : 'magnifyingglass',
+                          semanticLabel: isSearching
+                              ? l10n.close
+                              : l10n.searchConversations,
+                          onPressed: () => isSearching
+                              ? closeSidebarSearch(ref)
+                              : openSidebarSearch(ref),
+                          iconColor: theme.textPrimary,
+                        )
+                      else
+                        SizedBox.square(dimension: controlExtent),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+            Positioned(
+              left: 0,
+              right: 0,
+              bottom: 0,
+              child: ConduitChromeGradientFade.bottom(
+                contentHeight: chromeInsets.bottom,
+                backgroundColor: surface,
+              ),
+            ),
+            Positioned(
+              left: 0,
+              right: 0,
+              bottom: 0,
+              child: composeChrome
+                  ? ThemedSheets.hideNativeChromeWhileCovered(
+                      replacement: SizedBox(height: chromeInsets.bottom),
+                      child: _SlidingSidebarBottomBar(
+                        tabs: historyTabs,
+                        selectedTab: chatTab.id,
+                        onSelected: (tab) {
+                          closeSidebarSearch(ref);
+                          ref
+                              .read(sidebarHistoryTabProvider.notifier)
+                              .select(tab);
+                        },
+                        createAction: chatTab.createAction!,
+                      ),
                     )
-                  : SizedBox(height: conduitScaledControlExtent(context)),
+                  : const SizedBox.shrink(),
             ),
           ],
         ),
@@ -897,114 +826,165 @@ class _SlidingSidebarPage extends ConsumerWidget {
   }
 }
 
-/// A single backend label opens the platform's choice menu.
-class _SidebarBackendPicker extends StatelessWidget {
-  const _SidebarBackendPicker({
-    super.key,
+/// Notes, Terminal, Channels and Chats, scrolling at the top of the history.
+class _SlidingSidebarDestinations extends ConsumerWidget {
+  const _SlidingSidebarDestinations();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final l10n = AppLocalizations.of(context)!;
+    final theme = context.conduitTheme;
+    final navigation = ref.watch(sidebarNavigationSnapshotProvider);
+    final destinations = [
+      for (final id in navigation.tabs)
+        if (id != SidebarTabId.hermes) sidebarTabDescriptor(id),
+    ];
+    if (destinations.isEmpty) return const SizedBox.shrink();
+    final routeTab = sidebarTabForLocation(GoRouterState.of(context).uri.path);
+    final selectedTab = navigation.tabs.contains(routeTab)
+        ? routeTab
+        : ref.watch(sidebarSelectedHistoryTabProvider);
+
+    return Column(
+      key: const ValueKey<String>('sidebar-destinations'),
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: Spacing.sm),
+          child: Column(
+            children: [
+              for (final destination in destinations)
+                ListTile(
+                  key: ValueKey<String>(
+                    'sidebar-destination-${destination.id.name}',
+                  ),
+                  minTileHeight: 48,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  selected: destination.id == selectedTab,
+                  tileColor: Colors.transparent,
+                  selectedTileColor: theme.textPrimary.withValues(alpha: 0.08),
+                  selectedColor: theme.textPrimary,
+                  iconColor: theme.textSecondary,
+                  textColor: theme.textPrimary,
+                  leading: destination.assetName != null
+                      ? ImageIcon(
+                          AssetImage(destination.assetName!),
+                          size: destination.assetIconSize ?? 22,
+                        )
+                      : Icon(destination.materialIcon, size: 22),
+                  title: Text(destination.label(l10n)),
+                  onTap: () {
+                    ConduitHaptics.selectionClick();
+                    _selectSlidingSidebarTab(
+                      context,
+                      ref,
+                      navigation.tabs.indexOf(destination.id),
+                    );
+                  },
+                ),
+            ],
+          ),
+        ),
+        const Divider(indent: Spacing.md, endIndent: Spacing.md),
+      ],
+    );
+  }
+}
+
+/// Backend icons at the leading edge and New Chat at the trailing edge.
+class _SlidingSidebarBottomBar extends ConsumerWidget {
+  const _SlidingSidebarBottomBar({
     required this.tabs,
     required this.selectedTab,
     required this.onSelected,
+    required this.createAction,
   });
 
   final List<SidebarTabDescriptor> tabs;
   final SidebarTabId selectedTab;
   final ValueChanged<SidebarTabId> onSelected;
+  final SidebarCreateAction createAction;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final l10n = AppLocalizations.of(context)!;
+    final theme = context.conduitTheme;
+    final selectedIndex = tabs.indexWhere((tab) => tab.id == selectedTab);
+    return AdaptiveFloatingTabBar(
+      key: const ValueKey<String>('sidebar-backend-selector'),
+      tabsKey: const ValueKey<String>('sidebar-backend-tabs'),
+      actionKey: const ValueKey<String>('sidebar-create-button'),
+      tabs: [
+        if (tabs.length > 1)
+          for (final tab in tabs)
+            tab.id == SidebarTabId.chats
+                ? const AdaptiveFloatingTab(
+                    label: 'Open WebUI',
+                    icon: _SidebarSvgTabIcon(
+                      _kOpenWebUiTabIcon,
+                      size: _kOpenWebUiTabIconSize,
+                    ),
+                    nativeAsset: _kOpenWebUiTabIcon,
+                    nativeIconSize: _kOpenWebUiTabIconSize,
+                  )
+                : AdaptiveFloatingTab(
+                    label: tab.label(l10n),
+                    icon: _SidebarAssetTabImage(
+                      tab.assetName!,
+                      size: tab.assetIconSize ?? IconSize.tabBar,
+                    ),
+                    nativeAsset: tab.assetName!,
+                    nativeIconSize: _kHermesNativeBackendIconSize,
+                  ),
+      ],
+      selectedIndex: selectedIndex,
+      onTap: (index) {
+        if (index == selectedIndex) return;
+        ConduitHaptics.selectionClick();
+        onSelected(tabs[index].id);
+      },
+      action: AdaptiveFloatingBarAction(
+        label: createAction.label(l10n),
+        icon: createAction.icon,
+        sfSymbol: createAction.sfSymbol,
+        onPressed: () => unawaited(createAction.run(context, ref)),
+      ),
+      itemWidth: _kSlidingSidebarBackendWidth,
+      selectedItemColor: theme.buttonPrimary,
+      unselectedItemColor: theme.textSecondary,
+      actionForegroundColor: PlatformUiCapabilities.isIOS
+          ? theme.textPrimary
+          : theme.buttonPrimaryText,
+      actionBackgroundColor: theme.buttonPrimary,
+      backgroundColor: theme.surfaceBackground,
+      borderColor: theme.cardBorder,
+    );
+  }
+}
+
+const String _kOpenWebUiTabIcon = 'assets/icons/open_webui_tab.svg';
+const double _kOpenWebUiTabIconSize = 22;
+const double _kHermesNativeBackendIconSize = 26;
+
+/// A single-colour SVG tinted like the [Icon]s beside it.
+class _SidebarSvgTabIcon extends StatelessWidget {
+  const _SidebarSvgTabIcon(this.assetName, {required this.size});
+
+  final String assetName;
+  final double size;
 
   @override
   Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context)!;
-    final theme = context.conduitTheme;
-    String label(SidebarTabDescriptor tab) =>
-        tab.id == SidebarTabId.chats ? 'Open WebUI' : tab.label(l10n);
-    final selected = tabs.firstWhere((tab) => tab.id == selectedTab);
-    final canSwitch = tabs.length > 1;
-    if (canSwitch && PlatformUiCapabilities.usesNativeIOS26) {
-      final height = conduitScaledControlExtent(context);
-      return ThemedSheets.hideNativeChromeWhileCovered(
-        replacement: SizedBox(height: height),
-        child: NativeGlassMenuButton(
-          label: label(selected),
-          assetName: selectedTab == SidebarTabId.chats
-              ? 'assets/icons/open_webui.png'
-              : selected.assetName!,
-          options: [for (final tab in tabs) label(tab)],
-          selectedIndex: tabs.indexOf(selected),
-          onSelected: (index) => onSelected(tabs[index].id),
-          foregroundColor: theme.textPrimary,
-          imageTint: selectedTab == SidebarTabId.chats
-              ? null
-              : theme.textPrimary,
-          height: height,
-        ),
-      );
-    }
-    final content = SizedBox(
-      height: conduitScaledControlExtent(context),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: Spacing.sm),
-        child: Row(
-          children: [
-            if (selectedTab == SidebarTabId.chats)
-              Image.asset(
-                'assets/icons/open_webui.png',
-                width: 24,
-                height: 24,
-                excludeFromSemantics: true,
-              )
-            else
-              ImageIcon(
-                AssetImage(selected.assetName!),
-                size: 24,
-                color: theme.textPrimary,
-              ),
-            const SizedBox(width: Spacing.sm),
-            Expanded(
-              child: Text(
-                label(selected),
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  color: theme.textPrimary,
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ),
-            if (canSwitch) ...[
-              const SizedBox(width: Spacing.xs),
-              Icon(
-                Icons.expand_more_rounded,
-                size: 18,
-                color: theme.textSecondary,
-              ),
-            ],
-          ],
-        ),
-      ),
+    final color =
+        IconTheme.of(context).color ?? context.conduitTheme.iconPrimary;
+    return SvgPicture.asset(
+      assetName,
+      width: size,
+      height: size,
+      excludeFromSemantics: true,
+      colorFilter: ColorFilter.mode(color, BlendMode.srcIn),
     );
-    final trigger = PlatformUiCapabilities.usesNativeIOS26
-        ? Stack(
-            children: [
-              Positioned.fill(
-                child: AdaptiveGlassBackdrop(
-                  borderRadius: BorderRadius.circular(AppBorderRadius.pill),
-                ),
-              ),
-              content,
-            ],
-          )
-        : FloatingAppBarPill(child: content);
-    return canSwitch
-        ? AdaptiveSingleChoiceTrigger<SidebarTabId>(
-            value: selectedTab,
-            options: [
-              for (final tab in tabs)
-                AdaptiveDropdownOption(value: tab.id, label: label(tab)),
-            ],
-            onChanged: onSelected,
-            semanticLabel: label(selected),
-            child: ExcludeSemantics(child: trigger),
-          )
-        : trigger;
   }
 }

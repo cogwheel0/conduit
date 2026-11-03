@@ -381,12 +381,15 @@ void main() {
           await tester.pumpAndSettle();
         }
         expect(
+          find.byType(SidebarProfileAppBarLeading).hitTestable(),
+          findsOneWidget,
+        );
+        expect(
           find
-              .byKey(const ValueKey<String>('sidebar-settings-button'))
+              .byKey(const ValueKey<String>('sidebar-create-button'))
               .hitTestable(),
           findsOneWidget,
         );
-        expect(find.bySemanticsLabel('New Chat').hitTestable(), findsOneWidget);
       }
     },
   );
@@ -948,7 +951,7 @@ void main() {
     expect(find.text('Settings destination'), findsOneWidget);
   });
 
-  testWidgets('sidebar header keeps branding above its navigation', (
+  testWidgets('sidebar header keeps the profile above its navigation', (
     tester,
   ) async {
     final controllers = SidebarTestSidebarHarnessControllers();
@@ -965,7 +968,7 @@ void main() {
     );
 
     expect(
-      tester.getBottomLeft(find.text('Conduit')).dy,
+      tester.getBottomLeft(find.byType(SidebarProfileAppBarLeading)).dy,
       lessThan(tester.getTopLeft(sidebarTestDestinationLabel('Chats')).dy),
     );
   });

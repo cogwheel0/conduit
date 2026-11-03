@@ -297,6 +297,7 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
           ),
         ),
       ),
+      ...sidebarHistoryHeaderSlivers(context),
       ...slivers,
       // Bottom padding for the tab bar and a little breathing room.
       SliverToBoxAdapter(
@@ -779,8 +780,11 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
           if (list.isEmpty &&
               !hasVisibleFolders &&
               providerArchivedCount == 0) {
-            return _buildEmptyState(
-              AppLocalizations.of(context)!.noConversationsYet,
+            return sidebarHistoryStateBelowHeader(
+              context,
+              _buildEmptyState(
+                AppLocalizations.of(context)!.noConversationsYet,
+              ),
             );
           }
 
@@ -947,15 +951,20 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
           }
           return _buildRefreshableScrollableSlivers(slivers: slivers);
         },
-        loading: () =>
-            const Center(child: AdaptiveProgressIndicator(strokeWidth: 2.0)),
-        error: (e, _) => Center(
-          child: Padding(
-            padding: const EdgeInsets.all(Spacing.md),
-            child: Text(
-              AppLocalizations.of(context)!.failedToLoadChats,
-              style: AppTypography.bodyMediumStyle.copyWith(
-                color: theme.textSecondary,
+        loading: () => sidebarHistoryStateBelowHeader(
+          context,
+          const Center(child: AdaptiveProgressIndicator(strokeWidth: 2.0)),
+        ),
+        error: (e, _) => sidebarHistoryStateBelowHeader(
+          context,
+          Center(
+            child: Padding(
+              padding: const EdgeInsets.all(Spacing.md),
+              child: Text(
+                AppLocalizations.of(context)!.failedToLoadChats,
+                style: AppTypography.bodyMediumStyle.copyWith(
+                  color: theme.textSecondary,
+                ),
               ),
             ),
           ),
@@ -968,7 +977,10 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
     return searchAsync.when(
       data: (list) {
         if (list.isEmpty) {
-          return _buildEmptyState(AppLocalizations.of(context)!.noResults);
+          return sidebarHistoryStateBelowHeader(
+            context,
+            _buildEmptyState(AppLocalizations.of(context)!.noResults),
+          );
         }
 
         final pinned = list.where((c) => c.pinned == true).toList();
@@ -1140,15 +1152,20 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
 
         return _buildRefreshableScrollableSlivers(slivers: slivers);
       },
-      loading: () =>
-          const Center(child: AdaptiveProgressIndicator(strokeWidth: 2.0)),
-      error: (e, _) => Center(
-        child: Padding(
-          padding: const EdgeInsets.all(Spacing.md),
-          child: Text(
-            'Search failed',
-            style: AppTypography.bodyMediumStyle.copyWith(
-              color: context.sidebarTheme.foreground.withValues(alpha: 0.7),
+      loading: () => sidebarHistoryStateBelowHeader(
+        context,
+        const Center(child: AdaptiveProgressIndicator(strokeWidth: 2.0)),
+      ),
+      error: (e, _) => sidebarHistoryStateBelowHeader(
+        context,
+        Center(
+          child: Padding(
+            padding: const EdgeInsets.all(Spacing.md),
+            child: Text(
+              'Search failed',
+              style: AppTypography.bodyMediumStyle.copyWith(
+                color: context.sidebarTheme.foreground.withValues(alpha: 0.7),
+              ),
             ),
           ),
         ),
