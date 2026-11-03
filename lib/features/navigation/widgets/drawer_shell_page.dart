@@ -109,22 +109,21 @@ class SidebarOverlayDismissListener extends ConsumerStatefulWidget {
 
 class _SidebarOverlayDismissListenerState
     extends ConsumerState<SidebarOverlayDismissListener> {
-  /// Route revision when the pending file request arrived. Opening Terminal
-  /// for it after the person chose another page would override that choice.
+  /// The file request this listener last saw, and the route revision when it
+  /// did, until it is handled. Opening Terminal for it after the person chose
+  /// another page would override that choice.
+  Object? _request;
   int? _requestRouteRevision;
 
-  @override
-  void initState() {
-    super.initState();
-    if (ref.read(terminalDisplayFileProvider) != null) {
-      _requestRouteRevision = NavigationService.currentRouteRevision;
-    }
-  }
-
   void _displayRequestedFile() {
+    final request = ref.read(terminalDisplayFileProvider);
     if (!ref.read(appSettingsProvider).slidingSidebarEnabled ||
-        ref.read(terminalDisplayFileProvider) == null) {
+        request == null) {
       return;
+    }
+    if (!identical(request, _request)) {
+      _request = request;
+      _requestRouteRevision = NavigationService.currentRouteRevision;
     }
     final hasBackend =
         !ref.read(hermesOnlyModeProvider) &&
@@ -150,12 +149,7 @@ class _SidebarOverlayDismissListenerState
     ref.listen(sidebarOverlayDismissRequestProvider, (_, _) {
       closeSidebarDrawerIfOverlay(context);
     });
-    ref.listen(terminalDisplayFileProvider, (previous, next) {
-      if (next != null && !identical(previous, next)) {
-        _requestRouteRevision = NavigationService.currentRouteRevision;
-      }
-      _displayRequestedFile();
-    });
+    ref.listen(terminalDisplayFileProvider, (_, _) => _displayRequestedFile());
     ref.listen(
       terminalAvailableServersProvider,
       (_, _) => _displayRequestedFile(),
