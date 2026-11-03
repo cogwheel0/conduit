@@ -593,6 +593,7 @@ class _FolderPageState extends ConsumerState<FolderPage> {
   }
 
   Future<void> _refreshFolderContents() async {
+    ConduitHaptics.lightImpact();
     refreshConversationsCache(ref, includeFolders: true);
     try {
       await ref.read(foldersProvider.future);

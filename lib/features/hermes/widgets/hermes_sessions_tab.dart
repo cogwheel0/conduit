@@ -89,6 +89,7 @@ class _HermesSessionsTabState extends ConsumerState<HermesSessionsTab>
     final refreshable = ConduitRefreshIndicator(
       edgeOffset: sidebarRefreshIndicatorEdgeOffset(context),
       onRefresh: () async {
+        ConduitHaptics.lightImpact();
         if (showJobs) ref.invalidate(hermesJobsProvider);
         ref.invalidate(hermesBotsProvider);
         ref.invalidate(hermesSessionsProvider);
