@@ -331,6 +331,18 @@ class AdaptiveScaffold extends StatelessWidget {
   }
 
   Widget _cupertinoAction(AdaptiveAppBarAction action, Color? fallbackTint) {
+    if (PlatformUiCapabilities.usesNativeIOS26 && action.title != null) {
+      return AdaptiveButton(
+        label: action.title!,
+        onPressed: action.onPressed,
+        color: action.tintColor ?? fallbackTint,
+        style: action.prominent
+            ? AdaptiveButtonStyle.prominentGlass
+            : AdaptiveButtonStyle.glass,
+        minSize: const Size(0, 36),
+        padding: const EdgeInsets.symmetric(horizontal: 6),
+      );
+    }
     if (PlatformUiCapabilities.usesNativeIOS26 &&
         action.iosSymbol != null &&
         action.title == null) {
@@ -695,6 +707,7 @@ class AdaptiveTooltip extends StatelessWidget {
   const AdaptiveTooltip({
     super.key,
     required this.message,
+    this.excludeFromSemantics,
     this.preferBelow = true,
     this.verticalOffset,
     this.padding,
@@ -708,6 +721,7 @@ class AdaptiveTooltip extends StatelessWidget {
   });
 
   final String message;
+  final bool? excludeFromSemantics;
   final bool preferBelow;
   final double? verticalOffset;
   final EdgeInsetsGeometry? padding;
@@ -722,6 +736,7 @@ class AdaptiveTooltip extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Tooltip(
     message: message,
+    excludeFromSemantics: excludeFromSemantics,
     preferBelow: preferBelow,
     verticalOffset: verticalOffset,
     padding: padding,
@@ -740,6 +755,7 @@ class AdaptiveContextMenuAction {
     required this.title,
     required this.onPressed,
     this.icon,
+    this.iosSymbol,
     this.isDestructive = false,
     this.isDisabled = false,
   });
@@ -747,6 +763,7 @@ class AdaptiveContextMenuAction {
   final String title;
   final VoidCallback onPressed;
   final dynamic icon;
+  final String? iosSymbol;
   final bool isDestructive;
   final bool isDisabled;
 }

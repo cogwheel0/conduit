@@ -75,6 +75,7 @@ class HermesConnectionsPage extends ConsumerWidget {
               toggled: config.enabled,
               trailing: AdaptiveSwitch(
                 value: config.enabled,
+                semanticLabel: l10n.hermesEnableTitle,
                 onChanged: (value) => _setEnabled(ref, value),
               ),
               onTap: () => _setEnabled(ref, !config.enabled),

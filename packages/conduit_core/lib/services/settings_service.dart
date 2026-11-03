@@ -392,7 +392,7 @@ class SettingsService {
     required String ttsServerVoiceIdKey,
     required String ttsServerVoiceNameKey,
   }) async {
-    // Web search preferences are written only by their own setters, so a
+    // Web search and composer appearance are written by their own setters, so a
     // bulk save of a stale snapshot can't undo a concurrent change.
     await PreferencesStore.putAll(scopedUpdates);
 
@@ -746,7 +746,10 @@ class SettingsService {
       citationShowTitles:
           get<bool>(PreferenceKeys.citationShowTitles) ??
           false,
+      citationBackground: get<bool>(PreferenceKeys.citationBackground) ?? true,
       highContrast: get<bool>(_highContrastKey) ?? false,
+      showComposerNotesButton:
+          get<bool>(PreferenceKeys.showComposerNotesButton) ?? true,
       darkMode: get<bool>(_darkModeKey) ?? true,
       slidingSidebarEnabled:
           get<bool>(PreferenceKeys.slidingSidebarEnabled) ?? false,
@@ -776,6 +779,9 @@ class SettingsService {
       chatImageGenerationEnabled: get<bool>(
         _chatImageGenerationEnabledKey,
       ),
+      inlineMessageActions: getStringList(PreferenceKeys.inlineMessageActions)
+          ?.toSet()
+          .toList(),
       sendOnEnter: get<bool>(_sendOnEnterKey) ?? false,
       ttsVoice: get<String>(PreferenceKeys.ttsVoice),
       ttsVoiceName: get<String>(PreferenceKeys.ttsVoiceName),
@@ -862,13 +868,19 @@ class _DefaultValue {
   const _DefaultValue();
 }
 
+/// Actions shown before customization; null settings retain the adaptive layout.
+const defaultInlineMessageActions = ['copy', 'tts', 'regenerate'];
+
 /// Data class for app settings
 class AppSettings {
   final bool reduceMotion;
   final double animationSpeed;
   final bool disableHapticsWhileStreaming;
   final bool citationShowTitles;
+  /// Whether inline citations use the filled Sources badge surface.
+  final bool citationBackground;
   final bool highContrast;
+  final bool showComposerNotesButton;
   final bool darkMode;
   final bool slidingSidebarEnabled;
   final String? defaultModel;
@@ -882,6 +894,9 @@ class AppSettings {
   final List<String> quickPills; // e.g., ['web','image']
   final bool? chatWebSearchEnabled;
   final bool? chatImageGenerationEnabled;
+
+  /// Null preserves the default layout; an empty list puts every action in More.
+  final List<String>? inlineMessageActions;
   final bool sendOnEnter;
   final SttPreference sttPreference;
   final String? sttLanguageCode;
@@ -921,7 +936,9 @@ class AppSettings {
     this.animationSpeed = 1.0,
     this.disableHapticsWhileStreaming = false,
     this.citationShowTitles = false,
+    this.citationBackground = true,
     this.highContrast = false,
+    this.showComposerNotesButton = true,
     this.darkMode = true,
     this.slidingSidebarEnabled = false,
     this.defaultModel,
@@ -935,6 +952,7 @@ class AppSettings {
     this.quickPills = const [],
     this.chatWebSearchEnabled,
     this.chatImageGenerationEnabled,
+    this.inlineMessageActions,
     this.sendOnEnter = false,
     this.sttPreference = SttPreference.deviceOnly,
     this.sttLanguageCode,
@@ -969,7 +987,9 @@ class AppSettings {
     double? animationSpeed,
     bool? disableHapticsWhileStreaming,
     bool? citationShowTitles,
+    bool? citationBackground,
     bool? highContrast,
+    bool? showComposerNotesButton,
     bool? darkMode,
     bool? slidingSidebarEnabled,
     Object? defaultModel = const _DefaultValue(),
@@ -983,6 +1003,7 @@ class AppSettings {
     List<String>? quickPills,
     bool? chatWebSearchEnabled,
     bool? chatImageGenerationEnabled,
+    Object? inlineMessageActions = const _DefaultValue(),
     bool? sendOnEnter,
     SttPreference? sttPreference,
     Object? sttLanguageCode = const _DefaultValue(),
@@ -1017,7 +1038,10 @@ class AppSettings {
       disableHapticsWhileStreaming:
           disableHapticsWhileStreaming ?? this.disableHapticsWhileStreaming,
       citationShowTitles: citationShowTitles ?? this.citationShowTitles,
+      citationBackground: citationBackground ?? this.citationBackground,
       highContrast: highContrast ?? this.highContrast,
+      showComposerNotesButton:
+          showComposerNotesButton ?? this.showComposerNotesButton,
       darkMode: darkMode ?? this.darkMode,
       slidingSidebarEnabled:
           slidingSidebarEnabled ?? this.slidingSidebarEnabled,
@@ -1040,6 +1064,9 @@ class AppSettings {
       chatWebSearchEnabled: chatWebSearchEnabled ?? this.chatWebSearchEnabled,
       chatImageGenerationEnabled:
           chatImageGenerationEnabled ?? this.chatImageGenerationEnabled,
+      inlineMessageActions: inlineMessageActions is _DefaultValue
+          ? this.inlineMessageActions
+          : inlineMessageActions as List<String>?,
       sendOnEnter: sendOnEnter ?? this.sendOnEnter,
       sttPreference: sttPreference ?? this.sttPreference,
       sttLanguageCode: sttLanguageCode is _DefaultValue
@@ -1097,7 +1124,9 @@ class AppSettings {
         other.animationSpeed == animationSpeed &&
         other.disableHapticsWhileStreaming == disableHapticsWhileStreaming &&
         other.citationShowTitles == citationShowTitles &&
+        other.citationBackground == citationBackground &&
         other.highContrast == highContrast &&
+        other.showComposerNotesButton == showComposerNotesButton &&
         other.darkMode == darkMode &&
         other.slidingSidebarEnabled == slidingSidebarEnabled &&
         other.defaultModel == defaultModel &&
@@ -1112,6 +1141,7 @@ class AppSettings {
         other.chatImageGenerationEnabled == chatImageGenerationEnabled &&
         other.sttPreference == sttPreference &&
         other.sttLanguageCode == sttLanguageCode &&
+        _listEqualsNullable(other.inlineMessageActions, inlineMessageActions) &&
         other.sendOnEnter == sendOnEnter &&
         other.ttsVoice == ttsVoice &&
         other.ttsVoiceName == ttsVoiceName &&
@@ -1148,7 +1178,9 @@ class AppSettings {
       animationSpeed,
       disableHapticsWhileStreaming,
       citationShowTitles,
+      citationBackground,
       highContrast,
+      showComposerNotesButton,
       darkMode,
       slidingSidebarEnabled,
       defaultModel,
@@ -1186,11 +1218,17 @@ class AppSettings {
       webSearchSafeSearch,
       webSearchRegion,
       directVoiceProvider,
+      inlineMessageActions == null
+          ? null
+          : Object.hashAll(inlineMessageActions!),
       Object.hashAllUnordered(quickPills),
       Object.hashAll(pinnedModels),
     ]);
   }
 }
+
+bool _listEqualsNullable(List<String>? a, List<String>? b) =>
+    a == null || b == null ? a == b : _listEquals(a, b);
 
 bool _listEquals(List<String> a, List<String> b) {
   if (identical(a, b)) return true;
@@ -1256,6 +1294,16 @@ class AppSettingsNotifier extends _$AppSettingsNotifier {
     state = state.copyWith(citationShowTitles: value);
     await SettingsService._putPreference(
       PreferenceKeys.citationShowTitles,
+      value,
+    );
+  }
+
+  Future<void> setCitationBackground(bool value) async {
+    if (!await _awaitHydration()) return;
+    state = state.copyWith(citationBackground: value);
+    // Bulk saves may contain an older snapshot of this appearance setting.
+    await SettingsService._putPreference(
+      PreferenceKeys.citationBackground,
       value,
     );
   }
@@ -1350,6 +1398,15 @@ class AppSettingsNotifier extends _$AppSettingsNotifier {
     if (next != state) state = next;
   }
 
+  Future<void> setShowComposerNotesButton(bool value) async {
+    if (!await _awaitHydration()) return;
+    state = state.copyWith(showComposerNotesButton: value);
+    await SettingsService._putPreference(
+      PreferenceKeys.showComposerNotesButton,
+      value,
+    );
+  }
+
   Future<void> setHighContrast(bool value) async {
     state = state.copyWith(highContrast: value);
     await SettingsService.setHighContrast(value);
@@ -1411,6 +1468,27 @@ class AppSettingsNotifier extends _$AppSettingsNotifier {
       state = state.copyWith(socketTransportMode: sanitized);
     }
     await SettingsService.setSocketTransportMode(sanitized);
+  }
+
+  Future<void> setInlineMessageActions(List<String>? actions) async {
+    await _pendingLoad;
+    if (!ref.mounted) return;
+    final saved = actions == null ? null : List<String>.unmodifiable(actions.toSet());
+    state = state.copyWith(inlineMessageActions: saved);
+    await SettingsService._putOrRemove(
+      PreferenceKeys.inlineMessageActions,
+      saved,
+    );
+  }
+
+  Future<void> setMessageActionVisible(String id, bool visible) async {
+    await _pendingLoad;
+    if (!ref.mounted) return;
+    final current = state.inlineMessageActions;
+    if (current == null) return;
+    final selected = {...current};
+    visible ? selected.add(id) : selected.remove(id);
+    return setInlineMessageActions(selected.toList());
   }
 
   Future<void> setQuickPills(List<String> pills) async {
@@ -1624,7 +1702,12 @@ class AppSettingsNotifier extends _$AppSettingsNotifier {
   }
 
   Future<void> resetToDefaults() async {
+    await SettingsService._putOrRemove(PreferenceKeys.citationBackground, null);
     const defaultSettings = AppSettings();
+    await SettingsService._putOrRemove(
+      PreferenceKeys.showComposerNotesButton,
+      null,
+    );
     await SettingsService.saveSettings(defaultSettings);
     await SettingsService.setSlidingSidebarEnabled(
       defaultSettings.slidingSidebarEnabled,
@@ -1632,6 +1715,10 @@ class AppSettingsNotifier extends _$AppSettingsNotifier {
     // Written only by its own setter, so the bulk save leaves it.
     await SettingsService._putOrRemove(
       PreferenceKeys.directVoiceProvider,
+      null,
+    );
+    await SettingsService._putOrRemove(
+      PreferenceKeys.inlineMessageActions,
       null,
     );
     state = defaultSettings;

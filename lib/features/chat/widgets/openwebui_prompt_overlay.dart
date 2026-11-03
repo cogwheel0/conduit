@@ -5,6 +5,7 @@ import 'package:material_ui/material_ui.dart';
 
 import 'package:conduit_core/features/chat/composer/openwebui_prompt_answers.dart';
 import 'package:conduit_core/models/openwebui_chat_prompt.dart';
+import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/theme/theme_extensions.dart';
@@ -175,6 +176,7 @@ class _OpenWebUiPromptOverlayState extends State<OpenWebUiPromptOverlay> {
                 if (question.allowOther) ...[
                   const SizedBox(height: Spacing.xs),
                   TextField(
+                    magnifierConfiguration: nativeIosTextMagnifierConfiguration,
                     key: ValueKey('openwebui-other-${question.id}'),
                     controller: _otherControllers[question.id],
                     enabled: !_busy,

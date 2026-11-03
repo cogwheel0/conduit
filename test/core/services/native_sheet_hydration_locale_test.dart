@@ -143,6 +143,14 @@ void main() {
     check(appearance.last.title).equals(spanish.settingsAppearance);
     check(appearance.last.title)
         .not((it) => it.equals(english.settingsAppearance));
+    final citationBackground = [
+      for (final section in appearance.last.sections) ...section.items,
+    ].singleWhere((row) => row.id == 'citation-background');
+    check(citationBackground.title).equals(spanish.citationBackground);
+    check(citationBackground.subtitle)
+        .equals(spanish.citationBackgroundDescription);
+    check(citationBackground.kind).equals(PlatformNativeSheetItemKind.toggle);
+    check(citationBackground.value).equals(true);
   });
 
   testWidgets('the Voice provider page is patched alone, without the voices', (
@@ -220,6 +228,9 @@ void main() {
       overrides: [
         optimizedStorageServiceProvider.overrideWithValue(storage),
         modelsProvider.overrideWith(_FailingModels.new),
+        appSettingsProvider.overrideWithValue(
+          const AppSettings(showComposerNotesButton: false),
+        ),
       ],
     );
     addTearDown(container.dispose);
@@ -239,6 +250,11 @@ void main() {
 
     final appearance = patches.where((p) => p.detailId == 'appearance');
     check(appearance).length.equals(1);
+    final notes = appearance.single.sections
+        .expand((section) => section.items)
+        .singleWhere((item) => item.id == 'composer-notes-button');
+    check(notes.value).equals(false);
+    check(notes.title).equals('Show Notes button');
     final ids = [
       for (final section in appearance.single.sections)
         for (final item in section.items) item.id,
@@ -326,6 +342,26 @@ void main() {
       PlatformNativeSheetApplyDetailPatchRequest patch,
     ) => [for (final section in patch.sections) ...section.items];
 
+    testWidgets('Appearance reflects the saved citation background', (
+      tester,
+    ) async {
+      final native = await openNativeSettings(tester, models: _NoModels.new);
+      await native.container
+          .read(appSettingsProvider.notifier)
+          .setCitationBackground(false);
+      final opened = native.service.hydrateDetail(NativeSheetRoutes.appearance);
+      await tester.pump();
+      await opened;
+      final appearance = native.patches.lastWhere(
+        (patch) => patch.detailId == NativeSheetRoutes.appearance,
+      );
+      check(
+        rows(appearance)
+            .singleWhere((row) => row.id == 'citation-background')
+            .value,
+      ).equals(false);
+    });
+
     testWidgets('is off on first open and follows the saved preference', (
       tester,
     ) async {
@@ -368,15 +404,18 @@ void main() {
 
       final chats = await reopenChats(tester, native.service, native.patches);
 
+      expect(
+        chats.detailSheets?.any((detail) => detail.id == 'message-actions'),
+        isTrue,
+      );
       final advanced = chats.sections.last;
       check(advanced.footer).equals(l10n.advancedFeaturesFooter);
       check(advanced.items.map((r) => r.id)).deepEquals(['advanced-features']);
       check(advanced.items.single.sfSymbol).equals('gearshape.2');
       // The citation titles toggle joins the chat behavior group, as on the
       // Flutter Chat page.
-      final citation = rows(chats).singleWhere(
-        (r) => r.id == 'citation-show-titles',
-      );
+      final citation = rows(chats)
+          .singleWhere((r) => r.id == 'citation-show-titles');
       check(citation.title).equals(l10n.citationShowTitles);
       check(citation.kind).equals(PlatformNativeSheetItemKind.toggle);
       check(citation.value).equals(false);
@@ -386,6 +425,7 @@ void main() {
             .items
             .map((r) => r.id),
       ).deepEquals([
+        'message-actions',
         'send-on-enter',
         'temporary-chat-default',
         'citation-show-titles',
@@ -407,6 +447,10 @@ void main() {
       final chats = await reopenChats(tester, native.service, native.patches);
 
       final byId = {for (final row in rows(chats)) row.id: row};
+      expect(
+        chats.detailSheets?.any((detail) => detail.id == 'message-actions'),
+        isTrue,
+      );
       check(byId['advanced-features']!.value).equals(true);
       check(byId['send-on-enter']).isNotNull();
       check(byId['temporary-chat-default']).isNotNull();

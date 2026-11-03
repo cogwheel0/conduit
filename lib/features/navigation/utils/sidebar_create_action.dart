@@ -16,7 +16,6 @@ import 'package:conduit_core/utils/debug_logger.dart';
 
 import '../../../shared/utils/ui_utils.dart';
 import '../../../shared/widgets/sidebar_layout_contract.dart';
-import '../../../shared/widgets/platform_ui/platform_ui.dart';
 import '../providers/sidebar_providers.dart';
 import '../providers/conversation_selection_provider.dart';
 
@@ -27,6 +26,7 @@ import '../../channels/widgets/channel_form_dialog.dart';
 
 import 'package:conduit_core/features/chat/providers/chat_providers.dart'
     as chat;
+import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 
 import '../../notes/providers/notes_providers.dart';
 
@@ -236,8 +236,9 @@ Future<void> _createChannel(BuildContext context, WidgetRef ref) async {
       return;
     }
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(AppLocalizations.of(context)!.channelCreateError)),
+    AdaptiveSnackBar.show(
+      context,
+      message: AppLocalizations.of(context)!.channelCreateError,
     );
   }
 }

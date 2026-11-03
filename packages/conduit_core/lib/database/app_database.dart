@@ -4,6 +4,8 @@ import 'package:drift/drift.dart';
 import 'daos/app_cache_dao.dart';
 import 'daos/attachment_queue_dao.dart';
 import 'daos/chats_dao.dart';
+import 'daos/composer_drafts_dao.dart';
+import 'daos/composer_recordings_dao.dart';
 import 'daos/folders_dao.dart';
 import 'daos/messages_dao.dart';
 import 'daos/notes_dao.dart';
@@ -14,6 +16,8 @@ import 'fts/fts_ddl.dart';
 import 'tables/app_cache.dart';
 import 'tables/attachment_queue.dart';
 import 'tables/chats.dart';
+import 'tables/composer_drafts.dart';
+import 'tables/composer_recordings.dart';
 import 'tables/folders.dart';
 import 'tables/messages.dart';
 import 'tables/notes.dart';
@@ -24,11 +28,13 @@ part 'app_database.g.dart';
 
 /// Conduit's per-server local database (CDT-RFC-001).
 ///
-/// Current schema version 8 includes sync metadata, chats, messages, folders,
+/// Current schema version 12 includes sync metadata, chats, messages, folders,
 /// outbox operations, notes, the shared chat/note FTS substrate, and (v6) the
 /// per-server app cache + attachment upload queue. Version 7 adds the bounded
 /// chat-list window index used by active and archived drawer pagination.
 /// Version 8 adds crash-safe native-share dedupe receipts to attachment rows.
+/// Version 11 adds local-only composer drafts, outside the sync/outbox data.
+/// Version 12 adds recoverable PCM recording chunks owned by those drafts.
 ///
 /// One database file exists per [ServerConfig]; lifecycle (open/close/delete
 /// on server switch or removal) is owned by [DatabaseManager].
@@ -36,6 +42,9 @@ part 'app_database.g.dart';
   tables: [
     SyncMeta,
     Chats,
+    ComposerDrafts,
+    ComposerRecordings,
+    ComposerRecordingChunks,
     Messages,
     Folders,
     OutboxOps,
@@ -45,6 +54,8 @@ part 'app_database.g.dart';
   ],
   daos: [
     ChatsDao,
+    ComposerDraftsDao,
+    ComposerRecordingsDao,
     MessagesDao,
     FoldersDao,
     SyncMetaDao,
@@ -58,6 +69,39 @@ part 'app_database.g.dart';
 class AppDatabase extends _$AppDatabase {
   AppDatabase(super.e);
 
+  Future<void>? _pendingComposerWrites;
+  Future<void>? _draftCloseFuture;
+
+  /// Includes queued input edits in account-switch/logout database draining.
+  Future<void> trackComposerDraftWrite(Future<void> Function() operation) {
+    if (_draftCloseFuture != null) {
+      return Future<void>.error(StateError('The draft database is closing'));
+    }
+    final write = Future<void>.sync(operation);
+    final observed = write.then<void>(
+      (_) {},
+      onError: (Object _, StackTrace _) {},
+    );
+    final pending = _pendingComposerWrites;
+    _pendingComposerWrites = pending == null
+        ? observed
+        : Future.wait<void>([pending, observed]).then((_) {});
+    return write;
+  }
+
+  @override
+  Future<void> close() {
+    final pending = _pendingComposerWrites;
+    return _draftCloseFuture ??= pending == null
+        ? super.close()
+        : _closeAfterComposerWrites(pending);
+  }
+
+  Future<void> _closeAfterComposerWrites(Future<void> pending) async {
+    await pending;
+    await super.close();
+  }
+
   /// Opens the database file for [serverId] through [opener].
   ///
   /// The opener decides where the file lives and how it is opened, because
@@ -70,7 +114,7 @@ class AppDatabase extends _$AppDatabase {
   }) => AppDatabase(opener.open(serverId));
 
   @override
-  int get schemaVersion => 10;
+  int get schemaVersion => 12;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -148,6 +192,13 @@ class AppDatabase extends _$AppDatabase {
         if (!await _chatsHasColumn('user_id')) {
           await m.addColumn(chats, chats.userId);
         }
+      }
+      if (from < 11) {
+        await m.createTable(composerDrafts);
+      }
+      if (from < 12) {
+        await m.createTable(composerRecordings);
+        await m.createTable(composerRecordingChunks);
       }
     },
     beforeOpen: (details) async {

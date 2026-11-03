@@ -31,30 +31,23 @@ class TerminalIconActionButton extends StatelessWidget {
     final usesOpaqueFallback = conduitUsesOpaqueGlassFallback();
     return AdaptiveTooltip(
       message: tooltip,
-      child: Semantics(
-        button: true,
+      excludeFromSemantics: PlatformUiCapabilities.usesNativeIOS26,
+      child: AdaptiveButton.icon(
+        onPressed: onPressed,
         enabled: onPressed != null,
-        label: tooltip,
-        child: AdaptiveButton.child(
-          onPressed: onPressed,
-          enabled: onPressed != null,
-          style: usesOpaqueFallback
-              ? AdaptiveButtonStyle.filled
-              : AdaptiveButtonStyle.glass,
-          color: usesOpaqueFallback ? theme.surfaceContainerHighest : null,
-          size: compact ? AdaptiveButtonSize.small : AdaptiveButtonSize.medium,
-          minSize: Size(minSide, minSide),
-          padding: compact
-              ? const EdgeInsets.all(Spacing.xxs)
-              : EdgeInsets.zero,
-          borderRadius: BorderRadius.circular(AppBorderRadius.circular),
-          useSmoothRectangleBorder: false,
-          child: Icon(
-            UiUtils.platformIcon(ios: iosIcon, android: materialIcon),
-            size: iconSize,
-            color: onPressed != null ? theme.iconSecondary : theme.iconDisabled,
-          ),
-        ),
+        semanticLabel: tooltip,
+        style: usesOpaqueFallback
+            ? AdaptiveButtonStyle.filled
+            : AdaptiveButtonStyle.glass,
+        color: usesOpaqueFallback ? theme.surfaceContainerHighest : null,
+        size: compact ? AdaptiveButtonSize.small : AdaptiveButtonSize.medium,
+        minSize: Size(minSide, minSide),
+        padding: compact ? const EdgeInsets.all(Spacing.xxs) : EdgeInsets.zero,
+        borderRadius: BorderRadius.circular(AppBorderRadius.circular),
+        useSmoothRectangleBorder: false,
+        icon: UiUtils.platformIcon(ios: iosIcon, android: materialIcon),
+        iconSize: iconSize,
+        iconColor: onPressed != null ? theme.iconSecondary : theme.iconDisabled,
       ),
     );
   }

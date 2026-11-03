@@ -6,7 +6,9 @@ import 'package:material_ui/material_ui.dart';
 
 import '../../../theme/color_tokens.dart';
 import '../../../theme/theme_extensions.dart';
+import 'adaptive_glass_controls.dart';
 import 'platform_ui_capabilities.dart';
+import 'ios_text_magnifier.dart';
 
 enum AdaptiveSnackBarType { info, success, warning, error }
 
@@ -49,7 +51,7 @@ class AdaptiveSnackBar {
 
     if (!PlatformUiCapabilities.isIOS) {
       final status = _statusColors(context, type);
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
         SnackBar(
           content: Text(
             message,
@@ -201,7 +203,9 @@ class _IOSBannerState extends State<_IOSBanner> {
           liveRegion: true,
           child: DecoratedBox(
             decoration: BoxDecoration(
-              color: bannerColor,
+              color: PlatformUiCapabilities.usesNativeIOS26
+                  ? null
+                  : bannerColor,
               borderRadius: BorderRadius.circular(14),
               boxShadow: const [
                 BoxShadow(
@@ -211,34 +215,48 @@ class _IOSBannerState extends State<_IOSBanner> {
                 ),
               ],
             ),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-              child: Row(
-                children: [
-                  Icon(icon, color: tint, size: 20),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Text(
-                      widget.message,
-                      style: TextStyle(
-                        color:
-                            conduitTheme?.textPrimary ??
-                            CupertinoColors.label.resolveFrom(context),
-                      ),
+            child: Stack(
+              fit: StackFit.passthrough,
+              children: [
+                if (PlatformUiCapabilities.usesNativeIOS26)
+                  Positioned.fill(
+                    child: AdaptiveGlassBackdrop(
+                      borderRadius: BorderRadius.circular(14),
                     ),
                   ),
-                  if (widget.action != null)
-                    CupertinoButton(
-                      padding: const EdgeInsets.only(left: 10),
-                      minimumSize: const Size(36, 36),
-                      onPressed: () {
-                        widget.onActionPressed?.call();
-                        widget.onDismiss();
-                      },
-                      child: Text(widget.action!),
-                    ),
-                ],
-              ),
+                Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 12,
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(icon, color: tint, size: 20),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          widget.message,
+                          style: TextStyle(
+                            color:
+                                conduitTheme?.textPrimary ??
+                                CupertinoColors.label.resolveFrom(context),
+                          ),
+                        ),
+                      ),
+                      if (widget.action != null)
+                        CupertinoButton(
+                          padding: const EdgeInsets.only(left: 10),
+                          minimumSize: const Size(36, 36),
+                          onPressed: () {
+                            widget.onActionPressed?.call();
+                            widget.onDismiss();
+                          },
+                          child: Text(widget.action!),
+                        ),
+                    ],
+                  ),
+                ),
+              ],
             ),
           ),
         ),
@@ -298,6 +316,40 @@ class AdaptiveAlertDialog {
     String? message,
     required List<AlertAction> actions,
   }) async {
+    // CNAlert inherits the native host appearance, not Flutter theme overrides.
+    if (PlatformUiCapabilities.usesNativeIOS26 &&
+        CupertinoTheme.brightnessOf(context) ==
+            MediaQuery.platformBrightnessOf(context) &&
+        actions.any(_isEnabled) &&
+        actions.where((a) => a.style == AlertActionStyle.cancel).length <= 1 &&
+        actions.where((a) => a.style == AlertActionStyle.primary).length <= 1) {
+      final presentedActions = List<AlertAction>.of(actions);
+      final result = await CNAlert.show<int>(
+        context: context,
+        title: title,
+        message: message,
+        actions: [
+          for (var index = 0; index < presentedActions.length; index++)
+            CNAlertAction(
+              label: presentedActions[index].title,
+              value: index,
+              isCancel:
+                  presentedActions[index].style == AlertActionStyle.cancel,
+              isDefault:
+                  presentedActions[index].style == AlertActionStyle.primary,
+              isDestructive:
+                  presentedActions[index].style == AlertActionStyle.destructive,
+              enabled: _isEnabled(presentedActions[index]),
+            ),
+        ],
+      );
+      if (!context.mounted) return;
+      final index = result?.value;
+      if (index != null && _isEnabled(presentedActions[index])) {
+        presentedActions[index].onPressed();
+      }
+      return;
+    }
     if (PlatformUiCapabilities.isIOS) {
       await showCupertinoDialog<void>(
         context: context,
@@ -353,6 +405,9 @@ class AdaptiveAlertDialog {
     );
   }
 
+  static bool _isEnabled(AlertAction action) =>
+      action.enabled && action.style != AlertActionStyle.disabled;
+
   static Future<String?> inputShow({
     required BuildContext context,
     required String title,
@@ -373,6 +428,7 @@ class AdaptiveAlertDialog {
                 if (message != null) Text(message),
                 const SizedBox(height: 10),
                 CupertinoTextField(
+                  magnifierConfiguration: nativeIosTextMagnifierConfiguration,
                   controller: controller,
                   placeholder: input.placeholder,
                   keyboardType: input.keyboardType,
@@ -410,6 +466,7 @@ class AdaptiveAlertDialog {
         builder: (dialogContext) => AlertDialog(
           title: Text(title),
           content: TextField(
+            magnifierConfiguration: nativeIosTextMagnifierConfiguration,
             controller: controller,
             keyboardType: input.keyboardType,
             obscureText: input.obscureText,

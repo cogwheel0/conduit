@@ -933,6 +933,7 @@ class _FullscreenVideoPageState extends State<_FullscreenVideoPage> {
                           ),
                         ),
                         ConduitIconButton(
+                          useGlass: true,
                           icon: muted
                               ? Icons.volume_off_rounded
                               : Icons.volume_up_rounded,
@@ -941,6 +942,7 @@ class _FullscreenVideoPageState extends State<_FullscreenVideoPage> {
                           onPressed: _toggleMute,
                         ),
                         ConduitIconButton(
+                          useGlass: true,
                           icon: Icons.close_rounded,
                           tooltip: l10n.close,
                           iconColor: _videoForeground,
@@ -965,6 +967,7 @@ class _FullscreenVideoPageState extends State<_FullscreenVideoPage> {
                     child: Row(
                       children: [
                         ConduitIconButton(
+                          useGlass: true,
                           icon: controller.value.isPlaying
                               ? Icons.pause_rounded
                               : Icons.play_arrow_rounded,

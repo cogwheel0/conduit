@@ -357,9 +357,13 @@ class ErrorCard extends StatelessWidget {
                     ),
                     child: SelectableText(
                       technicalDetails!,
+                      magnifierConfiguration:
+                          nativeIosTextMagnifierConfiguration,
                       style: AppTypography.labelMediumStyle.copyWith(
                         fontFamily: AppTypography.monospaceFontFamily,
                       ),
+                      contextMenuBuilder:
+                          AdaptiveTextSelectionMenu.editableText,
                     ),
                   ),
                 ],
@@ -439,9 +443,11 @@ class ErrorDialog extends StatelessWidget {
               children: [
                 SelectableText(
                   technicalDetails!,
+                  magnifierConfiguration: nativeIosTextMagnifierConfiguration,
                   style: AppTypography.labelMediumStyle.copyWith(
                     fontFamily: AppTypography.monospaceFontFamily,
                   ),
+                  contextMenuBuilder: AdaptiveTextSelectionMenu.editableText,
                 ),
               ],
             ),

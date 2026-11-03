@@ -512,6 +512,7 @@ class _ModelGroup extends ConsumerWidget {
                     cupertinoIcon: isPinned
                         ? CupertinoIcons.pin_slash
                         : CupertinoIcons.pin,
+                    sfSymbol: isPinned ? 'pin.slash' : 'pin',
                     materialIcon: isPinned
                         ? Icons.push_pin_outlined
                         : Icons.push_pin_rounded,

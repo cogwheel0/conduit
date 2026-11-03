@@ -599,6 +599,56 @@ void main() {
     });
   });
 
+  group('Citation background preference', () {
+    setUp(() {
+      PreferencesStore.debugReset();
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+    });
+
+    tearDown(PreferencesStore.debugReset);
+
+    test('defaults to filled and participates in settings equality', () {
+      const defaults = AppSettings();
+      final transparent = defaults.copyWith(citationBackground: false);
+      check(defaults.citationBackground).isTrue();
+      check(transparent.citationBackground).isFalse();
+      check(transparent).not((it) => it.equals(defaults));
+      check(transparent.copyWith()).equals(transparent);
+    });
+
+    test('transparent survives restart and bulk save; reset restores filled',
+        () async {
+      final container = ProviderContainer();
+      addTearDown(container.dispose);
+      await container
+          .read(appSettingsProvider.notifier)
+          .setCitationBackground(false);
+      check(container.read(appSettingsProvider).citationBackground).isFalse();
+
+      // Reload the persisted mock values into a fresh host store.
+      final preferences = await SharedPreferences.getInstance();
+      await preferences.reload();
+      final saved = <String, Object>{
+        for (final key in preferences.getKeys()) key: preferences.get(key)!,
+      };
+      SharedPreferences.setMockInitialValues(saved);
+      PreferencesStore.debugReset();
+      PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
+
+      final restarted = ProviderContainer();
+      addTearDown(restarted.dispose);
+      check(restarted.read(appSettingsProvider).citationBackground).isFalse();
+      // A stale unrelated settings save must not reset the local appearance.
+      await SettingsService.saveSettings(const AppSettings());
+      check((await SettingsService.loadSettings()).citationBackground).isFalse();
+
+      await restarted.read(appSettingsProvider.notifier).resetToDefaults();
+      final afterReset = ProviderContainer();
+      addTearDown(afterReset.dispose);
+      check(afterReset.read(appSettingsProvider).citationBackground).isTrue();
+    });
+  });
+
   group('AppSettingsNotifier Voice provider', () {
     setUp(() {
       PreferencesStore.debugReset();
@@ -687,6 +737,73 @@ void main() {
     test('voiceCall storageValue is "voice_call"', () {
       check(AndroidAssistantTrigger.voiceCall.storageValue)
           .equals('voice_call');
+    });
+  });
+  group('message action preferences', () {
+    setUp(() {
+      PreferencesStore.debugReset();
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+    });
+    tearDown(PreferencesStore.debugReset);
+
+    test('custom actions and empty choices survive restart; reset restores defaults', () async {
+      final container = ProviderContainer();
+      addTearDown(container.dispose);
+      final notifier = container.read(appSettingsProvider.notifier);
+      await notifier.setInlineMessageActions(['share', 'usage', 'share']);
+      expect((await SettingsService.loadSettings()).inlineMessageActions, [
+        'share',
+        'usage',
+      ]);
+      final restarted = ProviderContainer();
+      addTearDown(restarted.dispose);
+      expect(restarted.read(appSettingsProvider).inlineMessageActions, [
+        'share',
+        'usage',
+      ]);
+      await notifier.setInlineMessageActions([]);
+      expect(
+        (await SettingsService.loadSettings()).inlineMessageActions,
+        isEmpty,
+      );
+      await notifier.setInlineMessageActions(null);
+      expect(
+        (await SettingsService.loadSettings()).inlineMessageActions,
+        isNull,
+      );
+      expect(
+        PreferencesStore.containsKey(PreferenceKeys.inlineMessageActions),
+        isFalse,
+      );
+    });
+
+    test('bulk settings saves preserve independently saved actions', () async {
+      final container = ProviderContainer();
+      addTearDown(container.dispose);
+      final notifier = container.read(appSettingsProvider.notifier);
+      final stale = container.read(appSettingsProvider);
+      await notifier.setInlineMessageActions(['share']);
+      await SettingsService.saveSettings(stale.copyWith(ttsSpeechRate: 1.2));
+      expect((await SettingsService.loadSettings()).inlineMessageActions, [
+        'share',
+      ]);
+      await notifier.resetToDefaults();
+      expect(
+        (await SettingsService.loadSettings()).inlineMessageActions,
+        isNull,
+      );
+    });
+
+    test('copy and equality distinguish defaults from an empty selection', () {
+      const defaults = AppSettings();
+      final empty = defaults.copyWith(inlineMessageActions: <String>[]);
+      expect(empty, isNot(defaults));
+      expect(empty.copyWith(darkMode: false).inlineMessageActions, isEmpty);
+      expect(empty.copyWith(inlineMessageActions: null), defaults);
+      expect(
+        defaults.copyWith(inlineMessageActions: ['share']),
+        defaults.copyWith(inlineMessageActions: ['share']),
+      );
     });
   });
 }

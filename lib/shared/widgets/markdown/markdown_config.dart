@@ -32,6 +32,7 @@ import 'package:conduit/core/network/self_signed_image_cache_manager.dart';
 import 'package:conduit/core/network/image_header_utils.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
 import 'package:conduit/shared/services/raster_media_policy.dart';
+import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 
 typedef MarkdownLinkTapCallback = void Function(String url, String title);
 
@@ -481,14 +482,12 @@ class ConduitMarkdown {
             onCopy: () async {
               await Clipboard.setData(ClipboardData(text: code));
               if (!context.mounted) return;
-              ScaffoldMessenger.of(context).hideCurrentSnackBar();
+              ScaffoldMessenger.maybeOf(context)?.hideCurrentSnackBar();
               final l10n = AppLocalizations.of(context);
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text(
+              AdaptiveSnackBar.show(
+                context,
+                message:
                     l10n?.codeCopiedToClipboard ?? 'Code copied to clipboard.',
-                  ),
-                ),
               );
             },
           ),
@@ -747,7 +746,7 @@ class ConduitMarkdown {
           child: Center(
             child: SizedBox.square(
               dimension: IconSize.medium,
-              child: CircularProgressIndicator(
+              child: AdaptiveProgressIndicator(
                 color: theme.loadingIndicator,
                 strokeWidth: 2,
               ),
@@ -960,9 +959,11 @@ class ConduitMarkdown {
             textAlign: TextAlign.left,
             textDirection: TextDirection.ltr,
             textWidthBasis: TextWidthBasis.parent,
+            magnifierConfiguration: nativeIosTextMagnifierConfiguration,
             style: markdownStyle.detailCode.copyWith(
               color: conduitTheme.codeText,
             ),
+            contextMenuBuilder: AdaptiveTextSelectionMenu.editableText,
           ),
         ],
       ),
@@ -1902,7 +1903,7 @@ class _ChartJsDiagramState extends State<ChartJsDiagram> {
       _scheduleInitialization(context);
       return const SizedBox(
         height: _chartPreviewMinHeight,
-        child: Center(child: CircularProgressIndicator()),
+        child: Center(child: AdaptiveProgressIndicator()),
       );
     }
 
@@ -1944,7 +1945,7 @@ class _ChartJsDiagramState extends State<ChartJsDiagram> {
             const Positioned.fill(
               child: ColoredBox(
                 color: Colors.transparent,
-                child: Center(child: CircularProgressIndicator()),
+                child: Center(child: AdaptiveProgressIndicator()),
               ),
             ),
         ],
@@ -2503,8 +2504,10 @@ class _MermaidDiagramState extends State<MermaidDiagram> {
         padding: const EdgeInsets.all(Spacing.md),
         child: SelectableText(
           '$error',
+          magnifierConfiguration: nativeIosTextMagnifierConfiguration,
           style: Theme.of(context).textTheme.bodySmall
               ?.copyWith(color: Theme.of(context).colorScheme.error),
+          contextMenuBuilder: AdaptiveTextSelectionMenu.editableText,
         ),
       ),
     );
@@ -2766,6 +2769,25 @@ class _MermaidCanvasControlButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
+    if (PlatformUiCapabilities.usesNativeIOS26) {
+      return AdaptiveTooltip(
+        message: label,
+        excludeFromSemantics: true,
+        child: AdaptiveButton.icon(
+          onPressed: onPressed,
+          icon: icon,
+          iconSize: 18,
+          semanticLabel: label,
+          style: active
+              ? AdaptiveButtonStyle.prominentGlass
+              : AdaptiveButtonStyle.glass,
+          minSize: const Size.square(_MermaidSheetCanvasState._controlSize),
+          padding: EdgeInsets.zero,
+          borderRadius: BorderRadius.circular(AppBorderRadius.sm),
+          useSmoothRectangleBorder: false,
+        ),
+      );
+    }
     return Tooltip(
       message: label,
       child: Semantics(

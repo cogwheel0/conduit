@@ -472,28 +472,64 @@ Object conduitAdaptivePopupMenuIcon({
 ///
 /// Callers may still provide [iosSymbol] explicitly for icons that do not have
 /// a stable cross-platform mapping.
-final Map<IconData, String> _kConduitToolbarSfSymbolByIcon = {
-  CupertinoIcons.line_horizontal_3: 'line.3.horizontal',
-  Icons.menu: 'line.3.horizontal',
-  CupertinoIcons.chevron_back: 'chevron.left',
-  CupertinoIcons.back: 'chevron.left',
-  Icons.arrow_back: 'chevron.left',
-  CupertinoIcons.create: 'square.and.pencil',
-  Icons.add_comment: 'square.and.pencil',
-  CupertinoIcons.add: 'plus',
-  Icons.add: 'plus',
-  CupertinoIcons.eye: 'eye',
-  Icons.visibility_outlined: 'eye',
-  CupertinoIcons.eye_slash: 'eye.slash',
-  Icons.visibility_off: 'eye.slash',
-  CupertinoIcons.arrow_down_doc: 'arrow.down.doc',
-  Icons.save_alt: 'arrow.down.doc',
-  Icons.people_outline: 'person.2',
-  Icons.circle: 'circle',
-};
-
 String? conduitToolbarSfSymbolForIcon(IconData icon, {String? iosSymbol}) =>
-    iosSymbol ?? _kConduitToolbarSfSymbolByIcon[icon];
+    iosSymbol ?? conduitSfSymbolForIcon(icon);
+
+/// A labelled toolbar action, retaining its busy indicator while UIKit owns
+/// the normal iOS glass button.
+class ConduitAdaptiveAppBarTextButton extends StatelessWidget {
+  const ConduitAdaptiveAppBarTextButton({
+    super.key,
+    required this.label,
+    required this.onPressed,
+    this.isLoading = false,
+    this.prominent = false,
+  });
+
+  final String label;
+  final VoidCallback? onPressed;
+  final bool isLoading;
+  final bool prominent;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = context.conduitTheme;
+    final nativeProminent = conduitSupportsNativeGlass() && prominent;
+    if (isLoading) {
+      final indicator = SizedBox.square(
+        dimension: TouchTarget.minimum,
+        child: const Center(
+          child: AdaptiveProgressIndicator.activity(radius: 8),
+        ),
+      );
+      return Semantics(
+        label: label,
+        button: true,
+        enabled: false,
+        child: conduitSupportsNativeGlass()
+            ? FloatingAppBarPill(child: indicator)
+            : indicator,
+      );
+    }
+    return AdaptiveButton(
+      label: label,
+      onPressed: onPressed,
+      style: conduitSupportsNativeGlass()
+          ? prominent
+                ? AdaptiveButtonStyle.prominentGlass
+                : AdaptiveButtonStyle.glass
+          : AdaptiveButtonStyle.plain,
+      color: nativeProminent ? theme.buttonPrimary : null,
+      textColor: onPressed == null
+          ? theme.buttonDisabledText
+          : nativeProminent
+          ? theme.buttonPrimaryText
+          : theme.buttonPrimary,
+      minSize: const Size(0, TouchTarget.minimum),
+      padding: const EdgeInsets.symmetric(horizontal: Spacing.sm),
+    );
+  }
+}
 
 /// Adaptive floating app-bar icon button for route-level toolbar actions.
 class ConduitAdaptiveAppBarIconButton extends StatelessWidget {
@@ -527,7 +563,12 @@ class ConduitAdaptiveAppBarIconButton extends StatelessWidget {
   Widget build(BuildContext context) {
     final label = semanticLabel;
     final button = _buildButton(context);
-    if (label == null) return button;
+    if (label == null ||
+        (conduitSupportsNativeGlass() &&
+            conduitToolbarSfSymbolForIcon(icon, iosSymbol: iosSymbol) !=
+                null)) {
+      return button;
+    }
     return Semantics(
       label: label,
       button: true,
@@ -566,6 +607,7 @@ class ConduitAdaptiveAppBarIconButton extends StatelessWidget {
       child: conduitSupportsNativeGlass() && nativeSymbol != null
           ? AdaptiveButton.sfSymbol(
               onPressed: onPressed,
+              semanticLabel: semanticLabel,
               sfSymbol: SFSymbol(
                 nativeSymbol,
                 size: kConduitNativeSingleActionSymbolExtent,

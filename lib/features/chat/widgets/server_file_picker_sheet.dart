@@ -2,12 +2,14 @@ import 'dart:async';
 import 'dart:io' show Platform;
 
 import 'package:conduit/l10n/app_localizations.dart';
+import 'package:conduit/core/services/haptic_service.dart';
 import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:conduit_core/models/file_info.dart';
 import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/file_type_utils.dart';
@@ -132,7 +134,10 @@ class _ServerFilePickerSheetState extends ConsumerState<ServerFilePickerSheet> {
                       }
 
                       return RefreshIndicator.adaptive(
-                        onRefresh: _refreshFiles,
+                        onRefresh: () {
+                          ConduitHaptics.lightImpact();
+                          return _refreshFiles();
+                        },
                         child: ListView.separated(
                           controller: scrollController,
                           physics: const AlwaysScrollableScrollPhysics(),
@@ -153,7 +158,7 @@ class _ServerFilePickerSheetState extends ConsumerState<ServerFilePickerSheet> {
                       );
                     },
                     loading: () => const Center(
-                      child: CircularProgressIndicator(
+                      child: AdaptiveProgressIndicator(
                         strokeWidth: BorderWidth.thin,
                       ),
                     ),

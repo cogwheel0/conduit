@@ -593,6 +593,7 @@ class _FolderPageState extends ConsumerState<FolderPage> {
   }
 
   Future<void> _refreshFolderContents() async {
+    ConduitHaptics.lightImpact();
     refreshConversationsCache(ref, includeFolders: true);
     try {
       await ref.read(foldersProvider.future);
@@ -634,10 +635,13 @@ class _FolderPageState extends ConsumerState<FolderPage> {
     }
   }
 
-  Future<void> _handleComposerSend(String text) async {
+  Future<chat.ChatSendPlaceholderHandle?> _handleComposerSend(
+    String text, {
+    void Function(chat.ChatSendPlaceholderHandle)? onPrepared,
+  }) async {
     if (_isSendingComposerMessage ||
         ref.read(conversationSelectionProvider).isLoading) {
-      return;
+      return null;
     }
 
     setState(() => _isSendingComposerMessage = true);
@@ -647,7 +651,7 @@ class _FolderPageState extends ConsumerState<FolderPage> {
     try {
       final hasModel = await _ensureSelectedModel(container);
       if (!hasModel) {
-        return;
+        return null;
       }
 
       final attachedFiles = container.read(attachedFilesProvider);
@@ -685,6 +689,7 @@ class _FolderPageState extends ConsumerState<FolderPage> {
         pendingFolderIdOverride: widget.folderId,
         onAssistantPlaceholderCreated: (handle) {
           pendingSend = handle;
+          onPrepared?.call(handle);
         },
       );
 
@@ -701,6 +706,7 @@ class _FolderPageState extends ConsumerState<FolderPage> {
               );
             }),
       );
+      return pendingSend;
     } catch (e, stackTrace) {
       // durableSend adds an optimistic streaming placeholder before its
       // throwable DB work; on failure recover the UI by finishing the
@@ -713,6 +719,7 @@ class _FolderPageState extends ConsumerState<FolderPage> {
         stackTrace: stackTrace,
       );
       chat.recoverFailedChatSend(container, e, pendingSend);
+      return null;
     } finally {
       if (mounted) {
         setState(() => _isSendingComposerMessage = false);
@@ -726,6 +733,7 @@ class _FolderPageState extends ConsumerState<FolderPage> {
   Future<chat.ChatSendPlaceholderHandle?> _handleCompareSend(
     String text,
     List<Model> models,
+    void Function(chat.ChatSendPlaceholderHandle) onPrepared,
   ) async {
     if (_isSendingComposerMessage ||
         ref.read(conversationSelectionProvider).isLoading) {
@@ -766,6 +774,7 @@ class _FolderPageState extends ConsumerState<FolderPage> {
         text,
         uploadedFileIds.isNotEmpty ? uploadedFileIds : null,
         models: models,
+        onAssistantPlaceholderCreated: onPrepared,
         toolIds: toolIds.isNotEmpty ? toolIds : null,
         onCommitted: () {
           if (!mounted || !(ModalRoute.isCurrentOf(context) ?? true)) return;
@@ -1045,8 +1054,7 @@ class _FolderPageState extends ConsumerState<FolderPage> {
           : error is StateError
           ? error.message.toString()
           : l10n.errorMessage;
-      ScaffoldMessenger.maybeOf(context)
-          ?.showSnackBar(SnackBar(content: Text(message)));
+      AdaptiveSnackBar.show(context, message: message);
     }
   }
 
@@ -1209,7 +1217,7 @@ class _FolderPageState extends ConsumerState<FolderPage> {
                       ? const SizedBox(
                           width: 16,
                           height: 16,
-                          child: CircularProgressIndicator(strokeWidth: 2),
+                          child: AdaptiveProgressIndicator(strokeWidth: 2),
                         )
                       : Text(l10n.attach),
                 ),
@@ -1567,6 +1575,8 @@ class _FolderPageState extends ConsumerState<FolderPage> {
                     'folder-page-composer-${widget.folderId}-$_composerResetNonce',
                   ),
                   onSendMessage: _handleComposerSend,
+                  onSendDraft: (text, onPrepared) =>
+                      _handleComposerSend(text, onPrepared: onPrepared),
                   onCompareSend: _handleCompareSend,
                   enabled:
                       !ref.watch(conversationSelectionProvider).isLoading &&
@@ -2091,7 +2101,7 @@ class _FolderEditSheetState extends ConsumerState<_FolderEditSheet> {
     }
 
     setState(() => _isSaving = true);
-    final messenger = ScaffoldMessenger.maybeOf(context);
+    final overlay = Overlay.maybeOf(context, rootOverlay: true);
 
     final nextMeta = Map<String, dynamic>.from(_folder.meta ?? const {});
     nextMeta['icon'] = _selectedIconAlias ?? '';
@@ -2114,8 +2124,8 @@ class _FolderEditSheetState extends ConsumerState<_FolderEditSheet> {
 
       Navigator.of(context).pop(updatedFolder);
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (messenger?.mounted ?? false) {
-          messenger!.showSnackBar(SnackBar(content: Text(l10n.saved)));
+        if (overlay?.mounted ?? false) {
+          AdaptiveSnackBar.show(overlay!.context, message: l10n.saved);
         }
       });
     } catch (_) {
@@ -2128,8 +2138,7 @@ class _FolderEditSheetState extends ConsumerState<_FolderEditSheet> {
   }
 
   void _showSnackBar(String message) {
-    ScaffoldMessenger.maybeOf(context)
-        ?.showSnackBar(SnackBar(content: Text(message)));
+    AdaptiveSnackBar.show(context, message: message);
   }
 
   void _selectIcon(String? alias) {
@@ -2178,6 +2187,7 @@ class _FolderEditSheetState extends ConsumerState<_FolderEditSheet> {
               const SizedBox(width: Spacing.md),
               Expanded(
                 child: TextField(
+                  magnifierConfiguration: nativeIosTextMagnifierConfiguration,
                   key: const ValueKey<String>('folder-edit-name-field'),
                   controller: _nameController,
                   enabled: !_isSaving,
@@ -2321,10 +2331,9 @@ class _FolderSystemPromptSheetState
       if (!mounted) {
         return;
       }
-      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-        SnackBar(
-          content: Text(AppLocalizations.of(context)!.unableToLoadFolder),
-        ),
+      AdaptiveSnackBar.show(
+        context,
+        message: AppLocalizations.of(context)!.unableToLoadFolder,
       );
     } finally {
       if (mounted) {
@@ -2341,13 +2350,12 @@ class _FolderSystemPromptSheetState
     final l10n = AppLocalizations.of(context)!;
     final api = ref.read(apiServiceProvider);
     if (api == null) {
-      ScaffoldMessenger.maybeOf(context)
-          ?.showSnackBar(SnackBar(content: Text(l10n.errorMessage)));
+      AdaptiveSnackBar.show(context, message: l10n.errorMessage);
       return;
     }
 
     setState(() => _isSaving = true);
-    final messenger = ScaffoldMessenger.maybeOf(context);
+    final overlay = Overlay.maybeOf(context, rootOverlay: true);
     final nextData = Map<String, dynamic>.from(_folder.data ?? const {});
     nextData['system_prompt'] = _systemPromptController.text.trim();
 
@@ -2365,8 +2373,8 @@ class _FolderSystemPromptSheetState
 
       Navigator.of(context).pop(updatedFolder);
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (messenger?.mounted ?? false) {
-          messenger!.showSnackBar(SnackBar(content: Text(l10n.saved)));
+        if (overlay?.mounted ?? false) {
+          AdaptiveSnackBar.show(overlay!.context, message: l10n.saved);
         }
       });
     } catch (_) {
@@ -2374,8 +2382,7 @@ class _FolderSystemPromptSheetState
         return;
       }
       setState(() => _isSaving = false);
-      ScaffoldMessenger.maybeOf(context)
-          ?.showSnackBar(SnackBar(content: Text(l10n.errorMessage)));
+      AdaptiveSnackBar.show(context, message: l10n.errorMessage);
     }
   }
 
@@ -2399,6 +2406,7 @@ class _FolderSystemPromptSheetState
             const SizedBox(height: Spacing.md),
           ],
           TextField(
+            magnifierConfiguration: nativeIosTextMagnifierConfiguration,
             key: const ValueKey<String>('folder-system-prompt-field'),
             controller: _systemPromptController,
             readOnly: _isSaving,

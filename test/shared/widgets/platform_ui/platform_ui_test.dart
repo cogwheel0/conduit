@@ -15,6 +15,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../support/native_platform_views.dart';
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -176,9 +178,10 @@ void main() {
     expect(find.byType(MaterialApp), findsNothing);
   });
 
-  testWidgets('switch adapter stays constrained and legible on iOS 26', (
+  testWidgets('switch adapter uses the system control on iOS 26', (
     tester,
   ) async {
+    stubNativePlatformViews();
     Widget host({Brightness brightness = Brightness.light}) => CupertinoApp(
       theme: CupertinoThemeData(brightness: brightness),
       home: LegacyDesignCompatibility(
@@ -201,17 +204,11 @@ void main() {
     PlatformUiCapabilities.debugIOSMajorVersionOverride = 26;
     PlatformUiCapabilities.debugNativeIOS26Override = true;
     await tester.pumpWidget(host(brightness: Brightness.dark));
-    expect(find.byType(CNSwitch), findsNothing);
-    expect(find.byType(CupertinoSwitch), findsOneWidget);
-    expect(
-      tester.getSize(
-        find.byKey(const ValueKey<String>('adaptive-switch-frame')),
-      ),
-      const Size(51, 31),
-    );
-    final toggle = tester.widget<CupertinoSwitch>(find.byType(CupertinoSwitch));
-    expect(toggle.activeTrackColor, CupertinoColors.activeGreen);
-    expect(toggle.inactiveTrackColor, isNot(CupertinoColors.white));
+    expect(find.byType(CNSwitch), findsOneWidget);
+    expect(find.byType(CupertinoSwitch), findsNothing);
+    final toggle = tester.widget<CNSwitch>(find.byType(CNSwitch));
+    expect(toggle.color, CupertinoColors.activeGreen);
+    expect(toggle.height, greaterThanOrEqualTo(44));
     debugDefaultTargetPlatformOverride = null;
   });
 
@@ -304,6 +301,7 @@ void main() {
   testWidgets('primary control adapters stay Flutter before iOS 26', (
     tester,
   ) async {
+    stubNativePlatformViews();
     Widget host() => MaterialApp(
       home: LegacyDesignCompatibility(
         child: Scaffold(
@@ -339,6 +337,7 @@ void main() {
     expect(find.byType(CNButton), findsOneWidget);
     expect(find.byType(CNSlider), findsOneWidget);
     expect(find.byType(CNSegmentedControl), findsOneWidget);
+    await tester.pump(const Duration(milliseconds: 500));
     debugDefaultTargetPlatformOverride = null;
   });
 
@@ -915,12 +914,21 @@ void main() {
     expect(find.byKey(suffixKey), findsOneWidget);
   });
 
-  testWidgets('non-dismissible iOS 26 confirmations use Flutter fallback', (
+  testWidgets('non-dismissible iOS 26 confirmations use a system alert', (
     tester,
   ) async {
     PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.iOS;
     PlatformUiCapabilities.debugIOSMajorVersionOverride = 26;
     PlatformUiCapabilities.debugNativeIOS26Override = true;
+    const channel = MethodChannel('cn_alert');
+    final calls = <MethodCall>[];
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      calls.add(call);
+      return {'index': 0};
+    });
+    addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
 
     await tester.pumpWidget(
       const CupertinoApp(home: CupertinoPageScaffold(child: SizedBox())),
@@ -934,11 +942,10 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.byType(CupertinoAlertDialog), findsOneWidget);
-    await tester.tap(find.text('Cancel'));
-    await tester.pumpAndSettle();
+    expect(calls, hasLength(1));
+    expect(find.byType(CupertinoAlertDialog), findsNothing);
     expect(await result, isFalse);
-  });
+  }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
 
   testWidgets('controlled Cupertino form fields track controller changes', (
     tester,

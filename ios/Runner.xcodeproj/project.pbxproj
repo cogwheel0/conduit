@@ -14,8 +14,10 @@
 		97C146FC1CF9000F007C117D /* Main.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 97C146FA1CF9000F007C117D /* Main.storyboard */; };
 		97C146FE1CF9000F007C117D /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 97C146FD1CF9000F007C117D /* Assets.xcassets */; };
 		97C147011CF9000F007C117D /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 97C146FF1CF9000F007C117D /* LaunchScreen.storyboard */; };
+		A617F3027B9E43159B000021 /* NativeTextSelectionMenuBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = A617F3027B9E43159B000022 /* NativeTextSelectionMenuBridge.swift */; };
 		A66B6643C89B7BB44E2B9471 /* Pods_RunnerTests.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 42FA90454A654BE3B4EA8A89 /* Pods_RunnerTests.framework */; };
 		C073CCD19D2508BCAD536200 /* NativeIosTtsBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = C07E41E507BC83CDF6A2F806 /* NativeIosTtsBridge.swift */; };
+		A617F3027B9E43159B000001 /* NativeTextMagnifierBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = A617F3027B9E43159B000002 /* NativeTextMagnifierBridge.swift */; };
 		C073D293D6D3C0AE42208200 /* AppIntentBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0733DBE0EC21B8BA584F742 /* AppIntentBridge.swift */; };
 		C0778A160B9E0F6B3D0E5C00 /* BackgroundStreamingHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = C07B0ACB6D900F7182D98598 /* BackgroundStreamingHandler.swift */; };
 		C0784AC8CDA88C741E323C00 /* CookieBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = C073FA4B620A52333B648A35 /* CookieBridge.swift */; };
@@ -44,6 +46,8 @@
 		D2A0B2352F5E4D6C7B8A9012 /* NativeShareLinkedImage.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2A0B2342F5E4D6C7B8A9012 /* NativeShareLinkedImage.swift */; };
 		D2A0B2412F5E4D6C7B8A9012 /* PccBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2A0B2402F5E4D6C7B8A9012 /* PccBridge.swift */; };
 		D2A0B2512F5E4D6C7B8A9012 /* DisplayBoostBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2A0B2502F5E4D6C7B8A9012 /* DisplayBoostBridge.swift */; };
+		D2A0B4022F5E4D6C7B8A9012 /* RecordingActivityBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2A0B4012F5E4D6C7B8A9012 /* RecordingActivityBridge.swift */; };
+		D2A0B4042F5E4D6C7B8A9012 /* ConduitRecordingActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2A0B4032F5E4D6C7B8A9012 /* ConduitRecordingActivity.swift */; };
 		E6C41A0C2F9E4D6C7B8A9012 /* NativeImageViewerBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = E6C41A0B2F9E4D6C7B8A9012 /* NativeImageViewerBridge.swift */; };
 		F15AFEC42EE5499D00A1FABB /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = F15AFEC32EE5499D00A1FABB /* WidgetKit.framework */; };
 		F15AFEC62EE5499D00A1FABB /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = F15AFEC52EE5499D00A1FABB /* SwiftUI.framework */; };
@@ -127,6 +131,7 @@
 		97C146FD1CF9000F007C117D /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		97C147001CF9000F007C117D /* Base */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; name = Base; path = Base.lproj/LaunchScreen.storyboard; sourceTree = "<group>"; };
 		97C147021CF9000F007C117D /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		A617F3027B9E43159B000022 /* NativeTextSelectionMenuBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeTextSelectionMenuBridge.swift; sourceTree = "<group>"; };
 		C0700E3C1D3E25D23C2D9095 /* AppIntentInvocationStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppIntentInvocationStore.swift; sourceTree = "<group>"; };
 		C07202B2AF712D67C45FE1BC /* ConduitBridgeHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConduitBridgeHost.swift; sourceTree = "<group>"; };
 		C0733DBE0EC21B8BA584F742 /* AppIntentBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppIntentBridge.swift; sourceTree = "<group>"; };
@@ -138,6 +143,7 @@
 		C07CD1E93C33B4AE1AD1A0F2 /* FlutterConduitBridgeHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FlutterConduitBridgeHost.swift; sourceTree = "<group>"; };
 		C07D6E81F9707D1BBEDB9BB5 /* PlatformEnvironmentBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlatformEnvironmentBridge.swift; sourceTree = "<group>"; };
 		C07E41E507BC83CDF6A2F806 /* NativeIosTtsBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeIosTtsBridge.swift; sourceTree = "<group>"; };
+		A617F3027B9E43159B000002 /* NativeTextMagnifierBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeTextMagnifierBridge.swift; sourceTree = "<group>"; };
 		D2A0B1C32F5E4D6C7B8A9012 /* NativePasteBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativePasteBridge.swift; sourceTree = "<group>"; };
 		D2A0B1D32F5E4D6C7B8A9012 /* NativeKeyboardAttachmentBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeKeyboardAttachmentBridge.swift; sourceTree = "<group>"; };
 		D2A0B1E32F5E4D6C7B8A9012 /* NativeSheetBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeSheetBridge.swift; sourceTree = "<group>"; };
@@ -159,6 +165,8 @@
 		D2A0B3022F5E4D6C7B8A9012 /* ShareExtension.debug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = ShareExtension/ShareExtension.debug.xcconfig; sourceTree = "<group>"; };
 		D2A0B3032F5E4D6C7B8A9012 /* ShareExtension.release.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = ShareExtension/ShareExtension.release.xcconfig; sourceTree = "<group>"; };
 		D2A0B3042F5E4D6C7B8A9012 /* ShareExtension.profile.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = ShareExtension/ShareExtension.profile.xcconfig; sourceTree = "<group>"; };
+		D2A0B4012F5E4D6C7B8A9012 /* RecordingActivityBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordingActivityBridge.swift; sourceTree = "<group>"; };
+		D2A0B4032F5E4D6C7B8A9012 /* ConduitRecordingActivity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ../ConduitWidget/ConduitRecordingActivity.swift; sourceTree = "<group>"; };
 		E590F0BC5DD9A3EFB1FDDDBF /* Pods-RunnerTests.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-RunnerTests.release.xcconfig"; path = "Target Support Files/Pods-RunnerTests/Pods-RunnerTests.release.xcconfig"; sourceTree = "<group>"; };
 		E6C41A0B2F9E4D6C7B8A9012 /* NativeImageViewerBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeImageViewerBridge.swift; sourceTree = "<group>"; };
 		E952EFF81F1FEABA348FE2CC /* Pods_Runner.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = Pods_Runner.framework; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -370,12 +378,14 @@
 				74858FAE1ED2DC5600515810 /* AppDelegate.swift */,
 				C07D6E81F9707D1BBEDB9BB5 /* PlatformEnvironmentBridge.swift */,
 				C07CD1E93C33B4AE1AD1A0F2 /* FlutterConduitBridgeHost.swift */,
+				A617F3027B9E43159B000022 /* NativeTextSelectionMenuBridge.swift */,
 				C07202B2AF712D67C45FE1BC /* ConduitBridgeHost.swift */,
 				C073FA4B620A52333B648A35 /* CookieBridge.swift */,
 				C073CB9E0C18631B25DCC01B /* ConduitAppIntents.swift */,
 				C0733DBE0EC21B8BA584F742 /* AppIntentBridge.swift */,
 				C0700E3C1D3E25D23C2D9095 /* AppIntentInvocationStore.swift */,
 				C07E41E507BC83CDF6A2F806 /* NativeIosTtsBridge.swift */,
+				A617F3027B9E43159B000002 /* NativeTextMagnifierBridge.swift */,
 				C0748D3BCA6CB2E7D24C8438 /* VoiceAudioRouteBridge.swift */,
 				39A7D52A9D5DD70C376EABF2 /* RealtimeAudioBridge.swift */,
 				C07B0ACB6D900F7182D98598 /* BackgroundStreamingHandler.swift */,
@@ -389,6 +399,8 @@
 				E6C41A0B2F9E4D6C7B8A9012 /* NativeImageViewerBridge.swift */,
 				D2A0B1F52F5E4D6C7B8A9013 /* NativeSymbolImageBridge.swift */,
 				D2A0B2032F5E4D6C7B8A9012 /* NativeSttBridge.swift */,
+				D2A0B4012F5E4D6C7B8A9012 /* RecordingActivityBridge.swift */,
+				D2A0B4032F5E4D6C7B8A9012 /* ConduitRecordingActivity.swift */,
 				D2A0B2402F5E4D6C7B8A9012 /* PccBridge.swift */,
 				D2A0B2502F5E4D6C7B8A9012 /* DisplayBoostBridge.swift */,
 				D2A0B2052F5E4D6C7B8A9012 /* ConduitSceneDelegate.swift */,
@@ -690,6 +702,8 @@
 				D2A0B1E42F5E4D6C7B8A9012 /* NativeSheetBridge.swift in Sources */,
 				D2A0B1E52F5E4D6C7B8A9012 /* NativeSheetUIFoundation.swift in Sources */,
 				D2A0B2042F5E4D6C7B8A9012 /* NativeSttBridge.swift in Sources */,
+				D2A0B4022F5E4D6C7B8A9012 /* RecordingActivityBridge.swift in Sources */,
+				D2A0B4042F5E4D6C7B8A9012 /* ConduitRecordingActivity.swift in Sources */,
 				D2A0B2412F5E4D6C7B8A9012 /* PccBridge.swift in Sources */,
 				D2A0B2512F5E4D6C7B8A9012 /* DisplayBoostBridge.swift in Sources */,
 				D2A0B1D42F5E4D6C7B8A9012 /* NativeKeyboardAttachmentBridge.swift in Sources */,
@@ -706,6 +720,8 @@
 				C073D293D6D3C0AE42208200 /* AppIntentBridge.swift in Sources */,
 				C07A1ABDC1D26441C3348E00 /* AppIntentInvocationStore.swift in Sources */,
 				C073CCD19D2508BCAD536200 /* NativeIosTtsBridge.swift in Sources */,
+				A617F3027B9E43159B000001 /* NativeTextMagnifierBridge.swift in Sources */,
+				A617F3027B9E43159B000021 /* NativeTextSelectionMenuBridge.swift in Sources */,
 				C079094EC8D3F2DCA002F300 /* VoiceAudioRouteBridge.swift in Sources */,
 				F5C6B3C410DE632B01B4234F /* RealtimeAudioBridge.swift in Sources */,
 				C0778A160B9E0F6B3D0E5C00 /* BackgroundStreamingHandler.swift in Sources */,

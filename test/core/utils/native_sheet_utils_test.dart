@@ -13,6 +13,49 @@ import 'package:flutter_test/flutter_test.dart';
 void main() {
   final l10n = AppLocalizationsEn();
 
+  test(
+    'voice picker contains an All languages filter without a separate language row',
+    () {
+      const voices = <Map<String, dynamic>>[
+        {
+          'id': 'maple',
+          'name': 'Maple',
+          'locale': 'en-US',
+          'languageName': 'English (US)',
+        },
+        {
+          'id': 'iris',
+          'name': 'Iris',
+          'locale': 'fr-FR',
+          'languageName': 'French',
+        },
+      ];
+      final parts = buildNativeAudioSheetParts(
+        l10n,
+        const AppSettings(
+          ttsEngine: TtsEngine.server,
+          ttsServerVoiceId: 'maple',
+        ),
+        ttsVoices: voices,
+      );
+      final rows = parts.mainSections.expand((section) => section.items);
+      expect(rows.where((item) => item.id == 'tts-voice-language'), isEmpty);
+      final picker = rows.singleWhere((item) => item.id == 'tts-voice-picker');
+      expect(picker.filterAllLabel, 'All languages');
+      expect(picker.options.map((option) => option.label), [
+        l10n.ttsSystemDefault,
+        'Maple',
+        'Iris',
+      ]);
+      expect(picker.options.map((option) => option.filterGroup), [
+        '',
+        'English (US)',
+        'French',
+      ]);
+      expect(picker.value, 'maple');
+    },
+  );
+
   test('the native About page links the open source licenses', () {
     final items = buildNativeAboutItems(
       l10n,
@@ -138,9 +181,8 @@ void main() {
         const AppSettings(),
         voiceProviderCandidates: [openAi],
       );
-      check(
-        items(none.voiceProviderDetail).map((item) => item.id),
-      ).deepEquals(['voice-provider-connection']);
+      check(items(none.voiceProviderDetail).map((item) => item.id))
+          .deepEquals(['voice-provider-connection']);
 
       final chosen = buildNativeAudioSheetParts(
         l10n,
@@ -164,9 +206,8 @@ void main() {
         'voice-provider-realtime-voice': 'marin',
         'voice-provider-realtime-instructions': '',
       });
-      check(
-        nativeVoiceProviderFieldIds.keys.toSet(),
-      ).deepEquals(fields.keys.toSet()..remove('voice-provider-connection'));
+      check(nativeVoiceProviderFieldIds.keys.toSet())
+          .deepEquals(fields.keys.toSet()..remove('voice-provider-connection'));
     });
 
     test('a removed connection reads as none', () {
@@ -182,9 +223,8 @@ void main() {
           .expand((section) => section.items)
           .singleWhere((item) => item.id == NativeSheetRoutes.voiceProvider);
       check(row.subtitle).equals(l10n.voiceProviderNone);
-      check(
-        items(parts.voiceProviderDetail).map((item) => item.id),
-      ).deepEquals(['voice-provider-connection']);
+      check(items(parts.voiceProviderDetail).map((item) => item.id))
+          .deepEquals(['voice-provider-connection']);
     });
 
     test('server voices are offered only where the backend lists them', () {

@@ -2075,11 +2075,13 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      l10n.allowSelfSignedCertificates,
-                      style: theme.bodyMedium?.copyWith(
-                        fontWeight: FontWeight.w600,
-                        color: theme.textPrimary,
+                    ExcludeSemantics(
+                      child: Text(
+                        l10n.allowSelfSignedCertificates,
+                        style: theme.bodyMedium?.copyWith(
+                          fontWeight: FontWeight.w600,
+                          color: theme.textPrimary,
+                        ),
                       ),
                     ),
                     const SizedBox(height: Spacing.xxs),
@@ -2096,6 +2098,7 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
               const SizedBox(width: Spacing.md),
               AdaptiveSwitch(
                 value: _allowSelfSignedCertificates,
+                semanticLabel: l10n.allowSelfSignedCertificates,
                 onChanged: (value) {
                   setState(() {
                     _allowSelfSignedCertificates = value;

@@ -113,7 +113,7 @@ class _HermesJobsPageState extends ConsumerState<HermesJobsPage> {
           },
           loading: () => const Padding(
             padding: EdgeInsets.symmetric(vertical: Spacing.xl),
-            child: Center(child: CircularProgressIndicator()),
+            child: Center(child: AdaptiveProgressIndicator()),
           ),
           error: (error, _) => Padding(
             padding: const EdgeInsets.symmetric(vertical: Spacing.xl),
@@ -200,13 +200,16 @@ class _JobCardState extends ConsumerState<_JobCard> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Expanded(
-                child: Text(
-                  job.displayName,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: AppTypography.standard.copyWith(
-                    color: theme.textPrimary,
-                    fontWeight: FontWeight.w600,
+                child: ExcludeSemantics(
+                  excluding: !_busy,
+                  child: Text(
+                    job.displayName,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppTypography.standard.copyWith(
+                      color: theme.textPrimary,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
                 ),
               ),
@@ -216,12 +219,13 @@ class _JobCardState extends ConsumerState<_JobCard> {
                   child: SizedBox(
                     width: 20,
                     height: 20,
-                    child: CircularProgressIndicator(strokeWidth: 2),
+                    child: AdaptiveProgressIndicator(strokeWidth: 2),
                   ),
                 )
               else
                 AdaptiveSwitch(
                   value: job.enabled,
+                  semanticLabel: job.displayName,
                   onChanged: writable ? _setEnabled : null,
                 ),
             ],
@@ -380,7 +384,7 @@ class _JobCardState extends ConsumerState<_JobCard> {
     return runs.when(
       loading: () => const Padding(
         padding: EdgeInsets.all(Spacing.sm),
-        child: Center(child: CircularProgressIndicator()),
+        child: Center(child: AdaptiveProgressIndicator()),
       ),
       error: (_, _) => Text(
         'Could not load run history.',

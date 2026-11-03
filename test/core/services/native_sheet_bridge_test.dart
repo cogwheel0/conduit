@@ -262,6 +262,39 @@ void main() {
     });
   });
 
+  test(
+    'detail patches carry optional reorder metadata through Pigeon',
+    () async {
+      NativeSheetBridge.instance.debugIsIOSOverride = true;
+      PlatformNativeSheetApplyDetailPatchRequest? received;
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockDecodedMessageHandler<Object?>(_applyDetailPatchChannel, (
+            message,
+          ) async {
+            received =
+                (message! as List<Object?>).single!
+                    as PlatformNativeSheetApplyDetailPatchRequest;
+            return <Object?>[true];
+          });
+      await NativeSheetBridge.instance.applyDetailPatch(
+        detailId: 'message-actions',
+        items: const [],
+        sections: const [
+          NativeSheetSectionConfig(
+            reorderActionId: 'message-actions-reorder',
+            items: [
+              NativeSheetItemConfig(id: 'message-action:copy', title: 'Copy'),
+            ],
+          ),
+        ],
+      );
+      expect(
+        received!.sections.single.reorderActionId,
+        'message-actions-reorder',
+      );
+    },
+  );
+
   test('detail patch rejects mixed flat and sectioned content', () async {
     await expectLater(
       NativeSheetBridge.instance.applyDetailPatch(
@@ -277,6 +310,80 @@ void main() {
       throwsArgumentError,
     );
   });
+
+  test(
+    'voice filter metadata reaches both native selector entry points',
+    () async {
+      NativeSheetBridge.instance.debugIsIOSOverride = true;
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      const option = NativeSheetOptionConfig(
+        id: 'maple',
+        label: 'Maple',
+        filterGroup: 'English',
+      );
+      final channel = BasicMessageChannel<Object?>(
+        'dev.flutter.pigeon.conduit.NativeSheetHostApi.presentOptionsSelector',
+        NativeSheetHostApi.pigeonChannelCodec,
+      );
+      PlatformNativeSheetOptionsSelectorRequest? received;
+      messenger.setMockDecodedMessageHandler<Object?>(channel, (message) async {
+        received =
+            (message! as List<Object?>).single!
+                as PlatformNativeSheetOptionsSelectorRequest;
+        return <Object?>[null];
+      });
+      addTearDown(
+        () => messenger.setMockDecodedMessageHandler<Object?>(channel, null),
+      );
+      await NativeSheetBridge.instance.presentOptionsSelector(
+        title: 'Voices',
+        options: [option],
+        filterAllLabel: 'All',
+      );
+      expect(received!.filterAllLabel, 'All');
+      expect(received!.options.single.filterGroup, 'English');
+
+      // The profile sheet uses the same metadata via a searchable picker item.
+      final updates = <PlatformNativeSheetApplyDetailPatchRequest>[];
+      messenger.setMockDecodedMessageHandler<Object?>(
+        _applyDetailPatchChannel,
+        (message) async {
+          updates.add(
+            (message! as List<Object?>).single!
+                as PlatformNativeSheetApplyDetailPatchRequest,
+          );
+          return <Object?>[true];
+        },
+      );
+      addTearDown(
+        () => messenger.setMockDecodedMessageHandler<Object?>(
+          _applyDetailPatchChannel,
+          null,
+        ),
+      );
+      await NativeSheetBridge.instance.applyDetailPatch(
+        detailId: 'voices',
+        items: const [
+          NativeSheetItemConfig(
+            id: 'voice',
+            title: 'Voice',
+            kind: NativeSheetItemKind.searchablePicker,
+            options: [option],
+            filterAllLabel: 'All',
+          ),
+        ],
+      );
+      final item = updates.single.items.single;
+      expect(item.filterAllLabel, 'All');
+      expect(item.options.single.filterGroup, 'English');
+      expect(option.toMap()['filterGroup'], 'English');
+      expect(
+        const NativeSheetItemConfig(id: 'plain', title: 'Plain').toMap(),
+        isNot(contains('filterAllLabel')),
+      );
+    },
+  );
 
   test('sheet item serializes generic dismiss action metadata', () {
     const item = NativeSheetItemConfig(
@@ -348,6 +455,54 @@ void main() {
       },
     ]);
   });
+
+  test(
+    'text editor changes are opt-in and use the existing control stream',
+    () async {
+      NativeSheetBridge.instance.debugIsIOSOverride = true;
+      final channel = BasicMessageChannel<Object?>(
+        'dev.flutter.pigeon.conduit.NativeSheetHostApi.presentTextEditor',
+        NativeSheetHostApi.pigeonChannelCodec,
+      );
+      final received = <PlatformNativeSheetTextEditorRequest>[];
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      messenger.setMockDecodedMessageHandler<Object?>(channel, (message) async {
+        received.add(
+          (message! as List<Object?>).single!
+              as PlatformNativeSheetTextEditorRequest,
+        );
+        return <Object?>[null];
+      });
+      addTearDown(
+        () => messenger.setMockDecodedMessageHandler<Object?>(channel, null),
+      );
+      await NativeSheetBridge.instance.presentTextEditor(
+        title: 'Example',
+        value: 'First',
+      );
+      await NativeSheetBridge.instance.presentTextEditor(
+        title: 'Example',
+        value: 'Second',
+        valueId: 'example-input',
+        emitChanges: true,
+      );
+      expect(received.map((request) => request.emitChanges), [false, true]);
+      final event = NativeSheetBridge.instance.events
+          .where((event) => event is NativeSheetControlChanged)
+          .cast<NativeSheetControlChanged>()
+          .first;
+      NativeSheetBridge.instance.onControlChanged(
+        PlatformNativeSheetControlChangedEvent(
+          id: 'example-input',
+          value: 'Updated input',
+        ),
+      );
+      final changed = await event;
+      expect(changed.id, 'example-input');
+      expect(changed.value, 'Updated input');
+    },
+  );
 
   test('native sign-out publishes the selected retention value', () async {
     final event = NativeSheetBridge.instance.events

@@ -151,6 +151,7 @@ private struct NativeEditProfileSheetCopy {
 private struct NativeSheetOption {
     let id: String
     let label: String
+    let filterGroup: String?
     let subtitle: String?
     let sfSymbol: String?
     let enabled: Bool
@@ -170,6 +171,7 @@ private struct NativeSheetOption {
 
         self.id = id
         self.label = label
+        filterGroup = payload["filterGroup"] as? String
         subtitle = payload["subtitle"] as? String
         sfSymbol = payload["sfSymbol"] as? String
         enabled = payload["enabled"] as? Bool ?? true
@@ -197,6 +199,7 @@ private struct NativeSheetItem {
     let value: Any?
     let placeholder: String?
     let options: [NativeSheetOption]
+    let filterAllLabel: String?
     let sourceIndex: Int?
     let sourceUrl: String?
     let sourceType: String?
@@ -250,6 +253,7 @@ private struct NativeSheetItem {
         placeholder = payload["placeholder"] as? String
         options = (payload["options"] as? [[String: Any]] ?? [])
             .compactMap(NativeSheetOption.init)
+        filterAllLabel = payload["filterAllLabel"] as? String
         sourceIndex = NativeSheetItem.optionalInt(payload["sourceIndex"])
         sourceUrl = payload["sourceUrl"] as? String
         sourceType = payload["sourceType"] as? String
@@ -540,19 +544,22 @@ private struct NativeOptionsSelectorConfiguration {
     let selectedOptionId: String?
     let searchable: Bool
     let options: [NativeSheetOption]
+    let filterAllLabel: String?
 
     init(
         title: String,
         subtitle: String?,
         selectedOptionId: String?,
         searchable: Bool,
-        options: [NativeSheetOption]
+        options: [NativeSheetOption],
+        filterAllLabel: String? = nil
     ) {
         self.title = title
         self.subtitle = subtitle
         self.selectedOptionId = selectedOptionId
         self.searchable = searchable
         self.options = options
+        self.filterAllLabel = filterAllLabel
     }
 
     init?(_ arguments: Any?) {
@@ -571,6 +578,7 @@ private struct NativeOptionsSelectorConfiguration {
         selectedOptionId = payload["selectedOptionId"] as? String
         searchable = payload["searchable"] as? Bool ?? true
         options = parsedOptions
+        filterAllLabel = payload["filterAllLabel"] as? String
     }
 }
 
@@ -609,6 +617,7 @@ private struct NativeTextEditorConfiguration {
     let valueId: String
     let sendActionId: String
     let closeActionId: String
+    let emitChanges: Bool
 
     init?(_ arguments: Any?) {
         guard let payload = arguments as? [String: Any] else {
@@ -622,6 +631,7 @@ private struct NativeTextEditorConfiguration {
         valueId = (payload["valueId"] as? String) ?? "text"
         sendActionId = (payload["sendActionId"] as? String) ?? "send"
         closeActionId = (payload["closeActionId"] as? String) ?? "close"
+        emitChanges = (payload["emitChanges"] as? Bool) ?? false
     }
 }
 
@@ -682,7 +692,7 @@ private struct NativeSheetDetail {
     let title: String
     let subtitle: String?
     let items: [NativeSheetItem]
-    let sections: [NativeSheetSection]
+    var sections: [NativeSheetSection]
     let confirmActionId: String?
     let confirmActionLabel: String?
     /// When set (0...1], sheet uses a single custom detent at this fraction of `maximumDetentValue`.
@@ -766,12 +776,14 @@ private struct NativeSheetDetail {
 private struct NativeSheetSection {
     let title: String?
     let footer: String?
-    let items: [NativeSheetItem]
+    var items: [NativeSheetItem]
+    let reorderActionId: String?
 
-    init(title: String?, footer: String?, items: [NativeSheetItem]) {
+    init(title: String?, footer: String?, items: [NativeSheetItem], reorderActionId: String? = nil) {
         self.title = title
         self.footer = footer
         self.items = items
+        self.reorderActionId = reorderActionId
     }
 
     init?(_ payload: [String: Any]) {
@@ -780,6 +792,7 @@ private struct NativeSheetSection {
         guard !items.isEmpty else { return nil }
         title = payload["title"] as? String
         footer = payload["footer"] as? String
+        reorderActionId = payload["reorderActionId"] as? String
     }
 }
 
@@ -904,6 +917,7 @@ private extension PlatformNativeSheetSection {
         ]
         payload["title"] = title
         payload["footer"] = footer
+        payload["reorderActionId"] = reorderActionId
         return payload
     }
 }
@@ -962,6 +976,7 @@ private extension PlatformNativeSheetItem {
         payload["checked"] = checked
         payload["accent"] = accent
         payload["usesProfileAvatar"] = usesProfileAvatar
+        payload["filterAllLabel"] = filterAllLabel
         return payload
     }
 }
@@ -999,6 +1014,7 @@ private extension PlatformNativeSheetOption {
         ]
         payload["subtitle"] = subtitle
         payload["sfSymbol"] = sfSymbol
+        payload["filterGroup"] = filterGroup
         return payload
     }
 }
@@ -1063,6 +1079,7 @@ private extension PlatformNativeSheetOptionsSelectorRequest {
         ]
         payload["subtitle"] = subtitle
         payload["selectedOptionId"] = selectedOptionId
+        payload["filterAllLabel"] = filterAllLabel
         return payload
     }
 }
@@ -1089,6 +1106,7 @@ private extension PlatformNativeSheetTextEditorRequest {
             "valueId": valueId,
             "sendActionId": sendActionId,
             "closeActionId": closeActionId,
+            "emitChanges": emitChanges,
         ]
         payload["placeholder"] = placeholder
         payload["sendLabel"] = sendLabel
@@ -1634,6 +1652,9 @@ final class NativeSheetBridge: ConduitBridge, NativeSheetHostApi {
             onControlChanged: { [weak self] item, value in
                 self?.handleCurrentSheetControlChanged(item, value: value)
             },
+            onReorder: { [weak self] actionId, ids in
+                self?.sendControlChanged(id: actionId, value: ids)
+            },
             onConfirmAction: { [weak self] actionId in
                 self?.handleCurrentSheetConfirmAction(actionId)
             },
@@ -1702,7 +1723,8 @@ final class NativeSheetBridge: ConduitBridge, NativeSheetHostApi {
             subtitle: item.subtitle,
             selectedOptionId: item.selectedOptionId,
             searchable: true,
-            options: item.options
+            options: item.options,
+            filterAllLabel: item.filterAllLabel
         )
         let controller = NativeOptionsSelectorTableViewController(
             configuration: configuration,
@@ -2082,6 +2104,10 @@ final class NativeSheetBridge: ConduitBridge, NativeSheetHostApi {
         pendingTextEditorResult = result
         let controller = NativeTextEditorViewController(
             configuration: configuration,
+            onChange: { [weak self] value in
+                guard configuration.emitChanges else { return }
+                self?.sendControlChanged(id: configuration.valueId, value: value)
+            },
             onClose: { [weak self] in
                 self?.resolvePendingTextEditorAfterDismiss(
                     actionId: configuration.closeActionId
@@ -4442,6 +4468,7 @@ private final class NativeDetailTableViewController: UITableViewController {
     private let canNavigate: (NativeSheetItem) -> Bool
     private let onSelect: (NativeSheetItem) -> Void
     private let onControlChanged: (NativeSheetItem, Any?) -> Void
+    private let onReorder: (String, [String]) -> Void
     private let onConfirmAction: (String) -> Void
     private let onClose: () -> Void
     private var pendingTextValues: [String: String] = [:]
@@ -4477,6 +4504,7 @@ private final class NativeDetailTableViewController: UITableViewController {
         canNavigate: @escaping (NativeSheetItem) -> Bool,
         onSelect: @escaping (NativeSheetItem) -> Void,
         onControlChanged: @escaping (NativeSheetItem, Any?) -> Void,
+        onReorder: @escaping (String, [String]) -> Void,
         onConfirmAction: @escaping (String) -> Void,
         onClose: @escaping () -> Void
     ) {
@@ -4484,6 +4512,7 @@ private final class NativeDetailTableViewController: UITableViewController {
         self.canNavigate = canNavigate
         self.onSelect = onSelect
         self.onControlChanged = onControlChanged
+        self.onReorder = onReorder
         self.onConfirmAction = onConfirmAction
         self.onClose = onClose
         super.init(style: .insetGrouped)
@@ -4500,6 +4529,7 @@ private final class NativeDetailTableViewController: UITableViewController {
         title = newDetail.title
         navigationItem.title = newDetail.title
         refreshNavigationAction()
+        tableView.setEditing(tableSections.contains { $0.reorderActionId != nil }, animated: false)
         tableView.reloadData()
     }
 
@@ -4550,6 +4580,48 @@ private final class NativeDetailTableViewController: UITableViewController {
         tableView.estimatedRowHeight = NativeSheetSettingsStyle.defaultCellHeight
         tableView.rowHeight = UITableView.automaticDimension
         NativeSheetSettingsStyle.apply(to: tableView)
+        tableView.allowsSelectionDuringEditing = true
+        tableView.setEditing(tableSections.contains { $0.reorderActionId != nil }, animated: false)
+    }
+
+    override func tableView(_ tableView: UITableView, canMoveRowAt indexPath: IndexPath) -> Bool {
+        tableSections[indexPath.section].reorderActionId != nil
+    }
+
+    override func tableView(
+        _ tableView: UITableView,
+        editingStyleForRowAt indexPath: IndexPath
+    ) -> UITableViewCell.EditingStyle { .none }
+
+    override func tableView(
+        _ tableView: UITableView,
+        shouldIndentWhileEditingRowAt indexPath: IndexPath
+    ) -> Bool { false }
+
+    /// Clamps cross-section drags to the source section while preserving same-section moves.
+    override func tableView(
+        _ tableView: UITableView,
+        targetIndexPathForMoveFromRowAt source: IndexPath,
+        toProposedIndexPath proposed: IndexPath
+    ) -> IndexPath {
+        guard source.section != proposed.section else { return proposed }
+        return IndexPath(
+            row: proposed.section < source.section ? 0 : tableSections[source.section].items.count - 1,
+            section: source.section
+        )
+    }
+
+    /// Updates local order before delegating persistence with the complete ordered item IDs.
+    override func tableView(
+        _ tableView: UITableView,
+        moveRowAt source: IndexPath,
+        to destination: IndexPath
+    ) {
+        guard source.section == destination.section,
+              let actionId = tableSections[source.section].reorderActionId else { return }
+        let item = detail.sections[source.section].items.remove(at: source.row)
+        detail.sections[source.section].items.insert(item, at: destination.row)
+        onReorder(actionId, detail.sections[source.section].items.map(\.id))
     }
 
     override func viewWillDisappear(_ animated: Bool) {
@@ -4671,6 +4743,7 @@ private final class NativeDetailTableViewController: UITableViewController {
         default:
             let cell = tableView.dequeueReusableCell(withIdentifier: "cell", for: indexPath)
             configureCell(cell, item: item)
+            cell.showsReorderControl = tableSections[indexPath.section].reorderActionId != nil
             return cell
         }
     }
@@ -4715,8 +4788,10 @@ private final class NativeDetailTableViewController: UITableViewController {
         tableSections[indexPath.section].items[indexPath.row]
     }
 
+    /// Resets reused accessories and keeps toggles available while reorder handles are visible.
     private func configureCell(_ cell: UITableViewCell, item: NativeSheetItem) {
         cell.accessoryView = nil
+        cell.editingAccessoryView = nil
         cell.accessoryType = .none
         cell.selectionStyle = .default
 
@@ -4733,6 +4808,7 @@ private final class NativeDetailTableViewController: UITableViewController {
                 self?.onControlChanged(item, toggle?.isOn ?? false)
             }, for: .valueChanged)
             cell.accessoryView = toggle
+            cell.editingAccessoryView = toggle
             cell.selectionStyle = .none
 
         case "searchablePicker":
@@ -5377,13 +5453,17 @@ private final class NativeModelTagButton: UIButton {
     }
 }
 
-private final class NativeOptionsSelectorTableViewController: UITableViewController {
+final class NativeOptionsSelectorTableViewController: UIViewController, UITableViewDataSource, UITableViewDelegate {
     private let configuration: NativeOptionsSelectorConfiguration
     private let onSelect: (String) -> Void
     private let onClose: () -> Void
+    private let tableView = UITableView(frame: .zero, style: .insetGrouped)
+    private let filterButton = UIButton(type: .system)
+    private var selectedFilter: String?
+    private var query = ""
     private var filteredOptions: [NativeSheetOption]
 
-    init(
+    fileprivate init(
         configuration: NativeOptionsSelectorConfiguration,
         onSelect: @escaping (String) -> Void,
         onClose: @escaping () -> Void
@@ -5392,7 +5472,20 @@ private final class NativeOptionsSelectorTableViewController: UITableViewControl
         self.onSelect = onSelect
         self.onClose = onClose
         filteredOptions = configuration.options
-        super.init(style: .insetGrouped)
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    static func makeForTesting(
+        _ payload: [String: Any], filterGroup: String?
+    ) -> UIViewController? {
+        guard let configuration = NativeOptionsSelectorConfiguration(payload) else { return nil }
+        let controller = NativeOptionsSelectorTableViewController(
+            configuration: configuration, onSelect: { _ in }, onClose: {}
+        )
+        controller.selectedFilter = filterGroup
+        controller.loadViewIfNeeded()
+        controller.applyFilters()
+        return controller
     }
 
     required init?(coder: NSCoder) {
@@ -5403,12 +5496,26 @@ private final class NativeOptionsSelectorTableViewController: UITableViewControl
         super.viewDidLoad()
         title = configuration.title
         navigationItem.rightBarButtonItem = closeButton()
+        view.backgroundColor = NativeSheetTheme.shared.background
+        tableView.dataSource = self
+        tableView.delegate = self
+        tableView.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(tableView)
+        NSLayoutConstraint.activate([
+            tableView.topAnchor.constraint(equalTo: view.topAnchor),
+            tableView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            tableView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            tableView.bottomAnchor.constraint(equalTo: view.keyboardLayoutGuide.topAnchor),
+        ])
         tableView.register(
             NativeSheetOptionTableViewCell.self,
             forCellReuseIdentifier: "optionCell"
         )
         NativeSheetSettingsStyle.apply(to: tableView)
 
+        if configuration.filterAllLabel != nil {
+            configureFilterButton()
+        }
         if configuration.searchable {
             let searchController = UISearchController(searchResultsController: nil)
             searchController.searchResultsUpdater = self
@@ -5418,14 +5525,14 @@ private final class NativeOptionsSelectorTableViewController: UITableViewControl
         }
     }
 
-    override func tableView(
+    func tableView(
         _ tableView: UITableView,
         titleForFooterInSection section: Int
     ) -> String? {
         configuration.subtitle
     }
 
-    override func tableView(
+    func tableView(
         _ tableView: UITableView,
         willDisplayFooterView view: UIView,
         forSection section: Int
@@ -5433,11 +5540,11 @@ private final class NativeOptionsSelectorTableViewController: UITableViewControl
         NativeSheetSettingsStyle.applyHeaderFooterStyle(view)
     }
 
-    override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
+    func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
         filteredOptions.count
     }
 
-    override func tableView(
+    func tableView(
         _ tableView: UITableView,
         cellForRowAt indexPath: IndexPath
     ) -> UITableViewCell {
@@ -5454,12 +5561,86 @@ private final class NativeOptionsSelectorTableViewController: UITableViewControl
         return cell
     }
 
-    override func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
+    func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: true)
         let option = filteredOptions[indexPath.row]
         guard option.enabled else { return }
         NativeSheetHaptics.selection()
         onSelect(option.id)
+    }
+
+    private func configureFilterButton() {
+        var style: UIButton.Configuration
+        if #available(iOS 26.0, *) {
+            style = .glass()
+        } else {
+            style = .tinted()
+        }
+        style.cornerStyle = .capsule
+        style.image = UIImage(systemName: "chevron.down")
+        style.imagePlacement = .trailing
+        style.imagePadding = 6
+        style.buttonSize = .small
+        filterButton.configuration = style
+        filterButton.showsMenuAsPrimaryAction = true
+        filterButton.accessibilityIdentifier = "options-filter"
+        filterButton.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(filterButton)
+        let preferredBottom = filterButton.bottomAnchor.constraint(
+            equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -8
+        )
+        preferredBottom.priority = .defaultHigh
+        NSLayoutConstraint.activate([
+            filterButton.leadingAnchor.constraint(
+                equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 20
+            ),
+            filterButton.trailingAnchor.constraint(
+                lessThanOrEqualTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -20
+            ),
+            filterButton.bottomAnchor.constraint(
+                lessThanOrEqualTo: view.keyboardLayoutGuide.topAnchor, constant: -8
+            ),
+            preferredBottom,
+        ])
+        tableView.contentInset.bottom = 52
+        updateFilterMenu()
+    }
+
+    private func updateFilterMenu() {
+        guard let allLabel = configuration.filterAllLabel else { return }
+        let groups = Set(configuration.options.compactMap(\.filterGroup))
+            .filter { !$0.isEmpty }
+            .sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+        filterButton.configuration?.title = selectedFilter ?? allLabel
+        filterButton.menu = UIMenu(children: ([nil] + groups.map(Optional.some)).map { group in
+            UIAction(
+                title: group ?? allLabel,
+                state: group == selectedFilter ? .on : .off
+            ) { [weak self] _ in
+                guard let self else { return }
+                NativeSheetHaptics.selection()
+                self.selectedFilter = group
+                self.updateFilterMenu()
+                self.applyFilters()
+            }
+        })
+    }
+
+    /// Empty groups bypass language filtering; unknown groups survive only when selected.
+    /// Text search still applies to every retained option.
+    private func applyFilters() {
+        filteredOptions = configuration.options.filter { option in
+            let matchesGroup = selectedFilter == nil
+                || option.filterGroup == ""
+                || option.filterGroup == selectedFilter
+                || (option.filterGroup == nil && option.id == configuration.selectedOptionId)
+            let matchesQuery = query.isEmpty
+                || option.label.lowercased().contains(query)
+                || option.id.lowercased().contains(query)
+                || (option.subtitle?.lowercased().contains(query) ?? false)
+            return matchesGroup && matchesQuery
+        }
+        tableView.reloadData()
     }
 
     private func closeButton() -> UIBarButtonItem {
@@ -5472,17 +5653,10 @@ private final class NativeOptionsSelectorTableViewController: UITableViewControl
 
 extension NativeOptionsSelectorTableViewController: UISearchResultsUpdating {
     func updateSearchResults(for searchController: UISearchController) {
-        let query = searchController.searchBar.text?
+        query = searchController.searchBar.text?
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased() ?? ""
-        filteredOptions = query.isEmpty
-            ? configuration.options
-            : configuration.options.filter { option in
-                option.label.lowercased().contains(query)
-                    || option.id.lowercased().contains(query)
-                    || (option.subtitle?.lowercased().contains(query) ?? false)
-            }
-        tableView.reloadData()
+        applyFilters()
     }
 }
 
@@ -6740,6 +6914,7 @@ private final class NativeModelAvatarView: UIView {
 
 private final class NativeTextEditorViewController: UIViewController, UITextViewDelegate {
     private let configuration: NativeTextEditorConfiguration
+    private let onChange: (String) -> Void
     private let onClose: () -> Void
     private let onSend: () -> Void
     private let textView = UITextView()
@@ -6749,10 +6924,12 @@ private final class NativeTextEditorViewController: UIViewController, UITextView
 
     init(
         configuration: NativeTextEditorConfiguration,
+        onChange: @escaping (String) -> Void,
         onClose: @escaping () -> Void,
         onSend: @escaping () -> Void
     ) {
         self.configuration = configuration
+        self.onChange = onChange
         self.onClose = onClose
         self.onSend = onSend
         super.init(nibName: nil, bundle: nil)
@@ -6827,6 +7004,7 @@ private final class NativeTextEditorViewController: UIViewController, UITextView
     }
 
     func textViewDidChange(_ textView: UITextView) {
+        onChange(textView.text ?? "")
         refreshActions()
     }
 

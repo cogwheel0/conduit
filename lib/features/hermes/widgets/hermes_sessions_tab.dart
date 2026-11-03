@@ -20,6 +20,7 @@ import 'package:conduit_core/features/navigation/providers/drawer_section_notifi
 import 'package:conduit_core/features/hermes/models/hermes_bot.dart';
 import 'package:conduit_core/features/hermes/models/hermes_session.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
+import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 
 import 'hermes_bot_tile.dart';
 import 'hermes_connection_switcher.dart';
@@ -89,6 +90,7 @@ class _HermesSessionsTabState extends ConsumerState<HermesSessionsTab>
     final refreshable = ConduitRefreshIndicator(
       edgeOffset: sidebarRefreshIndicatorEdgeOffset(context),
       onRefresh: () async {
+        ConduitHaptics.lightImpact();
         if (showJobs) ref.invalidate(hermesJobsProvider);
         ref.invalidate(hermesBotsProvider);
         ref.invalidate(hermesSessionsProvider);
@@ -180,7 +182,7 @@ class _HermesSessionsTabState extends ConsumerState<HermesSessionsTab>
         SliverToBoxAdapter(
           child: Padding(
             padding: EdgeInsets.only(top: 64),
-            child: Center(child: CircularProgressIndicator()),
+            child: Center(child: AdaptiveProgressIndicator()),
           ),
         ),
       ],

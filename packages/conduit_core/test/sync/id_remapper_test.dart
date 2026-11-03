@@ -117,6 +117,12 @@ void main() {
       const localId = 'local:abc';
       const serverId = 'srv-123';
       await seedLocalChat(db, id: localId, messageCount: 3);
+      await db.composerDraftsDao.saveDraft(
+        scope: 'chat',
+        chatId: localId,
+        content: 'An unsent gardening note',
+        updatedAt: 10,
+      );
       final createSeq = await seedOutbox(
         db,
         kind: 'createChat',
@@ -135,6 +141,15 @@ void main() {
         serverId: serverId,
         serverCreatedAt: 500,
         serverUpdatedAt: 600,
+      );
+
+      expect(
+        (await db.composerDraftsDao.readDraft('chat', serverId))?.content,
+        'An unsent gardening note',
+      );
+      expect(
+        (await db.select(db.composerDrafts).get()).single.chatId,
+        serverId,
       );
 
       // Exactly one chat row, now at serverId, with server timestamps.

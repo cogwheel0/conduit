@@ -1,2 +1,4 @@
 #include "../Flutter/Generated.xcconfig"
 EXCLUDED_ARCHS[sdk=iphonesimulator*] = x86_64
+
+SWIFT_ACTIVE_COMPILATION_CONDITIONS = $(inherited) CONDUIT_WIDGET

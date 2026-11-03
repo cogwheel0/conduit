@@ -8,13 +8,17 @@ import 'package:uuid/uuid.dart';
 import '../../../shared/services/navigation_service.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/widgets/conduit_components.dart';
+import '../../../shared/widgets/adaptive_dropdown_field.dart';
 import '../../../shared/widgets/themed_dialogs.dart';
+import '../../../shared/widgets/platform_ui/platform_ui.dart' as adaptive;
 import '../../../shared/widgets/utility_components.dart';
 
 import 'package:conduit_core/features/direct_connections/models/direct_mcp_server.dart';
 import 'package:conduit_core/features/direct_connections/providers/direct_mcp_providers.dart';
 import 'package:conduit_core/features/direct_connections/services/direct_mcp_client.dart';
 import 'package:conduit_core/features/direct_connections/services/direct_mcp_oauth.dart';
+import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart'
+    show nativeIosTextMagnifierConfiguration;
 
 class DirectMcpServerEditorPage extends ConsumerStatefulWidget {
   const DirectMcpServerEditorPage({super.key, required this.serverId});
@@ -494,6 +498,7 @@ class _DirectMcpServerEditorPageState
                   Text(l10n.directMcpReachabilityHelp),
                   const SizedBox(height: 16),
                   TextField(
+                    magnifierConfiguration: nativeIosTextMagnifierConfiguration,
                     key: const ValueKey('direct-mcp-name'),
                     controller: _name,
                     enabled: !_busy,
@@ -501,6 +506,7 @@ class _DirectMcpServerEditorPageState
                   ),
                   const SizedBox(height: 12),
                   TextField(
+                    magnifierConfiguration: nativeIosTextMagnifierConfiguration,
                     key: const ValueKey('direct-mcp-endpoint'),
                     controller: _endpoint,
                     enabled: !_busy && !oauthPending,
@@ -511,32 +517,31 @@ class _DirectMcpServerEditorPageState
                     ),
                   ),
                   const SizedBox(height: 12),
-                  DropdownButtonFormField<DirectMcpAuthMode>(
+                  AdaptiveDropdownField<DirectMcpAuthMode>(
                     key: ValueKey(
                       'direct-mcp-auth-mode-${widget.serverId}-${_authMode.name}',
                     ),
-                    initialValue: _authMode,
-                    decoration: InputDecoration(
+                    value: _authMode,
+                    decoration: adaptive.InputDecoration(
                       labelText: l10n.directMcpAuthMode,
                     ),
-                    items: [
-                      DropdownMenuItem(
+                    options: [
+                      AdaptiveDropdownOption(
                         value: DirectMcpAuthMode.none,
-                        child: Text(l10n.directMcpAuthNone),
+                        label: l10n.directMcpAuthNone,
                       ),
-                      DropdownMenuItem(
+                      AdaptiveDropdownOption(
                         value: DirectMcpAuthMode.bearer,
-                        child: Text(l10n.directMcpAuthBearer),
+                        label: l10n.directMcpAuthBearer,
                       ),
-                      DropdownMenuItem(
+                      AdaptiveDropdownOption(
                         value: DirectMcpAuthMode.oauth,
-                        child: Text(l10n.directMcpAuthOAuth),
+                        label: l10n.directMcpAuthOAuth,
                       ),
                     ],
                     onChanged: _busy || oauthPending
                         ? null
                         : (mode) {
-                            if (mode == null) return;
                             setState(() {
                               _authMode = mode;
                               _message = null;
@@ -549,6 +554,8 @@ class _DirectMcpServerEditorPageState
                   if (_authMode == DirectMcpAuthMode.bearer) ...[
                     const SizedBox(height: 12),
                     TextField(
+                      magnifierConfiguration:
+                          nativeIosTextMagnifierConfiguration,
                       key: const ValueKey('direct-mcp-token'),
                       controller: _token,
                       enabled: !_busy,
@@ -595,6 +602,7 @@ class _DirectMcpServerEditorPageState
                   ],
                   const SizedBox(height: 12),
                   TextField(
+                    magnifierConfiguration: nativeIosTextMagnifierConfiguration,
                     key: const ValueKey('direct-mcp-headers'),
                     controller: _headers,
                     enabled: !_busy,
@@ -647,14 +655,23 @@ class _DirectMcpServerEditorPageState
                       ),
                     ),
                   ],
-                  SwitchListTile.adaptive(
-                    key: const ValueKey('direct-mcp-enabled'),
-                    contentPadding: EdgeInsets.zero,
-                    title: Text(l10n.enabledLabel),
-                    value: _enabled,
-                    onChanged: _busy
-                        ? null
-                        : (value) => setState(() => _enabled = value),
+                  MergeSemantics(
+                    child: ListTile(
+                      key: const ValueKey('direct-mcp-enabled'),
+                      enabled: !_busy,
+                      contentPadding: EdgeInsets.zero,
+                      title: ExcludeSemantics(child: Text(l10n.enabledLabel)),
+                      trailing: adaptive.AdaptiveSwitch(
+                        value: _enabled,
+                        semanticLabel: l10n.enabledLabel,
+                        onChanged: _busy
+                            ? null
+                            : (value) => setState(() => _enabled = value),
+                      ),
+                      onTap: _busy
+                          ? null
+                          : () => setState(() => _enabled = !_enabled),
+                    ),
                   ),
                   if (_message != null) ...[
                     const SizedBox(height: 8),

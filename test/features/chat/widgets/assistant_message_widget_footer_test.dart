@@ -138,6 +138,7 @@ Widget _buildAssistantHarness(
   bool disableAnimations = false,
   bool showActionBar = true,
   bool readOnly = false,
+  AppSettings? settings,
   String Function()? resolveGroupedResponseText,
   VoidCallback? onCopy,
   VoidCallback? onRegenerate,
@@ -146,6 +147,7 @@ Widget _buildAssistantHarness(
 }) {
   return ProviderScope(
     overrides: [
+      if (settings != null) appSettingsProvider.overrideWithValue(settings),
       textToSpeechControllerProvider.overrideWith(
         _TestTextToSpeechController.new,
       ),
@@ -708,6 +710,108 @@ void main() {
       check(calls).equals(1);
     },
   );
+
+  for (final selection in [
+    <String>['share', 'usage'],
+    <String>[],
+  ]) {
+    testWidgets(
+      'custom inline actions keep all other actions in More: $selection',
+      (tester) async {
+        final message = ChatMessage(
+          id: 'cedar-plan',
+          role: 'assistant',
+          content: 'Water the seedlings gently.',
+          timestamp: DateTime(2026, 1, 1),
+          usage: const {'total_tokens': 12},
+        );
+        await tester.pumpWidget(
+          _buildAssistantHarness(
+            message,
+            settings: AppSettings(inlineMessageActions: selection),
+          ),
+        );
+        await tester.pumpAndSettle();
+        expect(find.byIcon(Icons.content_copy_outlined), findsNothing);
+        expect(
+          find.byIcon(Icons.share_outlined),
+          selection.contains('share') ? findsOneWidget : findsNothing,
+        );
+        expect(
+          find.byIcon(Icons.info_outline),
+          selection.contains('usage') ? findsOneWidget : findsNothing,
+        );
+        await tester.tap(find.byIcon(Icons.more_horiz_rounded));
+        await tester.pumpAndSettle();
+        expect(find.text('Copy'), findsOneWidget);
+        expect(find.text('Regenerate'), findsOneWidget);
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
+
+  testWidgets('reordered inline actions follow the saved order', (
+    tester,
+  ) async {
+    final message = ChatMessage(
+      id: 'folding-plan',
+      role: 'assistant',
+      content: 'Fold the paper into three equal sections.',
+      timestamp: DateTime(2026, 1, 1),
+      usage: const {'total_tokens': 12},
+    );
+    await tester.pumpWidget(
+      _buildAssistantHarness(
+        message,
+        settings: const AppSettings(
+          inlineMessageActions: ['share', 'merge', 'usage', 'copy'],
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final share = tester.getCenter(find.byIcon(Icons.share_outlined)).dx;
+    final usage = tester.getCenter(find.byIcon(Icons.info_outline)).dx;
+    final copy = tester.getCenter(find.byIcon(Icons.content_copy_outlined)).dx;
+    expect(share, lessThan(usage));
+    expect(usage, lessThan(copy));
+    await tester.tap(find.byIcon(Icons.more_horiz_rounded));
+    await tester.pumpAndSettle();
+    expect(find.text('Regenerate'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('all chosen actions fit a narrow response footer', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(320, 640));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final message = ChatMessage(
+      id: 'cedar-plan',
+      role: 'assistant',
+      content: 'Water the seedlings gently.',
+      timestamp: DateTime(2026, 1, 1),
+      usage: const {'total_tokens': 12},
+    );
+    await tester.pumpWidget(
+      _buildAssistantHarness(
+        message,
+        settings: const AppSettings(
+          inlineMessageActions: [
+            'copy',
+            'tts',
+            'regenerate',
+            'share',
+            'usage',
+            'delete',
+          ],
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.byIcon(Icons.share_outlined), findsOneWidget);
+    expect(find.byIcon(Icons.delete_outline), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
 
   testWidgets('assistant footer caps inline actions and overflows extras', (
     tester,

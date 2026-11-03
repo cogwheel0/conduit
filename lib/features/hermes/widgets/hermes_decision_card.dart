@@ -154,6 +154,7 @@ final class _HermesDecisionCardState extends State<HermesDecisionCard> {
                 const SizedBox(height: Spacing.sm),
               ],
               TextField(
+                magnifierConfiguration: nativeIosTextMagnifierConfiguration,
                 controller: _controller,
                 obscureText: _sensitive,
                 enableSuggestions: !_sensitive,

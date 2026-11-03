@@ -548,6 +548,21 @@
   "@filters": {
     "description": "Header for toggle filters section."
   },
+  "composerDraftLoadFailed": "保存した下書きを読み込めませんでした。置き換える前にもう一度お試しください。",
+  "composerDraftSaveFailed": "このデバイスに下書きを保存できませんでした。アプリを開いたまま、もう一度お試しください。",
+  "savedRecording": "保存済みの録音",
+  "recordingDiscard": "録音を破棄",
+  "recordingTranscriptionFailed": "文字起こしに失敗しました。録音は保存されています。",
+  "recordingDiscardConfirmation": "この録音を破棄してもよろしいですか？",
+  "recordingDiscardFailed": "この録音を破棄できませんでした。もう一度お試しください。",
+  "recordingCaptureInterrupted": "録音が中断されました。保存された音声は一部が欠けている可能性があります。",
+  "recordingLoadFailed": "録音を読み込めませんでした。再試行",
+  "recordingSaveFailed": "このデバイスに録音を保存できませんでした。アプリを開いたまま再試行してください。",
+  "transcribeOnServer": "サーバーで文字起こし",
+  "transcribeOnDevice": "デバイスで文字起こし",
+  "recordingRecoveryUnavailable": "この音声認識では録音を保持できません。文字起こししたテキストは引き続き下書きに保存されます。音声を保持するには、サーバーでの音声認識を選択してください。",
+  "exportRecording": "録音を書き出す",
+  "recordingExportFailed": "この録音を書き出せませんでした。もう一度お試しください。",
   "voiceInput": "音声入力",
   "@voiceInput": {
     "description": "Label for voice input feature."
@@ -1118,6 +1133,8 @@
   "@copy": {
     "description": "Action to copy text to clipboard."
   },
+  "ttsSkipBackward": "15秒戻る",
+  "ttsSkipForward": "15秒進む",
   "ttsListen": "聞く",
   "@ttsListen": {
     "description": "Action to play the assistant message using text to speech"
@@ -1474,6 +1491,8 @@
   "@analyzed": {
     "description": "Label shown after code interpreter has finished."
   },
+  "showComposerNotesButton": "Show Notes button",
+  "showComposerNotesButtonDescription": "Show Create note in the chat composer.",
   "appCustomization": "カスタマイズ",
   "@appCustomization": {
     "description": "Title of the customization settings page."
@@ -1500,6 +1519,13 @@
   "@autoSelectDescription": {
     "description": "Explains what the server-provided model setting does."
   },
+  "messageActionsAutomatic": "アクションを自動選択",
+  "@messageActionsAutomatic": {"description": "Toggle for choosing response actions automatically from the actions eligible for each message."},
+  "messageActionsTitle": "メッセージアクション",
+  "messageActionsDescription": "回答の下に表示するアクションを選択します。有効なアクションをドラッグして順序を変更できます。それ以外のアクションは「その他」に残ります。",
+  "messageActionsInline": "回答の下",
+  "messageActionsReorder": "ドラッグして並べ替え",
+  "messageActionsReset": "初期設定に戻す",
   "chatSettings": "チャット",
   "@chatSettings": {
     "description": "Section header for chat-related customization options."
@@ -1692,6 +1718,8 @@
   "@ttsPreview": {
     "description": "Title for preview button."
   },
+  "ttsAllLanguages": "すべての言語",
+  "ttsSearchVoices": "音声を検索",
   "ttsSystemDefault": "システム既定",
   "@ttsSystemDefault": {
     "description": "Label for system default voice option."
@@ -3143,6 +3171,10 @@
   "socketNotConnected": "未接続",
   "socketConnected": "接続済み",
   "socketDisconnected": "切断済み",
+  "liveConnectionDetails": "リアルタイム更新が切断されています。接続の詳細を表示します。",
+  "liveConnectionDetailsTitle": "リアルタイム更新",
+  "liveConnectionDetailsMessage": "リアルタイム更新が切断されています。返信やチャットの変更が遅れる場合があります。接続を確認するか、再接続をお試しください。",
+  "liveConnectionRetryFailed": "リアルタイム更新はまだ切断されています。接続アイコンをタップして再試行してください。",
   "socketLatencyLabel": "レイテンシ",
   "socketReconnectsLabel": "再接続",
   "socketLastHeartbeat": "最後のハートビート: {time}",
@@ -5068,6 +5100,8 @@
   "backendChooserAppleSectionTitle": "Apple Intelligence",
   "backendChooserModelApisSectionTitle": "モデル API",
   "backendChooserSelfHostedSectionTitle": "セルフホストのサービス",
+  "citationBackground": "引用の背景",
+  "citationBackgroundDescription": "オフにすると文中の引用の背景が透明になります",
   "citationShowTitles": "引用にページタイトルを表示",
   "citationShowTitlesDescription": "引用バッジにサイトのドメインではなくページタイトルを使用します",
   "directContextCompactionDescription": "これらのモデルはコンテキストウィンドウを報告しません。Conduit はリクエストが大きくなりすぎる前に、選択した上限を使って古いメッセージを圧縮します。",

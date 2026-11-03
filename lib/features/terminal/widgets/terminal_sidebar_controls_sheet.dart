@@ -3,6 +3,7 @@ import 'dart:io' show Platform;
 
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 
 import '../../../core/services/native_sheet_bridge.dart';
 import '../../../l10n/app_localizations.dart';
@@ -315,7 +316,7 @@ class _ServerDropdownBlock extends StatelessWidget {
           child: SizedBox(
             width: 24,
             height: 24,
-            child: CircularProgressIndicator(strokeWidth: 2),
+            child: AdaptiveProgressIndicator(strokeWidth: 2),
           ),
         ),
       );

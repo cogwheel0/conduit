@@ -26,6 +26,22 @@ class JustAudioPlayback implements AudioPlaybackPort {
   int? get currentIndex => _player.currentIndex;
 
   @override
+  Duration get position => _player.position;
+
+  @override
+  Future<Duration?> durationOf(AudioClip clip) async {
+    final probe = AudioPlayer(
+      handleAudioSessionActivation: false,
+      handleInterruptions: false,
+    );
+    try {
+      return await probe.setAudioSource(_toSource(clip));
+    } finally {
+      await probe.dispose();
+    }
+  }
+
+  @override
   AudioProcessingState get processingState =>
       _mapProcessingState(_player.processingState);
 

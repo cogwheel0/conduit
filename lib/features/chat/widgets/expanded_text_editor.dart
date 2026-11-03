@@ -70,13 +70,11 @@ class _ExpandedTextEditorSheetState extends State<ExpandedTextEditorSheet> {
     final iconColor = _hasText
         ? theme.buttonPrimaryText
         : theme.textPrimary.withValues(alpha: Alpha.disabled);
-    final sendIcon = Icon(
-      Platform.isIOS ? CupertinoIcons.arrow_up : Icons.arrow_upward,
-      size: IconSize.small + 1,
-      color: iconColor,
-    );
+    final sendIcon = Platform.isIOS
+        ? CupertinoIcons.arrow_up
+        : Icons.arrow_upward;
 
-    final sendButton = AdaptiveButton.child(
+    final sendButton = AdaptiveButton.icon(
       onPressed: _hasText ? widget.onSend : null,
       enabled: _hasText,
       style: conduitUsesOpaqueGlassFallback()
@@ -88,7 +86,10 @@ class _ExpandedTextEditorSheetState extends State<ExpandedTextEditorSheet> {
       padding: EdgeInsets.zero,
       borderRadius: BorderRadius.circular(buttonSize),
       useSmoothRectangleBorder: false,
-      child: sendIcon,
+      icon: sendIcon,
+      iconSize: IconSize.small + 1,
+      iconColor: iconColor,
+      semanticLabel: l10n.send,
     );
 
     final closeButton = SheetCloseButton(
@@ -131,6 +132,7 @@ class _ExpandedTextEditorSheetState extends State<ExpandedTextEditorSheet> {
               maxLines: null,
               expands: true,
               textAlignVertical: TextAlignVertical.top,
+              magnifierConfiguration: nativeIosTextMagnifierConfiguration,
               style: AppTypography.chatMessageStyle.copyWith(
                 color: theme.textPrimary,
                 height: 1.5,

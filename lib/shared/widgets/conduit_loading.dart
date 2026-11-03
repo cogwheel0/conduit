@@ -586,11 +586,9 @@ class _ImprovedLoadingStateState extends State<ImprovedLoadingState>
     return SizedBox(
       width: widget.isCompact ? IconSize.large : IconSize.xxl,
       height: widget.isCompact ? IconSize.large : IconSize.xxl,
-      child: CircularProgressIndicator(
+      child: AdaptiveProgressIndicator(
         strokeWidth: widget.isCompact ? 2 : 3,
-        valueColor: AlwaysStoppedAnimation<Color>(
-          context.conduitTheme.buttonPrimary,
-        ),
+        color: context.conduitTheme.buttonPrimary,
       ),
     );
   }

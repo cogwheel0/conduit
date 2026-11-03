@@ -548,6 +548,21 @@
   "@filters": {
     "description": "Header for toggle filters section."
   },
+  "composerDraftLoadFailed": "Uložený koncept se nepodařilo načíst. Než ho nahradíte, zkuste to znovu.",
+  "composerDraftSaveFailed": "Koncept se nepodařilo uložit do tohoto zařízení. Nechte aplikaci otevřenou a zkuste to znovu.",
+  "savedRecording": "Uložená nahrávka",
+  "recordingDiscard": "Zahodit nahrávku",
+  "recordingTranscriptionFailed": "Přepis se nezdařil. Nahrávka je uložená.",
+  "recordingDiscardConfirmation": "Opravdu chcete tuto nahrávku zahodit?",
+  "recordingDiscardFailed": "Nahrávku se nepodařilo zahodit. Zkuste to znovu.",
+  "recordingCaptureInterrupted": "Nahrávání bylo přerušeno. Uložený zvuk nemusí být úplný.",
+  "recordingLoadFailed": "Nahrávky se nepodařilo načíst. Zkusit znovu",
+  "recordingSaveFailed": "Nahrávku se nepodařilo uložit do tohoto zařízení. Nechte aplikaci otevřenou a zkuste to znovu.",
+  "transcribeOnServer": "Přepsat na serveru",
+  "transcribeOnDevice": "Přepsat v zařízení",
+  "recordingRecoveryUnavailable": "Tento rozpoznávač řeči neumí uchovávat zvukové nahrávky. Přepsaný text se nadále ukládá s konceptem. Chcete-li uchovávat zvuk, zvolte převod řeči na text na serveru.",
+  "exportRecording": "Exportovat nahrávku",
+  "recordingExportFailed": "Nahrávku se nepodařilo exportovat. Zkuste to znovu.",
   "voiceInput": "Hlasový vstup",
   "@voiceInput": {
     "description": "Label for voice input feature."
@@ -1118,6 +1133,8 @@
   "@copy": {
     "description": "Action to copy text to clipboard."
   },
+  "ttsSkipBackward": "O 15 sekund zpět",
+  "ttsSkipForward": "O 15 sekund vpřed",
   "ttsListen": "Poslechnout",
   "@ttsListen": {
     "description": "Action to play the assistant message using text to speech"
@@ -1474,6 +1491,8 @@
   "@analyzed": {
     "description": "Label shown after code interpreter has finished."
   },
+  "showComposerNotesButton": "Show Notes button",
+  "showComposerNotesButtonDescription": "Show Create note in the chat composer.",
   "appCustomization": "Přizpůsobení",
   "@appCustomization": {
     "description": "Title of the customization settings page."
@@ -1500,6 +1519,13 @@
   "@autoSelectDescription": {
     "description": "Explains what the server-provided model setting does."
   },
+  "messageActionsAutomatic": "Automatické akce",
+  "@messageActionsAutomatic": {"description": "Toggle for choosing response actions automatically from the actions eligible for each message."},
+  "messageActionsTitle": "Akce zpráv",
+  "messageActionsDescription": "Vyberte akce zobrazované pod odpověďmi. Přetažením zapnutých akcí změníte jejich pořadí. Ostatní akce zůstanou v nabídce Více.",
+  "messageActionsInline": "Pod odpověďmi",
+  "messageActionsReorder": "Přetažením změníte pořadí",
+  "messageActionsReset": "Obnovit výchozí nastavení",
   "chatSettings": "Chat",
   "@chatSettings": {
     "description": "Section header for chat-related customization options."
@@ -1692,6 +1718,8 @@
   "@ttsPreview": {
     "description": "Title for preview button."
   },
+  "ttsAllLanguages": "Všechny jazyky",
+  "ttsSearchVoices": "Hledat hlasy",
   "ttsSystemDefault": "Výchozí systémový",
   "@ttsSystemDefault": {
     "description": "Label for system default voice option."
@@ -3433,6 +3461,10 @@
   "@socketDisconnected": {
     "description": "Socket health status when disconnected."
   },
+  "liveConnectionDetails": "Živé aktualizace jsou odpojené. Zobrazit podrobnosti připojení.",
+  "liveConnectionDetailsTitle": "Živé aktualizace",
+  "liveConnectionDetailsMessage": "Živé aktualizace jsou odpojené. Odpovědi a změny chatů se mohou zpozdit. Zkontrolujte připojení nebo se zkuste znovu připojit.",
+  "liveConnectionRetryFailed": "Živé aktualizace jsou stále odpojené. Klepnutím na ikonu připojení to zkuste znovu.",
   "socketLatencyLabel": "Latence",
   "@socketLatencyLabel": {
     "description": "Metric label for socket latency."
@@ -5374,6 +5406,8 @@
   "backendChooserAppleSectionTitle": "Apple Intelligence",
   "backendChooserModelApisSectionTitle": "API modelů",
   "backendChooserSelfHostedSectionTitle": "Vlastní hostované služby",
+  "citationBackground": "Pozadí citací",
+  "citationBackgroundDescription": "Vypněte pro průhledné citace v textu",
   "citationShowTitles": "Zobrazovat názvy stránek u citací",
   "citationShowTitlesDescription": "V odznacích citací používat názvy stránek místo domén webů",
   "directContextCompactionDescription": "Tyto modely neuvádějí velikost kontextového okna. Conduit použije zvolený limit ke zhuštění starších zpráv dříve, než budou požadavky příliš velké.",

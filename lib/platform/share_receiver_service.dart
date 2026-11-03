@@ -26,6 +26,7 @@ import '../features/navigation/providers/sidebar_providers.dart';
 import 'package:path/path.dart' as path;
 
 import '../shared/services/navigation_service.dart';
+import '../shared/widgets/platform_ui/platform_ui.dart';
 
 import 'package:conduit_core/services/share_staging_cleanup.dart';
 
@@ -833,11 +834,12 @@ final shareReceiverInitializerProvider = Provider<void>((ref) {
     final message = newErrors.length == 1
         ? newErrors.first
         : newErrors.take(3).join('\n');
-    ScaffoldMessenger.maybeOf(context)
-      ?..hideCurrentSnackBar()
-      ..showSnackBar(
-        SnackBar(content: Text(message), duration: const Duration(seconds: 5)),
-      );
+    ScaffoldMessenger.maybeOf(context)?.hideCurrentSnackBar();
+    AdaptiveSnackBar.show(
+      context,
+      message: message,
+      duration: const Duration(seconds: 5),
+    );
   }
 
   Future<void> prepareShareImportUi(SharedAttachmentImportStatus status) async {

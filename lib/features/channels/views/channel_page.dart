@@ -1,3 +1,4 @@
+import '../../chat/providers/composer_draft_provider.dart';
 import 'dart:async';
 import 'dart:developer' as developer;
 import 'dart:io' show Platform;
@@ -405,8 +406,7 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
       }
       final l10n = AppLocalizations.of(context);
       if (l10n != null) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(l10n.channelSendError)));
+        AdaptiveSnackBar.show(context, message: l10n.channelSendError);
       }
     } finally {
       if (mounted && operationGeneration == _operationGeneration) {
@@ -578,10 +578,9 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
               )) {
             return;
           }
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(AppLocalizations.of(context)!.channelSendError),
-            ),
+          AdaptiveSnackBar.show(
+            context,
+            message: AppLocalizations.of(context)!.channelSendError,
           );
           return;
         }
@@ -690,8 +689,9 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
           )) {
         return;
       }
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(AppLocalizations.of(context)!.channelSendError)),
+      AdaptiveSnackBar.show(
+        context,
+        message: AppLocalizations.of(context)!.channelSendError,
       );
     } finally {
       if (mounted && operationGeneration == _operationGeneration) {
@@ -912,12 +912,14 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
     return [
       ConduitContextMenuAction(
         cupertinoIcon: CupertinoIcons.smiley,
+        sfSymbol: 'face.smiling',
         materialIcon: Icons.emoji_emotions_outlined,
         label: l10n.channelMessageReact,
         onSelected: () async => _showEmojiPicker(message),
       ),
       ConduitContextMenuAction(
         cupertinoIcon: CupertinoIcons.reply,
+        sfSymbol: 'arrowshape.turn.up.left',
         materialIcon: Icons.reply_outlined,
         label: l10n.channelMessageReply,
         onSelected: () async => _setReplyTo(message),
@@ -925,6 +927,7 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
       if (message.parentId == null)
         ConduitContextMenuAction(
           cupertinoIcon: CupertinoIcons.bubble_left_bubble_right,
+          sfSymbol: 'bubble.left.and.bubble.right',
           materialIcon: Icons.forum_outlined,
           label: message.replyCount > 0
               ? l10n.threadWithCount(message.replyCount)
@@ -935,6 +938,7 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
         cupertinoIcon: message.isPinned
             ? CupertinoIcons.pin_slash
             : CupertinoIcons.pin,
+        sfSymbol: message.isPinned ? 'pin.slash' : 'pin',
         materialIcon: Icons.push_pin_outlined,
         label: message.isPinned ? l10n.unpin : l10n.pin,
         onSelected: () async => _togglePin(message),
@@ -942,12 +946,14 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
       if (isOwn)
         ConduitContextMenuAction(
           cupertinoIcon: CupertinoIcons.pencil,
+          sfSymbol: 'pencil',
           materialIcon: Icons.edit_outlined,
           label: l10n.channelMessageEdit,
           onSelected: () async => _startEditingMessage(message),
         ),
       ConduitContextMenuAction(
         cupertinoIcon: CupertinoIcons.delete,
+        sfSymbol: 'trash',
         materialIcon: Icons.delete_outline,
         label: l10n.channelMessageDelete,
         destructive: true,
@@ -1114,9 +1120,7 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
           )) {
         return;
       }
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(l10n.errorMessage)));
+      AdaptiveSnackBar.show(context, message: l10n.errorMessage);
     } finally {
       _mutePending = false;
     }
@@ -1480,10 +1484,17 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
                   children: [
                     Positioned.fill(
                       child: messagesAsync.when(
-                        data: (messages) =>
-                            _buildMessageList(messages, theme, l10n),
+                        data: (messages) => NativeContextMenuViewport(
+                          padding: EdgeInsets.only(
+                            top:
+                                MediaQuery.viewPaddingOf(context).top +
+                                conduitAdaptiveToolbarHeightOf(context),
+                            bottom: math.max(0, _composerHeight - Spacing.xl),
+                          ),
+                          child: _buildMessageList(messages, theme, l10n),
+                        ),
                         loading: () =>
-                            const Center(child: CircularProgressIndicator()),
+                            const Center(child: AdaptiveProgressIndicator()),
                         error: (error, _) => Center(
                           child: Text(
                             error.toString(),
@@ -1608,7 +1619,7 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
               child: SizedBox(
                 width: 24,
                 height: 24,
-                child: CircularProgressIndicator(strokeWidth: 2),
+                child: AdaptiveProgressIndicator(strokeWidth: 2),
               ),
             ),
           );
@@ -1755,11 +1766,25 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
                   ),
                 ),
               RepaintBoundary(
-                child: ModernChatInput(
-                  onSendMessage: _sendMessage,
-                  placeholder: l10n.channelInputPlaceholder,
-                  overflowButtonBuilder: _buildAttachmentButton,
-                  bottomPadding: 0,
+                child: ProviderScope(
+                  overrides: [
+                    composerDraftContextProvider.overrideWithValue(
+                      ephemeralComposerDraftContext(
+                        scope: 'channel',
+                        chatId: widget.channelId,
+                        session: (
+                          ref.watch(apiServiceProvider),
+                          ref.watch(openWebUiAuthSessionEpochProvider),
+                        ),
+                      ),
+                    ),
+                  ],
+                  child: ModernChatInput(
+                    onSendMessage: _sendMessage,
+                    placeholder: l10n.channelInputPlaceholder,
+                    overflowButtonBuilder: _buildAttachmentButton,
+                    bottomPadding: 0,
+                  ),
                 ),
               ),
             ],
@@ -2045,6 +2070,8 @@ class _MessageBubble extends StatelessWidget {
                               ),
                             ),
                             onSubmitted: (_) => onSubmitEdit?.call(),
+                            magnifierConfiguration:
+                                nativeIosTextMagnifierConfiguration,
                           ),
                         ),
                         ConduitIconButton(

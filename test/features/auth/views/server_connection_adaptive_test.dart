@@ -21,6 +21,43 @@ const _server = ServerConfig(
 );
 
 void main() {
+  testWidgets('server certificate switch has one actionable label', (
+    tester,
+  ) async {
+    final harness = AdaptiveAuthHarness(
+      server: _server,
+      disableAnimations: true,
+    );
+    addTearDown(harness.dispose);
+    tester.view.physicalSize = const Size(1200, 3000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    await tester.pumpWidget(
+      harness.build(initialLocation: Routes.serverConnection),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('advanced-settings-toggle')));
+    await tester.pumpAndSettle();
+    final control = find.byType(AdaptiveSwitch);
+    await tester.ensureVisible(control);
+    await tester.pumpAndSettle();
+    final label = tester.widget<AdaptiveSwitch>(control).semanticLabel!;
+    final nodes = tester.semantics.simulatedAccessibilityTraversal().where(
+      (node) => node.getSemanticsData().label.contains(label),
+    );
+    expect(nodes, hasLength(1));
+    expect(
+      label.allMatches(nodes.single.getSemanticsData().label),
+      hasLength(1),
+    );
+    expect(
+      nodes.single,
+      isSemantics(hasToggledState: true, hasTapAction: true),
+    );
+    await harness.unmount(tester);
+  }, variant: TargetPlatformVariant.only(TargetPlatform.android));
+
   testWidgets(
     'post-logout sign-in flow can return from server setup to backend chooser',
     (tester) async {

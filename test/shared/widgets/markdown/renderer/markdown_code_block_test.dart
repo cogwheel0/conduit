@@ -1,13 +1,61 @@
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/l10n/conduit_localizations.dart';
+import 'package:conduit/shared/widgets/legacy_design_compatibility.dart';
+import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:conduit/shared/widgets/markdown/renderer/block_renderer.dart';
 import 'package:conduit/shared/widgets/markdown/renderer/conduit_markdown_widget.dart';
 import 'package:conduit/shared/widgets/web_content_embed.dart';
+import 'package:cupertino_ui/cupertino_ui.dart';
+import 'package:flutter/services.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  testWidgets('iOS code copy shows feedback without a ScaffoldMessenger', (
+    tester,
+  ) async {
+    PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.iOS;
+    PlatformUiCapabilities.debugIOSMajorVersionOverride = 18;
+    PlatformUiCapabilities.debugNativeIOS26Override = false;
+    addTearDown(PlatformUiCapabilities.resetDebugOverrides);
+    final copied = <String>[];
+    final messenger = tester.binding.defaultBinaryMessenger;
+    messenger.setMockMethodCallHandler(SystemChannels.platform, (call) async {
+      if (call.method == 'Clipboard.setData') {
+        copied.add((call.arguments as Map)['text'] as String);
+      }
+      return null;
+    });
+    addTearDown(
+      () => messenger.setMockMethodCallHandler(SystemChannels.platform, null),
+    );
+    const sample = 'print("sample");';
+    await tester.pumpWidget(
+      ProviderScope(
+        child: CupertinoApp(
+          localizationsDelegates: conduitLocalizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          builder: (context, child) => LegacyDesignCompatibility(child: child!),
+          home: const CupertinoPageScaffold(
+            child: ConduitMarkdownWidget(data: '```dart\n$sample\n```'),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final context = tester.element(find.byType(ConduitMarkdownWidget));
+    expect(ScaffoldMessenger.maybeOf(context), isNull);
+    final message = AppLocalizations.of(context)!.codeCopiedToClipboard;
+    await tester.tap(find.byIcon(Icons.content_copy_rounded));
+    await tester.pumpAndSettle();
+    expect(copied.single.trim(), sample);
+    expect(tester.takeException(), isNull);
+    expect(find.text(message), findsOneWidget);
+    await tester.pump(const Duration(seconds: 2));
+    await tester.pumpWidget(const SizedBox());
+  }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
+
   Widget buildHarness(
     String data, {
     MarkdownHeavyBlockPolicy heavyBlockPolicy = MarkdownHeavyBlockPolicy.eager,

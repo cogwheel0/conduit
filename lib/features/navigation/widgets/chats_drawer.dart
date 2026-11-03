@@ -251,11 +251,9 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
                   radius: IconSize.sm / 2,
                   color: context.conduitTheme.loadingIndicator,
                 )
-              : CircularProgressIndicator(
+              : AdaptiveProgressIndicator(
                   strokeWidth: 2,
-                  valueColor: AlwaysStoppedAnimation<Color>(
-                    context.conduitTheme.loadingIndicator,
-                  ),
+                  color: context.conduitTheme.loadingIndicator,
                 ),
         ),
       ),
@@ -316,7 +314,10 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
     final refreshableScroll = PrimaryScrollController(
       controller: _listController,
       child: RefreshIndicator.noSpinner(
-        onRefresh: _refreshChats,
+        onRefresh: () {
+          ConduitHaptics.lightImpact();
+          return _refreshChats();
+        },
         onStatusChange: _handleRefreshStatusChange,
         child: scroll,
       ),
@@ -358,11 +359,9 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
               ? SizedBox(
                   width: IconSize.sm,
                   height: IconSize.sm,
-                  child: CircularProgressIndicator(
+                  child: AdaptiveProgressIndicator(
                     strokeWidth: 2,
-                    valueColor: AlwaysStoppedAnimation<Color>(
-                      theme.loadingIndicator,
-                    ),
+                    color: theme.loadingIndicator,
                   ),
                 )
               : showManualLoadMore
@@ -393,11 +392,9 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
               ? SizedBox(
                   width: IconSize.sm,
                   height: IconSize.sm,
-                  child: CircularProgressIndicator(
+                  child: AdaptiveProgressIndicator(
                     strokeWidth: 2,
-                    valueColor: AlwaysStoppedAnimation<Color>(
-                      theme.loadingIndicator,
-                    ),
+                    color: theme.loadingIndicator,
                   ),
                 )
               : ConduitButton(
@@ -713,7 +710,7 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
                 child: SizedBox(
                   width: IconSize.sm,
                   height: IconSize.sm,
-                  child: CircularProgressIndicator(strokeWidth: 2),
+                  child: AdaptiveProgressIndicator(strokeWidth: 2),
                 ),
               ),
             ),
@@ -951,7 +948,7 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
           return _buildRefreshableScrollableSlivers(slivers: slivers);
         },
         loading: () =>
-            const Center(child: CircularProgressIndicator(strokeWidth: 2.0)),
+            const Center(child: AdaptiveProgressIndicator(strokeWidth: 2.0)),
         error: (e, _) => Center(
           child: Padding(
             padding: const EdgeInsets.all(Spacing.md),
@@ -1144,7 +1141,7 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
         return _buildRefreshableScrollableSlivers(slivers: slivers);
       },
       loading: () =>
-          const Center(child: CircularProgressIndicator(strokeWidth: 2.0)),
+          const Center(child: AdaptiveProgressIndicator(strokeWidth: 2.0)),
       error: (e, _) => Center(
         child: Padding(
           padding: const EdgeInsets.all(Spacing.md),
@@ -1473,6 +1470,7 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
     final folderId = folder.id;
     final newFolderAction = ConduitContextMenuAction(
       cupertinoIcon: CupertinoIcons.folder_badge_plus,
+      sfSymbol: 'folder.badge.plus',
       materialIcon: Icons.create_new_folder_outlined,
       label: l10n.newFolder,
       onBeforeClose: () => ConduitHaptics.selectionClick(),
@@ -1495,6 +1493,7 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
       newFolderAction,
       ConduitContextMenuAction(
         cupertinoIcon: CupertinoIcons.pencil,
+        sfSymbol: 'pencil',
         materialIcon: Icons.edit_rounded,
         label: l10n.rename,
         onBeforeClose: () => ConduitHaptics.selectionClick(),
@@ -1505,6 +1504,7 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
       if (canMove)
         ConduitContextMenuAction(
           cupertinoIcon: CupertinoIcons.folder,
+          sfSymbol: 'folder',
           materialIcon: Icons.drive_file_move_outline,
           label: l10n.move,
           onBeforeClose: () => ConduitHaptics.selectionClick(),
@@ -1514,6 +1514,7 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
         ),
       ConduitContextMenuAction(
         cupertinoIcon: CupertinoIcons.delete,
+        sfSymbol: 'trash',
         materialIcon: Icons.delete_rounded,
         label: l10n.delete,
         destructive: true,

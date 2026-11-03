@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:conduit/shared/widgets/adaptive_toolbar_components.dart';
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:material_ui/material_ui.dart';
@@ -1009,16 +1010,9 @@ class _DirectConnectionSectionHeader extends StatelessWidget {
               if (onAdd != null) ...[
                 const SizedBox(width: Spacing.sm),
                 if (PlatformInfo.isIOS)
-                  CupertinoButton(
-                    padding: const EdgeInsets.symmetric(horizontal: Spacing.xs),
-                    minimumSize: const Size(0, TouchTarget.minimum),
+                  ConduitAdaptiveAppBarTextButton(
+                    label: l10n.addDirectConnection,
                     onPressed: onAdd,
-                    child: Text(
-                      l10n.addDirectConnection,
-                      style: AppTypography.bodySmallStyle.copyWith(
-                        color: theme.buttonPrimary,
-                      ),
-                    ),
                   )
                 else if (constraints.maxWidth < 330)
                   ConduitIconButton(

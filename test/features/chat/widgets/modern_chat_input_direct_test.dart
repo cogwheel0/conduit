@@ -31,6 +31,33 @@ import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   test(
+    'recording transcription appends without replacing a selected draft',
+    () {
+      const original = TextEditingValue(
+        text: 'Keep the whole draft.',
+        selection: TextSelection(baseOffset: 0, extentOffset: 20),
+      );
+      final appended = composerTextValueAfterTranscription(
+        original,
+        'Add a blue tile.',
+      );
+      expect(appended.text, 'Keep the whole draft. Add a blue tile.');
+      expect(
+        appended.selection,
+        TextSelection.collapsed(offset: appended.text.length),
+      );
+      expect(composerTextValueAfterTranscription(original, ''), original);
+      expect(
+        composerTextValueAfterTranscription(
+          const TextEditingValue(text: 'Keep this newline.\n'),
+          'Next line.',
+        ).text,
+        'Keep this newline.\nNext line.',
+      );
+    },
+  );
+
+  test(
     'composer insertion replaces selection and preserves surrounding draft',
     () {
       const current = TextEditingValue(
@@ -684,6 +711,8 @@ void main() {
       expect(find.text('Camera'), findsOneWidget);
       expect(find.text('Files'), findsNothing);
       expect(find.text('Web Page'), findsNothing);
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pump(const Duration(milliseconds: 1));
     },
   );
 
@@ -817,6 +846,8 @@ void main() {
     expect(find.text('File'), findsOneWidget);
     expect(find.text('Photo'), findsNothing);
     expect(find.text('Camera'), findsNothing);
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump(const Duration(milliseconds: 1));
   });
 
   testWidgets(
@@ -900,6 +931,8 @@ void main() {
         tester.widget<TextField>(find.byType(TextField)).focusNode?.hasFocus,
         isTrue,
       );
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pump(const Duration(milliseconds: 1));
     },
   );
 
@@ -941,6 +974,8 @@ void main() {
       expect(directModelAcceptsImageInput(directModel, registry), isTrue);
       expect(find.byIcon(Icons.add), findsNothing);
       expect(find.byType(ComposerAttachmentKeyboard), findsNothing);
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pump(const Duration(milliseconds: 1));
     },
   );
 
@@ -1593,6 +1628,41 @@ void main() {
       expandedShellBottom - expandedOverflowCenter.dy,
       compactShellBottom - compactOverflowCenter.dy,
     );
+  });
+
+  testWidgets('hiding the Notes shortcut preserves the composer draft', (
+    tester,
+  ) async {
+    Widget input(bool showNotes) => ProviderScope(
+      overrides: [
+        apiServiceProvider.overrideWithValue(null),
+        notesFeatureEnabledProvider.overrideWith(
+          _EnabledNotesFeatureNotifier.new,
+        ),
+        appSettingsProvider.overrideWithValue(
+          AppSettings(showComposerNotesButton: showNotes),
+        ),
+      ],
+      child: MaterialApp(
+        localizationsDelegates: conduitLocalizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: Scaffold(
+          body: ModernChatInput(onSendMessage: (_) {}, onFileAttachment: _noop),
+        ),
+      ),
+    );
+    await tester.pumpWidget(input(true));
+    await tester.enterText(find.byType(TextField), 'Paper\nlantern');
+    await tester.pump();
+    await tester.pump();
+    final note = find.byKey(const ValueKey('create-draft-note-button'));
+    expect(note, findsOneWidget);
+    await tester.pumpWidget(input(false));
+    expect(note, findsNothing);
+    expect(find.text('Paper\nlantern'), findsOneWidget);
+    expect(find.byKey(const ValueKey('primary-btn-send')), findsOneWidget);
+    await tester.pumpWidget(input(true));
+    expect(note, findsOneWidget);
   });
 
   testWidgets('secondary composer actions use plain icon buttons', (

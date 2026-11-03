@@ -32,6 +32,7 @@ import 'package:conduit_core/providers/app_providers.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../chat/providers/text_to_speech_provider.dart';
 import '../../chat/services/voice_input_service.dart';
+import 'message_actions_settings_page.dart';
 import '../widgets/adaptive_segmented_selector.dart';
 import '../widgets/customization_tile.dart';
 import '../widgets/expandable_card.dart';
@@ -96,6 +97,29 @@ class AppCustomizationPage extends ConsumerWidget {
           themeMode,
           themeDescription,
           activeTheme,
+          citationBackground: settings.citationBackground,
+        ),
+        _sectionGap,
+        CustomizationTile(
+          leading: _buildIconBadge(
+            context,
+            Icons.note_add_outlined,
+            color: context.conduitTheme.buttonPrimary,
+          ),
+          title: l10n.showComposerNotesButton,
+          subtitle: l10n.showComposerNotesButtonDescription,
+          toggled: settings.showComposerNotesButton,
+          trailing: AdaptiveSwitch(
+            key: const Key('appearance-composer-notes-toggle'),
+            value: settings.showComposerNotesButton,
+            onChanged: (value) => ref
+                .read(appSettingsProvider.notifier)
+                .setShowComposerNotesButton(value),
+          ),
+          showChevron: false,
+          onTap: () => ref
+              .read(appSettingsProvider.notifier)
+              .setShowComposerNotesButton(!settings.showComposerNotesButton),
         ),
         _sectionGap,
         _buildLanguageSection(context, ref, currentLanguageCode, languageLabel),
@@ -126,6 +150,21 @@ class AppCustomizationPage extends ConsumerWidget {
           _buildQuickPillsSection(context, ref, settings),
           _sectionGap,
         ],
+        CustomizationTile(
+          leading: _buildIconBadge(
+            context,
+            Icons.more_horiz,
+            color: context.conduitTheme.buttonPrimary,
+          ),
+          title: AppLocalizations.of(context)!.messageActionsTitle,
+          subtitle: AppLocalizations.of(context)!.messageActionsDescription,
+          onTap: () => Navigator.of(context).push(
+            MaterialPageRoute<void>(
+              builder: (_) => const MessageActionsSettingsPage(),
+            ),
+          ),
+        ),
+        _sectionGap,
         _buildChatSection(context, ref, settings),
         if (hasOpenWebUiAccount) ...[
           _sectionGap,
@@ -151,9 +190,11 @@ class AppCustomizationPage extends ConsumerWidget {
     WidgetRef ref,
     ThemeMode themeMode,
     String themeDescription,
-    TweakcnThemeDefinition activeTheme,
-  ) {
+    TweakcnThemeDefinition activeTheme, {
+    required bool citationBackground,
+  }) {
     final theme = context.conduitTheme;
+    final l10n = AppLocalizations.of(context)!;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -186,6 +227,30 @@ class AppCustomizationPage extends ConsumerWidget {
         const SizedBox(height: Spacing.sm),
         InsetGroupedList(
           children: [_buildPaletteSelector(context, ref, activeTheme)],
+        ),
+        _sectionGap,
+        CustomizationTile(
+          leading: _buildIconBadge(
+            context,
+            UiUtils.platformIcon(
+              ios: CupertinoIcons.quote_bubble,
+              android: Icons.format_quote_rounded,
+            ),
+            color: context.conduitTheme.buttonPrimary,
+          ),
+          title: l10n.citationBackground,
+          subtitle: l10n.citationBackgroundDescription,
+          toggled: citationBackground,
+          trailing: AdaptiveSwitch(
+            value: citationBackground,
+            onChanged: (value) => ref
+                .read(appSettingsProvider.notifier)
+                .setCitationBackground(value),
+          ),
+          showChevron: false,
+          onTap: () => ref
+              .read(appSettingsProvider.notifier)
+              .setCitationBackground(!citationBackground),
         ),
       ],
     );
@@ -452,6 +517,7 @@ class AppCustomizationPage extends ConsumerWidget {
           toggled: settings.sendOnEnter,
           trailing: AdaptiveSwitch(
             value: settings.sendOnEnter,
+            semanticLabel: l10n.sendOnEnter,
             onChanged: (value) =>
                 ref.read(appSettingsProvider.notifier).setSendOnEnter(value),
           ),
@@ -472,6 +538,7 @@ class AppCustomizationPage extends ConsumerWidget {
           toggled: settings.temporaryChatByDefault,
           trailing: AdaptiveSwitch(
             value: settings.temporaryChatByDefault,
+            semanticLabel: l10n.temporaryChatByDefault,
             onChanged: (value) => ref
                 .read(appSettingsProvider.notifier)
                 .setTemporaryChatByDefault(value),
@@ -493,6 +560,7 @@ class AppCustomizationPage extends ConsumerWidget {
           toggled: settings.citationShowTitles,
           trailing: AdaptiveSwitch(
             value: settings.citationShowTitles,
+            semanticLabel: l10n.citationShowTitles,
             onChanged: (value) => ref
                 .read(appSettingsProvider.notifier)
                 .setCitationShowTitles(value),
@@ -548,7 +616,11 @@ class AppCustomizationPage extends ConsumerWidget {
           subtitle: l10n.advancedFeaturesDescription,
           subtitleMaxLines: 2,
           toggled: enabled,
-          trailing: AdaptiveSwitch(value: enabled, onChanged: setEnabled),
+          trailing: AdaptiveSwitch(
+            value: enabled,
+            semanticLabel: l10n.advancedFeatures,
+            onChanged: setEnabled,
+          ),
           onTap: () => setEnabled(!enabled),
         ),
       ],
@@ -621,6 +693,7 @@ class AppCustomizationPage extends ConsumerWidget {
           toggled: settings.disableHapticsWhileStreaming,
           trailing: AdaptiveSwitch(
             value: settings.disableHapticsWhileStreaming,
+            semanticLabel: l10n.disableHapticsWhileStreaming,
             onChanged: (value) => ref
                 .read(appSettingsProvider.notifier)
                 .setDisableHapticsWhileStreaming(value),

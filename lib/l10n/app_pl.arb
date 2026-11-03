@@ -762,6 +762,23 @@
   "@filters": {
     "description": "Header for toggle filters section."
   },
+  "composerDraftLoadFailed": "Nie udało się wczytać zapisanej wersji roboczej. Spróbuj ponownie, zanim ją zastąpisz.",
+  "@composerDraftLoadFailed": {"description": "Local input draft could not be read; retry leaves the stored draft untouched."},
+  "composerDraftSaveFailed": "Nie udało się zapisać wersji roboczej na tym urządzeniu. Pozostaw aplikację otwartą i spróbuj ponownie.",
+  "@composerDraftSaveFailed": {"description": "Local composer draft persistence failed; the unsent input remains on screen."},
+  "savedRecording": "Zapisane nagranie",
+  "recordingDiscard": "Odrzuć nagranie",
+  "recordingTranscriptionFailed": "Nie udało się utworzyć transkrypcji. Nagranie jest zapisane. Spróbuj ponownie lub wybierz inną metodę transkrypcji.",
+  "recordingDiscardFailed": "Nie udało się odrzucić nagrania. Spróbuj ponownie.",
+  "recordingCaptureInterrupted": "Nagrywanie przerwane. Zapisane nagranie może być niekompletne.",
+  "recordingLoadFailed": "Nie udało się wczytać nagrań. Ponów",
+  "recordingSaveFailed": "Nie udało się zapisać nagrania na tym urządzeniu. Nie zamykaj aplikacji i spróbuj ponownie.",
+  "transcribeOnServer": "Transkrypcja na serwerze",
+  "transcribeOnDevice": "Transkrypcja na urządzeniu",
+  "recordingRecoveryUnavailable": "Ten mechanizm rozpoznawania mowy nie może zapisywać nagrań. Transkrypcja nadal jest zapisywana w szkicu. Aby zachowywać nagrania, wybierz rozpoznawanie mowy na serwerze.",
+  "recordingDiscardConfirmation": "Czy na pewno chcesz odrzucić to nagranie?",
+  "exportRecording": "Eksportuj nagranie",
+  "recordingExportFailed": "Nie udało się wyeksportować nagrania.",
   "voiceInput": "Wprowadzanie głosowe",
   "@voiceInput": {
     "description": "Label for voice input feature."
@@ -1358,6 +1375,8 @@
   "@copy": {
     "description": "Action to copy text to clipboard."
   },
+  "ttsSkipBackward": "Cofnij o 15 sekund",
+  "ttsSkipForward": "Przewiń do przodu o 15 sekund",
   "ttsListen": "Odsłuchaj",
   "@ttsListen": {
     "description": "Action to play the assistant message using text to speech"
@@ -1718,6 +1737,8 @@
   "@analyzed": {
     "description": "Label shown after code interpreter has finished."
   },
+  "showComposerNotesButton": "Pokaż przycisk notatek",
+  "showComposerNotesButtonDescription": "Pokaż przycisk tworzenia notatki w polu wiadomości.",
   "appCustomization": "Personalizacja",
   "@appCustomization": {
     "description": "Title of the customization settings page."
@@ -1744,6 +1765,18 @@
   "@autoSelectDescription": {
     "description": "Explains what the server-provided model setting does."
   },
+  "messageActionsAutomatic": "Automatyczne działania",
+  "@messageActionsAutomatic": {"description": "Toggle for choosing response actions automatically from the actions eligible for each message."},
+  "messageActionsTitle": "Działania wiadomości",
+  "@messageActionsTitle": {"description": "Response action customization in Chat settings."},
+  "messageActionsDescription": "Wybierz działania widoczne pod odpowiedziami. Przeciągnij włączone działania, aby zmienić ich kolejność. Pozostałe znajdziesz w menu Więcej.",
+  "@messageActionsDescription": {"description": "Response action customization in Chat settings."},
+  "messageActionsInline": "Pod odpowiedziami",
+  "@messageActionsInline": {"description": "Section containing visible response actions in their chosen order."},
+  "messageActionsReorder": "Przeciągnij, aby zmienić kolejność",
+  "@messageActionsReorder": {"description": "Accessibility label for a response-action drag handle."},
+  "messageActionsReset": "Przywróć domyślne",
+  "@messageActionsReset": {"description": "Response action customization in Chat settings."},
   "chatSettings": "Czat",
   "@chatSettings": {
     "description": "Section header for chat-related customization options."
@@ -1764,6 +1797,8 @@
   "@disableHapticsWhileStreamingDescription": {
     "description": "Subtitle for the setting that suppresses assistant response streaming haptics."
   },
+  "citationBackground": "Tło cytowań",
+  "citationBackgroundDescription": "Wyłącz, aby cytowania w tekście miały przezroczyste tło",
   "citationShowTitles": "Pokazuj tytuły stron w cytowaniach",
   "@citationShowTitles": {
     "description": "Toggle title for labeling inline citation badges with page titles instead of domains."
@@ -1932,6 +1967,10 @@
   "@ttsPreview": {
     "description": "Title for preview button."
   },
+  "ttsAllLanguages": "Wszystkie języki",
+  "@ttsAllLanguages": {"description": "Short voice catalog filter label that includes every language."},
+  "ttsSearchVoices": "Szukaj głosów",
+  "@ttsSearchVoices": {"description": "Search field hint in the voice picker."},
   "ttsSystemDefault": "Domyślny systemowy",
   "@ttsSystemDefault": {
     "description": "Label for system default voice option."
@@ -3804,6 +3843,11 @@
   "@socketDisconnected": {
     "description": "Socket health status when disconnected."
   },
+  "liveConnectionRetryFailed": "Aktualizacje na żywo nadal są rozłączone. Stuknij ikonę połączenia, aby spróbować ponownie.",
+  "@liveConnectionRetryFailed": {"description": "Live update socket connection recovery in the chat toolbar."},
+  "liveConnectionDetails": "Aktualizacje na żywo są rozłączone. Wyświetl szczegóły połączenia.",
+  "liveConnectionDetailsTitle": "Aktualizacje na żywo",
+  "liveConnectionDetailsMessage": "Aktualizacje na żywo są rozłączone. Odpowiedzi i zmiany w czacie mogą być opóźnione. Sprawdź połączenie lub spróbuj połączyć się ponownie.",
   "socketLatencyLabel": "Opóźnienie",
   "@socketLatencyLabel": {
     "description": "Metric label for socket latency."

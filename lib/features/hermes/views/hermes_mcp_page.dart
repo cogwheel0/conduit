@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:conduit/shared/widgets/adaptive_toolbar_components.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:material_ui/material_ui.dart';
 
@@ -8,6 +9,7 @@ import 'package:conduit_core/utils/debug_logger.dart';
 import 'package:conduit_core/features/hermes/models/hermes_mcp.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 import 'package:conduit_core/features/hermes/services/hermes_desktop_api_service.dart';
+import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 
 final class HermesMcpPage extends ConsumerStatefulWidget {
   const HermesMcpPage({super.key});
@@ -62,9 +64,7 @@ final class _HermesMcpPageState extends ConsumerState<HermesMcpPage> {
         data: {'errorType': error.runtimeType.toString()},
       );
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Hermes MCP action failed.')),
-      );
+      AdaptiveSnackBar.show(context, message: 'Hermes MCP action failed.');
     }
   }
 
@@ -83,24 +83,29 @@ final class _HermesMcpPageState extends ConsumerState<HermesMcpPage> {
             mainAxisSize: MainAxisSize.min,
             children: [
               TextField(
+                magnifierConfiguration: nativeIosTextMagnifierConfiguration,
                 controller: name,
                 decoration: const InputDecoration(labelText: 'Name'),
               ),
               TextField(
+                magnifierConfiguration: nativeIosTextMagnifierConfiguration,
                 controller: url,
                 decoration: const InputDecoration(labelText: 'HTTP URL'),
               ),
               TextField(
+                magnifierConfiguration: nativeIosTextMagnifierConfiguration,
                 controller: command,
                 decoration: const InputDecoration(labelText: 'stdio command'),
               ),
               TextField(
+                magnifierConfiguration: nativeIosTextMagnifierConfiguration,
                 controller: args,
                 decoration: const InputDecoration(
                   labelText: 'Arguments (one per line)',
                 ),
               ),
               TextField(
+                magnifierConfiguration: nativeIosTextMagnifierConfiguration,
                 controller: secret,
                 obscureText: true,
                 enableSuggestions: false,
@@ -153,14 +158,11 @@ final class _HermesMcpPageState extends ConsumerState<HermesMcpPage> {
     final result = await _service.testMcpServer(name);
     if (!mounted) return;
     setState(() => _testResults[name] = result);
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          result.ok
-              ? 'Connected · ${result.tools} tools · ${result.resources} resources · ${result.prompts} prompts'
-              : result.error ?? 'MCP test failed',
-        ),
-      ),
+    AdaptiveSnackBar.show(
+      context,
+      message: result.ok
+          ? 'Connected · ${result.tools} tools · ${result.resources} resources · ${result.prompts} prompts'
+          : result.error ?? 'MCP test failed',
     );
   }
 
@@ -197,6 +199,7 @@ final class _HermesMcpPageState extends ConsumerState<HermesMcpPage> {
       builder: (context) => AlertDialog(
         title: Text('Set API key for $name'),
         content: TextField(
+          magnifierConfiguration: nativeIosTextMagnifierConfiguration,
           controller: value,
           obscureText: true,
           enableSuggestions: false,
@@ -244,24 +247,25 @@ final class _HermesMcpPageState extends ConsumerState<HermesMcpPage> {
   }
 
   Future<void> _remove(String name) async {
-    final confirmed = await showDialog<bool>(
+    var confirmed = false;
+    await AdaptiveAlertDialog.show(
       context: context,
-      builder: (context) => AlertDialog(
-        title: Text('Remove $name?'),
-        content: const Text('This removes the server from Hermes.'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Remove'),
-          ),
-        ],
-      ),
+      title: 'Remove $name?',
+      message: 'This removes the server from Hermes.',
+      actions: [
+        AlertAction(
+          title: 'Cancel',
+          style: AlertActionStyle.cancel,
+          onPressed: () {},
+        ),
+        AlertAction(
+          title: 'Remove',
+          style: AlertActionStyle.destructive,
+          onPressed: () => confirmed = true,
+        ),
+      ],
     );
-    if (confirmed != true) return;
+    if (!confirmed) return;
     await _service.removeMcpServer(name);
     _refresh();
   }
@@ -291,10 +295,15 @@ final class _HermesMcpPageState extends ConsumerState<HermesMcpPage> {
       appBar: AppBar(
         title: const Text('Hermes MCP'),
         actions: [
-          IconButton(
-            tooltip: 'Add from catalog',
-            onPressed: () => unawaited(_run(_addPreset)),
-            icon: const Icon(Icons.auto_awesome_outlined),
+          AdaptiveTooltip(
+            message: 'Add from catalog',
+            excludeFromSemantics: true,
+            child: ConduitAdaptiveAppBarIconButton(
+              semanticLabel: 'Add from catalog',
+              iosSymbol: 'sparkles',
+              onPressed: () => unawaited(_run(_addPreset)),
+              icon: Icons.auto_awesome_outlined,
+            ),
           ),
         ],
       ),
@@ -324,8 +333,14 @@ final class _HermesMcpPageState extends ConsumerState<HermesMcpPage> {
                   isThreeLine: true,
                   trailing: _oauthPending.contains(server.name)
                       ? const CircularProgressIndicator.adaptive()
-                      : PopupMenuButton<String>(
-                          onSelected: (action) {
+                      : AdaptivePopupMenuButton.icon<String>(
+                          semanticLabel: MaterialLocalizations.of(context)
+                              .showMenuTooltip,
+                          icon: PlatformInfo.isIOS
+                              ? 'ellipsis'
+                              : Icons.more_vert,
+                          onSelected: (_, entry) {
+                            final action = entry.value;
                             final name = server.name;
                             if (action == 'test') {
                               unawaited(_run(() => _test(name)));
@@ -346,31 +361,32 @@ final class _HermesMcpPageState extends ConsumerState<HermesMcpPage> {
                               unawaited(_run(() => _remove(name)));
                             }
                           },
-                          itemBuilder: (_) => [
-                            const PopupMenuItem(
+                          items: [
+                            const AdaptivePopupMenuItem<String>(
                               value: 'test',
-                              child: Text('Test'),
+                              label: 'Test',
                             ),
-                            const PopupMenuItem(
+                            const AdaptivePopupMenuItem<String>(
                               value: 'oauth',
-                              child: Text('Authenticate'),
+                              label: 'Authenticate',
                             ),
                             if (supportsCredentialUpdate)
-                              const PopupMenuItem(
+                              const AdaptivePopupMenuItem<String>(
                                 value: 'key',
-                                child: Text('Set API key'),
+                                label: 'Set API key',
                               ),
-                            const PopupMenuItem(
+                            const AdaptivePopupMenuItem<String>(
                               value: 'enable',
-                              child: Text('Enable tools'),
+                              label: 'Enable tools',
                             ),
-                            const PopupMenuItem(
+                            const AdaptivePopupMenuItem<String>(
                               value: 'disable',
-                              child: Text('Disable tools'),
+                              label: 'Disable tools',
                             ),
-                            const PopupMenuItem(
+                            const AdaptivePopupMenuItem<String>(
                               value: 'remove',
-                              child: Text('Remove'),
+                              label: 'Remove',
+                              isDestructive: true,
                             ),
                           ],
                         ),
@@ -379,10 +395,22 @@ final class _HermesMcpPageState extends ConsumerState<HermesMcpPage> {
           );
         },
       ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: () => unawaited(_run(_add)),
-        child: const Icon(Icons.add),
-      ),
+      floatingActionButton: PlatformUiCapabilities.usesNativeIOS26
+          ? SizedBox.square(
+              dimension: 56,
+              child: AdaptiveButton.sfSymbol(
+                onPressed: () => unawaited(_run(_add)),
+                sfSymbol: const SFSymbol('plus'),
+                style: AdaptiveButtonStyle.prominentGlass,
+                semanticLabel: 'Add MCP server',
+                minSize: const Size.square(56),
+                padding: EdgeInsets.zero,
+              ),
+            )
+          : FloatingActionButton(
+              onPressed: () => unawaited(_run(_add)),
+              child: const Icon(Icons.add),
+            ),
     );
   }
 }

@@ -1,3 +1,4 @@
+import '../../chat/providers/composer_draft_provider.dart';
 import 'dart:async';
 import 'dart:developer' as developer;
 
@@ -25,6 +26,7 @@ import '../../chat/widgets/modern_chat_input.dart';
 
 import 'package:conduit_core/features/channels/providers/channel_app_replies.dart';
 import 'package:conduit_core/features/channels/providers/channel_providers.dart';
+import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 
 import '../utils/channel_request_owner.dart';
 import '../utils/mention_utils.dart';
@@ -213,7 +215,7 @@ class _ThreadPanelState extends ConsumerState<ThreadPanel> {
                           ),
                           loading: () => _ThreadStatus(
                             bottomPadding: repliesBottomPadding,
-                            child: const CircularProgressIndicator(),
+                            child: const AdaptiveProgressIndicator(),
                           ),
                           error: (e, _) => _ThreadStatus(
                             bottomPadding: repliesBottomPadding,
@@ -255,11 +257,25 @@ class _ThreadPanelState extends ConsumerState<ThreadPanel> {
                           left: false,
                           right: false,
                           minimum: const EdgeInsets.only(bottom: Spacing.sm),
-                          child: ModernChatInput(
-                            onSendMessage: _sendReply,
-                            placeholder: l10n.replyInputPlaceholder,
-                            overflowButtonBuilder: widget.overflowButtonBuilder,
-                            bottomPadding: 0,
+                          child: ProviderScope(
+                            overrides: [
+                              composerDraftContextProvider.overrideWithValue(
+                                ephemeralComposerDraftContext(
+                                  scope: 'thread:${widget.channelId}',
+                                  chatId: widget.parentMessage.id,
+                                  session: (
+                                    ref.watch(apiServiceProvider),
+                                    ref.watch(openWebUiAuthSessionEpochProvider),
+                                  ),
+                                ),
+                              ),
+                            ],
+                            child: ModernChatInput(
+                              onSendMessage: _sendReply,
+                              placeholder: l10n.replyInputPlaceholder,
+                              overflowButtonBuilder: widget.overflowButtonBuilder,
+                              bottomPadding: 0,
+                            ),
                           ),
                         ),
                       ),

@@ -197,6 +197,10 @@ class CodeExecutionListView extends StatelessWidget {
                       child: SelectableText(
                         execution.code!,
                         style: AppTypography.codeStyle.copyWith(height: 1.4),
+                        magnifierConfiguration:
+                            nativeIosTextMagnifierConfiguration,
+                        contextMenuBuilder:
+                            AdaptiveTextSelectionMenu.editableText,
                       ),
                     ),
                     const SizedBox(height: Spacing.md),
@@ -210,7 +214,13 @@ class CodeExecutionListView extends StatelessWidget {
                       ),
                     ),
                     const SizedBox(height: Spacing.xs),
-                    SelectableText(result!.error!),
+                    SelectableText(
+                      result!.error!,
+                      magnifierConfiguration:
+                          nativeIosTextMagnifierConfiguration,
+                      contextMenuBuilder:
+                          AdaptiveTextSelectionMenu.editableText,
+                    ),
                     const SizedBox(height: Spacing.md),
                   ],
                   if (result?.output != null) ...[
@@ -222,7 +232,13 @@ class CodeExecutionListView extends StatelessWidget {
                       ),
                     ),
                     const SizedBox(height: Spacing.xs),
-                    SelectableText(result!.output!),
+                    SelectableText(
+                      result!.output!,
+                      magnifierConfiguration:
+                          nativeIosTextMagnifierConfiguration,
+                      contextMenuBuilder:
+                          AdaptiveTextSelectionMenu.editableText,
+                    ),
                     const SizedBox(height: Spacing.md),
                   ],
                   if (result?.files.isNotEmpty == true) ...[

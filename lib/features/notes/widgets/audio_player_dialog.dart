@@ -386,9 +386,9 @@ class _AudioPlayerDialogState extends State<AudioPlayerDialog> {
                   SizedBox(
                     width: 48,
                     height: 48,
-                    child: CircularProgressIndicator(
+                    child: AdaptiveProgressIndicator(
                       strokeWidth: 3,
-                      valueColor: AlwaysStoppedAnimation(theme.buttonPrimary),
+                      color: theme.buttonPrimary,
                     ),
                   ),
                   const SizedBox(height: Spacing.md),

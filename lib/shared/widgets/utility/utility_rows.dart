@@ -1,3 +1,4 @@
+import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:material_ui/material_ui.dart';
 
@@ -402,7 +403,9 @@ class UtilityValueRow extends StatelessWidget {
             value,
             maxLines: 2,
             textAlign: stacked ? TextAlign.start : TextAlign.end,
+            magnifierConfiguration: nativeIosTextMagnifierConfiguration,
             style: valueStyle,
+            contextMenuBuilder: AdaptiveTextSelectionMenu.editableText,
           )
         : Text(
             value,

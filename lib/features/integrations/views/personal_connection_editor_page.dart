@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:conduit/shared/widgets/adaptive_toolbar_components.dart';
 import 'package:collection/collection.dart';
 import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -607,17 +608,12 @@ class _PersonalConnectionEditorPageState
       child: UtilityPageScaffold.settings(
         title: title,
         trailing: PlatformInfo.isIOS && !readOnly
-            ? CupertinoButton(
+            ? ConduitAdaptiveAppBarTextButton(
                 key: const Key('personal-connection-save'),
-                padding: const EdgeInsets.symmetric(horizontal: Spacing.xs),
-                minimumSize: const Size(0, TouchTarget.minimum),
+                label: l10n.save,
                 onPressed: _busy ? null : _save,
-                child: _saving
-                    ? const ConduitLoadingIndicator(
-                        size: IconSize.small,
-                        isCompact: true,
-                      )
-                    : Text(l10n.save),
+                isLoading: _saving,
+                prominent: true,
               )
             : null,
         children: [

@@ -215,6 +215,7 @@ class _PromptVariableDialogState extends State<PromptVariableDialog> {
 
     return TextFormField(
       controller: _controllers[variable.name],
+      magnifierConfiguration: nativeIosTextMagnifierConfiguration,
       style: AppTypography.bodyMediumStyle.copyWith(color: theme.inputText),
       decoration: context.conduitInputStyles.standard(
         hint: variable.placeholder,
@@ -235,6 +236,7 @@ class _PromptVariableDialogState extends State<PromptVariableDialog> {
 
     return TextFormField(
       controller: _controllers[variable.name],
+      magnifierConfiguration: nativeIosTextMagnifierConfiguration,
       style: AppTypography.bodyMediumStyle.copyWith(color: theme.inputText),
       decoration: context.conduitInputStyles.standard(
         hint: variable.placeholder,
@@ -257,6 +259,7 @@ class _PromptVariableDialogState extends State<PromptVariableDialog> {
 
     return AdaptiveDropdownField<String?>(
       value: _selectValues[variable.name],
+      semanticLabel: variable.displayLabel,
       decoration: context.conduitInputStyles.standard(
         hint: variable.placeholder,
       ),
@@ -285,6 +288,7 @@ class _PromptVariableDialogState extends State<PromptVariableDialog> {
 
     return TextFormField(
       controller: _controllers[variable.name],
+      magnifierConfiguration: nativeIosTextMagnifierConfiguration,
       style: AppTypography.bodyMediumStyle.copyWith(color: theme.inputText),
       decoration: context.conduitInputStyles.standard(
         hint: variable.placeholder,

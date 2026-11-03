@@ -23,6 +23,7 @@ import 'package:conduit_core/providers/app_providers.dart'
 import '../../features/hermes/widgets/hermes_connection_switcher.dart'
     show hermesConnectionSummary;
 import 'account_display.dart';
+import 'message_action_settings.dart';
 import 'tts_voice_utils.dart';
 
 String nativeQuickActionsTitle(AppLocalizations l10n) {
@@ -591,6 +592,9 @@ const nativeSlidingSidebarId = 'sliding-sidebar';
 /// page.
 const nativeCitationShowTitlesId = 'citation-show-titles';
 
+/// Control id of the citation background toggle in native Appearance settings.
+const nativeCitationBackgroundId = 'citation-background';
+
 /// Control id the accountless "Connect to Open WebUI" root row sends.
 const nativeConnectOpenWebUiActionId = 'add-owui-server';
 
@@ -863,10 +867,12 @@ NativeAudioSheetParts buildNativeAudioSheetParts(
     sfSymbol: 'person.wave.2',
     kind: NativeSheetItemKind.searchablePicker,
     value: selectedVoiceId,
+    filterAllLabel: l10n.ttsAllLanguages,
     options: [
       NativeSheetOptionConfig(
         id: ttsSystemDefaultVoiceId,
         label: l10n.ttsSystemDefault,
+        filterGroup: '',
       ),
       for (final option in voiceOptions)
         NativeSheetOptionConfig(
@@ -874,6 +880,7 @@ NativeAudioSheetParts buildNativeAudioSheetParts(
           label: option.label,
           subtitle: option.subtitle,
           sfSymbol: 'person.wave.2',
+          filterGroup: ttsVoiceLanguageLabel(option.voice),
         ),
     ],
   );
@@ -1572,3 +1579,71 @@ String _nativeFormatHeartbeatRelative(
   lastHeartbeat,
   fallbackToDate: false,
 );
+
+NativeSheetDetailConfig buildNativeMessageActionsDetail(
+  AppLocalizations l10n,
+  AppSettings settings,
+) {
+  final saved = settings.inlineMessageActions;
+  final selected = saved ?? const <String>[];
+  final actions = messageActionSettings(l10n);
+  NativeSheetItemConfig item(
+    ({String id, String label, String symbol}) action,
+    bool visible,
+  ) => NativeSheetItemConfig(
+    id: 'message-action:${action.id}',
+    title: action.label,
+    sfSymbol: action.symbol,
+    kind: NativeSheetItemKind.toggle,
+    value: visible,
+  );
+  final inline = [
+    for (final id in selected)
+      for (final action in actions)
+        if (action.id == id) item(action, true),
+  ];
+  final overflow = [
+    if (saved != null)
+      for (final action in actions)
+        if (!selected.contains(action.id)) item(action, false),
+  ];
+  return NativeSheetDetailConfig(
+    id: 'message-actions',
+    title: l10n.messageActionsTitle,
+    sections: [
+      NativeSheetSectionConfig(
+        footer: saved == null ? l10n.messageActionsDescription : null,
+        items: [
+          NativeSheetItemConfig(
+            id: 'message-actions-automatic',
+            title: l10n.messageActionsAutomatic,
+            kind: NativeSheetItemKind.toggle,
+            value: saved == null,
+          ),
+        ],
+      ),
+      if (inline.isNotEmpty)
+        NativeSheetSectionConfig(
+          title: l10n.messageActionsInline,
+          footer: l10n.messageActionsDescription,
+          reorderActionId: 'message-actions-reorder',
+          items: inline,
+        ),
+      if (overflow.isNotEmpty)
+        NativeSheetSectionConfig(
+          title: l10n.more,
+          footer: inline.isEmpty ? l10n.messageActionsDescription : null,
+          items: overflow,
+        ),
+      NativeSheetSectionConfig(
+        items: [
+          NativeSheetItemConfig(
+            id: 'message-actions-reset',
+            title: l10n.messageActionsReset,
+            sfSymbol: 'arrow.counterclockwise',
+          ),
+        ],
+      ),
+    ],
+  );
+}

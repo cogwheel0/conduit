@@ -33,7 +33,6 @@ import 'package:conduit_core/services/performance_profiler.dart';
 import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit_core/services/connectivity_service.dart';
 
-
 import 'package:conduit_core/database/database_provider.dart';
 
 import 'package:conduit_core/database/app_database.dart';
@@ -66,6 +65,7 @@ import 'package:conduit_core/features/hermes/services/hermes_session_provenance.
 
 import '../../hermes/widgets/hermes_bot_avatar.dart';
 import '../../hermes/widgets/hermes_message_interactions.dart';
+import '../widgets/live_connection_button.dart';
 import '../../navigation/providers/chat_back_provider.dart';
 import '../../navigation/utils/chat_list_back.dart';
 
@@ -162,10 +162,12 @@ class _ChatToolbarActionDescriptor {
   const _ChatToolbarActionDescriptor({
     required this.widget,
     required this.nativeAction,
+    this.icon,
   });
 
   final Widget widget;
   final ConduitNativeToolbarAction nativeAction;
+  final IconData? icon;
 }
 
 @visibleForTesting
@@ -469,6 +471,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   bool _hasUserScrolled = false;
   bool _isDeactivated = false;
   double _inputHeight = 0;
+  final _voiceOverlayKey = GlobalKey();
   bool _didStartupFocus = false; // one-time auto-focus on startup
   String? _lastConversationId;
   int _conversationOwnerGeneration = 0;
@@ -968,6 +971,31 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     await _sendMessage(text, includeComposerContext: true);
   }
 
+  Future<ChatSendPlaceholderHandle?> _handleDraftSend(
+    String text,
+    void Function(ChatSendPlaceholderHandle) onPrepared,
+  ) {
+    final committed = Completer<ChatSendPlaceholderHandle?>();
+    unawaited(
+      _sendMessage(
+        text,
+        includeComposerContext: true,
+        onSendPrepared: onPrepared,
+        onDraftCommitted: (handle) {
+          if (!committed.isCompleted) committed.complete(handle);
+        },
+      ).then(
+        (_) {
+          if (!committed.isCompleted) committed.complete(null);
+        },
+        onError: (Object error, StackTrace stack) {
+          if (!committed.isCompleted) committed.completeError(error, stack);
+        },
+      ),
+    );
+    return committed.future;
+  }
+
   /// Sends the composer's message to the chosen models as one comparison turn.
   /// The result names the committed turn, so the composer can tell whether it
   /// still shows that chat. It is null when the turn was refused or not
@@ -975,12 +1003,14 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   Future<ChatSendPlaceholderHandle?> _handleCompareSend(
     String text,
     List<Model> models,
+    void Function(ChatSendPlaceholderHandle) onPrepared,
   ) async {
     ChatSendPlaceholderHandle? committed;
     final result = await _sendMessage(
       text,
       includeComposerContext: true,
       compareModels: models,
+      onSendPrepared: onPrepared,
       onComparisonCommitted: (handle) => committed = handle,
     );
     return result.dispatched ? committed : null;
@@ -1232,6 +1262,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     required bool includeComposerContext,
     List<Model>? compareModels,
     void Function(ChatSendPlaceholderHandle committed)? onComparisonCommitted,
+    void Function(ChatSendPlaceholderHandle)? onSendPrepared,
+    void Function(ChatSendPlaceholderHandle)? onDraftCommitted,
   }) async {
     if (!debugCanSubmitChatMessageForTesting(
       isLoadingConversation: ref.read(isLoadingConversationProvider),
@@ -1251,6 +1283,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         sendOwner: sendOwner,
         compareModels: compareModels,
         onComparisonCommitted: onComparisonCommitted,
+        onSendPrepared: onSendPrepared,
+        onDraftCommitted: onDraftCommitted,
       );
     } finally {
       _releaseMessageSendAdmission(sendOwner);
@@ -1264,6 +1298,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     required Object sendOwner,
     List<Model>? compareModels,
     void Function(ChatSendPlaceholderHandle committed)? onComparisonCommitted,
+    void Function(ChatSendPlaceholderHandle)? onSendPrepared,
+    void Function(ChatSendPlaceholderHandle)? onDraftCommitted,
   }) async {
     final settlePinImmediately = debugShouldSettlePinImmediatelyForTesting(
       transcriptWasEmpty: ref.read(chatMessagesProvider).isEmpty,
@@ -1333,6 +1369,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
           text,
           uploadedFileIds.isNotEmpty ? uploadedFileIds : null,
           models: compareModels,
+          onAssistantPlaceholderCreated: onSendPrepared,
           toolIds: toolIds.isNotEmpty ? toolIds : null,
         );
         pendingSends = handles;
@@ -1343,6 +1380,12 @@ class _ChatPageState extends ConsumerState<ChatPage> {
           settleImmediately: settlePinImmediately,
         );
       } else {
+        var admissionConfirmed = false;
+        final usesOutbox =
+            hasDurableOutbox &&
+            !isHermesModel(selectedModel) &&
+            ref.read(directModelRegistryProvider).resolve(selectedModel) ==
+                null;
         await durableSend(
           ref,
           text,
@@ -1352,12 +1395,24 @@ class _ChatPageState extends ConsumerState<ChatPage> {
             didDispatch = true;
             _releaseMessageSendAdmission(sendOwner);
             pendingSend = handle;
+            onSendPrepared?.call(handle);
             _activatePinToTopAnchor(
               handle,
               settleImmediately: settlePinImmediately,
             );
           },
+          onAdmissionCommitted: usesOutbox && onDraftCommitted != null
+              ? (_) {
+                  admissionConfirmed = true;
+                  onDraftCommitted(pendingSend!);
+                }
+              : null,
         );
+        // Inline backends have no outbox receipt. Keep their draft until
+        // the existing send path has accepted it successfully.
+        if (!admissionConfirmed && pendingSend != null) {
+          onDraftCommitted?.call(pendingSend!);
+        }
       }
       didDispatch = true;
 
@@ -1840,7 +1895,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                       ? const SizedBox(
                           width: 16,
                           height: 16,
-                          child: CircularProgressIndicator(strokeWidth: 2),
+                          child: AdaptiveProgressIndicator(strokeWidth: 2),
                         )
                       : Text(l10n.attach),
                 ),
@@ -2113,7 +2168,11 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     final voiceOverlayHeight = voice.isActive
         ? (voice.isCollapsed ? 72.0 : 180.0)
         : 0.0;
-    return Spacing.lg + _inputHeight + voiceOverlayHeight;
+    // The measured composer includes transparent headroom for the scroll fade.
+    // The last message already has its own bottom margin.
+    return voice.isActive
+        ? Spacing.lg + _inputHeight + voiceOverlayHeight
+        : math.max(0, _inputHeight - Spacing.xl);
   }
 
   /// User-initiated scroll to bottom (e.g. button tap).
@@ -3334,7 +3393,10 @@ class _ChatPageState extends ConsumerState<ChatPage> {
           return Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [bubble, ChatBranchSwitcher(messageId: messageId)],
+            children: [
+              bubble,
+              ChatBranchSwitcher(messageId: messageId),
+            ],
           );
         },
       );
@@ -3559,8 +3621,9 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       isStillCurrent: () => mounted,
     );
     if (outcome != ChatMessageDeleteOutcome.persistFailed || !mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(AppLocalizations.of(context)!.errorMessage)),
+    AdaptiveSnackBar.show(
+      context,
+      message: AppLocalizations.of(context)!.errorMessage,
     );
   }
 
@@ -3761,8 +3824,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
           top: false,
           left: false,
           right: false,
-          bottom: !Platform.isAndroid,
-          minimum: Platform.isAndroid
+          bottom: !PlatformUiCapabilities.isAndroid,
+          minimum: PlatformUiCapabilities.isAndroid
               ? EdgeInsets.zero
               : const EdgeInsets.only(bottom: Spacing.sm),
           child: Column(
@@ -3910,6 +3973,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                   }
                   return ModernChatInput(
                     onSendMessage: _handleMessageSend,
+                    onSendDraft: _handleDraftSend,
                     onCompareSend: _handleCompareSend,
                     enabled: debugCanSubmitChatMessageForTesting(
                       isLoadingConversation: isLoadingConversation,
@@ -3917,7 +3981,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                       isPreparingMessageSend: _messageSendAdmission.isHeld,
                     ),
                     bottomPadding: 0,
-                    managesSystemKeyboardInset: Platform.isAndroid,
+                    managesSystemKeyboardInset:
+                        PlatformUiCapabilities.isAndroid,
                     composerTextInsertionTargetId:
                         chatComposerTextInsertionTargetId,
                     attachedOverlay: attachedOverlay,
@@ -4000,9 +4065,12 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     final selectedModel = ref.watch(
       selectedModelProvider.select((model) => model),
     );
-    ref.watch(
+    final voiceOverlay = ref.watch(
       chatVoiceModeControllerProvider.select(
-        (voice) => (voice.isActive, voice.isCollapsed),
+        (voice) => (
+          visible: voice.isActive || voice.phase == ChatVoiceModePhase.error,
+          collapsed: voice.isCollapsed,
+        ),
       ),
     );
     final isLoadingConversation = ref.watch(isLoadingConversationProvider);
@@ -4051,7 +4119,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       },
       child: AdaptiveScaffold(
         resizeToAvoidBottomInset: chatResizeToAvoidBottomInset(
-          isAndroid: Platform.isAndroid,
+          isAndroid: PlatformUiCapabilities.isAndroid,
           isIOSAppOnMac: PlatformInfo.isIOSAppOnMac,
         ),
         // Replace Scaffold drawer with a tunable slide drawer for gentler snap behavior.
@@ -4070,12 +4138,21 @@ class _ChatPageState extends ConsumerState<ChatPage> {
           child: Stack(
             children: [
               Positioned.fill(
-                child: Consumer(
-                  builder: (context, listRef, _) {
-                    return RepaintBoundary(
-                      child: _buildMessagesList(theme, listRef),
-                    );
-                  },
+                child: NativeContextMenuViewport(
+                  bottomOverlay: voiceOverlay.visible ? _voiceOverlayKey : null,
+                  padding: EdgeInsets.only(
+                    top:
+                        MediaQuery.viewPaddingOf(context).top +
+                        conduitAdaptiveToolbarHeightOf(context),
+                    bottom: math.max(0, _inputHeight - Spacing.xl),
+                  ),
+                  child: Consumer(
+                    builder: (context, listRef, _) {
+                      return RepaintBoundary(
+                        child: _buildMessagesList(theme, listRef),
+                      );
+                    },
+                  ),
                 ),
               ),
               Positioned(
@@ -4162,7 +4239,10 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                 bottom: 0,
                 child: _buildComposerSection(context),
               ),
-              ChatVoiceModeOverlay(bottomOffset: _inputHeight),
+              ChatVoiceModeOverlay(
+                key: _voiceOverlayKey,
+                bottomOffset: _inputHeight,
+              ),
             ],
           ),
         ),
@@ -4195,7 +4275,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     // Model loading can take a moment on a cold cache. Show that on the
     // selector itself and reject overlapping taps instead of letting the
     // control look dead (#692).
-    if (_isOpeningModelSelector) return;
+    if (_isOpeningModelSelector || ref.read(isLoadingConversationProvider)) return;
     setState(() => _isOpeningModelSelector = true);
     try {
       final models = await ref
@@ -4235,20 +4315,53 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     final hasMessages = ref.watch(hasChatMessagesProvider);
     final showNewChatAction = activeConversation != null || hasMessages;
     final tintColor = context.conduitTheme.textPrimary;
-    final trailingActionCount = (showNewChatAction ? 1 : 0) + 1;
-    final maxModelWidth = resolveConduitAdaptiveLeadingPillWidth(
+    final selectedModel = ref.watch(selectedModelProvider);
+    final isHermes =
+        (selectedModel != null && isHermesModel(selectedModel)) ||
+        isNativeHermesConversation(activeConversation);
+    final showConnectionIssue =
+        !isHermes &&
+        ref.watch(liveConnectionDisconnectedProvider).value == true;
+    ({String label, bool enabled})? overflowModel;
+    List<_ChatToolbarActionDescriptor> buildActions({bool compact = false}) =>
+        _buildAdaptiveToolbarActions(
+          context: context,
+          activeConversation: activeConversation,
+          isHermes: isHermes,
+          isTemporary: isTemporary,
+          hasMessages: hasMessages,
+          showNewChatAction: showNewChatAction,
+          compact: compact,
+          overflowModel: overflowModel,
+        );
+    var actionDescriptors = buildActions();
+    double modelWidth() => resolveConduitAdaptiveLeadingPillWidth(
       context,
-      trailingActionCount: trailingActionCount,
+      trailingActionCount:
+          actionDescriptors.length + (showConnectionIssue ? 1 : 0),
       maxWidth: kConduitAdaptiveToolbarMaxModelSelectorWidth,
     );
+    var maxModelWidth = modelWidth();
+    // Keep the model picker while preserving secondary actions in More.
+    if (maxModelWidth < conduitScaledControlExtent(context)) {
+      actionDescriptors = buildActions(compact: true);
+      maxModelWidth = modelWidth();
+    }
     // Hide the picker only for a true single-agent Hermes-only install. Mixed
     // setups must retain a way to switch back to an OpenWebUI model.
-    final selectedModel = ref.watch(selectedModelProvider);
     final showModelDropdown = shouldShowChatModelDropdown(
       selectedModel: selectedModel,
       isHermesOnly: ref.watch(hermesOnlyModeProvider),
       isHermesBot: hermesBot != null,
     );
+    if (showModelDropdown && maxModelWidth < TouchTarget.minimum) {
+      overflowModel = (
+        label: modelLabel,
+        enabled: !isLoadingConversation && !_isOpeningModelSelector,
+      );
+      actionDescriptors = buildActions(compact: true);
+      maxModelWidth = 0;
+    }
     final title = _buildChatToolbarTitle(
       context: context,
       isLoadingConversation: isLoadingConversation,
@@ -4258,17 +4371,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       hermesBot: hermesBot,
       hermesBotActive: hermesBot != null && ref.watch(isChatStreamingProvider),
     );
-    final actionDescriptors = _buildAdaptiveToolbarActions(
-      context: context,
-      activeConversation: activeConversation,
-      isHermes:
-          (selectedModel != null && isHermesModel(selectedModel)) ||
-          isNativeHermesConversation(activeConversation),
-      isTemporary: isTemporary,
-      hasMessages: hasMessages,
-      showNewChatAction: showNewChatAction,
-    );
     final actionWidgets = buildConduitAdaptiveToolbarActionWidgets([
+      if (showConnectionIssue) const LiveConnectionButton(),
       for (final action in actionDescriptors) action.widget,
     ]);
     final useNativeActionGroup =
@@ -4277,9 +4381,15 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         actionDescriptors.isNotEmpty &&
         actionDescriptors.length <= 3;
     final cupertinoTrailing = useNativeActionGroup
-        ? ConduitNativeToolbarActionGroup(
-            actions: [
-              for (final action in actionDescriptors) action.nativeAction,
+        ? Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (showConnectionIssue) const LiveConnectionButton(),
+              ConduitNativeToolbarActionGroup(
+                actions: [
+                  for (final action in actionDescriptors) action.nativeAction,
+                ],
+              ),
             ],
           )
         : Row(mainAxisSize: MainAxisSize.min, children: actionWidgets);
@@ -4333,6 +4443,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     required bool isTemporary,
     required bool hasMessages,
     required bool showNewChatAction,
+    bool compact = false,
+    ({String label, bool enabled})? overflowModel,
   }) {
     final actions = <_ChatToolbarActionDescriptor>[];
     final defaultTint = context.conduitTheme.textPrimary;
@@ -4364,7 +4476,10 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       context: context,
       activeConversation: activeConversation,
       tintColor: defaultTint,
+      collapsedActions: compact ? List.of(actions) : const [],
+      overflowModel: overflowModel,
     );
+    if (compact) actions.clear();
     if (overflowButton != null) {
       actions.add(overflowButton);
     }
@@ -4381,6 +4496,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     final iosSymbol = conduitToolbarSfSymbolForIcon(icon);
     assert(iosSymbol != null);
     return _ChatToolbarActionDescriptor(
+      icon: icon,
       widget: ConduitAdaptiveAppBarIconButton(
         icon: icon,
         iosSymbol: iosSymbol,
@@ -4441,6 +4557,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     required BuildContext context,
     required Conversation? activeConversation,
     required Color tintColor,
+    List<_ChatToolbarActionDescriptor> collapsedActions = const [],
+    ({String label, bool enabled})? overflowModel,
   }) {
     final items = <AdaptivePopupMenuEntry>[];
     final callbacks = <Future<void> Function()>[];
@@ -4451,6 +4569,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       required Object icon,
       String? iosSymbol,
       bool isDestructive = false,
+      bool enabled = true,
       required Future<void> Function() onSelected,
     }) {
       final index = callbacks.length;
@@ -4461,6 +4580,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
           label: label,
           icon: icon,
           isDestructive: isDestructive,
+          enabled: enabled,
         ),
       );
       nativeItems.add(
@@ -4468,8 +4588,35 @@ class _ChatPageState extends ConsumerState<ChatPage> {
           label: label,
           iosSymbol: iosSymbol,
           isDestructive: isDestructive,
+          enabled: enabled,
           onSelected: () => unawaited(onSelected()),
         ),
+      );
+    }
+
+    if (overflowModel case final model?) {
+      addItem(
+        label: '${AppLocalizations.of(context)!.chooseModel}: ${model.label}',
+        icon: conduitAdaptivePopupMenuIcon(
+          iosSymbol: 'square.stack.3d.up',
+          materialIcon: Icons.smart_toy_outlined,
+        ),
+        iosSymbol: 'square.stack.3d.up',
+        enabled: model.enabled,
+        onSelected: () => _openModelSelector(context),
+      );
+    }
+    for (final descriptor in collapsedActions) {
+      final action = descriptor.nativeAction;
+      addItem(
+        label: action.accessibilityLabel,
+        icon: conduitAdaptivePopupMenuIcon(
+          iosSymbol: action.iosSymbol,
+          materialIcon: descriptor.icon!,
+        ),
+        iosSymbol: action.iosSymbol,
+        enabled: action.enabled,
+        onSelected: () async => action.onPressed?.call(),
       );
     }
 

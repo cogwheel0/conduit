@@ -4,6 +4,38 @@ import 'package:conduit_core/services/settings_service.dart';
 
 const ttsSystemDefaultVoiceId = '__system_default__';
 
+typedef TtsVoiceLanguageOption = ({String code, String label});
+
+/// Normalizes the first nonblank locale or language; absent metadata stays null.
+String? _voiceLanguageCode(Map<String, dynamic> voice) =>
+    (_cleanVoiceValue(voice['locale']) ?? _cleanVoiceValue(voice['language']))
+        ?.replaceAll('_', '-')
+        .toLowerCase();
+
+/// Uses languageName or the uppercase locale/language code; absent metadata stays null.
+String? ttsVoiceLanguageLabel(Map<String, dynamic> voice) {
+  final code = _voiceLanguageCode(voice);
+  return code == null
+      ? null
+      : _cleanVoiceValue(voice['languageName']) ?? code.toUpperCase();
+}
+
+/// Deduplicates normalized codes using their first label, then sorts by label.
+List<TtsVoiceLanguageOption> buildTtsVoiceLanguageOptions(
+  Iterable<Map<String, dynamic>> voices,
+) {
+  final languages = <String, String>{};
+  for (final voice in voices) {
+    final code = _voiceLanguageCode(voice);
+    if (code == null) continue;
+    languages.putIfAbsent(code, () => ttsVoiceLanguageLabel(voice)!);
+  }
+  return [
+    for (final entry in languages.entries)
+      (code: entry.key, label: entry.value),
+  ]..sort((a, b) => a.label.toLowerCase().compareTo(b.label.toLowerCase()));
+}
+
 class TtsVoiceOptionData {
   const TtsVoiceOptionData({
     required this.id,
@@ -18,14 +50,22 @@ class TtsVoiceOptionData {
   final Map<String, dynamic> voice;
 }
 
+/// Filters full normalized language codes when supplied and keeps the first valid ID.
+/// Selected voices without language metadata are retained by the picker, not here.
 List<TtsVoiceOptionData> buildTtsVoiceOptions(
   AppLocalizations l10n,
   TtsEngine engine,
-  Iterable<Map<String, dynamic>> voices,
-) {
+  Iterable<Map<String, dynamic>> voices, {
+  String? languageCode,
+}) {
   final seen = <String>{};
   final options = <TtsVoiceOptionData>[];
   for (final voice in voices) {
+    if (languageCode != null &&
+        _voiceLanguageCode(voice) !=
+            languageCode.replaceAll('_', '-').toLowerCase()) {
+      continue;
+    }
     final id = ttsVoiceIdFor(engine, voice);
     if (id.isEmpty || !seen.add(id)) {
       continue;

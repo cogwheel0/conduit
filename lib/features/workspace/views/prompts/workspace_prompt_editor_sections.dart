@@ -221,10 +221,13 @@ final class WorkspacePromptVersionSection extends StatelessWidget {
                     vertical: Spacing.sm,
                   )
                 : EdgeInsets.zero,
-            title: Text(l10n.workspacePromptSetProduction),
+            title: ExcludeSemantics(
+              child: Text(l10n.workspacePromptSetProduction),
+            ),
             subtitle: Text(l10n.workspacePromptSetProductionSubtitle),
             trailing: AdaptiveSwitch(
               value: isProduction,
+              semanticLabel: l10n.workspacePromptSetProduction,
               onChanged: readOnly ? null : onProductionChanged,
             ),
           ),

@@ -3,6 +3,9 @@ import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
 
 import 'platform_ui_capabilities.dart';
+import 'ios_text_magnifier.dart';
+
+export 'package:material_ui/material_ui.dart' show InputDecoration;
 
 class AdaptiveTextField extends StatelessWidget {
   const AdaptiveTextField({
@@ -85,6 +88,7 @@ class AdaptiveTextField extends StatelessWidget {
         keyboardType: keyboardType,
         textInputAction: textInputAction,
         textCapitalization: textCapitalization,
+        magnifierConfiguration: nativeIosTextMagnifierConfiguration,
         style: style,
         textAlign: textAlign,
         maxLines: maxLines,
@@ -109,6 +113,7 @@ class AdaptiveTextField extends StatelessWidget {
       keyboardType: keyboardType,
       textInputAction: textInputAction,
       textCapitalization: textCapitalization,
+      magnifierConfiguration: nativeIosTextMagnifierConfiguration,
       style: style,
       textAlign: textAlign,
       maxLines: maxLines,
@@ -311,6 +316,7 @@ class _AdaptiveTextFormFieldState extends State<AdaptiveTextFormField> {
         keyboardType: widget.keyboardType,
         textInputAction: widget.textInputAction,
         textCapitalization: widget.textCapitalization,
+        magnifierConfiguration: nativeIosTextMagnifierConfiguration,
         style: widget.style,
         textAlign: widget.textAlign,
         maxLines: widget.maxLines,
@@ -351,6 +357,7 @@ class _AdaptiveTextFormFieldState extends State<AdaptiveTextFormField> {
             keyboardType: widget.keyboardType,
             textInputAction: widget.textInputAction,
             textCapitalization: widget.textCapitalization,
+            magnifierConfiguration: nativeIosTextMagnifierConfiguration,
             style: widget.style,
             textAlign: widget.textAlign,
             maxLines: widget.maxLines,

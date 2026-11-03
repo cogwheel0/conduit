@@ -17,6 +17,7 @@ import 'markdown_render_gate.dart';
 import 'markdown_loading_skeleton.dart';
 
 import 'package:conduit_core/utils/streaming_markdown_preparation.dart';
+import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 
 import 'renderer/block_renderer.dart';
 import 'renderer/chunked_block_column.dart';
@@ -822,6 +823,7 @@ class _StreamingMarkdownWidgetState
 
     return HorizontalGestureExclusion(
       child: SelectionArea(
+        magnifierConfiguration: nativeIosTextMagnifierConfiguration,
         contextMenuBuilder: (context, selectableRegionState) {
           return buildAskConduitSelectionAreaContextMenu(
             selectableRegionState: selectableRegionState,
@@ -1133,7 +1135,7 @@ class MarkdownWithLoading extends StatelessWidget {
   Widget build(BuildContext context) {
     final value = content ?? '';
     if (isLoading && value.trim().isEmpty) {
-      return const Center(child: CircularProgressIndicator());
+      return const Center(child: AdaptiveProgressIndicator());
     }
 
     return StreamingMarkdownWidget(

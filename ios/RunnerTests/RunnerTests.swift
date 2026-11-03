@@ -8,6 +8,189 @@ import XCTest
 @testable import Runner
 
 class RunnerTests: XCTestCase {
+  /// Verifies coordinate scaling and rejects malformed channel payloads.
+  func testTextMagnifierMapsFullViewCoordinates() throws {
+    let payload: [String: Any] = [
+      "viewWidth": 400.0, "viewHeight": 800.0,
+      "x": 120.0, "y": 500.0,
+      "caretX": 118.0, "caretY": 490.0,
+      "caretWidth": 2.0, "caretHeight": 20.0,
+    ]
+    let geometry = try XCTUnwrap(NativeTextMagnifierGeometry(
+      payload, in: CGRect(x: 10, y: 20, width: 200, height: 400)
+    ))
+    XCTAssertEqual(geometry.point, CGPoint(x: 70, y: 270))
+    XCTAssertEqual(geometry.caretRect, CGRect(x: 69, y: 265, width: 1, height: 10))
+    for (key, value) in [
+      ("viewWidth", 0.0), ("viewHeight", -1.0), ("x", Double.nan),
+      ("y", Double.infinity), ("caretWidth", -2.0), ("caretHeight", -1.0),
+    ] {
+      var invalid = payload
+      invalid[key] = value
+      XCTAssertNil(NativeTextMagnifierGeometry(invalid, in: CGRect(x: 0, y: 0, width: 400, height: 800)))
+    }
+    XCTAssertNil(NativeTextMagnifierGeometry([:], in: .zero))
+  }
+
+
+  /// Checks action delivery and exactly-once cancellation during app resignation.
+  @MainActor
+  func testNativeSelectionMenuKeepsChosenActionWhenAppResigns() throws {
+    guard #available(iOS 17.4, *) else { return }
+    let scene = try XCTUnwrap(
+      UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+    let previousKeyWindow = scene.windows.first(where: \.isKeyWindow)
+    let window = UIWindow(windowScene: scene)
+    window.frame = scene.coordinateSpace.bounds
+    let controller = UIViewController()
+    window.rootViewController = controller
+    window.makeKeyAndVisible()
+    window.layoutIfNeeded()
+    defer {
+      window.isHidden = true
+      previousKeyWindow?.makeKey()
+    }
+
+    for chosen in [0, 1, nil] {
+      let messenger = SelectionMenuTestMessenger()
+      let host = SelectionMenuTestHost(messenger: messenger, controller: controller)
+      let bridge = NativeTextSelectionMenuBridge()
+      bridge.attach(to: host)
+      let codec = FlutterStandardMethodCodec.sharedInstance()
+      var replies: [Int?] = []
+      let call = FlutterMethodCall(methodName: "show", arguments: [
+        "session": 1, "labels": ["Copy", "Ask Conduit"],
+        "rect": [20.0, 100.0, 160.0, 24.0],
+        "viewWidth": 390.0, "viewHeight": 844.0,
+      ])
+      let handler = try XCTUnwrap(messenger.handler)
+      handler(codec.encode(call)) { data in
+        guard let data else { XCTFail("Missing menu reply"); return }
+        replies.append((try? codec.decodeEnvelope(data)) as? Int)
+      }
+      let anchor = try XCTUnwrap(controller.view.subviews.last)
+      let interaction = try XCTUnwrap(anchor.interactions.first as? UIEditMenuInteraction)
+      let menu = try XCTUnwrap(bridge.editMenuInteraction(
+        interaction,
+        menuFor: UIEditMenuConfiguration(identifier: NSNumber(value: 1), sourcePoint: .zero),
+        suggestedActions: []))
+      if let chosen {
+        let action = try XCTUnwrap(menu.children[chosen] as? UIAction)
+        UIButton(primaryAction: action).performPrimaryAction()
+      }
+
+      // The app can resign after the action is chosen but before UIKit's
+      // dismissal animation completes. A second dismissal must not reply twice.
+      NotificationCenter.default.post(name: UIApplication.willResignActiveNotification, object: nil)
+      NotificationCenter.default.post(name: UIApplication.willResignActiveNotification, object: nil)
+      XCTAssertEqual(replies, [chosen])
+    }
+  }
+
+  /// Checks that host replacement isolates queued actions and animations.
+  @MainActor
+  func testNativeSelectionMenuIgnoresCallbacksFromPreviousHost() throws {
+    guard #available(iOS 17.4, *) else { return }
+    let scene = try XCTUnwrap(
+      UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+    let previousKeyWindow = scene.windows.first(where: \.isKeyWindow)
+    let window = UIWindow(windowScene: scene)
+    window.frame = scene.coordinateSpace.bounds
+    let controller = UIViewController()
+    window.rootViewController = controller
+    window.makeKeyAndVisible()
+    window.layoutIfNeeded()
+    defer {
+      window.isHidden = true
+      previousKeyWindow?.makeKey()
+    }
+    let codec = FlutterStandardMethodCodec.sharedInstance()
+    let call = codec.encode(FlutterMethodCall(methodName: "show", arguments: [
+      "session": 1, "labels": ["Copy"],
+      "rect": [20.0, 100.0, 160.0, 24.0],
+      "viewWidth": 390.0, "viewHeight": 844.0,
+    ]))
+    for staleAction in [true, false] {
+      let oldMessenger = SelectionMenuTestMessenger()
+      let oldHost = SelectionMenuTestHost(messenger: oldMessenger, controller: controller)
+      let bridge = NativeTextSelectionMenuBridge()
+      bridge.attach(to: oldHost)
+      try XCTUnwrap(oldMessenger.handler)(call) { _ in }
+      let anchor = try XCTUnwrap(controller.view.subviews.last)
+      let interaction = try XCTUnwrap(anchor.interactions.first as? UIEditMenuInteraction)
+      let configuration = UIEditMenuConfiguration(
+        identifier: NSNumber(value: 1), sourcePoint: .zero)
+      let menu = try XCTUnwrap(bridge.editMenuInteraction(
+        interaction, menuFor: configuration, suggestedActions: []))
+      let oldAction = try XCTUnwrap(menu.children.first as? UIAction)
+      let animator = SelectionMenuTestAnimator()
+      bridge.editMenuInteraction(
+        interaction, willDismissMenuFor: configuration, animator: animator)
+
+      let newMessenger = SelectionMenuTestMessenger()
+      let newHost = SelectionMenuTestHost(messenger: newMessenger, controller: controller)
+      bridge.attach(to: newHost)
+      var replies: [Int?] = []
+      // A new engine starts its session counter again.
+      try XCTUnwrap(newMessenger.handler)(call) { data in
+        guard let data else { XCTFail("Missing menu reply"); return }
+        replies.append((try? codec.decodeEnvelope(data)) as? Int)
+      }
+      if staleAction {
+        UIButton(primaryAction: oldAction).performPrimaryAction()
+      } else {
+        animator.completion?()
+        XCTAssertTrue(replies.isEmpty, "Old dismissal must not close the new menu")
+      }
+      NotificationCenter.default.post(name: UIApplication.willResignActiveNotification, object: nil)
+      XCTAssertEqual(replies, [nil], "Old actions must not act on the new menu")
+    }
+  }
+
+  /// Verifies a rejected replacement cannot leave a previous native menu open.
+  @MainActor
+  func testNativeSelectionMenuDismissesBeforeRejectingReplacement() throws {
+    guard #available(iOS 16.0, *) else { return }
+    let scene = try XCTUnwrap(
+      UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+    let previousKeyWindow = scene.windows.first(where: \.isKeyWindow)
+    let window = UIWindow(windowScene: scene)
+    window.frame = scene.coordinateSpace.bounds
+    let controller = UIViewController()
+    window.rootViewController = controller
+    window.makeKeyAndVisible()
+    window.layoutIfNeeded()
+    defer {
+      window.isHidden = true
+      previousKeyWindow?.makeKey()
+    }
+    let messenger = SelectionMenuTestMessenger()
+    let host = SelectionMenuTestHost(messenger: messenger, controller: controller)
+    let bridge = NativeTextSelectionMenuBridge()
+    bridge.attach(to: host)
+    let codec = FlutterStandardMethodCodec.sharedInstance()
+    let handler = try XCTUnwrap(messenger.handler)
+    var args: [String: Any] = [
+      "session": 1, "labels": ["Copy"],
+      "rect": [20.0, 100.0, 160.0, 24.0],
+      "viewWidth": 390.0, "viewHeight": 844.0,
+    ]
+    var oldReplies = 0
+    handler(codec.encode(FlutterMethodCall(methodName: "show", arguments: args))) { _ in
+      oldReplies += 1
+    }
+    let anchor = try XCTUnwrap(controller.view.subviews.last)
+    args["session"] = 2
+    args["labels"] = [String]()
+    var rejected = false
+    handler(codec.encode(FlutterMethodCall(methodName: "show", arguments: args))) { data in
+      rejected = data.map { codec.decodeEnvelope($0) is FlutterError } ?? false
+    }
+    XCTAssertTrue(rejected)
+    XCTAssertEqual(oldReplies, 1)
+    XCTAssertNil(anchor.superview)
+    NotificationCenter.default.post(name: UIApplication.willResignActiveNotification, object: nil)
+  }
 
   func testAppDelegateConformsToCallKitCallbacksAtRuntime() {
     // flutter_callkit_incoming reaches the callbacks with
@@ -608,6 +791,49 @@ class RunnerTests: XCTestCase {
     }
 
     wait(for: [applied], timeout: 1)
+  }
+
+  @MainActor
+  func testNativeVoiceLanguageFilterKeepsOnlySelectedUnknownVoice() throws {
+    let payload: [String: Any] = [
+      "title": "Voices", "filterAllLabel": "All languages", "selectedOptionId": "cloud",
+      "options": [
+        ["id": "default", "label": "System default", "filterGroup": ""],
+        ["id": "iris", "label": "Iris", "filterGroup": "French"],
+        ["id": "maple", "label": "Maple", "filterGroup": "English"],
+        ["id": "cloud", "label": "Cloud voice"],
+        ["id": "other", "label": "Other cloud voice"],
+      ],
+    ]
+    func texts(in view: UIView) -> [String] {
+      (view as? UILabel).flatMap(\.text).map { [$0] } ?? view.subviews.flatMap { texts(in: $0) }
+    }
+    for (filter, expected) in [
+      (nil as String?, ["System default", "Iris", "Maple", "Cloud voice", "Other cloud voice"]),
+      ("French", ["System default", "Iris", "Cloud voice"]),
+    ] {
+      let controller = try XCTUnwrap(NativeOptionsSelectorTableViewController.makeForTesting(payload, filterGroup: filter))
+      let table = try XCTUnwrap(controller.view.subviews.compactMap { $0 as? UITableView }.first)
+      let source = try XCTUnwrap(table.dataSource)
+      if filter == "French" {
+        let search = try XCTUnwrap(controller.navigationItem.searchController)
+        let updater = try XCTUnwrap(controller as? UISearchResultsUpdating)
+        search.searchBar.text = "unmatched"
+        updater.updateSearchResults(for: search)
+        XCTAssertEqual(source.tableView(table, numberOfRowsInSection: 0), 0)
+        search.searchBar.text = nil
+        updater.updateSearchResults(for: search)
+      }
+      let count = source.tableView(table, numberOfRowsInSection: 0)
+      XCTAssertEqual(count, expected.count)
+      var labels: [String] = []
+      for row in 0..<count {
+        let cell = source.tableView(table, cellForRowAt: IndexPath(row: row, section: 0))
+        labels.append(contentsOf: texts(in: cell.contentView))
+        XCTAssertEqual(cell.accessoryType, labels.last == "Cloud voice" ? .checkmark : .none)
+      }
+      XCTAssertEqual(labels, expected)
+    }
   }
 
   func testNativeSheetModelUpdateRejectsStalePresentation() {
@@ -3565,6 +3791,41 @@ class RunnerTests: XCTestCase {
     XCTAssertFalse(gate.deliver(["type": "result"], token: token))
   }
 
+  func testDictationAudioOverflowReportsOneFailureAndStopsContinuousOutput() throws {
+    let input = try XCTUnwrap(AVAudioFormat(
+      commonFormat: .pcmFormatFloat32, sampleRate: 48000, channels: 1, interleaved: false
+    ))
+    let buffer = try XCTUnwrap(AVAudioPCMBuffer(pcmFormat: input, frameCapacity: 480))
+    buffer.frameLength = 480
+    buffer.floatChannelData?[0].initialize(repeating: 0, count: 480)
+    let entered = DispatchSemaphore(value: 0)
+    let resume = DispatchSemaphore(value: 0)
+    let overflow = expectation(description: "overflow reported")
+    var events: [[String: Any]] = []
+    let emitter = try NativeDictationAudioEmitter(format: input) { event in
+      if events.isEmpty {
+        entered.signal()
+        _ = resume.wait(timeout: .now() + 5)
+      }
+      events.append(event)
+      if event["type"] as? String == "error" { overflow.fulfill() }
+    }
+    emitter.append(buffer)
+    XCTAssertEqual(entered.wait(timeout: .now() + 2), .success)
+    // The worker holds one lease; three more fill the pool. Later appends
+    // cannot wait for it and must report a single truncated-recording error.
+    for _ in 0..<5 { emitter.append(buffer) }
+    resume.signal()
+    wait(for: [overflow], timeout: 2)
+    // The worker has released its leases. An admitted buffer must still be suppressed.
+    emitter.append(buffer)
+    emitter.close()
+    let errors = events.filter { $0["type"] as? String == "error" }
+    XCTAssertEqual(errors.count, 1)
+    XCTAssertEqual(errors.first?["code"] as? String, "AUDIO_PRESERVATION_FAILED")
+    XCTAssertEqual(events.last?["type"] as? String, "error")
+  }
+
   func testNativeSttStopAcknowledgementTimeoutDoesNotCancelDeferredCleanup() async {
     let cleanupCanFinish = NativeSttShutdownCompletion()
     let cleanup = Task {
@@ -4230,4 +4491,36 @@ private final class LinkedImageStubProtocol: URLProtocol {
   }
 
   override func stopLoading() {}
+}
+
+private final class SelectionMenuTestMessenger: NSObject, FlutterBinaryMessenger {
+  var handler: FlutterBinaryMessageHandler?
+
+  func send(onChannel channel: String, message: Data?) {}
+  func send(onChannel channel: String, message: Data?, binaryReply callback: FlutterBinaryReply?) {}
+  func setMessageHandlerOnChannel(
+    _ channel: String, binaryMessageHandler handler: FlutterBinaryMessageHandler?
+  ) -> FlutterBinaryMessengerConnection {
+    self.handler = handler
+    return 1
+  }
+  func cleanUpConnection(_ connection: FlutterBinaryMessengerConnection) {}
+}
+
+private final class SelectionMenuTestAnimator: NSObject, UIEditMenuInteractionAnimating {
+  var completion: (() -> Void)?
+  func addAnimations(_ animations: @escaping () -> Void) { animations() }
+  func addCompletion(_ completion: @escaping () -> Void) { self.completion = completion }
+}
+
+private final class SelectionMenuTestHost: ConduitBridgeHost {
+  let messenger: FlutterBinaryMessenger
+  let presentingViewController: UIViewController?
+  let activeWindowScene: UIWindowScene? = nil
+  let appGroupIdentifier: String? = nil
+
+  init(messenger: FlutterBinaryMessenger, controller: UIViewController) {
+    self.messenger = messenger
+    presentingViewController = controller
+  }
 }

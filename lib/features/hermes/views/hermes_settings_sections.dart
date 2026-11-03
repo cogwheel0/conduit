@@ -118,12 +118,9 @@ class _HermesToolsetsSectionState extends ConsumerState<HermesToolsetsSection> {
         data: {'errorType': error.runtimeType.toString()},
       );
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              AppLocalizations.of(context)!.hermesToolsetUpdateFailed,
-            ),
-          ),
+        AdaptiveSnackBar.show(
+          context,
+          message: AppLocalizations.of(context)!.hermesToolsetUpdateFailed,
         );
       }
     } finally {
@@ -165,9 +162,14 @@ class _HermesToolsetsSectionState extends ConsumerState<HermesToolsetsSection> {
                     UtilityRow(
                       title: toolset.label,
                       subtitle: l10n.hermesToolCount(toolset.tools.length),
+                      preserveTrailingSemantics: desktop,
+                      semanticLabel: desktop
+                          ? l10n.hermesToolCount(toolset.tools.length)
+                          : null,
                       trailing: desktop
                           ? AdaptiveSwitch(
                               value: toolset.enabled,
+                              semanticLabel: toolset.label,
                               onChanged: _pending.contains(toolset.name)
                                   ? null
                                   : (enabled) =>
@@ -181,7 +183,7 @@ class _HermesToolsetsSectionState extends ConsumerState<HermesToolsetsSection> {
             loading: () => const SizedBox(
               height: 18,
               width: 18,
-              child: CircularProgressIndicator(strokeWidth: 2),
+              child: AdaptiveProgressIndicator(strokeWidth: 2),
             ),
             error: (_, _) => Text(
               l10n.directConnectionUnavailableLabel,
@@ -308,8 +310,10 @@ class _HermesTransportSectionState extends State<HermesTransportSection> {
             key: const ValueKey<String>('hermes-allow-self-signed'),
             title: l10n.allowSelfSignedCertificates,
             subtitle: l10n.allowSelfSignedCertificatesDescription,
+            toggled: _controller.allowSelfSignedCertificates,
             trailing: AdaptiveSwitch(
               value: _controller.allowSelfSignedCertificates,
+              semanticLabel: l10n.allowSelfSignedCertificates,
               onChanged: _controller.setAllowSelfSignedCertificates,
             ),
             onTap: () => _controller.setAllowSelfSignedCertificates(
@@ -346,10 +350,9 @@ class _HermesDesktopManagementSectionState
         data: {'errorType': error.runtimeType.toString()},
       );
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(AppLocalizations.of(context)!.hermesActionFailed),
-          ),
+        AdaptiveSnackBar.show(
+          context,
+          message: AppLocalizations.of(context)!.hermesActionFailed,
         );
       }
     } finally {
@@ -450,7 +453,7 @@ class HermesServerStatusSection extends ConsumerWidget {
             loading: () => const SizedBox(
               height: 18,
               width: 18,
-              child: CircularProgressIndicator(strokeWidth: 2),
+              child: AdaptiveProgressIndicator(strokeWidth: 2),
             ),
             error: (_, _) => Text(
               l10n.directConnectionUnavailableLabel,

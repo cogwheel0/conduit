@@ -312,6 +312,7 @@ class PlatformNativeSheetOption {
     required this.ancestorHasMoreSiblings,
     required this.showBranch,
     required this.hasMoreSiblings,
+    this.filterGroup,
   });
 
   String id;
@@ -323,6 +324,8 @@ class PlatformNativeSheetOption {
   List<bool> ancestorHasMoreSiblings;
   bool showBranch;
   bool hasMoreSiblings;
+
+  String? filterGroup;
 }
 
 class PlatformNativeSheetTheme {
@@ -389,6 +392,7 @@ class PlatformNativeSheetItem {
     this.checked,
     this.accent,
     this.usesProfileAvatar,
+    this.filterAllLabel,
   });
 
   String id;
@@ -433,6 +437,8 @@ class PlatformNativeSheetItem {
   /// Draws the row as the sheet's profile summary: its large avatar beside
   /// the row's own title and subtitle.
   bool? usesProfileAvatar;
+
+  String? filterAllLabel;
 }
 
 class PlatformNativeSheetLink {
@@ -444,11 +450,17 @@ class PlatformNativeSheetLink {
 }
 
 class PlatformNativeSheetSection {
-  PlatformNativeSheetSection({this.title, this.footer, required this.items});
+  PlatformNativeSheetSection({
+    this.title,
+    this.footer,
+    required this.items,
+    this.reorderActionId,
+  });
 
   String? title;
   String? footer;
   List<PlatformNativeSheetItem> items;
+  String? reorderActionId;
 }
 
 class PlatformNativeEditProfileSheetConfig {
@@ -658,6 +670,7 @@ class PlatformNativeSheetOptionsSelectorRequest {
     this.selectedOptionId,
     required this.searchable,
     required this.options,
+    this.filterAllLabel,
   });
 
   String title;
@@ -665,6 +678,8 @@ class PlatformNativeSheetOptionsSelectorRequest {
   String? selectedOptionId;
   bool searchable;
   List<PlatformNativeSheetOption> options;
+
+  String? filterAllLabel;
 }
 
 class PlatformNativeSheetDatePickerRequest {
@@ -694,6 +709,7 @@ class PlatformNativeSheetTextEditorRequest {
     required this.valueId,
     required this.sendActionId,
     required this.closeActionId,
+    this.emitChanges = false,
   });
 
   String title;
@@ -703,6 +719,7 @@ class PlatformNativeSheetTextEditorRequest {
   String valueId;
   String sendActionId;
   String closeActionId;
+  bool emitChanges;
 }
 
 class PlatformNativeSheetResultRequest {
@@ -996,6 +1013,18 @@ abstract class NativeKeyboardAttachmentFlutterApi {
 abstract class NativeDropdownHostApi {
   @async
   String? show(PlatformDropdownRequest request);
+
+  /// Prepares native menu presentation and reports availability.
+  bool initializeContextMenu();
+
+  @async
+  String? showContextMenu(
+    int requestId,
+    PlatformDropdownRequest request,
+    Uint8List previewPng,
+  );
+
+  void cancelContextMenu(int requestId);
 }
 
 /// iOS only. Presents local image files in Quick Look.

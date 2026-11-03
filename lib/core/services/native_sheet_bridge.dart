@@ -439,12 +439,15 @@ class NativeSheetBridge implements NativeSheetFlutterApi {
     _reasoningEffortUpdateOwner = previousUpdateOwner;
   }
 
+  /// Returns the selected ID, or null on dismissal, unsupported input, or suppressed errors.
+  /// [filterAllLabel] enables group filtering; [rethrowErrors] preserves presentation failures.
   Future<String?> presentOptionsSelector({
     required String title,
     required List<NativeSheetOptionConfig> options,
     String? subtitle,
     String? selectedOptionId,
     bool searchable = true,
+    String? filterAllLabel,
     bool rethrowErrors = false,
   }) async {
     if (!_isIOS || options.isEmpty) return null;
@@ -455,6 +458,7 @@ class NativeSheetBridge implements NativeSheetFlutterApi {
           subtitle: subtitle,
           selectedOptionId: selectedOptionId,
           searchable: searchable,
+          filterAllLabel: filterAllLabel,
           options: options.map((option) => option.toPlatform()).toList(),
         ),
       );
@@ -521,6 +525,7 @@ class NativeSheetBridge implements NativeSheetFlutterApi {
     String valueId = 'text',
     String sendActionId = 'send',
     String closeActionId = 'close',
+    bool emitChanges = false,
     bool rethrowErrors = false,
   }) async {
     if (!_isIOS) return null;
@@ -534,6 +539,7 @@ class NativeSheetBridge implements NativeSheetFlutterApi {
           valueId: valueId,
           sendActionId: sendActionId,
           closeActionId: closeActionId,
+          emitChanges: emitChanges,
         ),
       );
       return raw == null ? null : NativeSheetActionResult.fromPlatform(raw);
@@ -781,16 +787,19 @@ class NativeSheetSectionConfig {
     required this.items,
     this.title,
     this.footer,
+    this.reorderActionId,
   });
 
   final String? title;
   final String? footer;
+  final String? reorderActionId;
   final List<NativeSheetItemConfig> items;
 
   Map<String, Object?> toMap() {
     return {
       'title': title,
       'footer': footer,
+      if (reorderActionId != null) 'reorderActionId': reorderActionId,
       'items': items.map((item) => item.toMap()).toList(),
     };
   }
@@ -1029,6 +1038,7 @@ class NativeSheetItemConfig {
     this.checked = false,
     this.accent = false,
     this.usesProfileAvatar = false,
+    this.filterAllLabel,
   });
 
   final String id;
@@ -1078,8 +1088,12 @@ class NativeSheetItemConfig {
   /// this row's own title and subtitle.
   final bool usesProfileAvatar;
 
+  /// Enables the picker filter pill; this is its unfiltered label.
+  final String? filterAllLabel;
+
   Map<String, Object?> toMap() {
     return {
+      if (filterAllLabel != null) 'filterAllLabel': filterAllLabel,
       'id': id,
       'title': title,
       'subtitle': subtitle,
@@ -1143,6 +1157,7 @@ class NativeSheetOptionConfig {
     this.ancestorHasMoreSiblings = const <bool>[],
     this.showBranch = false,
     this.hasMoreSiblings = false,
+    this.filterGroup,
   });
 
   final String id;
@@ -1155,8 +1170,12 @@ class NativeSheetOptionConfig {
   final bool showBranch;
   final bool hasMoreSiblings;
 
+  /// Label in the picker filter menu. Empty keeps an option in every group.
+  final String? filterGroup;
+
   Map<String, Object?> toMap() {
     return {
+      if (filterGroup != null) 'filterGroup': filterGroup,
       'id': id,
       'label': label,
       'subtitle': subtitle,
@@ -1319,6 +1338,7 @@ extension on NativeSheetSectionConfig {
     return PlatformNativeSheetSection(
       title: title,
       footer: footer,
+      reorderActionId: reorderActionId,
       items: items.map((item) => item.toPlatform()).toList(),
     );
   }
@@ -1435,6 +1455,7 @@ extension on NativeSheetItemConfig {
       checked: checked,
       accent: accent,
       usesProfileAvatar: usesProfileAvatar,
+      filterAllLabel: filterAllLabel,
     );
   }
 }
@@ -1476,6 +1497,7 @@ extension on NativeSheetOptionConfig {
       ancestorHasMoreSiblings: ancestorHasMoreSiblings,
       showBranch: showBranch,
       hasMoreSiblings: hasMoreSiblings,
+      filterGroup: filterGroup,
     );
   }
 }

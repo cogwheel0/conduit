@@ -548,6 +548,21 @@
   "@filters": {
     "description": "Header for toggle filters section."
   },
+  "composerDraftLoadFailed": "Uložený koncept sa nepodarilo načítať. Skôr než ho nahradíte, skúste to znova.",
+  "composerDraftSaveFailed": "Koncept sa nepodarilo uložiť do tohto zariadenia. Nechajte aplikáciu otvorenú a skúste to znova.",
+  "savedRecording": "Uložená nahrávka",
+  "recordingDiscard": "Zahodiť nahrávku",
+  "recordingTranscriptionFailed": "Prepis zlyhal. Nahrávka je uložená.",
+  "recordingDiscardConfirmation": "Naozaj chcete túto nahrávku zahodiť?",
+  "recordingDiscardFailed": "Túto nahrávku sa nepodarilo zahodiť. Skúste to znova.",
+  "recordingCaptureInterrupted": "Nahrávanie bolo prerušené. Uložený zvuk nemusí byť úplný.",
+  "recordingLoadFailed": "Nahrávky sa nepodarilo načítať. Skúsiť znova",
+  "recordingSaveFailed": "Nahrávku sa nepodarilo uložiť do tohto zariadenia. Nechajte aplikáciu otvorenú a skúste to znova.",
+  "transcribeOnServer": "Prepísať na serveri",
+  "transcribeOnDevice": "Prepísať v zariadení",
+  "recordingRecoveryUnavailable": "Tento rozpoznávač reči nedokáže uchovávať zvukové nahrávky. Prepísaný text sa naďalej ukladá s konceptom. Ak chcete uchovávať zvuk, vyberte rozpoznávanie reči na serveri.",
+  "exportRecording": "Exportovať nahrávku",
+  "recordingExportFailed": "Túto nahrávku sa nepodarilo exportovať. Skúste to znova.",
   "voiceInput": "Hlasový vstup",
   "@voiceInput": {
     "description": "Label for voice input feature."
@@ -1118,6 +1133,8 @@
   "@copy": {
     "description": "Action to copy text to clipboard."
   },
+  "ttsSkipBackward": "O 15 sekúnd späť",
+  "ttsSkipForward": "O 15 sekúnd dopredu",
   "ttsListen": "Vypočuť",
   "@ttsListen": {
     "description": "Action to play the assistant message using text to speech"
@@ -1474,6 +1491,8 @@
   "@analyzed": {
     "description": "Label shown after code interpreter has finished."
   },
+  "showComposerNotesButton": "Show Notes button",
+  "showComposerNotesButtonDescription": "Show Create note in the chat composer.",
   "appCustomization": "Prispôsobenie",
   "@appCustomization": {
     "description": "Title of the customization settings page."
@@ -1500,6 +1519,13 @@
   "@autoSelectDescription": {
     "description": "Explains what the server-provided model setting does."
   },
+  "messageActionsAutomatic": "Automatické akcie",
+  "@messageActionsAutomatic": {"description": "Toggle for choosing response actions automatically from the actions eligible for each message."},
+  "messageActionsTitle": "Akcie správ",
+  "messageActionsDescription": "Vyberte akcie zobrazené pod odpoveďami. Poradie zapnutých akcií zmeníte potiahnutím. Ostatné akcie zostanú v ponuke Viac.",
+  "messageActionsInline": "Pod odpoveďami",
+  "messageActionsReorder": "Potiahnutím zmeníte poradie",
+  "messageActionsReset": "Obnoviť predvolené nastavenia",
   "chatSettings": "Chat",
   "@chatSettings": {
     "description": "Section header for chat-related customization options."
@@ -1692,6 +1718,8 @@
   "@ttsPreview": {
     "description": "Title for preview button."
   },
+  "ttsAllLanguages": "Všetky jazyky",
+  "ttsSearchVoices": "Hľadať hlasy",
   "ttsSystemDefault": "Predvolený systémový",
   "@ttsSystemDefault": {
     "description": "Label for system default voice option."
@@ -3433,6 +3461,10 @@
   "@socketDisconnected": {
     "description": "Socket health status when disconnected."
   },
+  "liveConnectionDetails": "Živé aktualizácie sú odpojené. Zobraziť podrobnosti pripojenia.",
+  "liveConnectionDetailsTitle": "Živé aktualizácie",
+  "liveConnectionDetailsMessage": "Živé aktualizácie sú odpojené. Odpovede a zmeny četov sa môžu oneskoriť. Skontrolujte pripojenie alebo sa skúste znova pripojiť.",
+  "liveConnectionRetryFailed": "Živé aktualizácie sú stále odpojené. Klepnutím na ikonu pripojenia to skúste znova.",
   "socketLatencyLabel": "Latencia",
   "@socketLatencyLabel": {
     "description": "Metric label for socket latency."
@@ -5374,6 +5406,8 @@
   "backendChooserAppleSectionTitle": "Apple Intelligence",
   "backendChooserModelApisSectionTitle": "API modelov",
   "backendChooserSelfHostedSectionTitle": "Vlastné hostované služby",
+  "citationBackground": "Pozadie citácií",
+  "citationBackgroundDescription": "Vypnite pre priehľadné citácie v texte",
   "citationShowTitles": "Zobrazovať názvy stránok pri citáciách",
   "citationShowTitlesDescription": "V odznakoch citácií používať názvy stránok namiesto domén webov",
   "directContextCompactionDescription": "Tieto modely neuvádzajú veľkosť kontextového okna. Conduit použije zvolený limit na zhustenie starších správ skôr, než budú požiadavky príliš veľké.",

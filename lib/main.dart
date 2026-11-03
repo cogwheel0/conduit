@@ -86,6 +86,7 @@ import 'package:conduit_core/features/integrations/providers/personal_connection
 
 import 'package:conduit_core/sync/request_completion_runner_provider.dart';
 
+import 'core/utils/message_action_settings.dart';
 import 'core/utils/native_sheet_utils.dart'
     show
         nativeAccountAddActionId,
@@ -99,6 +100,7 @@ import 'core/utils/native_sheet_utils.dart'
         nativeAdvancedFeaturesId,
         nativeSlidingSidebarId,
         nativeCitationShowTitlesId,
+        nativeCitationBackgroundId,
         nativeMemoryEditorActionPrefix,
         nativeMemoryEditorNewActionId,
         nativeNotificationTargetsActionId;
@@ -922,6 +924,64 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
         return;
       }
 
+      if (event.id == 'message-actions-reorder' && value is List) {
+        final selected = ref.read(appSettingsProvider).inlineMessageActions;
+        if (selected == null) return;
+        final ordered = value
+            .whereType<String>()
+            .map((id) => id.replaceFirst('message-action:', ''))
+            .toList();
+        if (value.length != selected.length ||
+            ordered.length != selected.length ||
+            ordered.toSet().length != selected.length ||
+            !ordered.every(selected.contains)) {
+          return;
+        }
+        // UIKit has already moved its row. Reloading the detail during its
+        // move animation would disturb the displayed cells.
+        await ref
+            .read(appSettingsProvider.notifier)
+            .setInlineMessageActions(ordered);
+        return;
+      }
+      if (event.id == 'message-actions-automatic' && value is bool) {
+        await ref
+            .read(appSettingsProvider.notifier)
+            .setInlineMessageActions(
+              value ? null : defaultInlineMessageActions,
+            );
+        await ref
+            .read(nativeSheetHydrationServiceProvider)
+            .hydrateDetail('message-actions');
+        return;
+      }
+      if (event.id == 'message-actions-reset') {
+        await ref
+            .read(appSettingsProvider.notifier)
+            .setInlineMessageActions(null);
+        await ref
+            .read(nativeSheetHydrationServiceProvider)
+            .hydrateDetail('message-actions');
+        return;
+      }
+      if (event.id.startsWith('message-action:') && value is bool) {
+        final id = event.id.substring('message-action:'.length);
+        final context = NavigationService.context;
+        if (context == null ||
+            !context.mounted ||
+            !messageActionSettings(AppLocalizations.of(context)!)
+                .any((action) => action.id == id)) {
+          return;
+        }
+        await ref
+            .read(appSettingsProvider.notifier)
+            .setMessageActionVisible(id, value);
+        await ref
+            .read(nativeSheetHydrationServiceProvider)
+            .hydrateDetail('message-actions');
+        return;
+      }
+
       if (event.id.startsWith('quick-pill:')) {
         final pillId = event.id.substring('quick-pill:'.length);
         if (value is! bool) return;
@@ -1144,6 +1204,12 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
           }
         case 'quick-pills-clear':
           await ref.read(appSettingsProvider.notifier).setQuickPills(const []);
+        case 'composer-notes-button':
+          if (value is bool) {
+            await ref
+                .read(appSettingsProvider.notifier)
+                .setShowComposerNotesButton(value);
+          }
         case 'send-on-enter':
           if (value is bool) {
             await ref.read(appSettingsProvider.notifier).setSendOnEnter(value);
@@ -1176,6 +1242,12 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
             await ref
                 .read(appSettingsProvider.notifier)
                 .setCitationShowTitles(value);
+          }
+        case nativeCitationBackgroundId:
+          if (value is bool) {
+            await ref
+                .read(appSettingsProvider.notifier)
+                .setCitationBackground(value);
           }
         case 'disable-haptics-streaming':
           if (value is bool) {

@@ -150,6 +150,8 @@ Future<List<ChatSendPlaceholderHandle>> durableCompareSend(
   List<String>? toolIds,
   bool isVoiceMode = false,
   void Function()? onCommitted,
+  void Function(ChatSendPlaceholderHandle handle)?
+  onAssistantPlaceholderCreated,
 }) async {
   final activeAtSendStart = ref.read(activeConversationProvider);
   final sendMutationOwner = captureChatMutationOwner(ref, activeAtSendStart);
@@ -396,6 +398,8 @@ Future<List<ChatSendPlaceholderHandle>> durableCompareSend(
         mutationOwner: sendMutationOwner,
       ),
   ];
+
+  onAssistantPlaceholderCreated?.call(handles.first);
 
   void withdrawOptimisticTurn() {
     if (!chatMutationTokenStillActive(ref, sendMutationOwner)) return;

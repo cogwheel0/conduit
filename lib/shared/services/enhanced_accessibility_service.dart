@@ -244,7 +244,7 @@ class EnhancedAccessibilityService {
       child: SizedBox(
         width: size,
         height: size,
-        child: const CircularProgressIndicator(),
+        child: const AdaptiveProgressIndicator(),
       ),
     );
   }
