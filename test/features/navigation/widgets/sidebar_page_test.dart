@@ -22,6 +22,7 @@ import 'package:conduit/shared/theme/theme_extensions.dart';
 import 'package:conduit/shared/theme/tweakcn_themes.dart';
 import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:material_ui/material_ui.dart';
+import 'package:flutter/foundation.dart' show SynchronousFuture;
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -403,6 +404,9 @@ void main() {
       PlatformUiCapabilities.debugIOSMajorVersionOverride = 26;
       PlatformUiCapabilities.debugNativeIOS26Override = true;
       addTearDown(PlatformUiCapabilities.resetDebugOverrides);
+      AdaptiveFloatingTabBar.debugIconRenderer = (_, _, _, _) =>
+          SynchronousFuture(Uint8List(0));
+      addTearDown(AdaptiveFloatingTabBar.debugReset);
       tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
         SystemChannels.platform_views,
         (_) async => null,
@@ -428,14 +432,6 @@ void main() {
       final bar = find.byKey(
         const ValueKey<String>('sidebar-backend-selector'),
       );
-      final icons = tester.widget<FutureBuilder<List<Uint8List>>>(
-        find.descendant(
-          of: bar,
-          matching: find.byType(FutureBuilder<List<Uint8List>>),
-        ),
-      );
-      await tester.runAsync(() => icons.future!);
-      await tester.pump();
       final params =
           tester
                   .widget<UiKitView>(

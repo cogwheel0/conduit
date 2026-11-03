@@ -10,6 +10,7 @@ import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/models/user.dart';
 import 'package:conduit_core/features/navigation/models/sidebar_navigation_model.dart';
+import 'package:flutter/foundation.dart' show SynchronousFuture;
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -227,6 +228,9 @@ void main() {
     PlatformUiCapabilities.debugIOSMajorVersionOverride = 26;
     PlatformUiCapabilities.debugNativeIOS26Override = true;
     addTearDown(PlatformUiCapabilities.resetDebugOverrides);
+    AdaptiveFloatingTabBar.debugIconRenderer = (_, asset, _, _) =>
+        SynchronousFuture(Uint8List.fromList(asset.codeUnits));
+    addTearDown(AdaptiveFloatingTabBar.debugReset);
     final updates = <Map<Object?, Object?>>[];
     tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
       SystemChannels.platform_views,
@@ -261,14 +265,6 @@ void main() {
       expect(find.byType(CNTabBar), findsNothing);
 
       final bar = find.byKey(const ValueKey<String>('sidebar-backend-selector'));
-      final icons = tester.widget<FutureBuilder<List<Uint8List>>>(
-        find.descendant(
-          of: bar,
-          matching: find.byType(FutureBuilder<List<Uint8List>>),
-        ),
-      );
-      await tester.runAsync(() => icons.future!);
-      await tester.pump();
       final view = tester.widget<UiKitView>(
         find.descendant(of: bar, matching: find.byType(UiKitView)),
       );
@@ -276,10 +272,9 @@ void main() {
       final params = view.creationParams as Map;
       final tabs = (params['tabs'] as List).cast<Map>();
       expect([for (final tab in tabs) tab['label']], ['Open WebUI', 'Hermes']);
-      for (final tab in tabs) {
-        final png = ByteData.sublistView(tab['image'] as Uint8List);
-        expect(png.getUint32(0), 0x89504E47);
-      }
+      expect([
+        for (final tab in tabs) String.fromCharCodes(tab['image'] as Uint8List),
+      ], ['assets/icons/open_webui_tab.svg', 'assets/icons/hermes_agent.png']);
       expect(params['selectedIndex'], 0);
       expect(params['actionSymbol'], 'square.and.pencil');
       expect(params['actionLabel'], 'New Chat');
@@ -309,6 +304,35 @@ void main() {
         null,
       );
     }
+  });
+
+  testWidgets('native tab icons render at their point size', (tester) async {
+    final icons = await tester.runAsync(
+      () => Future.wait([
+        AdaptiveFloatingTabBar.renderNativeIcon(
+          rootBundle,
+          'assets/icons/open_webui_tab.svg',
+          22,
+          3,
+        ),
+        AdaptiveFloatingTabBar.renderNativeIcon(
+          rootBundle,
+          'assets/icons/hermes_agent.png',
+          26,
+          3,
+        ),
+      ]),
+    );
+    final sizes = [
+      for (final icon in icons!)
+        (() {
+          final png = ByteData.sublistView(icon);
+          expect(png.getUint32(0), 0x89504E47);
+          return (png.getUint32(16), png.getUint32(20));
+        })(),
+    ];
+    expect(sizes.first, (66, 66));
+    expect(sizes.last.$2, 78);
   });
 
   testWidgets('Material backend tabs are an icon-only pill beside a FAB', (

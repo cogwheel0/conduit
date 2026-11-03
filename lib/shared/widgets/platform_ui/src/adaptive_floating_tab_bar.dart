@@ -129,71 +129,24 @@ class AdaptiveFloatingTabBar extends StatefulWidget {
   static double _materialBottomInset(double safeBottom) =>
       safeBottom > 0 ? safeBottom : _kMaterialBarMargin;
 
-  @override
-  State<AdaptiveFloatingTabBar> createState() => _AdaptiveFloatingTabBarState();
-}
+  /// Renders the native bar's tab icons. Widget tests, which run inside fake
+  /// async, swap in a synchronous renderer.
+  @visibleForTesting
+  static AdaptiveFloatingTabIconRenderer debugIconRenderer = renderNativeIcon;
 
-class _AdaptiveFloatingTabBarState extends State<AdaptiveFloatingTabBar> {
-  static final Map<String, Future<Uint8List>> _iconCache = {};
-
-  MethodChannel? _channel;
-  Future<List<Uint8List>>? _icons;
-  String? _iconsKey;
-  Map<String, Object?>? _sentParams;
-
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    if (PlatformUiCapabilities.usesNativeIOS26) _loadIcons();
+  /// Restores [debugIconRenderer] and forgets icons rendered so far.
+  @visibleForTesting
+  static void debugReset() {
+    debugIconRenderer = renderNativeIcon;
+    _renderedIcons.clear();
   }
 
-  @override
-  void didUpdateWidget(covariant AdaptiveFloatingTabBar oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (PlatformUiCapabilities.usesNativeIOS26) _loadIcons();
-  }
+  static final Map<String, Uint8List> _renderedIcons = {};
 
-  @override
-  void dispose() {
-    _channel?.setMethodCallHandler(null);
-    super.dispose();
-  }
-
-  void _loadIcons() {
-    final bundle = DefaultAssetBundle.of(context);
-    final scale = MediaQuery.devicePixelRatioOf(context);
-    final key = [
-      for (final tab in widget.tabs) '${tab.nativeAsset}@${tab.nativeIconSize}',
-      '$scale',
-    ].join('|');
-    if (key == _iconsKey) return;
-    _iconsKey = key;
-    _icons = Future.wait([
-      for (final tab in widget.tabs) _icon(bundle, tab, scale),
-    ]);
-  }
-
-  /// A tab's rendered icon, or no image when it cannot be rendered, so the
-  /// bar still appears with its labelled tabs.
-  static Future<Uint8List> _icon(
-    AssetBundle bundle,
-    AdaptiveFloatingTab tab,
-    double scale,
-  ) {
-    final key = '${tab.nativeAsset}@${tab.nativeIconSize}x$scale';
-    return _iconCache.putIfAbsent(
-      key,
-      () => _rasterize(bundle, tab.nativeAsset, tab.nativeIconSize, scale)
-          .catchError((Object _) {
-            _iconCache.remove(key);
-            return Uint8List(0);
-          }),
-    );
-  }
-
-  /// Renders an asset at the size the native bar draws it, since UIKit
-  /// reads neither SVG nor a bitmap's intended point size.
-  static Future<Uint8List> _rasterize(
+  /// Renders [asset] as a PNG whose longest side is [size] points at
+  /// [scale], because UIKit reads neither SVG nor a bitmap's intended point
+  /// size.
+  static Future<Uint8List> renderNativeIcon(
     AssetBundle bundle,
     String asset,
     double size,
@@ -248,6 +201,94 @@ class _AdaptiveFloatingTabBarState extends State<AdaptiveFloatingTabBar> {
       return png!.buffer.asUint8List(png.offsetInBytes, png.lengthInBytes);
     } finally {
       image.dispose();
+    }
+  }
+
+  @override
+  State<AdaptiveFloatingTabBar> createState() => _AdaptiveFloatingTabBarState();
+}
+
+/// Renders one tab icon for the native bar; see
+/// [AdaptiveFloatingTabBar.renderNativeIcon].
+typedef AdaptiveFloatingTabIconRenderer =
+    Future<Uint8List> Function(
+      AssetBundle bundle,
+      String asset,
+      double size,
+      double scale,
+    );
+
+class _AdaptiveFloatingTabBarState extends State<AdaptiveFloatingTabBar> {
+  MethodChannel? _channel;
+  String? _iconsKey;
+
+  /// Icons for the tabs named by [_iconsKey], once all have rendered.
+  List<Uint8List>? _icons;
+  Map<String, Object?>? _sentParams;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (PlatformUiCapabilities.usesNativeIOS26) _loadIcons();
+  }
+
+  @override
+  void didUpdateWidget(covariant AdaptiveFloatingTabBar oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (PlatformUiCapabilities.usesNativeIOS26) _loadIcons();
+  }
+
+  @override
+  void dispose() {
+    _channel?.setMethodCallHandler(null);
+    super.dispose();
+  }
+
+  void _loadIcons() {
+    final bundle = DefaultAssetBundle.of(context);
+    final scale = MediaQuery.devicePixelRatioOf(context);
+    final keys = [for (final tab in widget.tabs) _iconKey(tab, scale)];
+    final key = keys.join('|');
+    if (key == _iconsKey) return;
+    _iconsKey = key;
+    _icons = null;
+    final rendered = AdaptiveFloatingTabBar._renderedIcons;
+    // Icons rendered before, by this bar or another, appear in the first
+    // frame instead of after a blank one.
+    if (keys.every(rendered.containsKey)) {
+      _icons = [for (final key in keys) rendered[key]!];
+      return;
+    }
+    Future.wait([for (final tab in widget.tabs) _icon(bundle, tab, scale)])
+        .then((icons) {
+          if (!mounted || _iconsKey != key) return;
+          setState(() => _icons = icons);
+        });
+  }
+
+  static String _iconKey(AdaptiveFloatingTab tab, double scale) =>
+      '${tab.nativeAsset}@${tab.nativeIconSize}x$scale';
+
+  /// A tab's rendered icon, or no image when it cannot be rendered, so the
+  /// bar still appears with its labelled tabs.
+  static Future<Uint8List> _icon(
+    AssetBundle bundle,
+    AdaptiveFloatingTab tab,
+    double scale,
+  ) async {
+    final key = _iconKey(tab, scale);
+    final rendered = AdaptiveFloatingTabBar._renderedIcons;
+    if (rendered[key] case final icon?) return icon;
+    try {
+      final icon = await AdaptiveFloatingTabBar.debugIconRenderer(
+        bundle,
+        tab.nativeAsset,
+        tab.nativeIconSize,
+        scale,
+      );
+      return rendered[key] = icon;
+    } catch (_) {
+      return Uint8List(0);
     }
   }
 
@@ -338,26 +379,21 @@ class _AdaptiveFloatingTabBarState extends State<AdaptiveFloatingTabBar> {
         _kNativeTabBarHeight +
         _kNativeTabBarHeadroom;
     final isDark = CupertinoTheme.brightnessOf(context) == Brightness.dark;
+    // While new tabs' icons render, the view keeps showing the tabs it has.
+    if (_icons case final icons?) _sendUpdate(_nativeParams(icons, isDark));
     return SizedBox(
       height: height,
-      child: FutureBuilder<List<Uint8List>>(
-        future: _icons,
-        builder: (context, snapshot) {
-          final icons = snapshot.data;
-          if (icons == null) return const SizedBox.expand();
-          final params = _nativeParams(icons, isDark);
-          _sendUpdate(params);
-          return UiKitView(
-            viewType: _kNativeViewType,
-            creationParams: _sentParams,
-            creationParamsCodec: const StandardMessageCodec(),
-            onPlatformViewCreated: _onPlatformViewCreated,
-            gestureRecognizers: <Factory<OneSequenceGestureRecognizer>>{
-              Factory<TapGestureRecognizer>(() => TapGestureRecognizer()),
-            },
-          );
-        },
-      ),
+      child: _sentParams == null
+          ? null
+          : UiKitView(
+              viewType: _kNativeViewType,
+              creationParams: _sentParams,
+              creationParamsCodec: const StandardMessageCodec(),
+              onPlatformViewCreated: _onPlatformViewCreated,
+              gestureRecognizers: <Factory<OneSequenceGestureRecognizer>>{
+                Factory<TapGestureRecognizer>(() => TapGestureRecognizer()),
+              },
+            ),
     );
   }
 
