@@ -52,8 +52,12 @@ class ConduitContextMenu extends StatefulWidget {
   final List<ConduitContextMenuAction> actions;
   final Widget child;
   final WidgetBuilder? topWidgetBuilder;
+
+  /// Custom Flutter preview decoration. These menus retain the Flutter
+  /// presentation; native menus lift the existing child without rebuilding it.
   final Widget Function(BuildContext context, Widget child)? previewBuilder;
   final bool stabilizePreviewSize;
+  final bool useNativeMenu;
 
   const ConduitContextMenu({
     super.key,
@@ -62,6 +66,7 @@ class ConduitContextMenu extends StatefulWidget {
     this.topWidgetBuilder,
     this.previewBuilder,
     this.stabilizePreviewSize = true,
+    this.useNativeMenu = true,
   });
 
   @override
@@ -82,6 +87,7 @@ class _ConduitContextMenuState extends State<ConduitContextMenu> {
         AdaptiveContextMenuAction(
           title: action.label,
           icon: action.materialIcon,
+          iosSymbol: action.sfSymbol,
           isDestructive: action.destructive,
           onPressed: () {
             ConduitHaptics.selectionClick();
@@ -104,7 +110,18 @@ class _ConduitContextMenuState extends State<ConduitContextMenu> {
             0,
           ),
         ),
-        child: _buildCupertinoContextMenu(context),
+        child:
+            widget.useNativeMenu &&
+                widget.previewBuilder == null &&
+                widget.topWidgetBuilder == null &&
+                widget.actions.every((action) => action.sfSymbol != null) &&
+                PlatformUiCapabilities.usesNativeIOS26
+            ? NativeContextMenu(
+                actions: adaptiveActions,
+                fallbackBuilder: _buildCupertinoContextMenu,
+                child: widget.child,
+              )
+            : _buildCupertinoContextMenu(context),
       );
     }
 

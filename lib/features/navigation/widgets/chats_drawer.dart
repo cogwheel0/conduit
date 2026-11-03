@@ -1471,6 +1471,7 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
     final folderId = folder.id;
     final newFolderAction = ConduitContextMenuAction(
       cupertinoIcon: CupertinoIcons.folder_badge_plus,
+      sfSymbol: 'folder.badge.plus',
       materialIcon: Icons.create_new_folder_outlined,
       label: l10n.newFolder,
       onBeforeClose: () => ConduitHaptics.selectionClick(),
@@ -1493,6 +1494,7 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
       newFolderAction,
       ConduitContextMenuAction(
         cupertinoIcon: CupertinoIcons.pencil,
+        sfSymbol: 'pencil',
         materialIcon: Icons.edit_rounded,
         label: l10n.rename,
         onBeforeClose: () => ConduitHaptics.selectionClick(),
@@ -1503,6 +1505,7 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
       if (canMove)
         ConduitContextMenuAction(
           cupertinoIcon: CupertinoIcons.folder,
+          sfSymbol: 'folder',
           materialIcon: Icons.drive_file_move_outline,
           label: l10n.move,
           onBeforeClose: () => ConduitHaptics.selectionClick(),
@@ -1512,6 +1515,7 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
         ),
       ConduitContextMenuAction(
         cupertinoIcon: CupertinoIcons.delete,
+        sfSymbol: 'trash',
         materialIcon: Icons.delete_rounded,
         label: l10n.delete,
         destructive: true,

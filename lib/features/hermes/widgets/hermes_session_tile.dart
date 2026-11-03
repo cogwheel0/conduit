@@ -94,18 +94,21 @@ class HermesSessionTile extends ConsumerWidget {
     return [
       ConduitContextMenuAction(
         cupertinoIcon: CupertinoIcons.arrow_branch,
+        sfSymbol: 'arrow.triangle.branch',
         materialIcon: Icons.call_split,
         label: l10n.hermesSessionFork,
         onSelected: () => _fork(context, ref),
       ),
       ConduitContextMenuAction(
         cupertinoIcon: CupertinoIcons.pencil,
+        sfSymbol: 'pencil',
         materialIcon: Icons.edit_outlined,
         label: l10n.rename,
         onSelected: () => _rename(context, ref),
       ),
       ConduitContextMenuAction(
         cupertinoIcon: CupertinoIcons.delete,
+        sfSymbol: 'trash',
         materialIcon: Icons.delete_outline,
         label: l10n.delete,
         destructive: true,

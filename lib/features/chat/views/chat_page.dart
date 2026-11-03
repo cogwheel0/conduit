@@ -468,6 +468,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   bool _hasUserScrolled = false;
   bool _isDeactivated = false;
   double _inputHeight = 0;
+  final _voiceOverlayKey = GlobalKey();
   bool _didStartupFocus = false; // one-time auto-focus on startup
   String? _lastConversationId;
   int _conversationOwnerGeneration = 0;
@@ -4055,9 +4056,12 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     final selectedModel = ref.watch(
       selectedModelProvider.select((model) => model),
     );
-    ref.watch(
+    final voiceOverlay = ref.watch(
       chatVoiceModeControllerProvider.select(
-        (voice) => (voice.isActive, voice.isCollapsed),
+        (voice) => (
+          visible: voice.isActive || voice.phase == ChatVoiceModePhase.error,
+          collapsed: voice.isCollapsed,
+        ),
       ),
     );
     final isLoadingConversation = ref.watch(isLoadingConversationProvider);
@@ -4125,12 +4129,21 @@ class _ChatPageState extends ConsumerState<ChatPage> {
           child: Stack(
             children: [
               Positioned.fill(
-                child: Consumer(
-                  builder: (context, listRef, _) {
-                    return RepaintBoundary(
-                      child: _buildMessagesList(theme, listRef),
-                    );
-                  },
+                child: NativeContextMenuViewport(
+                  bottomOverlay: voiceOverlay.visible ? _voiceOverlayKey : null,
+                  padding: EdgeInsets.only(
+                    top:
+                        MediaQuery.viewPaddingOf(context).top +
+                        conduitAdaptiveToolbarHeightOf(context),
+                    bottom: math.max(0, _inputHeight - Spacing.xl),
+                  ),
+                  child: Consumer(
+                    builder: (context, listRef, _) {
+                      return RepaintBoundary(
+                        child: _buildMessagesList(theme, listRef),
+                      );
+                    },
+                  ),
                 ),
               ),
               Positioned(
@@ -4217,7 +4230,10 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                 bottom: 0,
                 child: _buildComposerSection(context),
               ),
-              ChatVoiceModeOverlay(bottomOffset: _inputHeight),
+              ChatVoiceModeOverlay(
+                key: _voiceOverlayKey,
+                bottomOffset: _inputHeight,
+              ),
             ],
           ),
         ),

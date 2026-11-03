@@ -37,6 +37,7 @@ export 'package:cupertino_native_better/cupertino_native_better.dart'
         LiquidGlassContainer;
 
 export 'src/adaptive_chip.dart';
+export 'src/native_context_menu.dart';
 
 export 'src/adaptive_progress.dart';
 

@@ -740,6 +740,7 @@ class AdaptiveContextMenuAction {
     required this.title,
     required this.onPressed,
     this.icon,
+    this.iosSymbol,
     this.isDestructive = false,
     this.isDisabled = false,
   });
@@ -747,6 +748,7 @@ class AdaptiveContextMenuAction {
   final String title;
   final VoidCallback onPressed;
   final dynamic icon;
+  final String? iosSymbol;
   final bool isDestructive;
   final bool isDisabled;
 }

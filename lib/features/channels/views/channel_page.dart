@@ -913,12 +913,14 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
     return [
       ConduitContextMenuAction(
         cupertinoIcon: CupertinoIcons.smiley,
+        sfSymbol: 'face.smiling',
         materialIcon: Icons.emoji_emotions_outlined,
         label: l10n.channelMessageReact,
         onSelected: () async => _showEmojiPicker(message),
       ),
       ConduitContextMenuAction(
         cupertinoIcon: CupertinoIcons.reply,
+        sfSymbol: 'arrowshape.turn.up.left',
         materialIcon: Icons.reply_outlined,
         label: l10n.channelMessageReply,
         onSelected: () async => _setReplyTo(message),
@@ -926,6 +928,7 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
       if (message.parentId == null)
         ConduitContextMenuAction(
           cupertinoIcon: CupertinoIcons.bubble_left_bubble_right,
+          sfSymbol: 'bubble.left.and.bubble.right',
           materialIcon: Icons.forum_outlined,
           label: message.replyCount > 0
               ? l10n.threadWithCount(message.replyCount)
@@ -936,6 +939,7 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
         cupertinoIcon: message.isPinned
             ? CupertinoIcons.pin_slash
             : CupertinoIcons.pin,
+        sfSymbol: message.isPinned ? 'pin.slash' : 'pin',
         materialIcon: Icons.push_pin_outlined,
         label: message.isPinned ? l10n.unpin : l10n.pin,
         onSelected: () async => _togglePin(message),
@@ -943,12 +947,14 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
       if (isOwn)
         ConduitContextMenuAction(
           cupertinoIcon: CupertinoIcons.pencil,
+          sfSymbol: 'pencil',
           materialIcon: Icons.edit_outlined,
           label: l10n.channelMessageEdit,
           onSelected: () async => _startEditingMessage(message),
         ),
       ConduitContextMenuAction(
         cupertinoIcon: CupertinoIcons.delete,
+        sfSymbol: 'trash',
         materialIcon: Icons.delete_outline,
         label: l10n.channelMessageDelete,
         destructive: true,
@@ -1481,8 +1487,15 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
                   children: [
                     Positioned.fill(
                       child: messagesAsync.when(
-                        data: (messages) =>
-                            _buildMessageList(messages, theme, l10n),
+                        data: (messages) => NativeContextMenuViewport(
+                          padding: EdgeInsets.only(
+                            top:
+                                MediaQuery.viewPaddingOf(context).top +
+                                conduitAdaptiveToolbarHeightOf(context),
+                            bottom: math.max(0, _composerHeight - Spacing.xl),
+                          ),
+                          child: _buildMessageList(messages, theme, l10n),
+                        ),
                         loading: () =>
                             const Center(child: CircularProgressIndicator()),
                         error: (error, _) => Center(
