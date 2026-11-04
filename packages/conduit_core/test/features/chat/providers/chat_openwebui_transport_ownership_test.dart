@@ -8461,6 +8461,78 @@ void main() {
       check(container.read(isOwnChatStreamingProvider)).isTrue();
     });
 
+    test('answers cut off before a later prompt are finished once the reply '
+        'that was running when the chat opened is done', () async {
+      final (:api, :socket, :client, :container) = await openDraft(
+        account: const User(
+          id: 'me',
+          username: 'Me',
+          email: 'me@example.com',
+          role: 'user',
+        ),
+      );
+      api.activeTaskIds = const ['later-reply-task'];
+      Conversation chat(List<ChatMessage> tail, DateTime updatedAt) =>
+          _conversation('reply-chat', [
+            _user('reply-u0', 'compare these'),
+            ChatMessage(
+              id: 'cut-a',
+              role: 'assistant',
+              content: 'A so far',
+              timestamp: DateTime.utc(2026, 7, 13, 0, 0, 1),
+              model: duplicate.id,
+              metadata: const <String, dynamic>{
+                kMessageModelIdxMetadataKey: 0,
+                kMessageUnfinishedAnswersMetadataKey: ['cut-a', 'cut-b'],
+              },
+            ),
+            _user('reply-u1', 'and then?'),
+            ...tail,
+          ], ChatStorageKind.openWebUi).copyWith(updatedAt: updatedAt);
+      ChatMessage cut() => container
+          .read(chatMessagesProvider)
+          .firstWhere((message) => message.id == 'cut-a');
+
+      container
+          .read(activeConversationProvider.notifier)
+          .set(chat(const [], DateTime.utc(2026, 7, 13)));
+      await until(() => api.taskListRequests > 0);
+      for (var i = 0; i < 5; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+      check(cut().metadata?[kMessageUnfinishedAnswersMetadataKey]).isNotNull();
+
+      ChatMessage reply(String content) => ChatMessage(
+        id: 'reply-a1',
+        role: 'assistant',
+        content: content,
+        timestamp: DateTime.utc(2026, 7, 13, 0, 0, 2),
+        model: duplicate.id,
+      );
+
+      // The reply to the later prompt shows while its task still runs...
+      container
+          .read(activeConversationProvider.notifier)
+          .set(chat([reply('so far')], DateTime.utc(2026, 7, 14)));
+      await until(() => api.taskListRequests > 1);
+      for (var i = 0; i < 5; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+      check(cut().metadata?[kMessageUnfinishedAnswersMetadataKey]).isNotNull();
+
+      // ...then finishes, and its last copy arrives.
+      api.activeTaskIds = const [];
+      container
+          .read(activeConversationProvider.notifier)
+          .set(chat([reply('done')], DateTime.utc(2026, 7, 15)));
+      await until(() => api.taskListRequests > 2);
+      for (var i = 0; i < 5; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+
+      check(cut().metadata?[kMessageUnfinishedAnswersMetadataKey]).isNull();
+    });
+
     test('answers cut off before a later prompt are finished by a later copy '
         'of the chat once a first check failed', () async {
       final (:api, :socket, :client, :container) = await openDraft(

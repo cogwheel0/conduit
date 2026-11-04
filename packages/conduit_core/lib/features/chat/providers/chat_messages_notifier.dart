@@ -435,6 +435,9 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     }
     _openWebUiContextChangedSinceConversation = true;
     _captureActiveOpenWebUiContext();
+    // Which answers ran no task was the earlier account's finding; the next
+    // one may see its own still running.
+    _answersFinishedWithoutTask.clear();
 
     final active = ref.read(activeConversationProvider);
     if (!conversationUsesOpenWebUiStorage(active)) return;
@@ -1018,13 +1021,13 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
 
   /// Checks again whether an earlier turn's answers a restart cut off can be
   /// finished, for each new copy of the open chat: a check this visit made
-  /// may have failed, or found a task that has since ended.
+  /// may have failed, or found a task that has since ended, such as the
+  /// reply to a later prompt, which the copy now holds. A reply still
+  /// streaming at the end is the task monitor's to follow.
   void _recheckEarlierAnswers() {
     final active = ref.read(activeConversationProvider);
-    if (active != null &&
-        !_hasOpenWebUiTaskRecoverableTail(active, requireStreaming: false)) {
-      unawaited(_finishEarlierAnswersWithoutTask(active));
-    }
+    if (active == null || (state.lastOrNull?.isStreaming ?? false)) return;
+    unawaited(_finishEarlierAnswersWithoutTask(active));
   }
 
   void _configurePassiveConversationSync(Conversation? conversation) {
