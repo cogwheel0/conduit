@@ -217,6 +217,10 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
   /// write into the page shown.
   bool _dictationStarting = false;
 
+  /// Whether a file is being removed from the page shown, whose text loses
+  /// its link once the stored note has.
+  bool _removingFile = false;
+
   /// The server refused to show the note (403), which is not a missing note.
   bool _loadForbidden = false;
 
@@ -579,7 +583,8 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
     if (pageId == _pageId ||
         _note == null ||
         _isEnhancing ||
-        _dictationStarting) {
+        _dictationStarting ||
+        _removingFile) {
       return;
     }
     if (_isRecording) await _stopDictation();
@@ -599,7 +604,8 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
         unsaved() ||
         _isEnhancing ||
         _isRecording ||
-        _dictationStarting) {
+        _dictationStarting ||
+        _removingFile) {
       return;
     }
     final note = stored ?? _note!;
@@ -2658,6 +2664,10 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
     }
 
     setState(() => _isSaving = true);
+    // The file comes out of the page shown now; the editor stays on it until
+    // the removal is done ([_showPage] waits for this).
+    final pageId = _pageId;
+    _removingFile = true;
 
     try {
       // The stored note decides what is removed: its list on a server
@@ -2667,11 +2677,12 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
 
       if (mounted) {
         if (updatedNote != null) {
+          final onPage = shownInText && _pageId == pageId;
           setState(() {
             _note = updatedNote;
             _isSaving = false;
             final controller = _contentController;
-            if (shownInText && controller != null) {
+            if (onPage && controller != null) {
               removeNoteFileCardsInEditor(controller, fileId);
               // A link in a sentence or list is not a card; it goes too.
               if (noteFileLinksInMarkdown(
@@ -2688,7 +2699,8 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
             }
             _showFileLinksOf(updatedNote);
           });
-          if (shownInText) await _saveNote(showFeedback: false);
+          _removingFile = false;
+          if (onPage) await _saveNote(showFeedback: false);
           if (!mounted) return;
 
           ConduitHaptics.lightImpact();
@@ -2707,6 +2719,8 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
         setState(() => _isSaving = false);
         _showError(e.toString());
       }
+    } finally {
+      _removingFile = false;
     }
   }
 

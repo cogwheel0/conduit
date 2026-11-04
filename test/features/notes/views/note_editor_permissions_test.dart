@@ -759,6 +759,67 @@ void main() {
     await expectNothingQueued();
   });
 
+  testWidgets('a file being removed keeps the editor on its page, so the '
+      'other page keeps its link', (tester) async {
+    const link = '[Rec.m4a](/api/v1/files/f1/content)';
+    final note = _noteJson(
+      writeAccess: true,
+      md: '## Shared note\n\nsee $link here\n\n## Two\n\nalso $link there',
+      pages: [
+        {
+          'id': 'main',
+          'title': 'Shared note',
+          'content': {'md': 'see $link here', 'html': '', 'json': null},
+        },
+        {
+          'id': 'p2',
+          'title': 'Two',
+          'content': {'md': 'also $link there', 'html': '', 'json': null},
+        },
+      ],
+    );
+    await storeLocally(note);
+    final container = await pumpEditor(tester, _DetailApi(detail: note));
+    // Something else holds the note while the removal waits for it.
+    final held = Completer<void>();
+    unawaited(
+      container.read(noteLocksProvider).runExclusive('note-1', () => held.future),
+    );
+
+    await tester.tap(
+      find.descendant(
+        of: find.byType(NoteFileAttachment),
+        matching: find.byIcon(Icons.cancel_rounded),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(l10n(tester).delete).last);
+    // A spinner runs while the removal waits, so time is pumped by hand.
+    Future<void> settleByHand() async {
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+    }
+
+    await settleByHand();
+    await tester.tap(find.byKey(const ValueKey<String>('note-page-chip')));
+    for (var i = 0; i < 4; i++) {
+      await settleByHand();
+    }
+    await tester.tap(find.byKey(const ValueKey<String>('note-page-p2')));
+    // The sheet closes, then the switch reads the stored note.
+    for (var i = 0; i < 4; i++) {
+      await settleByHand();
+    }
+    held.complete();
+    await tester.pumpAndSettle();
+    await letAutosaveRun(tester);
+
+    final data = decodeNoteData((await db.notesDao.getNote('note-1'))!.data);
+    expect(notePageMarkdown(data, 'main'), isNot(contains('/files/f1/')));
+    expect(notePageMarkdown(data, 'p2'), contains(link));
+    expect(contentController(tester).document.toPlainText(), contains('see'));
+  });
+
   testWidgets('removing a listed file also takes its link out of a sentence', (
     tester,
   ) async {
