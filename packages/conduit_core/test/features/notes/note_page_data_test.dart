@@ -233,6 +233,22 @@ void main() {
           .equals('fileAttachment');
     });
 
+    test('html that names a file outside an anchor does not attach it', () {
+      final content = noteContentWithLinkedFiles(
+        <String, dynamic>{
+          'json': null,
+          'html': '<p>see href="/api/v1/files/f1/content"</p>',
+          'md': 'see',
+        },
+        <Object>[
+          <String, dynamic>{'type': 'file', 'id': 'f1', 'name': 'F'},
+        ],
+      );
+
+      check(content['md']).equals('see\n\n[F](/api/v1/files/f1/content)');
+      check(content['html'] as String).contains('<a href=');
+    });
+
     test('a file the editor json attaches already is not added again', () {
       final original = <String, dynamic>{
         'json': <String, dynamic>{
@@ -523,6 +539,26 @@ void main() {
         'f',
       ]);
       check(removeNoteFileLinks(md, 'f')).equals('see  here');
+    });
+
+    test('links in double-backtick or multiline code spans are code', () {
+      const md =
+          '``[a](/api/v1/files/a/content)``\n'
+          'text `one\n[c](/api/v1/files/c/content) two` more\n'
+          '[b](/api/v1/files/b/content)';
+      check(noteFileLinksInMarkdown(md).map((link) => link.id)).deepEquals([
+        'b',
+      ]);
+      check(removeNoteFileLinks(md, 'a')).equals(md);
+      check(removeNoteFileLinks(md, 'c')).equals(md);
+    });
+
+    test('a backtick left open does not hide the next paragraph', () {
+      check(
+        noteFileLinksInMarkdown(
+          'a `x\n\n[b](/api/v1/files/b/content) and `y',
+        ).map((link) => link.id),
+      ).deepEquals(['b']);
     });
 
     test('an address a code span breaks is no link', () {

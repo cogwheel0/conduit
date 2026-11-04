@@ -406,9 +406,11 @@ Map<String, dynamic> noteContentWithLinkedFiles(
   };
 }
 
-/// A link to a file's content in html.
+/// An anchor element linking a file's content in html, as the server's
+/// parser finds them.
 final RegExp _htmlFileLinkPattern = RegExp(
-  r'''href\s*=\s*["']/api/v1/files/([\w-]+)/content["']''',
+  r'''<a\b[^>]*?\shref\s*=\s*["']/api/v1/files/([\w-]+)/content["']''',
+  caseSensitive: false,
 );
 
 /// The ids of the files [html] links.
@@ -470,8 +472,6 @@ final RegExp _fileLinkPattern = RegExp(
   r'(?<!!)\[([^\]\n]*)\]\(/api/v1/files/([\w-]+)/content\)',
 );
 
-/// Inline code spans, whose text is no link.
-final RegExp _inlineCodePattern = RegExp(r'`[^`\n]*`');
 
 /// The markdown that links file [id] as an attachment, as the server writes
 /// it (brackets are taken out of the name so the link stays whole).
@@ -528,14 +528,17 @@ List<(String, bool)> _linesWithFences(String markdown) =>
 List<NoteFileLink> noteFileLinksInMarkdown(String markdown) {
   final Set<String> seen = <String>{};
   final List<NoteFileLink> links = <NoteFileLink>[];
-  for (final (String line, bool fenced) in _linesWithFences(markdown)) {
-    if (fenced) continue;
-    for (final RegExpMatch match in _fileLinksOutsideCode(line)) {
-      final String id = match.group(2)!;
-      if (!seen.add(id)) continue;
-      final String name = match.group(1)!.trim();
-      links.add(NoteFileLink(id: id, name: name.isEmpty ? id : name));
-    }
+  for (final RegExpMatch match in _fileLinkPattern.allMatches(
+    _withoutCode(markdown),
+  )) {
+    final String id = match.group(2)!;
+    if (!seen.add(id)) continue;
+    // The name as written: code it holds is hidden in the text matched.
+    final int nameStart = match.start + 1;
+    final String name = markdown
+        .substring(nameStart, nameStart + match.group(1)!.length)
+        .trim();
+    links.add(NoteFileLink(id: id, name: name.isEmpty ? id : name));
   }
   return links;
 }
@@ -577,20 +580,67 @@ String appendNoteFileLinks(
 /// closes it, or null when it ends outside one.
 String? _openFence(String markdown) => _scanFences(markdown).open;
 
-/// The file links of [line] that are links: one inside an inline code span,
-/// or whose end a code span takes into it, is code. A link's name may hold
-/// a code span; a link whose address a code span breaks is no link at all.
-Iterable<RegExpMatch> _fileLinksOutsideCode(String line) {
-  final List<Match> code = _inlineCodePattern.allMatches(line).toList();
-  return _fileLinkPattern.allMatches(line).where(
-    (RegExpMatch link) => !code.any(
-      (Match span) =>
-          (span.start <= link.start && link.start < span.end) ||
-          (link.start < span.start &&
-              span.start < link.end &&
-              link.end < span.end),
-    ),
-  );
+/// The character code hidden text is replaced with, which no link holds.
+const int _hidden = 0x01;
+
+/// [markdown] with its code hidden, so a file link is found only where it is
+/// one: every character of a fenced code block or of a code span, line
+/// breaks aside, replaced with [_hidden]. A code span, as in CommonMark,
+/// opens on a run of backticks and closes on the next run of as many within
+/// its paragraph. A link whose name holds code is still a link; one inside
+/// code, or whose address code breaks, is none.
+String _withoutCode(String markdown) {
+  final List<int> text = <int>[];
+  var first = true;
+  for (final (String line, bool fenced) in _linesWithFences(markdown)) {
+    if (!first) text.add(0x0A);
+    first = false;
+    text.addAll(fenced ? List<int>.filled(line.length, _hidden) : line.codeUnits);
+  }
+  var i = 0;
+  while (i < text.length) {
+    if (text[i] != 0x60) {
+      i++;
+      continue;
+    }
+    final int opened = i;
+    while (i < text.length && text[i] == 0x60) {
+      i++;
+    }
+    final int run = i - opened;
+    int? closed;
+    var j = i;
+    while (j < text.length) {
+      if (text[j] == 0x0A && _blankLineAfter(text, j)) break;
+      if (text[j] != 0x60) {
+        j++;
+        continue;
+      }
+      final int start = j;
+      while (j < text.length && text[j] == 0x60) {
+        j++;
+      }
+      if (j - start == run) {
+        closed = j;
+        break;
+      }
+    }
+    if (closed == null) continue;
+    for (var k = opened; k < closed; k++) {
+      if (text[k] != 0x0A) text[k] = _hidden;
+    }
+    i = closed;
+  }
+  return String.fromCharCodes(text);
+}
+
+/// Whether the line after the line break at [index] of [text] is blank,
+/// which ends a paragraph.
+bool _blankLineAfter(List<int> text, int index) {
+  for (var k = index + 1; k < text.length && text[k] != 0x0A; k++) {
+    if (text[k] != 0x20 && text[k] != 0x09 && text[k] != 0x0D) return false;
+  }
+  return true;
 }
 
 /// [mine] with the file links [stored] gained since [base], the stored
@@ -617,6 +667,19 @@ String mergeNoteFileLinks({
 /// was.
 String removeNoteFileLinks(String markdown, String id) {
   final List<(String, bool)> lines = _linesWithFences(markdown);
+  // The links go from the text as written; a link never spans lines, so the
+  // lines stay as many.
+  final StringBuffer out = StringBuffer();
+  var start = 0;
+  for (final RegExpMatch match in _fileLinkPattern.allMatches(
+    _withoutCode(markdown),
+  )) {
+    if (match.group(2) != id) continue;
+    out.write(markdown.substring(start, match.start));
+    start = match.end;
+  }
+  out.write(markdown.substring(start));
+  final List<String> strippedLines = out.toString().split('\n');
   final List<String> kept = <String>[];
   for (var i = 0; i < lines.length; i++) {
     final (String line, bool fenced) = lines[i];
@@ -624,15 +687,7 @@ String removeNoteFileLinks(String markdown, String id) {
       kept.add(line);
       continue;
     }
-    final StringBuffer out = StringBuffer();
-    var start = 0;
-    for (final RegExpMatch match in _fileLinksOutsideCode(line)) {
-      if (match.group(2) != id) continue;
-      out.write(line.substring(start, match.start));
-      start = match.end;
-    }
-    out.write(line.substring(start));
-    final String stripped = out.toString();
+    final String stripped = strippedLines[i];
     if (stripped.trim().isNotEmpty || line.trim().isEmpty) {
       kept.add(stripped);
       continue;
