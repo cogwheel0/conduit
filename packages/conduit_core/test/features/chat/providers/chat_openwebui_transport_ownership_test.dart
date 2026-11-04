@@ -6814,6 +6814,37 @@ void main() {
       check(container.read(activeChatIdsProvider)).contains(chatId);
     });
 
+    test('a slow task lookup for a listed chat holds up neither another '
+        'chat\'s list nor a second lookup', () async {
+      final saved = ChatModelSaveQueue.listedTaskCheckAfter;
+      ChatModelSaveQueue.listedTaskCheckAfter = Duration.zero;
+      addTearDown(() => ChatModelSaveQueue.listedTaskCheckAfter = saved);
+      final (:api, :socket, :container) = await open();
+      container.read(activeChatIdsProvider.notifier).setActive(chatId);
+      final lookup = Completer<List<String>>();
+      api.holdTaskList = lookup;
+      final queue = container.read(chatModelSaveQueueProvider.notifier);
+
+      final waiting = queue.save(chatId, const ['model-2']);
+      await api.taskListEntered.future.timeout(const Duration(seconds: 5));
+      final asked = api.taskListRequests;
+      unawaited(queue.save('idle-chat', const ['model-3']));
+      // The queue looks again within a moment, while the lookup still waits.
+      await Future<void>.delayed(const Duration(milliseconds: 600));
+      check(api.savedModels.map((saved) => saved.$1)).deepEquals([
+        'idle-chat',
+      ]);
+      check(api.taskListRequests).equals(asked);
+
+      // The server runs no task of this account's in the listed chat.
+      lookup.complete(const []);
+      await waiting.timeout(const Duration(seconds: 5));
+      check(api.savedModels.map((saved) => saved.$1)).deepEquals([
+        'idle-chat',
+        chatId,
+      ]);
+    });
+
     test('a model pick is forgotten when another sign-in begins', () async {
       const other = Model(id: 'model-2', name: 'Model 2');
       final (:api, :socket, :container) = await open(

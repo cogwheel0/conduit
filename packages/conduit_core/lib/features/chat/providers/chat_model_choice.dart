@@ -221,8 +221,8 @@ class ChatModelSaveQueue extends Notifier<void> {
           .firstOrNull;
       if (chatId == null) {
         if (_pending.isEmpty) return;
-        await _confirmListedTasks();
-        if (!ref.mounted) return;
+        // Not waited for: a slow answer must not hold up another chat's list.
+        _confirmListedTasks();
         // The state is read again every moment: this queue is only ever
         // read, and Riverpod pauses the listeners of a provider nothing
         // listens to.
@@ -294,7 +294,7 @@ class ChatModelSaveQueue extends Notifier<void> {
   /// list is sent once the server runs none of this account's there, which
   /// is safe: servers before 0.12, whose update rewrites the chat, have no
   /// shared replies, and later ones merge the change.
-  Future<void> _confirmListedTasks() async {
+  void _confirmListedTasks() {
     final now = DateTime.now();
     final listed = ref.read(activeChatIdsProvider);
     for (final chatId in _pending.keys.toList()) {
@@ -305,20 +305,44 @@ class ChatModelSaveQueue extends Notifier<void> {
         _listedSince.remove(chatId);
         continue;
       }
+      if (_askingTasksOf.contains(chatId)) continue;
       final since = _listedSince.putIfAbsent(chatId, () => now);
       if (now.difference(since) < listedTaskCheckAfter) continue;
       _listedSince[chatId] = now;
       final api = ref.read(apiServiceProvider);
       if (api == null) continue;
-      final active = ref.read(activeChatIdsProvider.notifier);
-      final token = active.activationToken(chatId);
-      try {
-        final tasks = await api.getTaskIdsByChat(chatId);
-        if (!ref.mounted) return;
-        if (tasks.isEmpty) _noTaskOfOurs[chatId] = token;
-      } catch (_) {
-        // Asked again after another wait.
-      }
+      final token = ref
+          .read(activeChatIdsProvider.notifier)
+          .activationToken(chatId);
+      // Each chat is asked on its own: a slow answer holds up neither
+      // another chat's ask nor the queue.
+      _askingTasksOf.add(chatId);
+      unawaited(
+        _confirmNoTaskOfOurs(
+          chatId,
+          api.getTaskIdsByChat(chatId),
+          token,
+        ),
+      );
+    }
+  }
+
+  /// Chats whose tasks are being asked for: one ask at a time each.
+  final Set<String> _askingTasksOf = <String>{};
+
+  Future<void> _confirmNoTaskOfOurs(
+    String chatId,
+    Future<List<String>> taskIds,
+    int? token,
+  ) async {
+    try {
+      final tasks = await taskIds;
+      if (!ref.mounted) return;
+      if (tasks.isEmpty) _noTaskOfOurs[chatId] = token;
+    } catch (_) {
+      // Asked again after another wait.
+    } finally {
+      _askingTasksOf.remove(chatId);
     }
   }
 
