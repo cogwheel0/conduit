@@ -912,10 +912,16 @@ void main() {
         noteId: recovered.single.id,
       );
       check(moved.map((item) => item.id)).deepEquals([onRemoved.id]);
-      // The main page's recording waits for its note, not for this editor.
+      // The main page's recording waits for its note, not for this editor,
+      // which shows the new note now: looking again does not bring it back.
       check(controller.pending.map((item) => item.id)).deepEquals([
         onRemoved.id,
       ]);
+      await controller.loadPending();
+      check(controller.pending.map((item) => item.id)).deepEquals([
+        onRemoved.id,
+      ]);
+      await waitFor(() => !controller.isUploading);
     });
 
     test('an empty title falls back to the untitled name', () async {

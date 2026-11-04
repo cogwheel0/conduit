@@ -87,6 +87,12 @@ class NoteAttachmentsController {
   final String? Function()? _currentPageId;
 
   final List<PendingNoteAudioUpload> _pending = <PendingNoteAudioUpload>[];
+
+  /// Notes that keep their recordings although this editor started on one:
+  /// once a page of the note was saved as a note of its own ([rebindTo] with
+  /// a page), the editor shows that note, and the recordings of the other
+  /// pages wait for their note to be opened again.
+  final Set<String> _leftBehind = <String>{};
   final Set<String> _inFlight = <String>{};
   final Set<String> _queued = <String>{};
   final Set<String> _feedbackIds = <String>{};
@@ -258,6 +264,7 @@ class NoteAttachmentsController {
         currentIds.add(await db.notesDao.resolveNoteRemapTarget(_noteId));
         currentIds.add(await db.notesDao.resolveNoteRemapTarget(note.id));
       }
+      currentIds.removeAll(_leftBehind);
       if (!_isCurrent(api: api, db: db, authEpoch: authEpoch)) return;
 
       final List<PendingNoteAudioUpload> accountItems = await _store
@@ -798,6 +805,7 @@ class NoteAttachmentsController {
   }) async {
     bool moves(PendingNoteAudioUpload item) =>
         pageId == null || (item.pageId ?? kNoteMainPageId) == pageId;
+    if (pageId != null) _leftBehind.addAll(<String>{_noteId, previous.id});
     final ApiService? api = _container.read(apiServiceProvider);
     final AppDatabase? db = _container.read(appDatabaseProvider);
     final Object authEpoch = _container.read(openWebUiAuthSessionEpochProvider);
