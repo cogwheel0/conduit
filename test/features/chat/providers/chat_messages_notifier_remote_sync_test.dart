@@ -2176,6 +2176,73 @@ void main() {
       check(tail.metadata?[kMessageUnfinishedAnswersMetadataKey]).isNull();
     });
 
+    test('a comparison another session started after the poll\'s lookup '
+        'keeps running', () async {
+      final timestamp = DateTime.now();
+      final opened = [
+        _userMessage('user-1', 'Compare', timestamp),
+        _assistantMessage(
+          'assistant-1',
+          'Partial',
+          timestamp,
+        ).copyWith(isStreaming: true),
+      ];
+      final api = _FakeApiService(_conversation('chat-1', opened, timestamp))
+        ..taskIds = const <String>['task-1'];
+      final container = ProviderContainer(
+        overrides: [
+          secureStorageProvider.overrideWithValue(FlutterSecureKeyValueStore()),
+          ...openWebUiStorageOpenOverrides(),
+          activeConversationProvider.overrideWith(
+            () => _TestActiveConversationNotifier(),
+          ),
+          socketServiceProvider.overrideWithValue(null),
+          apiServiceProvider.overrideWithValue(api),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      check(container.read(chatMessagesProvider)).isEmpty();
+      final notifier = container.read(chatMessagesProvider.notifier);
+      container
+          .read(activeConversationProvider.notifier)
+          .set(_conversation('chat-1', opened, timestamp));
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      await _drainRemoteTaskStatusCheck(notifier);
+
+      // The task ends; by the time the final copy is fetched, another
+      // session has started a new comparison, still running.
+      api.taskIds = const <String>[];
+      api.conversation = _conversation('chat-1', [
+        opened.first,
+        _assistantMessage('assistant-1', 'Partial, cut off', timestamp)
+            .copyWith(
+              metadata: const <String, dynamic>{
+                kMessageUnfinishedAnswersMetadataKey: [
+                  'assistant-1',
+                  'assistant-2',
+                ],
+              },
+            ),
+        _userMessage('user-2', 'Compare again', timestamp),
+        _assistantMessage('new-1', 'starting', timestamp).copyWith(
+          metadata: const <String, dynamic>{
+            kMessageUnfinishedAnswersMetadataKey: ['new-1', 'new-2'],
+          },
+        ),
+      ], timestamp);
+      await notifier.debugSyncRemoteTaskStatus();
+
+      ChatMessage message(String id) =>
+          container.read(chatMessagesProvider).firstWhere((m) => m.id == id);
+      check(
+        message('assistant-1').metadata?[kMessageUnfinishedAnswersMetadataKey],
+      ).isNull();
+      check(
+        message('new-1').metadata?[kMessageUnfinishedAnswersMetadataKey],
+      ).isNotNull();
+    });
+
     test(
       'completed task keeps polling until the authoritative body catches up',
       () async {

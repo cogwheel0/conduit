@@ -2538,21 +2538,24 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
   /// account's tasks, so that none running means they are finished. In a
   /// shared chat another person's answer may run under their task, which
   /// this account's list omits: each answer goes by its own author.
-  List<String> _answersThisAccountRuns() {
+  ///
+  /// With [inMessage], only that message's comparison.
+  List<String> _answersThisAccountRuns({String? inMessage}) {
     final userId = ref.read(currentUserProvider2)?.id;
     // A message that names no author is the chat owner's, as the web client
     // takes it.
     final owner = ref.read(activeConversationProvider)?.userId;
     return <String>[
       for (final message in state)
-        if (message.metadata?[kMessageUnfinishedAnswersMetadataKey]
-            case final List<Object?> unfinished)
-          for (final id in unfinished.whereType<String>())
-            if (_isThisAccounts(
-              _answerAuthor(message, id, owner),
-              userId,
-            ))
-              id,
+        if (inMessage == null || message.id == inMessage)
+          if (message.metadata?[kMessageUnfinishedAnswersMetadataKey]
+              case final List<Object?> unfinished)
+            for (final id in unfinished.whereType<String>())
+              if (_isThisAccounts(
+                _answerAuthor(message, id, owner),
+                userId,
+              ))
+                id,
     ];
   }
 
@@ -3635,6 +3638,8 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     var completionNeedsRetry = false;
     var completionGraceActive = false;
     try {
+      // The answers this lookup is for, before it is answered.
+      final answersBeforeLookup = _answersThisAccountRuns();
       // Check both task status and server message state
       final taskIds = await api.getTaskIdsByChat(activeConversation.id);
       taskLookupSucceeded = true;
@@ -3769,8 +3774,14 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
         if (reconciled) {
           _cancelMessageStream();
           // The account runs no task in the chat any more: answers a server
-          // restart cut off are finished, as on open.
-          _finishAnswersWithoutTask();
+          // restart cut off are finished, as on open. Only those the lookup
+          // was made for and the polled answer's comparison, which the final
+          // copy may first show unfinished: a comparison another session
+          // started since may show in that copy too, and runs.
+          _finishAnswersWithoutTask(<String>{
+            ...answersBeforeLookup,
+            ..._answersThisAccountRuns(inMessage: expectedMessageId),
+          });
         } else {
           completionNeedsRetry = true;
         }
