@@ -2578,11 +2578,16 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
   Future<void> _finishEarlierAnswersWithoutTask(
     Conversation conversation,
   ) async {
+    // A copy of the chat that arrives while its tasks are asked for is
+    // checked once that ask is done, whatever it finds.
+    if (_earlierAnswersCheckFor == conversation.id) {
+      _earlierAnswersRecheckQueued = true;
+      return;
+    }
     // Asked only for answers this account's tasks ran: another person's in a
     // shared chat stays as the server has it whatever this account runs.
     final eligible = _answersThisAccountRuns();
-    if (_earlierAnswersCheckFor == conversation.id ||
-        !_conversationUsesOpenWebUiContext(conversation) ||
+    if (!_conversationUsesOpenWebUiContext(conversation) ||
         _shouldProtectLocalStreamingState ||
         eligible.isEmpty) {
       return;
@@ -2598,28 +2603,42 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     );
     if (activeOpenWebUiChatIdForMutation(ref, owner) == null) return;
     _earlierAnswersCheckFor = chatId;
+    _earlierAnswersRecheckQueued = false;
     try {
-      final taskIds = await api.getTaskIdsByChat(chatId);
-      if (taskIds.isNotEmpty) return;
-    } catch (_) {
-      // Unknown: the answers stay as the server has them until the chat's
-      // next copy checks again.
-      return;
+      final List<String> taskIds;
+      try {
+        taskIds = await api.getTaskIdsByChat(chatId);
+      } catch (_) {
+        // Unknown: the answers stay as the server has them until the chat's
+        // next copy checks again.
+        return;
+      }
+      if (taskIds.isNotEmpty ||
+          _disposed ||
+          activeOpenWebUiChatIdForMutation(ref, owner) == null ||
+          _shouldProtectLocalStreamingState) {
+        return;
+      }
+      _finishAnswersWithoutTask(eligible);
     } finally {
-      if (_earlierAnswersCheckFor == chatId) _earlierAnswersCheckFor = null;
+      if (_earlierAnswersCheckFor == chatId) {
+        _earlierAnswersCheckFor = null;
+        if (_earlierAnswersRecheckQueued && !_disposed) {
+          _earlierAnswersRecheckQueued = false;
+          _recheckEarlierAnswers();
+        }
+      }
     }
-    if (_disposed ||
-        activeOpenWebUiChatIdForMutation(ref, owner) == null ||
-        _shouldProtectLocalStreamingState) {
-      return;
-    }
-    _finishAnswersWithoutTask(eligible);
   }
 
   /// The chat [_finishEarlierAnswersWithoutTask] is asking the tasks of,
   /// which it does once at a time; another chat opened meanwhile is asked
   /// about at once.
   String? _earlierAnswersCheckFor;
+
+  /// Whether a copy of the chat arrived while its tasks were asked for, to be
+  /// checked once the ask is done.
+  bool _earlierAnswersRecheckQueued = false;
 
   /// Answers [_finishAnswersWithoutTask] finished in the open chat. The
   /// server keeps them not done for good, so each later copy of it would

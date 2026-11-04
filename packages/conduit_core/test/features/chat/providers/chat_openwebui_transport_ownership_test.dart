@@ -8691,6 +8691,52 @@ void main() {
       api.holdTaskList!.complete(const ['new-task']);
     });
 
+    test('a copy that arrives while the tasks are asked for is checked once '
+        'the ask fails', () async {
+      final (:api, :socket, :client, :container) = await openDraft(
+        account: const User(
+          id: 'me',
+          username: 'Me',
+          email: 'me@example.com',
+          role: 'user',
+        ),
+      );
+      final pending = Completer<List<String>>();
+      api.holdTaskList = pending;
+      Conversation chat(DateTime updatedAt) => _conversation('queued-chat', [
+        _user('queued-u0', 'compare these'),
+        cutAnswer('queued-cut'),
+        _user('queued-u1', 'and then?'),
+      ], ChatStorageKind.openWebUi).copyWith(updatedAt: updatedAt);
+
+      container
+          .read(activeConversationProvider.notifier)
+          .set(chat(DateTime.utc(2026, 7, 13)));
+      await until(() => api.taskListRequests > 0);
+      // A newer copy arrives while the server is asked.
+      container
+          .read(activeConversationProvider.notifier)
+          .set(chat(DateTime.utc(2026, 7, 14)));
+      for (var i = 0; i < 5; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+      check(api.taskListRequests).equals(1);
+
+      api
+        ..holdTaskList = null
+        ..activeTaskIds = const [];
+      pending.completeError(StateError('offline'));
+      await until(() => api.taskListRequests > 1);
+      for (var i = 0; i < 5; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+
+      final cut = container
+          .read(chatMessagesProvider)
+          .firstWhere((message) => message.id == 'queued-cut');
+      check(cut.metadata?[kMessageUnfinishedAnswersMetadataKey]).isNull();
+    });
+
     test('a chat opened while another chat\'s tasks are asked for is asked '
         'about too', () async {
       final (:api, :socket, :client, :container) = await openDraft(
