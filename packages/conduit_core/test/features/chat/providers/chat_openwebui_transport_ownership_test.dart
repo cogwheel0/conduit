@@ -6689,6 +6689,28 @@ void main() {
       ]);
     });
 
+    test('a chat whose reply still runs does not hold up another chat\'s '
+        'list', () async {
+      final (:api, :socket, :container) = await open();
+      container.read(activeChatIdsProvider.notifier).setActive(chatId);
+      final queue = container.read(chatModelSaveQueueProvider.notifier);
+
+      final waiting = queue.save(chatId, const ['model-2']);
+      unawaited(queue.save('idle-chat', const ['model-3']));
+      // The queue looks again within a moment.
+      await Future<void>.delayed(const Duration(milliseconds: 400));
+      check(api.savedModels.map((saved) => saved.$1)).deepEquals([
+        'idle-chat',
+      ]);
+
+      container.read(activeChatIdsProvider.notifier).setInactive(chatId);
+      await waiting;
+      check(api.savedModels.map((saved) => saved.$1)).deepEquals([
+        'idle-chat',
+        chatId,
+      ]);
+    });
+
     test('a model pick is forgotten when another sign-in begins', () async {
       const other = Model(id: 'model-2', name: 'Model 2');
       final (:api, :socket, :container) = await open(

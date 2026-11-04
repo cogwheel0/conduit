@@ -148,18 +148,23 @@ class ChatModelSaveQueue extends Notifier<void> {
 
   Future<void> _drain() async {
     while (_pending.isNotEmpty) {
-      final chatId = _pending.keys.first;
-      final (:models, :account) = _pending[chatId]!;
-      if (account != _account()) {
-        _pending.remove(chatId);
-        continue;
-      }
-      if (_streamingIn(chatId)) {
-        await _untilNotStreamingIn(chatId);
+      // A list another account picked is dropped.
+      final account = _account();
+      _pending.removeWhere((_, pending) => pending.account != account);
+      // A chat whose reply still runs waits; the others' lists go first.
+      final chatId = _pending.keys
+          .where((id) => !_streamingIn(id))
+          .firstOrNull;
+      if (chatId == null) {
+        if (_pending.isEmpty) return;
+        // The state is read again every moment: this queue is only ever
+        // read, and Riverpod pauses the listeners of a provider nothing
+        // listens to.
+        await Future<void>.delayed(const Duration(milliseconds: 250));
         if (!ref.mounted) return;
         continue; // A newer list may have come in meanwhile.
       }
-      _pending.remove(chatId);
+      final (:models, account: _) = _pending.remove(chatId)!;
       final api = ref.read(apiServiceProvider);
       if (api == null) continue;
       try {
@@ -189,14 +194,6 @@ class ChatModelSaveQueue extends Notifier<void> {
           ref.read(isChatStreamingProvider)) ||
       ref.read(activeChatIdsProvider).contains(chatId);
 
-  /// Waits until no reply runs in chat [chatId]. The state is read again
-  /// every moment: this queue is only ever read, and Riverpod pauses the
-  /// listeners of a provider nothing listens to.
-  Future<void> _untilNotStreamingIn(String chatId) async {
-    while (ref.mounted && _streamingIn(chatId)) {
-      await Future<void>.delayed(const Duration(milliseconds: 250));
-    }
-  }
 
   void _logFailure(String chatId, Object error) {
     DebugLogger.warning(
