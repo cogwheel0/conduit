@@ -8822,6 +8822,13 @@ void main() {
           isStreaming: true,
           metadata: const <String, dynamic>{
             kMessageAuthorIdMetadataKey: 'someone-else',
+            // An answer of this account's another client just started among
+            // its versions: the server lists its task only a moment later.
+            kMessageUnfinishedAnswersMetadataKey: ['their-reply', 'mine-new'],
+            kMessageUnfinishedAnswerAuthorsMetadataKey: {
+              'their-reply': 'someone-else',
+              'mine-new': 'me',
+            },
           },
         ),
       ], ChatStorageKind.openWebUi).copyWith(updatedAt: updatedAt);
@@ -8857,6 +8864,12 @@ void main() {
       final tail = container.read(chatMessagesProvider).last;
       check(tail.id).equals('their-reply');
       check(tail.isStreaming).isTrue();
+      // The streaming turn is the task monitor's: this account's new answer
+      // in it is not finished by a lookup made before its task is listed.
+      check(
+        tail.metadata?[kMessageUnfinishedAnswersMetadataKey],
+      ).isA<List>().deepEquals(['their-reply', 'mine-new']);
+      check(container.read(isOwnChatStreamingProvider)).isTrue();
     });
 
     test('the chat\'s tasks are not asked for when only another person\'s '

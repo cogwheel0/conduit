@@ -2561,14 +2561,24 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
   /// shared chat another person's answer may run under their task, which
   /// this account's list omits: each answer goes by its own author.
   ///
-  /// With [inMessage], only that message's comparison.
-  List<String> _answersThisAccountRuns({String? inMessage}) {
+  /// With [inMessage], only that message's comparison. With
+  /// [beforeLastTurn], only the turns before the answers that end the list.
+  List<String> _answersThisAccountRuns({
+    String? inMessage,
+    bool beforeLastTurn = false,
+  }) {
     final userId = ref.read(currentUserProvider2)?.id;
     // A message that names no author is the chat owner's, as the web client
     // takes it.
     final owner = ref.read(activeConversationProvider)?.userId;
+    var end = state.length;
+    if (beforeLastTurn) {
+      while (end > 0 && state[end - 1].role == 'assistant') {
+        end -= 1;
+      }
+    }
     return <String>[
-      for (final message in state)
+      for (final message in state.take(end))
         if (inMessage == null || message.id == inMessage)
           if (message.metadata?[kMessageUnfinishedAnswersMetadataKey]
               case final List<Object?> unfinished)
@@ -2611,7 +2621,12 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     }
     // Asked only for answers this account's tasks ran: another person's in a
     // shared chat stays as the server has it whatever this account runs.
-    final eligible = _answersThisAccountRuns();
+    // While a reply streams at the end, its turn is the task monitor's: an
+    // answer of this account's in it may have started on another client and
+    // be stored before its task is listed. Only earlier turns are asked about.
+    final eligible = _answersThisAccountRuns(
+      beforeLastTurn: state.lastOrNull?.isStreaming ?? false,
+    );
     if (!_conversationUsesOpenWebUiContext(conversation) ||
         _shouldProtectLocalStreamingState ||
         eligible.isEmpty) {
