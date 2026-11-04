@@ -508,6 +508,8 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
     if (_contentMarkdown != _savedMarkdown) {
       _pageMissing = true;
       _hasChanges = true;
+      // The text is kept as it is; dictation would go on changing it.
+      _dropDictation();
       return;
     }
     _settlePage(note);
@@ -1020,6 +1022,8 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
         setState(() {
           _isSaving = false;
           _pageMissing = true;
+          // The text is kept as it is; dictation would go on changing it.
+          _dropDictation();
           if (stored != null) _note = stored;
         });
       }
@@ -2475,6 +2479,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
         _note = note;
         _titleController.text = note.title;
         pageRemoved = _settlePage(note);
+        _dropDictation();
         _installContentDocument(noteDocumentFromMarkdown(_pageMarkdown(note)));
         _savedMarkdown = _contentMarkdown;
         _linkBase = _pageMarkdown(note);
@@ -2634,8 +2639,13 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
         : null;
     final rawName = file['name']?.toString() ?? '';
     final name = rawName.trim().isEmpty ? fileId : rawName;
+    // The file is the account's that opened the page, read with its
+    // credentials; another signed in meanwhile gets no share sheet for it.
+    final auth = api.captureAuthSnapshot();
+    bool stillOpen() => mounted && _isOpenSessionCurrent;
     try {
-      final content = await api.getFileContent(fileId);
+      final content = await api.getFileContent(fileId, authSnapshot: auth);
+      if (!stillOpen()) return;
       final encoded = content.startsWith('data:')
           ? content.substring(content.indexOf(',') + 1)
           : content;
@@ -2647,7 +2657,10 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
       final file = File(path);
       await file.parent.create(recursive: true);
       await file.writeAsBytes(base64Decode(encoded), flush: true);
-      if (!mounted) return;
+      if (!stillOpen()) {
+        await file.delete();
+        return;
+      }
       await SharePlus.instance.share(
         ShareParams(
           files: <XFile>[XFile(path, name: name)],

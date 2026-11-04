@@ -16,4 +16,20 @@ void main() {
       '/tmp/note-files/___x/.._.._etc_passwd',
     );
   });
+
+  test('a name file systems refuse is made safe, and a long one cut', () {
+    expect(
+      noteFileDownloadPath('/tmp', fileId: 'f1', name: 'a:b*c?.pdf'),
+      '/tmp/note-files/f1/a_b_c_.pdf',
+    );
+    expect(noteFileDownloadPath('/tmp', fileId: 'f1', name: '  '), endsWith('/file'));
+    final long = noteFileDownloadPath(
+      '/tmp',
+      fileId: 'f1',
+      name: '${'x' * 300}.pdf',
+    );
+    final fileName = long.split('/').last;
+    expect(fileName.length, 100);
+    expect(fileName, endsWith('.pdf'));
+  });
 }

@@ -126,6 +126,9 @@ class _DetailApi extends ApiService {
   /// File ids whose content was asked for.
   final fileReads = <String>[];
 
+  /// Runs while a file is downloaded; with it the download succeeds.
+  void Function()? duringFileRead;
+
   @override
   Future<String> getFileContent(
     String fileId, {
@@ -134,7 +137,10 @@ class _DetailApi extends ApiService {
     CancelToken? cancelToken,
   }) async {
     fileReads.add(fileId);
-    throw StateError('offline');
+    final during = duringFileRead;
+    if (during == null) throw StateError('offline');
+    during();
+    return 'JVBERi0='; // %PDF-
   }
 
   @override
@@ -594,6 +600,56 @@ void main() {
     expect(text, isNot(contains('two')));
   });
 
+  testWidgets('dictation stops when its page turns out removed at save, and '
+      'the text stays as it was', (tester) async {
+    final originalOnError = FlutterError.onError;
+    FlutterError.onError = (details) {
+      if (details.exceptionAsString().contains('ink splashes may be invisible')) {
+        return;
+      }
+      originalOnError?.call(details);
+    };
+    addTearDown(() => FlutterError.onError = originalOnError);
+    final voice = _HeldVoice()..ready.complete(true);
+    final note = twoPageNote();
+    await storeLocally(note);
+    await pumpEditor(tester, _DetailApi(detail: note), voice: voice);
+    await tester.tap(find.byKey(const ValueKey<String>('note-page-chip')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey<String>('note-page-p2')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip(l10n(tester).voiceOptions));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(l10n(tester).dictation).last);
+    await tester.pumpAndSettle();
+
+    // The web removes the page, then the first words are saved to it.
+    await storeLocally(
+      _noteJson(
+        writeAccess: true,
+        md: 'one',
+        pages: [
+          {
+            'id': 'main',
+            'title': 'Shared note',
+            'content': {'md': 'one', 'html': '', 'json': null},
+          },
+        ],
+      ),
+    );
+    final run = voice.run!;
+    run.add('spoken');
+    await tester.pump();
+    await letAutosaveRun(tester);
+    await tester.pump();
+    expect(find.text(l10n(tester).notePageMissingNotice), findsOneWidget);
+
+    // Listening ended: no later words reach the kept text.
+    expect(run.isClosed, isTrue);
+    expect(voice.run, isNull);
+    expect(contentController(tester).document.toPlainText(), contains('spoken'));
+  });
+
   testWidgets('once a refused draft is discarded, the other pages can be '
       'read', (tester) async {
     final note = twoPageNote();
@@ -924,6 +980,40 @@ void main() {
 
     expect(api.fileReads, ['f2']);
     expect(find.byType(AudioPlayerDialog), findsNothing);
+  });
+
+  testWidgets('a document downloaded while another account signed in is not '
+      'shared', (tester) async {
+    const md = 'original\n\n[Plan.pdf](/api/v1/files/f2/content)';
+    final note = _noteJson(
+      writeAccess: true,
+      md: md,
+      pages: [
+        {
+          'id': 'main',
+          'title': 'Shared note',
+          'content': {'md': md, 'html': '', 'json': null},
+        },
+      ],
+    );
+    await storeLocally(note);
+    final api = _DetailApi(detail: note);
+    final container = await pumpEditor(tester, api);
+    api.duringFileRead = () =>
+        container.read(_currentUser.notifier).switchTo(_bob);
+
+    await tester.tap(find.byKey(const ValueKey<String>('note-file-card-f2')));
+    await tester.pumpAndSettle();
+    // Real time for any platform call the download goes on to make: with no
+    // plugin in tests, writing the file would fail and say so.
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 200)),
+    );
+    await tester.pumpAndSettle();
+
+    expect(api.fileReads, ['f2']);
+    // Nothing went on to be written or shared, so nothing failed either.
+    expect(find.text(l10n(tester).errorMessage), findsNothing);
   });
 
   testWidgets('a file card is kept when the account changed during its '
