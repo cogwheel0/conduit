@@ -8575,6 +8575,112 @@ void main() {
       check(api.taskListRequests).equals(0);
     });
 
+    ChatMessage cutAnswer(String id) => ChatMessage(
+      id: id,
+      role: 'assistant',
+      content: 'so far',
+      timestamp: DateTime.utc(2026, 7, 13, 0, 0, 1),
+      model: duplicate.id,
+      metadata: <String, dynamic>{
+        kMessageModelIdxMetadataKey: 0,
+        kMessageUnfinishedAnswersMetadataKey: [id, '$id-b'],
+      },
+    );
+
+    test('answers cut off are finished when the copy that first shows them '
+        'arrives', () async {
+      final (:api, :socket, :client, :container) = await openDraft(
+        account: const User(
+          id: 'me',
+          username: 'Me',
+          email: 'me@example.com',
+          role: 'user',
+        ),
+      );
+      api.activeTaskIds = const [];
+      container
+          .read(activeConversationProvider.notifier)
+          .set(
+            _conversation('first-chat', [
+              _user('first-u0', 'compare these'),
+              _user('first-u1', 'and then?'),
+            ], ChatStorageKind.openWebUi),
+          );
+      for (var i = 0; i < 5; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+
+      // The next copy carries the comparison's answers, cut off.
+      container
+          .read(activeConversationProvider.notifier)
+          .set(
+            _conversation('first-chat', [
+              _user('first-u0', 'compare these'),
+              cutAnswer('first-a'),
+              _user('first-u1', 'and then?'),
+            ], ChatStorageKind.openWebUi).copyWith(
+              updatedAt: DateTime.utc(2026, 7, 14),
+            ),
+          );
+      await until(() => api.taskListRequests > 0);
+      for (var i = 0; i < 5; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+
+      final cut = container
+          .read(chatMessagesProvider)
+          .firstWhere((message) => message.id == 'first-a');
+      check(cut.metadata?[kMessageUnfinishedAnswersMetadataKey]).isNull();
+    });
+
+    test('a chat opened while another chat\'s tasks are asked for is asked '
+        'about too', () async {
+      final (:api, :socket, :client, :container) = await openDraft(
+        account: const User(
+          id: 'me',
+          username: 'Me',
+          email: 'me@example.com',
+          role: 'user',
+        ),
+      );
+      final pending = Completer<List<String>>();
+      api.holdTaskList = pending;
+      container
+          .read(activeConversationProvider.notifier)
+          .set(
+            _conversation('chat-a', [
+              _user('a-u0', 'compare these'),
+              cutAnswer('a-cut'),
+              _user('a-u1', 'and then?'),
+            ], ChatStorageKind.openWebUi),
+          );
+      await until(() => api.taskListRequests > 0);
+
+      // The user opens another chat while chat A's answer is awaited.
+      api
+        ..holdTaskList = null
+        ..activeTaskIds = const [];
+      container
+          .read(activeConversationProvider.notifier)
+          .set(
+            _conversation('chat-b', [
+              _user('b-u0', 'compare these'),
+              cutAnswer('b-cut'),
+              _user('b-u1', 'and then?'),
+            ], ChatStorageKind.openWebUi),
+          );
+      await until(() => api.taskListRequests > 1);
+      for (var i = 0; i < 5; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+
+      final cut = container
+          .read(chatMessagesProvider)
+          .firstWhere((message) => message.id == 'b-cut');
+      check(cut.metadata?[kMessageUnfinishedAnswersMetadataKey]).isNull();
+      pending.complete(const []);
+    });
+
     test('answers cut off before a later prompt are finished by a later copy '
         'of the chat once a first check failed', () async {
       final (:api, :socket, :client, :container) = await openDraft(

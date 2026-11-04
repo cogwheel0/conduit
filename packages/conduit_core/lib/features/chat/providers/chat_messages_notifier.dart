@@ -962,11 +962,11 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     List<ChatMessage> storedMessages, {
     required String source,
   }) {
-    _recheckEarlierAnswers();
     final serverMessages = _keepRunningComparisonAnswers(
       _withoutAnswersFinishedHere(storedMessages),
     );
     if (!_shouldAdoptServerMessages(serverMessages)) {
+      _recheckEarlierAnswers();
       return;
     }
 
@@ -1017,6 +1017,8 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
       '(${serverMessages.length} messages)',
       scope: 'chat/providers',
     );
+    // After adoption: the copy may be the first to show the answers.
+    _recheckEarlierAnswers();
   }
 
   /// Checks again whether an earlier turn's answers a restart cut off can be
@@ -2574,7 +2576,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
   ) async {
     // Asked only for answers this account's tasks ran: another person's in a
     // shared chat stays as the server has it whatever this account runs.
-    if (_earlierAnswersCheckRunning ||
+    if (_earlierAnswersCheckFor == conversation.id ||
         !_conversationUsesOpenWebUiContext(conversation) ||
         _shouldProtectLocalStreamingState ||
         _answersThisAccountRuns().isEmpty) {
@@ -2590,7 +2592,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
       api: api,
     );
     if (activeOpenWebUiChatIdForMutation(ref, owner) == null) return;
-    _earlierAnswersCheckRunning = true;
+    _earlierAnswersCheckFor = chatId;
     try {
       final taskIds = await api.getTaskIdsByChat(chatId);
       if (taskIds.isNotEmpty) return;
@@ -2599,7 +2601,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
       // next copy checks again.
       return;
     } finally {
-      _earlierAnswersCheckRunning = false;
+      if (_earlierAnswersCheckFor == chatId) _earlierAnswersCheckFor = null;
     }
     if (_disposed ||
         activeOpenWebUiChatIdForMutation(ref, owner) == null ||
@@ -2609,9 +2611,10 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     _finishAnswersWithoutTask();
   }
 
-  /// Whether [_finishEarlierAnswersWithoutTask] is asking for the chat's
-  /// tasks, which one ask at a time does.
-  bool _earlierAnswersCheckRunning = false;
+  /// The chat [_finishEarlierAnswersWithoutTask] is asking the tasks of,
+  /// which it does once at a time; another chat opened meanwhile is asked
+  /// about at once.
+  String? _earlierAnswersCheckFor;
 
   /// Answers [_finishAnswersWithoutTask] finished in the open chat. The
   /// server keeps them not done for good, so each later copy of it would
