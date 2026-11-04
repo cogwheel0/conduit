@@ -47,6 +47,7 @@ import 'package:conduit_core/features/workspace/models/workspace_common.dart'
 import 'package:conduit_core/features/notes/utils/note_persistence.dart';
 
 import '../utils/note_context_actions.dart';
+import '../utils/note_file_download.dart';
 import '../utils/note_file_link_insertion.dart';
 import '../widgets/note_pages_sheet.dart';
 
@@ -2638,9 +2639,14 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
       final encoded = content.startsWith('data:')
           ? content.substring(content.indexOf(',') + 1)
           : content;
-      final directory = await getTemporaryDirectory();
-      final path = '${directory.path}/${name.replaceAll(RegExp(r'[/\\]'), '_')}';
-      await File(path).writeAsBytes(base64Decode(encoded), flush: true);
+      final path = noteFileDownloadPath(
+        (await getTemporaryDirectory()).path,
+        fileId: fileId,
+        name: name,
+      );
+      final file = File(path);
+      await file.parent.create(recursive: true);
+      await file.writeAsBytes(base64Decode(encoded), flush: true);
       if (!mounted) return;
       await SharePlus.instance.share(
         ShareParams(

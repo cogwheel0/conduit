@@ -468,6 +468,48 @@ void main() {
       check(notePageMarkdown(data, 'p2')).equals('two');
     });
 
+    test('a file removed from a page a sync has removed leaves the other '
+        'pages alone', () async {
+      const link = '[f.pdf](/api/v1/files/f/content)';
+      await storeTwoPages(main: 'one\n\n$link', two: 'two\n\n$link');
+      // The editor shows the second page as it was read.
+      openNote = await readNote('note-1');
+      showingPages(() => 'p2');
+      // A sync then stores the note without that page.
+      await db
+          .into(db.notes)
+          .insertOnConflictUpdate(
+            serverToNoteRow({
+              'id': 'note-1',
+              'user_id': 'user-1',
+              'title': 'Meeting',
+              'data': {
+                'content': {'json': null, 'md': 'one\n\n$link', 'html': ''},
+                'pages': [
+                  {
+                    'id': 'main',
+                    'title': 'Meeting',
+                    'content': {
+                      'json': null,
+                      'md': 'one\n\n$link',
+                      'html': '',
+                    },
+                  },
+                ],
+              },
+              'meta': {},
+              'is_pinned': false,
+              'created_at': 1713786305000000000,
+              'updated_at': 1713786305000000000,
+            }),
+          );
+
+      check(await controller.removeAttachedFile('f')).isNotNull();
+
+      final data = decodeNoteData((await db.notesDao.getNote('note-1'))!.data);
+      check(notePageMarkdown(data, 'main')).equals('one\n\n$link');
+    });
+
     test('a file is removed from the page shown when the removal started',
         () async {
       const link = '[f.pdf](/api/v1/files/f/content)';

@@ -540,6 +540,7 @@ class NoteAttachmentsController {
           for (final NotePage page in note.data.pages) page.toJson(),
         ],
     };
+    final String target = notePageIdIn(shown, page);
     final Note? updated = await persistNoteUpdate(
       _container,
       noteId: _noteId,
@@ -551,18 +552,13 @@ class NoteAttachmentsController {
       // Only the stored row decides on the durable path: a list read from a
       // stale copy must not be merged into a note that is paged by now.
       data: db == null
-          ? noteDataWithoutFile(
-              shown,
-              fileId,
-              pageId: notePageIdIn(shown, page),
-            )
+          ? noteDataWithoutFile(shown, fileId, pageId: target)
           : const <String, dynamic>{},
-      dataFrom: (Map<String, dynamic> existing) => noteDataWithoutFile(
-        existing,
-        fileId,
-        pageId: notePageIdIn(existing, page),
-      ),
-      pageId: notePageIdIn(shown, page),
+      // The same page as the save targets: one a sync removed meanwhile has
+      // no link left to take out, and another page's must stay.
+      dataFrom: (Map<String, dynamic> existing) =>
+          noteDataWithoutFile(existing, fileId, pageId: target),
+      pageId: target,
       isStillOpen: () => !_disposed,
     );
     if (updated == null ||
