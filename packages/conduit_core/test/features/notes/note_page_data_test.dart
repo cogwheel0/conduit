@@ -444,6 +444,27 @@ void main() {
       ]);
     });
 
+    test('a fence indented four spaces is code, not a fence', () {
+      check(
+        noteFileLinksInMarkdown(
+          '~~~\r\n    ~~~\r\n[x](/api/v1/files/inner/content)\r\n~~~\r\n'
+          '[real](/api/v1/files/real/content)',
+        ).map((link) => link.id),
+      ).deepEquals(['real']);
+    });
+
+    test('text with lone carriage returns is not read as an open block', () {
+      final md = appendNoteFileLinks('~~~\rinside\r~~~\rtext', [
+        <String, dynamic>{'type': 'file', 'id': 'f1', 'name': 'R'},
+      ]);
+      check(md).equals(
+        '~~~\rinside\r~~~\rtext\n\n[R](/api/v1/files/f1/content)',
+      );
+      check(noteFileLinksInMarkdown(md).map((link) => link.id)).deepEquals([
+        'f1',
+      ]);
+    });
+
     test('a closer with text after it leaves the block open', () {
       check(
         noteFileLinksInMarkdown(

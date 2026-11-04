@@ -464,10 +464,9 @@ String noteFileLinkMarkdown({required String id, required String name}) {
   return '[${label.isEmpty ? id : label}](/api/v1/files/$id/content)';
 }
 
-/// A line that may open or close a fenced code block: a run of three or more
-/// backticks or tildes, then the rest of the line, a carriage return of a
-/// CRLF line ending included.
-final RegExp _fencePattern = RegExp(r'^\s*(`{3,}|~{3,})(.*)$', dotAll: true);
+/// A line that may open or close a fenced code block: up to three spaces, a
+/// run of three or more backticks or tildes, then the rest of the line.
+final RegExp _fencePattern = RegExp(r'^ {0,3}(`{3,}|~{3,})(.*)$');
 
 /// [markdown]'s lines, each with whether it lies in a fenced code block, and
 /// the fence of a block left open at its end. As in CommonMark, a block
@@ -478,7 +477,10 @@ final RegExp _fencePattern = RegExp(r'^\s*(`{3,}|~{3,})(.*)$', dotAll: true);
   final List<(String, bool)> lines = <(String, bool)>[];
   String? open;
   for (final String line in markdown.split('\n')) {
-    final RegExpMatch? fence = _fencePattern.firstMatch(line);
+    // The carriage return of a CRLF line ending is no part of the line.
+    final RegExpMatch? fence = _fencePattern.firstMatch(
+      line.endsWith('\r') ? line.substring(0, line.length - 1) : line,
+    );
     if (fence == null) {
       lines.add((line, open != null));
       continue;
