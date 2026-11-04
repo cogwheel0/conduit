@@ -1215,18 +1215,18 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
 
     try {
       final ok = await _voiceService!.initialize();
-      if (!mounted) return;
+      if (!mounted || _readOnly) return;
       if (!ok) {
         _showError(AppLocalizations.of(context)!.voiceInputUnavailable);
         return;
       }
 
       final stream = await _voiceService!.beginListening();
-      if (!mounted || _pageId != page) {
-        // The editor closed, or shows another page, while listening was
-        // starting. Capture is already running and nothing else will stop
-        // it, so stop it here, unless another consumer has taken the service
-        // over since.
+      if (!mounted || _pageId != page || _readOnly) {
+        // The editor closed, shows another page, or can no longer be edited
+        // (a sync removed the page, say) while listening was starting.
+        // Capture is already running and nothing else will stop it, so stop
+        // it here, unless another consumer has taken the service over since.
         if (_voiceService?.textStream == stream) {
           unawaited(_voiceService?.stopListening());
         }
@@ -2644,7 +2644,11 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
     final auth = api.captureAuthSnapshot();
     bool stillOpen() => mounted && _isOpenSessionCurrent;
     try {
-      final content = await api.getFileContent(fileId, authSnapshot: auth);
+      final content = await api.getFileContent(
+        fileId,
+        authSnapshot: auth,
+        maxBytes: kNoteFileShareMaxBytes,
+      );
       if (!stillOpen()) return;
       final encoded = content.startsWith('data:')
           ? content.substring(content.indexOf(',') + 1)

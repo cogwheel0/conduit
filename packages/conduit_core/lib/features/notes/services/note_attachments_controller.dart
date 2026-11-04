@@ -814,6 +814,9 @@ class NoteAttachmentsController {
     bool moves(PendingNoteAudioUpload item) =>
         pageId == null || (item.pageId ?? kNoteMainPageId) == pageId;
     _rebinds++;
+    // Notes that kept their recordings in an earlier page recovery keep them
+    // now too.
+    final Set<String> keptBefore = Set<String>.of(_leftBehind);
     if (pageId != null) _leftBehind.addAll(<String>{_noteId, previous.id});
     final ApiService? api = _container.read(apiServiceProvider);
     final AppDatabase? db = _container.read(appDatabaseProvider);
@@ -880,6 +883,7 @@ class NoteAttachmentsController {
       final scope = _scope();
       if (scope != null) {
         for (final String noteId in <String>{_noteId, previous.id}) {
+          if (keptBefore.contains(noteId)) continue;
           final List<PendingNoteAudioUpload> durableItems = await _store
               .loadForNote(
                 serverId: scope.serverId,

@@ -1,3 +1,5 @@
+import 'dart:convert' show utf8;
+
 import 'package:conduit/features/notes/utils/note_file_download.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -29,7 +31,19 @@ void main() {
       name: '${'x' * 300}.pdf',
     );
     final fileName = long.split('/').last;
-    expect(fileName.length, 100);
+    expect(fileName.length, 200);
     expect(fileName, endsWith('.pdf'));
+  });
+
+  test('a name is cut by its bytes, never inside a character', () {
+    final path = noteFileDownloadPath(
+      '/tmp',
+      fileId: 'f1',
+      name: '${'文' * 100}.pdf',
+    );
+    final fileName = path.split('/').last;
+    expect(utf8.encode(fileName).length, lessThanOrEqualTo(200));
+    expect(fileName, endsWith('.pdf'));
+    expect(fileName.replaceAll('文', ''), '.pdf');
   });
 }

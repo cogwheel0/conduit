@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:conduit/features/chat/services/voice_input_service.dart';
+import 'package:conduit/features/notes/utils/note_file_download.dart';
 import 'package:conduit/features/notes/views/note_editor_page.dart';
 import 'package:conduit/features/notes/widgets/audio_player_dialog.dart';
 import 'package:conduit/features/notes/widgets/note_file_attachment.dart';
@@ -123,8 +124,9 @@ class _DetailApi extends ApiService {
     ApiAuthSnapshot? authSnapshot,
   }) async => detail;
 
-  /// File ids whose content was asked for.
+  /// File ids whose content was asked for, and the size each could be.
   final fileReads = <String>[];
+  final fileReadLimits = <int?>[];
 
   /// Runs while a file is downloaded; with it the download succeeds.
   void Function()? duringFileRead;
@@ -137,6 +139,7 @@ class _DetailApi extends ApiService {
     CancelToken? cancelToken,
   }) async {
     fileReads.add(fileId);
+    fileReadLimits.add(maxBytes);
     final during = duringFileRead;
     if (during == null) throw StateError('offline');
     during();
@@ -650,6 +653,55 @@ void main() {
     expect(contentController(tester).document.toPlainText(), contains('spoken'));
   });
 
+  testWidgets('dictation that was starting when its page turned out removed '
+      'does not start', (tester) async {
+    final originalOnError = FlutterError.onError;
+    FlutterError.onError = (details) {
+      if (details.exceptionAsString().contains('ink splashes may be invisible')) {
+        return;
+      }
+      originalOnError?.call(details);
+    };
+    addTearDown(() => FlutterError.onError = originalOnError);
+    final voice = _HeldVoice();
+    final note = twoPageNote();
+    await storeLocally(note);
+    await pumpEditor(tester, _DetailApi(detail: note), voice: voice);
+    await tester.tap(find.byKey(const ValueKey<String>('note-page-chip')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey<String>('note-page-p2')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip(l10n(tester).voiceOptions));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(l10n(tester).dictation).last);
+    await tester.pumpAndSettle();
+
+    // While listening starts, the web removes the page and a save of the
+    // text typed meanwhile finds it gone.
+    typeInto(tester, 'draft ');
+    await storeLocally(
+      _noteJson(
+        writeAccess: true,
+        md: 'one',
+        pages: [
+          {
+            'id': 'main',
+            'title': 'Shared note',
+            'content': {'md': 'one', 'html': '', 'json': null},
+          },
+        ],
+      ),
+    );
+    await letAutosaveRun(tester);
+    await tester.pump();
+    expect(find.text(l10n(tester).notePageMissingNotice), findsOneWidget);
+
+    voice.ready.complete(true);
+    await tester.pumpAndSettle();
+
+    expect(voice.run, isNull);
+  });
+
   testWidgets('once a refused draft is discarded, the other pages can be '
       'read', (tester) async {
     final note = twoPageNote();
@@ -979,6 +1031,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(api.fileReads, ['f2']);
+    expect(api.fileReadLimits, [kNoteFileShareMaxBytes]);
     expect(find.byType(AudioPlayerDialog), findsNothing);
   });
 

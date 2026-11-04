@@ -1006,6 +1006,47 @@ void main() {
       check(left.map((item) => item.id)).deepEquals([onMain.id]);
     });
 
+    test('a later recovery of the new note leaves the recordings the first '
+        'one kept with the original note', () async {
+      api.uploadError = StateError('offline');
+      await store.stage(
+        source: await recording('two.m4a'),
+        serverId: 'server-1',
+        accountId: 'user:user-1',
+        noteId: 'note-1',
+        fileName: 'recording_2.m4a',
+        pageId: 'p2',
+      );
+      final onMain = await store.stage(
+        source: await recording('main.m4a'),
+        serverId: 'server-1',
+        accountId: 'user:user-1',
+        noteId: 'note-1',
+        fileName: 'recording_1.m4a',
+      );
+      await controller.loadPending();
+      await waitFor(
+        () => controller.pending.length == 2 && !controller.isUploading,
+      );
+
+      final original = openNote;
+      final pageNote = openNote.copyWith(id: 'local:page');
+      openNote = pageNote;
+      await controller.rebindTo(original, pageNote, pageId: 'p2');
+      // The server then deletes the new note, whose draft is recovered too.
+      final again = openNote.copyWith(id: 'local:again');
+      openNote = again;
+      await controller.rebindTo(pageNote, again);
+      await waitFor(() => !controller.isUploading);
+
+      final left = await store.loadForNote(
+        serverId: 'server-1',
+        accountId: 'user:user-1',
+        noteId: 'note-1',
+      );
+      check(left.map((item) => item.id)).deepEquals([onMain.id]);
+    });
+
     test('an empty title falls back to the untitled name', () async {
       await db.notesDao.purgeReconciledNote('note-1');
       final recovered = <Note>[];
