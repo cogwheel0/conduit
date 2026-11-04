@@ -194,14 +194,22 @@ class ChatModelSaveQueue extends Notifier<void> {
         if (!ref.mounted) return;
         continue; // A newer list may have come in meanwhile.
       }
-      final (:models, account: _, :auth) = _pending.remove(chatId)!;
+      final queued = _pending.remove(chatId)!;
+      final (:models, account: _, :auth) = queued;
       final api = ref.read(apiServiceProvider);
       if (api == null) continue;
       var sent = false;
+      var replyStarted = false;
       try {
         await ref.read(chatLocksProvider).runExclusive(chatId, () async {
           // Another account may have signed in while the chat was held.
           if (!ref.mounted || _account() != account) return;
+          // A reply may have started meanwhile, which the update must not
+          // overwrite: the list waits for it again.
+          if (_streamingIn(chatId)) {
+            replyStarted = true;
+            return;
+          }
           await api.updateConversation(
             chatId,
             models: models,
@@ -211,6 +219,10 @@ class ChatModelSaveQueue extends Notifier<void> {
         });
       } catch (error) {
         _logFailure(chatId, error);
+        continue;
+      }
+      if (replyStarted) {
+        _pending.putIfAbsent(chatId, () => queued);
         continue;
       }
       // A newer list for the chat is stored and sent in its own turn.

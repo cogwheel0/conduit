@@ -6743,6 +6743,36 @@ void main() {
       ).isA<List>().deepEquals(['model-1']);
     });
 
+    test('a model list held up by a push waits for a reply that started '
+        'meanwhile', () async {
+      const other = Model(id: 'model-2', name: 'Model 2');
+      final (:api, :socket, :container) = await open(
+        available: const [duplicate, other],
+      );
+      final pushing = Completer<void>();
+      unawaited(
+        container
+            .read(chatLocksProvider)
+            .runExclusive(chatId, () => pushing.future),
+      );
+      final saving = saveChatModelChoice(container, other);
+      for (var i = 0; i < 5; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+
+      // A reply starts in the chat before the push lets go of it.
+      container.read(activeChatIdsProvider.notifier).setActive(chatId);
+      pushing.complete();
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+      check(api.savedModels).isEmpty();
+
+      container.read(activeChatIdsProvider.notifier).setInactive(chatId);
+      await saving;
+      check(api.savedModels.map((saved) => saved.$2)).deepEquals([
+        ['model-2'],
+      ]);
+    });
+
     test('a model pick is forgotten when another sign-in begins', () async {
       const other = Model(id: 'model-2', name: 'Model 2');
       final (:api, :socket, :container) = await open(
