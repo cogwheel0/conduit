@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:riverpod/riverpod.dart';
 
+import 'package:conduit_core/auth/api_auth_interceptor.dart';
 import 'package:conduit_core/database/account_storage_isolation.dart';
 import 'package:conduit_core/database/database_provider.dart';
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
@@ -108,9 +109,16 @@ final chatModelSaveQueueProvider = NotifierProvider<ChatModelSaveQueue, void>(
   ChatModelSaveQueue.new,
 );
 
+/// A model list waiting to be saved: by the account that picked it, sent
+/// with that account's credentials.
+typedef _PendingModels = ({
+  List<String> models,
+  Object account,
+  ApiAuthSnapshot? auth,
+});
+
 class ChatModelSaveQueue extends Notifier<void> {
-  final Map<String, ({List<String> models, Object account})> _pending =
-      <String, ({List<String> models, Object account})>{};
+  final Map<String, _PendingModels> _pending = <String, _PendingModels>{};
   Future<void>? _running;
 
   @override
@@ -126,21 +134,30 @@ class ChatModelSaveQueue extends Notifier<void> {
   /// Saves [models] as chat [chatId]'s list; completes once the queue has
   /// nothing left to send.
   Future<void> save(String chatId, List<String> models) {
-    _pending[chatId] = (models: models, account: _account());
-    unawaited(_store(chatId, models));
+    final account = _account();
+    _pending[chatId] = (
+      models: models,
+      account: account,
+      auth: ref.read(apiServiceProvider)?.captureAuthSnapshot(),
+    );
+    unawaited(_store(chatId, models, account));
     return _running ??= _drain().whenComplete(() => _running = null);
   }
 
-  Future<void> _store(String chatId, List<String> models) async {
+  /// Stores [models] as chat [chatId]'s list, unless an account other than
+  /// [account] signed in while the chat was held.
+  Future<void> _store(
+    String chatId,
+    List<String> models,
+    Object account,
+  ) async {
     final db = ref.read(appDatabaseProvider);
     if (db == null) return;
     try {
-      await ref
-          .read(chatLocksProvider)
-          .runExclusive(
-            chatId,
-            () => db.chatsDao.setChatModels(chatId, models),
-          );
+      await ref.read(chatLocksProvider).runExclusive(chatId, () async {
+        if (!ref.mounted || _account() != account) return;
+        await db.chatsDao.setChatModels(chatId, models);
+      });
     } catch (error) {
       _logFailure(chatId, error);
     }
@@ -164,25 +181,31 @@ class ChatModelSaveQueue extends Notifier<void> {
         if (!ref.mounted) return;
         continue; // A newer list may have come in meanwhile.
       }
-      final (:models, account: _) = _pending.remove(chatId)!;
+      final (:models, account: _, :auth) = _pending.remove(chatId)!;
       final api = ref.read(apiServiceProvider);
       if (api == null) continue;
+      var sent = false;
       try {
-        await ref
-            .read(chatLocksProvider)
-            .runExclusive(
-              chatId,
-              () => api.updateConversation(chatId, models: models),
-            );
+        await ref.read(chatLocksProvider).runExclusive(chatId, () async {
+          // Another account may have signed in while the chat was held.
+          if (!ref.mounted || _account() != account) return;
+          await api.updateConversation(
+            chatId,
+            models: models,
+            authSnapshot: auth,
+          );
+          sent = true;
+        });
       } catch (error) {
         _logFailure(chatId, error);
         continue;
       }
       // A newer list for the chat is stored and sent in its own turn.
-      if (ref.mounted &&
+      if (sent &&
+          ref.mounted &&
           account == _account() &&
           !_pending.containsKey(chatId)) {
-        await _store(chatId, models);
+        await _store(chatId, models, account);
       }
     }
   }

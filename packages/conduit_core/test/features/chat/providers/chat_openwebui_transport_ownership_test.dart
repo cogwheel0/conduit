@@ -6711,6 +6711,38 @@ void main() {
       ]);
     });
 
+    test('a model list held up by a push is neither stored nor sent once '
+        'another sign-in begins', () async {
+      const other = Model(id: 'model-2', name: 'Model 2');
+      final (:api, :socket, :container) = await open(
+        available: const [duplicate, other],
+        trackSignIn: true,
+      );
+      // A push of the whole chat holds it while the user picks a model.
+      final pushing = Completer<void>();
+      unawaited(
+        container
+            .read(chatLocksProvider)
+            .runExclusive(chatId, () => pushing.future),
+      );
+      final saving = saveChatModelChoice(container, other);
+      for (var i = 0; i < 5; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+
+      container.read(_signInEpochProvider.notifier).rotate();
+      // What the next account's sync stores for the chat.
+      await db.chatsDao.setChatModels(chatId, const ['model-1']);
+      pushing.complete();
+      await saving;
+
+      check(api.savedModels).isEmpty();
+      final row = await db.chatsDao.getChat(chatId);
+      check(
+        (jsonDecode(row!.rawExtra) as Map<String, dynamic>)['models'],
+      ).isA<List>().deepEquals(['model-1']);
+    });
+
     test('a model pick is forgotten when another sign-in begins', () async {
       const other = Model(id: 'model-2', name: 'Model 2');
       final (:api, :socket, :container) = await open(
