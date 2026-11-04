@@ -39,7 +39,11 @@ void main() {
   test('a model picked after a comparison was sent answers in it', () {
     final target = debugComparisonRegenerationTarget(
       twoComparisons(),
-      picked: (chatId: 'c', modelId: 'model-3', turns: 3),
+      picked: (
+        chatId: 'c',
+        modelId: 'model-3',
+        promptIds: const {'u0', 'u1', 'u2'},
+      ),
     );
 
     check(target).isNotNull()
@@ -53,7 +57,29 @@ void main() {
     // since, so no message from that moment is left to mark it.
     final target = debugComparisonRegenerationTarget(
       twoComparisons(),
-      picked: (chatId: 'c', modelId: 'model-3', turns: 2),
+      picked: (
+        chatId: 'c',
+        modelId: 'model-3',
+        promptIds: const {'u0', 'u1'},
+      ),
+    );
+
+    check(target).isNotNull().has((it) => it.modelId, 'model').equals(
+      'model-2',
+    );
+  });
+
+  test('a comparison sent after the pick keeps its own models once an '
+      'earlier turn was deleted', () {
+    // Picked after the first comparison; the plain first turn is deleted
+    // since, which leaves the later comparison as many turns in as the pick.
+    final target = debugComparisonRegenerationTarget(
+      twoComparisons().sublist(2),
+      picked: (
+        chatId: 'c',
+        modelId: 'model-3',
+        promptIds: const {'u0', 'u1'},
+      ),
     );
 
     check(target).isNotNull().has((it) => it.modelId, 'model').equals(
@@ -66,7 +92,11 @@ void main() {
     final cutBack = twoComparisons().sublist(0, 5);
     final target = debugComparisonRegenerationTarget(
       cutBack,
-      picked: (chatId: 'c', modelId: 'model-3', turns: 3),
+      picked: (
+        chatId: 'c',
+        modelId: 'model-3',
+        promptIds: const {'u0', 'u1', 'u2'},
+      ),
     );
 
     check(target).isNotNull().has((it) => it.modelId, 'model').equals(

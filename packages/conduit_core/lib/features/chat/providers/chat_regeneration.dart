@@ -605,14 +605,11 @@ Future<void> regenerateEditedHermesUserMessage(
     if (candidate.role != 'user') continue;
     final models = candidate.metadata?['models'];
     if (models is List && models.length > 1) {
-      // This turn's number. A pick made once the chat had it applies; one
-      // made before it was sent does not. Regenerating an earlier turn cuts
-      // the later ones off, which leaves its number as it was.
-      final turn = messages
-          .take(index + 1)
-          .where((message) => message.role == 'user')
-          .length;
-      final pickedSince = picked != null && turn <= picked.turns;
+      // A pick made once the chat held this turn's prompt applies; one made
+      // before it was sent, or edited, does not. Regenerating, deleting or
+      // cutting back other turns leaves the prompt's id as it was.
+      final pickedSince =
+          picked != null && picked.promptIds.contains(candidate.id);
       return (
         modelId: pickedSince ? picked.modelId : modelId,
         slot: tail.modelSlot,

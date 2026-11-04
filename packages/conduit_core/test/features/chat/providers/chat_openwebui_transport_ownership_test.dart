@@ -6819,7 +6819,11 @@ void main() {
       );
       container
           .read(chatModelPickProvider.notifier)
-          .record(chatId: chatId, modelId: duplicate.id, turns: 1);
+          .record(
+            chatId: chatId,
+            modelId: duplicate.id,
+            promptIds: const {'u0'},
+          );
       final handles = await durableCompareSend(
         container,
         'compare these',

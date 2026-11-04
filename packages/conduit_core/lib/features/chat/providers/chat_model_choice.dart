@@ -16,13 +16,17 @@ import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/sync/chat_locks.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
 
-/// The model the user last picked in an open chat, with the number of turns
-/// (prompts) the chat had then. Open WebUI 0.12.5 regenerates an answer with
+/// The model the user last picked in an open chat, with the ids of the
+/// prompts the chat held then. Open WebUI 0.12.5 regenerates an answer with
 /// the model picked now; Conduit's comparisons are per turn, so an answer of
 /// a multi-model turn keeps its own model unless a model was picked after
-/// that turn was sent. Turns are counted rather than marked by a message,
-/// since regenerating an answer replaces it.
-typedef ChatModelPick = ({String chatId, String modelId, int turns});
+/// that turn was sent. Prompts are named rather than answers, which
+/// regenerating replaces, or counted, which deleting a turn changes.
+typedef ChatModelPick = ({
+  String chatId,
+  String modelId,
+  Set<String> promptIds,
+});
 
 final chatModelPickProvider =
     NotifierProvider<ChatModelPickNotifier, ChatModelPick?>(
@@ -43,9 +47,9 @@ class ChatModelPickNotifier extends Notifier<ChatModelPick?> {
   void record({
     required String chatId,
     required String modelId,
-    required int turns,
+    required Set<String> promptIds,
   }) {
-    state = (chatId: chatId, modelId: modelId, turns: turns);
+    state = (chatId: chatId, modelId: modelId, promptIds: promptIds);
   }
 
   /// Forgets the pick made in chat [chatId], once the chat shows another
@@ -91,7 +95,10 @@ Future<void> saveChatModelChoice(dynamic ref, Model model) async {
       .record(
         chatId: chatId,
         modelId: model.id,
-        turns: messages.where((message) => message.role == 'user').length,
+        promptIds: <String>{
+          for (final message in messages)
+            if (message.role == 'user') message.id,
+        },
       );
 
   // The queue outlives [ref], which may belong to a sheet closing now.

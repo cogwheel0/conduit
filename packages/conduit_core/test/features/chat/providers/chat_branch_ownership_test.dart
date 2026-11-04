@@ -342,7 +342,7 @@ void main() {
       final c = container(active: await _loaded(db, 'c1'));
       c
           .read(chatModelPickProvider.notifier)
-          .record(chatId: 'c1', modelId: 'model-x', turns: 2);
+          .record(chatId: 'c1', modelId: 'model-x', promptIds: const {'u1'});
       final answer = c.read(chatMessagesProvider)[1];
 
       await selectChatBranch(
