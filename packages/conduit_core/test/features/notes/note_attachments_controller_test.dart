@@ -114,6 +114,10 @@ class _HeldScanStore extends NoteAudioUploadStore {
   final entered = Completer<void>();
   final release = Completer<void>();
 
+  /// While set, a scan of one note's recordings waits for it too.
+  Completer<void>? holdNoteScan;
+  final noteScanEntered = Completer<void>();
+
   @override
   Future<List<PendingNoteAudioUpload>> loadForAccount({
     required String serverId,
@@ -122,6 +126,24 @@ class _HeldScanStore extends NoteAudioUploadStore {
     if (!entered.isCompleted) entered.complete();
     await release.future;
     return super.loadForAccount(serverId: serverId, accountId: accountId);
+  }
+
+  @override
+  Future<List<PendingNoteAudioUpload>> loadForNote({
+    required String serverId,
+    String accountId = '',
+    required String noteId,
+  }) async {
+    final hold = holdNoteScan;
+    if (hold != null) {
+      if (!noteScanEntered.isCompleted) noteScanEntered.complete();
+      await hold.future;
+    }
+    return super.loadForNote(
+      serverId: serverId,
+      accountId: accountId,
+      noteId: noteId,
+    );
   }
 }
 
@@ -1083,6 +1105,75 @@ void main() {
       check(
         controller.pending.map((item) => item.id),
       ).not((it) => it.contains(onMain.id));
+    });
+
+    test('an upload that reaches its attach while a page recovery runs does '
+        'not attach to the new note', () async {
+      final held = _HeldScanStore(
+        applicationSupportDirectory: () async {
+          final dir = Directory('${root.path}/support');
+          await dir.create(recursive: true);
+          return dir;
+        },
+        temporaryDirectory: () async => Directory('${root.path}/cache'),
+      )..release.complete();
+      controller.dispose();
+      controller = NoteAttachmentsController(
+        container: container,
+        store: held,
+        noteId: 'note-1',
+        currentNote: () => openNote,
+        resolvedTitle: () => openNote.title,
+        onNoteUpdated: (updated) => openNote = updated,
+        onChanged: () => changes++,
+        onNotice: notices.add,
+      )..start();
+      await held.stage(
+        source: await recording('main.m4a'),
+        serverId: 'server-1',
+        accountId: 'user:user-1',
+        noteId: 'note-1',
+        fileName: 'recording_1.m4a',
+      );
+      // The new note, as the recovery stores it.
+      await db
+          .into(db.notes)
+          .insertOnConflictUpdate(
+            serverToNoteRow({
+              'id': 'local:page',
+              'user_id': 'user-1',
+              'title': 'Two',
+              'data': {
+                'content': {'md': 'two', 'html': ''},
+              },
+              'meta': {},
+              'is_pinned': false,
+              'created_at': 1713786305000000000,
+              'updated_at': 1713786305000000000,
+            }),
+          );
+      api.holdUpload = Completer<void>();
+      await controller.loadPending();
+      await waitFor(() => controller.isUploading);
+
+      // The recovery stops partway, as the upload finishes.
+      held.holdNoteScan = Completer<void>();
+      final original = openNote;
+      final pageNote = await readNote('local:page');
+      openNote = pageNote;
+      final rebinding = controller.rebindTo(original, pageNote, pageId: 'p2');
+      await held.noteScanEntered.future;
+      api.holdUpload!.complete();
+      for (var i = 0; i < 20; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 5));
+      }
+      held.holdNoteScan!.complete();
+      await rebinding;
+      await waitFor(() => !controller.isUploading);
+
+      final stored = await readNote('local:page');
+      check(stored.data.files ?? const <Map<String, dynamic>>[]).isEmpty();
+      check(stored.markdownContent).equals('two');
     });
 
     test('an empty title falls back to the untitled name', () async {

@@ -712,7 +712,11 @@ class NoteAttachmentsController {
         id: note.id,
         page: page,
         attachment: attachment,
-        canCommit: () => _isCurrent(api: api, db: db, authEpoch: authEpoch),
+        // Checked again inside the note's lock, after the wait for it: a
+        // page recovery meanwhile can leave this recording with its note.
+        canCommit: () =>
+            _isCurrent(api: api, db: db, authEpoch: authEpoch) &&
+            !_leftBehindUploads.contains(item.id),
       );
     } else if (note.data.hasPages ||
         _container.read(notePagesServerProvider) == true) {
@@ -825,7 +829,14 @@ class NoteAttachmentsController {
     // Notes that kept their recordings in an earlier page recovery keep them
     // now too.
     final Set<String> keptBefore = Set<String>.of(_leftBehind);
-    if (pageId != null) _leftBehind.addAll(<String>{_noteId, previous.id});
+    if (pageId != null) {
+      _leftBehind.addAll(<String>{_noteId, previous.id});
+      // Reserved before anything is awaited: an upload of one of these that
+      // reaches its attach meanwhile must not attach to the new note.
+      for (final PendingNoteAudioUpload item in _pending) {
+        if (!moves(item)) _leftBehindUploads.add(item.id);
+      }
+    }
     final ApiService? api = _container.read(apiServiceProvider);
     final AppDatabase? db = _container.read(appDatabaseProvider);
     final Object authEpoch = _container.read(openWebUiAuthSessionEpochProvider);

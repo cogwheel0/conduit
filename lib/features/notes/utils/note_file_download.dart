@@ -1,4 +1,5 @@
 import 'dart:convert' show utf8;
+import 'dart:io' show Directory;
 
 /// The largest note file shared from the editor: one larger is not read
 /// into memory to be written out.
@@ -12,6 +13,18 @@ const int _maxNameBytes = 200;
 /// into, each in a folder of its own, before they are shared.
 String noteFileDownloadsPath(String temporaryDirectory) =>
     '$temporaryDirectory/note-files';
+
+/// A new folder of its own for one download of file [fileId] under
+/// [temporaryDirectory], the folders above it made as needed, as on a first
+/// download after install.
+Future<Directory> createNoteFileDownloadFolder(
+  String temporaryDirectory,
+  String fileId,
+) async {
+  final downloads = Directory(noteFileDownloadsPath(temporaryDirectory));
+  await downloads.create(recursive: true);
+  return downloads.createTemp('${fileId.replaceAll(RegExp(r'[^\w-]'), '_')}-');
+}
 
 /// The name a note's file, named [name], is downloaded under, which the
 /// share sheet shows: with the characters file systems refuse replaced, and

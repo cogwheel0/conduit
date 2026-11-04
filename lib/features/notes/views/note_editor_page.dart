@@ -2,7 +2,7 @@ import 'package:conduit/features/workspace/providers/workspace_capabilities_prov
 
 import 'dart:async';
 import 'dart:convert' show base64Decode;
-import 'dart:io' show Directory, File, Platform;
+import 'dart:io' show File, Platform;
 
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:dio/dio.dart';
@@ -2675,9 +2675,10 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
       // A folder of this download's own, gone once the share sheet closes,
       // so a second tap cannot write over a file being shared and the note's
       // file does not stay behind.
-      final folder = await Directory(
-        noteFileDownloadsPath((await getTemporaryDirectory()).path),
-      ).createTemp('$fileId-');
+      final folder = await createNoteFileDownloadFolder(
+        (await getTemporaryDirectory()).path,
+        fileId,
+      );
       try {
         final path = '${folder.path}/${noteFileDownloadName(name)}';
         await File(path).writeAsBytes(base64Decode(encoded), flush: true);

@@ -1,4 +1,5 @@
 import 'dart:convert' show utf8;
+import 'dart:io' show Directory;
 
 import 'package:conduit/features/notes/utils/note_file_download.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -25,5 +26,19 @@ void main() {
 
   test('downloads go under the temporary folder', () {
     expect(noteFileDownloadsPath('/tmp'), '/tmp/note-files');
+  });
+
+  test('a download folder is made under folders that are not there yet, one '
+      'of its own each time', () async {
+    final temp = Directory.systemTemp.createTempSync('note-download-test');
+    addTearDown(() => temp.deleteSync(recursive: true));
+
+    final first = await createNoteFileDownloadFolder(temp.path, '../f1');
+    final second = await createNoteFileDownloadFolder(temp.path, '../f1');
+
+    expect(first.existsSync(), isTrue);
+    expect(first.parent.path, noteFileDownloadsPath(temp.path));
+    expect(first.path, isNot(second.path));
+    expect(first.path.split('/').last, startsWith('___f1-'));
   });
 }
