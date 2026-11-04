@@ -6809,9 +6809,9 @@ void main() {
       check(api.savedModels.map((saved) => saved.$2)).deepEquals([
         ['model-2'],
       ]);
-      check(container.read(activeChatIdsProvider)).not(
-        (it) => it.contains(chatId),
-      );
+      // The listing stays: in a shared chat it may be another person's task,
+      // which the server's list for this account leaves out.
+      check(container.read(activeChatIdsProvider)).contains(chatId);
     });
 
     test('a model pick is forgotten when another sign-in begins', () async {

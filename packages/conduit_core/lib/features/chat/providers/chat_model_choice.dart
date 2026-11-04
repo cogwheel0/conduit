@@ -152,6 +152,11 @@ class ChatModelSaveQueue extends Notifier<void> {
 
   /// Since when each chat has been waited on only for its task listing.
   final Map<String, DateTime> _listedSince = <String, DateTime>{};
+
+  /// Chats the server ran no task of this account's in, by the listing's
+  /// activation token when it said so: while that listing stands, the chat
+  /// does not hold its list back.
+  final Map<String, int?> _noTaskOfOurs = <String, int?>{};
   Future<void>? _running;
 
   @override
@@ -284,8 +289,11 @@ class ChatModelSaveQueue extends Notifier<void> {
   /// Asks the server about each waiting chat that has long been listed as
   /// running a task with no reply streaming on screen: a listing that an
   /// event missed while offline left behind would hold its list back for
-  /// good. One the server runs no task in is taken off the list, unless it
-  /// was listed again meanwhile.
+  /// good. The server lists only this account's tasks, while a shared chat
+  /// is listed for another person's too, so the listing itself stays; the
+  /// list is sent once the server runs none of this account's there, which
+  /// is safe: servers before 0.12, whose update rewrites the chat, have no
+  /// shared replies, and later ones merge the change.
   Future<void> _confirmListedTasks() async {
     final now = DateTime.now();
     final listed = ref.read(activeChatIdsProvider);
@@ -307,7 +315,7 @@ class ChatModelSaveQueue extends Notifier<void> {
       try {
         final tasks = await api.getTaskIdsByChat(chatId);
         if (!ref.mounted) return;
-        if (tasks.isEmpty) active.setInactiveIfUnchanged(chatId, token);
+        if (tasks.isEmpty) _noTaskOfOurs[chatId] = token;
       } catch (_) {
         // Asked again after another wait.
       }
@@ -316,10 +324,19 @@ class ChatModelSaveQueue extends Notifier<void> {
 
   /// Whether a reply runs in chat [chatId]: one streaming on screen, or a
   /// task the server runs for it while another chat is open.
-  bool _streamingIn(String chatId) =>
-      (ref.read(activeConversationProvider)?.id == chatId &&
-          ref.read(isChatStreamingProvider)) ||
-      ref.read(activeChatIdsProvider).contains(chatId);
+  bool _streamingIn(String chatId) {
+    if (ref.read(activeConversationProvider)?.id == chatId &&
+        ref.read(isChatStreamingProvider)) {
+      return true;
+    }
+    if (!ref.read(activeChatIdsProvider).contains(chatId)) return false;
+    // Listed again since the server ran none of ours: it holds again.
+    final token = ref
+        .read(activeChatIdsProvider.notifier)
+        .activationToken(chatId);
+    return !(_noTaskOfOurs.containsKey(chatId) &&
+        _noTaskOfOurs[chatId] == token);
+  }
 
 
   void _logFailure(String chatId, Object error) {
