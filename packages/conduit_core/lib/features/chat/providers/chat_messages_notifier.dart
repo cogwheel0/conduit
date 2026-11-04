@@ -2959,7 +2959,14 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     }
 
     if (!isActive) {
-      _finishAnswersWithoutTask(eligible);
+      // A restored streaming tail settles through the final fetch below:
+      // finished first, it would leave nothing to retry that fetch should it
+      // fail. Its answers are finished once the fetch succeeds.
+      _finishAnswersWithoutTask(
+        openedAsStreaming
+            ? eligible.where((id) => id != openedMessageId)
+            : eligible,
+      );
       if (!openedAsStreaming) {
         _reopenedStreamingMessageId = null;
         _stopRemoteTaskMonitor();
@@ -2979,7 +2986,14 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
         persist: true,
       );
       if (reconciled) {
+        final reopenedRemoteId = _boundRemoteMessageId;
         _cancelMessageStream();
+        _finishAnswersWithoutTask(<String>{
+          ...eligible,
+          ..._answersThisAccountRuns(inMessage: openedMessageId),
+          if (reopenedRemoteId != null)
+            ..._answersThisAccountRuns(inMessage: reopenedRemoteId),
+        });
       } else if (_stillOwnsReopenedTail(owner, openedMessageId) &&
           _hasStreamingAssistant) {
         _engageReopenedTailMonitor(openedMessageId);

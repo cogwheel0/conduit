@@ -206,11 +206,16 @@ class _FakeApiService extends ApiService {
   int taskIdFailuresRemaining = 0;
 
   int getConversationCalls = 0;
+  int conversationFailuresRemaining = 0;
   int getTaskIdsCalls = 0;
 
   @override
   Future<Conversation> getConversation(String id, {ApiAuthSnapshot? authSnapshot}) async {
     getConversationCalls++;
+    if (conversationFailuresRemaining > 0) {
+      conversationFailuresRemaining--;
+      throw StateError('transient conversation fetch failure');
+    }
     return _conversation;
   }
 
@@ -2174,6 +2179,48 @@ void main() {
       check(tail.isStreaming).isFalse();
       check(tail.content).equals('Partial, cut off');
       check(tail.metadata?[kMessageUnfinishedAnswersMetadataKey]).isNull();
+    });
+
+    test('a reopened streaming answer whose final fetch fails keeps streaming '
+        'for the monitor to retry', () async {
+      final timestamp = DateTime.now();
+      final opened = [
+        _userMessage('user-1', 'Compare', timestamp),
+        _assistantMessage('assistant-1', 'Partial', timestamp).copyWith(
+          isStreaming: true,
+          metadata: const <String, dynamic>{
+            kMessageUnfinishedAnswersMetadataKey: [
+              'assistant-1',
+              'assistant-2',
+            ],
+          },
+        ),
+      ];
+      final api = _FakeApiService(_conversation('chat-1', opened, timestamp))
+        ..taskIds = const <String>[]
+        ..conversationFailuresRemaining = 1;
+      final container = ProviderContainer(
+        overrides: [
+          secureStorageProvider.overrideWithValue(FlutterSecureKeyValueStore()),
+          ...openWebUiStorageOpenOverrides(),
+          activeConversationProvider.overrideWith(
+            () => _TestActiveConversationNotifier(),
+          ),
+          socketServiceProvider.overrideWithValue(null),
+          apiServiceProvider.overrideWithValue(api),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      check(container.read(chatMessagesProvider)).isEmpty();
+      container.read(chatMessagesProvider.notifier);
+      container
+          .read(activeConversationProvider.notifier)
+          .set(_conversation('chat-1', opened, timestamp));
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+
+      check(api.getConversationCalls).isGreaterOrEqual(1);
+      check(container.read(chatMessagesProvider).last.isStreaming).isTrue();
     });
 
     test('a polled answer the final copy names by its server id has its cut '
