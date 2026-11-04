@@ -8633,6 +8633,64 @@ void main() {
       check(cut.metadata?[kMessageUnfinishedAnswersMetadataKey]).isNull();
     });
 
+    test('an answer that shows up while the tasks are asked for waits for '
+        'the next check', () async {
+      final (:api, :socket, :client, :container) = await openDraft(
+        account: const User(
+          id: 'me',
+          username: 'Me',
+          email: 'me@example.com',
+          role: 'user',
+        ),
+      );
+      final pending = Completer<List<String>>();
+      api.holdTaskList = pending;
+      container
+          .read(activeConversationProvider.notifier)
+          .set(
+            _conversation('bound-chat', [
+              _user('bound-u0', 'compare these'),
+              cutAnswer('old-cut'),
+              _user('bound-u1', 'and these?'),
+            ], ChatStorageKind.openWebUi),
+          );
+      await until(() => api.taskListRequests > 0);
+
+      // A new comparison starts while the server is asked about the old one.
+      container
+          .read(activeConversationProvider.notifier)
+          .set(
+            _conversation('bound-chat', [
+              _user('bound-u0', 'compare these'),
+              cutAnswer('old-cut'),
+              _user('bound-u1', 'and these?'),
+              cutAnswer('new-run'),
+              _user('bound-u2', 'and then?'),
+            ], ChatStorageKind.openWebUi).copyWith(
+              updatedAt: DateTime.utc(2026, 7, 14),
+            ),
+          );
+      for (var i = 0; i < 5; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+      api.holdTaskList = Completer<List<String>>();
+      pending.complete(const []);
+      for (var i = 0; i < 5; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+
+      ChatMessage message(String id) => container
+          .read(chatMessagesProvider)
+          .firstWhere((message) => message.id == id);
+      check(
+        message('old-cut').metadata?[kMessageUnfinishedAnswersMetadataKey],
+      ).isNull();
+      check(
+        message('new-run').metadata?[kMessageUnfinishedAnswersMetadataKey],
+      ).isNotNull();
+      api.holdTaskList!.complete(const ['new-task']);
+    });
+
     test('a chat opened while another chat\'s tasks are asked for is asked '
         'about too', () async {
       final (:api, :socket, :client, :container) = await openDraft(

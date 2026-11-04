@@ -2524,8 +2524,12 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
   /// does this: a multi-model answer would otherwise show as still being
   /// written for good. Another person's reply in a shared chat may be running
   /// under their task, which this account's task list does not show.
-  void _finishAnswersWithoutTask() {
-    _answersFinishedWithoutTask.addAll(_answersThisAccountRuns());
+  ///
+  /// [ids] are the answers the task lookup was made for; an answer that shows
+  /// up while it is answered may run under a task that started since, and
+  /// waits for the next check.
+  void _finishAnswersWithoutTask([Iterable<String>? ids]) {
+    _answersFinishedWithoutTask.addAll(ids ?? _answersThisAccountRuns());
     final next = _withoutAnswersFinishedHere(state);
     if (!identical(next, state)) state = next;
   }
@@ -2576,10 +2580,11 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
   ) async {
     // Asked only for answers this account's tasks ran: another person's in a
     // shared chat stays as the server has it whatever this account runs.
+    final eligible = _answersThisAccountRuns();
     if (_earlierAnswersCheckFor == conversation.id ||
         !_conversationUsesOpenWebUiContext(conversation) ||
         _shouldProtectLocalStreamingState ||
-        _answersThisAccountRuns().isEmpty) {
+        eligible.isEmpty) {
       return;
     }
     final chatId = conversation.id;
@@ -2608,7 +2613,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
         _shouldProtectLocalStreamingState) {
       return;
     }
-    _finishAnswersWithoutTask();
+    _finishAnswersWithoutTask(eligible);
   }
 
   /// The chat [_finishEarlierAnswersWithoutTask] is asking the tasks of,
@@ -2885,6 +2890,9 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     );
     if (activeOpenWebUiChatIdForMutation(ref, owner) == null) return;
     String? resumeTaskId;
+    // The answers the lookup below is for: one that shows up meanwhile may
+    // run under a task that started since.
+    final eligible = _answersThisAccountRuns();
     var isActive = ref.read(activeChatIdsProvider).contains(chatId);
     if (!isActive) {
       try {
@@ -2919,7 +2927,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     }
 
     if (!isActive) {
-      _finishAnswersWithoutTask();
+      _finishAnswersWithoutTask(eligible);
       if (!openedAsStreaming) {
         _reopenedStreamingMessageId = null;
         _stopRemoteTaskMonitor();
