@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:conduit/features/chat/services/voice_input_service.dart';
 import 'package:conduit/features/notes/views/note_editor_page.dart';
+import 'package:conduit/features/notes/widgets/audio_player_dialog.dart';
 import 'package:conduit/features/notes/widgets/note_file_attachment.dart';
 import 'package:conduit_core/features/notes/utils/note_file_cards.dart';
 import 'package:conduit_core/features/notes/utils/note_page_data.dart';
@@ -121,6 +122,20 @@ class _DetailApi extends ApiService {
     String id, {
     ApiAuthSnapshot? authSnapshot,
   }) async => detail;
+
+  /// File ids whose content was asked for.
+  final fileReads = <String>[];
+
+  @override
+  Future<String> getFileContent(
+    String fileId, {
+    int? maxBytes,
+    ApiAuthSnapshot? authSnapshot,
+    CancelToken? cancelToken,
+  }) async {
+    fileReads.add(fileId);
+    throw StateError('offline');
+  }
 
   @override
   Future<Map<String, dynamic>> updateNote(
@@ -883,6 +898,32 @@ void main() {
     final data = decodeNoteData((await db.notesDao.getNote('note-1'))!.data);
     expect(notePageMarkdown(data, 'main'), isNot(contains('/files/f1/')));
     expect(notePageMarkdown(data, 'main'), contains('original'));
+  });
+
+  testWidgets('a document card opens the file, not the audio player', (
+    tester,
+  ) async {
+    const md = 'original\n\n[Plan.pdf](/api/v1/files/f2/content)';
+    final note = _noteJson(
+      writeAccess: true,
+      md: md,
+      pages: [
+        {
+          'id': 'main',
+          'title': 'Shared note',
+          'content': {'md': md, 'html': '', 'json': null},
+        },
+      ],
+    );
+    await storeLocally(note);
+    final api = _DetailApi(detail: note);
+    await pumpEditor(tester, api);
+
+    await tester.tap(find.byKey(const ValueKey<String>('note-file-card-f2')));
+    await tester.pumpAndSettle();
+
+    expect(api.fileReads, ['f2']);
+    expect(find.byType(AudioPlayerDialog), findsNothing);
   });
 
   testWidgets('a file card is kept when the account changed during its '

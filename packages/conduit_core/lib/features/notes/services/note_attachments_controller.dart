@@ -790,7 +790,18 @@ class NoteAttachmentsController {
   /// draft of one the server deleted, and retries them there. Anything the
   /// move cannot finish stays visible and retryable, and a later store scan
   /// completes it.
-  Future<void> rebindTo(Note previous, Note recovered) async {
+  ///
+  /// With [pageId], [recovered] holds the text of that page of [previous],
+  /// which is still there: only the recordings made on that page move. The
+  /// others stay with [previous], stored for when it is opened again, and
+  /// leave this editor, which shows [recovered] from now on.
+  Future<void> rebindTo(
+    Note previous,
+    Note recovered, {
+    String? pageId,
+  }) async {
+    bool moves(PendingNoteAudioUpload item) =>
+        pageId == null || (item.pageId ?? kNoteMainPageId) == pageId;
     final ApiService? api = _container.read(apiServiceProvider);
     final AppDatabase? db = _container.read(appDatabaseProvider);
     final Object authEpoch = _container.read(openWebUiAuthSessionEpochProvider);
@@ -824,7 +835,8 @@ class NoteAttachmentsController {
 
     final Map<String, PendingNoteAudioUpload> initialUploads =
         <String, PendingNoteAudioUpload>{
-          for (final PendingNoteAudioUpload item in _pending) item.id: item,
+          for (final PendingNoteAudioUpload item in _pending)
+            if (moves(item)) item.id: item,
         };
     attemptedUploadIds.addAll(initialUploads.keys);
     final List<Future<MapEntry<String, PendingNoteAudioUpload?>>> rebindWaits =
@@ -868,7 +880,7 @@ class NoteAttachmentsController {
       }
 
       for (final PendingNoteAudioUpload item in audioItemsById.values) {
-        if (!attemptedUploadIds.add(item.id)) continue;
+        if (!moves(item) || !attemptedUploadIds.add(item.id)) continue;
         final PendingNoteAudioUpload? rebound = await rebindItem(item);
         if (rebound != null) reboundUploads[item.id] = rebound;
       }
@@ -882,6 +894,13 @@ class NoteAttachmentsController {
       );
     }
     if (!_isCurrent(api: api, db: db, authEpoch: authEpoch)) return;
+
+    final int pendingBefore = _pending.length;
+    _pending.removeWhere((PendingNoteAudioUpload item) => !moves(item));
+    if (_pending.length != pendingBefore && reboundUploads.isEmpty) {
+      _mutationGeneration++;
+      _notify();
+    }
 
     if (reboundUploads.isNotEmpty) {
       _mutationGeneration++;

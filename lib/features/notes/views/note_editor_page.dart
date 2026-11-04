@@ -1,6 +1,7 @@
 import 'package:conduit/features/workspace/providers/workspace_capabilities_provider.dart';
 
 import 'dart:async';
+import 'dart:convert' show base64Decode;
 import 'dart:io' show File, Platform;
 
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
@@ -13,6 +14,7 @@ import 'package:fleather/fleather.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 
 import 'package:conduit/l10n/app_localizations.dart';
@@ -53,6 +55,7 @@ import 'package:conduit_core/utils/debug_logger.dart';
 import '../../../shared/theme/conduit_input_styles.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/adaptive_glass.dart';
+import '../../../shared/utils/file_type_utils.dart';
 import '../../../shared/widgets/adaptive_route_shell.dart';
 import '../../../shared/widgets/adaptive_toolbar_components.dart';
 import '../../../shared/widgets/chrome_gradient_fade.dart';
@@ -507,6 +510,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
       return;
     }
     _settlePage(note);
+    _dropDictation();
     _installContentDocument(noteDocumentFromMarkdown(_pageMarkdown(note)));
     _savedMarkdown = _contentMarkdown;
     _linkBase = _pageMarkdown(note);
@@ -1277,6 +1281,21 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
     } finally {
       _dictationStarting = false;
     }
+  }
+
+  /// Ends dictation at once, for a document about to be replaced: its run
+  /// points into the text being taken away. Called inside `setState`.
+  void _dropDictation() {
+    if (!_isRecording && _dictationRun == null && _dictationStream == null) {
+      return;
+    }
+    final owned = _ownsDictationRun;
+    _voiceSub?.cancel();
+    _voiceSub = null;
+    _dictationStream = null;
+    _dictationRun = null;
+    _isRecording = false;
+    if (owned) unawaited(_voiceService?.stopListening());
   }
 
   /// Whether the voice service is still on the run this editor started.
@@ -2218,7 +2237,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
             padding: const EdgeInsets.only(bottom: Spacing.xs),
             child: NoteFileAttachment(
               file: file,
-              onTap: () => _playAudioFile(file),
+              onTap: () => _openNoteFile(file),
               onDelete: () => _removeFile(file),
             ),
           ),
@@ -2539,7 +2558,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
       padding: const EdgeInsets.symmetric(vertical: Spacing.xs),
       child: NoteFileAttachment(
         file: attachment,
-        onTap: () => _playAudioFile(attachment),
+        onTap: () => _openNoteFile(attachment),
         onDelete: _readOnly ? null : () => _removeFileCard(file),
         showDelete: !_readOnly,
       ),
@@ -2589,6 +2608,49 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
   /// the rich-text editor matches the rest of the note UI.
   FleatherThemeData _buildFleatherTheme(BuildContext context) {
     return buildNoteEditorFleatherTheme(context);
+  }
+
+  /// Opens [file] the way its kind needs: an audio file in the player, any
+  /// other file downloaded and shared, so an app that can open it does, as
+  /// the chat does with a file it cannot show.
+  Future<void> _openNoteFile(Map<String, dynamic> file) async {
+    final local = file['_localPath']?.toString();
+    final isAudio =
+        (local != null && local.isNotEmpty) ||
+        file['type'] == 'audio' ||
+        FileTypeUtils.isAudio(
+          FileTypeUtils.extensionFromName(file['name']?.toString() ?? ''),
+        );
+    if (isAudio) return _playAudioFile(file);
+
+    final l10n = AppLocalizations.of(context)!;
+    final fileId = file['id']?.toString();
+    final api = ref.read(apiServiceProvider);
+    if (fileId == null || api == null || !_isOpenSessionCurrent) return;
+    final renderObject = context.findRenderObject();
+    final shareOrigin = renderObject is RenderBox && renderObject.hasSize
+        ? renderObject.localToGlobal(Offset.zero) & renderObject.size
+        : null;
+    final rawName = file['name']?.toString() ?? '';
+    final name = rawName.trim().isEmpty ? fileId : rawName;
+    try {
+      final content = await api.getFileContent(fileId);
+      final encoded = content.startsWith('data:')
+          ? content.substring(content.indexOf(',') + 1)
+          : content;
+      final directory = await getTemporaryDirectory();
+      final path = '${directory.path}/${name.replaceAll(RegExp(r'[/\\]'), '_')}';
+      await File(path).writeAsBytes(base64Decode(encoded), flush: true);
+      if (!mounted) return;
+      await SharePlus.instance.share(
+        ShareParams(
+          files: <XFile>[XFile(path, name: name)],
+          sharePositionOrigin: shareOrigin,
+        ),
+      );
+    } catch (_) {
+      if (mounted) _showError(l10n.errorMessage);
+    }
   }
 
   /// Play an audio file attachment.
@@ -2786,7 +2848,9 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
       authEpoch: _openAuthEpoch,
       userId: _openUserId,
     );
-    await _recovery.recover(session);
+    // The text of a page a sync removed takes only that page's recordings;
+    // the note keeps the others.
+    await _recovery.recover(session, pageId: _pageMissing ? _pageId : null);
     // The recovery rebinds the editor to the new note, which the user owns.
     if (mounted && !_hasChanges) {
       setState(() {

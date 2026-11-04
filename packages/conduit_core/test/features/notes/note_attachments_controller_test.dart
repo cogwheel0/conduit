@@ -803,6 +803,79 @@ void main() {
       check(stale).isEmpty();
     });
 
+    test('saving a removed page as its own note moves only that page\'s '
+        'recordings', () async {
+      api.uploadError = StateError('offline');
+      final onRemoved = await store.stage(
+        source: await recording('two.m4a'),
+        serverId: 'server-1',
+        accountId: 'user:user-1',
+        noteId: 'note-1',
+        fileName: 'recording_2.m4a',
+        pageId: 'p2',
+      );
+      final onMain = await store.stage(
+        source: await recording('main.m4a'),
+        serverId: 'server-1',
+        accountId: 'user:user-1',
+        noteId: 'note-1',
+        fileName: 'recording_1.m4a',
+      );
+      await controller.loadPending();
+      await waitFor(
+        () => controller.pending.length == 2 && !controller.isUploading,
+      );
+
+      final recovered = <Note>[];
+      final recovery = DeletedNoteDraftRecovery(
+        container: container,
+        noteId: 'note-1',
+        attachments: controller,
+        currentNote: () => openNote,
+        readDraft: () => (title: 'Two', markdown: 'two, kept'),
+        untitledTitle: () => 'Untitled',
+        isOpen: () => true,
+        hasUnsavedChanges: () => true,
+        cancelPendingSave: () {},
+        scheduleSaveAfter: (delay, action) {},
+        saveSoon: () {},
+        onRecovered:
+            ({
+              required Note note,
+              required String savedMarkdown,
+              required bool changedDuringRecovery,
+            }) {
+              recovered.add(note);
+              openNote = note;
+            },
+        onFailure: () {},
+      )..start();
+      addTearDown(recovery.dispose);
+
+      await recovery.recover(
+        NoteRecoverySession.capture(container),
+        pageId: 'p2',
+      );
+
+      check(recovered).length.equals(1);
+      final left = await store.loadForNote(
+        serverId: 'server-1',
+        accountId: 'user:user-1',
+        noteId: 'note-1',
+      );
+      check(left.map((item) => item.id)).deepEquals([onMain.id]);
+      final moved = await store.loadForNote(
+        serverId: 'server-1',
+        accountId: 'user:user-1',
+        noteId: recovered.single.id,
+      );
+      check(moved.map((item) => item.id)).deepEquals([onRemoved.id]);
+      // The main page's recording waits for its note, not for this editor.
+      check(controller.pending.map((item) => item.id)).deepEquals([
+        onRemoved.id,
+      ]);
+    });
+
     test('an empty title falls back to the untitled name', () async {
       await db.notesDao.purgeReconciledNote('note-1');
       final recovered = <Note>[];
