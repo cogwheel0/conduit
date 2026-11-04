@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:conduit/features/chat/services/voice_input_service.dart';
 import 'package:conduit/features/notes/views/note_editor_page.dart';
 import 'package:conduit/features/notes/widgets/note_file_attachment.dart';
 import 'package:conduit_core/features/notes/utils/note_file_cards.dart';
@@ -134,6 +135,39 @@ class _DetailApi extends ApiService {
   }
 }
 
+/// Dictation whose start is held until the test lets it go.
+class _HeldVoice extends VoiceInputService {
+  final ready = Completer<bool>();
+  StreamController<String>? run;
+
+  @override
+  bool get isSupportedPlatform => true;
+
+  @override
+  Stream<String> get textStream => run?.stream ?? const Stream<String>.empty();
+
+  @override
+  Future<bool> initialize({bool forceLocalStt = false}) => ready.future;
+
+  @override
+  Future<Stream<String>> beginListening({
+    bool iosAudioSessionManagedExternally = false,
+    bool nativeAccumulateResults = true,
+    bool holdServerRecorderForResponseWait = false,
+    VoiceInputRecording? recording,
+  }) async => (run = StreamController<String>.broadcast()).stream;
+
+  @override
+  Future<void> stopListening() async {
+    final current = run;
+    run = null;
+    await current?.close();
+  }
+
+  @override
+  Future<void> dispose() async {}
+}
+
 Map<String, dynamic> _noteJson({
   required bool writeAccess,
   String owner = 'creator',
@@ -204,6 +238,7 @@ void main() {
     WidgetTester tester,
     _DetailApi api, {
     Map<String, String> userNames = const {},
+    VoiceInputService? voice,
   }) async {
     final container = ProviderContainer(
       // A provider that errors would otherwise schedule a retry timer.
@@ -222,6 +257,7 @@ void main() {
           (ref) async => WorkspaceCapabilities.all,
         ),
         syncEngineProvider.overrideWith(_QuietSyncEngine.new),
+        if (voice != null) voiceInputServiceProvider.overrideWithValue(voice),
         // People are named from a fixed list, never the network.
         workspacePrincipalLookupProvider.overrideWithValue(
           WorkspacePrincipalLookup(
@@ -502,6 +538,71 @@ void main() {
     await letAutosaveRun(tester);
     final data = decodeNoteData((await db.notesDao.getNote('note-1'))!.data);
     expect((data['content'] as Map)['md'], startsWith('second first original'));
+  });
+
+  testWidgets('dictation asked for before a page switch writes into the page '
+      'it was asked on', (tester) async {
+    // The voice options sheet trips a debug check about its tiles' ink,
+    // which has nothing to do with what is tested here.
+    final originalOnError = FlutterError.onError;
+    FlutterError.onError = (details) {
+      if (details.exceptionAsString().contains('ink splashes may be invisible')) {
+        return;
+      }
+      originalOnError?.call(details);
+    };
+    addTearDown(() => FlutterError.onError = originalOnError);
+    final voice = _HeldVoice();
+    final note = twoPageNote();
+    await storeLocally(note);
+    await pumpEditor(tester, _DetailApi(detail: note), voice: voice);
+
+    await tester.tap(find.byTooltip(l10n(tester).voiceOptions));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(l10n(tester).dictation).last);
+    await tester.pumpAndSettle();
+    // Listening is still starting when the user picks another page.
+    await tester.tap(find.byKey(const ValueKey<String>('note-page-chip')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey<String>('note-page-p2')));
+    await tester.pumpAndSettle();
+    expect(contentController(tester).document.toPlainText().trim(), 'one');
+
+    voice.ready.complete(true);
+    await tester.pumpAndSettle();
+    voice.run!.add('spoken');
+    await tester.pump();
+
+    final text = contentController(tester).document.toPlainText();
+    expect(text, contains('spoken'));
+    expect(text, contains('one'));
+    expect(text, isNot(contains('two')));
+  });
+
+  testWidgets('once a refused draft is discarded, the other pages can be '
+      'read', (tester) async {
+    final note = twoPageNote();
+    await storeLocally(note);
+    await pumpEditor(tester, _DetailApi(detail: note));
+
+    typeInto(tester, 'unsaved ');
+    await db.notesDao.storeNoteAccessProjection('note-1', writeAccess: false);
+    await letAutosaveRun(tester);
+    expect(find.text(l10n(tester).noteAccessRevokedNotice), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey<String>('note-discard-draft')));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey<String>('note-page-chip')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey<String>('note-page-p2')));
+    await tester.pumpAndSettle();
+
+    expect(contentController(tester).document.toPlainText().trim(), 'two');
+    expect(
+      tester.widget<FleatherEditor>(find.byType(FleatherEditor)).readOnly,
+      isTrue,
+    );
+    await expectNothingQueued();
   });
 
   testWidgets('text written on a page a sync removed is kept, to save as a '

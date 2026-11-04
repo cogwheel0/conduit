@@ -213,6 +213,10 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
   /// note or discards it.
   bool _writeRefused = false;
 
+  /// Whether dictation is starting: listening is not running yet, but will
+  /// write into the page shown.
+  bool _dictationStarting = false;
+
   /// The server refused to show the note (403), which is not a missing note.
   bool _loadForbidden = false;
 
@@ -572,23 +576,32 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
   /// does a running enhancement, whose result belongs to this page; dictation
   /// stops, since it writes into this page's text.
   Future<void> _showPage(String pageId) async {
-    if (pageId == _pageId || _note == null || _isEnhancing) return;
+    if (pageId == _pageId ||
+        _note == null ||
+        _isEnhancing ||
+        _dictationStarting) {
+      return;
+    }
     if (_isRecording) await _stopDictation();
     if (!mounted) return;
     _saveDebounce?.cancel();
     await _autoSave();
     // A title or text the save left unsaved, or refused, keeps the editor
-    // here with its recovery choices.
+    // here with its recovery choices; once the draft is discarded, the
+    // note's pages can be read.
     bool unsaved() =>
-        _contentMarkdown != _savedMarkdown ||
-        _hasChanges ||
-        _writeRefused ||
-        _pageMissing;
+        _contentMarkdown != _savedMarkdown || _hasChanges || _pageMissing;
     if (!mounted || unsaved() || _isEnhancing) return;
     // A sync may have brought newer pages since this editor last read them.
     final stored = await _readStoredNote();
     // An enhancement or dictation started meanwhile works on this page.
-    if (!mounted || unsaved() || _isEnhancing || _isRecording) return;
+    if (!mounted ||
+        unsaved() ||
+        _isEnhancing ||
+        _isRecording ||
+        _dictationStarting) {
+      return;
+    }
     final note = stored ?? _note!;
     // A sync may have renamed the note; the old title would be saved over the
     // new one with the next edit.
@@ -1176,10 +1189,14 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
   }
 
   Future<void> _startDictation() async {
-    if (_readOnly) return;
+    if (_readOnly || _dictationStarting) return;
     // Use the shared service, as the chat composer does, so dictation honours
     // the user's speech-to-text preference (e.g. server-only) and locale.
     _voiceService ??= ref.read(voiceInputServiceProvider);
+    // Dictation writes into the page it was started on: the editor stays on
+    // it while listening starts ([_showPage] waits for this).
+    final page = _pageId;
+    _dictationStarting = true;
 
     try {
       final ok = await _voiceService!.initialize();
@@ -1190,10 +1207,11 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
       }
 
       final stream = await _voiceService!.beginListening();
-      if (!mounted) {
-        // The editor closed while listening was starting. Capture is already
-        // running and dispose() saw no dictation to stop, so stop it here,
-        // unless another consumer has taken the service over since.
+      if (!mounted || _pageId != page) {
+        // The editor closed, or shows another page, while listening was
+        // starting. Capture is already running and nothing else will stop
+        // it, so stop it here, unless another consumer has taken the service
+        // over since.
         if (_voiceService?.textStream == stream) {
           unawaited(_voiceService?.stopListening());
         }
@@ -1250,6 +1268,8 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
       if (mounted) {
         setState(() => _isRecording = false);
       }
+    } finally {
+      _dictationStarting = false;
     }
   }
 
