@@ -8883,6 +8883,40 @@ void main() {
       check(cut.metadata?[kMessageUnfinishedAnswersMetadataKey]).isNotNull();
     });
 
+    test('answers cut off are finished while a listing a missed event left '
+        'stands, which stays', () async {
+      final (:api, :socket, :client, :container) = await openDraft(
+        account: const User(
+          id: 'me',
+          username: 'Me',
+          email: 'me@example.com',
+          role: 'user',
+        ),
+      );
+      // The server runs none of this account's tasks; the listing is stale.
+      api.activeTaskIds = const [];
+      container.read(activeChatIdsProvider.notifier).setActive('stale-chat');
+      container
+          .read(activeConversationProvider.notifier)
+          .set(
+            _conversation('stale-chat', [
+              _user('stale-u0', 'compare these'),
+              cutAnswer('stale-cut'),
+              _user('stale-u1', 'and then?'),
+            ], ChatStorageKind.openWebUi),
+          );
+      await until(() => api.taskListRequests > 0);
+      for (var i = 0; i < 5; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+
+      final cut = container
+          .read(chatMessagesProvider)
+          .firstWhere((message) => message.id == 'stale-cut');
+      check(cut.metadata?[kMessageUnfinishedAnswersMetadataKey]).isNull();
+      check(container.read(activeChatIdsProvider)).contains('stale-chat');
+    });
+
     test('answers cut off are finished once the chat stops being listed as '
         'running a task', () async {
       final (:api, :socket, :client, :container) = await openDraft(
@@ -8893,7 +8927,7 @@ void main() {
           role: 'user',
         ),
       );
-      api.activeTaskIds = const [];
+      api.activeTaskIds = const ['listed-task'];
       container.read(activeChatIdsProvider.notifier).setActive('listed-chat');
       container
           .read(activeConversationProvider.notifier)
@@ -8904,6 +8938,7 @@ void main() {
               _user('listed-u1', 'and then?'),
             ], ChatStorageKind.openWebUi),
           );
+      await until(() => api.taskListRequests > 0);
       for (var i = 0; i < 5; i++) {
         await Future<void>.delayed(Duration.zero);
       }
@@ -8913,8 +8948,9 @@ void main() {
       check(cut().metadata?[kMessageUnfinishedAnswersMetadataKey]).isNotNull();
 
       // The task's end is told, with no new copy of the chat after it.
+      api.activeTaskIds = const [];
       container.read(activeChatIdsProvider.notifier).setInactive('listed-chat');
-      await until(() => api.taskListRequests > 0);
+      await until(() => api.taskListRequests > 1);
       for (var i = 0; i < 5; i++) {
         await Future<void>.delayed(Duration.zero);
       }

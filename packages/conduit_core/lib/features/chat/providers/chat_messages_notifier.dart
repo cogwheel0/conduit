@@ -2613,7 +2613,10 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
       return;
     }
     final chatId = conversation.id;
-    if (ref.read(activeChatIdsProvider).contains(chatId)) return;
+    // The chat's listing as active is not asked: it may be another person's
+    // task in a shared chat, or one a missed event left behind, and the
+    // server's list of this account's own tasks is what decides for its own
+    // answers.
     final api = _readApiServiceOrNull(ref);
     if (api is! ApiService) return;
     final owner = captureOpenWebUiCompletionOwner(
