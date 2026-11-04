@@ -2988,12 +2988,15 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
       if (reconciled) {
         final reopenedRemoteId = _boundRemoteMessageId;
         _cancelMessageStream();
+        // The reopened answer itself; the rest of its comparison, which the
+        // final copy may first show, is checked by a fresh lookup, since an
+        // answer in it may have started after this one.
         _finishAnswersWithoutTask(<String>{
           ...eligible,
-          ..._answersThisAccountRuns(inMessage: openedMessageId),
-          if (reopenedRemoteId != null)
-            ..._answersThisAccountRuns(inMessage: reopenedRemoteId),
+          openedMessageId,
+          ?reopenedRemoteId,
         });
+        _recheckEarlierAnswers();
       } else if (_stillOwnsReopenedTail(owner, openedMessageId) &&
           _hasStreamingAssistant) {
         _engageReopenedTailMonitor(openedMessageId);
@@ -3802,15 +3805,15 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
           _cancelMessageStream();
           // The account runs no task in the chat any more: answers a server
           // restart cut off are finished, as on open. Only those the lookup
-          // was made for and the polled answer's comparison, which the final
-          // copy may first show unfinished: a comparison another session
-          // started since may show in that copy too, and runs.
+          // was made for and the polled answer itself; the rest of the final
+          // copy, which may first show the answer's comparison unfinished or
+          // one another session started since, is checked by a fresh lookup.
           _finishAnswersWithoutTask(<String>{
             ...answersBeforeLookup,
-            ..._answersThisAccountRuns(inMessage: expectedMessageId),
-            if (polledRemoteId != null)
-              ..._answersThisAccountRuns(inMessage: polledRemoteId),
+            expectedMessageId,
+            ?polledRemoteId,
           });
+          _recheckEarlierAnswers();
         } else {
           completionNeedsRetry = true;
         }

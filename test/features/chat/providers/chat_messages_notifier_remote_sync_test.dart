@@ -207,6 +207,10 @@ class _FakeApiService extends ApiService {
 
   int getConversationCalls = 0;
   int conversationFailuresRemaining = 0;
+
+  /// Runs once a conversation fetch is answered: what the server holds
+  /// right after it.
+  void Function()? afterConversationFetch;
   int getTaskIdsCalls = 0;
 
   @override
@@ -216,6 +220,7 @@ class _FakeApiService extends ApiService {
       conversationFailuresRemaining--;
       throw StateError('transient conversation fetch failure');
     }
+    afterConversationFetch?.call();
     return _conversation;
   }
 
@@ -238,6 +243,14 @@ class _FakeApiService extends ApiService {
 
 ChatMessage _userMessage(String id, String content, DateTime timestamp) =>
     ChatMessage(id: id, role: 'user', content: content, timestamp: timestamp);
+
+/// Lets a check started in the background, such as a fresh task lookup,
+/// run to its end.
+Future<void> _settleRecheck() async {
+  for (var i = 0; i < 10; i++) {
+    await Future<void>.delayed(Duration.zero);
+  }
+}
 
 ChatMessage _assistantMessage(String id, String content, DateTime timestamp) =>
     ChatMessage(
@@ -2174,6 +2187,8 @@ void main() {
             ),
       ], timestamp);
       await notifier.debugSyncRemoteTaskStatus();
+      // The rest of the comparison is checked by a fresh lookup.
+      await _settleRecheck();
 
       final tail = container.read(chatMessagesProvider).last;
       check(tail.isStreaming).isFalse();
@@ -2269,6 +2284,7 @@ void main() {
         ),
       ], timestamp);
       await notifier.debugSyncRemoteTaskStatus();
+      await _settleRecheck();
 
       final tail = container.read(chatMessagesProvider).last;
       check(tail.id).equals('server-1');
@@ -2311,7 +2327,11 @@ void main() {
 
       // The task ends; by the time the final copy is fetched, another
       // session has started a new comparison, still running.
-      api.taskIds = const <String>[];
+      api
+        ..taskIds = const <String>[]
+        ..afterConversationFetch = () {
+          api.taskIds = const <String>['new-task'];
+        };
       api.conversation = _conversation('chat-1', [
         opened.first,
         _assistantMessage('assistant-1', 'Partial, cut off', timestamp)
@@ -2331,15 +2351,19 @@ void main() {
         ),
       ], timestamp);
       await notifier.debugSyncRemoteTaskStatus();
+      await _settleRecheck();
 
       ChatMessage message(String id) =>
           container.read(chatMessagesProvider).firstWhere((m) => m.id == id);
+      // The polled answer is finished; the rest waits while a task runs in
+      // the chat.
+      check(message('assistant-1').isStreaming).isFalse();
       check(
         message('assistant-1').metadata?[kMessageUnfinishedAnswersMetadataKey],
-      ).isNull();
+      ).isA<List>().deepEquals(['assistant-2']);
       check(
         message('new-1').metadata?[kMessageUnfinishedAnswersMetadataKey],
-      ).isNotNull();
+      ).isA<List>().deepEquals(['new-1', 'new-2']);
     });
 
     test(
