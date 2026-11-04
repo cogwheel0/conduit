@@ -17,6 +17,14 @@ void main() {
       check(chatFileShownId({'url': '/api/v1/files/f1'})).equals('f1');
       check(chatFileShownId({'url': '/api/v1/files/f1/content'})).equals('f1');
       check(chatFileShownId({'id': 'f1'})).isNull();
+      check(
+        chatFileShownId({'url': '/api/v1/files/f1/content?token=abc'}),
+      ).equals('f1');
+      check(
+        chatFileShownId({
+          'url': 'https://example.com/api/v1/files/f1/content?x=1#y',
+        }),
+      ).equals('f1');
     });
   });
 

@@ -103,12 +103,14 @@ String? getFileUrl(dynamic file) {
 final RegExp _openWebUiFileUrl = RegExp(r'/api/v1/files/([^/]+)(?:/content)?$');
 
 /// The id a chat file shows under: taken from its URL, a bare file id or an
-/// Open WebUI file path. Null for a file with no URL, which shows nothing.
+/// Open WebUI file path, whose query (a token, say) is no part of it. Null
+/// for a file with no URL, which shows nothing.
 String? chatFileShownId(dynamic file) {
   final url = getFileUrl(file);
   if (url == null) return null;
   if (!url.contains('/api/v1/files/')) return url;
-  return _openWebUiFileUrl.firstMatch(url)?.group(1) ?? url;
+  final path = Uri.tryParse(url)?.path ?? url;
+  return _openWebUiFileUrl.firstMatch(path)?.group(1) ?? url;
 }
 
 /// A reply's [stored] files, then each of [shown] (files the model showed
