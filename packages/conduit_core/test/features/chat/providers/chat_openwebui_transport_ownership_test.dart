@@ -8422,6 +8422,102 @@ void main() {
       check(cut.metadata?[kMessageUnfinishedAnswersMetadataKey]).isNull();
     });
 
+    test('the composer offers Stop when this account\'s answer runs among '
+        'a shared comparison that shows another person\'s', () async {
+      final (:api, :socket, :client, :container) = await openDraft(
+        account: const User(
+          id: 'me',
+          username: 'Me',
+          email: 'me@example.com',
+          role: 'user',
+        ),
+      );
+      container
+          .read(activeConversationProvider.notifier)
+          .set(
+            _conversation('shared-compare', [
+              _user('shared-cu', 'compare these'),
+              ChatMessage(
+                id: 'theirs',
+                role: 'assistant',
+                content: 'theirs so far',
+                timestamp: DateTime.utc(2026, 7, 13, 0, 0, 1),
+                model: duplicate.id,
+                isStreaming: true,
+                metadata: const <String, dynamic>{
+                  kMessageModelIdxMetadataKey: 0,
+                  kMessageAuthorIdMetadataKey: 'someone-else',
+                  kMessageUnfinishedAnswersMetadataKey: ['theirs', 'mine'],
+                  kMessageUnfinishedAnswerAuthorsMetadataKey: {
+                    'theirs': 'someone-else',
+                    'mine': 'me',
+                  },
+                },
+              ),
+            ], ChatStorageKind.openWebUi).copyWith(userId: 'someone-else'),
+          );
+
+      check(container.read(isChatStreamingProvider)).isTrue();
+      check(container.read(isOwnChatStreamingProvider)).isTrue();
+    });
+
+    test('answers cut off before a later prompt are finished by a later copy '
+        'of the chat once a first check failed', () async {
+      final (:api, :socket, :client, :container) = await openDraft(
+        account: const User(
+          id: 'me',
+          username: 'Me',
+          email: 'me@example.com',
+          role: 'user',
+        ),
+      );
+      final failing = Completer<List<String>>();
+      api.holdTaskList = failing;
+      Conversation chat({DateTime? updatedAt}) =>
+          _conversation('retry-chat', [
+            _user('retry-u0', 'compare these'),
+            ChatMessage(
+              id: 'cut-a',
+              role: 'assistant',
+              content: 'A so far',
+              timestamp: DateTime.utc(2026, 7, 13, 0, 0, 1),
+              model: duplicate.id,
+              metadata: const <String, dynamic>{
+                kMessageModelIdxMetadataKey: 0,
+                kMessageUnfinishedAnswersMetadataKey: ['cut-a', 'cut-b'],
+              },
+            ),
+            _user('retry-u1', 'and then?'),
+          ], ChatStorageKind.openWebUi).copyWith(
+            updatedAt: updatedAt ?? DateTime.utc(2026, 7, 13),
+          );
+      ChatMessage cut() => container
+          .read(chatMessagesProvider)
+          .firstWhere((message) => message.id == 'cut-a');
+
+      container.read(activeConversationProvider.notifier).set(chat());
+      await until(() => api.taskListRequests > 0);
+      failing.completeError(StateError('offline'));
+      for (var i = 0; i < 5; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+      check(cut().metadata?[kMessageUnfinishedAnswersMetadataKey]).isNotNull();
+
+      // The server is back; the next copy of the chat checks again.
+      api
+        ..holdTaskList = null
+        ..activeTaskIds = const [];
+      container
+          .read(activeConversationProvider.notifier)
+          .set(chat(updatedAt: DateTime.utc(2026, 7, 14)));
+      await until(() => api.taskListRequests > 1);
+      for (var i = 0; i < 5; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+
+      check(cut().metadata?[kMessageUnfinishedAnswersMetadataKey]).isNull();
+    });
+
     for (final author in [null, 'me', 'someone-else']) {
       test('the composer offers Stop only for a reply of this account '
           '(author: $author)', () async {

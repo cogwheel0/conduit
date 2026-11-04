@@ -159,17 +159,40 @@ final isChatStreamingProvider = Provider<bool>((ref) {
 });
 
 /// Whether every reply streaming at the end of [messages] was written by
-/// someone other than [userId].
-bool _onlyOthersAreStreaming(List<ChatMessage> messages, String? userId) {
+/// someone other than [userId], in a chat [ownerId] owns.
+bool _onlyOthersAreStreaming(
+  List<ChatMessage> messages,
+  String? userId,
+  String? ownerId,
+) {
   var others = false;
   for (var index = messages.length - 1; index >= 0; index -= 1) {
     final message = messages[index];
     if (message.role != 'assistant') break;
     if (!message.isStreaming) continue;
     if (message.isWrittenBy(userId)) return false;
+    if (_runsAnswerOf(message, userId, ownerId)) return false;
     others = true;
   }
   return others;
+}
+
+/// Whether another of [message]'s comparison answers still running is
+/// [userId]'s: in a shared comparison the answer shown can be someone else's
+/// while this account's runs among its versions. An answer the server names
+/// no author for is the chat owner's, [ownerId].
+bool _runsAnswerOf(ChatMessage message, String? userId, String? ownerId) {
+  final unfinished = message.metadata?[kMessageUnfinishedAnswersMetadataKey];
+  if (unfinished is! List || userId == null) return false;
+  final authors =
+      message.metadata?[kMessageUnfinishedAnswerAuthorsMetadataKey];
+  for (final id in unfinished.whereType<String>()) {
+    if (id == message.id) continue;
+    final named = authors is Map ? authors[id] : null;
+    final author = named is String ? named : ownerId;
+    if (author == null || author == userId) return true;
+  }
+  return false;
 }
 
 /// Whether a reply this account asked for is streaming, the one the composer
@@ -179,9 +202,12 @@ bool _onlyOthersAreStreaming(List<ChatMessage> messages, String? userId) {
 final isOwnChatStreamingProvider = Provider<bool>((ref) {
   if (!ref.watch(isChatStreamingProvider)) return false;
   final userId = ref.watch(currentUserProvider2.select((user) => user?.id));
+  final ownerId = ref.watch(
+    activeConversationProvider.select((conversation) => conversation?.userId),
+  );
   return !ref.watch(
     chatMessagesProvider.select(
-      (messages) => _onlyOthersAreStreaming(messages, userId),
+      (messages) => _onlyOthersAreStreaming(messages, userId, ownerId),
     ),
   );
 });

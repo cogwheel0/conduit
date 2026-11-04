@@ -241,6 +241,8 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
               serverMessages,
               source: 'active conversation update',
             );
+          } else {
+            _recheckEarlierAnswers();
           }
           return;
         }
@@ -957,6 +959,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     List<ChatMessage> storedMessages, {
     required String source,
   }) {
+    _recheckEarlierAnswers();
     final serverMessages = _keepRunningComparisonAnswers(
       _withoutAnswersFinishedHere(storedMessages),
     );
@@ -1011,6 +1014,17 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
       '(${serverMessages.length} messages)',
       scope: 'chat/providers',
     );
+  }
+
+  /// Checks again whether an earlier turn's answers a restart cut off can be
+  /// finished, for each new copy of the open chat: a check this visit made
+  /// may have failed, or found a task that has since ended.
+  void _recheckEarlierAnswers() {
+    final active = ref.read(activeConversationProvider);
+    if (active != null &&
+        !_hasOpenWebUiTaskRecoverableTail(active, requireStreaming: false)) {
+      unawaited(_finishEarlierAnswersWithoutTask(active));
+    }
   }
 
   void _configurePassiveConversationSync(Conversation? conversation) {
@@ -2543,7 +2557,8 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
   Future<void> _finishEarlierAnswersWithoutTask(
     Conversation conversation,
   ) async {
-    if (!_conversationUsesOpenWebUiContext(conversation) ||
+    if (_earlierAnswersCheckRunning ||
+        !_conversationUsesOpenWebUiContext(conversation) ||
         _shouldProtectLocalStreamingState ||
         !state.any(
           (message) =>
@@ -2561,12 +2576,16 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
       api: api,
     );
     if (activeOpenWebUiChatIdForMutation(ref, owner) == null) return;
+    _earlierAnswersCheckRunning = true;
     try {
       final taskIds = await api.getTaskIdsByChat(chatId);
       if (taskIds.isNotEmpty) return;
     } catch (_) {
-      // Unknown: the answers stay as the server has them.
+      // Unknown: the answers stay as the server has them until the chat's
+      // next copy checks again.
       return;
+    } finally {
+      _earlierAnswersCheckRunning = false;
     }
     if (_disposed ||
         activeOpenWebUiChatIdForMutation(ref, owner) == null ||
@@ -2575,6 +2594,10 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     }
     _finishAnswersWithoutTask();
   }
+
+  /// Whether [_finishEarlierAnswersWithoutTask] is asking for the chat's
+  /// tasks, which one ask at a time does.
+  bool _earlierAnswersCheckRunning = false;
 
   /// Answers [_finishAnswersWithoutTask] finished in the open chat. The
   /// server keeps them not done for good, so each later copy of it would
