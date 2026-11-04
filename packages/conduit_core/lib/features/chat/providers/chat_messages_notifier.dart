@@ -2523,34 +2523,46 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
   /// written for good. Another person's reply in a shared chat may be running
   /// under their task, which this account's task list does not show.
   void _finishAnswersWithoutTask() {
+    _answersFinishedWithoutTask.addAll(_answersThisAccountRuns());
+    final next = _withoutAnswersFinishedHere(state);
+    if (!identical(next, state)) state = next;
+  }
+
+  /// The answers the server reports as not done that ran under this
+  /// account's tasks, so that none running means they are finished. In a
+  /// shared chat another person's answer may run under their task, which
+  /// this account's list omits: each answer goes by its own author.
+  List<String> _answersThisAccountRuns() {
     final userId = ref.read(currentUserProvider2)?.id;
     // A message that names no author is the chat owner's, as the web client
     // takes it.
     final owner = ref.read(activeConversationProvider)?.userId;
-    for (final message in state) {
-      final unfinished = message.metadata?[kMessageUnfinishedAnswersMetadataKey];
-      if (unfinished is! List) continue;
-      // Each answer by its own author: in a shared chat another person's
-      // answer may run under their task, which this account's list omits.
-      final authors =
-          message.metadata?[kMessageUnfinishedAnswerAuthorsMetadataKey];
-      for (final id in unfinished.whereType<String>()) {
-        // The list names only the authors the server gave; another answer
-        // that names none is the owner's, whoever wrote the one shown.
-        final named = authors is Map ? authors[id] : null;
-        final author = named is String
-            ? named
-            : id == message.id
-            ? message.authorUserId ?? owner
-            : owner;
-        if (author == null || userId == null || author == userId) {
-          _answersFinishedWithoutTask.add(id);
-        }
-      }
-    }
-    final next = _withoutAnswersFinishedHere(state);
-    if (!identical(next, state)) state = next;
+    return <String>[
+      for (final message in state)
+        if (message.metadata?[kMessageUnfinishedAnswersMetadataKey]
+            case final List<Object?> unfinished)
+          for (final id in unfinished.whereType<String>())
+            if (_isThisAccounts(
+              _answerAuthor(message, id, owner),
+              userId,
+            ))
+              id,
+    ];
   }
+
+  /// Who wrote answer [id] of [message]'s comparison: the list names only
+  /// the authors the server gave, and another answer that names none is the
+  /// owner's, whoever wrote the one shown.
+  static String? _answerAuthor(ChatMessage message, String id, String? owner) {
+    final authors =
+        message.metadata?[kMessageUnfinishedAnswerAuthorsMetadataKey];
+    final named = authors is Map ? authors[id] : null;
+    if (named is String) return named;
+    return id == message.id ? message.authorUserId ?? owner : owner;
+  }
+
+  static bool _isThisAccounts(String? author, String? userId) =>
+      author == null || userId == null || author == userId;
 
   /// Finishes answers of an earlier turn that the server still reports as
   /// not done once the chat runs no task of this account's: a chat whose
@@ -2560,13 +2572,12 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
   Future<void> _finishEarlierAnswersWithoutTask(
     Conversation conversation,
   ) async {
+    // Asked only for answers this account's tasks ran: another person's in a
+    // shared chat stays as the server has it whatever this account runs.
     if (_earlierAnswersCheckRunning ||
         !_conversationUsesOpenWebUiContext(conversation) ||
         _shouldProtectLocalStreamingState ||
-        !state.any(
-          (message) =>
-              message.metadata?[kMessageUnfinishedAnswersMetadataKey] is List,
-        )) {
+        _answersThisAccountRuns().isEmpty) {
       return;
     }
     final chatId = conversation.id;

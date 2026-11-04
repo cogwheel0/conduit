@@ -8533,6 +8533,48 @@ void main() {
       check(cut().metadata?[kMessageUnfinishedAnswersMetadataKey]).isNull();
     });
 
+    test('the chat\'s tasks are not asked for when only another person\'s '
+        'answers show unfinished', () async {
+      final (:api, :socket, :client, :container) = await openDraft(
+        account: const User(
+          id: 'me',
+          username: 'Me',
+          email: 'me@example.com',
+          role: 'user',
+        ),
+      );
+      api.activeTaskIds = const [];
+      container
+          .read(activeConversationProvider.notifier)
+          .set(
+            _conversation('theirs-chat', [
+              _user('theirs-u0', 'compare these'),
+              ChatMessage(
+                id: 'theirs-a',
+                role: 'assistant',
+                content: 'theirs so far',
+                timestamp: DateTime.utc(2026, 7, 13, 0, 0, 1),
+                model: duplicate.id,
+                metadata: const <String, dynamic>{
+                  kMessageModelIdxMetadataKey: 0,
+                  kMessageAuthorIdMetadataKey: 'someone-else',
+                  kMessageUnfinishedAnswersMetadataKey: ['theirs-a', 'theirs-b'],
+                  kMessageUnfinishedAnswerAuthorsMetadataKey: {
+                    'theirs-a': 'someone-else',
+                    'theirs-b': 'someone-else',
+                  },
+                },
+              ),
+              _user('theirs-u1', 'and then?'),
+            ], ChatStorageKind.openWebUi).copyWith(userId: 'someone-else'),
+          );
+      for (var i = 0; i < 10; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+
+      check(api.taskListRequests).equals(0);
+    });
+
     test('answers cut off before a later prompt are finished by a later copy '
         'of the chat once a first check failed', () async {
       final (:api, :socket, :client, :container) = await openDraft(
