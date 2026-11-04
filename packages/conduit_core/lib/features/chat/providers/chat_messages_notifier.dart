@@ -176,6 +176,18 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
           unawaited(_recoverColdHermesCheckpointIfNeeded(active));
         }
       });
+      // A check of earlier cut-off answers waits while the chat is listed as
+      // running a task: once the listing clears, the chat is checked again,
+      // since no copy of it may follow.
+      ref.listen<Set<String>>(activeChatIdsProvider, (previous, next) {
+        final chatId = ref.read(activeConversationProvider)?.id;
+        if (chatId == null ||
+            !(previous?.contains(chatId) ?? false) ||
+            next.contains(chatId)) {
+          return;
+        }
+        _recheckEarlierAnswers();
+      });
       _conversationListener = ref.listen(activeConversationProvider, (
         previous,
         next,

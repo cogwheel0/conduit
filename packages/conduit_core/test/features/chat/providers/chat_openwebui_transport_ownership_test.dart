@@ -8883,6 +8883,45 @@ void main() {
       check(cut.metadata?[kMessageUnfinishedAnswersMetadataKey]).isNotNull();
     });
 
+    test('answers cut off are finished once the chat stops being listed as '
+        'running a task', () async {
+      final (:api, :socket, :client, :container) = await openDraft(
+        account: const User(
+          id: 'me',
+          username: 'Me',
+          email: 'me@example.com',
+          role: 'user',
+        ),
+      );
+      api.activeTaskIds = const [];
+      container.read(activeChatIdsProvider.notifier).setActive('listed-chat');
+      container
+          .read(activeConversationProvider.notifier)
+          .set(
+            _conversation('listed-chat', [
+              _user('listed-u0', 'compare these'),
+              cutAnswer('listed-cut'),
+              _user('listed-u1', 'and then?'),
+            ], ChatStorageKind.openWebUi),
+          );
+      for (var i = 0; i < 5; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+      ChatMessage cut() => container
+          .read(chatMessagesProvider)
+          .firstWhere((message) => message.id == 'listed-cut');
+      check(cut().metadata?[kMessageUnfinishedAnswersMetadataKey]).isNotNull();
+
+      // The task's end is told, with no new copy of the chat after it.
+      container.read(activeChatIdsProvider.notifier).setInactive('listed-chat');
+      await until(() => api.taskListRequests > 0);
+      for (var i = 0; i < 5; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+
+      check(cut().metadata?[kMessageUnfinishedAnswersMetadataKey]).isNull();
+    });
+
     test('a chat opened while another chat\'s tasks are asked for is asked '
         'about too', () async {
       final (:api, :socket, :client, :container) = await openDraft(
