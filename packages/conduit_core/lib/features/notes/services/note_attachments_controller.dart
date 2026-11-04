@@ -97,6 +97,11 @@ class NoteAttachmentsController {
   /// Counts [rebindTo] calls: a scan of the store that one overtook was for
   /// the note the editor showed before, and is not published.
   int _rebinds = 0;
+
+  /// Recordings that stay with the note they were made on after a page of
+  /// it was recovered: an upload of one still running neither comes back to
+  /// this editor nor attaches to the note it shows now.
+  final Set<String> _leftBehindUploads = <String>{};
   final Set<String> _inFlight = <String>{};
   final Set<String> _queued = <String>{};
   final Set<String> _feedbackIds = <String>{};
@@ -691,6 +696,9 @@ class NoteAttachmentsController {
     if (!_isCurrent(api: api, db: db, authEpoch: authEpoch)) {
       throw StateError('The active note session changed');
     }
+    if (_leftBehindUploads.contains(item.id)) {
+      throw StateError('The recording stays with the note it was made on');
+    }
     final Note? note = _currentNote();
     if (note == null) throw StateError('The note is no longer available');
 
@@ -778,7 +786,7 @@ class NoteAttachmentsController {
       _container.read(notePagesServerProvider) == true;
 
   void _applyChange(String id, PendingNoteAudioUpload? updated) {
-    if (_disposed) return;
+    if (_disposed || _leftBehindUploads.contains(id)) return;
     _mutationGeneration++;
     final int index = _pending.indexWhere(
       (PendingNoteAudioUpload item) => item.id == id,
@@ -913,6 +921,9 @@ class NoteAttachmentsController {
     if (!_isCurrent(api: api, db: db, authEpoch: authEpoch)) return;
 
     final int pendingBefore = _pending.length;
+    for (final PendingNoteAudioUpload item in _pending) {
+      if (!moves(item)) _leftBehindUploads.add(item.id);
+    }
     _pending.removeWhere((PendingNoteAudioUpload item) => !moves(item));
     if (_pending.length != pendingBefore && reboundUploads.isEmpty) {
       _mutationGeneration++;

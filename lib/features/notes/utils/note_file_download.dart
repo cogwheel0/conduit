@@ -8,21 +8,16 @@ const int kNoteFileShareMaxBytes = 64 * 1024 * 1024;
 /// systems allow; a longer one is cut, keeping its extension.
 const int _maxNameBytes = 200;
 
-/// Where a note's file [fileId], named [name], is downloaded under
-/// [temporaryDirectory] before it is shared: in a folder of the file's own,
-/// so two files of one name stay apart, under its name, which the share
-/// sheet shows, with the characters file systems refuse replaced and cut to
-/// a length every file system takes.
-String noteFileDownloadPath(
-  String temporaryDirectory, {
-  required String fileId,
-  required String name,
-}) {
-  final folder = fileId.replaceAll(RegExp(r'[^\w-]'), '_');
-  return '$temporaryDirectory/note-files/$folder/${_safeFileName(name)}';
-}
+/// The folder under [temporaryDirectory] that note files are downloaded
+/// into, each in a folder of its own, before they are shared.
+String noteFileDownloadsPath(String temporaryDirectory) =>
+    '$temporaryDirectory/note-files';
 
-String _safeFileName(String name) {
+/// The name a note's file, named [name], is downloaded under, which the
+/// share sheet shows: with the characters file systems refuse replaced, and
+/// cut by its UTF-8 bytes to a length every file system takes, never inside
+/// a character.
+String noteFileDownloadName(String name) {
   var safe = name
       .replaceAll(RegExp(r'[/\\:*?"<>|\x00-\x1f]'), '_')
       .trim();
@@ -33,7 +28,6 @@ String _safeFileName(String name) {
       ? safe.substring(dot)
       : '';
   final budget = _maxNameBytes - utf8.encode(extension).length;
-  // Whole characters only, so none is cut in two.
   final kept = StringBuffer();
   var bytes = 0;
   for (final rune in safe.substring(0, safe.length - extension.length).runes) {

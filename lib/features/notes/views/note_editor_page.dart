@@ -2,7 +2,7 @@ import 'package:conduit/features/workspace/providers/workspace_capabilities_prov
 
 import 'dart:async';
 import 'dart:convert' show base64Decode;
-import 'dart:io' show File, Platform;
+import 'dart:io' show Directory, File, Platform;
 
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:dio/dio.dart';
@@ -224,6 +224,12 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
   /// Whether a file is being removed from the page shown, whose text loses
   /// its link once the stored note has.
   bool _removingFile = false;
+
+  /// Whether the draft is being saved as a note of its own.
+  bool _savingAsOwnNote = false;
+
+  /// Counts dictation ends: a start under way when one ends does not begin.
+  int _dictationEnds = 0;
 
   /// The server refused to show the note (403), which is not a missing note.
   bool _loadForbidden = false;
@@ -594,7 +600,8 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
         _note == null ||
         _isEnhancing ||
         _dictationStarting ||
-        _removingFile) {
+        _removingFile ||
+        _savingAsOwnNote) {
       return;
     }
     if (_isRecording) await _stopDictation();
@@ -1214,18 +1221,22 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
     // Dictation writes into the page it was started on: the editor stays on
     // it while listening starts ([_showPage] waits for this).
     final page = _pageId;
+    final ends = _dictationEnds;
     _dictationStarting = true;
 
     try {
       final ok = await _voiceService!.initialize();
-      if (!mounted || _readOnly) return;
+      if (!mounted || _readOnly || ends != _dictationEnds) return;
       if (!ok) {
         _showError(AppLocalizations.of(context)!.voiceInputUnavailable);
         return;
       }
 
       final stream = await _voiceService!.beginListening();
-      if (!mounted || _pageId != page || _readOnly) {
+      if (!mounted ||
+          _pageId != page ||
+          _readOnly ||
+          ends != _dictationEnds) {
         // The editor closed, shows another page, or can no longer be edited
         // (a sync removed the page, say) while listening was starting.
         // Capture is already running and nothing else will stop it, so stop
@@ -1294,6 +1305,8 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
   /// Ends dictation at once, for a document about to be replaced: its run
   /// points into the text being taken away. Called inside `setState`.
   void _dropDictation() {
+    // A start still under way is called off too.
+    _dictationEnds++;
     if (!_isRecording && _dictationRun == null && _dictationStream == null) {
       return;
     }
@@ -2598,7 +2611,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
     }
     // Dictation rewrites the text it wrote by its place, which the removal
     // moves.
-    if (_isRecording || _dictationRun != null) setState(_dropDictation);
+    setState(_dropDictation);
     removeNoteFileCardsInEditor(controller, file.id);
     // An older note may also list the file; the list goes the same way.
     final listed = _note?.data.files ?? const <Map<String, dynamic>>[];
@@ -2659,24 +2672,25 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
       final encoded = content.startsWith('data:')
           ? content.substring(content.indexOf(',') + 1)
           : content;
-      final path = noteFileDownloadPath(
-        (await getTemporaryDirectory()).path,
-        fileId: fileId,
-        name: name,
-      );
-      final file = File(path);
-      await file.parent.create(recursive: true);
-      await file.writeAsBytes(base64Decode(encoded), flush: true);
-      if (!stillOpen()) {
-        await file.delete();
-        return;
+      // A folder of this download's own, gone once the share sheet closes,
+      // so a second tap cannot write over a file being shared and the note's
+      // file does not stay behind.
+      final folder = await Directory(
+        noteFileDownloadsPath((await getTemporaryDirectory()).path),
+      ).createTemp('$fileId-');
+      try {
+        final path = '${folder.path}/${noteFileDownloadName(name)}';
+        await File(path).writeAsBytes(base64Decode(encoded), flush: true);
+        if (!stillOpen()) return;
+        await SharePlus.instance.share(
+          ShareParams(
+            files: <XFile>[XFile(path, name: name)],
+            sharePositionOrigin: shareOrigin,
+          ),
+        );
+      } finally {
+        await folder.delete(recursive: true);
       }
-      await SharePlus.instance.share(
-        ShareParams(
-          files: <XFile>[XFile(path, name: name)],
-          sharePositionOrigin: shareOrigin,
-        ),
-      );
     } catch (_) {
       if (mounted) _showError(l10n.errorMessage);
     }
@@ -2745,6 +2759,9 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
         noteFileLinksInMarkdown(
           _contentMarkdown,
         ).any((link) => link.id == fileId);
+    // The page's text loses the link once the removal is done, which moves
+    // the text dictation rewrites by place: it ends now.
+    if (shownInText) setState(_dropDictation);
 
     final api = _openApi;
     final db = _openDb;
@@ -2873,6 +2890,18 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
   /// Saves what is on screen as a new note the user owns, through the same
   /// recovery used when a note is deleted under an open editor.
   Future<void> _saveDraftAsOwnNote() async {
+    if (_savingAsOwnNote) return;
+    // The draft being saved must stay as it is until the new note holds it:
+    // Discard and other pages wait.
+    setState(() => _savingAsOwnNote = true);
+    try {
+      await _saveDraftAsOwnNoteOnce();
+    } finally {
+      if (mounted) setState(() => _savingAsOwnNote = false);
+    }
+  }
+
+  Future<void> _saveDraftAsOwnNoteOnce() async {
     final session = NoteRecoverySession(
       api: _openApi,
       db: _openDb,
@@ -2892,6 +2921,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
   }
 
   void _discardDraft() {
+    if (_savingAsOwnNote) return;
     _saveDebounce?.cancel();
     setState(() {
       _hasChanges = false;
@@ -2952,14 +2982,14 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
                       key: const ValueKey<String>('note-save-as-own'),
                       text: l10n.noteSaveAsOwnNote,
                       isCompact: true,
-                      onPressed: _saveDraftAsOwnNote,
+                      onPressed: _savingAsOwnNote ? null : _saveDraftAsOwnNote,
                     ),
                     ConduitButton(
                       key: const ValueKey<String>('note-discard-draft'),
                       text: l10n.noteDiscardChanges,
                       isCompact: true,
                       isSecondary: true,
-                      onPressed: _discardDraft,
+                      onPressed: _savingAsOwnNote ? null : _discardDraft,
                     ),
                   ],
                 ),

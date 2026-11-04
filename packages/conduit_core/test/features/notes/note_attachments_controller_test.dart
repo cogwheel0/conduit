@@ -71,6 +71,9 @@ class _UploadApi extends ApiService {
   final markers = <Object?>[];
   Object? uploadError;
   var nextId = 1;
+
+  /// While set, an upload is answered only once this completes.
+  Completer<void>? holdUpload;
   List<FileInfo> existingFiles = const <FileInfo>[];
 
   @override
@@ -82,6 +85,7 @@ class _UploadApi extends ApiService {
     CancelToken? cancelToken,
     ApiAuthSnapshot? authSnapshot,
   }) async {
+    await holdUpload?.future;
     final error = uploadError;
     if (error != null) throw error;
     uploads.add((path: filePath, name: fileName, contentType: contentType));
@@ -1045,6 +1049,40 @@ void main() {
         noteId: 'note-1',
       );
       check(left.map((item) => item.id)).deepEquals([onMain.id]);
+    });
+
+    test('an upload still running for a recording the original note keeps '
+        'does not come back to the editor', () async {
+      final onMain = await store.stage(
+        source: await recording('main.m4a'),
+        serverId: 'server-1',
+        accountId: 'user:user-1',
+        noteId: 'note-1',
+        fileName: 'recording_1.m4a',
+      );
+      await store.stage(
+        source: await recording('two.m4a'),
+        serverId: 'server-1',
+        accountId: 'user:user-1',
+        noteId: 'note-1',
+        fileName: 'recording_2.m4a',
+        pageId: 'p2',
+      );
+      api.holdUpload = Completer<void>();
+      await controller.loadPending();
+      await waitFor(() => api.holdUpload != null && controller.isUploading);
+
+      final original = openNote;
+      final pageNote = openNote.copyWith(id: 'local:page');
+      openNote = pageNote;
+      await controller.rebindTo(original, pageNote, pageId: 'p2');
+      api.holdUpload!.complete();
+      api.uploadError = StateError('offline');
+      await waitFor(() => !controller.isUploading);
+
+      check(
+        controller.pending.map((item) => item.id),
+      ).not((it) => it.contains(onMain.id));
     });
 
     test('an empty title falls back to the untitled name', () async {

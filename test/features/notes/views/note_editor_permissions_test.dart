@@ -702,6 +702,54 @@ void main() {
     expect(voice.run, isNull);
   });
 
+  testWidgets('Discard waits while the draft is saved as a note of its own', (
+    tester,
+  ) async {
+    final note = twoPageNote();
+    await storeLocally(note);
+    await pumpEditor(tester, _DetailApi(detail: note));
+    await tester.tap(find.byKey(const ValueKey<String>('note-page-chip')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey<String>('note-page-p2')));
+    await tester.pumpAndSettle();
+    await storeLocally(
+      _noteJson(
+        writeAccess: true,
+        md: 'one',
+        pages: [
+          {
+            'id': 'main',
+            'title': 'Shared note',
+            'content': {'md': 'one', 'html': '', 'json': null},
+          },
+        ],
+      ),
+    );
+    typeInto(tester, 'kept ');
+    await letAutosaveRun(tester);
+    await tester.pump();
+    expect(find.text(l10n(tester).notePageMissingNotice), findsOneWidget);
+
+    // Discard is tapped while the new note is still being created.
+    final discard = tester.getCenter(
+      find.byKey(const ValueKey<String>('note-discard-draft')),
+    );
+    await tester.tap(find.byKey(const ValueKey<String>('note-save-as-own')));
+    await tester.tapAt(discard);
+    await tester.pumpAndSettle();
+    await letAutosaveRun(tester);
+
+    final copies = [
+      for (final row in await db.select(db.notes).get())
+        if (row.id.startsWith('local:')) row,
+    ];
+    expect(copies, hasLength(1));
+    expect(
+      (decodeJsonMap(copies.single.data)['content'] as Map)['md'],
+      startsWith('kept two'),
+    );
+  });
+
   testWidgets('once a refused draft is discarded, the other pages can be '
       'read', (tester) async {
     final note = twoPageNote();
@@ -1180,6 +1228,107 @@ void main() {
     expect(text, contains('spoken more'));
     expect(text.indexOf('spoken more'), lessThan(text.indexOf('\uFFFC')));
     expect(noteFileCardsIn(contentController(tester).document), isNotEmpty);
+  });
+
+  testWidgets('removing a file card calls off dictation that is still '
+      'starting', (tester) async {
+    final originalOnError = FlutterError.onError;
+    FlutterError.onError = (details) {
+      if (details.exceptionAsString().contains('ink splashes may be invisible')) {
+        return;
+      }
+      originalOnError?.call(details);
+    };
+    addTearDown(() => FlutterError.onError = originalOnError);
+    const md = 'original\n\n[Rec.m4a](/api/v1/files/f1/content)';
+    final note = _noteJson(
+      writeAccess: true,
+      md: md,
+      pages: [
+        {
+          'id': 'main',
+          'title': 'Shared note',
+          'content': {'md': md, 'html': '', 'json': null},
+        },
+      ],
+    );
+    await storeLocally(note);
+    final voice = _HeldVoice();
+    await pumpEditor(tester, _DetailApi(detail: note), voice: voice);
+    await tester.tap(find.byTooltip(l10n(tester).voiceOptions));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(l10n(tester).dictation).last);
+    await tester.pumpAndSettle();
+
+    await tester.tap(
+      find.descendant(
+        of: find.byKey(const ValueKey<String>('note-file-card-f1')),
+        matching: find.byIcon(Icons.cancel_rounded),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(l10n(tester).delete).last);
+    await tester.pumpAndSettle();
+    voice.ready.complete(true);
+    await tester.pumpAndSettle();
+
+    expect(voice.run, isNull);
+  });
+
+  testWidgets('removing a file linked in a sentence stops dictation before '
+      'the removal is done', (tester) async {
+    final originalOnError = FlutterError.onError;
+    FlutterError.onError = (details) {
+      if (details.exceptionAsString().contains('ink splashes may be invisible')) {
+        return;
+      }
+      originalOnError?.call(details);
+    };
+    addTearDown(() => FlutterError.onError = originalOnError);
+    const md = 'see [Rec.m4a](/api/v1/files/f1/content) here';
+    final note = _noteJson(
+      writeAccess: true,
+      md: md,
+      pages: [
+        {
+          'id': 'main',
+          'title': 'Shared note',
+          'content': {'md': md, 'html': '', 'json': null},
+        },
+      ],
+    );
+    await storeLocally(note);
+    final voice = _HeldVoice()..ready.complete(true);
+    final container = await pumpEditor(
+      tester,
+      _DetailApi(detail: note),
+      voice: voice,
+    );
+    await tester.tap(find.byTooltip(l10n(tester).voiceOptions));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(l10n(tester).dictation).last);
+    await tester.pumpAndSettle();
+    expect(voice.run, isNotNull);
+    // The removal waits for the note, which something else holds.
+    final held = Completer<void>();
+    unawaited(
+      container.read(noteLocksProvider).runExclusive('note-1', () => held.future),
+    );
+
+    await tester.tap(
+      find.descendant(
+        of: find.byType(NoteFileAttachment),
+        matching: find.byIcon(Icons.cancel_rounded),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(l10n(tester).delete).last);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+
+    expect(voice.run, isNull);
+    held.complete();
+    await tester.pumpAndSettle();
   });
 
   testWidgets('a file card is kept when the account changed during its '
