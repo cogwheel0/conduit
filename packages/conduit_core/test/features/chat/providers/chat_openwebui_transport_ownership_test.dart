@@ -6788,6 +6788,32 @@ void main() {
       ]);
     });
 
+    test('a chat listed as running a task the server no longer runs does not '
+        'hold its model list back', () async {
+      final saved = ChatModelSaveQueue.listedTaskCheckAfter;
+      ChatModelSaveQueue.listedTaskCheckAfter = Duration.zero;
+      addTearDown(() => ChatModelSaveQueue.listedTaskCheckAfter = saved);
+      const other = Model(id: 'model-2', name: 'Model 2');
+      final (:api, :socket, :container) = await open(
+        available: const [duplicate, other],
+      );
+      // A listing an event missed left behind; the server runs nothing.
+      container.read(activeChatIdsProvider.notifier).setActive(chatId);
+      api.activeTaskIds = const [];
+
+      await saveChatModelChoice(
+        container,
+        other,
+      ).timeout(const Duration(seconds: 5));
+
+      check(api.savedModels.map((saved) => saved.$2)).deepEquals([
+        ['model-2'],
+      ]);
+      check(container.read(activeChatIdsProvider)).not(
+        (it) => it.contains(chatId),
+      );
+    });
+
     test('a model pick is forgotten when another sign-in begins', () async {
       const other = Model(id: 'model-2', name: 'Model 2');
       final (:api, :socket, :container) = await open(
@@ -8435,6 +8461,39 @@ void main() {
           .read(chatMessagesProvider)
           .firstWhere((message) => message.id == 'cut-a');
       check(cut.metadata?[kMessageUnfinishedAnswersMetadataKey]).isNull();
+    });
+
+    test('the composer offers no Stop when the newest running reply is '
+        'another person\'s', () async {
+      final (:api, :socket, :client, :container) = await openDraft(
+        account: const User(
+          id: 'me',
+          username: 'Me',
+          email: 'me@example.com',
+          role: 'user',
+        ),
+      );
+      ChatMessage running(String id, String author) => ChatMessage(
+        id: id,
+        role: 'assistant',
+        content: 'writing',
+        timestamp: DateTime.utc(2026, 7, 13, 0, 0, 1),
+        model: duplicate.id,
+        isStreaming: true,
+        metadata: <String, dynamic>{kMessageAuthorIdMetadataKey: author},
+      );
+      container
+          .read(activeConversationProvider.notifier)
+          .set(
+            _conversation('newest-chat', [
+              _user('newest-u', 'hello'),
+              running('mine-older', 'me'),
+              running('theirs-newer', 'someone-else'),
+            ], ChatStorageKind.openWebUi),
+          );
+
+      check(container.read(isChatStreamingProvider)).isTrue();
+      check(container.read(isOwnChatStreamingProvider)).isFalse();
     });
 
     test('the composer offers Stop when this account\'s answer runs among '

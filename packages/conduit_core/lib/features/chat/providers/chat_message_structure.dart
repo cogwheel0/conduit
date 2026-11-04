@@ -158,23 +158,21 @@ final isChatStreamingProvider = Provider<bool>((ref) {
   return ref.watch(chatMessagesProvider.select(_messagesAreStreaming));
 });
 
-/// Whether every reply streaming at the end of [messages] was written by
-/// someone other than [userId], in a chat [ownerId] owns.
+/// Whether the newest reply streaming at the end of [messages], the one Stop
+/// stops, is someone other than [userId]'s, in a chat [ownerId] owns.
 bool _onlyOthersAreStreaming(
   List<ChatMessage> messages,
   String? userId,
   String? ownerId,
 ) {
-  var others = false;
   for (var index = messages.length - 1; index >= 0; index -= 1) {
     final message = messages[index];
     if (message.role != 'assistant') break;
     if (!message.isStreaming) continue;
-    if (message.isWrittenBy(userId)) return false;
-    if (_runsAnswerOf(message, userId, ownerId)) return false;
-    others = true;
+    return !message.isWrittenBy(userId) &&
+        !_runsAnswerOf(message, userId, ownerId);
   }
-  return others;
+  return false;
 }
 
 /// Whether another of [message]'s comparison answers still running is

@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:meta/meta.dart';
 import 'package:riverpod/riverpod.dart';
 
 import 'package:conduit_core/auth/api_auth_interceptor.dart';
@@ -141,7 +142,16 @@ const List<Duration> _modelSaveRetryWaits = <Duration>[
 ];
 
 class ChatModelSaveQueue extends Notifier<void> {
+  /// How long a list waits on a chat that is only listed as running a task,
+  /// with no reply streaming on screen, before the server is asked whether
+  /// the task still runs.
+  @visibleForTesting
+  static Duration listedTaskCheckAfter = const Duration(seconds: 30);
+
   final Map<String, _PendingModels> _pending = <String, _PendingModels>{};
+
+  /// Since when each chat has been waited on only for its task listing.
+  final Map<String, DateTime> _listedSince = <String, DateTime>{};
   Future<void>? _running;
 
   @override
@@ -206,6 +216,8 @@ class ChatModelSaveQueue extends Notifier<void> {
           .firstOrNull;
       if (chatId == null) {
         if (_pending.isEmpty) return;
+        await _confirmListedTasks();
+        if (!ref.mounted) return;
         // The state is read again every moment: this queue is only ever
         // read, and Riverpod pauses the listeners of a provider nothing
         // listens to.
@@ -265,6 +277,39 @@ class ChatModelSaveQueue extends Notifier<void> {
           account == _account() &&
           !_pending.containsKey(chatId)) {
         await _store(chatId, models, account);
+      }
+    }
+  }
+
+  /// Asks the server about each waiting chat that has long been listed as
+  /// running a task with no reply streaming on screen: a listing that an
+  /// event missed while offline left behind would hold its list back for
+  /// good. One the server runs no task in is taken off the list, unless it
+  /// was listed again meanwhile.
+  Future<void> _confirmListedTasks() async {
+    final now = DateTime.now();
+    final listed = ref.read(activeChatIdsProvider);
+    for (final chatId in _pending.keys.toList()) {
+      final onScreen =
+          ref.read(activeConversationProvider)?.id == chatId &&
+          ref.read(isChatStreamingProvider);
+      if (onScreen || !listed.contains(chatId)) {
+        _listedSince.remove(chatId);
+        continue;
+      }
+      final since = _listedSince.putIfAbsent(chatId, () => now);
+      if (now.difference(since) < listedTaskCheckAfter) continue;
+      _listedSince[chatId] = now;
+      final api = ref.read(apiServiceProvider);
+      if (api == null) continue;
+      final active = ref.read(activeChatIdsProvider.notifier);
+      final token = active.activationToken(chatId);
+      try {
+        final tasks = await api.getTaskIdsByChat(chatId);
+        if (!ref.mounted) return;
+        if (tasks.isEmpty) active.setInactiveIfUnchanged(chatId, token);
+      } catch (_) {
+        // Asked again after another wait.
       }
     }
   }
