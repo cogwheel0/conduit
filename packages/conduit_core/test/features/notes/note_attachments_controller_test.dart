@@ -100,6 +100,27 @@ class _UploadApi extends ApiService {
   }) async => existingFiles;
 }
 
+/// A store whose account-wide scan waits until the test lets it finish.
+class _HeldScanStore extends NoteAudioUploadStore {
+  _HeldScanStore({
+    required super.applicationSupportDirectory,
+    required super.temporaryDirectory,
+  });
+
+  final entered = Completer<void>();
+  final release = Completer<void>();
+
+  @override
+  Future<List<PendingNoteAudioUpload>> loadForAccount({
+    required String serverId,
+    String accountId = '',
+  }) async {
+    if (!entered.isCompleted) entered.complete();
+    await release.future;
+    return super.loadForAccount(serverId: serverId, accountId: accountId);
+  }
+}
+
 void main() {
   late Directory root;
   late AppDatabase db;
@@ -922,6 +943,67 @@ void main() {
         onRemoved.id,
       ]);
       await waitFor(() => !controller.isUploading);
+    });
+
+    test('a scan begun before a page was recovered does not bring the other '
+        'pages\' recordings back', () async {
+      api.uploadError = StateError('offline');
+      await store.stage(
+        source: await recording('two.m4a'),
+        serverId: 'server-1',
+        accountId: 'user:user-1',
+        noteId: 'note-1',
+        fileName: 'recording_2.m4a',
+        pageId: 'p2',
+      );
+      final onMain = await store.stage(
+        source: await recording('main.m4a'),
+        serverId: 'server-1',
+        accountId: 'user:user-1',
+        noteId: 'note-1',
+        fileName: 'recording_1.m4a',
+      );
+
+      // A scan is under way when the page is saved as a note of its own, and
+      // ends after it.
+      final held = _HeldScanStore(
+        applicationSupportDirectory: () async {
+          final dir = Directory('${root.path}/support');
+          await dir.create(recursive: true);
+          return dir;
+        },
+        temporaryDirectory: () async => Directory('${root.path}/cache'),
+      );
+      controller.dispose();
+      controller = NoteAttachmentsController(
+        container: container,
+        store: held,
+        noteId: 'note-1',
+        currentNote: () => openNote,
+        resolvedTitle: () => openNote.title,
+        onNoteUpdated: (updated) => openNote = updated,
+        onChanged: () => changes++,
+        onNotice: notices.add,
+      )..start();
+      final scanning = controller.loadPending();
+      await held.entered.future;
+      final previous = openNote;
+      final recovered = openNote.copyWith(id: 'local:recovered');
+      openNote = recovered;
+      await controller.rebindTo(previous, recovered, pageId: 'p2');
+      held.release.complete();
+      await scanning;
+      await waitFor(() => !controller.isUploading);
+
+      check(
+        controller.pending.map((item) => item.id),
+      ).not((it) => it.contains(onMain.id));
+      final left = await store.loadForNote(
+        serverId: 'server-1',
+        accountId: 'user:user-1',
+        noteId: 'note-1',
+      );
+      check(left.map((item) => item.id)).deepEquals([onMain.id]);
     });
 
     test('an empty title falls back to the untitled name', () async {

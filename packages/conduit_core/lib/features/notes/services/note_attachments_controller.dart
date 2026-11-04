@@ -93,6 +93,10 @@ class NoteAttachmentsController {
   /// a page), the editor shows that note, and the recordings of the other
   /// pages wait for their note to be opened again.
   final Set<String> _leftBehind = <String>{};
+
+  /// Counts [rebindTo] calls: a scan of the store that one overtook was for
+  /// the note the editor showed before, and is not published.
+  int _rebinds = 0;
   final Set<String> _inFlight = <String>{};
   final Set<String> _queued = <String>{};
   final Set<String> _feedbackIds = <String>{};
@@ -258,6 +262,7 @@ class NoteAttachmentsController {
     final Object authEpoch = _container.read(openWebUiAuthSessionEpochProvider);
     if (note == null || scope == null) return;
     final int mutationGeneration = _mutationGeneration;
+    final int rebinds = _rebinds;
     try {
       final Set<String> currentIds = <String>{_noteId, note.id};
       if (db != null) {
@@ -301,6 +306,9 @@ class NoteAttachmentsController {
       }
       if (!_isCurrent(api: api, db: db, authEpoch: authEpoch)) return;
 
+      // The editor moved to another note meanwhile: this scan is the old
+      // note's, whose recordings may now stay with it.
+      if (rebinds != _rebinds) return;
       final bool changedWhileLoading =
           mutationGeneration != _mutationGeneration;
       if (changedWhileLoading) {
@@ -805,6 +813,7 @@ class NoteAttachmentsController {
   }) async {
     bool moves(PendingNoteAudioUpload item) =>
         pageId == null || (item.pageId ?? kNoteMainPageId) == pageId;
+    _rebinds++;
     if (pageId != null) _leftBehind.addAll(<String>{_noteId, previous.id});
     final ApiService? api = _container.read(apiServiceProvider);
     final AppDatabase? db = _container.read(appDatabaseProvider);
