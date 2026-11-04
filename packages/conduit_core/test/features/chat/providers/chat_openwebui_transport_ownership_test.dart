@@ -8752,6 +8752,78 @@ void main() {
       check(cut.metadata?[kMessageUnfinishedAnswersMetadataKey]).isNull();
     });
 
+    test('an earlier answer shown as streaming stops once it is finished', () async {
+      final (:api, :socket, :client, :container) = await openDraft(
+        account: const User(
+          id: 'me',
+          username: 'Me',
+          email: 'me@example.com',
+          role: 'user',
+        ),
+      );
+      api.activeTaskIds = const [];
+      container
+          .read(activeConversationProvider.notifier)
+          .set(
+            _conversation('streaming-chat', [
+              _user('streaming-u0', 'compare these'),
+              cutAnswer('streaming-cut').copyWith(isStreaming: true),
+              _user('streaming-u1', 'and then?'),
+            ], ChatStorageKind.openWebUi),
+          );
+      await until(() => api.taskListRequests > 0);
+      for (var i = 0; i < 5; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+
+      final cut = container
+          .read(chatMessagesProvider)
+          .firstWhere((message) => message.id == 'streaming-cut');
+      check(cut.metadata?[kMessageUnfinishedAnswersMetadataKey]).isNull();
+      check(cut.isStreaming).isFalse();
+    });
+
+    test('an answer whose owner turns out to be someone else while the tasks '
+        'are asked for is not finished', () async {
+      final (:api, :socket, :client, :container) = await openDraft(
+        account: const User(
+          id: 'me',
+          username: 'Me',
+          email: 'me@example.com',
+          role: 'user',
+        ),
+      );
+      final pending = Completer<List<String>>();
+      api.holdTaskList = pending;
+      Conversation chat({String? owner}) => _conversation('owned-later', [
+        _user('owned-u0', 'compare these'),
+        cutAnswer('owned-cut'),
+        _user('owned-u1', 'and then?'),
+      ], ChatStorageKind.openWebUi).copyWith(userId: owner);
+
+      container.read(activeConversationProvider.notifier).set(chat());
+      await until(() => api.taskListRequests > 0);
+      // A copy that names the chat's owner arrives meanwhile.
+      container
+          .read(activeConversationProvider.notifier)
+          .set(chat(owner: 'someone-else'));
+      for (var i = 0; i < 5; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+      api
+        ..holdTaskList = null
+        ..activeTaskIds = const [];
+      pending.complete(const []);
+      for (var i = 0; i < 10; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+
+      final cut = container
+          .read(chatMessagesProvider)
+          .firstWhere((message) => message.id == 'owned-cut');
+      check(cut.metadata?[kMessageUnfinishedAnswersMetadataKey]).isNotNull();
+    });
+
     test('a chat opened while another chat\'s tasks are asked for is asked '
         'about too', () async {
       final (:api, :socket, :client, :container) = await openDraft(

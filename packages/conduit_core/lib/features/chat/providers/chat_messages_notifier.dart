@@ -2529,7 +2529,12 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
   /// up while it is answered may run under a task that started since, and
   /// waits for the next check.
   void _finishAnswersWithoutTask([Iterable<String>? ids]) {
-    _answersFinishedWithoutTask.addAll(ids ?? _answersThisAccountRuns());
+    // Still this account's now: a copy that came in meanwhile may name
+    // another owner for an answer that named no author.
+    final current = _answersThisAccountRuns();
+    _answersFinishedWithoutTask.addAll(
+      ids == null ? current : ids.where(current.toSet().contains),
+    );
     final next = _withoutAnswersFinishedHere(state);
     if (!identical(next, state)) state = next;
   }
@@ -2665,6 +2670,11 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
                   if (!_answersFinishedWithoutTask.contains(id)) id,
               ];
               return message.copyWith(
+                // The answer shown is finished too when it is one of these;
+                // another person's live answer runs on.
+                isStreaming:
+                    !_answersFinishedWithoutTask.contains(message.id) &&
+                    message.isStreaming,
                 metadata: <String, dynamic>{...message.metadata!}
                   ..remove(kMessageUnfinishedAnswersMetadataKey)
                   ..addAll({
