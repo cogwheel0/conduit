@@ -14,6 +14,8 @@
 /// editor.
 library;
 
+import 'dart:convert';
+
 /// The id of the page every note has, the one first in its list.
 const String kNoteMainPageId = 'main';
 
@@ -294,32 +296,127 @@ Map<String, dynamic> noteContentUpdateBody(
 };
 
 /// [content] with [files] written into it the way a 0.12.5 server moves a
-/// note's old file list into its first page: a link to each file the
-/// markdown does not link yet, and each image's `data://` reference replaced
-/// by its URL. Returns [content] itself when nothing changes.
+/// note's old file list into its first page (`migrate_page_files`): each
+/// image's `data://` reference replaced by its URL, and each file the content
+/// does not attach yet added to every form it holds, as a link in the
+/// markdown, a block in the HTML and a `fileAttachment` node in the editor
+/// JSON, so the rich text a web editor saved is kept, not replaced by the
+/// markdown. Empty HTML stays empty, for the server to derive from the
+/// markdown. Returns [content] itself when nothing changes.
 Map<String, dynamic> noteContentWithLinkedFiles(
   Map<String, dynamic> content,
   List<Object?> files,
 ) {
   final Object? rawMd = content['md'];
-  final String original = rawMd is String ? rawMd : '';
-  var md = original;
+  var md = rawMd is String ? rawMd : '';
+  final Object? rawHtml = content['html'];
+  var html = rawHtml is String ? rawHtml : '';
+  final Object? rawJson = content['json'];
+  Map<String, dynamic>? json = rawJson is Map
+      ? Map<String, dynamic>.from(rawJson)
+      : null;
+  var changed = false;
+
   final List<Map<String, dynamic>> attachments = <Map<String, dynamic>>[];
   for (final Object? file in files) {
     if (file is! Map) continue;
     final Map<String, dynamic> entry = Map<String, dynamic>.from(file);
-    if (entry['type'] == 'image') {
-      final Object? id = entry['id'];
-      final Object? url = entry['url'];
-      if (id is String && url is String && url.isNotEmpty) {
-        md = md.replaceAll('data://$id', url);
-      }
-    } else {
+    if (entry['type'] != 'image') {
       attachments.add(entry);
+      continue;
     }
+    final Object? id = entry['id'];
+    final Object? url = entry['url'];
+    if (id is! String || url is! String || url.isEmpty) continue;
+    final String reference = 'data://$id';
+    if (md.contains(reference)) md = md.replaceAll(reference, url);
+    if (html.contains(reference)) html = html.replaceAll(reference, url);
+    final String? encoded = json == null ? null : jsonEncode(json);
+    if (encoded != null && encoded.contains(reference)) {
+      final String quoted = jsonEncode(url);
+      json = Map<String, dynamic>.from(
+        jsonDecode(
+              encoded.replaceAll(
+                reference,
+                quoted.substring(1, quoted.length - 1),
+              ),
+            )
+            as Map,
+      );
+    }
+    changed = true;
   }
-  md = appendNoteFileLinks(md, attachments);
-  return md == original ? content : noteContentWithMarkdown(content, md);
+
+  // What the content attaches already, as the server reads it: the editor
+  // JSON's attachment nodes, and the markdown's links.
+  final Set<String> attached = <String>{
+    ..._jsonFileAttachmentIds(json),
+    for (final NoteFileLink link in noteFileLinksInMarkdown(md)) link.id,
+  };
+  final List<Map<String, dynamic>> added = <Map<String, dynamic>>[
+    for (final Map<String, dynamic> file in attachments)
+      if (file['id'] case final String id
+          when _fileIdPattern.hasMatch(id) && attached.add(id))
+        file,
+  ];
+  if (added.isNotEmpty) {
+    md = appendNoteFileLinks(md, added);
+    for (final Map<String, dynamic> file in added) {
+      final String id = file['id'] as String;
+      final Object? rawName = file['name'];
+      final String name = rawName is String && rawName.isNotEmpty
+          ? rawName
+          : id;
+      if (html.isNotEmpty) {
+        const attribute = HtmlEscape(HtmlEscapeMode.attribute);
+        const text = HtmlEscape(HtmlEscapeMode.element);
+        html +=
+            '<div data-file-id="${attribute.convert(id)}">'
+            '<a href="${attribute.convert('/api/v1/files/$id/content')}">'
+            '${text.convert(name)}</a></div>';
+      }
+      if (json != null) {
+        final Object? nodes = json['content'];
+        json['content'] = <Object?>[
+          if (nodes is List) ...nodes,
+          <String, dynamic>{
+            'type': 'fileAttachment',
+            'attrs': <String, dynamic>{
+              'id': id,
+              'name': name,
+              'size': file['size'] ?? 0,
+            },
+          },
+        ];
+      }
+    }
+    changed = true;
+  }
+  if (!changed) return content;
+  return <String, dynamic>{
+    ...content,
+    'md': md,
+    'html': html,
+    'json': json,
+  };
+}
+
+/// The ids of the `fileAttachment` nodes in editor JSON [json].
+Set<String> _jsonFileAttachmentIds(Map<String, dynamic>? json) {
+  final Set<String> ids = <String>{};
+  final List<Object?> stack = <Object?>[json];
+  while (stack.isNotEmpty) {
+    final Object? node = stack.removeLast();
+    if (node is! Map) continue;
+    if (node['type'] == 'fileAttachment') {
+      final Object? attrs = node['attrs'];
+      final Object? id = attrs is Map ? attrs['id'] : null;
+      if (id is String) ids.add(id);
+    }
+    final Object? children = node['content'];
+    if (children is List) stack.addAll(children);
+  }
+  return ids;
 }
 
 /// A file attached to a note page through a link in its markdown.

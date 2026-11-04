@@ -148,8 +148,8 @@ void main() {
         'images', () {
       final content = noteContentWithLinkedFiles(
         <String, dynamic>{
-          'json': <String, dynamic>{'type': 'doc'},
-          'html': '<p>a</p>',
+          'json': null,
+          'html': '',
           'md': 'a ![pic](data://i1)\n\n[Old](/api/v1/files/f0/content)',
         },
         <Object>[
@@ -162,9 +162,76 @@ void main() {
         'a ![pic](/img/1)\n\n[Old](/api/v1/files/f0/content)\n\n'
         '[New](/api/v1/files/f1/content)',
       );
-      // The server and the web editor read json, then html, before md.
+      // Empty html is left for the server to derive from the markdown.
       check(content['json']).isNull();
       check(content['html']).equals('');
+    });
+
+    test('moving files into rich content keeps its html and editor json, '
+        'adding each file to both as the server does', () {
+      final content = noteContentWithLinkedFiles(
+        <String, dynamic>{
+          'json': <String, dynamic>{
+            'type': 'doc',
+            'content': <Object>[
+              <String, dynamic>{
+                'type': 'image',
+                'attrs': <String, dynamic>{'src': 'data://i1'},
+              },
+            ],
+          },
+          'html': '<p><strong>a</strong></p><img src="data://i1">',
+          'md': 'a',
+        },
+        <Object>[
+          <String, dynamic>{
+            'type': 'file',
+            'id': 'f1',
+            'name': 'R & D',
+            'size': 7,
+          },
+          <String, dynamic>{'type': 'image', 'id': 'i1', 'url': '/img/1'},
+        ],
+      );
+
+      check(content['md']).equals('a\n\n[R & D](/api/v1/files/f1/content)');
+      check(content['html']).equals(
+        '<p><strong>a</strong></p><img src="/img/1">'
+        '<div data-file-id="f1"><a href="/api/v1/files/f1/content">'
+        'R &amp; D</a></div>',
+      );
+      final nodes = (content['json'] as Map)['content'] as List;
+      check((nodes.first as Map)['attrs']).isA<Map>().deepEquals({
+        'src': '/img/1',
+      });
+      check(nodes.last).isA<Map>().deepEquals({
+        'type': 'fileAttachment',
+        'attrs': {'id': 'f1', 'name': 'R & D', 'size': 7},
+      });
+    });
+
+    test('a file the editor json attaches already is not added again', () {
+      final original = <String, dynamic>{
+        'json': <String, dynamic>{
+          'type': 'doc',
+          'content': <Object>[
+            <String, dynamic>{
+              'type': 'fileAttachment',
+              'attrs': <String, dynamic>{'id': 'a', 'name': 'A'},
+            },
+          ],
+        },
+        'html': '<p>x</p>',
+        'md': 'x',
+      };
+      check(
+        identical(
+          noteContentWithLinkedFiles(original, <Object>[
+            <String, dynamic>{'type': 'file', 'id': 'a', 'name': 'A'},
+          ]),
+          original,
+        ),
+      ).isTrue();
     });
 
     test('content already linking every file is left alone', () {
