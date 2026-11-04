@@ -235,6 +235,10 @@ Future<ChatBranchSelection> selectChatBranch(
         alternativeTo: alternativeTo,
       );
   if (selection.changed && _branchMutationContextIsCurrent(ref, token)) {
+    // A model picked on the branch left behind counted its turns, which on
+    // this branch are other prompts.
+    (ref.read(chatModelPickProvider.notifier) as ChatModelPickNotifier)
+        .forget(conversation.id);
     try {
       unawaited(
         (ref.read(syncEngineProvider.notifier) as SyncEngine)

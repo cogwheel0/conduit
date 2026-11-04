@@ -47,6 +47,12 @@ class ChatModelPickNotifier extends Notifier<ChatModelPick?> {
   }) {
     state = (chatId: chatId, modelId: modelId, turns: turns);
   }
+
+  /// Forgets the pick made in chat [chatId], once the chat shows another
+  /// branch: the turns it counted are that branch's no more.
+  void forget(String chatId) {
+    if (state?.chatId == chatId) state = null;
+  }
 }
 
 /// Saves [model], which the user just picked (from the model picker or with
