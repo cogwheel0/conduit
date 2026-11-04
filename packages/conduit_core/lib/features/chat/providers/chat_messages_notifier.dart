@@ -4179,18 +4179,32 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     _syncConversationStateAfterStreamingUpdate();
   }
 
-  /// Settles every answer still streaming in the turn that ends the list:
-  /// the explicit stop of a whole multi-model turn. Completes once their
-  /// settled state is stored (see [settleStoppedSlotMessages]).
+  /// Settles this account's answers still streaming in the turn that ends
+  /// the list: the explicit stop of a whole multi-model turn. Completes once
+  /// their settled state is stored (see [settleStoppedSlotMessages]).
+  ///
+  /// In a chat shared with Allow replies the turn can hold another person's
+  /// answer, even as the one shown. Only they can stop it, so it runs on and
+  /// is neither settled nor stored here. This account's answers among the
+  /// turn's versions stop with the chat's tasks and are finished here.
   Future<bool> settleTrailingStreamingAnswers() {
     releaseAllSlotTransports();
+    final userId = ref.read(currentUserProvider2)?.id;
     final ids = <String>[];
+    final versions = <String>[];
     for (var index = state.length - 1; index >= 0; index -= 1) {
       final message = state[index];
       if (message.role != 'assistant') break;
-      if (message.isStreaming) ids.add(message.id);
+      if (message.isStreaming && message.isWrittenBy(userId)) {
+        ids.add(message.id);
+      }
+      versions.addAll(_answersThisAccountRuns(inMessage: message.id));
     }
-    return settleStoppedSlotMessages(ids);
+    final settled = settleStoppedSlotMessages(ids);
+    // Only once the answers shown are settled: those are stored only while
+    // they still show running.
+    if (versions.isNotEmpty) _finishAnswersWithoutTask(versions);
+    return settled;
   }
 
   /// Ends the answers [messageIds] whose tasks the server was told to stop, and

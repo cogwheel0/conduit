@@ -8535,6 +8535,150 @@ void main() {
       check(container.read(isOwnChatStreamingProvider)).isTrue();
     });
 
+    test('Stop for this account\'s answer among a shared comparison\'s '
+        'versions leaves the other person\'s shown answer running', () async {
+      final (:api, :socket, :client, :container) = await openDraft(
+        account: const User(
+          id: 'me',
+          username: 'Me',
+          email: 'me@example.com',
+          role: 'user',
+        ),
+      );
+      // This account's answer runs under its task until Stop, so only the
+      // stop can finish it.
+      api.activeTaskIds = const ['mine-task'];
+      container
+          .read(activeConversationProvider.notifier)
+          .set(
+            _conversation('shared-stop', [
+              _user('shared-su', 'compare these'),
+              ChatMessage(
+                id: 'theirs',
+                role: 'assistant',
+                content: 'theirs so far',
+                timestamp: DateTime.utc(2026, 7, 13, 0, 0, 1),
+                model: duplicate.id,
+                isStreaming: true,
+                metadata: const <String, dynamic>{
+                  'transport': 'taskSocket',
+                  'taskId': 'their-task',
+                  kMessageModelIdxMetadataKey: 0,
+                  kMessageAuthorIdMetadataKey: 'someone-else',
+                  kMessageUnfinishedAnswersMetadataKey: ['theirs', 'mine'],
+                  kMessageUnfinishedAnswerAuthorsMetadataKey: {
+                    'theirs': 'someone-else',
+                    'mine': 'me',
+                  },
+                },
+              ),
+            ], ChatStorageKind.openWebUi).copyWith(userId: 'someone-else'),
+          );
+      final notifier = container.read(chatMessagesProvider.notifier);
+      await until(() => api.taskListRequests > 0);
+      for (var i = 0; i < 5; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+      check(notifier.debugHasRemoteTaskMonitor).isTrue();
+      check(container.read(isOwnChatStreamingProvider)).isTrue();
+
+      container.read(stopGenerationProvider)();
+      await until(() => api.stoppedChats.isNotEmpty);
+
+      // The chat's stop ends this account's tasks alone; the other person's
+      // task is not asked to stop, and their answer runs on, still followed.
+      check(api.stoppedChats.toSet()).deepEquals({'shared-stop'});
+      check(api.stoppedTasks).isEmpty();
+      final shown = container.read(chatMessagesProvider).last;
+      check(shown.id).equals('theirs');
+      check(shown.isStreaming).isTrue();
+      check(shown.content).equals('theirs so far');
+      check(notifier.debugHasRemoteTaskMonitor).isTrue();
+      // This account's answer among its versions is finished here, so Stop
+      // is no longer offered while theirs runs.
+      check(
+        shown.metadata?[kMessageUnfinishedAnswersMetadataKey],
+      ).isA<List>().deepEquals(['theirs']);
+      check(container.read(isChatStreamingProvider)).isTrue();
+      check(container.read(isOwnChatStreamingProvider)).isFalse();
+    });
+
+    test('Stop in a shared turn stops and settles this account\'s answer, '
+        'and the other person\'s at the end runs on', () async {
+      final (:api, :socket, :client, :container) = await openDraft(
+        account: const User(
+          id: 'me',
+          username: 'Me',
+          email: 'me@example.com',
+          role: 'user',
+        ),
+      );
+      ChatMessage running(
+        String id,
+        String author,
+        int slot, {
+        Map<String, dynamic> extra = const {},
+      }) => ChatMessage(
+        id: id,
+        role: 'assistant',
+        content: '$id so far',
+        timestamp: DateTime.utc(2026, 7, 13, 0, 0, 1),
+        model: duplicate.id,
+        isStreaming: true,
+        metadata: <String, dynamic>{
+          'transport': 'taskSocket',
+          'taskId': '$id-task',
+          kMessageModelIdxMetadataKey: slot,
+          kMessageAuthorIdMetadataKey: author,
+          ...extra,
+        },
+      );
+      api.activeTaskIds = const ['mine-task'];
+      container
+          .read(activeConversationProvider.notifier)
+          .set(
+            _conversation('shared-turn', [
+              _user('shared-tu', 'compare these'),
+              running('mine', 'me', 0),
+              // Shown last, with another answer of this account's among its
+              // versions: Stop is offered for that one.
+              running(
+                'theirs',
+                'someone-else',
+                1,
+                extra: const {
+                  kMessageUnfinishedAnswersMetadataKey: ['theirs', 'mine-v'],
+                  kMessageUnfinishedAnswerAuthorsMetadataKey: {
+                    'theirs': 'someone-else',
+                    'mine-v': 'me',
+                  },
+                },
+              ),
+            ], ChatStorageKind.openWebUi).copyWith(userId: 'me'),
+          );
+      await until(() => api.taskListRequests > 0);
+      for (var i = 0; i < 5; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+      check(container.read(isOwnChatStreamingProvider)).isTrue();
+
+      container.read(stopGenerationProvider)();
+      await until(() => api.stoppedChats.isNotEmpty);
+
+      // The transport stopped is this account's newest answer's.
+      check(api.stoppedTasks).deepEquals(['mine-task']);
+      final messages = container.read(chatMessagesProvider);
+      final mine = messages.firstWhere((message) => message.id == 'mine');
+      final theirs = messages.last;
+      check(mine.isStreaming).isFalse();
+      check(theirs.id).equals('theirs');
+      check(theirs.isStreaming).isTrue();
+      check(
+        theirs.metadata?[kMessageUnfinishedAnswersMetadataKey],
+      ).isA<List>().deepEquals(['theirs']);
+      check(container.read(isOwnChatStreamingProvider)).isFalse();
+    });
+
     test('answers cut off before a later prompt are finished once the reply '
         'that was running when the chat opened is done', () async {
       final (:api, :socket, :client, :container) = await openDraft(
