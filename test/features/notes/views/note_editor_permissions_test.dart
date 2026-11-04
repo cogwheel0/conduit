@@ -1069,6 +1069,119 @@ void main() {
     expect(find.text(l10n(tester).errorMessage), findsNothing);
   });
 
+  testWidgets('removing a file card stops dictation, whose place it moves', (
+    tester,
+  ) async {
+    final originalOnError = FlutterError.onError;
+    FlutterError.onError = (details) {
+      if (details.exceptionAsString().contains('ink splashes may be invisible')) {
+        return;
+      }
+      originalOnError?.call(details);
+    };
+    addTearDown(() => FlutterError.onError = originalOnError);
+    const md = 'original\n\n[Rec.m4a](/api/v1/files/f1/content)';
+    final note = _noteJson(
+      writeAccess: true,
+      md: md,
+      pages: [
+        {
+          'id': 'main',
+          'title': 'Shared note',
+          'content': {'md': md, 'html': '', 'json': null},
+        },
+      ],
+    );
+    await storeLocally(note);
+    final voice = _HeldVoice()..ready.complete(true);
+    await pumpEditor(tester, _DetailApi(detail: note), voice: voice);
+    await tester.tap(find.byTooltip(l10n(tester).voiceOptions));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(l10n(tester).dictation).last);
+    await tester.pumpAndSettle();
+    expect(voice.run, isNotNull);
+
+    await tester.tap(
+      find.descendant(
+        of: find.byKey(const ValueKey<String>('note-file-card-f1')),
+        matching: find.byIcon(Icons.cancel_rounded),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(l10n(tester).delete).last);
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey<String>('note-file-card-f1')), findsNothing);
+    expect(voice.run, isNull);
+  });
+
+  testWidgets('a card that arrives during dictation goes to the end, clear of '
+      'the dictated text', (tester) async {
+    final originalOnError = FlutterError.onError;
+    FlutterError.onError = (details) {
+      if (details.exceptionAsString().contains('ink splashes may be invisible')) {
+        return;
+      }
+      originalOnError?.call(details);
+    };
+    addTearDown(() => FlutterError.onError = originalOnError);
+    final note = _noteJson(
+      writeAccess: true,
+      md: 'hello',
+      pages: [
+        {
+          'id': 'main',
+          'title': 'Shared note',
+          'content': {'md': 'hello', 'html': '', 'json': null},
+        },
+      ],
+    );
+    await storeLocally(note);
+    final voice = _HeldVoice()..ready.complete(true);
+    await pumpEditor(tester, _DetailApi(detail: note), voice: voice);
+    await tester.tap(find.byTooltip(l10n(tester).voiceOptions));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(l10n(tester).dictation).last);
+    await tester.pumpAndSettle();
+    final run = voice.run!;
+    run.add('spoken');
+    await tester.pump();
+    // The user puts the cursor before the dictated text.
+    await tester.tap(find.byType(FleatherEditor));
+    await tester.pump();
+    contentController(
+      tester,
+    ).updateSelection(const TextSelection.collapsed(offset: 0));
+    await tester.pump();
+
+    // A sync attaches a file meanwhile; the next save brings its card in.
+    const link = '[Rec.m4a](/api/v1/files/f1/content)';
+    await storeLocally(
+      _noteJson(
+        writeAccess: true,
+        md: 'hello\n\n$link',
+        pages: [
+          {
+            'id': 'main',
+            'title': 'Shared note',
+            'content': {'md': 'hello\n\n$link', 'html': '', 'json': null},
+          },
+        ],
+      ),
+    );
+    await letAutosaveRun(tester);
+    await tester.pump();
+    expect(noteFileCardsIn(contentController(tester).document), isNotEmpty);
+
+    run.add('spoken more');
+    await tester.pump();
+
+    final text = contentController(tester).document.toPlainText();
+    expect(text, contains('spoken more'));
+    expect(text.indexOf('spoken more'), lessThan(text.indexOf('\uFFFC')));
+    expect(noteFileCardsIn(contentController(tester).document), isNotEmpty);
+  });
+
   testWidgets('a file card is kept when the account changed during its '
       'removal', (tester) async {
     const md = 'original\n\n[Rec.m4a](/api/v1/files/f1/content)';

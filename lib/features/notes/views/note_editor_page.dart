@@ -570,10 +570,13 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
 
   /// Where a file card goes in: at the cursor while the user writes in a
   /// plain paragraph, else at the end. In a list, quote or code block a link
-  /// is no attachment, so the card would be read back as a plain link.
+  /// is no attachment, so the card would be read back as a plain link. While
+  /// dictation runs, at the end, where it cannot move the text dictation is
+  /// rewriting.
   int? _cardInsertIndex() {
     final controller = _contentController;
     if (controller == null || !_contentFocusNode.hasFocus) return null;
+    if (_isRecording || _dictationRun != null) return null;
     final selection = controller.selection;
     if (!selection.isValid) return null;
     final line = controller.document.lookupLine(selection.extentOffset).node;
@@ -2593,6 +2596,9 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
       _showError(l10n.noteSessionChangedNotice);
       return;
     }
+    // Dictation rewrites the text it wrote by its place, which the removal
+    // moves.
+    if (_isRecording || _dictationRun != null) setState(_dropDictation);
     removeNoteFileCardsInEditor(controller, file.id);
     // An older note may also list the file; the list goes the same way.
     final listed = _note?.data.files ?? const <Map<String, dynamic>>[];
@@ -2768,6 +2774,8 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
             _isSaving = false;
             final controller = _contentController;
             if (onPage && controller != null) {
+              // Dictation rewrites its text by place, which this moves.
+              _dropDictation();
               removeNoteFileCardsInEditor(controller, fileId);
               // A link in a sentence or list is not a card; it goes too.
               if (noteFileLinksInMarkdown(
