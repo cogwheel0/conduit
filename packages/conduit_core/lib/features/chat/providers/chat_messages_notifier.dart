@@ -1036,11 +1036,16 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
   /// Checks again whether an earlier turn's answers a restart cut off can be
   /// finished, for each new copy of the open chat: a check this visit made
   /// may have failed, or found a task that has since ended, such as the
-  /// reply to a later prompt, which the copy now holds. A reply still
-  /// streaming at the end is the task monitor's to follow.
+  /// reply to a later prompt, which the copy now holds. A reply of this
+  /// account's still streaming at the end is the task monitor's to follow.
+  /// Another person's runs under a task this account's list never shows, so
+  /// it does not hold the check up.
   void _recheckEarlierAnswers() {
     final active = ref.read(activeConversationProvider);
-    if (active == null || (state.lastOrNull?.isStreaming ?? false)) return;
+    if (active == null) return;
+    final tail = state.lastOrNull;
+    final userId = ref.read(currentUserProvider2)?.id;
+    if (tail != null && tail.isStreaming && tail.isWrittenBy(userId)) return;
     unawaited(_finishEarlierAnswersWithoutTask(active));
   }
 

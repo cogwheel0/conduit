@@ -8782,6 +8782,83 @@ void main() {
       check(cut().metadata?[kMessageUnfinishedAnswersMetadataKey]).isNull();
     });
 
+    test('answers cut off before a later prompt are finished while another '
+        'person\'s reply streams at the end', () async {
+      final (:api, :socket, :client, :container) = await openDraft(
+        account: const User(
+          id: 'me',
+          username: 'Me',
+          email: 'me@example.com',
+          role: 'user',
+        ),
+      );
+      // This account's task still runs when the chat opens.
+      api.activeTaskIds = const ['my-task'];
+      Conversation chat(DateTime updatedAt) => _conversation('foreign-tail', [
+        _user('foreign-u0', 'compare these'),
+        ChatMessage(
+          id: 'cut-a',
+          role: 'assistant',
+          content: 'A so far',
+          timestamp: DateTime.utc(2026, 7, 13, 0, 0, 1),
+          model: duplicate.id,
+          metadata: const <String, dynamic>{
+            kMessageModelIdxMetadataKey: 0,
+            kMessageAuthorIdMetadataKey: 'me',
+            kMessageUnfinishedAnswersMetadataKey: ['cut-a', 'cut-b'],
+            kMessageUnfinishedAnswerAuthorsMetadataKey: {
+              'cut-a': 'me',
+              'cut-b': 'me',
+            },
+          },
+        ),
+        _user('foreign-u1', 'and then?'),
+        ChatMessage(
+          id: 'their-reply',
+          role: 'assistant',
+          content: 'theirs so far',
+          timestamp: DateTime.utc(2026, 7, 13, 0, 0, 2),
+          model: duplicate.id,
+          isStreaming: true,
+          metadata: const <String, dynamic>{
+            kMessageAuthorIdMetadataKey: 'someone-else',
+          },
+        ),
+      ], ChatStorageKind.openWebUi).copyWith(updatedAt: updatedAt);
+      ChatMessage cut() => container
+          .read(chatMessagesProvider)
+          .firstWhere((message) => message.id == 'cut-a');
+      final notifier = container.read(chatMessagesProvider.notifier);
+
+      container
+          .read(activeConversationProvider.notifier)
+          .set(chat(DateTime.utc(2026, 7, 13)));
+      await until(() => api.taskListRequests > 0);
+      for (var i = 0; i < 5; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+      // The monitor is held still: what is checked is the chat's next copy.
+      notifier.debugCancelRemoteTaskMonitorTimer();
+      check(cut().metadata?[kMessageUnfinishedAnswersMetadataKey]).isNotNull();
+
+      // This account's task ends; the other person's reply still streams,
+      // under a task this account's list never shows.
+      api.activeTaskIds = const [];
+      final asked = api.taskListRequests;
+      container
+          .read(activeConversationProvider.notifier)
+          .set(chat(DateTime.utc(2026, 7, 14)));
+      await until(() => api.taskListRequests > asked);
+      for (var i = 0; i < 5; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+
+      check(cut().metadata?[kMessageUnfinishedAnswersMetadataKey]).isNull();
+      final tail = container.read(chatMessagesProvider).last;
+      check(tail.id).equals('their-reply');
+      check(tail.isStreaming).isTrue();
+    });
+
     test('the chat\'s tasks are not asked for when only another person\'s '
         'answers show unfinished', () async {
       final (:api, :socket, :client, :container) = await openDraft(
