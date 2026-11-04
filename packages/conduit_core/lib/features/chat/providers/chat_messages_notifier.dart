@@ -3782,6 +3782,9 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
           return;
         }
         if (reconciled) {
+          // The polled answer may carry the server's id by now, which the
+          // stream's binding holds until it is cancelled.
+          final polledRemoteId = _boundRemoteMessageId;
           _cancelMessageStream();
           // The account runs no task in the chat any more: answers a server
           // restart cut off are finished, as on open. Only those the lookup
@@ -3791,6 +3794,8 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
           _finishAnswersWithoutTask(<String>{
             ...answersBeforeLookup,
             ..._answersThisAccountRuns(inMessage: expectedMessageId),
+            if (polledRemoteId != null)
+              ..._answersThisAccountRuns(inMessage: polledRemoteId),
           });
         } else {
           completionNeedsRetry = true;

@@ -2176,6 +2176,58 @@ void main() {
       check(tail.metadata?[kMessageUnfinishedAnswersMetadataKey]).isNull();
     });
 
+    test('a polled answer the final copy names by its server id has its cut '
+        'off answers finished', () async {
+      final timestamp = DateTime.now();
+      final opened = [
+        _userMessage('user-1', 'Compare', timestamp),
+        _assistantMessage(
+          'local-1',
+          'Partial',
+          timestamp,
+        ).copyWith(isStreaming: true),
+      ];
+      final api = _FakeApiService(_conversation('chat-1', opened, timestamp))
+        ..taskIds = const <String>['task-1'];
+      final container = ProviderContainer(
+        overrides: [
+          secureStorageProvider.overrideWithValue(FlutterSecureKeyValueStore()),
+          ...openWebUiStorageOpenOverrides(),
+          activeConversationProvider.overrideWith(
+            () => _TestActiveConversationNotifier(),
+          ),
+          socketServiceProvider.overrideWithValue(null),
+          apiServiceProvider.overrideWithValue(api),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      check(container.read(chatMessagesProvider)).isEmpty();
+      final notifier = container.read(chatMessagesProvider.notifier);
+      container
+          .read(activeConversationProvider.notifier)
+          .set(_conversation('chat-1', opened, timestamp));
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      await _drainRemoteTaskStatusCheck(notifier);
+      // The resumed stream learned the answer's id on the server.
+      notifier.recordResumeBoundRemoteMessageId('local-1', 'server-1');
+
+      api.taskIds = const <String>[];
+      api.conversation = _conversation('chat-1', [
+        opened.first,
+        _assistantMessage('server-1', 'Partial, cut off', timestamp).copyWith(
+          metadata: const <String, dynamic>{
+            kMessageUnfinishedAnswersMetadataKey: ['server-1', 'server-2'],
+          },
+        ),
+      ], timestamp);
+      await notifier.debugSyncRemoteTaskStatus();
+
+      final tail = container.read(chatMessagesProvider).last;
+      check(tail.id).equals('server-1');
+      check(tail.metadata?[kMessageUnfinishedAnswersMetadataKey]).isNull();
+    });
+
     test('a comparison another session started after the poll\'s lookup '
         'keeps running', () async {
       final timestamp = DateTime.now();
