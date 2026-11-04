@@ -210,6 +210,29 @@ void main() {
       });
     });
 
+    test('a file linked only where the server does not read it is added to '
+        'the editor json, once in each form', () {
+      const link = '[F](/api/v1/files/f1/content)';
+      const html = '<p><a href="/api/v1/files/f1/content">F</a></p>';
+      final content = noteContentWithLinkedFiles(
+        <String, dynamic>{
+          'json': <String, dynamic>{'type': 'doc', 'content': <Object>[]},
+          'html': html,
+          'md': link,
+        },
+        <Object>[
+          <String, dynamic>{'type': 'file', 'id': 'f1', 'name': 'F'},
+        ],
+      );
+
+      check(content['md']).equals(link);
+      check(content['html']).equals(html);
+      check(((content['json'] as Map)['content'] as List).single)
+          .isA<Map>()
+          .has((node) => node['type'], 'type')
+          .equals('fileAttachment');
+    });
+
     test('a file the editor json attaches already is not added again', () {
       final original = <String, dynamic>{
         'json': <String, dynamic>{
@@ -235,8 +258,10 @@ void main() {
     });
 
     test('content already linking every file is left alone', () {
+      // Content as Conduit writes it: the markdown is what the server reads.
       final original = <String, dynamic>{
-        'json': <String, dynamic>{'type': 'doc'},
+        'json': null,
+        'html': '',
         'md': '[A](/api/v1/files/a/content)',
       };
       check(
@@ -489,6 +514,26 @@ void main() {
         'f1',
       ]);
       check(md).startsWith('````\n```\ncode\n````');
+    });
+
+    test('a link whose name holds inline code is a link, and can be removed',
+        () {
+      const md = 'see [`report`.pdf](/api/v1/files/f/content) here';
+      check(noteFileLinksInMarkdown(md).map((link) => link.id)).deepEquals([
+        'f',
+      ]);
+      check(removeNoteFileLinks(md, 'f')).equals('see  here');
+    });
+
+    test('an address a code span breaks is no link', () {
+      const md = 'x [a](/api/v1/files/`y`f/content)';
+      check(noteFileLinksInMarkdown(md)).isEmpty();
+      final appended = appendNoteFileLinks(md, [
+        <String, dynamic>{'type': 'file', 'id': 'f', 'name': 'F'},
+      ]);
+      check(noteFileLinksInMarkdown(appended).map((l) => l.id)).deepEquals([
+        'f',
+      ]);
     });
 
     test('removing a file keeps the same link quoted in inline code', () {

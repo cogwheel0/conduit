@@ -348,11 +348,16 @@ Map<String, dynamic> noteContentWithLinkedFiles(
   }
 
   // What the content attaches already, as the server reads it: the editor
-  // JSON's attachment nodes, and the markdown's links.
-  final Set<String> attached = <String>{
-    ..._jsonFileAttachmentIds(json),
-    for (final NoteFileLink link in noteFileLinksInMarkdown(md)) link.id,
-  };
+  // JSON's attachment nodes when it has JSON, else the links of its html, or
+  // of its markdown when the html is empty. A file linked only in a form the
+  // server does not read is added; each form gets it once.
+  final Set<String> attached = json != null
+      ? _jsonFileAttachmentIds(json)
+      : html.isNotEmpty
+      ? _htmlFileLinkIds(html)
+      : <String>{
+          for (final NoteFileLink link in noteFileLinksInMarkdown(md)) link.id,
+        };
   final List<Map<String, dynamic>> added = <Map<String, dynamic>>[
     for (final Map<String, dynamic> file in attachments)
       if (file['id'] case final String id
@@ -367,7 +372,7 @@ Map<String, dynamic> noteContentWithLinkedFiles(
       final String name = rawName is String && rawName.isNotEmpty
           ? rawName
           : id;
-      if (html.isNotEmpty) {
+      if (html.isNotEmpty && !_htmlFileLinkIds(html).contains(id)) {
         const attribute = HtmlEscape(HtmlEscapeMode.attribute);
         const text = HtmlEscape(HtmlEscapeMode.element);
         html +=
@@ -400,6 +405,17 @@ Map<String, dynamic> noteContentWithLinkedFiles(
     'json': json,
   };
 }
+
+/// A link to a file's content in html.
+final RegExp _htmlFileLinkPattern = RegExp(
+  r'''href\s*=\s*["']/api/v1/files/([\w-]+)/content["']''',
+);
+
+/// The ids of the files [html] links.
+Set<String> _htmlFileLinkIds(String html) => <String>{
+  for (final Match match in _htmlFileLinkPattern.allMatches(html))
+    match.group(1)!,
+};
 
 /// The ids of the `fileAttachment` nodes in editor JSON [json].
 Set<String> _jsonFileAttachmentIds(Map<String, dynamic>? json) {
@@ -514,8 +530,7 @@ List<NoteFileLink> noteFileLinksInMarkdown(String markdown) {
   final List<NoteFileLink> links = <NoteFileLink>[];
   for (final (String line, bool fenced) in _linesWithFences(markdown)) {
     if (fenced) continue;
-    final String text = line.replaceAll(_inlineCodePattern, '');
-    for (final RegExpMatch match in _fileLinkPattern.allMatches(text)) {
+    for (final RegExpMatch match in _fileLinksOutsideCode(line)) {
       final String id = match.group(2)!;
       if (!seen.add(id)) continue;
       final String name = match.group(1)!.trim();
@@ -562,19 +577,20 @@ String appendNoteFileLinks(
 /// closes it, or null when it ends outside one.
 String? _openFence(String markdown) => _scanFences(markdown).open;
 
-/// [line] with [replace] applied to the text outside its inline code spans,
-/// whose text is no link and stays as written.
-String _outsideInlineCode(String line, String Function(String) replace) {
-  final StringBuffer out = StringBuffer();
-  var start = 0;
-  for (final Match code in _inlineCodePattern.allMatches(line)) {
-    out
-      ..write(replace(line.substring(start, code.start)))
-      ..write(code.group(0));
-    start = code.end;
-  }
-  out.write(replace(line.substring(start)));
-  return out.toString();
+/// The file links of [line] that are links: one inside an inline code span,
+/// or whose end a code span takes into it, is code. A link's name may hold
+/// a code span; a link whose address a code span breaks is no link at all.
+Iterable<RegExpMatch> _fileLinksOutsideCode(String line) {
+  final List<Match> code = _inlineCodePattern.allMatches(line).toList();
+  return _fileLinkPattern.allMatches(line).where(
+    (RegExpMatch link) => !code.any(
+      (Match span) =>
+          (span.start <= link.start && link.start < span.end) ||
+          (link.start < span.start &&
+              span.start < link.end &&
+              link.end < span.end),
+    ),
+  );
 }
 
 /// [mine] with the file links [stored] gained since [base], the stored
@@ -608,13 +624,15 @@ String removeNoteFileLinks(String markdown, String id) {
       kept.add(line);
       continue;
     }
-    final String stripped = _outsideInlineCode(
-      line,
-      (String text) => text.replaceAllMapped(
-        _fileLinkPattern,
-        (Match match) => match.group(2) == id ? '' : match.group(0)!,
-      ),
-    );
+    final StringBuffer out = StringBuffer();
+    var start = 0;
+    for (final RegExpMatch match in _fileLinksOutsideCode(line)) {
+      if (match.group(2) != id) continue;
+      out.write(line.substring(start, match.start));
+      start = match.end;
+    }
+    out.write(line.substring(start));
+    final String stripped = out.toString();
     if (stripped.trim().isNotEmpty || line.trim().isEmpty) {
       kept.add(stripped);
       continue;
