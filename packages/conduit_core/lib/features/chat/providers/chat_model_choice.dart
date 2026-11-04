@@ -123,12 +123,22 @@ final chatModelSaveQueueProvider = NotifierProvider<ChatModelSaveQueue, void>(
 );
 
 /// A model list waiting to be saved: by the account that picked it, sent
-/// with that account's credentials.
+/// with that account's credentials; after a failed send, again once
+/// [retryAt] has come, [tries] sends made.
 typedef _PendingModels = ({
   List<String> models,
   Object account,
   ApiAuthSnapshot? auth,
+  int tries,
+  DateTime? retryAt,
 });
+
+/// How long a model list waits after each failed send before the next; it
+/// is sent at most once more than there are waits.
+const List<Duration> _modelSaveRetryWaits = <Duration>[
+  Duration(seconds: 1),
+  Duration(seconds: 4),
+];
 
 class ChatModelSaveQueue extends Notifier<void> {
   final Map<String, _PendingModels> _pending = <String, _PendingModels>{};
@@ -152,6 +162,8 @@ class ChatModelSaveQueue extends Notifier<void> {
       models: models,
       account: account,
       auth: ref.read(apiServiceProvider)?.captureAuthSnapshot(),
+      tries: 0,
+      retryAt: null,
     );
     unawaited(_store(chatId, models, account));
     return _running ??= _drain().whenComplete(() => _running = null);
@@ -181,9 +193,16 @@ class ChatModelSaveQueue extends Notifier<void> {
       // A list another account picked is dropped.
       final account = _account();
       _pending.removeWhere((_, pending) => pending.account != account);
-      // A chat whose reply still runs waits; the others' lists go first.
-      final chatId = _pending.keys
-          .where((id) => !_streamingIn(id))
+      // A chat whose reply still runs waits, as does a list waiting to be
+      // sent again; the others' lists go first.
+      final now = DateTime.now();
+      final chatId = _pending.entries
+          .where(
+            (entry) =>
+                !_streamingIn(entry.key) &&
+                !(entry.value.retryAt?.isAfter(now) ?? false),
+          )
+          .map((entry) => entry.key)
           .firstOrNull;
       if (chatId == null) {
         if (_pending.isEmpty) return;
@@ -195,7 +214,7 @@ class ChatModelSaveQueue extends Notifier<void> {
         continue; // A newer list may have come in meanwhile.
       }
       final queued = _pending.remove(chatId)!;
-      final (:models, account: _, :auth) = queued;
+      final (:models, account: _, :auth, :tries, retryAt: _) = queued;
       final api = ref.read(apiServiceProvider);
       if (api == null) continue;
       var sent = false;
@@ -219,6 +238,21 @@ class ChatModelSaveQueue extends Notifier<void> {
         });
       } catch (error) {
         _logFailure(chatId, error);
+        // A pull may put the old list back before a later push of the chat
+        // sends this one: it is sent again after a wait, a few times, unless
+        // a newer list for the chat came in meanwhile.
+        if (tries < _modelSaveRetryWaits.length) {
+          _pending.putIfAbsent(
+            chatId,
+            () => (
+              models: models,
+              account: account,
+              auth: auth,
+              tries: tries + 1,
+              retryAt: DateTime.now().add(_modelSaveRetryWaits[tries]),
+            ),
+          );
+        }
         continue;
       }
       if (replyStarted) {

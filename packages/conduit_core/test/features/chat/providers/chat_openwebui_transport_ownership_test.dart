@@ -6773,6 +6773,21 @@ void main() {
       ]);
     });
 
+    test('a model list the server did not take is sent again', () async {
+      const other = Model(id: 'model-2', name: 'Model 2');
+      final (:api, :socket, :container) = await open(
+        available: const [duplicate, other],
+      );
+      api.failModelSaves = 1;
+
+      await saveChatModelChoice(container, other);
+
+      check(api.savedModels.map((saved) => saved.$2)).deepEquals([
+        ['model-2'],
+        ['model-2'],
+      ]);
+    });
+
     test('a model pick is forgotten when another sign-in begins', () async {
       const other = Model(id: 'model-2', name: 'Model 2');
       final (:api, :socket, :container) = await open(
@@ -9432,6 +9447,9 @@ class _FanOutApi extends ApiService implements _AssistantIdSource {
   /// While set, a model list save is answered only once this completes.
   Completer<void>? holdModelSave;
 
+  /// How many model list saves fail, from the next one on.
+  int failModelSaves = 0;
+
   @override
   Future<void> updateConversation(
     String id, {
@@ -9442,6 +9460,10 @@ class _FanOutApi extends ApiService implements _AssistantIdSource {
   }) async {
     savedModels.add((id, models));
     await holdModelSave?.future;
+    if (failModelSaves > 0) {
+      failModelSaves--;
+      throw StateError('offline');
+    }
   }
   final List<String> stoppedChats = [];
   bool answerSynchronously = false;
