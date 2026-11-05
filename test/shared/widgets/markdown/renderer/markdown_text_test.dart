@@ -92,6 +92,15 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
+      expect(
+        find.descendant(
+          of: find.byKey(adapted),
+          matching: find.byWidgetPredicate(
+            (widget) => widget is SelectionContainer && widget.child is Text,
+          ),
+        ),
+        findsOneWidget,
+      );
       final actual = _paragraph(tester, adapted);
       final reference = _paragraph(tester, stock);
       expect(actual.text, reference.text);
@@ -188,7 +197,7 @@ void main() {
     });
   }
 
-  testWidgets('leaves Android selection boxes unchanged', (tester) async {
+  testWidgets('uses stock text selection on Android', (tester) async {
     PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.android;
     const scope = ValueKey('text');
     await tester.pumpWidget(
@@ -200,6 +209,14 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    expect(_paragraph(tester, scope).runtimeType, RenderParagraph);
+    expect(
+      find.descendant(
+        of: find.byType(MarkdownText),
+        matching: find.byWidgetPredicate(
+          (widget) => widget is SelectionContainer && widget.child is Text,
+        ),
+      ),
+      findsNothing,
+    );
   });
 }
