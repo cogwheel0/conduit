@@ -15,6 +15,7 @@ import 'details_group_widget.dart';
 import 'inline_renderer.dart';
 import 'latex_preprocessor.dart';
 import 'markdown_style.dart';
+import 'markdown_text.dart';
 import 'pdf_inline_view.dart';
 
 /// Signature for a builder that creates image widgets.
@@ -104,7 +105,9 @@ class BlockRenderer {
   }) {
     final fade = streamingFade;
     if (fade == null) {
-      return Text.rich(inlineRenderer.render(nodes, parentStyle: parentStyle));
+      return MarkdownText(
+        inlineRenderer.render(nodes, parentStyle: parentStyle),
+      );
     }
     final rendered = inlineRenderer.renderWithRanges(
       nodes,
@@ -667,7 +670,7 @@ class BlockRenderer {
         top: style.headingTopSpacing,
         bottom: style.headingBottomSpacing,
       ),
-      child: Text.rich(span),
+      child: MarkdownText(span),
     );
   }
 
@@ -1209,7 +1212,7 @@ class BlockRenderer {
         columns.add(
           DataColumn(
             label: children.isNotEmpty
-                ? Text.rich(
+                ? MarkdownText(
                     inlineRenderer.render(
                       children,
                       parentStyle: style.tableHeader,
@@ -1231,7 +1234,7 @@ class BlockRenderer {
       cells.add(
         DataCell(
           children.isNotEmpty
-              ? Text.rich(
+              ? MarkdownText(
                   inlineRenderer.render(children, parentStyle: style.tableCell),
                 )
               : Text(cell.textContent, style: style.tableCell),
@@ -1646,7 +1649,7 @@ class BlockRenderer {
     }
     final text = element.textContent.trim();
     if (text.isEmpty) return null;
-    return Text.rich(inlineRenderer.render([element]));
+    return MarkdownText(inlineRenderer.render([element]));
   }
 }
 

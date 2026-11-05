@@ -20,6 +20,7 @@ import 'package:conduit/shared/widgets/markdown/markdown_compile_service.dart';
 import 'package:conduit/shared/widgets/markdown/markdown_display_part.dart';
 import 'package:conduit/shared/widgets/markdown/markdown_loading_skeleton.dart';
 import 'package:conduit/shared/widgets/markdown/renderer/conduit_markdown_widget.dart';
+import 'package:conduit/shared/widgets/markdown/renderer/markdown_text.dart';
 import 'package:conduit_core/utils/streaming_markdown_preparation.dart';
 import 'package:conduit/shared/widgets/markdown/streaming_markdown_widget.dart';
 import 'package:conduit/shared/widgets/themed_sheets.dart';
@@ -1478,10 +1479,10 @@ graph TD
         find.ancestor(of: find.text('•'), matching: find.byType(Row)),
       );
       final expanded = row.children.last as Expanded;
-      final textWidget = expanded.child as Text;
+      final textWidget = expanded.child as MarkdownText;
 
       expect(
-        textWidget.textSpan?.toPlainText(),
+        textWidget.span.toPlainText(),
         'First paragraph. Second paragraph.',
       );
     },
@@ -1558,11 +1559,10 @@ graph TD
     final paragraphPaddings = tester
         .widgetList<Padding>(
           find.byWidgetPredicate((widget) {
-            if (widget is! Padding || widget.child is! Text) {
+            if (widget is! Padding || widget.child is! MarkdownText) {
               return false;
             }
-            final text = widget.child as Text;
-            final plainText = text.textSpan?.toPlainText() ?? text.data;
+            final plainText = (widget.child as MarkdownText).span.toPlainText();
             return plainText == 'First' || plainText == 'Second';
           }),
         )
@@ -1583,11 +1583,11 @@ graph TD
         final paragraphPaddings = tester
             .widgetList<Padding>(
               find.byWidgetPredicate((widget) {
-                if (widget is! Padding || widget.child is! Text) {
+                if (widget is! Padding || widget.child is! MarkdownText) {
                   return false;
                 }
-                final text = widget.child as Text;
-                final plainText = text.textSpan?.toPlainText() ?? text.data;
+                final plainText = (widget.child as MarkdownText).span
+                    .toPlainText();
                 return plainText == 'First' || plainText == 'Second';
               }),
             )
