@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:checks/checks.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -11,6 +13,76 @@ import 'package:conduit_core/services/settings_service.dart';
 import 'package:conduit/platform/flutter_key_value_store.dart';
 
 void main() {
+  group('Sliding sidebar preference', () {
+    setUp(() async {
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+      PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
+    });
+    tearDown(PreferencesStore.debugReset);
+
+    test('defaults off and survives a new settings provider', () async {
+      check(const AppSettings().slidingSidebarEnabled).isFalse();
+      check(await SettingsService.getSlidingSidebarEnabled()).isFalse();
+      final first = ProviderContainer();
+      await first
+          .read(appSettingsProvider.notifier)
+          .setSlidingSidebarEnabled(true);
+      first.dispose();
+      final reopened = ProviderContainer();
+      addTearDown(reopened.dispose);
+      check(reopened.read(appSettingsProvider).slidingSidebarEnabled).isTrue();
+      await reopened
+          .read(appSettingsProvider.notifier)
+          .setSlidingSidebarEnabled(false);
+      check(await SettingsService.getSlidingSidebarEnabled()).isFalse();
+    });
+
+    test('a delayed bulk save cannot undo a newer sidebar toggle', () async {
+      final entered = Completer<void>();
+      final release = Completer<void>();
+      var held = false;
+      PreferencesStore.debugOverride(
+        PreferencesStore.instance,
+        writeInterceptor: (_, key, value) async {
+          if (key == PreferenceKeys.reduceMotion && !held) {
+            held = true;
+            entered.complete();
+            await release.future;
+          }
+          return null;
+        },
+      );
+      final bulk = SettingsService.saveSettings(const AppSettings());
+      await entered.future;
+      await SettingsService.setSlidingSidebarEnabled(true);
+      release.complete();
+      await bulk;
+      check(await SettingsService.getSlidingSidebarEnabled()).isTrue();
+      final reopened = ProviderContainer();
+      addTearDown(reopened.dispose);
+      check(reopened.read(appSettingsProvider).slidingSidebarEnabled).isTrue();
+    });
+
+    test('reset restores the default sidebar after opting in', () async {
+      final container = ProviderContainer();
+      addTearDown(container.dispose);
+      await container
+          .read(appSettingsProvider.notifier)
+          .setSlidingSidebarEnabled(true);
+      await container.read(appSettingsProvider.notifier).resetToDefaults();
+      check(container.read(appSettingsProvider).slidingSidebarEnabled)
+          .isFalse();
+      check(await SettingsService.getSlidingSidebarEnabled()).isFalse();
+    });
+
+    test('copy and equality retain the preference', () {
+      final enabled = const AppSettings().copyWith(slidingSidebarEnabled: true);
+      check(enabled == const AppSettings()).isFalse();
+      check(enabled.copyWith().slidingSidebarEnabled).isTrue();
+      check(enabled == enabled.copyWith()).isTrue();
+    });
+  });
+
   group('AppSettings', () {
     group('default constructor values', () {
       const settings = AppSettings();

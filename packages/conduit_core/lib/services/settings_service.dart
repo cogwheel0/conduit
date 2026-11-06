@@ -230,6 +230,16 @@ class SettingsService {
     return _putPreference(_highContrastKey, value);
   }
 
+  /// Whether the optional sliding sidebar replaces the tabbed layout.
+  static Future<bool> getSlidingSidebarEnabled() {
+    return Future.value(
+      _getPreference<bool>(PreferenceKeys.slidingSidebarEnabled) ?? false,
+    );
+  }
+
+  static Future<void> setSlidingSidebarEnabled(bool value) =>
+      _putPreference(PreferenceKeys.slidingSidebarEnabled, value);
+
   /// Get dark mode preference
   static Future<bool> getDarkMode() {
     final value = _getPreference<bool>(_darkModeKey);
@@ -283,6 +293,7 @@ class SettingsService {
   /// Save all settings
   static Future<void> saveSettings(AppSettings settings) async {
     if (!PreferencesStore.isReady) return;
+    // The layout has its own setter so stale bulk snapshots cannot undo it.
     final updates = <String, Object?>{
       _reduceMotionKey: settings.reduceMotion,
       _animationSpeedKey: settings.animationSpeed,
@@ -740,6 +751,8 @@ class SettingsService {
       showComposerNotesButton:
           get<bool>(PreferenceKeys.showComposerNotesButton) ?? true,
       darkMode: get<bool>(_darkModeKey) ?? true,
+      slidingSidebarEnabled:
+          get<bool>(PreferenceKeys.slidingSidebarEnabled) ?? false,
       defaultModel: get<String>(_defaultModelKey),
       openRouterImageGenerationModel: get<String>(
         _openRouterImageGenerationModelKey,
@@ -869,6 +882,7 @@ class AppSettings {
   final bool highContrast;
   final bool showComposerNotesButton;
   final bool darkMode;
+  final bool slidingSidebarEnabled;
   final String? defaultModel;
   final String? openRouterImageGenerationModel;
   final String? voiceLocaleId;
@@ -926,6 +940,7 @@ class AppSettings {
     this.highContrast = false,
     this.showComposerNotesButton = true,
     this.darkMode = true,
+    this.slidingSidebarEnabled = false,
     this.defaultModel,
     this.openRouterImageGenerationModel,
     this.voiceLocaleId,
@@ -976,6 +991,7 @@ class AppSettings {
     bool? highContrast,
     bool? showComposerNotesButton,
     bool? darkMode,
+    bool? slidingSidebarEnabled,
     Object? defaultModel = const _DefaultValue(),
     Object? openRouterImageGenerationModel = const _DefaultValue(),
     Object? voiceLocaleId = const _DefaultValue(),
@@ -1027,6 +1043,8 @@ class AppSettings {
       showComposerNotesButton:
           showComposerNotesButton ?? this.showComposerNotesButton,
       darkMode: darkMode ?? this.darkMode,
+      slidingSidebarEnabled:
+          slidingSidebarEnabled ?? this.slidingSidebarEnabled,
       defaultModel: defaultModel is _DefaultValue
           ? this.defaultModel
           : defaultModel as String?,
@@ -1110,6 +1128,7 @@ class AppSettings {
         other.highContrast == highContrast &&
         other.showComposerNotesButton == showComposerNotesButton &&
         other.darkMode == darkMode &&
+        other.slidingSidebarEnabled == slidingSidebarEnabled &&
         other.defaultModel == defaultModel &&
         other.openRouterImageGenerationModel ==
             openRouterImageGenerationModel &&
@@ -1163,6 +1182,7 @@ class AppSettings {
       highContrast,
       showComposerNotesButton,
       darkMode,
+      slidingSidebarEnabled,
       defaultModel,
       openRouterImageGenerationModel,
       voiceLocaleId,
@@ -1390,6 +1410,12 @@ class AppSettingsNotifier extends _$AppSettingsNotifier {
   Future<void> setHighContrast(bool value) async {
     state = state.copyWith(highContrast: value);
     await SettingsService.setHighContrast(value);
+  }
+
+  Future<void> setSlidingSidebarEnabled(bool value) async {
+    if (!await _awaitHydration()) return;
+    state = state.copyWith(slidingSidebarEnabled: value);
+    await SettingsService.setSlidingSidebarEnabled(value);
   }
 
   Future<void> setDarkMode(bool value) async {
@@ -1683,6 +1709,9 @@ class AppSettingsNotifier extends _$AppSettingsNotifier {
       null,
     );
     await SettingsService.saveSettings(defaultSettings);
+    await SettingsService.setSlidingSidebarEnabled(
+      defaultSettings.slidingSidebarEnabled,
+    );
     // Written only by its own setter, so the bulk save leaves it.
     await SettingsService._putOrRemove(
       PreferenceKeys.directVoiceProvider,

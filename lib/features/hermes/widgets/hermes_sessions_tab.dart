@@ -104,9 +104,12 @@ class _HermesSessionsTabState extends ConsumerState<HermesSessionsTab>
     );
     return Material(
       type: MaterialType.transparency,
-      child: context.usesCupertinoChrome
-          ? CupertinoScrollbar(controller: _scrollController, child: primary)
-          : Scrollbar(controller: _scrollController, child: primary),
+      child: SidebarTabScrollbar(
+        builder: (child) => context.usesCupertinoChrome
+            ? CupertinoScrollbar(controller: _scrollController, child: child)
+            : Scrollbar(controller: _scrollController, child: child),
+        child: primary,
+      ),
     );
   }
 

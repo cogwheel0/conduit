@@ -34,6 +34,7 @@ import UserNotifications
     guard sharedFlutterEngine == nil else { return }
 
     GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
+    registerPlatformViews(with: engineBridge.pluginRegistry)
     attachBridges(messenger: engineBridge.applicationRegistrar.messenger())
   }
 
@@ -83,8 +84,20 @@ import UserNotifications
     guard !didConfigureSharedFlutterEngine else { return }
 
     GeneratedPluginRegistrant.register(with: engine)
+    registerPlatformViews(with: engine)
     attachBridges(messenger: engine.binaryMessenger)
     didConfigureSharedFlutterEngine = true
+  }
+
+  /// Native views Flutter embeds by view type.
+  private func registerPlatformViews(with registry: FlutterPluginRegistry) {
+    guard let registrar = registry.registrar(forPlugin: "ConduitFloatingTabBar") else {
+      return
+    }
+    registrar.register(
+      FloatingTabBarViewFactory(messenger: registrar.messenger()),
+      withId: FloatingTabBarViewFactory.viewType
+    )
   }
 
   private func attachBridges(messenger: FlutterBinaryMessenger) {

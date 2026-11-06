@@ -50,4 +50,6 @@ export 'src/adaptive_value_segmented_control.dart';
 
 export 'src/adaptive_floating_action_button.dart';
 
+export 'src/adaptive_floating_tab_bar.dart';
+
 export 'src/adaptive_text_selection_menu.dart';

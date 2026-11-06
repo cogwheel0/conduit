@@ -563,7 +563,11 @@ class _ModelGroup extends ConsumerWidget {
               if (onPick != null) {
                 onPick(model);
               } else {
-                applyChatModelPick(ref, model, target: pickTarget);
+                // An explicit choice, which a late default or New Chat must
+                // not replace.
+                if (applyChatModelPick(ref, model, target: pickTarget)) {
+                  ref.read(isManualModelSelectionProvider.notifier).set(true);
+                }
               }
               Navigator.of(context).pop();
             },

@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:ui' show Tristate;
 
-import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:checks/checks.dart';
 import 'package:conduit_core/database/database_provider.dart';
 import 'package:conduit_core/providers/app_providers.dart';
@@ -13,8 +12,10 @@ import 'package:conduit_core/models/folder.dart';
 import 'package:conduit_core/models/model.dart';
 import 'package:conduit_core/models/note.dart';
 import 'package:conduit_core/models/user.dart';
+import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit/shared/services/navigation_service.dart';
 import 'package:conduit_core/services/api_service.dart';
+import 'package:conduit_core/services/connectivity_service.dart';
 import 'package:conduit_core/services/optimized_storage_service.dart';
 import 'package:conduit_core/services/settings_service.dart';
 import 'package:conduit_core/sync/sync_engine.dart';
@@ -25,8 +26,11 @@ import 'package:conduit/features/navigation/providers/sidebar_providers.dart';
 import 'package:conduit_core/features/navigation/models/sidebar_navigation_model.dart';
 import 'package:conduit/features/navigation/widgets/chats_drawer.dart';
 import 'package:conduit/features/navigation/widgets/drawer_shell_page.dart';
+import 'package:conduit/features/navigation/widgets/responsive_drawer_layout.dart';
 import 'package:conduit_core/features/navigation/providers/drawer_section_notifiers.dart';
 import 'package:conduit/features/navigation/widgets/sidebar_page.dart';
+import 'package:conduit/features/navigation/widgets/sidebar_destination_page.dart';
+import 'package:conduit/features/navigation/widgets/sidebar_tab_registry.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 import 'package:conduit_core/features/hermes/models/hermes_job.dart';
 import 'package:conduit/features/notes/widgets/notes_list_tab.dart';
@@ -46,31 +50,48 @@ import 'package:mocktail/mocktail.dart';
 
 import 'package:conduit_core/testing.dart';
 
-/// Label within [NavigationBar] built by Conduit platform UI from
-/// [AdaptiveBottomNavigationBar.items].
-Finder sidebarTestBottomNavTabLabel(String label) =>
-    find.descendant(of: find.byType(NavigationBar), matching: find.text(label));
+/// Label in the sidebar destination list, or a backend's icon-only tab.
+Finder sidebarTestDestinationLabel(String label) =>
+    label == 'Hermes' || label == 'Open WebUI'
+    ? sidebarTestBackendTab(label)
+    : find.descendant(
+        of: find.byKey(const ValueKey<String>('sidebar-destinations')),
+        matching: find.text(label),
+      );
+
+/// A backend's icon-only tab in the sliding sidebar's bottom bar.
+Finder sidebarTestBackendTab(String label) => find.descendant(
+  of: find.byKey(const ValueKey<String>('sidebar-backend-tabs')),
+  matching: sidebarTestTooltip(label),
+);
+
+/// A Material control's tooltip, which also labels icon-only controls.
+Finder sidebarTestTooltip(String message) => find.byWidgetPredicate(
+  (widget) => widget is Tooltip && widget.message == message,
+);
+
+/// The tabbed layout's destination bar, as opposed to the sliding sidebar's
+/// backend tabs.
+Finder sidebarTestTabbedNavigationBar() => find.byElementPredicate((element) {
+  if (element.widget is! NavigationBar) return false;
+  var inBackendTabs = false;
+  element.visitAncestorElements((ancestor) {
+    inBackendTabs =
+        ancestor.widget.key == const ValueKey<String>('sidebar-backend-tabs');
+    return !inBackendTabs;
+  });
+  return !inBackendTabs;
+});
 
 enum SidebarTestSidebarTabLayer { chats, terminal, notes, channels }
 
 Finder sidebarTestLayerRootFinder(SidebarTestSidebarTabLayer layer) =>
-    find.byKey(ValueKey<String>('sidebar-tab-layer-${layer.name}'));
-
-Finder sidebarTestLayerOpacityFinder(SidebarTestSidebarTabLayer layer) {
-  final childType = switch (layer) {
-    SidebarTestSidebarTabLayer.chats => ChatsDrawer,
-    SidebarTestSidebarTabLayer.terminal => TerminalTab,
-    SidebarTestSidebarTabLayer.notes => NotesListTab,
-    SidebarTestSidebarTabLayer.channels => ChannelListTab,
-  };
-
-  return find.descendant(
-    of: sidebarTestLayerRootFinder(layer),
-    matching: find.byWidgetPredicate(
-      (widget) => widget is Opacity && widget.child.runtimeType == childType,
-    ),
-  );
-}
+    switch (layer) {
+      SidebarTestSidebarTabLayer.chats => find.byType(ChatsDrawer),
+      SidebarTestSidebarTabLayer.notes => find.byType(NotesListTab),
+      SidebarTestSidebarTabLayer.channels => find.byType(ChannelListTab),
+      SidebarTestSidebarTabLayer.terminal => find.byType(TerminalTab),
+    };
 
 Finder sidebarTestCheckEmptyStateRefreshButtonBelow(
   WidgetTester tester, {
@@ -127,10 +148,20 @@ Widget sidebarTestBuildHarness({
   bool showArchived = false,
   List<Folder> folders = const [],
   List<TerminalServerInfo>? terminalServers,
+  Future<List<TerminalServerInfo>> Function()? loadTerminalServers,
   Object? terminalServersError,
   AppSettings settings = const AppSettings(),
+  List<Model> models = const [],
+  Future<List<Model>>? pendingModels,
+  Object? modelsError,
+  Model? cachedDefaultModel,
+  Future<String?> Function()? loadServerDefaultModel,
+  ServerConfig? apiServerConfig,
+  AppSettingsNotifier? settingsNotifier,
+  bool slidingSidebarEnabled = true,
   bool hermesOnly = false,
   bool hermesEnabled = false,
+  bool directPreferred = false,
   List<HermesJob> hermesJobs = const [],
   Map<String, Conversation> loadedConversations = const {},
   Map<String, Future<Conversation>> pendingLoadedConversations = const {},
@@ -147,43 +178,78 @@ Widget sidebarTestBuildHarness({
   // Builds the app's shell around [shellChat] instead, with the sidebar as
   // its drawer.
   Widget? shellChat,
+  Widget? appearancePage,
+  Widget? noteEditor,
+  String? initialLocation,
 }) {
   final availableTerminalServers =
       terminalServers ?? sidebarTestDefaultTerminalServers();
   final router = GoRouter(
-    initialLocation: '/chat',
+    initialLocation:
+        initialLocation ??
+        sidebarTabDescriptor(controllers.activeTabNotifier.initialValue)
+            .location,
     routes: [
-      if (shellChat != null)
-        ShellRoute(
-          builder: (context, state, child) => DrawerShellPage(child: child),
-          routes: [
-            GoRoute(
-              path: '/chat',
-              name: RouteNames.chat,
-              builder: (context, state) => shellChat,
-            ),
-          ],
-        )
-      else
+      if (appearancePage != null)
         GoRoute(
-          path: '/chat',
-          name: RouteNames.chat,
-          builder: (context, state) => const Scaffold(body: SidebarPage()),
+          path: Routes.appearanceSettings,
+          builder: (_, _) => appearancePage,
         ),
-      GoRoute(
-        path: '/folder/:id',
-        name: RouteNames.folder,
-        builder: (context, state) => const Scaffold(body: SidebarPage()),
-      ),
-      GoRoute(
-        path: '/notes/:id',
-        name: RouteNames.noteEditor,
-        builder: (context, state) => const Scaffold(body: SidebarPage()),
-      ),
-      GoRoute(
-        path: '/channel/:id',
-        name: RouteNames.channel,
-        builder: (context, state) => const Scaffold(body: SidebarPage()),
+      StatefulShellRoute.indexedStack(
+        builder: (context, state, navigationShell) {
+          final content = SidebarDestinationScope(
+            destination: sidebarTabRegistry[navigationShell.currentIndex].id,
+            child: navigationShell,
+          );
+          return shellChat != null || navigationShell.currentIndex != 0
+              ? DrawerShellPage(child: content)
+              : content;
+        },
+        branches: [
+          StatefulShellBranch(
+            routes: [
+              GoRoute(
+                path: '/chat',
+                name: RouteNames.chat,
+                builder: (context, state) =>
+                    shellChat ?? const Scaffold(body: SidebarPage()),
+              ),
+              GoRoute(
+                path: Routes.folder,
+                name: RouteNames.folder,
+                builder: (context, state) =>
+                    const Scaffold(body: SidebarPage()),
+              ),
+              GoRoute(
+                path: Routes.noteEditor,
+                name: RouteNames.noteEditor,
+                builder: (context, state) =>
+                    noteEditor ?? const Scaffold(body: SidebarPage()),
+              ),
+              GoRoute(
+                path: Routes.channel,
+                name: RouteNames.channel,
+                builder: (context, state) =>
+                    const Scaffold(body: SidebarPage()),
+              ),
+            ],
+          ),
+          for (final tab in sidebarTabRegistry.where(
+            (tab) => tab.id != SidebarTabId.chats,
+          ))
+            StatefulShellBranch(
+              routes: [
+                GoRoute(
+                  path: tab.location,
+                  name: tab.id == SidebarTabId.hermes
+                      ? RouteNames.hermesSessions
+                      : tab.id.name,
+                  builder: (context, state) =>
+                      SidebarDestinationPage(destination: tab.id),
+                ),
+              ],
+            ),
+        ],
       ),
     ],
   );
@@ -192,6 +258,8 @@ Widget sidebarTestBuildHarness({
   return ProviderScope(
     overrides: [
       ...openWebUiStorageOpenOverrides(open: openWebUiStorageOpen),
+      if (noteEditor != null)
+        connectivityStatusProvider.overrideWithValue(ConnectivityStatus.online),
       if (syncStatus != null)
         syncEngineProvider.overrideWith(
           () => SidebarTestFixedSyncEngine(syncStatus),
@@ -202,10 +270,20 @@ Widget sidebarTestBuildHarness({
         SidebarTestNoopOpenWebUiAccountStorageIsolation.new,
       ),
       // ignore: scoped_providers_should_specify_dependencies
-      appSettingsProvider.overrideWithValue(settings),
+      if (settingsNotifier != null)
+        appSettingsProvider.overrideWith(() => settingsNotifier)
+      else
+        appSettingsProvider.overrideWithValue(
+          settings.copyWith(slidingSidebarEnabled: slidingSidebarEnabled),
+        ),
       // ignore: scoped_providers_should_specify_dependencies
       apiServiceProvider.overrideWithValue(
-        hasApiService ? SidebarTestSidebarApiService() : null,
+        hasApiService
+            ? SidebarTestSidebarApiService(
+                loadServerDefaultModel: loadServerDefaultModel,
+                serverConfig: apiServerConfig,
+              )
+            : null,
       ),
       // The production auth provider is deliberately incomplete in this
       // narrow harness; keep its account-generation boundary deterministic.
@@ -245,7 +323,9 @@ Widget sidebarTestBuildHarness({
       for (final entry in pendingLoadedConversations.entries)
         loadConversationProvider(entry.key).overrideWith((ref) => entry.value),
       // ignore: scoped_providers_should_specify_dependencies
-      modelsProvider.overrideWith(SidebarTestTestModels.new),
+      modelsProvider.overrideWith(
+        () => SidebarTestTestModels(models, pendingModels, modelsError),
+      ),
       // ignore: scoped_providers_should_specify_dependencies
       foldersProvider.overrideWith(
         () => SidebarTestTestFolders(
@@ -266,7 +346,7 @@ Widget sidebarTestBuildHarness({
       ),
       // ignore: scoped_providers_should_specify_dependencies
       optimizedStorageServiceProvider.overrideWithValue(
-        SidebarTestFakeOptimizedStorageService(),
+        SidebarTestFakeOptimizedStorageService(cachedDefaultModel),
       ),
       // ignore: scoped_providers_should_specify_dependencies
       showPinnedProvider.overrideWith(
@@ -290,6 +370,10 @@ Widget sidebarTestBuildHarness({
       // ignore: scoped_providers_should_specify_dependencies
       reviewerModeProvider.overrideWithValue(false),
       hermesOnlyModeProvider.overrideWithValue(hermesOnly),
+      if (directPreferred)
+        preferredBackendProvider.overrideWith(
+          SidebarTestDirectPreferredBackendController.new,
+        ),
       hermesEnabledProvider.overrideWithValue(hermesEnabled),
       hermesApiServiceProvider.overrideWithValue(null),
       terminalServiceProvider.overrideWithValue(null),
@@ -304,11 +388,12 @@ Widget sidebarTestBuildHarness({
       ),
       // ignore: scoped_providers_should_specify_dependencies
       terminalAvailableServersProvider.overrideWith((ref) async {
+        ref.watch(terminalSessionScopeIdProvider);
         final error = terminalServersError;
         if (error != null) {
           throw error;
         }
-        return availableTerminalServers;
+        return loadTerminalServers?.call() ?? availableTerminalServers;
       }),
     ],
     child: MaterialApp.router(
@@ -333,6 +418,24 @@ Widget sidebarTestBuildHarness({
 }
 
 final class SidebarTestSidebarApiService extends Mock implements ApiService {
+  SidebarTestSidebarApiService({
+    this.loadServerDefaultModel,
+    ServerConfig? serverConfig,
+  }) : _serverConfig = serverConfig;
+
+  final Future<String?> Function()? loadServerDefaultModel;
+  final ServerConfig? _serverConfig;
+
+  /// Left unset like other lightweight fakes unless a test builds the chat
+  /// transcript, which reads it.
+  @override
+  ServerConfig get serverConfig => _serverConfig ?? super.noSuchMethod(
+    Invocation.getter(#serverConfig),
+  ) as ServerConfig;
+
+  @override
+  Future<String?> getDefaultModel() async => loadServerDefaultModel?.call();
+
   @override
   Future<List<Conversation>> searchConversations(String query) async =>
       const <Conversation>[];
@@ -742,8 +845,17 @@ class SidebarTestTestArchivedConversationPagination {
 }
 
 class SidebarTestTestModels extends Models {
+  SidebarTestTestModels([this.models = const [], this.pending, this.error]);
+
+  final List<Model> models;
+  final Future<List<Model>>? pending;
+
+  /// Fails the load with this error.
+  final Object? error;
+
   @override
-  Future<List<Model>> build() async => const [];
+  Future<List<Model>> build() =>
+      error == null ? pending ?? Future.value(models) : Future.error(error!);
 }
 
 class SidebarTestTestFolders extends Folders {
@@ -787,6 +899,13 @@ class SidebarTestTestChannelsList extends ChannelsList {
 
 class SidebarTestFakeOptimizedStorageService extends Fake
     implements OptimizedStorageService {
+  SidebarTestFakeOptimizedStorageService([this.defaultModel]);
+
+  final Model? defaultModel;
+
+  @override
+  Future<Model?> getLocalDefaultModel() async => defaultModel;
+
   @override
   Future<void> saveLocalDefaultModel(Model? model) async {}
 }
@@ -831,4 +950,41 @@ class SidebarTestTestShowArchivedNotifier extends ShowArchivedNotifier {
 
   @override
   bool build() => initialValue;
+}
+
+Future<void> sidebarTestSelectDestination(
+  WidgetTester tester,
+  String label,
+) async {
+  if (label == 'Hermes' || label == 'Open WebUI') {
+    await tester.tap(sidebarTestBackendTab(label));
+    await tester.pumpAndSettle();
+    return;
+  }
+  if (sidebarTestDestinationLabel(label).hitTestable().evaluate().isEmpty) {
+    await sidebarTestOpenSidebar(tester);
+  }
+  await tester.ensureVisible(sidebarTestDestinationLabel(label));
+  await tester.tap(sidebarTestDestinationLabel(label));
+  await tester.pumpAndSettle();
+}
+
+/// Opens the sidebar the way an edge swipe does. Pages the sliding sidebar
+/// opens lead with back instead of a menu button. A harness without the
+/// drawer shows the sidebar throughout.
+Future<void> sidebarTestOpenSidebar(WidgetTester tester) async {
+  final layout = find.byType(ResponsiveDrawerLayout);
+  if (layout.evaluate().isEmpty) return;
+  final drawer = tester.state<ResponsiveDrawerLayoutState>(layout);
+  if (drawer.isOpen) return;
+  drawer.open();
+  await tester.pumpAndSettle();
+}
+
+/// Taps the back button of a page the sliding sidebar opened.
+Future<void> sidebarTestGoBack(WidgetTester tester) async {
+  await tester.tap(
+    find.byKey(const ValueKey<String>('sidebar-page-back-button')).hitTestable(),
+  );
+  await tester.pumpAndSettle();
 }

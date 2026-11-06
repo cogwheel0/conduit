@@ -74,11 +74,19 @@ class NavigationService {
     return router;
   }
 
+  /// Locations visited, oldest first, without repeats: returning to one
+  /// drops everything after it, so back never cycles between two pages.
+  static final List<String> _history = [];
+  static const int _maxHistory = 32;
+
   static void attachRouter(GoRouter router) {
     _router?.routeInformationProvider.removeListener(_handleRouteChanged);
     _router = router;
     _lastRoute = router.routeInformationProvider.value.uri.toString();
     _routeRevision += 1;
+    _history
+      ..clear()
+      ..add(_lastRoute!);
     router.routeInformationProvider.addListener(_handleRouteChanged);
   }
 
@@ -87,6 +95,48 @@ class NavigationService {
     if (route == _lastRoute) return;
     _lastRoute = route;
     _routeRevision += 1;
+    if (route != null) _recordVisit(route);
+  }
+
+  static void _recordVisit(String route) {
+    final earlier = _history.lastIndexOf(route);
+    if (earlier != -1) {
+      _history.removeRange(earlier + 1, _history.length);
+      return;
+    }
+    _history.add(route);
+    if (_history.length > _maxHistory) _history.removeAt(0);
+  }
+
+  /// Whether [location] is a page of the main pane beside the sidebar, which
+  /// back may return to, rather than a settings or sign-in screen.
+  static bool _isMainPaneLocation(String location) {
+    final path = Uri.tryParse(location)?.path ?? location;
+    return path == Routes.chat ||
+        path == Routes.notes ||
+        path == Routes.channels ||
+        path == Routes.terminal ||
+        path == Routes.hermesSessions ||
+        path.startsWith('/folder/') ||
+        path.startsWith('/notes/') ||
+        path.startsWith('/channel/');
+  }
+
+  /// Goes back to the main-pane page shown before the current one, or to
+  /// [fallback] when there was none, such as after a link opened the app.
+  static void returnToPreviousPage({required String fallback}) {
+    final router = _router;
+    if (router == null) return;
+    final current = currentRoute;
+    final index = current == null ? -1 : _history.lastIndexOf(current);
+    if (index != -1) _history.removeRange(index, _history.length);
+    while (_history.isNotEmpty && !_isMainPaneLocation(_history.last)) {
+      _history.removeLast();
+    }
+    // The history always ends with the page shown, even when the router
+    // reports no change because back stays where it is.
+    if (_history.isEmpty) _history.add(fallback);
+    router.go(_history.last);
   }
 
   static NavigatorState? get navigator => navigatorKey.currentState;
@@ -94,6 +144,46 @@ class NavigationService {
 
   /// Changes whenever the attached router or its location changes.
   static int get currentRouteRevision => _routeRevision;
+
+  /// Whether the page [context] belongs to is on screen as the route named
+  /// [name] with [pathParameters]. It is not while the shell keeps it in a
+  /// branch no longer shown, or while a page covers it, whether that page was
+  /// pushed through the router, which leaves the location as it was, or
+  /// straight onto a navigator.
+  static bool isShowingNamed(
+    BuildContext context,
+    String name, {
+    Map<String, String> pathParameters = const {},
+  }) {
+    final router = _router;
+    if (router == null || !context.mounted) return false;
+    // The top-most route, which a push through the router replaces.
+    return router.state.matchedLocation ==
+            router.namedLocation(name, pathParameters: pathParameters) &&
+        // A page covering this one, or a branch not shown, mutes its tickers.
+        TickerMode.valuesOf(context).enabled &&
+        (ModalRoute.isCurrentOf(context) ?? true);
+  }
+
+  /// Drops the route named [name] with [pathParameters] from the pages back
+  /// returns to, as once the page it shows is gone. Nothing navigates: a page
+  /// on screen stays, and back from it goes to the page before.
+  static void forgetNamed(
+    String name, {
+    Map<String, String> pathParameters = const {},
+  }) {
+    final router = _router;
+    if (router == null) return;
+    forgetPath(router.namedLocation(name, pathParameters: pathParameters));
+  }
+
+  /// Drops the pages at [path] from the pages back returns to, as
+  /// [forgetNamed] does.
+  static void forgetPath(String path) {
+    _history.removeWhere(
+      (location) => (Uri.tryParse(location)?.path ?? location) == path,
+    );
+  }
 
   /// The current location reported by GoRouter.
   static String? get currentRoute {

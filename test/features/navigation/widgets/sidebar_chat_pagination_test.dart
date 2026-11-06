@@ -407,6 +407,8 @@ void main() {
             });
     check(hasEnabledArchivedLoadMore).isTrue();
 
+    await tester.ensureVisible(archivedLoadMore);
+    await tester.pumpAndSettle();
     await tester.tap(archivedLoadMore);
     await tester.pumpAndSettle();
 

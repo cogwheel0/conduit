@@ -261,7 +261,18 @@ class _ResizableTabletSidebarState extends State<ResizableTabletSidebar> {
               child: ClipRect(
                 child: IgnorePointer(
                   ignoring: widget.dismissible && !widget.docked,
-                  child: widget.drawer,
+                  child: ExcludeFocus(
+                    excluding: widget.dismissible && !widget.docked,
+                    child: ExcludeSemantics(
+                      excluding: widget.dismissible && !widget.docked,
+                      child: OverflowBox(
+                        alignment: AlignmentDirectional.centerStart,
+                        minWidth: effectiveWidth,
+                        maxWidth: effectiveWidth,
+                        child: widget.drawer,
+                      ),
+                    ),
+                  ),
                 ),
               ),
             ),

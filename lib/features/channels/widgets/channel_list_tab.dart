@@ -36,7 +36,9 @@ import 'channel_form_dialog.dart';
 
 /// Sidebar tab that lists all channels with search and create support.
 class ChannelListTab extends ConsumerStatefulWidget {
-  const ChannelListTab({super.key});
+  const ChannelListTab({super.key, this.searchController});
+
+  final TextEditingController? searchController;
 
   @override
   ConsumerState<ChannelListTab> createState() => _ChannelListTabState();
@@ -310,7 +312,9 @@ class _ChannelListTabState extends ConsumerState<ChannelListTab>
     super.build(context);
     final l10n = AppLocalizations.of(context)!;
     final channelsAsync = ref.watch(channelsListProvider);
-    final searchController = ref.watch(sidebarSearchFieldControllerProvider);
+    final TextEditingController searchController =
+        widget.searchController ??
+        ref.watch(sidebarSearchFieldControllerProvider);
 
     return ValueListenableBuilder<TextEditingValue>(
       valueListenable: searchController,

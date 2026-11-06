@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:conduit_core/features/navigation/models/sidebar_navigation_model.dart';
 import 'package:flutter/foundation.dart';
 import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:material_ui/material_ui.dart';
@@ -23,6 +24,8 @@ import '../../features/navigation/views/folder_page.dart';
 import '../../features/navigation/widgets/drawer_shell_page.dart';
 import '../../features/navigation/views/splash_launcher_page.dart';
 import '../../features/notes/views/notes_list_page.dart';
+import '../../features/navigation/widgets/sidebar_destination_page.dart';
+import '../../features/navigation/widgets/sidebar_tab_registry.dart';
 import '../../shared/widgets/adaptive_route_shell.dart';
 import '../../shared/widgets/platform_ui/platform_ui.dart';
 import '../../features/channels/views/channel_page.dart';
@@ -130,57 +133,84 @@ final goRouterProvider = Provider<GoRouter>((ref) {
         child: const SplashLauncherPage(),
       ),
     ),
-    // ShellRoute keeps the drawer/sidebar mounted across page navigations
-    // so it doesn't reload on tablets when switching between chat, channels,
-    // and notes.
-    ShellRoute(
-      builder: (context, state, child) => DrawerShellPage(child: child),
-      routes: [
-        GoRoute(
-          path: Routes.chat,
-          name: RouteNames.chat,
-          pageBuilder: (context, state) =>
-              _buildNoTransitionPage(state: state, child: const ChatPage()),
+    // Retain each destination's existing widget state across menu selections.
+    StatefulShellRoute.indexedStack(
+      builder: (context, state, navigationShell) => DrawerShellPage(
+        child: SidebarDestinationScope(
+          destination: sidebarTabRegistry[navigationShell.currentIndex].id,
+          child: navigationShell,
         ),
-        GoRoute(
-          path: Routes.folder,
-          name: RouteNames.folder,
-          pageBuilder: (context, state) {
-            final folderId = state.pathParameters['id']!;
-            return _buildNoTransitionPage(
-              state: state,
-              child: FolderPage(key: ValueKey(folderId), folderId: folderId),
-            );
-          },
+      ),
+      branches: [
+        StatefulShellBranch(
+          routes: [
+            GoRoute(
+              path: Routes.chat,
+              name: RouteNames.chat,
+              pageBuilder: (context, state) =>
+                  _buildNoTransitionPage(state: state, child: const ChatPage()),
+            ),
+            GoRoute(
+              path: Routes.folder,
+              name: RouteNames.folder,
+              pageBuilder: (context, state) {
+                final folderId = state.pathParameters['id']!;
+                return _buildNoTransitionPage(
+                  state: state,
+                  child: FolderPage(
+                    key: ValueKey(folderId),
+                    folderId: folderId,
+                  ),
+                );
+              },
+            ),
+            GoRoute(
+              path: Routes.noteEditor,
+              name: RouteNames.noteEditor,
+              pageBuilder: (context, state) {
+                final noteId = state.pathParameters['id'];
+                if (noteId == null || noteId.isEmpty) {
+                  return _buildNoTransitionPage(
+                    state: state,
+                    child: const NotesListPage(),
+                  );
+                }
+                return _buildNoTransitionPage(
+                  state: state,
+                  child: NoteEditorPage(key: ValueKey(noteId), noteId: noteId),
+                );
+              },
+            ),
+            GoRoute(
+              path: Routes.channel,
+              name: RouteNames.channel,
+              pageBuilder: (context, state) {
+                final channelId = state.pathParameters['id']!;
+                return _buildNoTransitionPage(
+                  state: state,
+                  child: ChannelPage(channelId: channelId),
+                );
+              },
+            ),
+          ],
         ),
-        GoRoute(
-          path: Routes.noteEditor,
-          name: RouteNames.noteEditor,
-          pageBuilder: (context, state) {
-            final noteId = state.pathParameters['id'];
-            if (noteId == null || noteId.isEmpty) {
-              return _buildNoTransitionPage(
-                state: state,
-                child: const NotesListPage(),
-              );
-            }
-            return _buildNoTransitionPage(
-              state: state,
-              child: NoteEditorPage(key: ValueKey(noteId), noteId: noteId),
-            );
-          },
-        ),
-        GoRoute(
-          path: Routes.channel,
-          name: RouteNames.channel,
-          pageBuilder: (context, state) {
-            final channelId = state.pathParameters['id']!;
-            return _buildNoTransitionPage(
-              state: state,
-              child: ChannelPage(channelId: channelId),
-            );
-          },
-        ),
+        for (final tab in sidebarTabRegistry.where(
+          (tab) => tab.id != SidebarTabId.chats,
+        ))
+          StatefulShellBranch(
+            routes: [
+              GoRoute(
+                path: tab.location,
+                name: tab.id == SidebarTabId.hermes
+                    ? RouteNames.hermesSessions
+                    : tab.id.name,
+                pageBuilder: (context, state) => _buildNoTransitionPage(
+                  state: state,
+                  child: SidebarDestinationPage(destination: tab.id),
+                ),
+              ),
+            ],
+          ),
       ],
     ),
     GoRoute(
@@ -543,12 +573,6 @@ final goRouterProvider = Provider<GoRouter>((ref) {
           _buildPlatformPage(state: state, child: const AboutPage()),
     ),
     ..._workspaceRoutes(),
-    GoRoute(
-      path: Routes.notes,
-      name: RouteNames.notes,
-      pageBuilder: (context, state) =>
-          _buildNoTransitionPage(state: state, child: const NotesListPage()),
-    ),
   ];
 
   final router = GoRouter(

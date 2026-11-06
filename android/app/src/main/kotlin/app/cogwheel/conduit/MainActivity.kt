@@ -16,6 +16,7 @@ import android.system.Os
 import android.system.OsConstants
 import android.util.AtomicFile
 import android.util.Log
+import android.view.RoundedCorner
 import android.view.View
 import android.view.WindowInsets
 import android.webkit.CookieManager
@@ -570,6 +571,7 @@ class MainActivity : FlutterFragmentActivity() {
     private val ASSISTANT_CHANNEL = "app.cogwheel.conduit/assistant"
     private val SHARE_TEXT_CHANNEL = "conduit/share_receiver_text"
     private val KEYBOARD_INSETS_CHANNEL = "app.cogwheel.conduit/keyboard_insets"
+    private val PLATFORM_ENVIRONMENT_CHANNEL = "app.cogwheel.conduit/platform_environment"
     private val HOME_WIDGET_LAUNCH_ACTION = "es.antonborri.home_widget.action.LAUNCH"
     private val SHARE_TEXT_PREFS_NAME = "conduit_share_receiver_text"
     private val PENDING_MULTIPLE_SHARE_TEXT_KEY = "pending_multiple_share_text"
@@ -692,6 +694,16 @@ class MainActivity : FlutterFragmentActivity() {
             }
         }
 
+        MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            PLATFORM_ENVIRONMENT_CHANNEL
+        ).setMethodCallHandler { call, result ->
+            when (call.method) {
+                "displayCornerRadius" -> result.success(displayCornerRadius())
+                else -> result.notImplemented()
+            }
+        }
+
         // Setup cookie manager channel for WebView cookie access
         val cookieChannel = MethodChannel(
             flutterEngine.dartExecutor.binaryMessenger,
@@ -718,6 +730,18 @@ class MainActivity : FlutterFragmentActivity() {
         
         // Check if started with context
         handleIntent(intent)
+    }
+
+    /**
+     * The radius of the display's rounded corners in dp: 0 for a display
+     * that reports none, and null before Android 12, which cannot say.
+     */
+    private fun displayCornerRadius(): Double? {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return null
+        val display = display ?: return null
+        val corner = display.getRoundedCorner(RoundedCorner.POSITION_TOP_LEFT)
+            ?: return 0.0
+        return corner.radius / resources.displayMetrics.density.toDouble()
     }
 
     /**

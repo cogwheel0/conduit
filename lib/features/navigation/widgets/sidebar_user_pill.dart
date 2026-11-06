@@ -26,8 +26,10 @@ import 'package:conduit_core/services/api_service.dart';
 
 import '../../../core/services/native_sheet_bridge.dart';
 import '../../../core/services/native_sheet_hydration_service.dart';
+
 import 'package:conduit_core/features/direct_connections/providers/direct_connection_providers.dart'
     show directConnectionProfilesProvider;
+
 import '../../../shared/services/navigation_service.dart';
 
 import 'package:conduit_core/features/chat/server_speech/direct_voice_provider_settings.dart';
@@ -63,7 +65,6 @@ import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart
 
 import '../../workspace/providers/workspace_capabilities_provider.dart';
 import '../providers/sidebar_providers.dart';
-import 'sidebar_tab_registry.dart';
 
 part 'sidebar_user_pill.g.dart';
 
@@ -287,12 +288,6 @@ String sidebarProfileFallbackRouteName({
   required bool directPrimary,
   required bool hasOpenWebUiUser,
 }) => RouteNames.profile;
-
-/// Localized search hint for the active sidebar tab.
-String sidebarSearchHintForActiveTab(WidgetRef ref, AppLocalizations l10n) {
-  final selectedTab = ref.watch(sidebarNavigationSnapshotProvider).selectedTab;
-  return sidebarTabDescriptor(selectedTab).searchHint(l10n);
-}
 
 /// Builds one stable native glass avatar button on iOS 26 and Flutter
 /// platform-family fallbacks everywhere else.

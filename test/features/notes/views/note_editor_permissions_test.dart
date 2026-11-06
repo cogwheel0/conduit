@@ -15,6 +15,8 @@ import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/l10n/conduit_localizations.dart';
 import 'package:conduit/shared/theme/app_theme.dart';
 import 'package:conduit/shared/theme/tweakcn_themes.dart';
+import 'package:conduit/shared/services/navigation_service.dart';
+import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:conduit_core/database/app_database.dart';
 import 'package:conduit_core/database/database_provider.dart';
 import 'package:conduit_core/database/mappers/note_mapper.dart';
@@ -38,6 +40,7 @@ import 'package:drift/native.dart';
 import 'package:fleather/fleather.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../../../support/test_fonts.dart';
@@ -160,6 +163,19 @@ class _DetailApi extends ApiService {
   }
 }
 
+class _DelayedNoteDeleter extends NoteDeleter {
+  final result = Completer<bool>();
+  int calls = 0;
+  final ids = <String>[];
+
+  @override
+  Future<bool> deleteNote(String id) {
+    calls++;
+    ids.add(id);
+    return result.future;
+  }
+}
+
 /// Dictation whose start is held until the test lets it go.
 class _HeldVoice extends VoiceInputService {
   final ready = Completer<bool>();
@@ -193,17 +209,28 @@ class _HeldVoice extends VoiceInputService {
   Future<void> dispose() async {}
 }
 
+/// Dictation that hands over its last words as it stops, as a speech engine
+/// finishing its transcript does.
+class _LastWordsVoice extends _HeldVoice {
+  @override
+  Future<void> stopListening() async {
+    run?.add('spoken words, last words');
+    await super.stopListening();
+  }
+}
+
 Map<String, dynamic> _noteJson({
   required bool writeAccess,
   String owner = 'creator',
   String? ownerName,
   String md = 'original',
+  String title = 'Shared note',
   List<Map<String, dynamic>>? pages,
 }) => {
   'id': 'note-1',
   'user_id': owner,
   if (ownerName != null) 'user': {'id': owner, 'name': ownerName},
-  'title': 'Shared note',
+  'title': title,
   'write_access': writeAccess,
   'data': {
     'content': {'md': md, 'html': '', 'json': null},
@@ -263,12 +290,15 @@ void main() {
     WidgetTester tester,
     _DetailApi api, {
     Map<String, String> userNames = const {},
+    NoteDeleter? deleter,
+    AppSettings settings = const AppSettings(),
     VoiceInputService? voice,
   }) async {
     final container = ProviderContainer(
       // A provider that errors would otherwise schedule a retry timer.
       retry: (_, _) => null,
       overrides: [
+        if (deleter != null) noteDeleterProvider.overrideWith(() => deleter),
         appDatabaseProvider.overrideWith((ref) => db),
         apiServiceProvider.overrideWithValue(api),
         isAuthenticatedProvider2.overrideWithValue(true),
@@ -277,7 +307,7 @@ void main() {
         connectivityStatusProvider.overrideWithValue(ConnectivityStatus.online),
         isOnlineProvider.overrideWithValue(true),
         // Advanced stays off: nothing here depends on it.
-        appSettingsProvider.overrideWithValue(const AppSettings()),
+        appSettingsProvider.overrideWithValue(settings),
         workspaceCapabilitiesProvider.overrideWith(
           (ref) async => WorkspaceCapabilities.all,
         ),
@@ -1938,6 +1968,490 @@ void main() {
       contentController(tester).document.toPlainText(),
       contains('original'),
     );
+  });
+
+  testWidgets('back saves an edit typed while an earlier save runs', (
+    tester,
+  ) async {
+    final note = _noteJson(writeAccess: true);
+    await storeLocally(note);
+    final container = await pumpEditor(
+      tester,
+      _DetailApi(detail: note),
+      settings: const AppSettings(slidingSidebarEnabled: true),
+    );
+    final router = GoRouter(
+      initialLocation: '/notes',
+      routes: [
+        GoRoute(
+          path: '/notes',
+          builder: (_, _) => const Scaffold(body: Text('Notes list')),
+        ),
+        GoRoute(
+          path: '/notes/:id',
+          builder: (_, _) => const NoteEditorPage(noteId: 'note-1'),
+        ),
+      ],
+    );
+    addTearDown(router.dispose);
+    NavigationService.attachRouter(router);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: MaterialApp.router(
+          theme: AppTheme.light(TweakcnThemes.t3Chat),
+          localizationsDelegates: conduitLocalizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          routerConfig: router,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    router.go('/notes/note-1');
+    await tester.pumpAndSettle();
+
+    // Holding the note's lock keeps the back button's save in flight.
+    final gate = Completer<void>();
+    unawaited(
+      container.read(noteLocksProvider).runExclusive('note-1', () => gate.future),
+    );
+    typeInto(tester, 'first ');
+    await tester.tap(
+      find.byKey(const ValueKey<String>('sidebar-page-back-button')),
+    );
+    await tester.pump();
+    typeInto(tester, 'second ');
+    gate.complete();
+    await tester.pumpAndSettle();
+
+    expect(router.routeInformationProvider.value.uri.path, '/notes');
+    final row = (await db.notesDao.getNote('note-1'))!;
+    expect(row.data, contains('second'));
+    expect(row.data, contains('first'));
+  });
+
+  /// Shows the note's editor in the chat branch of a shell beside a Notes
+  /// branch, as the app's router does, so the editor stays mounted out of
+  /// sight once Notes is shown.
+  Future<GoRouter> openInShell(
+    WidgetTester tester,
+    ProviderContainer container,
+  ) async {
+    final router = GoRouter(
+      initialLocation: '/notes',
+      routes: [
+        StatefulShellRoute.indexedStack(
+          builder: (_, _, shell) => shell,
+          branches: [
+            StatefulShellBranch(
+              routes: [
+                GoRoute(
+                  path: '/chat',
+                  builder: (_, _) => const Scaffold(body: Text('Chat')),
+                ),
+                GoRoute(
+                  path: '/notes/:id',
+                  builder: (_, _) => const NoteEditorPage(noteId: 'note-1'),
+                ),
+              ],
+            ),
+            StatefulShellBranch(
+              routes: [
+                GoRoute(
+                  path: '/notes',
+                  builder: (_, _) => const Scaffold(body: Text('Notes list')),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ],
+    );
+    addTearDown(router.dispose);
+    NavigationService.attachRouter(router);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: MaterialApp.router(
+          theme: AppTheme.light(TweakcnThemes.t3Chat),
+          localizationsDelegates: conduitLocalizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          routerConfig: router,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    router.go('/notes/note-1');
+    await tester.pumpAndSettle();
+    return router;
+  }
+
+  Future<void> startDictation(WidgetTester tester) async {
+    // The voice options sheet trips a debug check about its tiles' ink,
+    // which has nothing to do with what is tested here.
+    final originalOnError = FlutterError.onError;
+    FlutterError.onError = (details) {
+      if (details.exceptionAsString().contains(
+        'ink splashes may be invisible',
+      )) {
+        return;
+      }
+      originalOnError?.call(details);
+    };
+    addTearDown(() => FlutterError.onError = originalOnError);
+    await tester.tap(find.byTooltip(l10n(tester).voiceOptions));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(l10n(tester).dictation).last);
+    await tester.pumpAndSettle();
+  }
+
+  testWidgets('back ends dictation before it saves the note', (tester) async {
+    final voice = _HeldVoice()..ready.complete(true);
+    final note = _noteJson(writeAccess: true);
+    await storeLocally(note);
+    final container = await pumpEditor(
+      tester,
+      _DetailApi(detail: note),
+      voice: voice,
+      settings: const AppSettings(slidingSidebarEnabled: true),
+    );
+    final router = await openInShell(tester, container);
+    await startDictation(tester);
+    voice.run!.add('spoken words');
+    await tester.pump();
+
+    // Holding the note's lock keeps the back button's save in flight.
+    final gate = Completer<void>();
+    unawaited(
+      container
+          .read(noteLocksProvider)
+          .runExclusive('note-1', () => gate.future),
+    );
+    await tester.tap(
+      find.byKey(const ValueKey<String>('sidebar-page-back-button')),
+    );
+    await tester.pump();
+    expect(voice.run, isNull, reason: 'dictation ends before the save');
+    gate.complete();
+    await tester.pumpAndSettle();
+
+    expect(router.routeInformationProvider.value.uri.path, '/notes');
+    final row = (await db.notesDao.getNote('note-1'))!;
+    expect(row.data, contains('spoken words'));
+  });
+
+  testWidgets('dictation ends when another page takes the editor\'s place', (
+    tester,
+  ) async {
+    final voice = _HeldVoice()..ready.complete(true);
+    final note = _noteJson(writeAccess: true);
+    await storeLocally(note);
+    final container = await pumpEditor(
+      tester,
+      _DetailApi(detail: note),
+      voice: voice,
+      settings: const AppSettings(slidingSidebarEnabled: true),
+    );
+    final router = await openInShell(tester, container);
+    await startDictation(tester);
+    voice.run!.add('spoken words');
+    await tester.pump();
+
+    // As choosing Notes in the sidebar does.
+    router.go('/notes');
+    await tester.pumpAndSettle();
+
+    expect(find.byType(NoteEditorPage, skipOffstage: false), findsOneWidget);
+    expect(voice.run, isNull);
+    final row = (await db.notesDao.getNote('note-1'))!;
+    expect(row.data, contains('spoken words'));
+  });
+
+  // Server speech-to-text sends nothing until it stops, so the note may not
+  // have changed yet when back is pressed.
+  for (final interim in [true, false]) {
+    testWidgets('back in the tabbed layout keeps dictation\'s last words '
+        '(interim words: $interim)', (tester) async {
+      final voice = _LastWordsVoice()..ready.complete(true);
+      final note = _noteJson(writeAccess: true);
+      await storeLocally(note);
+      final container = await pumpEditor(
+        tester,
+        _DetailApi(detail: note),
+        voice: voice,
+      );
+      final navigator = GlobalKey<NavigatorState>();
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: MaterialApp(
+            navigatorKey: navigator,
+            theme: AppTheme.light(TweakcnThemes.t3Chat),
+            localizationsDelegates: conduitLocalizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            home: const Scaffold(body: Text('Notes list')),
+          ),
+        ),
+      );
+      unawaited(
+        navigator.currentState!.push(
+          MaterialPageRoute<void>(
+            builder: (_) => const NoteEditorPage(noteId: 'note-1'),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await startDictation(tester);
+      if (interim) voice.run!.add('spoken words');
+      // An edit marks the note changed by the next frame.
+      await tester.pump();
+      await tester.pump();
+
+      await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
+
+      expect(find.byType(NoteEditorPage), findsNothing);
+      expect(voice.run, isNull);
+      final row = (await db.notesDao.getNote('note-1'))!;
+      expect(row.data, contains('last words'));
+    });
+  }
+
+  // A stored title that is empty or padded is not an edit, and neither is a
+  // cleared title, which saves as the "Untitled" already stored.
+  for (final (title, writeAccess, clearTitle) in [
+    ('', true, false),
+    ('', false, false),
+    (' Padded title ', true, false),
+    ('Untitled', true, true),
+  ]) {
+    testWidgets('back leaves a note titled "$title" '
+        '(write: $writeAccess, cleared: $clearTitle)', (tester) async {
+      final note = _noteJson(writeAccess: writeAccess, title: title);
+      await storeLocally(note);
+      final api = _DetailApi(detail: note);
+      final container = await pumpEditor(
+        tester,
+        api,
+        settings: const AppSettings(slidingSidebarEnabled: true),
+      );
+      final router = GoRouter(
+        initialLocation: '/notes',
+        routes: [
+          GoRoute(
+            path: '/notes',
+            builder: (_, _) => const Scaffold(body: Text('Notes list')),
+          ),
+          GoRoute(
+            path: '/notes/:id',
+            builder: (_, _) => const NoteEditorPage(noteId: 'note-1'),
+          ),
+        ],
+      );
+      addTearDown(router.dispose);
+      NavigationService.attachRouter(router);
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: MaterialApp.router(
+            theme: AppTheme.light(TweakcnThemes.t3Chat),
+            localizationsDelegates: conduitLocalizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            routerConfig: router,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      router.go('/notes/note-1');
+      await tester.pumpAndSettle();
+      if (clearTitle) {
+        tester
+                .widget<AdaptiveTextField>(find.byType(AdaptiveTextField))
+                .controller!
+                .text =
+            '';
+        await letAutosaveRun(tester);
+      }
+
+      await tester.tap(
+        find.byKey(const ValueKey<String>('sidebar-page-back-button')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(router.routeInformationProvider.value.uri.path, '/notes');
+      expect(api.updates, 0);
+    });
+  }
+
+  for (final navigation in ['stay', 'leave', 'return']) {
+    testWidgets('pending note deletion respects navigation: $navigation', (
+      tester,
+    ) async {
+      final deleter = _DelayedNoteDeleter();
+      final note = _noteJson(writeAccess: true);
+      await storeLocally(note);
+      final container = await pumpEditor(
+        tester,
+        _DetailApi(detail: note),
+        deleter: deleter,
+      );
+      final router = GoRouter(
+        initialLocation: '/notes/note-1',
+        routes: [
+          StatefulShellRoute.indexedStack(
+            builder: (_, _, shell) => shell,
+            branches: [
+              StatefulShellBranch(
+                initialLocation: '/notes/note-1',
+                routes: [
+                  GoRoute(
+                    path: '/notes/:id',
+                    builder: (_, _) => const NoteEditorPage(noteId: 'note-1'),
+                  ),
+                ],
+              ),
+              StatefulShellBranch(
+                routes: [
+                  GoRoute(
+                    path: '/other',
+                    builder: (_, _) => const Scaffold(body: Text('Other page')),
+                  ),
+                ],
+              ),
+            ],
+          ),
+          GoRoute(
+            path: '/chat',
+            builder: (_, _) => const Scaffold(body: Text('Chat')),
+          ),
+        ],
+      );
+      addTearDown(router.dispose);
+      NavigationService.attachRouter(router);
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: MaterialApp.router(
+            theme: AppTheme.light(TweakcnThemes.t3Chat),
+            localizationsDelegates: conduitLocalizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            routerConfig: router,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final delete = l10n(tester).delete;
+      await tester.tap(find.byIcon(Icons.more_vert_rounded));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(delete));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(delete));
+      await tester.pumpAndSettle();
+      expect(deleter.calls, 1);
+      if (navigation != 'stay') {
+        router.go('/other');
+        await tester.pumpAndSettle();
+        if (navigation == 'return') {
+          router.go('/notes/note-1');
+          await tester.pumpAndSettle();
+        }
+      }
+      deleter.result.complete(true);
+      await tester.pumpAndSettle();
+      expect(
+        router.routeInformationProvider.value.uri.path,
+        navigation == 'stay'
+            ? '/chat'
+            : navigation == 'return'
+            ? '/notes/note-1'
+            : '/other',
+      );
+      if (navigation == 'leave') {
+        // Back no longer returns to the deleted note.
+        NavigationService.returnToPreviousPage(fallback: '/chat');
+        await tester.pumpAndSettle();
+        expect(router.routeInformationProvider.value.uri.path, '/chat');
+      }
+      expect(tester.takeException(), isNull);
+    });
+  }
+
+  testWidgets('a note opened by its offline id is forgotten by it too', (
+    tester,
+  ) async {
+    final deleter = _DelayedNoteDeleter();
+    final note = _noteJson(writeAccess: true);
+    await storeLocally(note);
+    // The editor holds the note by its server id, as once the note made
+    // offline was remapped, while its location keeps the id it opened with.
+    final container = await pumpEditor(
+      tester,
+      _DetailApi(detail: note),
+      deleter: deleter,
+    );
+    final router = GoRouter(
+      initialLocation: '/notes/local:draft',
+      routes: [
+        StatefulShellRoute.indexedStack(
+          builder: (_, _, shell) => shell,
+          branches: [
+            StatefulShellBranch(
+              initialLocation: '/notes/local:draft',
+              routes: [
+                GoRoute(
+                  path: '/notes/:id',
+                  builder: (_, state) =>
+                      NoteEditorPage(noteId: state.pathParameters['id']!),
+                ),
+              ],
+            ),
+            StatefulShellBranch(
+              routes: [
+                GoRoute(
+                  path: '/other',
+                  builder: (_, _) => const Scaffold(body: Text('Other page')),
+                ),
+              ],
+            ),
+          ],
+        ),
+        GoRoute(
+          path: '/chat',
+          builder: (_, _) => const Scaffold(body: Text('Chat')),
+        ),
+      ],
+    );
+    addTearDown(router.dispose);
+    NavigationService.attachRouter(router);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: MaterialApp.router(
+          theme: AppTheme.light(TweakcnThemes.t3Chat),
+          localizationsDelegates: conduitLocalizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          routerConfig: router,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final delete = l10n(tester).delete;
+    await tester.tap(find.byIcon(Icons.more_vert_rounded));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(delete));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(delete));
+    await tester.pumpAndSettle();
+    expect(deleter.ids, ['note-1']);
+    router.go('/other');
+    await tester.pumpAndSettle();
+    deleter.result.complete(true);
+    await tester.pumpAndSettle();
+
+    NavigationService.returnToPreviousPage(fallback: '/chat');
+    await tester.pumpAndSettle();
+    expect(router.routeInformationProvider.value.uri.path, '/chat');
+    expect(tester.takeException(), isNull);
   });
 
   group('note Share menu', () {

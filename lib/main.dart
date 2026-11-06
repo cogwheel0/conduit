@@ -98,6 +98,7 @@ import 'core/utils/native_sheet_utils.dart'
         nativeDirectEditActionId,
         nativeHermesUseActionId,
         nativeAdvancedFeaturesId,
+        nativeSlidingSidebarId,
         nativeCitationShowTitlesId,
         nativeCitationBackgroundId,
         nativeMemoryEditorActionPrefix,
@@ -1218,6 +1219,12 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
             await ref
                 .read(appSettingsProvider.notifier)
                 .setTemporaryChatByDefault(value);
+          }
+        case nativeSlidingSidebarId:
+          if (value is bool) {
+            await ref
+                .read(appSettingsProvider.notifier)
+                .setSlidingSidebarEnabled(value);
           }
         case nativeAdvancedFeaturesId:
           if (value is bool) {

@@ -10,6 +10,7 @@ final class PreferenceKeys {
   static const String highContrast = 'high_contrast';
   static const String showComposerNotesButton = 'show_composer_notes_button';
   static const String darkMode = 'dark_mode';
+  static const String slidingSidebarEnabled = 'sliding_sidebar_enabled';
   static const String defaultModel = 'default_model';
   static const String openRouterImageGenerationModel =
       'openrouter_image_generation_model_v1';

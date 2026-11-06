@@ -34,6 +34,9 @@ void main() {
   testWidgets('only a read Open WebUI chat that is not open offers it', (
     tester,
   ) async {
+    tester.view.physicalSize = const Size(800, 1000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
     final read = chat('read', lastReadAt: readAt);
     final unread = chat('unread', lastReadAt: DateTime(2026, 1, 1, 9));
     final open = chat('open', lastReadAt: readAt);

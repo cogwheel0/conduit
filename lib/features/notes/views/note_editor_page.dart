@@ -55,6 +55,9 @@ import '../widgets/note_pages_sheet.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
 
 import '../../../shared/theme/conduit_input_styles.dart';
+import '../../../shared/services/navigation_service.dart';
+import '../../navigation/utils/sidebar_page_back.dart';
+import '../../navigation/widgets/sidebar_page_leading_button.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/adaptive_glass.dart';
 import '../../../shared/utils/file_type_utils.dart';
@@ -63,7 +66,6 @@ import '../../../shared/widgets/adaptive_toolbar_components.dart';
 import '../../../shared/widgets/chrome_gradient_fade.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/horizontal_gesture_ownership.dart';
-import '../../../shared/widgets/sidebar_layout_contract.dart';
 import '../../../shared/widgets/conduit_loading.dart';
 import '../../../shared/widgets/middle_ellipsis_text.dart';
 import '../../../shared/widgets/themed_dialogs.dart';
@@ -404,10 +406,33 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
     setState(() {});
   }
 
+  /// Whether the editor is in view. Leaving it for the notes list or another
+  /// page keeps it mounted out of sight, with its tickers muted.
+  bool _inView = true;
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
     _fleatherTheme = _buildFleatherTheme(context);
+    final inView = TickerMode.valuesOf(context).enabled;
+    if (_inView && !inView) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && !_inView) unawaited(_endDictationOutOfView());
+      });
+    }
+    _inView = inView;
+  }
+
+  /// Dictation writes into the text in view, so it ends once the editor is
+  /// out of sight, and what it wrote is saved.
+  Future<void> _endDictationOutOfView() async {
+    if (!_isRecording && !_dictationStarting) return;
+    // A start still under way is called off too.
+    _dictationEnds++;
+    if (_isRecording) await _stopDictation();
+    if (!mounted) return;
+    _saveDebounce?.cancel();
+    await _autoSave();
   }
 
   /// Replaces the content editor's controller with one backed by [document],
@@ -820,10 +845,16 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
   }
 
   /// Handles a back-navigation attempt. Reached only when [canPop] was false,
-  /// i.e. there is a pending edit: flush it while still mounted (so the durable
+  /// i.e. there is a pending edit or dictation is running: end dictation and
+  /// take its last words, flush the edit while still mounted (so the durable
   /// write doesn't race teardown), then pop programmatically.
   Future<void> _onEditorPopInvoked(bool didPop, Object? result) async {
     if (didPop) return;
+    // Dictation's last words arrive as it stops, and closing the editor
+    // would drop them.
+    _dictationEnds++;
+    if (_isRecording) await _stopDictation();
+    if (!mounted) return;
     _saveDebounce?.cancel();
     await _autoSave();
     // Keep the editor open if persistence failed. In particular, a remotely
@@ -836,6 +867,44 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
         Navigator.of(context).pop(result);
       }
     }
+  }
+
+  /// Saves a pending edit before the editor is left by its back button.
+  /// Returns false, keeping the editor open, when the save did not land, so a
+  /// remotely deleted note's recovery retry stays reachable.
+  Future<bool> _saveBeforeLeaving() async {
+    // Dictation would keep adding text the saves below chase.
+    _dictationEnds++;
+    if (_isRecording) await _stopDictation();
+    if (!mounted) return false;
+    _saveDebounce?.cancel();
+    // A save covers the text as it began, so typing while it runs needs
+    // another; a few rounds catch up with any typing that is still going.
+    for (
+      var round = 0;
+      round < 3 && (_hasChanges || _hasUnsavedText);
+      round++
+    ) {
+      await _autoSave();
+      if (!mounted) return false;
+    }
+    if (_hasChanges || _hasUnsavedText) {
+      _recovery.pendingRetry?.call();
+      return false;
+    }
+    return true;
+  }
+
+  /// Whether [_autoSave] has text to save that would change what is stored.
+  /// A title differs only when the save would store another one: a stored
+  /// title that is empty or padded, as notes made elsewhere can have, is not
+  /// an edit.
+  bool get _hasUnsavedText {
+    final note = _note;
+    if (note == null) return false;
+    final titleUnsaved =
+        _titleController.text != note.title && _resolvedTitle() != note.title;
+    return titleUnsaved || _contentMarkdown != _savedMarkdown;
   }
 
   Future<void> _autoSave() async {
@@ -1091,10 +1160,24 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
     // not delete the note under another identity.
     if (confirmed && mounted && _isOpenSessionCurrent) {
       ConduitHaptics.mediumImpact();
+      final route = NavigationService.currentRoute;
+      final routeRevision = NavigationService.currentRouteRevision;
       final success = await ref
           .read(noteDeleterProvider.notifier)
           .deleteNote(note.id);
-      if (success && mounted) {
+      // Back no longer returns to the deleted note, wherever the user is, by
+      // either id: a note made offline keeps the one it opened with in its
+      // location once it carries its server id.
+      if (success) {
+        for (final id in {widget.noteId, note.id}) {
+          NavigationService.forgetPath('/notes/$id');
+        }
+      }
+      if (success &&
+          mounted &&
+          _isOpenSessionCurrent &&
+          NavigationService.currentRoute == route &&
+          NavigationService.currentRouteRevision == routeRevision) {
         context.go('/chat');
       }
     }
@@ -1545,12 +1628,13 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
     // The read-only banner names the note's owner once the account's lookup
     // exists; watching retries the lookup when it arrives.
     ref.watch(workspacePrincipalLookupProvider);
-    // Check if notes feature is enabled - redirect to chat if disabled
     final notesEnabled = ref.watch(notesFeatureEnabledProvider);
     if (!notesEnabled) {
-      // Redirect back to chat on next frame
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) {
+        // This editor can remain mounted in an inactive navigation branch.
+        if (mounted &&
+            GoRouter.of(context).routeInformationProvider.value.uri.path ==
+                '/notes/${widget.noteId}') {
           context.go('/chat');
         }
       });
@@ -1558,14 +1642,27 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
       return const AdaptiveRouteShell(body: SizedBox.shrink());
     }
 
+    final goesBack = sidebarPagesGoBack(ref);
     return PopScope(
       // Allow the back gesture/animation to proceed normally when there is
       // nothing to save. When an edit is still pending (within the auto-save
-      // debounce), intercept the pop, flush the save while the widget is still
-      // mounted (so the durable write completes without racing teardown), then
-      // pop programmatically.
-      canPop: !_hasChanges,
-      onPopInvokedWithResult: _onEditorPopInvoked,
+      // debounce), or dictation is running and has last words to deliver,
+      // intercept the pop, flush the save while the widget is still mounted
+      // (so the durable write completes without racing teardown), then pop
+      // programmatically. The sliding sidebar opens the editor in place, so
+      // its back returns to the page before, as the back button does.
+      canPop: !_hasChanges && !_isRecording && !goesBack,
+      onPopInvokedWithResult: goesBack
+          ? (didPop, _) {
+              if (didPop) return;
+              unawaited(
+                goBackFromSidebarPage(
+                  fallback: Routes.notes,
+                  beforeBack: _saveBeforeLeaving,
+                ),
+              );
+            }
+          : _onEditorPopInvoked,
       child: AdaptiveRouteShell(
         backgroundColor: context.conduitTheme.surfaceBackground,
         extendBodyBehindAppBar: true,
@@ -1699,12 +1796,9 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
     return buildConduitCenteredAdaptiveAppBar(
       context: context,
       tintColor: tintColor,
-      leading: ConduitAdaptiveAppBarIconButton(
-        icon: Platform.isIOS ? CupertinoIcons.line_horizontal_3 : Icons.menu,
-        iosSymbol: 'line.3.horizontal',
-        semanticLabel: AppLocalizations.of(context)!.sidebarButtonLabel,
-        onPressed: () =>
-            SidebarDrawerControllerScope.maybeOf(context)?.toggle(),
+      leading: SidebarPageLeadingButton(
+        fallback: Routes.notes,
+        beforeBack: _saveBeforeLeaving,
         iconColor: tintColor,
       ),
       title: _buildNoteEditorTitlePill(context, maxWidth: maxTitleWidth),

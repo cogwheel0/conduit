@@ -1,3 +1,4 @@
+import 'dart:async' show unawaited;
 import 'dart:io' show Platform;
 
 import 'package:conduit_core/features/chat/providers/chat_providers.dart';
@@ -8,6 +9,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/widgets/sidebar_layout_contract.dart';
 import '../../../shared/widgets/themed_dialogs.dart';
+import 'sidebar_page_back.dart';
 
 /// Overrides the Android check in tests.
 @visibleForTesting
@@ -92,16 +94,23 @@ Future<bool> confirmAppExit(BuildContext context) {
 
 /// Android back on a page the chat list leads to, such as a channel or a
 /// folder: back opens the list, and back with the list showing asks to close
-/// the app (#852). Other platforms have no back button, so the page is left
-/// as it is.
+/// the app (#852). With the sliding sidebar it goes back to the page before,
+/// or to [fallback], as the page's back button does. Other platforms have no
+/// back button, so the page is left as it is.
 class ChatListBackScope extends ConsumerWidget {
-  const ChatListBackScope({super.key, required this.child});
+  const ChatListBackScope({super.key, required this.child, this.fallback});
 
   final Widget child;
+
+  /// Where sliding-sidebar back goes when no earlier page is known. Without
+  /// one, back opens the chat list in either layout.
+  final String? fallback;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     if (!chatBackIsAndroid) return child;
+    final fallback = this.fallback;
+    final goesBack = fallback != null && sidebarPagesGoBack(ref);
     return PopScope(
       canPop: false,
       onPopInvokedWithResult: (didPop, _) async {
@@ -119,7 +128,12 @@ class ChatListBackScope extends ConsumerWidget {
           },
           canNavigateBack: () => Navigator.of(context).canPop(),
           navigateBack: () => Navigator.of(context).pop(),
-          openChatList: () => openChatListForBack(context),
+          openChatList: goesBack
+              ? () {
+                  unawaited(goBackFromSidebarPage(fallback: fallback));
+                  return true;
+                }
+              : () => openChatListForBack(context),
           confirmExit: () => confirmAppExit(context),
           isMounted: () => context.mounted,
           isAndroid: true,

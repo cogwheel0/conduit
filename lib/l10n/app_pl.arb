@@ -110,6 +110,8 @@
   "@settingsDataAndConnection": {
     "description": "Settings destination for transport, connectivity, and related server data options."
   },
+  "slidingSidebar": "Wysuwany panel boczny",
+  "slidingSidebarDescription": "Otwieraj Notatki, Terminal i Kanały obok historii czatów.",
   "settingsAppearance": "Wygląd",
   "@settingsAppearance": {
     "description": "Settings destination for app appearance options."

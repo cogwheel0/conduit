@@ -13,6 +13,7 @@ import 'package:conduit/l10n/conduit_localizations.dart';
 import 'package:conduit/shared/theme/app_theme.dart';
 import 'package:conduit/shared/theme/tweakcn_themes.dart';
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
+import 'package:conduit/shared/widgets/sidebar_layout_contract.dart';
 import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:flutter/gestures.dart';
 import 'package:material_ui/material_ui.dart';
@@ -677,6 +678,37 @@ void main() {
     check(controller.rowRect(ids.first)!.top)
         .isCloseTo(viewportTop + _topContentInset, 1);
   });
+
+  for (final sidebarOpen in [false, true]) {
+    _viewportTest(
+      'status-bar tap leaves the chat to an open sidebar ($sidebarOpen)',
+      (tester) async {
+        tester.view.physicalSize = const Size(390, 844);
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.reset);
+        final controller = _controller(tester);
+        var nativeScrollToTopCalls = 0;
+        await tester.pumpWidget(
+          SidebarDrawerControllerScope(
+            controller: _StubDrawerController(isOpen: sidebarOpen),
+            child: _viewportHost(
+              _viewport(
+                controller: controller,
+                ids: const ['oldest-user', 'latest-user'],
+                onNativeScrollToTop: () async => nativeScrollToTopCalls += 1,
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        tester.simulateStatusBarTap();
+        await tester.pumpAndSettle();
+
+        check(nativeScrollToTopCalls).equals(sidebarOpen ? 0 : 1);
+      },
+    );
+  }
 
   _viewportTest('pinned prompt clears the toolbar without clipping glass', (
     tester,
@@ -2882,4 +2914,20 @@ Widget _viewport({
           );
         },
   );
+}
+
+class _StubDrawerController implements SidebarDrawerController {
+  _StubDrawerController({required this.isOpen});
+
+  @override
+  final bool isOpen;
+
+  @override
+  void open({double velocity = 0.0}) {}
+
+  @override
+  void close({double velocity = 0.0}) {}
+
+  @override
+  void toggle() {}
 }

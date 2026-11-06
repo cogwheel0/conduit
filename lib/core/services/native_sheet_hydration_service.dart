@@ -1337,6 +1337,18 @@ class NativeSheetHydrationService {
               ],
             ),
             NativeSheetSectionConfig(items: [languageItem]),
+            NativeSheetSectionConfig(
+              items: [
+                NativeSheetItemConfig(
+                  id: nativeSlidingSidebarId,
+                  title: l10n.slidingSidebar,
+                  subtitle: l10n.slidingSidebarDescription,
+                  sfSymbol: 'sidebar.left',
+                  kind: NativeSheetItemKind.toggle,
+                  value: _ref.read(appSettingsProvider).slidingSidebarEnabled,
+                ),
+              ],
+            ),
           ],
         ),
       );

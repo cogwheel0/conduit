@@ -11,6 +11,7 @@ import 'package:conduit_core/services/performance_profiler.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/horizontal_gesture_ownership.dart';
 import '../../../shared/widgets/drawer_slot.dart';
+import '../../../shared/widgets/platform_ui/platform_ui.dart';
 import '../../../shared/widgets/sidebar_layout_contract.dart';
 import '../../../shared/widgets/sidebar_layout_constants.dart';
 import 'drawer_open_drag_gesture_recognizer.dart';
@@ -39,6 +40,7 @@ class ResponsiveDrawerLayout extends StatefulWidget {
   final double settleFraction; // threshold to settle open on release
   final Color? scrimColor;
   final bool pushContent;
+  final bool roundPushedContent;
   final double contentScaleDelta;
   final VoidCallback? onOpenStart;
   final double mobileBottomDragGestureExclusion;
@@ -66,6 +68,7 @@ class ResponsiveDrawerLayout extends StatefulWidget {
     this.settleFraction = 0.12,
     this.scrimColor,
     this.pushContent = true,
+    this.roundPushedContent = false,
     this.contentScaleDelta = 0.02,
     this.onOpenStart,
     this.mobileBottomDragGestureExclusion = 0.0,
@@ -93,6 +96,9 @@ class ResponsiveDrawerLayoutState extends State<ResponsiveDrawerLayout>
     implements SidebarDrawerController {
   // Matches Flutter's default Material drawer edge width.
   static const double _kDrawerEdgeDragWidth = 20.0;
+
+  /// Radius the pushed content's corners reach where the screen's is unknown.
+  static const double _kPushedContentCornerRadius = 36.0;
   static const double _kEdgeOpenTouchSlop = kTouchSlop;
   static const double _kHorizontalScrollableOpenThreshold = 45.0;
   static const double _kEdgeOpenAxisBias = 1.0;
@@ -121,6 +127,24 @@ class ResponsiveDrawerLayoutState extends State<ResponsiveDrawerLayout>
     stiffness: 600.0,
     damping: 44.0,
   );
+
+  /// Radius the pushed content's corners reach when the drawer is open: the
+  /// screen's own, so the content follows the display's curve, when the app
+  /// fills the screen and the system reports one.
+  double _pushedContentCornerRadius(BuildContext context) {
+    final device = PlatformUiCapabilities.displayCornerRadius;
+    if (device == null || PlatformUiCapabilities.isIOSAppOnMac) {
+      return _kPushedContentCornerRadius;
+    }
+    final display = View.of(context).display.size;
+    final window =
+        MediaQuery.sizeOf(context) * MediaQuery.devicePixelRatioOf(context);
+    // A window smaller than the screen has corners of its own.
+    final fillsScreen =
+        (display.longestSide - window.longestSide).abs() < 1 &&
+        (display.shortestSide - window.shortestSide).abs() < 1;
+    return fillsScreen ? device : _kPushedContentCornerRadius;
+  }
 
   bool _isTablet(BuildContext context) {
     _cachedIsTablet = usesPersistentTabletSidebar(context);
@@ -156,9 +180,10 @@ class ResponsiveDrawerLayoutState extends State<ResponsiveDrawerLayout>
 
   double get _panelWidth {
     final w = MediaQuery.of(context).size.width;
-    final raw = w * widget.maxFraction;
-    final maxClamp = widget.maxFraction >= 1.0 ? w : 520.0;
-    return raw.clamp(280.0, maxClamp);
+    final maximum = widget.maxFraction >= 1.0
+        ? w
+        : (w - 48.0).clamp(0.0, 520.0);
+    return (w * widget.maxFraction).clamp(maximum.clamp(0.0, 280.0), maximum);
   }
 
   double get _edgeWidth =>
@@ -260,6 +285,10 @@ class ResponsiveDrawerLayoutState extends State<ResponsiveDrawerLayout>
   /// [velocity] is in pixels/sec from the drag gesture, converted to
   /// the 0..1 animation range.
   void _springTo(double target, {double velocity = 0.0}) {
+    if (MediaQuery.disableAnimationsOf(context)) {
+      _controller.value = target;
+      return;
+    }
     final panelPx = _panelWidth;
     // Convert px/s velocity to animation-units/s
     final unitVelocity = panelPx > 0 ? velocity / panelPx : 0.0;
@@ -774,8 +803,16 @@ class ResponsiveDrawerLayoutState extends State<ResponsiveDrawerLayout>
   }
 
   Widget _buildMobileLayout(ConduitThemeExtension theme, Color scrim) {
+    final roundContent = widget.pushContent && widget.roundPushedContent;
+    // Fixed for the whole animation, so it is read once per build.
+    final cornerRadius = roundContent
+        ? _pushedContentCornerRadius(context)
+        : 0.0;
     return Stack(
       children: [
+        Positioned.fill(
+          child: ColoredBox(color: theme.surfaceContainerHighest),
+        ),
         // Content (optionally pushed by the drawer)
         Positioned.fill(
           child: RepaintBoundary(
@@ -798,7 +835,27 @@ class ResponsiveDrawerLayoutState extends State<ResponsiveDrawerLayout>
                 return Transform(
                   transform: matrix,
                   alignment: Alignment.centerLeft,
-                  child: child,
+                  child: ExcludeFocus(
+                    excluding: t > 0,
+                    child: ExcludeSemantics(
+                      excluding: t > 0,
+                      child: ClipRSuperellipse(
+                        borderRadius: BorderRadius.circular(cornerRadius * t),
+                        child: Stack(
+                          fit: StackFit.expand,
+                          children: [
+                            child!,
+                            if (roundContent)
+                              IgnorePointer(
+                                child: ColoredBox(
+                                  color: scrim.withValues(alpha: 0.6 * t),
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
                 );
               },
               child: _buildMobileContentGestureArena(widget.child),
@@ -844,7 +901,10 @@ class ResponsiveDrawerLayoutState extends State<ResponsiveDrawerLayout>
                       onHorizontalDragEnd: _onDragEnd,
                       onHorizontalDragCancel: _onDragCancel,
                       child: ColoredBox(
-                        color: scrim.withValues(alpha: 0.6 * t),
+                        // Rounded pushed content carries its own scrim.
+                        color: roundContent
+                            ? Colors.transparent
+                            : scrim.withValues(alpha: 0.6 * t),
                       ),
                     ),
                   ),

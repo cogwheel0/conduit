@@ -297,6 +297,7 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
           ),
         ),
       ),
+      ...sidebarHistoryHeaderSlivers(context),
       ...slivers,
       // Bottom padding for the tab bar and a little breathing room.
       SliverToBoxAdapter(
@@ -323,14 +324,12 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
       ),
     );
 
-    if (Platform.isIOS) {
-      return CupertinoScrollbar(
-        controller: _listController,
-        child: refreshableScroll,
-      );
-    }
-
-    return Scrollbar(controller: _listController, child: refreshableScroll);
+    return SidebarTabScrollbar(
+      builder: (child) => Platform.isIOS
+          ? CupertinoScrollbar(controller: _listController, child: child)
+          : Scrollbar(controller: _listController, child: child),
+      child: refreshableScroll,
+    );
   }
 
   void _handleRefreshStatusChange(RefreshIndicatorStatus? status) {
@@ -414,28 +413,30 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
     final refreshLabel = MaterialLocalizations.of(context)
         .refreshIndicatorSemanticLabel;
     return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(Spacing.lg),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              message,
-              style: AppTypography.bodyMediumStyle.copyWith(
-                color: theme.textSecondary,
+      child: SingleChildScrollView(
+        child: Padding(
+          padding: const EdgeInsets.all(Spacing.lg),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                message,
+                style: AppTypography.bodyMediumStyle.copyWith(
+                  color: theme.textSecondary,
+                ),
+                textAlign: TextAlign.center,
               ),
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: Spacing.md),
-            ConduitButton(
-              text: refreshLabel,
-              icon: Platform.isIOS ? CupertinoIcons.refresh : Icons.refresh,
-              onPressed: () => unawaited(_refreshEmptyStateChats()),
-              isSecondary: true,
-              isCompact: true,
-              isLoading: _isRefreshingEmptyState,
-            ),
-          ],
+              const SizedBox(height: Spacing.md),
+              ConduitButton(
+                text: refreshLabel,
+                icon: Platform.isIOS ? CupertinoIcons.refresh : Icons.refresh,
+                onPressed: () => unawaited(_refreshEmptyStateChats()),
+                isSecondary: true,
+                isCompact: true,
+                isLoading: _isRefreshingEmptyState,
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -777,8 +778,11 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
           if (list.isEmpty &&
               !hasVisibleFolders &&
               providerArchivedCount == 0) {
-            return _buildEmptyState(
-              AppLocalizations.of(context)!.noConversationsYet,
+            return sidebarHistoryStateBelowHeader(
+              context,
+              _buildEmptyState(
+                AppLocalizations.of(context)!.noConversationsYet,
+              ),
             );
           }
 
@@ -945,15 +949,20 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
           }
           return _buildRefreshableScrollableSlivers(slivers: slivers);
         },
-        loading: () =>
-            const Center(child: AdaptiveProgressIndicator(strokeWidth: 2.0)),
-        error: (e, _) => Center(
-          child: Padding(
-            padding: const EdgeInsets.all(Spacing.md),
-            child: Text(
-              AppLocalizations.of(context)!.failedToLoadChats,
-              style: AppTypography.bodyMediumStyle.copyWith(
-                color: theme.textSecondary,
+        loading: () => sidebarHistoryStateBelowHeader(
+          context,
+          const Center(child: AdaptiveProgressIndicator(strokeWidth: 2.0)),
+        ),
+        error: (e, _) => sidebarHistoryStateBelowHeader(
+          context,
+          Center(
+            child: Padding(
+              padding: const EdgeInsets.all(Spacing.md),
+              child: Text(
+                AppLocalizations.of(context)!.failedToLoadChats,
+                style: AppTypography.bodyMediumStyle.copyWith(
+                  color: theme.textSecondary,
+                ),
               ),
             ),
           ),
@@ -966,7 +975,10 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
     return searchAsync.when(
       data: (list) {
         if (list.isEmpty) {
-          return _buildEmptyState(AppLocalizations.of(context)!.noResults);
+          return sidebarHistoryStateBelowHeader(
+            context,
+            _buildEmptyState(AppLocalizations.of(context)!.noResults),
+          );
         }
 
         final pinned = list.where((c) => c.pinned == true).toList();
@@ -1138,15 +1150,20 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
 
         return _buildRefreshableScrollableSlivers(slivers: slivers);
       },
-      loading: () =>
-          const Center(child: AdaptiveProgressIndicator(strokeWidth: 2.0)),
-      error: (e, _) => Center(
-        child: Padding(
-          padding: const EdgeInsets.all(Spacing.md),
-          child: Text(
-            'Search failed',
-            style: AppTypography.bodyMediumStyle.copyWith(
-              color: context.sidebarTheme.foreground.withValues(alpha: 0.7),
+      loading: () => sidebarHistoryStateBelowHeader(
+        context,
+        const Center(child: AdaptiveProgressIndicator(strokeWidth: 2.0)),
+      ),
+      error: (e, _) => sidebarHistoryStateBelowHeader(
+        context,
+        Center(
+          child: Padding(
+            padding: const EdgeInsets.all(Spacing.md),
+            child: Text(
+              'Search failed',
+              style: AppTypography.bodyMediumStyle.copyWith(
+                color: context.sidebarTheme.foreground.withValues(alpha: 0.7),
+              ),
             ),
           ),
         ),
@@ -1782,6 +1799,8 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
       final api = ref.read(apiServiceProvider);
       if (api == null) throw Exception('No API service');
       await api.deleteFolder(folder.id);
+      // Back no longer returns to the deleted folder.
+      NavigationService.forgetPath('/folder/${folder.id}');
       ConduitHaptics.mediumImpact();
       ref.read(foldersProvider.notifier).removeFolderFromRemote(folder.id);
       refreshConversationsCache(ref, includeFolders: true);

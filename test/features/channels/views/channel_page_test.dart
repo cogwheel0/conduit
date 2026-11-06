@@ -26,7 +26,9 @@ import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/l10n/conduit_localizations.dart';
 import 'package:conduit/shared/theme/app_theme.dart';
 import 'package:conduit/shared/theme/tweakcn_themes.dart';
+import 'package:conduit/shared/services/navigation_service.dart';
 import 'package:conduit/shared/utils/conversation_context_menu.dart';
+import 'package:go_router/go_router.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/services.dart' show SystemChannels;
@@ -1013,6 +1015,118 @@ void main() {
     await tester.pump(const Duration(milliseconds: 1));
   });
 
+  // The shell keeps a channel mounted out of sight once another page shows,
+  // and a page pushed over it keeps it behind, so a slow Leave or Delete can
+  // finish there.
+  for (final action in ['leave', 'delete']) {
+    for (final meanwhile in ['stays', 'switches', 'covers']) {
+      testWidgets('a slow $action goes to the chat only from its channel '
+          '(meanwhile the user $meanwhile)', (tester) async {
+        final api = _HeldChannelApi(
+          channels: [
+            {'id': 'channel-1', 'name': 'Initial channel'},
+          ],
+        );
+        final container = _appRigContainer(api);
+        addTearDown(container.dispose);
+        await container.read(channelsListProvider.future);
+        final router = GoRouter(
+          initialLocation: '/channel/channel-1',
+          routes: [
+            StatefulShellRoute.indexedStack(
+              builder: (_, _, shell) => shell,
+              branches: [
+                StatefulShellBranch(
+                  routes: [
+                    GoRoute(
+                      path: Routes.chat,
+                      builder: (_, _) => const Scaffold(body: Text('Chat')),
+                    ),
+                    GoRoute(
+                      path: Routes.channel,
+                      name: RouteNames.channel,
+                      builder: (_, state) =>
+                          ChannelPage(channelId: state.pathParameters['id']!),
+                    ),
+                  ],
+                ),
+                StatefulShellBranch(
+                  routes: [
+                    GoRoute(
+                      path: Routes.notes,
+                      builder: (_, _) =>
+                          const Scaffold(body: Text('Notes list')),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+            GoRoute(
+              path: Routes.profile,
+              builder: (_, _) => const Scaffold(body: Text('Profile')),
+            ),
+          ],
+        );
+        addTearDown(router.dispose);
+        NavigationService.attachRouter(router);
+        await tester.pumpWidget(
+          UncontrolledProviderScope(
+            container: container,
+            child: MaterialApp.router(
+              theme: AppTheme.light(TweakcnThemes.t3Chat),
+              localizationsDelegates: conduitLocalizationsDelegates,
+              supportedLocales: AppLocalizations.supportedLocales,
+              routerConfig: router,
+            ),
+          ),
+        );
+        await tester.pump(const Duration(milliseconds: 1));
+
+        tester
+            .widget<ConduitAdaptiveToolbarOverflowButton<String>>(
+              find.byType(ConduitAdaptiveToolbarOverflowButton<String>),
+            )
+            .onSelected(action);
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 400));
+        final l10n = AppLocalizations.of(
+          tester.element(find.byType(ChannelPage)),
+        )!;
+        await tester.tap(find.text(l10n.confirm).last);
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 400));
+        check(api.requests).deepEquals(['$action:channel-1']);
+
+        switch (meanwhile) {
+          case 'switches':
+            router.go(Routes.notes);
+          case 'covers':
+            unawaited(router.push<void>(Routes.profile));
+        }
+        await tester.pumpAndSettle();
+        api.held.complete();
+        await tester.pump(const Duration(milliseconds: 1));
+        await tester.pump(const Duration(milliseconds: 1));
+
+        check(router.state.matchedLocation).equals(switch (meanwhile) {
+          'switches' => Routes.notes,
+          'covers' => Routes.profile,
+          _ => Routes.chat,
+        });
+        // The channel is gone either way, and back no longer returns to it.
+        check(container.read(channelsListProvider).requireValue).isEmpty();
+        if (meanwhile == 'switches') {
+          NavigationService.returnToPreviousPage(fallback: Routes.chat);
+          await tester.pump(const Duration(milliseconds: 1));
+          check(router.state.matchedLocation).equals(Routes.chat);
+        }
+
+        await tester.pumpWidget(const SizedBox.shrink());
+        await tester.pump(const Duration(milliseconds: 1));
+      });
+    }
+  }
+
   testWidgets('channel route change clears the prior active channel', (
     tester,
   ) async {
@@ -1437,6 +1551,30 @@ class _ChannelApi extends ApiService {
   Future<Map<String, dynamic>> getUserSettings({
     ApiAuthSnapshot? authSnapshot,
   }) async => const {};
+}
+
+/// Holds Leave and Delete until [held] completes.
+class _HeldChannelApi extends _ChannelApi {
+  _HeldChannelApi({super.channels});
+
+  final held = Completer<void>();
+  final requests = <String>[];
+
+  @override
+  Future<void> deleteChannel(String channelId) {
+    requests.add('delete:$channelId');
+    return held.future;
+  }
+
+  @override
+  Future<bool> updateMemberActiveStatus(
+    String channelId, {
+    required bool isActive,
+  }) async {
+    requests.add('leave:$channelId');
+    await held.future;
+    return true;
+  }
 }
 
 class _RouteChangeChannelApi extends _ChannelApi {

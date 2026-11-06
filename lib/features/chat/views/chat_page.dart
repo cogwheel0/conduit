@@ -4780,7 +4780,11 @@ class _ChatPageState extends ConsumerState<ChatPage> {
             }
           }
           if (selected != null) {
-            applyChatModelPick(ref, selected, target: pickTarget);
+            // An explicit choice, which a late default or New Chat must not
+            // replace.
+            if (applyChatModelPick(ref, selected, target: pickTarget)) {
+              ref.read(isManualModelSelectionProvider.notifier).set(true);
+            }
           }
         }
         await restoreFocusIfNeeded();

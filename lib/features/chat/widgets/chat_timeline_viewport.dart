@@ -18,6 +18,8 @@ import 'package:conduit_core/database/models/chat_transcript_window.dart';
 
 import 'package:conduit_core/utils/debug_logger.dart';
 
+import '../../../shared/widgets/sidebar_layout_contract.dart';
+
 @visibleForTesting
 const int debugChatTimelineInitialPositionMaxAttempts = 12;
 
@@ -629,6 +631,8 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
     }
     final route = ModalRoute.of(context);
     if (route != null && !route.isCurrent) return;
+    // The open sidebar covers the chat and scrolls its own list instead.
+    if (sidebarCoversMainPane(context)) return;
     unawaited(
       Future<void>.sync(widget.onNativeScrollToTop)
           .catchError((Object error, StackTrace stackTrace) {

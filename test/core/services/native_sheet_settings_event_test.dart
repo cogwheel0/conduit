@@ -632,6 +632,33 @@ void main() {
     });
   });
 
+  testWidgets('the native sidebar toggle saves only boolean values', (
+    tester,
+  ) async {
+    final container = await pumpApp(tester);
+    expect(container.read(appSettingsProvider).slidingSidebarEnabled, isFalse);
+    // A value that is not a boolean leaves the setting as it was, whichever
+    // way it was set.
+    for (final (value, expected) in [
+      ('yes', false),
+      (true, true),
+      ('no', true),
+      (false, false),
+    ]) {
+      NativeSheetBridge.instance.onControlChanged(
+        PlatformNativeSheetControlChangedEvent(
+          id: 'sliding-sidebar',
+          value: value,
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(
+        container.read(appSettingsProvider).slidingSidebarEnabled,
+        expected,
+      );
+    }
+  });
+
   testWidgets('the native citation titles toggle saves its boolean', (
     tester,
   ) async {
