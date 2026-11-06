@@ -901,7 +901,8 @@ class ResponsiveDrawerLayoutState extends State<ResponsiveDrawerLayout>
                       onHorizontalDragEnd: _onDragEnd,
                       onHorizontalDragCancel: _onDragCancel,
                       child: ColoredBox(
-                        color: widget.pushContent
+                        // Rounded pushed content carries its own scrim.
+                        color: roundContent
                             ? Colors.transparent
                             : scrim.withValues(alpha: 0.6 * t),
                       ),

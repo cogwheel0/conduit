@@ -54,6 +54,34 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('the tabbed layout dims the chat behind its open drawer', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(
+      sidebarTestBuildHarness(
+        controllers: SidebarTestSidebarHarnessControllers(),
+        slidingSidebarEnabled: false,
+        shellChat: const Scaffold(body: Text('Chat content')),
+      ),
+    );
+    await tester.pumpAndSettle();
+    Iterable<Color> translucentLayers() => tester
+        .widgetList<ColoredBox>(
+          find.descendant(
+            of: find.byType(ResponsiveDrawerLayout),
+            matching: find.byType(ColoredBox),
+          ),
+        )
+        .map((box) => box.color)
+        .where((color) => color.a > 0 && color.a < 1);
+    expect(translucentLayers(), isEmpty);
+    await sidebarTestOpenSidebar(tester);
+    expect(translucentLayers(), isNotEmpty);
+  });
+
   testWidgets(
     'phone menu leaves a curved, tappable slice of the chat visible',
     (tester) async {
