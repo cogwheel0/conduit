@@ -102,6 +102,11 @@ class NoteAttachmentsController {
   /// it was recovered: an upload of one still running neither comes back to
   /// this editor nor attaches to the note it shows now.
   final Set<String> _leftBehindUploads = <String>{};
+
+  /// Recordings [rebindTo] is moving to another note. A retry meanwhile
+  /// finds no copy where one was and reports it gone; the move, not that
+  /// report, says where it is.
+  final Set<String> _moving = <String>{};
   final Set<String> _inFlight = <String>{};
   final Set<String> _queued = <String>{};
   final Set<String> _feedbackIds = <String>{};
@@ -793,6 +798,7 @@ class NoteAttachmentsController {
 
   void _applyChange(String id, PendingNoteAudioUpload? updated) {
     if (_disposed || _leftBehindUploads.contains(id)) return;
+    if (updated == null && _moving.contains(id)) return;
     _mutationGeneration++;
     final int index = _pending.indexWhere(
       (PendingNoteAudioUpload item) => item.id == id,
@@ -876,6 +882,7 @@ class NoteAttachmentsController {
             if (moves(item)) item.id: item,
         };
     attemptedUploadIds.addAll(initialUploads.keys);
+    _moving.addAll(initialUploads.keys);
     final List<Future<MapEntry<String, PendingNoteAudioUpload?>>> rebindWaits =
         initialUploads.entries
             .map(
@@ -919,6 +926,7 @@ class NoteAttachmentsController {
 
       for (final PendingNoteAudioUpload item in audioItemsById.values) {
         if (!moves(item) || !attemptedUploadIds.add(item.id)) continue;
+        _moving.add(item.id);
         final PendingNoteAudioUpload? rebound = await rebindItem(item);
         if (rebound != null) reboundUploads[item.id] = rebound;
       }
@@ -931,7 +939,10 @@ class NoteAttachmentsController {
         data: {'noteId': previous.id},
       );
     }
-    if (!_isCurrent(api: api, db: db, authEpoch: authEpoch)) return;
+    if (!_isCurrent(api: api, db: db, authEpoch: authEpoch)) {
+      _moving.removeAll(attemptedUploadIds);
+      return;
+    }
 
     // A recording this move took is the new note's, whatever page its copy
     // names: one a retry published while it moved belongs to that note now.
@@ -967,6 +978,7 @@ class NoteAttachmentsController {
         unawaited(retry(ids: reboundUploads.keys));
       }
     }
+    _moving.removeAll(attemptedUploadIds);
   }
 }
 

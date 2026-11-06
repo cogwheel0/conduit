@@ -1302,6 +1302,81 @@ void main() {
       check(controller.pending).isEmpty();
     });
 
+    test('a recording retried after its move, while the move goes on, '
+        'stays to be attached', () async {
+      final held = _HeldScanStore(
+        applicationSupportDirectory: () async {
+          final dir = Directory('${root.path}/support');
+          await dir.create(recursive: true);
+          return dir;
+        },
+        temporaryDirectory: () async => Directory('${root.path}/cache'),
+      )..release.complete();
+      controller.dispose();
+      controller = NoteAttachmentsController(
+        container: container,
+        store: held,
+        noteId: 'note-1',
+        currentNote: () => openNote,
+        resolvedTitle: () => openNote.title,
+        onNoteUpdated: (updated) => openNote = updated,
+        onChanged: () => changes++,
+        onNotice: notices.add,
+      )..start();
+      api.uploadError = StateError('offline');
+      final onRemoved = await held.stage(
+        source: await recording('two.m4a'),
+        serverId: 'server-1',
+        accountId: 'user:user-1',
+        noteId: 'note-1',
+        fileName: 'recording_2.m4a',
+        pageId: 'p2',
+      );
+      await controller.loadPending();
+      await waitFor(
+        () => controller.pending.length == 1 && !controller.isUploading,
+      );
+      await db
+          .into(db.notes)
+          .insertOnConflictUpdate(
+            serverToNoteRow({
+              'id': 'local:page',
+              'user_id': 'user-1',
+              'title': 'Two',
+              'data': {
+                'content': {'md': 'two', 'html': ''},
+              },
+              'meta': {},
+              'is_pinned': false,
+              'created_at': 1713786305000000000,
+              'updated_at': 1713786305000000000,
+            }),
+          );
+
+      // The recording has moved; the rest of the move waits on a scan when
+      // the user retries it. The retry finds nothing left where it was.
+      api.uploadError = null;
+      held.holdNoteScan = Completer<void>();
+      final original = openNote;
+      final pageNote = await readNote('local:page');
+      openNote = pageNote;
+      final rebinding = controller.rebindTo(original, pageNote, pageId: 'p2');
+      await held.noteScanEntered.future;
+      await controller.retry();
+      held.holdNoteScan!.complete();
+      await rebinding;
+      check(controller.pending.map((item) => item.id)).deepEquals([
+        onRemoved.id,
+      ]);
+
+      await controller.retry();
+      await waitFor(() => !controller.isUploading);
+      final stored = await readNote('local:page');
+      check(stored.data.files ?? const <Map<String, dynamic>>[]).length
+          .equals(1);
+      check(controller.pending).isEmpty();
+    });
+
     test('an empty title falls back to the untitled name', () async {
       await db.notesDao.purgeReconciledNote('note-1');
       final recovered = <Note>[];
