@@ -697,6 +697,7 @@ class SyncEngine extends _$SyncEngine {
       noteLocks: noteLocks,
       remapper: remapper,
       currentAccountId: () => ref.read(currentUserProvider2)?.id,
+      notePagesServer: () => ref.read(notePagesServerProvider),
     );
   }
 

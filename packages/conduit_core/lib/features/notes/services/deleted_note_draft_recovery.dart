@@ -132,6 +132,13 @@ class DeletedNoteDraftRecovery {
     );
   }
 
+  /// Forgets a recovery owed for a draft the user discarded, so the next
+  /// edit is saved to the note as usual instead of retrying the recovery.
+  void forgetPendingRetry() {
+    _retry = null;
+    _queued = false;
+  }
+
   void dispose() {
     _authEpochSubscription?.close();
     _authEpochSubscription = null;
@@ -140,9 +147,14 @@ class DeletedNoteDraftRecovery {
   /// Creates a note from the draft. [session] is what the caller captured
   /// before the sync that found the note gone. [showFailure] is false for the
   /// automatic retries, so a note that stays unsavable does not nag.
+  ///
+  /// With [pageId], the draft is that page's text, which a sync removed from
+  /// a note that is still there: only the recordings made on that page move
+  /// with it.
   Future<void> recover(
     NoteRecoverySession session, {
     bool showFailure = true,
+    String? pageId,
   }) async {
     if (_recovering) {
       _queued = true;
@@ -150,7 +162,7 @@ class DeletedNoteDraftRecovery {
     }
     _recovering = true;
     try {
-      await _recoverOnce(session, showFailure: showFailure);
+      await _recoverOnce(session, showFailure: showFailure, pageId: pageId);
     } finally {
       _recovering = false;
       if (_queued) {
@@ -174,6 +186,7 @@ class DeletedNoteDraftRecovery {
   Future<void> _recoverOnce(
     NoteRecoverySession session, {
     required bool showFailure,
+    String? pageId,
   }) async {
     final Note? previous = _currentNote();
     final AppDatabase? db = session.db;
@@ -181,7 +194,7 @@ class DeletedNoteDraftRecovery {
 
     _retry = () {
       if (!_isOpen()) return;
-      unawaited(recover(session, showFailure: false));
+      unawaited(recover(session, showFailure: false, pageId: pageId));
     };
 
     _cancelPendingSave();
@@ -241,7 +254,7 @@ class DeletedNoteDraftRecovery {
     );
     if (changedDuringRecovery) _saveSoon();
 
-    await _attachments.rebindTo(previous, recovered);
+    await _attachments.rebindTo(previous, recovered, pageId: pageId);
   }
 
   void _scheduleRetry(NoteRecoverySession session) {

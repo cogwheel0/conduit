@@ -17,6 +17,17 @@ void main() {
     });
   });
 
+  group('ServerVersionCompat.knownAtLeast', () {
+    test('answers only for a version it can read', () {
+      const pages = ServerVersionCompat.notePagesVersion;
+      check(ServerVersionCompat.knownAtLeast('0.12.5', pages)).equals(true);
+      check(ServerVersionCompat.knownAtLeast('v0.13.0', pages)).equals(true);
+      check(ServerVersionCompat.knownAtLeast('0.12.4', pages)).equals(false);
+      check(ServerVersionCompat.knownAtLeast(null, pages)).isNull();
+      check(ServerVersionCompat.knownAtLeast('main', pages)).isNull();
+    });
+  });
+
   group('ServerVersionCompat.isSupported', () {
     test('the max supported version itself is supported', () {
       check(ServerVersionCompat.isSupported('0.12.4')).isTrue();

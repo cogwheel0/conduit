@@ -6,10 +6,12 @@ import 'package:flutter/services.dart';
 
 import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit_markdown/conduit_markdown.dart';
+
 import '../compiled_markdown_document.dart';
 import '../citation_badge.dart';
 import 'latex_preprocessor.dart';
 import 'markdown_style.dart';
+import 'markdown_text.dart';
 import 'pdf_inline_view.dart';
 
 /// Callback invoked when a user taps a markdown link.
@@ -818,7 +820,7 @@ class FadableRichText extends StatelessWidget {
   Widget build(BuildContext context) {
     final fadeSource = fade;
     if (fadeSource == null) {
-      return Text.rich(rendered.span);
+      return MarkdownText(rendered.span);
     }
     return AnimatedBuilder(
       animation: fadeSource.listenable,
@@ -828,7 +830,7 @@ class FadableRichText extends StatelessWidget {
           fadeSource.spec,
           style: style,
         );
-        return Text.rich(span);
+        return MarkdownText(span);
       },
     );
   }
