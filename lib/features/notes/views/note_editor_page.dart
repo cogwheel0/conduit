@@ -589,13 +589,33 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
   /// remotely deleted note's recovery retry stays reachable.
   Future<bool> _saveBeforeLeaving() async {
     _saveDebounce?.cancel();
-    await _autoSave();
-    if (!mounted) return false;
-    if (_hasChanges) {
+    // A save covers the text as it began, so typing while it runs needs
+    // another; a few rounds catch up with any typing that is still going.
+    for (
+      var round = 0;
+      round < 3 && (_hasChanges || _hasUnsavedText);
+      round++
+    ) {
+      await _autoSave();
+      if (!mounted) return false;
+    }
+    if (_hasChanges || _hasUnsavedText) {
       _recovery.pendingRetry?.call();
       return false;
     }
     return true;
+  }
+
+  /// Whether the title or content differs from what was last saved, as
+  /// [_saveNote] would store it.
+  bool get _hasUnsavedText {
+    final note = _note;
+    if (note == null) return false;
+    final title = _titleController.text.trim();
+    final storedTitle = title.isEmpty
+        ? AppLocalizations.of(context)!.untitled
+        : title;
+    return storedTitle != note.title || _contentMarkdown != _savedMarkdown;
   }
 
   Future<void> _autoSave() async {

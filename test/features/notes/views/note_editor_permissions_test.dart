@@ -24,6 +24,7 @@ import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit_core/services/connectivity_service.dart';
 import 'package:conduit_core/services/worker_manager.dart';
+import 'package:conduit_core/sync/chat_locks.dart';
 import 'package:conduit_core/sync/pull_sync.dart';
 import 'package:conduit_core/sync/sync_engine.dart';
 import 'package:dio/dio.dart';
@@ -206,6 +207,7 @@ void main() {
     _DetailApi api, {
     Map<String, String> userNames = const {},
     NoteDeleter? deleter,
+    AppSettings settings = const AppSettings(),
   }) async {
     final container = ProviderContainer(
       // A provider that errors would otherwise schedule a retry timer.
@@ -220,7 +222,7 @@ void main() {
         connectivityStatusProvider.overrideWithValue(ConnectivityStatus.online),
         isOnlineProvider.overrideWithValue(true),
         // Advanced stays off: nothing here depends on it.
-        appSettingsProvider.overrideWithValue(const AppSettings()),
+        appSettingsProvider.overrideWithValue(settings),
         workspaceCapabilitiesProvider.overrideWith(
           (ref) async => WorkspaceCapabilities.all,
         ),
@@ -556,6 +558,66 @@ void main() {
       contentController(tester).document.toPlainText(),
       contains('original'),
     );
+  });
+
+  testWidgets('back saves an edit typed while an earlier save runs', (
+    tester,
+  ) async {
+    final note = _noteJson(writeAccess: true);
+    await storeLocally(note);
+    final container = await pumpEditor(
+      tester,
+      _DetailApi(detail: note),
+      settings: const AppSettings(slidingSidebarEnabled: true),
+    );
+    final router = GoRouter(
+      initialLocation: '/notes',
+      routes: [
+        GoRoute(
+          path: '/notes',
+          builder: (_, _) => const Scaffold(body: Text('Notes list')),
+        ),
+        GoRoute(
+          path: '/notes/:id',
+          builder: (_, _) => const NoteEditorPage(noteId: 'note-1'),
+        ),
+      ],
+    );
+    addTearDown(router.dispose);
+    NavigationService.attachRouter(router);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: MaterialApp.router(
+          theme: AppTheme.light(TweakcnThemes.t3Chat),
+          localizationsDelegates: conduitLocalizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          routerConfig: router,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    router.go('/notes/note-1');
+    await tester.pumpAndSettle();
+
+    // Holding the note's lock keeps the back button's save in flight.
+    final gate = Completer<void>();
+    unawaited(
+      container.read(noteLocksProvider).runExclusive('note-1', () => gate.future),
+    );
+    typeInto(tester, 'first ');
+    await tester.tap(
+      find.byKey(const ValueKey<String>('sidebar-page-back-button')),
+    );
+    await tester.pump();
+    typeInto(tester, 'second ');
+    gate.complete();
+    await tester.pumpAndSettle();
+
+    expect(router.routeInformationProvider.value.uri.path, '/notes');
+    final row = (await db.notesDao.getNote('note-1'))!;
+    expect(row.data, contains('second'));
+    expect(row.data, contains('first'));
   });
 
   for (final navigation in ['stay', 'leave', 'return']) {
