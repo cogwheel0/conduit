@@ -3040,7 +3040,9 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
         persist: true,
       );
       if (reconciled && othersReply && _hasStreamingAssistant) {
-        _engageReopenedTailMonitor(openedMessageId);
+        // The reply that runs may be a newer one of theirs that the copy ends
+        // on: the monitor follows the reply shown.
+        _engageReopenedTailMonitor(state.last.id);
         return;
       }
       if (reconciled) {
@@ -3329,14 +3331,22 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
 
     final reconciled = List<ChatMessage>.from(mergedServerMessages);
     reconciled[serverIndex] = serverTail;
-    final shown = List<ChatMessage>.unmodifiable(reconciled);
     // Following another person's reply as the server's copy has it: a newer
     // reply of theirs that the copy ends on, and reports still running,
-    // shows running too, as on open.
-    state = streaming == null ? _withOthersRunningReply(shown) : shown;
-    // `_withOthersRunningReply` returns the very list it is given when it
-    // changes nothing, so a new list means it marked the tail running.
-    final othersNewerReplyRuns = !identical(state, shown);
+    // shows running too, as on open. That is read from the copy itself, as
+    // `live` is: the merge with local state above may keep a marker the copy
+    // has dropped. (`_withOthersRunningReply` returns the list it is given
+    // when the tail does not run.)
+    final othersNewerReplyRuns =
+        streaming == null &&
+        serverIndex != serverMessages.length - 1 &&
+        !identical(_withOthersRunningReply(serverMessages), serverMessages);
+    if (othersNewerReplyRuns) {
+      reconciled[reconciled.length - 1] = reconciled.last.copyWith(
+        isStreaming: true,
+      );
+    }
+    state = List<ChatMessage>.unmodifiable(reconciled);
 
     if ((live || othersNewerReplyRuns) && state.last.role == 'assistant') {
       _streamingContentTimer?.cancel();

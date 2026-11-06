@@ -9036,6 +9036,135 @@ void main() {
       check(container.read(isChatStreamingProvider)).isFalse();
     });
 
+    test('a shared chat reopened on a newer running reply of another '
+        'person\'s follows that reply to its end', () async {
+      final (:api, :socket, :client, :container) = await openDraft(
+        account: const User(
+          id: 'me',
+          username: 'Me',
+          email: 'me@example.com',
+          role: 'user',
+        ),
+      );
+      api.activeTaskIds = const [];
+      ChatMessage reply(
+        String id,
+        String content, {
+        required bool running,
+        required int second,
+      }) => ChatMessage(
+        id: id,
+        role: 'assistant',
+        content: content,
+        timestamp: DateTime.utc(2026, 7, 13, 0, 0, second),
+        model: duplicate.id,
+        metadata: <String, dynamic>{
+          kMessageAuthorIdMetadataKey: 'someone-else',
+          if (running) kMessageServerUnfinishedMetadataKey: true,
+        },
+      );
+      Conversation chat(List<ChatMessage> tail) => _conversation('web-reply', [
+        _user('web-u', 'hello'),
+        ...tail,
+      ], ChatStorageKind.openWebUi).copyWith(userId: 'someone-else');
+      List<ChatMessage> askedAgain({required bool running}) => [
+        reply('theirs', 'theirs, all of it', running: false, second: 1),
+        ChatMessage(
+          id: 'their-q2',
+          role: 'user',
+          content: 'and more?',
+          timestamp: DateTime.utc(2026, 7, 13, 0, 0, 2),
+          metadata: const <String, dynamic>{
+            kMessageAuthorIdMetadataKey: 'someone-else',
+          },
+        ),
+        reply(
+          'theirs-2',
+          running ? 'more' : 'more, all of it',
+          running: running,
+          second: 3,
+        ),
+      ];
+      // The chat is opened on their first reply running; by the time the
+      // server is asked, it is done and they asked again.
+      api.serverCopy = chat(askedAgain(running: true));
+      final notifier = container.read(chatMessagesProvider.notifier);
+      container
+          .read(activeConversationProvider.notifier)
+          .set(
+            chat([reply('theirs', 'theirs so far', running: true, second: 1)]),
+          );
+      await until(() => api.taskListRequests > 0);
+      for (var i = 0; i < 10; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+      var tail = container.read(chatMessagesProvider).last;
+      check(tail.id).equals('theirs-2');
+      check(tail.isStreaming).isTrue();
+
+      // The copy has the newer one done: the monitor, on it, finishes it.
+      api.serverCopy = chat(askedAgain(running: false));
+      notifier
+        ..debugCancelRemoteTaskMonitorTimer()
+        ..debugPrimeReopenedSnapshotAttempt();
+      await notifier.debugSyncRemoteTaskStatus();
+      tail = container.read(chatMessagesProvider).last;
+      check(tail.isStreaming).isFalse();
+      check(tail.content).equals('more, all of it');
+      check(container.read(isChatStreamingProvider)).isFalse();
+    });
+
+    test('another person\'s reply the server\'s copy has done stays done, '
+        'though the reply shown here kept a running marker', () async {
+      final (:api, :socket, :client, :container) = await openDraft(
+        account: const User(
+          id: 'me',
+          username: 'Me',
+          email: 'me@example.com',
+          role: 'user',
+        ),
+      );
+      api.activeTaskIds = const [];
+      Conversation chat({required bool running, List<String> followUps = const []}) =>
+          _conversation('web-reply', [
+            _user('web-u', 'hello'),
+            ChatMessage(
+              id: 'theirs',
+              role: 'assistant',
+              content: 'theirs, all of it',
+              timestamp: DateTime.utc(2026, 7, 13, 0, 0, 1),
+              model: duplicate.id,
+              followUps: followUps,
+              metadata: <String, dynamic>{
+                kMessageAuthorIdMetadataKey: 'someone-else',
+                if (running) kMessageServerUnfinishedMetadataKey: true,
+              },
+            ),
+          ], ChatStorageKind.openWebUi).copyWith(userId: 'someone-else');
+      // Shown running, with follow-ups the server's copy does not carry yet.
+      final opened = chat(running: true, followUps: const ['more?']);
+      api.serverCopy = opened;
+      final notifier = container.read(chatMessagesProvider.notifier);
+      container.read(activeConversationProvider.notifier).set(opened);
+      await until(() => api.taskListRequests > 0);
+      for (var i = 0; i < 10; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+      check(container.read(chatMessagesProvider).last.isStreaming).isTrue();
+
+      // The copy has it done. The follow-ups shown here are kept, and with
+      // them the running marker the copy dropped; the copy decides.
+      api.serverCopy = chat(running: false);
+      notifier
+        ..debugCancelRemoteTaskMonitorTimer()
+        ..debugPrimeReopenedSnapshotAttempt();
+      await notifier.debugSyncRemoteTaskStatus();
+      final tail = container.read(chatMessagesProvider).last;
+      check(tail.followUps).deepEquals(['more?']);
+      check(tail.isStreaming).isFalse();
+      check(container.read(isChatStreamingProvider)).isFalse();
+    });
+
     test('another person\'s reply is done when the server\'s copy says so, '
         'though this account runs a task in the chat', () async {
       final (:api, :socket, :client, :container) = await openDraft(
