@@ -10,8 +10,9 @@ import 'package:conduit_core/providers/app_providers.dart';
 /// kept through a switch of model, as on Open WebUI 0.12.5, and start again
 /// from the model's defaults in another chat, as its web client starts them
 /// on every navigation. Every new value of this provider starts them again:
-/// a conversation boundary sets one, and so does another account or sign-in.
-/// The value is only an identity to compare.
+/// a conversation boundary sets one, and so does another account or server.
+/// A connection issue that keeps the account signed in leaves them as they
+/// are. The value is only an identity to compare.
 final chatPicksSessionProvider = NotifierProvider<ChatPicksSession, Object>(
   ChatPicksSession.new,
 );
@@ -21,7 +22,7 @@ class ChatPicksSession extends Notifier<Object> {
   Object build() {
     ref
       ..watch(currentUserProvider2.select((user) => user?.id))
-      ..watch(openWebUiAuthSessionEpochProvider);
+      ..watch(activeServerProvider.select((server) => server.asData?.value?.id));
     return Object();
   }
 

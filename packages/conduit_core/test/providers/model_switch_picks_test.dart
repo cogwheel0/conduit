@@ -4,15 +4,29 @@ library;
 
 import 'package:checks/checks.dart';
 import 'package:conduit_core/auth/auth_state_manager.dart';
+import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit_core/features/chat/providers/chat_providers.dart';
 import 'package:conduit_core/features/tools/providers/tools_providers.dart';
 import 'package:conduit_core/models/model.dart';
 import 'package:conduit_core/models/toggle_filter.dart';
 import 'package:conduit_core/models/tool.dart';
+import 'package:conduit_core/models/user.dart';
 import 'package:conduit_core/providers/app_providers.dart';
-import 'package:conduit_core/providers/chat_picks_session.dart';
 import 'package:riverpod/riverpod.dart';
 import 'package:test/test.dart';
+
+/// The account signed in, which a test can change.
+final _account = NotifierProvider<_Account, User?>(_Account.new);
+
+final class _Account extends Notifier<User?> {
+  @override
+  User? build() => _user('user-1');
+
+  void signIn(String id) => state = _user(id);
+}
+
+User _user(String id) =>
+    User(id: id, username: id, email: '$id@example.test', role: 'user');
 
 final class _SignedIn extends AuthStateManager {
   @override
@@ -57,6 +71,7 @@ void main() {
     container = ProviderContainer(
       overrides: [
         authStateManagerProvider.overrideWith(_SignedIn.new),
+        currentUserProvider2.overrideWith((ref) => ref.watch(_account)),
         toolsListProvider.overrideWith(_Tools.new),
         selectedModelProvider.overrideWith(_SwitchableModel.new),
       ],
@@ -102,8 +117,18 @@ void main() {
     check(container.read(imageGenerationEnabledProvider)).isTrue();
     check(container.read(webSearchEnabledProvider)).isTrue();
 
+    // Image generation keeps its own pick the same way: turned off here, it
+    // stays off on a model that defaults to it.
+    container.read(imageGenerationEnabledProvider.notifier).set(false);
+    choose(_model('b2', features: ['image_generation', 'web_search']));
+    check(container.read(imageGenerationEnabledProvider)).isFalse();
+
     clearSelectedFiltersForConversationBoundary(container);
+    check(container.read(webSearchEnabledProvider)).isTrue();
+    check(container.read(imageGenerationEnabledProvider)).isTrue();
+    choose(_model('a'));
     check(container.read(webSearchEnabledProvider)).isFalse();
+    check(container.read(imageGenerationEnabledProvider)).isFalse();
 
     // Without a choice of the user's, the model's default applies.
     choose(_model('c', features: ['web_search', 'image_generation']));
@@ -133,8 +158,21 @@ void main() {
     container.read(webSearchEnabledProvider.notifier).set(false);
     check(container.read(webSearchEnabledProvider)).isFalse();
 
-    container.invalidate(chatPicksSessionProvider);
+    container.read(_account.notifier).signIn('user-2');
     check(container.read(webSearchEnabledProvider)).isTrue();
+  });
+
+  test('a connection issue that keeps the account signed in keeps its picks',
+      () async {
+    choose(_model('a', features: ['web_search']));
+    container.read(webSearchEnabledProvider.notifier).set(false);
+    container.read(imageGenerationEnabledProvider.notifier).set(true);
+
+    // A refused request marks the session with an issue and back: the
+    // account and server are the same.
+    container.invalidate(openWebUiAuthSessionEpochProvider);
+    check(container.read(webSearchEnabledProvider)).isFalse();
+    check(container.read(imageGenerationEnabledProvider)).isTrue();
   });
 
   test('a tool the user turned on stays theirs after a model that also '
