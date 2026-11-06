@@ -4355,5 +4355,7 @@
   "mcpAppToolCallMessage": "Приложение хочет, чтобы {serverName} выполнил {toolName} с параметрами:",
   "mcpAppToolCallAllow": "Разрешить",
   "mcpAppLoadFailed": "Не удалось загрузить приложение: {reason}",
-  "mcpAppDidNotStart": "Приложение не запустилось."
+  "mcpAppDidNotStart": "Приложение не запустилось.",
+  "mcpAppOpenLinkTitle": "Открыть эту ссылку?",
+  "mcpAppOpenLinkConfirm": "Открыть"
 }

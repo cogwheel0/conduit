@@ -4089,5 +4089,7 @@
   "mcpAppToolCallMessage": "앱이 {serverName}에서 다음 값으로 {toolName}을(를) 실행하려고 합니다:",
   "mcpAppToolCallAllow": "허용",
   "mcpAppLoadFailed": "앱을 불러올 수 없습니다: {reason}",
-  "mcpAppDidNotStart": "앱이 시작되지 않았습니다."
+  "mcpAppDidNotStart": "앱이 시작되지 않았습니다.",
+  "mcpAppOpenLinkTitle": "이 링크를 열까요?",
+  "mcpAppOpenLinkConfirm": "열기"
 }

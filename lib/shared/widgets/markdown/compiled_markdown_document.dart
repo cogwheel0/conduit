@@ -997,6 +997,12 @@ class CompiledMarkdownToolCallData {
   /// MCP Apps the tool call showed (Open WebUI 0.13), as their embed objects.
   final List<Map<String, Object?>> mcpApps;
 
+  /// [mcpApps] encoded once, for equality and weight: an app carries its whole
+  /// tool result.
+  late final String _mcpAppsSignature = mcpApps.isEmpty
+      ? ''
+      : jsonEncode(mcpApps);
+
   bool get hasEmbeds => embedSources.isNotEmpty || mcpApps.isNotEmpty;
 
   bool get hasImages => imageUrls.isNotEmpty;
@@ -1015,7 +1021,7 @@ class CompiledMarkdownToolCallData {
       argumentEntries.fold<int>(0, (sum, entry) => sum + entry.weight) +
       embedSources.fold<int>(0, (sum, entry) => sum + entry.length) +
       imageUrls.fold<int>(0, (sum, entry) => sum + entry.length) +
-      mcpApps.length * 64;
+      _mcpAppsSignature.length;
 
   Map<String, Object?> toMap() => <String, Object?>{
     'argumentsText': argumentsText,
@@ -1076,7 +1082,7 @@ class CompiledMarkdownToolCallData {
         other.isError == isError &&
         listEquals(other.embedSources, embedSources) &&
         listEquals(other.imageUrls, imageUrls) &&
-        jsonEncode(other.mcpApps) == jsonEncode(mcpApps);
+        other._mcpAppsSignature == _mcpAppsSignature;
   }
 
   @override
@@ -1090,7 +1096,7 @@ class CompiledMarkdownToolCallData {
     isError,
     Object.hashAll(embedSources),
     Object.hashAll(imageUrls),
-    jsonEncode(mcpApps),
+    _mcpAppsSignature,
   );
 }
 

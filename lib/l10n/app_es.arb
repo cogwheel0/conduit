@@ -4317,5 +4317,7 @@
   "mcpAppToolCallMessage": "La aplicación quiere que {serverName} ejecute {toolName} con:",
   "mcpAppToolCallAllow": "Permitir",
   "mcpAppLoadFailed": "No se pudo cargar la aplicación: {reason}",
-  "mcpAppDidNotStart": "La aplicación no se inició."
+  "mcpAppDidNotStart": "La aplicación no se inició.",
+  "mcpAppOpenLinkTitle": "¿Abrir este enlace?",
+  "mcpAppOpenLinkConfirm": "Abrir"
 }

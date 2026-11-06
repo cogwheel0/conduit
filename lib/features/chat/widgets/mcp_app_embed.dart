@@ -60,6 +60,9 @@ class _McpAppEmbedState extends ConsumerState<McpAppEmbed> {
   double _width = 0;
   Brightness? _brightness;
 
+  /// The page is loaded once; it may not reload or navigate itself away.
+  bool _documentLoaded = false;
+
   // A fresh, unreachable origin per app: the page has none of the server's
   // or the app's own, and the bridge accepts only this one.
   late final Uri _documentUrl = Uri.parse(
@@ -84,13 +87,55 @@ class _McpAppEmbedState extends ConsumerState<McpAppEmbed> {
   }
 
   @override
+  void didUpdateWidget(covariant McpAppEmbed oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // Another version of the reply calls the same tool with other data: the
+    // open app showed the old one, so it closes and is offered again.
+    if (oldWidget.app != widget.app) _close();
+  }
+
+  @override
+  void deactivate() {
+    // The web view still exists here, so the app hears that it is going.
+    _stop();
+    super.deactivate();
+  }
+
+  @override
+  void activate() {
+    super.activate();
+    // Moved elsewhere: the app was told it is going, so it is offered again.
+    // The element rebuilds on activation, so no setState is needed.
+    if (_opened) _close(rebuild: false);
+  }
+
+  @override
   void dispose() {
+    _stop();
+    super.dispose();
+  }
+
+  void _stop() {
     _startTimer?.cancel();
     _load?.cancel();
     final host = _host;
     _host = null;
     if (host != null) unawaited(host.teardown(timeout: Duration.zero));
-    super.dispose();
+  }
+
+  void _close({bool rebuild = true}) {
+    _stop();
+    void reset() {
+      _opened = false;
+      _started = false;
+      _failure = null;
+      _resource = null;
+      _controller = null;
+      _documentLoaded = false;
+      _height = _initialHeight;
+    }
+
+    rebuild ? setState(reset) : reset();
   }
 
   Future<void> _open() async {
@@ -121,7 +166,7 @@ class _McpAppEmbedState extends ConsumerState<McpAppEmbed> {
         runRequest: (method, params) =>
             api.runMcpAppRequest(widget.app, method: method, params: params),
         confirmToolCall: _confirmToolCall,
-        openLink: (url) => launchExternalLink(url.toString(), scope: 'mcp-app'),
+        openLink: _confirmOpenLink,
         send: _deliver,
         hostContext: _hostContext,
         onSizeChanged: (height) {
@@ -190,6 +235,21 @@ class _McpAppEmbedState extends ConsumerState<McpAppEmbed> {
       confirmText: l10n.mcpAppToolCallAllow,
       cancelText: l10n.directMcpApprovalDeny,
     );
+  }
+
+  /// A link the app asks to open opens only once the user agrees: the app
+  /// can ask at any time, not only when the user tapped something.
+  Future<bool> _confirmOpenLink(Uri url) async {
+    if (!mounted) return false;
+    final l10n = AppLocalizations.of(context)!;
+    final allowed = await ThemedDialogs.confirm(
+      context,
+      title: l10n.mcpAppOpenLinkTitle,
+      message: url.toString(),
+      confirmText: l10n.mcpAppOpenLinkConfirm,
+    );
+    if (!allowed) return false;
+    return launchExternalLink(url.toString(), scope: 'mcp-app');
   }
 
   void _deliver(String message) {
@@ -320,17 +380,31 @@ class _McpAppEmbedState extends ConsumerState<McpAppEmbed> {
       },
       shouldOverrideUrlLoading: (_, action) async {
         final url = action.request.url?.uriValue;
-        if (action.isForMainFrame == true && url == _documentUrl) {
-          return NavigationActionPolicy.ALLOW;
+        if (action.isForMainFrame == true) {
+          if (url == _documentUrl && !_documentLoaded) {
+            _documentLoaded = true;
+            return NavigationActionPolicy.ALLOW;
+          }
+          // The app opens links through the bridge; a link the user taps in
+          // the page opens in the browser. The page itself stays.
+          final tapped =
+              action.hasGesture == true ||
+              action.navigationType == NavigationType.LINK_ACTIVATED;
+          if (url != null &&
+              tapped &&
+              parseAllowedExternalLink(url.toString()) != null) {
+            unawaited(launchExternalLink(url.toString(), scope: 'mcp-app'));
+          }
+          return NavigationActionPolicy.CANCEL;
         }
-        // The app opens links through the bridge; a link the user taps in
-        // the page opens in the browser.
-        if (url != null &&
-            action.hasGesture == true &&
-            parseAllowedExternalLink(url.toString()) != null) {
-          unawaited(launchExternalLink(url.toString(), scope: 'mcp-app'));
-        }
-        return NavigationActionPolicy.CANCEL;
+        // Frames from the domains the app declared, which its content
+        // security policy also allows; iOS asks here for those too.
+        final frames = resource.declaredDomains('frameDomains');
+        return url != null &&
+                (url.scheme == 'about' ||
+                    directMcpAppNetworkRequestAllowed(url, frames))
+            ? NavigationActionPolicy.ALLOW
+            : NavigationActionPolicy.CANCEL;
       },
       shouldInterceptAjaxRequest: (_, request) async {
         if (!directMcpAppNetworkRequestAllowed(request.url?.uriValue, connect)) {
@@ -391,6 +465,7 @@ String mcpAppBridgeScript({
   const bridgeName = ${jsonEncode(bridgeName)};
   const bridgeToken = ${jsonEncode(bridgeToken)};
   const queue = [];
+  const nativePostMessage = window.postMessage.bind(window);
   const deliverToHost = (message) => {
     let payload;
     try { payload = JSON.stringify(message); } catch (_) { return; }
@@ -401,7 +476,16 @@ String mcpAppBridgeScript({
       queue.push(message);
     }
   };
-  window.postMessage = deliverToHost;
+  // The page's parent is the page itself in a web view: what it posts over
+  // the MCP Apps bridge goes to Conduit, and anything else, such as a
+  // library's own scheduling, stays the page's.
+  window.postMessage = (message, ...rest) => {
+    if (message && typeof message === 'object' && message.jsonrpc === '2.0') {
+      deliverToHost(message);
+    } else {
+      nativePostMessage(message, ...rest);
+    }
+  };
   window.addEventListener('flutterInAppWebViewPlatformReady', () => {
     while (queue.length) deliverToHost(queue.shift());
   }, {once: true});

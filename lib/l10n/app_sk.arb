@@ -6235,5 +6235,7 @@
   "mcpAppToolCallMessage": "Aplikácia chce, aby {serverName} spustil {toolName} s parametrami:",
   "mcpAppToolCallAllow": "Povoliť",
   "mcpAppLoadFailed": "Aplikáciu sa nepodarilo načítať: {reason}",
-  "mcpAppDidNotStart": "Aplikácia sa nespustila."
+  "mcpAppDidNotStart": "Aplikácia sa nespustila.",
+  "mcpAppOpenLinkTitle": "Otvoriť tento odkaz?",
+  "mcpAppOpenLinkConfirm": "Otvoriť"
 }

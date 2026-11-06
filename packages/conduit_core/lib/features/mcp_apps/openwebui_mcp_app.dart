@@ -1,3 +1,4 @@
+import 'package:collection/collection.dart';
 import 'package:meta/meta.dart';
 
 /// An MCP App a tool call showed in an Open WebUI chat (0.13 and later).
@@ -55,15 +56,25 @@ final class OpenWebUiMcpApp {
       ? {for (final entry in value.entries) entry.key.toString(): entry.value}
       : const <String, dynamic>{};
 
+  /// Two calls of the same tool share a binding; an app is the same only
+  /// with the same input and result too.
   @override
   bool operator ==(Object other) =>
       other is OpenWebUiMcpApp &&
       other.serverId == serverId &&
       other.toolName == toolName &&
-      other.binding == binding;
+      other.binding == binding &&
+      const DeepCollectionEquality().equals(other.arguments, arguments) &&
+      const DeepCollectionEquality().equals(other.result, result);
 
   @override
-  int get hashCode => Object.hash(serverId, toolName, binding);
+  int get hashCode => Object.hash(
+    serverId,
+    toolName,
+    binding,
+    const DeepCollectionEquality().hash(arguments),
+    const DeepCollectionEquality().hash(result),
+  );
 }
 
 /// What `ui/resource` answers: the app's HTML, the content security policy

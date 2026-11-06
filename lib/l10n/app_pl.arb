@@ -8099,5 +8099,13 @@
   "mcpAppDidNotStart": "Aplikacja się nie uruchomiła.",
   "@mcpAppDidNotStart": {
     "description": "Shown when an opened MCP App never completed its start-up handshake."
+  },
+  "mcpAppOpenLinkTitle": "Otworzyć ten link?",
+  "@mcpAppOpenLinkTitle": {
+    "description": "Title of the confirmation shown before a link an MCP App asks to open is opened in the browser; the link follows."
+  },
+  "mcpAppOpenLinkConfirm": "Otwórz",
+  "@mcpAppOpenLinkConfirm": {
+    "description": "Confirm button that opens a link an MCP App asked to open."
   }
 }

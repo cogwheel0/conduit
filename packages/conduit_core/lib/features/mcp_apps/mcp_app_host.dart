@@ -53,7 +53,8 @@ final class McpAppHost {
   final Future<bool> Function(String name, Map<String, dynamic> arguments)
   confirmToolCall;
 
-  /// Opens a web link the app asked for; false when it was not opened.
+  /// Opens a web link the app asked for, once the user agrees; false when it
+  /// was not opened.
   final Future<bool> Function(Uri url) openLink;
 
   /// Delivers one message to the app.
@@ -73,6 +74,10 @@ final class McpAppHost {
 
   bool _initialized = false;
   bool _closed = false;
+
+  /// Whether the user is being asked something for the app. An app may ask
+  /// one thing at a time, as in the web client, so it cannot stack prompts.
+  bool _askingUser = false;
   int _pendingRequests = 0;
   int _nextRequestId = 0;
   final Map<Object, Completer<void>> _awaitingApp = {};
@@ -172,6 +177,8 @@ final class McpAppHost {
   ) async {
     switch (method) {
       case 'ui/initialize':
+        // A page that started over is sent its tool input and result again.
+        _initialized = false;
         return {
           'protocolVersion': kMcpAppsProtocolVersion,
           'hostInfo': {'name': hostName, 'version': hostVersion},
@@ -199,7 +206,7 @@ final class McpAppHost {
           for (final entry in rawArguments.entries)
             entry.key.toString(): entry.value,
         };
-        if (!await confirmToolCall(name, arguments)) {
+        if (!await _askUser(() => confirmToolCall(name, arguments))) {
           throw const _McpAppRequestError(-32000, 'Tool call cancelled');
         }
         if (_closed) throw const _McpAppRequestError(-32000, 'App closed');
@@ -224,7 +231,7 @@ final class McpAppHost {
             url.userInfo.isNotEmpty) {
           throw const _McpAppRequestError(-32000, 'Invalid URL');
         }
-        if (!await openLink(url)) {
+        if (!await _askUser(() => openLink(url))) {
           throw const _McpAppRequestError(-32000, 'Link opening denied');
         }
         return const <String, dynamic>{};
@@ -235,6 +242,18 @@ final class McpAppHost {
         // Includes ui/message and ui/update-model-context, which the web
         // client does not offer either.
         throw const _McpAppRequestError(-32601, 'Method not found');
+    }
+  }
+
+  /// Runs [ask] unless the user is already being asked something for the
+  /// app, which counts as a no.
+  Future<bool> _askUser(Future<bool> Function() ask) async {
+    if (_askingUser) return false;
+    _askingUser = true;
+    try {
+      return await ask();
+    } finally {
+      _askingUser = false;
     }
   }
 

@@ -5929,5 +5929,7 @@
   "mcpAppToolCallMessage": "アプリは {serverName} に次の内容で {toolName} を実行させようとしています:",
   "mcpAppToolCallAllow": "許可",
   "mcpAppLoadFailed": "アプリを読み込めませんでした: {reason}",
-  "mcpAppDidNotStart": "アプリが起動しませんでした。"
+  "mcpAppDidNotStart": "アプリが起動しませんでした。",
+  "mcpAppOpenLinkTitle": "このリンクを開きますか？",
+  "mcpAppOpenLinkConfirm": "開く"
 }

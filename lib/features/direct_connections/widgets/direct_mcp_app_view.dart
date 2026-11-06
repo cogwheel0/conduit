@@ -259,7 +259,11 @@ InAppWebViewSettings directMcpAppWebViewSettings(String origin) =>
       useShouldInterceptRequest: true,
       useOnDownloadStart: true,
       useOnShowFileChooser: true,
-      incognito: true,
+      // On iOS this gives the view a store of its own. On Android the plugin
+      // implements it by deleting every cookie and the cache of all web views
+      // in the app, which would sign the user out of other web sessions; the
+      // view is kept apart there by refusing cookies and credentials instead.
+      incognito: defaultTargetPlatform != TargetPlatform.android,
       cacheEnabled: false,
       domStorageEnabled: false,
       databaseEnabled: false,

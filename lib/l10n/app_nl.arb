@@ -4317,5 +4317,7 @@
   "mcpAppToolCallMessage": "De app wil dat {serverName} {toolName} uitvoert met:",
   "mcpAppToolCallAllow": "Toestaan",
   "mcpAppLoadFailed": "De app kon niet worden geladen: {reason}",
-  "mcpAppDidNotStart": "De app is niet gestart."
+  "mcpAppDidNotStart": "De app is niet gestart.",
+  "mcpAppOpenLinkTitle": "Deze link openen?",
+  "mcpAppOpenLinkConfirm": "Openen"
 }

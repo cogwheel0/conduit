@@ -143,6 +143,58 @@ void main() {
       });
     });
 
+    test('asks the user one thing at a time', () async {
+      final answer = Completer<bool>();
+      final sent = <Map<String, dynamic>>[];
+      var asked = 0;
+      final host = McpAppHost(
+        app: _app,
+        resource: _resource,
+        runRequest: (method, params) async => {'ok': true},
+        confirmToolCall: (name, arguments) {
+          asked++;
+          return answer.future;
+        },
+        openLink: (_) async => true,
+        send: (message) => sent.add(jsonDecode(message) as Map<String, dynamic>),
+        hostContext: () => const {},
+      );
+      Future<void> call(int id) => host.receive(
+        jsonEncode({
+          'jsonrpc': '2.0',
+          'id': id,
+          'method': 'tools/call',
+          'params': {'name': 'zoom'},
+        }),
+      );
+
+      final first = call(1);
+      await call(2);
+      // The second call is refused while the first is being asked about.
+      check(asked).equals(1);
+      check((sent.single['error'] as Map)['message']).equals(
+        'Tool call cancelled',
+      );
+
+      answer.complete(true);
+      await first;
+      check(sent.last['result'] as Map).deepEquals({'ok': true});
+    });
+
+    test('a page that starts over gets its input and result again', () async {
+      final rig = _Rig();
+      await rig.request(1, 'ui/initialize');
+      await rig.notify('ui/notifications/initialized');
+      await rig.request(2, 'ui/initialize');
+      await rig.notify('ui/notifications/initialized');
+
+      check(
+        rig.sent
+            .where((m) => m['method'] == 'ui/notifications/tool-result')
+            .length,
+      ).equals(2);
+    });
+
     test('refuses a tool call the user declines, without asking the server', () async {
       final rig = _Rig(allow: false);
 
@@ -186,11 +238,13 @@ void main() {
       await rig.request(1, 'ui/open-link', {'url': 'https://example.com/a'});
       await rig.request(2, 'ui/open-link', {'url': 'javascript:alert(1)'});
       await rig.request(3, 'ui/open-link', {'url': 'https://u:p@example.com'});
+      await rig.request(4, 'ui/open-link', {'url': 'ftp://example.com/a'});
 
       check(rig.links.single).equals(Uri.parse('https://example.com/a'));
       check(rig.answerTo(1)['result'] as Map).isEmpty();
       check((rig.answerTo(2)['error'] as Map)['message']).equals('Invalid URL');
       check((rig.answerTo(3)['error'] as Map)['message']).equals('Invalid URL');
+      check((rig.answerTo(4)['error'] as Map)['message']).equals('Invalid URL');
     });
 
     test('says so when a link was not opened', () async {
@@ -281,6 +335,31 @@ void main() {
   });
 
   group('OpenWebUiMcpApp', () {
+    test('is the same app only with the same input and result', () {
+      const other = OpenWebUiMcpApp(
+        serverId: 'maps',
+        toolName: 'show_map',
+        binding: 'b',
+        arguments: {'city': 'Bergen'},
+        result: {'content': <Object>[]},
+      );
+      check(other == _app).isFalse();
+      check(
+        const OpenWebUiMcpApp(
+              serverId: 'maps',
+              toolName: 'show_map',
+              binding: 'b',
+              arguments: {'city': 'Oslo'},
+              result: {
+                'content': [
+                  {'type': 'text', 'text': 'A map of Oslo'},
+                ],
+              },
+            ) ==
+            _app,
+      ).isTrue();
+    });
+
     test('reads an mcp_app embed and nothing else', () {
       final apps = OpenWebUiMcpApp.listFrom([
         'https://example.com',

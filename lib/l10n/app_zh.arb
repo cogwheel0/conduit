@@ -4317,5 +4317,7 @@
   "mcpAppToolCallMessage": "该应用希望 {serverName} 以下列参数运行 {toolName}：",
   "mcpAppToolCallAllow": "允许",
   "mcpAppLoadFailed": "无法加载该应用：{reason}",
-  "mcpAppDidNotStart": "该应用未能启动。"
+  "mcpAppDidNotStart": "该应用未能启动。",
+  "mcpAppOpenLinkTitle": "打开此链接吗？",
+  "mcpAppOpenLinkConfirm": "打开"
 }

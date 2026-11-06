@@ -1,4 +1,6 @@
 import 'package:conduit/features/chat/widgets/mcp_app_embed.dart';
+import 'package:conduit/features/direct_connections/widgets/direct_mcp_app_view.dart';
+import 'package:flutter/foundation.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/l10n/conduit_localizations.dart';
 import 'package:conduit/shared/theme/app_theme.dart';
@@ -45,17 +47,44 @@ final class _RefusingApi extends ApiService {
   }
 }
 
-Widget _harness(ApiService api) => ProviderScope(
+Widget _harness(ApiService api, {OpenWebUiMcpApp app = _app}) => ProviderScope(
   overrides: [apiServiceProvider.overrideWithValue(api)],
   child: MaterialApp(
     theme: AppTheme.light(TweakcnThemes.t3Chat),
     localizationsDelegates: conduitLocalizationsDelegates,
     supportedLocales: AppLocalizations.supportedLocales,
-    home: const Scaffold(body: McpAppEmbed(app: _app)),
+    home: Scaffold(body: McpAppEmbed(app: app)),
   ),
 );
 
 void main() {
+  test('the sealed web view keeps other web sessions on Android', () {
+    // The plugin's Android incognito deletes every web view's cookies.
+    debugDefaultTargetPlatformOverride = TargetPlatform.android;
+    addTearDown(() => debugDefaultTargetPlatformOverride = null);
+    final android = directMcpAppWebViewSettings('https://a.mcp-app.invalid');
+    expect(android.incognito, isFalse);
+    expect(android.thirdPartyCookiesEnabled, isFalse);
+    expect(android.domStorageEnabled, isFalse);
+
+    debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+    expect(
+      directMcpAppWebViewSettings('https://a.mcp-app.invalid').incognito,
+      isTrue,
+    );
+  });
+
+  test('the bridge takes only MCP Apps messages from the page', () {
+    final script = mcpAppBridgeScript(
+      bridgeName: 'bridge',
+      bridgeToken: 'token',
+      deliverName: 'deliver',
+    );
+    expect(script, contains("message.jsonrpc === '2.0'"));
+    expect(script, contains('nativePostMessage(message, ...rest)'));
+    expect(script, contains('writable: false'));
+  });
+
   testWidgets('an app loads only when opened', (tester) async {
     final api = _RefusingApi();
     await tester.pumpWidget(_harness(api));
@@ -85,5 +114,32 @@ void main() {
     await tester.tap(find.text('Retry'));
     await tester.pumpAndSettle();
     expect(api.requests, ['ui/resource', 'ui/resource']);
+  });
+
+  testWidgets('another version of the reply closes the open app', (
+    tester,
+  ) async {
+    // Two answers calling the same tool share its binding.
+    final api = _RefusingApi();
+    await tester.pumpWidget(_harness(api));
+    await tester.tap(find.text('Open app'));
+    await tester.pumpAndSettle();
+    expect(find.text('Retry'), findsOneWidget);
+
+    await tester.pumpWidget(
+      _harness(
+        api,
+        app: const OpenWebUiMcpApp(
+          serverId: 'maps',
+          toolName: 'show_map',
+          binding: 'b',
+          arguments: {'city': 'Bergen'},
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Open app'), findsOneWidget);
+    expect(find.text('Retry'), findsNothing);
   });
 }
