@@ -131,6 +131,10 @@ class _HeldScanStore extends NoteAudioUploadStore {
   /// A note whose recordings cannot be read: reading one throws.
   String? failLoadCurrentOfNote;
 
+  /// While set, a read that finds a recording gone waits for it to answer.
+  Completer<void>? holdGoneAnswer;
+  final goneAnswerHeld = Completer<void>();
+
   @override
   Future<PendingNoteAudioUpload?> loadCurrent(
     PendingNoteAudioUpload item,
@@ -144,7 +148,13 @@ class _HeldScanStore extends NoteAudioUploadStore {
       if (!loadCurrentEntered.isCompleted) loadCurrentEntered.complete();
       await hold.future;
     }
-    return super.loadCurrent(item);
+    final PendingNoteAudioUpload? current = await super.loadCurrent(item);
+    final goneHold = holdGoneAnswer;
+    if (current == null && goneHold != null) {
+      if (!goneAnswerHeld.isCompleted) goneAnswerHeld.complete();
+      await goneHold.future;
+    }
+    return current;
   }
 
   @override
@@ -1249,7 +1259,6 @@ void main() {
 
     test('a recording moved off a removed page can still attach when a retry '
         'runs during the move', () async {
-      void Function()? onChange;
       final held = _HeldScanStore(
         applicationSupportDirectory: () async {
           final dir = Directory('${root.path}/support');
@@ -1266,10 +1275,7 @@ void main() {
         currentNote: () => openNote,
         resolvedTitle: () => openNote.title,
         onNoteUpdated: (updated) => openNote = updated,
-        onChanged: () {
-          changes++;
-          onChange?.call();
-        },
+        onChanged: () => changes++,
         onNotice: notices.add,
       )..start();
       // A recording made on the page a sync removes, whose upload failed.
@@ -1322,26 +1328,17 @@ void main() {
         onRemoved.id,
       ]);
 
-      // Retried, it attaches there. The upload is not over while the
-      // recording is still in view, waiting on the check of its copy.
-      var overWhileShown = false;
-      onChange = () {
-        if (!controller.isUploading && controller.pending.isNotEmpty) {
-          overWhileShown = true;
-        }
-      };
+      // It is the new note's recording: retried, it attaches there.
       await controller.retry();
       await waitFor(() => !controller.isUploading);
-      check(overWhileShown).isFalse();
-      check(controller.pending).isEmpty();
       final stored = await readNote('local:page');
       check(stored.data.files ?? const <Map<String, dynamic>>[]).length
           .equals(1);
+      check(controller.pending).isEmpty();
     });
 
     test('a recording retried after its move, while the move goes on, '
         'stays to be attached', () async {
-      void Function()? onChange;
       final held = _HeldScanStore(
         applicationSupportDirectory: () async {
           final dir = Directory('${root.path}/support');
@@ -1358,10 +1355,7 @@ void main() {
         currentNote: () => openNote,
         resolvedTitle: () => openNote.title,
         onNoteUpdated: (updated) => openNote = updated,
-        onChanged: () {
-          changes++;
-          onChange?.call();
-        },
+        onChanged: () => changes++,
         onNotice: notices.add,
       )..start();
       api.uploadError = StateError('offline');
@@ -1410,21 +1404,12 @@ void main() {
         onRemoved.id,
       ]);
 
-      // Retried, it attaches there. The upload is not over while the
-      // recording is still in view, waiting on the check of its copy.
-      var overWhileShown = false;
-      onChange = () {
-        if (!controller.isUploading && controller.pending.isNotEmpty) {
-          overWhileShown = true;
-        }
-      };
       await controller.retry();
       await waitFor(() => !controller.isUploading);
-      check(overWhileShown).isFalse();
-      check(controller.pending).isEmpty();
       final stored = await readNote('local:page');
       check(stored.data.files ?? const <Map<String, dynamic>>[]).length
           .equals(1);
+      check(controller.pending).isEmpty();
     });
 
     test('a recording that was finished while it was being moved does not '
@@ -1716,6 +1701,95 @@ void main() {
       await controller.debugReportGone(staged.id);
 
       check(controller.pending.map((item) => item.id)).deepEquals([staged.id]);
+    });
+
+    test('a moved recording\'s upload is over only once its copy is checked',
+        () async {
+      void Function()? onChange;
+      final held = _HeldScanStore(
+        applicationSupportDirectory: () async {
+          final dir = Directory('${root.path}/support');
+          await dir.create(recursive: true);
+          return dir;
+        },
+        temporaryDirectory: () async => Directory('${root.path}/cache'),
+      )..release.complete();
+      controller.dispose();
+      controller = NoteAttachmentsController(
+        container: container,
+        store: held,
+        noteId: 'note-1',
+        currentNote: () => openNote,
+        resolvedTitle: () => openNote.title,
+        onNoteUpdated: (updated) => openNote = updated,
+        onChanged: () {
+          changes++;
+          onChange?.call();
+        },
+        onNotice: notices.add,
+      )..start();
+      api.uploadError = StateError('offline');
+      final staged = await held.stage(
+        source: await recording('two.m4a'),
+        serverId: 'server-1',
+        accountId: 'user:user-1',
+        noteId: 'note-1',
+        fileName: 'recording_2.m4a',
+      );
+      await controller.loadPending();
+      await waitFor(
+        () => controller.pending.length == 1 && !controller.isUploading,
+      );
+      await db
+          .into(db.notes)
+          .insertOnConflictUpdate(
+            serverToNoteRow({
+              'id': 'local:moved',
+              'user_id': 'user-1',
+              'title': 'Moved',
+              'data': {
+                'content': {'md': 'moved', 'html': ''},
+              },
+              'meta': {},
+              'is_pinned': false,
+              'created_at': 1713786305000000000,
+              'updated_at': 1713786305000000000,
+            }),
+          );
+      final original = openNote;
+      openNote = await readNote('local:moved');
+      await controller.rebindTo(original, openNote);
+      // The retry the move starts fails, offline.
+      await waitFor(() => !controller.isUploading);
+      check(controller.pending.map((item) => item.id)).deepEquals([staged.id]);
+
+      // Back online, it is retried and attaches. The check of its copy, which
+      // finds it gone, is held: until it answers, the upload is not over, and
+      // the recording is not reported saved while it still shows.
+      api.uploadError = null;
+      var overWhileShown = false;
+      onChange = () {
+        if (!controller.isUploading && controller.pending.isNotEmpty) {
+          overWhileShown = true;
+        }
+      };
+      final noticesBefore = notices.length;
+      held.holdGoneAnswer = Completer<void>();
+      final retrying = controller.retry(showFeedback: true);
+      await held.goneAnswerHeld.future;
+      // What is left of the upload once the copy is gone takes a few turns.
+      for (var i = 0; i < 5; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+      check(controller.isUploading).isTrue();
+      check(notices.skip(noticesBefore)).isEmpty();
+      held.holdGoneAnswer!.complete();
+      await retrying;
+      check(controller.pending).isEmpty();
+      check(overWhileShown).isFalse();
+      check(
+        notices.skip(noticesBefore),
+      ).deepEquals([NoteAudioNotice.recordingSaved]);
     });
 
     test('an empty title falls back to the untitled name', () async {
