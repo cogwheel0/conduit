@@ -465,6 +465,7 @@ void main() {
         accountId: 'user-1',
         noteId: 'deleted-note',
         fileName: 'recording.m4a',
+        pageId: 'p2',
       );
 
       final failed = staged.transition(
@@ -486,6 +487,10 @@ void main() {
       check(rebound.lastError).equals('attach interrupted');
       check(rebound.serverFileId).equals('server-file-rebound');
       check(rebound.createdAt).equals(staged.createdAt);
+      // The page it was made on goes with it: the replacement note may have
+      // that page too, and a note without it takes the recording on its main
+      // page.
+      check(rebound.pageId).equals('p2');
       check(await File(rebound.localPath).exists()).isTrue();
       check(
         await store.loadForNote(

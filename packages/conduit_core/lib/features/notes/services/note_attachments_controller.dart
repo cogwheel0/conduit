@@ -934,8 +934,7 @@ class NoteAttachmentsController {
     if (!_isCurrent(api: api, db: db, authEpoch: authEpoch)) return;
 
     // A recording this move took is the new note's, whatever page its copy
-    // shows: one a retry published while it moved is on that note's main
-    // page by now.
+    // names: one a retry published while it moved belongs to that note now.
     bool stays(PendingNoteAudioUpload item) =>
         !moves(item) && !attemptedUploadIds.contains(item.id);
     final int pendingBefore = _pending.length;

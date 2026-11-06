@@ -483,6 +483,9 @@ class NoteAudioUploadStore {
           lastError: current.lastError,
           serverFileId: current.serverFileId,
           sourceCacheFileName: current.sourceCacheFileName,
+          // The page it was made on: the replacement may have it too, and one
+          // that does not takes the recording on its main page.
+          pageId: current.pageId,
         );
         final journal = File(
           path.join(
