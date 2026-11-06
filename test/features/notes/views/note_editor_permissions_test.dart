@@ -2364,6 +2364,12 @@ void main() {
             ? '/notes/note-1'
             : '/other',
       );
+      if (navigation == 'leave') {
+        // Back no longer returns to the deleted note.
+        NavigationService.returnToPreviousPage(fallback: '/chat');
+        await tester.pumpAndSettle();
+        expect(router.routeInformationProvider.value.uri.path, '/chat');
+      }
       expect(tester.takeException(), isNull);
     });
   }

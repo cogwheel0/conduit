@@ -174,7 +174,12 @@ class NavigationService {
   }) {
     final router = _router;
     if (router == null) return;
-    final path = router.namedLocation(name, pathParameters: pathParameters);
+    forgetPath(router.namedLocation(name, pathParameters: pathParameters));
+  }
+
+  /// Drops the pages at [path] from the pages back returns to, as
+  /// [forgetNamed] does.
+  static void forgetPath(String path) {
     _history.removeWhere(
       (location) => (Uri.tryParse(location)?.path ?? location) == path,
     );
