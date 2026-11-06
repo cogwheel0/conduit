@@ -266,11 +266,19 @@ Map<String, dynamic> noteDataWithoutFile(
     if (kept.length != files.length) patch['files'] = kept;
   }
   final String md = notePageMarkdown(data, pageId);
-  if (noteFileLinksInMarkdown(md).any((link) => link.id == fileId)) {
-    patch['content'] = noteContentWithoutFile(
-      notePageContent(data, pageId) ?? <String, dynamic>{'md': md},
-      fileId,
-    );
+  final Map<String, dynamic> content =
+      notePageContent(data, pageId) ?? <String, dynamic>{'md': md};
+  final Object? html = content['html'];
+  final Object? json = content['json'];
+  // The server reads the editor JSON, then the HTML, before the markdown: a
+  // file any of them links is attached.
+  if (noteFileLinksInMarkdown(md).any((link) => link.id == fileId) ||
+      (html is String && _htmlFileLinkIds(html).contains(fileId)) ||
+      (json is Map &&
+          _jsonFileAttachmentIds(
+            Map<String, dynamic>.from(json),
+          ).contains(fileId))) {
+    patch['content'] = noteContentWithoutFile(content, fileId);
   }
   return patch;
 }
@@ -291,25 +299,11 @@ Map<String, dynamic> noteContentWithoutFile(
   final Object? rawJson = content['json'];
   var html = rawHtml is String ? rawHtml : '';
   if (html.isNotEmpty) {
-    final String id = RegExp.escape(fileId);
+    // The markup is matched in any case, as HTML is; the file id exactly.
+    String ofFile(Match match) => match[1] == fileId ? '' : match[0]!;
     html = html
-        .replaceAll(
-          RegExp(
-            '<div\\b[^>]*\\sdata-file-id\\s*=\\s*["\']$id["\'][^>]*>.*?</div>',
-            caseSensitive: false,
-            dotAll: true,
-          ),
-          '',
-        )
-        .replaceAll(
-          RegExp(
-            '<a\\b[^>]*?\\shref\\s*=\\s*["\']/api/v1/files/$id/content["\']'
-            '[^>]*>.*?</a>',
-            caseSensitive: false,
-            dotAll: true,
-          ),
-          '',
-        );
+        .replaceAllMapped(_htmlFileBlockPattern, ofFile)
+        .replaceAllMapped(_htmlFileAnchorPattern, ofFile);
     if (_htmlFileLinkIds(html).contains(fileId)) html = '';
   }
   Map<String, dynamic>? json = rawJson is Map
@@ -325,6 +319,21 @@ Map<String, dynamic> noteContentWithoutFile(
     'json': json,
   };
 }
+
+/// A block [noteContentWithLinkedFiles] puts a file's link in, with the id it
+/// names.
+final RegExp _htmlFileBlockPattern = RegExp(
+  r'''<div\b[^>]*\sdata-file-id\s*=\s*["']([^"']*)["'][^>]*>.*?</div>''',
+  caseSensitive: false,
+  dotAll: true,
+);
+
+/// A whole anchor element linking a file's content, with the file's id.
+final RegExp _htmlFileAnchorPattern = RegExp(
+  r'''<a\b[^>]*?\shref\s*=\s*["']/api/v1/files/([\w-]+)/content["'][^>]*>.*?</a>''',
+  caseSensitive: false,
+  dotAll: true,
+);
 
 /// Editor JSON [node] without the attachment nodes of file [fileId], and
 /// without the text that links to it.

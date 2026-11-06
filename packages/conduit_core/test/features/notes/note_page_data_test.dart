@@ -519,6 +519,62 @@ void main() {
       check(content['html']).equals('');
     });
 
+    test('a file linked only in the rich text is detached too', () {
+      Map<String, dynamic> paged(Map<String, dynamic> content) =>
+          <String, dynamic>{
+            'content': content,
+            'pages': [
+              <String, dynamic>{'id': 'main', 'title': 'Main', 'content': content},
+            ],
+          };
+      // The editor JSON names the file; the markdown does not.
+      final fromJson = noteDataWithoutFile(
+        paged(<String, dynamic>{
+          'md': 'x',
+          'html': '',
+          'json': <String, dynamic>{
+            'type': 'doc',
+            'content': [
+              <String, dynamic>{
+                'type': 'fileAttachment',
+                'attrs': <String, dynamic>{'id': 'f'},
+              },
+            ],
+          },
+        }),
+        'f',
+      );
+      check(
+        ((fromJson['content'] as Map)['json'] as Map)['content'] as List,
+      ).isEmpty();
+      // Only the HTML links it.
+      final fromHtml = noteDataWithoutFile(
+        paged(<String, dynamic>{
+          'md': 'x',
+          'html': '<p>x</p><a href="/api/v1/files/f/content">F</a>',
+          'json': null,
+        }),
+        'f',
+      );
+      check((fromHtml['content'] as Map)['html']).equals('<p>x</p>');
+    });
+
+    test('detaching a file takes out its own links, not those of a file '
+        'whose id differs only in case', () {
+      final content = noteContentWithoutFile(<String, dynamic>{
+        'md': '',
+        'html':
+            '<a href="/api/v1/files/FileA/content">A</a>'
+            '<div data-file-id="filea"><a href="/api/v1/files/filea/content">'
+            'a</a></div>',
+        'json': null,
+      }, 'FileA');
+      check(content['html']).equals(
+        '<div data-file-id="filea"><a href="/api/v1/files/filea/content">'
+        'a</a></div>',
+      );
+    });
+
     test('tilde fences hide links too', () {
       check(
         noteFileLinksInMarkdown(
