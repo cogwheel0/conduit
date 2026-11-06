@@ -696,6 +696,30 @@ void main() {
       check(await stored()).isNotNull().deepEquals(['model-3']);
     });
 
+    test('a chat with edits of its own, read by name, takes the server\'s '
+        'list once a pick is given up, and keeps its edits', () async {
+      seed(['model-1']);
+      await pull.pullChat('chat-1');
+      // A title edit here, not pushed yet, leaves the chat dirty.
+      await (db.update(db.chats)..where((t) => t.id.equals('chat-1'))).write(
+        const ChatsCompanion(dirty: Value(true), title: Value('Mine')),
+      );
+
+      // Picked and not taken yet: a read by name keeps it.
+      await db.chatsDao.setChatModels('chat-1', const ['model-2']);
+      await pull.pullChat('chat-1');
+      check(await stored()).isNotNull().deepEquals(['model-2']);
+
+      // Given up: a read by name, the server having changed nothing since,
+      // takes the server's list, and only that.
+      db.chatsDao.releaseUnconfirmedModelList('chat-1');
+      await pull.pullChat('chat-1');
+      check(await stored()).isNotNull().deepEquals(['model-1']);
+      final row = (await db.chatsDao.getChat('chat-1'))!;
+      check(row.title).equals('Mine');
+      check(row.dirty).isTrue();
+    });
+
     test('stays over a copy read after it, until the server has taken it',
         () async {
       seed(['model-1']);

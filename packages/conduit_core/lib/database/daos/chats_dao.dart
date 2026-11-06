@@ -599,6 +599,14 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
 
       switch (result.outcome) {
         case MergeOutcome.noRemoteChange:
+          if (refreshWhenClean) {
+            // Asked for by name, of a chat with edits of its own: the server's
+            // model list, which a model change made elsewhere leaves undated,
+            // replaces the one here, and nothing else does. A list picked
+            // here that the server has not taken yet is in the server's copy
+            // already (see `PullSync`).
+            await _adoptServerModelList(existing, serverChat.rawExtra);
+          }
           // Rows untouched; only re-assert push below when needed. Except
           // `meta`, the share id and `last_read_at`: Open WebUI writes a
           // chat's tags, its share link and its read state to those columns
@@ -688,6 +696,29 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
   ///
   /// Omitted metadata is resolved before this method; an empty map here is
   /// authoritative. A null share id means the link was deleted.
+  /// Writes the `models` of the server's envelope [serverEnvelope] into
+  /// [existing]'s, leaving the rest of it as it is. An unreadable stored
+  /// envelope is left alone.
+  Future<void> _adoptServerModelList(
+    ChatRow existing,
+    Map<String, dynamic> serverEnvelope,
+  ) async {
+    if (!serverEnvelope.containsKey('models')) return;
+    final Map<String, dynamic> local;
+    try {
+      local = _decodeRawExtraEnvelope(existing.rawExtra);
+    } on StateError {
+      return;
+    }
+    final Object? models = serverEnvelope['models'];
+    if (const DeepCollectionEquality().equals(local['models'], models)) return;
+    await (update(chats)..where((t) => t.id.equals(existing.id))).write(
+      ChatsCompanion(
+        rawExtra: Value(jsonEncode(<String, dynamic>{...local, 'models': models})),
+      ),
+    );
+  }
+
   Future<void> _refreshEnvelopeIfChanged(
     ChatRow existing,
     Map<String, dynamic> meta,
