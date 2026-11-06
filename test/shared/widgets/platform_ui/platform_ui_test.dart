@@ -35,8 +35,8 @@ void main() {
       final messenger =
           TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
       messenger.setMockMethodCallHandler(channel, (call) async {
+        if (call.method != 'isIOSAppOnMac') return null;
         calls++;
-        expect(call.method, 'isIOSAppOnMac');
         return true;
       });
       addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
@@ -65,7 +65,10 @@ void main() {
       var calls = 0;
       final messenger =
           TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
-      messenger.setMockMethodCallHandler(channel, (_) async => calls++ == 0);
+      messenger.setMockMethodCallHandler(
+        channel,
+        (call) async => call.method == 'isIOSAppOnMac' ? calls++ == 0 : null,
+      );
       addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
 
       await PlatformUiCapabilities.initialize();
@@ -78,6 +81,35 @@ void main() {
       check(PlatformUiCapabilities.isIOSAppOnMac).isFalse();
       check(calls).equals(2);
     });
+
+    for (final platform in [TargetPlatform.iOS, TargetPlatform.android]) {
+      test('reads the screen corner radius on ${platform.name}', () async {
+        PlatformUiCapabilities.debugPlatformOverride = platform;
+        const channel = MethodChannel(
+          'app.cogwheel.conduit/platform_environment',
+        );
+        final messenger =
+            TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+        Object? reply = 55.0;
+        messenger.setMockMethodCallHandler(
+          channel,
+          (call) async => call.method == 'displayCornerRadius' ? reply : false,
+        );
+        addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+
+        await PlatformUiCapabilities.initialize();
+        check(PlatformUiCapabilities.displayCornerRadius).equals(55.0);
+
+        // A radius the system does not report leaves callers their own.
+        for (final unknown in [null, -1.0, double.nan]) {
+          PlatformUiCapabilities.resetDebugOverrides();
+          PlatformUiCapabilities.debugPlatformOverride = platform;
+          reply = unknown;
+          await PlatformUiCapabilities.initialize();
+          check(PlatformUiCapabilities.displayCornerRadius).isNull();
+        }
+      });
+    }
 
     test('never reports an iOS app on Mac for another platform', () {
       PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.android;

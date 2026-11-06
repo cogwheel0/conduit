@@ -112,6 +112,39 @@ void main() {
     },
   );
 
+  for (final (fillsScreen, radius) in [(true, 55.0), (false, 36.0)]) {
+    testWidgets(
+      'open content takes the screen corner radius (fills screen: $fillsScreen)',
+      (tester) async {
+        tester.view.physicalSize = const Size(390, 844);
+        tester.view.devicePixelRatio = 1;
+        tester.view.display.size = fillsScreen
+            ? const Size(390, 844)
+            : const Size(1024, 1366);
+        addTearDown(tester.view.reset);
+        addTearDown(tester.view.display.reset);
+        PlatformUiCapabilities.debugDisplayCornerRadiusOverride = 55;
+        addTearDown(PlatformUiCapabilities.resetDebugOverrides);
+        await tester.pumpWidget(
+          sidebarTestBuildHarness(
+            controllers: SidebarTestSidebarHarnessControllers(),
+            shellChat: const Scaffold(body: Text('Chat content')),
+          ),
+        );
+        await tester.pumpAndSettle();
+        double corner() => tester
+            .widget<ClipRSuperellipse>(find.byType(ClipRSuperellipse).first)
+            .borderRadius
+            .resolve(TextDirection.ltr)
+            .topLeft
+            .x;
+        expect(corner(), 0);
+        await sidebarTestOpenSidebar(tester);
+        expect(corner(), radius);
+      },
+    );
+  }
+
   testWidgets('offscreen sidebar defers native header controls until opened', (
     tester,
   ) async {

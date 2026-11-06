@@ -11,6 +11,7 @@ import 'package:conduit_core/services/performance_profiler.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/horizontal_gesture_ownership.dart';
 import '../../../shared/widgets/drawer_slot.dart';
+import '../../../shared/widgets/platform_ui/platform_ui.dart';
 import '../../../shared/widgets/sidebar_layout_contract.dart';
 import '../../../shared/widgets/sidebar_layout_constants.dart';
 import 'drawer_open_drag_gesture_recognizer.dart';
@@ -95,6 +96,9 @@ class ResponsiveDrawerLayoutState extends State<ResponsiveDrawerLayout>
     implements SidebarDrawerController {
   // Matches Flutter's default Material drawer edge width.
   static const double _kDrawerEdgeDragWidth = 20.0;
+
+  /// Radius the pushed content's corners reach where the screen's is unknown.
+  static const double _kPushedContentCornerRadius = 36.0;
   static const double _kEdgeOpenTouchSlop = kTouchSlop;
   static const double _kHorizontalScrollableOpenThreshold = 45.0;
   static const double _kEdgeOpenAxisBias = 1.0;
@@ -123,6 +127,24 @@ class ResponsiveDrawerLayoutState extends State<ResponsiveDrawerLayout>
     stiffness: 600.0,
     damping: 44.0,
   );
+
+  /// Radius the pushed content's corners reach when the drawer is open: the
+  /// screen's own, so the content follows the display's curve, when the app
+  /// fills the screen and the system reports one.
+  double _pushedContentCornerRadius(BuildContext context) {
+    final device = PlatformUiCapabilities.displayCornerRadius;
+    if (device == null || PlatformUiCapabilities.isIOSAppOnMac) {
+      return _kPushedContentCornerRadius;
+    }
+    final display = View.of(context).display.size;
+    final window =
+        MediaQuery.sizeOf(context) * MediaQuery.devicePixelRatioOf(context);
+    // A window smaller than the screen has corners of its own.
+    final fillsScreen =
+        (display.longestSide - window.longestSide).abs() < 1 &&
+        (display.shortestSide - window.shortestSide).abs() < 1;
+    return fillsScreen ? device : _kPushedContentCornerRadius;
+  }
 
   bool _isTablet(BuildContext context) {
     _cachedIsTablet = usesPersistentTabletSidebar(context);
@@ -815,7 +837,7 @@ class ResponsiveDrawerLayoutState extends State<ResponsiveDrawerLayout>
                       child: ClipRSuperellipse(
                         borderRadius: BorderRadius.circular(
                           widget.pushContent && widget.roundPushedContent
-                              ? 36.0 * t
+                              ? _pushedContentCornerRadius(context) * t
                               : 0.0,
                         ),
                         child: Stack(

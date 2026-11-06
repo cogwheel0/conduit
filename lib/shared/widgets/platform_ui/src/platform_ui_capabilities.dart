@@ -13,6 +13,7 @@ abstract final class PlatformUiCapabilities {
 
   static Future<void>? _initialization;
   static bool _isIOSAppOnMac = false;
+  static double? _displayCornerRadius;
 
   @visibleForTesting
   static TargetPlatform? debugPlatformOverride;
@@ -26,6 +27,9 @@ abstract final class PlatformUiCapabilities {
   @visibleForTesting
   static bool? debugIOSAppOnMacOverride;
 
+  @visibleForTesting
+  static double? debugDisplayCornerRadiusOverride;
+
   static TargetPlatform get platform =>
       debugPlatformOverride ?? defaultTargetPlatform;
 
@@ -35,19 +39,36 @@ abstract final class PlatformUiCapabilities {
   static bool get isIOSAppOnMac =>
       isIOS && (debugIOSAppOnMacOverride ?? _isIOSAppOnMac);
 
+  /// Radius of the screen's rounded corners in logical pixels: 0 for a
+  /// square screen, and null when the system does not say.
+  static double? get displayCornerRadius =>
+      debugDisplayCornerRadiusOverride ?? _displayCornerRadius;
+
   static Future<void> initialize() =>
       _initialization ??= _initializePlatformEnvironment();
 
   static Future<void> _initializePlatformEnvironment() async {
-    if (!isIOS) return;
+    if (!isIOS && !isAndroid) return;
+    if (isIOS) {
+      try {
+        _isIOSAppOnMac =
+            await _platformEnvironmentChannel.invokeMethod<bool>(
+              'isIOSAppOnMac',
+            ) ??
+            false;
+      } catch (_) {
+        _isIOSAppOnMac = false;
+      }
+    }
     try {
-      _isIOSAppOnMac =
-          await _platformEnvironmentChannel.invokeMethod<bool>(
-            'isIOSAppOnMac',
-          ) ??
-          false;
+      final radius = await _platformEnvironmentChannel.invokeMethod<double>(
+        'displayCornerRadius',
+      );
+      _displayCornerRadius = radius != null && radius.isFinite && radius >= 0
+          ? radius
+          : null;
     } catch (_) {
-      _isIOSAppOnMac = false;
+      _displayCornerRadius = null;
     }
   }
 
@@ -92,7 +113,9 @@ abstract final class PlatformUiCapabilities {
     debugIOSMajorVersionOverride = null;
     debugNativeIOS26Override = null;
     debugIOSAppOnMacOverride = null;
+    debugDisplayCornerRadiusOverride = null;
     _isIOSAppOnMac = false;
+    _displayCornerRadius = null;
     _initialization = null;
   }
 }
