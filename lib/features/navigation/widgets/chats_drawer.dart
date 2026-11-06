@@ -1801,6 +1801,8 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
       final api = ref.read(apiServiceProvider);
       if (api == null) throw Exception('No API service');
       await api.deleteFolder(folder.id);
+      // Back no longer returns to the deleted folder.
+      NavigationService.forgetPath('/folder/${folder.id}');
       ConduitHaptics.mediumImpact();
       ref.read(foldersProvider.notifier).removeFolderFromRemote(folder.id);
       refreshConversationsCache(ref, includeFolders: true);

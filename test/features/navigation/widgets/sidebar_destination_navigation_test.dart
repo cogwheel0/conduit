@@ -21,6 +21,7 @@ import 'package:conduit/shared/widgets/sidebar_layout_contract.dart';
 import 'package:conduit/shared/widgets/conduit_components.dart';
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:conduit/shared/services/navigation_service.dart';
+import 'package:conduit/shared/utils/conversation_context_menu.dart';
 import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/models/folder.dart';
 import 'package:conduit_core/models/note.dart';
@@ -28,6 +29,7 @@ import 'package:conduit_core/providers/app_providers.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:material_ui/material_ui.dart';
+import 'package:mocktail/mocktail.dart';
 
 import 'sidebar_page_test_support.dart';
 
@@ -735,6 +737,60 @@ void main() {
     expect(NavigationService.currentRoute, Routes.terminal);
     expect(find.byType(TerminalTab), findsOneWidget);
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('back no longer returns to a folder deleted from the sidebar', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(
+      sidebarTestBuildHarness(
+        controllers: SidebarTestSidebarHarnessControllers(),
+        shellChat: _chat(),
+        folders: const [Folder(id: 'paper', name: 'Paper projects')],
+      ),
+    );
+    await tester.pumpAndSettle();
+    final container = ProviderScope.containerOf(
+      tester.element(find.byType(SidebarPage).first),
+      listen: false,
+    );
+    final api =
+        container.read(apiServiceProvider)! as SidebarTestSidebarApiService;
+    when(() => api.deleteFolder('paper')).thenAnswer((_) async {});
+    for (final location in ['/folder/paper', Routes.notes]) {
+      NavigationService.router.go(location);
+      await tester.pumpAndSettle();
+    }
+
+    await sidebarTestOpenSidebar(tester);
+    final l10n = AppLocalizations.of(tester.element(find.byType(ChatsDrawer)))!;
+    final menu = tester.widget<ConduitContextMenu>(
+      find
+          .ancestor(
+            of: find.descendant(
+              of: find.byType(ChatsDrawer),
+              matching: find.text('Paper projects'),
+            ),
+            matching: find.byType(ConduitContextMenu),
+          )
+          .first,
+    );
+    unawaited(
+      menu.actions
+          .firstWhere((action) => action.label == l10n.delete)
+          .onSelected(),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(l10n.delete).last);
+    await tester.pumpAndSettle();
+    verify(() => api.deleteFolder('paper')).called(1);
+
+    NavigationService.returnToPreviousPage(fallback: Routes.chat);
+    await tester.pumpAndSettle();
+    expect(NavigationService.currentRoute, Routes.chat);
   });
 
   testWidgets('destinations close the sidebar and render in the main pane', (
