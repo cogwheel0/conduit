@@ -116,6 +116,13 @@ Future<void> _handleTap(Ref ref, NotificationTap tap) async {
         );
         if (!openWebUiConversationReadIsCurrent(ref, ownership)) return;
         if (local != null) {
+          // Another chat may have been opened while this one loaded; its
+          // picks are not this chat's.
+          final current = ref.read(activeConversationProvider);
+          if (current == null ||
+              !conversationMatchesScopedId(current, tap.sourceId)) {
+            clearSelectedFiltersForConversationBoundary(ref);
+          }
           ref
               .read(chatBackOpensListProvider.notifier)
               .switchTo(local, chatOnScreen: chatWasOnScreen);
