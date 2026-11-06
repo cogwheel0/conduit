@@ -4757,6 +4757,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     }
 
     if (Platform.isIOS) {
+      // The native picker stays up while another chat can open under it.
+      final pickTarget = captureChatModelPickTarget(ref);
       try {
         final selectedId = await ref
             .read(nativeSheetHydrationServiceProvider)
@@ -4777,8 +4779,9 @@ class _ChatPageState extends ConsumerState<ChatPage> {
               break;
             }
           }
-          ref.read(selectedModelProvider.notifier).set(selected);
-          if (selected != null) unawaited(saveChatModelChoice(ref, selected));
+          if (selected != null) {
+            applyChatModelPick(ref, selected, target: pickTarget);
+          }
         }
         await restoreFocusIfNeeded();
         return;

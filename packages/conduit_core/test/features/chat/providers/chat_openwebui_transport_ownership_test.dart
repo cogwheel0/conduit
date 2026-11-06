@@ -1108,6 +1108,16 @@ Future<void> _seedChat(
       );
 }
 
+/// A selected model a test can change, as a picker does.
+final class _SelectableModel extends SelectedModel {
+  _SelectableModel(this._initial);
+
+  final Model? _initial;
+
+  @override
+  Model? build() => _initial;
+}
+
 ProviderContainer _container({
   required AppDatabase db,
   required Conversation? active,
@@ -1117,6 +1127,7 @@ ProviderContainer _container({
   List<Override> extraOverrides = const [],
   SocketService? socket,
   Model model = const Model(id: 'model-1', name: 'Model 1'),
+  bool modelSelectable = false,
   String? terminalId,
   bool webSearchAvailable = false,
   PersonalConnectionsAccess personalConnections =
@@ -1129,7 +1140,10 @@ ProviderContainer _container({
       activeConversationProvider.overrideWith(() => _SeededActive(active)),
       chatMessagesProvider.overrideWith(_TestMessagesNotifier.new),
       apiServiceProvider.overrideWithValue(api),
-      selectedModelProvider.overrideWithValue(model),
+      if (modelSelectable)
+        selectedModelProvider.overrideWith(() => _SelectableModel(model))
+      else
+        selectedModelProvider.overrideWithValue(model),
       reviewerModeProvider.overrideWithValue(false),
       socketServiceProvider.overrideWithValue(socket),
       temporaryChatEnabledProvider.overrideWith(_FalseTemporaryChat.new),
@@ -5432,6 +5446,7 @@ void main() {
       Map<String, dynamic>? storedBlob,
       User? account,
       bool webSearchAvailable = false,
+      bool modelSelectable = false,
     }) async {
       if (storedBlob == null) {
         await _seedChat(db, chatId, storedParams: storedParams);
@@ -5459,6 +5474,7 @@ void main() {
         syncEngine: engine?.call(db, api) ?? _QuietSyncEngine(db, api),
         socket: socket,
         webSearchAvailable: webSearchAvailable,
+        modelSelectable: modelSelectable,
         extraOverrides: [
           modelsProvider.overrideWith(() => _ListedModels(available)),
           // The picker's own pick per model id, on the fan-out server.
@@ -6771,6 +6787,56 @@ void main() {
       check(api.savedModels.map((saved) => saved.$2)).deepEquals([
         ['model-2'],
       ]);
+    });
+
+    test('a pick from a picker another chat or sign-in came in under is '
+        'dropped', () async {
+      const other = Model(id: 'model-2', name: 'Model 2');
+      const third = Model(id: 'model-3', name: 'Model 3');
+      final (:api, :socket, :container) = await open(
+        available: const [duplicate, other, third],
+        trackSignIn: true,
+        modelSelectable: true,
+      );
+      Future<void> settle() async {
+        for (var i = 0; i < 20; i++) {
+          await Future<void>.delayed(Duration.zero);
+        }
+      }
+
+      // A picker for the chat open now applies its pick and saves it.
+      check(
+        applyChatModelPick(
+          container,
+          other,
+          target: captureChatModelPickTarget(container),
+        ),
+      ).isTrue();
+      await settle();
+      check(container.read(selectedModelProvider)?.id).equals('model-2');
+      check(api.savedModels.map((saved) => saved.$1)).deepEquals([chatId]);
+
+      // A notification opens another chat while the picker is up.
+      final opened = captureChatModelPickTarget(container);
+      container
+          .read(activeConversationProvider.notifier)
+          .set(
+            _conversation('other-chat', [
+              _user('other-u', 'hello'),
+            ], ChatStorageKind.openWebUi),
+          );
+      check(applyChatModelPick(container, third, target: opened)).isFalse();
+      await settle();
+      check(container.read(selectedModelProvider)?.id).equals('model-2');
+      check(api.savedModels.map((saved) => saved.$1)).deepEquals([chatId]);
+
+      // Another sign-in begins while the picker is up.
+      final signedIn = captureChatModelPickTarget(container);
+      container.read(_signInEpochProvider.notifier).rotate();
+      check(applyChatModelPick(container, third, target: signedIn)).isFalse();
+      await settle();
+      check(container.read(selectedModelProvider)?.id).equals('model-2');
+      check(api.savedModels).length.equals(1);
     });
 
     test('a model list the server did not take is sent again', () async {

@@ -37,7 +37,10 @@ import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 
 import 'package:conduit_core/features/chat/models/model_selector_layout.dart';
 import 'package:conduit_core/features/chat/providers/chat_providers.dart'
-    show captureOpenWebUiReasoningPickTarget, selectReasoningEffortForModel;
+    show
+        ChatMutationOwnerToken,
+        captureOpenWebUiReasoningPickTarget,
+        selectReasoningEffortForModel;
 import 'package:conduit_core/features/chat/providers/reasoning_effort_provider.dart';
 
 class ModelSelectorSheet extends ConsumerStatefulWidget {
@@ -73,6 +76,16 @@ class ModelSelectorSheetState extends ConsumerState<ModelSelectorSheet> {
   final TextEditingController _searchController = TextEditingController();
   String _searchQuery = '';
   bool _showMore = false;
+
+  /// The chat and account this sheet opened for: it can stay open while
+  /// another chat opens under it, and a pick is only for this one.
+  late final ChatMutationOwnerToken _pickTarget;
+
+  @override
+  void initState() {
+    super.initState();
+    _pickTarget = captureChatModelPickTarget(ref);
+  }
 
   @override
   void dispose() {
@@ -257,6 +270,7 @@ class ModelSelectorSheetState extends ConsumerState<ModelSelectorSheet> {
                         scrollController: scrollController,
                         selectedModelId: markedModelId,
                         onPick: widget.onPick,
+                        pickTarget: _pickTarget,
                       )
                     : ListView(
                         controller: scrollController,
@@ -266,6 +280,7 @@ class ModelSelectorSheetState extends ConsumerState<ModelSelectorSheet> {
                             onTogglePinnedModel: _togglePinnedModel,
                             selectedModelId: markedModelId,
                             onPick: widget.onPick,
+                            pickTarget: _pickTarget,
                           ),
                           const SizedBox(height: Spacing.md),
                           if (widget.onPick == null && effortPolicy.visible) ...[
@@ -406,6 +421,7 @@ class _ModelGroup extends ConsumerWidget {
     required this.models,
     required this.onTogglePinnedModel,
     required this.selectedModelId,
+    required this.pickTarget,
     this.scrollController,
     this.onPick,
   });
@@ -413,6 +429,7 @@ class _ModelGroup extends ConsumerWidget {
   final List<Model> models;
   final Future<void> Function(String modelId) onTogglePinnedModel;
   final String? selectedModelId;
+  final ChatMutationOwnerToken pickTarget;
   final ScrollController? scrollController;
   final ValueChanged<Model>? onPick;
 
@@ -546,8 +563,7 @@ class _ModelGroup extends ConsumerWidget {
               if (onPick != null) {
                 onPick(model);
               } else {
-                ref.read(selectedModelProvider.notifier).set(model);
-                unawaited(saveChatModelChoice(ref, model));
+                applyChatModelPick(ref, model, target: pickTarget);
               }
               Navigator.of(context).pop();
             },

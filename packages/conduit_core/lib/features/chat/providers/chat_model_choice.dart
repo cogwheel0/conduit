@@ -10,7 +10,12 @@ import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart
 import 'package:conduit_core/features/direct_connections/services/direct_model_registry.dart';
 import 'package:conduit_core/features/hermes/models/hermes_model.dart';
 import 'package:conduit_core/features/chat/providers/chat_providers.dart'
-    show chatMessagesProvider, isChatStreamingProvider;
+    show
+        ChatMutationOwnerToken,
+        captureChatMutationOwner,
+        chatMessagesProvider,
+        chatMutationTokenStillActive,
+        isChatStreamingProvider;
 import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit_core/models/model.dart';
 import 'package:conduit_core/providers/app_providers.dart';
@@ -58,6 +63,30 @@ class ChatModelPickNotifier extends Notifier<ChatModelPick?> {
   void forget(String chatId) {
     if (state?.chatId == chatId) state = null;
   }
+}
+
+/// The chat and account a model picker opened for, captured as it opens and
+/// handed to [applyChatModelPick] with the pick.
+ChatMutationOwnerToken captureChatModelPickTarget(dynamic ref) =>
+    captureChatMutationOwner(ref, ref.read(activeConversationProvider));
+
+/// Makes [model], picked in a picker that opened for [target], the open
+/// chat's model and saves it (see [saveChatModelChoice]). Returns whether it
+/// was applied.
+///
+/// A picker can stay open while another chat opens under it, say from a
+/// notification, or while the account changes. Its pick is for the chat it
+/// opened for, so it is then dropped: it neither changes the chat now open
+/// nor is saved on it.
+bool applyChatModelPick(
+  dynamic ref,
+  Model model, {
+  required ChatMutationOwnerToken target,
+}) {
+  if (!chatMutationTokenStillActive(ref, target)) return false;
+  ref.read(selectedModelProvider.notifier).set(model);
+  unawaited(saveChatModelChoice(ref, model));
+  return true;
 }
 
 /// Saves [model], which the user just picked (from the model picker or with
