@@ -1437,6 +1437,7 @@
   "@usageLoadDuration": {
     "description": "Label for model loading duration metric"
   },
+  "usageIncomplete": "Niektóre kroki nie zgłosiły użycia, więc te wartości mogą być zaniżone.",
   "usageQueueTime": "Czas w kolejce",
   "@usageQueueTime": {
     "description": "Label for queue waiting time metric"

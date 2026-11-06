@@ -1015,6 +1015,7 @@
     }
   },
   "usageLoadDuration": "模型加载时间",
+  "usageIncomplete": "部分步骤未报告用量，因此这些数值可能偏低。",
   "usageQueueTime": "排队时间",
   "usageReasoningTokens": "推理 token",
   "usageTotalTokens": "总 token",

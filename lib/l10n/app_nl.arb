@@ -1015,6 +1015,7 @@
     }
   },
   "usageLoadDuration": "Modellaadtijd",
+  "usageIncomplete": "Sommige stappen hebben geen gebruik gemeld, dus deze cijfers kunnen te laag zijn.",
   "usageQueueTime": "Wachttijd",
   "usageReasoningTokens": "Redeneertokens",
   "usageTotalTokens": "Totaal tokens",

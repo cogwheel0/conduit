@@ -1015,6 +1015,7 @@
     }
   },
   "usageLoadDuration": "Tiempo de carga del modelo",
+  "usageIncomplete": "Algunos pasos no informaron del uso, así que estas cifras pueden ser bajas.",
   "usageQueueTime": "Tiempo en cola",
   "usageReasoningTokens": "Tokens de razonamiento",
   "usageTotalTokens": "Tokens totales",

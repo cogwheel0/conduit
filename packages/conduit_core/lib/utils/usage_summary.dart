@@ -16,6 +16,7 @@ class UsageSummary {
     this.totalSeconds,
     this.queueSeconds,
     this.loadSeconds,
+    this.incomplete = false,
   });
 
   /// Tokens per second while answering, when the provider timed it.
@@ -39,6 +40,10 @@ class UsageSummary {
 
   /// Time spent loading the model into memory (Ollama).
   final double? loadSeconds;
+
+  /// Whether Open WebUI marked the usage `incomplete`: some steps of the
+  /// reply, a tool round say, reported none, so the figures may be low.
+  final bool incomplete;
 
   bool get isEmpty =>
       generationPerSecond == null &&
@@ -148,6 +153,7 @@ class UsageSummary {
       loadSeconds: loadDuration != null && loadDuration > 0
           ? loadDuration / 1e9
           : null,
+      incomplete: usage['incomplete'] == true,
     );
   }
 

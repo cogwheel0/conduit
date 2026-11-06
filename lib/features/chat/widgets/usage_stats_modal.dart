@@ -158,6 +158,22 @@ class UsageStatsModal {
         ),
       );
     }
+    // Open WebUI's web client shows the flag with the raw figures; here it is
+    // said in words, so partial figures do not pass for the whole reply's.
+    if (summary.incomplete && stats.isNotEmpty) {
+      stats.add(
+        Padding(
+          key: const ValueKey<String>('usage-incomplete'),
+          padding: const EdgeInsets.only(top: Spacing.sm),
+          child: Text(
+            l10n.usageIncomplete,
+            style: AppTypography.bodySmallStyle.copyWith(
+              color: theme.textSecondary,
+            ),
+          ),
+        ),
+      );
+    }
 
     return stats;
   }

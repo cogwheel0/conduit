@@ -1455,6 +1455,10 @@
   "@usageLoadDuration": {
     "description": "Label for model loading duration metric"
   },
+  "usageIncomplete": "Some steps did not report usage, so these figures may be low.",
+  "@usageIncomplete": {
+    "description": "Note under a reply's usage figures when the server marks its usage incomplete: some steps reported none"
+  },
   "usageQueueTime": "Queue Time",
   "@usageQueueTime": {
     "description": "Label for queue waiting time metric"

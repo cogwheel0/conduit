@@ -1197,6 +1197,7 @@
   "@usageLoadDuration": {
     "description": "Label for model loading duration metric"
   },
+  "usageIncomplete": "一部のステップで使用量が報告されなかったため、これらの数値は実際より少ない可能性があります。",
   "usageQueueTime": "キュー時間",
   "@usageQueueTime": {
     "description": "Label for queue waiting time metric"

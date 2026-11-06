@@ -1015,6 +1015,7 @@
     }
   },
   "usageLoadDuration": "Temps de chargement du modèle",
+  "usageIncomplete": "Certaines étapes n'ont pas signalé leur utilisation, ces chiffres peuvent donc être sous-estimés.",
   "usageQueueTime": "Temps d'attente",
   "usageReasoningTokens": "Tokens de raisonnement",
   "usageTotalTokens": "Tokens totaux",

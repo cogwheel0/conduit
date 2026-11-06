@@ -1197,6 +1197,7 @@
   "@usageLoadDuration": {
     "description": "Label for model loading duration metric"
   },
+  "usageIncomplete": "Některé kroky nehlásily využití, takže tyto údaje mohou být nižší.",
   "usageQueueTime": "Čas ve frontě",
   "@usageQueueTime": {
     "description": "Label for queue waiting time metric"
