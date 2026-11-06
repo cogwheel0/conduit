@@ -3610,6 +3610,7 @@
   "personalToolSettingsOwnerChanged": "La cuenta con la sesión iniciada cambió, así que no se guardó nada. Vuelve a abrir los ajustes para continuar.",
   "personalToolSettingsInvalid": "El servidor no aceptó estos valores.",
   "noteReadOnlyNotice": "Esta nota es de solo lectura. Puedes leerla, pero no modificarla.",
+  "noteMultiPageReadOnlyNotice": "Esta nota tiene varias páginas. Puedes leerlas todas aquí; edítala en Open WebUI en la web.",
   "noteAccessUnverifiedNotice": "Vuelve a conectarte para confirmar que puedes editar esta nota.",
   "noteAccessRevokedNotice": "Ya no puedes editar esta nota. Tus cambios sin guardar se conservan aquí.",
   "noteSaveAsOwnNote": "Guardar como nota propia",

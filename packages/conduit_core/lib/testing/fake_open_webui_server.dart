@@ -134,6 +134,13 @@ class FakeOpenWebUiServer {
       <String, Map<String, dynamic>>{};
   final Map<String, _NoteRecord> _notes = <String, _NoteRecord>{};
 
+  /// Serve notes as an Open WebUI 0.12.5 server does: every note read or
+  /// created comes back with its pages (`normalize_pages`), and an update
+  /// that sends `pages`, `pages_revision` or `files`, or a content save
+  /// without `page_id` on a note with several pages, is refused. Off, notes
+  /// behave as on earlier servers (a shallow `data` merge).
+  bool notePagesEnabled = false;
+
   // ---- Notes clock (CDT-RFC-001 R-09: NANOSECONDS, a SEPARATE clock domain
   // from the chat seconds clock above — the two are NEVER unit-converted nor
   // compared). `time.time_ns()` in the vendored `models/notes.py`. ----
@@ -614,11 +621,19 @@ class FakeOpenWebUiServer {
     Map<String, dynamic>? data,
     Map<String, dynamic>? meta,
   }) {
+    if (notePagesEnabled && data != null && data.containsKey('pages')) {
+      // NoteForm's validator: a 422 before the route runs.
+      throw FakeOpenWebUiHttpException(422, 'Create pages using page operations');
+    }
     final now = _nowNoteNs();
     final record = _NoteRecord(
       id: _uuid.v4(),
       title: title,
-      data: data == null ? <String, dynamic>{} : _deepCopy(data),
+      data: data == null
+          ? <String, dynamic>{}
+          : notePagesEnabled
+          ? _normalizeNotePages(data, title)
+          : _deepCopy(data),
       meta: meta == null ? <String, dynamic>{} : _deepCopy(meta),
       createdAt: now,
       updatedAt: now,
@@ -632,9 +647,19 @@ class FakeOpenWebUiServer {
   /// are SHALLOW-MERGED (`{**existing, **incoming}`); `updated_at` is restamped
   /// from the note (ns) clock. Returns the updated `NoteModel`; null on a
   /// missing id (the route returns `None` -> a 404 surfaces as null).
+  ///
+  /// With [notePagesEnabled] it follows 0.12.5 instead: `pages`,
+  /// `pages_revision` and `files` in `data` are refused (400), `content` goes
+  /// to the page named by `page_id` (a 409 when it is missing on a note with
+  /// several pages, or names no page), and other `data` keys merge as before.
   Map<String, dynamic>? updateNote(String id, Map<String, dynamic> patch) {
     final record = _notes[id];
     if (record == null) return null;
+    if (notePagesEnabled) {
+      _applyPagedNoteUpdate(record, patch);
+      record.updatedAt = _nowNoteNs();
+      return _toNoteResponse(record);
+    }
     if (patch.containsKey('title')) {
       record.title = patch['title'] is String ? patch['title'] as String : '';
     }
@@ -671,6 +696,257 @@ class FakeOpenWebUiServer {
     return _toNoteResponse(record);
   }
 
+  /// The 0.12.5 `Notes.update_note_by_id` over [record]. Throws the
+  /// [FakeOpenWebUiHttpException] the route answers with, leaving [record]
+  /// unchanged.
+  void _applyPagedNoteUpdate(_NoteRecord record, Map<String, dynamic> patch) {
+    final Object? rawIncoming = patch['data'];
+    final Map<String, dynamic> incoming = rawIncoming is Map
+        ? _deepCopy(Map<String, dynamic>.from(rawIncoming))
+        : <String, dynamic>{};
+    if (incoming.containsKey('pages') ||
+        incoming.containsKey('pages_revision')) {
+      throw FakeOpenWebUiHttpException(
+        400,
+        'Use page operations instead of replacing all pages',
+      );
+    }
+    final String title = patch['title'] is String
+        ? patch['title'] as String
+        : record.title;
+    var data = _normalizeNotePages(record.data, record.title);
+    if (incoming.containsKey('content') ||
+        incoming.containsKey('versions') ||
+        incoming.containsKey('files')) {
+      if (incoming.containsKey('files')) {
+        throw FakeOpenWebUiHttpException(400, 'Attach files through page content');
+      }
+      final pages = (data['pages'] as List).cast<Map<String, dynamic>>();
+      final Object? pageId = patch['page_id'];
+      final Map<String, dynamic> page;
+      if (pageId is String) {
+        page = pages.firstWhere(
+          (p) => p['id'] == pageId,
+          orElse: () =>
+              throw FakeOpenWebUiHttpException(409, 'Page no longer exists'),
+        );
+      } else if (pages.length != 1) {
+        throw FakeOpenWebUiHttpException(
+          409,
+          'Select a page before editing this note',
+        );
+      } else {
+        page = pages.single;
+      }
+      if (incoming['content'] is Map) {
+        page['content'] = <String, dynamic>{
+          'json': null,
+          'html': '',
+          'md': '',
+          ...Map<String, dynamic>.from(incoming['content'] as Map),
+        };
+        page['revision'] = ((page['revision'] as int?) ?? 0) + 1;
+        page['generation'] = ((page['generation'] as int?) ?? 0) + 1;
+      }
+      if (incoming.containsKey('versions')) {
+        page['versions'] = incoming['versions'];
+      }
+    }
+    data = _normalizeNotePages(<String, dynamic>{
+      ...data,
+      for (final entry in incoming.entries)
+        if (!const {'content', 'versions', 'files'}.contains(entry.key))
+          entry.key: entry.value,
+    }, title);
+    record.data = data;
+    record.title = title;
+    if (patch.containsKey('meta')) {
+      final Object? meta = patch['meta'];
+      record.meta = <String, dynamic>{
+        ...record.meta,
+        if (meta is Map) ..._deepCopy(Map<String, dynamic>.from(meta)),
+      };
+    }
+  }
+
+  /// Dart port of 0.12.5 `normalize_pages` (`models/notes.py`), enough for
+  /// sync tests: a note without pages gets a `main` page holding its content,
+  /// an old `files` list is written into the main page as links, and
+  /// `content` becomes the one page's content, or every page under a heading
+  /// when there are several.
+  static Map<String, dynamic> _normalizeNotePages(
+    Map<String, dynamic> source,
+    String title,
+  ) {
+    final data = _deepCopy(source);
+    final Object? rawPages = data['pages'];
+    final List<Map<String, dynamic>> pages = rawPages is List && rawPages.isNotEmpty
+        ? [for (final p in rawPages) Map<String, dynamic>.from(p as Map)]
+        : <Map<String, dynamic>>[
+            <String, dynamic>{
+              'id': 'main',
+              'title': title.isEmpty ? 'Untitled' : title,
+              'content': data['content'] is Map
+                  ? Map<String, dynamic>.from(data['content'] as Map)
+                  : <String, dynamic>{'json': null, 'html': '', 'md': ''},
+              'versions': data['versions'] is List ? data['versions'] : <dynamic>[],
+              'revision': 0,
+              'generation': 0,
+            },
+          ];
+    for (final page in pages) {
+      if (page['id'] == 'main' && page['inherit_note_title'] != false) {
+        page['title'] = title.isEmpty ? 'Untitled' : title;
+      }
+    }
+    final Object? legacyFiles = data.remove('files');
+    if (legacyFiles is List && legacyFiles.isNotEmpty) {
+      // `migrate_page_files`: each file the content does not attach yet is
+      // added to its markdown, its HTML and its editor JSON.
+      final main = pages.first;
+      final content = Map<String, dynamic>.from(main['content'] as Map);
+      final attached = _contentFileIds(content).toSet();
+      var changed = false;
+      for (final file in legacyFiles.whereType<Map>()) {
+        final id = file['id'];
+        if (id is! String) continue;
+        if (file['type'] == 'image') {
+          // Images stay images: their `data://` references take the URL.
+          final url = file['url'];
+          if (url is String && url.isNotEmpty) {
+            for (final key in const ['md', 'html']) {
+              final text = content[key];
+              if (text is String && text.contains('data://$id')) {
+                content[key] = text.replaceAll('data://$id', url);
+                changed = true;
+              }
+            }
+          }
+          continue;
+        }
+        if (!attached.add(id)) continue;
+        final href = '/api/v1/files/$id/content';
+        final rawName = file['name'] is String ? file['name'] as String : id;
+        final md = content['md'] is String ? content['md'] as String : '';
+        final html = content['html'] is String && content['html'] != ''
+            ? content['html'] as String
+            : _markdownToHtml(md);
+        content['html'] =
+            '$html<div data-file-id="${_escapeHtml(id)}">'
+            '<a href="${_escapeHtml(href)}">${_escapeHtml(rawName)}</a></div>';
+        final name = rawName.replaceAll('[', '').replaceAll(']', '');
+        content['md'] = '$md\n\n[$name]($href)';
+        final json = content['json'];
+        if (json is Map) {
+          final nodes = [...(json['content'] as List? ?? const [])];
+          nodes.add({
+            'type': 'fileAttachment',
+            'attrs': {'id': id, 'name': rawName, 'size': file['size'] ?? 0},
+          });
+          content['json'] = {...json, 'content': nodes};
+        }
+        changed = true;
+      }
+      if (changed) {
+        main['content'] = content;
+        main['generation'] = ((main['generation'] as int?) ?? 0) + 1;
+      }
+    }
+    data.remove('versions');
+    data['pages'] = pages;
+    data.putIfAbsent('pages_revision', () => 0);
+    String mdOf(Map<String, dynamic> page) {
+      final content = page['content'];
+      final md = content is Map ? content['md'] : null;
+      return md is String ? md : '';
+    }
+
+    // `page_paths`: each page by the titles down to it.
+    final paths = <String, String>{};
+    for (final page in pages) {
+      final parent = paths[page['parent_id']];
+      paths[page['id'] as String] = parent == null
+          ? '${page['title']}'
+          : '$parent / ${page['title']}';
+    }
+    data['content'] = pages.length == 1
+        ? _deepCopy(Map<String, dynamic>.from(pages.single['content'] as Map))
+        : <String, dynamic>{
+            'json': null,
+            'md': [
+              for (final page in pages)
+                '## ${paths[page['id']]}\n\n${mdOf(page)}',
+            ].join('\n\n'),
+            'html': '',
+          };
+    data['search_text'] = [
+      for (final page in pages) '${paths[page['id']]}\n${mdOf(page)}',
+    ].join('\n\n');
+    return data;
+  }
+
+  /// The files note [id] attaches as a 0.12.5 server counts them
+  /// (`get_note_files`): over every page, the `fileAttachment` nodes of its
+  /// editor JSON when it has some, else the file links of its HTML, else of
+  /// its markdown. Empty for a missing note.
+  List<String> noteAttachedFileIds(String id) {
+    final record = _notes[id];
+    if (record == null) return const <String>[];
+    final data = _normalizeNotePages(record.data, record.title);
+    return [
+      for (final page in (data['pages'] as List).cast<Map>())
+        ..._contentFileIds(Map<String, dynamic>.from(page['content'] as Map)),
+    ];
+  }
+
+  /// `get_content_files`: editor JSON is authoritative when present; HTML,
+  /// or the markdown rendered as HTML, serves writers that send no JSON.
+  static List<String> _contentFileIds(Map<String, dynamic> content) {
+    final json = content['json'];
+    if (json is Map) {
+      final ids = <String>[];
+      void walk(Object? node) {
+        if (node is! Map) return;
+        if (node['type'] == 'fileAttachment') {
+          final attrs = node['attrs'];
+          final fileId = attrs is Map ? attrs['id'] : null;
+          if (fileId is String && !ids.contains(fileId)) ids.add(fileId);
+        }
+        for (final child in (node['content'] as List? ?? const [])) {
+          walk(child);
+        }
+      }
+
+      walk(json);
+      return ids;
+    }
+    final html = content['html'] is String && content['html'] != ''
+        ? content['html'] as String
+        : _markdownToHtml(
+            content['md'] is String ? content['md'] as String : '',
+          );
+    final ids = <String>[];
+    for (final match in RegExp(
+      r'''href\s*=\s*["']/api/v1/files/([\w-]+)/content["']''',
+    ).allMatches(html)) {
+      if (!ids.contains(match.group(1))) ids.add(match.group(1)!);
+    }
+    return ids;
+  }
+
+  static String _escapeHtml(String text) => text
+      .replaceAll('&', '&amp;')
+      .replaceAll('<', '&lt;')
+      .replaceAll('>', '&gt;')
+      .replaceAll('"', '&quot;');
+
+  /// Just enough of `markdown.markdown` for file links: each link (not an
+  /// image) becomes an anchor; code is not modelled.
+  static String _markdownToHtml(String md) => md.replaceAllMapped(
+    RegExp(r'(?<!!)\[([^\]\n]*)\]\(([^)\s]+)\)'),
+    (m) => '<a href="${m.group(2)}">${m.group(1)}</a>',
+  );
+
   /// `NoteUserResponse` list-item shape with `data` truncated to 1000 chars of
   /// `content.md` (`_truncate_note_data`).
   Map<String, dynamic> _toNoteListItem(_NoteRecord record) => <String, dynamic>{
@@ -694,7 +970,10 @@ class FakeOpenWebUiServer {
     // A shared note names its creator, not the signed-in user.
     'user_id': record.extra['user_id'] ?? userId,
     'title': record.title,
-    'data': _deepCopy(record.data),
+    // 0.12.5 `_to_note_model` normalizes on every read, without saving.
+    'data': notePagesEnabled
+        ? _normalizeNotePages(record.data, record.title)
+        : _deepCopy(record.data),
     'meta': _deepCopy(record.meta),
     'is_pinned': record.pinned,
     'access_grants': record.extra['access_grants'] ?? <dynamic>[],

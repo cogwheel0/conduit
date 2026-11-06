@@ -12,6 +12,7 @@ import 'package:conduit_core/database/daos/notes_dao.dart';
 import 'package:conduit_core/database/database_provider.dart';
 import 'package:conduit_core/database/mappers/note_mapper.dart';
 import 'package:conduit_core/features/notes/utils/note_access.dart';
+import 'package:conduit_core/features/notes/utils/note_page_data.dart';
 import 'package:conduit_core/models/note.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/services/api_service.dart';
@@ -344,6 +345,7 @@ Future<Note?> durableUpdateNote(
   String? title,
   Map<String, dynamic>? data,
   Map<String, dynamic> Function(Map<String, dynamic> existing)? dataFrom,
+  String? pageId,
   NoteMutationOwner? owner,
 }) async {
   final session = owner ?? NoteMutationOwner.capture(ref);
@@ -378,12 +380,13 @@ Future<Note?> durableUpdateNote(
           : decodeNoteData(existingRow.data);
       // [dataFrom] reads the row as it is now, inside the lock, so a change
       // made since the caller last looked (a recording attached meanwhile)
-      // is part of what the patch is built from.
-      mergedData = <String, dynamic>{
-        ...existing,
+      // is part of what the patch is built from. On a paged note (Open WebUI
+      // 0.12.5+) the content goes to page [pageId], or the only page; a note
+      // with several pages refuses content that names none.
+      mergedData = applyNoteContentEdit(existing, <String, dynamic>{
         ...?data,
         ...?dataFrom?.call(existing),
-      };
+      }, pageId: pageId);
     }
 
     // The awaits above can span an account switch: look once more, with no
@@ -669,10 +672,24 @@ class NotesList extends _$NotesList {
     final db = sourceDb;
     if (db == null) return;
     if (!_isCurrentDatabase(ref, db)) return;
+    // A note's pages (Open WebUI 0.12.5+) are left out of its JSON, which
+    // goes to the server in saves; the stored row keeps them, so the note is
+    // edited page by page.
+    final raw = note.toJson();
+    final rawData = raw['data'];
+    final stored = note.data.hasPages && rawData is Map
+        ? <String, dynamic>{
+            ...raw,
+            'data': <String, dynamic>{
+              ...Map<String, dynamic>.from(rawData),
+              'pages': [for (final page in note.data.pages) page.toJson()],
+            },
+          }
+        : raw;
     unawaited(
       _persistServerNoteRow(
         db,
-        note.toJson(),
+        stored,
         noteId: note.id,
         readerId: ref.read(currentUserProvider2)?.id,
       ),

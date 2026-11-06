@@ -14,6 +14,7 @@ import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart
 import 'package:conduit_core/features/notes/providers/notes_providers.dart';
 import 'package:conduit_core/features/notes/services/audio_recording_service.dart';
 import 'package:conduit_core/features/notes/services/note_audio_upload_service.dart';
+import 'package:conduit_core/features/notes/utils/note_page_data.dart';
 import 'package:conduit_core/features/notes/utils/note_persistence.dart';
 import 'package:conduit_core/models/file_info.dart';
 import 'package:conduit_core/models/note.dart';
@@ -509,12 +510,19 @@ class NoteAttachmentsController {
     // the same while the account changes underneath them.
     final Object authEpoch = _container.read(openWebUiAuthSessionEpochProvider);
 
-    List<Map<String, dynamic>> without(List<Map<String, dynamic>> files) =>
-        files
-            .where((Map<String, dynamic> f) => f['id']?.toString() != fileId)
-            .toList();
-    final List<Map<String, dynamic>> currentFiles =
-        note.data.files ?? <Map<String, dynamic>>[];
+    if (fileId == null) return null;
+    // The note as this page has it, for the API path; with a database the
+    // patch is built from the stored row inside the note lock, so an
+    // attachment added since [note] was read (a recording finishing, a pull),
+    // or files a sync moved into the content, are seen as they are now.
+    final Map<String, dynamic> shown = <String, dynamic>{
+      'content': note.data.content.toJson(),
+      'files': ?note.data.files,
+      if (note.data.hasPages)
+        'pages': <Object>[
+          for (final NotePage page in note.data.pages) page.toJson(),
+        ],
+    };
     final Note? updated = await persistNoteUpdate(
       _container,
       noteId: _noteId,
@@ -523,23 +531,14 @@ class NoteAttachmentsController {
       db: db,
       title: _resolvedTitle(),
       authEpoch: authEpoch,
-      data: <String, dynamic>{'files': without(currentFiles)},
-      // With a database the list is filtered from the stored row inside the
-      // note lock, so an attachment added since [note] was read (a recording
-      // finishing, a pull) is kept rather than overwritten.
-      dataFrom: (Map<String, dynamic> existing) {
-        final Object? raw = existing['files'];
-        return <String, dynamic>{
-          'files': without(
-            raw is List
-                ? raw
-                      .whereType<Map>()
-                      .map((Map file) => Map<String, dynamic>.from(file))
-                      .toList()
-                : <Map<String, dynamic>>[],
-          ),
-        };
-      },
+      // Only the stored row decides on the durable path: a list read from a
+      // stale copy must not be merged into a note that is paged by now.
+      data: db == null
+          ? noteDataWithoutFile(shown, fileId)
+          : const <String, dynamic>{},
+      dataFrom: (Map<String, dynamic> existing) =>
+          noteDataWithoutFile(existing, fileId),
+      pageId: kNoteMainPageId,
       isStillOpen: () => !_disposed,
     );
     if (updated == null ||
@@ -584,6 +583,21 @@ class NoteAttachmentsController {
       final Map<String, dynamic> existingData = decodeNoteData(
         existingRow.data,
       );
+      if (_attachesByLink(existingData)) {
+        // A 0.12.5 server keeps attachments as links in the page content.
+        final Map<String, dynamic>? linked = noteDataWithFileLink(
+          existingData,
+          attachment,
+        );
+        if (linked == null || !canCommit()) return;
+        await db.notesDao.updateNoteWithOutbox(
+          resolvedId,
+          data: Value(jsonEncode(linked)),
+          localUpdatedAtNs: DateTime.now().microsecondsSinceEpoch * 1000,
+          enqueue: true,
+        );
+        return;
+      }
       final Object? rawFiles = existingData['files'];
       final List<Map<String, dynamic>> files = rawFiles is List
           ? rawFiles
@@ -653,6 +667,36 @@ class NoteAttachmentsController {
         attachment: attachment,
         canCommit: () => _isCurrent(api: api, db: db, authEpoch: authEpoch),
       );
+    } else if (note.data.hasPages ||
+        _container.read(notePagesServerProvider) == true) {
+      final Map<String, dynamic> existing = <String, dynamic>{
+        'content': note.data.content.toJson(),
+        if (note.data.hasPages)
+          'pages': <Object>[
+            for (final NotePage page in note.data.pages) page.toJson(),
+          ],
+      };
+      final Map<String, dynamic>? linked = noteDataWithFileLink(
+        existing,
+        attachment,
+      );
+      if (linked == null) return;
+      updatedNote = await persistNoteUpdate(
+        _container,
+        noteId: _noteId,
+        writeId: note.id,
+        api: api,
+        db: db,
+        title: _resolvedTitle(),
+        data: <String, dynamic>{
+          'content': notePageContent(linked, kNoteMainPageId),
+        },
+        pageId: kNoteMainPageId,
+        authEpoch: authEpoch,
+        authSnapshot: authSnapshot,
+        cancelToken: cancelToken,
+        isStillOpen: () => !_disposed,
+      );
     } else {
       final List<Map<String, dynamic>> currentFiles =
           note.data.files ?? <Map<String, dynamic>>[];
@@ -685,6 +729,14 @@ class NoteAttachmentsController {
     }
     _onNoteUpdated(updatedNote);
   }
+
+  /// Whether a recording is attached by a link in the page content: the note
+  /// is in the paged shape of a 0.12.5 server, or the server is known to be
+  /// one (a note stored before the upgrade, or created here since, can still
+  /// be in the older shape).
+  bool _attachesByLink(Map<String, dynamic> data) =>
+      noteDataHasPages(data) ||
+      _container.read(notePagesServerProvider) == true;
 
   void _applyChange(String id, PendingNoteAudioUpload? updated) {
     if (_disposed) return;
@@ -869,6 +921,30 @@ Map<String, dynamic> noteAudioAttachment(
   'error': '',
   'itemId': item.id,
 };
+
+/// [data] with [attachment] linked at the end of the main page's content,
+/// the page Conduit edits, as an Open WebUI 0.12.5 server attaches files; null
+/// when the page links it already. The content's rich-text forms are cleared,
+/// so the server and the web editor read the markdown that holds the link.
+Map<String, dynamic>? noteDataWithFileLink(
+  Map<String, dynamic> data,
+  Map<String, dynamic> attachment,
+) {
+  final String md = notePageMarkdown(data, kNoteMainPageId);
+  final String? fileId = attachment['id']?.toString();
+  if (fileId == null ||
+      noteFileLinksInMarkdown(
+        md,
+      ).any((NoteFileLink link) => link.id == fileId)) {
+    return null;
+  }
+  return applyNoteContentEdit(data, <String, dynamic>{
+    'content': noteContentWithMarkdown(
+      notePageContent(data, kNoteMainPageId),
+      appendNoteFileLinks(md, <Map<String, dynamic>>[attachment]),
+    ),
+  }, pageId: kNoteMainPageId);
+}
 
 /// Whether [files] already holds [attachment], by server file id or by the
 /// upload id it was attached under.

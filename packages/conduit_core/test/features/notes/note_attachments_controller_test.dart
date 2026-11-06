@@ -9,6 +9,7 @@ import 'package:conduit_core/database/mappers/note_mapper.dart';
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit_core/features/notes/services/deleted_note_draft_recovery.dart';
 import 'package:conduit_core/features/notes/services/note_attachments_controller.dart';
+import 'package:conduit_core/features/notes/utils/note_page_data.dart';
 import 'package:conduit_core/features/notes/services/note_audio_upload_service.dart';
 import 'package:conduit_core/models/file_info.dart';
 import 'package:conduit_core/models/note.dart';
@@ -230,6 +231,201 @@ void main() {
       check(updates).isNotEmpty();
       check(openNote.data.files!.length).equals(2);
       check(controller.isUploading).isFalse();
+    });
+
+    test('on a 0.12.5 note a recording is linked from the page content, '
+        'not added to a file list', () async {
+      await db
+          .into(db.notes)
+          .insertOnConflictUpdate(
+            serverToNoteRow({
+              'id': 'note-1',
+              'user_id': 'user-1',
+              'title': 'Meeting',
+              'data': {
+                // Last saved from the web editor, which keeps JSON and HTML.
+                'content': {
+                  'json': {'type': 'doc'},
+                  'md': 'hello',
+                  'html': '<p>hello</p>',
+                },
+                'pages': [
+                  {
+                    'id': 'main',
+                    'title': 'Meeting',
+                    'content': {
+                      'json': {'type': 'doc'},
+                      'md': 'hello',
+                      'html': '<p>hello</p>',
+                    },
+                  },
+                ],
+                'pages_revision': 0,
+                'search_text': 'Meeting\nhello',
+              },
+              'meta': {},
+              'is_pinned': false,
+              'created_at': 1713786305000000000,
+              'updated_at': 1713786305000000000,
+            }),
+          );
+      openNote = await readNote('note-1');
+      check(openNote.data.hasPages).isTrue();
+
+      final file = await recording('note_recording_1.wav');
+      check(await controller.stage(file)).isTrue();
+      await waitFor(() => notices.isNotEmpty && controller.pending.isEmpty);
+
+      check(notices)
+          .deepEquals(<NoteAudioNotice>[NoteAudioNotice.recordingSaved]);
+      final name = api.uploads.single.name;
+      final row = (await db.notesDao.getNote('note-1'))!;
+      final data = decodeNoteData(row.data);
+      check(data.keys).not((it) => it.contains('files'));
+      const href = '/api/v1/files/server-file-1/content';
+      final content = notePageContent(data, kNoteMainPageId)!;
+      check(content['md']).equals('hello\n\n[$name]($href)');
+      // The server and the web editor read JSON, then HTML, before markdown:
+      // left as they were, they would hide the link.
+      check(content['json']).isNull();
+      check(content['html']).equals('');
+      check(noteDirtyPageIds(data)).deepEquals([kNoteMainPageId]);
+      check(row.dirtyData).isTrue();
+      check(openNote.markdownContent).endsWith(
+        '[$name](/api/v1/files/server-file-1/content)',
+      );
+    });
+
+    test('a note that gained pages takes the recording on its main page',
+        () async {
+      await db
+          .into(db.notes)
+          .insertOnConflictUpdate(
+            serverToNoteRow({
+              'id': 'note-1',
+              'user_id': 'user-1',
+              'title': 'Meeting',
+              'data': {
+                'content': {'json': null, 'md': '## Meeting', 'html': ''},
+                'pages': [
+                  {
+                    'id': 'main',
+                    'title': 'Meeting',
+                    'content': {'json': null, 'md': 'one', 'html': ''},
+                  },
+                  {
+                    'id': 'p2',
+                    'title': 'Two',
+                    'content': {'json': null, 'md': 'two', 'html': ''},
+                  },
+                ],
+              },
+              'meta': {},
+              'is_pinned': false,
+              'created_at': 1713786305000000000,
+              'updated_at': 1713786305000000000,
+            }),
+          );
+      openNote = await readNote('note-1');
+
+      final file = await recording('note_recording_1.wav');
+      check(await controller.stage(file)).isTrue();
+      await waitFor(() => notices.isNotEmpty && controller.pending.isEmpty);
+
+      check(notices)
+          .deepEquals(<NoteAudioNotice>[NoteAudioNotice.recordingSaved]);
+      final data = decodeNoteData((await db.notesDao.getNote('note-1'))!.data);
+      check(notePageMarkdown(data, 'main')).startsWith('one\n\n[');
+      check(notePageMarkdown(data, 'p2')).equals('two');
+      check(noteDirtyPageIds(data)).deepEquals(['main']);
+    });
+
+    test('a note stored in the older shape is linked when the server is '
+        'known to be 0.12.5', () async {
+      container.dispose();
+      container = ProviderContainer(
+        overrides: [
+          appDatabaseProvider.overrideWith((ref) => db),
+          apiServiceProvider.overrideWithValue(api),
+          isAuthenticatedProvider2.overrideWithValue(true),
+          openWebUiAuthSessionEpochProvider.overrideWith(
+            (ref) => ref.watch(_testEpochProvider),
+          ),
+          currentUserProvider2.overrideWithValue(_user),
+          connectivityStatusProvider.overrideWith(_OnlineConnectivity.new),
+          syncEngineProvider.overrideWith(_NoDrainSyncEngine.new),
+          notePagesServerProvider.overrideWithValue(true),
+        ],
+      );
+      controller.dispose();
+      controller = NoteAttachmentsController(
+        container: container,
+        store: store,
+        noteId: 'note-1',
+        currentNote: () => openNote,
+        resolvedTitle: () => openNote.title,
+        onNoteUpdated: (updated) {
+          openNote = updated;
+          updates.add(updated);
+        },
+        onChanged: () => changes++,
+        onNotice: notices.add,
+      )..start();
+
+      final file = await recording('note_recording_1.wav');
+      check(await controller.stage(file)).isTrue();
+      await waitFor(() => notices.isNotEmpty && controller.pending.isEmpty);
+
+      final data = decodeNoteData((await db.notesDao.getNote('note-1'))!.data);
+      // The old list is left for the next save to move; the new recording
+      // is a link already.
+      check(data['files'] as List).length.equals(1);
+      check((data['content'] as Map)['md'] as String)
+          .endsWith('(/api/v1/files/server-file-1/content)');
+    });
+
+    test('removing a file the page still lists from its old copy takes the '
+        'link out of the stored note', () async {
+      // The page opened the note in its older shape, with old-file listed; a
+      // save since moved the file into the content as a link and the stored
+      // note took the server's pages.
+      check(openNote.data.files!.single['id']).equals('old-file');
+      const link = '[old.pdf](/api/v1/files/old-file/content)';
+      await db
+          .into(db.notes)
+          .insertOnConflictUpdate(
+            serverToNoteRow({
+              'id': 'note-1',
+              'user_id': 'user-1',
+              'title': 'Meeting',
+              'data': {
+                'content': {'json': null, 'md': 'hello\n\n$link', 'html': ''},
+                'pages': [
+                  {
+                    'id': 'main',
+                    'title': 'Meeting',
+                    'content': {
+                      'json': null,
+                      'md': 'hello\n\n$link',
+                      'html': '',
+                    },
+                  },
+                ],
+              },
+              'meta': {},
+              'is_pinned': false,
+              'created_at': 1713786305000000000,
+              'updated_at': 1713786305000000000,
+            }),
+          );
+
+      final updated = await controller.removeAttachedFile('old-file');
+
+      check(updated).isNotNull();
+      final data = decodeNoteData((await db.notesDao.getNote('note-1'))!.data);
+      check(notePageMarkdown(data, kNoteMainPageId)).equals('hello');
+      check(data.keys).not((it) => it.contains('files'));
+      check(noteDirtyPageIds(data)).deepEquals([kNoteMainPageId]);
     });
 
     test('a failed upload keeps the recording for a retry', () async {

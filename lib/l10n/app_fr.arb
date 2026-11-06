@@ -3610,6 +3610,7 @@
   "personalToolSettingsOwnerChanged": "Le compte connecté a changé, rien n'a donc été enregistré. Rouvrez les réglages pour continuer.",
   "personalToolSettingsInvalid": "Le serveur n'a pas accepté ces valeurs.",
   "noteReadOnlyNotice": "Cette note est en lecture seule. Vous pouvez la lire, mais pas la modifier.",
+  "noteMultiPageReadOnlyNotice": "Cette note comporte plusieurs pages. Vous pouvez lire toutes les pages ici ; modifiez-la dans Open WebUI sur le web.",
   "noteAccessUnverifiedNotice": "Reconnectez-vous pour confirmer que vous pouvez modifier cette note.",
   "noteAccessRevokedNotice": "Vous ne pouvez plus modifier cette note. Vos modifications non enregistrées sont conservées ici.",
   "noteSaveAsOwnNote": "Enregistrer comme ma propre note",

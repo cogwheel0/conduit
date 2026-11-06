@@ -36,12 +36,14 @@ import 'package:conduit_core/features/notes/services/note_ai_actions.dart';
 import 'package:conduit_core/features/notes/services/note_attachments_controller.dart';
 import 'package:conduit_core/features/notes/services/note_dictation.dart';
 import 'package:conduit_core/features/notes/utils/note_access.dart';
+import 'package:conduit_core/features/notes/utils/note_page_data.dart';
 import 'package:conduit_core/features/sharing/providers/principal_lookup.dart';
 import 'package:conduit_core/features/workspace/models/workspace_common.dart'
     show WorkspacePrincipalType;
 import 'package:conduit_core/features/notes/utils/note_persistence.dart';
 
 import '../utils/note_context_actions.dart';
+import '../utils/note_file_link_insertion.dart';
 
 import 'package:conduit_core/utils/debug_logger.dart';
 
@@ -245,6 +247,13 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
   // normalisation.
   String _savedMarkdown = '';
 
+  /// The stored markdown of the page the editor shows, as last loaded or
+  /// saved. A file link the stored page gains beyond it (a recording attached,
+  /// or files a sync moved into the content on an Open WebUI 0.12.5 server)
+  /// is merged into the next save and put in the editor; a link the user
+  /// removed since stays removed.
+  String _linkBase = '';
+
   static final _whitespacePattern = RegExp(r'\s+');
   int _cachedWordCount = 0;
 
@@ -285,7 +294,11 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
       currentNote: () => _note,
       resolvedTitle: _resolvedTitle,
       onNoteUpdated: (note) {
-        if (mounted) setState(() => _note = note);
+        if (!mounted) return;
+        setState(() {
+          _note = note;
+          _showFileLinksOf(note);
+        });
       },
       onChanged: () {
         if (mounted) setState(() {});
@@ -317,6 +330,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
             setState(() {
               _note = note;
               _savedMarkdown = savedMarkdown;
+              _linkBase = _mainPageMarkdown(note);
               _hasChanges = changedDuringRecovery;
             });
           },
@@ -415,12 +429,57 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
   );
 
   /// Editing is off unless the note is known to be writable by the account
-  /// that opened it, or a save was refused.
+  /// that opened it, or a save was refused. A note with several pages (Open
+  /// WebUI 0.12.5+) is shown whole and read-only: its content is a view of
+  /// every page, which the server will not take back as one page's text.
+  /// Unsaved text keeps the editor writable, so it is saved, to the main
+  /// page, rather than trapped when a sync brings the note's new pages.
   bool get _readOnly =>
       _writeRefused ||
       _note == null ||
+      (_note!.isMultiPage && !_hasChanges) ||
       noteWriteAccess(_note!, accountId: _openUserId) !=
           NoteWriteAccess.allowed;
+
+  /// The stored markdown of the main page of [note], the page this editor
+  /// edits. A note in the older shape, or with one page, has its content.
+  String _mainPageMarkdown(Note note) {
+    if (note.isMultiPage) {
+      for (final page in note.data.pages) {
+        if (page.id == kNoteMainPageId) return page.content.md;
+      }
+    }
+    return note.markdownContent;
+  }
+
+  /// Puts each file link the stored [note] gained beyond [_linkBase] (Open
+  /// WebUI 0.12.5 keeps attachments as links in the page content) at the end
+  /// of the editor, unless the editor has it, so it shows and the next save
+  /// keeps it, then moves [_linkBase] on to [note].
+  void _showFileLinksOf(Note note) {
+    final stored = _mainPageMarkdown(note);
+    final base = _linkBase;
+    _linkBase = stored;
+    final controller = _contentController;
+    if (controller == null || _readOnly) return;
+    final known = <String>{
+      for (final link in noteFileLinksInMarkdown(base)) link.id,
+      for (final link in noteFileLinksInMarkdown(_contentMarkdown)) link.id,
+    };
+    final gained = [
+      for (final link in noteFileLinksInMarkdown(stored))
+        if (!known.contains(link.id)) link,
+    ];
+    if (gained.isEmpty) return;
+    // Text typed while a save ran is not saved yet; the debounce it started
+    // still compares against [_savedMarkdown] and saves it.
+    final wasSaved = _contentMarkdown == _savedMarkdown;
+    appendNoteFileLinksToDocument(controller, gained);
+    if (wasSaved) {
+      // The stored note already holds these links: nothing new to save.
+      _savedMarkdown = _contentMarkdown;
+    }
+  }
 
   String _resolvedTitle() {
     final title = _titleController.text.trim();
@@ -479,6 +538,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
           _titleController.text = note.title;
           _installContentDocument(documentFromMarkdown(note.markdownContent));
           _savedMarkdown = _contentMarkdown;
+          _linkBase = _mainPageMarkdown(note);
           _updateWordCount();
           _isLoading = false;
           _hasChanges = false;
@@ -635,6 +695,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
     required AppDatabase? db,
     required String title,
     required Map<String, dynamic> data,
+    Map<String, dynamic> Function(Map<String, dynamic> existing)? dataFrom,
     Object? authEpoch,
     ApiAuthSnapshot? authSnapshot,
     CancelToken? cancelToken,
@@ -647,6 +708,10 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
       db: db,
       title: title,
       data: data,
+      dataFrom: dataFrom,
+      // The editor edits the main page; on Open WebUI 0.12.5 a note that
+      // gained pages meanwhile keeps this text on that page.
+      pageId: kNoteMainPageId,
       authEpoch: authEpoch,
       // The account that opened the page, not whoever is active at Save.
       accountId: _openUserId,
@@ -683,6 +748,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
       // Preserve existing note data (versions, attached files) — only the
       // content changes here.
       final savedMarkdown = _contentMarkdown;
+      final linkBase = _linkBase;
       final data = _composeUpdatedNoteData();
 
       final resolvedTitle = title.isEmpty
@@ -693,6 +759,15 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
         db: db,
         title: resolvedTitle,
         data: data,
+        // Read inside the note lock: a file link the stored page gained since
+        // this text was loaded is kept, not replaced by the editor's copy.
+        dataFrom: (existing) => noteContentData(
+          mergeNoteFileLinks(
+            base: linkBase,
+            stored: notePageMarkdown(existing, kNoteMainPageId),
+            mine: savedMarkdown,
+          ),
+        ),
         authEpoch: _openAuthEpoch,
       );
 
@@ -711,6 +786,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
             _savedMarkdown = savedMarkdown;
             _isSaving = false;
             _hasChanges = false;
+            _showFileLinksOf(updatedNote);
           });
 
           if (showFeedback) {
@@ -857,8 +933,14 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
       if (!mounted) return;
       switch (result.outcome) {
         case NoteAiOutcome.done:
+          // On Open WebUI 0.12.5 files are attached by links in the text; one
+          // the model left out is put back, as enhancing detaches nothing.
+          final before = noteFileLinksInMarkdown(_contentMarkdown);
+          final enhanced = appendNoteFileLinks(result.text!, [
+            for (final link in before) link.toAttachment(),
+          ]);
           setState(() {
-            _installContentDocument(documentFromMarkdown(result.text!));
+            _installContentDocument(documentFromMarkdown(enhanced));
           });
           // _installContentDocument deliberately leaves _savedMarkdown
           // untouched, so the enhanced content now differs from the saved
@@ -1718,8 +1800,17 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
     // Adaptive app bar height + metadata bar (~40).
     final appBarHeight = conduitAdaptiveToolbarHeightOf(context) + 40;
 
-    // Get attached files
-    final files = _note?.data.files ?? [];
+    // Get attached files: the list servers before 0.12.5 keep, and the links
+    // in the content that 0.12.5 keeps them as instead.
+    final note = _note;
+    final listed = note?.data.files ?? <Map<String, dynamic>>[];
+    final files = [
+      ...listed,
+      if (note != null)
+        for (final link in noteFileLinksInMarkdown(note.markdownContent))
+          if (!listed.any((file) => file['id']?.toString() == link.id))
+            link.toAttachment(),
+    ];
 
     return GestureDetector(
       onTap: () => _contentFocusNode.requestFocus(),
@@ -2034,6 +2125,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
           _titleController.clear();
           _installContentDocument(documentFromMarkdown(''));
           _savedMarkdown = '';
+          _linkBase = '';
           _cachedWordCount = 0;
           _hasChanges = false;
         });
@@ -2056,6 +2148,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
         _titleController.text = note.title;
         _installContentDocument(documentFromMarkdown(note.markdownContent));
         _savedMarkdown = _contentMarkdown;
+        _linkBase = _mainPageMarkdown(note);
         _updateWordCount();
       });
     } catch (e) {
@@ -2179,6 +2272,15 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
       return;
     }
 
+    // A 0.12.5 server attaches a file by a link in the page content: one the
+    // editor shows comes out of its text too, and is saved without it.
+    final fileId = file['id']?.toString();
+    final shownInText =
+        fileId != null &&
+        noteFileLinksInMarkdown(
+          _contentMarkdown,
+        ).any((link) => link.id == fileId);
+
     final api = _openApi;
     final db = _openDb;
     if (api == null && db == null) return;
@@ -2190,16 +2292,29 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
     setState(() => _isSaving = true);
 
     try {
-      final updatedNote = await _attachments.removeAttachedFile(
-        file['id']?.toString(),
-      );
+      // The stored note decides what is removed: its list on a server
+      // before 0.12.5, its link in the content on 0.12.5, wherever it sits
+      // there now.
+      final updatedNote = await _attachments.removeAttachedFile(fileId);
 
       if (mounted) {
         if (updatedNote != null) {
           setState(() {
             _note = updatedNote;
             _isSaving = false;
+            if (shownInText) {
+              _installContentDocument(
+                documentFromMarkdown(
+                  removeNoteFileLinks(_contentMarkdown, fileId),
+                ),
+              );
+              _hasChanges = true;
+              _updateWordCount();
+            }
+            _showFileLinksOf(updatedNote);
           });
+          if (shownInText) await _saveNote(showFeedback: false);
+          if (!mounted) return;
 
           ConduitHaptics.lightImpact();
           AdaptiveSnackBar.show(
@@ -2226,7 +2341,8 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
     if (note == null) return null;
     if (_writeRefused) return l10n.noteAccessRevokedNotice;
     return switch (noteWriteAccess(note, accountId: _openUserId)) {
-      NoteWriteAccess.allowed => null,
+      NoteWriteAccess.allowed =>
+        note.isMultiPage ? l10n.noteMultiPageReadOnlyNotice : null,
       NoteWriteAccess.denied => switch (_sharedOwnerName(note)) {
         final String owner => l10n.libraryNoteSharedBy(owner),
         null => l10n.noteReadOnlyNotice,
@@ -2295,6 +2411,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
         documentFromMarkdown(_note?.markdownContent ?? ''),
       );
       _savedMarkdown = _contentMarkdown;
+      _linkBase = _note == null ? '' : _mainPageMarkdown(_note!);
       _updateWordCount();
     });
   }

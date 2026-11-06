@@ -360,6 +360,10 @@ class FakeSyncApiClient implements SyncApiClient {
   final Map<String, Map<String, dynamic>> lastNotePatch =
       <String, Map<String, dynamic>>{};
 
+  /// Every patch passed to [updateNote], in order, including refused ones.
+  final List<({String id, Map<String, dynamic> patch})> notePatches =
+      <({String id, Map<String, dynamic> patch})>[];
+
   void _maybeThrowNote(String id) {
     if (failNoteWriteIds.contains(id)) {
       throw StateError('injected note write failure ($id)');
@@ -420,9 +424,19 @@ class FakeSyncApiClient implements SyncApiClient {
   ) async {
     updateNoteCalls++;
     lastNotePatch[id] = Map<String, dynamic>.from(patch);
+    notePatches.add((id: id, patch: Map<String, dynamic>.from(patch)));
     await Future<void>.delayed(Duration.zero);
     _maybeThrowNote(id);
-    return server.updateNote(id, patch);
+    try {
+      return server.updateNote(id, patch);
+    } on FakeOpenWebUiHttpException catch (e) {
+      // The production client turns a refused body into this, as ApiService
+      // does for a 400/422 from the update route.
+      if (e.statusCode == 400 || e.statusCode == 422) {
+        throw SyncRejectedException(statusCode: e.statusCode, detail: e.detail);
+      }
+      rethrow;
+    }
   }
 
   @override

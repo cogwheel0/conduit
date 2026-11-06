@@ -5525,6 +5525,7 @@
   "personalToolSettingsOwnerChanged": "Prihlásený účet sa zmenil, preto sa nič neuložilo. Znova otvorte nastavenia a pokračujte.",
   "personalToolSettingsInvalid": "Server tieto hodnoty neprijal.",
   "noteReadOnlyNotice": "Táto poznámka je iba na čítanie. Môžete si ju prečítať, ale nie zmeniť.",
+  "noteMultiPageReadOnlyNotice": "Táto poznámka má niekoľko strán. Všetky strany si môžete prečítať tu, upraviť ju môžete v Open WebUI na webe.",
   "noteAccessUnverifiedNotice": "Znova sa pripojte a overte, že môžete túto poznámku upravovať.",
   "noteAccessRevokedNotice": "Túto poznámku už nemôžete upravovať. Neuložené zmeny zostávajú tu.",
   "noteSaveAsOwnNote": "Uložiť ako moju poznámku",

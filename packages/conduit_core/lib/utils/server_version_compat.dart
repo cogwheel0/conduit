@@ -40,6 +40,19 @@ class ServerVersionCompat {
   /// The first Open WebUI release that can mark a chat unread.
   static const String markChatUnreadVersion = '0.11.0';
 
+  /// The first Open WebUI release that stores a note as pages, with its
+  /// attachments as links in the page content.
+  static const String notePagesVersion = '0.12.5';
+
+  /// Whether [rawVersion] is [minimum] or newer, or null when [rawVersion]
+  /// cannot be read. For a choice that must not guess either way.
+  static bool? knownAtLeast(String? rawVersion, String minimum) {
+    final parsed = _parse(rawVersion);
+    final required = _parse(minimum);
+    if (parsed == null || required == null) return null;
+    return _compare(parsed, required) >= 0;
+  }
+
   /// Whether [rawVersion] is [minimum] or newer.
   ///
   /// Fails open like [isSupported]: a `null`, empty, or unparseable version

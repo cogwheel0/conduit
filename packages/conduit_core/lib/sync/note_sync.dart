@@ -1,9 +1,12 @@
+import 'dart:convert';
+
 import 'package:drift/drift.dart' show Value;
 
 import 'package:conduit_core/database/app_database.dart';
 import 'package:conduit_core/database/daos/outbox_dao.dart';
 import 'package:conduit_core/database/mappers/note_mapper.dart';
 import 'package:conduit_core/features/notes/utils/note_access.dart';
+import 'package:conduit_core/features/notes/utils/note_page_data.dart';
 
 import 'package:conduit_core/utils/debug_logger.dart';
 
@@ -119,12 +122,16 @@ class NotePullSync {
         hasPendingCreateHashes ?? await hasPendingCreateContentHashes();
     if (!hasPendingCreate) return false;
 
-    final hash = noteCreateContentHashFromServer(serverRaw);
-    final op = await _db.outboxDao.claimPendingCreateForHash(
-      hash,
-      kind: OutboxKind.noteCreate,
-    );
-    if (op == null) return false;
+    OutboxOp? claimed;
+    for (final hash in noteCreateContentHashesFromServer(serverRaw)) {
+      claimed = await _db.outboxDao.claimPendingCreateForHash(
+        hash,
+        kind: OutboxKind.noteCreate,
+      );
+      if (claimed != null) break;
+    }
+    if (claimed == null) return false;
+    final op = claimed;
 
     final localId = op.chatId;
     if (localId == null) {
@@ -226,11 +233,13 @@ class NotePushSync {
     required NoteLocks noteLocks,
     required IdRemapper remapper,
     String? Function()? currentAccountId,
+    bool? Function()? notePagesServer,
   }) : _client = client,
        _db = db,
        _noteLocks = noteLocks,
        _remapper = remapper,
-       _currentAccountId = currentAccountId;
+       _currentAccountId = currentAccountId,
+       _notePagesServer = notePagesServer;
 
   final SyncApiClient _client;
   final AppDatabase _db;
@@ -240,6 +249,10 @@ class NotePushSync {
   /// The signed-in account, read when an op replays rather than when the
   /// handler was built, because the drainer outlives an account switch.
   final String? Function()? _currentAccountId;
+
+  /// Whether the server stores notes as pages (Open WebUI 0.12.5+), null when
+  /// unknown; read when an op replays, as the server can change meanwhile.
+  final bool? Function()? _notePagesServer;
 
   // ---- noteCreate (§7.3 analog) ----
 
@@ -264,7 +277,9 @@ class NotePushSync {
         // Annihilated, tombstoned, or already remapped.
         return null;
       }
-      final data = decodeNoteData(note.data);
+      // A conflict copy of a note read from a 0.12.5 server carries its
+      // pages; the server refuses those in a create and rebuilds them anyway.
+      final data = noteDataForCreate(decodeNoteData(note.data));
       final resp = await _client.createNote(
         title: note.title,
         data: data,
@@ -301,6 +316,20 @@ class NotePushSync {
   /// Pushes the patch carried by the op (`title` always; `data` when dirty) and
   /// clears the corresponding dirty axes for the captured state. The whole
   /// reconstruct → POST → clear runs under one lock span (no mid-flight echo).
+  ///
+  /// `data` carries only what Conduit edits, the content, and goes to the
+  /// page it was edited on by `page_id`, which servers before 0.12.5 ignore.
+  /// A paged note sends each page edited here ([kNoteDirtyPagesKey]) in turn,
+  /// and never its pages, which 0.12.5 refuses. A note in the older shape
+  /// sends its content to the main page, with its file list for a server
+  /// before 0.12.5; a 0.12.5 server refuses the list, so there the files are
+  /// written into the content as links instead, as the server itself moves
+  /// them. When the server version is unknown the list goes first, and the
+  /// links follow if the server refuses it. Once a 0.12.5 server answers, the
+  /// row takes the server's paged data, so the next edit goes out in that
+  /// shape. A note with several pages whose combined view was edited as a
+  /// whole, as builds before page-aware edits did, has that edit kept as a
+  /// conflict copy.
   Future<void> pushNoteUpdate(String noteId, Map<String, dynamic> patch) async {
     await _noteLocks.runExclusive(noteId, () async {
       final note = await _db.notesDao.getNote(noteId);
@@ -321,8 +350,28 @@ class NotePushSync {
       // coalescing collapsed several edits. `data` is sent iff the row's data
       // axis is dirty (or the patch explicitly carried it).
       final includeData = note.dirtyData || patch.containsKey('data');
-      final live = noteRowToPatch(note, includeData: includeData);
-      final resp = await _client.updateNote(noteId, live);
+      var data = decodeNoteData(note.data);
+      if (includeData &&
+          noteDataIsMultiPage(data) &&
+          noteCombinedContentEdited(data)) {
+        // A build before page-aware edits changed the combined view of every
+        // page, which belongs to no page: it is kept as a note of its own, and
+        // the pages edited here are sent as usual.
+        data = await _db.notesDao.keepCombinedEditAsCopy(note);
+      }
+      final saves = includeData
+          ? _contentSaves(noteId, data)
+          : const <_NoteContentSave>[];
+      Map<String, dynamic>? resp;
+      if (saves.isEmpty) {
+        resp = await _client.updateNote(noteId, {'title': note.title});
+      }
+      for (final save in saves) {
+        // A retry after a later page failed sends the earlier ones again,
+        // which leaves them as they are.
+        resp = await _sendContentSave(noteId, note.title, save);
+        if (resp == null) break;
+      }
       if (resp == null) {
         // 404: gone server-side. Deletion reconcile / the next pull handles it.
         DebugLogger.warning(
@@ -333,13 +382,125 @@ class NotePushSync {
         return;
       }
       final serverUpdatedAt = asNs(resp['updated_at']) ?? note.updatedAt;
+      final serverData = resp['data'];
       await _clearNoteDirty(
         noteId: noteId,
         clearTitle: true,
         clearData: includeData,
         serverUpdatedAt: serverUpdatedAt,
+        // The answer holds what was just sent, as the server stores it. The
+        // lock keeps any local edit out until the row is written.
+        serverData:
+            includeData &&
+                serverData is Map<String, dynamic> &&
+                noteDataHasPages(serverData)
+            ? serverData
+            : null,
       );
     });
+  }
+
+  /// The content saves that send the edits stored in [data].
+  List<_NoteContentSave> _contentSaves(
+    String noteId,
+    Map<String, dynamic> data,
+  ) {
+    if (noteDataHasPages(data)) {
+      var pageIds = noteDirtyPageIds(data);
+      // An earlier build attached recordings to the file list of a note
+      // already in this shape; 0.12.5 refuses the list, so they are written
+      // into the main page as links, as the server moves them.
+      final Object? rawFiles = data['files'];
+      final Map<String, dynamic>? linkedMain =
+          rawFiles is List && rawFiles.isNotEmpty
+          ? noteContentWithLinkedFiles(
+              notePageContent(data, kNoteMainPageId) ??
+                  noteContentWithMarkdown(null, ''),
+              rawFiles,
+            )
+          : null;
+      if (linkedMain != null && !pageIds.contains(kNoteMainPageId)) {
+        pageIds = <String>[kNoteMainPageId, ...pageIds];
+      }
+      if (pageIds.isEmpty) {
+        final single = noteSinglePageId(data);
+        if (single == null) {
+          // No page was edited; an edit of the combined view went to a copy.
+          DebugLogger.log(
+            'update-no-page-edited',
+            scope: 'sync/notes',
+            data: {'noteId': noteId},
+          );
+          return const <_NoteContentSave>[];
+        }
+        pageIds = <String>[single];
+      }
+      return <_NoteContentSave>[
+        for (final pageId in pageIds)
+          _NoteContentSave(
+            noteContentUpdateBody(
+              pageId == kNoteMainPageId && linkedMain != null
+                  ? linkedMain
+                  : notePageContent(data, pageId),
+              pageId: pageId,
+            ),
+          ),
+      ];
+    }
+    final Object? rawContent = data['content'];
+    final Object? rawFiles = data['files'];
+    final files = rawFiles is List ? rawFiles : null;
+    // A note with no text that gained a recording has only its file list.
+    if (rawContent is! Map && files == null) {
+      return const <_NoteContentSave>[];
+    }
+    final Map<String, dynamic>? content = rawContent is Map
+        ? Map<String, dynamic>.from(rawContent)
+        : null;
+    final pagesServer = _notePagesServer?.call();
+    final linked = files == null
+        ? null
+        : noteContentUpdateBody(
+            noteContentWithLinkedFiles(
+              content ?? noteContentWithMarkdown(null, ''),
+              files,
+            ),
+            pageId: kNoteMainPageId,
+          );
+    if (pagesServer == true) {
+      return <_NoteContentSave>[
+        _NoteContentSave(
+          linked ??
+              noteContentUpdateBody(content, pageId: kNoteMainPageId),
+        ),
+      ];
+    }
+    return <_NoteContentSave>[
+      _NoteContentSave(
+        noteContentUpdateBody(content, pageId: kNoteMainPageId, files: files),
+        // A server whose version is unknown may be a 0.12.5 one.
+        ifRejected: pagesServer == null ? linked : null,
+      ),
+    ];
+  }
+
+  Future<Map<String, dynamic>?> _sendContentSave(
+    String noteId,
+    String title,
+    _NoteContentSave save,
+  ) async {
+    try {
+      return await _client.updateNote(noteId, {'title': title, ...save.body});
+    } on SyncRejectedException catch (error) {
+      final fallback = save.ifRejected;
+      if (fallback == null) rethrow;
+      DebugLogger.log(
+        'update-files-moved-into-content',
+        scope: 'sync/notes',
+        data: {'noteId': noteId, 'status': error.statusCode},
+      );
+      return _client.updateNote(noteId, {'title': title, ...fallback});
+    }
   }
 
   /// Whether a queued edit may still be sent. A note shared with the account
@@ -460,6 +621,7 @@ class NotePushSync {
     required bool clearTitle,
     required bool clearData,
     required int serverUpdatedAt,
+    Map<String, dynamic>? serverData,
   }) {
     return _db.transaction(() async {
       await (_db.update(_db.notes)..where((t) => t.id.equals(noteId))).write(
@@ -468,6 +630,9 @@ class NotePushSync {
           updatedAt: Value(serverUpdatedAt),
           dirtyTitle: clearTitle ? const Value(false) : const Value.absent(),
           dirtyData: clearData ? const Value(false) : const Value.absent(),
+          data: serverData == null
+              ? const Value.absent()
+              : Value(jsonEncode(serverData)),
         ),
       );
     });
@@ -487,4 +652,13 @@ class NotePushSync {
       ),
     );
   }
+}
+
+/// One content save of a note: the update body, and the body to send instead
+/// if the server refuses this one.
+class _NoteContentSave {
+  const _NoteContentSave(this.body, {this.ifRejected});
+
+  final Map<String, dynamic> body;
+  final Map<String, dynamic>? ifRejected;
 }

@@ -3610,6 +3610,7 @@
   "personalToolSettingsOwnerChanged": "L'account connesso è cambiato, quindi non è stato salvato nulla. Riapri le impostazioni per continuare.",
   "personalToolSettingsInvalid": "Il server non ha accettato questi valori.",
   "noteReadOnlyNotice": "Questa nota è di sola lettura. Puoi leggerla, ma non modificarla.",
+  "noteMultiPageReadOnlyNotice": "Questa nota ha più pagine. Puoi leggere tutte le pagine qui; modificala in Open WebUI sul web.",
   "noteAccessUnverifiedNotice": "Riconnettiti per confermare che puoi modificare questa nota.",
   "noteAccessRevokedNotice": "Non puoi più modificare questa nota. Le tue modifiche non salvate restano qui.",
   "noteSaveAsOwnNote": "Salva come nota personale",

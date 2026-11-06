@@ -176,6 +176,23 @@ final chatMarkUnreadSupportedProvider = Provider<bool>((ref) {
   );
 });
 
+/// Whether the active Open WebUI server stores notes as pages, with their
+/// attachments as links in the page content (0.12.5 and later).
+///
+/// Null until a config confirmed to belong to the active server reports a
+/// version it can read: a note save must then find out from the server,
+/// rather than guess either way.
+final notePagesServerProvider = Provider<bool?>((ref) {
+  final activeId = ref.watch(activeServerProvider).asData?.value?.id;
+  final config = ref.watch(backendConfigProvider).asData?.value;
+  if (activeId == null || config == null) return null;
+  if (config.serverId != activeId) return null;
+  return ServerVersionCompat.knownAtLeast(
+    config.version,
+    ServerVersionCompat.notePagesVersion,
+  );
+});
+
 @Riverpod(keepAlive: true)
 class BackendConfigNotifier extends _$BackendConfigNotifier {
   // AsyncNotifier instances survive dependency-triggered rebuilds. This must

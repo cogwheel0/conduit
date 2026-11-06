@@ -1,6 +1,9 @@
 import 'dart:async';
 
 import 'package:conduit/features/notes/views/note_editor_page.dart';
+import 'package:conduit/features/notes/widgets/note_file_attachment.dart';
+import 'package:conduit/features/notes/utils/note_document_codec.dart';
+import 'package:conduit_core/features/notes/utils/note_page_data.dart';
 import 'package:conduit/features/workspace/models/workspace_capabilities.dart';
 import 'package:conduit/features/workspace/providers/workspace_capabilities_provider.dart';
 import 'package:conduit_core/auth/api_auth_interceptor.dart';
@@ -134,6 +137,8 @@ Map<String, dynamic> _noteJson({
   required bool writeAccess,
   String owner = 'creator',
   String? ownerName,
+  String md = 'original',
+  List<Map<String, dynamic>>? pages,
 }) => {
   'id': 'note-1',
   'user_id': owner,
@@ -141,7 +146,13 @@ Map<String, dynamic> _noteJson({
   'title': 'Shared note',
   'write_access': writeAccess,
   'data': {
-    'content': {'md': 'original', 'html': '', 'json': null},
+    'content': {'md': md, 'html': '', 'json': null},
+    // The shape of an Open WebUI 0.12.5 note.
+    if (pages != null) ...{
+      'pages': pages,
+      'pages_revision': 0,
+      'search_text': md,
+    },
   },
   'meta': {},
   'is_pinned': false,
@@ -279,6 +290,197 @@ void main() {
     await letAutosaveRun(tester);
     await expectNothingQueued();
     expect(api.updates, 0);
+  });
+
+  testWidgets('text typed before a sync brings new pages is still saved, to '
+      'the main page', (tester) async {
+    final onePage = _noteJson(
+      writeAccess: true,
+      pages: [
+        {
+          'id': 'main',
+          'title': 'Shared note',
+          'content': {'md': 'original', 'html': '', 'json': null},
+        },
+      ],
+    );
+    await storeLocally(onePage);
+    await pumpEditor(tester, _DetailApi(detail: onePage));
+    typeInto(tester, 'draft ');
+    await tester.pump();
+
+    // A sync stores the note with a second page before the draft is saved.
+    await storeLocally(
+      _noteJson(
+        writeAccess: true,
+        md: '## Shared note\n\noriginal\n\n## Two\n\ntwo',
+        pages: [
+          {
+            'id': 'main',
+            'title': 'Shared note',
+            'content': {'md': 'original', 'html': '', 'json': null},
+          },
+          {
+            'id': 'p2',
+            'title': 'Two',
+            'content': {'md': 'two', 'html': '', 'json': null},
+          },
+        ],
+      ),
+    );
+    await letAutosaveRun(tester);
+
+    final data = decodeNoteData((await db.notesDao.getNote('note-1'))!.data);
+    expect(notePageMarkdown(data, 'main'), startsWith('draft original'));
+    expect(notePageMarkdown(data, 'p2'), 'two');
+  });
+
+  testWidgets('a note with several pages opens whole and read-only', (
+    tester,
+  ) async {
+    final note = _noteJson(
+      writeAccess: true,
+      md: '## Shared note\n\none\n\n## Two\n\ntwo',
+      pages: [
+        {
+          'id': 'main',
+          'title': 'Shared note',
+          'content': {'md': 'one', 'html': '', 'json': null},
+        },
+        {
+          'id': 'p2',
+          'title': 'Two',
+          'content': {'md': 'two', 'html': '', 'json': null},
+        },
+      ],
+    );
+    final api = _DetailApi(detail: note);
+    await storeLocally(note);
+    await pumpEditor(tester, api);
+
+    expect(
+      tester.widget<FleatherEditor>(find.byType(FleatherEditor)).readOnly,
+      isTrue,
+    );
+    expect(find.text(l10n(tester).noteMultiPageReadOnlyNotice), findsOneWidget);
+    final text = contentController(tester).document.toPlainText();
+    expect(text, contains('one'));
+    expect(text, contains('two'));
+
+    typeInto(tester, 'flattened ');
+    await letAutosaveRun(tester);
+    await expectNothingQueued();
+  });
+
+  testWidgets('a one-page note from 0.12.5 is editable and lists the files '
+      'its content links', (tester) async {
+    const md = 'original\n\n[Rec.m4a](/api/v1/files/f1/content)';
+    final note = _noteJson(
+      writeAccess: true,
+      md: md,
+      pages: [
+        {
+          'id': 'main',
+          'title': 'Shared note',
+          'content': {'md': md, 'html': '', 'json': null},
+        },
+      ],
+    );
+    final api = _DetailApi(detail: note);
+    await storeLocally(note);
+    await pumpEditor(tester, api);
+
+    expect(
+      tester.widget<FleatherEditor>(find.byType(FleatherEditor)).readOnly,
+      isFalse,
+    );
+    expect(find.text(l10n(tester).noteMultiPageReadOnlyNotice), findsNothing);
+    final attachment = tester.widget<NoteFileAttachment>(
+      find.byType(NoteFileAttachment),
+    );
+    expect(attachment.file['id'], 'f1');
+    expect(attachment.file['name'], 'Rec.m4a');
+  });
+
+  testWidgets('a file link a sync wrote while the note was open survives '
+      'the next save, and shows in the editor', (tester) async {
+    const md = 'original';
+    final note = _noteJson(
+      writeAccess: true,
+      md: md,
+      pages: [
+        {
+          'id': 'main',
+          'title': 'Shared note',
+          'content': {'md': md, 'html': '', 'json': null},
+        },
+      ],
+    );
+    final api = _DetailApi(detail: note);
+    await storeLocally(note);
+    await pumpEditor(tester, api);
+
+    // A save sent from here moved a recording into the content on the server,
+    // and the stored note took the server's copy.
+    const link = '[Rec.m4a](/api/v1/files/f1/content)';
+    const linked = '$md\n\n$link';
+    await storeLocally(
+      _noteJson(
+        writeAccess: true,
+        md: linked,
+        pages: [
+          {
+            'id': 'main',
+            'title': 'Shared note',
+            'content': {'md': linked, 'html': '', 'json': null},
+          },
+        ],
+      ),
+    );
+
+    typeInto(tester, 'more ');
+    await letAutosaveRun(tester);
+
+    final row = (await db.notesDao.getNote('note-1'))!;
+    final saved = notePageMarkdown(decodeNoteData(row.data), 'main');
+    expect(saved, startsWith('more original'));
+    expect(saved, contains(link));
+    expect(
+      markdownFromDocument(contentController(tester).document),
+      contains(link),
+    );
+  });
+
+  testWidgets('a file link removed in the editor stays removed', (
+    tester,
+  ) async {
+    const link = '[Rec.m4a](/api/v1/files/f1/content)';
+    const md = 'original\n\n$link';
+    final note = _noteJson(
+      writeAccess: true,
+      md: md,
+      pages: [
+        {
+          'id': 'main',
+          'title': 'Shared note',
+          'content': {'md': md, 'html': '', 'json': null},
+        },
+      ],
+    );
+    await storeLocally(note);
+    await pumpEditor(tester, _DetailApi(detail: note));
+
+    final controller = contentController(tester);
+    final plain = controller.document.toPlainText();
+    final start = plain.indexOf('Rec.m4a');
+    controller.replaceText(start, 'Rec.m4a'.length, '');
+    await letAutosaveRun(tester);
+
+    final row = (await db.notesDao.getNote('note-1'))!;
+    expect(
+      notePageMarkdown(decodeNoteData(row.data), 'main'),
+      isNot(contains('/api/v1/files/f1/content')),
+    );
   });
 
   testWidgets(

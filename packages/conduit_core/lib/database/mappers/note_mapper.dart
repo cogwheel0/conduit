@@ -133,22 +133,63 @@ Map<String, dynamic> noteRowToPatch(NoteRow row, {required bool includeData}) {
   };
 }
 
-/// Stable fingerprint for `noteCreate` crash-heal. Hashes only the fields sent
-/// by `NotePushSync.pushNoteCreate`: title and data. Server-minted id/timestamps
-/// and metadata never participate.
+/// Stable fingerprint for `noteCreate` crash-heal. Hashes the title and the
+/// content `NotePushSync.pushNoteCreate` sends, the parts every server version
+/// returns as they were sent. Server-minted id/timestamps and metadata never
+/// participate.
 String noteCreateContentHashFromRow(NoteRow row) {
   return noteCreateContentHash(title: row.title, data: decodeJsonMap(row.data));
 }
 
-/// Server-shaped counterpart to [noteCreateContentHashFromRow].
-String noteCreateContentHashFromServer(Map<String, dynamic> server) {
-  return noteCreateContentHash(
-    title: server['title'] is String ? server['title'] as String : '',
-    data: _asMap(server['data']),
-  );
+/// The fingerprints a server note may match a pending create by: the current
+/// [noteCreateContentHash], and [legacyNoteCreateContentHash] for a create
+/// queued by an earlier build.
+///
+/// A note with no text offers only the earlier fingerprint: notes titled by
+/// date with nothing written yet are common, and a title alone must not make
+/// an unrelated note pass for this one, which would replace it.
+List<String> noteCreateContentHashesFromServer(Map<String, dynamic> server) {
+  final title = server['title'] is String ? server['title'] as String : '';
+  final data = _asMap(server['data']);
+  final content = data['content'];
+  final md = content is Map ? content['md'] : null;
+  return <String>[
+    if (md is String && md.trim().isNotEmpty)
+      noteCreateContentHash(title: title, data: data),
+    legacyNoteCreateContentHash(title: title, data: data),
+  ];
 }
 
+/// Hashes the title and `data.content`. Open WebUI 0.12.5 returns a created
+/// note's `data` in its paged shape, with `pages` and `search_text` added and
+/// `files` moved into the content, so the whole `data` no longer comes back
+/// as sent; its content does.
+///
+/// The ids of the files in an older-shape `files` list are part of it, so
+/// two notes alike but for their recordings are told apart. A 0.12.5 server
+/// moves such files into the content, so a create that carried them is not
+/// recognised there; it is sent again instead, never matched to another note.
 String noteCreateContentHash({
+  required String title,
+  required Map<String, dynamic> data,
+}) {
+  final Object? files = data['files'];
+  final fileIds = <String>[
+    if (files is List)
+      for (final Object? file in files)
+        if (file is Map && file['type'] != 'image' && file['id'] is String)
+          file['id'] as String,
+  ]..sort();
+  final stable = <String, dynamic>{
+    'title': title,
+    'content': data['content'],
+    'files': fileIds,
+  };
+  return sha256.convert(utf8.encode(_canonicalJson(stable))).toString();
+}
+
+/// The fingerprint earlier builds stored: the title and the whole `data`.
+String legacyNoteCreateContentHash({
   required String title,
   required Map<String, dynamic> data,
 }) {

@@ -56,7 +56,7 @@ import 'package:conduit_core/auth/openwebui_two_step.dart';
 import 'package:conduit_core/error/api_error_interceptor.dart';
 
 import 'package:conduit_core/sync/sync_api_client.dart'
-    show SyncTerminalException;
+    show SyncRejectedException, SyncTerminalException;
 // Tool-call details are parsed in the UI layer to render collapsible blocks
 import 'package:conduit_core/services/connectivity_service.dart';
 
