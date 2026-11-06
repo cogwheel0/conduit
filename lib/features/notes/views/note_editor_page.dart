@@ -8,6 +8,7 @@ import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:dio/dio.dart';
 import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:material_ui/material_ui.dart';
+import 'package:flutter/foundation.dart' show compute;
 import 'package:flutter/services.dart';
 import 'package:conduit/core/services/haptic_service.dart';
 import 'package:fleather/fleather.dart';
@@ -2708,7 +2709,11 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
       );
       try {
         final path = '${folder.path}/${noteFileDownloadName(name)}';
-        await File(path).writeAsBytes(base64Decode(encoded), flush: true);
+        // Up to the share limit of bytes: decoded off the UI isolate, so the
+        // editor does not stall.
+        final bytes = await compute(base64Decode, encoded);
+        if (!stillOpen()) return;
+        await File(path).writeAsBytes(bytes, flush: true);
         if (!stillOpen()) return;
         await SharePlus.instance.share(
           ShareParams(
