@@ -828,9 +828,20 @@ class NoteAttachmentsController {
   Future<void> _confirmGone(String id) async {
     while (true) {
       final PendingNoteAudioUpload? copy = _movedCopies[id];
-      final PendingNoteAudioUpload? current = copy == null
-          ? null
-          : await _store.loadCurrent(copy);
+      final PendingNoteAudioUpload? current;
+      try {
+        current = copy == null ? null : await _store.loadCurrent(copy);
+      } catch (error, stackTrace) {
+        // Unknown: the recording stays in view, to be retried.
+        DebugLogger.error(
+          'note-audio-moved-copy-check-failed',
+          scope: 'notes/audio',
+          error: error,
+          stackTrace: stackTrace,
+          data: {'uploadId': id},
+        );
+        return;
+      }
       if (_disposed || current != null) return;
       if (_moving.contains(id)) {
         _goneWhileMoving.add(id);

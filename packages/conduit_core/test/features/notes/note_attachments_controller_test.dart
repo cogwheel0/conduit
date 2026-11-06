@@ -128,10 +128,16 @@ class _HeldScanStore extends NoteAudioUploadStore {
   String? holdLoadCurrentOfNote;
   final loadCurrentEntered = Completer<void>();
 
+  /// A note whose recordings cannot be read: reading one throws.
+  String? failLoadCurrentOfNote;
+
   @override
   Future<PendingNoteAudioUpload?> loadCurrent(
     PendingNoteAudioUpload item,
   ) async {
+    if (item.noteId == failLoadCurrentOfNote) {
+      throw StateError('unreadable recording manifest');
+    }
     final hold = holdLoadCurrent;
     final of = holdLoadCurrentOfNote;
     if (hold != null && (of == null || item.noteId == of)) {
@@ -1625,6 +1631,71 @@ void main() {
         recording1.id,
       ]);
       check(controller.pending.single.noteId).equals('local:second');
+    });
+
+    test('a moved recording whose copy cannot be read stays in view',
+        () async {
+      final held = _HeldScanStore(
+        applicationSupportDirectory: () async {
+          final dir = Directory('${root.path}/support');
+          await dir.create(recursive: true);
+          return dir;
+        },
+        temporaryDirectory: () async => Directory('${root.path}/cache'),
+      )..release.complete();
+      controller.dispose();
+      controller = NoteAttachmentsController(
+        container: container,
+        store: held,
+        noteId: 'note-1',
+        currentNote: () => openNote,
+        resolvedTitle: () => openNote.title,
+        onNoteUpdated: (updated) => openNote = updated,
+        onChanged: () => changes++,
+        onNotice: notices.add,
+      )..start();
+      api.uploadError = StateError('offline');
+      final staged = await held.stage(
+        source: await recording('two.m4a'),
+        serverId: 'server-1',
+        accountId: 'user:user-1',
+        noteId: 'note-1',
+        fileName: 'recording_2.m4a',
+      );
+      await controller.loadPending();
+      await waitFor(
+        () => controller.pending.length == 1 && !controller.isUploading,
+      );
+      await db
+          .into(db.notes)
+          .insertOnConflictUpdate(
+            serverToNoteRow({
+              'id': 'local:moved',
+              'user_id': 'user-1',
+              'title': 'Moved',
+              'data': {
+                'content': {'md': 'moved', 'html': ''},
+              },
+              'meta': {},
+              'is_pinned': false,
+              'created_at': 1713786305000000000,
+              'updated_at': 1713786305000000000,
+            }),
+          );
+      final original = openNote;
+      openNote = await readNote('local:moved');
+      await controller.rebindTo(original, openNote);
+      await waitFor(() => !controller.isUploading);
+
+      // A report of it gone is checked against its copy, which cannot be
+      // read: it is not taken for gone.
+      held.failLoadCurrentOfNote = 'local:moved';
+      controller.debugReportGone(staged.id);
+      for (var i = 0; i < 10; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 5));
+      }
+
+      check(controller.pending.map((item) => item.id)).deepEquals([staged.id]);
     });
 
     test('an empty title falls back to the untitled name', () async {
