@@ -239,13 +239,23 @@ Map<String, dynamic> noteDataForConflictCopy(Map<String, dynamic> data) {
   };
 }
 
+/// The page of [data] named [pageId], or the main page when it has no such
+/// page (it was removed meanwhile) or [pageId] is null.
+String notePageIdIn(Map<String, dynamic> data, String? pageId) {
+  if (pageId == null) return kNoteMainPageId;
+  final pages = notePagesOf(data);
+  if (pages.isEmpty) return kNoteMainPageId;
+  return pages.any((page) => page['id'] == pageId) ? pageId : kNoteMainPageId;
+}
+
 /// The data patch that detaches file [fileId] from [data]: out of the file
-/// list of a note in the older shape, and its link out of the main page's
-/// content, the page Conduit edits. Empty when neither holds it.
+/// list of a note in the older shape, and its link out of the content of
+/// page [pageId] (by default the main page). Empty when neither holds it.
 Map<String, dynamic> noteDataWithoutFile(
   Map<String, dynamic> data,
-  String fileId,
-) {
+  String fileId, {
+  String pageId = kNoteMainPageId,
+}) {
   final Map<String, dynamic> patch = <String, dynamic>{};
   final Object? files = data['files'];
   if (!noteDataHasPages(data) && files is List) {
@@ -255,10 +265,10 @@ Map<String, dynamic> noteDataWithoutFile(
     ];
     if (kept.length != files.length) patch['files'] = kept;
   }
-  final String md = notePageMarkdown(data, kNoteMainPageId);
+  final String md = notePageMarkdown(data, pageId);
   if (noteFileLinksInMarkdown(md).any((link) => link.id == fileId)) {
     patch['content'] = noteContentWithMarkdown(
-      notePageContent(data, kNoteMainPageId),
+      notePageContent(data, pageId),
       removeNoteFileLinks(md, fileId),
     );
   }

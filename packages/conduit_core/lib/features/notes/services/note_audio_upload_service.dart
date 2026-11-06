@@ -48,6 +48,7 @@ class PendingNoteAudioUpload {
     this.lastError,
     this.serverFileId,
     this.sourceCacheFileName,
+    this.pageId,
   });
 
   final String id;
@@ -62,6 +63,10 @@ class PendingNoteAudioUpload {
   final String? lastError;
   final String? serverFileId;
   final String? sourceCacheFileName;
+
+  /// The note page the recording was made on (Open WebUI 0.12.5+), to attach
+  /// it there however long the upload takes; null for the main page.
+  final String? pageId;
 
   PendingNoteAudioUpload transition(
     NoteAudioUploadStatus nextStatus, {
@@ -82,6 +87,7 @@ class PendingNoteAudioUpload {
       lastError: lastError,
       serverFileId: serverFileId ?? this.serverFileId,
       sourceCacheFileName: sourceCacheFileName,
+      pageId: pageId,
     );
   }
 
@@ -101,6 +107,7 @@ class PendingNoteAudioUpload {
     // Only a basename is persisted. Recovery resolves it against the app's
     // cache directory, so an absolute device path never enters the manifest.
     'sourceCacheFileName': sourceCacheFileName,
+    'pageId': ?pageId,
   };
 
   static PendingNoteAudioUpload fromJson(
@@ -156,6 +163,7 @@ class PendingNoteAudioUpload {
       lastError: json['lastError'] as String?,
       serverFileId: json['serverFileId'] as String?,
       sourceCacheFileName: sourceCacheFileName,
+      pageId: json['pageId'] is String ? json['pageId'] as String : null,
     );
   }
 }
@@ -213,6 +221,7 @@ class NoteAudioUploadStore {
     String accountId = '',
     required String noteId,
     required String fileName,
+    String? pageId,
   }) async {
     if (!await source.exists()) {
       throw StateError('Recorded audio file is missing');
@@ -249,6 +258,7 @@ class NoteAudioUploadStore {
       status: NoteAudioUploadStatus.pending,
       createdAt: DateTime.now(),
       sourceCacheFileName: path.basename(source.path),
+      pageId: pageId,
     );
     _activeStageDirectories.add(activeStageKey);
     var stageCompleted = false;
@@ -473,6 +483,9 @@ class NoteAudioUploadStore {
           lastError: current.lastError,
           serverFileId: current.serverFileId,
           sourceCacheFileName: current.sourceCacheFileName,
+          // The page it was made on: the replacement may have it too, and one
+          // that does not takes the recording on its main page.
+          pageId: current.pageId,
         );
         final journal = File(
           path.join(

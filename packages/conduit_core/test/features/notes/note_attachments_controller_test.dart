@@ -71,6 +71,9 @@ class _UploadApi extends ApiService {
   final markers = <Object?>[];
   Object? uploadError;
   var nextId = 1;
+
+  /// While set, an upload is answered only once this completes.
+  Completer<void>? holdUpload;
   List<FileInfo> existingFiles = const <FileInfo>[];
 
   @override
@@ -82,6 +85,7 @@ class _UploadApi extends ApiService {
     CancelToken? cancelToken,
     ApiAuthSnapshot? authSnapshot,
   }) async {
+    await holdUpload?.future;
     final error = uploadError;
     if (error != null) throw error;
     uploads.add((path: filePath, name: fileName, contentType: contentType));
@@ -98,6 +102,66 @@ class _UploadApi extends ApiService {
     ApiAuthSnapshot? authSnapshot,
     CancelToken? cancelToken,
   }) async => existingFiles;
+}
+
+/// A store whose account-wide scan waits until the test lets it finish.
+class _HeldScanStore extends NoteAudioUploadStore {
+  _HeldScanStore({
+    required super.applicationSupportDirectory,
+    required super.temporaryDirectory,
+  });
+
+  final entered = Completer<void>();
+  final release = Completer<void>();
+
+  /// While set, a scan of one note's recordings waits for it too.
+  Completer<void>? holdNoteScan;
+  final noteScanEntered = Completer<void>();
+
+  /// While set, moving a recording to another note waits for it.
+  Completer<void>? holdRebind;
+  final rebindEntered = Completer<void>();
+
+  @override
+  Future<PendingNoteAudioUpload?> rebindToNote(
+    PendingNoteAudioUpload item, {
+    required String noteId,
+  }) async {
+    final hold = holdRebind;
+    if (hold != null) {
+      if (!rebindEntered.isCompleted) rebindEntered.complete();
+      await hold.future;
+    }
+    return super.rebindToNote(item, noteId: noteId);
+  }
+
+  @override
+  Future<List<PendingNoteAudioUpload>> loadForAccount({
+    required String serverId,
+    String accountId = '',
+  }) async {
+    if (!entered.isCompleted) entered.complete();
+    await release.future;
+    return super.loadForAccount(serverId: serverId, accountId: accountId);
+  }
+
+  @override
+  Future<List<PendingNoteAudioUpload>> loadForNote({
+    required String serverId,
+    String accountId = '',
+    required String noteId,
+  }) async {
+    final hold = holdNoteScan;
+    if (hold != null) {
+      if (!noteScanEntered.isCompleted) noteScanEntered.complete();
+      await hold.future;
+    }
+    return super.loadForNote(
+      serverId: serverId,
+      accountId: accountId,
+      noteId: noteId,
+    );
+  }
 }
 
 void main() {
@@ -273,6 +337,7 @@ void main() {
       check(openNote.data.hasPages).isTrue();
 
       final file = await recording('note_recording_1.wav');
+      final fileSize = await file.length();
       check(await controller.stage(file)).isTrue();
       await waitFor(() => notices.isNotEmpty && controller.pending.isEmpty);
 
@@ -286,9 +351,21 @@ void main() {
       final content = notePageContent(data, kNoteMainPageId)!;
       check(content['md']).equals('hello\n\n[$name]($href)');
       // The server and the web editor read JSON, then HTML, before markdown:
-      // left as they were, they would hide the link.
-      check(content['json']).isNull();
-      check(content['html']).equals('');
+      // the file is linked in each, and the rich text the web editor saved
+      // stays as it was.
+      check(content['html']).equals(
+        '<p>hello</p><div data-file-id="server-file-1">'
+        '<a href="$href">$name</a></div>',
+      );
+      check(content['json']).isA<Map<String, dynamic>>().deepEquals({
+        'type': 'doc',
+        'content': [
+          {
+            'type': 'fileAttachment',
+            'attrs': {'id': 'server-file-1', 'name': name, 'size': fileSize},
+          },
+        ],
+      });
       check(noteDirtyPageIds(data)).deepEquals([kNoteMainPageId]);
       check(row.dirtyData).isTrue();
       check(openNote.markdownContent).endsWith(
@@ -338,6 +415,209 @@ void main() {
       check(notePageMarkdown(data, 'main')).startsWith('one\n\n[');
       check(notePageMarkdown(data, 'p2')).equals('two');
       check(noteDirtyPageIds(data)).deepEquals(['main']);
+    });
+
+    test('a recording is attached to the page it was made on', () async {
+      var shownPage = 'p2';
+      await db
+          .into(db.notes)
+          .insertOnConflictUpdate(
+            serverToNoteRow({
+              'id': 'note-1',
+              'user_id': 'user-1',
+              'title': 'Meeting',
+              'data': {
+                'content': {'json': null, 'md': '## Meeting', 'html': ''},
+                'pages': [
+                  {
+                    'id': 'main',
+                    'title': 'Meeting',
+                    'content': {'json': null, 'md': 'one', 'html': ''},
+                  },
+                  {
+                    'id': 'p2',
+                    'title': 'Two',
+                    'content': {'json': null, 'md': 'two', 'html': ''},
+                  },
+                ],
+              },
+              'meta': {},
+              'is_pinned': false,
+              'created_at': 1713786305000000000,
+              'updated_at': 1713786305000000000,
+            }),
+          );
+      openNote = await readNote('note-1');
+      controller.dispose();
+      controller = NoteAttachmentsController(
+        container: container,
+        store: store,
+        noteId: 'note-1',
+        currentNote: () => openNote,
+        resolvedTitle: () => openNote.title,
+        onNoteUpdated: (updated) => openNote = updated,
+        onChanged: () => changes++,
+        onNotice: notices.add,
+        currentPageId: () => shownPage,
+      )..start();
+
+      final file = await recording('note_recording_1.wav');
+      check(await controller.stage(file)).isTrue();
+      // The user moves to the main page while the recording uploads; it was
+      // made on the second page, and goes there.
+      shownPage = 'main';
+      await waitFor(() => notices.isNotEmpty && controller.pending.isEmpty);
+
+      final data = decodeNoteData((await db.notesDao.getNote('note-1'))!.data);
+      check(notePageMarkdown(data, 'main')).equals('one');
+      check(notePageMarkdown(data, 'p2')).startsWith('two\n\n[');
+      check(noteDirtyPageIds(data)).deepEquals(['p2']);
+    });
+
+    Future<void> storeTwoPages({required String main, required String two}) {
+      return db
+          .into(db.notes)
+          .insertOnConflictUpdate(
+            serverToNoteRow({
+              'id': 'note-1',
+              'user_id': 'user-1',
+              'title': 'Meeting',
+              'data': {
+                'content': {'json': null, 'md': '## Meeting', 'html': ''},
+                'pages': [
+                  {
+                    'id': 'main',
+                    'title': 'Meeting',
+                    'content': {'json': null, 'md': main, 'html': ''},
+                  },
+                  {
+                    'id': 'p2',
+                    'title': 'Two',
+                    'content': {'json': null, 'md': two, 'html': ''},
+                  },
+                ],
+              },
+              'meta': {},
+              'is_pinned': false,
+              'created_at': 1713786305000000000,
+              'updated_at': 1713786305000000000,
+            }),
+          );
+    }
+
+    NoteAttachmentsController showingPages(String? Function() page) {
+      controller.dispose();
+      return controller = NoteAttachmentsController(
+        container: container,
+        store: store,
+        noteId: 'note-1',
+        currentNote: () => openNote,
+        resolvedTitle: () => openNote.title,
+        onNoteUpdated: (updated) => openNote = updated,
+        onChanged: () => changes++,
+        onNotice: notices.add,
+        currentPageId: page,
+      )..start();
+    }
+
+    test('a recording goes to the page it was started on, even when the page '
+        'shown changed before it was kept', () async {
+      await storeTwoPages(main: 'one', two: 'two');
+      openNote = await readNote('note-1');
+      // Recording began on the second page; a page switch finished while the
+      // recorder was open.
+      showingPages(() => 'main');
+
+      final file = await recording('note_recording_1.wav');
+      check(await controller.stage(file, pageId: 'p2')).isTrue();
+      await waitFor(() => notices.isNotEmpty && controller.pending.isEmpty);
+
+      final data = decodeNoteData((await db.notesDao.getNote('note-1'))!.data);
+      check(notePageMarkdown(data, 'main')).equals('one');
+      check(notePageMarkdown(data, 'p2')).startsWith('two\n\n[');
+    });
+
+    test('a recording staged before pages were known goes to the main page, '
+        'not the page shown', () async {
+      await storeTwoPages(main: 'one', two: 'two');
+      openNote = await readNote('note-1');
+      showingPages(() => 'p2');
+      await store.stage(
+        source: await recording('old.m4a'),
+        serverId: 'server-1',
+        accountId: 'user:user-1',
+        noteId: 'note-1',
+        fileName: 'recording_9.m4a',
+      );
+
+      await controller.loadPending();
+      check(controller.pending).isNotEmpty();
+      // A recording from an earlier run attaches without a notice.
+      await waitFor(
+        () => controller.pending.isEmpty && !controller.isUploading,
+      );
+
+      final data = decodeNoteData((await db.notesDao.getNote('note-1'))!.data);
+      check(notePageMarkdown(data, 'main')).startsWith('one\n\n[');
+      check(notePageMarkdown(data, 'p2')).equals('two');
+    });
+
+    test('a file removed from a page a sync has removed leaves the other '
+        'pages alone', () async {
+      const link = '[f.pdf](/api/v1/files/f/content)';
+      await storeTwoPages(main: 'one\n\n$link', two: 'two\n\n$link');
+      // The editor shows the second page as it was read.
+      openNote = await readNote('note-1');
+      showingPages(() => 'p2');
+      // A sync then stores the note without that page.
+      await db
+          .into(db.notes)
+          .insertOnConflictUpdate(
+            serverToNoteRow({
+              'id': 'note-1',
+              'user_id': 'user-1',
+              'title': 'Meeting',
+              'data': {
+                'content': {'json': null, 'md': 'one\n\n$link', 'html': ''},
+                'pages': [
+                  {
+                    'id': 'main',
+                    'title': 'Meeting',
+                    'content': {
+                      'json': null,
+                      'md': 'one\n\n$link',
+                      'html': '',
+                    },
+                  },
+                ],
+              },
+              'meta': {},
+              'is_pinned': false,
+              'created_at': 1713786305000000000,
+              'updated_at': 1713786305000000000,
+            }),
+          );
+
+      check(await controller.removeAttachedFile('f')).isNotNull();
+
+      final data = decodeNoteData((await db.notesDao.getNote('note-1'))!.data);
+      check(notePageMarkdown(data, 'main')).equals('one\n\n$link');
+    });
+
+    test('a file is removed from the page shown when the removal started',
+        () async {
+      const link = '[f.pdf](/api/v1/files/f/content)';
+      await storeTwoPages(main: 'one\n\n$link', two: 'two\n\n$link');
+      openNote = await readNote('note-1');
+      // The editor moves to the main page while the removal runs.
+      var reads = 0;
+      showingPages(() => reads++ == 0 ? 'p2' : 'main');
+
+      check(await controller.removeAttachedFile('f')).isNotNull();
+
+      final data = decodeNoteData((await db.notesDao.getNote('note-1'))!.data);
+      check(notePageMarkdown(data, 'p2')).equals('two');
+      check(notePageMarkdown(data, 'main')).equals('one\n\n$link');
     });
 
     test('a note stored in the older shape is linked when the server is '
@@ -657,6 +937,369 @@ void main() {
         noteId: 'note-1',
       );
       check(stale).isEmpty();
+    });
+
+    test('saving a removed page as its own note moves only that page\'s '
+        'recordings', () async {
+      api.uploadError = StateError('offline');
+      final onRemoved = await store.stage(
+        source: await recording('two.m4a'),
+        serverId: 'server-1',
+        accountId: 'user:user-1',
+        noteId: 'note-1',
+        fileName: 'recording_2.m4a',
+        pageId: 'p2',
+      );
+      final onMain = await store.stage(
+        source: await recording('main.m4a'),
+        serverId: 'server-1',
+        accountId: 'user:user-1',
+        noteId: 'note-1',
+        fileName: 'recording_1.m4a',
+      );
+      await controller.loadPending();
+      await waitFor(
+        () => controller.pending.length == 2 && !controller.isUploading,
+      );
+
+      final recovered = <Note>[];
+      final recovery = DeletedNoteDraftRecovery(
+        container: container,
+        noteId: 'note-1',
+        attachments: controller,
+        currentNote: () => openNote,
+        readDraft: () => (title: 'Two', markdown: 'two, kept'),
+        untitledTitle: () => 'Untitled',
+        isOpen: () => true,
+        hasUnsavedChanges: () => true,
+        cancelPendingSave: () {},
+        scheduleSaveAfter: (delay, action) {},
+        saveSoon: () {},
+        onRecovered:
+            ({
+              required Note note,
+              required String savedMarkdown,
+              required bool changedDuringRecovery,
+            }) {
+              recovered.add(note);
+              openNote = note;
+            },
+        onFailure: () {},
+      )..start();
+      addTearDown(recovery.dispose);
+
+      await recovery.recover(
+        NoteRecoverySession.capture(container),
+        pageId: 'p2',
+      );
+
+      check(recovered).length.equals(1);
+      final left = await store.loadForNote(
+        serverId: 'server-1',
+        accountId: 'user:user-1',
+        noteId: 'note-1',
+      );
+      check(left.map((item) => item.id)).deepEquals([onMain.id]);
+      final moved = await store.loadForNote(
+        serverId: 'server-1',
+        accountId: 'user:user-1',
+        noteId: recovered.single.id,
+      );
+      check(moved.map((item) => item.id)).deepEquals([onRemoved.id]);
+      // The main page's recording waits for its note, not for this editor,
+      // which shows the new note now: looking again does not bring it back.
+      check(controller.pending.map((item) => item.id)).deepEquals([
+        onRemoved.id,
+      ]);
+      await controller.loadPending();
+      check(controller.pending.map((item) => item.id)).deepEquals([
+        onRemoved.id,
+      ]);
+      await waitFor(() => !controller.isUploading);
+    });
+
+    test('a scan begun before a page was recovered does not bring the other '
+        'pages\' recordings back', () async {
+      api.uploadError = StateError('offline');
+      await store.stage(
+        source: await recording('two.m4a'),
+        serverId: 'server-1',
+        accountId: 'user:user-1',
+        noteId: 'note-1',
+        fileName: 'recording_2.m4a',
+        pageId: 'p2',
+      );
+      final onMain = await store.stage(
+        source: await recording('main.m4a'),
+        serverId: 'server-1',
+        accountId: 'user:user-1',
+        noteId: 'note-1',
+        fileName: 'recording_1.m4a',
+      );
+
+      // A scan is under way when the page is saved as a note of its own, and
+      // ends after it.
+      final held = _HeldScanStore(
+        applicationSupportDirectory: () async {
+          final dir = Directory('${root.path}/support');
+          await dir.create(recursive: true);
+          return dir;
+        },
+        temporaryDirectory: () async => Directory('${root.path}/cache'),
+      );
+      controller.dispose();
+      controller = NoteAttachmentsController(
+        container: container,
+        store: held,
+        noteId: 'note-1',
+        currentNote: () => openNote,
+        resolvedTitle: () => openNote.title,
+        onNoteUpdated: (updated) => openNote = updated,
+        onChanged: () => changes++,
+        onNotice: notices.add,
+      )..start();
+      final scanning = controller.loadPending();
+      await held.entered.future;
+      final previous = openNote;
+      final recovered = openNote.copyWith(id: 'local:recovered');
+      openNote = recovered;
+      await controller.rebindTo(previous, recovered, pageId: 'p2');
+      held.release.complete();
+      await scanning;
+      await waitFor(() => !controller.isUploading);
+
+      check(
+        controller.pending.map((item) => item.id),
+      ).not((it) => it.contains(onMain.id));
+      final left = await store.loadForNote(
+        serverId: 'server-1',
+        accountId: 'user:user-1',
+        noteId: 'note-1',
+      );
+      check(left.map((item) => item.id)).deepEquals([onMain.id]);
+    });
+
+    test('a later recovery of the new note leaves the recordings the first '
+        'one kept with the original note', () async {
+      api.uploadError = StateError('offline');
+      await store.stage(
+        source: await recording('two.m4a'),
+        serverId: 'server-1',
+        accountId: 'user:user-1',
+        noteId: 'note-1',
+        fileName: 'recording_2.m4a',
+        pageId: 'p2',
+      );
+      final onMain = await store.stage(
+        source: await recording('main.m4a'),
+        serverId: 'server-1',
+        accountId: 'user:user-1',
+        noteId: 'note-1',
+        fileName: 'recording_1.m4a',
+      );
+      await controller.loadPending();
+      await waitFor(
+        () => controller.pending.length == 2 && !controller.isUploading,
+      );
+
+      final original = openNote;
+      final pageNote = openNote.copyWith(id: 'local:page');
+      openNote = pageNote;
+      await controller.rebindTo(original, pageNote, pageId: 'p2');
+      // The server then deletes the new note, whose draft is recovered too.
+      final again = openNote.copyWith(id: 'local:again');
+      openNote = again;
+      await controller.rebindTo(pageNote, again);
+      await waitFor(() => !controller.isUploading);
+
+      final left = await store.loadForNote(
+        serverId: 'server-1',
+        accountId: 'user:user-1',
+        noteId: 'note-1',
+      );
+      check(left.map((item) => item.id)).deepEquals([onMain.id]);
+    });
+
+    test('an upload still running for a recording the original note keeps '
+        'does not come back to the editor', () async {
+      final onMain = await store.stage(
+        source: await recording('main.m4a'),
+        serverId: 'server-1',
+        accountId: 'user:user-1',
+        noteId: 'note-1',
+        fileName: 'recording_1.m4a',
+      );
+      await store.stage(
+        source: await recording('two.m4a'),
+        serverId: 'server-1',
+        accountId: 'user:user-1',
+        noteId: 'note-1',
+        fileName: 'recording_2.m4a',
+        pageId: 'p2',
+      );
+      api.holdUpload = Completer<void>();
+      await controller.loadPending();
+      await waitFor(() => api.holdUpload != null && controller.isUploading);
+
+      final original = openNote;
+      final pageNote = openNote.copyWith(id: 'local:page');
+      openNote = pageNote;
+      await controller.rebindTo(original, pageNote, pageId: 'p2');
+      api.holdUpload!.complete();
+      api.uploadError = StateError('offline');
+      await waitFor(() => !controller.isUploading);
+
+      check(
+        controller.pending.map((item) => item.id),
+      ).not((it) => it.contains(onMain.id));
+    });
+
+    test('an upload that reaches its attach while a page recovery runs does '
+        'not attach to the new note', () async {
+      final held = _HeldScanStore(
+        applicationSupportDirectory: () async {
+          final dir = Directory('${root.path}/support');
+          await dir.create(recursive: true);
+          return dir;
+        },
+        temporaryDirectory: () async => Directory('${root.path}/cache'),
+      )..release.complete();
+      controller.dispose();
+      controller = NoteAttachmentsController(
+        container: container,
+        store: held,
+        noteId: 'note-1',
+        currentNote: () => openNote,
+        resolvedTitle: () => openNote.title,
+        onNoteUpdated: (updated) => openNote = updated,
+        onChanged: () => changes++,
+        onNotice: notices.add,
+      )..start();
+      await held.stage(
+        source: await recording('main.m4a'),
+        serverId: 'server-1',
+        accountId: 'user:user-1',
+        noteId: 'note-1',
+        fileName: 'recording_1.m4a',
+      );
+      // The new note, as the recovery stores it.
+      await db
+          .into(db.notes)
+          .insertOnConflictUpdate(
+            serverToNoteRow({
+              'id': 'local:page',
+              'user_id': 'user-1',
+              'title': 'Two',
+              'data': {
+                'content': {'md': 'two', 'html': ''},
+              },
+              'meta': {},
+              'is_pinned': false,
+              'created_at': 1713786305000000000,
+              'updated_at': 1713786305000000000,
+            }),
+          );
+      api.holdUpload = Completer<void>();
+      await controller.loadPending();
+      await waitFor(() => controller.isUploading);
+
+      // The recovery stops partway, as the upload finishes.
+      held.holdNoteScan = Completer<void>();
+      final original = openNote;
+      final pageNote = await readNote('local:page');
+      openNote = pageNote;
+      final rebinding = controller.rebindTo(original, pageNote, pageId: 'p2');
+      await held.noteScanEntered.future;
+      api.holdUpload!.complete();
+      // The upload, and its attach, are over before the recovery goes on.
+      await waitFor(() => !controller.isUploading);
+      held.holdNoteScan!.complete();
+      await rebinding;
+      await waitFor(() => !controller.isUploading);
+
+      final stored = await readNote('local:page');
+      check(stored.data.files ?? const <Map<String, dynamic>>[]).isEmpty();
+      check(stored.markdownContent).equals('two');
+    });
+
+    test('a recording moved off a removed page can still attach when a retry '
+        'runs during the move', () async {
+      final held = _HeldScanStore(
+        applicationSupportDirectory: () async {
+          final dir = Directory('${root.path}/support');
+          await dir.create(recursive: true);
+          return dir;
+        },
+        temporaryDirectory: () async => Directory('${root.path}/cache'),
+      )..release.complete();
+      controller.dispose();
+      controller = NoteAttachmentsController(
+        container: container,
+        store: held,
+        noteId: 'note-1',
+        currentNote: () => openNote,
+        resolvedTitle: () => openNote.title,
+        onNoteUpdated: (updated) => openNote = updated,
+        onChanged: () => changes++,
+        onNotice: notices.add,
+      )..start();
+      // A recording made on the page a sync removes, whose upload failed.
+      api.uploadError = StateError('offline');
+      final onRemoved = await held.stage(
+        source: await recording('two.m4a'),
+        serverId: 'server-1',
+        accountId: 'user:user-1',
+        noteId: 'note-1',
+        fileName: 'recording_2.m4a',
+        pageId: 'p2',
+      );
+      await controller.loadPending();
+      await waitFor(
+        () => controller.pending.length == 1 && !controller.isUploading,
+      );
+      // The new note, as the recovery stores it.
+      await db
+          .into(db.notes)
+          .insertOnConflictUpdate(
+            serverToNoteRow({
+              'id': 'local:page',
+              'user_id': 'user-1',
+              'title': 'Two',
+              'data': {
+                'content': {'md': 'two', 'html': ''},
+              },
+              'meta': {},
+              'is_pinned': false,
+              'created_at': 1713786305000000000,
+              'updated_at': 1713786305000000000,
+            }),
+          );
+
+      // The connection returns while the recording is being moved, and it is
+      // retried: the retry waits for the move and publishes the moved copy,
+      // which is on the new note's main page, before the move ends.
+      api.uploadError = null;
+      held.holdRebind = Completer<void>();
+      final original = openNote;
+      final pageNote = await readNote('local:page');
+      openNote = pageNote;
+      final rebinding = controller.rebindTo(original, pageNote, pageId: 'p2');
+      await held.rebindEntered.future;
+      final retrying = controller.retry();
+      held.holdRebind!.complete();
+      await rebinding;
+      await retrying;
+      check(controller.pending.map((item) => item.id)).deepEquals([
+        onRemoved.id,
+      ]);
+
+      // It is the new note's recording: retried, it attaches there.
+      await controller.retry();
+      await waitFor(() => !controller.isUploading);
+      final stored = await readNote('local:page');
+      check(stored.data.files ?? const <Map<String, dynamic>>[]).length
+          .equals(1);
+      check(controller.pending).isEmpty();
     });
 
     test('an empty title falls back to the untitled name', () async {
