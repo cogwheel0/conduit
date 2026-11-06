@@ -845,7 +845,8 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
   }
 
   /// Handles a back-navigation attempt. Reached only when [canPop] was false,
-  /// i.e. there is a pending edit: flush it while still mounted (so the durable
+  /// i.e. there is a pending edit or dictation is running: end dictation and
+  /// take its last words, flush the edit while still mounted (so the durable
   /// write doesn't race teardown), then pop programmatically.
   Future<void> _onEditorPopInvoked(bool didPop, Object? result) async {
     if (didPop) return;
@@ -1637,10 +1638,11 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
     return PopScope(
       // Allow the back gesture/animation to proceed normally when there is
       // nothing to save. When an edit is still pending (within the auto-save
-      // debounce), intercept the pop, flush the save while the widget is still
-      // mounted (so the durable write completes without racing teardown), then
-      // pop programmatically. The sliding sidebar opens the editor in place,
-      // so its back returns to the page before, as the back button does.
+      // debounce), or dictation is running and has last words to deliver,
+      // intercept the pop, flush the save while the widget is still mounted
+      // (so the durable write completes without racing teardown), then pop
+      // programmatically. The sliding sidebar opens the editor in place, so
+      // its back returns to the page before, as the back button does.
       canPop: !_hasChanges && !_isRecording && !goesBack,
       onPopInvokedWithResult: goesBack
           ? (didPop, _) {
