@@ -1792,6 +1792,76 @@ void main() {
       ).deepEquals([NoteAudioNotice.recordingSaved]);
     });
 
+    test('a moved recording\'s upload reports nothing once another session '
+        'began while its copy was checked', () async {
+      final held = _HeldScanStore(
+        applicationSupportDirectory: () async {
+          final dir = Directory('${root.path}/support');
+          await dir.create(recursive: true);
+          return dir;
+        },
+        temporaryDirectory: () async => Directory('${root.path}/cache'),
+      )..release.complete();
+      controller.dispose();
+      controller = NoteAttachmentsController(
+        container: container,
+        store: held,
+        noteId: 'note-1',
+        currentNote: () => openNote,
+        resolvedTitle: () => openNote.title,
+        onNoteUpdated: (updated) => openNote = updated,
+        onChanged: () => changes++,
+        onNotice: notices.add,
+      )..start();
+      api.uploadError = StateError('offline');
+      final staged = await held.stage(
+        source: await recording('two.m4a'),
+        serverId: 'server-1',
+        accountId: 'user:user-1',
+        noteId: 'note-1',
+        fileName: 'recording_2.m4a',
+      );
+      await controller.loadPending();
+      await waitFor(
+        () => controller.pending.length == 1 && !controller.isUploading,
+      );
+      await db
+          .into(db.notes)
+          .insertOnConflictUpdate(
+            serverToNoteRow({
+              'id': 'local:moved',
+              'user_id': 'user-1',
+              'title': 'Moved',
+              'data': {
+                'content': {'md': 'moved', 'html': ''},
+              },
+              'meta': {},
+              'is_pinned': false,
+              'created_at': 1713786305000000000,
+              'updated_at': 1713786305000000000,
+            }),
+          );
+      final original = openNote;
+      openNote = await readNote('local:moved');
+      await controller.rebindTo(original, openNote);
+      // The retry the move starts fails, offline.
+      await waitFor(() => !controller.isUploading);
+      check(controller.pending.map((item) => item.id)).deepEquals([staged.id]);
+
+      // Back online, it is retried and attaches. Another session begins while
+      // the check of its copy is held: the old upload's success is not
+      // reported to it.
+      api.uploadError = null;
+      final noticesBefore = notices.length;
+      held.holdGoneAnswer = Completer<void>();
+      final retrying = controller.retry(showFeedback: true);
+      await held.goneAnswerHeld.future;
+      container.read(_testEpochProvider.notifier).rotate();
+      held.holdGoneAnswer!.complete();
+      await retrying;
+      check(notices.skip(noticesBefore)).isEmpty();
+    });
+
     test('an empty title falls back to the untitled name', () async {
       await db.notesDao.purgeReconciledNote('note-1');
       final recovered = <Note>[];

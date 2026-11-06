@@ -483,6 +483,8 @@ class NoteAttachmentsController {
       // A moved recording is checked against its copy before the upload
       // counts as over, so it is not reported saved while still in view.
       await _reportChange(id, result);
+      // Another session may have begun while the copy was checked.
+      if (!_isCurrent(api: api, db: db, authEpoch: authEpoch)) return;
 
       if (result == null) {
         if (showFeedback) _onNotice(NoteAudioNotice.recordingSaved);
