@@ -1033,9 +1033,11 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     );
     // Another person's reply this copy is the first to show running is
     // followed to its end: no event of this account's would end it here.
+    // A monitor still on another reply, one a branch change replaced, moves
+    // to this one.
     if (_tailIsAnotherPersons &&
         (state.lastOrNull?.isStreaming ?? false) &&
-        _remoteTaskMonitorMessageId == null) {
+        _remoteTaskMonitorMessageId != state.last.id) {
       _engageReopenedTailMonitor(state.last.id);
     }
     // After adoption: the copy may be the first to show the answers.
@@ -2838,6 +2840,9 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
 
   @visibleForTesting
   bool get debugHasRemoteTaskMonitor => _remoteTaskMonitorMessageId != null;
+
+  @visibleForTesting
+  String? get debugRemoteTaskMonitorMessageId => _remoteTaskMonitorMessageId;
 
   @visibleForTesting
   bool get debugHasRemoteTaskPollScheduled =>
