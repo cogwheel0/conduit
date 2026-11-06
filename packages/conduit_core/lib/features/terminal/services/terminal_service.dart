@@ -36,7 +36,7 @@ Map<String, dynamic> buildTerminalEventsSubscribePayload({
 }) => <String, dynamic>{
   'type': 'subscribe',
   'path': ?path,
-  'ports': ports,
+  if (ports) 'ports': true,
 };
 
 /// Reads one frame from a terminal's events socket, or null for a frame that

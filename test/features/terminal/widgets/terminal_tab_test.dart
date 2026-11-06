@@ -522,8 +522,11 @@ void main() {
         ports: const <TerminalListeningPort>[],
         features: const TerminalServerFeatures(events: true),
       );
-      final events = _TestWebSocketConnection();
-      addTearDown(events.dispose);
+      // Files and ports each get a socket, as in the web client.
+      final fileEvents = _TestWebSocketConnection();
+      final portEvents = _TestWebSocketConnection();
+      addTearDown(fileEvents.dispose);
+      addTearDown(portEvents.dispose);
       final opened = <Uri>[];
 
       await tester.pumpWidget(
@@ -531,17 +534,29 @@ void main() {
           fakeService,
           channelConnector: (uri, {required kind}) {
             opened.add(uri);
-            return events.channel;
+            return (opened.length == 1 ? fileEvents : portEvents).channel;
           },
         ),
       );
       await tester.pumpAndSettle();
 
-      expect(opened, [Uri.parse('wss://terminal.example/events')]);
-      final sent = verify(() => events.sink.add(captureAny())).captured;
-      expect(sent.map((frame) => jsonDecode(frame as String)), [
+      expect(opened, [
+        Uri.parse('wss://terminal.example/events'),
+        Uri.parse('wss://terminal.example/events'),
+      ]);
+      final fileFrames = verify(
+        () => fileEvents.sink.add(captureAny()),
+      ).captured;
+      expect(fileFrames.map((frame) => jsonDecode(frame as String)), [
         {'type': 'auth', 'token': 'terminal-token'},
-        {'type': 'subscribe', 'path': '/workspace/', 'ports': true},
+        {'type': 'subscribe', 'path': '/workspace/'},
+      ]);
+      final portFrames = verify(
+        () => portEvents.sink.add(captureAny()),
+      ).captured;
+      expect(portFrames.map((frame) => jsonDecode(frame as String)), [
+        {'type': 'auth', 'token': 'terminal-token'},
+        {'type': 'subscribe', 'ports': true},
       ]);
       final listings = fakeService.listFilesRequestCount;
 
@@ -553,12 +568,12 @@ void main() {
           isDirectory: false,
         ),
       );
-      events._controller.add('{"type":"fs:change"}');
+      fileEvents._controller.add('{"type":"fs:change"}');
       await tester.pumpAndSettle();
       expect(find.text('agent-made.txt'), findsOneWidget);
       expect(fakeService.listFilesRequestCount, listings + 1);
 
-      events._controller.add(
+      portEvents._controller.add(
         jsonEncode({
           'type': 'ports:change',
           'ports': [

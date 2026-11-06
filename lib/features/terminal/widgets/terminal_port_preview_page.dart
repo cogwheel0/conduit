@@ -15,6 +15,7 @@ import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/external_link_launcher.dart';
 import '../../../shared/utils/utf16_sanitizer.dart';
 import '../../../shared/widgets/adaptive_route_shell.dart';
+import '../../../shared/widgets/themed_dialogs.dart';
 import 'terminal_section_components.dart';
 
 /// Opens a web address outside the app.
@@ -65,8 +66,12 @@ const terminalPreviewNavigationScript = r'''
 /// loads, and has no business calling into the app. On iOS each preview gets
 /// a store of its own, so a page served from Open WebUI's address never sees
 /// the account's cookies. Android keeps one store for the whole app, and a
-/// private one there would clear it, so it shares the store as the system
-/// web view the app used before did.
+/// private one there would clear it, so it shares the store, as the system
+/// web view the app used before did. A page shown through the port proxy is
+/// served from Open WebUI's own address, so on Android it can read what that
+/// store holds for Open WebUI, such as the `token` cookie and local storage a
+/// single sign-on leaves behind. A signed browser session (Open WebUI 0.13)
+/// serves its pages sandboxed and is not exposed.
 @visibleForTesting
 InAppWebViewSettings terminalPreviewWebViewSettings({
   TargetPlatform? platform,
@@ -102,6 +107,7 @@ abstract interface class TerminalPreviewWebViewHost {
   Future<NavigationActionPolicy> navigate(
     Uri target, {
     required bool history,
+    bool userActivated = false,
   });
 }
 
@@ -191,10 +197,15 @@ class _TerminalPortPreviewPageState extends State<TerminalPortPreviewPage>
     }
   }
 
+  /// Whether the user is being asked about leaving the preview, so a page
+  /// that keeps redirecting cannot stack prompts.
+  bool _askingToLeave = false;
+
   @override
   Future<NavigationActionPolicy> navigate(
     Uri target, {
     required bool history,
+    bool userActivated = false,
   }) async {
     switch (preview.decide(target, history: history)) {
       case TerminalPreviewAllow():
@@ -207,10 +218,35 @@ class _TerminalPortPreviewPageState extends State<TerminalPortPreviewPage>
         );
         return NavigationActionPolicy.CANCEL;
       case TerminalPreviewOpenExternally(:final uri):
-        unawaited(widget.openExternally(uri));
+        // A link the user tapped leaves at once. A redirect or a script can
+        // leave without a tap (a dev server's hosted login, a loop), and a
+        // link followed through Open WebUI's proxy script looks the same, so
+        // the user is asked first.
+        if (userActivated) {
+          unawaited(widget.openExternally(uri));
+        } else {
+          unawaited(_confirmLeave(uri));
+        }
         return NavigationActionPolicy.CANCEL;
       case TerminalPreviewBlock():
         return NavigationActionPolicy.CANCEL;
+    }
+  }
+
+  Future<void> _confirmLeave(Uri uri) async {
+    if (_askingToLeave || !mounted) return;
+    _askingToLeave = true;
+    try {
+      final l10n = AppLocalizations.of(context)!;
+      final leave = await ThemedDialogs.confirm(
+        context,
+        title: l10n.terminalOpenInBrowserAction,
+        message: uri.toString(),
+        confirmText: l10n.terminalOpenInBrowserAction,
+      );
+      if (leave && mounted) await widget.openExternally(uri);
+    } finally {
+      _askingToLeave = false;
     }
   }
 
@@ -381,6 +417,8 @@ Widget buildTerminalPreviewWebView(
       final method = action.request.method?.toUpperCase();
       return host.navigate(
         target,
+        userActivated:
+            action.hasGesture == true || type == NavigationType.LINK_ACTIVATED,
         // A form post cannot be made again with the credential added, so it
         // goes as the page sent it, like back, forward and reload.
         history:

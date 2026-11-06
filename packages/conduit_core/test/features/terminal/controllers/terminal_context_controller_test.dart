@@ -489,16 +489,20 @@ void main() {
       await harness.context.sync(force: true);
       await pumpEventQueue();
 
+      // Files and ports each get a socket, as in the web client.
       final gateway = harness.gateway;
-      check(gateway.openedChannels).length.equals(1);
-      check(
-        gateway.openedChannels.single.uri,
-      ).equals(Uri.parse('wss://events.test/direct'));
-      check(gateway.openedChannels.single.kind)
-          .equals(TerminalServerKind.direct);
-      check(gateway.channels.single.decodedSent).deepEquals([
+      check(gateway.openedChannels).length.equals(2);
+      for (final opened in gateway.openedChannels) {
+        check(opened.uri).equals(Uri.parse('wss://events.test/direct'));
+        check(opened.kind).equals(TerminalServerKind.direct);
+      }
+      check(gateway.channels.first.decodedSent).deepEquals([
         {'type': 'auth', 'token': 'token'},
-        {'type': 'subscribe', 'path': '/workspace/', 'ports': true},
+        {'type': 'subscribe', 'path': '/workspace/'},
+      ]);
+      check(gateway.channels.last.decodedSent).deepEquals([
+        {'type': 'auth', 'token': 'token'},
+        {'type': 'subscribe', 'ports': true},
       ]);
       check(harness.browser.liveUpdates).isTrue();
     });
@@ -529,7 +533,7 @@ void main() {
         check(
           harness.gateway.openedChannels,
           because: 'relayed: $relayed',
-        ).length.equals(relayed ? 1 : 0);
+        ).length.equals(relayed ? 2 : 0);
         harness.dispose();
       }
     });
@@ -558,7 +562,7 @@ void main() {
         spinnerShown = spinnerShown || harness.browser.loadingFiles;
       });
 
-      harness.gateway.channels.single.receive({'type': 'fs:change'});
+      harness.gateway.channels.first.receive({'type': 'fs:change'});
       await pumpEventQueue();
 
       check(harness.gateway.entries.single.name).equals('made-by-agent.txt');
@@ -578,7 +582,7 @@ void main() {
         () => service.listFiles(direct, '/workspace/', sessionScopeId: 'scope'),
       ).thenAnswer((_) => listing.future);
 
-      final channel = harness.gateway.channels.single;
+      final channel = harness.gateway.channels.first;
       channel
         ..receive({'type': 'fs:change'})
         ..receive({'type': 'fs:change'})
@@ -606,7 +610,7 @@ void main() {
       await pumpEventQueue();
       check(harness.gateway.ports.single.port).equals(8080);
 
-      harness.gateway.channels.single.receive({
+      harness.gateway.channels.last.receive({
         'type': 'ports:change',
         'ports': [
           {'port': 5173, 'process': 'vite'},
@@ -616,6 +620,51 @@ void main() {
 
       check(harness.gateway.ports.single.port).equals(5173);
       check(harness.gateway.ports.single.process).equals('vite');
+    });
+
+    test('a refresh that started before pushed ports does not undo them', () async {
+      final service = _MockTerminalService();
+      final harness = syncedHarness(service, direct);
+      await harness.context.sync(force: true);
+      await pumpEventQueue();
+      final fetch = Completer<List<TerminalListeningPort>>();
+      when(
+        () => service.getListeningPorts(direct, sessionScopeId: 'scope'),
+      ).thenAnswer((_) => fetch.future);
+
+      final refresh = harness.browser.loadPorts(service, direct);
+      harness.gateway.channels.last.receive({
+        'type': 'ports:change',
+        'ports': [
+          {'port': 5173, 'process': 'vite'},
+        ],
+      });
+      await pumpEventQueue();
+      fetch.complete(const []);
+      await refresh;
+
+      check(harness.gateway.ports.single.port).equals(5173);
+    });
+
+    test('a directory that cannot be watched leaves the ports live', () async {
+      final service = _MockTerminalService();
+      final harness = syncedHarness(service, direct);
+      await harness.context.sync(force: true);
+      await pumpEventQueue();
+
+      // Too many files for the terminal's watch limit: it gives up at once.
+      harness.gateway.channels.first.closeFromServer(1011);
+      await pumpEventQueue();
+      harness.gateway.channels.last.receive({
+        'type': 'ports:change',
+        'ports': [
+          {'port': 5173, 'process': 'vite'},
+        ],
+      });
+      await pumpEventQueue();
+
+      check(harness.gateway.ports.single.port).equals(5173);
+      check(harness.browser.liveUpdates).isTrue();
     });
 
     test('opening a folder moves the watch there', () async {
@@ -630,12 +679,10 @@ void main() {
       await harness.browser.navigateTo('/workspace/src');
       await pumpEventQueue();
 
-      check(harness.gateway.channels.single.decodedSent.last).isA<Map>()
-          .deepEquals({
-            'type': 'subscribe',
-            'path': '/workspace/src/',
-            'ports': true,
-          });
+      check(harness.gateway.channels.first.decodedSent.last).isA<Map>()
+          .deepEquals({'type': 'subscribe', 'path': '/workspace/src/'});
+      // The ports socket watches no directory.
+      check(harness.gateway.channels.last.decodedSent).length.equals(2);
     });
 
     test('leaving the tab closes the socket', () async {
@@ -646,7 +693,8 @@ void main() {
 
       await harness.context.deactivate();
 
-      check(harness.gateway.channels.single.sinkClosed).isTrue();
+      check(harness.gateway.channels.first.sinkClosed).isTrue();
+      check(harness.gateway.channels.last.sinkClosed).isTrue();
       check(harness.browser.liveUpdates).isFalse();
     });
   });

@@ -66,7 +66,12 @@ class TerminalBrowserController with TerminalChangeNotifier {
   bool _disposed = false;
   ({String selectionId, String sessionScopeId, TerminalServerFeatures value})?
   _features;
-  TerminalEventsWatcher? _events;
+  TerminalEventsWatcher? _fileEvents;
+  TerminalEventsWatcher? _portEvents;
+
+  /// Counts port lists the server pushed, so a fetch that started before one
+  /// does not replace it with what it read earlier.
+  int _pushedPorts = 0;
   bool _liveRefreshing = false;
   bool _liveRefreshPending = false;
 
@@ -74,9 +79,10 @@ class TerminalBrowserController with TerminalChangeNotifier {
 
   bool get loadingPorts => _loadingPorts;
 
-  /// Whether a socket keeps the files and ports current, rather than only
+  /// Whether a socket keeps the files or the ports current, rather than only
   /// the refreshes the user and the app ask for.
-  bool get liveUpdates => _events?.active ?? false;
+  bool get liveUpdates =>
+      (_fileEvents?.active ?? false) || (_portEvents?.active ?? false);
 
   TerminalBrowserOperationContext? captureOperationContext() {
     if (_disposed) return null;
@@ -169,7 +175,7 @@ class TerminalBrowserController with TerminalChangeNotifier {
 
       _gateway.setCurrentPath(normalizedPath);
       _gateway.setEntries(entries);
-      _events?.watchPath(normalizedPath);
+      _fileEvents?.watchPath(normalizedPath);
 
       if (updateServerCwd) {
         unawaited(
@@ -222,35 +228,47 @@ class TerminalBrowserController with TerminalChangeNotifier {
     // always needs the account's.
     if (server.isSystem && token == null) return;
 
-    final watcher = TerminalEventsWatcher(
-      openChannel: _gateway.openChannel,
-      uri: service.buildEventsWebSocketUri(server),
-      kind: server.kind,
-      authPayload: buildTerminalWebSocketAuthPayload(
-        server,
-        token: token ?? '',
-        sessionScopeId: sessionScopeId,
-      ),
-      path: ensureTerminalDirectoryPath(_gateway.currentPath),
-      onEvent: (event) {
-        if (_disposed || !_isCurrentContext(server, sessionScopeId)) return;
-        switch (event) {
-          case TerminalFilesChanged():
-            _refreshLive();
-          case TerminalPortsChanged(:final ports):
-            _gateway.setListeningPorts(ports);
-            _setLoadingPorts(false);
-        }
-      },
-    );
-    _events = watcher;
-    watcher.start();
+    TerminalEventsWatcher watch({String? path, bool ports = false}) =>
+        TerminalEventsWatcher(
+          openChannel: _gateway.openChannel,
+          uri: service.buildEventsWebSocketUri(server),
+          kind: server.kind,
+          authPayload: buildTerminalWebSocketAuthPayload(
+            server,
+            token: token ?? '',
+            sessionScopeId: sessionScopeId,
+          ),
+          path: path,
+          ports: ports,
+          onEvent: (event) {
+            if (_disposed || !_isCurrentContext(server, sessionScopeId)) {
+              return;
+            }
+            switch (event) {
+              case TerminalFilesChanged():
+                _refreshLive();
+              case TerminalPortsChanged(:final ports):
+                _pushedPorts++;
+                _gateway.setListeningPorts(ports);
+                _setLoadingPorts(false);
+            }
+          },
+        );
+    final files = watch(path: ensureTerminalDirectoryPath(_gateway.currentPath));
+    final ports = watch(ports: true);
+    _fileEvents = files;
+    _portEvents = ports;
+    files.start();
+    ports.start();
   }
 
   void stopLiveUpdates() {
-    final watcher = _events;
-    _events = null;
-    watcher?.stop();
+    final files = _fileEvents;
+    final ports = _portEvents;
+    _fileEvents = null;
+    _portEvents = null;
+    files?.stop();
+    ports?.stop();
     _liveRefreshPending = false;
   }
 
@@ -305,6 +323,7 @@ class TerminalBrowserController with TerminalChangeNotifier {
     TerminalServerInfo server,
   ) async {
     final sessionScopeId = _gateway.sessionScopeId;
+    final pushedBefore = _pushedPorts;
     _setLoadingPorts(true);
     try {
       final ports = await service.getListeningPorts(
@@ -314,6 +333,8 @@ class TerminalBrowserController with TerminalChangeNotifier {
       if (!_isCurrentContext(server, sessionScopeId)) {
         return;
       }
+      // The server pushed a newer list while this one was on its way.
+      if (_pushedPorts != pushedBefore) return;
       _gateway.setListeningPorts(ports);
     } catch (_) {
       if (_isCurrentContext(server, sessionScopeId)) {

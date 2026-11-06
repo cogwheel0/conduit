@@ -21,7 +21,7 @@ void main() {
     delays = [];
   });
 
-  TerminalEventsWatcher watcher({String path = '/workspace/'}) {
+  TerminalEventsWatcher watcher({String? path = '/workspace/', bool ports = false}) {
     final watcher = TerminalEventsWatcher(
       openChannel: (opened, {required kind}) {
         check(opened).equals(uri);
@@ -34,6 +34,7 @@ void main() {
       kind: TerminalServerKind.system,
       authPayload: auth,
       path: path,
+      ports: ports,
       onEvent: events.add,
       retryDelay: (attempt) {
         final delay = Duration(milliseconds: 10 * (attempt + 1));
@@ -53,14 +54,26 @@ void main() {
     }
   }
 
-  test('authenticates, then subscribes to the directory and ports', () async {
+  test('authenticates, then subscribes to the directory', () async {
     watcher().start();
     await settle();
 
     check(channels).length.equals(1);
     check(channels.single.decodedSent).deepEquals([
       auth,
-      {'type': 'subscribe', 'path': '/workspace/', 'ports': true},
+      {'type': 'subscribe', 'path': '/workspace/'},
+    ]);
+  });
+
+  test('a ports watcher subscribes to ports alone, and ignores paths', () async {
+    final ports = watcher(path: null, ports: true)..start();
+    await settle();
+    ports.watchPath('/tmp/');
+    await settle();
+
+    check(channels.single.decodedSent).deepEquals([
+      auth,
+      {'type': 'subscribe', 'ports': true},
     ]);
   });
 
@@ -100,14 +113,14 @@ void main() {
     final channel = channels.single;
     check(channel.decodedSent).deepEquals([
       auth,
-      {'type': 'subscribe', 'path': '/workspace/src/', 'ports': true},
+      {'type': 'subscribe', 'path': '/workspace/src/'},
     ]);
 
     subject
       ..watchPath('/workspace/src/')
       ..watchPath('/tmp/');
     check(channel.decodedSent.skip(2)).deepEquals([
-      {'type': 'subscribe', 'path': '/tmp/', 'ports': true},
+      {'type': 'subscribe', 'path': '/tmp/'},
     ]);
   });
 
@@ -162,7 +175,7 @@ void main() {
     check(delays).deepEquals([const Duration(milliseconds: 10)]);
     check(channels.last.decodedSent).deepEquals([
       auth,
-      {'type': 'subscribe', 'path': '/workspace/docs/', 'ports': true},
+      {'type': 'subscribe', 'path': '/workspace/docs/'},
     ]);
 
     // The server was heard from before, so a reconnect that drops before

@@ -20,8 +20,13 @@ Duration terminalEventsRetryDelay(int attempt) {
   return Duration(seconds: math.min(seconds, 30));
 }
 
-/// Keeps one terminal's events socket open, so the file list and the open
-/// ports refresh as soon as they change rather than when the user asks.
+/// Keeps one of a terminal's events sockets open: either the directory
+/// [path], or the open ports when [ports] is set, so the file list or the
+/// port list refreshes as soon as it changes rather than when the user asks.
+/// Files and ports each get a socket of their own, as in the web client, so
+/// a directory the terminal cannot watch (too many files for its watch
+/// limit) does not stop the ports, nor a host without port discovery the
+/// files.
 ///
 /// What a closed socket means follows Open WebUI's own client:
 /// - Closed before it sent anything: the terminal or the server relaying it
@@ -39,7 +44,8 @@ final class TerminalEventsWatcher {
     required Uri uri,
     required TerminalServerKind kind,
     required Map<String, dynamic> authPayload,
-    required String path,
+    String? path,
+    bool ports = false,
     required void Function(TerminalEvent event) onEvent,
     Duration Function(int attempt) retryDelay = terminalEventsRetryDelay,
   }) : _openChannel = openChannel,
@@ -47,6 +53,7 @@ final class TerminalEventsWatcher {
        _kind = kind,
        _authPayload = authPayload,
        _path = path,
+       _ports = ports,
        _onEvent = onEvent,
        _retryDelay = retryDelay;
 
@@ -57,7 +64,8 @@ final class TerminalEventsWatcher {
   final void Function(TerminalEvent event) _onEvent;
   final Duration Function(int attempt) _retryDelay;
 
-  String _path;
+  String? _path;
+  final bool _ports;
   WebSocketChannel? _channel;
   StreamSubscription<dynamic>? _subscription;
   Timer? _retry;
@@ -79,7 +87,8 @@ final class TerminalEventsWatcher {
 
   /// Watches [path] instead of the directory watched so far.
   void watchPath(String path) {
-    if (path == _path) return;
+    // A ports watcher watches no directory.
+    if (_path == null || path == _path) return;
     _path = path;
     final channel = _channel;
     // Before the first subscription, or between connections, the next
@@ -97,7 +106,7 @@ final class TerminalEventsWatcher {
   }
 
   Map<String, dynamic> _subscribePayload() =>
-      buildTerminalEventsSubscribePayload(path: _path, ports: true);
+      buildTerminalEventsSubscribePayload(path: _path, ports: _ports);
 
   void _connect() {
     _retry = null;

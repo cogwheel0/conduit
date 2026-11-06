@@ -86,13 +86,36 @@ void main() {
     expect(find.text('Vite App'), findsOneWidget);
     expect(find.text('localhost:5173/docs'), findsOneWidget);
 
-    // A link that leaves the terminal opens in the system browser.
+    // A link the user taps that leaves the terminal opens in the system
+    // browser.
     final policy = await host!.navigate(
       Uri.parse('$view/frame/https/example.com/guide'),
       history: false,
+      userActivated: true,
     );
     expect(policy, NavigationActionPolicy.CANCEL);
     expect(opened, [Uri.parse('https://example.com/guide')]);
+
+    // One without a tap, such as a redirect to a hosted login, asks first,
+    // once however often the page tries.
+    for (var i = 0; i < 3; i++) {
+      final redirect = await host!.navigate(
+        Uri.parse('$view/frame/https/login.example.com/'),
+        history: false,
+      );
+      expect(redirect, NavigationActionPolicy.CANCEL);
+    }
+    // The page's spinner keeps running, so frames are pumped by hand.
+    for (var i = 0; i < 5; i++) {
+      await tester.pump(const Duration(milliseconds: 100));
+    }
+    expect(opened, hasLength(1));
+    expect(find.text('https://login.example.com/'), findsOneWidget);
+    await tester.tap(find.text(l10n(tester).terminalOpenInBrowserAction).last);
+    for (var i = 0; i < 5; i++) {
+      await tester.pump(const Duration(milliseconds: 100));
+    }
+    expect(opened.last, Uri.parse('https://login.example.com/'));
 
     // A session's page needs no credential, so it can open elsewhere too.
     await tester.tap(find.byTooltip(l10n(tester).terminalOpenInBrowserAction));
@@ -153,14 +176,15 @@ void main() {
     expect(find.text(message), findsNothing);
   });
 
-  test('the web view keeps Open WebUI cookies away where it can', () {
+  test('the web view keeps a cookie store of its own on iOS only', () {
     final ios = terminalPreviewWebViewSettings(platform: TargetPlatform.iOS);
     final android = terminalPreviewWebViewSettings(
       platform: TargetPlatform.android,
     );
 
     expect(ios.incognito, isTrue);
-    // A private Android web view would clear the whole app's cookies.
+    // A private Android web view would clear the whole app's cookies, so a
+    // proxied page there shares the app's store, as before.
     expect(android.incognito, isFalse);
     for (final settings in [ios, android]) {
       expect(settings.javaScriptBridgeEnabled, isFalse);
