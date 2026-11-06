@@ -1165,8 +1165,14 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
       final success = await ref
           .read(noteDeleterProvider.notifier)
           .deleteNote(note.id);
-      // Back no longer returns to the deleted note, wherever the user is.
-      if (success) NavigationService.forgetPath('/notes/${note.id}');
+      // Back no longer returns to the deleted note, wherever the user is, by
+      // either id: a note made offline keeps the one it opened with in its
+      // location once it carries its server id.
+      if (success) {
+        for (final id in {widget.noteId, note.id}) {
+          NavigationService.forgetPath('/notes/$id');
+        }
+      }
       if (success &&
           mounted &&
           _isOpenSessionCurrent &&

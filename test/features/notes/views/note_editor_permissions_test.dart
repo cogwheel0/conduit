@@ -166,10 +166,12 @@ class _DetailApi extends ApiService {
 class _DelayedNoteDeleter extends NoteDeleter {
   final result = Completer<bool>();
   int calls = 0;
+  final ids = <String>[];
 
   @override
   Future<bool> deleteNote(String id) {
     calls++;
+    ids.add(id);
     return result.future;
   }
 }
@@ -2373,6 +2375,84 @@ void main() {
       expect(tester.takeException(), isNull);
     });
   }
+
+  testWidgets('a note opened by its offline id is forgotten by it too', (
+    tester,
+  ) async {
+    final deleter = _DelayedNoteDeleter();
+    final note = _noteJson(writeAccess: true);
+    await storeLocally(note);
+    // The editor holds the note by its server id, as once the note made
+    // offline was remapped, while its location keeps the id it opened with.
+    final container = await pumpEditor(
+      tester,
+      _DetailApi(detail: note),
+      deleter: deleter,
+    );
+    final router = GoRouter(
+      initialLocation: '/notes/local:draft',
+      routes: [
+        StatefulShellRoute.indexedStack(
+          builder: (_, _, shell) => shell,
+          branches: [
+            StatefulShellBranch(
+              initialLocation: '/notes/local:draft',
+              routes: [
+                GoRoute(
+                  path: '/notes/:id',
+                  builder: (_, state) =>
+                      NoteEditorPage(noteId: state.pathParameters['id']!),
+                ),
+              ],
+            ),
+            StatefulShellBranch(
+              routes: [
+                GoRoute(
+                  path: '/other',
+                  builder: (_, _) => const Scaffold(body: Text('Other page')),
+                ),
+              ],
+            ),
+          ],
+        ),
+        GoRoute(
+          path: '/chat',
+          builder: (_, _) => const Scaffold(body: Text('Chat')),
+        ),
+      ],
+    );
+    addTearDown(router.dispose);
+    NavigationService.attachRouter(router);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: MaterialApp.router(
+          theme: AppTheme.light(TweakcnThemes.t3Chat),
+          localizationsDelegates: conduitLocalizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          routerConfig: router,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final delete = l10n(tester).delete;
+    await tester.tap(find.byIcon(Icons.more_vert_rounded));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(delete));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(delete));
+    await tester.pumpAndSettle();
+    expect(deleter.ids, ['note-1']);
+    router.go('/other');
+    await tester.pumpAndSettle();
+    deleter.result.complete(true);
+    await tester.pumpAndSettle();
+
+    NavigationService.returnToPreviousPage(fallback: '/chat');
+    await tester.pumpAndSettle();
+    expect(router.routeInformationProvider.value.uri.path, '/chat');
+    expect(tester.takeException(), isNull);
+  });
 
   group('note Share menu', () {
     Future<void> openOverflow(WidgetTester tester) async {
