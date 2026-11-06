@@ -409,8 +409,8 @@ class ChatModelSaveQueue extends Notifier<void> {
   }
 
 
-  /// Reads chat [chatId] from the server, for [account]. A read that fails
-  /// is tried again after the waits a save is, until one succeeds, a newer
+  /// Reads chat [chatId] from the server, for [account]. A read that fails,
+  /// or reads nothing, is tried again after the waits a save is, until one succeeds, a newer
   /// list for the chat comes in, or another account signs in; after the last
   /// wait the chat is left to the next change the server lists.
   void _refetchChat(String chatId, Object? account, {int tries = 0}) {
@@ -436,7 +436,16 @@ class ChatModelSaveQueue extends Notifier<void> {
       retryLater(error);
       return;
     }
-    unawaited(read.then<void>((_) {}, onError: retryLater));
+    unawaited(
+      read.then<void>(
+        (Object? conversation) {
+          // Nothing read: the engine was not ready, or a bulk change outdated
+          // the read.
+          if (conversation == null) retryLater(StateError('chat not read'));
+        },
+        onError: retryLater,
+      ),
+    );
   }
 
   void _logFailure(String chatId, Object error) {

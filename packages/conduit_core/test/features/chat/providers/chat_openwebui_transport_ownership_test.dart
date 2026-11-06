@@ -6868,10 +6868,11 @@ void main() {
       const other = Model(id: 'model-2', name: 'Model 2');
       final (:api, :socket, :container) = await open(
         available: const [duplicate, other],
+        engine: _FailingPullEngine.new,
       );
       api.failModelSaves = 3;
       final engine = container.read(syncEngineProvider.notifier)
-          as _QuietSyncEngine;
+          as _FailingPullEngine;
       final pullsBefore = engine.pulls;
 
       await saveChatModelChoice(container, other);
@@ -6880,6 +6881,11 @@ void main() {
       // Given up: a change made elsewhere shows again, and the server's copy
       // is read, as a pull would skip a chat the server has not changed.
       check(db.chatsDao.hasUnconfirmedModelList(chatId)).isFalse();
+      check(engine.pulls).equals(pullsBefore + 1);
+      // That read got the chat: it is not read again.
+      for (var i = 0; i < 50; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
       check(engine.pulls).equals(pullsBefore + 1);
     });
 
@@ -6906,6 +6912,34 @@ void main() {
 
       // The first read fails; the next one succeeds, and no more are made.
       // Each read again waits a timer turn; more turns pass than it needs.
+      for (var i = 0; i < 50; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+      check(engine.pulls).equals(pullsBefore + 2);
+    });
+
+    test('a chat read for nothing after its model save is given up is read '
+        'again', () async {
+      final waits = ChatModelSaveQueue.modelSaveRetryWaits;
+      ChatModelSaveQueue.modelSaveRetryWaits = const [
+        Duration.zero,
+        Duration.zero,
+      ];
+      addTearDown(() => ChatModelSaveQueue.modelSaveRetryWaits = waits);
+      const other = Model(id: 'model-2', name: 'Model 2');
+      final (:api, :socket, :container) = await open(
+        available: const [duplicate, other],
+        engine: _FailingPullEngine.new,
+      );
+      api.failModelSaves = 3;
+      final engine =
+          container.read(syncEngineProvider.notifier) as _FailingPullEngine;
+      final pullsBefore = engine.pulls;
+      engine.emptyPulls = 1;
+
+      await saveChatModelChoice(container, other);
+
+      // The engine was not ready for the first read; the next gets the chat.
       for (var i = 0; i < 50; i++) {
         await Future<void>.delayed(Duration.zero);
       }
@@ -10766,20 +10800,32 @@ class _QuietSyncEngine extends _PersistingSyncEngine {
 }
 
 /// An engine whose next [failPulls] reads of a chat fail, as an unreachable
-/// server's would.
+/// server's would, and whose next [emptyPulls] after those read nothing, as
+/// an engine not ready yet does; later reads return the chat.
 class _FailingPullEngine extends _QuietSyncEngine {
   _FailingPullEngine(super.db, super.api);
 
   int failPulls = 0;
+  int emptyPulls = 0;
 
   @override
-  Future<Conversation?> pullChatNow(String requestedChatId) {
+  Future<Conversation?> pullChatNow(String requestedChatId) async {
+    pulls += 1;
     if (failPulls > 0) {
       failPulls--;
-      pulls += 1;
-      return Future<Conversation?>.error(StateError('offline'));
+      throw StateError('offline');
     }
-    return super.pullChatNow(requestedChatId);
+    if (emptyPulls > 0) {
+      emptyPulls--;
+      return null;
+    }
+    return Conversation(
+      id: requestedChatId,
+      title: 'A',
+      createdAt: DateTime.utc(2026, 7, 13),
+      updatedAt: DateTime.utc(2026, 7, 13),
+      messages: const [],
+    );
   }
 }
 
