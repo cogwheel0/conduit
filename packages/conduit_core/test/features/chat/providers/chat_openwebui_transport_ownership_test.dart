@@ -6870,6 +6870,8 @@ void main() {
         ['model-2'],
         ['model-2'],
       ]);
+      // The server has it now: copies it sends from here on are taken.
+      check(db.chatsDao.hasUnconfirmedModelList(chatId)).isFalse();
     });
 
     test('a chat listed as running a task the server no longer runs does not '
