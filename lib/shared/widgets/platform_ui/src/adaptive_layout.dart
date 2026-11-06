@@ -12,6 +12,7 @@ class AdaptiveAppBarAction {
     this.iosSymbol,
     this.icon,
     this.title,
+    this.semanticLabel,
     this.onPressed,
     this.spacerAfter = ToolbarSpacerType.none,
     this.prominent = false,
@@ -20,7 +21,12 @@ class AdaptiveAppBarAction {
 
   final String? iosSymbol;
   final IconData? icon;
+
+  /// Shown as the button's text in place of its icon.
   final String? title;
+
+  /// Names an icon-only action for assistive technology without showing it.
+  final String? semanticLabel;
 
   /// Null keeps the action visible while rendering it disabled.
   final VoidCallback? onPressed;
@@ -365,7 +371,10 @@ class AdaptiveScaffold extends StatelessWidget {
       onPressed: action.onPressed,
       child: action.title != null
           ? Text(action.title!)
-          : Icon(action.icon ?? CupertinoIcons.circle),
+          : Icon(
+              action.icon ?? CupertinoIcons.circle,
+              semanticLabel: action.semanticLabel,
+            ),
     );
   }
 
@@ -387,6 +396,7 @@ class AdaptiveScaffold extends StatelessWidget {
                             )
                           : IconButton(
                               onPressed: action.onPressed,
+                              tooltip: action.semanticLabel,
                               icon: Icon(action.icon ?? Icons.circle),
                             ),
                     )

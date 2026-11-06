@@ -447,6 +447,50 @@ void main() {
     },
   );
 
+  testWidgets('iOS 26 tabbed sidebar keeps the Terminal control an icon', (
+    tester,
+  ) async {
+    PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.iOS;
+    PlatformUiCapabilities.debugIOSMajorVersionOverride = 26;
+    PlatformUiCapabilities.debugNativeIOS26Override = true;
+    addTearDown(PlatformUiCapabilities.resetDebugOverrides);
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+      SystemChannels.platform_views,
+      (_) async => null,
+    );
+    addTearDown(
+      () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform_views,
+        null,
+      ),
+    );
+    await tester.pumpWidget(
+      sidebarTestBuildHarness(
+        controllers: SidebarTestSidebarHarnessControllers(
+          initialTab: SidebarTabId.terminal,
+        ),
+        slidingSidebarEnabled: false,
+      ),
+    );
+    await tester.pump(const Duration(milliseconds: 500));
+    final toolbar = find.byType(CNGlassButtonGroup, skipOffstage: false);
+    final buttons = tester
+        .widgetList<CNButton>(
+          find.descendant(
+            of: toolbar,
+            matching: find.byType(CNButton, skipOffstage: false),
+            skipOffstage: false,
+          ),
+        )
+        .toList();
+    expect(
+      buttons.where((button) => button.icon?.name == 'chevron.down.circle'),
+      hasLength(1),
+    );
+    expect(buttons.map((button) => button.label), everyElement(isNull));
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
   test('native Hermes artwork fills its requested tab icon canvas', () async {
     final svg = await rootBundle.loadString(
       'assets/icons/hermes_agent_tab.svg',

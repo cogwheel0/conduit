@@ -31,7 +31,7 @@ List<AdaptiveAppBarAction> _terminalActions(
   AdaptiveAppBarAction(
     iosSymbol: 'chevron.down.circle',
     icon: Icons.arrow_drop_down_circle_outlined,
-    title: MaterialLocalizations.of(context).moreButtonTooltip,
+    semanticLabel: MaterialLocalizations.of(context).moreButtonTooltip,
     tintColor: tintColor,
     onPressed: () {
       unawaited(showTerminalSidebarControlsSheet(context));

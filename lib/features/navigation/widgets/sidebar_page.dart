@@ -493,6 +493,7 @@ class _SidebarPageState extends ConsumerState<SidebarPage>
             child: Center(
               child: ConduitAdaptiveAppBarIconButton(
                 icon: actions[index].icon ?? Icons.circle,
+                semanticLabel: actions[index].semanticLabel,
                 onPressed: actions[index].onPressed,
                 iconColor: context.conduitTheme.textPrimary,
               ),

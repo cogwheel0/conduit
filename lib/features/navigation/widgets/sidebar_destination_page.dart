@@ -189,7 +189,7 @@ class _SidebarDestinationPageState
                 icon: action.icon ?? Icons.more_horiz,
                 iosSymbol: action.iosSymbol,
                 iconColor: color,
-                semanticLabel: action.title,
+                semanticLabel: action.semanticLabel ?? action.title,
                 onPressed: action.onPressed,
               ),
             if (tab.createAction case final action?)
