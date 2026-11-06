@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math';
 
 import 'package:checks/checks.dart';
 import 'package:conduit_core/auth/api_auth_interceptor.dart';
@@ -135,10 +136,17 @@ class _StubAdapter implements HttpClientAdapter {
 /// Answers Open WebUI 0.13's temporary chat resume with [status] and [body],
 /// and records each request's chat id and session.
 class _ResumeAdapter implements HttpClientAdapter {
-  _ResumeAdapter({required this.status, this.body = const {}});
+  _ResumeAdapter({
+    required int status,
+    Map<String, dynamic> body = const {},
+    List<({int status, Map<String, dynamic> body})>? answers,
+  }) : _answers = answers ?? [(status: status, body: body)];
 
-  final int status;
-  final Map<String, dynamic> body;
+  /// One answer per resume in order; the last one repeats.
+  final List<({int status, Map<String, dynamic> body})> _answers;
+
+  /// Runs as each resume arrives, before it is answered.
+  void Function()? onResume;
   final resumes = <({String chatId, Object? sessionId})>[];
 
   @override
@@ -161,9 +169,11 @@ class _ResumeAdapter implements HttpClientAdapter {
         ),
         sessionId: (options.data as Map)['session_id'],
       ));
+      onResume?.call();
+      final answer = _answers[min(resumes.length, _answers.length) - 1];
       return ResponseBody(
-        Stream.value(utf8.encode(jsonEncode(body))),
-        status,
+        Stream.value(utf8.encode(jsonEncode(answer.body))),
+        answer.status,
         headers: {
           'content-type': ['application/json'],
         },
@@ -904,11 +914,18 @@ void main() {
     const chatId = 'local:old-session:6f1c4b1e-1d7a-4c49-9a8d-6a1f3e2b9c10';
 
     Future<({_CallbackLog log, _ResumeAdapter server})> reconnect({
-      required int status,
+      int status = 200,
       Map<String, dynamic> body = const {},
+      List<({int status, Map<String, dynamic> body})>? answers,
       String conversationId = chatId,
+      void Function(FakeSocketInjector registrar)? duringResume,
+      Duration settle = const Duration(milliseconds: 650),
     }) async {
-      final server = _ResumeAdapter(status: status, body: body);
+      final server = _ResumeAdapter(
+        status: status,
+        body: body,
+        answers: answers,
+      );
       final api = _buildFakeApi()..dio.httpClientAdapter = server;
       final log = _CallbackLog(
         initialMessages: _fakeStreamingMessages(content: 'Hel'),
@@ -934,10 +951,13 @@ void main() {
         }
         stream.disposeWatchdog();
       });
+      if (duringResume != null) {
+        server.onResume = () => duringResume(registrar);
+      }
       registrar.sessionId = 'new-session';
       registrar.reconnects.add(null);
       // The recovery waits half a second for the socket to settle.
-      await Future<void>.delayed(const Duration(milliseconds: 650));
+      await Future<void>.delayed(settle);
       return (log: log, server: server);
     }
 
@@ -996,6 +1016,43 @@ void main() {
       final reply = result.log.messages.single;
       check(reply.isStreaming).isFalse();
       check(reply.error?.content).equals(TemporaryChatUnavailable.userMessage);
+    });
+
+    test('leaves the reply running when the session dropped before the '
+        'server answered', () async {
+      // The server refuses a session that is no longer connected; the chat
+      // itself is fine, and the next reconnect asks again.
+      final result = await reconnect(
+        status: 404,
+        body: {'detail': TemporaryChatUnavailable.serverDetail},
+        duringResume: (registrar) => registrar.sessionId = 'newer-session',
+      );
+
+      final reply = result.log.messages.single;
+      check(reply.isStreaming).isTrue();
+      check(reply.error).isNull();
+    });
+
+    test('asks again after a failed request', () async {
+      final result = await reconnect(
+        answers: [
+          (status: 502, body: {'detail': 'Bad Gateway'}),
+          (
+            status: 200,
+            body: {
+              'task_ids': <String>[],
+              'streams': <Object>[],
+            },
+          ),
+        ],
+        // The second request follows a one second wait.
+        settle: const Duration(milliseconds: 1900),
+      );
+
+      check(result.server.resumes).length.equals(2);
+      check(
+        result.log.messages.single.error?.content,
+      ).equals(TemporaryChatResume.connectionLostMessage);
     });
 
     test('leaves the reply running on a server before 0.13', () async {

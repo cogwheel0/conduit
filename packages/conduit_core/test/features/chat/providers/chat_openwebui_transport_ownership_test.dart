@@ -334,6 +334,16 @@ class _WireCompletionApi extends ApiService implements _AssistantIdSource {
   /// The `Authorization` header every request arrived with, by path.
   final List<({String path, String? authorization})> credentials = [];
 
+  /// How the server answers a temporary chat resume: 200 when it holds the
+  /// chat, 404 when it does not, 405 for a server before Open WebUI 0.13.
+  int resumeStatus = 405;
+
+  /// The chat id and session of every temporary chat resume.
+  final List<({String chatId, Object? sessionId})> resumes = [];
+
+  /// When set, `/api/chat/completions` refuses with this status and detail.
+  ({int status, String detail})? completionRefusal;
+
   @override
   String? get assistantMessageId =>
       completionBodies.isEmpty ? null : completionBodies.last['id'] as String?;
@@ -379,6 +389,41 @@ class _WireAdapter implements HttpClientAdapter {
       path: options.path,
       authorization: options.headers['Authorization'] as String?,
     ));
+    const resumePrefix = '/api/tasks/chat/';
+    const resumeSuffix = '/resume';
+    if (options.path.startsWith(resumePrefix) &&
+        options.path.endsWith(resumeSuffix)) {
+      api.resumes.add((
+        chatId: Uri.decodeComponent(
+          options.path.substring(
+            resumePrefix.length,
+            options.path.length - resumeSuffix.length,
+          ),
+        ),
+        sessionId: (options.data as Map)['session_id'],
+      ));
+      return switch (api.resumeStatus) {
+        200 => _json(<String, dynamic>{
+          'task_ids': <String>[],
+          'streams': <Object>[],
+        }),
+        404 => _json(<String, dynamic>{
+          'detail': TemporaryChatUnavailable.serverDetail,
+        }, status: 404),
+        final status => _json(<String, dynamic>{
+          'detail': 'Method Not Allowed',
+        }, status: status),
+      };
+    }
+    final refusal = api.completionRefusal;
+    if (refusal != null && options.path == '/api/chat/completions') {
+      api.completionBodies.add(
+        jsonDecode(jsonEncode(options.data)) as Map<String, dynamic>,
+      );
+      return _json(<String, dynamic>{
+        'detail': refusal.detail,
+      }, status: refusal.status);
+    }
     switch (options.path) {
       case '/api/config':
         api.duringConfig?.call();
@@ -1118,11 +1163,13 @@ final class _SelectableModel extends SelectedModel {
   Model? build() => _initial;
 }
 
-/// A socket to the wire server, connected as `socket-a` unless [connected] is
-/// false, in which case a reconnect attempt fails too.
+/// A socket to the wire server. It is connected as [session], or, when that
+/// is null, connects as [connectAs] on the [connectOnAttempt]th attempt and
+/// never without [connectAs].
 class _WireSocket extends SocketService {
-  _WireSocket({this.connected = true})
-    : super(
+  _WireSocket({String? session = 'socket-a', this.connectAs, this.connectOnAttempt = 1})
+    : _session = session,
+      super(
         serverConfig: const ServerConfig(
           id: 'wire-server',
           name: 'Wire server',
@@ -1130,18 +1177,28 @@ class _WireSocket extends SocketService {
         ),
       );
 
-  final bool connected;
+  String? _session;
+  final String? connectAs;
+  final int connectOnAttempt;
+  int _attempts = 0;
 
   @override
-  bool get isConnected => connected;
+  bool get isConnected => _session != null;
 
   @override
-  String? get sessionId => connected ? 'socket-a' : null;
+  String? get sessionId => _session;
 
   @override
   Future<bool> ensureConnected({
     Duration timeout = const Duration(seconds: 2),
-  }) async => connected;
+  }) async {
+    if (_session == null &&
+        connectAs != null &&
+        ++_attempts >= connectOnAttempt) {
+      _session = connectAs;
+    }
+    return _session != null;
+  }
 
   @override
   SocketEventSubscription addChatEventHandler({
@@ -1227,12 +1284,18 @@ void main() {
     Future<({_WireCompletionApi api, ProviderContainer container})> send({
       required SocketService socket,
       required bool serverNeedsSocket,
+      Conversation? active,
+      List<ChatMessage> messages = const [],
+      int resumeStatus = 405,
+      ({int status, String detail})? completionRefusal,
     }) async {
-      final api = _WireCompletionApi();
+      final api = _WireCompletionApi()
+        ..resumeStatus = resumeStatus
+        ..completionRefusal = completionRefusal;
       final container = _container(
         db: db,
-        active: null,
-        messages: const [],
+        active: active,
+        messages: messages,
         api: api,
         syncEngine: _PersistingSyncEngine(db, api),
         socket: socket,
@@ -1262,7 +1325,7 @@ void main() {
 
     test('is not sent without a socket to a server that needs one', () async {
       final sent = await send(
-        socket: _WireSocket(connected: false),
+        socket: _WireSocket(session: null),
         serverNeedsSocket: true,
       );
 
@@ -1272,9 +1335,128 @@ void main() {
       check(reply.error?.content).isNotNull().contains('live connection');
     });
 
+    test('is named for the session it is sent from when the socket connects '
+        'late', () async {
+      // The first look at the socket finds it still connecting.
+      final sent = await send(
+        socket: _WireSocket(
+          session: null,
+          connectAs: 'socket-b',
+          connectOnAttempt: 2,
+        ),
+        serverNeedsSocket: true,
+      );
+
+      final body = sent.api.sentBody;
+      final chatId = body['chat_id'] as String;
+      check(body['session_id']).equals('socket-b');
+      check(chatId).startsWith('local:socket-b:');
+      check(sent.container.read(activeConversationProvider)!.id).equals(chatId);
+      // A new chat is never asked about: the server cannot hold it yet.
+      check(sent.api.resumes).isEmpty();
+      final messages = sent.container.read(chatMessagesProvider);
+      check(messages.map((m) => m.role).toList()).deepEquals([
+        'user',
+        'assistant',
+      ]);
+      check(messages.first.content).equals('hello');
+    });
+
+    group('a chat named for an earlier session', () {
+      const earlierId = 'local:socket-a:6f1c4b1e-1d7a-4c49-9a8d-6a1f3e2b9c10';
+      final earlier = <ChatMessage>[
+        _user('earlier-user', 'first question'),
+        ChatMessage(
+          id: 'earlier-assistant',
+          role: 'assistant',
+          content: 'first answer',
+          timestamp: DateTime.utc(2026, 7, 13, 0, 0, 1),
+          model: 'model-1',
+        ),
+      ];
+      final conversation = Conversation(
+        id: earlierId,
+        title: 'New Chat',
+        createdAt: DateTime.utc(2026, 7, 13),
+        updatedAt: DateTime.utc(2026, 7, 13),
+        messages: earlier,
+      );
+
+      test('keeps its id while the server holds it', () async {
+        final sent = await send(
+          socket: _WireSocket(session: 'socket-b'),
+          serverNeedsSocket: true,
+          active: conversation,
+          messages: earlier,
+          resumeStatus: 200,
+        );
+
+        check(sent.api.resumes.single.chatId).equals(earlierId);
+        check(sent.api.resumes.single.sessionId).equals('socket-b');
+        check(sent.api.sentBody['chat_id']).equals(earlierId);
+        check(sent.api.sentBody['session_id']).equals('socket-b');
+      });
+
+      test('is renamed for the new session when the server does not hold '
+          'it', () async {
+        final sent = await send(
+          socket: _WireSocket(session: 'socket-b'),
+          serverNeedsSocket: true,
+          active: conversation,
+          messages: earlier,
+          resumeStatus: 404,
+        );
+
+        final chatId = sent.api.sentBody['chat_id'] as String;
+        check(chatId).startsWith('local:socket-b:');
+        check(chatId).not((it) => it.equals(earlierId));
+        check(sent.api.sentBody['session_id']).equals('socket-b');
+        check(
+          sent.container.read(activeConversationProvider)!.id,
+        ).equals(chatId);
+        // The conversation so far is kept and sent.
+        final roles = (sent.api.sentBody['messages'] as List)
+            .cast<Map<String, dynamic>>()
+            .map((m) => m['role'])
+            .where((role) => role != 'system')
+            .toList();
+        check(roles).deepEquals(['user', 'assistant', 'user']);
+        check(
+          sent.container.read(chatMessagesProvider).first.id,
+        ).equals('earlier-user');
+      });
+
+      test('keeps its id on a server before 0.13', () async {
+        final sent = await send(
+          socket: _WireSocket(session: 'socket-b'),
+          serverNeedsSocket: false,
+          active: conversation,
+          messages: earlier,
+        );
+
+        check(sent.api.sentBody['chat_id']).equals(earlierId);
+      });
+    });
+
+    test('a refusal without a socket on a server of unknown version says it '
+        'needs one', () async {
+      final sent = await send(
+        socket: _WireSocket(session: null),
+        serverNeedsSocket: false,
+        completionRefusal: (
+          status: 404,
+          detail: TemporaryChatUnavailable.serverDetail,
+        ),
+      );
+
+      check(sent.api.sentBody.containsKey('session_id')).isFalse();
+      final reply = sent.container.read(chatMessagesProvider).last;
+      check(reply.error?.content).isNotNull().contains('live connection');
+    });
+
     test('an older server still answers without a socket', () async {
       final sent = await send(
-        socket: _WireSocket(connected: false),
+        socket: _WireSocket(session: null),
         serverNeedsSocket: false,
       );
 

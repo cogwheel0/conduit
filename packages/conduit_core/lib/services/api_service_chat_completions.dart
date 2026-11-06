@@ -660,6 +660,7 @@ mixin _ChatCompletionsApi on _ApiServiceBase {
     String chatId, {
     required String sessionId,
   }) async {
+    if (_temporaryChatResumeUnsupported) return null;
     final Response<dynamic> resp;
     try {
       resp = await _dio.post(
@@ -670,7 +671,10 @@ mixin _ChatCompletionsApi on _ApiServiceBase {
       final status = e.response?.statusCode;
       // Older servers match the path to the GET route that lists a chat's
       // tasks, and refuse the method.
-      if (status == 405) return null;
+      if (status == 405) {
+        _temporaryChatResumeUnsupported = true;
+        return null;
+      }
       if (status == 404) {
         final data = e.response?.data;
         final detail = data is Map ? data['detail']?.toString() : null;
@@ -817,8 +821,19 @@ final class TemporaryChatResume {
   }
 }
 
-/// The server no longer holds a temporary chat: it forgot it after a day or
-/// a restart, or another session started it.
+/// A temporary chat on Open WebUI 0.13 or later was sent without a connected
+/// socket, which such a server refuses.
+final class TemporaryChatNeedsConnectionException implements Exception {
+  const TemporaryChatNeedsConnectionException();
+
+  @override
+  String toString() =>
+      'TemporaryChatNeedsConnectionException: no socket session';
+}
+
+/// The server does not hold a temporary chat: it forgot it after a day or a
+/// restart, another session started it, or the session asking for it is no
+/// longer connected.
 final class TemporaryChatUnavailable implements Exception {
   const TemporaryChatUnavailable(this.detail);
 

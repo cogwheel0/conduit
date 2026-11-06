@@ -2183,19 +2183,25 @@ ActiveChatStream attachUnifiedChunkedStreaming({
   // reconnect the new session [sessionId] takes it over, and the snapshot of
   // the running reply restores what the old session missed. With no task
   // left the reply was lost with the connection, as the web client says.
-  // Null before 0.13, where the events reach every session of the account.
+  // Null before 0.13, where the events reach every session of the account,
+  // and whenever the answer cannot be trusted: the server also refuses a
+  // session that dropped again before it asked, and the next reconnect asks
+  // again. A failed request is tried again while the session lasts.
   Future<_ServerMessageSnapshot?> resumeTemporaryChatSnapshot(
     String chatId,
-    String sessionId,
-  ) async {
-    if (isObsoleteStream) {
+    String sessionId, {
+    required bool Function() sessionIsCurrent,
+    int attempt = 0,
+    int maxAttempts = 3,
+  }) async {
+    if (isObsoleteStream || !sessionIsCurrent()) {
       return null;
     }
     final TemporaryChatResume? resumed;
     try {
       resumed = await api.resumeTemporaryChat(chatId, sessionId: sessionId);
     } on TemporaryChatUnavailable {
-      if (isObsoleteStream) {
+      if (isObsoleteStream || !sessionIsCurrent()) {
         return null;
       }
       return (
@@ -2204,6 +2210,23 @@ ActiveChatStream attachUnifiedChunkedStreaming({
         followUps: const <String>[],
         isDone: true,
         errorContent: TemporaryChatUnavailable.userMessage,
+      );
+    } catch (e) {
+      DebugLogger.log(
+        'Temporary chat resume failed (attempt ${attempt + 1}/$maxAttempts): '
+        '$e',
+        scope: 'streaming/helper',
+      );
+      if (attempt >= maxAttempts - 1) {
+        return null;
+      }
+      await Future<void>.delayed(Duration(seconds: attempt + 1));
+      return resumeTemporaryChatSnapshot(
+        chatId,
+        sessionId,
+        sessionIsCurrent: sessionIsCurrent,
+        attempt: attempt + 1,
+        maxAttempts: maxAttempts,
       );
     }
     if (isObsoleteStream || resumed == null) {
@@ -2925,6 +2948,9 @@ ActiveChatStream attachUnifiedChunkedStreaming({
                       : resumeTemporaryChatSnapshot(
                           temporaryChatId,
                           resumeSessionId,
+                          sessionIsCurrent: () =>
+                              socketService.isConnected &&
+                              socketService.sessionId == resumeSessionId,
                         ),
             applyServerContent: applyServerContent,
             syncImages: syncImages,
