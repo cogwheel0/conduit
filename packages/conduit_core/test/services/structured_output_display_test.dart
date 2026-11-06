@@ -73,7 +73,8 @@ void main() {
           call('c2', 'display_file'),
           result('c2', shown(exists: false)),
           call('c3', 'display_file'),
-          result('c3', shown(source: 'open_terminal', path: '/home/x.png')),
+          // A file the server can serve, kept out by its source alone.
+          result('c3', shown(source: 'open_terminal')),
           call('c4', 'display_file'),
         ]),
       ).isEmpty();
@@ -99,6 +100,7 @@ void main() {
           'id': 'ig1',
           'result': 'AAAA',
           'output_format': 'webp',
+          'revised_prompt': 'A red [ripe]\napple',
         },
         {
           'type': 'image_generation_call',
@@ -113,9 +115,13 @@ void main() {
         'data:image/webp;base64,AAAA',
         'data:image/jpeg;base64,BBBB',
       ]);
-      check(
-        renderStructuredOutputBlocks(blocks),
-      ).contains('![](data:image/webp;base64,AAAA)');
+      final rendered = renderStructuredOutputBlocks(blocks);
+      // Described by the prompt it was made from, on one line, with its
+      // brackets kept from ending the description.
+      check(rendered).contains(
+        r'![A red \[ripe\] apple](data:image/webp;base64,AAAA)',
+      );
+      check(rendered).contains('![](data:image/jpeg;base64,BBBB)');
     });
   });
 }

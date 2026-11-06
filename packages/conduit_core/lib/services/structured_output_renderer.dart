@@ -1520,9 +1520,14 @@ List<SemanticMessageBlock> structuredOutputBlocksToSemanticMessage(
             embeds: embeds,
           ),
         );
-      case StructuredOutputImageBlock(:final url):
-        // Shown as the web client shows it: the image on its own.
-        semanticBlocks.add(SemanticTextBlock.openWebUI('\n\n![]($url)\n\n'));
+      case StructuredOutputImageBlock(:final url, :final description):
+        // Shown as the web client shows it: the image on its own, described
+        // by the prompt it was made from where the call gave one.
+        semanticBlocks.add(
+          SemanticTextBlock.openWebUI(
+            '\n\n![${_imageAltText(description)}]($url)\n\n',
+          ),
+        );
       case StructuredOutputCodeInterpreterBlock(
         :final code,
         :final language,
@@ -1582,4 +1587,16 @@ List<String>? _replacementTextParts(
     offset = nextOffset;
   }
   return parts;
+}
+
+/// [description] as markdown image alt text: on one line, with the brackets
+/// and backslashes that would end it escaped, and cut to a readable length.
+String _imageAltText(String? description) {
+  if (description == null) return '';
+  var text = description.replaceAll(RegExp(r'\s+'), ' ').trim();
+  if (text.length > 200) text = '${text.substring(0, 199).trimRight()}…';
+  return text.replaceAllMapped(
+    RegExp(r'[\\\[\]]'),
+    (match) => '\\${match[0]}',
+  );
 }

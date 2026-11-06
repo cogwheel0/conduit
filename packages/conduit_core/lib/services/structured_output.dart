@@ -51,9 +51,13 @@ final class StructuredOutputToolCallBlock extends StructuredOutputBlock {
 /// An image the model made itself, as a Responses API `image_generation_call`
 /// carries it: a `data:` URL.
 final class StructuredOutputImageBlock extends StructuredOutputBlock {
-  const StructuredOutputImageBlock({required this.url});
+  const StructuredOutputImageBlock({required this.url, this.description});
 
   final String url;
+
+  /// The prompt the image was made from (`revised_prompt`), which describes
+  /// it for screen readers; null when the call gave none.
+  final String? description;
 }
 
 final class StructuredOutputCodeInterpreterBlock extends StructuredOutputBlock {
@@ -159,11 +163,15 @@ List<StructuredOutputBlock> parseOpenWebUIStructuredOutput(
         final result = item['result'];
         if (result is String && result.isNotEmpty) {
           final format = item['output_format']?.toString();
+          final revisedPrompt = item['revised_prompt'];
           blocks.add(
             StructuredOutputImageBlock(
               url: result.startsWith('data:')
                   ? result
                   : 'data:image/${format == null || format.isEmpty ? 'png' : format};base64,$result',
+              description: revisedPrompt is String && revisedPrompt.isNotEmpty
+                  ? revisedPrompt
+                  : null,
             ),
           );
         }
