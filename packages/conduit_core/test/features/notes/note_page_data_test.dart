@@ -437,6 +437,190 @@ void main() {
       ).isEmpty();
     });
 
+    test('detaching a file keeps the rich text the web editor saved', () {
+      const href = '/api/v1/files/f/content';
+      final linked = noteContentWithLinkedFiles(<String, dynamic>{
+        'md': 'hello',
+        'html': '<p><strong>hello</strong></p>',
+        'json': <String, dynamic>{
+          'type': 'doc',
+          'content': [
+            <String, dynamic>{
+              'type': 'paragraph',
+              'content': [
+                <String, dynamic>{
+                  'type': 'text',
+                  'text': 'hello',
+                  'marks': [
+                    <String, dynamic>{'type': 'bold'},
+                  ],
+                },
+                <String, dynamic>{
+                  'type': 'text',
+                  'text': ' see F',
+                  'marks': [
+                    <String, dynamic>{
+                      'type': 'link',
+                      'attrs': <String, dynamic>{'href': href},
+                    },
+                  ],
+                },
+              ],
+            },
+          ],
+        },
+      }, [
+        <String, dynamic>{'type': 'file', 'id': 'f', 'name': 'F'},
+      ]);
+      check(linked['html'] as String).contains('data-file-id="f"');
+
+      // Detaching it from a page goes the same way.
+      final patch = noteDataWithoutFile(<String, dynamic>{
+        'content': linked,
+        'pages': [
+          <String, dynamic>{'id': 'main', 'title': 'Main', 'content': linked},
+        ],
+      }, 'f');
+      check(
+        (patch['content'] as Map)['html'],
+      ).equals('<p><strong>hello</strong></p>');
+
+      final content = noteContentWithoutFile(linked, 'f');
+      check(content['md']).equals('hello');
+      check(content['html']).equals('<p><strong>hello</strong></p>');
+      check(content['json']).isA<Map<String, dynamic>>().deepEquals({
+        'type': 'doc',
+        'content': [
+          {
+            'type': 'paragraph',
+            'content': [
+              {
+                'type': 'text',
+                'text': 'hello',
+                'marks': [
+                  {'type': 'bold'},
+                ],
+              },
+            ],
+          },
+        ],
+      });
+    });
+
+    test('a form that still links a detached file in a shape not known is '
+        'cleared, so the server stops reading the file from it', () {
+      final content = noteContentWithoutFile(<String, dynamic>{
+        'md': 'x\n\n[F](/api/v1/files/f/content)',
+        // An anchor whose markup the remover does not take out.
+        'html': '<p>x</p><a data-x="<" href="/api/v1/files/f/content">F</a',
+        'json': null,
+      }, 'f');
+      check(content['md']).equals('x');
+      check(content['html']).equals('');
+    });
+
+    test('a file linked only in the rich text is detached too', () {
+      Map<String, dynamic> paged(Map<String, dynamic> content) =>
+          <String, dynamic>{
+            'content': content,
+            'pages': [
+              <String, dynamic>{'id': 'main', 'title': 'Main', 'content': content},
+            ],
+          };
+      // The editor JSON names the file; the markdown does not.
+      final fromJson = noteDataWithoutFile(
+        paged(<String, dynamic>{
+          'md': 'x',
+          'html': '',
+          'json': <String, dynamic>{
+            'type': 'doc',
+            'content': [
+              <String, dynamic>{
+                'type': 'fileAttachment',
+                'attrs': <String, dynamic>{'id': 'f'},
+              },
+            ],
+          },
+        }),
+        'f',
+      );
+      check(
+        ((fromJson['content'] as Map)['json'] as Map)['content'] as List,
+      ).isEmpty();
+      // Only the HTML links it.
+      final fromHtml = noteDataWithoutFile(
+        paged(<String, dynamic>{
+          'md': 'x',
+          'html': '<p>x</p><a href="/api/v1/files/f/content">F</a>',
+          'json': null,
+        }),
+        'f',
+      );
+      check((fromHtml['content'] as Map)['html']).equals('<p>x</p>');
+    });
+
+    test('detaching a file takes out its own links, not those of a file '
+        'whose id differs only in case', () {
+      final content = noteContentWithoutFile(<String, dynamic>{
+        'md': '',
+        'html':
+            '<a href="/api/v1/files/FileA/content">A</a>'
+            '<div data-file-id="filea"><a href="/api/v1/files/filea/content">'
+            'a</a></div>',
+        'json': null,
+      }, 'FileA');
+      check(content['html']).equals(
+        '<div data-file-id="filea"><a href="/api/v1/files/filea/content">'
+        'a</a></div>',
+      );
+    });
+
+    test('a block holding more than a detached file\'s link keeps the rest, '
+        'and no longer names the file', () {
+      final content = noteContentWithoutFile(<String, dynamic>{
+        'md': 'x\n\n[F](/api/v1/files/f/content)',
+        'html':
+            '<p>x</p>'
+            '<div class="callout" data-file-id="f" data-file-size="3" '
+            'style="color: red"><div><p>kept</p></div>'
+            '<a href="/api/v1/files/f/content">F</a></div>'
+            '<p>after</p>'
+            '<div data-file-id="g"><a href="/api/v1/files/g/content">G</a></div>',
+        'json': null,
+      }, 'f');
+      check(content['html']).equals(
+        '<p>x</p><div class="callout" style="color: red"><div><p>kept</p>'
+        '</div></div><p>after</p>'
+        '<div data-file-id="g"><a href="/api/v1/files/g/content">G</a></div>',
+      );
+    });
+
+    test('a block naming a detached file whose link is to another file keeps '
+        'that link', () {
+      final content = noteContentWithoutFile(<String, dynamic>{
+        'md': '',
+        'html':
+            '<a href="/api/v1/files/f/content">F</a>'
+            '<div data-file-id="f"><a href="/api/v1/files/g/content">G</a></div>',
+        'json': null,
+      }, 'f');
+      check(
+        content['html'],
+      ).equals('<div><a href="/api/v1/files/g/content">G</a></div>');
+    });
+
+    test('a block of only a detached file\'s link goes whole, with the space '
+        'around its link', () {
+      final content = noteContentWithoutFile(<String, dynamic>{
+        'md': '',
+        'html':
+            '<p>x</p><DIV data-file-id="f" data-file-size="3">\n  '
+            '<a href="/api/v1/files/f/content">F</a>\n</DIV><p>y</p>',
+        'json': null,
+      }, 'f');
+      check(content['html']).equals('<p>x</p><p>y</p>');
+    });
+
     test('tilde fences hide links too', () {
       check(
         noteFileLinksInMarkdown(

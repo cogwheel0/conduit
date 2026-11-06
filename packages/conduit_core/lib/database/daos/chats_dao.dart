@@ -184,6 +184,51 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
   /// A fetch uses this token to avoid overwriting events received while it ran.
   int taskEventVersion(String chatId) => _taskEventVersions[chatId] ?? 0;
 
+  final _modelListVersions = <String, int>{};
+  final _unconfirmedModelLists = <String>{};
+
+  /// Counts the model lists stored here for chat [chatId], by a pick or by a
+  /// turn sent with a list. A fetch takes it before it reads the chat, so a
+  /// copy read before the list was stored does not put the earlier one back:
+  /// Open WebUI keeps the chat's date on a model change, so nothing else
+  /// tells the copies apart.
+  int modelListVersion(String chatId) => _modelListVersions[chatId] ?? 0;
+
+  /// Whether chat [chatId] holds a picked model list the server has not
+  /// taken yet. Until it has, a copy the server sends, read before or after
+  /// the pick, still holds the earlier list.
+  bool hasUnconfirmedModelList(String chatId) =>
+      _unconfirmedModelLists.contains(chatId);
+
+  /// Stops holding chat [chatId]'s picked list over the server's: its save
+  /// was given up, and the server's list, changed elsewhere maybe, applies.
+  void releaseUnconfirmedModelList(String chatId) =>
+      _unconfirmedModelLists.remove(chatId);
+
+  void _noteModelListWrite(String chatId) {
+    _modelListVersions[chatId] = modelListVersion(chatId) + 1;
+  }
+
+  /// The model list stored with chat [chatId], or null when it has none.
+  Future<List<Object?>?> storedChatModels(String chatId) async {
+    final row = await getChat(chatId);
+    if (row == null) return null;
+    final Map<String, dynamic> envelope;
+    try {
+      envelope = _decodeRawExtraEnvelope(row.rawExtra);
+    } on Object {
+      // An envelope that cannot be read holds no list to keep.
+      return null;
+    }
+    final models = envelope['models'];
+    return models is List ? List<Object?>.of(models) : null;
+  }
+
+  /// The server holds chat [chatId]'s stored list now, as a copy fetched
+  /// after it was written shows: it need not be held over the server's.
+  void confirmModelList(String chatId) =>
+      _unconfirmedModelLists.remove(chatId);
+
   int _readStateClock = 0;
   final _readStateTouchedAt = <String, int>{};
   final _unreadMarksInFlight = <String, int>{};
@@ -554,6 +599,14 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
 
       switch (result.outcome) {
         case MergeOutcome.noRemoteChange:
+          if (refreshWhenClean) {
+            // Asked for by name, of a chat with edits of its own: the server's
+            // model list, which a model change made elsewhere leaves undated,
+            // replaces the one here, and nothing else does. A list picked
+            // here that the server has not taken yet is in the server's copy
+            // already (see `PullSync`).
+            await _adoptServerModelList(existing, serverChat.rawExtra);
+          }
           // Rows untouched; only re-assert push below when needed. Except
           // `meta`, the share id and `last_read_at`: Open WebUI writes a
           // chat's tags, its share link and its read state to those columns
@@ -643,6 +696,29 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
   ///
   /// Omitted metadata is resolved before this method; an empty map here is
   /// authoritative. A null share id means the link was deleted.
+  /// Writes the `models` of the server's envelope [serverEnvelope] into
+  /// [existing]'s, leaving the rest of it as it is. An unreadable stored
+  /// envelope is left alone.
+  Future<void> _adoptServerModelList(
+    ChatRow existing,
+    Map<String, dynamic> serverEnvelope,
+  ) async {
+    if (!serverEnvelope.containsKey('models')) return;
+    final Map<String, dynamic> local;
+    try {
+      local = _decodeRawExtraEnvelope(existing.rawExtra);
+    } on StateError {
+      return;
+    }
+    final Object? models = serverEnvelope['models'];
+    if (const DeepCollectionEquality().equals(local['models'], models)) return;
+    await (update(chats)..where((t) => t.id.equals(existing.id))).write(
+      ChatsCompanion(
+        rawExtra: Value(jsonEncode(<String, dynamic>{...local, 'models': models})),
+      ),
+    );
+  }
+
   Future<void> _refreshEnvelopeIfChanged(
     ChatRow existing,
     Map<String, dynamic> meta,
@@ -1674,10 +1750,24 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
   /// mapper keeps verbatim, so the chat reopens on them and a later full push
   /// carries them. No push is queued: the caller saves the list itself.
   /// A chat whose body is not synced yet, or is gone, is left as it is.
-  Future<void> setChatModels(String chatId, List<String> models) {
-    return transaction(() async {
+  ///
+  /// [confirmed] says the server has taken [models]; until a list is, a pull
+  /// keeps it over the server's (see [hasUnconfirmedModelList]).
+  ///
+  /// Caller holds the chat lock: two writes of one chat's list that overlap
+  /// could leave a confirmed list marked as unconfirmed.
+  Future<void> setChatModels(
+    String chatId,
+    List<String> models, {
+    bool confirmed = false,
+  }) async {
+    // Before anything is awaited: a fetch that starts from here on reads the
+    // server after the pick, and one that started before does not.
+    _noteModelListWrite(chatId);
+    if (confirmed) _unconfirmedModelLists.remove(chatId);
+    final stored = await transaction(() async {
       final row = await getChat(chatId);
-      if (row == null || row.deleted || !row.bodySynced) return;
+      if (row == null || row.deleted || !row.bodySynced) return false;
       await (update(chats)..where((t) => t.id.equals(chatId))).write(
         ChatsCompanion(
           rawExtra: Value(
@@ -1688,7 +1778,11 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
           ),
         ),
       );
+      return true;
     });
+    // Held over the server's only once stored: a list never written has
+    // nothing to hold.
+    if (stored && !confirmed) _unconfirmedModelLists.add(chatId);
   }
 
   /// Send-on-existing-chat (W3.c): upserts the user message + assistant
@@ -1713,6 +1807,7 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
     // path must stay ≤10ms even with the chat_fts INSERT trigger live. Numeric-
     // only data (no message content) so nothing untrusted is logged.
     final sw = Stopwatch()..start();
+    var wroteModels = false;
     await transaction(() async {
       final maxExpr = this.messages.orderIndex.max();
       final maxQuery = selectOnly(this.messages)
@@ -1752,8 +1847,11 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
       // stored; an unreadable envelope throws and rolls the whole append back.
       Value<String> rawExtra = const Value.absent();
       if (chatModels != null) {
+        // A copy read before this turn holds the list from before it.
+        _noteModelListWrite(chatId);
         final row = await getChat(chatId);
         if (row != null && !row.deleted && row.bodySynced) {
+          wroteModels = true;
           rawExtra = Value(
             jsonEncode(<String, dynamic>{
               ..._decodeRawExtraEnvelope(row.rawExtra),
@@ -1788,6 +1886,9 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
         );
       }
     });
+    // A turn's list is held over the server's, as a pick's is, until a copy
+    // the server sends carries it: its update op may not have landed yet.
+    if (wroteModels) _unconfirmedModelLists.add(chatId);
     sw.stop();
     DebugLogger.log(
       'append-ms',

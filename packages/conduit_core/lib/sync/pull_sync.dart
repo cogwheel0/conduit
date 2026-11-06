@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:math' as math;
 
+import 'package:collection/collection.dart' show DeepCollectionEquality;
 import 'package:conduit_core/database/app_database.dart';
 import 'package:conduit_core/database/daos/chats_dao.dart';
 import 'package:conduit_core/database/mappers/chat_blob_mapper.dart';
@@ -280,6 +281,9 @@ class PullSync {
   final SyncItemProgressCallback? _onProgress;
   final PullFetchMemo? _fetchMemo;
   final _taskVersionsAtFetch = Expando<int>();
+
+  /// [ChatsDao.modelListVersion] when each raw response was requested.
+  final _modelListVersionsAtFetch = Expando<int>();
 
   /// [ChatLocks.generation] when each raw response was requested, so the merge
   /// can tell a read that a bulk barrier has since outdated.
@@ -589,10 +593,12 @@ class PullSync {
   /// Full `ChatResponse` fetch; null on 404. Adapter seam.
   Future<Map<String, dynamic>?> fetchChatRaw(String id) async {
     final taskVersion = _db.chatsDao.taskEventVersion(id);
+    final modelListVersion = _db.chatsDao.modelListVersion(id);
     final generation = _locks.generation;
     final response = await _client.getChatRaw(id);
     if (response != null) {
       _taskVersionsAtFetch[response] = taskVersion;
+      _modelListVersionsAtFetch[response] = modelListVersion;
       _generationsAtFetch[response] = generation;
     }
     return response;
@@ -693,6 +699,28 @@ class PullSync {
       throw const StaleServerReadException();
     }
     final id = resp['id'] as String;
+    // A model picked here since this copy was read stays: the copy holds the
+    // list from before, and the server keeps the chat's date on a model
+    // change, so its age shows nowhere else.
+    final modelsFetchedAt = _modelListVersionsAtFetch[resp];
+    final chatBody = resp['chat'];
+    final readBeforeWrite =
+        modelsFetchedAt != null &&
+        modelsFetchedAt != _db.chatsDao.modelListVersion(id);
+    final unconfirmed = _db.chatsDao.hasUnconfirmedModelList(id);
+    if (chatBody is Map && (readBeforeWrite || unconfirmed)) {
+      final picked = await _db.chatsDao.storedChatModels(id);
+      if (picked != null) {
+        if (!readBeforeWrite &&
+            const DeepCollectionEquality().equals(chatBody['models'], picked)) {
+          // A copy read after the list was written carries it: the server
+          // has it.
+          _db.chatsDao.confirmModelList(id);
+        } else {
+          chatBody['models'] = picked;
+        }
+      }
+    }
     final createdAt = _asEpochSeconds(resp['created_at']) ?? 0;
     final updatedAt = _asEpochSeconds(resp['updated_at']) ?? 0;
     final stored = await _db.chatsDao.getChat(id);

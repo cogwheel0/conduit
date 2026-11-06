@@ -1180,6 +1180,9 @@ void main() {
         // Another sign-in begins, and the same chat is opened under it.
         container.read(epoch.notifier).rotate();
         container.read(activeConversationProvider.notifier).set(shown);
+        container
+            .read(chatMessagesProvider.notifier)
+            .setMessages(shown.messages);
         container.read(selectedFilterIdsProvider.notifier).set(['filter-b']);
 
         api.gate!.complete();
@@ -1187,6 +1190,7 @@ void main() {
 
         expect(container.read(activeConversationProvider)?.id, 'chat-s');
         expect(container.read(selectedFilterIdsProvider), ['filter-b']);
+        expect(container.read(chatMessagesProvider), isNotEmpty);
       });
     });
 

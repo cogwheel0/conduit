@@ -25,6 +25,14 @@ const String kMessageUnfinishedAnswersMetadataKey = 'unfinishedAnswerIds';
 const String kMessageUnfinishedAnswerAuthorsMetadataKey =
     'unfinishedAnswerAuthors';
 
+/// Where an answer's metadata says the server still reports it as not done
+/// (`done: false`), whether or not it belongs to a comparison. In a chat
+/// shared with Allow replies, another person's reply runs under a task this
+/// account's task list never shows, and a reply written in Open WebUI's web
+/// client keeps no `isStreaming`: this is how it is known to be running.
+/// Derived from each copy of the chat; absent once the server says it is done.
+const String kMessageServerUnfinishedMetadataKey = 'serverUnfinished';
+
 /// Where a message's metadata names the account that wrote it: Open WebUI's
 /// `user_id` on the message, which a chat shared with Allow replies holds for
 /// each person. Absent when the server did not say.

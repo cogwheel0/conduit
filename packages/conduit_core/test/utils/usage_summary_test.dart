@@ -60,6 +60,19 @@ void main() {
     expect(summary.totalTokens, 20);
   });
 
+  test('Open WebUI 0.12.5: usage some steps did not report is incomplete', () {
+    final partial = UsageSummary.fromUsage(<String, dynamic>{
+      'output_tokens': 120,
+      'incomplete': true,
+    });
+    expect(partial.incomplete, isTrue);
+    expect(partial.generationTokens, 120);
+    expect(
+      UsageSummary.fromUsage(<String, dynamic>{'output_tokens': 120}).incomplete,
+      isFalse,
+    );
+  });
+
   test('nothing usable is empty', () {
     expect(UsageSummary.fromUsage(<String, dynamic>{'x': 'y'}).isEmpty, isTrue);
   });

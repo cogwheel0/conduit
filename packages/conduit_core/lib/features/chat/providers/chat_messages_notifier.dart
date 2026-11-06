@@ -269,7 +269,9 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
 
         if (next != null) {
           final nextMessages = _restoreLiveTransportRunState(
-            _preserveFreshLocalMessageState(next.messages),
+            _preserveFreshLocalMessageState(
+              _withOthersRunningReply(next.messages),
+            ),
             next,
             settleOrphanedDirect: true,
           );
@@ -354,7 +356,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     _configurePassiveConversationSync(activeConversation);
     _configureDbMessagesWatch(activeConversation);
     final initialMessages = _restoreLiveTransportRunState(
-      activeConversation?.messages ?? const [],
+      _withOthersRunningReply(activeConversation?.messages ?? const []),
       activeConversation,
       settleOrphanedDirect: true,
     );
@@ -975,7 +977,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     required String source,
   }) {
     final serverMessages = _keepRunningComparisonAnswers(
-      _withoutAnswersFinishedHere(storedMessages),
+      _withOthersRunningReply(_withoutAnswersFinishedHere(storedMessages)),
     );
     if (!_shouldAdoptServerMessages(serverMessages)) {
       _recheckEarlierAnswers();
@@ -1029,6 +1031,15 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
       '(${serverMessages.length} messages)',
       scope: 'chat/providers',
     );
+    // Another person's reply this copy is the first to show running is
+    // followed to its end: no event of this account's would end it here.
+    // A monitor still on another reply, one a branch change replaced, moves
+    // to this one.
+    if (_tailIsAnotherPersons &&
+        (state.lastOrNull?.isStreaming ?? false) &&
+        _remoteTaskMonitorMessageId != state.last.id) {
+      _engageReopenedTailMonitor(state.last.id);
+    }
     // After adoption: the copy may be the first to show the answers.
     _recheckEarlierAnswers();
   }
@@ -2831,6 +2842,9 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
   bool get debugHasRemoteTaskMonitor => _remoteTaskMonitorMessageId != null;
 
   @visibleForTesting
+  String? get debugRemoteTaskMonitorMessageId => _remoteTaskMonitorMessageId;
+
+  @visibleForTesting
   bool get debugHasRemoteTaskPollScheduled =>
       _taskStatusTimer?.isActive ?? false;
 
@@ -3012,14 +3026,25 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
       // local checkpoint was finalized. Zero tasks is therefore a terminal
       // signal for an already-streaming restored tail: fetch the final branch
       // instead of waiting forever for a task this process never observed.
+      // Another person's reply runs under a task this account's list never
+      // shows: it runs on, or is done, as the server's copy of it says.
+      final othersReply = !openedTail.isWrittenBy(
+        ref.read(currentUserProvider2)?.id,
+      );
       final reconciled = await _refreshReopenedStreamFromServer(
         api: api,
         owner: owner,
         expectedLocalMessageId: openedMessageId,
-        streaming: false,
+        streaming: othersReply ? null : false,
         source: 'cold-open completion',
         persist: true,
       );
+      if (reconciled && othersReply && _hasStreamingAssistant) {
+        // The reply that runs may be a newer one of theirs that the copy ends
+        // on: the monitor follows the reply shown.
+        _engageReopenedTailMonitor(state.last.id);
+        return;
+      }
       if (reconciled) {
         final reopenedRemoteId = _boundRemoteMessageId;
         _cancelMessageStream();
@@ -3131,12 +3156,39 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
   }
 
   /// Whether the server's copy [message] says it is still running: a
-  /// checkpoint a Conduit client keeps while it writes, or an answer its
-  /// comparison lists as not done.
+  /// checkpoint a Conduit client keeps while it writes, or `done: false`,
+  /// which Open WebUI's web client keeps instead (on the answer itself, or in
+  /// the list of its comparison's unfinished answers).
   static bool _serverReportsRunning(ChatMessage message) {
     if (message.isStreaming) return true;
+    if (message.metadata?[kMessageServerUnfinishedMetadataKey] == true) {
+      return true;
+    }
     final unfinished = message.metadata?[kMessageUnfinishedAnswersMetadataKey];
     return unfinished is List && unfinished.contains(message.id);
+  }
+
+  /// [messages] with the reply at the end shown running when it is another
+  /// person's and the server reports it still running. A reply written in Open
+  /// WebUI's web client keeps no `isStreaming`; it is running while its copy is
+  /// not done, as the web client takes it. [messages] itself otherwise.
+  List<ChatMessage> _withOthersRunningReply(List<ChatMessage> messages) {
+    final tail = messages.lastOrNull;
+    if (tail == null ||
+        tail.role != 'assistant' ||
+        tail.isStreaming ||
+        tail.isWrittenBy(ref.read(currentUserProvider2)?.id) ||
+        !_serverReportsRunning(tail)) {
+      return messages;
+    }
+    final transport = tail.metadata?['transport'];
+    if (transport == kDirectTransport || transport == kHermesTransport) {
+      return messages;
+    }
+    return List<ChatMessage>.unmodifiable(<ChatMessage>[
+      ...messages.sublist(0, messages.length - 1),
+      tail.copyWith(isStreaming: true),
+    ]);
   }
 
   void _engageReopenedTailMonitor(String messageId) {
@@ -3279,9 +3331,24 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
 
     final reconciled = List<ChatMessage>.from(mergedServerMessages);
     reconciled[serverIndex] = serverTail;
+    // Following another person's reply as the server's copy has it: a newer
+    // reply of theirs that the copy ends on, and reports still running,
+    // shows running too, as on open. That is read from the copy itself, as
+    // `live` is: the merge with local state above may keep a marker the copy
+    // has dropped. (`_withOthersRunningReply` returns the list it is given
+    // when the tail does not run.)
+    final othersNewerReplyRuns =
+        streaming == null &&
+        serverIndex != serverMessages.length - 1 &&
+        !identical(_withOthersRunningReply(serverMessages), serverMessages);
+    if (othersNewerReplyRuns) {
+      reconciled[reconciled.length - 1] = reconciled.last.copyWith(
+        isStreaming: true,
+      );
+    }
     state = List<ChatMessage>.unmodifiable(reconciled);
 
-    if (live && state.last.role == 'assistant') {
+    if ((live || othersNewerReplyRuns) && state.last.role == 'assistant') {
       _streamingContentTimer?.cancel();
       _streamingContentTimer = null;
       _streamingBuffer = StringBuffer(state.last.content);
@@ -3808,8 +3875,11 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
       // server task runs. A reattached socket only sees future events, so its
       // transport protection must not suppress snapshots that fill the gap
       // accumulated while another chat (or no app process) owned the screen.
+      // Another person's reply is left to the branch below: a task of this
+      // account's in the chat says nothing of whether theirs runs.
       if (_hasStreamingAssistant &&
           hasActiveTasks &&
+          !othersReply &&
           (unprotectedResumeNeedsSnapshot || protectedResumeNeedsSnapshot)) {
         final expectedMessageId = _reopenedStreamingMessageId ?? state.last.id;
         if (_shouldProtectLocalStreamingState &&
@@ -3832,13 +3902,12 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
         }
       }
 
-      // Another person's reply, with no task of this account's running in the
-      // chat: it runs on, or is done, as the server's copy of it says, as Open
+      // Another person's reply, whatever tasks this account runs in the chat:
+      // it runs on, or is done, as the server's copy of it says, as Open
       // WebUI's web client takes it. Asked no more often than a stalled
       // resume is.
       if (_hasStreamingAssistant &&
           othersReply &&
-          !hasActiveTasks &&
           (_lastReopenedSnapshotAt == null ||
               now.difference(_lastReopenedSnapshotAt!) >=
                   _reopenedSocketStallThreshold)) {
@@ -3859,6 +3928,12 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
           _cancelMessageStream();
           schedulePullChatNow(ref, owner.chatId);
           _recheckEarlierAnswers();
+        } else if (followed &&
+            _tailIsAnotherPersons &&
+            _remoteTaskMonitorMessageId != state.last.id) {
+          // The copy ends on a newer reply of theirs, still running: it is
+          // followed in its turn.
+          _engageReopenedTailMonitor(state.last.id);
         }
       }
 

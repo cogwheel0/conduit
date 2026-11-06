@@ -266,13 +266,138 @@ Map<String, dynamic> noteDataWithoutFile(
     if (kept.length != files.length) patch['files'] = kept;
   }
   final String md = notePageMarkdown(data, pageId);
-  if (noteFileLinksInMarkdown(md).any((link) => link.id == fileId)) {
-    patch['content'] = noteContentWithMarkdown(
-      notePageContent(data, pageId),
-      removeNoteFileLinks(md, fileId),
-    );
+  final Map<String, dynamic> content =
+      notePageContent(data, pageId) ?? <String, dynamic>{'md': md};
+  final Object? html = content['html'];
+  final Object? json = content['json'];
+  // The server reads the editor JSON, then the HTML, before the markdown: a
+  // file any of them links is attached.
+  if (noteFileLinksInMarkdown(md).any((link) => link.id == fileId) ||
+      (html is String && _htmlFileLinkIds(html).contains(fileId)) ||
+      (json is Map &&
+          _jsonFileAttachmentIds(
+            Map<String, dynamic>.from(json),
+          ).contains(fileId))) {
+    patch['content'] = noteContentWithoutFile(content, fileId);
   }
   return patch;
+}
+
+/// [content] without file [fileId]: its links taken out of the markdown, its
+/// attachment nodes and linked text out of the editor JSON, and its links
+/// (with the block [noteContentWithLinkedFiles] puts them in) out of the
+/// HTML, so the rich text the web editor saved is kept. A form that still
+/// links the file after that, in a shape not known here, is cleared, as the
+/// server and the web editor read JSON, then HTML, before the markdown, and
+/// would otherwise keep the file.
+Map<String, dynamic> noteContentWithoutFile(
+  Map<String, dynamic> content,
+  String fileId,
+) {
+  final Object? rawMd = content['md'];
+  final Object? rawHtml = content['html'];
+  final Object? rawJson = content['json'];
+  var html = rawHtml is String ? rawHtml : '';
+  if (html.isNotEmpty) {
+    // The markup is matched in any case, as HTML is; the file id exactly.
+    String ofFile(Match match) => match[1] == fileId ? '' : match[0]!;
+    // A block goes whole when it names the file and holds no link but the
+    // file's own.
+    String ofFileBlock(Match match) =>
+        match[1] == fileId && (match[2] == null || match[2] == fileId)
+        ? ''
+        : match[0]!;
+    html = html
+        .replaceAllMapped(_htmlFileBlockPattern, ofFileBlock)
+        .replaceAllMapped(_htmlFileAnchorPattern, ofFile)
+        // A block of the file that holds more keeps the rest, and its other
+        // attributes, but no longer names the file: the editor would read
+        // it back as the file.
+        .replaceAllMapped(
+          _htmlFileBlockOpenPattern,
+          (Match match) => match[1] == fileId
+              ? match[0]!.replaceAll(_htmlFileBlockAttributePattern, '')
+              : match[0]!,
+        );
+    if (_htmlFileLinkIds(html).contains(fileId)) html = '';
+  }
+  Map<String, dynamic>? json = rawJson is Map
+      ? _jsonWithoutFile(Map<String, dynamic>.from(rawJson), fileId)
+      : null;
+  if (json != null && _jsonFileAttachmentIds(json).contains(fileId)) {
+    json = null;
+  }
+  return <String, dynamic>{
+    ...content,
+    'md': removeNoteFileLinks(rawMd is String ? rawMd : '', fileId),
+    'html': html,
+    'json': json,
+  };
+}
+
+/// A block holding only a file link, as [noteContentWithLinkedFiles] and
+/// Open WebUI's editor write it, with the id it names and the id its link
+/// names. A block holding more is not taken whole: its other content stays.
+final RegExp _htmlFileBlockPattern = RegExp(
+  r'''<div\b[^>]*\sdata-file-id\s*=\s*["']([^"']*)["'][^>]*>\s*'''
+  r'''(?:<a\b[^>]*?\shref\s*=\s*["']/api/v1/files/([\w-]+)/content["'][^>]*>'''
+  r'''(?:(?!</?(?:a|div)\b)[\s\S])*</a>)?\s*</div>''',
+  caseSensitive: false,
+);
+
+/// The opening tag of a block that names a file, with the id it names.
+final RegExp _htmlFileBlockOpenPattern = RegExp(
+  r'''<div\b[^>]*\sdata-file-id\s*=\s*["']([^"']*)["'][^>]*>''',
+  caseSensitive: false,
+);
+
+/// The attributes by which a block names a file.
+final RegExp _htmlFileBlockAttributePattern = RegExp(
+  r'''\sdata-file-(?:id|size)\s*=\s*(?:"[^"]*"|'[^']*')''',
+  caseSensitive: false,
+);
+
+/// A whole anchor element linking a file's content, with the file's id.
+final RegExp _htmlFileAnchorPattern = RegExp(
+  r'''<a\b[^>]*?\shref\s*=\s*["']/api/v1/files/([\w-]+)/content["'][^>]*>.*?</a>''',
+  caseSensitive: false,
+  dotAll: true,
+);
+
+/// Editor JSON [node] without the attachment nodes of file [fileId], and
+/// without the text that links to it.
+Map<String, dynamic> _jsonWithoutFile(Map<String, dynamic> node, String fileId) {
+  final Object? children = node['content'];
+  if (children is! List) return node;
+  final String href = '/api/v1/files/$fileId/content';
+  bool isOfFile(Object? child) {
+    if (child is! Map) return false;
+    if (child['type'] == 'fileAttachment') {
+      final Object? attrs = child['attrs'];
+      return attrs is Map && attrs['id'] == fileId;
+    }
+    final Object? marks = child['marks'];
+    return child['type'] == 'text' &&
+        marks is List &&
+        marks.any(
+          (Object? mark) =>
+              mark is Map &&
+              mark['type'] == 'link' &&
+              mark['attrs'] is Map &&
+              (mark['attrs'] as Map)['href'] == href,
+        );
+  }
+
+  return <String, dynamic>{
+    ...node,
+    'content': <Object?>[
+      for (final Object? child in children)
+        if (!isOfFile(child))
+          child is Map
+              ? _jsonWithoutFile(Map<String, dynamic>.from(child), fileId)
+              : child,
+    ],
+  };
 }
 
 /// [data] without the keys a create never sends.

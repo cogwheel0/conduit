@@ -793,6 +793,7 @@
     }
   },
   "usageLoadDuration": "모델 로드 시간",
+  "usageIncomplete": "일부 단계에서 사용량이 보고되지 않아 이 수치가 실제보다 낮을 수 있습니다.",
   "usageQueueTime": "대기 시간",
   "usageReasoningTokens": "추론 토큰",
   "usageTotalTokens": "총 토큰",

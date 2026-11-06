@@ -508,6 +508,51 @@ void main() {
             .deepEquals([safeDescriptor]);
       });
 
+      test('a reply the server reports not done is marked so, from this '
+          'snapshot only', () {
+        Map<String, dynamic> replyMetadata({Object? done, Object? saved}) {
+          final result = parseFullConversation({
+            'id': 'conv-1',
+            'chat': {
+              'history': {
+                'currentId': 'assistant-1',
+                'messages': {
+                  'user-1': {
+                    'role': 'user',
+                    'content': 'Hello',
+                    'childrenIds': ['assistant-1'],
+                    'timestamp': 1700000000,
+                  },
+                  'assistant-1': {
+                    'role': 'assistant',
+                    'content': 'So far',
+                    'parentId': 'user-1',
+                    'done': ?done,
+                    'metadata': {'serverUnfinished': ?saved, 'custom': 'kept'},
+                    'timestamp': 1700000001,
+                  },
+                },
+              },
+            },
+          });
+          final messages = result['messages'] as List<Map<String, dynamic>>;
+          return messages.last['metadata'] as Map<String, dynamic>;
+        }
+
+        // A reply written in the web client keeps only `done: false` while it
+        // runs, and no `isStreaming`.
+        check(replyMetadata(done: false)['serverUnfinished']).equals(true);
+        // Done, or with no marker, it is not; a mark an earlier read saved
+        // into the copy does not survive.
+        check(
+          replyMetadata(done: true, saved: true),
+        ).not((it) => it.containsKey('serverUnfinished'));
+        check(
+          replyMetadata(saved: true),
+        ).not((it) => it.containsKey('serverUnfinished'));
+        check(replyMetadata(done: false)['custom']).equals('kept');
+      });
+
       test('derives a comparison\'s unfinished answers from this snapshot, '
           'never from a copy the app saved earlier', () {
         // The sync outbox writes the shown message's metadata back to the

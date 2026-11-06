@@ -20,6 +20,7 @@ import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit_core/models/model.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/sync/chat_locks.dart';
+import 'package:conduit_core/sync/sync_engine.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
 
 /// The model the user last picked in an open chat, with the ids of the
@@ -165,14 +166,15 @@ typedef _PendingModels = ({
   DateTime? retryAt,
 });
 
-/// How long a model list waits after each failed send before the next; it
-/// is sent at most once more than there are waits.
-const List<Duration> _modelSaveRetryWaits = <Duration>[
-  Duration(seconds: 1),
-  Duration(seconds: 4),
-];
-
 class ChatModelSaveQueue extends Notifier<void> {
+  /// How long a model list waits after each failed send before the next; it
+  /// is sent at most once more than there are waits.
+  @visibleForTesting
+  static List<Duration> modelSaveRetryWaits = const <Duration>[
+    Duration(seconds: 1),
+    Duration(seconds: 4),
+  ];
+
   /// How long a list waits on a chat that is only listed as running a task,
   /// with no reply streaming on screen, before the server is asked whether
   /// the task still runs.
@@ -220,14 +222,15 @@ class ChatModelSaveQueue extends Notifier<void> {
   Future<void> _store(
     String chatId,
     List<String> models,
-    Object account,
-  ) async {
+    Object account, {
+    bool confirmed = false,
+  }) async {
     final db = ref.read(appDatabaseProvider);
     if (db == null) return;
     try {
       await ref.read(chatLocksProvider).runExclusive(chatId, () async {
         if (!ref.mounted || _account() != account) return;
-        await db.chatsDao.setChatModels(chatId, models);
+        await db.chatsDao.setChatModels(chatId, models, confirmed: confirmed);
       });
     } catch (error) {
       _logFailure(chatId, error);
@@ -289,7 +292,7 @@ class ChatModelSaveQueue extends Notifier<void> {
         // A pull may put the old list back before a later push of the chat
         // sends this one: it is sent again after a wait, a few times, unless
         // a newer list for the chat came in meanwhile.
-        if (tries < _modelSaveRetryWaits.length) {
+        if (tries < modelSaveRetryWaits.length) {
           _pending.putIfAbsent(
             chatId,
             () => (
@@ -297,9 +300,20 @@ class ChatModelSaveQueue extends Notifier<void> {
               account: account,
               auth: auth,
               tries: tries + 1,
-              retryAt: DateTime.now().add(_modelSaveRetryWaits[tries]),
+              retryAt: DateTime.now().add(modelSaveRetryWaits[tries]),
             ),
           );
+        } else if (!_pending.containsKey(chatId)) {
+          // Given up: the pick no longer holds over the server's list, so
+          // a change made elsewhere shows again.
+          ref
+              .read(appDatabaseProvider)
+              ?.chatsDao
+              .releaseUnconfirmedModelList(chatId);
+          // A pull while the pick held may have kept it over a list chosen
+          // elsewhere, and pulls skip a chat the server has not changed
+          // since: the server's copy is read again now.
+          _refetchChat(chatId, account);
         }
         continue;
       }
@@ -312,7 +326,8 @@ class ChatModelSaveQueue extends Notifier<void> {
           ref.mounted &&
           account == _account() &&
           !_pending.containsKey(chatId)) {
-        await _store(chatId, models, account);
+        // The server has the list now; copies it sends from here on hold it.
+        await _store(chatId, models, account, confirmed: true);
       }
     }
   }
@@ -393,6 +408,45 @@ class ChatModelSaveQueue extends Notifier<void> {
         _noTaskOfOurs[chatId] == token);
   }
 
+
+  /// Reads chat [chatId] from the server, for [account]. A read that fails,
+  /// or reads nothing, is tried again after the waits a save is, until one succeeds, a newer
+  /// list for the chat comes in, or another account signs in; after the last
+  /// wait the chat is left to the next change the server lists.
+  void _refetchChat(String chatId, Object? account, {int tries = 0}) {
+    void retryLater(Object error) {
+      _logFailure(chatId, error);
+      if (tries >= modelSaveRetryWaits.length) return;
+      unawaited(
+        Future<void>.delayed(modelSaveRetryWaits[tries], () {
+          if (!ref.mounted ||
+              _account() != account ||
+              _pending.containsKey(chatId)) {
+            return;
+          }
+          _refetchChat(chatId, account, tries: tries + 1);
+        }),
+      );
+    }
+
+    final Future<Object?> read;
+    try {
+      read = ref.read(syncEngineProvider.notifier).pullChatNow(chatId);
+    } catch (error) {
+      retryLater(error);
+      return;
+    }
+    unawaited(
+      read.then<void>(
+        (Object? conversation) {
+          // Nothing read: the engine was not ready, or a bulk change outdated
+          // the read.
+          if (conversation == null) retryLater(StateError('chat not read'));
+        },
+        onError: retryLater,
+      ),
+    );
+  }
 
   void _logFailure(String chatId, Object error) {
     DebugLogger.warning(

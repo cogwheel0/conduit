@@ -656,6 +656,134 @@ void main() {
     });
   });
 
+  group('a model picked while a pull reads the chat', () {
+    Future<List<Object?>?> stored() => db.chatsDao.storedChatModels('chat-1');
+    void seed(List<String> models) => server.seedChat(
+      id: 'chat-1',
+      blob: {...blobFor('chat-1'), 'models': models},
+      createdAt: 100,
+      updatedAt: 150,
+    );
+
+    test('stays over the list the pull read before it', () async {
+      seed(['model-1']);
+      await pull.pullChat('chat-1');
+      check(await stored()).isNotNull().deepEquals(['model-1']);
+
+      // A pull has read the chat, and waits to store it; meanwhile the user
+      // picks a model, which is stored at once and sent to the server after.
+      final late = _LateReadClient(server);
+      final gate = Completer<void>();
+      late.readGate = gate.future;
+      pull = PullSync(client: late, db: db, locks: locks);
+      final pulling = pull.pullChat('chat-1');
+      await late.readTaken.future;
+      await db.chatsDao.setChatModels('chat-1', const ['model-2']);
+      gate.complete();
+      await pulling;
+
+      check(await stored()).isNotNull().deepEquals(['model-2']);
+
+      // Once the server has taken it, a pull takes the server's list again.
+      await db.chatsDao.setChatModels(
+        'chat-1',
+        const ['model-2'],
+        confirmed: true,
+      );
+      seed(['model-3']);
+      pull = PullSync(client: client, db: db, locks: locks);
+      await pull.pullChat('chat-1');
+      check(await stored()).isNotNull().deepEquals(['model-3']);
+    });
+
+    test('a chat with edits of its own, read by name, takes the server\'s '
+        'list once a pick is given up, and keeps its edits', () async {
+      seed(['model-1']);
+      await pull.pullChat('chat-1');
+      // A title edit here, not pushed yet, leaves the chat dirty.
+      await (db.update(db.chats)..where((t) => t.id.equals('chat-1'))).write(
+        const ChatsCompanion(dirty: Value(true), title: Value('Mine')),
+      );
+
+      // Picked and not taken yet: a read by name keeps it.
+      await db.chatsDao.setChatModels('chat-1', const ['model-2']);
+      await pull.pullChat('chat-1');
+      check(await stored()).isNotNull().deepEquals(['model-2']);
+
+      // Given up: a read by name, the server having changed nothing since,
+      // takes the server's list, and only that.
+      db.chatsDao.releaseUnconfirmedModelList('chat-1');
+      await pull.pullChat('chat-1');
+      check(await stored()).isNotNull().deepEquals(['model-1']);
+      final row = (await db.chatsDao.getChat('chat-1'))!;
+      check(row.title).equals('Mine');
+      check(row.dirty).isTrue();
+    });
+
+    test('stays over a copy read after it, until the server has taken it',
+        () async {
+      seed(['model-1']);
+      await pull.pullChat('chat-1');
+
+      // Picked, not sent yet: the server still holds the earlier list.
+      await db.chatsDao.setChatModels('chat-1', const ['model-2']);
+      await pull.pullChat('chat-1');
+      check(await stored()).isNotNull().deepEquals(['model-2']);
+    });
+
+    test('a turn sent with a list keeps it over a copy read before it',
+        () async {
+      seed(['model-1']);
+      await pull.pullChat('chat-1');
+
+      final late = _LateReadClient(server);
+      final gate = Completer<void>();
+      late.readGate = gate.future;
+      pull = PullSync(client: late, db: db, locks: locks);
+      final pulling = pull.pullChat('chat-1');
+      await late.readTaken.future;
+      await db.chatsDao.appendMessagesWithUpdateOp(
+        chatId: 'chat-1',
+        messages: const [],
+        enqueueUpdate: false,
+        enqueueCompletion: false,
+        chatModels: const ['model-a', 'model-b'],
+      );
+      gate.complete();
+      await pulling;
+
+      check(await stored()).isNotNull().deepEquals(['model-a', 'model-b']);
+
+      // A copy read after the turn, from before its update op landed, still
+      // holds the old list: the turn's stays.
+      await pull.pullChat('chat-1');
+      check(await stored()).isNotNull().deepEquals(['model-a', 'model-b']);
+      check(db.chatsDao.hasUnconfirmedModelList('chat-1')).isTrue();
+
+      // Once a copy carries it, the server has it, and it is no longer held.
+      seed(['model-a', 'model-b']);
+      await pull.pullChat('chat-1');
+      check(db.chatsDao.hasUnconfirmedModelList('chat-1')).isFalse();
+      seed(['model-c']);
+      await pull.pullChat('chat-1');
+      check(await stored()).isNotNull().deepEquals(['model-c']);
+    });
+
+    test('a pick never stored holds nothing over the server', () async {
+      await db.chatsDao.setChatModels('no-such-chat', const ['model-2']);
+      check(db.chatsDao.hasUnconfirmedModelList('no-such-chat')).isFalse();
+    });
+
+    test('an envelope that cannot be read keeps no list', () async {
+      seed(['model-1']);
+      await pull.pullChat('chat-1');
+      await (db.update(db.chats)..where((t) => t.id.equals('chat-1'))).write(
+        const ChatsCompanion(rawExtra: Value('not json')),
+      );
+      check(await stored()).isNull();
+    });
+  });
+
   group('checklist persistence', () {
     const pending = [
       {'id': '1', 'content': 'Read references', 'status': 'pending'},

@@ -1017,6 +1017,7 @@
     }
   },
   "usageLoadDuration": "Modellladezeit",
+  "usageIncomplete": "Einige Schritte haben keine Nutzung gemeldet, daher können diese Werte zu niedrig sein.",
   "usageQueueTime": "Wartezeit",
   "usageReasoningTokens": "Reasoning-Tokens",
   "usageTotalTokens": "Gesamte Tokens",

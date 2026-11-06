@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:meta/meta.dart' show visibleForTesting;
+
 import 'package:dio/dio.dart';
 import 'package:drift/drift.dart' show Value;
 import 'package:riverpod/riverpod.dart';
@@ -102,6 +104,18 @@ class NoteAttachmentsController {
   /// it was recovered: an upload of one still running neither comes back to
   /// this editor nor attaches to the note it shows now.
   final Set<String> _leftBehindUploads = <String>{};
+
+  /// Recordings [rebindTo] is moving to another note. A retry meanwhile
+  /// finds no copy where one was and reports it gone; such a report waits in
+  /// [_goneWhileMoving] for the move to say where the recording is.
+  final Set<String> _moving = <String>{};
+  final Set<String> _goneWhileMoving = <String>{};
+
+  /// The copies [rebindTo] moved recordings to, by id. A recording reported
+  /// gone later, by a retry that looked where it was before the move, is
+  /// gone only if its copy is too.
+  final Map<String, PendingNoteAudioUpload> _movedCopies =
+      <String, PendingNoteAudioUpload>{};
   final Set<String> _inFlight = <String>{};
   final Set<String> _queued = <String>{};
   final Set<String> _feedbackIds = <String>{};
@@ -466,10 +480,20 @@ class NoteAttachmentsController {
 
       // A shared in-flight operation may have been owned by a different
       // editor instance, whose change callback does not target this page.
-      _applyChange(id, result);
+      // A moved recording is checked against its copy before the upload
+      // counts as over, so it is not reported saved while still in view.
+      await _reportChange(id, result);
+      // Another session may have begun while the copy was checked.
+      if (!_isCurrent(api: api, db: db, authEpoch: authEpoch)) return;
 
       if (result == null) {
-        if (showFeedback) _onNotice(NoteAudioNotice.recordingSaved);
+        // Saved once it has left the view. It stays when the copy a move made
+        // of it could not be read, or is still stored (the upload then found
+        // only where it was before), or while a move settles its report.
+        final bool left = !_pending.any(
+          (PendingNoteAudioUpload item) => item.id == id,
+        );
+        if (showFeedback && left) _onNotice(NoteAudioNotice.recordingSaved);
       } else if (showFeedback) {
         _onNotice(NoteAudioNotice.uploadFailed);
       }
@@ -792,7 +816,90 @@ class NoteAttachmentsController {
       _container.read(notePagesServerProvider) == true;
 
   void _applyChange(String id, PendingNoteAudioUpload? updated) {
-    if (_disposed || _leftBehindUploads.contains(id)) return;
+    final Future<void>? check = _reportChange(id, updated);
+    if (check != null) unawaited(check);
+  }
+
+  /// Applies a change of recording [id]; a report of it gone that is checked
+  /// against the copy a move made returns that check.
+  Future<void>? _reportChange(String id, PendingNoteAudioUpload? updated) {
+    if (_disposed || _leftBehindUploads.contains(id)) return null;
+    if (updated == null) {
+      if (_moving.contains(id)) {
+        _goneWhileMoving.add(id);
+        return null;
+      }
+      if (_movedCopies.containsKey(id)) return _confirmGone(id);
+    }
+    _setChange(id, updated);
+    return null;
+  }
+
+  /// Hides recording [id], reported gone, unless the copy a move made of it
+  /// is still stored: the report then only missed where it was before. A
+  /// move that starts while the copy is read settles the report itself, and
+  /// one that has moved the recording again meanwhile is checked by its own
+  /// copy.
+  Future<void> _confirmGone(String id) async {
+    while (true) {
+      final PendingNoteAudioUpload? copy = _movedCopies[id];
+      final PendingNoteAudioUpload? current;
+      try {
+        current = copy == null ? null : await _store.loadCurrent(copy);
+      } catch (error, stackTrace) {
+        // Unknown: the recording stays in view, to be retried.
+        DebugLogger.error(
+          'note-audio-moved-copy-check-failed',
+          scope: 'notes/audio',
+          error: error,
+          stackTrace: stackTrace,
+          data: {'uploadId': id},
+        );
+        return;
+      }
+      if (_disposed || current != null) return;
+      if (_moving.contains(id)) {
+        _goneWhileMoving.add(id);
+        return;
+      }
+      if (!identical(_movedCopies[id], copy)) continue;
+      _movedCopies.remove(id);
+      _setChange(id, null);
+      return;
+    }
+  }
+
+  /// Reports recording [id] gone, as a retry that found no copy does; the
+  /// future completes once the report is settled or left to a running move.
+  @visibleForTesting
+  Future<void> debugReportGone(String id) async {
+    await _reportChange(id, null);
+  }
+
+  /// Settles the reports of recordings gone that came in while [ids] moved:
+  /// one the move made a copy of is checked against that copy; one it made
+  /// none of was finished or removed meanwhile, and goes.
+  void _settleMove(
+    Iterable<String> ids,
+    Map<String, PendingNoteAudioUpload> reboundUploads,
+  ) {
+    for (final String id in ids) {
+      final PendingNoteAudioUpload? copy = reboundUploads[id];
+      if (copy != null) _movedCopies[id] = copy;
+    }
+    _moving.removeAll(ids);
+    for (final String id in ids.toList()) {
+      if (!_goneWhileMoving.remove(id)) continue;
+      if (_movedCopies.containsKey(id)) {
+        unawaited(_confirmGone(id));
+      } else {
+        _setChange(id, null);
+      }
+    }
+  }
+
+  void _setChange(String id, PendingNoteAudioUpload? updated) {
+    if (_disposed) return;
     _mutationGeneration++;
     final int index = _pending.indexWhere(
       (PendingNoteAudioUpload item) => item.id == id,
@@ -876,6 +983,7 @@ class NoteAttachmentsController {
             if (moves(item)) item.id: item,
         };
     attemptedUploadIds.addAll(initialUploads.keys);
+    _moving.addAll(initialUploads.keys);
     final List<Future<MapEntry<String, PendingNoteAudioUpload?>>> rebindWaits =
         initialUploads.entries
             .map(
@@ -919,6 +1027,7 @@ class NoteAttachmentsController {
 
       for (final PendingNoteAudioUpload item in audioItemsById.values) {
         if (!moves(item) || !attemptedUploadIds.add(item.id)) continue;
+        _moving.add(item.id);
         final PendingNoteAudioUpload? rebound = await rebindItem(item);
         if (rebound != null) reboundUploads[item.id] = rebound;
       }
@@ -931,7 +1040,11 @@ class NoteAttachmentsController {
         data: {'noteId': previous.id},
       );
     }
-    if (!_isCurrent(api: api, db: db, authEpoch: authEpoch)) return;
+    if (!_isCurrent(api: api, db: db, authEpoch: authEpoch)) {
+      _moving.removeAll(attemptedUploadIds);
+      _goneWhileMoving.removeAll(attemptedUploadIds);
+      return;
+    }
 
     // A recording this move took is the new note's, whatever page its copy
     // names: one a retry published while it moved belongs to that note now.
@@ -967,6 +1080,7 @@ class NoteAttachmentsController {
         unawaited(retry(ids: reboundUploads.keys));
       }
     }
+    _settleMove(attemptedUploadIds, reboundUploads);
   }
 }
 

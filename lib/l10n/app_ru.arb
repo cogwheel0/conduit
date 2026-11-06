@@ -1021,6 +1021,7 @@
     }
   },
   "usageLoadDuration": "Время загрузки модели",
+  "usageIncomplete": "Некоторые шаги не сообщили об использовании, поэтому эти значения могут быть занижены.",
   "usageQueueTime": "Время в очереди",
   "usageReasoningTokens": "Токены рассуждений",
   "usageTotalTokens": "Всего токенов",
