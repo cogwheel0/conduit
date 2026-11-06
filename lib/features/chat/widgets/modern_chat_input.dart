@@ -3437,9 +3437,12 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     });
 
     // Use dedicated streaming provider to avoid rebuilding on every message
-    // change. Another person's reply running in a shared chat is not this
-    // account's to stop, so it leaves the composer as it is.
-    final localTurnIsGenerating = ref.watch(isOwnChatStreamingProvider);
+    // change. Any reply running, in a shared chat another person's too, has a
+    // message typed now queued behind it.
+    final localTurnIsGenerating = ref.watch(isChatStreamingProvider);
+    // Only a reply this account asked for is its to stop; another person's
+    // is not, and the composer offers no Stop for it.
+    final localTurnCanStop = ref.watch(isOwnChatStreamingProvider);
     final stopGeneration = ref.read(stopGenerationProvider);
 
     // Watch only upload send-state booleans so metadata/progress churn does not
@@ -3556,6 +3559,10 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
         ?.value;
     final isGenerating =
         localTurnIsGenerating ||
+        (isDesktopHermesComposer &&
+            desktopTurnState == HermesDesktopTurnState.running);
+    final canStop =
+        localTurnCanStop ||
         (isDesktopHermesComposer &&
             desktopTurnState == HermesDesktopTurnState.running);
     final desktopTurnControlsSupported =
@@ -3994,6 +4001,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                 voiceAvailable,
                 allUploadsComplete,
                 hasUploadsInProgress,
+                canStop: canStop,
                 dense: true,
               ),
             ],
@@ -4094,6 +4102,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                   voiceAvailable,
                   allUploadsComplete,
                   hasUploadsInProgress,
+                  canStop: canStop,
                   dense: true,
                 ),
               ],
@@ -4865,6 +4874,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     bool voiceAvailable,
     bool allUploadsComplete,
     bool hasUploadsInProgress, {
+    required bool canStop,
     bool dense = false,
   }) {
     final double buttonSize = conduitScaledControlExtent(
@@ -4887,8 +4897,9 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     final enabled =
         !isGenerating && hasText && widget.enabled && allUploadsComplete;
 
-    // Generating -> STOP variant
-    if (isGenerating) {
+    // Generating -> STOP variant, for a reply this account may stop. Another
+    // person's reply leaves the draft to Queue, and Send waits for it.
+    if (isGenerating && canStop) {
       final stopLabel = AppLocalizations.of(context)!.stopGenerating;
       return AdaptiveTooltip(
         message: stopLabel,

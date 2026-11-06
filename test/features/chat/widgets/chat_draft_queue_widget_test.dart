@@ -33,6 +33,7 @@ import 'package:drift/native.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/misc.dart' show Override;
+import 'package:conduit_core/models/chat_comparison.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
 
@@ -404,6 +405,32 @@ void main() {
     expect(find.text(queueLabel), findsNothing);
     // Nothing was sent to the server: the response is still running.
     expect(await pumpDatabaseOperation(tester, rig.userTurns), isEmpty);
+  });
+
+  testQueue('another person\'s reply running in a shared chat offers Queue '
+      'and no Stop', (tester) async {
+    final rig = await _pump(
+      tester,
+      turn: <ChatMessage>[
+        _runningTurn().first,
+        _runningTurn().last.copyWith(
+          metadata: const <String, dynamic>{
+            kMessageAuthorIdMetadataKey: 'someone-else',
+          },
+        ),
+      ],
+    );
+
+    await rig.type('next question');
+    expect(find.text(queueLabel), findsOneWidget);
+    // Theirs to stop, not this account's.
+    expect(stop, findsNothing);
+
+    await tester.tap(find.text(queueLabel));
+    await tester.pump();
+
+    expect(rig.sent, isEmpty);
+    expect(rig.drafts.map((d) => d.text), ['next question']);
   });
 
   testQueue('Enter queues instead of starting a second turn mid-response', (
