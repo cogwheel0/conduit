@@ -8822,6 +8822,89 @@ void main() {
       check(container.read(isChatStreamingProvider)).isFalse();
     });
 
+    test('another person\'s web reply that starts while the chat is open '
+        'shows running until a copy of the chat says it is done', () async {
+      final (:api, :socket, :client, :container) = await openDraft(
+        account: const User(
+          id: 'me',
+          username: 'Me',
+          email: 'me@example.com',
+          role: 'user',
+        ),
+      );
+      api.activeTaskIds = const [];
+      Conversation chat(List<ChatMessage> tail, DateTime updatedAt) =>
+          _conversation('open-chat', [
+            _user('open-u0', 'hello'),
+            ChatMessage(
+              id: 'mine',
+              role: 'assistant',
+              content: 'hi',
+              timestamp: DateTime.utc(2026, 7, 13, 0, 0, 1),
+              model: duplicate.id,
+              metadata: const <String, dynamic>{
+                kMessageAuthorIdMetadataKey: 'me',
+              },
+            ),
+            ...tail,
+          ], ChatStorageKind.openWebUi).copyWith(
+            userId: 'me',
+            updatedAt: updatedAt,
+          );
+      List<ChatMessage> theirs({required bool running}) => [
+        ChatMessage(
+          id: 'their-q',
+          role: 'user',
+          content: 'and you?',
+          timestamp: DateTime.utc(2026, 7, 13, 0, 0, 2),
+          metadata: const <String, dynamic>{
+            kMessageAuthorIdMetadataKey: 'someone-else',
+          },
+        ),
+        ChatMessage(
+          id: 'their-a',
+          role: 'assistant',
+          content: running ? 'well' : 'well, fine',
+          timestamp: DateTime.utc(2026, 7, 13, 0, 0, 3),
+          model: duplicate.id,
+          metadata: <String, dynamic>{
+            kMessageAuthorIdMetadataKey: 'someone-else',
+            if (running) kMessageServerUnfinishedMetadataKey: true,
+          },
+        ),
+      ];
+      Future<void> settle() async {
+        for (var i = 0; i < 10; i++) {
+          await Future<void>.delayed(Duration.zero);
+        }
+      }
+
+      container
+          .read(activeConversationProvider.notifier)
+          .set(chat(const [], DateTime.utc(2026, 7, 13)));
+      await settle();
+      check(container.read(isChatStreamingProvider)).isFalse();
+
+      // A copy with the other person's reply under way.
+      container
+          .read(activeConversationProvider.notifier)
+          .set(chat(theirs(running: true), DateTime.utc(2026, 7, 14)));
+      await settle();
+      var tail = container.read(chatMessagesProvider).last;
+      check(tail.id).equals('their-a');
+      check(tail.isStreaming).isTrue();
+      check(container.read(isOwnChatStreamingProvider)).isFalse();
+
+      // The copy that has it done.
+      container
+          .read(activeConversationProvider.notifier)
+          .set(chat(theirs(running: false), DateTime.utc(2026, 7, 15)));
+      await settle();
+      tail = container.read(chatMessagesProvider).last;
+      check(tail.isStreaming).isFalse();
+      check(tail.content).equals('well, fine');
+    });
+
     test('Stop in a shared turn stops and settles this account\'s answer, '
         'and the other person\'s at the end runs on', () async {
       final (:api, :socket, :client, :container) = await openDraft(
