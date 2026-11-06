@@ -20,7 +20,11 @@ import 'package:conduit/features/notifications/services/notification_sound_servi
 import 'package:conduit/features/navigation/providers/chat_back_provider.dart';
 import 'package:conduit/shared/services/navigation_service.dart';
 import 'package:conduit_core/database/app_database.dart';
+import 'package:conduit_core/database/chat_database_repository.dart'
+    show ChatStorageKind;
 import 'package:conduit_core/database/local_conversation_loader.dart';
+import 'package:conduit_core/features/tools/providers/tools_providers.dart';
+import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit_core/sync/chat_locks.dart';
 import 'package:conduit_core/sync/pull_sync.dart';
@@ -349,6 +353,35 @@ void main() {
 
       check(NavigationService.currentRoute).equals('/chat');
       check(container.read(chatBackOpensListProvider)).isTrue();
+    });
+
+    test('an on-device chat with the same id is another chat, whose picks '
+        'stay behind', () async {
+      attachRouterAt('/chat');
+      // An on-device chat that happens to share the server chat's raw id is
+      // open, with a filter turned on.
+      container
+          .read(activeConversationProvider.notifier)
+          .set(
+            withChatStorageProvenance(
+              Conversation(
+                id: 'chat-1',
+                title: 'On device',
+                createdAt: DateTime.utc(2026),
+                updatedAt: DateTime.utc(2026),
+              ),
+              ChatStorageKind.directLocal,
+            ),
+          );
+      container.read(selectedFilterIdsProvider.notifier).set(['filter-a']);
+
+      await tapChat(
+        () =>
+            container.read(activeConversationProvider)?.title == 'Greeting',
+      );
+
+      check(container.read(activeConversationProvider)?.title).equals('Greeting');
+      check(container.read(selectedFilterIdsProvider)).isEmpty();
     });
   });
 

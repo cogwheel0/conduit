@@ -4,6 +4,8 @@ import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:flutter/widgets.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
+import 'package:conduit_core/database/chat_database_repository.dart'
+    show ChatStorageIdentity, ChatStorageKind;
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/database/local_conversation_loader.dart';
 
@@ -100,9 +102,15 @@ Future<void> _handleTap(Ref ref, NotificationTap tap) async {
       case NotificationKind.chatCompletion:
         final ownership = captureOpenWebUiConversationRead(ref);
         if (ownership == null) return;
+        // The notification names an Open WebUI chat: an on-device chat with
+        // the same raw id is another chat.
+        final tappedId = ChatStorageIdentity(
+          rawId: tap.sourceId,
+          storage: ChatStorageKind.openWebUi,
+        ).scopedId;
         final outgoing = ref.read(activeConversationProvider);
         if (outgoing == null ||
-            !conversationMatchesScopedId(outgoing, tap.sourceId)) {
+            !conversationMatchesScopedId(outgoing, tappedId)) {
           clearSelectedFiltersForConversationBoundary(ref);
         }
         final chatWasOnScreen = chatPageOnScreen();
@@ -120,7 +128,7 @@ Future<void> _handleTap(Ref ref, NotificationTap tap) async {
           // picks are not this chat's.
           final current = ref.read(activeConversationProvider);
           if (current == null ||
-              !conversationMatchesScopedId(current, tap.sourceId)) {
+              !conversationMatchesScopedId(current, tappedId)) {
             clearSelectedFiltersForConversationBoundary(ref);
           }
           ref
