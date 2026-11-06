@@ -8855,6 +8855,146 @@ void main() {
       check(container.read(isChatStreamingProvider)).isFalse();
     });
 
+    test('another person\'s newer reply, still running when the one '
+        'followed is done, is followed in its turn', () async {
+      final (:api, :socket, :client, :container) = await openDraft(
+        account: const User(
+          id: 'me',
+          username: 'Me',
+          email: 'me@example.com',
+          role: 'user',
+        ),
+      );
+      api.activeTaskIds = const [];
+      ChatMessage reply(
+        String id,
+        String content, {
+        required bool running,
+        required int second,
+      }) => ChatMessage(
+        id: id,
+        role: 'assistant',
+        content: content,
+        timestamp: DateTime.utc(2026, 7, 13, 0, 0, second),
+        model: duplicate.id,
+        metadata: <String, dynamic>{
+          kMessageAuthorIdMetadataKey: 'someone-else',
+          if (running) kMessageServerUnfinishedMetadataKey: true,
+        },
+      );
+      Conversation chat(List<ChatMessage> tail) => _conversation('web-reply', [
+        _user('web-u', 'hello'),
+        ...tail,
+      ], ChatStorageKind.openWebUi).copyWith(userId: 'someone-else');
+      List<ChatMessage> askedAgain({required bool running}) => [
+        reply('theirs', 'theirs, all of it', running: false, second: 1),
+        ChatMessage(
+          id: 'their-q2',
+          role: 'user',
+          content: 'and more?',
+          timestamp: DateTime.utc(2026, 7, 13, 0, 0, 2),
+          metadata: const <String, dynamic>{
+            kMessageAuthorIdMetadataKey: 'someone-else',
+          },
+        ),
+        reply(
+          'theirs-2',
+          running ? 'more' : 'more, all of it',
+          running: running,
+          second: 3,
+        ),
+      ];
+      final opened = chat([
+        reply('theirs', 'theirs so far', running: true, second: 1),
+      ]);
+      api.serverCopy = opened;
+      final notifier = container.read(chatMessagesProvider.notifier);
+      container.read(activeConversationProvider.notifier).set(opened);
+      await until(() => api.taskListRequests > 0);
+      for (var i = 0; i < 10; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+      check(container.read(chatMessagesProvider).last.isStreaming).isTrue();
+      check(notifier.debugRemoteTaskMonitorMessageId).equals('theirs');
+
+      // Theirs is done, and they asked again: the server's copy ends on a
+      // newer reply of theirs, still running. It shows running, and is the
+      // one followed now.
+      api.serverCopy = chat(askedAgain(running: true));
+      notifier
+        ..debugCancelRemoteTaskMonitorTimer()
+        ..debugPrimeReopenedSnapshotAttempt();
+      await notifier.debugSyncRemoteTaskStatus();
+      final messages = container.read(chatMessagesProvider);
+      check(
+        messages.map((message) => message.id),
+      ).deepEquals(['web-u', 'theirs', 'their-q2', 'theirs-2']);
+      check(messages[1].isStreaming).isFalse();
+      check(messages.last.isStreaming).isTrue();
+      check(notifier.debugRemoteTaskMonitorMessageId).equals('theirs-2');
+
+      // Once the copy has that one done too, it is finished here.
+      api.serverCopy = chat(askedAgain(running: false));
+      notifier
+        ..debugCancelRemoteTaskMonitorTimer()
+        ..debugPrimeReopenedSnapshotAttempt();
+      await notifier.debugSyncRemoteTaskStatus();
+      final tail = container.read(chatMessagesProvider).last;
+      check(tail.isStreaming).isFalse();
+      check(tail.content).equals('more, all of it');
+      check(container.read(isChatStreamingProvider)).isFalse();
+    });
+
+    test('another person\'s reply is done when the server\'s copy says so, '
+        'though this account runs a task in the chat', () async {
+      final (:api, :socket, :client, :container) = await openDraft(
+        account: const User(
+          id: 'me',
+          username: 'Me',
+          email: 'me@example.com',
+          role: 'user',
+        ),
+      );
+      api.activeTaskIds = const [];
+      Conversation chat({required bool running, required String content}) =>
+          _conversation('web-reply', [
+            _user('web-u', 'hello'),
+            ChatMessage(
+              id: 'theirs',
+              role: 'assistant',
+              content: content,
+              timestamp: DateTime.utc(2026, 7, 13, 0, 0, 1),
+              model: duplicate.id,
+              metadata: <String, dynamic>{
+                kMessageAuthorIdMetadataKey: 'someone-else',
+                if (running) kMessageServerUnfinishedMetadataKey: true,
+              },
+            ),
+          ], ChatStorageKind.openWebUi).copyWith(userId: 'someone-else');
+      final opened = chat(running: true, content: 'theirs so far');
+      api.serverCopy = opened;
+      final notifier = container.read(chatMessagesProvider.notifier);
+      container.read(activeConversationProvider.notifier).set(opened);
+      await until(() => api.taskListRequests > 0);
+      for (var i = 0; i < 10; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+      check(container.read(chatMessagesProvider).last.isStreaming).isTrue();
+
+      // A task of this account's runs in the chat now, while the server's
+      // copy has their reply done: it is finished here, as the copy says.
+      api.activeTaskIds = const ['my-task'];
+      api.serverCopy = chat(running: false, content: 'theirs, all of it');
+      notifier
+        ..debugCancelRemoteTaskMonitorTimer()
+        ..debugPrimeReopenedSnapshotAttempt();
+      await notifier.debugSyncRemoteTaskStatus();
+      final tail = container.read(chatMessagesProvider).last;
+      check(tail.isStreaming).isFalse();
+      check(tail.content).equals('theirs, all of it');
+      check(container.read(isChatStreamingProvider)).isFalse();
+    });
+
     test('another person\'s web reply that starts while the chat is open '
         'shows running until a copy of the chat says it is done', () async {
       final (:api, :socket, :client, :container) = await openDraft(

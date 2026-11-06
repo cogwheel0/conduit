@@ -3329,9 +3329,14 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
 
     final reconciled = List<ChatMessage>.from(mergedServerMessages);
     reconciled[serverIndex] = serverTail;
-    state = List<ChatMessage>.unmodifiable(reconciled);
+    final shown = List<ChatMessage>.unmodifiable(reconciled);
+    // Following another person's reply as the server's copy has it: a newer
+    // reply of theirs that the copy ends on, and reports still running,
+    // shows running too, as on open.
+    state = streaming == null ? _withOthersRunningReply(shown) : shown;
+    final othersNewerReplyRuns = !identical(state, shown);
 
-    if (live && state.last.role == 'assistant') {
+    if ((live || othersNewerReplyRuns) && state.last.role == 'assistant') {
       _streamingContentTimer?.cancel();
       _streamingContentTimer = null;
       _streamingBuffer = StringBuffer(state.last.content);
@@ -3858,8 +3863,11 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
       // server task runs. A reattached socket only sees future events, so its
       // transport protection must not suppress snapshots that fill the gap
       // accumulated while another chat (or no app process) owned the screen.
+      // Another person's reply is left to the branch below: a task of this
+      // account's in the chat says nothing of whether theirs runs.
       if (_hasStreamingAssistant &&
           hasActiveTasks &&
+          !othersReply &&
           (unprotectedResumeNeedsSnapshot || protectedResumeNeedsSnapshot)) {
         final expectedMessageId = _reopenedStreamingMessageId ?? state.last.id;
         if (_shouldProtectLocalStreamingState &&
@@ -3882,13 +3890,12 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
         }
       }
 
-      // Another person's reply, with no task of this account's running in the
-      // chat: it runs on, or is done, as the server's copy of it says, as Open
+      // Another person's reply, whatever tasks this account runs in the chat:
+      // it runs on, or is done, as the server's copy of it says, as Open
       // WebUI's web client takes it. Asked no more often than a stalled
       // resume is.
       if (_hasStreamingAssistant &&
           othersReply &&
-          !hasActiveTasks &&
           (_lastReopenedSnapshotAt == null ||
               now.difference(_lastReopenedSnapshotAt!) >=
                   _reopenedSocketStallThreshold)) {
@@ -3909,6 +3916,12 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
           _cancelMessageStream();
           schedulePullChatNow(ref, owner.chatId);
           _recheckEarlierAnswers();
+        } else if (followed &&
+            _tailIsAnotherPersons &&
+            _remoteTaskMonitorMessageId != state.last.id) {
+          // The copy ends on a newer reply of theirs, still running: it is
+          // followed in its turn.
+          _engageReopenedTailMonitor(state.last.id);
         }
       }
 
