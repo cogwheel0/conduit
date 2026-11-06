@@ -267,12 +267,99 @@ Map<String, dynamic> noteDataWithoutFile(
   }
   final String md = notePageMarkdown(data, pageId);
   if (noteFileLinksInMarkdown(md).any((link) => link.id == fileId)) {
-    patch['content'] = noteContentWithMarkdown(
-      notePageContent(data, pageId),
-      removeNoteFileLinks(md, fileId),
+    patch['content'] = noteContentWithoutFile(
+      notePageContent(data, pageId) ?? <String, dynamic>{'md': md},
+      fileId,
     );
   }
   return patch;
+}
+
+/// [content] without file [fileId]: its links taken out of the markdown, its
+/// attachment nodes and linked text out of the editor JSON, and its links
+/// (with the block [noteContentWithLinkedFiles] puts them in) out of the
+/// HTML, so the rich text the web editor saved is kept. A form that still
+/// links the file after that, in a shape not known here, is cleared, as the
+/// server and the web editor read JSON, then HTML, before the markdown, and
+/// would otherwise keep the file.
+Map<String, dynamic> noteContentWithoutFile(
+  Map<String, dynamic> content,
+  String fileId,
+) {
+  final Object? rawMd = content['md'];
+  final Object? rawHtml = content['html'];
+  final Object? rawJson = content['json'];
+  var html = rawHtml is String ? rawHtml : '';
+  if (html.isNotEmpty) {
+    final String id = RegExp.escape(fileId);
+    html = html
+        .replaceAll(
+          RegExp(
+            '<div\\b[^>]*\\sdata-file-id\\s*=\\s*["\']$id["\'][^>]*>.*?</div>',
+            caseSensitive: false,
+            dotAll: true,
+          ),
+          '',
+        )
+        .replaceAll(
+          RegExp(
+            '<a\\b[^>]*?\\shref\\s*=\\s*["\']/api/v1/files/$id/content["\']'
+            '[^>]*>.*?</a>',
+            caseSensitive: false,
+            dotAll: true,
+          ),
+          '',
+        );
+    if (_htmlFileLinkIds(html).contains(fileId)) html = '';
+  }
+  Map<String, dynamic>? json = rawJson is Map
+      ? _jsonWithoutFile(Map<String, dynamic>.from(rawJson), fileId)
+      : null;
+  if (json != null && _jsonFileAttachmentIds(json).contains(fileId)) {
+    json = null;
+  }
+  return <String, dynamic>{
+    ...content,
+    'md': removeNoteFileLinks(rawMd is String ? rawMd : '', fileId),
+    'html': html,
+    'json': json,
+  };
+}
+
+/// Editor JSON [node] without the attachment nodes of file [fileId], and
+/// without the text that links to it.
+Map<String, dynamic> _jsonWithoutFile(Map<String, dynamic> node, String fileId) {
+  final Object? children = node['content'];
+  if (children is! List) return node;
+  final String href = '/api/v1/files/$fileId/content';
+  bool isOfFile(Object? child) {
+    if (child is! Map) return false;
+    if (child['type'] == 'fileAttachment') {
+      final Object? attrs = child['attrs'];
+      return attrs is Map && attrs['id'] == fileId;
+    }
+    final Object? marks = child['marks'];
+    return child['type'] == 'text' &&
+        marks is List &&
+        marks.any(
+          (Object? mark) =>
+              mark is Map &&
+              mark['type'] == 'link' &&
+              mark['attrs'] is Map &&
+              (mark['attrs'] as Map)['href'] == href,
+        );
+  }
+
+  return <String, dynamic>{
+    ...node,
+    'content': <Object?>[
+      for (final Object? child in children)
+        if (!isOfFile(child))
+          child is Map
+              ? _jsonWithoutFile(Map<String, dynamic>.from(child), fileId)
+              : child,
+    ],
+  };
 }
 
 /// [data] without the keys a create never sends.
