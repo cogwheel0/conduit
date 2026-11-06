@@ -32,7 +32,7 @@ class UsageStatsModal {
                 title: l10n.usageInfoTitle,
                 sfSymbol: 'chart.bar',
                 kind: NativeSheetItemKind.readOnlyText,
-                value: _buildUsageSummaryText(usage),
+                value: buildUsageSummaryText(usage, l10n),
               ),
             ],
           ),
@@ -178,9 +178,15 @@ class UsageStatsModal {
     return stats;
   }
 
-  static String _buildUsageSummaryText(Map<String, dynamic> usage) {
+  /// The text the native iOS sheet shows: each field of [usage], then, when
+  /// Open WebUI marked it incomplete, the same note the other sheet gives.
+  @visibleForTesting
+  static String buildUsageSummaryText(
+    Map<String, dynamic> usage,
+    AppLocalizations l10n,
+  ) {
     final sortedKeys = usage.keys.toList()..sort();
-    return sortedKeys
+    final fields = sortedKeys
         .map((key) {
           final value = usage[key];
           final rendered = value is Map || value is List
@@ -189,6 +195,9 @@ class UsageStatsModal {
           return '${_humanizeKey(key)}: $rendered';
         })
         .join('\n');
+    return UsageSummary.fromUsage(usage).incomplete
+        ? '$fields\n\n${l10n.usageIncomplete}'
+        : fields;
   }
 
   static String _humanizeKey(String key) {

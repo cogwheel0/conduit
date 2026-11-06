@@ -56,4 +56,19 @@ void main() {
     expect(find.text(l10n.usageTokenCount(120)), findsOneWidget);
     expect(find.text(l10n.usageIncomplete), findsNothing);
   });
+
+  test('the native sheet text carries the note too', () async {
+    final l10n = await AppLocalizations.delegate.load(const Locale('de'));
+    final partial = UsageStatsModal.buildUsageSummaryText(<String, dynamic>{
+      'output_tokens': 120,
+      'incomplete': true,
+    }, l10n);
+    expect(partial, endsWith(l10n.usageIncomplete));
+    expect(
+      UsageStatsModal.buildUsageSummaryText(<String, dynamic>{
+        'output_tokens': 120,
+      }, l10n),
+      isNot(contains(l10n.usageIncomplete)),
+    );
+  });
 }
