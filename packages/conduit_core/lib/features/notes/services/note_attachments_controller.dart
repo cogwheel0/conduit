@@ -104,9 +104,16 @@ class NoteAttachmentsController {
   final Set<String> _leftBehindUploads = <String>{};
 
   /// Recordings [rebindTo] is moving to another note. A retry meanwhile
-  /// finds no copy where one was and reports it gone; the move, not that
-  /// report, says where it is.
+  /// finds no copy where one was and reports it gone; such a report waits in
+  /// [_goneWhileMoving] for the move to say where the recording is.
   final Set<String> _moving = <String>{};
+  final Set<String> _goneWhileMoving = <String>{};
+
+  /// The copies [rebindTo] moved recordings to, by id. A recording reported
+  /// gone later, by a retry that looked where it was before the move, is
+  /// gone only if its copy is too.
+  final Map<String, PendingNoteAudioUpload> _movedCopies =
+      <String, PendingNoteAudioUpload>{};
   final Set<String> _inFlight = <String>{};
   final Set<String> _queued = <String>{};
   final Set<String> _feedbackIds = <String>{};
@@ -798,7 +805,55 @@ class NoteAttachmentsController {
 
   void _applyChange(String id, PendingNoteAudioUpload? updated) {
     if (_disposed || _leftBehindUploads.contains(id)) return;
-    if (updated == null && _moving.contains(id)) return;
+    if (updated == null) {
+      if (_moving.contains(id)) {
+        _goneWhileMoving.add(id);
+        return;
+      }
+      if (_movedCopies.containsKey(id)) {
+        unawaited(_confirmGone(id));
+        return;
+      }
+    }
+    _setChange(id, updated);
+  }
+
+  /// Hides recording [id], reported gone, unless the copy a move made of it
+  /// is still stored: the report then only missed where it was before.
+  Future<void> _confirmGone(String id) async {
+    final PendingNoteAudioUpload? copy = _movedCopies[id];
+    final PendingNoteAudioUpload? current = copy == null
+        ? null
+        : await _store.loadCurrent(copy);
+    if (_disposed || current != null) return;
+    _movedCopies.remove(id);
+    _setChange(id, null);
+  }
+
+  /// Settles the reports of recordings gone that came in while [ids] moved:
+  /// one the move made a copy of is checked against that copy; one it made
+  /// none of was finished or removed meanwhile, and goes.
+  void _settleMove(
+    Iterable<String> ids,
+    Map<String, PendingNoteAudioUpload> reboundUploads,
+  ) {
+    for (final String id in ids) {
+      final PendingNoteAudioUpload? copy = reboundUploads[id];
+      if (copy != null) _movedCopies[id] = copy;
+    }
+    _moving.removeAll(ids);
+    for (final String id in ids.toList()) {
+      if (!_goneWhileMoving.remove(id)) continue;
+      if (_movedCopies.containsKey(id)) {
+        unawaited(_confirmGone(id));
+      } else {
+        _setChange(id, null);
+      }
+    }
+  }
+
+  void _setChange(String id, PendingNoteAudioUpload? updated) {
+    if (_disposed) return;
     _mutationGeneration++;
     final int index = _pending.indexWhere(
       (PendingNoteAudioUpload item) => item.id == id,
@@ -941,6 +996,7 @@ class NoteAttachmentsController {
     }
     if (!_isCurrent(api: api, db: db, authEpoch: authEpoch)) {
       _moving.removeAll(attemptedUploadIds);
+      _goneWhileMoving.removeAll(attemptedUploadIds);
       return;
     }
 
@@ -978,7 +1034,7 @@ class NoteAttachmentsController {
         unawaited(retry(ids: reboundUploads.keys));
       }
     }
-    _moving.removeAll(attemptedUploadIds);
+    _settleMove(attemptedUploadIds, reboundUploads);
   }
 }
 
