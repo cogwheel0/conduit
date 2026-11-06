@@ -1,5 +1,7 @@
+import 'package:checks/checks.dart';
 import 'package:conduit/features/chat/widgets/enhanced_image_attachment.dart';
 import 'package:conduit/l10n/app_localizations.dart';
+import 'package:conduit/l10n/conduit_localizations.dart';
 import 'package:conduit/shared/theme/app_theme.dart';
 import 'package:conduit/shared/theme/tweakcn_themes.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -12,12 +14,17 @@ const _pixel =
     'C0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=';
 
 void main() {
-  Future<void> pump(WidgetTester tester, {String? label}) async {
+  Future<void> pump(
+    WidgetTester tester, {
+    String? label,
+    Locale locale = const Locale('en'),
+  }) async {
     await tester.pumpWidget(
       ProviderScope(
         child: MaterialApp(
+          locale: locale,
           theme: AppTheme.light(TweakcnThemes.t3Chat),
-          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          localizationsDelegates: conduitLocalizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,
           home: Scaffold(
             body: EnhancedImageAttachment(
@@ -46,13 +53,11 @@ void main() {
   testWidgets('a markdown image without one is called an image, in the '
       'user\'s language', (tester) async {
     final semantics = tester.ensureSemantics();
-    await pump(tester, label: '  ');
+    await pump(tester, label: '  ', locale: const Locale('de'));
 
-    final context = tester.element(find.byType(EnhancedImageAttachment));
-    expect(
-      find.bySemanticsLabel(AppLocalizations.of(context)!.imageFileType),
-      findsOneWidget,
-    );
+    final german = await AppLocalizations.delegate.load(const Locale('de'));
+    check(german.imageFileType).not((it) => it.equals('Image'));
+    expect(find.bySemanticsLabel(german.imageFileType), findsOneWidget);
     semantics.dispose();
   });
 }
