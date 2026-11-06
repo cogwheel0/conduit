@@ -5,8 +5,13 @@ import 'package:intl/intl.dart';
 
 import 'package:conduit_core/models/channel.dart';
 import 'package:conduit_core/models/model.dart';
+import 'package:conduit_core/features/direct_connections/services/direct_model_registry.dart'
+    show isLocallyMintedDirectModel;
+import 'package:conduit_core/features/hermes/models/hermes_model.dart'
+    show isHermesModel;
 import 'package:conduit_core/features/navigation/models/sidebar_navigation_model.dart';
 import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/providers/backend_mode_providers.dart';
 import 'package:conduit_core/services/settings_service.dart';
 
 import '../../../core/services/haptic_service.dart';
@@ -128,10 +133,23 @@ Future<void> _startNewChat(BuildContext context, WidgetRef ref) async {
         .read(modelsProvider.future)
         .catchError((Object _) => <Model>[]);
     if (!context.mounted || !isCurrent()) return;
+    // This history starts chats on every backend but Hermes, which has its
+    // own. Otherwise the choice follows the default a new chat restores.
+    final usable = [
+      for (final model in models)
+        if (!model.isHidden && !isHermesModel(model)) model,
+    ];
     final candidates = chat.folderDefaultModelCandidates(models);
     final defaultId = ref.read(appSettingsProvider).defaultModel;
-    var model = candidates.where((model) => model.id == defaultId).firstOrNull;
-    if (model == null && candidates.isNotEmpty) {
+    final hasDefault = defaultId != null && defaultId.isNotEmpty;
+    var model = usable.where((model) => model.id == defaultId).firstOrNull;
+    if (model == null &&
+        ref.read(preferredBackendProvider) == PreferredBackend.direct) {
+      model = usable.where(isLocallyMintedDirectModel).firstOrNull;
+    }
+    // With no default chosen, the cached one is cleared and the server asked
+    // again, as it may have changed its default since.
+    if (model == null && hasDefault && candidates.isNotEmpty) {
       final cached = await ref
           .read(optimizedStorageServiceProvider)
           .getLocalDefaultModel()

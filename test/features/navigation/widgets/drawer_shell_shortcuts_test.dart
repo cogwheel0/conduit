@@ -11,6 +11,9 @@ import 'package:conduit_core/features/chat/providers/chat_providers.dart'
     show chatMessagesProvider;
 import 'package:conduit_core/database/chat_database_repository.dart';
 import 'package:conduit/features/navigation/providers/conversation_selection_provider.dart';
+import 'package:conduit_core/features/direct_connections/models/direct_connection_profile.dart';
+import 'package:conduit_core/features/direct_connections/models/direct_remote_model.dart';
+import 'package:conduit_core/features/direct_connections/services/direct_model_registry.dart';
 import 'package:conduit_core/features/hermes/models/hermes_model.dart';
 import 'package:conduit/shared/services/navigation_service.dart';
 import 'package:go_router/go_router.dart';
@@ -298,7 +301,9 @@ void main() {
     ('server-a', null, 'server-b', 'server-a', 0),
     (kHermesDefaultModelId, null, 'server-b', 'server-b', 1),
     (null, null, kHermesDefaultModelId, 'server-a', 1),
-    (null, 'server-b', 'server-a', 'server-b', 0),
+    // With no default chosen the server is asked again, cache or not.
+    (null, 'server-b', 'server-a', 'server-a', 1),
+    ('missing-model', 'server-b', 'server-a', 'server-b', 0),
     (null, kHermesDefaultModelId, 'server-b', 'server-b', 1),
     (null, null, null, 'server-a', 1),
   ]) {
@@ -343,6 +348,53 @@ void main() {
       },
     );
   }
+
+  testWidgets('Open WebUI creation keeps a Direct-primary install on Direct', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1024, 768);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final direct = DirectModelRegistry().replaceProfileModels(
+      DirectConnectionProfile(
+        id: 'direct-profile',
+        name: 'Direct',
+        adapterKey: kOpenAiCompatibleAdapterKey,
+        baseUrl: 'https://api.example/v1',
+        apiKey: 'key',
+      ),
+      [DirectRemoteModel(id: 'direct-model')],
+    ).single;
+    var requests = 0;
+    await tester.pumpWidget(
+      sidebarTestBuildHarness(
+        controllers: SidebarTestSidebarHarnessControllers(),
+        hermesEnabled: true,
+        directPreferred: true,
+        models: [
+          hermesSyntheticModel(),
+          const Model(id: 'server-a', name: 'Server A'),
+          direct,
+        ],
+        loadServerDefaultModel: () async {
+          requests++;
+          return 'server-a';
+        },
+        shellChat: const Scaffold(body: Text('Chat content')),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final container = ProviderScope.containerOf(
+      tester.element(find.byType(SidebarPage)),
+      listen: false,
+    );
+    await tester.tap(
+      find.byKey(const ValueKey<String>('sidebar-create-button')),
+    );
+    await tester.pumpAndSettle();
+    expect(container.read(selectedModelProvider), same(direct));
+    expect(requests, 0);
+  });
 
   testWidgets('a failed default retains an eligible selected model', (
     tester,

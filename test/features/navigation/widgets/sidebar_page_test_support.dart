@@ -160,6 +160,7 @@ Widget sidebarTestBuildHarness({
   bool slidingSidebarEnabled = true,
   bool hermesOnly = false,
   bool hermesEnabled = false,
+  bool directPreferred = false,
   List<HermesJob> hermesJobs = const [],
   Map<String, Conversation> loadedConversations = const {},
   Map<String, Future<Conversation>> pendingLoadedConversations = const {},
@@ -368,6 +369,10 @@ Widget sidebarTestBuildHarness({
       // ignore: scoped_providers_should_specify_dependencies
       reviewerModeProvider.overrideWithValue(false),
       hermesOnlyModeProvider.overrideWithValue(hermesOnly),
+      if (directPreferred)
+        preferredBackendProvider.overrideWith(
+          SidebarTestDirectPreferredBackendController.new,
+        ),
       hermesEnabledProvider.overrideWithValue(hermesEnabled),
       hermesApiServiceProvider.overrideWithValue(null),
       terminalServiceProvider.overrideWithValue(null),
