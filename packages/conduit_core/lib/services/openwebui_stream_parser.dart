@@ -245,6 +245,13 @@ Iterable<OpenWebUIStreamUpdate> parseOpenWebUIParsedPayload(
         if (content.isNotEmpty) {
           yield OpenWebUIContentDelta(content);
         }
+        // A model's refusal is its answer. Open WebUI 0.13 streams a
+        // Responses API connection to a client without a socket as chat
+        // completion chunks, which carry it here rather than as content.
+        final refusal = delta['refusal']?.toString() ?? '';
+        if (refusal.isNotEmpty) {
+          yield OpenWebUIContentDelta(refusal);
+        }
       }
     }
   }
