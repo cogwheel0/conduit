@@ -33,6 +33,7 @@ import 'package:conduit_core/sync/chat_locks.dart';
 import 'package:conduit_core/sync/pull_sync.dart';
 import 'package:conduit_core/sync/sync_engine.dart';
 import 'package:dio/dio.dart';
+import 'package:drift/drift.dart' show Value;
 import 'package:drift/native.dart';
 import 'package:fleather/fleather.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -926,6 +927,66 @@ void main() {
       isFalse,
     );
     expect(contentController(tester).document.toPlainText().trim(), 'one');
+  });
+
+  testWidgets('a removed page whose stored note cannot be read back keeps '
+      'its recovery choices', (tester) async {
+    final note = twoPageNote();
+    await storeLocally(note);
+    final container = await pumpEditor(tester, _DetailApi(detail: note));
+    await tester.tap(find.byKey(const ValueKey<String>('note-page-chip')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey<String>('note-page-p2')));
+    await tester.pumpAndSettle();
+
+    final held = Completer<void>();
+    unawaited(
+      container.read(noteLocksProvider).runExclusive('note-1', () => held.future),
+    );
+    typeInto(tester, 'lost? ');
+    await letAutosaveRun(tester);
+    // A sync removes the page, and the note's row can no longer be read back
+    // as it is; the user takes the edit back while the save waits.
+    await storeLocally(
+      _noteJson(
+        writeAccess: true,
+        md: 'one',
+        pages: [
+          {
+            'id': 'main',
+            'title': 'Shared note',
+            'content': {'md': 'one', 'html': '', 'json': null},
+          },
+        ],
+      ),
+    );
+    await tester.runAsync(
+      () => (db.update(db.notes)..where((t) => t.id.equals('note-1'))).write(
+        const NotesCompanion(deleted: Value(true)),
+      ),
+    );
+    contentController(tester).replaceText(0, 'lost? '.length, '');
+    // The undone edit's own save finds nothing to save before the first one
+    // fails.
+    await letAutosaveRun(tester);
+    held.complete();
+    await tester.pumpAndSettle();
+    expect(find.text(l10n(tester).notePageMissingNotice), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey<String>('note-discard-draft')),
+      findsOneWidget,
+    );
+
+    // Trying another page saves first; that save must not drop the choices.
+    await tester.tap(find.byKey(const ValueKey<String>('note-page-chip')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey<String>('note-page-main')));
+    await tester.pumpAndSettle();
+    expect(find.text(l10n(tester).notePageMissingNotice), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey<String>('note-discard-draft')),
+      findsOneWidget,
+    );
   });
 
   testWidgets('a one-page note from 0.12.5 shows the files its content links '

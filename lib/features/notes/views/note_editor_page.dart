@@ -839,7 +839,9 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
 
   Future<void> _autoSave() async {
     final note = _note;
-    if (note == null) return;
+    // Text kept from a removed page has nowhere to be saved; it waits for the
+    // user to keep it as a note of its own or discard it.
+    if (note == null || _pageMissing) return;
 
     // Authoritative dirty check: compare the re-encoded markdown against the
     // snapshot taken on load/save so markdown normalisation on open never
@@ -1037,7 +1039,10 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
             // meanwhile leaves nothing to keep, and the main page shows.
             _takeStoredNote(stored);
           } else {
+            // The stored note could not be read back: the text stays, with
+            // the choices to keep it or discard it.
             _pageMissing = true;
+            _hasChanges = true;
             // The text is kept as it is; dictation would go on changing it.
             _dropDictation();
             if (stored != null) _note = stored;
