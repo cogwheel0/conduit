@@ -313,9 +313,11 @@ void main() {
     required List<String> pulls,
     Override? apiOverride,
     List<Override>? storageOverrides,
+    List<Override> extraOverrides = const [],
   }) {
     final container = ProviderContainer(
       overrides: [
+        ...extraOverrides,
         ...storageOverrides ??
             openWebUiStorageOpenOverrides(database: serverDb),
         directLocalDatabaseProvider.overrideWithValue(directDb),
@@ -1139,6 +1141,55 @@ void main() {
       });
     });
 
+    test('an archive the server takes leaves the same chat opened under '
+        'another sign-in meanwhile', () async {
+      final pulls = <String>[];
+      final api = _MutationApi();
+      final epoch = NotifierProvider<_Epoch, Object>(_Epoch.new);
+      final container = containerWith(
+        pulls: pulls,
+        apiOverride: apiServiceProvider.overrideWithValue(api),
+        extraOverrides: [
+          openWebUiAuthSessionEpochProvider.overrideWith(
+            (ref) => ref.watch(epoch),
+          ),
+        ],
+      );
+      final ref = container;
+
+      await runAsync(() async {
+        await seedServer('chat-s', title: 'Server');
+        await container.read(conversationsProvider.future);
+        final shown = _conversation(
+          'chat-s',
+          title: 'Server',
+          storage: ChatStorageKind.openWebUi,
+          messages: [_message('m1', 'hello')],
+        );
+        container.read(activeConversationProvider.notifier).set(shown);
+        api
+          ..gate = Completer<void>()
+          ..callStarted = Completer<void>();
+
+        final pending = archiveConversation(
+          ref,
+          _openWebUiScoped('chat-s'),
+          true,
+        );
+        await api.callStarted!.future.timeout(const Duration(seconds: 2));
+        // Another sign-in begins, and the same chat is opened under it.
+        container.read(epoch.notifier).rotate();
+        container.read(activeConversationProvider.notifier).set(shown);
+        container.read(selectedFilterIdsProvider.notifier).set(['filter-b']);
+
+        api.gate!.complete();
+        await pending;
+
+        expect(container.read(activeConversationProvider)?.id, 'chat-s');
+        expect(container.read(selectedFilterIdsProvider), ['filter-b']);
+      });
+    });
+
     test('a refused archive leaves another chat opened meanwhile, and its '
         'picks, as they are', () async {
       final pulls = <String>[];
@@ -1562,4 +1613,11 @@ void main() {
       });
     });
   });
+}
+
+final class _Epoch extends Notifier<Object> {
+  @override
+  Object build() => Object();
+
+  void rotate() => state = Object();
 }

@@ -302,12 +302,13 @@ Future<void> archiveConversation(
   // The open chat stays on screen until the server takes the archive: a
   // refused one leaves it as it was, picks and all, with nothing to put back,
   // and no blank composer stands in for it meanwhile. Another chat opened or
-  // started meanwhile, with picks of its own, is left alone.
-  bool archivedChatStillShown() {
-    final shown = _readProvider(ref, activeConversationProvider);
-    return shown != null &&
-        _activeConversationMatchesSelection(shown, conversationId);
-  }
+  // started meanwhile, with picks of its own, is left alone, and so is the
+  // same chat opened under another account or server.
+  final ChatMutationOwnerToken? archivedOwner = leavingActiveConversation
+      ? captureChatMutationOwner(ref, activeConversation)
+      : null;
+  bool archivedChatStillShown() =>
+      archivedOwner != null && chatMutationTokenStillActive(ref, archivedOwner);
 
   try {
     if (api == null) throw Exception('No API service available');
