@@ -3334,6 +3334,8 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     // reply of theirs that the copy ends on, and reports still running,
     // shows running too, as on open.
     state = streaming == null ? _withOthersRunningReply(shown) : shown;
+    // `_withOthersRunningReply` returns the very list it is given when it
+    // changes nothing, so a new list means it marked the tail running.
     final othersNewerReplyRuns = !identical(state, shown);
 
     if ((live || othersNewerReplyRuns) && state.last.role == 'assistant') {
