@@ -1490,6 +1490,9 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
 
   /// Shows the full-screen audio recording overlay.
   void _showAudioRecordingOverlay() {
+    // The recording belongs to the page shown when it starts: a page switch
+    // that finishes while the overlay is open does not move it.
+    final recordedOn = _pageId;
     Navigator.of(context).push(
       PageRouteBuilder<void>(
         opaque: false,
@@ -1500,7 +1503,10 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
             child: AudioRecordingOverlay(
               onCancel: () => Navigator.pop(context),
               onConfirm: (file) async {
-                final staged = await _attachments.stage(file);
+                final staged = await _attachments.stage(
+                  file,
+                  pageId: recordedOn,
+                );
                 if (staged && context.mounted) Navigator.pop(context);
                 return staged;
               },

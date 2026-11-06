@@ -520,6 +520,23 @@ void main() {
       )..start();
     }
 
+    test('a recording goes to the page it was started on, even when the page '
+        'shown changed before it was kept', () async {
+      await storeTwoPages(main: 'one', two: 'two');
+      openNote = await readNote('note-1');
+      // Recording began on the second page; a page switch finished while the
+      // recorder was open.
+      showingPages(() => 'main');
+
+      final file = await recording('note_recording_1.wav');
+      check(await controller.stage(file, pageId: 'p2')).isTrue();
+      await waitFor(() => notices.isNotEmpty && controller.pending.isEmpty);
+
+      final data = decodeNoteData((await db.notesDao.getNote('note-1'))!.data);
+      check(notePageMarkdown(data, 'main')).equals('one');
+      check(notePageMarkdown(data, 'p2')).startsWith('two\n\n[');
+    });
+
     test('a recording staged before pages were known goes to the main page, '
         'not the page shown', () async {
       await storeTwoPages(main: 'one', two: 'two');

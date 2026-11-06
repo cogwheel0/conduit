@@ -205,7 +205,9 @@ class NoteAttachmentsController {
   /// Moves a recorder cache file into account-scoped application support
   /// before any network request. Once this returns true, closing the page or
   /// losing connectivity cannot discard the recording.
-  Future<bool> stage(File audioFile) async {
+  /// [pageId] is the page the recording was started on; by default the page
+  /// shown now.
+  Future<bool> stage(File audioFile, {String? pageId}) async {
     final Note? note = _currentNote();
     final scope = _scope();
     final ApiService? api = _container.read(apiServiceProvider);
@@ -220,7 +222,7 @@ class NoteAttachmentsController {
     // The page the recording was made on, read with the note: it is stored
     // with the recording, which is attached there even when the editor
     // shows another page, or is closed, by the time it uploads.
-    final String? pageId = _currentPageId?.call();
+    final String? madeOn = pageId ?? _currentPageId?.call();
     try {
       final PendingNoteAudioUpload item = await _store.stage(
         source: audioFile,
@@ -228,7 +230,7 @@ class NoteAttachmentsController {
         accountId: scope.accountId,
         noteId: note.id,
         fileName: fileName,
-        pageId: pageId,
+        pageId: madeOn,
       );
       if (!_isCurrent(api: api, db: db, authEpoch: authEpoch)) return true;
       _mutationGeneration++;
