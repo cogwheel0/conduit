@@ -816,6 +816,17 @@ mixin _ChatCompletionsApi on _ApiServiceBase {
   }
 }
 
+/// Open WebUI refused files for a knowledge base: too many in one upload,
+/// more than the base may hold, or one too large. [reason] is the server's.
+final class KnowledgeUploadRefused implements Exception {
+  const KnowledgeUploadRefused(this.reason);
+
+  final String reason;
+
+  @override
+  String toString() => 'KnowledgeUploadRefused: $reason';
+}
+
 /// Which chats have a server task running, and which of them wait for the
 /// user to approve a tool call (Open WebUI 0.13 and later).
 typedef ChatActivity = ({Set<String> active, Set<String> pendingApproval});

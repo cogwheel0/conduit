@@ -4303,5 +4303,11 @@
   "generateTitleNone": "De server heeft geen titel voor deze chat gemaakt. Mogelijk staat het genereren van titels uit.",
   "generateTitleFailed": "Kan geen titel genereren. Probeer het opnieuw.",
   "workspaceToolActivate": "Activeren",
-  "workspaceToolDeactivate": "Deactiveren"
+  "workspaceToolDeactivate": "Deactiveren",
+  "workspaceKnowledgeLimitsTitle": "Bestandslimieten",
+  "workspaceKnowledgeLimitsFooter": "Laat een limiet leeg om alleen die van de server te gebruiken. De limieten van de server gelden altijd.",
+  "workspaceKnowledgeMaxFileCount": "Maximaal aantal bestanden",
+  "workspaceKnowledgeMaxFileSize": "Maximale bestandsgrootte (MB)",
+  "workspaceKnowledgeLimitDefault": "Limiet van de server",
+  "workspaceKnowledgeLimitInvalid": "Voer elke limiet in als een geheel getal groter dan nul, of laat hem leeg."
 }

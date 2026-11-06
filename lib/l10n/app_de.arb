@@ -4303,5 +4303,11 @@
   "generateTitleNone": "Der Server hat keinen Titel für diesen Chat erstellt. Möglicherweise ist die Titelgenerierung deaktiviert.",
   "generateTitleFailed": "Der Titel konnte nicht generiert werden. Bitte versuche es erneut.",
   "workspaceToolActivate": "Aktivieren",
-  "workspaceToolDeactivate": "Deaktivieren"
+  "workspaceToolDeactivate": "Deaktivieren",
+  "workspaceKnowledgeLimitsTitle": "Dateilimits",
+  "workspaceKnowledgeLimitsFooter": "Lass ein Limit leer, um nur das des Servers zu verwenden. Die Limits des Servers gelten immer.",
+  "workspaceKnowledgeMaxFileCount": "Maximale Dateianzahl",
+  "workspaceKnowledgeMaxFileSize": "Maximale Dateigröße (MB)",
+  "workspaceKnowledgeLimitDefault": "Limit des Servers",
+  "workspaceKnowledgeLimitInvalid": "Gib jedes Limit als ganze Zahl über null ein oder lass es leer."
 }

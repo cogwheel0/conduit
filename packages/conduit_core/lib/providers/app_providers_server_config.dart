@@ -211,6 +211,21 @@ final temporaryChatNeedsSocketProvider = Provider<bool>((ref) {
       true;
 });
 
+/// Whether the active Open WebUI server lets a knowledge base's owner set
+/// file limits of its own (0.13.0 and later). False until a config confirmed
+/// to belong to the active server reports such a version.
+final knowledgeLimitsSupportedProvider = Provider<bool>((ref) {
+  final activeId = ref.watch(activeServerProvider).asData?.value?.id;
+  final config = ref.watch(backendConfigProvider).asData?.value;
+  if (activeId == null || config == null) return false;
+  if (config.serverId != activeId) return false;
+  return ServerVersionCompat.knownAtLeast(
+        config.version,
+        ServerVersionCompat.knowledgeLimitsVersion,
+      ) ==
+      true;
+});
+
 @Riverpod(keepAlive: true)
 class BackendConfigNotifier extends _$BackendConfigNotifier {
   // AsyncNotifier instances survive dependency-triggered rebuilds. This must

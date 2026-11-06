@@ -5915,5 +5915,11 @@
   "generateTitleNone": "サーバーはこのチャットのタイトルを作成しませんでした。タイトル生成がオフになっている可能性があります。",
   "generateTitleFailed": "タイトルを生成できませんでした。もう一度お試しください。",
   "workspaceToolActivate": "有効にする",
-  "workspaceToolDeactivate": "無効にする"
+  "workspaceToolDeactivate": "無効にする",
+  "workspaceKnowledgeLimitsTitle": "ファイルの上限",
+  "workspaceKnowledgeLimitsFooter": "上限を空欄にすると、サーバーの上限だけが使われます。サーバーの上限は常に適用されます。",
+  "workspaceKnowledgeMaxFileCount": "最大ファイル数",
+  "workspaceKnowledgeMaxFileSize": "最大ファイルサイズ (MB)",
+  "workspaceKnowledgeLimitDefault": "サーバーの上限",
+  "workspaceKnowledgeLimitInvalid": "各上限は 0 より大きい整数で入力するか、空欄にしてください。"
 }

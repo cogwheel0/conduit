@@ -6221,5 +6221,11 @@
   "generateTitleNone": "Server pro tento chat nevytvořil název. Generování názvů může být vypnuté.",
   "generateTitleFailed": "Název se nepodařilo vygenerovat. Zkuste to znovu.",
   "workspaceToolActivate": "Aktivovat",
-  "workspaceToolDeactivate": "Deaktivovat"
+  "workspaceToolDeactivate": "Deaktivovat",
+  "workspaceKnowledgeLimitsTitle": "Limity souborů",
+  "workspaceKnowledgeLimitsFooter": "Ponechte limit prázdný, chcete-li použít jen limit serveru. Limity serveru platí vždy.",
+  "workspaceKnowledgeMaxFileCount": "Maximální počet souborů",
+  "workspaceKnowledgeMaxFileSize": "Maximální velikost souboru (MB)",
+  "workspaceKnowledgeLimitDefault": "Limit serveru",
+  "workspaceKnowledgeLimitInvalid": "Zadejte každý limit jako celé číslo větší než nula, nebo jej ponechte prázdný."
 }

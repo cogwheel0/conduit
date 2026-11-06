@@ -4075,5 +4075,11 @@
   "generateTitleNone": "서버가 이 채팅의 제목을 만들지 않았습니다. 제목 생성이 꺼져 있을 수 있습니다.",
   "generateTitleFailed": "제목을 생성할 수 없습니다. 다시 시도해 주세요.",
   "workspaceToolActivate": "활성화",
-  "workspaceToolDeactivate": "비활성화"
+  "workspaceToolDeactivate": "비활성화",
+  "workspaceKnowledgeLimitsTitle": "파일 한도",
+  "workspaceKnowledgeLimitsFooter": "한도를 비워 두면 서버의 한도만 적용됩니다. 서버의 한도는 항상 적용됩니다.",
+  "workspaceKnowledgeMaxFileCount": "최대 파일 수",
+  "workspaceKnowledgeMaxFileSize": "최대 파일 크기 (MB)",
+  "workspaceKnowledgeLimitDefault": "서버 한도",
+  "workspaceKnowledgeLimitInvalid": "각 한도는 0보다 큰 정수로 입력하거나 비워 두세요."
 }

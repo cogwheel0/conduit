@@ -124,6 +124,45 @@ mixin _WorkspaceKnowledgeApi on _ApiServiceBase {
         .toList(growable: false);
   }
 
+  /// Asks Open WebUI 0.13 whether [count] more files, the largest
+  /// [largestFileSize] bytes, fit the knowledge base [id]: its file count,
+  /// file size and per-upload limits. Throws [KnowledgeUploadRefused] with the
+  /// server's reason when they do not. Returns quietly when the server has no
+  /// such check (before 0.13), which has no such limits either.
+  Future<void> validateWorkspaceKnowledgeUpload(
+    String id, {
+    required int count,
+    int? largestFileSize,
+  }) async {
+    if (_knowledgeUploadValidationUnsupported || count <= 0) return;
+    try {
+      await _dio.post(
+        '/api/v1/knowledge/$id/files/validate',
+        data: <String, dynamic>{
+          'count': count,
+          'file_size': ?largestFileSize,
+          'removed_file_ids': const <String>[],
+        },
+      );
+    } on DioException catch (e) {
+      final status = e.response?.statusCode;
+      final detail = _knowledgeErrorDetail(e.response?.data);
+      if (status == 405 || (status == 404 && detail == 'Not Found')) {
+        _knowledgeUploadValidationUnsupported = true;
+        return;
+      }
+      if ((status == 400 || status == 413) && detail != null) {
+        throw KnowledgeUploadRefused(detail);
+      }
+      rethrow;
+    }
+  }
+
+  static String? _knowledgeErrorDetail(Object? data) {
+    final detail = data is Map ? data['detail'] : null;
+    return detail is String && detail.trim().isNotEmpty ? detail.trim() : null;
+  }
+
   Future<WorkspaceKnowledgeDetail?> attachWorkspaceKnowledgeFile(
     String id,
     String fileId, {

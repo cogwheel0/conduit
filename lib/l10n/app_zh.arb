@@ -4303,5 +4303,11 @@
   "generateTitleNone": "服务器没有为此对话生成标题。标题生成可能已关闭。",
   "generateTitleFailed": "无法生成标题，请重试。",
   "workspaceToolActivate": "启用",
-  "workspaceToolDeactivate": "停用"
+  "workspaceToolDeactivate": "停用",
+  "workspaceKnowledgeLimitsTitle": "文件限制",
+  "workspaceKnowledgeLimitsFooter": "将限制留空即只使用服务器的限制。服务器的限制始终适用。",
+  "workspaceKnowledgeMaxFileCount": "最大文件数",
+  "workspaceKnowledgeMaxFileSize": "最大文件大小 (MB)",
+  "workspaceKnowledgeLimitDefault": "服务器限制",
+  "workspaceKnowledgeLimitInvalid": "请将每个限制填写为大于零的整数，或留空。"
 }

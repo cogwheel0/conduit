@@ -4341,5 +4341,11 @@
   "generateTitleNone": "Сервер не создал название для этого чата. Возможно, генерация названий отключена.",
   "generateTitleFailed": "Не удалось сгенерировать название. Попробуйте ещё раз.",
   "workspaceToolActivate": "Включить",
-  "workspaceToolDeactivate": "Выключить"
+  "workspaceToolDeactivate": "Выключить",
+  "workspaceKnowledgeLimitsTitle": "Ограничения файлов",
+  "workspaceKnowledgeLimitsFooter": "Оставьте ограничение пустым, чтобы использовать только ограничение сервера. Ограничения сервера действуют всегда.",
+  "workspaceKnowledgeMaxFileCount": "Максимум файлов",
+  "workspaceKnowledgeMaxFileSize": "Максимальный размер файла (МБ)",
+  "workspaceKnowledgeLimitDefault": "Ограничение сервера",
+  "workspaceKnowledgeLimitInvalid": "Укажите каждое ограничение целым числом больше нуля или оставьте его пустым."
 }

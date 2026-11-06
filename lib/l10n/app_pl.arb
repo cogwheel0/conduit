@@ -8025,5 +8025,29 @@
   "workspaceToolDeactivate": "Dezaktywuj",
   "@workspaceToolDeactivate": {
     "description": "Overflow action that switches a tool off, so no chat can pick or run it (Open WebUI 0.13 and later)."
+  },
+  "workspaceKnowledgeLimitsTitle": "Limity plików",
+  "@workspaceKnowledgeLimitsTitle": {
+    "description": "Title of the knowledge base editor section where its owner sets file limits of its own (Open WebUI 0.13 and later)."
+  },
+  "workspaceKnowledgeLimitsFooter": "Pozostaw limit pusty, aby używać tylko limitu serwera. Limity serwera obowiązują zawsze.",
+  "@workspaceKnowledgeLimitsFooter": {
+    "description": "Footer under a knowledge base's own file limits: empty means only the server's limits apply, and those always apply."
+  },
+  "workspaceKnowledgeMaxFileCount": "Maksymalna liczba plików",
+  "@workspaceKnowledgeMaxFileCount": {
+    "description": "Field label: the most files a knowledge base may hold."
+  },
+  "workspaceKnowledgeMaxFileSize": "Maksymalny rozmiar pliku (MB)",
+  "@workspaceKnowledgeMaxFileSize": {
+    "description": "Field label: the largest file, in megabytes, a knowledge base takes."
+  },
+  "workspaceKnowledgeLimitDefault": "Limit serwera",
+  "@workspaceKnowledgeLimitDefault": {
+    "description": "Placeholder and shown value for a knowledge base file limit left empty, meaning only the server's limit applies."
+  },
+  "workspaceKnowledgeLimitInvalid": "Podaj każdy limit jako liczbę całkowitą większą od zera albo pozostaw go pusty.",
+  "@workspaceKnowledgeLimitInvalid": {
+    "description": "Error when a knowledge base file limit is not a whole number above zero."
   }
 }

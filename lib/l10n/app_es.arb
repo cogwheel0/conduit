@@ -4303,5 +4303,11 @@
   "generateTitleNone": "El servidor no creó un título para esta conversación. Puede que la generación de títulos esté desactivada.",
   "generateTitleFailed": "No se pudo generar un título. Inténtalo de nuevo.",
   "workspaceToolActivate": "Activar",
-  "workspaceToolDeactivate": "Desactivar"
+  "workspaceToolDeactivate": "Desactivar",
+  "workspaceKnowledgeLimitsTitle": "Límites de archivos",
+  "workspaceKnowledgeLimitsFooter": "Deja un límite vacío para usar solo el del servidor. Los límites del servidor siempre se aplican.",
+  "workspaceKnowledgeMaxFileCount": "Máximo de archivos",
+  "workspaceKnowledgeMaxFileSize": "Tamaño máximo de archivo (MB)",
+  "workspaceKnowledgeLimitDefault": "Límite del servidor",
+  "workspaceKnowledgeLimitInvalid": "Introduce cada límite como un número entero mayor que cero, o déjalo vacío."
 }

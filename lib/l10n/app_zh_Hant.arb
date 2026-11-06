@@ -4303,5 +4303,11 @@
   "generateTitleNone": "伺服器沒有為此對話產生標題。標題產生功能可能已關閉。",
   "generateTitleFailed": "無法產生標題，請再試一次。",
   "workspaceToolActivate": "啟用",
-  "workspaceToolDeactivate": "停用"
+  "workspaceToolDeactivate": "停用",
+  "workspaceKnowledgeLimitsTitle": "檔案限制",
+  "workspaceKnowledgeLimitsFooter": "將限制留空即只使用伺服器的限制。伺服器的限制一律適用。",
+  "workspaceKnowledgeMaxFileCount": "最大檔案數",
+  "workspaceKnowledgeMaxFileSize": "最大檔案大小 (MB)",
+  "workspaceKnowledgeLimitDefault": "伺服器限制",
+  "workspaceKnowledgeLimitInvalid": "請將每個限制填寫為大於零的整數，或留空。"
 }

@@ -2207,6 +2207,10 @@ abstract class _ApiServiceBase {
   /// [_temporaryChatResumeRecheck], in case the server was upgraded.
   DateTime? _temporaryChatResumeUnsupportedAt;
   static const Duration _temporaryChatResumeRecheck = Duration(minutes: 15);
+
+  /// Set once the server answers a knowledge upload check as an unknown
+  /// route: servers before Open WebUI 0.13 have none, and no such limits.
+  bool _knowledgeUploadValidationUnsupported = false;
   // Keep the total fallback ceiling at 20 requests while reserving capacity
   // for archived chats instead of allowing the regular list to consume all of
   // it before the archived endpoint is attempted.
