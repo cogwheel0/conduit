@@ -356,7 +356,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     _configurePassiveConversationSync(activeConversation);
     _configureDbMessagesWatch(activeConversation);
     final initialMessages = _restoreLiveTransportRunState(
-      activeConversation?.messages ?? const [],
+      _withOthersRunningReply(activeConversation?.messages ?? const []),
       activeConversation,
       settleOrphanedDirect: true,
     );
@@ -1031,6 +1031,13 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
       '(${serverMessages.length} messages)',
       scope: 'chat/providers',
     );
+    // Another person's reply this copy is the first to show running is
+    // followed to its end: no event of this account's would end it here.
+    if (_tailIsAnotherPersons &&
+        (state.lastOrNull?.isStreaming ?? false) &&
+        _remoteTaskMonitorMessageId == null) {
+      _engageReopenedTailMonitor(state.last.id);
+    }
     // After adoption: the copy may be the first to show the answers.
     _recheckEarlierAnswers();
   }

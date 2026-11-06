@@ -8896,15 +8896,58 @@ void main() {
       check(tail.id).equals('their-a');
       check(tail.isStreaming).isTrue();
       check(container.read(isOwnChatStreamingProvider)).isFalse();
+      // It is followed, should no later copy come.
+      check(
+        container.read(chatMessagesProvider.notifier).debugHasRemoteTaskMonitor,
+      ).isTrue();
 
-      // The copy that has it done.
-      container
-          .read(activeConversationProvider.notifier)
-          .set(chat(theirs(running: false), DateTime.utc(2026, 7, 15)));
+      // The server's copy has it done; following it, so does the chat here.
+      final done = chat(theirs(running: false), DateTime.utc(2026, 7, 15));
+      api.serverCopy = done;
+      container.read(activeConversationProvider.notifier).set(done);
       await settle();
+      container.read(chatMessagesProvider.notifier)
+        ..debugCancelRemoteTaskMonitorTimer()
+        ..debugPrimeReopenedSnapshotAttempt();
+      await container.read(chatMessagesProvider.notifier).debugSyncRemoteTaskStatus();
       tail = container.read(chatMessagesProvider).last;
       check(tail.isStreaming).isFalse();
       check(tail.content).equals('well, fine');
+    });
+
+    test('another person\'s web reply shows running when the chat was open '
+        'before the transcript was first read', () async {
+      final (:api, :socket, :client, :container) = await openDraft(
+        account: const User(
+          id: 'me',
+          username: 'Me',
+          email: 'me@example.com',
+          role: 'user',
+        ),
+      );
+      api.activeTaskIds = const [];
+      container
+          .read(activeConversationProvider.notifier)
+          .set(
+            _conversation('first-read', [
+              _user('first-u', 'hello'),
+              ChatMessage(
+                id: 'theirs',
+                role: 'assistant',
+                content: 'theirs so far',
+                timestamp: DateTime.utc(2026, 7, 13, 0, 0, 1),
+                model: duplicate.id,
+                metadata: const <String, dynamic>{
+                  kMessageAuthorIdMetadataKey: 'someone-else',
+                  kMessageServerUnfinishedMetadataKey: true,
+                },
+              ),
+            ], ChatStorageKind.openWebUi).copyWith(userId: 'someone-else'),
+          );
+      // The transcript is read afresh with the chat already open.
+      container.invalidate(chatMessagesProvider);
+
+      check(container.read(chatMessagesProvider).last.isStreaming).isTrue();
     });
 
     test('Stop in a shared turn stops and settles this account\'s answer, '
