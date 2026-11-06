@@ -89,6 +89,14 @@ TextSelection _carried(
   if (!selection.isValid || change == 0) return selection;
   int carry(int offset) {
     if (offset < at) return offset;
+    // A range that ends where the text goes in stays as it was, rather than
+    // taking the new text in; a cursor there moves past it.
+    if (change > 0 &&
+        offset == at &&
+        !selection.isCollapsed &&
+        offset == selection.end) {
+      return offset;
+    }
     final moved = offset + change;
     return moved < at ? at : moved;
   }

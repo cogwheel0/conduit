@@ -40,6 +40,30 @@ void main() {
     expect(markdown.indexOf('Doc.pdf'), lessThan(markdown.indexOf('second')));
   });
 
+  test('a selection that ends where cards go in does not take them in', () {
+    final controller = FleatherController(
+      document: noteDocumentFromMarkdown('hello world'),
+    );
+    addTearDown(controller.dispose);
+    controller.updateSelection(
+      const TextSelection(baseOffset: 0, extentOffset: 5),
+    );
+
+    insertNoteFileCardsInEditor(controller, const [rec], index: 5);
+    final selection = controller.selection;
+    // Typing replaces the selected word, not the card after it.
+    controller.replaceText(
+      selection.start,
+      selection.end - selection.start,
+      'hi',
+      selection: TextSelection.collapsed(offset: selection.start + 2),
+    );
+
+    expect(controller.selection.isValid, isTrue);
+    expect(noteFileCardsIn(controller.document), const [rec]);
+    expect(controller.document.toPlainText(), startsWith('hi\n'));
+  });
+
   test('typing goes on after cards put in at the cursor mid-sentence', () {
     final controller = FleatherController(
       document: noteDocumentFromMarkdown('hello world'),
