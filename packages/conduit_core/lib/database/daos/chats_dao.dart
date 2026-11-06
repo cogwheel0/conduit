@@ -184,6 +184,22 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
   /// A fetch uses this token to avoid overwriting events received while it ran.
   int taskEventVersion(String chatId) => _taskEventVersions[chatId] ?? 0;
 
+  final _modelListVersions = <String, int>{};
+
+  /// Counts the model lists [setChatModels] stored for chat [chatId]. A fetch
+  /// takes it before it reads the chat, so a copy read before the user picked
+  /// a model does not put the earlier list back: Open WebUI keeps the chat's
+  /// date on a model change, so nothing else tells the copies apart.
+  int modelListVersion(String chatId) => _modelListVersions[chatId] ?? 0;
+
+  /// The model list stored with chat [chatId], or null when it has none.
+  Future<List<Object?>?> storedChatModels(String chatId) async {
+    final row = await getChat(chatId);
+    if (row == null) return null;
+    final models = _decodeRawExtraEnvelope(row.rawExtra)['models'];
+    return models is List ? List<Object?>.of(models) : null;
+  }
+
   int _readStateClock = 0;
   final _readStateTouchedAt = <String, int>{};
   final _unreadMarksInFlight = <String, int>{};
@@ -1675,6 +1691,9 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
   /// carries them. No push is queued: the caller saves the list itself.
   /// A chat whose body is not synced yet, or is gone, is left as it is.
   Future<void> setChatModels(String chatId, List<String> models) {
+    // Before anything is awaited: a fetch that starts from here on reads the
+    // server after the pick, and one that started before does not.
+    _modelListVersions[chatId] = modelListVersion(chatId) + 1;
     return transaction(() async {
       final row = await getChat(chatId);
       if (row == null || row.deleted || !row.bodySynced) return;

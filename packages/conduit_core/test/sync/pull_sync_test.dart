@@ -656,6 +656,54 @@ void main() {
     });
   });
 
+  group('a model picked while a pull reads the chat', () {
+    test('stays over the list the pull read before it', () async {
+      server.seedChat(
+        id: 'chat-1',
+        blob: {
+          ...blobFor('chat-1'),
+          'models': ['model-1'],
+        },
+        createdAt: 100,
+        updatedAt: 150,
+      );
+      await pull.pullChat('chat-1');
+      check(await db.chatsDao.storedChatModels('chat-1')).isNotNull().deepEquals([
+        'model-1',
+      ]);
+
+      // A pull reads the chat; while it waits, the user picks a model, which
+      // is stored at once and sent to the server after.
+      final gate = Completer<void>();
+      client.chatFetchGate = gate.future;
+      final pulling = pull.pullChat('chat-1');
+      await Future<void>.delayed(Duration.zero);
+      await db.chatsDao.setChatModels('chat-1', const ['model-2']);
+      gate.complete();
+      client.chatFetchGate = null;
+      await pulling;
+
+      check(await db.chatsDao.storedChatModels('chat-1')).isNotNull().deepEquals([
+        'model-2',
+      ]);
+
+      // A pull that starts after the pick takes the server's list again.
+      server.seedChat(
+        id: 'chat-1',
+        blob: {
+          ...blobFor('chat-1'),
+          'models': ['model-3'],
+        },
+        createdAt: 100,
+        updatedAt: 150,
+      );
+      await pull.pullChat('chat-1');
+      check(await db.chatsDao.storedChatModels('chat-1')).isNotNull().deepEquals([
+        'model-3',
+      ]);
+    });
+  });
+
   group('checklist persistence', () {
     const pending = [
       {'id': '1', 'content': 'Read references', 'status': 'pending'},

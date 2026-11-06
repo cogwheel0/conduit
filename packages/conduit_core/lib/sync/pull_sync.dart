@@ -281,6 +281,9 @@ class PullSync {
   final PullFetchMemo? _fetchMemo;
   final _taskVersionsAtFetch = Expando<int>();
 
+  /// [ChatsDao.modelListVersion] when each raw response was requested.
+  final _modelListVersionsAtFetch = Expando<int>();
+
   /// [ChatLocks.generation] when each raw response was requested, so the merge
   /// can tell a read that a bulk barrier has since outdated.
   final _generationsAtFetch = Expando<int>();
@@ -589,10 +592,12 @@ class PullSync {
   /// Full `ChatResponse` fetch; null on 404. Adapter seam.
   Future<Map<String, dynamic>?> fetchChatRaw(String id) async {
     final taskVersion = _db.chatsDao.taskEventVersion(id);
+    final modelListVersion = _db.chatsDao.modelListVersion(id);
     final generation = _locks.generation;
     final response = await _client.getChatRaw(id);
     if (response != null) {
       _taskVersionsAtFetch[response] = taskVersion;
+      _modelListVersionsAtFetch[response] = modelListVersion;
       _generationsAtFetch[response] = generation;
     }
     return response;
@@ -693,6 +698,17 @@ class PullSync {
       throw const StaleServerReadException();
     }
     final id = resp['id'] as String;
+    // A model picked here since this copy was read stays: the copy holds the
+    // list from before, and the server keeps the chat's date on a model
+    // change, so its age shows nowhere else.
+    final modelsFetchedAt = _modelListVersionsAtFetch[resp];
+    final chatBody = resp['chat'];
+    if (modelsFetchedAt != null &&
+        modelsFetchedAt != _db.chatsDao.modelListVersion(id) &&
+        chatBody is Map) {
+      final picked = await _db.chatsDao.storedChatModels(id);
+      if (picked != null) chatBody['models'] = picked;
+    }
     final createdAt = _asEpochSeconds(resp['created_at']) ?? 0;
     final updatedAt = _asEpochSeconds(resp['updated_at']) ?? 0;
     final stored = await _db.chatsDao.getChat(id);
