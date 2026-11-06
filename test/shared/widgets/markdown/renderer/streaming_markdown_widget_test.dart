@@ -2355,6 +2355,27 @@ After
     expect(find.text('View Result from browser'), findsOneWidget);
   });
 
+  testWidgets('a tool call that showed an MCP App offers to open it', (
+    tester,
+  ) async {
+    const content =
+        '<details type="tool_calls" done="true" name="show_map" '
+        'embeds="[{&quot;type&quot;:&quot;mcp_app&quot;,'
+        '&quot;server_id&quot;:&quot;maps&quot;,'
+        '&quot;tool_name&quot;:&quot;show_map&quot;,'
+        '&quot;binding&quot;:&quot;b&quot;,'
+        '&quot;arguments&quot;:{},&quot;result&quot;:{}}]">\n'
+        '<summary>Tool Executed</summary>\n'
+        '</details>\n';
+
+    await tester.pumpWidget(buildHarness(content));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('mcp-app-card')), findsOneWidget);
+    expect(find.text('Open app'), findsOneWidget);
+    expect(find.textContaining('An interactive app from maps'), findsOneWidget);
+  });
+
   testWidgets(
     'keeps grouped tool call embeds visible while details are closed',
     (tester) async {

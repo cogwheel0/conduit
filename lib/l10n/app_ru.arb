@@ -4348,5 +4348,12 @@
   "workspaceKnowledgeMaxFileSize": "Максимальный размер файла (МБ)",
   "workspaceKnowledgeLimitDefault": "Ограничение сервера",
   "workspaceKnowledgeLimitInvalid": "Укажите каждое ограничение целым числом больше нуля или оставьте его пустым.",
-  "workspaceToolToggleSaveFirst": "Сохраните или отмените изменения, прежде чем включать или выключать инструмент."
+  "workspaceToolToggleSaveFirst": "Сохраните или отмените изменения, прежде чем включать или выключать инструмент.",
+  "mcpAppPreviewDescription": "Интерактивное приложение от {serverName}. Откройте его, чтобы пользоваться им здесь.",
+  "mcpAppOpen": "Открыть приложение",
+  "mcpAppToolCallTitle": "Разрешить этот вызов инструмента?",
+  "mcpAppToolCallMessage": "Приложение хочет, чтобы {serverName} выполнил {toolName} с параметрами:",
+  "mcpAppToolCallAllow": "Разрешить",
+  "mcpAppLoadFailed": "Не удалось загрузить приложение: {reason}",
+  "mcpAppDidNotStart": "Приложение не запустилось."
 }

@@ -6228,5 +6228,12 @@
   "workspaceKnowledgeMaxFileSize": "Maximálna veľkosť súboru (MB)",
   "workspaceKnowledgeLimitDefault": "Limit servera",
   "workspaceKnowledgeLimitInvalid": "Zadajte každý limit ako celé číslo väčšie ako nula, alebo ho nechajte prázdny.",
-  "workspaceToolToggleSaveFirst": "Pred zapnutím alebo vypnutím nástroja zmeny uložte alebo zahoďte."
+  "workspaceToolToggleSaveFirst": "Pred zapnutím alebo vypnutím nástroja zmeny uložte alebo zahoďte.",
+  "mcpAppPreviewDescription": "Interaktívna aplikácia zo servera {serverName}. Otvorte ju a používajte ju tu.",
+  "mcpAppOpen": "Otvoriť aplikáciu",
+  "mcpAppToolCallTitle": "Povoliť toto volanie nástroja?",
+  "mcpAppToolCallMessage": "Aplikácia chce, aby {serverName} spustil {toolName} s parametrami:",
+  "mcpAppToolCallAllow": "Povoliť",
+  "mcpAppLoadFailed": "Aplikáciu sa nepodarilo načítať: {reason}",
+  "mcpAppDidNotStart": "Aplikácia sa nespustila."
 }

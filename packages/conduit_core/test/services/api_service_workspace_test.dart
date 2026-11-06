@@ -11,6 +11,7 @@ import 'package:conduit_core/services/worker_manager.dart';
 import 'package:conduit_core/features/workspace/models/workspace_common.dart';
 import 'package:conduit_core/features/workspace/models/workspace_resources.dart';
 import 'package:conduit_core/features/workspace/models/workspace_knowledge.dart';
+import 'package:conduit_core/features/mcp_apps/openwebui_mcp_app.dart';
 
 void main() {
   group('knowledge base file limits (Open WebUI 0.13)', () {
@@ -87,6 +88,55 @@ void main() {
       });
       check(summary.maxFileCount).equals(50);
       check(summary.maxFileSize).isNull();
+    });
+  });
+
+  group('MCP App requests (Open WebUI 0.13)', () {
+    const app = OpenWebUiMcpApp(
+      serverId: 'maps',
+      toolName: 'show_map',
+      binding: 'b',
+    );
+
+    test('go to the app RPC with the binding', () async {
+      final requests = <RequestOptions>[];
+      final adapter = _RecordingAdapter((request) {
+        requests.add(request);
+        return _json({'html': '<p></p>'});
+      });
+
+      final result = await _api(adapter).runMcpAppRequest(
+        app,
+        method: 'resources/read',
+        params: {'uri': 'ui://maps/tile'},
+      );
+
+      check(result).deepEquals({'html': '<p></p>'});
+      check(
+        requests.single.path,
+      ).equals('/api/v1/tools/id/server%3Amcp%3Amaps/mcp/app/rpc');
+      check(requests.single.data as Map).deepEquals({
+        'tool_name': 'show_map',
+        'binding': 'b',
+        'method': 'resources/read',
+        'params': {'uri': 'ui://maps/tile'},
+      });
+    });
+
+    test("a refusal carries the server's reason", () async {
+      final adapter = _RecordingAdapter(
+        (_) => _json({
+          'detail': 'Invalid app binding. Run the tool again.',
+        }, statusCode: 403),
+      );
+
+      await check(
+        _api(adapter).runMcpAppRequest(app, method: 'ui/resource'),
+      ).throws<McpAppRpcException>(
+        (it) => it
+            .has((e) => e.message, 'message')
+            .equals('Invalid app binding. Run the tool again.'),
+      );
     });
   });
 

@@ -88,6 +88,8 @@ import 'package:conduit_core/features/chat/utils/file_utils.dart';
 
 import 'chat_branch_actions.dart';
 import 'chat_comparison_widgets.dart';
+import 'package:conduit/features/chat/widgets/mcp_app_embed.dart';
+import 'package:conduit_core/features/mcp_apps/openwebui_mcp_app.dart';
 import 'code_execution_display.dart';
 import 'follow_up_suggestions.dart';
 import 'usage_stats_modal.dart';
@@ -1979,6 +1981,12 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
         .map((entry) {
           final index = entry.$1;
           final embed = entry.$2;
+          if (OpenWebUiMcpApp.tryParse(embed) case final app?) {
+            return KeyedSubtree(
+              key: ValueKey('message-mcp-app-$index-${app.binding}'),
+              child: McpAppEmbed(app: app),
+            );
+          }
           final source = extractEmbedSource(embed);
           if (source == null || source.isEmpty) {
             return null;

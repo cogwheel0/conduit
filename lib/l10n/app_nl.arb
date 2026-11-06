@@ -4310,5 +4310,12 @@
   "workspaceKnowledgeMaxFileSize": "Maximale bestandsgrootte (MB)",
   "workspaceKnowledgeLimitDefault": "Limiet van de server",
   "workspaceKnowledgeLimitInvalid": "Voer elke limiet in als een geheel getal groter dan nul, of laat hem leeg.",
-  "workspaceToolToggleSaveFirst": "Sla je wijzigingen op of verwerp ze voordat je de tool in- of uitschakelt."
+  "workspaceToolToggleSaveFirst": "Sla je wijzigingen op of verwerp ze voordat je de tool in- of uitschakelt.",
+  "mcpAppPreviewDescription": "Een interactieve app van {serverName}. Open hem om hem hier te gebruiken.",
+  "mcpAppOpen": "App openen",
+  "mcpAppToolCallTitle": "Deze toolaanroep toestaan?",
+  "mcpAppToolCallMessage": "De app wil dat {serverName} {toolName} uitvoert met:",
+  "mcpAppToolCallAllow": "Toestaan",
+  "mcpAppLoadFailed": "De app kon niet worden geladen: {reason}",
+  "mcpAppDidNotStart": "De app is niet gestart."
 }

@@ -4310,5 +4310,12 @@
   "workspaceKnowledgeMaxFileSize": "最大檔案大小 (MB)",
   "workspaceKnowledgeLimitDefault": "伺服器限制",
   "workspaceKnowledgeLimitInvalid": "請將每個限制填寫為大於零的整數，或留空。",
-  "workspaceToolToggleSaveFirst": "請先儲存或捨棄變更，再啟用或停用此工具。"
+  "workspaceToolToggleSaveFirst": "請先儲存或捨棄變更，再啟用或停用此工具。",
+  "mcpAppPreviewDescription": "來自 {serverName} 的互動式應用程式。開啟即可在此使用。",
+  "mcpAppOpen": "開啟應用程式",
+  "mcpAppToolCallTitle": "允許此工具呼叫嗎？",
+  "mcpAppToolCallMessage": "此應用程式希望 {serverName} 以下列參數執行 {toolName}：",
+  "mcpAppToolCallAllow": "允許",
+  "mcpAppLoadFailed": "無法載入此應用程式：{reason}",
+  "mcpAppDidNotStart": "此應用程式未能啟動。"
 }

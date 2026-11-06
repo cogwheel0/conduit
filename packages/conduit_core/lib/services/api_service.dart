@@ -39,6 +39,7 @@ import 'package:conduit_core/models/user.dart';
 import 'package:conduit_core/features/automations/models/automation.dart';
 import 'package:conduit_core/features/calendar/models/calendar_models.dart';
 import 'package:conduit_core/features/notifications/models/notification_target.dart';
+import 'package:conduit_core/features/mcp_apps/openwebui_mcp_app.dart';
 
 import 'package:conduit_core/network/conduit_user_agent.dart';
 import 'package:conduit_core/network/same_origin_redirect_interceptor.dart';

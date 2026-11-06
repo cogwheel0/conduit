@@ -1402,6 +1402,10 @@ CompiledMarkdownToolCallData _compileToolCallData(
         attributes['status'] == 'failed' ||
         _isToolResultError(resultPartsText ?? parsedResult),
     embedSources: embeds,
+    mcpApps: [
+      for (final embed in normalizeEmbedList(rawEmbeds))
+        if (isMcpAppEmbed(embed)) embed.cast<String, Object?>(),
+    ],
     imageUrls: imageUrls,
   );
 }

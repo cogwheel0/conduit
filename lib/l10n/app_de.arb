@@ -4310,5 +4310,12 @@
   "workspaceKnowledgeMaxFileSize": "Maximale Dateigröße (MB)",
   "workspaceKnowledgeLimitDefault": "Limit des Servers",
   "workspaceKnowledgeLimitInvalid": "Gib jedes Limit als ganze Zahl über null ein oder lass es leer.",
-  "workspaceToolToggleSaveFirst": "Speichere oder verwirf deine Änderungen, bevor du das Tool ein- oder ausschaltest."
+  "workspaceToolToggleSaveFirst": "Speichere oder verwirf deine Änderungen, bevor du das Tool ein- oder ausschaltest.",
+  "mcpAppPreviewDescription": "Eine interaktive App von {serverName}. Öffne sie, um sie hier zu verwenden.",
+  "mcpAppOpen": "App öffnen",
+  "mcpAppToolCallTitle": "Diesen Tool-Aufruf erlauben?",
+  "mcpAppToolCallMessage": "Die App möchte, dass {serverName} {toolName} ausführt mit:",
+  "mcpAppToolCallAllow": "Erlauben",
+  "mcpAppLoadFailed": "Die App konnte nicht geladen werden: {reason}",
+  "mcpAppDidNotStart": "Die App wurde nicht gestartet."
 }

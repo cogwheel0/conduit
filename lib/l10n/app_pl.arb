@@ -8053,5 +8053,51 @@
   "workspaceToolToggleSaveFirst": "Zapisz lub odrzuć zmiany, zanim włączysz lub wyłączysz narzędzie.",
   "@workspaceToolToggleSaveFirst": {
     "description": "Shown when the user tries to switch a workspace tool on or off while the editor has unsaved changes."
+  },
+  "mcpAppPreviewDescription": "Interaktywna aplikacja z {serverName}. Otwórz ją, aby używać jej tutaj.",
+  "@mcpAppPreviewDescription": {
+    "description": "Shown on an MCP App a tool call showed in a chat, before the user opens it. serverName is the MCP server the app comes from.",
+    "placeholders": {
+      "serverName": {
+        "type": "String"
+      }
+    }
+  },
+  "mcpAppOpen": "Otwórz aplikację",
+  "@mcpAppOpen": {
+    "description": "Button that opens an MCP App inside the chat."
+  },
+  "mcpAppToolCallTitle": "Zezwolić na to wywołanie narzędzia?",
+  "@mcpAppToolCallTitle": {
+    "description": "Title of the confirmation shown before an MCP App in a chat runs a tool."
+  },
+  "mcpAppToolCallMessage": "Aplikacja chce, aby {serverName} uruchomił {toolName} z:",
+  "@mcpAppToolCallMessage": {
+    "description": "Confirmation message before an MCP App runs a tool; the tool's arguments follow it.",
+    "placeholders": {
+      "serverName": {
+        "type": "String"
+      },
+      "toolName": {
+        "type": "String"
+      }
+    }
+  },
+  "mcpAppToolCallAllow": "Zezwól",
+  "@mcpAppToolCallAllow": {
+    "description": "Confirm button that lets an MCP App run one tool call."
+  },
+  "mcpAppLoadFailed": "Nie udało się wczytać aplikacji: {reason}",
+  "@mcpAppLoadFailed": {
+    "description": "Shown when an MCP App could not be loaded; reason is the server's explanation.",
+    "placeholders": {
+      "reason": {
+        "type": "String"
+      }
+    }
+  },
+  "mcpAppDidNotStart": "Aplikacja się nie uruchomiła.",
+  "@mcpAppDidNotStart": {
+    "description": "Shown when an opened MCP App never completed its start-up handshake."
   }
 }

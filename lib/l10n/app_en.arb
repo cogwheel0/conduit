@@ -9015,5 +9015,51 @@
   "workspaceToolToggleSaveFirst": "Save or discard your changes before switching the tool on or off.",
   "@workspaceToolToggleSaveFirst": {
     "description": "Shown when the user tries to switch a workspace tool on or off while the editor has unsaved changes."
+  },
+  "mcpAppPreviewDescription": "An interactive app from {serverName}. Open it to use it here.",
+  "@mcpAppPreviewDescription": {
+    "description": "Shown on an MCP App a tool call showed in a chat, before the user opens it. serverName is the MCP server the app comes from.",
+    "placeholders": {
+      "serverName": {
+        "type": "String"
+      }
+    }
+  },
+  "mcpAppOpen": "Open app",
+  "@mcpAppOpen": {
+    "description": "Button that opens an MCP App inside the chat."
+  },
+  "mcpAppToolCallTitle": "Allow this tool call?",
+  "@mcpAppToolCallTitle": {
+    "description": "Title of the confirmation shown before an MCP App in a chat runs a tool."
+  },
+  "mcpAppToolCallMessage": "The app wants {serverName} to run {toolName} with:",
+  "@mcpAppToolCallMessage": {
+    "description": "Confirmation message before an MCP App runs a tool; the tool's arguments follow it.",
+    "placeholders": {
+      "serverName": {
+        "type": "String"
+      },
+      "toolName": {
+        "type": "String"
+      }
+    }
+  },
+  "mcpAppToolCallAllow": "Allow",
+  "@mcpAppToolCallAllow": {
+    "description": "Confirm button that lets an MCP App run one tool call."
+  },
+  "mcpAppLoadFailed": "The app could not be loaded: {reason}",
+  "@mcpAppLoadFailed": {
+    "description": "Shown when an MCP App could not be loaded; reason is the server's explanation.",
+    "placeholders": {
+      "reason": {
+        "type": "String"
+      }
+    }
+  },
+  "mcpAppDidNotStart": "The app did not start.",
+  "@mcpAppDidNotStart": {
+    "description": "Shown when an opened MCP App never completed its start-up handshake."
   }
 }
