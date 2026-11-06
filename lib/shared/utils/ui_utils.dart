@@ -45,6 +45,9 @@ class UiUtils {
   static IconData get menuIcon =>
       platformIcon(ios: CupertinoIcons.line_horizontal_3, android: Icons.menu);
 
+  static IconData get backIcon =>
+      platformIcon(ios: CupertinoIcons.back, android: Icons.arrow_back);
+
   static IconData get addIcon =>
       platformIcon(ios: CupertinoIcons.plus_circle, android: Icons.add);
 

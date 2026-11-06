@@ -4,7 +4,6 @@ import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_svg/flutter_svg.dart';
 import 'package:material_ui/material_ui.dart';
 
 import 'adaptive_controls.dart';
@@ -42,7 +41,8 @@ class AdaptiveFloatingTab {
   /// Drawn by Flutter, tinted through the ambient [IconTheme].
   final Widget icon;
 
-  /// SVG or bitmap asset the iOS 26 tab bar tints as a template.
+  /// Bitmap asset the iOS 26 tab bar tints as a template, so only its alpha
+  /// shows.
   final String nativeAsset;
 
   /// Longest side of [nativeAsset] in the native tab bar, in points.
@@ -143,9 +143,8 @@ class AdaptiveFloatingTabBar extends StatefulWidget {
 
   static final Map<String, Uint8List> _renderedIcons = {};
 
-  /// Renders [asset] as a PNG whose longest side is [size] points at
-  /// [scale], because UIKit reads neither SVG nor a bitmap's intended point
-  /// size.
+  /// Renders the bitmap [asset] as a PNG whose longest side is [size] points
+  /// at [scale], because UIKit draws a bitmap at its own size.
   static Future<Uint8List> renderNativeIcon(
     AssetBundle bundle,
     String asset,
@@ -153,48 +152,23 @@ class AdaptiveFloatingTabBar extends StatefulWidget {
     double scale,
   ) async {
     final pixels = (size * scale).round();
-    ui.Image image;
-    if (asset.endsWith('.svg')) {
-      final info = await vg.loadPicture(
-        SvgAssetLoader(asset, assetBundle: bundle),
-        null,
-      );
-      try {
-        final recorder = ui.PictureRecorder();
-        final factor = pixels / info.size.longestSide;
-        ui.Canvas(recorder)
-          ..scale(factor)
-          ..drawPicture(info.picture);
-        final picture = recorder.endRecording();
-        try {
-          image = await picture.toImage(
-            (info.size.width * factor).round(),
-            (info.size.height * factor).round(),
-          );
-        } finally {
-          picture.dispose();
-        }
-      } finally {
-        info.picture.dispose();
-      }
-    } else {
-      final data = await bundle.load(asset);
-      final buffer = await ui.ImmutableBuffer.fromUint8List(
-        data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes),
-      );
-      final descriptor = await ui.ImageDescriptor.encoded(buffer);
-      final landscape = descriptor.width >= descriptor.height;
-      final codec = await descriptor.instantiateCodec(
-        targetWidth: landscape ? pixels : null,
-        targetHeight: landscape ? null : pixels,
-      );
-      try {
-        image = (await codec.getNextFrame()).image;
-      } finally {
-        codec.dispose();
-        descriptor.dispose();
-        buffer.dispose();
-      }
+    final data = await bundle.load(asset);
+    final buffer = await ui.ImmutableBuffer.fromUint8List(
+      data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes),
+    );
+    final descriptor = await ui.ImageDescriptor.encoded(buffer);
+    final landscape = descriptor.width >= descriptor.height;
+    final codec = await descriptor.instantiateCodec(
+      targetWidth: landscape ? pixels : null,
+      targetHeight: landscape ? null : pixels,
+    );
+    final ui.Image image;
+    try {
+      image = (await codec.getNextFrame()).image;
+    } finally {
+      codec.dispose();
+      descriptor.dispose();
+      buffer.dispose();
     }
     try {
       final png = await image.toByteData(format: ui.ImageByteFormat.png);
@@ -287,7 +261,15 @@ class _AdaptiveFloatingTabBarState extends State<AdaptiveFloatingTabBar> {
         scale,
       );
       return rendered[key] = icon;
-    } catch (_) {
+    } catch (error, stack) {
+      FlutterError.reportError(
+        FlutterErrorDetails(
+          exception: error,
+          stack: stack,
+          library: 'platform_ui',
+          context: ErrorDescription('rendering the tab icon ${tab.nativeAsset}'),
+        ),
+      );
       return Uint8List(0);
     }
   }

@@ -40,6 +40,7 @@ import '../../../shared/widgets/user_avatar.dart';
 import '../../chat/services/file_attachment_service.dart';
 import '../../chat/widgets/modern_chat_input.dart';
 import '../../navigation/utils/chat_list_back.dart';
+import '../../navigation/widgets/sidebar_page_leading_button.dart';
 
 import 'package:conduit_core/features/channels/providers/channel_app_replies.dart';
 import 'package:conduit_core/features/channels/providers/channel_members_providers.dart';
@@ -1252,7 +1253,10 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
       _scheduleChannelReloadForOwnerChange();
     }
     final theme = context.conduitTheme;
-    return ChatListBackScope(child: _buildScaffold(context, theme));
+    return ChatListBackScope(
+      fallback: Routes.channels,
+      child: _buildScaffold(context, theme),
+    );
   }
 
   // Equal side insets keep the icon and name centered in the title pill.
@@ -1447,11 +1451,9 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
     return buildConduitCenteredAdaptiveAppBar(
       context: context,
       tintColor: tintColor,
-      leading: ConduitAdaptiveAppBarIconButton(
-        icon: Platform.isIOS ? CupertinoIcons.line_horizontal_3 : Icons.menu,
-        iosSymbol: 'line.3.horizontal',
-        semanticLabel: AppLocalizations.of(context)!.sidebarButtonLabel,
-        onPressed: _toggleDrawer,
+      leading: SidebarPageLeadingButton(
+        fallback: Routes.channels,
+        onMenu: _toggleDrawer,
         iconColor: tintColor,
       ),
       title: _buildChannelTitlePill(context, channel, maxWidth: maxTitleWidth),

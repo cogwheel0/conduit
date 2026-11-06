@@ -211,7 +211,7 @@ void main() {
     expect(empty, findsOneWidget);
     expect(
       tester.getTopLeft(empty).dy,
-      greaterThan(tester.getBottomLeft(sidebarTestDestinationLabel('Chats')).dy),
+      greaterThan(tester.getBottomLeft(sidebarTestDestinationLabel('Notes')).dy),
     );
     final history = find.descendant(
       of: find.byKey(const ValueKey<String>('sidebar-chat-history')),
@@ -274,7 +274,7 @@ void main() {
       expect([for (final tab in tabs) tab['label']], ['Open WebUI', 'Hermes']);
       expect([
         for (final tab in tabs) String.fromCharCodes(tab['image'] as Uint8List),
-      ], ['assets/icons/open_webui_tab.svg', 'assets/icons/hermes_agent.png']);
+      ], ['assets/icons/open_webui_tab.png', 'assets/icons/hermes_agent.png']);
       expect(params['selectedIndex'], 0);
       expect(params['actionSymbol'], 'square.and.pencil');
       expect(params['actionLabel'], 'New Chat');
@@ -311,7 +311,7 @@ void main() {
       () => Future.wait([
         AdaptiveFloatingTabBar.renderNativeIcon(
           rootBundle,
-          'assets/icons/open_webui_tab.svg',
+          'assets/icons/open_webui_tab.png',
           22,
           3,
         ),
@@ -381,6 +381,33 @@ void main() {
     }
   });
 
+  testWidgets('destinations lead only the Open WebUI history', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      sidebarTestBuildHarness(
+        controllers: SidebarTestSidebarHarnessControllers(),
+        hermesEnabled: true,
+      ),
+    );
+    await tester.pumpAndSettle();
+    final destinations = find.byKey(
+      const ValueKey<String>('sidebar-destinations'),
+    );
+    expect(destinations.hitTestable(), findsOneWidget);
+    await tester.tap(sidebarTestBackendTab('Hermes'));
+    await tester.pumpAndSettle();
+    expect(find.byType(HermesSessionsTab).hitTestable(), findsOneWidget);
+    expect(destinations.hitTestable(), findsNothing);
+    expect(
+      find.descendant(
+        of: find.byType(HermesSessionsTab),
+        matching: find.byKey(const ValueKey<String>('sidebar-destinations')),
+      ),
+      findsNothing,
+    );
+  });
+
   testWidgets('a single backend leaves only New Chat in the bottom bar', (
     tester,
   ) async {
@@ -417,7 +444,7 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      for (final label in ['Notes', 'Terminal', 'Channels', 'Chats']) {
+      for (final label in ['Notes', 'Terminal', 'Channels']) {
         final destination = sidebarTestDestinationLabel(label);
         await tester.ensureVisible(destination);
         await tester.pumpAndSettle();

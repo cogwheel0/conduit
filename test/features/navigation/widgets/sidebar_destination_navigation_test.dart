@@ -227,8 +227,99 @@ void main() {
     });
   }
 
+  testWidgets('a note goes back to the page it was opened from', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(
+      sidebarTestBuildHarness(
+        controllers: SidebarTestSidebarHarnessControllers(),
+        shellChat: _chat(),
+        noteEditor: const NoteEditorPage(noteId: 'supplies'),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await sidebarTestSelectDestination(tester, 'Notes');
+    NavigationService.router.go('/notes/supplies');
+    await tester.pumpAndSettle();
+    expect(find.byType(NoteEditorPage), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey<String>('destination-menu-button')),
+      findsNothing,
+    );
+    await sidebarTestGoBack(tester);
+    expect(NavigationService.currentRoute, Routes.notes);
+    await sidebarTestGoBack(tester);
+    expect(NavigationService.currentRoute, Routes.chat);
+    expect(
+      tester
+          .state<ResponsiveDrawerLayoutState>(
+            find.byType(ResponsiveDrawerLayout),
+          )
+          .isOpen,
+      isFalse,
+    );
+
+    // A note opened from the chat goes back to the chat.
+    NavigationService.router.go('/notes/supplies');
+    await tester.pumpAndSettle();
+    await sidebarTestGoBack(tester);
+    expect(NavigationService.currentRoute, Routes.chat);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('a linked note with no page before goes back to Notes', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      sidebarTestBuildHarness(
+        controllers: SidebarTestSidebarHarnessControllers(),
+        shellChat: _chat(),
+        initialLocation: '/notes/supplies',
+        noteEditor: const NoteEditorPage(noteId: 'supplies'),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await sidebarTestGoBack(tester);
+    expect(NavigationService.currentRoute, Routes.notes);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('the tabbed sidebar keeps the menu button on a note', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(
+      sidebarTestBuildHarness(
+        controllers: SidebarTestSidebarHarnessControllers(),
+        shellChat: _chat(),
+        slidingSidebarEnabled: false,
+        initialLocation: '/notes/supplies',
+        noteEditor: const NoteEditorPage(noteId: 'supplies'),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.byType(NoteEditorPage), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey<String>('sidebar-page-back-button')),
+      findsNothing,
+    );
+    final drawer = tester.state<ResponsiveDrawerLayoutState>(
+      find.byType(ResponsiveDrawerLayout),
+    );
+    await tester.tap(find.bySemanticsLabel('Sidebar').hitTestable().first);
+    await tester.pumpAndSettle();
+    expect(drawer.isOpen, isTrue);
+    expect(NavigationService.currentRoute, '/notes/supplies');
+    expect(tester.takeException(), isNull);
+  });
+
   for (final destination in [Routes.notes, Routes.terminal, Routes.channels]) {
-    testWidgets('Android Back opens the menu then asks to exit $destination', (
+    testWidgets('Android Back returns from $destination to the chat', (
       tester,
     ) async {
       debugChatBackIsAndroidOverride = true;
@@ -254,15 +345,9 @@ void main() {
       )!;
       await tester.binding.handlePopRoute();
       await tester.pumpAndSettle();
-      expect(drawer.isOpen, isTrue);
+      expect(NavigationService.currentRoute, Routes.chat);
+      expect(drawer.isOpen, isFalse);
       expect(find.text(l10n.endYourSession), findsNothing);
-      await tester.binding.handlePopRoute();
-      await tester.pumpAndSettle();
-      expect(find.text(l10n.endYourSession), findsOneWidget);
-      await tester.tap(find.text(l10n.cancel));
-      await tester.pumpAndSettle();
-      expect(NavigationService.currentRoute, destination);
-      expect(drawer.isOpen, isTrue);
       expect(tester.takeException(), isNull);
     });
   }
@@ -283,10 +368,13 @@ void main() {
     final drawer = tester.state<ResponsiveDrawerLayoutState>(
       find.byType(ResponsiveDrawerLayout),
     );
-    for (final label in ['Notes', 'Notes', 'Terminal', 'Channels', 'Chats']) {
+    for (final label in ['Notes', 'Notes', 'Terminal', 'Channels']) {
       await sidebarTestSelectDestination(tester, label);
       expect(drawer.isOpen, isTrue);
     }
+    await sidebarTestGoBack(tester);
+    expect(NavigationService.currentRoute, Routes.terminal);
+    expect(drawer.isOpen, isTrue);
     expect(tester.takeException(), isNull);
   });
 
@@ -576,8 +664,8 @@ void main() {
       final originalState = tester.state(terminal);
       expect(tester.widget<TerminalTab>(terminal).isActive, isTrue);
 
-      await sidebarTestSelectDestination(tester, 'Chats');
-      await tester.pumpAndSettle();
+      await sidebarTestGoBack(tester);
+      expect(NavigationService.currentRoute, Routes.chat);
       expect(terminal, findsOneWidget);
       expect(tester.state(terminal), same(originalState));
       expect(tester.widget<TerminalTab>(terminal).isActive, isFalse);
@@ -619,7 +707,7 @@ void main() {
       closeTo(
         tester
             .getCenter(
-              find.byKey(const ValueKey<String>('destination-menu-button')),
+              find.byKey(const ValueKey<String>('sidebar-page-back-button')),
             )
             .dy,
         1,
@@ -672,11 +760,8 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    for (final label in ['Notes', 'Terminal', 'Channels', 'Chats']) {
-      await tester.tap(
-        find.byKey(const ValueKey<String>('destination-menu-button')),
-      );
-      await tester.pumpAndSettle();
+    for (final label in ['Notes', 'Terminal', 'Channels']) {
+      await sidebarTestOpenSidebar(tester);
       final sidebar = find.byType(SidebarPage);
       expect(
         find.descendant(of: sidebar, matching: find.text('Paper projects')),
@@ -712,19 +797,14 @@ void main() {
             .isOpen,
         isFalse,
       );
-      if (label == 'Chats') {
-        expect(find.text('Chat content').hitTestable(), findsOneWidget);
-        expect(find.byType(SidebarDestinationPage), findsNothing);
-      } else {
-        expect(find.byType(SidebarDestinationPage), findsOneWidget);
-        expect(
-          find.descendant(
-            of: find.byType(SidebarDestinationPage),
-            matching: find.text(label),
-          ),
-          findsWidgets,
-        );
-      }
+      expect(find.byType(SidebarDestinationPage), findsOneWidget);
+      expect(
+        find.descendant(
+          of: find.byType(SidebarDestinationPage),
+          matching: find.text(label),
+        ),
+        findsWidgets,
+      );
       expect(tester.takeException(), isNull);
     }
   });
@@ -773,10 +853,7 @@ void main() {
     await tester.enterText(mainSearch, 'unmatched');
     await tester.pumpAndSettle();
     expect(find.text('Workshop supplies'), findsNothing);
-    await tester.tap(
-      find.byKey(const ValueKey<String>('destination-menu-button')),
-    );
-    await tester.pumpAndSettle();
+    await sidebarTestOpenSidebar(tester);
     expect(find.text('Paper lantern'), findsOneWidget);
     await tester.tap(
       find.byKey(const ValueKey<String>('sidebar-search-button')),

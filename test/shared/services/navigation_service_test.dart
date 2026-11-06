@@ -39,4 +39,53 @@ void main() {
       check(configuration.extra).isA<NativeSheetNavigationOrigin>();
     },
   );
+
+  testWidgets('back returns through the main-pane pages visited before', (
+    tester,
+  ) async {
+    final router = GoRouter(
+      initialLocation: Routes.chat,
+      routes: [
+        for (final path in [
+          Routes.chat,
+          Routes.notes,
+          Routes.noteEditor,
+          Routes.channels,
+          Routes.profile,
+        ])
+          GoRoute(path: path, builder: (context, state) => const SizedBox()),
+      ],
+    );
+    addTearDown(router.dispose);
+    NavigationService.attachRouter(router);
+    await tester.pumpWidget(
+      WidgetsApp.router(routerConfig: router, color: const Color(0xFF000000)),
+    );
+    Future<void> visit(String location) async {
+      router.go(location);
+      await tester.pumpAndSettle();
+    }
+
+    Future<String?> back() async {
+      NavigationService.returnToPreviousPage(fallback: Routes.chat);
+      await tester.pumpAndSettle();
+      return NavigationService.currentRoute;
+    }
+
+    await visit(Routes.notes);
+    await visit('/notes/demo');
+    await visit(Routes.profile);
+    await visit(Routes.channels);
+    // Settings and other screens outside the main pane are passed over.
+    check(await back()).equals('/notes/demo');
+    check(await back()).equals(Routes.notes);
+    check(await back()).equals(Routes.chat);
+    check(await back()).equals(Routes.chat);
+
+    // Returning to a page drops the pages after it, so back cannot cycle.
+    await visit(Routes.notes);
+    await visit('/notes/demo');
+    await visit(Routes.notes);
+    check(await back()).equals(Routes.chat);
+  });
 }

@@ -47,6 +47,8 @@ import 'package:conduit_core/utils/debug_logger.dart';
 
 import '../../../shared/theme/conduit_input_styles.dart';
 import '../../../shared/services/navigation_service.dart';
+import '../../navigation/utils/sidebar_page_back.dart';
+import '../../navigation/widgets/sidebar_page_leading_button.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/adaptive_glass.dart';
 import '../../../shared/widgets/adaptive_route_shell.dart';
@@ -54,7 +56,6 @@ import '../../../shared/widgets/adaptive_toolbar_components.dart';
 import '../../../shared/widgets/chrome_gradient_fade.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/horizontal_gesture_ownership.dart';
-import '../../../shared/widgets/sidebar_layout_contract.dart';
 import '../../../shared/widgets/conduit_loading.dart';
 import '../../../shared/widgets/middle_ellipsis_text.dart';
 import '../../../shared/widgets/themed_dialogs.dart';
@@ -581,6 +582,20 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
         Navigator.of(context).pop(result);
       }
     }
+  }
+
+  /// Saves a pending edit before the editor is left by its back button.
+  /// Returns false, keeping the editor open, when the save did not land, so a
+  /// remotely deleted note's recovery retry stays reachable.
+  Future<bool> _saveBeforeLeaving() async {
+    _saveDebounce?.cancel();
+    await _autoSave();
+    if (!mounted) return false;
+    if (_hasChanges) {
+      _recovery.pendingRetry?.call();
+      return false;
+    }
+    return true;
   }
 
   Future<void> _autoSave() async {
@@ -1195,14 +1210,26 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
       return const AdaptiveRouteShell(body: SizedBox.shrink());
     }
 
+    final goesBack = sidebarPagesGoBack(ref);
     return PopScope(
       // Allow the back gesture/animation to proceed normally when there is
       // nothing to save. When an edit is still pending (within the auto-save
       // debounce), intercept the pop, flush the save while the widget is still
       // mounted (so the durable write completes without racing teardown), then
-      // pop programmatically.
-      canPop: !_hasChanges,
-      onPopInvokedWithResult: _onEditorPopInvoked,
+      // pop programmatically. The sliding sidebar opens the editor in place,
+      // so its back returns to the page before, as the back button does.
+      canPop: !_hasChanges && !goesBack,
+      onPopInvokedWithResult: goesBack
+          ? (didPop, _) {
+              if (didPop) return;
+              unawaited(
+                goBackFromSidebarPage(
+                  fallback: Routes.notes,
+                  beforeBack: _saveBeforeLeaving,
+                ),
+              );
+            }
+          : _onEditorPopInvoked,
       child: AdaptiveRouteShell(
         backgroundColor: context.conduitTheme.surfaceBackground,
         extendBodyBehindAppBar: true,
@@ -1336,12 +1363,9 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
     return buildConduitCenteredAdaptiveAppBar(
       context: context,
       tintColor: tintColor,
-      leading: ConduitAdaptiveAppBarIconButton(
-        icon: Platform.isIOS ? CupertinoIcons.line_horizontal_3 : Icons.menu,
-        iosSymbol: 'line.3.horizontal',
-        semanticLabel: AppLocalizations.of(context)!.sidebarButtonLabel,
-        onPressed: () =>
-            SidebarDrawerControllerScope.maybeOf(context)?.toggle(),
+      leading: SidebarPageLeadingButton(
+        fallback: Routes.notes,
+        beforeBack: _saveBeforeLeaving,
         iconColor: tintColor,
       ),
       title: _buildNoteEditorTitlePill(context, maxWidth: maxTitleWidth),

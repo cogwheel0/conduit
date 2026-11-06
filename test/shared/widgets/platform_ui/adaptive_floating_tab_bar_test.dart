@@ -6,7 +6,7 @@ import 'package:material_ui/material_ui.dart';
 const _openWebUi = AdaptiveFloatingTab(
   label: 'Open WebUI',
   icon: Icon(Icons.circle),
-  nativeAsset: 'assets/icons/open_webui_tab.svg',
+  nativeAsset: 'assets/icons/open_webui_tab.png',
 );
 const _hermes = AdaptiveFloatingTab(
   label: 'Hermes',

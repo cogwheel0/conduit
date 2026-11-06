@@ -20,6 +20,7 @@ import '../../../shared/widgets/platform_ui/vocabulary.dart';
 import '../../../shared/widgets/sidebar_layout_contract.dart';
 import '../providers/sidebar_providers.dart';
 import '../utils/chat_list_back.dart';
+import 'sidebar_page_leading_button.dart';
 import 'sidebar_tab_registry.dart';
 
 /// Keeps retained destination bodies informed of the visible route.
@@ -153,12 +154,9 @@ class _SidebarDestinationPageState
       appBar: buildConduitCenteredAdaptiveAppBar(
         context: context,
         tintColor: color,
-        leading: ConduitAdaptiveAppBarIconButton(
-          key: const ValueKey<String>('destination-menu-button'),
-          icon: Icons.menu,
-          semanticLabel: l10n.sidebarButtonLabel,
-          onPressed: () =>
-              SidebarDrawerControllerScope.maybeOf(context)?.toggle(),
+        leading: const SidebarPageLeadingButton(
+          fallback: Routes.chat,
+          menuButtonKey: ValueKey<String>('destination-menu-button'),
         ),
         title: _searchExpanded
             ? ConduitGlassSearchField(
@@ -211,6 +209,6 @@ class _SidebarDestinationPageState
         ),
       ),
     );
-    return ChatListBackScope(child: page);
+    return ChatListBackScope(fallback: Routes.chat, child: page);
   }
 }

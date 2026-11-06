@@ -5,7 +5,6 @@ import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:flutter_svg/flutter_svg.dart';
 import 'package:go_router/go_router.dart';
 
 import 'package:conduit_core/services/settings_service.dart';
@@ -702,21 +701,23 @@ class _SlidingSidebarPage extends ConsumerWidget {
               parentOwnsHeaderInset: false,
               bottomNavigationVisible: true,
               floatingChromeInsets: chromeInsets,
-              child: SidebarHistoryHeaderScope(
-                header: const _SlidingSidebarDestinations(),
-                child: KeyedSubtree(
-                  key: const ValueKey<String>('sidebar-chat-history'),
-                  child: IndexedStack(
-                    index: historyTabs.indexOf(chatTab),
-                    children: [
-                      for (final tab in historyTabs)
-                        tab.id == SidebarTabId.chats
-                            ? const ChatsDrawer()
-                            : const HermesSessionsTab(
-                                showBottomNavigationBar: false,
-                              ),
-                    ],
-                  ),
+              child: KeyedSubtree(
+                key: const ValueKey<String>('sidebar-chat-history'),
+                child: IndexedStack(
+                  index: historyTabs.indexOf(chatTab),
+                  children: [
+                    for (final tab in historyTabs)
+                      tab.id == SidebarTabId.chats
+                          // Notes, Terminal and Channels are Open WebUI
+                          // features, so they lead only its history.
+                          ? const SidebarHistoryHeaderScope(
+                              header: _SlidingSidebarDestinations(),
+                              child: ChatsDrawer(),
+                            )
+                          : const HermesSessionsTab(
+                              showBottomNavigationBar: false,
+                            ),
+                  ],
                 ),
               ),
             ),
@@ -826,7 +827,8 @@ class _SlidingSidebarPage extends ConsumerWidget {
   }
 }
 
-/// Notes, Terminal, Channels and Chats, scrolling at the top of the history.
+/// Notes, Terminal and Channels, scrolling at the top of the history the
+/// main pane's chats already come from.
 class _SlidingSidebarDestinations extends ConsumerWidget {
   const _SlidingSidebarDestinations();
 
@@ -837,13 +839,13 @@ class _SlidingSidebarDestinations extends ConsumerWidget {
     final navigation = ref.watch(sidebarNavigationSnapshotProvider);
     final destinations = [
       for (final id in navigation.tabs)
-        if (id != SidebarTabId.hermes) sidebarTabDescriptor(id),
+        if (id != SidebarTabId.hermes && id != SidebarTabId.chats)
+          sidebarTabDescriptor(id),
     ];
     if (destinations.isEmpty) return const SizedBox.shrink();
-    final routeTab = sidebarTabForLocation(GoRouterState.of(context).uri.path);
-    final selectedTab = navigation.tabs.contains(routeTab)
-        ? routeTab
-        : ref.watch(sidebarSelectedHistoryTabProvider);
+    final selectedTab = sidebarTabForLocation(
+      GoRouterState.of(context).uri.path,
+    );
 
     return Column(
       key: const ValueKey<String>('sidebar-destinations'),
@@ -922,7 +924,7 @@ class _SlidingSidebarBottomBar extends ConsumerWidget {
             tab.id == SidebarTabId.chats
                 ? const AdaptiveFloatingTab(
                     label: 'Open WebUI',
-                    icon: _SidebarSvgTabIcon(
+                    icon: _SidebarAssetTabImage(
                       _kOpenWebUiTabIcon,
                       size: _kOpenWebUiTabIconSize,
                     ),
@@ -964,27 +966,9 @@ class _SlidingSidebarBottomBar extends ConsumerWidget {
   }
 }
 
-const String _kOpenWebUiTabIcon = 'assets/icons/open_webui_tab.svg';
+/// Single-colour Open WebUI mark whose letters are cut out, so it reads when
+/// tinted as a template.
+const String _kOpenWebUiTabIcon = 'assets/icons/open_webui_tab.png';
 const double _kOpenWebUiTabIconSize = 22;
 const double _kHermesNativeBackendIconSize = 26;
 
-/// A single-colour SVG tinted like the [Icon]s beside it.
-class _SidebarSvgTabIcon extends StatelessWidget {
-  const _SidebarSvgTabIcon(this.assetName, {required this.size});
-
-  final String assetName;
-  final double size;
-
-  @override
-  Widget build(BuildContext context) {
-    final color =
-        IconTheme.of(context).color ?? context.conduitTheme.iconPrimary;
-    return SvgPicture.asset(
-      assetName,
-      width: size,
-      height: size,
-      excludeFromSemantics: true,
-      colorFilter: ColorFilter.mode(color, BlendMode.srcIn),
-    );
-  }
-}

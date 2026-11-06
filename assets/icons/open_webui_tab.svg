@@ -1,8 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 500 500">
-  <!--
-    Single-colour Open WebUI mark for tinted navigation icons. Tab bars draw
-    icons as templates, which would fill the raster logo's white letters, so
-    the letters here are holes in the disc.
-  -->
-  <path fill="#000000" fill-rule="evenodd" d="M500 250A250 250 0 1 1 0 250A250 250 0 1 1 500 250ZM304.5 250A100 100 0 1 1 104.5 250A100 100 0 1 1 304.5 250ZM264.5 250A60 60 0 1 1 144.5 250A60 60 0 1 1 264.5 250ZM336 150H376V350H336Z"/>
-</svg>

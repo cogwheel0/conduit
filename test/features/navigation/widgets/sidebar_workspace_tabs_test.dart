@@ -28,7 +28,6 @@ import 'package:conduit/shared/theme/theme_extensions.dart';
 import 'package:conduit/shared/utils/conversation_context_menu.dart';
 import 'package:conduit/shared/widgets/user_avatar.dart';
 import 'package:conduit/features/notes/widgets/notes_list_tab.dart';
-import 'package:conduit/features/navigation/widgets/responsive_drawer_layout.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -119,8 +118,8 @@ void main() {
       find.descendant(of: noteRow, matching: find.text('Flat Note')),
     );
 
-    await sidebarTestSelectDestination(tester, 'Chats');
-    await tester.pumpAndSettle();
+    await sidebarTestGoBack(tester);
+    await sidebarTestOpenSidebar(tester);
     final chatRect = tester.getRect(
       find.byKey(
         ValueKey<String>('drawer-chat-${conversationScopedId(conversation)}'),
@@ -370,16 +369,7 @@ void main() {
       );
       for (final label in ['Terminal', 'Notes', 'Channels']) {
         await sidebarTestSelectDestination(tester, label);
-        if (!tester
-            .state<ResponsiveDrawerLayoutState>(
-              find.byType(ResponsiveDrawerLayout),
-            )
-            .isOpen) {
-          await tester.tap(
-            find.byKey(const ValueKey<String>('destination-menu-button')),
-          );
-          await tester.pumpAndSettle();
-        }
+        await sidebarTestOpenSidebar(tester);
         expect(
           find.byType(SidebarProfileAppBarLeading).hitTestable(),
           findsOneWidget,
@@ -969,7 +959,7 @@ void main() {
 
     expect(
       tester.getBottomLeft(find.byType(SidebarProfileAppBarLeading)).dy,
-      lessThan(tester.getTopLeft(sidebarTestDestinationLabel('Chats')).dy),
+      lessThan(tester.getTopLeft(sidebarTestDestinationLabel('Notes')).dy),
     );
   });
 

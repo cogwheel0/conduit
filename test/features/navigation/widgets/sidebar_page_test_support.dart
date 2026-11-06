@@ -26,6 +26,7 @@ import 'package:conduit/features/navigation/providers/sidebar_providers.dart';
 import 'package:conduit_core/features/navigation/models/sidebar_navigation_model.dart';
 import 'package:conduit/features/navigation/widgets/chats_drawer.dart';
 import 'package:conduit/features/navigation/widgets/drawer_shell_page.dart';
+import 'package:conduit/features/navigation/widgets/responsive_drawer_layout.dart';
 import 'package:conduit_core/features/navigation/providers/drawer_section_notifiers.dart';
 import 'package:conduit/features/navigation/widgets/sidebar_page.dart';
 import 'package:conduit/features/navigation/widgets/sidebar_destination_page.dart';
@@ -950,17 +951,30 @@ Future<void> sidebarTestSelectDestination(
     await tester.pumpAndSettle();
     return;
   }
-  if (sidebarTestDestinationLabel(label).hitTestable().evaluate().isEmpty &&
-      find
-          .byKey(const ValueKey<String>('destination-menu-button'))
-          .evaluate()
-          .isNotEmpty) {
-    await tester.tap(
-      find.byKey(const ValueKey<String>('destination-menu-button')),
-    );
-    await tester.pumpAndSettle();
+  if (sidebarTestDestinationLabel(label).hitTestable().evaluate().isEmpty) {
+    await sidebarTestOpenSidebar(tester);
   }
   await tester.ensureVisible(sidebarTestDestinationLabel(label));
   await tester.tap(sidebarTestDestinationLabel(label));
+  await tester.pumpAndSettle();
+}
+
+/// Opens the sidebar the way an edge swipe does. Pages the sliding sidebar
+/// opens lead with back instead of a menu button. A harness without the
+/// drawer shows the sidebar throughout.
+Future<void> sidebarTestOpenSidebar(WidgetTester tester) async {
+  final layout = find.byType(ResponsiveDrawerLayout);
+  if (layout.evaluate().isEmpty) return;
+  final drawer = tester.state<ResponsiveDrawerLayoutState>(layout);
+  if (drawer.isOpen) return;
+  drawer.open();
+  await tester.pumpAndSettle();
+}
+
+/// Taps the back button of a page the sliding sidebar opened.
+Future<void> sidebarTestGoBack(WidgetTester tester) async {
+  await tester.tap(
+    find.byKey(const ValueKey<String>('sidebar-page-back-button')).hitTestable(),
+  );
   await tester.pumpAndSettle();
 }

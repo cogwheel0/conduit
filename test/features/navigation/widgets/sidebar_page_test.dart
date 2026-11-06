@@ -359,7 +359,7 @@ void main() {
       tester.getBottomLeft(find.byType(SidebarProfileAppBarLeading)).dy,
       lessThanOrEqualTo(tester.getTopLeft(navigation).dy),
     );
-    for (final label in ['Chats', 'Notes', 'Terminal', 'Channels']) {
+    for (final label in ['Notes', 'Terminal', 'Channels']) {
       expect(sidebarTestDestinationLabel(label), findsOneWidget);
     }
   });
@@ -380,7 +380,7 @@ void main() {
       findsNothing,
     );
     expect(sidebarTestTabbedNavigationBar(), findsNothing);
-    for (final label in ['Chats', 'Notes', 'Terminal', 'Channels']) {
+    for (final label in ['Notes', 'Terminal', 'Channels']) {
       expect(sidebarTestDestinationLabel(label), findsOneWidget);
     }
 
@@ -426,7 +426,7 @@ void main() {
       await tester.pump(const Duration(milliseconds: 500));
       expect(find.byType(CNTabBar), findsNothing);
       expect(find.byType(CupertinoTabBar), findsNothing);
-      for (final label in ['Chats', 'Notes', 'Terminal', 'Channels']) {
+      for (final label in ['Notes', 'Terminal', 'Channels']) {
         expect(sidebarTestDestinationLabel(label), findsOneWidget);
       }
       final bar = find.byKey(
@@ -664,15 +664,23 @@ void main() {
 
   testWidgets('destinations expose selection semantics', (tester) async {
     final controllers = SidebarTestSidebarHarnessControllers();
-    await tester.pumpWidget(sidebarTestBuildHarness(controllers: controllers));
+    await tester.pumpWidget(
+      sidebarTestBuildHarness(
+        controllers: controllers,
+        initialLocation: Routes.notes,
+      ),
+    );
+    await tester.pumpAndSettle();
 
     final barScope = find.byKey(const ValueKey<String>('sidebar-destinations'));
+    // The history below is the chats, so they need no row of their own.
+    expect(find.descendant(of: barScope, matching: find.text('Chats')), findsNothing);
 
-    final chatsSemantics = tester.getSemantics(
-      find.descendant(of: barScope, matching: find.text('Chats')).first,
+    final notesSemantics = tester.getSemantics(
+      find.descendant(of: barScope, matching: find.text('Notes')).first,
     );
     expect(
-      chatsSemantics.getSemanticsData().flagsCollection.isSelected,
+      notesSemantics.getSemanticsData().flagsCollection.isSelected,
       Tristate.isTrue,
     );
 
