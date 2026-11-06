@@ -555,6 +555,10 @@ Map<String, dynamic>? _extractOpenWebUiMessageMetadata(
   // answers live that the server has since finished.
   metadata.remove(kMessageUnfinishedAnswersMetadataKey);
   metadata.remove(kMessageUnfinishedAnswerAuthorsMetadataKey);
+  metadata.remove(kMessageServerUnfinishedMetadataKey);
+  if (role == 'assistant' && _answerReportedUnfinished(msgData, historyMsg)) {
+    metadata[kMessageServerUnfinishedMetadataKey] = true;
+  }
 
   if (role == 'assistant' &&
       _extractErrorData(msgData, historyMsg) != null &&

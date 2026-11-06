@@ -8763,6 +8763,65 @@ void main() {
       check(container.read(isChatStreamingProvider)).isFalse();
     });
 
+    test('a shared chat reopened while another person\'s web reply runs '
+        'shows it running, and follows it to its end', () async {
+      final (:api, :socket, :client, :container) = await openDraft(
+        account: const User(
+          id: 'me',
+          username: 'Me',
+          email: 'me@example.com',
+          role: 'user',
+        ),
+      );
+      // No task of this account's runs; the other person's is not listed.
+      api.activeTaskIds = const [];
+      Conversation chat({required bool running, required String content}) =>
+          _conversation('web-reply', [
+            _user('web-u', 'hello'),
+            // Written in the web client: `done: false` while it runs, and no
+            // `isStreaming`.
+            ChatMessage(
+              id: 'theirs',
+              role: 'assistant',
+              content: content,
+              timestamp: DateTime.utc(2026, 7, 13, 0, 0, 1),
+              model: duplicate.id,
+              metadata: <String, dynamic>{
+                kMessageAuthorIdMetadataKey: 'someone-else',
+                if (running) kMessageServerUnfinishedMetadataKey: true,
+              },
+            ),
+          ], ChatStorageKind.openWebUi).copyWith(userId: 'someone-else');
+      api.serverCopy = chat(running: true, content: 'theirs, more');
+      final notifier = container.read(chatMessagesProvider.notifier);
+
+      container
+          .read(activeConversationProvider.notifier)
+          .set(chat(running: true, content: 'theirs so far'));
+      await until(() => api.taskListRequests > 0);
+      for (var i = 0; i < 10; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+
+      var tail = container.read(chatMessagesProvider).last;
+      check(tail.isStreaming).isTrue();
+      check(tail.content).equals('theirs, more');
+      check(notifier.debugHasRemoteTaskMonitor).isTrue();
+      // It is not this account's to stop.
+      check(container.read(isOwnChatStreamingProvider)).isFalse();
+
+      // The server's copy says it is done: it is finished here too.
+      api.serverCopy = chat(running: false, content: 'theirs, all of it');
+      notifier
+        ..debugCancelRemoteTaskMonitorTimer()
+        ..debugPrimeReopenedSnapshotAttempt();
+      await notifier.debugSyncRemoteTaskStatus();
+      tail = container.read(chatMessagesProvider).last;
+      check(tail.isStreaming).isFalse();
+      check(tail.content).equals('theirs, all of it');
+      check(container.read(isChatStreamingProvider)).isFalse();
+    });
+
     test('Stop in a shared turn stops and settles this account\'s answer, '
         'and the other person\'s at the end runs on', () async {
       final (:api, :socket, :client, :container) = await openDraft(

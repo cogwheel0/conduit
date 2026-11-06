@@ -269,7 +269,9 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
 
         if (next != null) {
           final nextMessages = _restoreLiveTransportRunState(
-            _preserveFreshLocalMessageState(next.messages),
+            _preserveFreshLocalMessageState(
+              _withOthersRunningReply(next.messages),
+            ),
             next,
             settleOrphanedDirect: true,
           );
@@ -975,7 +977,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     required String source,
   }) {
     final serverMessages = _keepRunningComparisonAnswers(
-      _withoutAnswersFinishedHere(storedMessages),
+      _withOthersRunningReply(_withoutAnswersFinishedHere(storedMessages)),
     );
     if (!_shouldAdoptServerMessages(serverMessages)) {
       _recheckEarlierAnswers();
@@ -3012,14 +3014,23 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
       // local checkpoint was finalized. Zero tasks is therefore a terminal
       // signal for an already-streaming restored tail: fetch the final branch
       // instead of waiting forever for a task this process never observed.
+      // Another person's reply runs under a task this account's list never
+      // shows: it runs on, or is done, as the server's copy of it says.
+      final othersReply = !openedTail.isWrittenBy(
+        ref.read(currentUserProvider2)?.id,
+      );
       final reconciled = await _refreshReopenedStreamFromServer(
         api: api,
         owner: owner,
         expectedLocalMessageId: openedMessageId,
-        streaming: false,
+        streaming: othersReply ? null : false,
         source: 'cold-open completion',
         persist: true,
       );
+      if (reconciled && othersReply && _hasStreamingAssistant) {
+        _engageReopenedTailMonitor(openedMessageId);
+        return;
+      }
       if (reconciled) {
         final reopenedRemoteId = _boundRemoteMessageId;
         _cancelMessageStream();
@@ -3131,12 +3142,39 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
   }
 
   /// Whether the server's copy [message] says it is still running: a
-  /// checkpoint a Conduit client keeps while it writes, or an answer its
-  /// comparison lists as not done.
+  /// checkpoint a Conduit client keeps while it writes, or `done: false`,
+  /// which Open WebUI's web client keeps instead (on the answer itself, or in
+  /// the list of its comparison's unfinished answers).
   static bool _serverReportsRunning(ChatMessage message) {
     if (message.isStreaming) return true;
+    if (message.metadata?[kMessageServerUnfinishedMetadataKey] == true) {
+      return true;
+    }
     final unfinished = message.metadata?[kMessageUnfinishedAnswersMetadataKey];
     return unfinished is List && unfinished.contains(message.id);
+  }
+
+  /// [messages] with the reply at the end shown running when it is another
+  /// person's and the server reports it still running. A reply written in Open
+  /// WebUI's web client keeps no `isStreaming`; it is running while its copy is
+  /// not done, as the web client takes it. [messages] itself otherwise.
+  List<ChatMessage> _withOthersRunningReply(List<ChatMessage> messages) {
+    final tail = messages.lastOrNull;
+    if (tail == null ||
+        tail.role != 'assistant' ||
+        tail.isStreaming ||
+        tail.isWrittenBy(ref.read(currentUserProvider2)?.id) ||
+        !_serverReportsRunning(tail)) {
+      return messages;
+    }
+    final transport = tail.metadata?['transport'];
+    if (transport == kDirectTransport || transport == kHermesTransport) {
+      return messages;
+    }
+    return List<ChatMessage>.unmodifiable(<ChatMessage>[
+      ...messages.sublist(0, messages.length - 1),
+      tail.copyWith(isStreaming: true),
+    ]);
   }
 
   void _engageReopenedTailMonitor(String messageId) {
