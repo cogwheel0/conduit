@@ -337,6 +337,7 @@ void main() {
       check(openNote.data.hasPages).isTrue();
 
       final file = await recording('note_recording_1.wav');
+      final fileSize = await file.length();
       check(await controller.stage(file)).isTrue();
       await waitFor(() => notices.isNotEmpty && controller.pending.isEmpty);
 
@@ -350,9 +351,21 @@ void main() {
       final content = notePageContent(data, kNoteMainPageId)!;
       check(content['md']).equals('hello\n\n[$name]($href)');
       // The server and the web editor read JSON, then HTML, before markdown:
-      // left as they were, they would hide the link.
-      check(content['json']).isNull();
-      check(content['html']).equals('');
+      // the file is linked in each, and the rich text the web editor saved
+      // stays as it was.
+      check(content['html']).equals(
+        '<p>hello</p><div data-file-id="server-file-1">'
+        '<a href="$href">$name</a></div>',
+      );
+      check(content['json']).isA<Map<String, dynamic>>().deepEquals({
+        'type': 'doc',
+        'content': [
+          {
+            'type': 'fileAttachment',
+            'attrs': {'id': 'server-file-1', 'name': name, 'size': fileSize},
+          },
+        ],
+      });
       check(noteDirtyPageIds(data)).deepEquals([kNoteMainPageId]);
       check(row.dirtyData).isTrue();
       check(openNote.markdownContent).endsWith(

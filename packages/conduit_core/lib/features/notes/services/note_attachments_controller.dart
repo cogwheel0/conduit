@@ -1015,9 +1015,10 @@ Map<String, dynamic> noteAudioAttachment(
 
 /// [data] with [attachment] linked at the end of the content of page
 /// [pageId] (by default the main page), as an Open WebUI 0.12.5 server
-/// attaches files; null when the page links it already. The content's
-/// rich-text forms are cleared, so the server and the web editor read the
-/// markdown that holds the link.
+/// attaches files; null when the page links it already. The link goes into
+/// every form the content holds (see [noteContentWithLinkedFiles]), so the
+/// rich text the web editor saved is kept, and the server and the web editor,
+/// which read its JSON or HTML first, find the file there too.
 Map<String, dynamic>? noteDataWithFileLink(
   Map<String, dynamic> data,
   Map<String, dynamic> attachment, {
@@ -1031,11 +1032,15 @@ Map<String, dynamic>? noteDataWithFileLink(
       ).any((NoteFileLink link) => link.id == fileId)) {
     return null;
   }
+  final Map<String, dynamic> content =
+      notePageContent(data, pageId) ?? <String, dynamic>{'md': md};
+  final Map<String, dynamic> linked = noteContentWithLinkedFiles(
+    content,
+    <Object?>[attachment],
+  );
+  if (identical(linked, content)) return null;
   return applyNoteContentEdit(data, <String, dynamic>{
-    'content': noteContentWithMarkdown(
-      notePageContent(data, pageId),
-      appendNoteFileLinks(md, <Map<String, dynamic>>[attachment]),
-    ),
+    'content': linked,
   }, pageId: pageId);
 }
 
