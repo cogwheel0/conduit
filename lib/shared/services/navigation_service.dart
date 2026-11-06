@@ -145,18 +145,37 @@ class NavigationService {
   /// Changes whenever the attached router or its location changes.
   static int get currentRouteRevision => _routeRevision;
 
-  /// Whether the route named [name] with [pathParameters] is the location on
-  /// screen. A page the shell keeps mounted out of sight, after another page
-  /// was shown, is not.
+  /// Whether the page [context] belongs to is on screen as the route named
+  /// [name] with [pathParameters]. It is not while the shell keeps it in a
+  /// branch no longer shown, or while a page covers it, whether that page was
+  /// pushed through the router, which leaves the location as it was, or
+  /// straight onto a navigator.
   static bool isShowingNamed(
+    BuildContext context,
     String name, {
     Map<String, String> pathParameters = const {},
   }) {
     final router = _router;
-    final current = currentRoute;
-    if (router == null || current == null) return false;
-    return Uri.parse(current).path ==
-        router.namedLocation(name, pathParameters: pathParameters);
+    if (router == null || !context.mounted) return false;
+    // The top-most route, which a push through the router replaces.
+    return router.state.matchedLocation ==
+            router.namedLocation(name, pathParameters: pathParameters) &&
+        // A page covering this one, or a branch not shown, mutes its tickers.
+        TickerMode.valuesOf(context).enabled &&
+        (ModalRoute.isCurrentOf(context) ?? true);
+  }
+
+  /// Drops the route named [name] with [pathParameters] from the pages back
+  /// returns to, as once the page it shows is gone. Nothing navigates: a page
+  /// on screen stays, and back from it goes to the page before.
+  static void forgetNamed(
+    String name, {
+    Map<String, String> pathParameters = const {},
+  }) {
+    final router = _router;
+    if (router == null) return;
+    final path = router.namedLocation(name, pathParameters: pathParameters);
+    _history.removeWhere((location) => Uri.parse(location).path == path);
   }
 
   /// The current location reported by GoRouter.

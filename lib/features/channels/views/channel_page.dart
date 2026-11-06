@@ -1143,12 +1143,24 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
   }
 
   /// Whether channel [channelId] is the page on screen. Another page shown
-  /// since keeps this one mounted out of sight, and a request it sent that
-  /// finishes then must leave that page where it is.
+  /// since, or one pushed over it, keeps this one mounted out of sight, and a
+  /// request it sent that finishes then must leave that page where it is.
   bool _isChannelShown(String channelId) => NavigationService.isShowingNamed(
+    context,
     RouteNames.channel,
     pathParameters: {'id': channelId},
   );
+
+  /// Closes channel [channelId], which is gone for this account: back no
+  /// longer returns to it, and the chat replaces it if it is on screen.
+  void _closeChannel(String channelId) {
+    final shown = _isChannelShown(channelId);
+    NavigationService.forgetNamed(
+      RouteNames.channel,
+      pathParameters: {'id': channelId},
+    );
+    if (shown) NavigationService.router.go(Routes.chat);
+  }
 
   Future<void> _leaveChannel() async {
     final channelId = widget.channelId;
@@ -1184,7 +1196,7 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
       }
       ref.read(channelsListProvider.notifier).removeChannel(channelId);
       ref.read(activeChannelProvider.notifier).clear();
-      if (_isChannelShown(channelId)) NavigationService.router.go(Routes.chat);
+      _closeChannel(channelId);
     } catch (e, s) {
       developer.log(
         'Failed to leave channel',
@@ -1232,7 +1244,7 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
       }
       ref.read(channelsListProvider.notifier).removeChannel(channelId);
       ref.read(activeChannelProvider.notifier).clear();
-      if (_isChannelShown(channelId)) NavigationService.router.go(Routes.chat);
+      _closeChannel(channelId);
     } catch (e, s) {
       developer.log(
         'Failed to delete channel',

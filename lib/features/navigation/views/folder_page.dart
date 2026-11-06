@@ -776,10 +776,11 @@ class _FolderPageState extends ConsumerState<FolderPage> {
         onAssistantPlaceholderCreated: onPrepared,
         toolIds: toolIds.isNotEmpty ? toolIds : null,
         onCommitted: () {
-          // The shell keeps this page mounted in a branch no longer shown.
+          // The shell keeps this page mounted in a branch no longer shown,
+          // and a page pushed over it keeps it mounted behind.
           if (!mounted ||
-              !(ModalRoute.isCurrentOf(context) ?? true) ||
               !NavigationService.isShowingNamed(
+                context,
                 RouteNames.folder,
                 pathParameters: {'id': widget.folderId},
               )) {

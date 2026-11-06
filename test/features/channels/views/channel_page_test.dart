@@ -1016,11 +1016,12 @@ void main() {
   });
 
   // The shell keeps a channel mounted out of sight once another page shows,
-  // so a slow Leave or Delete can finish there.
+  // and a page pushed over it keeps it behind, so a slow Leave or Delete can
+  // finish there.
   for (final action in ['leave', 'delete']) {
-    for (final movesAway in [true, false]) {
+    for (final meanwhile in ['stays', 'switches', 'covers']) {
       testWidgets('a slow $action goes to the chat only from its channel '
-          '(moves away: $movesAway)', (tester) async {
+          '(meanwhile the user $meanwhile)', (tester) async {
         final api = _HeldChannelApi(
           channels: [
             {'id': 'channel-1', 'name': 'Initial channel'},
@@ -1060,6 +1061,10 @@ void main() {
                 ),
               ],
             ),
+            GoRoute(
+              path: Routes.profile,
+              builder: (_, _) => const Scaffold(body: Text('Profile')),
+            ),
           ],
         );
         addTearDown(router.dispose);
@@ -1092,16 +1097,29 @@ void main() {
         await tester.pump(const Duration(milliseconds: 400));
         check(api.requests).deepEquals(['$action:channel-1']);
 
-        if (movesAway) router.go(Routes.notes);
-        await tester.pump(const Duration(milliseconds: 1));
+        switch (meanwhile) {
+          case 'switches':
+            router.go(Routes.notes);
+          case 'covers':
+            unawaited(router.push<void>(Routes.profile));
+        }
+        await tester.pumpAndSettle();
         api.held.complete();
         await tester.pump(const Duration(milliseconds: 1));
         await tester.pump(const Duration(milliseconds: 1));
 
-        check(router.routeInformationProvider.value.uri.path)
-            .equals(movesAway ? Routes.notes : Routes.chat);
-        // The channel is gone either way.
+        check(router.state.matchedLocation).equals(switch (meanwhile) {
+          'switches' => Routes.notes,
+          'covers' => Routes.profile,
+          _ => Routes.chat,
+        });
+        // The channel is gone either way, and back no longer returns to it.
         check(container.read(channelsListProvider).requireValue).isEmpty();
+        if (meanwhile == 'switches') {
+          NavigationService.returnToPreviousPage(fallback: Routes.chat);
+          await tester.pump(const Duration(milliseconds: 1));
+          check(router.state.matchedLocation).equals(Routes.chat);
+        }
 
         await tester.pumpWidget(const SizedBox.shrink());
         await tester.pump(const Duration(milliseconds: 1));

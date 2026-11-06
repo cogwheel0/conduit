@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:checks/checks.dart';
 import 'package:conduit/shared/services/navigation_service.dart';
 import 'package:flutter/widgets.dart';
@@ -89,9 +91,10 @@ void main() {
     check(await back()).equals(Routes.chat);
   });
 
-  testWidgets('a named page is showing only while its location is', (
+  testWidgets('a named page is showing only while it is the page on top', (
     tester,
   ) async {
+    BuildContext? page;
     final router = GoRouter(
       initialLocation: Routes.chat,
       routes: [
@@ -99,6 +102,51 @@ void main() {
           path: Routes.chat,
           builder: (context, state) => const SizedBox(),
         ),
+        GoRoute(
+          path: Routes.channel,
+          name: RouteNames.channel,
+          builder: (context, state) {
+            page = context;
+            return const SizedBox();
+          },
+        ),
+        GoRoute(
+          path: Routes.profile,
+          builder: (context, state) => const SizedBox(),
+        ),
+      ],
+    );
+    addTearDown(router.dispose);
+    NavigationService.attachRouter(router);
+    await tester.pumpWidget(
+      WidgetsApp.router(routerConfig: router, color: const Color(0xFF000000)),
+    );
+    bool showing(String id) => NavigationService.isShowingNamed(
+      page!,
+      RouteNames.channel,
+      pathParameters: {'id': id},
+    );
+
+    router.go('/channel/general?thread=7');
+    await tester.pumpAndSettle();
+    check(showing('general')).isTrue();
+    check(showing('random')).isFalse();
+    // A push through the router leaves the location as it was.
+    unawaited(router.push<void>(Routes.profile));
+    await tester.pumpAndSettle();
+    check(NavigationService.currentRoute).equals('/channel/general?thread=7');
+    check(showing('general')).isFalse();
+    router.pop();
+    await tester.pumpAndSettle();
+    check(showing('general')).isTrue();
+  });
+
+  testWidgets('back no longer returns to a forgotten page', (tester) async {
+    final router = GoRouter(
+      initialLocation: Routes.chat,
+      routes: [
+        for (final path in [Routes.chat, Routes.notes])
+          GoRoute(path: path, builder: (context, state) => const SizedBox()),
         GoRoute(
           path: Routes.channel,
           name: RouteNames.channel,
@@ -111,18 +159,18 @@ void main() {
     await tester.pumpWidget(
       WidgetsApp.router(routerConfig: router, color: const Color(0xFF000000)),
     );
-    bool showing(String id) => NavigationService.isShowingNamed(
-      RouteNames.channel,
-      pathParameters: {'id': id},
-    );
+    for (final location in ['/channel/general', Routes.notes]) {
+      router.go(location);
+      await tester.pumpAndSettle();
+    }
 
-    check(showing('general')).isFalse();
-    router.go('/channel/general?thread=7');
+    NavigationService.forgetNamed(
+      RouteNames.channel,
+      pathParameters: {'id': 'general'},
+    );
+    check(NavigationService.currentRoute).equals(Routes.notes);
+    NavigationService.returnToPreviousPage(fallback: Routes.chat);
     await tester.pumpAndSettle();
-    check(showing('general')).isTrue();
-    check(showing('random')).isFalse();
-    router.go(Routes.chat);
-    await tester.pumpAndSettle();
-    check(showing('general')).isFalse();
+    check(NavigationService.currentRoute).equals(Routes.chat);
   });
 }
