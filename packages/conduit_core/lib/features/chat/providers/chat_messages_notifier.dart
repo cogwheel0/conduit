@@ -3120,6 +3120,25 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     _engageReopenedTailMonitor(state.last.id);
   }
 
+  /// Whether the reply at the end is another person's, in a chat shared with
+  /// Allow replies. It runs under their task, which this account's task list
+  /// never shows, so that list says nothing of whether it is done.
+  bool get _tailIsAnotherPersons {
+    final tail = state.lastOrNull;
+    return tail != null &&
+        tail.role == 'assistant' &&
+        !tail.isWrittenBy(ref.read(currentUserProvider2)?.id);
+  }
+
+  /// Whether the server's copy [message] says it is still running: a
+  /// checkpoint a Conduit client keeps while it writes, or an answer its
+  /// comparison lists as not done.
+  static bool _serverReportsRunning(ChatMessage message) {
+    if (message.isStreaming) return true;
+    final unfinished = message.metadata?[kMessageUnfinishedAnswersMetadataKey];
+    return unfinished is List && unfinished.contains(message.id);
+  }
+
   void _engageReopenedTailMonitor(String messageId) {
     _reopenedStreamingMessageId = messageId;
     _ensureRemoteTaskMonitor();
@@ -3142,11 +3161,13 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
         state.last.id == _boundRemoteMessageId;
   }
 
+  /// With [streaming] null, the reply is left running or finished as the
+  /// server's copy of it says (see [_serverReportsRunning]).
   Future<bool> _refreshReopenedStreamFromServer({
     required ApiService api,
     required OpenWebUiCompletionOwner owner,
     required String expectedLocalMessageId,
-    required bool streaming,
+    required bool? streaming,
     required String source,
     bool persist = false,
   }) async {
@@ -3178,7 +3199,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
   bool _reconcileReopenedServerSnapshot(
     List<ChatMessage> serverMessages, {
     required String expectedLocalMessageId,
-    required bool streaming,
+    required bool? streaming,
     required String source,
   }) {
     if (serverMessages.isEmpty || state.isEmpty) return false;
@@ -3212,13 +3233,15 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
       }
     }
     if (serverIndex < 0) return false;
+    final live =
+        streaming ?? _serverReportsRunning(serverMessages[serverIndex]);
     // Open WebUI advances history.currentId on every streamed upsert. The
     // assistant being resumed must therefore be the fetched active-branch tip;
     // never mark an older assistant and the current tip as streaming together.
-    if (streaming && serverIndex != serverMessages.length - 1) return false;
+    if (live && serverIndex != serverMessages.length - 1) return false;
 
     final authoritativeServerTail = serverMessages[serverIndex];
-    if (!streaming &&
+    if (!live &&
         (authoritativeServerTail.content.trim().isEmpty ||
             _shouldPreserveLocalAssistantContent(
               localTail,
@@ -3242,7 +3265,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     );
     var serverTail = mergedServerMessages[serverIndex];
     final foreignLiveBinding =
-        streaming &&
+        live &&
         remoteId != null &&
         serverTail.id == remoteId &&
         serverTail.id != localTail.id;
@@ -3252,13 +3275,13 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
       // server id once transport ownership is released.
       serverTail = serverTail.copyWith(id: localTail.id);
     }
-    serverTail = serverTail.copyWith(isStreaming: streaming);
+    serverTail = serverTail.copyWith(isStreaming: live);
 
     final reconciled = List<ChatMessage>.from(mergedServerMessages);
     reconciled[serverIndex] = serverTail;
     state = List<ChatMessage>.unmodifiable(reconciled);
 
-    if (streaming && state.last.role == 'assistant') {
+    if (live && state.last.role == 'assistant') {
       _streamingContentTimer?.cancel();
       _streamingContentTimer = null;
       _streamingBuffer = StringBuffer(state.last.content);
@@ -3711,6 +3734,9 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
       }
       hasActiveTasks = taskIds.isNotEmpty;
       final reopenedTail = _isReopenedStreamingTail;
+      // Another person's reply is not finished by this account's list being
+      // empty: the server's copy of it decides, below.
+      final othersReply = _tailIsAnotherPersons;
 
       if (hasActiveTasks) {
         _observedRemoteTask = true;
@@ -3726,6 +3752,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
       // empty registry observations before treating that checkpoint as done.
       // This retains eventual settlement without racing task registration.
       final tasksDone =
+          !othersReply &&
           !hasActiveTasks &&
           (_observedRemoteTask ||
               (reopenedTail &&
@@ -3802,6 +3829,36 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
             generation != _taskStatusGeneration ||
             activeOpenWebUiChatIdForMutation(ref, owner) == null) {
           return;
+        }
+      }
+
+      // Another person's reply, with no task of this account's running in the
+      // chat: it runs on, or is done, as the server's copy of it says, as Open
+      // WebUI's web client takes it. Asked no more often than a stalled
+      // resume is.
+      if (_hasStreamingAssistant &&
+          othersReply &&
+          !hasActiveTasks &&
+          (_lastReopenedSnapshotAt == null ||
+              now.difference(_lastReopenedSnapshotAt!) >=
+                  _reopenedSocketStallThreshold)) {
+        final expectedMessageId = _reopenedStreamingMessageId ?? state.last.id;
+        final followed = await _refreshReopenedStreamFromServer(
+          api: api,
+          owner: owner,
+          expectedLocalMessageId: expectedMessageId,
+          streaming: null,
+          source: 'another person\'s reply poll',
+        );
+        if (_disposed ||
+            generation != _taskStatusGeneration ||
+            activeOpenWebUiChatIdForMutation(ref, owner) == null) {
+          return;
+        }
+        if (followed && !_hasStreamingAssistant) {
+          _cancelMessageStream();
+          schedulePullChatNow(ref, owner.chatId);
+          _recheckEarlierAnswers();
         }
       }
 

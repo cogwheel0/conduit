@@ -8698,6 +8698,51 @@ void main() {
       ).isA<List>().deepEquals(['theirs']);
       check(container.read(isChatStreamingProvider)).isTrue();
       check(container.read(isOwnChatStreamingProvider)).isFalse();
+
+      // This account's task is gone now. The next poll finds its list empty,
+      // which says nothing of the other person's reply: the server's copy,
+      // which still lists it as not done, keeps it running.
+      Conversation serverCopy({required bool running}) => _conversation(
+        'shared-stop',
+        [
+          _user('shared-su', 'compare these'),
+          ChatMessage(
+            id: 'theirs',
+            role: 'assistant',
+            content: running ? 'theirs, more' : 'theirs, all of it',
+            timestamp: DateTime.utc(2026, 7, 13, 0, 0, 1),
+            model: duplicate.id,
+            metadata: <String, dynamic>{
+              kMessageModelIdxMetadataKey: 0,
+              kMessageAuthorIdMetadataKey: 'someone-else',
+              if (running) kMessageUnfinishedAnswersMetadataKey: ['theirs'],
+            },
+          ),
+        ],
+        ChatStorageKind.openWebUi,
+      ).copyWith(userId: 'someone-else');
+      api.activeTaskIds = const [];
+      api.serverCopy = serverCopy(running: true);
+      notifier
+        ..debugCancelRemoteTaskMonitorTimer()
+        ..debugPrimeReopenedSnapshotAttempt();
+      await notifier.debugSyncRemoteTaskStatus();
+      var tail = container.read(chatMessagesProvider).last;
+      check(tail.id).equals('theirs');
+      check(tail.isStreaming).isTrue();
+      check(tail.content).equals('theirs, more');
+      check(notifier.debugHasRemoteTaskMonitor).isTrue();
+
+      // Once the server's copy says it is done, it is finished here too.
+      api.serverCopy = serverCopy(running: false);
+      notifier
+        ..debugCancelRemoteTaskMonitorTimer()
+        ..debugPrimeReopenedSnapshotAttempt();
+      await notifier.debugSyncRemoteTaskStatus();
+      tail = container.read(chatMessagesProvider).last;
+      check(tail.isStreaming).isFalse();
+      check(tail.content).equals('theirs, all of it');
+      check(container.read(isChatStreamingProvider)).isFalse();
     });
 
     test('Stop in a shared turn stops and settles this account\'s answer, '
@@ -10125,11 +10170,14 @@ class _FanOutApi extends ApiService implements _AssistantIdSource {
     );
   }
 
+  /// The chat as the server has it, when a test sets one; offline otherwise.
+  Conversation? serverCopy;
+
   @override
   Future<Conversation> getConversation(
     String id, {
     ApiAuthSnapshot? authSnapshot,
-  }) async => throw StateError('offline');
+  }) async => serverCopy ?? (throw StateError('offline'));
 
   @override
   Future<ChatCompletionSession> sendMessageSession({
