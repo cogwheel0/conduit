@@ -129,9 +129,11 @@ Future<void> _startNewChat(BuildContext context, WidgetRef ref) async {
         (!ref.read(isManualModelSelectionProvider) ||
             (manual && identical(ref.read(selectedModelProvider), selected))) &&
         ref.read(sidebarSelectedHistoryTabProvider) == SidebarTabId.chats;
-    final models = await ref
-        .read(modelsProvider.future)
-        .catchError((Object _) => <Model>[]);
+    var modelsFailed = false;
+    final models = await ref.read(modelsProvider.future).catchError((Object _) {
+      modelsFailed = true;
+      return <Model>[];
+    });
     if (!context.mounted || !isCurrent()) return;
     // This history starts chats on every backend but Hermes, which has its
     // own. Otherwise the choice follows the default a new chat restores.
@@ -174,7 +176,12 @@ Future<void> _startNewChat(BuildContext context, WidgetRef ref) async {
         candidates.firstOrNull;
     if (model == null) {
       final l10n = AppLocalizations.of(context)!;
-      AdaptiveSnackBar.show(context, message: l10n.noModelsAvailable);
+      AdaptiveSnackBar.show(
+        context,
+        message: modelsFailed
+            ? l10n.failedToLoadModels
+            : l10n.noModelsAvailable,
+      );
       return;
     }
     chat.startNewChat(ref, modelForNewConversation: model);

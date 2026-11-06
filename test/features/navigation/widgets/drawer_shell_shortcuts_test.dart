@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:conduit/features/navigation/providers/sidebar_providers.dart';
 import 'package:conduit/features/navigation/widgets/sidebar_page.dart';
+import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/models/model.dart';
 import 'package:conduit_core/models/conversation.dart';
@@ -394,6 +395,29 @@ void main() {
     await tester.pumpAndSettle();
     expect(container.read(selectedModelProvider), same(direct));
     expect(requests, 0);
+  });
+
+  testWidgets('Open WebUI creation says when models failed to load', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1024, 768);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(
+      sidebarTestBuildHarness(
+        controllers: SidebarTestSidebarHarnessControllers(),
+        modelsError: StateError('offline'),
+        shellChat: const Scaffold(body: Text('Chat content')),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const ValueKey<String>('sidebar-create-button')),
+    );
+    await tester.pumpAndSettle();
+    final l10n = AppLocalizations.of(tester.element(find.byType(SidebarPage)))!;
+    expect(find.text(l10n.failedToLoadModels), findsOneWidget);
+    expect(find.text(l10n.noModelsAvailable), findsNothing);
   });
 
   testWidgets('a failed default retains an eligible selected model', (

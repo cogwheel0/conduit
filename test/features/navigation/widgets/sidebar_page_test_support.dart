@@ -153,6 +153,7 @@ Widget sidebarTestBuildHarness({
   AppSettings settings = const AppSettings(),
   List<Model> models = const [],
   Future<List<Model>>? pendingModels,
+  Object? modelsError,
   Model? cachedDefaultModel,
   Future<String?> Function()? loadServerDefaultModel,
   ServerConfig? apiServerConfig,
@@ -323,7 +324,7 @@ Widget sidebarTestBuildHarness({
         loadConversationProvider(entry.key).overrideWith((ref) => entry.value),
       // ignore: scoped_providers_should_specify_dependencies
       modelsProvider.overrideWith(
-        () => SidebarTestTestModels(models, pendingModels),
+        () => SidebarTestTestModels(models, pendingModels, modelsError),
       ),
       // ignore: scoped_providers_should_specify_dependencies
       foldersProvider.overrideWith(
@@ -844,13 +845,17 @@ class SidebarTestTestArchivedConversationPagination {
 }
 
 class SidebarTestTestModels extends Models {
-  SidebarTestTestModels([this.models = const [], this.pending]);
+  SidebarTestTestModels([this.models = const [], this.pending, this.error]);
 
   final List<Model> models;
   final Future<List<Model>>? pending;
 
+  /// Fails the load with this error.
+  final Object? error;
+
   @override
-  Future<List<Model>> build() => pending ?? Future.value(models);
+  Future<List<Model>> build() =>
+      error == null ? pending ?? Future.value(models) : Future.error(error!);
 }
 
 class SidebarTestTestFolders extends Folders {
