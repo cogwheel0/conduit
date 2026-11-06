@@ -750,15 +750,21 @@ mixin _ChatCompletionsApi on _ApiServiceBase {
     return taskIds.toSet().toList(growable: false);
   }
 
+  /// Which of [chatIds] currently have an active server task.
+  Future<Set<String>> checkActiveChats(List<String> chatIds) async =>
+      (await checkChatActivity(chatIds)).active;
+
   /// POST `/api/v1/tasks/active/chats` `{chat_ids: [...]}` → `{active_chat_ids: [...]}`.
   ///
-  /// Bulk query for which of [chatIds] currently have an active server task.
-  /// Open WebUI through 0.10 provides the dedicated task endpoint; 0.11 puts
-  /// the same state on chat-list rows. A 404 or 405 permanently selects that
-  /// list fallback for this API-service instance.
-  Future<Set<String>> checkActiveChats(List<String> chatIds) async {
+  /// Bulk query for which of [chatIds] currently have an active server task,
+  /// and which wait for the user to approve a tool call. Open WebUI through
+  /// 0.10 provides the dedicated task endpoint, which knows no approvals; 0.11
+  /// puts the task state on chat-list rows, and 0.13 the approval state too.
+  /// A 404 or 405 permanently selects that list fallback for this API-service
+  /// instance.
+  Future<ChatActivity> checkChatActivity(List<String> chatIds) async {
     if (chatIds.isEmpty) {
-      return <String>{};
+      return (active: <String>{}, pendingApproval: <String>{});
     }
     if (_activeChatsEndpointUnsupported) {
       return _checkActiveChatsFromLists(chatIds);
@@ -770,11 +776,14 @@ mixin _ChatCompletionsApi on _ApiServiceBase {
       );
       final data = resp.data;
       if (data is Map && data['active_chat_ids'] is List) {
-        return (data['active_chat_ids'] as List)
-            .map((e) => e.toString())
-            .toSet();
+        return (
+          active: (data['active_chat_ids'] as List)
+              .map((e) => e.toString())
+              .toSet(),
+          pendingApproval: <String>{},
+        );
       }
-      return <String>{};
+      return (active: <String>{}, pendingApproval: <String>{});
     } on DioException catch (e) {
       final statusCode = e.response?.statusCode;
       if (statusCode == 404 || statusCode == 405) {
@@ -806,6 +815,10 @@ mixin _ChatCompletionsApi on _ApiServiceBase {
     _streamCancelActions.remove(messageId);
   }
 }
+
+/// Which chats have a server task running, and which of them wait for the
+/// user to approve a tool call (Open WebUI 0.13 and later).
+typedef ChatActivity = ({Set<String> active, Set<String> pendingApproval});
 
 /// What Open WebUI reports when a temporary chat moves to a new socket
 /// session: the chat's running tasks, and a snapshot of each running reply

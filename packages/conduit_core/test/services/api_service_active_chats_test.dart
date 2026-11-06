@@ -126,6 +126,27 @@ void main() {
       },
     );
 
+    test('the 0.13 list fallback also reads which chats wait for an '
+        'approval', () async {
+      final adapter = _ActiveChatsAdapter(
+        statusCode: 404,
+        body: const {},
+        responsesByPath: const {
+          '/api/v1/chats/': [
+            {'id': 'a', 'active': true, 'pending_approval': true},
+            {'id': 'b', 'active': true, 'pending_approval': false},
+            {'id': 'c', 'active': false},
+          ],
+        },
+      );
+      final api = _buildApiService(adapter);
+
+      final activity = await api.checkChatActivity(['a', 'b', 'c']);
+
+      check(activity.active).deepEquals({'a', 'b'});
+      check(activity.pendingApproval).deepEquals({'a'});
+    });
+
     test('405 selects the 0.11 list fallback and caches the route', () async {
       final adapter = _ActiveChatsAdapter(
         statusCode: 405,

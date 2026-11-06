@@ -2217,15 +2217,19 @@ abstract class _ApiServiceBase {
   /// The regular list includes pinned and folder chats when requested. If an
   /// id is not found there, also scan archived pages. Older servers omit the
   /// additive `active` field, which naturally degrades to an empty set.
-  Future<Set<String>> _checkActiveChatsFromLists(List<String> chatIds) async {
+  Future<ChatActivity> _checkActiveChatsFromLists(List<String> chatIds) async {
     final remaining = chatIds.where((id) => id.isNotEmpty).toSet();
     final active = <String>{};
-    if (remaining.isEmpty) return active;
+    final pendingApproval = <String>{};
+    if (remaining.isEmpty) {
+      return (active: active, pendingApproval: pendingApproval);
+    }
 
     await _collectActiveChatsFromPagedList(
       endpoint: '/api/v1/chats/',
       remaining: remaining,
       active: active,
+      pendingApproval: pendingApproval,
       queryParameters: const {'include_pinned': true, 'include_folders': true},
       pageBudget: _activeChatsListFallbackPageBudgetPerEndpoint,
     );
@@ -2234,17 +2238,19 @@ abstract class _ApiServiceBase {
         endpoint: '/api/v1/chats/archived',
         remaining: remaining,
         active: active,
+        pendingApproval: pendingApproval,
         queryParameters: const {'order_by': 'updated_at', 'direction': 'desc'},
         pageBudget: _activeChatsListFallbackPageBudgetPerEndpoint,
       );
     }
-    return active;
+    return (active: active, pendingApproval: pendingApproval);
   }
 
   Future<int> _collectActiveChatsFromPagedList({
     required String endpoint,
     required Set<String> remaining,
     required Set<String> active,
+    required Set<String> pendingApproval,
     required Map<String, dynamic> queryParameters,
     required int pageBudget,
   }) async {
@@ -2255,6 +2261,8 @@ abstract class _ApiServiceBase {
         final id = row['id']?.toString();
         if (id == null || !remaining.remove(id)) continue;
         if (row['active'] == true) active.add(id);
+        // Open WebUI 0.13 marks a chat whose tool call waits for the user.
+        if (row['pending_approval'] == true) pendingApproval.add(id);
       }
     }
 

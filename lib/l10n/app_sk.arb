@@ -6216,5 +6216,6 @@
   "chatHandoffPromptTitle": "Prepnúť na {model}?",
   "chatHandoffPromptMessage": "Váš server navrhuje pokračovať v novom chate s modelom {model}. Navrhnutá správa počká v poli na písanie, kým ju neodošlete.",
   "chatHandoffStartNewChat": "Začať nový chat",
-  "chatHandoffStayHere": "Zostať tu"
+  "chatHandoffStayHere": "Zostať tu",
+  "chatWaitingForApproval": "Čaká na schválenie"
 }

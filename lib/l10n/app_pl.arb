@@ -8005,5 +8005,9 @@
   "chatHandoffStayHere": "Zostań tutaj",
   "@chatHandoffStayHere": {
     "description": "Cancel button that keeps the user in the current chat instead of following the Open WebUI server's suggestion."
+  },
+  "chatWaitingForApproval": "Oczekuje na zatwierdzenie",
+  "@chatWaitingForApproval": {
+    "description": "Tooltip and accessibility label of the icon on a chat in the chat list while a tool call in it waits for the user to allow or deny it."
   }
 }

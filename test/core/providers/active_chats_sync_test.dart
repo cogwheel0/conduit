@@ -101,17 +101,18 @@ class _FakeApiService extends ApiService {
       );
 
   Set<String> nextActive = const <String>{};
+  Set<String> nextPendingApproval = const <String>{};
   Object? nextError;
   int checkActiveChatsCalls = 0;
   List<String>? lastCheckedIds;
 
   @override
-  Future<Set<String>> checkActiveChats(List<String> chatIds) async {
+  Future<ChatActivity> checkChatActivity(List<String> chatIds) async {
     checkActiveChatsCalls += 1;
     lastCheckedIds = chatIds;
     final error = nextError;
     if (error != null) throw error;
-    return nextActive;
+    return (active: nextActive, pendingApproval: nextPendingApproval);
   }
 }
 
@@ -139,10 +140,12 @@ Map<String, dynamic> _activeEnvelope({
   required bool active,
   bool chatIdAtEnvelope = true,
   bool chatIdNested = false,
+  bool? pendingApproval,
 }) {
   final inner = <String, dynamic>{
     'active': active,
     if (chatIdNested) 'chat_id': chatId,
+    'pending_approval': ?pendingApproval,
   };
   return <String, dynamic>{
     if (chatIdAtEnvelope) 'chat_id': chatId,
@@ -240,6 +243,66 @@ void main() {
       );
     },
   );
+
+  group('ActiveChatsSync — waiting for approval (Open WebUI 0.13)', () {
+    test('chat:active names whether the chat waits for an approval', () {
+      final socket = _MockSocketService();
+      addTearDown(socket.disposeController);
+      final container = _makeContainer(socket: socket);
+      container.read(activeChatsSyncProvider);
+      final reg = socket.registrations.single;
+
+      reg.handler(
+        _activeEnvelope(chatId: 'c1', active: true, pendingApproval: true),
+        null,
+      );
+      check(container.read(pendingApprovalChatIdsProvider)).deepEquals({'c1'});
+      check(container.read(activeChatIdsProvider)).contains('c1');
+
+      // Approved: the task runs on.
+      reg.handler(
+        _activeEnvelope(chatId: 'c1', active: true, pendingApproval: false),
+        null,
+      );
+      check(container.read(pendingApprovalChatIdsProvider)).isEmpty();
+    });
+
+    test('an event that names no approval clears it', () {
+      // Older servers, and temporary chats, never name one.
+      final socket = _MockSocketService();
+      addTearDown(socket.disposeController);
+      final container = _makeContainer(socket: socket);
+      container.read(activeChatsSyncProvider);
+      final reg = socket.registrations.single;
+
+      reg.handler(
+        _activeEnvelope(chatId: 'c1', active: true, pendingApproval: true),
+        null,
+      );
+      reg.handler(_activeEnvelope(chatId: 'c1', active: false), null);
+
+      check(container.read(pendingApprovalChatIdsProvider)).isEmpty();
+    });
+
+    test('a refresh replaces the set from the chat list', () async {
+      final socket = _MockSocketService();
+      addTearDown(socket.disposeController);
+      final api = _FakeApiService()
+        ..nextActive = {'c1', 'c2'}
+        ..nextPendingApproval = {'c2'};
+      final container = _makeContainer(
+        socket: socket,
+        api: api,
+        conversations: [_conv('c1'), _conv('c2')],
+      );
+
+      container.read(activeChatsSyncProvider);
+      await container.read(conversationsProvider.future);
+      await Future<void>.delayed(Duration.zero);
+
+      check(container.read(pendingApprovalChatIdsProvider)).deepEquals({'c2'});
+    });
+  });
 
   group('ActiveChatsSync — chat:active envelope parsing', () {
     test('active:true adds and active:false removes the chat id', () {
