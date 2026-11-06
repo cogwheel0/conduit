@@ -416,6 +416,10 @@ String? _accountlessOrAuthRedirect(String location, ProviderRead read) {
     final hermes = read(hermesConfigProvider);
     isAllowed =
         hermes.isUsable && hermes.mode == HermesBackendMode.desktopGateway;
+  } else if (location == Routes.hermesSessions) {
+    // Hermes history exists only where a Hermes connection is set up, as
+    // the sidebar shows its tab. A Direct-primary install may have none.
+    isAllowed = read(hermesConfigProvider).enabled;
   } else {
     isAllowed = prefersDirect
         ? isDirectOnlyAppLocation(location)

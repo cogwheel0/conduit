@@ -65,6 +65,28 @@ ProviderRead _reader({
   };
 }
 
+/// A usable accountless install preferring [preferred], with [hermes] set up
+/// beside it.
+ProviderRead _accountless(PreferredBackend preferred, HermesConfig hermes) =>
+    _reader(
+      activeServer: const AsyncData(null),
+      auth: AuthNavigationState.needsLogin,
+      preferred: preferred,
+      hermes: hermes,
+      accountless: true,
+      directProfiles: preferred == PreferredBackend.direct
+          ? [
+              DirectConnectionProfile(
+                id: 'direct',
+                name: 'Direct',
+                adapterKey: kOpenAiCompatibleAdapterKey,
+                baseUrl: 'https://api.example/v1',
+                apiKey: 'key',
+              ),
+            ]
+          : const [],
+    );
+
 /// The active server as it reads while it is fetched again: still the one
 /// already known, and loading.
 Future<AsyncValue<ServerConfig?>> _refreshing(ServerConfig server) async {
@@ -351,28 +373,6 @@ void main() {
         apiKey: 'key',
       );
 
-      ProviderRead accountless(
-        PreferredBackend preferred,
-        HermesConfig hermes,
-      ) => _reader(
-        activeServer: const AsyncData(null),
-        auth: AuthNavigationState.needsLogin,
-        preferred: preferred,
-        hermes: hermes,
-        accountless: true,
-        directProfiles: preferred == PreferredBackend.direct
-            ? [
-                DirectConnectionProfile(
-                  id: 'direct',
-                  name: 'Direct',
-                  adapterKey: kOpenAiCompatibleAdapterKey,
-                  baseUrl: 'https://api.example/v1',
-                  apiKey: 'key',
-                ),
-              ]
-            : const [],
-      );
-
       test('opens where the Desktop Gateway is configured', () {
         for (final preferred in [
           PreferredBackend.hermes,
@@ -382,7 +382,7 @@ void main() {
             because: '$preferred',
             resolveRouteRedirect(
               Routes.hermesMcp,
-              accountless(preferred, gateway),
+              _accountless(preferred, gateway),
             ),
           ).isNull();
         }
@@ -392,7 +392,7 @@ void main() {
         check(
           resolveRouteRedirect(
             Routes.hermesMcp,
-            accountless(PreferredBackend.hermes, responses),
+            _accountless(PreferredBackend.hermes, responses),
           ),
         ).equals(Routes.chat);
       });
@@ -401,7 +401,7 @@ void main() {
         check(
           resolveRouteRedirect(
             Routes.hermesMcp,
-            accountless(PreferredBackend.direct, const HermesConfig()),
+            _accountless(PreferredBackend.direct, const HermesConfig()),
           ),
         ).equals(Routes.chat);
       });
@@ -442,6 +442,37 @@ void main() {
 
         check(resolveRouteRedirect(Routes.hermesMcp, read))
             .equals(Routes.splash);
+      });
+    });
+
+    group('the Hermes sessions page', () {
+      test('opens wherever a Hermes connection is set up', () {
+        const hermes = HermesConfig(
+          enabled: true,
+          baseUrl: 'https://hermes.example',
+          apiKey: 'key',
+        );
+        for (final preferred in [
+          PreferredBackend.hermes,
+          PreferredBackend.direct,
+        ]) {
+          check(
+            because: '$preferred',
+            resolveRouteRedirect(
+              Routes.hermesSessions,
+              _accountless(preferred, hermes),
+            ),
+          ).isNull();
+        }
+      });
+
+      test('is not offered to a Direct-primary install without Hermes', () {
+        check(
+          resolveRouteRedirect(
+            Routes.hermesSessions,
+            _accountless(PreferredBackend.direct, const HermesConfig()),
+          ),
+        ).equals(Routes.chat);
       });
     });
   });
