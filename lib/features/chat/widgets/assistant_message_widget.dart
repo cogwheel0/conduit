@@ -1784,6 +1784,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
         isMarkdownFormat: true,
         constraints: const BoxConstraints(maxWidth: 500, maxHeight: 400),
         disableAnimation: _uiTreatsAsStreaming,
+        semanticLabel: alt,
       ),
     );
   }
