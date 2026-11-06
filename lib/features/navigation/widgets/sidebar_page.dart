@@ -806,7 +806,10 @@ class _SlidingSidebarPage extends ConsumerWidget {
                         ),
                       ),
                       const SizedBox(width: Spacing.sm),
-                      if (composeChrome)
+                      // Search filters the Open WebUI history only.
+                      if (chatTab.id == SidebarTabId.hermes)
+                        const SizedBox.shrink()
+                      else if (composeChrome)
                         ConduitAdaptiveAppBarIconButton(
                           key: const ValueKey<String>('sidebar-search-button'),
                           icon: isSearching ? UiUtils.closeIcon : Icons.search,

@@ -529,6 +529,11 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byType(HermesSessionsTab).hitTestable(), findsOneWidget);
     expect(destinations.hitTestable(), findsNothing);
+    // Search filters the Open WebUI history, not Hermes sessions.
+    expect(
+      find.byKey(const ValueKey<String>('sidebar-search-button')),
+      findsNothing,
+    );
     expect(
       find.descendant(
         of: find.byType(HermesSessionsTab),
