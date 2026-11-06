@@ -1211,9 +1211,8 @@ void main() {
       final rebinding = controller.rebindTo(original, pageNote, pageId: 'p2');
       await held.noteScanEntered.future;
       api.holdUpload!.complete();
-      for (var i = 0; i < 20; i++) {
-        await Future<void>.delayed(const Duration(milliseconds: 5));
-      }
+      // The upload, and its attach, are over before the recovery goes on.
+      await waitFor(() => !controller.isUploading);
       held.holdNoteScan!.complete();
       await rebinding;
       await waitFor(() => !controller.isUploading);

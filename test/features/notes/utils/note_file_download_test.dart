@@ -39,6 +39,6 @@ void main() {
     expect(first.existsSync(), isTrue);
     expect(first.parent.path, noteFileDownloadsPath(temp.path));
     expect(first.path, isNot(second.path));
-    expect(first.path.split('/').last, startsWith('___f1-'));
+    expect(first.path.split(RegExp(r'[/\\]')).last, startsWith('___f1-'));
   });
 }
