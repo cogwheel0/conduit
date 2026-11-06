@@ -1031,10 +1031,17 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
       if (mounted) {
         setState(() {
           _isSaving = false;
-          _pageMissing = true;
-          // The text is kept as it is; dictation would go on changing it.
-          _dropDictation();
-          if (stored != null) _note = stored;
+          if (stored != null && !_hasPage(stored, _pageId)) {
+            // As for a page removed under the editor: text that differs from
+            // what was saved stays, to keep or discard; text the user put back
+            // meanwhile leaves nothing to keep, and the main page shows.
+            _takeStoredNote(stored);
+          } else {
+            _pageMissing = true;
+            // The text is kept as it is; dictation would go on changing it.
+            _dropDictation();
+            if (stored != null) _note = stored;
+          }
         });
       }
     } catch (e) {

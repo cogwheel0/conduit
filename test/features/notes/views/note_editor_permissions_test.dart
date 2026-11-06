@@ -882,6 +882,52 @@ void main() {
     );
   });
 
+  testWidgets('text put back as it was while its save waited leaves a removed '
+      'page for the main page', (tester) async {
+    final note = twoPageNote();
+    await storeLocally(note);
+    final container = await pumpEditor(tester, _DetailApi(detail: note));
+    await tester.tap(find.byKey(const ValueKey<String>('note-page-chip')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey<String>('note-page-p2')));
+    await tester.pumpAndSettle();
+
+    // Something else holds the note while the edit's save waits for it.
+    final held = Completer<void>();
+    unawaited(
+      container.read(noteLocksProvider).runExclusive('note-1', () => held.future),
+    );
+    typeInto(tester, 'lost? ');
+    await letAutosaveRun(tester);
+    // Meanwhile a sync removes the page, and the user takes the edit back.
+    await storeLocally(
+      _noteJson(
+        writeAccess: true,
+        md: 'one',
+        pages: [
+          {
+            'id': 'main',
+            'title': 'Shared note',
+            'content': {'md': 'one', 'html': '', 'json': null},
+          },
+        ],
+      ),
+    );
+    contentController(tester).replaceText(0, 'lost? '.length, '');
+    await tester.pump();
+    held.complete();
+    await tester.pumpAndSettle();
+
+    // Nothing unsaved is left of the page: the editor shows the main page,
+    // to be edited, rather than a removed page it cannot leave.
+    expect(find.text(l10n(tester).notePageMissingNotice), findsNothing);
+    expect(
+      tester.widget<FleatherEditor>(find.byType(FleatherEditor)).readOnly,
+      isFalse,
+    );
+    expect(contentController(tester).document.toPlainText().trim(), 'one');
+  });
+
   testWidgets('a one-page note from 0.12.5 shows the files its content links '
       'as cards in the text', (tester) async {
     const md = 'original\n\n[Rec.m4a](/api/v1/files/f1/content)';
