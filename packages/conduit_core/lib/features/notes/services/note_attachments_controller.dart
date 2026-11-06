@@ -806,18 +806,23 @@ class NoteAttachmentsController {
       _container.read(notePagesServerProvider) == true;
 
   void _applyChange(String id, PendingNoteAudioUpload? updated) {
-    if (_disposed || _leftBehindUploads.contains(id)) return;
+    final Future<void>? check = _reportChange(id, updated);
+    if (check != null) unawaited(check);
+  }
+
+  /// Applies a change of recording [id]; a report of it gone that is checked
+  /// against the copy a move made returns that check.
+  Future<void>? _reportChange(String id, PendingNoteAudioUpload? updated) {
+    if (_disposed || _leftBehindUploads.contains(id)) return null;
     if (updated == null) {
       if (_moving.contains(id)) {
         _goneWhileMoving.add(id);
-        return;
+        return null;
       }
-      if (_movedCopies.containsKey(id)) {
-        unawaited(_confirmGone(id));
-        return;
-      }
+      if (_movedCopies.containsKey(id)) return _confirmGone(id);
     }
     _setChange(id, updated);
+    return null;
   }
 
   /// Hides recording [id], reported gone, unless the copy a move made of it
@@ -854,9 +859,12 @@ class NoteAttachmentsController {
     }
   }
 
-  /// Reports recording [id] gone, as a retry that found no copy does.
+  /// Reports recording [id] gone, as a retry that found no copy does; the
+  /// future completes once the report is settled or left to a running move.
   @visibleForTesting
-  void debugReportGone(String id) => _applyChange(id, null);
+  Future<void> debugReportGone(String id) async {
+    await _reportChange(id, null);
+  }
 
   /// Settles the reports of recordings gone that came in while [ids] moved:
   /// one the move made a copy of is checked against that copy; one it made

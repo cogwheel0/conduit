@@ -1613,7 +1613,7 @@ void main() {
       held
         ..holdLoadCurrentOfNote = 'local:first'
         ..holdLoadCurrent = Completer<void>();
-      controller.debugReportGone(recording1.id);
+      final Future<void> report = controller.debugReportGone(recording1.id);
       await held.loadCurrentEntered.future;
       final second = await storeNote('local:second');
       openNote = second;
@@ -1623,9 +1623,7 @@ void main() {
       await waitFor(() => !controller.isUploading);
       held.holdLoadCurrent!.complete();
       held.holdLoadCurrent = null;
-      for (var i = 0; i < 20; i++) {
-        await Future<void>.delayed(const Duration(milliseconds: 5));
-      }
+      await report;
 
       check(controller.pending.map((item) => item.id)).deepEquals([
         recording1.id,
@@ -1690,10 +1688,7 @@ void main() {
       // A report of it gone is checked against its copy, which cannot be
       // read: it is not taken for gone.
       held.failLoadCurrentOfNote = 'local:moved';
-      controller.debugReportGone(staged.id);
-      for (var i = 0; i < 10; i++) {
-        await Future<void>.delayed(const Duration(milliseconds: 5));
-      }
+      await controller.debugReportGone(staged.id);
 
       check(controller.pending.map((item) => item.id)).deepEquals([staged.id]);
     });
