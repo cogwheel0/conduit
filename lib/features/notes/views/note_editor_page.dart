@@ -1030,25 +1030,30 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
       }
       _saveDebounce?.cancel();
       final stored = await _readStoredNote();
-      if (mounted) {
-        setState(() {
-          _isSaving = false;
-          if (stored != null && !_hasPage(stored, _pageId)) {
-            // As for a page removed under the editor: text that differs from
-            // what was saved stays, to keep or discard; text the user put back
-            // meanwhile leaves nothing to keep, and the main page shows.
-            _takeStoredNote(stored);
-          } else {
-            // The stored note could not be read back: the text stays, with
-            // the choices to keep it or discard it.
-            _pageMissing = true;
-            _hasChanges = true;
-            // The text is kept as it is; dictation would go on changing it.
-            _dropDictation();
-            if (stored != null) _note = stored;
-          }
-        });
+      if (!mounted) return;
+      // A switch can also finish while the note is read back: the refusal is
+      // then about the page left, and changes nothing on the one shown.
+      if (pageId != _pageId) {
+        setState(() => _isSaving = false);
+        return;
       }
+      setState(() {
+        _isSaving = false;
+        if (stored != null && !_hasPage(stored, _pageId)) {
+          // As for a page removed under the editor: text that differs from
+          // what was saved stays, to keep or discard; text the user put back
+          // meanwhile leaves nothing to keep, and the main page shows.
+          _takeStoredNote(stored);
+        } else {
+          // The stored note could not be read back: the text stays, with the
+          // choices to keep it or discard it.
+          _pageMissing = true;
+          _hasChanges = true;
+          // The text is kept as it is; dictation would go on changing it.
+          _dropDictation();
+          if (stored != null) _note = stored;
+        }
+      });
     } catch (e) {
       if (mounted) {
         setState(() => _isSaving = false);
