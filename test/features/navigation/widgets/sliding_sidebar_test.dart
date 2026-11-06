@@ -359,6 +359,98 @@ void main() {
     expect(tester.getTopLeft(destinations).dy, lessThan(destinationsBefore));
   });
 
+  testWidgets('history scrollbars run between the header and bottom bar', (
+    tester,
+  ) async {
+    addTearDown(tester.view.reset);
+    final ratio = tester.view.devicePixelRatio;
+    tester.view.padding = FakeViewPadding(top: 47 * ratio, bottom: 34 * ratio);
+    tester.view.viewPadding = FakeViewPadding(
+      top: 47 * ratio,
+      bottom: 34 * ratio,
+    );
+    final date = DateTime(2026, 1, 1);
+    await tester.pumpWidget(
+      sidebarTestBuildHarness(
+        controllers: SidebarTestSidebarHarnessControllers(),
+        currentUser: _user,
+        hermesEnabled: true,
+        conversations: List.generate(
+          40,
+          (i) => Conversation(
+            id: 'demo-$i',
+            title: 'Example $i',
+            createdAt: date,
+            updatedAt: date,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final header = tester
+        .widgetList<ConduitChromeGradientFade>(
+          find.byType(ConduitChromeGradientFade),
+        )
+        .singleWhere((fade) => fade.edge == ConduitChromeFadeEdge.top);
+    expect(header.contentHeight, greaterThan(47));
+    final surface = tester.getRect(
+      find.byKey(const ValueKey<String>('sidebar-page-surface')),
+    );
+    final bar = tester.getRect(
+      find.byKey(const ValueKey<String>('sidebar-create-button')),
+    );
+
+    // The Open WebUI history, and the Hermes one behind it.
+    final wrappers = find.byType(SidebarTabScrollbar, skipOffstage: false);
+    final scrollbars = find.descendant(
+      of: wrappers,
+      matching: find.byWidgetPredicate(
+        (widget) => widget is RawScrollbar,
+        skipOffstage: false,
+      ),
+    );
+    expect(scrollbars, findsNWidgets(2));
+    for (final scrollbar in scrollbars.evaluate()) {
+      final painter =
+          tester
+                  .widget<CustomPaint>(
+                    find
+                        .descendant(
+                          of: find.byWidget(
+                            scrollbar.widget,
+                            skipOffstage: false,
+                          ),
+                          matching: find.byType(
+                            CustomPaint,
+                            skipOffstage: false,
+                          ),
+                        )
+                        .first,
+                  )
+                  .foregroundPainter!
+              as ScrollbarPainter;
+      final padding = painter.padding.resolve(TextDirection.ltr);
+      expect(padding.top, header.contentHeight);
+      expect(padding.bottom, surface.bottom - bar.top);
+    }
+    // The lists keep their own padding.
+    for (final wrapper in wrappers.evaluate()) {
+      expect(
+        MediaQuery.paddingOf(
+          tester.element(
+            find
+                .descendant(
+                  of: find.byWidget(wrapper.widget, skipOffstage: false),
+                  matching: find.byType(CustomScrollView, skipOffstage: false),
+                )
+                .first,
+          ),
+        ),
+        MediaQuery.paddingOf(wrapper),
+      );
+    }
+  });
+
   testWidgets('destinations stay above an empty history', (tester) async {
     await tester.pumpWidget(
       sidebarTestBuildHarness(

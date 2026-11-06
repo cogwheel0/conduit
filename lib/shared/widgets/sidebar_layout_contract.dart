@@ -87,6 +87,40 @@ class SidebarTabLayoutScope extends InheritedWidget {
       floatingChromeInsets != oldWidget.floatingChromeInsets;
 }
 
+/// The scrollbar [builder] puts around sidebar tab content, with its track
+/// between a header and bottom bar that float over the content instead of
+/// beneath them.
+///
+/// Scrollbars inset their track by the media padding, so the scrollbar is
+/// given the floating chrome's extents as its padding, and [child] keeps the
+/// padding around this widget.
+class SidebarTabScrollbar extends StatelessWidget {
+  const SidebarTabScrollbar({
+    super.key,
+    required this.builder,
+    required this.child,
+  });
+
+  /// Builds the scrollbar around the given scrollable.
+  final Widget Function(Widget child) builder;
+
+  /// The scrollable content.
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final insets = SidebarTabLayoutScope.maybeOf(context)?.floatingChromeInsets;
+    if (insets == null) return builder(child);
+    final media = MediaQuery.of(context);
+    return MediaQuery(
+      data: media.copyWith(
+        padding: media.padding.copyWith(top: insets.top, bottom: insets.bottom),
+      ),
+      child: builder(MediaQuery(data: media, child: child)),
+    );
+  }
+}
+
 /// Rows that scroll at the top of a sidebar history list, above its first
 /// section.
 class SidebarHistoryHeaderScope extends InheritedWidget {

@@ -324,14 +324,12 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
       ),
     );
 
-    if (Platform.isIOS) {
-      return CupertinoScrollbar(
-        controller: _listController,
-        child: refreshableScroll,
-      );
-    }
-
-    return Scrollbar(controller: _listController, child: refreshableScroll);
+    return SidebarTabScrollbar(
+      builder: (child) => Platform.isIOS
+          ? CupertinoScrollbar(controller: _listController, child: child)
+          : Scrollbar(controller: _listController, child: child),
+      child: refreshableScroll,
+    );
   }
 
   void _handleRefreshStatusChange(RefreshIndicatorStatus? status) {
