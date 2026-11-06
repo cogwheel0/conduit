@@ -2,12 +2,12 @@ import 'dart:async';
 import 'dart:collection';
 
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
+import 'package:conduit/shared/widgets/platform_ui/vocabulary.dart';
 import 'package:conduit_core/features/terminal/controllers/terminal_port_preview_controller.dart';
 import 'package:conduit_core/features/terminal/services/terminal_port_preview.dart';
-import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
-import 'package:material_ui/material_ui.dart';
+import 'package:flutter/widgets.dart';
 import 'package:url_launcher/url_launcher.dart' show LaunchMode;
 
 import '../../../l10n/app_localizations.dart';
@@ -318,7 +318,7 @@ class _TerminalPortPreviewPageState extends State<TerminalPortPreviewPage>
                           top: 0,
                           left: 0,
                           right: 0,
-                          child: LinearProgressIndicator(minHeight: 2),
+                          child: AdaptiveProgressIndicator.linear(minHeight: 2),
                         ),
                     ],
                   ),
