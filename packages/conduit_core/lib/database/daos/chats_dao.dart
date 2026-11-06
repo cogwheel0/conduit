@@ -185,12 +185,24 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
   int taskEventVersion(String chatId) => _taskEventVersions[chatId] ?? 0;
 
   final _modelListVersions = <String, int>{};
+  final _unconfirmedModelLists = <String>{};
 
-  /// Counts the model lists [setChatModels] stored for chat [chatId]. A fetch
-  /// takes it before it reads the chat, so a copy read before the user picked
-  /// a model does not put the earlier list back: Open WebUI keeps the chat's
-  /// date on a model change, so nothing else tells the copies apart.
+  /// Counts the model lists stored here for chat [chatId], by a pick or by a
+  /// turn sent with a list. A fetch takes it before it reads the chat, so a
+  /// copy read before the list was stored does not put the earlier one back:
+  /// Open WebUI keeps the chat's date on a model change, so nothing else
+  /// tells the copies apart.
   int modelListVersion(String chatId) => _modelListVersions[chatId] ?? 0;
+
+  /// Whether chat [chatId] holds a picked model list the server has not
+  /// taken yet. Until it has, a copy the server sends, read before or after
+  /// the pick, still holds the earlier list.
+  bool hasUnconfirmedModelList(String chatId) =>
+      _unconfirmedModelLists.contains(chatId);
+
+  void _noteModelListWrite(String chatId) {
+    _modelListVersions[chatId] = modelListVersion(chatId) + 1;
+  }
 
   /// The model list stored with chat [chatId], or null when it has none.
   Future<List<Object?>?> storedChatModels(String chatId) async {
@@ -1690,10 +1702,22 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
   /// mapper keeps verbatim, so the chat reopens on them and a later full push
   /// carries them. No push is queued: the caller saves the list itself.
   /// A chat whose body is not synced yet, or is gone, is left as it is.
-  Future<void> setChatModels(String chatId, List<String> models) {
+  ///
+  /// [confirmed] says the server has taken [models]; until a list is, a pull
+  /// keeps it over the server's (see [hasUnconfirmedModelList]).
+  Future<void> setChatModels(
+    String chatId,
+    List<String> models, {
+    bool confirmed = false,
+  }) {
     // Before anything is awaited: a fetch that starts from here on reads the
     // server after the pick, and one that started before does not.
-    _modelListVersions[chatId] = modelListVersion(chatId) + 1;
+    _noteModelListWrite(chatId);
+    if (confirmed) {
+      _unconfirmedModelLists.remove(chatId);
+    } else {
+      _unconfirmedModelLists.add(chatId);
+    }
     return transaction(() async {
       final row = await getChat(chatId);
       if (row == null || row.deleted || !row.bodySynced) return;
@@ -1771,6 +1795,8 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
       // stored; an unreadable envelope throws and rolls the whole append back.
       Value<String> rawExtra = const Value.absent();
       if (chatModels != null) {
+        // A copy read before this turn holds the list from before it.
+        _noteModelListWrite(chatId);
         final row = await getChat(chatId);
         if (row != null && !row.deleted && row.bodySynced) {
           rawExtra = Value(

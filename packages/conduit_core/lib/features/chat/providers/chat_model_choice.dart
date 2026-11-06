@@ -220,14 +220,15 @@ class ChatModelSaveQueue extends Notifier<void> {
   Future<void> _store(
     String chatId,
     List<String> models,
-    Object account,
-  ) async {
+    Object account, {
+    bool confirmed = false,
+  }) async {
     final db = ref.read(appDatabaseProvider);
     if (db == null) return;
     try {
       await ref.read(chatLocksProvider).runExclusive(chatId, () async {
         if (!ref.mounted || _account() != account) return;
-        await db.chatsDao.setChatModels(chatId, models);
+        await db.chatsDao.setChatModels(chatId, models, confirmed: confirmed);
       });
     } catch (error) {
       _logFailure(chatId, error);
@@ -312,7 +313,8 @@ class ChatModelSaveQueue extends Notifier<void> {
           ref.mounted &&
           account == _account() &&
           !_pending.containsKey(chatId)) {
-        await _store(chatId, models, account);
+        // The server has the list now; copies it sends from here on hold it.
+        await _store(chatId, models, account, confirmed: true);
       }
     }
   }

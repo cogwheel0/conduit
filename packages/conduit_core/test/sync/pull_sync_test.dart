@@ -657,50 +657,78 @@ void main() {
   });
 
   group('a model picked while a pull reads the chat', () {
-    test('stays over the list the pull read before it', () async {
-      server.seedChat(
-        id: 'chat-1',
-        blob: {
-          ...blobFor('chat-1'),
-          'models': ['model-1'],
-        },
-        createdAt: 100,
-        updatedAt: 150,
-      );
-      await pull.pullChat('chat-1');
-      check(await db.chatsDao.storedChatModels('chat-1')).isNotNull().deepEquals([
-        'model-1',
-      ]);
+    Future<List<Object?>?> stored() => db.chatsDao.storedChatModels('chat-1');
+    void seed(List<String> models) => server.seedChat(
+      id: 'chat-1',
+      blob: {...blobFor('chat-1'), 'models': models},
+      createdAt: 100,
+      updatedAt: 150,
+    );
 
-      // A pull reads the chat; while it waits, the user picks a model, which
-      // is stored at once and sent to the server after.
+    test('stays over the list the pull read before it', () async {
+      seed(['model-1']);
+      await pull.pullChat('chat-1');
+      check(await stored()).isNotNull().deepEquals(['model-1']);
+
+      // A pull has read the chat, and waits to store it; meanwhile the user
+      // picks a model, which is stored at once and sent to the server after.
+      final late = _LateReadClient(server);
       final gate = Completer<void>();
-      client.chatFetchGate = gate.future;
+      late.readGate = gate.future;
+      pull = PullSync(client: late, db: db, locks: locks);
       final pulling = pull.pullChat('chat-1');
-      await Future<void>.delayed(Duration.zero);
+      await late.readTaken.future;
       await db.chatsDao.setChatModels('chat-1', const ['model-2']);
       gate.complete();
-      client.chatFetchGate = null;
       await pulling;
 
-      check(await db.chatsDao.storedChatModels('chat-1')).isNotNull().deepEquals([
-        'model-2',
-      ]);
+      check(await stored()).isNotNull().deepEquals(['model-2']);
 
-      // A pull that starts after the pick takes the server's list again.
-      server.seedChat(
-        id: 'chat-1',
-        blob: {
-          ...blobFor('chat-1'),
-          'models': ['model-3'],
-        },
-        createdAt: 100,
-        updatedAt: 150,
+      // Once the server has taken it, a pull takes the server's list again.
+      await db.chatsDao.setChatModels(
+        'chat-1',
+        const ['model-2'],
+        confirmed: true,
       );
+      seed(['model-3']);
+      pull = PullSync(client: client, db: db, locks: locks);
       await pull.pullChat('chat-1');
-      check(await db.chatsDao.storedChatModels('chat-1')).isNotNull().deepEquals([
-        'model-3',
-      ]);
+      check(await stored()).isNotNull().deepEquals(['model-3']);
+    });
+
+    test('stays over a copy read after it, until the server has taken it',
+        () async {
+      seed(['model-1']);
+      await pull.pullChat('chat-1');
+
+      // Picked, not sent yet: the server still holds the earlier list.
+      await db.chatsDao.setChatModels('chat-1', const ['model-2']);
+      await pull.pullChat('chat-1');
+      check(await stored()).isNotNull().deepEquals(['model-2']);
+    });
+
+    test('a turn sent with a list keeps it over a copy read before it',
+        () async {
+      seed(['model-1']);
+      await pull.pullChat('chat-1');
+
+      final late = _LateReadClient(server);
+      final gate = Completer<void>();
+      late.readGate = gate.future;
+      pull = PullSync(client: late, db: db, locks: locks);
+      final pulling = pull.pullChat('chat-1');
+      await late.readTaken.future;
+      await db.chatsDao.appendMessagesWithUpdateOp(
+        chatId: 'chat-1',
+        messages: const [],
+        enqueueUpdate: false,
+        enqueueCompletion: false,
+        chatModels: const ['model-a', 'model-b'],
+      );
+      gate.complete();
+      await pulling;
+
+      check(await stored()).isNotNull().deepEquals(['model-a', 'model-b']);
     });
   });
 

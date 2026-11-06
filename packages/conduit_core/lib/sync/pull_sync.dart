@@ -703,9 +703,10 @@ class PullSync {
     // change, so its age shows nowhere else.
     final modelsFetchedAt = _modelListVersionsAtFetch[resp];
     final chatBody = resp['chat'];
-    if (modelsFetchedAt != null &&
-        modelsFetchedAt != _db.chatsDao.modelListVersion(id) &&
-        chatBody is Map) {
+    if (chatBody is Map &&
+        ((modelsFetchedAt != null &&
+                modelsFetchedAt != _db.chatsDao.modelListVersion(id)) ||
+            _db.chatsDao.hasUnconfirmedModelList(id))) {
       final picked = await _db.chatsDao.storedChatModels(id);
       if (picked != null) chatBody['models'] = picked;
     }
