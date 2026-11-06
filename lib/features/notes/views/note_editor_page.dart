@@ -862,16 +862,16 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
     return true;
   }
 
-  /// Whether the title or content differs from what was last saved, as
-  /// [_saveNote] would store it.
+  /// Whether [_autoSave] has text to save that would change what is stored.
+  /// A title differs only when the save would store another one: a stored
+  /// title that is empty or padded, as notes made elsewhere can have, is not
+  /// an edit.
   bool get _hasUnsavedText {
     final note = _note;
     if (note == null) return false;
-    final title = _titleController.text.trim();
-    final storedTitle = title.isEmpty
-        ? AppLocalizations.of(context)!.untitled
-        : title;
-    return storedTitle != note.title || _contentMarkdown != _savedMarkdown;
+    final titleUnsaved =
+        _titleController.text != note.title && _resolvedTitle() != note.title;
+    return titleUnsaved || _contentMarkdown != _savedMarkdown;
   }
 
   Future<void> _autoSave() async {

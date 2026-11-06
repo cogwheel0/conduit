@@ -16,6 +16,7 @@ import 'package:conduit/l10n/conduit_localizations.dart';
 import 'package:conduit/shared/theme/app_theme.dart';
 import 'package:conduit/shared/theme/tweakcn_themes.dart';
 import 'package:conduit/shared/services/navigation_service.dart';
+import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:conduit_core/database/app_database.dart';
 import 'package:conduit_core/database/database_provider.dart';
 import 'package:conduit_core/database/mappers/note_mapper.dart';
@@ -211,12 +212,13 @@ Map<String, dynamic> _noteJson({
   String owner = 'creator',
   String? ownerName,
   String md = 'original',
+  String title = 'Shared note',
   List<Map<String, dynamic>>? pages,
 }) => {
   'id': 'note-1',
   'user_id': owner,
   if (ownerName != null) 'user': {'id': owner, 'name': ownerName},
-  'title': 'Shared note',
+  'title': title,
   'write_access': writeAccess,
   'data': {
     'content': {'md': md, 'html': '', 'json': null},
@@ -2015,6 +2017,72 @@ void main() {
     expect(row.data, contains('second'));
     expect(row.data, contains('first'));
   });
+
+  // A stored title that is empty or padded is not an edit, and neither is a
+  // cleared title, which saves as the "Untitled" already stored.
+  for (final (title, writeAccess, clearTitle) in [
+    ('', true, false),
+    ('', false, false),
+    (' Padded title ', true, false),
+    ('Untitled', true, true),
+  ]) {
+    testWidgets('back leaves a note titled "$title" '
+        '(write: $writeAccess, cleared: $clearTitle)', (tester) async {
+      final note = _noteJson(writeAccess: writeAccess, title: title);
+      await storeLocally(note);
+      final api = _DetailApi(detail: note);
+      final container = await pumpEditor(
+        tester,
+        api,
+        settings: const AppSettings(slidingSidebarEnabled: true),
+      );
+      final router = GoRouter(
+        initialLocation: '/notes',
+        routes: [
+          GoRoute(
+            path: '/notes',
+            builder: (_, _) => const Scaffold(body: Text('Notes list')),
+          ),
+          GoRoute(
+            path: '/notes/:id',
+            builder: (_, _) => const NoteEditorPage(noteId: 'note-1'),
+          ),
+        ],
+      );
+      addTearDown(router.dispose);
+      NavigationService.attachRouter(router);
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: MaterialApp.router(
+            theme: AppTheme.light(TweakcnThemes.t3Chat),
+            localizationsDelegates: conduitLocalizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            routerConfig: router,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      router.go('/notes/note-1');
+      await tester.pumpAndSettle();
+      if (clearTitle) {
+        tester
+                .widget<AdaptiveTextField>(find.byType(AdaptiveTextField))
+                .controller!
+                .text =
+            '';
+        await letAutosaveRun(tester);
+      }
+
+      await tester.tap(
+        find.byKey(const ValueKey<String>('sidebar-page-back-button')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(router.routeInformationProvider.value.uri.path, '/notes');
+      expect(api.updates, 0);
+    });
+  }
 
   for (final navigation in ['stay', 'leave', 'return']) {
     testWidgets('pending note deletion respects navigation: $navigation', (
