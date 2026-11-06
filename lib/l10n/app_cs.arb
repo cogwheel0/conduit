@@ -6217,5 +6217,7 @@
   "chatHandoffPromptMessage": "Váš server navrhuje pokračovat v novém chatu s modelem {model}. Navržená zpráva počká v poli pro psaní, dokud ji neodešlete.",
   "chatHandoffStartNewChat": "Začít nový chat",
   "chatHandoffStayHere": "Zůstat tady",
-  "chatWaitingForApproval": "Čeká na schválení"
+  "chatWaitingForApproval": "Čeká na schválení",
+  "generateTitleNone": "Server pro tento chat nevytvořil název. Generování názvů může být vypnuté.",
+  "generateTitleFailed": "Název se nepodařilo vygenerovat. Zkuste to znovu."
 }

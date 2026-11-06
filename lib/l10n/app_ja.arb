@@ -5911,5 +5911,7 @@
   "chatHandoffPromptMessage": "サーバーが {model} との新しいチャットで続けることを提案しています。提案されたメッセージは、送信するまで入力欄に残ります。",
   "chatHandoffStartNewChat": "新しいチャットを開始",
   "chatHandoffStayHere": "このままにする",
-  "chatWaitingForApproval": "承認待ち"
+  "chatWaitingForApproval": "承認待ち",
+  "generateTitleNone": "サーバーはこのチャットのタイトルを作成しませんでした。タイトル生成がオフになっている可能性があります。",
+  "generateTitleFailed": "タイトルを生成できませんでした。もう一度お試しください。"
 }

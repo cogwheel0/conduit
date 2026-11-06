@@ -17,6 +17,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:conduit_core/features/chat/providers/chat_providers.dart'
     as chat;
+import 'package:conduit_core/features/chat/services/chat_title_generation.dart';
+import 'package:conduit_core/features/direct_connections/providers/direct_connection_providers.dart';
+import 'package:conduit_core/features/hermes/models/hermes_model.dart';
 import 'package:conduit/features/chat/widgets/chat_share_sheet.dart';
 import 'package:conduit/features/navigation/widgets/folder_tree_guides.dart';
 
@@ -277,6 +280,12 @@ List<ConduitContextMenuAction> buildConversationActionsWithFolders({
       canMarkUnread &&
       !isOnDevice &&
       ref.watch(chatMarkUnreadSupportedProvider);
+  // The server titles a chat it holds; on-device and temporary chats have
+  // nothing there to read.
+  final canGenerateTitle =
+      !isOnDevice &&
+      !isTemporaryChat(conversation.id as String?) &&
+      ref.watch(apiServiceProvider) != null;
 
   Future<void> togglePin() async {
     final errorMessage = l10n.failedToUpdatePin;
@@ -306,6 +315,15 @@ List<ConduitContextMenuAction> buildConversationActionsWithFolders({
       if (!context.mounted) return;
       await _showConversationError(context, errorMessage);
     }
+  }
+
+  Future<void> generateTitle() async {
+    await _generateConversationTitle(
+      context,
+      ref,
+      selectionId,
+      conversation.title ?? '',
+    );
   }
 
   Future<void> rename() async {
@@ -382,6 +400,15 @@ List<ConduitContextMenuAction> buildConversationActionsWithFolders({
       onBeforeClose: () => ConduitHaptics.selectionClick(),
       onSelected: rename,
     ),
+    if (canGenerateTitle)
+      ConduitContextMenuAction(
+        cupertinoIcon: CupertinoIcons.sparkles,
+        sfSymbol: 'sparkles',
+        materialIcon: Icons.auto_awesome_rounded,
+        label: l10n.generateTitle,
+        onBeforeClose: () => ConduitHaptics.selectionClick(),
+        onSelected: generateTitle,
+      ),
     if (showMarkUnread)
       ConduitContextMenuAction(
         cupertinoIcon: CupertinoIcons.envelope_badge,
@@ -650,7 +677,6 @@ Future<void> _renameConversation(
   String currentTitle, {
   required bool isOnDevice,
 }) async {
-  final rawConversationId = ChatStorageIdentity.parse(conversationId).rawId;
   final l10n = AppLocalizations.of(context)!;
   final newName = await ThemedDialogs.promptTextInput(
     context,
@@ -672,35 +698,97 @@ Future<void> _renameConversation(
       ConduitHaptics.selectionClick();
       return;
     }
-    final api = ref.read(apiServiceProvider);
-    if (api == null) throw Exception('No API service');
-    // A title being generated for this chat waits for the rename, and keeps
-    // it.
-    await ref
-        .read(chatTitleLocksProvider)
-        .runExclusive(
-          rawConversationId,
-          () => api.updateConversation(rawConversationId, title: newName),
-        );
+    await _saveConversationTitle(ref, conversationId, newName);
     ConduitHaptics.selectionClick();
-    ref
-        .read(conversationsProvider.notifier)
-        .updateConversationFromRemote(
-          conversationId,
-          (conversation) =>
-              conversation.copyWith(title: newName, updatedAt: DateTime.now()),
-        );
-    refreshConversationsCache(ref);
-    final active = ref.read(activeConversationProvider);
-    if (active != null && conversationMatchesScopedId(active, conversationId)) {
-      ref
-          .read(activeConversationProvider.notifier)
-          .set(active.copyWith(title: newName));
-    }
   } catch (_) {
     if (!context.mounted) return;
     await _showConversationError(context, renameError);
   }
+}
+
+/// Saves [title] as the Open WebUI chat [conversationId]'s title, and shows
+/// it in the chat list and the open chat.
+Future<void> _saveConversationTitle(
+  WidgetRef ref,
+  String conversationId,
+  String title,
+) async {
+  final rawConversationId = ChatStorageIdentity.parse(conversationId).rawId;
+  final api = ref.read(apiServiceProvider);
+  if (api == null) throw Exception('No API service');
+  // A title being generated for this chat waits for the rename, and keeps
+  // it.
+  await ref
+      .read(chatTitleLocksProvider)
+      .runExclusive(
+        rawConversationId,
+        () => api.updateConversation(rawConversationId, title: title),
+      );
+  ref
+      .read(conversationsProvider.notifier)
+      .updateConversationFromRemote(
+        conversationId,
+        (conversation) =>
+            conversation.copyWith(title: title, updatedAt: DateTime.now()),
+      );
+  refreshConversationsCache(ref);
+  final active = ref.read(activeConversationProvider);
+  if (active != null && conversationMatchesScopedId(active, conversationId)) {
+    ref
+        .read(activeConversationProvider.notifier)
+        .set(active.copyWith(title: title));
+  }
+}
+
+/// Asks the server for a title made from the Open WebUI chat
+/// [conversationId] and saves it straight away, as the Generate button of
+/// Open WebUI 0.13's chat title does.
+Future<void> _generateConversationTitle(
+  BuildContext context,
+  WidgetRef ref,
+  String conversationId,
+  String currentTitle,
+) async {
+  final l10n = AppLocalizations.of(context)!;
+  final rawConversationId = ChatStorageIdentity.parse(conversationId).rawId;
+  final api = ref.read(apiServiceProvider);
+  // The model picked in the open chat, unless it is not one of the server's.
+  String? selectedModelId;
+  final active = ref.read(activeConversationProvider);
+  if (active != null && conversationMatchesScopedId(active, conversationId)) {
+    final selected = ref.read(selectedModelProvider);
+    if (selected != null &&
+        !isHermesModel(selected) &&
+        ref.read(directModelRegistryProvider).resolve(selected) == null) {
+      selectedModelId = selected.id;
+    }
+  }
+  String? message;
+  try {
+    if (api == null) throw Exception('No API service');
+    final chatJson = await api.getChatRaw(rawConversationId);
+    final request = chatJson == null
+        ? null
+        : chatTitleRequest(chatJson, selectedModelId: selectedModelId);
+    final title = request == null
+        ? null
+        : (await api.generateChatTitle(
+            model: request.model,
+            messages: request.messages,
+          ))?.trim();
+    if (title == null || title.isEmpty) {
+      message = l10n.generateTitleNone;
+    } else {
+      if (title != currentTitle) {
+        await _saveConversationTitle(ref, conversationId, title);
+      }
+      ConduitHaptics.success();
+    }
+  } catch (_) {
+    message = l10n.generateTitleFailed;
+  }
+  if (message == null || !context.mounted) return;
+  await _showConversationError(context, message);
 }
 
 Future<void> _confirmAndDeleteConversation(

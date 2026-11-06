@@ -4299,5 +4299,7 @@
   "chatHandoffPromptMessage": "Il tuo server suggerisce di continuare in una nuova chat con {model}. Un eventuale messaggio suggerito resta nel campo di testo finché non lo invii.",
   "chatHandoffStartNewChat": "Inizia nuova chat",
   "chatHandoffStayHere": "Resta qui",
-  "chatWaitingForApproval": "In attesa di approvazione"
+  "chatWaitingForApproval": "In attesa di approvazione",
+  "generateTitleNone": "Il server non ha creato un titolo per questa chat. La generazione dei titoli potrebbe essere disattivata.",
+  "generateTitleFailed": "Impossibile generare un titolo. Riprova."
 }

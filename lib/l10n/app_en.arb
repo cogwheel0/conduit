@@ -8971,5 +8971,13 @@
   "chatWaitingForApproval": "Waiting for approval",
   "@chatWaitingForApproval": {
     "description": "Tooltip and accessibility label of the icon on a chat in the chat list while a tool call in it waits for the user to allow or deny it."
+  },
+  "generateTitleNone": "The server didn't make a title for this chat. Title generation may be turned off.",
+  "@generateTitleNone": {
+    "description": "Shown when the server made no title for the chat, for example because title generation is turned off on the server."
+  },
+  "generateTitleFailed": "Couldn't generate a title. Please try again.",
+  "@generateTitleFailed": {
+    "description": "Error shown when generating or saving a chat title failed."
   }
 }

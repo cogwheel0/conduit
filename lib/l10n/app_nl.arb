@@ -4299,5 +4299,7 @@
   "chatHandoffPromptMessage": "Je server stelt voor om verder te gaan in een nieuwe chat met {model}. Een voorgesteld bericht blijft in het invoerveld staan tot je het verstuurt.",
   "chatHandoffStartNewChat": "Nieuwe chat starten",
   "chatHandoffStayHere": "Hier blijven",
-  "chatWaitingForApproval": "Wacht op goedkeuring"
+  "chatWaitingForApproval": "Wacht op goedkeuring",
+  "generateTitleNone": "De server heeft geen titel voor deze chat gemaakt. Mogelijk staat het genereren van titels uit.",
+  "generateTitleFailed": "Kan geen titel genereren. Probeer het opnieuw."
 }

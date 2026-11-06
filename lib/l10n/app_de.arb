@@ -4299,5 +4299,7 @@
   "chatHandoffPromptMessage": "Dein Server schlägt vor, in einem neuen Chat mit {model} weiterzumachen. Eine vorgeschlagene Nachricht wartet im Eingabefeld, bis du sie sendest.",
   "chatHandoffStartNewChat": "Neuen Chat starten",
   "chatHandoffStayHere": "Hierbleiben",
-  "chatWaitingForApproval": "Wartet auf Freigabe"
+  "chatWaitingForApproval": "Wartet auf Freigabe",
+  "generateTitleNone": "Der Server hat keinen Titel für diesen Chat erstellt. Möglicherweise ist die Titelgenerierung deaktiviert.",
+  "generateTitleFailed": "Der Titel konnte nicht generiert werden. Bitte versuche es erneut."
 }

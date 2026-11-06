@@ -4337,5 +4337,7 @@
   "chatHandoffPromptMessage": "Сервер предлагает продолжить в новом чате с {model}. Предложенное сообщение останется в поле ввода, пока вы его не отправите.",
   "chatHandoffStartNewChat": "Начать новый чат",
   "chatHandoffStayHere": "Остаться здесь",
-  "chatWaitingForApproval": "Ожидает подтверждения"
+  "chatWaitingForApproval": "Ожидает подтверждения",
+  "generateTitleNone": "Сервер не создал название для этого чата. Возможно, генерация названий отключена.",
+  "generateTitleFailed": "Не удалось сгенерировать название. Попробуйте ещё раз."
 }

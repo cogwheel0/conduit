@@ -4299,5 +4299,7 @@
   "chatHandoffPromptMessage": "服务器建议使用 {model} 在新对话中继续。建议的消息会留在输入框中，直到你发送。",
   "chatHandoffStartNewChat": "开始新对话",
   "chatHandoffStayHere": "留在这里",
-  "chatWaitingForApproval": "等待批准"
+  "chatWaitingForApproval": "等待批准",
+  "generateTitleNone": "服务器没有为此对话生成标题。标题生成可能已关闭。",
+  "generateTitleFailed": "无法生成标题，请重试。"
 }
