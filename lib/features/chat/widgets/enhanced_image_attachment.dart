@@ -483,6 +483,11 @@ class EnhancedImageAttachment extends ConsumerStatefulWidget {
   final bool disableAnimation;
   final Map<String, String>? httpHeaders;
 
+  /// What the image shows, for screen readers: a markdown image's alt text,
+  /// such as the prompt a generated image was made from. Null or empty adds
+  /// no label.
+  final String? semanticLabel;
+
   const EnhancedImageAttachment({
     super.key,
     required this.attachmentId,
@@ -492,6 +497,7 @@ class EnhancedImageAttachment extends ConsumerStatefulWidget {
     this.isUserMessage = false,
     this.disableAnimation = false,
     this.httpHeaders,
+    this.semanticLabel,
   });
 
   @override
@@ -759,7 +765,10 @@ class _EnhancedImageAttachmentState
     }
 
     // Directly return content without AnimatedSwitcher to prevent black flash during streaming
-    return _buildContent();
+    final content = _buildContent();
+    final label = widget.semanticLabel?.trim();
+    if (label == null || label.isEmpty) return content;
+    return Semantics(image: true, label: label, child: content);
   }
 
   Widget _buildContent() {

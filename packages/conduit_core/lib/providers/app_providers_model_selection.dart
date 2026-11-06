@@ -102,16 +102,57 @@ final modelToolsAutoSelectionProvider = Provider<void>((ref) {
   // Prevent disposal so listeners remain active throughout app lifecycle
   ref.keepAlive();
 
-  Future<void> applyTools(Model? model) async {
-    List<String> preserveDirectServerSelections(List<String> ids) {
-      return ids
-          .where(
-            (id) =>
-                id.startsWith('direct_server:') ||
-                id.startsWith(kDirectMcpToolIdPrefix),
-          )
-          .toList();
+  List<String> preserveDirectServerSelections(List<String> ids) {
+    return ids
+        .where(
+          (id) =>
+              id.startsWith('direct_server:') ||
+              id.startsWith(kDirectMcpToolIdPrefix),
+        )
+        .toList();
+  }
+
+  // The tools as last set here, and what the user turned on and off since
+  // the chat began: each stays the user's choice through later switches,
+  // even where a model in between had the same default.
+  var lastApplied = <String>[];
+  final added = <String>{};
+  final removed = <String>{};
+
+  /// The tools for a switch to a model whose default tools are [defaults]. As
+  /// on Open WebUI 0.12.5, the new defaults apply while the user's picks
+  /// stay: a tool turned on stays on where [isOffered], and one turned off
+  /// stays off, even if a later model lists it. Personal servers stay as
+  /// they are.
+  List<String> mergeModelDefaults(
+    List<String> current,
+    List<String> defaults, {
+    required bool Function(String id) isOffered,
+  }) {
+    final preserved = preserveDirectServerSelections(current);
+    final before = lastApplied.toSet();
+    final now = current.toSet();
+    for (final id in now.difference(before)) {
+      if (preserved.contains(id)) continue;
+      added.add(id);
+      removed.remove(id);
     }
+    for (final id in before.difference(now)) {
+      removed.add(id);
+      added.remove(id);
+    }
+    final next = [
+      for (final id in defaults)
+        if (!removed.contains(id)) id,
+      for (final id in added)
+        if (!defaults.contains(id) && isOffered(id)) id,
+      ...preserved,
+    ];
+    lastApplied = next;
+    return next;
+  }
+
+  Future<void> applyTools(Model? model) async {
 
     // Skip if not authenticated - prevents API calls after logout
     final authState = ref.read(authStateManagerProvider).asData?.value;
@@ -124,21 +165,17 @@ final modelToolsAutoSelectionProvider = Provider<void>((ref) {
       return;
     }
 
-    if (model == null) {
+    final modelToolIds = model?.toolIds ?? const <String>[];
+    if (model == null || modelToolIds.isEmpty) {
+      // No defaults to apply: the user's own picks stay.
       final current = ref.read(selectedToolIdsProvider);
-      final preserved = preserveDirectServerSelections(current);
-      if (!const ListEquality<Object?>().equals(current, preserved)) {
-        ref.read(selectedToolIdsProvider.notifier).set(preserved);
-      }
-      return;
-    }
-
-    final modelToolIds = model.toolIds ?? [];
-    if (modelToolIds.isEmpty) {
-      final current = ref.read(selectedToolIdsProvider);
-      final preserved = preserveDirectServerSelections(current);
-      if (!const ListEquality<Object?>().equals(current, preserved)) {
-        ref.read(selectedToolIdsProvider.notifier).set(preserved);
+      final next = mergeModelDefaults(
+        current,
+        const <String>[],
+        isOffered: (_) => true,
+      );
+      if (!const ListEquality<Object?>().equals(current, next)) {
+        ref.read(selectedToolIdsProvider.notifier).set(next);
       }
       return;
     }
@@ -149,14 +186,17 @@ final modelToolsAutoSelectionProvider = Provider<void>((ref) {
           .toList();
 
       final currentSelection = ref.read(selectedToolIdsProvider);
-      final preserved = preserveDirectServerSelections(currentSelection);
-      final nextSelection = [...validToolIds, ...preserved];
+      final nextSelection = mergeModelDefaults(
+        currentSelection,
+        validToolIds,
+        isOffered: (id) => availableTools.any((tool) => tool.id == id),
+      );
       if (validToolIds.isEmpty) {
         if (!const ListEquality<Object?>().equals(
           currentSelection,
-          preserved,
+          nextSelection,
         )) {
-          ref.read(selectedToolIdsProvider.notifier).set(preserved);
+          ref.read(selectedToolIdsProvider.notifier).set(nextSelection);
         }
         return;
       }
@@ -216,6 +256,20 @@ final modelToolsAutoSelectionProvider = Provider<void>((ref) {
     if (!next.hasValue) return;
     Future.microtask(() => scheduleApply(ref.read(selectedModelProvider)));
   });
+
+  // Another chat or account: the user's picks belong to the chat they were
+  // made in, so the tools start again from the model's defaults.
+  ref.listen<Object>(chatPicksSessionProvider, (previous, next) {
+    lastApplied = <String>[];
+    added.clear();
+    removed.clear();
+    final current = ref.read(selectedToolIdsProvider);
+    final preserved = preserveDirectServerSelections(current);
+    if (!const ListEquality<Object?>().equals(current, preserved)) {
+      ref.read(selectedToolIdsProvider.notifier).set(preserved);
+    }
+    Future.microtask(() => scheduleApply(ref.read(selectedModelProvider)));
+  });
 });
 
 // Auto-apply model-specific terminal defaults when model changes.
@@ -241,16 +295,33 @@ final modelTerminalAutoSelectionProvider = Provider<void>((ref) {
     return terminalId;
   }
 
+  // The terminal as last set here. A change since is the user's choice,
+  // none included, which switches of model keep, as on Open WebUI 0.12.5;
+  // otherwise each model's default applies, none included.
+  String? lastApplied;
+  var chosen = false;
+  String? choice;
+
   void applyTerminalSelection(Model? model) {
     final terminalId = extractModelTerminalId(model);
+    final current = ref.read(selectedTerminalIdProvider);
+    if (current != lastApplied) {
+      chosen = true;
+      choice = current;
+    }
+    final next = chosen ? choice : terminalId;
+    lastApplied = next;
+    if (current == next) {
+      return;
+    }
+    if (chosen) {
+      return;
+    }
+
     if (terminalId == null) {
+      ref.read(selectedTerminalIdProvider.notifier).clear();
       return;
     }
-
-    if (ref.read(selectedTerminalIdProvider) == terminalId) {
-      return;
-    }
-
     ref.read(selectedTerminalIdProvider.notifier).set(terminalId);
     DebugLogger.log(
       'auto-apply-terminal',
@@ -268,6 +339,17 @@ final modelTerminalAutoSelectionProvider = Provider<void>((ref) {
 
   ref.listen<Model?>(selectedModelProvider, (previous, next) {
     Future.microtask(() => applyTerminalSelection(next));
+  });
+
+  // Another chat or account starts from the model's default terminal, even
+  // when its model is the one already selected, which emits nothing.
+  ref.listen<Object>(chatPicksSessionProvider, (previous, next) {
+    chosen = false;
+    choice = null;
+    lastApplied = ref.read(selectedTerminalIdProvider);
+    Future.microtask(() {
+      if (ref.mounted) applyTerminalSelection(ref.read(selectedModelProvider));
+    });
   });
 });
 

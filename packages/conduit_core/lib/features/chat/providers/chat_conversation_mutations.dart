@@ -263,9 +263,6 @@ Future<void> archiveConversation(
   final leavingActiveConversation =
       archived &&
       _activeConversationMatchesSelection(activeConversation, conversationId);
-  final previousFilterIds = leavingActiveConversation
-      ? List<String>.of(_readProvider(ref, selectedFilterIdsProvider))
-      : const <String>[];
 
   if (identity.storage == ChatStorageKind.directLocal ||
       isDirectLocalConversation(listedConversation)) {
@@ -302,18 +299,29 @@ Future<void> archiveConversation(
     return;
   }
 
-  // Update local state first
-  if (_activeConversationMatchesSelection(activeConversation, conversationId) &&
-      archived) {
-    clearSelectedFiltersForConversationBoundary(ref);
-    _readProvider(ref, activeConversationProvider.notifier).clear();
-    _readProvider(ref, chatMessagesProvider.notifier).clearMessages();
-  }
+  // The open chat stays on screen until the server takes the archive: a
+  // refused one leaves it as it was, picks and all, with nothing to put back,
+  // and no blank composer stands in for it meanwhile. Another chat opened or
+  // started meanwhile, with picks of its own, is left alone, and so is the
+  // same chat opened under another account or server.
+  final ChatMutationOwnerToken? archivedOwner = leavingActiveConversation
+      ? captureChatMutationOwner(ref, activeConversation)
+      : null;
+  bool archivedChatStillShown() =>
+      archivedOwner != null && chatMutationTokenStillActive(ref, archivedOwner);
 
   try {
     if (api == null) throw Exception('No API service available');
 
     await api.archiveConversation(rawId, archived);
+
+    // The chat is gone for good: it leaves the screen and its picks start
+    // again, unless the user has moved on meanwhile.
+    if (leavingActiveConversation && archivedChatStillShown()) {
+      clearSelectedFiltersForConversationBoundary(ref);
+      _readProvider(ref, activeConversationProvider.notifier).clear();
+      _readProvider(ref, chatMessagesProvider.notifier).clearMessages();
+    }
 
     _readProvider(
       ref,
@@ -331,24 +339,6 @@ Future<void> archiveConversation(
       'Error ${archived ? 'archiving' : 'unarchiving'} conversation: $e',
       scope: 'chat/providers',
     );
-
-    // If server operation failed and we archived locally, restore the conversation
-    if (_activeConversationMatchesSelection(
-          activeConversation,
-          conversationId,
-        ) &&
-        archived) {
-      _readProvider(
-        ref,
-        activeConversationProvider.notifier,
-      ).set(activeConversation);
-      _readProvider(
-        ref,
-        selectedFilterIdsProvider.notifier,
-      ).set(previousFilterIds);
-      // Messages will be restored through the listener
-    }
-
     rethrow;
   }
 }

@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:checks/checks.dart';
 import 'package:conduit_core/database/chat_database_repository.dart';
 import 'package:conduit_core/database/database_provider.dart';
+import 'package:conduit_core/models/chat_comparison.dart';
 import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/models/model.dart';
@@ -205,11 +206,21 @@ class _FakeApiService extends ApiService {
   int taskIdFailuresRemaining = 0;
 
   int getConversationCalls = 0;
+  int conversationFailuresRemaining = 0;
+
+  /// Runs once a conversation fetch is answered: what the server holds
+  /// right after it.
+  void Function()? afterConversationFetch;
   int getTaskIdsCalls = 0;
 
   @override
   Future<Conversation> getConversation(String id, {ApiAuthSnapshot? authSnapshot}) async {
     getConversationCalls++;
+    if (conversationFailuresRemaining > 0) {
+      conversationFailuresRemaining--;
+      throw StateError('transient conversation fetch failure');
+    }
+    afterConversationFetch?.call();
     return _conversation;
   }
 
@@ -232,6 +243,14 @@ class _FakeApiService extends ApiService {
 
 ChatMessage _userMessage(String id, String content, DateTime timestamp) =>
     ChatMessage(id: id, role: 'user', content: content, timestamp: timestamp);
+
+/// Lets a check started in the background, such as a fresh task lookup,
+/// run to its end.
+Future<void> _settleRecheck() async {
+  for (var i = 0; i < 10; i++) {
+    await Future<void>.delayed(Duration.zero);
+  }
+}
 
 ChatMessage _assistantMessage(String id, String content, DateTime timestamp) =>
     ChatMessage(
@@ -2115,6 +2134,236 @@ void main() {
       check(container.read(chatMessagesProvider).last.content)
           .equals('Final answer');
       check(container.read(chatMessagesProvider).last.isStreaming).isFalse();
+    });
+
+    test('answers a server restart cut off are finished once the polled task '
+        'ends', () async {
+      final timestamp = DateTime.now();
+      final opened = [
+        _userMessage('user-1', 'Compare', timestamp),
+        _assistantMessage(
+          'assistant-1',
+          'Partial',
+          timestamp,
+        ).copyWith(isStreaming: true),
+      ];
+      final api = _FakeApiService(_conversation('chat-1', opened, timestamp))
+        ..taskIds = const <String>['task-1'];
+      final container = ProviderContainer(
+        overrides: [
+          secureStorageProvider.overrideWithValue(FlutterSecureKeyValueStore()),
+          ...openWebUiStorageOpenOverrides(),
+          activeConversationProvider.overrideWith(
+            () => _TestActiveConversationNotifier(),
+          ),
+          socketServiceProvider.overrideWithValue(null),
+          apiServiceProvider.overrideWithValue(api),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      check(container.read(chatMessagesProvider)).isEmpty();
+      final notifier = container.read(chatMessagesProvider.notifier);
+      container
+          .read(activeConversationProvider.notifier)
+          .set(_conversation('chat-1', opened, timestamp));
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      await _drainRemoteTaskStatusCheck(notifier);
+      check(container.read(chatMessagesProvider).last.isStreaming).isTrue();
+
+      // The server restarted: no task runs, and its copy still reports the
+      // comparison's answers as not done, which it will do for good.
+      api.taskIds = const <String>[];
+      api.conversation = _conversation('chat-1', [
+        opened.first,
+        _assistantMessage('assistant-1', 'Partial, cut off', timestamp)
+            .copyWith(
+              metadata: const <String, dynamic>{
+                kMessageUnfinishedAnswersMetadataKey: [
+                  'assistant-1',
+                  'assistant-2',
+                ],
+              },
+            ),
+      ], timestamp);
+      await notifier.debugSyncRemoteTaskStatus();
+      // The rest of the comparison is checked by a fresh lookup.
+      await _settleRecheck();
+
+      final tail = container.read(chatMessagesProvider).last;
+      check(tail.isStreaming).isFalse();
+      check(tail.content).equals('Partial, cut off');
+      check(tail.metadata?[kMessageUnfinishedAnswersMetadataKey]).isNull();
+    });
+
+    test('a reopened streaming answer whose final fetch fails keeps streaming '
+        'for the monitor to retry', () async {
+      final timestamp = DateTime.now();
+      final opened = [
+        _userMessage('user-1', 'Compare', timestamp),
+        _assistantMessage('assistant-1', 'Partial', timestamp).copyWith(
+          isStreaming: true,
+          metadata: const <String, dynamic>{
+            kMessageUnfinishedAnswersMetadataKey: [
+              'assistant-1',
+              'assistant-2',
+            ],
+          },
+        ),
+      ];
+      final api = _FakeApiService(_conversation('chat-1', opened, timestamp))
+        ..taskIds = const <String>[]
+        ..conversationFailuresRemaining = 1;
+      final container = ProviderContainer(
+        overrides: [
+          secureStorageProvider.overrideWithValue(FlutterSecureKeyValueStore()),
+          ...openWebUiStorageOpenOverrides(),
+          activeConversationProvider.overrideWith(
+            () => _TestActiveConversationNotifier(),
+          ),
+          socketServiceProvider.overrideWithValue(null),
+          apiServiceProvider.overrideWithValue(api),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      check(container.read(chatMessagesProvider)).isEmpty();
+      container.read(chatMessagesProvider.notifier);
+      container
+          .read(activeConversationProvider.notifier)
+          .set(_conversation('chat-1', opened, timestamp));
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+
+      check(api.getConversationCalls).isGreaterOrEqual(1);
+      check(container.read(chatMessagesProvider).last.isStreaming).isTrue();
+    });
+
+    test('a polled answer the final copy names by its server id has its cut '
+        'off answers finished', () async {
+      final timestamp = DateTime.now();
+      final opened = [
+        _userMessage('user-1', 'Compare', timestamp),
+        _assistantMessage(
+          'local-1',
+          'Partial',
+          timestamp,
+        ).copyWith(isStreaming: true),
+      ];
+      final api = _FakeApiService(_conversation('chat-1', opened, timestamp))
+        ..taskIds = const <String>['task-1'];
+      final container = ProviderContainer(
+        overrides: [
+          secureStorageProvider.overrideWithValue(FlutterSecureKeyValueStore()),
+          ...openWebUiStorageOpenOverrides(),
+          activeConversationProvider.overrideWith(
+            () => _TestActiveConversationNotifier(),
+          ),
+          socketServiceProvider.overrideWithValue(null),
+          apiServiceProvider.overrideWithValue(api),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      check(container.read(chatMessagesProvider)).isEmpty();
+      final notifier = container.read(chatMessagesProvider.notifier);
+      container
+          .read(activeConversationProvider.notifier)
+          .set(_conversation('chat-1', opened, timestamp));
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      await _drainRemoteTaskStatusCheck(notifier);
+      // The resumed stream learned the answer's id on the server.
+      notifier.recordResumeBoundRemoteMessageId('local-1', 'server-1');
+
+      api.taskIds = const <String>[];
+      api.conversation = _conversation('chat-1', [
+        opened.first,
+        _assistantMessage('server-1', 'Partial, cut off', timestamp).copyWith(
+          metadata: const <String, dynamic>{
+            kMessageUnfinishedAnswersMetadataKey: ['server-1', 'server-2'],
+          },
+        ),
+      ], timestamp);
+      await notifier.debugSyncRemoteTaskStatus();
+      await _settleRecheck();
+
+      final tail = container.read(chatMessagesProvider).last;
+      check(tail.id).equals('server-1');
+      check(tail.metadata?[kMessageUnfinishedAnswersMetadataKey]).isNull();
+    });
+
+    test('a comparison another session started after the poll\'s lookup '
+        'keeps running', () async {
+      final timestamp = DateTime.now();
+      final opened = [
+        _userMessage('user-1', 'Compare', timestamp),
+        _assistantMessage(
+          'assistant-1',
+          'Partial',
+          timestamp,
+        ).copyWith(isStreaming: true),
+      ];
+      final api = _FakeApiService(_conversation('chat-1', opened, timestamp))
+        ..taskIds = const <String>['task-1'];
+      final container = ProviderContainer(
+        overrides: [
+          secureStorageProvider.overrideWithValue(FlutterSecureKeyValueStore()),
+          ...openWebUiStorageOpenOverrides(),
+          activeConversationProvider.overrideWith(
+            () => _TestActiveConversationNotifier(),
+          ),
+          socketServiceProvider.overrideWithValue(null),
+          apiServiceProvider.overrideWithValue(api),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      check(container.read(chatMessagesProvider)).isEmpty();
+      final notifier = container.read(chatMessagesProvider.notifier);
+      container
+          .read(activeConversationProvider.notifier)
+          .set(_conversation('chat-1', opened, timestamp));
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      await _drainRemoteTaskStatusCheck(notifier);
+
+      // The task ends; by the time the final copy is fetched, another
+      // session has started a new comparison, still running.
+      api
+        ..taskIds = const <String>[]
+        ..afterConversationFetch = () {
+          api.taskIds = const <String>['new-task'];
+        };
+      api.conversation = _conversation('chat-1', [
+        opened.first,
+        _assistantMessage('assistant-1', 'Partial, cut off', timestamp)
+            .copyWith(
+              metadata: const <String, dynamic>{
+                kMessageUnfinishedAnswersMetadataKey: [
+                  'assistant-1',
+                  'assistant-2',
+                ],
+              },
+            ),
+        _userMessage('user-2', 'Compare again', timestamp),
+        _assistantMessage('new-1', 'starting', timestamp).copyWith(
+          metadata: const <String, dynamic>{
+            kMessageUnfinishedAnswersMetadataKey: ['new-1', 'new-2'],
+          },
+        ),
+      ], timestamp);
+      await notifier.debugSyncRemoteTaskStatus();
+      await _settleRecheck();
+
+      ChatMessage message(String id) =>
+          container.read(chatMessagesProvider).firstWhere((m) => m.id == id);
+      // The polled answer is finished; the rest waits while a task runs in
+      // the chat.
+      check(message('assistant-1').isStreaming).isFalse();
+      check(
+        message('assistant-1').metadata?[kMessageUnfinishedAnswersMetadataKey],
+      ).isA<List>().deepEquals(['assistant-2']);
+      check(
+        message('new-1').metadata?[kMessageUnfinishedAnswersMetadataKey],
+      ).isA<List>().deepEquals(['new-1', 'new-2']);
     });
 
     test(

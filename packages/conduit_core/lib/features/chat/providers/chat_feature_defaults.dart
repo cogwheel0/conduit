@@ -94,10 +94,12 @@ _ChatFeatureDefaults _resolveChatFeatureDefaults({
       ) ||
       defaultFeatureIds.contains('image_generation');
 
+  // The choice made in a chat stays with that chat (the toggles keep it);
+  // a choice stored by earlier builds for every chat no longer overrides the
+  // account's and the model's defaults.
   return (
-    webSearchEnabled: appSettings.chatWebSearchEnabled ?? webSearchDefault,
-    imageGenerationEnabled:
-        appSettings.chatImageGenerationEnabled ?? imageGenerationDefault,
+    webSearchEnabled: webSearchDefault,
+    imageGenerationEnabled: imageGenerationDefault,
   );
 }
 

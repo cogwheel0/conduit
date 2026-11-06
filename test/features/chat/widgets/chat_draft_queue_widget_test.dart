@@ -33,6 +33,7 @@ import 'package:drift/native.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/misc.dart' show Override;
+import 'package:conduit_core/models/chat_comparison.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
 
@@ -243,6 +244,7 @@ Future<_Rig> _pump(
   bool streaming = true,
   List<ChatMessage>? turn,
   List<Override> overrides = const [],
+  VoidCallback? onVoiceCall,
 }) async {
   final db = AppDatabase(NativeDatabase.memory());
   _openDatabases.add(db);
@@ -317,7 +319,10 @@ Future<_Rig> _pump(
         home: Scaffold(
           body: Align(
             alignment: Alignment.bottomCenter,
-            child: ModernChatInput(onSendMessage: sent.add),
+            child: ModernChatInput(
+              onSendMessage: sent.add,
+              onVoiceCall: onVoiceCall,
+            ),
           ),
         ),
       ),
@@ -404,6 +409,41 @@ void main() {
     expect(find.text(queueLabel), findsNothing);
     // Nothing was sent to the server: the response is still running.
     expect(await pumpDatabaseOperation(tester, rig.userTurns), isEmpty);
+  });
+
+  testQueue('another person\'s reply running in a shared chat offers Queue '
+      'and no Stop', (tester) async {
+    var voiceCalls = 0;
+    final rig = await _pump(
+      tester,
+      onVoiceCall: () => voiceCalls++,
+      turn: <ChatMessage>[
+        _runningTurn().first,
+        _runningTurn().last.copyWith(
+          metadata: const <String, dynamic>{
+            kMessageAuthorIdMetadataKey: 'someone-else',
+          },
+        ),
+      ],
+    );
+
+    // With nothing typed, a voice call does not start while it runs.
+    final voiceCall = find.byKey(const ValueKey('primary-btn-voice-call'));
+    expect(voiceCall, findsOneWidget);
+    await tester.tap(voiceCall);
+    await tester.pump();
+    expect(voiceCalls, 0);
+
+    await rig.type('next question');
+    expect(find.text(queueLabel), findsOneWidget);
+    // Theirs to stop, not this account's.
+    expect(stop, findsNothing);
+
+    await tester.tap(find.text(queueLabel));
+    await tester.pump();
+
+    expect(rig.sent, isEmpty);
+    expect(rig.drafts.map((d) => d.text), ['next question']);
   });
 
   testQueue('Enter queues instead of starting a second turn mid-response', (

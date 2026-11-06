@@ -234,6 +234,8 @@ Future<ChatBranchSelection> selectChatBranch(
         messageId: messageId,
         alternativeTo: alternativeTo,
       );
+  // A model pick names the prompts it was made over by id, so it keeps
+  // applying to those on this branch too, and to no others.
   if (selection.changed && _branchMutationContextIsCurrent(ref, token)) {
     try {
       unawaited(

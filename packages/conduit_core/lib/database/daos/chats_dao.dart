@@ -1670,6 +1670,27 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
     });
   }
 
+  /// Stores [models] as chat [chatId]'s model list, the envelope key the blob
+  /// mapper keeps verbatim, so the chat reopens on them and a later full push
+  /// carries them. No push is queued: the caller saves the list itself.
+  /// A chat whose body is not synced yet, or is gone, is left as it is.
+  Future<void> setChatModels(String chatId, List<String> models) {
+    return transaction(() async {
+      final row = await getChat(chatId);
+      if (row == null || row.deleted || !row.bodySynced) return;
+      await (update(chats)..where((t) => t.id.equals(chatId))).write(
+        ChatsCompanion(
+          rawExtra: Value(
+            jsonEncode(<String, dynamic>{
+              ..._decodeRawExtraEnvelope(row.rawExtra),
+              'models': models,
+            }),
+          ),
+        ),
+      );
+    });
+  }
+
   /// Send-on-existing-chat (W3.c): upserts the user message + assistant
   /// placeholder rows, updates the chat envelope, enqueues an `updateChat` op
   /// when [enqueueUpdate] is true, and — when [enqueueCompletion] — a

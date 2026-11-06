@@ -5,8 +5,10 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import 'package:conduit_core/database/database_provider.dart';
 import 'package:conduit_core/models/model.dart';
+import 'package:conduit_core/models/toggle_filter.dart';
 import 'package:conduit_core/models/tool.dart';
 import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/providers/chat_picks_session.dart';
 import 'package:conduit_core/services/tools_service.dart';
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
 
@@ -145,8 +147,15 @@ List<String> defaultFilterIdsForModel(Model? model) {
   ];
 }
 
-(String?, String) _defaultFiltersKey(Model? model) =>
-    (model?.id, defaultFilterIdsForModel(model).join('\n'));
+/// What the selected filters follow: the model, its defaults, and the
+/// filters it offers, so a filter the user turned on comes back when the
+/// model offers it again.
+(String?, String, String) _defaultFiltersKey(Model? model) => (
+  model?.id,
+  defaultFilterIdsForModel(model).join('\n'),
+  [for (final filter in model?.filters ?? const <ToggleFilter>[]) filter.id]
+      .join('\n'),
+);
 
 /// Provider for selected filter IDs (toggle filters enabled by user).
 ///
@@ -154,29 +163,70 @@ List<String> defaultFilterIdsForModel(Model? model) {
 /// `toggle = True` set in their module. They appear as toggleable
 /// buttons in the chat input UI.
 ///
-/// Another model, like a new conversation, starts from that model's default
-/// filters, as on Open WebUI.
+/// A new conversation starts from the selected model's default filters. On
+/// a switch of model, as on Open WebUI 0.12.5, the new model's defaults apply
+/// while the filters the user turned on or off stay so: one turned on stays
+/// on where the new model offers it, and one turned off stays off.
 @Riverpod(keepAlive: true)
 class SelectedFilterIds extends _$SelectedFilterIds {
+  /// What the user turned on and off since the conversation began. The
+  /// notifier outlives a model switch, which rebuilds it.
+  final Set<String> _added = <String>{};
+  final Set<String> _removed = <String>{};
+  Object? _session;
+
   @override
   List<String> build() {
+    // Another chat or account starts from the defaults again.
+    final session = ref.watch(chatPicksSessionProvider);
+    if (!identical(session, _session)) {
+      _session = session;
+      _added.clear();
+      _removed.clear();
+    }
     ref.watch(selectedModelProvider.select(_defaultFiltersKey));
-    return defaultFilterIdsForModel(ref.read(selectedModelProvider));
+    final model = ref.read(selectedModelProvider);
+    final defaults = defaultFilterIdsForModel(model);
+    final offered = <String>{
+      for (final filter in model?.filters ?? const <ToggleFilter>[]) filter.id,
+    };
+    return [
+      for (final id in defaults)
+        if (!_removed.contains(id)) id,
+      for (final id in _added)
+        if (offered.contains(id) && !defaults.contains(id)) id,
+    ];
   }
 
-  void set(List<String> ids) => state = List<String>.from(ids);
+  void set(List<String> ids) {
+    final before = state.toSet();
+    final after = ids.toSet();
+    for (final id in after.difference(before)) {
+      _added.add(id);
+      _removed.remove(id);
+    }
+    for (final id in before.difference(after)) {
+      _removed.add(id);
+      _added.remove(id);
+    }
+    state = List<String>.from(ids);
+  }
 
-  /// Goes back to the selected model's default filters.
-  void reset() =>
-      state = defaultFilterIdsForModel(ref.read(selectedModelProvider));
+  /// Goes back to the selected model's default filters, for a new
+  /// conversation.
+  void reset() {
+    _added.clear();
+    _removed.clear();
+    state = defaultFilterIdsForModel(ref.read(selectedModelProvider));
+  }
 
   void toggle(String id) {
     if (state.contains(id)) {
-      state = state.where((i) => i != id).toList();
+      set(state.where((i) => i != id).toList());
     } else {
-      state = [...state, id];
+      set([...state, id]);
     }
   }
 
-  void clear() => state = [];
+  void clear() => set(const <String>[]);
 }

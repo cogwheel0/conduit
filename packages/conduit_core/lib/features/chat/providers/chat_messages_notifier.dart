@@ -176,6 +176,18 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
           unawaited(_recoverColdHermesCheckpointIfNeeded(active));
         }
       });
+      // A check of earlier cut-off answers waits while the chat is listed as
+      // running a task: once the listing clears, the chat is checked again,
+      // since no copy of it may follow.
+      ref.listen<Set<String>>(activeChatIdsProvider, (previous, next) {
+        final chatId = ref.read(activeConversationProvider)?.id;
+        if (chatId == null ||
+            !(previous?.contains(chatId) ?? false) ||
+            next.contains(chatId)) {
+          return;
+        }
+        _recheckEarlierAnswers();
+      });
       _conversationListener = ref.listen(activeConversationProvider, (
         previous,
         next,
@@ -241,11 +253,14 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
               serverMessages,
               source: 'active conversation update',
             );
+          } else {
+            _recheckEarlierAnswers();
           }
           return;
         }
 
         final modelRebindGeneration = ++_modelRebindGeneration;
+        _answersFinishedWithoutTask.clear();
         // Cancel any existing message stream when switching conversations
         _cancelMessageStream();
         _stopRemoteTaskMonitor();
@@ -297,6 +312,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
             }
           } else {
             _stopRemoteTaskMonitor();
+            unawaited(_finishEarlierAnswersWithoutTask(next));
           }
         } else {
           state = [];
@@ -374,10 +390,6 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
               ref.read(activeConversationProvider),
               activeConversation,
             ) ||
-            !_hasOpenWebUiTaskRecoverableTail(
-              activeConversation,
-              requireStreaming: false,
-            ) ||
             _shouldProtectLocalStreamingState) {
           return;
         }
@@ -435,6 +447,9 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     }
     _openWebUiContextChangedSinceConversation = true;
     _captureActiveOpenWebUiContext();
+    // Which answers ran no task was the earlier account's finding; the next
+    // one may see its own still running.
+    _answersFinishedWithoutTask.clear();
 
     final active = ref.read(activeConversationProvider);
     if (!conversationUsesOpenWebUiStorage(active)) return;
@@ -959,8 +974,11 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     List<ChatMessage> storedMessages, {
     required String source,
   }) {
-    final serverMessages = _keepRunningComparisonAnswers(storedMessages);
+    final serverMessages = _keepRunningComparisonAnswers(
+      _withoutAnswersFinishedHere(storedMessages),
+    );
     if (!_shouldAdoptServerMessages(serverMessages)) {
+      _recheckEarlierAnswers();
       return;
     }
 
@@ -1011,6 +1029,24 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
       '(${serverMessages.length} messages)',
       scope: 'chat/providers',
     );
+    // After adoption: the copy may be the first to show the answers.
+    _recheckEarlierAnswers();
+  }
+
+  /// Checks again whether an earlier turn's answers a restart cut off can be
+  /// finished, for each new copy of the open chat: a check this visit made
+  /// may have failed, or found a task that has since ended, such as the
+  /// reply to a later prompt, which the copy now holds. A reply of this
+  /// account's still streaming at the end is the task monitor's to follow.
+  /// Another person's runs under a task this account's list never shows, so
+  /// it does not hold the check up.
+  void _recheckEarlierAnswers() {
+    final active = ref.read(activeConversationProvider);
+    if (active == null) return;
+    final tail = state.lastOrNull;
+    final userId = ref.read(currentUserProvider2)?.id;
+    if (tail != null && tail.isStreaming && tail.isWrittenBy(userId)) return;
+    unawaited(_finishEarlierAnswersWithoutTask(active));
   }
 
   void _configurePassiveConversationSync(Conversation? conversation) {
@@ -2496,6 +2532,198 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
   /// an OpenWebUI-backed chat, but its lifecycle remains owned by that provider
   /// and must never start an OpenWebUI task poll. A null transport marker is a
   /// normal OpenWebUI preseed/resume shape and therefore remains eligible.
+  /// Finishes the answers of this account that the server still reports as
+  /// not done while it runs no task of the account's for the chat.
+  ///
+  /// Open WebUI 0.12.5 marks a reply `done: false` itself when it starts and
+  /// done when it ends, so a reply cut off by a server restart is never done.
+  /// Its web client takes such replies as finished once no task runs, and so
+  /// does this: a multi-model answer would otherwise show as still being
+  /// written for good. Another person's reply in a shared chat may be running
+  /// under their task, which this account's task list does not show.
+  ///
+  /// [ids] are the answers the task lookup was made for; an answer that shows
+  /// up while it is answered may run under a task that started since, and
+  /// waits for the next check.
+  void _finishAnswersWithoutTask([Iterable<String>? ids]) {
+    // Still this account's now: a copy that came in meanwhile may name
+    // another owner for an answer that named no author.
+    final current = _answersThisAccountRuns();
+    _answersFinishedWithoutTask.addAll(
+      ids == null ? current : ids.where(current.toSet().contains),
+    );
+    final next = _withoutAnswersFinishedHere(state);
+    if (!identical(next, state)) state = next;
+  }
+
+  /// The answers the server reports as not done that ran under this
+  /// account's tasks, so that none running means they are finished. In a
+  /// shared chat another person's answer may run under their task, which
+  /// this account's list omits: each answer goes by its own author.
+  ///
+  /// With [inMessage], only that message's comparison. With
+  /// [beforeLastTurn], only the turns before the answers that end the list.
+  List<String> _answersThisAccountRuns({
+    String? inMessage,
+    bool beforeLastTurn = false,
+  }) {
+    final userId = ref.read(currentUserProvider2)?.id;
+    // A message that names no author is the chat owner's, as the web client
+    // takes it.
+    final owner = ref.read(activeConversationProvider)?.userId;
+    var end = state.length;
+    if (beforeLastTurn) {
+      while (end > 0 && state[end - 1].role == 'assistant') {
+        end -= 1;
+      }
+    }
+    return <String>[
+      for (final message in state.take(end))
+        if (inMessage == null || message.id == inMessage)
+          if (message.metadata?[kMessageUnfinishedAnswersMetadataKey]
+              case final List<Object?> unfinished)
+            for (final id in unfinished.whereType<String>())
+              if (_isThisAccounts(
+                _answerAuthor(message, id, owner),
+                userId,
+              ))
+                id,
+    ];
+  }
+
+  /// Who wrote answer [id] of [message]'s comparison: the list names only
+  /// the authors the server gave, and another answer that names none is the
+  /// owner's, whoever wrote the one shown.
+  static String? _answerAuthor(ChatMessage message, String id, String? owner) {
+    final authors =
+        message.metadata?[kMessageUnfinishedAnswerAuthorsMetadataKey];
+    final named = authors is Map ? authors[id] : null;
+    if (named is String) return named;
+    return id == message.id ? message.authorUserId ?? owner : owner;
+  }
+
+  static bool _isThisAccounts(String? author, String? userId) =>
+      author == null || userId == null || author == userId;
+
+  /// Finishes answers of an earlier turn that the server still reports as
+  /// not done once the chat runs no task of this account's: a chat whose
+  /// last message is not an answer, say a prompt sent after a comparison a
+  /// server restart cut off, has nothing for [_detectActiveOnOpen] to resume.
+  /// The chat's tasks are asked for only when such answers show.
+  Future<void> _finishEarlierAnswersWithoutTask(
+    Conversation conversation,
+  ) async {
+    // A copy of the chat that arrives while its tasks are asked for is
+    // checked once that ask is done, whatever it finds.
+    if (_earlierAnswersCheckFor == conversation.id) {
+      _earlierAnswersRecheckQueued = true;
+      return;
+    }
+    // Asked only for answers this account's tasks ran: another person's in a
+    // shared chat stays as the server has it whatever this account runs.
+    // While a reply streams at the end, its turn is the task monitor's: an
+    // answer of this account's in it may have started on another client and
+    // be stored before its task is listed. Only earlier turns are asked about.
+    final eligible = _answersThisAccountRuns(
+      beforeLastTurn: state.lastOrNull?.isStreaming ?? false,
+    );
+    if (!_conversationUsesOpenWebUiContext(conversation) ||
+        _shouldProtectLocalStreamingState ||
+        eligible.isEmpty) {
+      return;
+    }
+    final chatId = conversation.id;
+    // The chat's listing as active is not asked: it may be another person's
+    // task in a shared chat, or one a missed event left behind, and the
+    // server's list of this account's own tasks is what decides for its own
+    // answers.
+    final api = _readApiServiceOrNull(ref);
+    if (api is! ApiService) return;
+    final owner = captureOpenWebUiCompletionOwner(
+      ref,
+      chatId: chatId,
+      api: api,
+    );
+    if (activeOpenWebUiChatIdForMutation(ref, owner) == null) return;
+    _earlierAnswersCheckFor = chatId;
+    _earlierAnswersRecheckQueued = false;
+    try {
+      final List<String> taskIds;
+      try {
+        taskIds = await api.getTaskIdsByChat(chatId);
+      } catch (_) {
+        // Unknown: the answers stay as the server has them until the chat's
+        // next copy checks again.
+        return;
+      }
+      if (taskIds.isNotEmpty ||
+          _disposed ||
+          activeOpenWebUiChatIdForMutation(ref, owner) == null ||
+          _shouldProtectLocalStreamingState) {
+        return;
+      }
+      _finishAnswersWithoutTask(eligible);
+    } finally {
+      if (_earlierAnswersCheckFor == chatId) {
+        _earlierAnswersCheckFor = null;
+        if (_earlierAnswersRecheckQueued && !_disposed) {
+          _earlierAnswersRecheckQueued = false;
+          _recheckEarlierAnswers();
+        }
+      }
+    }
+  }
+
+  /// The chat [_finishEarlierAnswersWithoutTask] is asking the tasks of,
+  /// which it does once at a time; another chat opened meanwhile is asked
+  /// about at once.
+  String? _earlierAnswersCheckFor;
+
+  /// Whether a copy of the chat arrived while its tasks were asked for, to be
+  /// checked once the ask is done.
+  bool _earlierAnswersRecheckQueued = false;
+
+  /// Answers [_finishAnswersWithoutTask] finished in the open chat. The
+  /// server keeps them not done for good, so each later copy of it would
+  /// show them running again; they stay finished here.
+  final Set<String> _answersFinishedWithoutTask = <String>{};
+
+  /// [messages] with the answers finished here no longer listed as
+  /// unfinished; [messages] itself when none was.
+  List<ChatMessage> _withoutAnswersFinishedHere(List<ChatMessage> messages) {
+    if (_answersFinishedWithoutTask.isEmpty) return messages;
+    var changed = false;
+    final next = <ChatMessage>[
+      for (final message in messages)
+        switch (message.metadata?[kMessageUnfinishedAnswersMetadataKey]) {
+          final List<Object?> unfinished
+              when unfinished.any(_answersFinishedWithoutTask.contains) =>
+            () {
+              changed = true;
+              final left = [
+                for (final id in unfinished)
+                  if (!_answersFinishedWithoutTask.contains(id)) id,
+              ];
+              return message.copyWith(
+                // The answer shown is finished too when it is one of these;
+                // another person's live answer runs on.
+                isStreaming:
+                    !_answersFinishedWithoutTask.contains(message.id) &&
+                    message.isStreaming,
+                metadata: <String, dynamic>{...message.metadata!}
+                  ..remove(kMessageUnfinishedAnswersMetadataKey)
+                  ..addAll({
+                    if (left.isNotEmpty)
+                      kMessageUnfinishedAnswersMetadataKey: left,
+                  }),
+              );
+            }(),
+          _ => message,
+        },
+    ];
+    return changed ? next : messages;
+  }
+
   bool _hasOpenWebUiTaskRecoverableTail(
     Conversation? conversation, {
     bool requireStreaming = true,
@@ -2696,12 +2924,12 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
   /// in-flight chat would otherwise render as an empty/partial response.
   Future<void> _detectActiveOnOpen(Conversation conversation) async {
     final chatId = conversation.id;
-    if (_disposed ||
-        isTemporaryChat(chatId) ||
-        !_hasOpenWebUiTaskRecoverableTail(
-          conversation,
-          requireStreaming: false,
-        )) {
+    if (_disposed || isTemporaryChat(chatId)) return;
+    if (!_hasOpenWebUiTaskRecoverableTail(
+      conversation,
+      requireStreaming: false,
+    )) {
+      await _finishEarlierAnswersWithoutTask(conversation);
       return;
     }
     // A genuine local stream owns this chat. A restored `isStreaming` value,
@@ -2729,6 +2957,9 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     );
     if (activeOpenWebUiChatIdForMutation(ref, owner) == null) return;
     String? resumeTaskId;
+    // The answers the lookup below is for: one that shows up meanwhile may
+    // run under a task that started since.
+    final eligible = _answersThisAccountRuns();
     var isActive = ref.read(activeChatIdsProvider).contains(chatId);
     if (!isActive) {
       try {
@@ -2763,6 +2994,14 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     }
 
     if (!isActive) {
+      // A restored streaming tail settles through the final fetch below:
+      // finished first, it would leave nothing to retry that fetch should it
+      // fail. Its answers are finished once the fetch succeeds.
+      _finishAnswersWithoutTask(
+        openedAsStreaming
+            ? eligible.where((id) => id != openedMessageId)
+            : eligible,
+      );
       if (!openedAsStreaming) {
         _reopenedStreamingMessageId = null;
         _stopRemoteTaskMonitor();
@@ -2782,7 +3021,17 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
         persist: true,
       );
       if (reconciled) {
+        final reopenedRemoteId = _boundRemoteMessageId;
         _cancelMessageStream();
+        // The reopened answer itself; the rest of its comparison, which the
+        // final copy may first show, is checked by a fresh lookup, since an
+        // answer in it may have started after this one.
+        _finishAnswersWithoutTask(<String>{
+          ...eligible,
+          openedMessageId,
+          ?reopenedRemoteId,
+        });
+        _recheckEarlierAnswers();
       } else if (_stillOwnsReopenedTail(owner, openedMessageId) &&
           _hasStreamingAssistant) {
         _engageReopenedTailMonitor(openedMessageId);
@@ -2871,6 +3120,25 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     _engageReopenedTailMonitor(state.last.id);
   }
 
+  /// Whether the reply at the end is another person's, in a chat shared with
+  /// Allow replies. It runs under their task, which this account's task list
+  /// never shows, so that list says nothing of whether it is done.
+  bool get _tailIsAnotherPersons {
+    final tail = state.lastOrNull;
+    return tail != null &&
+        tail.role == 'assistant' &&
+        !tail.isWrittenBy(ref.read(currentUserProvider2)?.id);
+  }
+
+  /// Whether the server's copy [message] says it is still running: a
+  /// checkpoint a Conduit client keeps while it writes, or an answer its
+  /// comparison lists as not done.
+  static bool _serverReportsRunning(ChatMessage message) {
+    if (message.isStreaming) return true;
+    final unfinished = message.metadata?[kMessageUnfinishedAnswersMetadataKey];
+    return unfinished is List && unfinished.contains(message.id);
+  }
+
   void _engageReopenedTailMonitor(String messageId) {
     _reopenedStreamingMessageId = messageId;
     _ensureRemoteTaskMonitor();
@@ -2893,11 +3161,13 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
         state.last.id == _boundRemoteMessageId;
   }
 
+  /// With [streaming] null, the reply is left running or finished as the
+  /// server's copy of it says (see [_serverReportsRunning]).
   Future<bool> _refreshReopenedStreamFromServer({
     required ApiService api,
     required OpenWebUiCompletionOwner owner,
     required String expectedLocalMessageId,
-    required bool streaming,
+    required bool? streaming,
     required String source,
     bool persist = false,
   }) async {
@@ -2908,7 +3178,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
         return false;
       }
       final adopted = _reconcileReopenedServerSnapshot(
-        serverConversation.messages,
+        _withoutAnswersFinishedHere(serverConversation.messages),
         expectedLocalMessageId: expectedLocalMessageId,
         streaming: streaming,
         source: source,
@@ -2929,7 +3199,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
   bool _reconcileReopenedServerSnapshot(
     List<ChatMessage> serverMessages, {
     required String expectedLocalMessageId,
-    required bool streaming,
+    required bool? streaming,
     required String source,
   }) {
     if (serverMessages.isEmpty || state.isEmpty) return false;
@@ -2963,13 +3233,15 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
       }
     }
     if (serverIndex < 0) return false;
+    final live =
+        streaming ?? _serverReportsRunning(serverMessages[serverIndex]);
     // Open WebUI advances history.currentId on every streamed upsert. The
     // assistant being resumed must therefore be the fetched active-branch tip;
     // never mark an older assistant and the current tip as streaming together.
-    if (streaming && serverIndex != serverMessages.length - 1) return false;
+    if (live && serverIndex != serverMessages.length - 1) return false;
 
     final authoritativeServerTail = serverMessages[serverIndex];
-    if (!streaming &&
+    if (!live &&
         (authoritativeServerTail.content.trim().isEmpty ||
             _shouldPreserveLocalAssistantContent(
               localTail,
@@ -2993,7 +3265,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     );
     var serverTail = mergedServerMessages[serverIndex];
     final foreignLiveBinding =
-        streaming &&
+        live &&
         remoteId != null &&
         serverTail.id == remoteId &&
         serverTail.id != localTail.id;
@@ -3003,13 +3275,13 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
       // server id once transport ownership is released.
       serverTail = serverTail.copyWith(id: localTail.id);
     }
-    serverTail = serverTail.copyWith(isStreaming: streaming);
+    serverTail = serverTail.copyWith(isStreaming: live);
 
     final reconciled = List<ChatMessage>.from(mergedServerMessages);
     reconciled[serverIndex] = serverTail;
     state = List<ChatMessage>.unmodifiable(reconciled);
 
-    if (streaming && state.last.role == 'assistant') {
+    if (live && state.last.role == 'assistant') {
       _streamingContentTimer?.cancel();
       _streamingContentTimer = null;
       _streamingBuffer = StringBuffer(state.last.content);
@@ -3451,6 +3723,8 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     var completionNeedsRetry = false;
     var completionGraceActive = false;
     try {
+      // The answers this lookup is for, before it is answered.
+      final answersBeforeLookup = _answersThisAccountRuns();
       // Check both task status and server message state
       final taskIds = await api.getTaskIdsByChat(activeConversation.id);
       taskLookupSucceeded = true;
@@ -3460,6 +3734,9 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
       }
       hasActiveTasks = taskIds.isNotEmpty;
       final reopenedTail = _isReopenedStreamingTail;
+      // Another person's reply is not finished by this account's list being
+      // empty: the server's copy of it decides, below.
+      final othersReply = _tailIsAnotherPersons;
 
       if (hasActiveTasks) {
         _observedRemoteTask = true;
@@ -3475,6 +3752,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
       // empty registry observations before treating that checkpoint as done.
       // This retains eventual settlement without racing task registration.
       final tasksDone =
+          !othersReply &&
           !hasActiveTasks &&
           (_observedRemoteTask ||
               (reopenedTail &&
@@ -3554,6 +3832,36 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
         }
       }
 
+      // Another person's reply, with no task of this account's running in the
+      // chat: it runs on, or is done, as the server's copy of it says, as Open
+      // WebUI's web client takes it. Asked no more often than a stalled
+      // resume is.
+      if (_hasStreamingAssistant &&
+          othersReply &&
+          !hasActiveTasks &&
+          (_lastReopenedSnapshotAt == null ||
+              now.difference(_lastReopenedSnapshotAt!) >=
+                  _reopenedSocketStallThreshold)) {
+        final expectedMessageId = _reopenedStreamingMessageId ?? state.last.id;
+        final followed = await _refreshReopenedStreamFromServer(
+          api: api,
+          owner: owner,
+          expectedLocalMessageId: expectedMessageId,
+          streaming: null,
+          source: 'another person\'s reply poll',
+        );
+        if (_disposed ||
+            generation != _taskStatusGeneration ||
+            activeOpenWebUiChatIdForMutation(ref, owner) == null) {
+          return;
+        }
+        if (followed && !_hasStreamingAssistant) {
+          _cancelMessageStream();
+          schedulePullChatNow(ref, owner.chatId);
+          _recheckEarlierAnswers();
+        }
+      }
+
       // Secondary check: fetch conversation from server and compare message state.
       // This catches cases where the done signal was missed AND syncs any missed
       // content. Only runs when tasks have genuinely completed (were observed and
@@ -3583,7 +3891,21 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
           return;
         }
         if (reconciled) {
+          // The polled answer may carry the server's id by now, which the
+          // stream's binding holds until it is cancelled.
+          final polledRemoteId = _boundRemoteMessageId;
           _cancelMessageStream();
+          // The account runs no task in the chat any more: answers a server
+          // restart cut off are finished, as on open. Only those the lookup
+          // was made for and the polled answer itself; the rest of the final
+          // copy, which may first show the answer's comparison unfinished or
+          // one another session started since, is checked by a fresh lookup.
+          _finishAnswersWithoutTask(<String>{
+            ...answersBeforeLookup,
+            expectedMessageId,
+            ?polledRemoteId,
+          });
+          _recheckEarlierAnswers();
         } else {
           completionNeedsRetry = true;
         }
@@ -3934,18 +4256,32 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     _syncConversationStateAfterStreamingUpdate();
   }
 
-  /// Settles every answer still streaming in the turn that ends the list:
-  /// the explicit stop of a whole multi-model turn. Completes once their
-  /// settled state is stored (see [settleStoppedSlotMessages]).
+  /// Settles this account's answers still streaming in the turn that ends
+  /// the list: the explicit stop of a whole multi-model turn. Completes once
+  /// their settled state is stored (see [settleStoppedSlotMessages]).
+  ///
+  /// In a chat shared with Allow replies the turn can hold another person's
+  /// answer, even as the one shown. Only they can stop it, so it runs on and
+  /// is neither settled nor stored here. This account's answers among the
+  /// turn's versions stop with the chat's tasks and are finished here.
   Future<bool> settleTrailingStreamingAnswers() {
     releaseAllSlotTransports();
+    final userId = ref.read(currentUserProvider2)?.id;
     final ids = <String>[];
+    final versions = <String>[];
     for (var index = state.length - 1; index >= 0; index -= 1) {
       final message = state[index];
       if (message.role != 'assistant') break;
-      if (message.isStreaming) ids.add(message.id);
+      if (message.isStreaming && message.isWrittenBy(userId)) {
+        ids.add(message.id);
+      }
+      versions.addAll(_answersThisAccountRuns(inMessage: message.id));
     }
-    return settleStoppedSlotMessages(ids);
+    final settled = settleStoppedSlotMessages(ids);
+    // Only once the answers shown are settled: those are stored only while
+    // they still show running.
+    if (versions.isNotEmpty) _finishAnswersWithoutTask(versions);
+    return settled;
   }
 
   /// Ends the answers [messageIds] whose tasks the server was told to stop, and

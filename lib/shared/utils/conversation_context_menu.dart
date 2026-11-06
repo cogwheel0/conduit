@@ -456,10 +456,10 @@ Future<void> _moveConversation(
         .read(conversationsProvider.notifier)
         .updateConversation(
           conversationId,
-          (conversation) => conversation.copyWith(
-            folderId: target.folderId,
-            updatedAt: DateTime.now(),
-          ),
+          // The move keeps the chat's last activity: Open WebUI 0.12.5 leaves
+          // its date alone, and the refresh below brings the date of an older
+          // server, which still moves it.
+          (conversation) => conversation.copyWith(folderId: target.folderId),
           trustFolderConversation:
               target.folderId != null && target.folderId!.isNotEmpty,
         );
@@ -470,10 +470,7 @@ Future<void> _moveConversation(
       ref
           .read(activeConversationProvider.notifier)
           .set(
-            activeConversation.copyWith(
-              folderId: target.folderId,
-              updatedAt: DateTime.now(),
-            ),
+            activeConversation.copyWith(folderId: target.folderId),
           );
     }
     refreshConversationsCache(ref, includeFolders: true);

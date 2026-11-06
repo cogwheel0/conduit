@@ -306,30 +306,70 @@ class AvailableToolsNotifier extends Notifier<List<String>> {
   void set(List<String> tools) => state = List<String>.from(tools);
 }
 
+/// Web search for the chat on screen. Open WebUI 0.12.5 keeps a feature
+/// the user turned on or off in a chat through a switch of model, and applies
+/// the new model's default otherwise; a new chat starts from the defaults.
 class WebSearchEnabledNotifier extends Notifier<bool> {
+  /// The user's choice in this chat, or null while it follows the default.
+  /// The notifier outlives a model switch, which rebuilds it.
+  bool? _picked;
+  Object? _session;
+
   @override
-  bool build() => ref.watch(_chatFeatureDefaultsProvider).webSearchEnabled;
+  bool build() {
+    // Another chat or account starts from the default again.
+    final session = ref.watch(chatPicksSessionProvider);
+    if (!identical(session, _session)) {
+      _session = session;
+      _picked = null;
+    }
+    // Watched even while the user's choice holds, so a later reset follows
+    // the model again.
+    final fallback = ref.watch(_chatFeatureDefaultsProvider).webSearchEnabled;
+    return _picked ?? fallback;
+  }
 
   void set(bool value) {
+    _picked = value;
     state = value;
-    unawaited(
-      ref.read(appSettingsProvider.notifier).setChatWebSearchEnabled(value),
-    );
   }
 }
 
+/// Image generation for the chat on screen, kept as [WebSearchEnabledNotifier]
+/// keeps web search.
 class ImageGenerationEnabledNotifier extends Notifier<bool> {
+  bool? _picked;
+  Object? _session;
+
   @override
-  bool build() =>
-      ref.watch(_chatFeatureDefaultsProvider).imageGenerationEnabled;
+  bool build() {
+    final session = ref.watch(chatPicksSessionProvider);
+    if (!identical(session, _session)) {
+      _session = session;
+      _picked = null;
+    }
+    final fallback = ref
+        .watch(_chatFeatureDefaultsProvider)
+        .imageGenerationEnabled;
+    return _picked ?? fallback;
+  }
 
   void set(bool value) {
+    _picked = value;
     state = value;
-    unawaited(
-      ref
-          .read(appSettingsProvider.notifier)
-          .setChatImageGenerationEnabled(value),
-    );
+  }
+
+  /// The user's own choice in this chat, or null while it follows the
+  /// model's default: what a one-shot use puts back if its request does not
+  /// start.
+  bool? get pick => _picked;
+
+  /// Puts back [pick] as read from [ImageGenerationEnabledNotifier.pick]: the
+  /// user's choice, or the model's default when they had made none.
+  void restorePick(bool? pick) {
+    _picked = pick;
+    state =
+        pick ?? ref.read(_chatFeatureDefaultsProvider).imageGenerationEnabled;
   }
 }
 

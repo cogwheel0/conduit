@@ -18,6 +18,7 @@ import 'package:conduit_core/database/database_provider.dart';
 import 'package:conduit_core/database/mappers/chat_blob_mapper.dart';
 import 'package:conduit_core/database/mappers/conversation_assembler.dart';
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
+import 'package:conduit_core/features/chat/providers/chat_model_choice.dart';
 import 'package:conduit_core/features/chat/providers/chat_providers.dart';
 import 'package:conduit_core/features/chat/services/chat_branch_service.dart';
 import 'package:conduit_core/models/conversation.dart';
@@ -334,6 +335,30 @@ void main() {
       check((await db.messagesDao.getForChat('c1'))).length.equals(7);
       check(engine.drained).length.equals(1);
       check(await db.outboxDao.hasPendingBranchEdit('c1')).isTrue();
+    });
+
+    test('a model pick still applies after another answer of its prompt is '
+        'shown', () async {
+      await seed();
+      final c = container(active: await _loaded(db, 'c1'));
+      c
+          .read(chatModelPickProvider.notifier)
+          .record(chatId: 'c1', modelId: 'model-x', promptIds: const {'u1'});
+      final answer = c.read(chatMessagesProvider)[1];
+
+      await selectChatBranch(
+        c,
+        conversation: c.read(activeConversationProvider)!,
+        messageId: answer.versions.single.id,
+        alternativeTo: answer.id,
+      );
+      await _settle();
+
+      // The prompt is on this branch too: regenerating an answer to it uses
+      // the model the user picked.
+      check(c.read(chatModelPickProvider)).isNotNull()
+        ..has((pick) => pick.modelId, 'modelId').equals('model-x')
+        ..has((pick) => pick.promptIds, 'promptIds').deepEquals({'u1'});
     });
 
     test('an edited first message continues down its own branch', () async {

@@ -158,6 +158,58 @@ final isChatStreamingProvider = Provider<bool>((ref) {
   return ref.watch(chatMessagesProvider.select(_messagesAreStreaming));
 });
 
+/// Whether the newest reply streaming at the end of [messages], the one Stop
+/// stops, is someone other than [userId]'s, in a chat [ownerId] owns.
+bool _onlyOthersAreStreaming(
+  List<ChatMessage> messages,
+  String? userId,
+  String? ownerId,
+) {
+  for (var index = messages.length - 1; index >= 0; index -= 1) {
+    final message = messages[index];
+    if (message.role != 'assistant') break;
+    if (!message.isStreaming) continue;
+    return !message.isWrittenBy(userId) &&
+        !_runsAnswerOf(message, userId, ownerId);
+  }
+  return false;
+}
+
+/// Whether another of [message]'s comparison answers still running is
+/// [userId]'s: in a shared comparison the answer shown can be someone else's
+/// while this account's runs among its versions. An answer the server names
+/// no author for is the chat owner's, [ownerId].
+bool _runsAnswerOf(ChatMessage message, String? userId, String? ownerId) {
+  final unfinished = message.metadata?[kMessageUnfinishedAnswersMetadataKey];
+  if (unfinished is! List || userId == null) return false;
+  final authors =
+      message.metadata?[kMessageUnfinishedAnswerAuthorsMetadataKey];
+  for (final id in unfinished.whereType<String>()) {
+    if (id == message.id) continue;
+    final named = authors is Map ? authors[id] : null;
+    final author = named is String ? named : ownerId;
+    if (author == null || author == userId) return true;
+  }
+  return false;
+}
+
+/// Whether a reply this account asked for is streaming, the one the composer
+/// offers to stop. In a chat shared with Allow replies another person's reply
+/// can be running; it streams here too, but only they can stop it, so
+/// Open WebUI's web client shows no Stop for it, and neither does Conduit.
+final isOwnChatStreamingProvider = Provider<bool>((ref) {
+  if (!ref.watch(isChatStreamingProvider)) return false;
+  final userId = ref.watch(currentUserProvider2.select((user) => user?.id));
+  final ownerId = ref.watch(
+    activeConversationProvider.select((conversation) => conversation?.userId),
+  );
+  return !ref.watch(
+    chatMessagesProvider.select(
+      (messages) => _onlyOthersAreStreaming(messages, userId, ownerId),
+    ),
+  );
+});
+
 /// Platform hook used by [chatWakelockCoordinatorProvider]; tests swap it to
 /// observe toggles without a platform channel.
 typedef ChatWakelockToggle = Future<void> Function({required bool enable});

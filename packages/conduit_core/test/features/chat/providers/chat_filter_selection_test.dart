@@ -141,6 +141,52 @@ void main() {
     expect(container.read(selectedFilterIdsProvider), ['other-filter']);
   });
 
+  test('a switch of model keeps the filters the user turned on and off', () {
+    const third = ToggleFilter(id: 'third-filter', name: 'Third Filter');
+    final container = _containerWith(
+      _modelWithDefaults('model-1', ['test-toggle-filter']),
+    );
+    final filters = container.read(selectedFilterIdsProvider.notifier);
+    filters.toggle('test-toggle-filter'); // off
+    filters.toggle('other-filter'); // on
+
+    (container.read(selectedModelProvider.notifier) as _SwitchableModel)
+        .choose(
+          Model(
+            id: 'model-2',
+            name: 'model-2',
+            filters: const [_toggleFilter, _otherFilter, third],
+            metadata: const {
+              'info': {
+                'meta': {
+                  'defaultFilterIds': ['test-toggle-filter', 'third-filter'],
+                },
+              },
+            },
+          ),
+        );
+
+    // The turned-off filter stays off although model-2 defaults to it; the
+    // turned-on one stays on; model-2's other default applies.
+    expect(container.read(selectedFilterIdsProvider), [
+      'third-filter',
+      'other-filter',
+    ]);
+
+    // A filter turned on that the next model does not offer is not sent.
+    (container.read(selectedModelProvider.notifier) as _SwitchableModel)
+        .choose(
+          const Model(id: 'model-3', name: 'model-3', filters: [_toggleFilter]),
+        );
+    expect(container.read(selectedFilterIdsProvider), isEmpty);
+
+    // A new conversation starts from the defaults again.
+    clearSelectedFiltersForConversationBoundary(container);
+    (container.read(selectedModelProvider.notifier) as _SwitchableModel)
+        .choose(_modelWithDefaults('model-1', ['test-toggle-filter']));
+    expect(container.read(selectedFilterIdsProvider), ['test-toggle-filter']);
+  });
+
   test('the same model loading again keeps the filters chosen', () {
     final container = _containerWith(
       _modelWithDefaults('model-1', ['test-toggle-filter']),
