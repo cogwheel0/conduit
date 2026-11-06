@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:math' as math;
 
+import 'package:collection/collection.dart' show DeepCollectionEquality;
 import 'package:conduit_core/database/app_database.dart';
 import 'package:conduit_core/database/daos/chats_dao.dart';
 import 'package:conduit_core/database/mappers/chat_blob_mapper.dart';
@@ -703,12 +704,22 @@ class PullSync {
     // change, so its age shows nowhere else.
     final modelsFetchedAt = _modelListVersionsAtFetch[resp];
     final chatBody = resp['chat'];
-    if (chatBody is Map &&
-        ((modelsFetchedAt != null &&
-                modelsFetchedAt != _db.chatsDao.modelListVersion(id)) ||
-            _db.chatsDao.hasUnconfirmedModelList(id))) {
+    final readBeforeWrite =
+        modelsFetchedAt != null &&
+        modelsFetchedAt != _db.chatsDao.modelListVersion(id);
+    final unconfirmed = _db.chatsDao.hasUnconfirmedModelList(id);
+    if (chatBody is Map && (readBeforeWrite || unconfirmed)) {
       final picked = await _db.chatsDao.storedChatModels(id);
-      if (picked != null) chatBody['models'] = picked;
+      if (picked != null) {
+        if (!readBeforeWrite &&
+            const DeepCollectionEquality().equals(chatBody['models'], picked)) {
+          // A copy read after the list was written carries it: the server
+          // has it.
+          _db.chatsDao.confirmModelList(id);
+        } else {
+          chatBody['models'] = picked;
+        }
+      }
     }
     final createdAt = _asEpochSeconds(resp['created_at']) ?? 0;
     final updatedAt = _asEpochSeconds(resp['updated_at']) ?? 0;

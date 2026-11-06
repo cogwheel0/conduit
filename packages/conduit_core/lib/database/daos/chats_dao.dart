@@ -213,9 +213,21 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
   Future<List<Object?>?> storedChatModels(String chatId) async {
     final row = await getChat(chatId);
     if (row == null) return null;
-    final models = _decodeRawExtraEnvelope(row.rawExtra)['models'];
+    final Map<String, dynamic> envelope;
+    try {
+      envelope = _decodeRawExtraEnvelope(row.rawExtra);
+    } on Object {
+      // An envelope that cannot be read holds no list to keep.
+      return null;
+    }
+    final models = envelope['models'];
     return models is List ? List<Object?>.of(models) : null;
   }
+
+  /// The server holds chat [chatId]'s stored list now, as a copy fetched
+  /// after it was written shows: it need not be held over the server's.
+  void confirmModelList(String chatId) =>
+      _unconfirmedModelLists.remove(chatId);
 
   int _readStateClock = 0;
   final _readStateTouchedAt = <String, int>{};
@@ -1714,18 +1726,14 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
     String chatId,
     List<String> models, {
     bool confirmed = false,
-  }) {
+  }) async {
     // Before anything is awaited: a fetch that starts from here on reads the
     // server after the pick, and one that started before does not.
     _noteModelListWrite(chatId);
-    if (confirmed) {
-      _unconfirmedModelLists.remove(chatId);
-    } else {
-      _unconfirmedModelLists.add(chatId);
-    }
-    return transaction(() async {
+    if (confirmed) _unconfirmedModelLists.remove(chatId);
+    final stored = await transaction(() async {
       final row = await getChat(chatId);
-      if (row == null || row.deleted || !row.bodySynced) return;
+      if (row == null || row.deleted || !row.bodySynced) return false;
       await (update(chats)..where((t) => t.id.equals(chatId))).write(
         ChatsCompanion(
           rawExtra: Value(
@@ -1736,7 +1744,11 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
           ),
         ),
       );
+      return true;
     });
+    // Held over the server's only once stored: a list never written has
+    // nothing to hold.
+    if (stored && !confirmed) _unconfirmedModelLists.add(chatId);
   }
 
   /// Send-on-existing-chat (W3.c): upserts the user message + assistant
@@ -1761,6 +1773,7 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
     // path must stay ≤10ms even with the chat_fts INSERT trigger live. Numeric-
     // only data (no message content) so nothing untrusted is logged.
     final sw = Stopwatch()..start();
+    var wroteModels = false;
     await transaction(() async {
       final maxExpr = this.messages.orderIndex.max();
       final maxQuery = selectOnly(this.messages)
@@ -1804,6 +1817,7 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
         _noteModelListWrite(chatId);
         final row = await getChat(chatId);
         if (row != null && !row.deleted && row.bodySynced) {
+          wroteModels = true;
           rawExtra = Value(
             jsonEncode(<String, dynamic>{
               ..._decodeRawExtraEnvelope(row.rawExtra),
@@ -1838,6 +1852,9 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
         );
       }
     });
+    // A turn's list is held over the server's, as a pick's is, until a copy
+    // the server sends carries it: its update op may not have landed yet.
+    if (wroteModels) _unconfirmedModelLists.add(chatId);
     sw.stop();
     DebugLogger.log(
       'append-ms',

@@ -729,6 +729,34 @@ void main() {
       await pulling;
 
       check(await stored()).isNotNull().deepEquals(['model-a', 'model-b']);
+
+      // A copy read after the turn, from before its update op landed, still
+      // holds the old list: the turn's stays.
+      await pull.pullChat('chat-1');
+      check(await stored()).isNotNull().deepEquals(['model-a', 'model-b']);
+      check(db.chatsDao.hasUnconfirmedModelList('chat-1')).isTrue();
+
+      // Once a copy carries it, the server has it, and it is no longer held.
+      seed(['model-a', 'model-b']);
+      await pull.pullChat('chat-1');
+      check(db.chatsDao.hasUnconfirmedModelList('chat-1')).isFalse();
+      seed(['model-c']);
+      await pull.pullChat('chat-1');
+      check(await stored()).isNotNull().deepEquals(['model-c']);
+    });
+
+    test('a pick never stored holds nothing over the server', () async {
+      await db.chatsDao.setChatModels('no-such-chat', const ['model-2']);
+      check(db.chatsDao.hasUnconfirmedModelList('no-such-chat')).isFalse();
+    });
+
+    test('an envelope that cannot be read keeps no list', () async {
+      seed(['model-1']);
+      await pull.pullChat('chat-1');
+      await (db.update(db.chats)..where((t) => t.id.equals('chat-1'))).write(
+        const ChatsCompanion(rawExtra: Value('not json')),
+      );
+      check(await stored()).isNull();
     });
   });
 
