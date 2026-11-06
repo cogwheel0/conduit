@@ -313,7 +313,7 @@ class ChatModelSaveQueue extends Notifier<void> {
           // A pull while the pick held may have kept it over a list chosen
           // elsewhere, and pulls skip a chat the server has not changed
           // since: the server's copy is read again now.
-          _refetchChat(chatId);
+          _refetchChat(chatId, account);
         }
         continue;
       }
@@ -409,22 +409,34 @@ class ChatModelSaveQueue extends Notifier<void> {
   }
 
 
-  /// Reads chat [chatId] from the server once; a read that fails leaves the
-  /// chat to the next change the server lists.
-  void _refetchChat(String chatId) {
+  /// Reads chat [chatId] from the server, for [account]. A read that fails
+  /// is tried again after the waits a save is, until one succeeds, a newer
+  /// list for the chat comes in, or another account signs in; after the last
+  /// wait the chat is left to the next change the server lists.
+  void _refetchChat(String chatId, Object? account, {int tries = 0}) {
+    void retryLater(Object error) {
+      _logFailure(chatId, error);
+      if (tries >= modelSaveRetryWaits.length) return;
+      unawaited(
+        Future<void>.delayed(modelSaveRetryWaits[tries], () {
+          if (!ref.mounted ||
+              _account() != account ||
+              _pending.containsKey(chatId)) {
+            return;
+          }
+          _refetchChat(chatId, account, tries: tries + 1);
+        }),
+      );
+    }
+
     final Future<Object?> read;
     try {
       read = ref.read(syncEngineProvider.notifier).pullChatNow(chatId);
     } catch (error) {
-      _logFailure(chatId, error);
+      retryLater(error);
       return;
     }
-    unawaited(
-      read.then<void>(
-        (_) {},
-        onError: (Object error) => _logFailure(chatId, error),
-      ),
-    );
+    unawaited(read.then<void>((_) {}, onError: retryLater));
   }
 
   void _logFailure(String chatId, Object error) {
