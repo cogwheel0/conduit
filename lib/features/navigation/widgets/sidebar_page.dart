@@ -687,6 +687,10 @@ void _selectSlidingSidebarTab(BuildContext context, WidgetRef ref, int index) {
 /// Width of each backend in the sliding sidebar's bottom tab bar.
 const double _kSlidingSidebarBackendWidth = 72;
 
+/// Least gap below the sliding sidebar's bottom bar: the chat composer's, so
+/// the bar lines up with the composer beside it.
+const double _kSlidingSidebarBarMinimumBottomInset = Spacing.sm;
+
 /// Opt-in navigation with main-pane destinations and separate backend
 /// histories, under a floating header and bottom bar.
 class _SlidingSidebarPage extends ConsumerWidget {
@@ -725,6 +729,7 @@ class _SlidingSidebarPage extends ConsumerWidget {
       bottom: AdaptiveFloatingTabBar.extentOf(
         context,
         controlExtent: controlExtent,
+        minimumBottomInset: _kSlidingSidebarBarMinimumBottomInset,
       ),
     );
 
@@ -1008,6 +1013,7 @@ class _SlidingSidebarBottomBar extends ConsumerWidget {
       // As the header's search button, so the two bars match.
       controlExtent: conduitScaledControlExtent(context),
       edgeInset: Spacing.inputPadding,
+      minimumBottomInset: _kSlidingSidebarBarMinimumBottomInset,
       actionSymbolSize: kConduitNativeSingleActionSymbolExtent,
     );
   }

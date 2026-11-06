@@ -20,6 +20,7 @@ Widget _bar(
   AssetBundle? bundle,
   double controlExtent = kAdaptiveFloatingBarDefaultExtent,
   double edgeInset = 16,
+  double minimumBottomInset = 16,
   double actionSymbolSize = 18,
 }) => MaterialApp(
   home: Scaffold(
@@ -39,6 +40,7 @@ Widget _bar(
         itemWidth: 72,
         controlExtent: controlExtent,
         edgeInset: edgeInset,
+        minimumBottomInset: minimumBottomInset,
         actionSymbolSize: actionSymbolSize,
       ),
     ),
@@ -208,6 +210,73 @@ void main() {
       // The test window has no bottom safe area.
       16 + 50,
     );
+  });
+
+  testWidgets('the Material bar sits on the safe area or the least gap', (
+    tester,
+  ) async {
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(
+      _bar(const [_openWebUi, _hermes], minimumBottomInset: 8),
+    );
+    final window = tester.getSize(find.byType(Scaffold)).height;
+    final bar = find.byType(NavigationBar);
+    expect(tester.getBottomLeft(bar).dy, window - 8);
+    expect(
+      tester.getBottomLeft(find.byType(FloatingActionButton)).dy,
+      window - 8,
+    );
+    expect(
+      AdaptiveFloatingTabBar.extentOf(
+        tester.element(bar),
+        minimumBottomInset: 8,
+      ),
+      8 + 44,
+    );
+
+    tester.view.viewPadding = FakeViewPadding(
+      bottom: 34 * tester.view.devicePixelRatio,
+    );
+    await tester.pump();
+    expect(tester.getBottomLeft(bar).dy, window - 34);
+    expect(
+      AdaptiveFloatingTabBar.extentOf(
+        tester.element(bar),
+        minimumBottomInset: 8,
+      ),
+      34 + 44,
+    );
+  });
+
+  testWidgets('the native bar is told the gap to leave below it', (
+    tester,
+  ) async {
+    addTearDown(tester.view.reset);
+    final configurations = _recordNativeBar(tester);
+    AdaptiveFloatingTabBar.debugIconRenderer = (_, asset, _, _) async =>
+        Uint8List.fromList(asset.codeUnits);
+    await tester.pumpWidget(
+      _bar(const [_openWebUi, _hermes], minimumBottomInset: 8),
+    );
+    await tester.pumpAndSettle();
+    expect(configurations.last['bottomInset'], 8);
+    final view = tester.getSize(find.byType(UiKitView)).height;
+
+    tester.view.viewPadding = FakeViewPadding(
+      bottom: 34 * tester.view.devicePixelRatio,
+    );
+    await tester.pumpAndSettle();
+    expect(configurations.last['bottomInset'], 34);
+    // The view grows with the gap, keeping its room above the bar.
+    expect(tester.getSize(find.byType(UiKitView)).height - view, 34 - 8);
+    expect(
+      AdaptiveFloatingTabBar.extentOf(
+        tester.element(find.byType(UiKitView)),
+        minimumBottomInset: 8,
+      ),
+      34 + 44,
+    );
+    await tester.pumpWidget(const SizedBox.shrink());
   });
 
   testWidgets('the native bar is told the size of the window\'s buttons', (

@@ -6,6 +6,7 @@ import 'package:conduit/features/navigation/widgets/drawer_shell_page.dart';
 import 'package:conduit/features/navigation/widgets/responsive_drawer_layout.dart';
 import 'package:conduit/features/navigation/providers/sidebar_providers.dart';
 import 'package:conduit/features/navigation/widgets/sidebar_user_pill.dart';
+import 'package:conduit/shared/theme/theme_extensions.dart';
 import 'package:conduit/shared/widgets/chrome_gradient_fade.dart';
 import 'package:conduit/shared/widgets/sidebar_layout_contract.dart';
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
@@ -451,6 +452,8 @@ void main() {
                 .dx -
             tester.getTopRight(searchButton).dx,
       );
+      // The chat composer's gap, so the bar lines up with it.
+      expect(params['bottomInset'], Spacing.sm);
 
       view.onPlatformViewCreated!(4242);
       await tester.binding.defaultBinaryMessenger.handlePlatformMessage(
@@ -550,6 +553,14 @@ void main() {
         tester.getSize(search).height,
       );
       expect(tester.getTopRight(create).dx, tester.getTopRight(search).dx);
+      // The chat composer's gap, so the bar lines up with it.
+      final surface = find.byKey(
+        const ValueKey<String>('sidebar-page-surface'),
+      );
+      expect(
+        tester.getBottomRight(create).dy,
+        tester.getBottomRight(surface).dy - Spacing.sm,
+      );
       expect(
         tester.getCenter(sidebarTestBackendTab('Hermes')).dx,
         lessThan(tester.getCenter(create).dx),

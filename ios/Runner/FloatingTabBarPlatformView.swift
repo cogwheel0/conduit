@@ -78,16 +78,39 @@ private final class FloatingTabBarPlatformView: NSObject, FlutterPlatformView {
   func view() -> UIView { bar }
 }
 
-/// A `UITabBar` that reports where UIKit put its tab buttons.
+/// A `UITabBar` that reports where UIKit laid out its tab buttons.
 private final class RowReportingTabBar: UITabBar {
   var onRowLayout: ((CGRect) -> Void)?
 
   override func layoutSubviews() {
     super.layoutSubviews()
     let row = tabButtons(in: self).reduce(CGRect.null) {
-      $0.union(convert($1.bounds, from: $1))
+      $0.union(layoutFrame(of: $1))
     }
     if !row.isNull { onRowLayout?(row) }
+  }
+
+  /// Where layout put [view] in the bar, leaving out transforms: UIKit
+  /// swells the buttons while a tab is pressed, and the bar is not resized
+  /// for that.
+  private func layoutFrame(of view: UIView) -> CGRect {
+    func origin(of view: UIView) -> CGPoint {
+      CGPoint(
+        x: view.center.x - view.bounds.width * view.layer.anchorPoint.x,
+        y: view.center.y - view.bounds.height * view.layer.anchorPoint.y
+      )
+    }
+    var frame = CGRect(origin: origin(of: view), size: view.bounds.size)
+    var parent = view.superview
+    while let ancestor = parent, ancestor !== self {
+      let ancestorOrigin = origin(of: ancestor)
+      frame = frame.offsetBy(
+        dx: ancestorOrigin.x - ancestor.bounds.minX,
+        dy: ancestorOrigin.y - ancestor.bounds.minY
+      )
+      parent = ancestor.superview
+    }
+    return frame.offsetBy(dx: -bounds.minX, dy: -bounds.minY)
   }
 
   override func safeAreaInsetsDidChange() {
@@ -106,14 +129,14 @@ private final class RowReportingTabBar: UITabBar {
 /// Icon-only tabs on the system tab bar, aligned to the leading edge, with a
 /// round glass action at the trailing edge.
 ///
-/// The view spans the bottom of the window, so UIKit floats the bar above
-/// the home indicator as it does for an app's own tab bar. The bar always
-/// takes the phone layout, which an iPad sidebar would otherwise compress.
-/// UIKit's platter keeps one height, while the window's other glass buttons
-/// follow the text size, so the bar is scaled to their size, keeping its
-/// selection lens, and the action takes the same size. The action follows the tab buttons UIKit laid
-/// out, so the two line up on every device.
-private final class FloatingTabBarView: UIView, UITabBarDelegate {
+/// The view spans the bottom of the window, so UIKit lays out the bar as it
+/// does an app's own tab bar. The bar always takes the phone layout, which an
+/// iPad sidebar would otherwise compress. UIKit's platter keeps one height,
+/// while the window's other glass buttons follow the text size, so the bar is
+/// scaled to their size, keeping its selection lens, and the action takes the
+/// same size. The action follows the tab buttons UIKit laid out, so the two
+/// line up on every device.
+final class FloatingTabBarView: UIView, UITabBarDelegate {
   var onSelect: ((Int) -> Void)?
   var onAction: (() -> Void)?
 
@@ -133,6 +156,10 @@ private final class FloatingTabBarView: UIView, UITabBarDelegate {
 
   /// Inset of the platter and the action from the sides of the view.
   private var edgeInset: CGFloat = 16
+
+  /// Gap between the bottom of the platter and the bottom of the view. Nil
+  /// keeps the platter where UIKit floats it.
+  private var bottomInset: CGFloat?
 
   /// Point size of the action's symbol, as the window's other glass buttons
   /// draw theirs.
@@ -187,6 +214,7 @@ private final class FloatingTabBarView: UIView, UITabBarDelegate {
     if let width = arguments["itemWidth"] as? Double { itemWidth = CGFloat(width) }
     if let extent = arguments["controlExtent"] as? Double { controlExtent = CGFloat(extent) }
     if let inset = arguments["edgeInset"] as? Double { edgeInset = CGFloat(inset) }
+    if let inset = arguments["bottomInset"] as? Double { bottomInset = CGFloat(inset) }
     if let size = arguments["actionSymbolSize"] as? Double,
        CGFloat(size) != actionSymbolSize
     {
@@ -268,10 +296,9 @@ private final class FloatingTabBarView: UIView, UITabBarDelegate {
   }
 
   /// Scales the bar so the platter around its tab [row] is [controlExtent]
-  /// tall, about the platter's bottom-leading corner: the platter keeps the
-  /// height UIKit floats it at, and its leading edge moves to [edgeInset].
-  /// The action takes the platter's height, centred on it, [edgeInset] from
-  /// the trailing edge.
+  /// tall, and moves the platter's bottom-leading corner to [edgeInset] from
+  /// the leading edge and [bottomInset] from the bottom. The action takes the
+  /// platter's height, centred on it, [edgeInset] from the trailing edge.
   ///
   /// [row] is in the tab bar's own coordinates, which its scale leaves alone.
   private func layoutBar(alongside row: CGRect) {
@@ -285,14 +312,15 @@ private final class FloatingTabBarView: UIView, UITabBarDelegate {
       x: platter.minX - tabBar.bounds.midX,
       y: platter.maxY - tabBar.bounds.midY
     )
+    let platterBottom = bottomInset.map { bounds.maxY - $0 } ?? center.y + corner.y
     let transform = CGAffineTransform(
       translationX: edgeInset - center.x - scale * corner.x,
-      y: (1 - scale) * corner.y
+      y: platterBottom - center.y - scale * corner.y
     ).scaledBy(x: scale, y: scale)
     if tabBar.transform != transform { tabBar.transform = transform }
 
     let size = platter.height * scale
-    let platterMidY = center.y + corner.y - size / 2
+    let platterMidY = platterBottom - size / 2
     actionButton.frame = CGRect(
       x: bounds.maxX - edgeInset - size,
       y: platterMidY - size / 2,

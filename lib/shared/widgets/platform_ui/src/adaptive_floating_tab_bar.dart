@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:cupertino_ui/cupertino_ui.dart';
@@ -14,26 +15,13 @@ import 'platform_ui_capabilities.dart';
 /// Native view type registered by the iOS app delegate.
 const String _kNativeViewType = 'conduit/floating_tab_bar';
 
-/// Height of a phone tab bar above the bottom safe area.
-const double _kNativeTabBarHeight = 49;
-
-/// Room above the native bar for its selection lens and round action.
+/// Room above the native bar for its selection lens, and for the tabs to
+/// swell while pressed.
 const double _kNativeTabBarHeadroom = 24;
-
-/// How far the native round action rises above the bar's platter.
-const double _kNativeTabBarActionOverhang = 4;
-
-/// Height of UIKit's floating platter before the bar is scaled to
-/// [AdaptiveFloatingTabBar.controlExtent]. The platter keeps its bottom edge
-/// as it is scaled, so its top moves by the difference.
-const double _kNativePlatterHeight = 60;
 
 /// Default height of an [AdaptiveFloatingTabBar]: the minimum touch target,
 /// which toolbar buttons use too.
 const double kAdaptiveFloatingBarDefaultExtent = 44;
-
-/// Gap below the Material bar on a window with no bottom safe area.
-const double _kMaterialBottomMargin = 16;
 
 /// One icon-only destination in an [AdaptiveFloatingTabBar].
 class AdaptiveFloatingTab {
@@ -102,6 +90,7 @@ class AdaptiveFloatingTabBar extends StatefulWidget {
     this.actionKey,
     this.controlExtent = kAdaptiveFloatingBarDefaultExtent,
     this.edgeInset = 16,
+    this.minimumBottomInset = 16,
     this.actionSymbolSize = 18,
   }) : assert(tabs.length <= 5);
 
@@ -138,34 +127,25 @@ class AdaptiveFloatingTabBar extends StatefulWidget {
   /// window's toolbar insets its buttons.
   final double edgeInset;
 
+  /// Least gap below the bar, on a window whose bottom safe area is smaller.
+  /// The bar otherwise sits on the safe area.
+  final double minimumBottomInset;
+
   /// Point size of the action's SF Symbol on iOS, as the window's other glass
   /// buttons draw theirs.
   final double actionSymbolSize;
 
   /// Room the bar takes from the bottom of the window, for a bar
-  /// [controlExtent] tall.
+  /// [controlExtent] tall with at least [minimumBottomInset] below it.
   static double extentOf(
     BuildContext context, {
     double controlExtent = kAdaptiveFloatingBarDefaultExtent,
-  }) {
-    final safeBottom = MediaQuery.viewPaddingOf(context).bottom;
-    if (PlatformUiCapabilities.usesNativeIOS26) {
-      return safeBottom +
-          _kNativeTabBarHeight +
-          _kNativeTabBarActionOverhang -
-          _nativeShrink(controlExtent);
-    }
-    return _materialBottomInset(safeBottom) + controlExtent;
-  }
+    double minimumBottomInset = 16,
+  }) => _bottomInset(context, minimumBottomInset) + controlExtent;
 
-  /// How far scaling the native platter to [controlExtent] lowers its top:
-  /// negative when it grows, as the window's buttons do at the largest text
-  /// sizes.
-  static double _nativeShrink(double controlExtent) =>
-      _kNativePlatterHeight - controlExtent;
-
-  static double _materialBottomInset(double safeBottom) =>
-      safeBottom > 0 ? safeBottom : _kMaterialBottomMargin;
+  /// Gap between the bar and the bottom of the window.
+  static double _bottomInset(BuildContext context, double minimum) =>
+      math.max(MediaQuery.viewPaddingOf(context).bottom, minimum);
 
   /// Renders the native bar's tab icons. Widget tests, which run inside fake
   /// async, swap in a synchronous renderer.
@@ -339,6 +319,10 @@ class _AdaptiveFloatingTabBarState extends State<AdaptiveFloatingTabBar> {
       'unselectedTint': widget.unselectedItemColor?.toARGB32(),
       'controlExtent': widget.controlExtent,
       'edgeInset': widget.edgeInset,
+      'bottomInset': AdaptiveFloatingTabBar._bottomInset(
+        context,
+        widget.minimumBottomInset,
+      ),
       'actionSymbol': widget.action.sfSymbol,
       'actionSymbolSize': widget.actionSymbolSize,
       'actionLabel': widget.action.label,
@@ -406,10 +390,12 @@ class _AdaptiveFloatingTabBarState extends State<AdaptiveFloatingTabBar> {
 
   Widget _buildNative(BuildContext context) {
     final height =
-        MediaQuery.viewPaddingOf(context).bottom +
-        _kNativeTabBarHeight +
-        _kNativeTabBarHeadroom -
-        AdaptiveFloatingTabBar._nativeShrink(widget.controlExtent);
+        AdaptiveFloatingTabBar.extentOf(
+          context,
+          controlExtent: widget.controlExtent,
+          minimumBottomInset: widget.minimumBottomInset,
+        ) +
+        _kNativeTabBarHeadroom;
     final isDark = CupertinoTheme.brightnessOf(context) == Brightness.dark;
     // While new tabs' icons render, the view keeps showing the tabs it has.
     if (_icons case final icons?) _sendUpdate(_nativeParams(icons, isDark));
@@ -430,13 +416,12 @@ class _AdaptiveFloatingTabBarState extends State<AdaptiveFloatingTabBar> {
   }
 
   Widget _buildFlutter(BuildContext context) {
-    final safeBottom = MediaQuery.viewPaddingOf(context).bottom;
     return Padding(
       padding: EdgeInsets.fromLTRB(
         widget.edgeInset,
         0,
         widget.edgeInset,
-        AdaptiveFloatingTabBar._materialBottomInset(safeBottom),
+        AdaptiveFloatingTabBar._bottomInset(context, widget.minimumBottomInset),
       ),
       child: SizedBox(
         height: widget.controlExtent,

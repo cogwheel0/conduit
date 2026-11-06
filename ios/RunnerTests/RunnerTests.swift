@@ -4250,6 +4250,74 @@ class RunnerTests: XCTestCase {
     )
   }
 
+  /// The floating tab bar sits at the gap it is given, and holds still while
+  /// UIKit swells the tabs under a finger.
+  @MainActor
+  func testFloatingTabBarHoldsStillWhileATabIsPressed() throws {
+    let scene = try XCTUnwrap(
+      UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+    let previousKeyWindow = scene.windows.first(where: \.isKeyWindow)
+    let window = UIWindow(windowScene: scene)
+    window.frame = scene.coordinateSpace.bounds
+    let controller = UIViewController()
+    window.rootViewController = controller
+    window.makeKeyAndVisible()
+    defer {
+      window.isHidden = true
+      previousKeyWindow?.makeKey()
+    }
+
+    let icon = FlutterStandardTypedData(
+      bytes: try XCTUnwrap(UIImage(systemName: "circle")?.pngData()))
+    let bar = FloatingTabBarView(frame: .zero)
+    bar.apply([
+      "tabs": [["label": "First", "image": icon], ["label": "Second", "image": icon]],
+      "selectedIndex": 0,
+      "controlExtent": 44.0,
+      "edgeInset": 16.0,
+      "bottomInset": 30.0,
+      "actionSymbol": "square.and.pencil",
+    ])
+    controller.view.addSubview(bar)
+    bar.frame = CGRect(
+      x: 0, y: window.bounds.height - 120, width: window.bounds.width, height: 120)
+    window.layoutIfNeeded()
+
+    let tabBar = try XCTUnwrap(bar.subviews.lazy.compactMap { $0 as? UITabBar }.first)
+    let action = try XCTUnwrap(bar.subviews.lazy.compactMap { $0 as? UIButton }.first)
+    func platter() -> CGRect {
+      let tabs = tabBar.subviews.flatMap { floatingTabBarControls(in: $0) }
+      return tabs.reduce(CGRect.null) { $0.union(bar.convert($1.bounds, from: $1)) }
+        .insetBy(dx: -3 * tabBar.transform.a, dy: -3 * tabBar.transform.d)
+    }
+    let resting = platter()
+    XCTAssertFalse(resting.isNull)
+    XCTAssertEqual(resting.minX, 16, accuracy: 0.01)
+    XCTAssertEqual(resting.maxY, bar.bounds.maxY - 30, accuracy: 0.01)
+    XCTAssertEqual(resting.height, 44, accuracy: 0.01)
+    let restingAction = action.frame
+    XCTAssertEqual(
+      restingAction,
+      CGRect(x: bar.bounds.maxX - 16 - 44, y: bar.bounds.maxY - 30 - 44, width: 44, height: 44))
+
+    let swollen = CGAffineTransform(scaleX: 1.16, y: 1.16)
+    let tabs = tabBar.subviews.flatMap { floatingTabBarControls(in: $0) }
+    for tab in tabs { tab.transform = swollen }
+    tabBar.setNeedsLayout()
+    bar.layoutIfNeeded()
+    XCTAssertTrue(tabs.allSatisfy { $0.transform == swollen })
+    XCTAssertEqual(action.frame, restingAction)
+    for tab in tabs { tab.transform = .identity }
+    XCTAssertEqual(platter(), resting)
+  }
+
+}
+
+/// The tab buttons UIKit lays out in a tab bar.
+private func floatingTabBarControls(in view: UIView) -> [UIView] {
+  if view.isHidden { return [] }
+  if view is UIControl { return [view] }
+  return view.subviews.flatMap { floatingTabBarControls(in: $0) }
 }
 
 private func testCookie(
