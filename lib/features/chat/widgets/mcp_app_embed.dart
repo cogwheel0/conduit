@@ -8,7 +8,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:material_ui/material_ui.dart';
+import 'package:flutter/widgets.dart';
 
 import 'package:conduit/features/direct_connections/widgets/direct_mcp_app_view.dart'
     show
@@ -19,6 +19,7 @@ import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/shared/theme/theme_extensions.dart';
 import 'package:conduit/shared/utils/external_link_launcher.dart';
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
+import 'package:conduit/shared/widgets/platform_ui/vocabulary.dart';
 import 'package:conduit/shared/widgets/themed_dialogs.dart';
 import 'package:conduit_core/features/mcp_apps/mcp_app_host.dart';
 import 'package:conduit_core/features/mcp_apps/openwebui_mcp_app.dart';
@@ -594,7 +595,11 @@ class _McpAppCard extends StatelessWidget {
               const SizedBox(height: Spacing.sm),
               Align(
                 alignment: Alignment.centerLeft,
-                child: TextButton(onPressed: onAction, child: Text(actionLabel!)),
+                child: AdaptiveButton(
+                  onPressed: onAction,
+                  label: actionLabel!,
+                  style: AdaptiveButtonStyle.plain,
+                ),
               ),
             ],
           ],
