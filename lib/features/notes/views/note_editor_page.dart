@@ -406,10 +406,33 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
     setState(() {});
   }
 
+  /// Whether the editor is in view. Leaving it for the notes list or another
+  /// page keeps it mounted out of sight, with its tickers muted.
+  bool _inView = true;
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
     _fleatherTheme = _buildFleatherTheme(context);
+    final inView = TickerMode.valuesOf(context).enabled;
+    if (_inView && !inView) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && !_inView) unawaited(_endDictationOutOfView());
+      });
+    }
+    _inView = inView;
+  }
+
+  /// Dictation writes into the text in view, so it ends once the editor is
+  /// out of sight, and what it wrote is saved.
+  Future<void> _endDictationOutOfView() async {
+    if (!_isRecording && !_dictationStarting) return;
+    // A start still under way is called off too.
+    _dictationEnds++;
+    if (_isRecording) await _stopDictation();
+    if (!mounted) return;
+    _saveDebounce?.cancel();
+    await _autoSave();
   }
 
   /// Replaces the content editor's controller with one backed by [document],
@@ -844,6 +867,10 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
   /// Returns false, keeping the editor open, when the save did not land, so a
   /// remotely deleted note's recovery retry stays reachable.
   Future<bool> _saveBeforeLeaving() async {
+    // Dictation would keep adding text the saves below chase.
+    _dictationEnds++;
+    if (_isRecording) await _stopDictation();
+    if (!mounted) return false;
     _saveDebounce?.cancel();
     // A save covers the text as it began, so typing while it runs needs
     // another; a few rounds catch up with any typing that is still going.

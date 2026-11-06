@@ -2018,6 +2018,143 @@ void main() {
     expect(row.data, contains('first'));
   });
 
+  /// Shows the note's editor in the chat branch of a shell beside a Notes
+  /// branch, as the app's router does, so the editor stays mounted out of
+  /// sight once Notes is shown.
+  Future<GoRouter> openInShell(
+    WidgetTester tester,
+    ProviderContainer container,
+  ) async {
+    final router = GoRouter(
+      initialLocation: '/notes',
+      routes: [
+        StatefulShellRoute.indexedStack(
+          builder: (_, _, shell) => shell,
+          branches: [
+            StatefulShellBranch(
+              routes: [
+                GoRoute(
+                  path: '/chat',
+                  builder: (_, _) => const Scaffold(body: Text('Chat')),
+                ),
+                GoRoute(
+                  path: '/notes/:id',
+                  builder: (_, _) => const NoteEditorPage(noteId: 'note-1'),
+                ),
+              ],
+            ),
+            StatefulShellBranch(
+              routes: [
+                GoRoute(
+                  path: '/notes',
+                  builder: (_, _) => const Scaffold(body: Text('Notes list')),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ],
+    );
+    addTearDown(router.dispose);
+    NavigationService.attachRouter(router);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: MaterialApp.router(
+          theme: AppTheme.light(TweakcnThemes.t3Chat),
+          localizationsDelegates: conduitLocalizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          routerConfig: router,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    router.go('/notes/note-1');
+    await tester.pumpAndSettle();
+    return router;
+  }
+
+  Future<void> startDictation(WidgetTester tester) async {
+    // The voice options sheet trips a debug check about its tiles' ink,
+    // which has nothing to do with what is tested here.
+    final originalOnError = FlutterError.onError;
+    FlutterError.onError = (details) {
+      if (details.exceptionAsString().contains(
+        'ink splashes may be invisible',
+      )) {
+        return;
+      }
+      originalOnError?.call(details);
+    };
+    addTearDown(() => FlutterError.onError = originalOnError);
+    await tester.tap(find.byTooltip(l10n(tester).voiceOptions));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(l10n(tester).dictation).last);
+    await tester.pumpAndSettle();
+  }
+
+  testWidgets('back ends dictation before it saves the note', (tester) async {
+    final voice = _HeldVoice()..ready.complete(true);
+    final note = _noteJson(writeAccess: true);
+    await storeLocally(note);
+    final container = await pumpEditor(
+      tester,
+      _DetailApi(detail: note),
+      voice: voice,
+      settings: const AppSettings(slidingSidebarEnabled: true),
+    );
+    final router = await openInShell(tester, container);
+    await startDictation(tester);
+    voice.run!.add('spoken words');
+    await tester.pump();
+
+    // Holding the note's lock keeps the back button's save in flight.
+    final gate = Completer<void>();
+    unawaited(
+      container
+          .read(noteLocksProvider)
+          .runExclusive('note-1', () => gate.future),
+    );
+    await tester.tap(
+      find.byKey(const ValueKey<String>('sidebar-page-back-button')),
+    );
+    await tester.pump();
+    expect(voice.run, isNull, reason: 'dictation ends before the save');
+    gate.complete();
+    await tester.pumpAndSettle();
+
+    expect(router.routeInformationProvider.value.uri.path, '/notes');
+    final row = (await db.notesDao.getNote('note-1'))!;
+    expect(row.data, contains('spoken words'));
+  });
+
+  testWidgets('dictation ends when another page takes the editor\'s place', (
+    tester,
+  ) async {
+    final voice = _HeldVoice()..ready.complete(true);
+    final note = _noteJson(writeAccess: true);
+    await storeLocally(note);
+    final container = await pumpEditor(
+      tester,
+      _DetailApi(detail: note),
+      voice: voice,
+      settings: const AppSettings(slidingSidebarEnabled: true),
+    );
+    final router = await openInShell(tester, container);
+    await startDictation(tester);
+    voice.run!.add('spoken words');
+    await tester.pump();
+
+    // As choosing Notes in the sidebar does.
+    router.go('/notes');
+    await tester.pumpAndSettle();
+
+    expect(find.byType(NoteEditorPage, skipOffstage: false), findsOneWidget);
+    expect(voice.run, isNull);
+    final row = (await db.notesDao.getNote('note-1'))!;
+    expect(row.data, contains('spoken words'));
+  });
+
   // A stored title that is empty or padded is not an edit, and neither is a
   // cleared title, which saves as the "Untitled" already stored.
   for (final (title, writeAccess, clearTitle) in [
