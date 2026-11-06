@@ -6219,5 +6219,7 @@
   "chatHandoffStayHere": "Zůstat tady",
   "chatWaitingForApproval": "Čeká na schválení",
   "generateTitleNone": "Server pro tento chat nevytvořil název. Generování názvů může být vypnuté.",
-  "generateTitleFailed": "Název se nepodařilo vygenerovat. Zkuste to znovu."
+  "generateTitleFailed": "Název se nepodařilo vygenerovat. Zkuste to znovu.",
+  "workspaceToolActivate": "Aktivovat",
+  "workspaceToolDeactivate": "Deaktivovat"
 }

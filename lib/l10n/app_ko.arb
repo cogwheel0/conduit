@@ -4073,5 +4073,7 @@
   "chatHandoffStayHere": "여기 머무르기",
   "chatWaitingForApproval": "승인 대기 중",
   "generateTitleNone": "서버가 이 채팅의 제목을 만들지 않았습니다. 제목 생성이 꺼져 있을 수 있습니다.",
-  "generateTitleFailed": "제목을 생성할 수 없습니다. 다시 시도해 주세요."
+  "generateTitleFailed": "제목을 생성할 수 없습니다. 다시 시도해 주세요.",
+  "workspaceToolActivate": "활성화",
+  "workspaceToolDeactivate": "비활성화"
 }

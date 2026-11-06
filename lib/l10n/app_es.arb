@@ -4301,5 +4301,7 @@
   "chatHandoffStayHere": "Quedarme aquí",
   "chatWaitingForApproval": "Esperando aprobación",
   "generateTitleNone": "El servidor no creó un título para esta conversación. Puede que la generación de títulos esté desactivada.",
-  "generateTitleFailed": "No se pudo generar un título. Inténtalo de nuevo."
+  "generateTitleFailed": "No se pudo generar un título. Inténtalo de nuevo.",
+  "workspaceToolActivate": "Activar",
+  "workspaceToolDeactivate": "Desactivar"
 }

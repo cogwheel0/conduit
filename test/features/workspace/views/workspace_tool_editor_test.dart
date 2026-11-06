@@ -203,6 +203,67 @@ void main() {
     expect(tools.created.single.accessGrants, isEmpty);
   });
 
+  testWidgets('a server that reports the switch offers Deactivate', (
+    tester,
+  ) async {
+    final tools = _FakeTools();
+    await tester.pumpWidget(
+      _harness(
+        tools,
+        mode: WorkspaceRouteMode.detail,
+        resourceId: 't-1',
+        detail: _writable(isActive: true),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('workspace-editor-overflow')));
+    await tester.pumpAndSettle();
+    expect(find.text('Deactivate'), findsOneWidget);
+    await tester.tap(find.byKey(const Key('workspace-tool-action-toggle')));
+    await tester.pump();
+    await tester.pump();
+
+    expect(tools.toggled, ['t-1']);
+  });
+
+  testWidgets('a tool switched off offers Activate', (tester) async {
+    final tools = _FakeTools();
+    await tester.pumpWidget(
+      _harness(
+        tools,
+        mode: WorkspaceRouteMode.detail,
+        resourceId: 't-1',
+        detail: _writable(isActive: false),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('workspace-editor-overflow')));
+    await tester.pumpAndSettle();
+    expect(find.text('Activate'), findsOneWidget);
+  });
+
+  testWidgets('a server before 0.13 has no switch', (tester) async {
+    final tools = _FakeTools();
+    await tester.pumpWidget(
+      _harness(
+        tools,
+        mode: WorkspaceRouteMode.detail,
+        resourceId: 't-1',
+        detail: _writable(),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('workspace-editor-overflow')));
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const Key('workspace-tool-action-toggle')),
+      findsNothing,
+    );
+  });
+
   testWidgets('delete action deletes after confirmation', (tester) async {
     final tools = _FakeTools();
     await tester.pumpWidget(
@@ -352,12 +413,13 @@ Widget _app(WorkspaceRouteMode mode, String? resourceId) {
   );
 }
 
-WorkspaceToolDetail _writable() => const WorkspaceToolSummary(
+WorkspaceToolDetail _writable({bool? isActive}) => WorkspaceToolSummary(
   id: 't-1',
   name: 'Search',
   userId: 'owner',
   content: '"""\ntitle: Search\n"""\nclass Tools:\n    pass\n',
   writeAccess: true,
+  isActive: isActive,
 );
 
 WorkspaceToolDetail _readOnly() => const WorkspaceToolSummary(
@@ -372,6 +434,13 @@ class _FakeTools extends WorkspaceTools {
   final created = <WorkspaceToolForm>[];
   final updated = <(String, WorkspaceToolForm)>[];
   final deleted = <String>[];
+  final toggled = <String>[];
+
+  @override
+  Future<WorkspaceToolDetail> toggle(String id) async {
+    toggled.add(id);
+    return _detail(id);
+  }
 
   @override
   Future<WorkspaceCollectionState<WorkspaceToolSummary>> build() async {

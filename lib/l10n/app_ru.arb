@@ -4339,5 +4339,7 @@
   "chatHandoffStayHere": "Остаться здесь",
   "chatWaitingForApproval": "Ожидает подтверждения",
   "generateTitleNone": "Сервер не создал название для этого чата. Возможно, генерация названий отключена.",
-  "generateTitleFailed": "Не удалось сгенерировать название. Попробуйте ещё раз."
+  "generateTitleFailed": "Не удалось сгенерировать название. Попробуйте ещё раз.",
+  "workspaceToolActivate": "Включить",
+  "workspaceToolDeactivate": "Выключить"
 }

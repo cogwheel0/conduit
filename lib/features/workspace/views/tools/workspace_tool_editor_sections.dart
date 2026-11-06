@@ -356,6 +356,7 @@ List<WorkspaceEditorAction> buildWorkspaceToolActions({
   required VoidCallback onImportUrl,
   required VoidCallback onExport,
   required VoidCallback onClone,
+  required VoidCallback onToggleActive,
   required VoidCallback onOpenValves,
   required VoidCallback onManageAccess,
   required VoidCallback onDelete,
@@ -394,6 +395,18 @@ List<WorkspaceEditorAction> buildWorkspaceToolActions({
         icon: Icons.copy_outlined,
         menuKey: const Key('workspace-tool-action-clone'),
         onSelected: onClone,
+      ),
+    // Only a server that reports the switch (Open WebUI 0.13) has one.
+    if (canWrite && summary.isActive != null)
+      WorkspaceEditorAction(
+        label: summary.isActive!
+            ? l10n.workspaceToolDeactivate
+            : l10n.workspaceToolActivate,
+        icon: summary.isActive!
+            ? Icons.toggle_on_outlined
+            : Icons.toggle_off_outlined,
+        menuKey: const Key('workspace-tool-action-toggle'),
+        onSelected: onToggleActive,
       ),
     if (canWrite)
       WorkspaceEditorAction(

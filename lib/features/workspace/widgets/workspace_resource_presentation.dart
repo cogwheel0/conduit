@@ -61,7 +61,9 @@ WorkspaceResourcePresentation presentWorkspaceTool(
   AppLocalizations l10n,
   WorkspaceToolSummary item,
 ) => WorkspaceResourcePresentation(
-  statusLabel: l10n.workspaceToolFunctionCount(item.specs.length),
+  statusLabel: item.isActive == false
+      ? l10n.inactiveStatus
+      : l10n.workspaceToolFunctionCount(item.specs.length),
   readOnly: !item.writeAccess,
 );
 

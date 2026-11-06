@@ -4301,5 +4301,7 @@
   "chatHandoffStayHere": "留在这里",
   "chatWaitingForApproval": "等待批准",
   "generateTitleNone": "服务器没有为此对话生成标题。标题生成可能已关闭。",
-  "generateTitleFailed": "无法生成标题，请重试。"
+  "generateTitleFailed": "无法生成标题，请重试。",
+  "workspaceToolActivate": "启用",
+  "workspaceToolDeactivate": "停用"
 }

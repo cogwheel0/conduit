@@ -5913,5 +5913,7 @@
   "chatHandoffStayHere": "このままにする",
   "chatWaitingForApproval": "承認待ち",
   "generateTitleNone": "サーバーはこのチャットのタイトルを作成しませんでした。タイトル生成がオフになっている可能性があります。",
-  "generateTitleFailed": "タイトルを生成できませんでした。もう一度お試しください。"
+  "generateTitleFailed": "タイトルを生成できませんでした。もう一度お試しください。",
+  "workspaceToolActivate": "有効にする",
+  "workspaceToolDeactivate": "無効にする"
 }

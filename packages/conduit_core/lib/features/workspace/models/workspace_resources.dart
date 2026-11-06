@@ -248,6 +248,7 @@ class WorkspaceToolSummary {
     this.meta = const {},
     this.accessGrants = const [],
     this.writeAccess = false,
+    this.isActive,
     this.owner,
     this.createdAt = 0,
     this.updatedAt = 0,
@@ -257,6 +258,11 @@ class WorkspaceToolSummary {
   final String name;
   final String userId;
   final String? content;
+
+  /// Whether the tool is switched on, which Open WebUI 0.13 and later report;
+  /// null from an older server, where every tool is on and none can be
+  /// switched off. A tool switched off cannot be picked or run in any chat.
+  final bool? isActive;
   final List<Map<String, dynamic>> specs;
   final Map<String, dynamic> meta;
   final List<WorkspaceAccessGrant> accessGrants;
@@ -275,6 +281,9 @@ class WorkspaceToolSummary {
         meta: workspaceJsonMap(json['meta']),
         accessGrants: workspaceGrants(json['access_grants']),
         writeAccess: workspaceBool(json['write_access']),
+        isActive: json.containsKey('is_active')
+            ? workspaceBool(json['is_active'], true)
+            : null,
         owner: json['user'] is Map
             ? WorkspaceOwnerPreview.fromJson(workspaceJsonMap(json['user']))
             : null,

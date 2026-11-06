@@ -8979,5 +8979,13 @@
   "generateTitleFailed": "Couldn't generate a title. Please try again.",
   "@generateTitleFailed": {
     "description": "Error shown when generating or saving a chat title failed."
+  },
+  "workspaceToolActivate": "Activate",
+  "@workspaceToolActivate": {
+    "description": "Overflow action that switches a tool on, so chats can use it again (Open WebUI 0.13 and later)."
+  },
+  "workspaceToolDeactivate": "Deactivate",
+  "@workspaceToolDeactivate": {
+    "description": "Overflow action that switches a tool off, so no chat can pick or run it (Open WebUI 0.13 and later)."
   }
 }

@@ -980,6 +980,11 @@ class WorkspaceTools extends _$WorkspaceTools {
     List<WorkspaceAccessGrantInput> grants,
   ) => _mutate((api) => api.updateWorkspaceToolAccess(id, grants), id: id);
 
+  /// Switches the tool [id] on or off. The refresh that follows also reloads
+  /// the tools chats offer, which leave out a tool switched off.
+  Future<WorkspaceToolDetail> toggle(String id) =>
+      _mutate((api) => api.toggleWorkspaceTool(id), id: id);
+
   Future<void> delete(String id) async {
     final current = state.asData?.value ?? const WorkspaceCollectionState();
     state = AsyncData(current.copyWith(isBusy: true, clearError: true));

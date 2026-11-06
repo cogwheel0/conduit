@@ -4301,5 +4301,7 @@
   "chatHandoffStayHere": "留在這裡",
   "chatWaitingForApproval": "等待核准",
   "generateTitleNone": "伺服器沒有為此對話產生標題。標題產生功能可能已關閉。",
-  "generateTitleFailed": "無法產生標題，請再試一次。"
+  "generateTitleFailed": "無法產生標題，請再試一次。",
+  "workspaceToolActivate": "啟用",
+  "workspaceToolDeactivate": "停用"
 }
