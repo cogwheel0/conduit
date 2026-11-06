@@ -27,39 +27,6 @@ void clearSelectedFiltersForConversationBoundary(dynamic ref) {
   ref.read(chatPicksSessionProvider.notifier).newConversation();
 }
 
-/// What [clearSelectedFiltersForConversationBoundary] starts again, kept to
-/// put back when the boundary is called off: an archive of the open chat
-/// that the server refused.
-typedef ConversationPicks = ({
-  List<String> filterIds,
-  bool codeInterpreter,
-  List<String> toolIds,
-  String? terminalId,
-  bool webSearch,
-  bool imageGeneration,
-});
-
-ConversationPicks captureConversationPicks(dynamic ref) => (
-  filterIds: List<String>.of(ref.read(selectedFilterIdsProvider)),
-  codeInterpreter: ref.read(codeInterpreterEnabledProvider) as bool,
-  toolIds: List<String>.of(ref.read(selectedToolIdsProvider)),
-  terminalId: ref.read(selectedTerminalIdProvider) as String?,
-  webSearch: ref.read(webSearchEnabledProvider) as bool,
-  imageGeneration: ref.read(imageGenerationEnabledProvider) as bool,
-);
-
-/// Puts [picks] back, as the user's own picks for the chat open again.
-void restoreConversationPicks(dynamic ref, ConversationPicks picks) {
-  ref.read(selectedFilterIdsProvider.notifier).set(picks.filterIds);
-  ref.read(selectedToolIdsProvider.notifier).set(picks.toolIds);
-  ref.read(selectedTerminalIdProvider.notifier).set(picks.terminalId);
-  ref.read(webSearchEnabledProvider.notifier).set(picks.webSearch);
-  ref.read(imageGenerationEnabledProvider.notifier).set(picks.imageGeneration);
-  if (picks.codeInterpreter) {
-    ref.read(codeInterpreterEnabledProvider.notifier).set(true);
-  }
-}
-
 /// Returns only selected toggle filters exposed by [model].
 ///
 /// Conversation-boundary clears remain the primary lifecycle rule. This

@@ -1071,15 +1071,17 @@ void main() {
         );
         await api.callStarted!.future.timeout(const Duration(seconds: 2));
 
-        // The optimistic clear lands before the server confirms.
+        // The optimistic clear lands before the server confirms; the chat's
+        // picks wait for the server, should it refuse.
         expect(container.read(activeConversationProvider), isNull);
         expect(container.read(chatMessagesProvider), isEmpty);
-        expect(container.read(selectedFilterIdsProvider), isEmpty);
+        expect(container.read(selectedFilterIdsProvider), ['filter-a']);
         expect(listed(container).single.archived, isFalse);
 
         api.gate!.complete();
         await pending;
 
+        expect(container.read(selectedFilterIdsProvider), isEmpty);
         expect(api.archiveCalls, [(id: 'chat-s', value: true)]);
         expect(listed(container).single.archived, isTrue);
         expect(pulls, ['cache-refresh']);
@@ -1133,6 +1135,56 @@ void main() {
         // Restoring the selection also re-projects its transcript, which is
         // what the source comment means by "restored through the listener".
         expect(container.read(chatMessagesProvider).single.content, 'hello');
+      });
+    });
+
+    test('a refused archive leaves another chat opened meanwhile, and its '
+        'picks, as they are', () async {
+      final pulls = <String>[];
+      final api = _MutationApi()..failure = Exception('archive failed');
+      final container = containerWith(
+        pulls: pulls,
+        apiOverride: apiServiceProvider.overrideWithValue(api),
+      );
+      final ref = container;
+
+      await runAsync(() async {
+        await seedServer('chat-s', title: 'Server');
+        await seedServer('chat-t', title: 'Other');
+        await container.read(conversationsProvider.future);
+        final archived = _conversation(
+          'chat-s',
+          title: 'Server',
+          storage: ChatStorageKind.openWebUi,
+          messages: [_message('m1', 'hello')],
+        );
+        container.read(activeConversationProvider.notifier).set(archived);
+        api
+          ..gate = Completer<void>()
+          ..callStarted = Completer<void>();
+
+        final pending = archiveConversation(
+          ref,
+          _openWebUiScoped('chat-s'),
+          true,
+        );
+        await api.callStarted!.future.timeout(const Duration(seconds: 2));
+        // The user opens another chat and picks a tool there.
+        final other = _conversation(
+          'chat-t',
+          title: 'Other',
+          storage: ChatStorageKind.openWebUi,
+          messages: [_message('m2', 'there')],
+        );
+        clearSelectedFiltersForConversationBoundary(container);
+        container.read(activeConversationProvider.notifier).set(other);
+        container.read(selectedToolIdsProvider.notifier).set(['tool-t']);
+
+        api.gate!.complete();
+        await expectLater(pending, throwsA(isA<Exception>()));
+
+        expect(container.read(activeConversationProvider)!.id, 'chat-t');
+        expect(container.read(selectedToolIdsProvider), ['tool-t']);
       });
     });
   });

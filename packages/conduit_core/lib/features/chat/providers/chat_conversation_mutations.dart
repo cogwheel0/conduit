@@ -263,10 +263,6 @@ Future<void> archiveConversation(
   final leavingActiveConversation =
       archived &&
       _activeConversationMatchesSelection(activeConversation, conversationId);
-  // Put back if the server refuses the archive.
-  final ConversationPicks? previousPicks = leavingActiveConversation
-      ? captureConversationPicks(ref)
-      : null;
 
   if (identity.storage == ChatStorageKind.directLocal ||
       isDirectLocalConversation(listedConversation)) {
@@ -303,10 +299,10 @@ Future<void> archiveConversation(
     return;
   }
 
-  // Update local state first
-  if (_activeConversationMatchesSelection(activeConversation, conversationId) &&
-      archived) {
-    clearSelectedFiltersForConversationBoundary(ref);
+  // Update local state first. The chat's picks stay until the server takes
+  // the archive: a refused one opens the chat again with them as they were,
+  // the choices the user made and the defaults they left alone.
+  if (leavingActiveConversation) {
     _readProvider(ref, activeConversationProvider.notifier).clear();
     _readProvider(ref, chatMessagesProvider.notifier).clearMessages();
   }
@@ -315,6 +311,13 @@ Future<void> archiveConversation(
     if (api == null) throw Exception('No API service available');
 
     await api.archiveConversation(rawId, archived);
+
+    // The chat is gone from the screen for good: the picks start again, unless
+    // another chat was opened meanwhile, which started them itself.
+    if (leavingActiveConversation &&
+        _readProvider(ref, activeConversationProvider) == null) {
+      clearSelectedFiltersForConversationBoundary(ref);
+    }
 
     _readProvider(
       ref,
@@ -334,17 +337,12 @@ Future<void> archiveConversation(
     );
 
     // If server operation failed and we archived locally, restore the conversation
-    if (_activeConversationMatchesSelection(
-          activeConversation,
-          conversationId,
-        ) &&
-        archived) {
+    if (leavingActiveConversation &&
+        _readProvider(ref, activeConversationProvider) == null) {
       _readProvider(
         ref,
         activeConversationProvider.notifier,
       ).set(activeConversation);
-      // After the chat is open again, so its picks are its own.
-      if (previousPicks != null) restoreConversationPicks(ref, previousPicks);
       // Messages will be restored through the listener
     }
 
