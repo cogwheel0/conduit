@@ -299,22 +299,14 @@ Future<void> archiveConversation(
     return;
   }
 
-  // Update local state first. The chat's picks stay until the server takes
-  // the archive: a refused one opens the chat again with them as they were,
-  // the choices the user made and the defaults they left alone.
-  //
-  // Opening another chat, or starting a new one, starts the picks again with
-  // a new session; while this one holds, the screen is still the one the
-  // archive left.
-  final Object? picksSession = leavingActiveConversation
-      ? _readProvider(ref, chatPicksSessionProvider)
-      : null;
-  bool stillWhereArchiveLeft() =>
-      _readProvider(ref, activeConversationProvider) == null &&
-      identical(_readProvider(ref, chatPicksSessionProvider), picksSession);
-  if (leavingActiveConversation) {
-    _readProvider(ref, activeConversationProvider.notifier).clear();
-    _readProvider(ref, chatMessagesProvider.notifier).clearMessages();
+  // The open chat stays on screen until the server takes the archive: a
+  // refused one leaves it as it was, picks and all, with nothing to put back,
+  // and no blank composer stands in for it meanwhile. Another chat opened or
+  // started meanwhile, with picks of its own, is left alone.
+  bool archivedChatStillShown() {
+    final shown = _readProvider(ref, activeConversationProvider);
+    return shown != null &&
+        _activeConversationMatchesSelection(shown, conversationId);
   }
 
   try {
@@ -322,11 +314,12 @@ Future<void> archiveConversation(
 
     await api.archiveConversation(rawId, archived);
 
-    // The chat is gone from the screen for good: the picks start again, unless
-    // another chat was opened or started meanwhile, which started them itself
-    // and may hold picks of its own by now.
-    if (leavingActiveConversation && stillWhereArchiveLeft()) {
+    // The chat is gone for good: it leaves the screen and its picks start
+    // again, unless the user has moved on meanwhile.
+    if (leavingActiveConversation && archivedChatStillShown()) {
       clearSelectedFiltersForConversationBoundary(ref);
+      _readProvider(ref, activeConversationProvider.notifier).clear();
+      _readProvider(ref, chatMessagesProvider.notifier).clearMessages();
     }
 
     _readProvider(
@@ -345,16 +338,6 @@ Future<void> archiveConversation(
       'Error ${archived ? 'archiving' : 'unarchiving'} conversation: $e',
       scope: 'chat/providers',
     );
-
-    // If server operation failed and we archived locally, restore the conversation
-    if (leavingActiveConversation && stillWhereArchiveLeft()) {
-      _readProvider(
-        ref,
-        activeConversationProvider.notifier,
-      ).set(activeConversation);
-      // Messages will be restored through the listener
-    }
-
     rethrow;
   }
 }

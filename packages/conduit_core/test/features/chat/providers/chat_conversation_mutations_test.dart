@@ -1036,8 +1036,8 @@ void main() {
       });
     });
 
-    test('an Open WebUI archive clears the active chat before the '
-        'request and refreshes afterwards', () async {
+    test('an Open WebUI archive takes the chat off screen once the server '
+        'takes it, and refreshes', () async {
       final pulls = <String>[];
       final api = _MutationApi();
       final container = containerWith(
@@ -1071,16 +1071,17 @@ void main() {
         );
         await api.callStarted!.future.timeout(const Duration(seconds: 2));
 
-        // The optimistic clear lands before the server confirms; the chat's
-        // picks wait for the server, should it refuse.
-        expect(container.read(activeConversationProvider), isNull);
-        expect(container.read(chatMessagesProvider), isEmpty);
+        // Until the server answers the chat stays, picks and all: a refusal
+        // has nothing to put back.
+        expect(container.read(activeConversationProvider)?.id, 'chat-s');
         expect(container.read(selectedFilterIdsProvider), ['filter-a']);
         expect(listed(container).single.archived, isFalse);
 
         api.gate!.complete();
         await pending;
 
+        expect(container.read(activeConversationProvider), isNull);
+        expect(container.read(chatMessagesProvider), isEmpty);
         expect(container.read(selectedFilterIdsProvider), isEmpty);
         expect(api.archiveCalls, [(id: 'chat-s', value: true)]);
         expect(listed(container).single.archived, isTrue);
@@ -1224,6 +1225,7 @@ void main() {
         // The user starts a new chat, which leaves none open, and picks a
         // filter and web search for it.
         clearSelectedFiltersForConversationBoundary(container);
+        container.read(activeConversationProvider.notifier).clear();
         container.read(selectedFilterIdsProvider.notifier).set(['filter-new']);
         container.read(webSearchEnabledProvider.notifier).set(true);
 
