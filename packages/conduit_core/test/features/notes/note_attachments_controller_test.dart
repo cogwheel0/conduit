@@ -118,6 +118,23 @@ class _HeldScanStore extends NoteAudioUploadStore {
   Completer<void>? holdNoteScan;
   final noteScanEntered = Completer<void>();
 
+  /// While set, moving a recording to another note waits for it.
+  Completer<void>? holdRebind;
+  final rebindEntered = Completer<void>();
+
+  @override
+  Future<PendingNoteAudioUpload?> rebindToNote(
+    PendingNoteAudioUpload item, {
+    required String noteId,
+  }) async {
+    final hold = holdRebind;
+    if (hold != null) {
+      if (!rebindEntered.isCompleted) rebindEntered.complete();
+      await hold.future;
+    }
+    return super.rebindToNote(item, noteId: noteId);
+  }
+
   @override
   Future<List<PendingNoteAudioUpload>> loadForAccount({
     required String serverId,
@@ -1174,6 +1191,86 @@ void main() {
       final stored = await readNote('local:page');
       check(stored.data.files ?? const <Map<String, dynamic>>[]).isEmpty();
       check(stored.markdownContent).equals('two');
+    });
+
+    test('a recording moved off a removed page can still attach when a retry '
+        'runs during the move', () async {
+      final held = _HeldScanStore(
+        applicationSupportDirectory: () async {
+          final dir = Directory('${root.path}/support');
+          await dir.create(recursive: true);
+          return dir;
+        },
+        temporaryDirectory: () async => Directory('${root.path}/cache'),
+      )..release.complete();
+      controller.dispose();
+      controller = NoteAttachmentsController(
+        container: container,
+        store: held,
+        noteId: 'note-1',
+        currentNote: () => openNote,
+        resolvedTitle: () => openNote.title,
+        onNoteUpdated: (updated) => openNote = updated,
+        onChanged: () => changes++,
+        onNotice: notices.add,
+      )..start();
+      // A recording made on the page a sync removes, whose upload failed.
+      api.uploadError = StateError('offline');
+      final onRemoved = await held.stage(
+        source: await recording('two.m4a'),
+        serverId: 'server-1',
+        accountId: 'user:user-1',
+        noteId: 'note-1',
+        fileName: 'recording_2.m4a',
+        pageId: 'p2',
+      );
+      await controller.loadPending();
+      await waitFor(
+        () => controller.pending.length == 1 && !controller.isUploading,
+      );
+      // The new note, as the recovery stores it.
+      await db
+          .into(db.notes)
+          .insertOnConflictUpdate(
+            serverToNoteRow({
+              'id': 'local:page',
+              'user_id': 'user-1',
+              'title': 'Two',
+              'data': {
+                'content': {'md': 'two', 'html': ''},
+              },
+              'meta': {},
+              'is_pinned': false,
+              'created_at': 1713786305000000000,
+              'updated_at': 1713786305000000000,
+            }),
+          );
+
+      // The connection returns while the recording is being moved, and it is
+      // retried: the retry waits for the move and publishes the moved copy,
+      // which is on the new note's main page, before the move ends.
+      api.uploadError = null;
+      held.holdRebind = Completer<void>();
+      final original = openNote;
+      final pageNote = await readNote('local:page');
+      openNote = pageNote;
+      final rebinding = controller.rebindTo(original, pageNote, pageId: 'p2');
+      await held.rebindEntered.future;
+      final retrying = controller.retry();
+      held.holdRebind!.complete();
+      await rebinding;
+      await retrying;
+      check(controller.pending.map((item) => item.id)).deepEquals([
+        onRemoved.id,
+      ]);
+
+      // It is the new note's recording: retried, it attaches there.
+      await controller.retry();
+      await waitFor(() => !controller.isUploading);
+      final stored = await readNote('local:page');
+      check(stored.data.files ?? const <Map<String, dynamic>>[]).length
+          .equals(1);
+      check(controller.pending).isEmpty();
     });
 
     test('an empty title falls back to the untitled name', () async {
