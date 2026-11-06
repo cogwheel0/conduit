@@ -733,16 +733,6 @@ class MainActivity : FlutterFragmentActivity() {
     }
 
     /**
-     * Re-applies the window's real insets when Flutter still holds a keyboard
-     * inset but the IME is hidden (#758).
-     *
-     * Flutter's ImeSyncDeferringInsetsCallback defers the final IME inset
-     * until the keyboard animation ends. Backgrounding the app mid-animation
-     * can lose that final update and leave the deferral latched, so ordinary
-     * inset dispatches are swallowed too. Calling the FlutterView directly is
-     * the same path the callback uses for animation frames.
-     */
-    /**
      * The radius of the display's rounded corners in dp: 0 for a display
      * that reports none, and null before Android 12, which cannot say.
      */
@@ -754,6 +744,16 @@ class MainActivity : FlutterFragmentActivity() {
         return corner.radius / resources.displayMetrics.density.toDouble()
     }
 
+    /**
+     * Re-applies the window's real insets when Flutter still holds a keyboard
+     * inset but the IME is hidden (#758).
+     *
+     * Flutter's ImeSyncDeferringInsetsCallback defers the final IME inset
+     * until the keyboard animation ends. Backgrounding the app mid-animation
+     * can lose that final update and leave the deferral latched, so ordinary
+     * inset dispatches are swallowed too. Calling the FlutterView directly is
+     * the same path the callback uses for animation frames.
+     */
     private fun resyncStaleImeInsets(): Boolean {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return false
         val flutterView = findViewById<View>(FlutterFragment.FLUTTER_VIEW_ID) ?: return false

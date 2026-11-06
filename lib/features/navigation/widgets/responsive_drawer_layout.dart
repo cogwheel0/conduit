@@ -803,6 +803,11 @@ class ResponsiveDrawerLayoutState extends State<ResponsiveDrawerLayout>
   }
 
   Widget _buildMobileLayout(ConduitThemeExtension theme, Color scrim) {
+    final roundContent = widget.pushContent && widget.roundPushedContent;
+    // Fixed for the whole animation, so it is read once per build.
+    final cornerRadius = roundContent
+        ? _pushedContentCornerRadius(context)
+        : 0.0;
     return Stack(
       children: [
         Positioned.fill(
@@ -835,16 +840,12 @@ class ResponsiveDrawerLayoutState extends State<ResponsiveDrawerLayout>
                     child: ExcludeSemantics(
                       excluding: t > 0,
                       child: ClipRSuperellipse(
-                        borderRadius: BorderRadius.circular(
-                          widget.pushContent && widget.roundPushedContent
-                              ? _pushedContentCornerRadius(context) * t
-                              : 0.0,
-                        ),
+                        borderRadius: BorderRadius.circular(cornerRadius * t),
                         child: Stack(
                           fit: StackFit.expand,
                           children: [
                             child!,
-                            if (widget.pushContent && widget.roundPushedContent)
+                            if (roundContent)
                               IgnorePointer(
                                 child: ColoredBox(
                                   color: scrim.withValues(alpha: 0.6 * t),
