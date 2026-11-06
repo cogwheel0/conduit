@@ -282,7 +282,40 @@ class SidebarPage extends ConsumerStatefulWidget {
   ConsumerState<SidebarPage> createState() => _SidebarPageState();
 }
 
-class _SidebarPageState extends ConsumerState<SidebarPage> {
+class _SidebarPageState extends ConsumerState<SidebarPage>
+    with WidgetsBindingObserver {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  /// Tapping the status bar scrolls the list the sidebar shows to the top
+  /// while the sidebar covers the main pane, which then leaves its own
+  /// scroll position alone.
+  @override
+  void handleStatusBarTap() {
+    super.handleStatusBarTap();
+    if (!mounted || !sidebarCoversMainPane(context)) return;
+    final tab = ref.read(appSettingsProvider).slidingSidebarEnabled
+        ? ref.read(sidebarSelectedHistoryTabProvider)
+        : ref.read(sidebarNavigationSnapshotProvider).selectedTab;
+    unawaited(
+      ref
+          .read(sidebarTabScrollRegistryProvider)
+          .scrollToTop(
+            tab,
+            duration: context.motionDuration(AnimationDuration.slow),
+          ),
+    );
+  }
+
   AdaptiveBottomNavigationBar _sidebarBottomNavigationBar(
     List<_SidebarNavigationItem> navigationItems,
     ConduitThemeExtension conduitTheme,

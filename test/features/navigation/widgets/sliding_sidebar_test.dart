@@ -145,6 +145,53 @@ void main() {
     );
   }
 
+  for (final open in [true, false]) {
+    testWidgets('status-bar tap scrolls the open sidebar to the top ($open)', (
+      tester,
+    ) async {
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final date = DateTime(2026, 1, 1);
+      await tester.pumpWidget(
+        sidebarTestBuildHarness(
+          controllers: SidebarTestSidebarHarnessControllers(),
+          shellChat: const Scaffold(body: Text('Chat content')),
+          conversations: [
+            for (var i = 0; i < 40; i++)
+              Conversation(
+                id: 'demo-$i',
+                title: 'Example $i',
+                createdAt: date,
+                updatedAt: date,
+              ),
+          ],
+        ),
+      );
+      await tester.pumpAndSettle();
+      if (open) await sidebarTestOpenSidebar(tester);
+      final history = tester.state<ScrollableState>(
+        find
+            .descendant(
+              of: find.byKey(
+                const PageStorageKey<String>('chats_drawer_scroll'),
+                skipOffstage: false,
+              ),
+              matching: find.byType(Scrollable, skipOffstage: false),
+              skipOffstage: false,
+            )
+            .first,
+      );
+      history.position.jumpTo(400);
+      await tester.pump();
+
+      tester.simulateStatusBarTap();
+      await tester.pumpAndSettle();
+
+      expect(history.position.pixels, open ? 0 : 400);
+    });
+  }
+
   testWidgets('offscreen sidebar defers native header controls until opened', (
     tester,
   ) async {

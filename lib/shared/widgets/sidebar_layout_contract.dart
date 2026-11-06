@@ -41,6 +41,17 @@ bool usesPersistentTabletSidebar(BuildContext context) {
       usesPersistentTabletSidebarFor(width: size.width, height: size.height);
 }
 
+/// Whether the sidebar is fully open over the main pane, as on a phone,
+/// rather than docked beside it. Status bar taps then belong to the sidebar.
+bool sidebarCoversMainPane(BuildContext context) {
+  if (usesPersistentTabletSidebar(context)) return false;
+  return context
+          .getInheritedWidgetOfExactType<SidebarDrawerControllerScope>()
+          ?.controller
+          .isOpen ??
+      false;
+}
+
 /// Closes the sidebar only when it is presented as a mobile overlay.
 void closeSidebarDrawerIfOverlay(BuildContext context) {
   if (usesPersistentTabletSidebar(context)) return;
