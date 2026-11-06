@@ -226,6 +226,23 @@ final knowledgeLimitsSupportedProvider = Provider<bool>((ref) {
       true;
 });
 
+/// Whether the active Open WebUI server relays its terminals' events socket
+/// and browser sessions (0.13.0 and later). False until a config confirmed to
+/// belong to the active server reports such a version: an older server has
+/// neither route, so its terminals refresh on demand and preview ports
+/// through the plain port proxy.
+final systemTerminalLiveFeaturesProvider = Provider<bool>((ref) {
+  final activeId = ref.watch(activeServerProvider).asData?.value?.id;
+  final config = ref.watch(backendConfigProvider).asData?.value;
+  if (activeId == null || config == null) return false;
+  if (config.serverId != activeId) return false;
+  return ServerVersionCompat.knownAtLeast(
+        config.version,
+        ServerVersionCompat.terminalLiveFeaturesVersion,
+      ) ==
+      true;
+});
+
 @Riverpod(keepAlive: true)
 class BackendConfigNotifier extends _$BackendConfigNotifier {
   // AsyncNotifier instances survive dependency-triggered rebuilds. This must

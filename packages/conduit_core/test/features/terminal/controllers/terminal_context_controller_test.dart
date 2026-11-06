@@ -11,6 +11,7 @@ import 'package:mocktail/mocktail.dart';
 import 'package:test/test.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
+import 'fake_events_channel.dart';
 import 'fake_terminal_screen.dart';
 
 void main() {
@@ -36,7 +37,7 @@ void main() {
 
     check(gateway.selectedServers).deepEquals([server]);
     verifyNever(
-      () => service.isTerminalFeatureEnabled(
+      () => service.getFeatures(
         server,
         sessionScopeId: any(named: 'sessionScopeId'),
       ),
@@ -51,8 +52,8 @@ void main() {
         ..selectedTerminalId = server.selectionId
         ..selectedServer = server;
       when(
-        () => service.isTerminalFeatureEnabled(server, sessionScopeId: 'scope'),
-      ).thenAnswer((_) async => true);
+        () => service.getFeatures(server, sessionScopeId: 'scope'),
+      ).thenAnswer((_) async => const TerminalServerFeatures());
       when(() => service.getCwd(server, sessionScopeId: 'scope'))
           .thenAnswer((_) async => '/workspace');
       when(
@@ -432,6 +433,222 @@ void main() {
       check(harness.browser.loadingFiles).isFalse();
     },
   );
+
+  group('live updates', () {
+    final direct = TerminalServerInfo(
+      kind: TerminalServerKind.direct,
+      selectionId: 'https://direct.test',
+      baseUrl: Uri.parse('https://direct.test'),
+      apiKey: 'key',
+    );
+
+    _TerminalControllerHarness syncedHarness(
+      _MockTerminalService service,
+      TerminalServerInfo target, {
+      TerminalServerFeatures features = const TerminalServerFeatures(
+        events: true,
+      ),
+      bool relayed = false,
+      List<List<TerminalFileEntry>>? listings,
+    }) {
+      final gateway = _FakeTerminalGateway(service: service)
+        ..selectedTerminalId = target.selectionId
+        ..selectedServer = target
+        ..systemTerminalLiveFeatures = relayed;
+      final queue = [...?listings];
+      when(() => service.getFeatures(target, sessionScopeId: 'scope'))
+          .thenAnswer((_) async => features);
+      when(() => service.getCwd(target, sessionScopeId: 'scope'))
+          .thenAnswer((_) async => '/workspace');
+      when(
+        () => service.listFiles(
+          target,
+          any(),
+          sessionScopeId: 'scope',
+        ),
+      ).thenAnswer(
+        (_) async =>
+            queue.length > 1 ? queue.removeAt(0) : [...?queue.firstOrNull],
+      );
+      when(() => service.getListeningPorts(target, sessionScopeId: 'scope'))
+          .thenAnswer((_) async => const [TerminalListeningPort(port: 8080)]);
+      when(() => service.authTokenForServer(target)).thenReturn('token');
+      when(
+        () => service.buildEventsWebSocketUri(target),
+      ).thenReturn(Uri.parse('wss://events.test/${target.kind.name}'));
+      final harness = _TerminalControllerHarness(gateway);
+      addTearDown(harness.dispose);
+      return harness;
+    }
+
+    test('a terminal that reports events is watched after it loads', () async {
+      final service = _MockTerminalService();
+      final harness = syncedHarness(service, direct);
+
+      await harness.context.sync(force: true);
+      await pumpEventQueue();
+
+      final gateway = harness.gateway;
+      check(gateway.openedChannels).length.equals(1);
+      check(
+        gateway.openedChannels.single.uri,
+      ).equals(Uri.parse('wss://events.test/direct'));
+      check(gateway.openedChannels.single.kind)
+          .equals(TerminalServerKind.direct);
+      check(gateway.channels.single.decodedSent).deepEquals([
+        {'type': 'auth', 'token': 'token'},
+        {'type': 'subscribe', 'path': '/workspace/', 'ports': true},
+      ]);
+      check(harness.browser.liveUpdates).isTrue();
+    });
+
+    test('a terminal without events is refreshed on demand only', () async {
+      final service = _MockTerminalService();
+      final harness = syncedHarness(
+        service,
+        direct,
+        features: const TerminalServerFeatures(),
+      );
+
+      await harness.context.sync(force: true);
+      await pumpEventQueue();
+
+      check(harness.gateway.openedChannels).isEmpty();
+      check(harness.browser.liveUpdates).isFalse();
+    });
+
+    test('Open WebUI terminals are watched where it relays events', () async {
+      for (final relayed in [false, true]) {
+        final service = _MockTerminalService();
+        final harness = syncedHarness(service, server, relayed: relayed);
+
+        await harness.context.sync(force: true);
+        await pumpEventQueue();
+
+        check(
+          harness.gateway.openedChannels,
+          because: 'relayed: $relayed',
+        ).length.equals(relayed ? 1 : 0);
+        harness.dispose();
+      }
+    });
+
+    test('a change lists the directory again without a spinner', () async {
+      final service = _MockTerminalService();
+      final harness = syncedHarness(
+        service,
+        direct,
+        listings: [
+          const [],
+          const [
+            TerminalFileEntry(
+              name: 'made-by-agent.txt',
+              path: '/workspace/made-by-agent.txt',
+              isDirectory: false,
+            ),
+          ],
+        ],
+      );
+      await harness.context.sync(force: true);
+      await pumpEventQueue();
+      check(harness.gateway.entries).isEmpty();
+      var spinnerShown = false;
+      harness.browser.addListener(() {
+        spinnerShown = spinnerShown || harness.browser.loadingFiles;
+      });
+
+      harness.gateway.channels.single.receive({'type': 'fs:change'});
+      await pumpEventQueue();
+
+      check(harness.gateway.entries.single.name).equals('made-by-agent.txt');
+      check(spinnerShown).isFalse();
+      verify(
+        () => service.listFiles(direct, '/workspace/', sessionScopeId: 'scope'),
+      ).called(2);
+    });
+
+    test('changes during a listing list once more after it', () async {
+      final service = _MockTerminalService();
+      final harness = syncedHarness(service, direct);
+      await harness.context.sync(force: true);
+      await pumpEventQueue();
+      final listing = Completer<List<TerminalFileEntry>>();
+      when(
+        () => service.listFiles(direct, '/workspace/', sessionScopeId: 'scope'),
+      ).thenAnswer((_) => listing.future);
+
+      final channel = harness.gateway.channels.single;
+      channel
+        ..receive({'type': 'fs:change'})
+        ..receive({'type': 'fs:change'})
+        ..receive({'type': 'fs:change'});
+      await pumpEventQueue();
+      // One listing is under way; the changes after it are owed one more.
+      verify(
+        () => service.listFiles(direct, '/workspace/', sessionScopeId: 'scope'),
+      ).called(2);
+
+      when(
+        () => service.listFiles(direct, '/workspace/', sessionScopeId: 'scope'),
+      ).thenAnswer((_) async => const []);
+      listing.complete(const []);
+      await pumpEventQueue();
+      verify(
+        () => service.listFiles(direct, '/workspace/', sessionScopeId: 'scope'),
+      ).called(1);
+    });
+
+    test('reported ports replace the list', () async {
+      final service = _MockTerminalService();
+      final harness = syncedHarness(service, direct);
+      await harness.context.sync(force: true);
+      await pumpEventQueue();
+      check(harness.gateway.ports.single.port).equals(8080);
+
+      harness.gateway.channels.single.receive({
+        'type': 'ports:change',
+        'ports': [
+          {'port': 5173, 'process': 'vite'},
+        ],
+      });
+      await pumpEventQueue();
+
+      check(harness.gateway.ports.single.port).equals(5173);
+      check(harness.gateway.ports.single.process).equals('vite');
+    });
+
+    test('opening a folder moves the watch there', () async {
+      final service = _MockTerminalService();
+      final harness = syncedHarness(service, direct);
+      when(
+        () => service.setCwd(direct, any(), sessionScopeId: 'scope'),
+      ).thenAnswer((_) async {});
+      await harness.context.sync(force: true);
+      await pumpEventQueue();
+
+      await harness.browser.navigateTo('/workspace/src');
+      await pumpEventQueue();
+
+      check(harness.gateway.channels.single.decodedSent.last).isA<Map>()
+          .deepEquals({
+            'type': 'subscribe',
+            'path': '/workspace/src/',
+            'ports': true,
+          });
+    });
+
+    test('leaving the tab closes the socket', () async {
+      final service = _MockTerminalService();
+      final harness = syncedHarness(service, direct);
+      await harness.context.sync(force: true);
+      await pumpEventQueue();
+
+      await harness.context.deactivate();
+
+      check(harness.gateway.channels.single.sinkClosed).isTrue();
+      check(harness.browser.liveUpdates).isFalse();
+    });
+  });
 }
 
 final class _TerminalControllerHarness {
@@ -501,6 +718,8 @@ final class _FakeTerminalGateway
   @override
   bool autoConnect = false;
   @override
+  bool systemTerminalLiveFeatures = false;
+  @override
   TerminalConnectionState connectionState =
       const TerminalConnectionState.disconnected();
 
@@ -527,9 +746,16 @@ final class _FakeTerminalGateway
   @override
   void requestRefresh() {}
 
+  final List<({Uri uri, TerminalServerKind kind})> openedChannels = [];
+  final List<FakeEventsChannel> channels = [];
+
   @override
-  WebSocketChannel openChannel(Uri uri, {required TerminalServerKind kind}) =>
-      throw UnimplementedError();
+  WebSocketChannel openChannel(Uri uri, {required TerminalServerKind kind}) {
+    openedChannels.add((uri: uri, kind: kind));
+    final channel = FakeEventsChannel();
+    channels.add(channel);
+    return channel;
+  }
 
   @override
   void setActiveSession(TerminalSessionInfo? session) {

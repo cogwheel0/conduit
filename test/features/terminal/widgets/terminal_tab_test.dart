@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:pdfrx/pdfrx.dart';
@@ -498,6 +499,86 @@ void main() {
       expect(find.text('localhost:3000'), findsOneWidget);
     });
 
+    testWidgets('live events refresh the files and ports as they change', (
+      tester,
+    ) async {
+      final entries = <TerminalFileEntry>[
+        const TerminalFileEntry(
+          name: 'alpha.txt',
+          path: '/workspace/alpha.txt',
+          isDirectory: false,
+        ),
+      ];
+      final fakeService = _FakeTerminalService(
+        servers: <TerminalServerInfo>[
+          TerminalServerInfo(
+            kind: TerminalServerKind.direct,
+            selectionId: 'https://terminal.example',
+            baseUrl: Uri.parse('https://terminal.example'),
+            name: 'Workspace',
+          ),
+        ],
+        entries: entries,
+        ports: const <TerminalListeningPort>[],
+        features: const TerminalServerFeatures(events: true),
+      );
+      final events = _TestWebSocketConnection();
+      addTearDown(events.dispose);
+      final opened = <Uri>[];
+
+      await tester.pumpWidget(
+        _buildHarness(
+          fakeService,
+          channelConnector: (uri, {required kind}) {
+            opened.add(uri);
+            return events.channel;
+          },
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(opened, [Uri.parse('wss://terminal.example/events')]);
+      final sent = verify(() => events.sink.add(captureAny())).captured;
+      expect(sent.map((frame) => jsonDecode(frame as String)), [
+        {'type': 'auth', 'token': 'terminal-token'},
+        {'type': 'subscribe', 'path': '/workspace/', 'ports': true},
+      ]);
+      final listings = fakeService.listFilesRequestCount;
+
+      // An agent writes a file; nobody pulls to refresh.
+      entries.add(
+        const TerminalFileEntry(
+          name: 'agent-made.txt',
+          path: '/workspace/agent-made.txt',
+          isDirectory: false,
+        ),
+      );
+      events._controller.add('{"type":"fs:change"}');
+      await tester.pumpAndSettle();
+      expect(find.text('agent-made.txt'), findsOneWidget);
+      expect(fakeService.listFilesRequestCount, listings + 1);
+
+      events._controller.add(
+        jsonEncode({
+          'type': 'ports:change',
+          'ports': [
+            {'port': 5173, 'process': 'vite'},
+          ],
+        }),
+      );
+      await tester.pumpAndSettle();
+      final container = ProviderScope.containerOf(
+        tester.element(find.byType(TerminalTab)),
+      );
+      container
+          .read(terminalSidebarPanelProvider.notifier)
+          .setPanel(TerminalSidebarPanel.console);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Listening ports'));
+      await tester.pumpAndSettle();
+      expect(find.text('localhost:5173'), findsOneWidget);
+    });
+
     testWidgets('returning to the files panel lists files made meanwhile', (
       tester,
     ) async {
@@ -849,6 +930,7 @@ class _FakeTerminalService extends TerminalService {
         const <String, Completer<List<TerminalFileEntry>>>{},
     Map<int, Completer<bool>> terminalEnabledCompletersByRequest =
         const <int, Completer<bool>>{},
+    this.features = const TerminalServerFeatures(),
   }) : terminalEnabledCompletersByRequest = Map<int, Completer<bool>>.from(
          terminalEnabledCompletersByRequest,
        ),
@@ -861,6 +943,7 @@ class _FakeTerminalService extends TerminalService {
   final Map<String, List<TerminalFileEntry>> entriesByServer;
   final Map<String, Completer<List<TerminalFileEntry>>> listFileCompleters;
   final Map<int, Completer<bool>> terminalEnabledCompletersByRequest;
+  final TerminalServerFeatures features;
   final List<String> readPaths = <String>[];
   Object? readError;
   TerminalFileReadResult? readResult;
@@ -885,7 +968,7 @@ class _FakeTerminalService extends TerminalService {
   }
 
   @override
-  Future<bool> isTerminalFeatureEnabled(
+  Future<TerminalServerFeatures> getFeatures(
     TerminalServerInfo server, {
     String? sessionScopeId,
   }) async {
@@ -893,9 +976,9 @@ class _FakeTerminalService extends TerminalService {
     final completer =
         terminalEnabledCompletersByRequest[terminalEnabledRequestCount];
     if (completer != null) {
-      return completer.future;
+      return TerminalServerFeatures(terminal: await completer.future);
     }
-    return true;
+    return features;
   }
 
   @override

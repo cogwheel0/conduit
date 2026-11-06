@@ -1,0 +1,168 @@
+import 'dart:async';
+import 'dart:convert';
+import 'dart:math' as math;
+
+import 'package:web_socket_channel/web_socket_channel.dart';
+
+import '../models/terminal_models.dart';
+import '../services/terminal_service.dart';
+
+/// Opens a socket to a terminal server: the gateway's `openChannel`.
+typedef TerminalChannelOpener = WebSocketChannel Function(
+  Uri uri, {
+  required TerminalServerKind kind,
+});
+
+/// How long the watcher waits before its next reconnect: one second, then
+/// twice as long each time, up to 30 seconds.
+Duration terminalEventsRetryDelay(int attempt) {
+  final seconds = math.pow(2, math.min(attempt, 5)).toInt();
+  return Duration(seconds: math.min(seconds, 30));
+}
+
+/// Keeps one terminal's events socket open, so the file list and the open
+/// ports refresh as soon as they change rather than when the user asks.
+///
+/// What a closed socket means follows Open WebUI's own client:
+/// - Closed before it sent anything: the terminal or the server relaying it
+///   cannot report events (an older Open Terminal, Open WebUI before 0.13, a
+///   proxy that drops websockets). The watcher stops for good, and the file
+///   browser keeps refreshing on demand as it always has.
+/// - Closed on purpose (1000, or a 4xxx code such as a refused credential or
+///   a directory that cannot be watched): it stops too.
+/// - Dropped after it worked: it reconnects, waiting longer each time.
+///   Subscribing again reports the directory as ready and sends the current
+///   ports, so nothing that changed meanwhile stays stale.
+final class TerminalEventsWatcher {
+  TerminalEventsWatcher({
+    required TerminalChannelOpener openChannel,
+    required Uri uri,
+    required TerminalServerKind kind,
+    required Map<String, dynamic> authPayload,
+    required String path,
+    required void Function(TerminalEvent event) onEvent,
+    Duration Function(int attempt) retryDelay = terminalEventsRetryDelay,
+  }) : _openChannel = openChannel,
+       _uri = uri,
+       _kind = kind,
+       _authPayload = authPayload,
+       _path = path,
+       _onEvent = onEvent,
+       _retryDelay = retryDelay;
+
+  final TerminalChannelOpener _openChannel;
+  final Uri _uri;
+  final TerminalServerKind _kind;
+  final Map<String, dynamic> _authPayload;
+  final void Function(TerminalEvent event) _onEvent;
+  final Duration Function(int attempt) _retryDelay;
+
+  String _path;
+  WebSocketChannel? _channel;
+  StreamSubscription<dynamic>? _subscription;
+  Timer? _retry;
+  bool _subscribed = false;
+  bool _received = false;
+  bool _started = false;
+  bool _stopped = false;
+  int _attempt = 0;
+
+  /// Whether the watcher still connects, or will again: false once it was
+  /// stopped or gave up.
+  bool get active => _started && !_stopped;
+
+  void start() {
+    if (_started || _stopped) return;
+    _started = true;
+    _connect();
+  }
+
+  /// Watches [path] instead of the directory watched so far.
+  void watchPath(String path) {
+    if (path == _path) return;
+    _path = path;
+    final channel = _channel;
+    // Before the first subscription, or between connections, the next
+    // subscription already names the new path.
+    if (_stopped || channel == null || !_subscribed) return;
+    channel.sink.add(jsonEncode(_subscribePayload()));
+  }
+
+  void stop() {
+    if (_stopped) return;
+    _stopped = true;
+    _retry?.cancel();
+    _retry = null;
+    _release();
+  }
+
+  Map<String, dynamic> _subscribePayload() =>
+      buildTerminalEventsSubscribePayload(path: _path, ports: true);
+
+  void _connect() {
+    _retry = null;
+    if (_stopped) return;
+    final WebSocketChannel channel;
+    try {
+      channel = _openChannel(_uri, kind: _kind);
+    } catch (_) {
+      _handleClosed(null);
+      return;
+    }
+    _channel = channel;
+    _subscribed = false;
+    _subscription = channel.stream.listen(
+      (frame) => _handleFrame(channel, frame),
+      // A failed or dropped connection ends the stream as well.
+      onError: (Object _) {},
+      onDone: () => _handleClosed(channel, ended: true),
+    );
+    channel.ready.then(
+      (_) {
+        if (_stopped || !identical(_channel, channel)) return;
+        channel.sink
+          ..add(jsonEncode(_authPayload))
+          ..add(jsonEncode(_subscribePayload()));
+        _subscribed = true;
+      },
+      onError: (Object _) => _handleClosed(channel),
+    );
+  }
+
+  void _handleFrame(WebSocketChannel channel, Object? frame) {
+    if (_stopped || !identical(_channel, channel)) return;
+    _received = true;
+    _attempt = 0;
+    final event = parseTerminalEvent(frame);
+    if (event != null) _onEvent(event);
+  }
+
+  /// [ended] when the socket's stream ended, which is when its close code
+  /// can be read; a refused handshake has none.
+  void _handleClosed(WebSocketChannel? channel, {bool ended = false}) {
+    if (_stopped || !identical(_channel, channel)) return;
+    final closeCode = ended ? channel?.closeCode : null;
+    _release();
+    final deliberate =
+        closeCode != null &&
+        (closeCode == 1000 || (closeCode >= 4000 && closeCode < 5000));
+    if (!_received || deliberate) {
+      _stopped = true;
+      return;
+    }
+    _retry = Timer(_retryDelay(_attempt++), _connect);
+  }
+
+  void _release() {
+    final channel = _channel;
+    final subscription = _subscription;
+    _channel = null;
+    _subscription = null;
+    _subscribed = false;
+    if (subscription != null) unawaited(subscription.cancel());
+    if (channel == null) return;
+    try {
+      unawaited(channel.sink.close().catchError((Object _) {}));
+    } catch (_) {}
+  }
+}

@@ -3,6 +3,8 @@ import 'package:riverpod/riverpod.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
 import 'package:conduit_core/features/tools/providers/tools_providers.dart';
+import 'package:conduit_core/providers/app_providers.dart'
+    show systemTerminalLiveFeaturesProvider;
 
 import '../models/terminal_models.dart';
 import '../providers/terminal_providers.dart';
@@ -25,10 +27,16 @@ abstract interface class TerminalBrowserGateway {
   String get sessionScopeId;
   String get currentPath;
 
+  /// Whether the Open WebUI server relays its terminals' events socket and
+  /// browser sessions (0.13 and later). Direct terminals do not go through
+  /// it.
+  bool get systemTerminalLiveFeatures;
+
   void setCurrentPath(String path);
   void setEntries(List<TerminalFileEntry> entries);
   void setListeningPorts(List<TerminalListeningPort> ports);
   void requestRefresh();
+  WebSocketChannel openChannel(Uri uri, {required TerminalServerKind kind});
 }
 
 abstract interface class TerminalSessionGateway {
@@ -97,6 +105,10 @@ final class RiverpodTerminalControllerGateway
 
   @override
   bool get autoConnect => _read(terminalAutoConnectProvider);
+
+  @override
+  bool get systemTerminalLiveFeatures =>
+      _read(systemTerminalLiveFeaturesProvider);
 
   @override
   TerminalConnectionState get connectionState =>

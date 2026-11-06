@@ -70,6 +70,7 @@ final class TerminalContextController with TerminalChangeNotifier {
         _didAutoSelectFallback = true;
         await _gateway.selectServer(availableServers.first);
       } else {
+        _browserController.stopLiveUpdates();
         await _sessionController.disconnect(showClosedBanner: false);
         _browserController.resetLoading();
       }
@@ -82,6 +83,7 @@ final class TerminalContextController with TerminalChangeNotifier {
     _syncKey = nextSyncKey;
     final syncGeneration = ++_syncGeneration;
 
+    _browserController.stopLiveUpdates();
     await _sessionController.disconnect(showClosedBanner: false);
     if (!_isCurrentSync(syncGeneration, selectedServer, sessionScopeId)) {
       return;
@@ -90,14 +92,15 @@ final class TerminalContextController with TerminalChangeNotifier {
     _gateway.setConnectionState(const TerminalConnectionState.disconnected());
 
     try {
-      final terminalEnabled = await service.isTerminalFeatureEnabled(
+      final features = await service.getFeatures(
         selectedServer,
         sessionScopeId: sessionScopeId,
       );
       if (!_isCurrentSync(syncGeneration, selectedServer, sessionScopeId)) {
         return;
       }
-      _setTerminalSupported(terminalEnabled);
+      _setTerminalSupported(features.terminal);
+      _browserController.setFeatures(selectedServer, sessionScopeId, features);
 
       final cwd = await service.getCwd(
         selectedServer,
@@ -122,6 +125,7 @@ final class TerminalContextController with TerminalChangeNotifier {
       if (!_isCurrentSync(syncGeneration, selectedServer, sessionScopeId)) {
         return;
       }
+      _browserController.startLiveUpdates(service, selectedServer);
 
       if (_gateway.autoConnect && terminalSupported) {
         await _connect(service, selectedServer, sessionScopeId);
@@ -145,6 +149,7 @@ final class TerminalContextController with TerminalChangeNotifier {
     if (_disposed) return;
     _syncKey = null;
     _syncGeneration++;
+    _browserController.stopLiveUpdates();
     await _sessionController.disconnect(showClosedBanner: false);
     _browserController.resetLoading();
   }

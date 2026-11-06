@@ -6,6 +6,7 @@ import '../models/terminal_models.dart';
 import '../services/terminal_service.dart';
 import 'terminal_change_notifier.dart';
 import 'terminal_controller_gateways.dart';
+import 'terminal_events_watcher.dart';
 import 'terminal_session_controller.dart';
 
 enum TerminalBrowserFailure {
@@ -57,14 +58,24 @@ class TerminalBrowserController with TerminalChangeNotifier {
   bool _loadingFiles = false;
   int _directoryLoadGeneration = 0;
   int _loadSequence = 0;
+  int _loadingSequence = 0;
   int _publishedSequence = 0;
   String? _publishedPath;
   bool _loadingPorts = false;
   bool _disposed = false;
+  ({String selectionId, String sessionScopeId, TerminalServerFeatures value})?
+  _features;
+  TerminalEventsWatcher? _events;
+  bool _liveRefreshing = false;
+  bool _liveRefreshPending = false;
 
   bool get loadingFiles => _loadingFiles;
 
   bool get loadingPorts => _loadingPorts;
+
+  /// Whether a socket keeps the files and ports current, rather than only
+  /// the refreshes the user and the app ask for.
+  bool get liveUpdates => _events?.active ?? false;
 
   TerminalBrowserOperationContext? captureOperationContext() {
     if (_disposed) return null;
@@ -113,12 +124,16 @@ class TerminalBrowserController with TerminalChangeNotifier {
   /// chose another path must not put the old one back. Two listings of the
   /// same directory, a refresh among them, publish in the order they were
   /// requested, whatever order they answer in.
+  ///
+  /// A [quiet] listing is one nobody asked for, such as a live update: it
+  /// shows no spinner and reports no failure.
   Future<void> loadDirectory(
     TerminalService service,
     TerminalServerInfo server, {
     required String path,
     required bool updateServerCwd,
     bool refresh = false,
+    bool quiet = false,
   }) async {
     final sessionScopeId = _gateway.sessionScopeId;
     if (!_isCurrentContext(server, sessionScopeId)) return;
@@ -132,7 +147,10 @@ class TerminalBrowserController with TerminalChangeNotifier {
         _isCurrentContext(server, sessionScopeId) &&
         (!refresh || _gateway.currentPath == normalizedPath);
 
-    _setLoadingFiles(true);
+    if (!quiet) {
+      _loadingSequence = sequence;
+      _setLoadingFiles(true);
+    }
     try {
       final entries = await service.listFiles(
         server,
@@ -150,6 +168,7 @@ class TerminalBrowserController with TerminalChangeNotifier {
 
       _gateway.setCurrentPath(normalizedPath);
       _gateway.setEntries(entries);
+      _events?.watchPath(normalizedPath);
 
       if (updateServerCwd) {
         unawaited(
@@ -161,16 +180,123 @@ class TerminalBrowserController with TerminalChangeNotifier {
         );
       }
     } catch (_) {
-      if (isCurrentLoad()) {
+      if (!quiet && isCurrentLoad()) {
         _onFailure(TerminalBrowserFailure.loadFiles);
       }
     } finally {
-      // Loading ends with the newest request, not with whichever answers last.
-      if (sequence == _loadSequence &&
+      // Loading ends with the newest request that showed it, not with
+      // whichever answers last.
+      if (sequence == _loadingSequence &&
           _isCurrentContext(server, sessionScopeId)) {
         _setLoadingFiles(false);
       }
     }
+  }
+
+  /// Records what [server] can do in [sessionScopeId], for live updates and
+  /// port previews.
+  void setFeatures(
+    TerminalServerInfo server,
+    String sessionScopeId,
+    TerminalServerFeatures features,
+  ) {
+    _features = (
+      selectionId: server.selectionId,
+      sessionScopeId: sessionScopeId,
+      value: features,
+    );
+  }
+
+  /// Keeps [server]'s files and ports current through its events socket,
+  /// when the terminal and the server relaying it have one. Otherwise the
+  /// browser refreshes on demand, as before.
+  void startLiveUpdates(TerminalService service, TerminalServerInfo server) {
+    stopLiveUpdates();
+    final sessionScopeId = _gateway.sessionScopeId;
+    if (_disposed || !_isCurrentContext(server, sessionScopeId)) return;
+    if (_featuresFor(server, sessionScopeId)?.events != true) return;
+    if (server.isSystem && !_gateway.systemTerminalLiveFeatures) return;
+    final token = service.authTokenForServer(server);
+    // A direct terminal without a key accepts an empty one; Open WebUI
+    // always needs the account's.
+    if (server.isSystem && token == null) return;
+
+    final watcher = TerminalEventsWatcher(
+      openChannel: _gateway.openChannel,
+      uri: service.buildEventsWebSocketUri(server),
+      kind: server.kind,
+      authPayload: buildTerminalWebSocketAuthPayload(
+        server,
+        token: token ?? '',
+        sessionScopeId: sessionScopeId,
+      ),
+      path: ensureTerminalDirectoryPath(_gateway.currentPath),
+      onEvent: (event) {
+        if (_disposed || !_isCurrentContext(server, sessionScopeId)) return;
+        switch (event) {
+          case TerminalFilesChanged():
+            _refreshLive();
+          case TerminalPortsChanged(:final ports):
+            _gateway.setListeningPorts(ports);
+            _setLoadingPorts(false);
+        }
+      },
+    );
+    _events = watcher;
+    watcher.start();
+  }
+
+  void stopLiveUpdates() {
+    final watcher = _events;
+    _events = null;
+    watcher?.stop();
+    _liveRefreshPending = false;
+  }
+
+  /// Lists the current directory again after the server reported a change.
+  /// A change reported while a listing is under way lists once more after
+  /// it, so the listing never ends older than the last change.
+  void _refreshLive() {
+    if (_liveRefreshing) {
+      _liveRefreshPending = true;
+      return;
+    }
+    _liveRefreshing = true;
+    unawaited(_runLiveRefresh());
+  }
+
+  Future<void> _runLiveRefresh() async {
+    try {
+      do {
+        _liveRefreshPending = false;
+        final service = _gateway.service;
+        final server = _selectedServer;
+        if (_disposed || service == null || server == null) return;
+        await loadDirectory(
+          service,
+          server,
+          path: _gateway.currentPath,
+          updateServerCwd: false,
+          refresh: true,
+          quiet: true,
+        );
+      } while (_liveRefreshPending && !_disposed);
+    } finally {
+      _liveRefreshing = false;
+    }
+  }
+
+  TerminalServerFeatures? _featuresFor(
+    TerminalServerInfo server,
+    String sessionScopeId,
+  ) {
+    final features = _features;
+    if (features == null ||
+        features.selectionId != server.selectionId ||
+        features.sessionScopeId != sessionScopeId) {
+      return null;
+    }
+    return features.value;
   }
 
   Future<void> loadPorts(
@@ -373,6 +499,7 @@ class TerminalBrowserController with TerminalChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
+    stopLiveUpdates();
     super.dispose();
   }
 
