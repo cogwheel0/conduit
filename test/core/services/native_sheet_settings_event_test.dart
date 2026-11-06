@@ -637,9 +637,12 @@ void main() {
   ) async {
     final container = await pumpApp(tester);
     expect(container.read(appSettingsProvider).slidingSidebarEnabled, isFalse);
+    // A value that is not a boolean leaves the setting as it was, whichever
+    // way it was set.
     for (final (value, expected) in [
+      ('yes', false),
       (true, true),
-      ('yes', true),
+      ('no', true),
       (false, false),
     ]) {
       NativeSheetBridge.instance.onControlChanged(
