@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:meta/meta.dart' show visibleForTesting;
+
 import 'package:dio/dio.dart';
 import 'package:drift/drift.dart' show Value;
 import 'package:riverpod/riverpod.dart';
@@ -819,16 +821,31 @@ class NoteAttachmentsController {
   }
 
   /// Hides recording [id], reported gone, unless the copy a move made of it
-  /// is still stored: the report then only missed where it was before.
+  /// is still stored: the report then only missed where it was before. A
+  /// move that starts while the copy is read settles the report itself, and
+  /// one that has moved the recording again meanwhile is checked by its own
+  /// copy.
   Future<void> _confirmGone(String id) async {
-    final PendingNoteAudioUpload? copy = _movedCopies[id];
-    final PendingNoteAudioUpload? current = copy == null
-        ? null
-        : await _store.loadCurrent(copy);
-    if (_disposed || current != null) return;
-    _movedCopies.remove(id);
-    _setChange(id, null);
+    while (true) {
+      final PendingNoteAudioUpload? copy = _movedCopies[id];
+      final PendingNoteAudioUpload? current = copy == null
+          ? null
+          : await _store.loadCurrent(copy);
+      if (_disposed || current != null) return;
+      if (_moving.contains(id)) {
+        _goneWhileMoving.add(id);
+        return;
+      }
+      if (!identical(_movedCopies[id], copy)) continue;
+      _movedCopies.remove(id);
+      _setChange(id, null);
+      return;
+    }
   }
+
+  /// Reports recording [id] gone, as a retry that found no copy does.
+  @visibleForTesting
+  void debugReportGone(String id) => _applyChange(id, null);
 
   /// Settles the reports of recordings gone that came in while [ids] moved:
   /// one the move made a copy of is checked against that copy; one it made

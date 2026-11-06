@@ -122,8 +122,10 @@ class _HeldScanStore extends NoteAudioUploadStore {
   Completer<void>? holdRebind;
   final rebindEntered = Completer<void>();
 
-  /// While set, reading a recording's current copy waits for it.
+  /// While set, reading a recording's current copy waits for it; with
+  /// [holdLoadCurrentOfNote], only a copy on that note waits.
   Completer<void>? holdLoadCurrent;
+  String? holdLoadCurrentOfNote;
   final loadCurrentEntered = Completer<void>();
 
   @override
@@ -131,7 +133,8 @@ class _HeldScanStore extends NoteAudioUploadStore {
     PendingNoteAudioUpload item,
   ) async {
     final hold = holdLoadCurrent;
-    if (hold != null) {
+    final of = holdLoadCurrentOfNote;
+    if (hold != null && (of == null || item.noteId == of)) {
       if (!loadCurrentEntered.isCompleted) loadCurrentEntered.complete();
       await hold.future;
     }
@@ -1539,6 +1542,89 @@ void main() {
           .equals(1);
       check(controller.pending.map((item) => item.id))
           .not((it) => it.contains(onRemoved.id));
+    });
+
+    test('a recording reported gone while it moves on again stays',
+        () async {
+      final held = _HeldScanStore(
+        applicationSupportDirectory: () async {
+          final dir = Directory('${root.path}/support');
+          await dir.create(recursive: true);
+          return dir;
+        },
+        temporaryDirectory: () async => Directory('${root.path}/cache'),
+      )..release.complete();
+      controller.dispose();
+      controller = NoteAttachmentsController(
+        container: container,
+        store: held,
+        noteId: 'note-1',
+        currentNote: () => openNote,
+        resolvedTitle: () => openNote.title,
+        onNoteUpdated: (updated) => openNote = updated,
+        onChanged: () => changes++,
+        onNotice: notices.add,
+      )..start();
+      api.uploadError = StateError('offline');
+      final recording1 = await held.stage(
+        source: await recording('two.m4a'),
+        serverId: 'server-1',
+        accountId: 'user:user-1',
+        noteId: 'note-1',
+        fileName: 'recording_2.m4a',
+      );
+      await controller.loadPending();
+      await waitFor(
+        () => controller.pending.length == 1 && !controller.isUploading,
+      );
+      Future<Note> storeNote(String id) async {
+        await db
+            .into(db.notes)
+            .insertOnConflictUpdate(
+              serverToNoteRow({
+                'id': id,
+                'user_id': 'user-1',
+                'title': id,
+                'data': {
+                  'content': {'md': id, 'html': ''},
+                },
+                'meta': {},
+                'is_pinned': false,
+                'created_at': 1713786305000000000,
+                'updated_at': 1713786305000000000,
+              }),
+            );
+        return readNote(id);
+      }
+
+      // The note is recovered once; the recording moves with it.
+      final first = await storeNote('local:first');
+      final original = openNote;
+      openNote = first;
+      await controller.rebindTo(original, first);
+      // A report of it gone is being checked against that copy when the new
+      // note is recovered in its turn, and the recording moves again.
+      held
+        ..holdLoadCurrentOfNote = 'local:first'
+        ..holdLoadCurrent = Completer<void>();
+      controller.debugReportGone(recording1.id);
+      await held.loadCurrentEntered.future;
+      final second = await storeNote('local:second');
+      openNote = second;
+      await controller.rebindTo(first, second);
+      // The retry the move starts fails, offline, and is over before the
+      // report is answered: nothing but the report touches the recording.
+      await waitFor(() => !controller.isUploading);
+      held.holdLoadCurrent!.complete();
+      held.holdLoadCurrent = null;
+      for (var i = 0; i < 20; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 5));
+      }
+
+      check(controller.pending.map((item) => item.id)).deepEquals([
+        recording1.id,
+      ]);
+      check(controller.pending.single.noteId).equals('local:second');
     });
 
     test('an empty title falls back to the untitled name', () async {
