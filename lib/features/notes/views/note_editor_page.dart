@@ -2924,6 +2924,9 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
   void _discardDraft() {
     if (_savingAsOwnNote) return;
     _saveDebounce?.cancel();
+    // A save as a note of its own that failed is not retried for a draft the
+    // user discarded.
+    _recovery.forgetPendingRetry();
     setState(() {
       _hasChanges = false;
       _pageMissing = false;

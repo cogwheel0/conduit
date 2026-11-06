@@ -820,6 +820,68 @@ void main() {
     expect(contentController(tester).document.toPlainText().trim(), 'one');
   });
 
+  testWidgets('once a draft whose save as a note of its own failed is '
+      'discarded, the next edit is saved to the note', (tester) async {
+    final note = twoPageNote();
+    await storeLocally(note);
+    await pumpEditor(tester, _DetailApi(detail: note));
+    await tester.tap(find.byKey(const ValueKey<String>('note-page-chip')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey<String>('note-page-p2')));
+    await tester.pumpAndSettle();
+    await storeLocally(
+      _noteJson(
+        writeAccess: true,
+        md: 'one',
+        pages: [
+          {
+            'id': 'main',
+            'title': 'Shared note',
+            'content': {'md': 'one', 'html': '', 'json': null},
+          },
+        ],
+      ),
+    );
+    typeInto(tester, 'lost? ');
+    await letAutosaveRun(tester);
+    await tester.pump();
+    expect(find.text(l10n(tester).notePageMissingNotice), findsOneWidget);
+
+    // Saving the page as a note of its own fails: the store refuses it.
+    await tester.runAsync(
+      () => db.customStatement(
+        "CREATE TRIGGER refuse_local_note BEFORE INSERT ON notes "
+        "WHEN NEW.id LIKE 'local:%' BEGIN SELECT RAISE(ABORT, 'refused'); END",
+      ),
+    );
+    await tester.tap(find.byKey(const ValueKey<String>('note-save-as-own')));
+    await tester.pumpAndSettle();
+    await tester.runAsync(
+      () => db.customStatement('DROP TRIGGER refuse_local_note'),
+    );
+
+    await tester.tap(find.byKey(const ValueKey<String>('note-discard-draft')));
+    await tester.pumpAndSettle();
+    expect(contentController(tester).document.toPlainText().trim(), 'one');
+
+    // The next edit is the note's own, saved to it, not another try at the
+    // discarded draft.
+    typeInto(tester, 'more ');
+    await letAutosaveRun(tester);
+    await tester.pumpAndSettle();
+    final copies = [
+      for (final row in await db.select(db.notes).get())
+        if (row.id.startsWith('local:')) row,
+    ];
+    expect(copies, isEmpty);
+    final row = (await db.notesDao.getNote('note-1'))!;
+    expect(row.dirtyData, isTrue);
+    expect(
+      (decodeJsonMap(row.data)['content'] as Map)['md'],
+      startsWith('more one'),
+    );
+  });
+
   testWidgets('a one-page note from 0.12.5 shows the files its content links '
       'as cards in the text', (tester) async {
     const md = 'original\n\n[Rec.m4a](/api/v1/files/f1/content)';

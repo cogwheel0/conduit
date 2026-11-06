@@ -132,6 +132,13 @@ class DeletedNoteDraftRecovery {
     );
   }
 
+  /// Forgets a recovery owed for a draft the user discarded, so the next
+  /// edit is saved to the note as usual instead of retrying the recovery.
+  void forgetPendingRetry() {
+    _retry = null;
+    _queued = false;
+  }
+
   void dispose() {
     _authEpochSubscription?.close();
     _authEpochSubscription = null;
