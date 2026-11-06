@@ -1298,14 +1298,18 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
           if (!mounted) return;
           _applyDictationText(text);
         },
+        // A run that ends by itself is over too: a card that comes in later
+        // goes in at the cursor again.
         onDone: () {
           if (!mounted) return;
           _dictationStream = null;
+          _dictationRun = null;
           setState(() => _isRecording = false);
         },
         onError: (_) {
           if (!mounted) return;
           _dictationStream = null;
+          _dictationRun = null;
           setState(() => _isRecording = false);
         },
       );

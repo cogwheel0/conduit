@@ -1399,6 +1399,69 @@ void main() {
     expect(noteFileCardsIn(contentController(tester).document), isNotEmpty);
   });
 
+  testWidgets('once dictation has ended by itself, a card goes in at the '
+      'cursor again', (tester) async {
+    final originalOnError = FlutterError.onError;
+    FlutterError.onError = (details) {
+      if (details.exceptionAsString().contains('ink splashes may be invisible')) {
+        return;
+      }
+      originalOnError?.call(details);
+    };
+    addTearDown(() => FlutterError.onError = originalOnError);
+    final note = _noteJson(
+      writeAccess: true,
+      md: 'hello',
+      pages: [
+        {
+          'id': 'main',
+          'title': 'Shared note',
+          'content': {'md': 'hello', 'html': '', 'json': null},
+        },
+      ],
+    );
+    await storeLocally(note);
+    final voice = _HeldVoice()..ready.complete(true);
+    await pumpEditor(tester, _DetailApi(detail: note), voice: voice);
+    await tester.tap(find.byTooltip(l10n(tester).voiceOptions));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(l10n(tester).dictation).last);
+    await tester.pumpAndSettle();
+    voice.run!
+      ..add('spoken')
+      ..close();
+    await tester.pumpAndSettle();
+
+    // The user puts the cursor at the start; a sync attaches a file, and the
+    // next save brings its card in there.
+    await tester.tap(find.byType(FleatherEditor));
+    await tester.pump();
+    contentController(
+      tester,
+    ).updateSelection(const TextSelection.collapsed(offset: 0));
+    await tester.pump();
+    const link = '[Rec.m4a](/api/v1/files/f1/content)';
+    await storeLocally(
+      _noteJson(
+        writeAccess: true,
+        md: 'hello\n\n$link',
+        pages: [
+          {
+            'id': 'main',
+            'title': 'Shared note',
+            'content': {'md': 'hello\n\n$link', 'html': '', 'json': null},
+          },
+        ],
+      ),
+    );
+    await letAutosaveRun(tester);
+    await tester.pump();
+
+    final text = contentController(tester).document.toPlainText();
+    expect(noteFileCardsIn(contentController(tester).document), isNotEmpty);
+    expect(text.indexOf('\uFFFC'), lessThan(text.indexOf('hello')));
+  });
+
   testWidgets('removing a file card calls off dictation that is still '
       'starting', (tester) async {
     final originalOnError = FlutterError.onError;
