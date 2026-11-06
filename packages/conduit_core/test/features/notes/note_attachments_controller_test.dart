@@ -1249,6 +1249,7 @@ void main() {
 
     test('a recording moved off a removed page can still attach when a retry '
         'runs during the move', () async {
+      void Function()? onChange;
       final held = _HeldScanStore(
         applicationSupportDirectory: () async {
           final dir = Directory('${root.path}/support');
@@ -1265,7 +1266,10 @@ void main() {
         currentNote: () => openNote,
         resolvedTitle: () => openNote.title,
         onNoteUpdated: (updated) => openNote = updated,
-        onChanged: () => changes++,
+        onChanged: () {
+          changes++;
+          onChange?.call();
+        },
         onNotice: notices.add,
       )..start();
       // A recording made on the page a sync removes, whose upload failed.
@@ -1318,17 +1322,26 @@ void main() {
         onRemoved.id,
       ]);
 
-      // It is the new note's recording: retried, it attaches there.
+      // Retried, it attaches there. The upload is not over while the
+      // recording is still in view, waiting on the check of its copy.
+      var overWhileShown = false;
+      onChange = () {
+        if (!controller.isUploading && controller.pending.isNotEmpty) {
+          overWhileShown = true;
+        }
+      };
       await controller.retry();
       await waitFor(() => !controller.isUploading);
+      check(overWhileShown).isFalse();
+      check(controller.pending).isEmpty();
       final stored = await readNote('local:page');
       check(stored.data.files ?? const <Map<String, dynamic>>[]).length
           .equals(1);
-      check(controller.pending).isEmpty();
     });
 
     test('a recording retried after its move, while the move goes on, '
         'stays to be attached', () async {
+      void Function()? onChange;
       final held = _HeldScanStore(
         applicationSupportDirectory: () async {
           final dir = Directory('${root.path}/support');
@@ -1345,7 +1358,10 @@ void main() {
         currentNote: () => openNote,
         resolvedTitle: () => openNote.title,
         onNoteUpdated: (updated) => openNote = updated,
-        onChanged: () => changes++,
+        onChanged: () {
+          changes++;
+          onChange?.call();
+        },
         onNotice: notices.add,
       )..start();
       api.uploadError = StateError('offline');
@@ -1394,12 +1410,21 @@ void main() {
         onRemoved.id,
       ]);
 
+      // Retried, it attaches there. The upload is not over while the
+      // recording is still in view, waiting on the check of its copy.
+      var overWhileShown = false;
+      onChange = () {
+        if (!controller.isUploading && controller.pending.isNotEmpty) {
+          overWhileShown = true;
+        }
+      };
       await controller.retry();
       await waitFor(() => !controller.isUploading);
+      check(overWhileShown).isFalse();
+      check(controller.pending).isEmpty();
       final stored = await readNote('local:page');
       check(stored.data.files ?? const <Map<String, dynamic>>[]).length
           .equals(1);
-      check(controller.pending).isEmpty();
     });
 
     test('a recording that was finished while it was being moved does not '

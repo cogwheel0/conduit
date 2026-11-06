@@ -480,7 +480,9 @@ class NoteAttachmentsController {
 
       // A shared in-flight operation may have been owned by a different
       // editor instance, whose change callback does not target this page.
-      _applyChange(id, result);
+      // A moved recording is checked against its copy before the upload
+      // counts as over, so it is not reported saved while still in view.
+      await _reportChange(id, result);
 
       if (result == null) {
         if (showFeedback) _onNotice(NoteAudioNotice.recordingSaved);
