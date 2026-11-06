@@ -1,3 +1,5 @@
+import 'package:conduit/shared/services/navigation_service.dart';
+import 'dart:async';
 
 import 'package:conduit/features/hermes/widgets/hermes_sessions_tab.dart';
 import 'package:conduit/features/navigation/widgets/drawer_shell_page.dart';
@@ -191,6 +193,54 @@ void main() {
       expect(history.position.pixels, open ? 0 : 400);
     });
   }
+
+  testWidgets('a page pushed over the open sidebar keeps the status bar', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final date = DateTime(2026, 1, 1);
+    await tester.pumpWidget(
+      sidebarTestBuildHarness(
+        controllers: SidebarTestSidebarHarnessControllers(),
+        shellChat: const Scaffold(body: Text('Chat content')),
+        appearancePage: const Scaffold(body: Text('Appearance settings')),
+        conversations: [
+          for (var i = 0; i < 40; i++)
+            Conversation(
+              id: 'demo-$i',
+              title: 'Example $i',
+              createdAt: date,
+              updatedAt: date,
+            ),
+        ],
+      ),
+    );
+    await tester.pumpAndSettle();
+    await sidebarTestOpenSidebar(tester);
+    final history = tester.state<ScrollableState>(
+      find
+          .descendant(
+            of: find.byKey(const PageStorageKey<String>('chats_drawer_scroll')),
+            matching: find.byType(Scrollable),
+          )
+          .first,
+    );
+    history.position.jumpTo(400);
+    unawaited(NavigationService.router.push(Routes.appearanceSettings));
+    await tester.pumpAndSettle();
+    expect(find.text('Appearance settings'), findsOneWidget);
+
+    tester.simulateStatusBarTap();
+    await tester.pumpAndSettle();
+    // A scroll started while covered would finish once the page closes.
+    NavigationService.router.pop();
+    await tester.pumpAndSettle();
+
+    expect(find.text('Appearance settings'), findsNothing);
+    expect(history.position.pixels, 400);
+  });
 
   testWidgets('offscreen sidebar defers native header controls until opened', (
     tester,

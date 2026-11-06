@@ -297,12 +297,15 @@ class _SidebarPageState extends ConsumerState<SidebarPage>
   }
 
   /// Tapping the status bar scrolls the list the sidebar shows to the top
-  /// while the sidebar covers the main pane, which then leaves its own
-  /// scroll position alone.
+  /// while the sidebar covers the main pane and nothing covers the sidebar.
+  /// The main pane then leaves its own scroll position alone.
   @override
   void handleStatusBarTap() {
     super.handleStatusBarTap();
     if (!mounted || !sidebarCoversMainPane(context)) return;
+    // A page pushed over the shell, such as Settings, has the tap instead.
+    final route = ModalRoute.of(context);
+    if (route != null && !route.isCurrent) return;
     final tab = ref.read(appSettingsProvider).slidingSidebarEnabled
         ? ref.read(sidebarSelectedHistoryTabProvider)
         : ref.read(sidebarNavigationSnapshotProvider).selectedTab;

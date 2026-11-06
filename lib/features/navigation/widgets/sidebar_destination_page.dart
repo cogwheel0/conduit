@@ -19,6 +19,7 @@ import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/platform_ui/vocabulary.dart';
 import '../../../shared/widgets/sidebar_layout_contract.dart';
 import '../providers/sidebar_providers.dart';
+import '../providers/sidebar_tab_scroll_registry.dart';
 import '../utils/chat_list_back.dart';
 import 'sidebar_page_leading_button.dart';
 import 'sidebar_tab_registry.dart';
@@ -59,6 +60,9 @@ class _SidebarDestinationPageState
     extends ConsumerState<SidebarDestinationPage> {
   final _searchController = TextEditingController();
   final _searchFocus = FocusNode();
+
+  /// Keeps this page's list from standing in for the sidebar's.
+  final _scrollRegistry = SidebarTabScrollRegistry();
   bool _searchExpanded = false;
   bool _wasActive = false;
 
@@ -202,10 +206,13 @@ class _SidebarDestinationPageState
       body: SidebarTabLayoutScope(
         parentOwnsHeaderInset: true,
         bottomNavigationVisible: false,
-        child: tab.bodyBuilder(
-          showBottomNavigation: false,
-          active: active,
-          searchController: _searchController,
+        child: SidebarTabScrollRegistryScope(
+          registry: _scrollRegistry,
+          child: tab.bodyBuilder(
+            showBottomNavigation: false,
+            active: active,
+            searchController: _searchController,
+          ),
         ),
       ),
     );
