@@ -6870,12 +6870,17 @@ void main() {
         available: const [duplicate, other],
       );
       api.failModelSaves = 3;
+      final engine = container.read(syncEngineProvider.notifier)
+          as _QuietSyncEngine;
+      final pullsBefore = engine.pulls;
 
       await saveChatModelChoice(container, other);
 
       check(api.savedModels).length.equals(3);
-      // Given up: a change made elsewhere shows again.
+      // Given up: a change made elsewhere shows again, and the server's copy
+      // is read, as a pull would skip a chat the server has not changed.
       check(db.chatsDao.hasUnconfirmedModelList(chatId)).isFalse();
+      check(engine.pulls).equals(pullsBefore + 1);
     });
 
     test('a model list the server did not take is sent again', () async {
@@ -6884,6 +6889,9 @@ void main() {
         available: const [duplicate, other],
       );
       api.failModelSaves = 1;
+      final engine = container.read(syncEngineProvider.notifier)
+          as _QuietSyncEngine;
+      final pullsBefore = engine.pulls;
 
       await saveChatModelChoice(container, other);
 
@@ -6891,8 +6899,10 @@ void main() {
         ['model-2'],
         ['model-2'],
       ]);
-      // The server has it now: copies it sends from here on are taken.
+      // The server has it now: copies it sends from here on are taken, and
+      // nothing needs reading again.
       check(db.chatsDao.hasUnconfirmedModelList(chatId)).isFalse();
+      check(engine.pulls).equals(pullsBefore);
     });
 
     test('a chat listed as running a task the server no longer runs does not '

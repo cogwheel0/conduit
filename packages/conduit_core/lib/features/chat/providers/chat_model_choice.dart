@@ -20,6 +20,7 @@ import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit_core/models/model.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/sync/chat_locks.dart';
+import 'package:conduit_core/sync/sync_engine.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
 
 /// The model the user last picked in an open chat, with the ids of the
@@ -309,6 +310,10 @@ class ChatModelSaveQueue extends Notifier<void> {
               .read(appDatabaseProvider)
               ?.chatsDao
               .releaseUnconfirmedModelList(chatId);
+          // A pull while the pick held may have kept it over a list chosen
+          // elsewhere, and pulls skip a chat the server has not changed
+          // since: the server's copy is read again now.
+          _refetchChat(chatId);
         }
         continue;
       }
@@ -403,6 +408,24 @@ class ChatModelSaveQueue extends Notifier<void> {
         _noTaskOfOurs[chatId] == token);
   }
 
+
+  /// Reads chat [chatId] from the server once; a read that fails leaves the
+  /// chat to the next change the server lists.
+  void _refetchChat(String chatId) {
+    final Future<Object?> read;
+    try {
+      read = ref.read(syncEngineProvider.notifier).pullChatNow(chatId);
+    } catch (error) {
+      _logFailure(chatId, error);
+      return;
+    }
+    unawaited(
+      read.then<void>(
+        (_) {},
+        onError: (Object error) => _logFailure(chatId, error),
+      ),
+    );
+  }
 
   void _logFailure(String chatId, Object error) {
     DebugLogger.warning(
