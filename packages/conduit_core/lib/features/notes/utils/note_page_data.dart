@@ -303,7 +303,13 @@ Map<String, dynamic> noteContentWithoutFile(
     String ofFile(Match match) => match[1] == fileId ? '' : match[0]!;
     html = html
         .replaceAllMapped(_htmlFileBlockPattern, ofFile)
-        .replaceAllMapped(_htmlFileAnchorPattern, ofFile);
+        .replaceAllMapped(_htmlFileAnchorPattern, ofFile)
+        // A block holding more than the file's link keeps the rest, and no
+        // longer names the file: the editor would read it back as the file.
+        .replaceAllMapped(
+          _htmlFileBlockOpenPattern,
+          (Match match) => match[1] == fileId ? '<div>' : match[0]!,
+        );
     if (_htmlFileLinkIds(html).contains(fileId)) html = '';
   }
   Map<String, dynamic>? json = rawJson is Map
@@ -320,12 +326,19 @@ Map<String, dynamic> noteContentWithoutFile(
   };
 }
 
-/// A block [noteContentWithLinkedFiles] puts a file's link in, with the id it
-/// names.
+/// A block holding only a file's link, as [noteContentWithLinkedFiles] and
+/// Open WebUI's editor write it, with the id it names. A block holding more
+/// is not taken whole: its other content stays.
 final RegExp _htmlFileBlockPattern = RegExp(
-  r'''<div\b[^>]*\sdata-file-id\s*=\s*["']([^"']*)["'][^>]*>.*?</div>''',
+  r'''<div\b[^>]*\sdata-file-id\s*=\s*["']([^"']*)["'][^>]*>\s*'''
+  r'''(?:<a\b[^>]*>(?:(?!</?(?:a|div)\b)[\s\S])*</a>)?\s*</div>''',
   caseSensitive: false,
-  dotAll: true,
+);
+
+/// The opening tag of a block that names a file, with the id it names.
+final RegExp _htmlFileBlockOpenPattern = RegExp(
+  r'''<div\b[^>]*\sdata-file-id\s*=\s*["']([^"']*)["'][^>]*>''',
+  caseSensitive: false,
 );
 
 /// A whole anchor element linking a file's content, with the file's id.
