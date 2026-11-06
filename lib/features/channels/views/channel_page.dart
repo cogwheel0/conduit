@@ -1142,6 +1142,19 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
     return listed ?? channel?.isChannelMuted ?? false;
   }
 
+  /// Whether channel [channelId] is the page on screen. Another page shown
+  /// since keeps this one mounted out of sight, and a request it sent that
+  /// finishes then must leave that page where it is.
+  bool _isChannelShown(String channelId) {
+    final current = NavigationService.currentRoute;
+    if (current == null) return false;
+    return Uri.parse(current).path ==
+        NavigationService.router.namedLocation(
+          RouteNames.channel,
+          pathParameters: {'id': channelId},
+        );
+  }
+
   Future<void> _leaveChannel() async {
     final channelId = widget.channelId;
     final api = ref.read(apiServiceProvider);
@@ -1176,7 +1189,7 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
       }
       ref.read(channelsListProvider.notifier).removeChannel(channelId);
       ref.read(activeChannelProvider.notifier).clear();
-      NavigationService.router.go(Routes.chat);
+      if (_isChannelShown(channelId)) NavigationService.router.go(Routes.chat);
     } catch (e, s) {
       developer.log(
         'Failed to leave channel',
@@ -1224,7 +1237,7 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
       }
       ref.read(channelsListProvider.notifier).removeChannel(channelId);
       ref.read(activeChannelProvider.notifier).clear();
-      NavigationService.router.go(Routes.chat);
+      if (_isChannelShown(channelId)) NavigationService.router.go(Routes.chat);
     } catch (e, s) {
       developer.log(
         'Failed to delete channel',
