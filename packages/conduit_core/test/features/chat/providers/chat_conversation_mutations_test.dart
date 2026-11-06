@@ -1187,6 +1187,54 @@ void main() {
         expect(container.read(selectedToolIdsProvider), ['tool-t']);
       });
     });
+
+    test('an archive the server takes leaves the picks of a new chat started '
+        'meanwhile', () async {
+      final pulls = <String>[];
+      final api = _MutationApi();
+      final container = containerWith(
+        pulls: pulls,
+        apiOverride: apiServiceProvider.overrideWithValue(api),
+      );
+      final ref = container;
+
+      await runAsync(() async {
+        await seedServer('chat-s', title: 'Server');
+        await container.read(conversationsProvider.future);
+        container
+            .read(activeConversationProvider.notifier)
+            .set(
+              _conversation(
+                'chat-s',
+                title: 'Server',
+                storage: ChatStorageKind.openWebUi,
+                messages: [_message('m1', 'hello')],
+              ),
+            );
+        api
+          ..gate = Completer<void>()
+          ..callStarted = Completer<void>();
+
+        final pending = archiveConversation(
+          ref,
+          _openWebUiScoped('chat-s'),
+          true,
+        );
+        await api.callStarted!.future.timeout(const Duration(seconds: 2));
+        // The user starts a new chat, which leaves none open, and picks a
+        // filter and web search for it.
+        clearSelectedFiltersForConversationBoundary(container);
+        container.read(selectedFilterIdsProvider.notifier).set(['filter-new']);
+        container.read(webSearchEnabledProvider.notifier).set(true);
+
+        api.gate!.complete();
+        await pending;
+
+        expect(container.read(activeConversationProvider), isNull);
+        expect(container.read(selectedFilterIdsProvider), ['filter-new']);
+        expect(container.read(webSearchEnabledProvider), isTrue);
+      });
+    });
   });
 
   group('shareConversation', () {

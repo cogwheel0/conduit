@@ -302,6 +302,16 @@ Future<void> archiveConversation(
   // Update local state first. The chat's picks stay until the server takes
   // the archive: a refused one opens the chat again with them as they were,
   // the choices the user made and the defaults they left alone.
+  //
+  // Opening another chat, or starting a new one, starts the picks again with
+  // a new session; while this one holds, the screen is still the one the
+  // archive left.
+  final Object? picksSession = leavingActiveConversation
+      ? _readProvider(ref, chatPicksSessionProvider)
+      : null;
+  bool stillWhereArchiveLeft() =>
+      _readProvider(ref, activeConversationProvider) == null &&
+      identical(_readProvider(ref, chatPicksSessionProvider), picksSession);
   if (leavingActiveConversation) {
     _readProvider(ref, activeConversationProvider.notifier).clear();
     _readProvider(ref, chatMessagesProvider.notifier).clearMessages();
@@ -313,9 +323,9 @@ Future<void> archiveConversation(
     await api.archiveConversation(rawId, archived);
 
     // The chat is gone from the screen for good: the picks start again, unless
-    // another chat was opened meanwhile, which started them itself.
-    if (leavingActiveConversation &&
-        _readProvider(ref, activeConversationProvider) == null) {
+    // another chat was opened or started meanwhile, which started them itself
+    // and may hold picks of its own by now.
+    if (leavingActiveConversation && stillWhereArchiveLeft()) {
       clearSelectedFiltersForConversationBoundary(ref);
     }
 
@@ -337,8 +347,7 @@ Future<void> archiveConversation(
     );
 
     // If server operation failed and we archived locally, restore the conversation
-    if (leavingActiveConversation &&
-        _readProvider(ref, activeConversationProvider) == null) {
+    if (leavingActiveConversation && stillWhereArchiveLeft()) {
       _readProvider(
         ref,
         activeConversationProvider.notifier,
