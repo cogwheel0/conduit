@@ -255,10 +255,16 @@ class WorkspaceKnowledgeDetail {
   const WorkspaceKnowledgeDetail({
     required this.summary,
     this.files = const [],
+    this.warning,
   });
 
   final WorkspaceKnowledgeSummary summary;
   final List<WorkspaceKnowledgeFile> files;
+
+  /// The server's account of files it could not add, as a batch add reports
+  /// it (`warnings`: a message and one line per file); null when all went in.
+  /// Only the files in [files] were added then.
+  final String? warning;
 
   bool get isExternal => summary.isExternal;
 
@@ -268,7 +274,21 @@ class WorkspaceKnowledgeDetail {
         files: workspaceJsonList(json['files'])
             .map(WorkspaceKnowledgeFile.fromJson)
             .toList(growable: false),
+        warning: _warningText(json['warnings']),
       );
+
+  static String? _warningText(Object? warnings) {
+    if (warnings is! Map) return null;
+    final lines = <String>[
+      if (warnings['message'] case final String message
+          when message.trim().isNotEmpty)
+        message.trim(),
+      if (warnings['errors'] case final List errors)
+        for (final error in errors)
+          if ('$error'.trim().isNotEmpty) '$error'.trim(),
+    ];
+    return lines.isEmpty ? null : lines.join('\n');
+  }
 }
 
 @immutable

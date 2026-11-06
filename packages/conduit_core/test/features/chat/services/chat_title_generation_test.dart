@@ -61,6 +61,26 @@ void main() {
       check(request.model).equals('branch-model');
     });
 
+    test("a model that is not the server's is passed over", () {
+      // The newest answer came from a Hermes or Direct model.
+      final request = chatTitleRequest(
+        _chat({
+          'history': history,
+          'models': ['chat-model'],
+        }),
+        selectedModelId: 'direct-model',
+        isServerModel: (id) => id == 'chat-model',
+      );
+
+      check(request!.model).equals('chat-model');
+      check(
+        chatTitleRequest(
+          _chat({'history': history}),
+          isServerModel: (_) => false,
+        ),
+      ).isNull();
+    });
+
     test('the model picked in the open chat comes first', () {
       final request = chatTitleRequest(
         _chat({'history': history}),

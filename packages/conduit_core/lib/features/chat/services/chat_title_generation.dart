@@ -13,11 +13,17 @@ typedef ChatTitleRequest = ({String model, List<Map<String, dynamic>> messages})
 /// its content otherwise, falling back to the flat `messages` list of a chat
 /// stored before the history tree. The model is [selectedModelId], the model
 /// picked in the open chat, then the newest answer's model on that branch,
-/// then the chat's first model.
+/// then the chat's first model, each only when [isServerModel] accepts it: a
+/// turn answered by a Direct or Hermes model records an id the server does
+/// not have, and asking for it would always fail.
 ChatTitleRequest? chatTitleRequest(
   Map<String, dynamic> chat, {
   String? selectedModelId,
+  bool Function(String modelId)? isServerModel,
 }) {
+  bool usable(Object? id) =>
+      id is String && id.isNotEmpty && (isServerModel?.call(id) ?? true);
+
   final content = chat['chat'];
   if (content is! Map) return null;
 
@@ -48,15 +54,13 @@ ChatTitleRequest? chatTitleRequest(
   ];
   if (messages.isEmpty) return null;
 
-  String? model = selectedModelId?.trim();
-  if (model == null || model.isEmpty) {
-    model = null;
+  final selected = selectedModelId?.trim();
+  String? model = usable(selected) ? selected : null;
+  if (model == null) {
     for (final message in branch.reversed) {
       final answerModel = message['model'];
-      if (message['role'] == 'assistant' &&
-          answerModel is String &&
-          answerModel.isNotEmpty) {
-        model = answerModel;
+      if (message['role'] == 'assistant' && usable(answerModel)) {
+        model = answerModel as String;
         break;
       }
     }
@@ -65,8 +69,8 @@ ChatTitleRequest? chatTitleRequest(
     final models = content['models'];
     if (models is List) {
       for (final candidate in models) {
-        if (candidate is String && candidate.isNotEmpty) {
-          model = candidate;
+        if (usable(candidate)) {
+          model = candidate as String;
           break;
         }
       }

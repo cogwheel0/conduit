@@ -19,10 +19,22 @@ const _server = ServerConfig(id: 's', name: 'S', url: 'http://localhost:0');
 /// check with [validateStatus], stores uploads, and answers links with
 /// [attachStatus]. Every request is recorded as `METHOD path`.
 class _KnowledgeServer implements HttpClientAdapter {
-  _KnowledgeServer({this.validateStatus = 200, this.attachStatus = 200});
+  _KnowledgeServer({
+    this.validateStatus = 200,
+    this.attachStatus = 200,
+    this.failUpload,
+    this.batchProcessed,
+  });
 
   final int validateStatus;
   final int attachStatus;
+
+  /// The upload, counted from 1, that fails.
+  final int? failUpload;
+
+  /// When set, a batch add reports only these uploads as added, with a
+  /// warning for the rest, as Open WebUI does for files it fails to process.
+  final Set<String>? batchProcessed;
   final requests = <String>[];
   final validations = <Map<String, dynamic>>[];
   var _uploads = 0;
@@ -42,14 +54,35 @@ class _KnowledgeServer implements HttpClientAdapter {
     requests.add('${options.method} $path');
     if (path.endsWith('/files/validate')) {
       validations.add(Map<String, dynamic>.from(options.data as Map));
-      return validateStatus == 200
-          ? _json({'status': true})
-          : _json({
-              'detail': 'Knowledge base file limit exceeded (2 files maximum).',
-            }, status: validateStatus);
+      return switch (validateStatus) {
+        200 => _json({'status': true}),
+        // Servers before 0.13 answer an unknown POST so.
+        405 => _json({'detail': 'Method Not Allowed'}, status: 405),
+        final status => _json({
+          'detail': 'Knowledge base file limit exceeded (2 files maximum).',
+        }, status: status),
+      };
     }
     if (path == '/api/v1/files/' && options.method == 'POST') {
-      return _json({'id': 'upload-${++_uploads}'});
+      if (++_uploads == failUpload) {
+        return _json({'detail': 'Upload failed'}, status: 500);
+      }
+      return _json({'id': 'upload-$_uploads'});
+    }
+    final processed = batchProcessed;
+    if (processed != null && path.endsWith('/files/batch/add')) {
+      return _json({
+        'id': 'kb-1',
+        'name': 'Docs',
+        'user_id': 'owner',
+        'files': [
+          for (final id in processed) {'id': id, 'filename': '$id.txt'},
+        ],
+        'warnings': {
+          'message': 'Some files failed to process',
+          'errors': ['upload-2: Unsupported file'],
+        },
+      });
     }
     if (path.endsWith('/file/add') || path.endsWith('/files/batch/add')) {
       return attachStatus == 200
@@ -171,6 +204,72 @@ void main() {
       check(server.deletions.toList()).deepEquals([
         'DELETE /api/v1/files/upload-1',
       ]);
+    });
+
+    test('a server before 0.13 has no check, and the upload goes on', () async {
+      final server = _KnowledgeServer(validateStatus: 405);
+      final container = await _container(server);
+      addTearDown(container.dispose);
+      final files = container.read(
+        workspaceKnowledgeFilesProvider('kb-1').notifier,
+      );
+
+      await files.uploadMany([_file('a.txt', 3), _file('b.txt', 7)]);
+      await files.uploadBytes('c.txt', const [1]);
+
+      check(server.uploads).length.equals(3);
+      // Asked once, then left alone.
+      check(server.validations).length.equals(1);
+    });
+
+    test('files the server could not process are deleted again', () async {
+      final server = _KnowledgeServer(batchProcessed: {'upload-1'});
+      final container = await _container(server);
+      addTearDown(container.dispose);
+
+      await check(
+        container
+            .read(workspaceKnowledgeFilesProvider('kb-1').notifier)
+            .uploadMany([_file('a.txt', 3), _file('b.txt', 7)]),
+      ).throws<KnowledgeUploadRefused>(
+        (it) => it.has((e) => e.reason, 'reason').contains('Unsupported file'),
+      );
+      check(server.deletions.toList()).deepEquals([
+        'DELETE /api/v1/files/upload-2',
+      ]);
+    });
+
+    test('an upload that fails midway deletes the ones before it', () async {
+      final server = _KnowledgeServer(failUpload: 2);
+      final container = await _container(server);
+      addTearDown(container.dispose);
+
+      await check(
+        container
+            .read(workspaceKnowledgeFilesProvider('kb-1').notifier)
+            .uploadMany([_file('a.txt', 3), _file('b.txt', 7), _file('c', 1)]),
+      ).throws();
+      check(server.deletions.toList()).deepEquals([
+        'DELETE /api/v1/files/upload-1',
+      ]);
+      check(
+        server.requests.where((r) => r.endsWith('/batch/add')),
+      ).isEmpty();
+    });
+
+    test('a full base still takes a file it already holds', () async {
+      // The server lets a base re-link one of its own files at its limit;
+      // nothing is uploaded, so there is nothing to check first.
+      final server = _KnowledgeServer(validateStatus: 400);
+      final container = await _container(server);
+      addTearDown(container.dispose);
+
+      await container
+          .read(workspaceKnowledgeFilesProvider('kb-1').notifier)
+          .attachExisting('already-there');
+
+      check(server.validations).isEmpty();
+      check(server.requests).contains('POST /api/v1/knowledge/kb-1/file/add');
     });
 
     test("the user's own file is never deleted when linking it fails", () async {

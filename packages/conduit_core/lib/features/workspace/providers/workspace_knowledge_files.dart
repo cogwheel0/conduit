@@ -305,11 +305,11 @@ class WorkspaceKnowledgeFiles extends _$WorkspaceKnowledgeFiles {
   }
 
   /// Attaches a file that already exists on the server into the current dir.
+  /// Nothing is uploaded, so the server's own check on linking decides: it
+  /// lets a full base take a file it already holds.
   Future<void> attachExisting(String fileId) async {
     await _run(() async {
       final session = WorkspaceSessionIdentity.read(ref);
-      await session.api.validateWorkspaceKnowledgeUpload(knowledgeId, count: 1);
-      session.ensureCurrent(ref);
       try {
         await _attach(session.api, fileId);
       } on DioException catch (error) {
@@ -369,12 +369,22 @@ class WorkspaceKnowledgeFiles extends _$WorkspaceKnowledgeFiles {
         await _attach(api, fileIds.single);
       } else {
         final directoryId = _current.isRoot ? null : _current.directoryId;
-        await api.attachWorkspaceKnowledgeFiles(
+        final added = await api.attachWorkspaceKnowledgeFiles(
           knowledgeId,
           fileIds
               .map((id) => (fileId: id, directoryId: directoryId))
               .toList(growable: false),
         );
+        // Files the server could not process were not added; the rest were.
+        final warning = added?.warning;
+        if (warning != null) {
+          final linked = {for (final file in added!.files) file.id};
+          await _discardUploads(api, [
+            for (final id in fileIds)
+              if (!linked.contains(id)) id,
+          ]);
+          throw KnowledgeUploadRefused(warning);
+        }
       }
     } on DioException catch (error) {
       final status = error.response?.statusCode;
@@ -553,6 +563,17 @@ class WorkspaceKnowledgeFiles extends _$WorkspaceKnowledgeFiles {
       state = AsyncData(_current.copyWith(clearUpload: true));
       await refresh();
       _reconcile();
+    } on KnowledgeUploadRefused {
+      // The server said why; the caller shows it, and the browser is not
+      // broken. Some files of a batch may have gone in, so the list reloads.
+      if (session.isCurrent(ref)) {
+        state = AsyncData(_current.copyWith(isBusy: false, clearUpload: true));
+        try {
+          await refresh();
+          _reconcile();
+        } catch (_) {}
+      }
+      rethrow;
     } catch (error, stackTrace) {
       if (session.isCurrent(ref)) {
         state = AsyncData(
