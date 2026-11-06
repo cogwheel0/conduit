@@ -355,6 +355,27 @@ void main() {
       check(container.read(chatBackOpensListProvider)).isTrue();
     });
 
+    test('a tap whose chat is not stored leaves the open chat its picks',
+        () async {
+      attachRouterAt('/chat');
+      final active = await loadLocalConversation(container, 'chat-1');
+      container.read(activeConversationProvider.notifier).set(active);
+      container.read(selectedFilterIdsProvider.notifier).set(['filter-a']);
+
+      taps.tap(
+        const NotificationTap(
+          kind: NotificationKind.chatCompletion,
+          sourceId: 'chat-elsewhere',
+        ),
+      );
+      for (var i = 0; i < 40; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 5));
+      }
+
+      check(container.read(activeConversationProvider)?.id).equals('chat-1');
+      check(container.read(selectedFilterIdsProvider)).deepEquals(['filter-a']);
+    });
+
     test('an on-device chat with the same id is another chat, whose picks '
         'stay behind', () async {
       attachRouterAt('/chat');

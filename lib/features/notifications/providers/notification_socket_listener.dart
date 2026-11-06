@@ -108,11 +108,6 @@ Future<void> _handleTap(Ref ref, NotificationTap tap) async {
           rawId: tap.sourceId,
           storage: ChatStorageKind.openWebUi,
         ).scopedId;
-        final outgoing = ref.read(activeConversationProvider);
-        if (outgoing == null ||
-            !conversationMatchesScopedId(outgoing, tappedId)) {
-          clearSelectedFiltersForConversationBoundary(ref);
-        }
         final chatWasOnScreen = chatPageOnScreen();
         // DB-first open, mirroring the conversation-list selection flow.
         await NavigationService.navigateToChat();
@@ -124,8 +119,10 @@ Future<void> _handleTap(Ref ref, NotificationTap tap) async {
         );
         if (!openWebUiConversationReadIsCurrent(ref, ownership)) return;
         if (local != null) {
-          // Another chat may have been opened while this one loaded; its
-          // picks are not this chat's.
+          // The picks of the chat open now, or of one opened while this one
+          // loaded, are not this chat's. They start again only here, once
+          // this chat opens: a tap whose chat is not stored leaves the open
+          // chat, and its picks, as they are.
           final current = ref.read(activeConversationProvider);
           if (current == null ||
               !conversationMatchesScopedId(current, tappedId)) {
