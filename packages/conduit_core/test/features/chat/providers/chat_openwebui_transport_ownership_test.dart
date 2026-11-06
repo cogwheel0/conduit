@@ -1118,6 +1118,51 @@ final class _SelectableModel extends SelectedModel {
   Model? build() => _initial;
 }
 
+/// A socket to the wire server, connected as `socket-a` unless [connected] is
+/// false, in which case a reconnect attempt fails too.
+class _WireSocket extends SocketService {
+  _WireSocket({this.connected = true})
+    : super(
+        serverConfig: const ServerConfig(
+          id: 'wire-server',
+          name: 'Wire server',
+          url: 'https://example.com',
+        ),
+      );
+
+  final bool connected;
+
+  @override
+  bool get isConnected => connected;
+
+  @override
+  String? get sessionId => connected ? 'socket-a' : null;
+
+  @override
+  Future<bool> ensureConnected({
+    Duration timeout = const Duration(seconds: 2),
+  }) async => connected;
+
+  @override
+  SocketEventSubscription addChatEventHandler({
+    String? conversationId,
+    String? sessionId,
+    String? messageId,
+    bool requireFocus = true,
+    bool keepsAliveInBackground = false,
+    SocketReplayGapCallback? onReplayGap,
+    required SocketChatEventHandler handler,
+  }) => SocketEventSubscription(() {});
+
+  @override
+  SocketEventSubscription addChannelEventHandler({
+    String? conversationId,
+    String? sessionId,
+    bool requireFocus = true,
+    required SocketChannelEventHandler handler,
+  }) => SocketEventSubscription(() {});
+}
+
 ProviderContainer _container({
   required AppDatabase db,
   required Conversation? active,
@@ -1170,6 +1215,92 @@ void main() {
 
   tearDown(() async {
     await db.close();
+  });
+
+  group('temporary chats', () {
+    // Open WebUI 0.13 reads the socket session that started a temporary chat
+    // from its id and refuses the chat from any other session, or without one.
+    final uuid = RegExp(
+      r'^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$',
+    );
+
+    Future<({_WireCompletionApi api, ProviderContainer container})> send({
+      required SocketService socket,
+      required bool serverNeedsSocket,
+    }) async {
+      final api = _WireCompletionApi();
+      final container = _container(
+        db: db,
+        active: null,
+        messages: const [],
+        api: api,
+        syncEngine: _PersistingSyncEngine(db, api),
+        socket: socket,
+        extraOverrides: [
+          temporaryChatNeedsSocketProvider.overrideWithValue(serverNeedsSocket),
+        ],
+      );
+      addTearDown(container.dispose);
+      container.listen(temporaryChatEnabledProvider, (_, _) {});
+      container.read(temporaryChatEnabledProvider.notifier).set(true);
+
+      await sendMessageWithContainer(container, 'hello', null);
+      return (api: api, container: container);
+    }
+
+    test('names the socket session it is sent from', () async {
+      final sent = await send(socket: _WireSocket(), serverNeedsSocket: true);
+
+      final body = sent.api.sentBody;
+      final chatId = body['chat_id'] as String;
+      check(body['session_id']).equals('socket-a');
+      check(chatId).startsWith('local:socket-a:');
+      check(uuid.hasMatch(chatId.substring('local:socket-a:'.length))).isTrue();
+      check(sent.container.read(activeConversationProvider)!.id).equals(chatId);
+      check(isTemporaryChat(chatId)).isTrue();
+    });
+
+    test('is not sent without a socket to a server that needs one', () async {
+      final sent = await send(
+        socket: _WireSocket(connected: false),
+        serverNeedsSocket: true,
+      );
+
+      check(sent.api.completionBodies).isEmpty();
+      final reply = sent.container.read(chatMessagesProvider).last;
+      check(reply.role).equals('assistant');
+      check(reply.error?.content).isNotNull().contains('live connection');
+    });
+
+    test('an older server still answers without a socket', () async {
+      final sent = await send(
+        socket: _WireSocket(connected: false),
+        serverNeedsSocket: false,
+      );
+
+      final body = sent.api.sentBody;
+      check(body.containsKey('session_id')).isFalse();
+      final chatId = body['chat_id'] as String;
+      check(chatId).startsWith('local:');
+      check(uuid.hasMatch(chatId.substring('local:'.length))).isTrue();
+    });
+
+    test('a refusal for a chat the server forgot says so', () {
+      check(
+        chatErrorContentForException(
+          const ChatCompletionHttpException(
+            404,
+            TemporaryChatUnavailable.serverDetail,
+          ),
+        ),
+      ).equals(TemporaryChatUnavailable.userMessage);
+      // Any other 404 is still a missing model.
+      check(
+        chatErrorContentForException(
+          const ChatCompletionHttpException(404, 'Model not found'),
+        ),
+      ).contains('model');
+    });
   });
 
   group('personal tool servers and terminals reach the completion request', () {

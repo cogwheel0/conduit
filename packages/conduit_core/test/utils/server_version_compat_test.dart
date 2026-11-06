@@ -26,6 +26,13 @@ void main() {
       check(ServerVersionCompat.knownAtLeast(null, pages)).isNull();
       check(ServerVersionCompat.knownAtLeast('main', pages)).isNull();
     });
+
+    test('a temporary chat needs its session from 0.13.0', () {
+      const session = ServerVersionCompat.temporaryChatSessionVersion;
+      check(ServerVersionCompat.knownAtLeast('0.13.0', session)).equals(true);
+      check(ServerVersionCompat.knownAtLeast('0.12.5', session)).equals(false);
+      check(ServerVersionCompat.knownAtLeast(null, session)).isNull();
+    });
   });
 
   group('ServerVersionCompat.isSupported', () {

@@ -976,10 +976,14 @@ Future<void> _sendMessageInternal(
     final isTemporary = ref.read(temporaryChatEnabledProvider);
 
     if (isTemporary) {
-      // Temporary chat: use local ID, skip server creation entirely
-      final socketId = ref.read(socketServiceProvider)?.sessionId ?? 'unknown';
+      // Temporary chat: use local ID, skip server creation entirely. The id
+      // names the socket session the request below is sent from, so connect
+      // first: Open WebUI 0.13 refuses a new temporary chat from any other.
+      final socketSessionId = await _ensureConnectedSocketSessionId(
+        _readOpenWebUiSocketForApi(ref, api),
+      );
       final localConversation = Conversation(
-        id: 'local:${socketId}_${const Uuid().v4()}',
+        id: newTemporaryChatId(socketSessionId),
         title: 'New Chat',
         createdAt: DateTime.now(),
         updatedAt: DateTime.now(),
@@ -1268,6 +1272,11 @@ Future<void> _sendMessageInternal(
       throw StateError(
         'Open WebUI direct connections require an active server socket.',
       );
+    }
+    if (isTemporary &&
+        socketSessionId == null &&
+        ref.read(temporaryChatNeedsSocketProvider)) {
+      throw const TemporaryChatNeedsConnectionException();
     }
     requireOpenWebUiPreflightOwner();
 
@@ -1565,10 +1574,44 @@ Future<void> _sendMessageInternal(
   }
 }
 
+/// A new temporary chat's id: `local:<socket session>:<uuid>`.
+///
+/// Open WebUI 0.13 reads the socket session that started a temporary chat from
+/// its id, after the prefix and up to a colon, and refuses the chat's first
+/// request from any other session, or any id whose rest is not a lowercase
+/// hyphenated uuid. Older servers only check the prefix. Without a session
+/// the id is `local:<uuid>`, which only an older server answers (over HTTP).
+String newTemporaryChatId(String? socketSessionId) {
+  final id = const Uuid().v4();
+  if (socketSessionId == null || socketSessionId.isEmpty) return 'local:$id';
+  return 'local:$socketSessionId:$id';
+}
+
+/// A temporary chat on Open WebUI 0.13 or later was sent without a connected
+/// socket, which such a server refuses.
+final class TemporaryChatNeedsConnectionException implements Exception {
+  const TemporaryChatNeedsConnectionException();
+
+  @override
+  String toString() =>
+      'TemporaryChatNeedsConnectionException: no socket session';
+}
+
 /// Returns a user-friendly error description based on the exception.
 String chatErrorContentForException(Object e) {
   if (e is _DirectConversationOwnerUnavailable) {
     return 'This conversation is no longer available.';
+  }
+  if (e is TemporaryChatNeedsConnectionException) {
+    return 'Temporary chats need a live connection to the server. Check '
+        'your connection and try again.';
+  }
+  // Open WebUI 0.13's answer to a temporary chat it no longer holds: one it
+  // forgot after a day or a restart, or one first sent from another session.
+  if (e is ChatCompletionHttpException &&
+      e.statusCode == 404 &&
+      e.detail.trim() == TemporaryChatUnavailable.serverDetail) {
+    return TemporaryChatUnavailable.userMessage;
   }
   if (e is HermesAttachmentsUnsupportedException) return e.message;
   if (e is HermesChatInputException) return e.message;

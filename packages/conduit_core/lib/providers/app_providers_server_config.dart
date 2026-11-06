@@ -193,6 +193,24 @@ final notePagesServerProvider = Provider<bool?>((ref) {
   );
 });
 
+/// Whether the active Open WebUI server ties a temporary chat to the socket
+/// session that started it (0.13.0 and later), so that such a chat cannot be
+/// sent without a connected socket.
+///
+/// False until a config confirmed to belong to the active server reports such
+/// a version: an older server answers a temporary chat over HTTP instead.
+final temporaryChatNeedsSocketProvider = Provider<bool>((ref) {
+  final activeId = ref.watch(activeServerProvider).asData?.value?.id;
+  final config = ref.watch(backendConfigProvider).asData?.value;
+  if (activeId == null || config == null) return false;
+  if (config.serverId != activeId) return false;
+  return ServerVersionCompat.knownAtLeast(
+        config.version,
+        ServerVersionCompat.temporaryChatSessionVersion,
+      ) ==
+      true;
+});
+
 @Riverpod(keepAlive: true)
 class BackendConfigNotifier extends _$BackendConfigNotifier {
   // AsyncNotifier instances survive dependency-triggered rebuilds. This must
