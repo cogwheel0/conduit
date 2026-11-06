@@ -487,7 +487,13 @@ class NoteAttachmentsController {
       if (!_isCurrent(api: api, db: db, authEpoch: authEpoch)) return;
 
       if (result == null) {
-        if (showFeedback) _onNotice(NoteAudioNotice.recordingSaved);
+        // Saved once it has left the view. It stays when the copy a move made
+        // of it could not be read, or is still stored (the upload then found
+        // only where it was before), or while a move settles its report.
+        final bool left = !_pending.any(
+          (PendingNoteAudioUpload item) => item.id == id,
+        );
+        if (showFeedback && left) _onNotice(NoteAudioNotice.recordingSaved);
       } else if (showFeedback) {
         _onNotice(NoteAudioNotice.uploadFailed);
       }
