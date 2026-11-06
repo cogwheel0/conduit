@@ -97,12 +97,16 @@ void main() {
       expect(session.wire.tests, 0);
     });
 
-    testWidgets('the editor labels events from the catalog and keeps one the '
-        'server does not list', (tester) async {
+    testWidgets('the editor labels events from the catalog and hides one the '
+        'server no longer lists', (tester) async {
+      // Open WebUI 0.13 dropped the file processing alert; the server refuses
+      // any event outside the catalog it lists.
       await _pump(
         tester,
         targets: [
-          _target(events: const ['chat.finished', 'future.event']),
+          _target(
+            events: const ['chat.finished', 'retrieval.content.process_failed'],
+          ),
         ],
       );
 
@@ -110,11 +114,70 @@ void main() {
 
       expect(find.text('Chat finished'), findsOneWidget);
       expect(find.text('Channel message'), findsOneWidget);
+      expect(find.text('retrieval.content.process_failed'), findsNothing);
+      expect(
+        find.textContaining("Not in this server's event list"),
+        findsNothing,
+      );
+    });
+
+    testWidgets('without the catalog, the events a destination holds are '
+        'shown and kept', (tester) async {
+      final session = await _pump(
+        tester,
+        targets: [
+          _target(events: const ['chat.finished', 'future.event']),
+        ],
+        failCatalog: true,
+      );
+      await _openEditor(tester, 'ops');
+
       expect(find.text('future.event'), findsOneWidget);
       expect(
         find.textContaining("Not in this server's event list"),
-        findsOneWidget,
+        findsNWidgets(2),
       );
+
+      await tester.tap(
+        find.descendant(
+          of: find.byKey(const Key('notification-target-delivery')),
+          matching: find.text('Always'),
+        ),
+      );
+      await tester.pump();
+      await _save(tester);
+
+      expect(session.wire.writes.single.data, {'delivery': 'always'});
+    });
+
+    testWidgets('any save drops an event the server no longer lists', (
+      tester,
+    ) async {
+      // The server checks the stored events on every update, so a delivery
+      // change alone would be refused while the retired event stays.
+      final session = await _pump(
+        tester,
+        targets: [
+          _target(
+            events: const ['chat.finished', 'retrieval.content.process_failed'],
+          ),
+        ],
+      );
+      await _openEditor(tester, 'ops');
+
+      await tester.tap(
+        find.descendant(
+          of: find.byKey(const Key('notification-target-delivery')),
+          matching: find.text('Always'),
+        ),
+      );
+      await tester.pump();
+      await _save(tester);
+
+      expect(session.wire.writes.single.data, {
+        'events': ['chat.finished'],
+        'delivery': 'always',
+      });
     });
 
     testWidgets('a change to delivery sends only delivery, never the URL', (
@@ -139,8 +202,8 @@ void main() {
       expect(put.data, {'delivery': 'always'});
     });
 
-    testWidgets('an event change sends the whole selection, unknown ids '
-        'included', (tester) async {
+    testWidgets('an event change sends the whole selection the server '
+        'lists', (tester) async {
       final session = await _pump(
         tester,
         targets: [
@@ -161,7 +224,7 @@ void main() {
       await _save(tester);
 
       final events = (session.wire.writes.single.data as Map)['events'] as List;
-      expect(events, ['chat.finished', 'channel.message', 'future.event']);
+      expect(events, ['chat.finished', 'channel.message']);
     });
 
     testWidgets('a typed URL is the only way config is sent', (tester) async {
@@ -695,13 +758,16 @@ Future<_Session> _pump(
   bool serverEnabled = true,
   List<Map<String, dynamic>>? targets,
   bool failLists = false,
+  bool failCatalog = false,
 }) async {
   // Tall enough that the whole page is built, not only what a phone shows.
   tester.view
     ..physicalSize = const Size(800, 2600)
     ..devicePixelRatio = 1;
   addTearDown(tester.view.reset);
-  final wire = _Wire(targets ?? [_target()])..failLists = failLists;
+  final wire = _Wire(targets ?? [_target()])
+    ..failLists = failLists
+    ..failCatalog = failCatalog;
   final api = ApiService(
     serverConfig: _server,
     workerManager: WorkerManager(),
@@ -795,6 +861,7 @@ final class _Wire implements HttpClientAdapter {
   final requests = <RequestOptions>[];
   String? rejectWrites;
   bool failLists = false;
+  bool failCatalog = false;
 
   /// Holds every write until completed, as on a slow connection.
   Completer<void>? holdWrites;
@@ -817,6 +884,7 @@ final class _Wire implements HttpClientAdapter {
       return _json({'detail': rejectWrites}, 400);
     }
     if (path.endsWith('/events')) {
+      if (failCatalog) return _json({'detail': 'unavailable'}, 500);
       return _json({
         'events': [
           {'event': 'chat.finished', 'label': 'Chat finished'},
