@@ -1722,6 +1722,9 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
   ///
   /// [confirmed] says the server has taken [models]; until a list is, a pull
   /// keeps it over the server's (see [hasUnconfirmedModelList]).
+  ///
+  /// Caller holds the chat lock: two writes of one chat's list that overlap
+  /// could leave a confirmed list marked as unconfirmed.
   Future<void> setChatModels(
     String chatId,
     List<String> models, {
