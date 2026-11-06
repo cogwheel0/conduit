@@ -436,6 +436,21 @@ void main() {
       expect(params['selectedIndex'], 0);
       expect(params['actionSymbol'], 'square.and.pencil');
       expect(params['actionLabel'], 'New Chat');
+      // The bar is drawn at the size of the header's search button.
+      final searchButton = find.byKey(
+        const ValueKey<String>('sidebar-search-button'),
+      );
+      expect(params['controlExtent'], tester.getSize(searchButton).height);
+      expect(params['actionSymbolSize'], search.icon?.size);
+      expect(
+        params['edgeInset'],
+        tester
+                .getTopRight(
+                  find.byKey(const ValueKey<String>('sidebar-page-surface')),
+                )
+                .dx -
+            tester.getTopRight(searchButton).dx,
+      );
 
       view.onPlatformViewCreated!(4242);
       await tester.binding.defaultBinaryMessenger.handlePlatformMessage(
@@ -525,6 +540,16 @@ void main() {
         tester.getCenter(create).dy,
         tester.getCenter(sidebarTestBackendTab('Hermes')).dy,
       );
+      // New Chat and the pill match the header's search button.
+      final search = find.byKey(
+        const ValueKey<String>('sidebar-search-button'),
+      );
+      expect(tester.getSize(create), tester.getSize(search));
+      expect(
+        tester.getSize(find.byKey(const ValueKey<String>('sidebar-backend-tabs'))).height,
+        tester.getSize(search).height,
+      );
+      expect(tester.getTopRight(create).dx, tester.getTopRight(search).dx);
       expect(
         tester.getCenter(sidebarTestBackendTab('Hermes')).dx,
         lessThan(tester.getCenter(create).dx),

@@ -109,8 +109,10 @@ private final class RowReportingTabBar: UITabBar {
 /// The view spans the bottom of the window, so UIKit floats the bar above
 /// the home indicator as it does for an app's own tab bar. The bar always
 /// takes the phone layout, which an iPad sidebar would otherwise compress.
-/// The action follows the tab buttons UIKit laid out, so the two line up on
-/// every device.
+/// UIKit's platter is taller than the window's other glass buttons, so the
+/// bar is scaled down to their size, keeping its selection lens, and the
+/// action takes the same size. The action follows the tab buttons UIKit laid
+/// out, so the two line up on every device.
 private final class FloatingTabBarView: UIView, UITabBarDelegate {
   var onSelect: ((Int) -> Void)?
   var onAction: (() -> Void)?
@@ -124,6 +126,17 @@ private final class FloatingTabBarView: UIView, UITabBarDelegate {
   private var itemLabels: [String] = []
   private var itemImages: [Data] = []
   private var actionSymbol = ""
+
+  /// Height of the window's other glass buttons, which the platter is scaled
+  /// to and the action takes. Zero keeps UIKit's size.
+  private var controlExtent: CGFloat = 0
+
+  /// Inset of the platter and the action from the sides of the view.
+  private var edgeInset: CGFloat = 16
+
+  /// Point size of the action's symbol, as the window's other glass buttons
+  /// draw theirs.
+  private var actionSymbolSize: CGFloat = 18
 
   /// UIKit's inset of the floating platter from each side of the bar.
   private static let platterMargin: CGFloat = 21
@@ -147,7 +160,7 @@ private final class FloatingTabBarView: UIView, UITabBarDelegate {
       tabBar.bottomAnchor.constraint(equalTo: bottomAnchor),
       tabBarWidth,
     ])
-    tabBar.onRowLayout = { [weak self] row in self?.layoutAction(alongside: row) }
+    tabBar.onRowLayout = { [weak self] row in self?.layoutBar(alongside: row) }
 
     actionButton.addAction(
       UIAction { [weak self] _ in self?.onAction?() },
@@ -172,6 +185,14 @@ private final class FloatingTabBarView: UIView, UITabBarDelegate {
         .map(Self.color)
     }
     if let width = arguments["itemWidth"] as? Double { itemWidth = CGFloat(width) }
+    if let extent = arguments["controlExtent"] as? Double { controlExtent = CGFloat(extent) }
+    if let inset = arguments["edgeInset"] as? Double { edgeInset = CGFloat(inset) }
+    if let size = arguments["actionSymbolSize"] as? Double,
+       CGFloat(size) != actionSymbolSize
+    {
+      actionSymbolSize = CGFloat(size)
+      if !actionSymbol.isEmpty { configureAction() }
+    }
     if let tabs = arguments["tabs"] as? [[String: Any]] { setTabs(tabs) }
     if let index = arguments["selectedIndex"] as? Int {
       selectedIndex = index
@@ -241,23 +262,39 @@ private final class FloatingTabBarView: UIView, UITabBarDelegate {
     configuration.baseForegroundColor = actionButton.configuration?.baseForegroundColor ?? .label
     configuration.image = UIImage(systemName: actionSymbol)
     configuration.preferredSymbolConfigurationForImage = UIImage.SymbolConfiguration(
-      pointSize: 20,
-      weight: .medium
+      pointSize: actionSymbolSize
     )
     actionButton.configuration = configuration
   }
 
-  /// Sizes the action to the platter around the tab row and centres it on
-  /// the row, as far from the trailing edge as the platter is from the
-  /// leading edge.
-  private func layoutAction(alongside frame: CGRect) {
-    guard frame.height > 0 else { return }
-    let row = convert(frame, from: tabBar)
-    let size = row.height + Self.platterPadding * 2
-    let platterLeading = row.minX - Self.platterPadding
+  /// Scales the bar so the platter around its tab [row] is [controlExtent]
+  /// tall, about the platter's bottom-leading corner: the platter keeps the
+  /// height UIKit floats it at, and its leading edge moves to [edgeInset].
+  /// The action takes the platter's height, centred on it, [edgeInset] from
+  /// the trailing edge.
+  ///
+  /// [row] is in the tab bar's own coordinates, which its scale leaves alone.
+  private func layoutBar(alongside row: CGRect) {
+    guard row.height > 0 else { return }
+    let platter = row.insetBy(dx: -Self.platterPadding, dy: -Self.platterPadding)
+    let scale = controlExtent > 0 ? min(1, controlExtent / platter.height) : 1
+    // A transform acts about the bar's centre, which Auto Layout places.
+    let center = tabBar.center
+    let corner = CGPoint(
+      x: platter.minX - tabBar.bounds.midX,
+      y: platter.maxY - tabBar.bounds.midY
+    )
+    let transform = CGAffineTransform(
+      translationX: edgeInset - center.x - scale * corner.x,
+      y: (1 - scale) * corner.y
+    ).scaledBy(x: scale, y: scale)
+    if tabBar.transform != transform { tabBar.transform = transform }
+
+    let size = platter.height * scale
+    let platterMidY = center.y + corner.y - size / 2
     actionButton.frame = CGRect(
-      x: bounds.maxX - platterLeading - size,
-      y: row.midY - size / 2,
+      x: bounds.maxX - edgeInset - size,
+      y: platterMidY - size / 2,
       width: size,
       height: size
     )

@@ -23,8 +23,17 @@ const double _kNativeTabBarHeadroom = 24;
 /// How far the native round action rises above the bar's platter.
 const double _kNativeTabBarActionOverhang = 4;
 
-const double _kMaterialBarHeight = 56;
-const double _kMaterialBarMargin = 16;
+/// Height of UIKit's floating platter before the bar is scaled to
+/// [AdaptiveFloatingTabBar.controlExtent]. The platter keeps its bottom edge
+/// as it shrinks, so its top comes down by the difference.
+const double _kNativePlatterHeight = 60;
+
+/// Default height of an [AdaptiveFloatingTabBar]: the minimum touch target,
+/// which toolbar buttons use too.
+const double kAdaptiveFloatingBarDefaultExtent = 44;
+
+/// Gap below the Material bar on a window with no bottom safe area.
+const double _kMaterialBottomMargin = 16;
 
 /// One icon-only destination in an [AdaptiveFloatingTabBar].
 class AdaptiveFloatingTab {
@@ -71,9 +80,10 @@ class AdaptiveFloatingBarAction {
 /// keep [extentOf] clear below scrolling content.
 ///
 /// On iOS 26 this is the system tab bar beside a Liquid Glass button, drawn
-/// by one native view so UIKit lines them up. Elsewhere it is a Material
-/// navigation bar in a pill beside a floating action button. Fewer than two
-/// [tabs] leave only the action.
+/// by one native view so UIKit lines them up, and scaled so both are
+/// [controlExtent] tall. Elsewhere it is a Material navigation bar in a pill
+/// beside a floating action button of the same height. Fewer than two [tabs]
+/// leave only the action.
 class AdaptiveFloatingTabBar extends StatefulWidget {
   const AdaptiveFloatingTabBar({
     super.key,
@@ -90,6 +100,9 @@ class AdaptiveFloatingTabBar extends StatefulWidget {
     this.borderColor,
     this.tabsKey,
     this.actionKey,
+    this.controlExtent = kAdaptiveFloatingBarDefaultExtent,
+    this.edgeInset = 16,
+    this.actionSymbolSize = 18,
   }) : assert(tabs.length <= 5);
 
   final List<AdaptiveFloatingTab> tabs;
@@ -117,17 +130,40 @@ class AdaptiveFloatingTabBar extends StatefulWidget {
   final Key? tabsKey;
   final Key? actionKey;
 
-  /// Room the bar takes from the bottom of the window.
-  static double extentOf(BuildContext context) {
+  /// Height of the tabs and the action's diameter: the size of the window's
+  /// other toolbar buttons, so the bar matches them.
+  final double controlExtent;
+
+  /// Inset of the tabs and the action from the sides of the window, as the
+  /// window's toolbar insets its buttons.
+  final double edgeInset;
+
+  /// Point size of the action's SF Symbol on iOS, as the window's other glass
+  /// buttons draw theirs.
+  final double actionSymbolSize;
+
+  /// Room the bar takes from the bottom of the window, for a bar
+  /// [controlExtent] tall.
+  static double extentOf(
+    BuildContext context, {
+    double controlExtent = kAdaptiveFloatingBarDefaultExtent,
+  }) {
     final safeBottom = MediaQuery.viewPaddingOf(context).bottom;
     if (PlatformUiCapabilities.usesNativeIOS26) {
-      return safeBottom + _kNativeTabBarHeight + _kNativeTabBarActionOverhang;
+      return safeBottom +
+          _kNativeTabBarHeight +
+          _kNativeTabBarActionOverhang -
+          _nativeShrink(controlExtent);
     }
-    return _materialBottomInset(safeBottom) + _kMaterialBarHeight;
+    return _materialBottomInset(safeBottom) + controlExtent;
   }
 
+  /// How far scaling the native platter to [controlExtent] lowers its top.
+  static double _nativeShrink(double controlExtent) =>
+      (_kNativePlatterHeight - controlExtent).clamp(0, _kNativePlatterHeight);
+
   static double _materialBottomInset(double safeBottom) =>
-      safeBottom > 0 ? safeBottom : _kMaterialBarMargin;
+      safeBottom > 0 ? safeBottom : _kMaterialBottomMargin;
 
   /// Renders the native bar's tab icons. Widget tests, which run inside fake
   /// async, swap in a synchronous renderer.
@@ -299,7 +335,10 @@ class _AdaptiveFloatingTabBarState extends State<AdaptiveFloatingTabBar> {
       // Sent even when unset, so clearing a color restores the system's.
       'tint': widget.selectedItemColor?.toARGB32(),
       'unselectedTint': widget.unselectedItemColor?.toARGB32(),
+      'controlExtent': widget.controlExtent,
+      'edgeInset': widget.edgeInset,
       'actionSymbol': widget.action.sfSymbol,
+      'actionSymbolSize': widget.actionSymbolSize,
       'actionLabel': widget.action.label,
       'actionTint': widget.actionForegroundColor?.toARGB32(),
     };
@@ -367,7 +406,8 @@ class _AdaptiveFloatingTabBarState extends State<AdaptiveFloatingTabBar> {
     final height =
         MediaQuery.viewPaddingOf(context).bottom +
         _kNativeTabBarHeight +
-        _kNativeTabBarHeadroom;
+        _kNativeTabBarHeadroom -
+        AdaptiveFloatingTabBar._nativeShrink(widget.controlExtent);
     final isDark = CupertinoTheme.brightnessOf(context) == Brightness.dark;
     // While new tabs' icons render, the view keeps showing the tabs it has.
     if (_icons case final icons?) _sendUpdate(_nativeParams(icons, isDark));
@@ -391,13 +431,13 @@ class _AdaptiveFloatingTabBarState extends State<AdaptiveFloatingTabBar> {
     final safeBottom = MediaQuery.viewPaddingOf(context).bottom;
     return Padding(
       padding: EdgeInsets.fromLTRB(
-        _kMaterialBarMargin,
+        widget.edgeInset,
         0,
-        _kMaterialBarMargin,
+        widget.edgeInset,
         AdaptiveFloatingTabBar._materialBottomInset(safeBottom),
       ),
       child: SizedBox(
-        height: _kMaterialBarHeight,
+        height: widget.controlExtent,
         child: Row(
           children: [
             if (widget.tabs.length >= 2) _buildPill(context),
@@ -410,7 +450,7 @@ class _AdaptiveFloatingTabBarState extends State<AdaptiveFloatingTabBar> {
   }
 
   Widget _buildPill(BuildContext context) {
-    final borderRadius = BorderRadius.circular(_kMaterialBarHeight / 2);
+    final borderRadius = BorderRadius.circular(widget.controlExtent / 2);
     final selectedColor =
         widget.selectedItemColor ?? Theme.of(context).colorScheme.primary;
     final unselectedColor =
@@ -449,7 +489,7 @@ class _AdaptiveFloatingTabBarState extends State<AdaptiveFloatingTabBar> {
                 ),
               ),
               child: NavigationBar(
-                height: _kMaterialBarHeight,
+                height: widget.controlExtent,
                 selectedIndex: widget.selectedIndex,
                 onDestinationSelected: widget.onTap,
                 backgroundColor: Colors.transparent,
@@ -478,10 +518,12 @@ class _AdaptiveFloatingTabBarState extends State<AdaptiveFloatingTabBar> {
     if (!PlatformUiCapabilities.isIOS) {
       return SizedBox.square(
         key: widget.actionKey,
-        dimension: _kMaterialBarHeight,
+        dimension: widget.controlExtent,
         child: AdaptiveFloatingActionButton(
           onPressed: action.onPressed,
           semanticLabel: action.label,
+          // Round, as the toolbar's buttons and the pill's ends are.
+          shape: const CircleBorder(),
           backgroundColor: widget.actionBackgroundColor,
           foregroundColor: widget.actionForegroundColor,
           child: Icon(action.icon),
@@ -499,10 +541,10 @@ class _AdaptiveFloatingTabBarState extends State<AdaptiveFloatingTabBar> {
         onPressed: action.onPressed,
         symbol: SFSymbol(
           action.sfSymbol,
-          size: 18,
+          size: widget.actionSymbolSize,
           color: widget.actionForegroundColor,
         ),
-        dimension: _kMaterialBarHeight,
+        dimension: widget.controlExtent,
       ),
     );
   }

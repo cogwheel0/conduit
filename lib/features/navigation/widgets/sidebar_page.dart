@@ -722,7 +722,10 @@ class _SlidingSidebarPage extends ConsumerWidget {
     final toolbarHeight = conduitAdaptiveToolbarHeightOf(context);
     final chromeInsets = EdgeInsets.only(
       top: safePadding.top + toolbarHeight,
-      bottom: AdaptiveFloatingTabBar.extentOf(context),
+      bottom: AdaptiveFloatingTabBar.extentOf(
+        context,
+        controlExtent: controlExtent,
+      ),
     );
 
     return Material(
@@ -1002,6 +1005,10 @@ class _SlidingSidebarBottomBar extends ConsumerWidget {
       actionBackgroundColor: theme.buttonPrimary,
       backgroundColor: theme.surfaceBackground,
       borderColor: theme.cardBorder,
+      // As the header's search button, so the two bars match.
+      controlExtent: conduitScaledControlExtent(context),
+      edgeInset: Spacing.inputPadding,
+      actionSymbolSize: kConduitNativeSingleActionSymbolExtent,
     );
   }
 }

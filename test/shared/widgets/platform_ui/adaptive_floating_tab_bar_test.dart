@@ -18,6 +18,9 @@ Widget _bar(
   List<AdaptiveFloatingTab> tabs, {
   Color? tint,
   AssetBundle? bundle,
+  double controlExtent = kAdaptiveFloatingBarDefaultExtent,
+  double edgeInset = 16,
+  double actionSymbolSize = 18,
 }) => MaterialApp(
   home: Scaffold(
     body: Align(
@@ -34,6 +37,9 @@ Widget _bar(
           onPressed: () {},
         ),
         itemWidth: 72,
+        controlExtent: controlExtent,
+        edgeInset: edgeInset,
+        actionSymbolSize: actionSymbolSize,
       ),
     ),
   ),
@@ -176,6 +182,59 @@ void main() {
       lessThan(tester.getCenter(find.byType(FloatingActionButton)).dx),
     );
   });
+  testWidgets('the Material bar and its round action take the control size', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      _bar(const [_openWebUi, _hermes], controlExtent: 50, edgeInset: 12),
+    );
+    expect(tester.getSize(find.byType(NavigationBar)).height, 50);
+    expect(
+      tester.getSize(find.byType(FloatingActionButton)),
+      const Size.square(50),
+    );
+    expect(
+      tester.widget<FloatingActionButton>(find.byType(FloatingActionButton)).shape,
+      isA<CircleBorder>(),
+    );
+    final window = tester.getSize(find.byType(Scaffold)).width;
+    expect(tester.getTopLeft(find.byType(NavigationBar)).dx, 12);
+    expect(tester.getTopRight(find.byType(FloatingActionButton)).dx, window - 12);
+    expect(
+      AdaptiveFloatingTabBar.extentOf(
+        tester.element(find.byType(NavigationBar)),
+        controlExtent: 50,
+      ),
+      // The test window has no bottom safe area.
+      16 + 50,
+    );
+  });
+
+  testWidgets('the native bar is told the size of the window\'s buttons', (
+    tester,
+  ) async {
+    final configurations = _recordNativeBar(tester);
+    AdaptiveFloatingTabBar.debugIconRenderer = (_, asset, _, _) async =>
+        Uint8List.fromList(asset.codeUnits);
+    await tester.pumpWidget(
+      _bar(
+        const [_openWebUi, _hermes],
+        controlExtent: 50,
+        edgeInset: 12,
+        actionSymbolSize: 17,
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(configurations.last['controlExtent'], 50);
+    expect(configurations.last['edgeInset'], 12);
+    expect(configurations.last['actionSymbolSize'], 17);
+    final context = tester.element(find.byType(UiKitView));
+    final small = AdaptiveFloatingTabBar.extentOf(context, controlExtent: 44);
+    final large = AdaptiveFloatingTabBar.extentOf(context, controlExtent: 50);
+    expect(large - small, 6);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
   testWidgets('clearing a tint tells the native bar to restore its own', (
     tester,
   ) async {
