@@ -165,14 +165,15 @@ typedef _PendingModels = ({
   DateTime? retryAt,
 });
 
-/// How long a model list waits after each failed send before the next; it
-/// is sent at most once more than there are waits.
-const List<Duration> _modelSaveRetryWaits = <Duration>[
-  Duration(seconds: 1),
-  Duration(seconds: 4),
-];
-
 class ChatModelSaveQueue extends Notifier<void> {
+  /// How long a model list waits after each failed send before the next; it
+  /// is sent at most once more than there are waits.
+  @visibleForTesting
+  static List<Duration> modelSaveRetryWaits = const <Duration>[
+    Duration(seconds: 1),
+    Duration(seconds: 4),
+  ];
+
   /// How long a list waits on a chat that is only listed as running a task,
   /// with no reply streaming on screen, before the server is asked whether
   /// the task still runs.
@@ -290,7 +291,7 @@ class ChatModelSaveQueue extends Notifier<void> {
         // A pull may put the old list back before a later push of the chat
         // sends this one: it is sent again after a wait, a few times, unless
         // a newer list for the chat came in meanwhile.
-        if (tries < _modelSaveRetryWaits.length) {
+        if (tries < modelSaveRetryWaits.length) {
           _pending.putIfAbsent(
             chatId,
             () => (
@@ -298,9 +299,16 @@ class ChatModelSaveQueue extends Notifier<void> {
               account: account,
               auth: auth,
               tries: tries + 1,
-              retryAt: DateTime.now().add(_modelSaveRetryWaits[tries]),
+              retryAt: DateTime.now().add(modelSaveRetryWaits[tries]),
             ),
           );
+        } else if (!_pending.containsKey(chatId)) {
+          // Given up: the pick no longer holds over the server's list, so
+          // a change made elsewhere shows again.
+          ref
+              .read(appDatabaseProvider)
+              ?.chatsDao
+              .releaseUnconfirmedModelList(chatId);
         }
         continue;
       }

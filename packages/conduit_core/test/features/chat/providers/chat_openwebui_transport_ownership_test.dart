@@ -6857,6 +6857,27 @@ void main() {
       check(container.read(chatModelPickProvider)).isNull();
     });
 
+    test('a model list the server never takes stops holding over its list',
+        () async {
+      final waits = ChatModelSaveQueue.modelSaveRetryWaits;
+      ChatModelSaveQueue.modelSaveRetryWaits = const [
+        Duration.zero,
+        Duration.zero,
+      ];
+      addTearDown(() => ChatModelSaveQueue.modelSaveRetryWaits = waits);
+      const other = Model(id: 'model-2', name: 'Model 2');
+      final (:api, :socket, :container) = await open(
+        available: const [duplicate, other],
+      );
+      api.failModelSaves = 3;
+
+      await saveChatModelChoice(container, other);
+
+      check(api.savedModels).length.equals(3);
+      // Given up: a change made elsewhere shows again.
+      check(db.chatsDao.hasUnconfirmedModelList(chatId)).isFalse();
+    });
+
     test('a model list the server did not take is sent again', () async {
       const other = Model(id: 'model-2', name: 'Model 2');
       final (:api, :socket, :container) = await open(

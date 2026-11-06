@@ -200,6 +200,11 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
   bool hasUnconfirmedModelList(String chatId) =>
       _unconfirmedModelLists.contains(chatId);
 
+  /// Stops holding chat [chatId]'s picked list over the server's: its save
+  /// was given up, and the server's list, changed elsewhere maybe, applies.
+  void releaseUnconfirmedModelList(String chatId) =>
+      _unconfirmedModelLists.remove(chatId);
+
   void _noteModelListWrite(String chatId) {
     _modelListVersions[chatId] = modelListVersion(chatId) + 1;
   }
