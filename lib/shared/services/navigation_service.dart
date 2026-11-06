@@ -175,7 +175,9 @@ class NavigationService {
     final router = _router;
     if (router == null) return;
     final path = router.namedLocation(name, pathParameters: pathParameters);
-    _history.removeWhere((location) => Uri.parse(location).path == path);
+    _history.removeWhere(
+      (location) => (Uri.tryParse(location)?.path ?? location) == path,
+    );
   }
 
   /// The current location reported by GoRouter.
