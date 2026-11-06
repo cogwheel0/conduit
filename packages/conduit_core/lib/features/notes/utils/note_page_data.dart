@@ -301,14 +301,23 @@ Map<String, dynamic> noteContentWithoutFile(
   if (html.isNotEmpty) {
     // The markup is matched in any case, as HTML is; the file id exactly.
     String ofFile(Match match) => match[1] == fileId ? '' : match[0]!;
+    // A block goes whole when it names the file and holds no link but the
+    // file's own.
+    String ofFileBlock(Match match) =>
+        match[1] == fileId && (match[2] == null || match[2] == fileId)
+        ? ''
+        : match[0]!;
     html = html
-        .replaceAllMapped(_htmlFileBlockPattern, ofFile)
+        .replaceAllMapped(_htmlFileBlockPattern, ofFileBlock)
         .replaceAllMapped(_htmlFileAnchorPattern, ofFile)
-        // A block holding more than the file's link keeps the rest, and no
-        // longer names the file: the editor would read it back as the file.
+        // A block of the file that holds more keeps the rest, and its other
+        // attributes, but no longer names the file: the editor would read
+        // it back as the file.
         .replaceAllMapped(
           _htmlFileBlockOpenPattern,
-          (Match match) => match[1] == fileId ? '<div>' : match[0]!,
+          (Match match) => match[1] == fileId
+              ? match[0]!.replaceAll(_htmlFileBlockAttributePattern, '')
+              : match[0]!,
         );
     if (_htmlFileLinkIds(html).contains(fileId)) html = '';
   }
@@ -326,18 +335,25 @@ Map<String, dynamic> noteContentWithoutFile(
   };
 }
 
-/// A block holding only a file's link, as [noteContentWithLinkedFiles] and
-/// Open WebUI's editor write it, with the id it names. A block holding more
-/// is not taken whole: its other content stays.
+/// A block holding only a file link, as [noteContentWithLinkedFiles] and
+/// Open WebUI's editor write it, with the id it names and the id its link
+/// names. A block holding more is not taken whole: its other content stays.
 final RegExp _htmlFileBlockPattern = RegExp(
   r'''<div\b[^>]*\sdata-file-id\s*=\s*["']([^"']*)["'][^>]*>\s*'''
-  r'''(?:<a\b[^>]*>(?:(?!</?(?:a|div)\b)[\s\S])*</a>)?\s*</div>''',
+  r'''(?:<a\b[^>]*?\shref\s*=\s*["']/api/v1/files/([\w-]+)/content["'][^>]*>'''
+  r'''(?:(?!</?(?:a|div)\b)[\s\S])*</a>)?\s*</div>''',
   caseSensitive: false,
 );
 
 /// The opening tag of a block that names a file, with the id it names.
 final RegExp _htmlFileBlockOpenPattern = RegExp(
   r'''<div\b[^>]*\sdata-file-id\s*=\s*["']([^"']*)["'][^>]*>''',
+  caseSensitive: false,
+);
+
+/// The attributes by which a block names a file.
+final RegExp _htmlFileBlockAttributePattern = RegExp(
+  r'''\sdata-file-(?:id|size)\s*=\s*(?:"[^"]*"|'[^']*')''',
   caseSensitive: false,
 );
 

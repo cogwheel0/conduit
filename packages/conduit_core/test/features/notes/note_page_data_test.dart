@@ -581,16 +581,32 @@ void main() {
         'md': 'x\n\n[F](/api/v1/files/f/content)',
         'html':
             '<p>x</p>'
-            '<div data-file-id="f" data-file-size="3"><div><p>kept</p></div>'
+            '<div class="callout" data-file-id="f" data-file-size="3" '
+            'style="color: red"><div><p>kept</p></div>'
             '<a href="/api/v1/files/f/content">F</a></div>'
             '<p>after</p>'
             '<div data-file-id="g"><a href="/api/v1/files/g/content">G</a></div>',
         'json': null,
       }, 'f');
       check(content['html']).equals(
-        '<p>x</p><div><div><p>kept</p></div></div><p>after</p>'
+        '<p>x</p><div class="callout" style="color: red"><div><p>kept</p>'
+        '</div></div><p>after</p>'
         '<div data-file-id="g"><a href="/api/v1/files/g/content">G</a></div>',
       );
+    });
+
+    test('a block naming a detached file whose link is to another file keeps '
+        'that link', () {
+      final content = noteContentWithoutFile(<String, dynamic>{
+        'md': '',
+        'html':
+            '<a href="/api/v1/files/f/content">F</a>'
+            '<div data-file-id="f"><a href="/api/v1/files/g/content">G</a></div>',
+        'json': null,
+      }, 'f');
+      check(
+        content['html'],
+      ).equals('<div><a href="/api/v1/files/g/content">G</a></div>');
     });
 
     test('a block of only a detached file\'s link goes whole, with the space '
