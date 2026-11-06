@@ -25,7 +25,7 @@ const double _kNativeTabBarActionOverhang = 4;
 
 /// Height of UIKit's floating platter before the bar is scaled to
 /// [AdaptiveFloatingTabBar.controlExtent]. The platter keeps its bottom edge
-/// as it shrinks, so its top comes down by the difference.
+/// as it is scaled, so its top moves by the difference.
 const double _kNativePlatterHeight = 60;
 
 /// Default height of an [AdaptiveFloatingTabBar]: the minimum touch target,
@@ -158,9 +158,11 @@ class AdaptiveFloatingTabBar extends StatefulWidget {
     return _materialBottomInset(safeBottom) + controlExtent;
   }
 
-  /// How far scaling the native platter to [controlExtent] lowers its top.
+  /// How far scaling the native platter to [controlExtent] lowers its top:
+  /// negative when it grows, as the window's buttons do at the largest text
+  /// sizes.
   static double _nativeShrink(double controlExtent) =>
-      (_kNativePlatterHeight - controlExtent).clamp(0, _kNativePlatterHeight);
+      _kNativePlatterHeight - controlExtent;
 
   static double _materialBottomInset(double safeBottom) =>
       safeBottom > 0 ? safeBottom : _kMaterialBottomMargin;

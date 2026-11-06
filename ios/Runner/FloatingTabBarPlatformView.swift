@@ -109,9 +109,9 @@ private final class RowReportingTabBar: UITabBar {
 /// The view spans the bottom of the window, so UIKit floats the bar above
 /// the home indicator as it does for an app's own tab bar. The bar always
 /// takes the phone layout, which an iPad sidebar would otherwise compress.
-/// UIKit's platter is taller than the window's other glass buttons, so the
-/// bar is scaled down to their size, keeping its selection lens, and the
-/// action takes the same size. The action follows the tab buttons UIKit laid
+/// UIKit's platter keeps one height, while the window's other glass buttons
+/// follow the text size, so the bar is scaled to their size, keeping its
+/// selection lens, and the action takes the same size. The action follows the tab buttons UIKit laid
 /// out, so the two line up on every device.
 private final class FloatingTabBarView: UIView, UITabBarDelegate {
   var onSelect: ((Int) -> Void)?
@@ -277,7 +277,8 @@ private final class FloatingTabBarView: UIView, UITabBarDelegate {
   private func layoutBar(alongside row: CGRect) {
     guard row.height > 0 else { return }
     let platter = row.insetBy(dx: -Self.platterPadding, dy: -Self.platterPadding)
-    let scale = controlExtent > 0 ? min(1, controlExtent / platter.height) : 1
+    // Smaller at the default text size, larger at the largest ones.
+    let scale = controlExtent > 0 ? controlExtent / platter.height : 1
     // A transform acts about the bar's centre, which Auto Layout places.
     let center = tabBar.center
     let corner = CGPoint(

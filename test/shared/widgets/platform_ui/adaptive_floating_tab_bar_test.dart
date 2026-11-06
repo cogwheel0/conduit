@@ -232,6 +232,20 @@ void main() {
     final small = AdaptiveFloatingTabBar.extentOf(context, controlExtent: 44);
     final large = AdaptiveFloatingTabBar.extentOf(context, controlExtent: 50);
     expect(large - small, 6);
+    // The window's buttons outgrow UIKit's platter at the largest text sizes,
+    // and the bar grows with them.
+    final largest = AdaptiveFloatingTabBar.extentOf(
+      context,
+      controlExtent: 66,
+    );
+    expect(largest - small, 22);
+    final view = tester.getSize(find.byType(UiKitView)).height;
+    await tester.pumpWidget(
+      _bar(const [_openWebUi, _hermes], controlExtent: 66),
+    );
+    await tester.pumpAndSettle();
+    expect(configurations.last['controlExtent'], 66);
+    expect(tester.getSize(find.byType(UiKitView)).height - view, 16);
     await tester.pumpWidget(const SizedBox.shrink());
   });
 
