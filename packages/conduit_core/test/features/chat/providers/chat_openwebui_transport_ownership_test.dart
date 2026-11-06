@@ -6839,6 +6839,24 @@ void main() {
       check(api.savedModels).length.equals(1);
     });
 
+    test('a pick in a chat with a known owner is not saved before this '
+        'account is known', () async {
+      const other = Model(id: 'model-2', name: 'Model 2');
+      final (:api, :socket, :container) = await open(
+        available: const [duplicate, other],
+      );
+      check(container.read(currentUserProvider2)).isNull();
+      final active = container.read(activeConversationProvider)!;
+      container
+          .read(activeConversationProvider.notifier)
+          .set(active.copyWith(userId: 'someone-else'));
+
+      await saveChatModelChoice(container, other);
+
+      check(api.savedModels).isEmpty();
+      check(container.read(chatModelPickProvider)).isNull();
+    });
+
     test('a model list the server did not take is sent again', () async {
       const other = Model(id: 'model-2', name: 'Model 2');
       final (:api, :socket, :container) = await open(

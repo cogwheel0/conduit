@@ -114,7 +114,9 @@ Future<void> saveChatModelChoice(dynamic ref, Model model) async {
   if (isLocallyMintedDirectModel(model) || isHermesModel(model)) return;
   final String? userId = ref.read(currentUserProvider2)?.id;
   final String? owner = conversation.userId;
-  if (owner != null && userId != null && owner != userId) return;
+  // Someone else's chat, or one whose owner is known while this account is
+  // not yet: nothing is saved.
+  if (owner != null && owner != userId) return;
   final String chatId = conversation.id;
   final models = <String>[model.id];
 
