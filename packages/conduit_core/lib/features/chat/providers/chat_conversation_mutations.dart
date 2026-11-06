@@ -263,9 +263,10 @@ Future<void> archiveConversation(
   final leavingActiveConversation =
       archived &&
       _activeConversationMatchesSelection(activeConversation, conversationId);
-  final previousFilterIds = leavingActiveConversation
-      ? List<String>.of(_readProvider(ref, selectedFilterIdsProvider))
-      : const <String>[];
+  // Put back if the server refuses the archive.
+  final ConversationPicks? previousPicks = leavingActiveConversation
+      ? captureConversationPicks(ref)
+      : null;
 
   if (identity.storage == ChatStorageKind.directLocal ||
       isDirectLocalConversation(listedConversation)) {
@@ -342,10 +343,8 @@ Future<void> archiveConversation(
         ref,
         activeConversationProvider.notifier,
       ).set(activeConversation);
-      _readProvider(
-        ref,
-        selectedFilterIdsProvider.notifier,
-      ).set(previousFilterIds);
+      // After the chat is open again, so its picks are its own.
+      if (previousPicks != null) restoreConversationPicks(ref, previousPicks);
       // Messages will be restored through the listener
     }
 

@@ -1110,6 +1110,11 @@ void main() {
             .read(chatMessagesProvider.notifier)
             .setMessages(active.messages);
         container.read(selectedFilterIdsProvider.notifier).set(['filter-a']);
+        // The chat's own picks, which the archive would start again.
+        container.read(selectedToolIdsProvider.notifier).set(['tool-a']);
+        container.read(selectedTerminalIdProvider.notifier).set('term-1');
+        container.read(webSearchEnabledProvider.notifier).set(true);
+        container.read(imageGenerationEnabledProvider.notifier).set(true);
 
         await expectLater(
           archiveConversation(ref, _openWebUiScoped('chat-s'), true),
@@ -1118,6 +1123,11 @@ void main() {
 
         expect(container.read(activeConversationProvider)!.id, 'chat-s');
         expect(container.read(selectedFilterIdsProvider), ['filter-a']);
+        // The archive did not happen: the chat keeps them.
+        expect(container.read(selectedToolIdsProvider), ['tool-a']);
+        expect(container.read(selectedTerminalIdProvider), 'term-1');
+        expect(container.read(webSearchEnabledProvider), isTrue);
+        expect(container.read(imageGenerationEnabledProvider), isTrue);
         expect(listed(container).single.archived, isFalse);
         expect(pulls, isEmpty);
         // Restoring the selection also re-projects its transcript, which is
