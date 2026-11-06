@@ -23,6 +23,16 @@ void main() {
     check(noteFileCardsIn(doc)).isEmpty();
   });
 
+  test('two links to one file, apart on a line, stay links with their own '
+      'labels', () {
+    const md = '[first](/api/v1/files/a/content) [second](/api/v1/files/a/content)';
+    final doc = noteDocumentFromMarkdown(md);
+    check(noteFileCardsIn(doc)).isEmpty();
+    final markdown = noteMarkdownFromDocument(doc);
+    check(markdown).contains('[first](/api/v1/files/a/content)');
+    check(markdown).contains('[second](/api/v1/files/a/content)');
+  });
+
   test('cards write back as the links they were read from', () {
     const md = 'intro\n\n$linkA\n\n$linkB\n\noutro';
     final markdown = noteMarkdownFromDocument(noteDocumentFromMarkdown(md));

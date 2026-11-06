@@ -123,6 +123,9 @@ ParchmentDocument _withFileCards(ParchmentDocument document) {
 NoteFileLink? _fileOfLine(List<Operation> ops) {
   if (ops.isEmpty) return null;
   String? href;
+  // Text between two links, if only a space, makes them two links, each with
+  // its own label, not one card.
+  var afterLink = false;
   final text = StringBuffer();
   for (final op in ops) {
     final data = op.data;
@@ -135,9 +138,10 @@ NoteFileLink? _fileOfLine(List<Operation> ops) {
     final link = op.attributes?[ParchmentAttribute.link.key];
     if (link is! String) {
       if (data.trim().isNotEmpty) return null;
+      afterLink = href != null;
       continue;
     }
-    if (href != null && href != link) return null;
+    if (href != null && (href != link || afterLink)) return null;
     href = link;
     text.write(data);
   }
