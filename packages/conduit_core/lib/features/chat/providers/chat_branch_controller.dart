@@ -234,11 +234,9 @@ Future<ChatBranchSelection> selectChatBranch(
         messageId: messageId,
         alternativeTo: alternativeTo,
       );
+  // A model pick names the prompts it was made over by id, so it keeps
+  // applying to those on this branch too, and to no others.
   if (selection.changed && _branchMutationContextIsCurrent(ref, token)) {
-    // A model picked on the branch left behind counted its turns, which on
-    // this branch are other prompts.
-    (ref.read(chatModelPickProvider.notifier) as ChatModelPickNotifier)
-        .forget(conversation.id);
     try {
       unawaited(
         (ref.read(syncEngineProvider.notifier) as SyncEngine)

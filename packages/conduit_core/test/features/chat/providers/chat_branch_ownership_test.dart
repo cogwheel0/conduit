@@ -337,7 +337,8 @@ void main() {
       check(await db.outboxDao.hasPendingBranchEdit('c1')).isTrue();
     });
 
-    test('a model picked on the branch left behind no longer applies', () async {
+    test('a model pick still applies after another answer of its prompt is '
+        'shown', () async {
       await seed();
       final c = container(active: await _loaded(db, 'c1'));
       c
@@ -353,7 +354,11 @@ void main() {
       );
       await _settle();
 
-      check(c.read(chatModelPickProvider)).isNull();
+      // The prompt is on this branch too: regenerating an answer to it uses
+      // the model the user picked.
+      check(c.read(chatModelPickProvider)).isNotNull()
+        ..has((pick) => pick.modelId, 'modelId').equals('model-x')
+        ..has((pick) => pick.promptIds, 'promptIds').deepEquals({'u1'});
     });
 
     test('an edited first message continues down its own branch', () async {
