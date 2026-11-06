@@ -4981,7 +4981,10 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     // VOICE CALL variant when no text is present and voice is available.
     // Otherwise fall back to a muted send button.
     if (widget.onVoiceCall != null) {
-      final bool enabledVoiceCall = widget.enabled && !_isRecording;
+      // Not while a reply runs: in a shared chat that is another person's,
+      // which leaves no Stop in its place.
+      final bool enabledVoiceCall =
+          widget.enabled && !_isRecording && !isGenerating;
       return AdaptiveTooltip(
         message: AppLocalizations.of(context)!.voiceCallTitle,
         child: _buildComposerIconButton(

@@ -244,6 +244,7 @@ Future<_Rig> _pump(
   bool streaming = true,
   List<ChatMessage>? turn,
   List<Override> overrides = const [],
+  VoidCallback? onVoiceCall,
 }) async {
   final db = AppDatabase(NativeDatabase.memory());
   _openDatabases.add(db);
@@ -318,7 +319,10 @@ Future<_Rig> _pump(
         home: Scaffold(
           body: Align(
             alignment: Alignment.bottomCenter,
-            child: ModernChatInput(onSendMessage: sent.add),
+            child: ModernChatInput(
+              onSendMessage: sent.add,
+              onVoiceCall: onVoiceCall,
+            ),
           ),
         ),
       ),
@@ -409,8 +413,10 @@ void main() {
 
   testQueue('another person\'s reply running in a shared chat offers Queue '
       'and no Stop', (tester) async {
+    var voiceCalls = 0;
     final rig = await _pump(
       tester,
+      onVoiceCall: () => voiceCalls++,
       turn: <ChatMessage>[
         _runningTurn().first,
         _runningTurn().last.copyWith(
@@ -420,6 +426,13 @@ void main() {
         ),
       ],
     );
+
+    // With nothing typed, a voice call does not start while it runs.
+    final voiceCall = find.byKey(const ValueKey('primary-btn-voice-call'));
+    expect(voiceCall, findsOneWidget);
+    await tester.tap(voiceCall);
+    await tester.pump();
+    expect(voiceCalls, 0);
 
     await rig.type('next question');
     expect(find.text(queueLabel), findsOneWidget);
