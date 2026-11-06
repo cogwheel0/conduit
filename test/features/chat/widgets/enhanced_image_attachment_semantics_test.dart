@@ -43,11 +43,16 @@ void main() {
     semantics.dispose();
   });
 
-  testWidgets('an image without one adds no label', (tester) async {
+  testWidgets('a markdown image without one is called an image, in the '
+      'user\'s language', (tester) async {
     final semantics = tester.ensureSemantics();
     await pump(tester, label: '  ');
 
-    expect(find.bySemanticsLabel(RegExp(r'\S')), findsNothing);
+    final context = tester.element(find.byType(EnhancedImageAttachment));
+    expect(
+      find.bySemanticsLabel(AppLocalizations.of(context)!.imageFileType),
+      findsOneWidget,
+    );
     semantics.dispose();
   });
 }

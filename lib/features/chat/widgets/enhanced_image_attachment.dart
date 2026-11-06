@@ -484,8 +484,9 @@ class EnhancedImageAttachment extends ConsumerStatefulWidget {
   final Map<String, String>? httpHeaders;
 
   /// What the image shows, for screen readers: a markdown image's alt text,
-  /// such as the prompt a generated image was made from. Null or empty adds
-  /// no label.
+  /// such as the prompt a generated image was made from. A markdown image
+  /// without one is called an image, in the user's language; other images
+  /// get no label from here.
   final String? semanticLabel;
 
   const EnhancedImageAttachment({
@@ -766,8 +767,11 @@ class _EnhancedImageAttachmentState
 
     // Directly return content without AnimatedSwitcher to prevent black flash during streaming
     final content = _buildContent();
-    final label = widget.semanticLabel?.trim();
-    if (label == null || label.isEmpty) return content;
+    var label = widget.semanticLabel?.trim() ?? '';
+    if (label.isEmpty && widget.isMarkdownFormat) {
+      label = AppLocalizations.of(context)?.imageFileType ?? '';
+    }
+    if (label.isEmpty) return content;
     return Semantics(image: true, label: label, child: content);
   }
 
