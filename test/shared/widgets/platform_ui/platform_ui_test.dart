@@ -35,7 +35,8 @@ void main() {
       final messenger =
           TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
       messenger.setMockMethodCallHandler(channel, (call) async {
-        if (call.method != 'isIOSAppOnMac') return null;
+        if (call.method == 'displayCornerRadius') return null;
+        expect(call.method, 'isIOSAppOnMac');
         calls++;
         return true;
       });
@@ -65,10 +66,11 @@ void main() {
       var calls = 0;
       final messenger =
           TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
-      messenger.setMockMethodCallHandler(
-        channel,
-        (call) async => call.method == 'isIOSAppOnMac' ? calls++ == 0 : null,
-      );
+      messenger.setMockMethodCallHandler(channel, (call) async {
+        if (call.method == 'displayCornerRadius') return null;
+        expect(call.method, 'isIOSAppOnMac');
+        return calls++ == 0;
+      });
       addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
 
       await PlatformUiCapabilities.initialize();
@@ -91,10 +93,11 @@ void main() {
         final messenger =
             TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
         Object? reply = 55.0;
-        messenger.setMockMethodCallHandler(
-          channel,
-          (call) async => call.method == 'displayCornerRadius' ? reply : false,
-        );
+        messenger.setMockMethodCallHandler(channel, (call) async {
+          if (call.method == 'isIOSAppOnMac') return false;
+          expect(call.method, 'displayCornerRadius');
+          return reply;
+        });
         addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
 
         await PlatformUiCapabilities.initialize();

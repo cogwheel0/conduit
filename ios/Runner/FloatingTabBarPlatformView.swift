@@ -163,11 +163,13 @@ private final class FloatingTabBarView: UIView, UITabBarDelegate {
     if let isDark = arguments["isDark"] as? Bool {
       overrideUserInterfaceStyle = isDark ? .dark : .light
     }
-    if let tint = (arguments["tint"] as? NSNumber).map(Self.color) {
-      tabBar.tintColor = tint
+    // A tint sent as null restores the system's.
+    if arguments.keys.contains("tint") {
+      tabBar.tintColor = (arguments["tint"] as? NSNumber).map(Self.color)
     }
-    if let unselected = (arguments["unselectedTint"] as? NSNumber).map(Self.color) {
-      tabBar.unselectedItemTintColor = unselected
+    if arguments.keys.contains("unselectedTint") {
+      tabBar.unselectedItemTintColor = (arguments["unselectedTint"] as? NSNumber)
+        .map(Self.color)
     }
     if let width = arguments["itemWidth"] as? Double { itemWidth = CGFloat(width) }
     if let tabs = arguments["tabs"] as? [[String: Any]] { setTabs(tabs) }
@@ -182,8 +184,9 @@ private final class FloatingTabBarView: UIView, UITabBarDelegate {
     if let label = arguments["actionLabel"] as? String {
       actionButton.accessibilityLabel = label
     }
-    if let tint = (arguments["actionTint"] as? NSNumber).map(Self.color) {
-      actionButton.configuration?.baseForegroundColor = tint
+    if arguments.keys.contains("actionTint") {
+      actionButton.configuration?.baseForegroundColor =
+        (arguments["actionTint"] as? NSNumber).map(Self.color) ?? .label
     }
     setNeedsLayout()
   }

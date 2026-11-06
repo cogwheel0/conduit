@@ -221,7 +221,7 @@ class _AdaptiveFloatingTabBarState extends State<AdaptiveFloatingTabBar> {
   void _loadIcons() {
     final bundle = DefaultAssetBundle.of(context);
     final scale = MediaQuery.devicePixelRatioOf(context);
-    final keys = [for (final tab in widget.tabs) _iconKey(tab, scale)];
+    final keys = [for (final tab in widget.tabs) _iconKey(bundle, tab, scale)];
     final key = keys.join('|');
     if (key == _iconsKey) return;
     _iconsKey = key;
@@ -240,8 +240,15 @@ class _AdaptiveFloatingTabBarState extends State<AdaptiveFloatingTabBar> {
         });
   }
 
-  static String _iconKey(AdaptiveFloatingTab tab, double scale) =>
-      '${tab.nativeAsset}@${tab.nativeIconSize}x$scale';
+  /// Keyed by bundle too: another bundle can hold a different image at the
+  /// same asset path.
+  static String _iconKey(
+    AssetBundle bundle,
+    AdaptiveFloatingTab tab,
+    double scale,
+  ) =>
+      '${identityHashCode(bundle)}:${tab.nativeAsset}@${tab.nativeIconSize}x'
+      '$scale';
 
   /// A tab's rendered icon, or no image when it cannot be rendered, so the
   /// bar still appears with its labelled tabs.
@@ -250,7 +257,7 @@ class _AdaptiveFloatingTabBarState extends State<AdaptiveFloatingTabBar> {
     AdaptiveFloatingTab tab,
     double scale,
   ) async {
-    final key = _iconKey(tab, scale);
+    final key = _iconKey(bundle, tab, scale);
     final rendered = AdaptiveFloatingTabBar._renderedIcons;
     if (rendered[key] case final icon?) return icon;
     try {
@@ -289,11 +296,12 @@ class _AdaptiveFloatingTabBarState extends State<AdaptiveFloatingTabBar> {
       'selectedIndex': widget.selectedIndex,
       'itemWidth': widget.itemWidth,
       'isDark': isDark,
-      'tint': ?widget.selectedItemColor?.toARGB32(),
-      'unselectedTint': ?widget.unselectedItemColor?.toARGB32(),
+      // Sent even when unset, so clearing a color restores the system's.
+      'tint': widget.selectedItemColor?.toARGB32(),
+      'unselectedTint': widget.unselectedItemColor?.toARGB32(),
       'actionSymbol': widget.action.sfSymbol,
       'actionLabel': widget.action.label,
-      'actionTint': ?widget.actionForegroundColor?.toARGB32(),
+      'actionTint': widget.actionForegroundColor?.toARGB32(),
     };
   }
 
