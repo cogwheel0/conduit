@@ -207,6 +207,16 @@ class _HeldVoice extends VoiceInputService {
   Future<void> dispose() async {}
 }
 
+/// Dictation that hands over its last words as it stops, as a speech engine
+/// finishing its transcript does.
+class _LastWordsVoice extends _HeldVoice {
+  @override
+  Future<void> stopListening() async {
+    run?.add('spoken words, last words');
+    await super.stopListening();
+  }
+}
+
 Map<String, dynamic> _noteJson({
   required bool writeAccess,
   String owner = 'creator',
@@ -2154,6 +2164,56 @@ void main() {
     final row = (await db.notesDao.getNote('note-1'))!;
     expect(row.data, contains('spoken words'));
   });
+
+  // Server speech-to-text sends nothing until it stops, so the note may not
+  // have changed yet when back is pressed.
+  for (final interim in [true, false]) {
+    testWidgets('back in the tabbed layout keeps dictation\'s last words '
+        '(interim words: $interim)', (tester) async {
+      final voice = _LastWordsVoice()..ready.complete(true);
+      final note = _noteJson(writeAccess: true);
+      await storeLocally(note);
+      final container = await pumpEditor(
+        tester,
+        _DetailApi(detail: note),
+        voice: voice,
+      );
+      final navigator = GlobalKey<NavigatorState>();
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: MaterialApp(
+            navigatorKey: navigator,
+            theme: AppTheme.light(TweakcnThemes.t3Chat),
+            localizationsDelegates: conduitLocalizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            home: const Scaffold(body: Text('Notes list')),
+          ),
+        ),
+      );
+      unawaited(
+        navigator.currentState!.push(
+          MaterialPageRoute<void>(
+            builder: (_) => const NoteEditorPage(noteId: 'note-1'),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await startDictation(tester);
+      if (interim) voice.run!.add('spoken words');
+      // An edit marks the note changed by the next frame.
+      await tester.pump();
+      await tester.pump();
+
+      await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
+
+      expect(find.byType(NoteEditorPage), findsNothing);
+      expect(voice.run, isNull);
+      final row = (await db.notesDao.getNote('note-1'))!;
+      expect(row.data, contains('last words'));
+    });
+  }
 
   // A stored title that is empty or padded is not an edit, and neither is a
   // cleared title, which saves as the "Untitled" already stored.

@@ -849,6 +849,11 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
   /// write doesn't race teardown), then pop programmatically.
   Future<void> _onEditorPopInvoked(bool didPop, Object? result) async {
     if (didPop) return;
+    // Dictation's last words arrive as it stops, and closing the editor
+    // would drop them.
+    _dictationEnds++;
+    if (_isRecording) await _stopDictation();
+    if (!mounted) return;
     _saveDebounce?.cancel();
     await _autoSave();
     // Keep the editor open if persistence failed. In particular, a remotely
@@ -1636,7 +1641,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
       // mounted (so the durable write completes without racing teardown), then
       // pop programmatically. The sliding sidebar opens the editor in place,
       // so its back returns to the page before, as the back button does.
-      canPop: !_hasChanges && !goesBack,
+      canPop: !_hasChanges && !_isRecording && !goesBack,
       onPopInvokedWithResult: goesBack
           ? (didPop, _) {
               if (didPop) return;
