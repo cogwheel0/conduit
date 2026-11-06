@@ -21,6 +21,7 @@ import '../../../shared/widgets/sidebar_layout_contract.dart';
 
 import 'dart:async';
 
+import 'package:conduit_core/features/chat/providers/chat_model_choice.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 
 import 'package:conduit_core/services/interaction_activity.dart';
@@ -4756,6 +4757,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     }
 
     if (Platform.isIOS) {
+      // The native picker stays up while another chat can open under it.
+      final pickTarget = captureChatModelPickTarget(ref);
       try {
         final selectedId = await ref
             .read(nativeSheetHydrationServiceProvider)
@@ -4777,9 +4780,12 @@ class _ChatPageState extends ConsumerState<ChatPage> {
             }
           }
           if (selected != null) {
-            ref.read(isManualModelSelectionProvider.notifier).set(true);
+            // An explicit choice, which a late default or New Chat must not
+            // replace.
+            if (applyChatModelPick(ref, selected, target: pickTarget)) {
+              ref.read(isManualModelSelectionProvider.notifier).set(true);
+            }
           }
-          ref.read(selectedModelProvider.notifier).set(selected);
         }
         await restoreFocusIfNeeded();
         return;

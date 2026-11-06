@@ -4,6 +4,8 @@ import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:flutter/widgets.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
+import 'package:conduit_core/database/chat_database_repository.dart'
+    show ChatStorageIdentity, ChatStorageKind;
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/database/local_conversation_loader.dart';
 
@@ -100,11 +102,12 @@ Future<void> _handleTap(Ref ref, NotificationTap tap) async {
       case NotificationKind.chatCompletion:
         final ownership = captureOpenWebUiConversationRead(ref);
         if (ownership == null) return;
-        final outgoing = ref.read(activeConversationProvider);
-        if (outgoing == null ||
-            !conversationMatchesScopedId(outgoing, tap.sourceId)) {
-          clearSelectedFiltersForConversationBoundary(ref);
-        }
+        // The notification names an Open WebUI chat: an on-device chat with
+        // the same raw id is another chat.
+        final tappedId = ChatStorageIdentity(
+          rawId: tap.sourceId,
+          storage: ChatStorageKind.openWebUi,
+        ).scopedId;
         final chatWasOnScreen = chatPageOnScreen();
         // DB-first open, mirroring the conversation-list selection flow.
         await NavigationService.navigateToChat();
@@ -116,6 +119,15 @@ Future<void> _handleTap(Ref ref, NotificationTap tap) async {
         );
         if (!openWebUiConversationReadIsCurrent(ref, ownership)) return;
         if (local != null) {
+          // The picks of the chat open now, or of one opened while this one
+          // loaded, are not this chat's. They start again only here, once
+          // this chat opens: a tap whose chat is not stored leaves the open
+          // chat, and its picks, as they are.
+          final current = ref.read(activeConversationProvider);
+          if (current == null ||
+              !conversationMatchesScopedId(current, tappedId)) {
+            clearSelectedFiltersForConversationBoundary(ref);
+          }
           ref
               .read(chatBackOpensListProvider.notifier)
               .switchTo(local, chatOnScreen: chatWasOnScreen);

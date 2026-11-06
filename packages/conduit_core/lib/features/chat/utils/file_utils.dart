@@ -99,3 +99,42 @@ String? getFileUrl(dynamic file) {
   if (url == null) return null;
   return url.toString();
 }
+
+final RegExp _openWebUiFileUrl = RegExp(r'/api/v1/files/([^/]+)(?:/content)?$');
+
+/// The id a chat file shows under: taken from its URL, a bare file id or an
+/// Open WebUI file path, whose query (a token, say) is no part of it. Null
+/// for a file with no URL, which shows nothing.
+String? chatFileShownId(dynamic file) {
+  final url = getFileUrl(file);
+  if (url == null) return null;
+  if (!url.contains('/api/v1/files/')) return url;
+  final path = Uri.tryParse(url)?.path ?? url;
+  return _openWebUiFileUrl.firstMatch(path)?.group(1) ?? url;
+}
+
+/// A reply's [stored] files, then each of [shown] (files the model showed
+/// with Open WebUI's display_file tool) that is not shown already: by a
+/// stored file that has a URL to show, or, while the reply stores no files,
+/// by one of its [attachmentIds]. A stored file with no URL shows nothing,
+/// so the file it names still shows.
+List<dynamic> chatFilesWithShown(
+  List<dynamic>? stored,
+  List<Map<String, dynamic>> shown, {
+  List<String>? attachmentIds,
+}) {
+  final shownIds = <String>{
+    for (final file in stored ?? const <dynamic>[])
+      if (file is Map && chatFileShownId(file) != null) ...[
+        chatFileShownId(file)!,
+        for (final key in const ['id', 'file_id'])
+          if (file[key] is String) file[key] as String,
+      ],
+    if (stored == null || stored.isEmpty) ...?attachmentIds,
+  };
+  return <dynamic>[
+    ...?stored,
+    for (final file in shown)
+      if (!shownIds.contains(file['id'])) file,
+  ];
+}

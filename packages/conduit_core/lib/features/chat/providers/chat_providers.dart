@@ -171,6 +171,8 @@ import 'package:conduit_core/features/chat/services/chat_data_controls.dart';
 import 'package:conduit_core/features/chat/services/chat_comparison_service.dart';
 import 'package:conduit_core/features/chat/services/chat_history_reader.dart';
 import 'package:conduit_core/features/chat/providers/attached_files_provider.dart';
+import 'package:conduit_core/features/chat/providers/chat_model_choice.dart';
+import 'package:conduit_core/providers/chat_picks_session.dart';
 import 'package:conduit_core/features/chat/services/reviewer_mode_service.dart';
 
 part 'chat_attachments.dart';

@@ -20,6 +20,7 @@ import 'dart:async';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 
+import 'package:conduit_core/features/chat/providers/chat_model_choice.dart';
 import 'package:conduit_core/features/chat/composer/composer_commands.dart';
 import 'package:conduit_core/features/chat/providers/chat_providers.dart';
 import 'package:conduit_core/features/chat/services/chat_draft_queue.dart';
@@ -2212,8 +2213,10 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       label: model.name,
     );
 
-    // Switch to the selected model.
+    // Switch to the selected model, and keep it as the chat's, as Open
+    // WebUI 0.12.5 does for a model mentioned with @.
     ref.read(selectedModelProvider.notifier).set(model);
+    unawaited(saveChatModelChoice(ref, model));
 
     setState(() {
       _hasText = newText.trim().isNotEmpty;
@@ -3433,8 +3436,13 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       _scheduleNativeKeyboardAttachmentSync();
     });
 
-    // Use dedicated streaming provider to avoid rebuilding on every message change
+    // Use dedicated streaming provider to avoid rebuilding on every message
+    // change. Any reply running, in a shared chat another person's too, has a
+    // message typed now queued behind it.
     final localTurnIsGenerating = ref.watch(isChatStreamingProvider);
+    // Only a reply this account asked for is its to stop; another person's
+    // is not, and the composer offers no Stop for it.
+    final localTurnCanStop = ref.watch(isOwnChatStreamingProvider);
     final stopGeneration = ref.read(stopGenerationProvider);
 
     // Watch only upload send-state booleans so metadata/progress churn does not
@@ -3551,6 +3559,10 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
         ?.value;
     final isGenerating =
         localTurnIsGenerating ||
+        (isDesktopHermesComposer &&
+            desktopTurnState == HermesDesktopTurnState.running);
+    final canStop =
+        localTurnCanStop ||
         (isDesktopHermesComposer &&
             desktopTurnState == HermesDesktopTurnState.running);
     final desktopTurnControlsSupported =
@@ -3989,6 +4001,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                 voiceAvailable,
                 allUploadsComplete,
                 hasUploadsInProgress,
+                canStop: canStop,
                 dense: true,
               ),
             ],
@@ -4089,6 +4102,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                   voiceAvailable,
                   allUploadsComplete,
                   hasUploadsInProgress,
+                  canStop: canStop,
                   dense: true,
                 ),
               ],
@@ -4860,6 +4874,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     bool voiceAvailable,
     bool allUploadsComplete,
     bool hasUploadsInProgress, {
+    required bool canStop,
     bool dense = false,
   }) {
     final double buttonSize = conduitScaledControlExtent(
@@ -4882,8 +4897,9 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     final enabled =
         !isGenerating && hasText && widget.enabled && allUploadsComplete;
 
-    // Generating -> STOP variant
-    if (isGenerating) {
+    // Generating -> STOP variant, for a reply this account may stop. Another
+    // person's reply leaves the draft to Queue, and Send waits for it.
+    if (isGenerating && canStop) {
       final stopLabel = AppLocalizations.of(context)!.stopGenerating;
       return AdaptiveTooltip(
         message: stopLabel,
@@ -4965,7 +4981,10 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     // VOICE CALL variant when no text is present and voice is available.
     // Otherwise fall back to a muted send button.
     if (widget.onVoiceCall != null) {
-      final bool enabledVoiceCall = widget.enabled && !_isRecording;
+      // Not while a reply runs: in a shared chat that is another person's,
+      // which leaves no Stop in its place.
+      final bool enabledVoiceCall =
+          widget.enabled && !_isRecording && !isGenerating;
       return AdaptiveTooltip(
         message: AppLocalizations.of(context)!.voiceCallTitle,
         child: _buildComposerIconButton(

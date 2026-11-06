@@ -20,7 +20,11 @@ import 'package:conduit/features/notifications/services/notification_sound_servi
 import 'package:conduit/features/navigation/providers/chat_back_provider.dart';
 import 'package:conduit/shared/services/navigation_service.dart';
 import 'package:conduit_core/database/app_database.dart';
+import 'package:conduit_core/database/chat_database_repository.dart'
+    show ChatStorageKind;
 import 'package:conduit_core/database/local_conversation_loader.dart';
+import 'package:conduit_core/features/tools/providers/tools_providers.dart';
+import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit_core/sync/chat_locks.dart';
 import 'package:conduit_core/sync/pull_sync.dart';
@@ -349,6 +353,56 @@ void main() {
 
       check(NavigationService.currentRoute).equals('/chat');
       check(container.read(chatBackOpensListProvider)).isTrue();
+    });
+
+    test('a tap whose chat is not stored leaves the open chat its picks',
+        () async {
+      attachRouterAt('/chat');
+      final active = await loadLocalConversation(container, 'chat-1');
+      container.read(activeConversationProvider.notifier).set(active);
+      container.read(selectedFilterIdsProvider.notifier).set(['filter-a']);
+
+      taps.tap(
+        const NotificationTap(
+          kind: NotificationKind.chatCompletion,
+          sourceId: 'chat-elsewhere',
+        ),
+      );
+      for (var i = 0; i < 40; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 5));
+      }
+
+      check(container.read(activeConversationProvider)?.id).equals('chat-1');
+      check(container.read(selectedFilterIdsProvider)).deepEquals(['filter-a']);
+    });
+
+    test('an on-device chat with the same id is another chat, whose picks '
+        'stay behind', () async {
+      attachRouterAt('/chat');
+      // An on-device chat that happens to share the server chat's raw id is
+      // open, with a filter turned on.
+      container
+          .read(activeConversationProvider.notifier)
+          .set(
+            withChatStorageProvenance(
+              Conversation(
+                id: 'chat-1',
+                title: 'On device',
+                createdAt: DateTime.utc(2026),
+                updatedAt: DateTime.utc(2026),
+              ),
+              ChatStorageKind.directLocal,
+            ),
+          );
+      container.read(selectedFilterIdsProvider.notifier).set(['filter-a']);
+
+      await tapChat(
+        () =>
+            container.read(activeConversationProvider)?.title == 'Greeting',
+      );
+
+      check(container.read(activeConversationProvider)?.title).equals('Greeting');
+      check(container.read(selectedFilterIdsProvider)).isEmpty();
     });
   });
 
