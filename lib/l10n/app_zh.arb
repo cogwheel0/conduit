@@ -4319,5 +4319,8 @@
   "mcpAppLoadFailed": "无法加载该应用：{reason}",
   "mcpAppDidNotStart": "该应用未能启动。",
   "mcpAppOpenLinkTitle": "打开此链接吗？",
-  "mcpAppOpenLinkConfirm": "打开"
+  "mcpAppOpenLinkConfirm": "打开",
+  "terminalPortPreviewForward": "前进",
+  "terminalPortPreviewReload": "重新加载",
+  "terminalPortPreviewLoadFailed": "无法加载此页面。"
 }

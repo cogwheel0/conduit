@@ -6,6 +6,7 @@ import 'package:conduit_core/features/terminal/controllers/terminal_context_cont
 import 'package:conduit_core/features/terminal/controllers/terminal_controller_gateways.dart';
 import 'package:conduit_core/features/terminal/controllers/terminal_session_controller.dart';
 import 'package:conduit_core/features/terminal/models/terminal_models.dart';
+import 'package:conduit_core/features/terminal/services/terminal_port_preview.dart';
 import 'package:conduit_core/features/terminal/services/terminal_service.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:test/test.dart';
@@ -649,6 +650,110 @@ void main() {
       check(harness.browser.liveUpdates).isFalse();
     });
   });
+
+  group('port previews', () {
+    final direct = TerminalServerInfo(
+      kind: TerminalServerKind.direct,
+      selectionId: 'https://direct.test',
+      baseUrl: Uri.parse('https://direct.test'),
+      apiKey: 'key',
+    );
+    const session = TerminalBrowserSession(id: 'sid', token: 'tok');
+
+    Future<TerminalPortPreview> openPreview(
+      TerminalServerInfo target, {
+      required TerminalServerFeatures features,
+      bool relayed = false,
+    }) async {
+      final service = _MockTerminalService();
+      final gateway = _FakeTerminalGateway(service: service)
+        ..selectedTerminalId = target.selectionId
+        ..selectedServer = target
+        ..systemTerminalLiveFeatures = relayed;
+      when(() => service.authTokenForServer(target)).thenReturn('jwt');
+      when(
+        () => service.createBrowserSession(
+          target,
+          url: any(named: 'url'),
+          sessionScopeId: any(named: 'sessionScopeId'),
+        ),
+      ).thenAnswer((_) async => session);
+      when(
+        () => service.closeBrowserSession(
+          target,
+          any(),
+          sessionScopeId: any(named: 'sessionScopeId'),
+        ),
+      ).thenAnswer((_) async {});
+      final harness = _TerminalControllerHarness(gateway);
+      addTearDown(harness.dispose);
+      harness.browser.setFeatures(target, 'scope', features);
+
+      await harness.browser.openPort(const TerminalListeningPort(port: 5173));
+
+      final preview = harness.platform.previews.single;
+      if (preview.openSession != null) {
+        check(await preview.openSession!()).identicalTo(session);
+        verify(
+          () => service.createBrowserSession(
+            target,
+            url: 'http://localhost:5173/',
+            sessionScopeId: 'scope',
+          ),
+        ).called(1);
+        await preview.closeSession!(session);
+        verify(
+          () => service.closeBrowserSession(
+            target,
+            'sid',
+            sessionScopeId: 'scope',
+          ),
+        ).called(1);
+      }
+      return preview;
+    }
+
+    test('a terminal with browser sessions previews through one', () async {
+      final preview = await openPreview(
+        direct,
+        features: const TerminalServerFeatures(browser: true),
+      );
+
+      check(preview.port).equals(5173);
+      check(preview.terminalBaseUri).equals(direct.baseUrl);
+      check(preview.openSession).isNotNull();
+      // A direct terminal's key never goes to the page.
+      check(preview.bearerToken).isNull();
+    });
+
+    test('a terminal without them previews through the proxy', () async {
+      final preview = await openPreview(
+        direct,
+        features: const TerminalServerFeatures(events: true),
+      );
+
+      check(preview.openSession).isNull();
+      check(preview.closeSession).isNull();
+    });
+
+    test('Open WebUI terminals use sessions only where it relays them',
+        () async {
+      final older = await openPreview(
+        server,
+        features: const TerminalServerFeatures(browser: true),
+      );
+      check(older.openSession).isNull();
+      check(older.bearerToken).equals('jwt');
+
+      final current = await openPreview(
+        server,
+        features: const TerminalServerFeatures(browser: true),
+        relayed: true,
+      );
+      check(current.openSession).isNotNull();
+      check(current.bearerToken).equals('jwt');
+    });
+  });
 }
 
 final class _TerminalControllerHarness {
@@ -664,7 +769,7 @@ final class _TerminalControllerHarness {
     );
     browser = TerminalBrowserController(
       gateway: gateway,
-      platformGateway: const _FakeTerminalPlatformGateway(),
+      platformGateway: platform,
       isCurrentContext: isCurrentContext,
       onFailure: (_) {},
     );
@@ -679,6 +784,7 @@ final class _TerminalControllerHarness {
   }
 
   final _FakeTerminalGateway gateway;
+  final _FakeTerminalPlatformGateway platform = _FakeTerminalPlatformGateway();
   final FakeTerminalScreen screen = FakeTerminalScreen();
   final List<TerminalContextFailure> failures = [];
   late final TerminalSessionController session;
@@ -770,7 +876,7 @@ final class _FakeTerminalGateway
 
 final class _FakeTerminalPlatformGateway
     implements TerminalBrowserPlatformGateway {
-  const _FakeTerminalPlatformGateway();
+  final List<TerminalPortPreview> previews = [];
 
   @override
   Future<TerminalUploadFile?> pickUploadFile() async => null;
@@ -779,5 +885,8 @@ final class _FakeTerminalPlatformGateway
   Future<void> saveDownload(TerminalDownloadedFile downloaded) async {}
 
   @override
-  Future<bool> openPort(Uri uri, {String? bearerToken}) async => true;
+  Future<bool> openPort(TerminalPortPreview preview) async {
+    previews.add(preview);
+    return true;
+  }
 }

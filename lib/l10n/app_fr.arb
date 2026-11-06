@@ -4319,5 +4319,8 @@
   "mcpAppLoadFailed": "Impossible de charger l'application : {reason}",
   "mcpAppDidNotStart": "L'application n'a pas démarré.",
   "mcpAppOpenLinkTitle": "Ouvrir ce lien ?",
-  "mcpAppOpenLinkConfirm": "Ouvrir"
+  "mcpAppOpenLinkConfirm": "Ouvrir",
+  "terminalPortPreviewForward": "Avancer",
+  "terminalPortPreviewReload": "Actualiser",
+  "terminalPortPreviewLoadFailed": "Impossible de charger cette page."
 }

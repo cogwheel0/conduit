@@ -382,5 +382,86 @@ void main() {
       expect(unreadable.terminal, isTrue);
       expect(unreadable.events, isFalse);
     });
+
+    test('opens and closes browser sessions for one chat', () async {
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      addTearDown(() => server.close(force: true));
+      final requests = <({String method, String path, String? scope,
+          String? auth, Object? body})>[];
+      final replies = <Object?>[
+        {
+          'id': 'abc',
+          'token': 'cap-token',
+          'url': 'http://localhost:5173/',
+          'title': '',
+          'mode': 'proxy',
+          'chrome_available': false,
+        },
+        {'status': 'closed'},
+        // An older terminal routes the path nowhere useful.
+        {'detail': 'Not Found'},
+      ];
+      server.listen((request) async {
+        final body = await utf8.decoder.bind(request).join();
+        requests.add((
+          method: request.method,
+          path: request.uri.path,
+          scope: request.headers.value('x-session-id'),
+          auth: request.headers.value('authorization'),
+          body: body.isEmpty ? null : jsonDecode(body),
+        ));
+        request.response.headers.contentType = ContentType.json;
+        request.response.write(jsonEncode(replies.removeAt(0)));
+        await request.response.close();
+      });
+      final terminal = TerminalServerInfo(
+        kind: TerminalServerKind.direct,
+        selectionId: 'local',
+        baseUrl: Uri.parse('http://127.0.0.1:${server.port}'),
+        apiKey: 'secret',
+      );
+      final service = TerminalService(
+        ApiService(
+          serverConfig: const ServerConfig(
+            id: 'sessions',
+            name: 'Sessions',
+            url: 'https://example.test',
+          ),
+          workerManager: WorkerManager(),
+        ),
+      );
+
+      final session = await service.createBrowserSession(
+        terminal,
+        url: 'http://localhost:5173/',
+        sessionScopeId: 'chat-1',
+      );
+      expect(session.id, 'abc');
+      expect(session.token, 'cap-token');
+      expect(session.mode, 'proxy');
+      await service.closeBrowserSession(
+        terminal,
+        session.id,
+        sessionScopeId: 'chat-1',
+      );
+
+      expect(requests[0].method, 'POST');
+      expect(requests[0].path, '/browser/sessions');
+      expect(requests[0].body, {'url': 'http://localhost:5173/'});
+      expect(requests[1].method, 'DELETE');
+      expect(requests[1].path, '/browser/sessions/abc');
+      // The terminal only closes a session for the chat that opened it.
+      expect(requests.map((r) => r.scope), ['chat-1', 'chat-1']);
+      expect(requests.map((r) => r.auth), ['Bearer secret', 'Bearer secret']);
+
+      await expectLater(
+        service.createBrowserSession(
+          terminal,
+          url: 'http://localhost:5173/',
+          sessionScopeId: 'chat-1',
+        ),
+        throwsA(isA<Exception>()),
+      );
+    });
   });
 }

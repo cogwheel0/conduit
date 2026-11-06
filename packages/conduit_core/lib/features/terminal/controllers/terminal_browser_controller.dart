@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:meta/meta.dart';
 
 import '../models/terminal_models.dart';
+import '../services/terminal_port_preview.dart';
 import '../services/terminal_service.dart';
 import 'terminal_change_notifier.dart';
 import 'terminal_controller_gateways.dart';
@@ -462,6 +463,10 @@ class TerminalBrowserController with TerminalChangeNotifier {
     );
   }
 
+  /// Shows [port] in the app's preview. A terminal that opens browser
+  /// sessions shows it through one, for Open WebUI's own terminals only on
+  /// a server that relays them (0.13); any other shows it through the port
+  /// proxy, as before.
   Future<void> openPort(TerminalListeningPort port) async {
     if (_disposed) {
       return;
@@ -472,14 +477,30 @@ class TerminalBrowserController with TerminalChangeNotifier {
       return;
     }
 
-    final url = service.buildPortProxyUri(server, port.port);
-    final authToken = server.isSystem
-        ? service.authTokenForServer(server)
-        : null;
-    final launched = await _platformGateway.openPort(
-      url,
-      bearerToken: authToken,
+    final sessionScopeId = _gateway.sessionScopeId;
+    final sessions =
+        _featuresFor(server, sessionScopeId)?.browser == true &&
+        (server.isDirect || _gateway.systemTerminalLiveFeatures);
+    final preview = TerminalPortPreview(
+      port: port.port,
+      terminalBaseUri: server.baseUrl,
+      bearerToken: server.isSystem ? service.authTokenForServer(server) : null,
+      openSession: sessions
+          ? () => service.createBrowserSession(
+              server,
+              url: 'http://localhost:${port.port}/',
+              sessionScopeId: sessionScopeId,
+            )
+          : null,
+      closeSession: sessions
+          ? (session) => service.closeBrowserSession(
+              server,
+              session.id,
+              sessionScopeId: sessionScopeId,
+            )
+          : null,
     );
+    final launched = await _platformGateway.openPort(preview);
     if (!launched) {
       _onFailure(TerminalBrowserFailure.openPort);
     }

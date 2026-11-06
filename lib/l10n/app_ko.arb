@@ -4091,5 +4091,8 @@
   "mcpAppLoadFailed": "앱을 불러올 수 없습니다: {reason}",
   "mcpAppDidNotStart": "앱이 시작되지 않았습니다.",
   "mcpAppOpenLinkTitle": "이 링크를 열까요?",
-  "mcpAppOpenLinkConfirm": "열기"
+  "mcpAppOpenLinkConfirm": "열기",
+  "terminalPortPreviewForward": "앞으로",
+  "terminalPortPreviewReload": "새로고침",
+  "terminalPortPreviewLoadFailed": "이 페이지를 불러올 수 없습니다."
 }

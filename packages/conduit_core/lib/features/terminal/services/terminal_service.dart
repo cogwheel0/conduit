@@ -12,6 +12,7 @@ import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit_core/utils/json_normalization.dart';
 
 import '../models/terminal_models.dart';
+import 'terminal_port_preview.dart';
 
 /// The first frame on a terminal's socket: the credential, and for Open
 /// WebUI's own terminals the saved chat the session belongs to.
@@ -886,15 +887,67 @@ class TerminalService {
     return _parseListeningPorts(data['ports']);
   }
 
-  Uri buildPortProxyUri(
+  /// Opens a browser session on [server] that starts at [url]. For its own
+  /// terminals Open WebUI 0.13 answers with a signed ticket in place of the
+  /// terminal's token, which is what lets the pages load without the
+  /// account's credentials.
+  Future<TerminalBrowserSession> createBrowserSession(
+    TerminalServerInfo server, {
+    required String url,
+    required String sessionScopeId,
+  }) async {
+    final body = <String, dynamic>{'url': url};
+    final response = server.isSystem
+        ? await _requestSystem(
+            '/api/v1/terminals/${server.systemServerId}/browser/sessions',
+            method: 'POST',
+            data: body,
+            sessionScopeId: sessionScopeId,
+          )
+        : await _requestDirect(
+            server,
+            '/browser/sessions',
+            method: 'POST',
+            data: body,
+            sessionScopeId: sessionScopeId,
+          );
+    final data = _coerceStringKeyedMap(response.data);
+    final id = _stringValue(data['id']);
+    final token = _stringValue(data['token']);
+    if (id.isEmpty || token.isEmpty) {
+      throw Exception('Browser session missing from response');
+    }
+    final mode = _stringValue(data['mode']);
+    return TerminalBrowserSession(
+      id: id,
+      token: token,
+      url: _stringValue(data['url']),
+      title: _stringValue(data['title']),
+      mode: mode.isEmpty ? 'proxy' : mode,
+    );
+  }
+
+  /// Closes a browser session, which the terminal would otherwise keep for
+  /// a day. It must name the same [sessionScopeId] that opened it.
+  Future<void> closeBrowserSession(
     TerminalServerInfo server,
-    int port, {
-    String path = '',
-  }) {
-    final base = _trimTrailingSlashes(server.baseUrl.toString());
-    final suffix = path.trim().replaceFirst(RegExp(r'^/+'), '');
-    return Uri.parse(
-      suffix.isEmpty ? '$base/proxy/$port/' : '$base/proxy/$port/$suffix',
+    String sessionId, {
+    required String sessionScopeId,
+  }) async {
+    final path = 'browser/sessions/${Uri.encodeComponent(sessionId)}';
+    if (server.isSystem) {
+      await _requestSystem(
+        '/api/v1/terminals/${server.systemServerId}/$path',
+        method: 'DELETE',
+        sessionScopeId: sessionScopeId,
+      );
+      return;
+    }
+    await _requestDirect(
+      server,
+      '/$path',
+      method: 'DELETE',
+      sessionScopeId: sessionScopeId,
     );
   }
 

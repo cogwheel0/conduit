@@ -8,6 +8,7 @@ import 'package:conduit_core/providers/app_providers.dart'
 
 import '../models/terminal_models.dart';
 import '../providers/terminal_providers.dart';
+import '../services/terminal_port_preview.dart';
 import '../services/terminal_service.dart';
 
 /// Reads a provider: `WidgetRef.read` in either app, `Ref.read` in tests.
@@ -154,11 +155,13 @@ final class TerminalUploadFile {
   final String path;
 }
 
-/// File picking, saving and URL launching: plugin work the app supplies.
+/// File picking, saving and port previews: plugin work the app supplies.
 abstract interface class TerminalBrowserPlatformGateway {
   Future<TerminalUploadFile?> pickUploadFile();
   Future<void> saveDownload(TerminalDownloadedFile downloaded);
-  Future<bool> openPort(Uri uri, {String? bearerToken});
+
+  /// Shows [preview]; false when it could not be shown.
+  Future<bool> openPort(TerminalPortPreview preview);
 }
 
 /// A file name from the server's `Content-Disposition` header, made safe to

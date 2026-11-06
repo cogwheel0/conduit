@@ -1,0 +1,203 @@
+import 'dart:async';
+
+import 'package:conduit/features/terminal/controllers/terminal_controller_gateways.dart';
+import 'package:conduit/features/terminal/widgets/terminal_port_preview_page.dart';
+import 'package:conduit/l10n/app_localizations.dart';
+import 'package:conduit/l10n/conduit_localizations.dart';
+import 'package:conduit/platform/webview_cookie_helper.dart';
+import 'package:conduit_core/features/terminal/services/terminal_port_preview.dart';
+import 'package:flutter_inappwebview/flutter_inappwebview.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:material_ui/material_ui.dart';
+
+void main() {
+  final base = Uri.parse('https://owui.test/api/v1/terminals/t1');
+  const session = TerminalBrowserSession(id: 'sid', token: 'ticket');
+  const view = 'https://owui.test/api/v1/terminals/t1/browser/view/sid/ticket';
+  const proxy = 'https://owui.test/api/v1/terminals/t1/proxy';
+
+  late List<Uri> opened;
+  late List<TerminalBrowserSession> closed;
+  TerminalPreviewWebViewHost? host;
+
+  setUp(() {
+    opened = [];
+    closed = [];
+    host = null;
+  });
+
+  Widget page(TerminalPortPreview preview) => MaterialApp(
+    localizationsDelegates: conduitLocalizationsDelegates,
+    supportedLocales: AppLocalizations.supportedLocales,
+    home: TerminalPortPreviewPage(
+      preview: preview,
+      openExternally: (uri) async {
+        opened.add(uri);
+        return true;
+      },
+      webViewBuilder: (context, webViewHost) {
+        host = webViewHost;
+        return Text('web ${webViewHost.preview.initialRequest!.uri}');
+      },
+    ),
+  );
+
+  TerminalPortPreview preview({
+    Future<TerminalBrowserSession> Function()? openSession,
+  }) => TerminalPortPreview(
+    port: 5173,
+    terminalBaseUri: base,
+    bearerToken: 'jwt',
+    openSession: openSession,
+    closeSession: (session) async => closed.add(session),
+  );
+
+  // The page's progress bar runs until the web view finishes a load, which
+  // the stand-in never does, so the page never settles on its own.
+  Future<void> settle(WidgetTester tester) async {
+    await tester.pump();
+    await tester.pump();
+  }
+
+  AppLocalizations l10n(WidgetTester tester) => AppLocalizations.of(
+    tester.element(find.byType(TerminalPortPreviewPage)),
+  )!;
+
+  testWidgets('shows the port through a session and closes it after', (
+    tester,
+  ) async {
+    final opening = Completer<TerminalBrowserSession>();
+    await tester.pumpWidget(page(preview(openSession: () => opening.future)));
+    await tester.pump();
+    expect(host, isNull);
+    expect(find.text('localhost:5173'), findsOneWidget);
+
+    opening.complete(session);
+    await settle(tester);
+
+    expect(
+      find.text('web $view/frame/http/localhost%3A5173/'),
+      findsOneWidget,
+    );
+    host!.preview
+      ..pageChanged(Uri.parse('$view/frame/http/localhost%3A5173/docs'))
+      ..titleChanged('Vite App');
+    await tester.pump();
+    expect(find.text('Vite App'), findsOneWidget);
+    expect(find.text('localhost:5173/docs'), findsOneWidget);
+
+    // A link that leaves the terminal opens in the system browser.
+    final policy = await host!.navigate(
+      Uri.parse('$view/frame/https/example.com/guide'),
+      history: false,
+    );
+    expect(policy, NavigationActionPolicy.CANCEL);
+    expect(opened, [Uri.parse('https://example.com/guide')]);
+
+    // A session's page needs no credential, so it can open elsewhere too.
+    await tester.tap(find.byTooltip(l10n(tester).terminalOpenInBrowserAction));
+    await tester.pump();
+    expect(opened.last, Uri.parse('$view/frame/http/localhost%3A5173/docs'));
+
+    expect(closed, isEmpty);
+    await tester.pumpWidget(const SizedBox());
+    await tester.pump();
+    expect(closed, [session]);
+  });
+
+  testWidgets('falls back to the proxy and keeps its link in the app', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      page(preview(openSession: () async => throw Exception('older'))),
+    );
+    await settle(tester);
+
+    expect(find.text('web $proxy/5173/'), findsOneWidget);
+    expect(host!.preview.initialRequest!.headers, {
+      'Authorization': 'Bearer jwt',
+    });
+    // The proxy's pages need the account's token: nothing to hand out.
+    expect(
+      find.byTooltip(l10n(tester).terminalOpenInBrowserAction),
+      findsNothing,
+    );
+
+    final blocked = await host!.navigate(
+      Uri.parse('https://owui.test/api/v1/chats/'),
+      history: false,
+    );
+    expect(blocked, NavigationActionPolicy.CANCEL);
+    expect(opened, isEmpty);
+
+    await tester.pumpWidget(const SizedBox());
+    expect(closed, isEmpty);
+  });
+
+  testWidgets('says when a page cannot be reached', (tester) async {
+    await tester.pumpWidget(page(preview()));
+    await settle(tester);
+    final message = l10n(tester).terminalPortPreviewLoadFailed;
+    expect(find.text(message), findsNothing);
+
+    host!.loadFailed();
+    await tester.pump();
+    expect(find.text(message), findsOneWidget);
+
+    // The end of the failed load keeps the message; a new load clears it.
+    host!.loadingChanged(loading: false);
+    await tester.pump();
+    expect(find.text(message), findsOneWidget);
+    host!.loadingChanged(loading: true);
+    await tester.pump();
+    expect(find.text(message), findsNothing);
+  });
+
+  test('the web view keeps Open WebUI cookies away where it can', () {
+    final ios = terminalPreviewWebViewSettings(platform: TargetPlatform.iOS);
+    final android = terminalPreviewWebViewSettings(
+      platform: TargetPlatform.android,
+    );
+
+    expect(ios.incognito, isTrue);
+    // A private Android web view would clear the whole app's cookies.
+    expect(android.incognito, isFalse);
+    for (final settings in [ios, android]) {
+      expect(settings.javaScriptBridgeEnabled, isFalse);
+      expect(settings.useShouldOverrideUrlLoading, isTrue);
+      expect(settings.sharedCookiesEnabled, isFalse);
+      expect(settings.allowFileAccess, isFalse);
+    }
+  });
+
+  test('the injected script follows reported links only from the page', () {
+    expect(
+      terminalPreviewNavigationScript,
+      contains('event.source !== window'),
+    );
+    expect(
+      terminalPreviewNavigationScript,
+      contains("'terminal-browser-navigate'"),
+    );
+    expect(
+      terminalPreviewNavigationScript,
+      contains("'terminal-browser-popup'"),
+    );
+  });
+
+  test('ports open in the app\'s preview where it has a web view', () async {
+    debugIsWebViewSupportedOverride = true;
+    addTearDown(() => debugIsWebViewSupportedOverride = null);
+    final shown = <TerminalPortPreview>[];
+    final gateway = DefaultTerminalBrowserPlatformGateway(
+      showPreview: (preview) async {
+        shown.add(preview);
+        return true;
+      },
+    );
+    final target = preview();
+
+    expect(await gateway.openPort(target), isTrue);
+    expect(shown, [target]);
+  });
+}
