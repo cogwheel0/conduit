@@ -358,6 +358,19 @@ class ImageGenerationEnabledNotifier extends Notifier<bool> {
     _picked = value;
     state = value;
   }
+
+  /// The user's own choice in this chat, or null while it follows the
+  /// model's default: what a one-shot use puts back if its request does not
+  /// start.
+  bool? get pick => _picked;
+
+  /// Puts back [pick] as read from [ImageGenerationEnabledNotifier.pick]: the
+  /// user's choice, or the model's default when they had made none.
+  void restorePick(bool? pick) {
+    _picked = pick;
+    state =
+        pick ?? ref.read(_chatFeatureDefaultsProvider).imageGenerationEnabled;
+  }
 }
 
 class CodeInterpreterEnabledNotifier extends Notifier<bool> {

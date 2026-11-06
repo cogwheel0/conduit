@@ -136,6 +136,26 @@ void main() {
     check(container.read(imageGenerationEnabledProvider)).isTrue();
   });
 
+  test('image generation put back after a one-shot use that did not start '
+      'still follows the model\'s default', () async {
+    choose(_model('a', features: ['image_generation']));
+    final imageGeneration = container.read(
+      imageGenerationEnabledProvider.notifier,
+    );
+    check(container.read(imageGenerationEnabledProvider)).isTrue();
+    check(imageGeneration.pick).isNull();
+
+    // A one-shot use takes it, and its request does not start.
+    final before = imageGeneration.pick;
+    imageGeneration.set(false);
+    imageGeneration.restorePick(before);
+    check(container.read(imageGenerationEnabledProvider)).isTrue();
+
+    // It was never the user's choice: the next model's default applies.
+    choose(_model('b'));
+    check(container.read(imageGenerationEnabledProvider)).isFalse();
+  });
+
   test('another chat starts from the model\'s default tools again', () async {
     container.read(modelToolsAutoSelectionProvider);
     choose(_model('a', toolIds: ['t1', 't2']));
