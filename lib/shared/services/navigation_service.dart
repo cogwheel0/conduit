@@ -145,6 +145,20 @@ class NavigationService {
   /// Changes whenever the attached router or its location changes.
   static int get currentRouteRevision => _routeRevision;
 
+  /// Whether the route named [name] with [pathParameters] is the location on
+  /// screen. A page the shell keeps mounted out of sight, after another page
+  /// was shown, is not.
+  static bool isShowingNamed(
+    String name, {
+    Map<String, String> pathParameters = const {},
+  }) {
+    final router = _router;
+    final current = currentRoute;
+    if (router == null || current == null) return false;
+    return Uri.parse(current).path ==
+        router.namedLocation(name, pathParameters: pathParameters);
+  }
+
   /// The current location reported by GoRouter.
   static String? get currentRoute {
     final router = _router;

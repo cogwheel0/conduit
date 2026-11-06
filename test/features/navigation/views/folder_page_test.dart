@@ -1249,6 +1249,7 @@ void main() {
       List<FileInfo> files = const <FileInfo>[],
       WorkspaceKnowledge Function()? knowledge,
       List<Override> overrides = const <Override>[],
+      bool branches = false,
     }) async {
       final originalErrorWidgetBuilder = ErrorWidget.builder;
       final originalFlutterErrorOnError = FlutterError.onError;
@@ -1348,7 +1349,9 @@ void main() {
           ),
         );
       } else {
-        await tester.pumpWidget(_buildHarnessFromContainer(container));
+        await tester.pumpWidget(
+          _buildHarnessFromContainer(container, branches: branches),
+        );
       }
       await tester.pumpAndSettle();
       if (liveFolders) await settle(tester);
@@ -1920,6 +1923,7 @@ void main() {
       Future<void> openComparing(
         WidgetTester tester, {
         List<Override> overrides = const <Override>[],
+        bool branches = false,
       }) async {
         overrides = [isOnlineProvider.overrideWithValue(true), ...overrides];
         await open(
@@ -1931,6 +1935,7 @@ void main() {
           ),
           liveFolders: true,
           overrides: overrides,
+          branches: branches,
         );
         await settle(tester);
         await settle(tester);
@@ -2035,8 +2040,11 @@ void main() {
       });
 
       group('while the account settings hold the admission', () {
-        Future<void> sendHeld(WidgetTester tester) async {
-          await openComparing(tester);
+        Future<void> sendHeld(
+          WidgetTester tester, {
+          bool branches = false,
+        }) async {
+          await openComparing(tester, branches: branches);
           api.holdSettings = Completer<void>();
           await enterDraft(tester, 'Compare these two');
           await tester.tap(sendButton());
@@ -2108,6 +2116,20 @@ void main() {
           await sendHeld(tester);
           NavigationService.router.go('/elsewhere');
           await tester.pumpAndSettle();
+
+          await release(tester);
+
+          await expectTurnAdmittedInWorkOnce(tester);
+          expect(NavigationService.currentRoute, '/elsewhere');
+        });
+
+        testWidgets('a page kept in a branch left for another does not '
+            'take the user to the chat', (tester) async {
+          await sendHeld(tester, branches: true);
+          NavigationService.router.go('/elsewhere');
+          await tester.pumpAndSettle();
+          // Still mounted, in the branch no longer shown.
+          expect(find.byType(FolderPage, skipOffstage: false), findsOneWidget);
 
           await release(tester);
 
@@ -2647,6 +2669,10 @@ Widget _buildHarnessFromContainer(
   Listenable? routerRefreshListenable,
   // Puts the folder under the chat list, as the app's shell route does.
   GlobalKey<ResponsiveDrawerLayoutState>? chatList,
+  // Puts the folder and the chat in one branch of an indexed shell, and
+  // `/elsewhere` in another, as the app's router does, so leaving the folder
+  // keeps it mounted out of sight.
+  bool branches = false,
 }) {
   final shellRoutes = <RouteBase>[
     GoRoute(
@@ -2667,7 +2693,23 @@ Widget _buildHarnessFromContainer(
     initialLocation: '/folder/work',
     refreshListenable: routerRefreshListenable,
     routes: [
-      if (chatList == null)
+      if (branches)
+        StatefulShellRoute.indexedStack(
+          builder: (context, state, shell) => shell,
+          branches: [
+            StatefulShellBranch(initialLocation: '/chat', routes: shellRoutes),
+            StatefulShellBranch(
+              routes: [
+                GoRoute(
+                  path: '/elsewhere',
+                  builder: (context, state) =>
+                      const Scaffold(body: SizedBox.shrink()),
+                ),
+              ],
+            ),
+          ],
+        )
+      else if (chatList == null)
         ...shellRoutes
       else
         ShellRoute(
@@ -2680,10 +2722,11 @@ Widget _buildHarnessFromContainer(
           ),
           routes: shellRoutes,
         ),
-      GoRoute(
-        path: '/elsewhere',
-        builder: (context, state) => const Scaffold(body: SizedBox.shrink()),
-      ),
+      if (!branches)
+        GoRoute(
+          path: '/elsewhere',
+          builder: (context, state) => const Scaffold(body: SizedBox.shrink()),
+        ),
     ],
   );
   NavigationService.attachRouter(router);

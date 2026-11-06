@@ -1145,15 +1145,10 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
   /// Whether channel [channelId] is the page on screen. Another page shown
   /// since keeps this one mounted out of sight, and a request it sent that
   /// finishes then must leave that page where it is.
-  bool _isChannelShown(String channelId) {
-    final current = NavigationService.currentRoute;
-    if (current == null) return false;
-    return Uri.parse(current).path ==
-        NavigationService.router.namedLocation(
-          RouteNames.channel,
-          pathParameters: {'id': channelId},
-        );
-  }
+  bool _isChannelShown(String channelId) => NavigationService.isShowingNamed(
+    RouteNames.channel,
+    pathParameters: {'id': channelId},
+  );
 
   Future<void> _leaveChannel() async {
     final channelId = widget.channelId;

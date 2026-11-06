@@ -776,7 +776,15 @@ class _FolderPageState extends ConsumerState<FolderPage> {
         onAssistantPlaceholderCreated: onPrepared,
         toolIds: toolIds.isNotEmpty ? toolIds : null,
         onCommitted: () {
-          if (!mounted || !(ModalRoute.isCurrentOf(context) ?? true)) return;
+          // The shell keeps this page mounted in a branch no longer shown.
+          if (!mounted ||
+              !(ModalRoute.isCurrentOf(context) ?? true) ||
+              !NavigationService.isShowingNamed(
+                RouteNames.folder,
+                pathParameters: {'id': widget.folderId},
+              )) {
+            return;
+          }
           ConduitHaptics.selectionClick();
           NavigationService.router.go(Routes.chat);
         },

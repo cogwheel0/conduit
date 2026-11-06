@@ -28,7 +28,6 @@ import 'package:conduit/shared/theme/app_theme.dart';
 import 'package:conduit/shared/theme/tweakcn_themes.dart';
 import 'package:conduit/shared/services/navigation_service.dart';
 import 'package:conduit/shared/utils/conversation_context_menu.dart';
-import 'package:conduit_core/navigation/routes.dart';
 import 'package:go_router/go_router.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';

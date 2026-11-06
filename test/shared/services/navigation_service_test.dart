@@ -88,4 +88,41 @@ void main() {
     await visit(Routes.notes);
     check(await back()).equals(Routes.chat);
   });
+
+  testWidgets('a named page is showing only while its location is', (
+    tester,
+  ) async {
+    final router = GoRouter(
+      initialLocation: Routes.chat,
+      routes: [
+        GoRoute(
+          path: Routes.chat,
+          builder: (context, state) => const SizedBox(),
+        ),
+        GoRoute(
+          path: Routes.channel,
+          name: RouteNames.channel,
+          builder: (context, state) => const SizedBox(),
+        ),
+      ],
+    );
+    addTearDown(router.dispose);
+    NavigationService.attachRouter(router);
+    await tester.pumpWidget(
+      WidgetsApp.router(routerConfig: router, color: const Color(0xFF000000)),
+    );
+    bool showing(String id) => NavigationService.isShowingNamed(
+      RouteNames.channel,
+      pathParameters: {'id': id},
+    );
+
+    check(showing('general')).isFalse();
+    router.go('/channel/general?thread=7');
+    await tester.pumpAndSettle();
+    check(showing('general')).isTrue();
+    check(showing('random')).isFalse();
+    router.go(Routes.chat);
+    await tester.pumpAndSettle();
+    check(showing('general')).isFalse();
+  });
 }
