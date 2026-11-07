@@ -2,6 +2,11 @@ import 'package:conduit_core/models/model.dart';
 
 const int kModelSelectorFallbackCount = 4;
 
+/// Discovery retains legacy bindings for saved conversations; ordinary new
+/// choices exclude them. Manual IDs do not carry this discovery-only flag.
+bool isOrdinaryModelChoice(Model model) =>
+    model.capabilities?['ordinary_model_choice'] != false;
+
 class ModelSelectorLayout {
   const ModelSelectorLayout({required this.featured, required this.more});
 
@@ -28,7 +33,8 @@ ModelSelectorLayout buildModelSelectorLayout({
     }
   }
   if (featured.isEmpty) {
-    for (final model in all.take(kModelSelectorFallbackCount)) {
+    for (final model
+        in all.where(isOrdinaryModelChoice).take(kModelSelectorFallbackCount)) {
       if (featuredIds.add(model.id)) featured.add(model);
     }
     final defaultModel = byId[defaultModelId];
@@ -44,7 +50,11 @@ ModelSelectorLayout buildModelSelectorLayout({
   return ModelSelectorLayout(
     featured: List.unmodifiable(featured),
     more: List.unmodifiable(
-      all.where((model) => !featuredIds.contains(model.id)),
+      all.where(
+        (model) =>
+            (isOrdinaryModelChoice(model) || model.id == defaultModelId) &&
+            !featuredIds.contains(model.id),
+      ),
     ),
   );
 }

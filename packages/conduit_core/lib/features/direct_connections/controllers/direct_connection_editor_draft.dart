@@ -156,6 +156,8 @@ enum DirectDraftValidationIssue {
 }
 
 const String kOpenRouterProviderPreset = 'openrouter';
+const String kMiniMaxProviderPreset = 'minimax';
+const String kMiniMaxCnProviderPreset = 'minimax-cn';
 
 List<String> parseDirectManualModelIds(String source) {
   final seen = <String>{};
