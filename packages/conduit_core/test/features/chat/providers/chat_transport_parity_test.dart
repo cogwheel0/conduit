@@ -149,6 +149,9 @@ class _ResumeAdapter implements HttpClientAdapter {
   void Function()? onResume;
   final resumes = <({String chatId, Object? sessionId})>[];
 
+  /// The path of every GET, such as a saved chat's poll.
+  final reads = <String>[];
+
   @override
   Future<ResponseBody> fetch(
     RequestOptions options,
@@ -179,6 +182,7 @@ class _ResumeAdapter implements HttpClientAdapter {
         },
       );
     }
+    if (options.method == 'GET') reads.add(options.path);
     return ResponseBody(
       Stream.value(utf8.encode('{}')),
       200,
@@ -1076,6 +1080,18 @@ void main() {
       );
 
       check(result.server.resumes).isEmpty();
+      check(result.server.reads).contains('/api/v1/chats/conv-1');
+    });
+
+    test('an answer for a session that changed meanwhile is not applied', () async {
+      final result = await reconnect(
+        body: {'task_ids': <String>[], 'streams': <Object>[]},
+        duringResume: (registrar) => registrar.sessionId = 'newer-session',
+      );
+
+      final reply = result.log.messages.single;
+      check(reply.isStreaming).isTrue();
+      check(reply.error).isNull();
     });
   });
 

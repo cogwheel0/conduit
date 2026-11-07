@@ -338,6 +338,9 @@ class _WireCompletionApi extends ApiService implements _AssistantIdSource {
   /// chat, 404 when it does not, 405 for a server before Open WebUI 0.13.
   int resumeStatus = 405;
 
+  /// The detail of a 404 resume; Open WebUI 0.13's own unless set.
+  String resumeNotFoundDetail = TemporaryChatUnavailable.serverDetail;
+
   /// The chat id and session of every temporary chat resume.
   final List<({String chatId, Object? sessionId})> resumes = [];
 
@@ -408,7 +411,7 @@ class _WireAdapter implements HttpClientAdapter {
           'streams': <Object>[],
         }),
         404 => _json(<String, dynamic>{
-          'detail': TemporaryChatUnavailable.serverDetail,
+          'detail': api.resumeNotFoundDetail,
         }, status: 404),
         final status => _json(<String, dynamic>{
           'detail': 'Method Not Allowed',
@@ -1182,6 +1185,12 @@ class _WireSocket extends SocketService {
   final int connectOnAttempt;
   int _attempts = 0;
 
+  /// How often a connection was asked for.
+  int get attempts => _attempts;
+
+  /// Holds each connection attempt until completed, when set.
+  Completer<void>? hold;
+
   @override
   bool get isConnected => _session != null;
 
@@ -1192,9 +1201,9 @@ class _WireSocket extends SocketService {
   Future<bool> ensureConnected({
     Duration timeout = const Duration(seconds: 2),
   }) async {
-    if (_session == null &&
-        connectAs != null &&
-        ++_attempts >= connectOnAttempt) {
+    if (_session == null) _attempts++;
+    await hold?.future;
+    if (_session == null && connectAs != null && _attempts >= connectOnAttempt) {
       _session = connectAs;
     }
     return _session != null;
@@ -1287,11 +1296,15 @@ void main() {
       Conversation? active,
       List<ChatMessage> messages = const [],
       int resumeStatus = 405,
+      String? resumeNotFoundDetail,
       ({int status, String detail})? completionRefusal,
     }) async {
       final api = _WireCompletionApi()
         ..resumeStatus = resumeStatus
         ..completionRefusal = completionRefusal;
+      if (resumeNotFoundDetail != null) {
+        api.resumeNotFoundDetail = resumeNotFoundDetail;
+      }
       final container = _container(
         db: db,
         active: active,
@@ -1426,6 +1439,20 @@ void main() {
         ).equals('earlier-user');
       });
 
+      test('keeps its id when the resume route is unknown', () async {
+        // A proxy before an older server can answer an unknown route so.
+        final sent = await send(
+          socket: _WireSocket(session: 'socket-b'),
+          serverNeedsSocket: true,
+          active: conversation,
+          messages: earlier,
+          resumeStatus: 404,
+          resumeNotFoundDetail: 'Not Found',
+        );
+
+        check(sent.api.sentBody['chat_id']).equals(earlierId);
+      });
+
       test('keeps its id on a server before 0.13', () async {
         final sent = await send(
           socket: _WireSocket(session: 'socket-b'),
@@ -1436,6 +1463,76 @@ void main() {
 
         check(sent.api.sentBody['chat_id']).equals(earlierId);
       });
+    });
+
+    test('switching chats while the socket connects leaves the other chat '
+        'alone', () async {
+      final socket = _WireSocket(session: null, connectAs: 'socket-b')
+        ..hold = Completer<void>();
+      final api = _WireCompletionApi();
+      final container = _container(
+        db: db,
+        active: null,
+        messages: const [],
+        api: api,
+        syncEngine: _PersistingSyncEngine(db, api),
+        socket: socket,
+        extraOverrides: [temporaryChatNeedsSocketProvider.overrideWithValue(true)],
+      );
+      addTearDown(container.dispose);
+      container.listen(temporaryChatEnabledProvider, (_, _) {});
+      container.read(temporaryChatEnabledProvider.notifier).set(true);
+
+      final sending = sendMessageWithContainer(container, 'hello', null);
+      // Wait until the send is held on the socket.
+      for (var i = 0; i < 200 && socket.attempts == 0; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 1));
+      }
+      check(socket.attempts).equals(1);
+      final other = Conversation(
+        id: 'other-chat',
+        title: 'Other',
+        createdAt: DateTime.utc(2026, 7, 13),
+        updatedAt: DateTime.utc(2026, 7, 13),
+      );
+      container.read(activeConversationProvider.notifier).set(other);
+      socket.hold!.complete();
+      await sending.then((_) {}, onError: (Object _) {});
+
+      check(container.read(activeConversationProvider)!.id).equals('other-chat');
+      check(api.completionBodies).isEmpty();
+    });
+
+    test('an older server is not waited for before the chat is named', () async {
+      // No socket: an older server answers over HTTP, after one attempt to
+      // connect as the request goes out, not two.
+      final socket = _WireSocket(session: null);
+      final sent = await send(socket: socket, serverNeedsSocket: false);
+
+      check(socket.attempts).equals(1);
+      check(sent.api.sentBody.containsKey('session_id')).isFalse();
+    });
+
+    test('a saved chat open in temporary mode keeps its id', () async {
+      final saved = Conversation(
+        id: 'server-chat-1',
+        title: 'Saved',
+        createdAt: DateTime.utc(2026, 7, 13),
+        updatedAt: DateTime.utc(2026, 7, 13),
+        messages: [_user('saved-user', 'earlier')],
+      );
+      final sent = await send(
+        socket: _WireSocket(session: 'socket-b'),
+        serverNeedsSocket: true,
+        active: saved,
+        messages: [_user('saved-user', 'earlier')],
+        resumeStatus: 404,
+      );
+
+      check(sent.api.resumes).isEmpty();
+      check(
+        sent.container.read(activeConversationProvider)!.id,
+      ).equals('server-chat-1');
     });
 
     test('a refusal without a socket on a server of unknown version says it '

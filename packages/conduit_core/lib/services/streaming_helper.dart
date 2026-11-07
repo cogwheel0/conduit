@@ -2194,7 +2194,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
     int attempt = 0,
     int maxAttempts = 3,
   }) async {
-    if (isObsoleteStream || !sessionIsCurrent()) {
+    if (isObsoleteStream || hasFinished || !sessionIsCurrent()) {
       return null;
     }
     final TemporaryChatResume? resumed;
@@ -2217,7 +2217,7 @@ ActiveChatStream attachUnifiedChunkedStreaming({
         '$e',
         scope: 'streaming/helper',
       );
-      if (attempt >= maxAttempts - 1) {
+      if (attempt >= maxAttempts - 1 || hasFinished) {
         return null;
       }
       await Future<void>.delayed(Duration(seconds: attempt + 1));
@@ -2229,7 +2229,9 @@ ActiveChatStream attachUnifiedChunkedStreaming({
         maxAttempts: maxAttempts,
       );
     }
-    if (isObsoleteStream || resumed == null) {
+    // An answer for a session that has since changed says nothing of the
+    // current one; the newer reconnect asks again.
+    if (isObsoleteStream || resumed == null || !sessionIsCurrent()) {
       return null;
     }
     Map<String, dynamic>? stream;

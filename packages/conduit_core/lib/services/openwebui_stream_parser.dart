@@ -231,9 +231,13 @@ Iterable<OpenWebUIStreamUpdate> parseOpenWebUIParsedPayload(
     if (firstChoice is Map<String, dynamic>) {
       final message = firstChoice['message'];
       final messageContent = message is Map ? message['content'] : null;
+      // A model's refusal is its answer, in a completed reply too.
+      final messageRefusal = message is Map ? message['refusal'] : null;
       final delta = firstChoice['delta'];
       if (messageContent is String && messageContent.isNotEmpty) {
         yield OpenWebUIContentDelta(messageContent);
+      } else if (messageRefusal is String && messageRefusal.isNotEmpty) {
+        yield OpenWebUIContentDelta(messageRefusal);
       } else if (delta is Map<String, dynamic>) {
         // Reasoning/thinking content (chain-of-thought tokens).
         final reasoning = openWebUIStreamingReasoningDelta(delta);

@@ -979,11 +979,20 @@ Future<void> _sendMessageInternal(
 
     if (isTemporary) {
       // Temporary chat: use local ID, skip server creation entirely. The id
-      // names the socket session the request below is sent from, so connect
-      // first: Open WebUI 0.13 refuses a new temporary chat from any other.
-      final socketSessionId = await _ensureConnectedSocketSessionId(
-        _readOpenWebUiSocketForApi(ref, api),
-      );
+      // names the socket session the request below is sent from, so on Open
+      // WebUI 0.13, which refuses a new temporary chat from any other, the
+      // socket is connected first; an older server is not waited for. A
+      // session that changes before the request renames the chat then.
+      final socket = _readOpenWebUiSocketForApi(ref, api);
+      final socketSessionId = ref.read(temporaryChatNeedsSocketProvider)
+          ? await _ensureConnectedSocketSessionId(socket)
+          : _connectedSocketSessionId(socket);
+      // The user may have opened another chat while the socket connected.
+      if (!chatMutationTokenStillActive(ref, sendMutationOwner)) {
+        throw StateError(
+          'The conversation changed while preparing the message.',
+        );
+      }
       mintedTemporaryChat = true;
       final localConversation = Conversation(
         id: newTemporaryChatId(socketSessionId),
@@ -1637,6 +1646,9 @@ Future<String> _temporaryChatIdForSession(
   required String sessionId,
   required bool unknownToServer,
 }) async {
+  // Only a temporary chat: temporary mode can be on while a saved chat is
+  // open, and a saved chat's id is the server's.
+  if (!isTemporaryChat(chatId)) return chatId;
   if (temporaryChatSessionOf(chatId) == sessionId) return chatId;
   // A chat kept on the device, such as one made offline that has not reached
   // the server yet, has an id its stored rows depend on.

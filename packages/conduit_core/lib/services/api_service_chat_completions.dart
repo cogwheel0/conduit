@@ -660,7 +660,12 @@ mixin _ChatCompletionsApi on _ApiServiceBase {
     String chatId, {
     required String sessionId,
   }) async {
-    if (_temporaryChatResumeUnsupported) return null;
+    final unsupportedAt = _temporaryChatResumeUnsupportedAt;
+    if (unsupportedAt != null &&
+        DateTime.now().difference(unsupportedAt) <
+            _ApiServiceBase._temporaryChatResumeRecheck) {
+      return null;
+    }
     final Response<dynamic> resp;
     try {
       resp = await _dio.post(
@@ -671,14 +676,17 @@ mixin _ChatCompletionsApi on _ApiServiceBase {
       final status = e.response?.statusCode;
       // Older servers match the path to the GET route that lists a chat's
       // tasks, and refuse the method.
-      if (status == 405) {
-        _temporaryChatResumeUnsupported = true;
-        return null;
+      final data = e.response?.data;
+      final detail = data is Map ? data['detail']?.toString().trim() : null;
+      // Open WebUI 0.13's own answer for a chat it does not hold.
+      if (status == 404 && detail == TemporaryChatUnavailable.serverDetail) {
+        throw TemporaryChatUnavailable(detail!);
       }
-      if (status == 404) {
-        final data = e.response?.data;
-        final detail = data is Map ? data['detail']?.toString() : null;
-        throw TemporaryChatUnavailable(detail ?? 'Temporary chat unavailable');
+      // Any other unknown route: a server, or a proxy before it, without
+      // the endpoint (older servers match the GET route and answer 405).
+      if (status == 404 || status == 405) {
+        _temporaryChatResumeUnsupportedAt = DateTime.now();
+        return null;
       }
       rethrow;
     }

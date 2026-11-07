@@ -609,6 +609,21 @@ void main() {
           .equals("I can't help with that.");
     });
 
+    test("a completed reply's refusal is the answer", () async {
+      final updates = await parseOpenWebUIStream(
+        Stream<List<int>>.fromIterable([
+          utf8.encode(
+            'data: {"choices":[{"message":{"content":null,"refusal":"No."}}]}\n\n',
+          ),
+        ]),
+      ).toList();
+
+      check(updates.single)
+          .isA<OpenWebUIContentDelta>()
+          .has((u) => u.content, 'content')
+          .equals('No.');
+    });
+
     test('parses both reasoning_content and content in same delta', () async {
       final updates = await parseOpenWebUIStream(
         Stream<List<int>>.fromIterable([
