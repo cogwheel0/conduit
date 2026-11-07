@@ -8,7 +8,7 @@ import 'package:material_ui/material_ui.dart';
 void main() {
   tearDown(PlatformUiCapabilities.resetDebugOverrides);
 
-  testWidgets('covered routes use composited buttons beneath dialogs', (
+  testWidgets('covered routes hide native buttons beneath dialogs', (
     tester,
   ) async {
     PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.iOS;
@@ -28,7 +28,8 @@ void main() {
       builder: (_) => const AlertDialog(content: Text('Input')),
     );
     await tester.pumpAndSettle();
-    expect(find.byType(CNButton, skipOffstage: false), findsNothing);
+    expect(find.byType(CNButton), findsNothing);
+    expect(find.byType(CNButton, skipOffstage: false), findsOneWidget);
     Navigator.of(context).pop();
     await tester.pumpAndSettle();
     await dialog;

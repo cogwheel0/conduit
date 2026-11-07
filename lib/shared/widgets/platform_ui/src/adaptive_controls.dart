@@ -181,8 +181,6 @@ class AdaptiveButton extends StatelessWidget {
   bool _canUseNative(BuildContext context) =>
       useNative &&
       PlatformUiCapabilities.usesNativeIOS26 &&
-      // UIKit buttons otherwise remain above a Flutter dialog's barrier.
-      ModalRoute.of(context)?.isCurrent != false &&
       child == null &&
       context.findAncestorWidgetOfExactType<AlertDialog>() == null;
 
@@ -280,6 +278,11 @@ class AdaptiveButton extends StatelessWidget {
           config: config,
         );
       }
+      // UIKit buttons otherwise remain above a Flutter dialog's barrier.
+      button = Offstage(
+        offstage: ModalRoute.of(context)?.isCurrent == false,
+        child: button,
+      );
       if (minSize case final minimum?) {
         return ConstrainedBox(
           constraints: BoxConstraints(
