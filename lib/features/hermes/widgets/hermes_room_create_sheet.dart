@@ -68,9 +68,29 @@ class _HermesRoomCreateSheetState extends ConsumerState<HermesRoomCreateSheet> {
       _picked.length >= kMinHermesRoomSeats &&
       _picked.length <= kMaxHermesRoomSeats;
 
+  /// The picked bots, each resolved against the roster now listed; null
+  /// when one of them is no longer listed.
+  List<HermesRoomMember>? _members(List<HermesBot> bots) {
+    final members = <HermesRoomMember>[];
+    for (final name in _picked) {
+      final bot = hermesRoomMemberBot(bots, name);
+      if (bot == null) return null;
+      members.add(HermesRoomMember.forBot(bot));
+    }
+    return members;
+  }
+
   Future<void> _create(List<HermesBot> bots) async {
     final service = ref.read(hermesApiServiceProvider);
-    if (!_ready || service is! HermesDesktopApiService) return;
+    // Every pick must still be listed: a room is never made with fewer
+    // members than were picked.
+    final members = _members(bots);
+    if (!_ready ||
+        members == null ||
+        members.length < kMinHermesRoomSeats ||
+        service is! HermesDesktopApiService) {
+      return;
+    }
     final l10n = AppLocalizations.of(context)!;
     // The sheet can be dismissed while Hermes creates the room; the list
     // still learns of it.
@@ -82,11 +102,7 @@ class _HermesRoomCreateSheetState extends ConsumerState<HermesRoomCreateSheet> {
     try {
       final room = await service.createRoom(
         name: _name.text.trim(),
-        members: [
-          for (final name in _picked)
-            if (hermesRoomMemberBot(bots, name) case final bot?)
-              HermesRoomMember.forBot(bot),
-        ],
+        members: members,
       );
       container.invalidate(hermesRoomsProvider);
       if (mounted) Navigator.of(context).pop(room.id);
@@ -120,6 +136,18 @@ class _HermesRoomCreateSheetState extends ConsumerState<HermesRoomCreateSheet> {
     final bots = capabilities == null
         ? roster
         : hermesSeatableBots(roster, capabilities);
+    // A picked bot the roster no longer lists (removed, or no longer
+    // seatable) is unpicked, so Create counts only bots it can seat.
+    final gone = [
+      for (final name in _picked)
+        if (hermesRoomMemberBot(bots, name) == null) name,
+    ];
+    if (gone.isNotEmpty) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        setState(() => _picked.removeWhere(gone.contains));
+      });
+    }
     final full = _picked.length >= kMaxHermesRoomSeats;
 
     return Column(

@@ -97,9 +97,12 @@ class HermesRoomEvent {
   String? stringField(String key, [int max = 2048]) =>
       _label(payload[key], max);
 
+  /// A message body as written: a reply that opens with an indented code
+  /// block keeps its indentation.
   static String? _text(Object? value) => validateHermesBoundedString(
     value,
     maxCharacters: kMaxHermesRoomTextCharacters,
+    trim: false,
   );
 
   static HermesRoomEvent? fromJson(Object? json) {

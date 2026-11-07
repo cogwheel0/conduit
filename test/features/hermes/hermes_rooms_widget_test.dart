@@ -326,6 +326,43 @@ void main() {
       check(submit().onPressed).isNotNull();
     });
 
+    testWidgets('a picked bot the roster drops is not seated', (
+      tester,
+    ) async {
+      final roster = [..._bots];
+      await pumpSection(
+        tester,
+        capabilities: const HermesRoomCapabilities(driver: true),
+        bots: roster,
+      );
+
+      await tester.tap(find.byKey(const ValueKey('hermes-rooms-create')));
+      await tester.pumpAndSettle();
+      ConduitButton submit() => tester.widget<ConduitButton>(
+        find.byKey(const ValueKey('hermes-room-create-submit')),
+      );
+      await tester.enterText(
+        find.byKey(const ValueKey('hermes-room-create-name')),
+        'Planning',
+      );
+      for (final bot in ['research', 'scout']) {
+        await tester.tap(
+          find.byKey(ValueKey('hermes-room-create-bot-$bot')),
+        );
+        await tester.pump();
+      }
+      check(submit().onPressed).isNotNull();
+
+      // The roster refreshes without one of the picked bots.
+      roster.removeWhere((bot) => bot.name == 'scout');
+      ProviderScope.containerOf(
+        tester.element(find.byType(HermesRoomsSection)),
+      ).invalidate(hermesBotsProvider);
+      await tester.pumpAndSettle();
+
+      check(submit().onPressed).isNull();
+    });
+
     testWidgets('a room created after the sheet closed still lists', (
       tester,
     ) async {
@@ -531,6 +568,43 @@ void main() {
       await tester.tap(find.text('Allow once'));
       await tester.pump();
       check(room.answers).deepEquals([('task-9', 'once')]);
+
+      await unmount(tester);
+    });
+
+    testWidgets('a paused discussion with nothing running ends from its '
+        'card', (tester) async {
+      final live = liveView();
+      await pumpRoom(
+        tester,
+        HermesRoomView(
+          loaded: true,
+          snapshot: HermesRoomState(
+            room: _room,
+            context: const HermesRoomContext(),
+            driver: const HermesRoomDriverStatus(
+              working: false,
+              maxContinues: 5,
+            ),
+          ),
+          events: live.events,
+        ),
+      );
+
+      final stop = find.descendant(
+        of: find.byKey(const ValueKey('hermes-room-pause-4')),
+        matching: find.text('Stop'),
+      );
+      check(
+        tester
+            .widget<ConduitButton>(
+              find.ancestor(of: stop, matching: find.byType(ConduitButton)),
+            )
+            .onPressed,
+      ).isNotNull();
+      await tester.tap(stop);
+      await tester.pump();
+      check(room.stops).equals(1);
 
       await unmount(tester);
     });

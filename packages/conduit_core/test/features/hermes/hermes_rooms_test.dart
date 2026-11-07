@@ -377,6 +377,17 @@ void main() {
       check(page.cursor).equals(7);
       check(page.hasMore).isTrue();
     });
+
+    test('a reply keeps the indentation it opens with', () {
+      const reply = '    final total = 3;\n\nThat is the count.';
+      final event = HermesRoomEvent.fromJson({
+        'seq': 2,
+        'kind': 'message.member',
+        'payload': {'text': reply},
+      });
+
+      check(event?.text).equals(reply);
+    });
   });
 
   group('timeline', () {

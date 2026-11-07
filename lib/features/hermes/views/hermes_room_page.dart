@@ -394,7 +394,8 @@ class _HermesRoomPageState extends ConsumerState<HermesRoomPage>
           onContinue: view.gone || view.driver == null
               ? null
               : (id) => _act(() => _room.continueDiscussion(id)),
-          onStop: canStop ? _stop : null,
+          // A paused discussion runs no turn, and still ends from its card.
+          onStop: view.gone || view.driver == null ? null : _stop,
         ),
       for (final action in pending)
         HermesRoomDecisionCard(
