@@ -150,8 +150,8 @@ extension _HermesDesktopCanonical on HermesDesktopApiService {
     }
   }
 
-  /// Adopts a `session.create` / `session.resume` snapshot: its fences and
-  /// the socket's subscription.
+  /// Adopts a `session.create` / `session.resume` snapshot: its fences, the
+  /// socket's subscription, and the approvals and questions still open.
   void _adoptCanonicalSnapshot(
     String sessionId,
     Map<String, dynamic> snapshot,
@@ -169,6 +169,7 @@ extension _HermesDesktopCanonical on HermesDesktopApiService {
         ..subscriptionId = subscription
         ..subscriptionSocket = _rpc.socketGeneration;
     }
+    _rpc.replayCanonicalPrompts(sessionId, snapshot['prompts']);
   }
 
   /// Tracks the fences events carry: every turn event names its execution
@@ -334,5 +335,36 @@ extension _HermesDesktopCanonical on HermesDesktopApiService {
         if (attempt > 0 || error.reason != 'stale_generation') rethrow;
       }
     }
+  }
+
+  /// Answers the canonical approval or question [promptId] (a `choice` for
+  /// an approval, an `answer` for a question). False when Hermes no longer
+  /// lists it: it was settled elsewhere or timed out.
+  Future<bool> _answerCanonicalPrompt(
+    String runtimeId,
+    String promptId, {
+    required String value,
+  }) async {
+    var prompt = _rpc.canonicalPrompt(promptId);
+    if (prompt == null) {
+      // After a restart or a new socket only a fresh snapshot lists it.
+      await _resumeSnapshot(
+        _storedIdForRuntime(runtimeId) ?? runtimeId,
+        refresh: true,
+      );
+      prompt = _rpc.canonicalPrompt(promptId);
+      if (prompt == null) return false;
+    }
+    await _rpc.request<Object?>(
+      '${prompt.kind}.respond',
+      params: {
+        'session_id': prompt.sessionId,
+        'execution_generation': prompt.generation,
+        'prompt_id': promptId,
+        prompt.kind == 'approval' ? 'choice' : 'answer': value,
+        ..._runtimeScope(prompt.sessionId),
+      },
+    );
+    return true;
   }
 }

@@ -1160,9 +1160,15 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
       throw ArgumentError.value(choice, 'choice');
     }
     await _ensureConnected();
-    // [approvalId] is the server request's id; `expired` means another
-    // surface or the deadline settled it first, which closes the card too.
-    await _answerServerRequest(runId, approvalId, {'choice': choice});
+    if (_canonical) {
+      // A session authority asks approvals as events, by prompt id. One it
+      // no longer lists was settled elsewhere, which closes the card too.
+      await _answerCanonicalPrompt(runId, approvalId, value: choice);
+    } else {
+      // [approvalId] is the server request's id; `expired` means another
+      // surface or the deadline settled it first, which closes it too.
+      await _answerServerRequest(runId, approvalId, {'choice': choice});
+    }
     await HermesPendingDecisionStore.resolve(
       origin: _origin,
       connectionId: config.connectionId,
@@ -1203,6 +1209,11 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
         cardId: requestId,
         approved: value == 'approve',
       );
+    } else if (kind == HermesDecisionKind.clarification &&
+        _canonical &&
+        parseHermesClarifyCardId(requestId) == null) {
+      // A session authority asks single questions as events, by prompt id.
+      await _answerCanonicalPrompt(runtimeId, requestId, value: value);
     } else if (kind == HermesDecisionKind.clarification) {
       await _lockClarifyAnswer(
         runtimeId,
@@ -1210,6 +1221,12 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
         answer: value,
         storedSessionId: storedSessionId,
       );
+    } else if (_canonical) {
+      // A session authority takes a sudo or secret answer only as the
+      // request's response, from a socket attached to its session; one
+      // whose request is gone settles nothing.
+      await _resume(_storedIdForRuntime(runtimeId) ?? runtimeId);
+      _rpc.answerServerRequest(requestId, {'value': value});
     } else {
       await _answerServerRequest(runtimeId, requestId, {'value': value});
     }

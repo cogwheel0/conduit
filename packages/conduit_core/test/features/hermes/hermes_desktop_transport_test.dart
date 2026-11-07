@@ -1059,6 +1059,77 @@ void main() {
       check(delta.executionGeneration).equals(4);
       check(delta.admissionId).equals('adm-1');
     });
+
+    test('shows an approval event by its prompt id until settled', () async {
+      stamped('approval.request', {
+        'kind': 'approval',
+        'prompt_id': 'prompt-a',
+        'execution_generation': 4,
+        'command': 'rm -rf build',
+        'choices': ['once', 'deny'],
+      }, 13);
+      await Future<void>.delayed(Duration.zero);
+
+      check(events.last.payload['request_id']).equals('prompt-a');
+      check(client.canonicalPrompt('prompt-a')).equals((
+        sessionId: 'local-1',
+        generation: 4,
+        kind: 'approval',
+      ));
+
+      stamped('approval.settled', {
+        'prompt_id': 'prompt-a',
+        'execution_generation': 4,
+      }, 14);
+      await Future<void>.delayed(Duration.zero);
+
+      final expired = events.last;
+      check(expired.type).equals('approval.expire');
+      check(expired.sessionId).equals('local-1');
+      check(expired.payload['request_id']).equals('prompt-a');
+      check(client.canonicalPrompt('prompt-a')).isNull();
+    });
+
+    test('a snapshot re-shows open questions and closes settled ones',
+        () async {
+      client.replayCanonicalPrompts('local-1', [
+        {
+          'kind': 'clarify',
+          'prompt_id': 'prompt-q',
+          'execution_generation': 4,
+          'question': 'Which colour?',
+          'choices': ['Teal'],
+          'multi_select': false,
+        },
+      ]);
+      await Future<void>.delayed(Duration.zero);
+      check(events.last.type).equals('clarify.request');
+      check(events.last.payload['request_id']).equals('prompt-q');
+
+      client.replayCanonicalPrompts('local-1', const []);
+      await Future<void>.delayed(Duration.zero);
+      check(events.last.type).equals('clarify.expire');
+      check(events.last.payload['request_id']).equals('prompt-q');
+      check(client.canonicalPrompt('prompt-q')).isNull();
+    });
+
+    test('never answers a request it does not show', () async {
+      socket.serverRequest('srq-t1', 'tour', {'session_id': 'local-1'});
+      await Future<void>.delayed(Duration.zero);
+
+      // Any error, a decline included, settles it for every viewer.
+      check(socket.frames.where((frame) => frame['id'] == 'srq-t1')).isEmpty();
+    });
+
+    test('answers a request with its response frame', () async {
+      check(client.answerServerRequest('srq-s1', {'value': 'pw'})).isTrue();
+
+      check(socket.frames.last).deepEquals({
+        'jsonrpc': '2.0',
+        'id': 'srq-s1',
+        'result': {'value': 'pw'},
+      });
+    });
   });
 
   group('reply segments', () {

@@ -85,6 +85,14 @@ final class HermesDesktopEvent {
 /// it as `info.desktop_protocol`.
 const String kHermesCanonicalGatewayProtocol = 'hermes-gateway-v1';
 
+/// An approval or question a session authority asked as an event (canonical
+/// `approval.request` / `clarify.request`). It is answered with
+/// `approval.respond` / `clarify.respond`, naming [generation].
+typedef HermesCanonicalPrompt = ({
+  String sessionId,
+  int generation,
+  String kind,
+});
 
 /// Server→client requests Conduit answers. Since Hermes 0.21.3 the gateway
 /// asks for approvals, clarifications, sudo passwords and secrets this way
@@ -512,6 +520,8 @@ final class HermesDesktopRpcClient {
   /// Connection operations with a target card shown, by operation id.
   final Map<String, _OpenConnection> _connections = {};
 
+  /// Canonical approvals and questions still open, by prompt id.
+  final Map<String, HermesCanonicalPrompt> _canonicalPrompts = {};
 
   Stream<HermesDesktopEvent> get events => _events.stream;
   Stream<void> get disconnects => _disconnects.stream;
@@ -546,6 +556,7 @@ final class HermesDesktopRpcClient {
     _declinesNotShown = false;
     _clarifies.clear();
     _connections.clear();
+    _canonicalPrompts.clear();
     final ready = Completer<void>();
 
     _subscription = channel.stream.listen(
@@ -755,6 +766,10 @@ final class HermesDesktopRpcClient {
           executionGeneration: generation is int ? generation : null,
           admissionId: validateHermesOpaqueIdentifier(params['admission_id']),
         );
+        if (sessionAuthority &&
+            (type == 'approval.request' || type == 'clarify.request')) {
+          _openCanonicalPrompt(event);
+        }
         _events.add(event);
         switch (type) {
           case 'request.cancel':
@@ -762,6 +777,15 @@ final class HermesDesktopRpcClient {
           case 'connection.request':
           case 'connection.update':
             _showConnection(payload, sessionId);
+          case 'approval.settled':
+          case 'clarify.settled':
+            if (sessionAuthority) {
+              _settleCanonicalPrompt(
+                payload['prompt_id'],
+                sessionId,
+                reason: 'resolved',
+              );
+            }
         }
         return;
       }
@@ -786,14 +810,15 @@ final class HermesDesktopRpcClient {
   /// must never reach mobile platform features. Declined with 4404 only when
   /// the gateway takes declines; any other error would settle the request as
   /// unanswered for every client sharing the session, including a Desktop
-  /// that could have shown it.
+  /// that could have shown it. A session authority settles a request on any
+  /// error, a decline included, so it gets no reply at all.
   void _handleServerRequest(
     WebSocketChannel channel,
     Map<String, dynamic> frame,
   ) {
     final id = frame['id'];
     if (_showServerRequest(id, frame['method'], frame['params'])) return;
-    if (!_declinesNotShown) return;
+    if (!_declinesNotShown || sessionAuthority) return;
     channel.sink.add(
       jsonEncode({
         'jsonrpc': '2.0',
@@ -803,6 +828,99 @@ final class HermesDesktopRpcClient {
           'message': 'Not shown on mobile',
         },
       }),
+    );
+  }
+
+  /// Answers the open server request [id] with [result] on this socket, as
+  /// a JSON-RPC response frame: how a session authority takes the answer to
+  /// a `sudo` or `secret` request, from a socket attached to its session.
+  /// False when no socket is open.
+  bool answerServerRequest(String id, Map<String, Object?> result) {
+    final channel = _channel;
+    if (!_ready || channel == null) return false;
+    channel.sink.add(
+      jsonEncode({'jsonrpc': '2.0', 'id': id, 'result': result}),
+    );
+    return true;
+  }
+
+  /// The canonical approval or question [promptId], while it is open.
+  HermesCanonicalPrompt? canonicalPrompt(String promptId) =>
+      _canonicalPrompts[promptId];
+
+  /// Re-shows the approvals and questions a canonical session snapshot
+  /// lists as open (`prompts`), and closes the ones of [sessionId] it no
+  /// longer lists: they were settled while this socket was not looking.
+  void replayCanonicalPrompts(String sessionId, Object? prompts) {
+    final listed = <String>{};
+    if (prompts is List) {
+      for (final raw in prompts.whereType<Map>().take(32)) {
+        final payload = Map<String, dynamic>.from(raw);
+        final kind = payload['kind'];
+        if (kind != 'approval' && kind != 'clarify') continue;
+        final event = HermesDesktopEvent(
+          type: '$kind.request',
+          payload: payload,
+          sessionId: sessionId,
+        );
+        final promptId = _openCanonicalPrompt(event);
+        if (promptId == null) continue;
+        listed.add(promptId);
+        _events.add(event);
+      }
+    }
+    final settled = [
+      for (final entry in _canonicalPrompts.entries)
+        if (entry.value.sessionId == sessionId && !listed.contains(entry.key))
+          entry.key,
+    ];
+    for (final promptId in settled) {
+      _settleCanonicalPrompt(promptId, sessionId, reason: 'resolved');
+    }
+  }
+
+  /// Records a canonical prompt event and gives it the `request_id` the
+  /// decision pipeline keys cards by: its `prompt_id`. Returns that id.
+  String? _openCanonicalPrompt(HermesDesktopEvent event) {
+    final payload = event.payload;
+    final promptId = validateHermesOpaqueIdentifier(payload['prompt_id']);
+    final generation =
+        payload['execution_generation'] ?? event.executionGeneration;
+    final sessionId = event.sessionId;
+    if (promptId == null || generation is! int || sessionId == null) {
+      return null;
+    }
+    payload['request_id'] = promptId;
+    if (!_canonicalPrompts.containsKey(promptId) &&
+        _canonicalPrompts.length >= 64) {
+      _canonicalPrompts.remove(_canonicalPrompts.keys.first);
+    }
+    _canonicalPrompts[promptId] = (
+      sessionId: sessionId,
+      generation: generation,
+      kind: event.type == 'clarify.request' ? 'clarify' : 'approval',
+    );
+    return promptId;
+  }
+
+  /// A canonical prompt was settled (answered here or elsewhere, expired,
+  /// or its turn ended): close its card the way an expiry did before.
+  void _settleCanonicalPrompt(
+    Object? rawPromptId,
+    String? sessionId, {
+    required String reason,
+  }) {
+    final promptId = validateHermesOpaqueIdentifier(rawPromptId);
+    final prompt = promptId == null
+        ? null
+        : _canonicalPrompts.remove(promptId);
+    if (promptId == null || prompt == null) return;
+    _events.add(
+      HermesDesktopEvent(
+        type: '${prompt.kind}.expire',
+        sessionId: sessionId ?? prompt.sessionId,
+        payload: {'request_id': promptId, 'reason': reason},
+      ),
     );
   }
 

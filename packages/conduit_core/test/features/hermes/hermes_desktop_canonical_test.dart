@@ -649,6 +649,102 @@ void main() {
     check(rest.requests).contains('DELETE /api/sessions/local-1');
   });
 
+  group('decisions', () {
+    test('answers an approval by its prompt and generation', () async {
+      final gateway = _Authority();
+      final service = _service(gateway);
+      await service.createDesktopSession();
+      gateway.event('approval.request', {
+        'kind': 'approval',
+        'prompt_id': 'prompt-a',
+        'execution_generation': 2,
+        'command': 'rm -rf build',
+        'choices': ['once', 'deny', 'session', 'always'],
+      }, seq: 9);
+      await _settle();
+
+      await service.resolveApprovalChoiceForSession(
+        'local-1',
+        approvalId: 'prompt-a',
+        choice: 'once',
+      );
+
+      check(gateway.calls('approval.respond').single).deepEquals({
+        'profile': 'default',
+        'session_id': 'local-1',
+        'execution_generation': 2,
+        'prompt_id': 'prompt-a',
+        'choice': 'once',
+      });
+      check(gateway.calls('request.answer')).isEmpty();
+    });
+
+    test('a question listed only by a snapshot is answered too', () async {
+      final gateway = _Authority()
+        ..prompts = [
+          {
+            'kind': 'clarify',
+            'prompt_id': 'prompt-q',
+            'execution_generation': 2,
+            'question': 'Which colour?',
+            'choices': ['Teal', 'Amber'],
+            'multi_select': false,
+          },
+        ];
+      final service = _service(gateway);
+      final shown = <HermesDesktopEvent>[];
+      service.rpc.events.listen(shown.add);
+
+      await service.pendingDecisionsForSession('local-1');
+      await _settle();
+      final card = shown.singleWhere((e) => e.type == 'clarify.request');
+      check(card.payload['request_id']).equals('prompt-q');
+      check(card.payload['question']).equals('Which colour?');
+      await service.respondToDecision(
+        runtimeId: 'local-1',
+        storedSessionId: 'local-1',
+        requestId: 'prompt-q',
+        kind: HermesDecisionKind.clarification,
+        value: 'Amber',
+      );
+
+      check(gateway.calls('clarify.respond').single).deepEquals({
+        'profile': 'default',
+        'session_id': 'local-1',
+        'execution_generation': 2,
+        'prompt_id': 'prompt-q',
+        'answer': 'Amber',
+      });
+      check(gateway.calls('clarify.lock')).isEmpty();
+    });
+
+    test('answers a password request with its response frame', () async {
+      final gateway = _Authority();
+      final service = _service(gateway);
+      await service.createDesktopSession();
+      gateway.serverRequest('srq-s1', 'sudo', {
+        'session_id': 'local-1',
+        'command': 'apt update',
+      });
+      await _settle();
+
+      await service.respondToDecision(
+        runtimeId: 'local-1',
+        storedSessionId: 'local-1',
+        requestId: 'srq-s1',
+        kind: HermesDecisionKind.sudo,
+        value: 'synthetic-password',
+      );
+
+      check(gateway.sent.last).deepEquals({
+        'jsonrpc': '2.0',
+        'id': 'srq-s1',
+        'result': {'value': 'synthetic-password'},
+      });
+      check(gateway.calls('request.answer')).isEmpty();
+    });
+  });
+
   test('a bot chat is looked up by its title', () async {
     final gateway = _Authority();
     final service = _service(gateway);
