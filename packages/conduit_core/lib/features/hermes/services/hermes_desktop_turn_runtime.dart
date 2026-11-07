@@ -315,6 +315,9 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
                 multiSelect:
                     kind == HermesDecisionKind.clarification &&
                     payload['multi_select'] == true,
+                questions: kind == HermesDecisionKind.clarification
+                    ? hermesClarifyQuestionsFromPayload(payload)
+                    : const [],
               ),
             );
             controller.add(
@@ -344,6 +347,16 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
                 requestId: requestId,
               ),
             );
+            // Answered on another surface, timed out or withdrawn: the
+            // card closes now instead of on the next reload.
+            if (event.type != 'approval.responded') {
+              controller.add(
+                HermesPromptSettled(
+                  promptId: requestId,
+                  kind: event.type.substring(0, event.type.indexOf('.')),
+                ),
+              );
+            }
           }
         case 'session.info':
           // A partial info without `running` says nothing about the turn.
@@ -466,6 +479,9 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
           confirmDeepTruncate: confirmDeepTruncate,
         ),
         'submission_id': ?submissionId,
+        // Asks the turn's questions as one form (a session authority that
+        // said it can); otherwise they come one card at a time.
+        if (canonical && _rpc.canonicalClarifyBatch) 'clarify_batch': true,
         if (attached.attachments.isNotEmpty)
           'attachments': attached.attachments,
         ..._sessionScope(binding.storedId),
@@ -879,6 +895,9 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
       mcpAction: event.payload['action']?.toString(),
       choices: _desktopDecisionChoices(event.payload['choices']),
       multiSelect: event.payload['multi_select'] == true,
+      questions: kind == HermesPendingDesktopDecisionKind.clarification
+          ? hermesClarifyQuestionsFromPayload(event.payload)
+          : const [],
       sensitiveValues: config.sensitiveValues,
       profile: _sessionProfiles[storedId],
     );
@@ -893,6 +912,7 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
     String? mcpAction,
     Iterable<Object?> choices = const <Object?>[],
     bool multiSelect = false,
+    Iterable<HermesClarifyQuestion> questions = const [],
   }) => HermesPendingDecisionStore.upsert(
     origin: _origin,
     connectionId: config.connectionId,
@@ -905,6 +925,7 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
     mcpAction: mcpAction,
     choices: choices,
     multiSelect: multiSelect,
+    questions: questions,
     sensitiveValues: config.sensitiveValues,
     profile: _sessionProfiles[binding.storedId],
   );
@@ -1533,17 +1554,11 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
         cardId: requestId,
         approved: value == 'approve',
       );
-    } else if (kind == HermesDecisionKind.clarification &&
-        _canonical &&
-        parseHermesClarifyCardId(requestId) == null) {
-      // A session authority asks single questions as events, by prompt id.
-      await _answerCanonicalPrompt(runtimeId, requestId, value: value);
     } else if (kind == HermesDecisionKind.clarification) {
-      await _lockClarifyAnswer(
+      await _answerClarify(
         runtimeId,
-        cardId: requestId,
-        answer: value,
-        storedSessionId: storedSessionId,
+        requestId,
+        answers: {kHermesSingleClarifyQuestionId: value},
       );
     } else if (_canonical) {
       // A session authority takes a sudo or secret answer only as the
@@ -1575,41 +1590,56 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
     params: {'id': requestId, 'result': result, ..._runtimeScope(runtimeId)},
   );
 
-  /// Locks one clarify question's [answer]; the last question's lock answers
-  /// the whole request. Then shows the next question the lock's `remaining`
-  /// names (another surface may have answered some), which after a restart
-  /// only a fresh resume snapshot still lists.
-  Future<void> _lockClarifyAnswer(
-    String runtimeId, {
-    required String cardId,
-    required String answer,
+  /// Answers a whole clarify form: the questions still open, by id (null
+  /// skips one). Locked answers stand, as Hermes keeps them.
+  Future<void> _runtimeRespondToClarifyForm({
+    required String runtimeId,
     String? storedSessionId,
+    required String requestId,
+    required Map<String, String?> answers,
   }) async {
-    final card = parseHermesClarifyCardId(cardId);
-    if (card == null) {
-      throw StateError('Hermes returned an invalid question.');
+    if (storedSessionId != null) {
+      runtimeId = (await _resume(storedSessionId)).runtimeId;
     }
-    final result = _object(
-      await _rpc.request<Object?>(
-        'clarify.lock',
-        params: {
-          'request_id': card.requestId,
-          'question_id': card.questionId,
-          'answer': answer,
-          ..._runtimeScope(runtimeId),
-        },
-      ),
+    await _ensureConnected();
+    await _answerClarify(runtimeId, requestId, answers: answers);
+    await HermesPendingDecisionStore.resolve(
+      origin: _origin,
+      connectionId: config.connectionId,
+      runtimeId: runtimeId,
+      requestId: requestId,
     );
-    final remaining = result['remaining'];
-    if (result['status'] != 'ok' || remaining is! List || remaining.isEmpty) {
+  }
+
+  /// A form (a `clarify` server request) is answered at once: by
+  /// `request.answer` on the legacy wire, or by its response frame from a
+  /// socket attached to the session on a session authority. A session
+  /// authority's lone question (a `clarify.request` prompt) takes its one
+  /// answer by `clarify.respond`; a skipped one is empty, as Hermes reads
+  /// it.
+  Future<void> _answerClarify(
+    String runtimeId,
+    String requestId, {
+    required Map<String, String?> answers,
+  }) async {
+    if (!_canonical) {
+      await _answerServerRequest(
+        runtimeId,
+        requestId,
+        hermesClarifySubmission(answers),
+      );
       return;
     }
-    if (!_rpc.showNextClarifyQuestion(
-      cardId,
-      remaining: remaining.map((questionId) => '$questionId'),
-    )) {
-      final storedId = storedSessionId ?? _storedIdForRuntime(runtimeId);
-      if (storedId != null) await _resume(storedId, refresh: true);
+    if (_rpc.canonicalPrompt(requestId) != null ||
+        !requestId.startsWith(kHermesServerRequestIdPrefix)) {
+      await _answerCanonicalPrompt(
+        runtimeId,
+        requestId,
+        value: answers.values.firstOrNull ?? '',
+      );
+      return;
     }
+    await _resume(_storedIdForRuntime(runtimeId) ?? runtimeId);
+    _rpc.answerServerRequest(requestId, hermesClarifySubmission(answers));
   }
 }

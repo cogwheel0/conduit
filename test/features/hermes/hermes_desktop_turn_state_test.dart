@@ -665,12 +665,11 @@ void main() {
         approvalId: 'req-1',
         choice: 'once',
       );
-      await service.respondToDecision(
+      await service.respondToClarifyForm(
         storedSessionId: 'stored-bot',
         runtimeId: 'runtime-bot',
-        requestId: 'srq-2/q0',
-        kind: HermesDecisionKind.clarification,
-        value: 'answer',
+        requestId: 'srq-2',
+        answers: const {'q0': 'answer', 'q1': null},
       );
       await service.reloadMcp(runtimeId: 'runtime-bot');
       // A skipped connection target goes straight to connection.respond,
@@ -697,7 +696,7 @@ void main() {
       // The transport injects the CONNECTION profile as a default, so any bot
       // frame that fails to name its own profile silently travels as 'default'.
       // Answers carry no session id but act on the bot's session too.
-      const answers = {'request.answer', 'clarify.lock', 'connection.respond'};
+      const answers = {'request.answer', 'connection.respond'};
       final botFrames = harness.sent
           .where(
             (frame) =>
@@ -718,6 +717,23 @@ void main() {
               'profile: $params',
         ).equals('researcher');
       }
+      // The whole form is answered at once; nothing is locked per question.
+      final form = harness.sent.singleWhere(
+        (frame) =>
+            frame['method'] == 'request.answer' &&
+            (frame['params'] as Map)['id'] == 'srq-2',
+      );
+      check(form['params'] as Map<String, dynamic>).deepEquals({
+        'profile': 'researcher',
+        'id': 'srq-2',
+        'result': {
+          'answers': {'q0': 'answer', 'q1': null},
+          'outcome': 'submitted',
+        },
+      });
+      check(
+        harness.sent.where((frame) => frame['method'] == 'clarify.lock'),
+      ).isEmpty();
     },
   );
 
@@ -1217,39 +1233,6 @@ void main() {
   });
 
   group('decisions in a restored chat', () {
-    test('the next question skips ones answered elsewhere', () async {
-      final chat = await _restoredChat({
-        'open_requests': [
-          {
-            'id': 'srq-c1',
-            'method': 'clarify',
-            'params': {
-              'session_id': 'runtime-1',
-              'questions': [
-                for (final qid in ['q0', 'q1', 'q2'])
-                  {'qid': qid, 'question': 'Pick $qid?'},
-              ],
-            },
-          },
-        ],
-      }, lock: {'status': 'ok', 'remaining': ['q2']});
-
-      await chat.service.respondToDecision(
-        storedSessionId: 'stored-1',
-        runtimeId: 'runtime-1',
-        requestId: 'srq-c1/q0',
-        kind: HermesDecisionKind.clarification,
-        value: 'Teal',
-      );
-      await pumpEventQueue();
-
-      check(
-        chat.events
-            .where((event) => event.type == 'clarify.request')
-            .map((event) => event.payload['request_id']),
-      ).deepEquals(['srq-c1/q0', 'srq-c1/q2']);
-    });
-
     test('approving a started sign-in opens its link', () async {
       const link = 'https://auth.example/authorize?state=abc';
       final chat = await _restoredChat({
@@ -1560,8 +1543,7 @@ void main() {
 }
 
 /// A Desktop chat restored with no turn running: `session.resume` returns
-/// [snapshot]'s extras, `clarify.lock` returns [lock]. Collects the RPC
-/// events and the links opened.
+/// [snapshot]'s extras. Collects the RPC events and the links opened.
 Future<
   ({
     HermesDesktopApiService service,
@@ -1570,11 +1552,7 @@ Future<
     List<Uri> opened,
   })
 >
-_restoredChat(
-  Map<String, Object?> snapshot, {
-  Map<String, Object?> lock = const {'status': 'ok', 'remaining': <String>[]},
-  bool opens = true,
-}) async {
+_restoredChat(Map<String, Object?> snapshot, {bool opens = true}) async {
   SharedPreferences.setMockInitialValues({});
   PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
   final harness = _GatewayHarness();
@@ -1608,7 +1586,6 @@ _restoredChat(
       'running': false,
       ...snapshot,
     },
-    'clarify.lock' => lock,
     _ => const {},
   };
   await service.pendingDecisionsForSession('stored-1');

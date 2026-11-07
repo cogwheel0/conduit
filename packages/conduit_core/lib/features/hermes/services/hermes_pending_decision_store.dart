@@ -4,6 +4,7 @@ import 'package:conduit_core/persistence/persistence_keys.dart';
 import 'package:conduit_core/persistence/preferences_store.dart';
 import 'package:conduit_core/utils/unicode_prefix.dart';
 
+import 'package:conduit_core/features/hermes/models/hermes_clarify_form.dart';
 import 'package:conduit_core/features/hermes/models/hermes_run_event.dart';
 import 'package:conduit_core/features/hermes/models/hermes_config.dart';
 import 'package:conduit_core/features/hermes/models/hermes_connection_profile.dart';
@@ -30,6 +31,7 @@ final class HermesPendingDesktopDecision {
     this.mcpAction,
     this.choices = const <String>[],
     this.multiSelect = false,
+    this.questions = const <HermesClarifyQuestion>[],
     this.profile,
     this.connectionId,
   });
@@ -45,6 +47,9 @@ final class HermesPendingDesktopDecision {
   final String? mcpAction;
   final List<String> choices;
   final bool multiSelect;
+
+  /// A clarify form's questions, with the answers already locked.
+  final List<HermesClarifyQuestion> questions;
 
   /// Profile that owns the session, when it is not the connection's own (a Bot
   /// Mode chat). Persisted because the in-memory session→profile map is empty
@@ -86,12 +91,14 @@ final class HermesPendingDesktopDecision {
     if (mcpAction != null) 'mcp_action': mcpAction,
     if (choices.isNotEmpty) 'choices': choices,
     if (multiSelect) 'multi_select': true,
+    if (questions.isNotEmpty)
+      'questions': [for (final question in questions) question.toJson()],
     if (profile != null) 'profile': profile,
     if (connectionId != null) 'connection_id': connectionId,
   });
 
   static HermesPendingDesktopDecision? fromStorage(String source) {
-    if (source.length > 8192) return null;
+    if (source.length > kMaxHermesPendingDecisionCharacters) return null;
     try {
       final value = jsonDecode(source);
       if (value is! Map) return null;
@@ -149,6 +156,9 @@ final class HermesPendingDesktopDecision {
         mcpAction: mcpAction,
         choices: choices,
         multiSelect: value['multi_select'] == true,
+        questions: kind == HermesPendingDesktopDecisionKind.clarification
+            ? hermesClarifyQuestions(value['questions'])
+            : const <HermesClarifyQuestion>[],
         // Same validation the RPC layer applies before a profile can scope a
         // request, so a tampered store cannot redirect one.
         profile: switch (validateHermesBoundedString(
@@ -169,6 +179,9 @@ final class HermesPendingDesktopDecision {
     }
   }
 }
+
+/// The longest stored record: a clarify form's questions and choices.
+const int kMaxHermesPendingDecisionCharacters = 32768;
 
 /// Restart-safe presentation state only. Sensitive answers are deliberately
 /// absent; Hermes remains authoritative for whether a request is resolved.
@@ -195,6 +208,7 @@ final class HermesPendingDecisionStore {
     String? mcpAction,
     Iterable<Object?> choices = const <Object?>[],
     bool multiSelect = false,
+    Iterable<HermesClarifyQuestion> questions = const [],
     Iterable<String> sensitiveValues = const <String>[],
     String? profile,
     String? connectionId,
@@ -233,6 +247,10 @@ final class HermesPendingDecisionStore {
       for (final choice in _sanitizeChoices(choices))
         ?_sanitizePrompt(choice, sensitiveValues),
     ]);
+    final sanitizedQuestions = kind ==
+            HermesPendingDesktopDecisionKind.clarification
+        ? _sanitizeQuestions(questions, sensitiveValues)
+        : const <HermesClarifyQuestion>[];
     final record = HermesPendingDesktopDecision(
       origin: origin,
       storedSessionId: stored,
@@ -267,6 +285,9 @@ final class HermesPendingDecisionStore {
           (sanitizedChoices.isEmpty
               ? previous?.multiSelect ?? multiSelect
               : multiSelect),
+      questions: sanitizedQuestions.isEmpty
+          ? previous?.questions ?? const <HermesClarifyQuestion>[]
+          : sanitizedQuestions,
     );
     final changed =
         previous == null ||
@@ -364,6 +385,7 @@ final class HermesPendingDecisionStore {
               mcpAction: record.mcpAction,
               choices: record.choices,
               multiSelect: record.multiSelect,
+              questions: record.questions,
               // A rebind (compaction lineage) must not drop the owning bot
               // profile, or the rebound decision answers under the connection.
               profile: record.profile,
@@ -454,6 +476,34 @@ List<String> _sanitizeChoices(Object? value) {
       result.add(choice);
       if (result.length == 8) break;
     }
+  }
+  return List.unmodifiable(result);
+}
+
+/// A form's questions with secrets redacted from their text and choices.
+List<HermesClarifyQuestion> _sanitizeQuestions(
+  Iterable<HermesClarifyQuestion> questions,
+  Iterable<String> sensitiveValues,
+) {
+  final result = <HermesClarifyQuestion>[];
+  for (final question in questions.take(kMaxHermesClarifyQuestions)) {
+    final text = _sanitizePrompt(question.text, sensitiveValues);
+    if (text == null) continue;
+    result.add(
+      HermesClarifyQuestion(
+        id: question.id,
+        text: text,
+        choices: List.unmodifiable([
+          for (final choice in question.choices)
+            ?_sanitizePrompt(choice, sensitiveValues),
+        ]),
+        multiSelect: question.multiSelect,
+        locked: question.locked,
+        lockedAnswer: question.lockedAnswer == null
+            ? null
+            : _sanitizePrompt(question.lockedAnswer, sensitiveValues),
+      ),
+    );
   }
   return List.unmodifiable(result);
 }

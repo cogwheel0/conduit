@@ -6164,5 +6164,13 @@
   "hermesUndoLastTurn": "最後のやり取りを取り消す",
   "hermesUndoLastTurnDone": "最後のやり取りを取り消しました。",
   "hermesUndoLastTurnFailed": "最後のやり取りを取り消せませんでした。もう一度お試しください。",
-  "hermesArchivedLoadError": "アーカイブ済みのチャットを読み込めませんでした。"
+  "hermesArchivedLoadError": "アーカイブ済みのチャットを読み込めませんでした。",
+  "hermesClarifyProgress": "{total} 件中 {answered} 件回答済み",
+  "@hermesClarifyProgress": {"placeholders": {"answered": {"type": "int"}, "total": {"type": "int"}}},
+  "hermesClarifySendFailed": "回答を送信できませんでした。もう一度お試しください。",
+  "hermesClarifyAnswerOrSkip": "各質問に回答するか、スキップしてください。",
+  "hermesClarifyOtherAnswer": "または自分で回答を入力",
+  "hermesClarifySkip": "スキップ",
+  "hermesClarifySkipped": "スキップ済み",
+  "hermesClarifyRecommended": "おすすめ"
 }

@@ -51,7 +51,10 @@ final class _SocketHarness {
       .elementAt(index);
 
   /// Answers the capability handshake the way Hermes 0.22+ does.
-  Future<void> answerCapabilities({bool declinesNotShown = true}) async {
+  Future<void> answerCapabilities({
+    bool declinesNotShown = true,
+    bool clarifyBatch = false,
+  }) async {
     await Future<void>.delayed(Duration.zero);
     final handshake = frames.singleWhere(
       (frame) => frame['method'] == 'client.capabilities',
@@ -63,6 +66,7 @@ final class _SocketHarness {
         'result': {
           'server_requests': ['approval', 'clarify', 'secret', 'sudo', 'tour'],
           'declines_not_shown': declinesNotShown,
+          if (clarifyBatch) 'canonical_clarify_batch': true,
         },
       }),
     );
@@ -664,7 +668,7 @@ void main() {
       check(socket.frames.length).equals(1);
     });
 
-    test('shows a clarify form one question at a time', () async {
+    test('shows a clarify request as one form of every question', () async {
       await socket.answerCapabilities();
       socket.serverRequest('srq-c1', 'clarify', {
         'session_id': 'runtime-1',
@@ -672,31 +676,46 @@ void main() {
           {
             'qid': 'q0',
             'question': 'Which colour?',
-            'choices': ['Teal', 'Amber'],
+            'choices': ['Teal (Recommended)', 'Amber'],
             'multi_select': false,
           },
-          {'qid': 'q1', 'question': 'Anything else?', 'choices': null},
+          {
+            'qid': 'q1',
+            'question': 'Which sizes?',
+            'choices': ['Small', 'Large'],
+            'multi_select': true,
+          },
+          {'qid': 'q2', 'question': 'Anything else?', 'choices': null},
         ],
       });
       await Future<void>.delayed(Duration.zero);
 
-      final first = events.singleWhere(
+      final form = events.singleWhere(
         (event) => event.type == 'clarify.request',
       );
-      check(first.payload['request_id']).equals('srq-c1/q0');
-      check(first.payload['question']).equals('1/2 · Which colour?');
-      check(first.payload['choices'] as List).deepEquals(['Teal', 'Amber']);
-
-      check(client.showNextClarifyQuestion('srq-c1/q0')).isTrue();
-      await Future<void>.delayed(Duration.zero);
-      final second = events.where((e) => e.type == 'clarify.request').last;
-      check(second.payload['request_id']).equals('srq-c1/q1');
-      check(second.payload['question']).equals('2/2 · Anything else?');
-
-      check(client.showNextClarifyQuestion('srq-c1/q1')).isFalse();
+      check(form.sessionId).equals('runtime-1');
+      check(form.payload['request_id']).equals('srq-c1');
+      check(form.payload['server_request']).equals('srq-c1');
+      check(form.payload['question']).equals('Which colour?');
+      check(form.payload['questions'] as List).deepEquals([
+        {
+          'qid': 'q0',
+          'question': 'Which colour?',
+          'choices': ['Teal (Recommended)', 'Amber'],
+        },
+        {
+          'qid': 'q1',
+          'question': 'Which sizes?',
+          'choices': ['Small', 'Large'],
+          'multi_select': true,
+        },
+        {'qid': 'q2', 'question': 'Anything else?'},
+      ]);
+      // Nothing is answered on the socket the request came in on.
+      check(socket.frames.length).equals(1);
     });
 
-    test('a withdrawal closes the question shown now', () async {
+    test('a withdrawal closes the whole form', () async {
       await socket.answerCapabilities();
       socket.serverRequest('srq-c2', 'clarify', {
         'session_id': 'runtime-1',
@@ -706,7 +725,6 @@ void main() {
         ],
       });
       await Future<void>.delayed(Duration.zero);
-      client.showNextClarifyQuestion('srq-c2/q0');
       socket.event('request.cancel', {
         'id': 'srq-c2',
         'method': 'clarify',
@@ -718,10 +736,11 @@ void main() {
         (event) => event.type == 'clarify.expire',
       );
       check(expired.sessionId).equals('runtime-1');
-      check(expired.payload['request_id']).equals('srq-c2/q1');
+      check(expired.payload['request_id']).equals('srq-c2');
+      check(expired.payload['reason']).equals('timeout');
     });
 
-    test('replays open requests, skipping answered questions', () async {
+    test('replays open requests with the answers already locked', () async {
       client.replayOpenRequests([
         {
           'id': 'srq-r1',
@@ -731,8 +750,9 @@ void main() {
             'questions': [
               {'qid': 'q0', 'question': 'First?'},
               {'qid': 'q1', 'question': 'Second?'},
+              {'qid': 'q2', 'question': 'Third?'},
             ],
-            'answers': {'q0': 'yes'},
+            'answers': {'q0': 'yes', 'q2': null},
           },
         },
         {
@@ -743,12 +763,39 @@ void main() {
       ]);
       await Future<void>.delayed(Duration.zero);
 
+      final shown = events
+          .where((event) => event.type != 'gateway.ready')
+          .toList();
       check(
-        events
-            .where((event) => event.type != 'gateway.ready')
-            .map((event) => '${event.type} ${event.payload['request_id']}'),
-      ).deepEquals(['clarify.request srq-r1/q1', 'sudo.request srq-r2']);
-      check(events.last.payload['prompt']).equals('apt update');
+        shown.map((event) => '${event.type} ${event.payload['request_id']}'),
+      ).deepEquals(['clarify.request srq-r1', 'sudo.request srq-r2']);
+      check(shown.first.payload['questions'] as List).deepEquals([
+        {'qid': 'q0', 'question': 'First?', 'locked': true, 'answer': 'yes'},
+        {'qid': 'q1', 'question': 'Second?'},
+        {'qid': 'q2', 'question': 'Third?', 'locked': true},
+      ]);
+      check(shown.last.payload['prompt']).equals('apt update');
+    });
+
+    test('a clarify request without usable questions is not shown', () async {
+      await socket.answerCapabilities();
+      socket.serverRequest('srq-c3', 'clarify', {
+        'session_id': 'runtime-1',
+        'questions': [
+          {'qid': '', 'question': 'No id?'},
+          {'qid': 'q1', 'question': '   '},
+        ],
+      });
+      await Future<void>.delayed(Duration.zero);
+
+      check(events.where((event) => event.type == 'clarify.request')).isEmpty();
+    });
+
+    test('a legacy gateway is never asked for one-form questions', () async {
+      check(client.canonicalClarifyBatch).isFalse();
+      await socket.answerCapabilities(clarifyBatch: true);
+      // The dashboard always asks a form at once and refuses the key.
+      check(client.canonicalClarifyBatch).isFalse();
     });
 
     test('shows a connection operation one waiting target at a time', () async {
@@ -805,78 +852,6 @@ void main() {
       check(events.last.payload['request_id']).equals('op-1/notes');
     });
 
-    test('a replay with newer answers moves the next question on', () async {
-      final questions = [
-        for (final qid in ['q0', 'q1', 'q2'])
-          {'qid': qid, 'question': 'Pick $qid?'},
-      ];
-      socket.serverRequest('srq-c3', 'clarify', {
-        'session_id': 'runtime-1',
-        'questions': questions,
-      });
-      await Future<void>.delayed(Duration.zero);
-      // Another surface answered q0 before this socket's resume.
-      client.replayOpenRequests([
-        {
-          'id': 'srq-c3',
-          'method': 'clarify',
-          'params': {
-            'session_id': 'runtime-1',
-            'questions': questions,
-            'answers': {'q0': 'Teal'},
-          },
-        },
-      ]);
-      await Future<void>.delayed(Duration.zero);
-      check(
-        events.where((e) => e.type == 'clarify.request').last,
-      ).has((e) => e.payload['request_id'], 'request_id').equals('srq-c3/q1');
-
-      check(client.showNextClarifyQuestion('srq-c3/q1')).isTrue();
-      await Future<void>.delayed(Duration.zero);
-      check(
-        events.where((e) => e.type == 'clarify.request').last,
-      ).has((e) => e.payload['request_id'], 'request_id').equals('srq-c3/q2');
-    });
-
-    test('a replay that moves on closes the card it replaces', () async {
-      final questions = [
-        for (final qid in ['q0', 'q1'])
-          {'qid': qid, 'question': 'Pick $qid?'},
-      ];
-      socket.serverRequest('srq-c5', 'clarify', {
-        'session_id': 'runtime-1',
-        'questions': questions,
-      });
-      await Future<void>.delayed(Duration.zero);
-      // q0 was answered on another surface while this socket was down.
-      client.replayOpenRequests([
-        {
-          'id': 'srq-c5',
-          'method': 'clarify',
-          'params': {
-            'session_id': 'runtime-1',
-            'questions': questions,
-            'answers': {'q0': 'Teal'},
-          },
-        },
-      ]);
-      await Future<void>.delayed(Duration.zero);
-
-      check(
-        events
-            .where((e) => e.type.startsWith('clarify.'))
-            .map((e) => '${e.type} ${e.payload['request_id']}'),
-      ).deepEquals([
-        'clarify.request srq-c5/q0',
-        'clarify.expire srq-c5/q0',
-        'clarify.request srq-c5/q1',
-      ]);
-      check(
-        events.singleWhere((e) => e.type == 'clarify.expire').sessionId,
-      ).equals('runtime-1');
-    });
-
     test('a target name too long for a card id still gets its card', () async {
       // 510 scalars: valid as a name, too long once the operation joins it.
       final name = 'server-${'x' * 503}';
@@ -904,34 +879,14 @@ void main() {
       check(client.connectionCardTarget('op-9/docs')).equals('docs');
     });
 
-    test('the lock result names the questions still open', () async {
-      socket.serverRequest('srq-c4', 'clarify', {
-        'session_id': 'runtime-1',
-        'questions': [
-          for (final qid in ['q0', 'q1', 'q2'])
-            {'qid': qid, 'question': 'Pick $qid?'},
-        ],
-      });
-      await Future<void>.delayed(Duration.zero);
-
-      // q1 was answered on another surface while q0 was shown here.
-      check(
-        client.showNextClarifyQuestion('srq-c4/q0', remaining: ['q2']),
-      ).isTrue();
-      await Future<void>.delayed(Duration.zero);
-      check(
-        events.where((e) => e.type == 'clarify.request').last,
-      ).has((e) => e.payload['request_id'], 'request_id').equals('srq-c4/q2');
-    });
-
     test('card ids keep a slash in either part', () {
       final id = hermesConnectionCardId('op-1', 'owner/skill~beta');
       check(id).equals('op-1/owner~1skill~0beta');
       final card = parseHermesConnectionCardId(id);
       check(card?.operationId).equals('op-1');
       check(card?.target).equals('owner/skill~beta');
-      check(parseHermesClarifyCardId('srq-1/q0/extra')).isNull();
-      check(parseHermesClarifyCardId('srq-1/')).isNull();
+      check(parseHermesConnectionCardId('op-1/a/b')).isNull();
+      check(parseHermesConnectionCardId('op-1/')).isNull();
     });
 
     test('shows a target whose sign-in already started', () async {
@@ -1061,7 +1016,11 @@ void main() {
       final connecting = client.connect(Uri.parse('ws://localhost/api/ws'));
       socket.ready({'session_authority': true});
       await connecting;
-      await socket.answerCapabilities();
+      await socket.answerCapabilities(clarifyBatch: true);
+    });
+
+    test('remembers that the authority asks a form at once', () {
+      check(client.canonicalClarifyBatch).isTrue();
     });
 
     tearDown(() async {

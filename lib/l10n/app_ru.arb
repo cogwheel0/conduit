@@ -4585,5 +4585,13 @@
   "hermesUndoLastTurn": "Отменить последний обмен",
   "hermesUndoLastTurnDone": "Последний обмен отменён.",
   "hermesUndoLastTurnFailed": "Не удалось отменить последний обмен. Повторите попытку.",
-  "hermesArchivedLoadError": "Не удалось загрузить архивные чаты."
+  "hermesArchivedLoadError": "Не удалось загрузить архивные чаты.",
+  "hermesClarifyProgress": "Отвечено: {answered} из {total}",
+  "@hermesClarifyProgress": {"placeholders": {"answered": {"type": "int"}, "total": {"type": "int"}}},
+  "hermesClarifySendFailed": "Не удалось отправить ответы. Попробуйте ещё раз.",
+  "hermesClarifyAnswerOrSkip": "Ответьте на каждый вопрос или пропустите его.",
+  "hermesClarifyOtherAnswer": "Или введите свой ответ",
+  "hermesClarifySkip": "Пропустить",
+  "hermesClarifySkipped": "Пропущено",
+  "hermesClarifyRecommended": "Рекомендуется"
 }

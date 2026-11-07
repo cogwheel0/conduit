@@ -4547,5 +4547,13 @@
   "hermesUndoLastTurn": "撤销上一轮对话",
   "hermesUndoLastTurnDone": "已撤销上一轮对话。",
   "hermesUndoLastTurnFailed": "无法撤销上一轮对话。请重试。",
-  "hermesArchivedLoadError": "无法加载已存档的聊天。"
+  "hermesArchivedLoadError": "无法加载已存档的聊天。",
+  "hermesClarifyProgress": "已回答 {answered}/{total}",
+  "@hermesClarifyProgress": {"placeholders": {"answered": {"type": "int"}, "total": {"type": "int"}}},
+  "hermesClarifySendFailed": "无法发送你的回答。请重试。",
+  "hermesClarifyAnswerOrSkip": "请回答或跳过每个问题。",
+  "hermesClarifyOtherAnswer": "或输入你自己的回答",
+  "hermesClarifySkip": "跳过",
+  "hermesClarifySkipped": "已跳过",
+  "hermesClarifyRecommended": "推荐"
 }

@@ -18,6 +18,7 @@ import 'package:conduit_core/network/upload_timeout.dart';
 
 import 'package:conduit_core/features/hermes/models/hermes_bot.dart';
 import 'package:conduit_core/features/hermes/models/hermes_chat_input.dart';
+import 'package:conduit_core/features/hermes/models/hermes_clarify_form.dart';
 import 'package:conduit_core/features/hermes/models/hermes_config.dart';
 import 'package:conduit_core/features/hermes/models/hermes_job.dart';
 import 'package:conduit_core/features/hermes/models/hermes_job_delivery.dart';
@@ -810,6 +811,20 @@ final class HermesDesktopApiService
     value: value,
     mcpServer: mcpServer,
     mcpAction: mcpAction,
+  );
+
+  /// Answers a whole clarify form [requestId] at once: [answers] holds the
+  /// questions still open, by id, with null for a skipped one.
+  Future<void> respondToClarifyForm({
+    required String runtimeId,
+    String? storedSessionId,
+    required String requestId,
+    required Map<String, String?> answers,
+  }) => _runtimeRespondToClarifyForm(
+    runtimeId: runtimeId,
+    storedSessionId: storedSessionId,
+    requestId: requestId,
+    answers: answers,
   );
   @override
   void close() {

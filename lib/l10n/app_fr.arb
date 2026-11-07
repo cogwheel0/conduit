@@ -4547,5 +4547,13 @@
   "hermesUndoLastTurn": "Annuler le dernier échange",
   "hermesUndoLastTurnDone": "Dernier échange annulé.",
   "hermesUndoLastTurnFailed": "Impossible d’annuler le dernier échange. Réessayez.",
-  "hermesArchivedLoadError": "Impossible de charger les conversations archivées."
+  "hermesArchivedLoadError": "Impossible de charger les conversations archivées.",
+  "hermesClarifyProgress": "{answered} sur {total} répondues",
+  "@hermesClarifyProgress": {"placeholders": {"answered": {"type": "int"}, "total": {"type": "int"}}},
+  "hermesClarifySendFailed": "Impossible d'envoyer vos réponses. Réessayez.",
+  "hermesClarifyAnswerOrSkip": "Répondez à chaque question ou passez-la.",
+  "hermesClarifyOtherAnswer": "Ou saisissez votre propre réponse",
+  "hermesClarifySkip": "Passer",
+  "hermesClarifySkipped": "Passée",
+  "hermesClarifyRecommended": "Recommandé"
 }

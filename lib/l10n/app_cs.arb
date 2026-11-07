@@ -6470,5 +6470,13 @@
   "hermesUndoLastTurn": "Vrátit poslední výměnu zpráv",
   "hermesUndoLastTurnDone": "Poslední výměna zpráv byla vrácena.",
   "hermesUndoLastTurnFailed": "Poslední výměnu zpráv se nepodařilo vrátit. Zkuste to znovu.",
-  "hermesArchivedLoadError": "Archivované chaty se nepodařilo načíst."
+  "hermesArchivedLoadError": "Archivované chaty se nepodařilo načíst.",
+  "hermesClarifyProgress": "Zodpovězeno {answered} z {total}",
+  "@hermesClarifyProgress": {"placeholders": {"answered": {"type": "int"}, "total": {"type": "int"}}},
+  "hermesClarifySendFailed": "Odpovědi se nepodařilo odeslat. Zkuste to znovu.",
+  "hermesClarifyAnswerOrSkip": "Odpovězte na každou otázku, nebo ji přeskočte.",
+  "hermesClarifyOtherAnswer": "Nebo napište vlastní odpověď",
+  "hermesClarifySkip": "Přeskočit",
+  "hermesClarifySkipped": "Přeskočeno",
+  "hermesClarifyRecommended": "Doporučeno"
 }

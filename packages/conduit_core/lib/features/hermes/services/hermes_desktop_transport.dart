@@ -10,6 +10,7 @@ import 'package:conduit_core/network/external_link.dart';
 import 'package:conduit_core/network/no_redirect_web_socket.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
 
+import 'package:conduit_core/features/hermes/models/hermes_clarify_form.dart';
 import 'package:conduit_core/features/hermes/services/hermes_identifier.dart';
 import 'package:conduit_core/features/hermes/services/hermes_json_guard.dart';
 
@@ -114,28 +115,22 @@ const Set<String> kHermesAnsweredServerRequests = {
   'secret',
 };
 
+/// How Hermes names its server→client requests (`srq-<hex>`); a session
+/// authority takes response frames only for ids like these.
+const String kHermesServerRequestIdPrefix = 'srq-';
+
 /// The JSON-RPC error a client sends for a server request it does not show,
 /// when the gateway said it takes declines (`declines_not_shown`).
 const int kHermesServerRequestNotShownCode = 4404;
 
-/// One clarify question's card id: the request it belongs to and the
-/// question's id. Each question is answered on its own with `clarify.lock`;
-/// the last one answers the request.
-///
-/// Each part escapes `~` and `/` (`~0`, `~1`), so the `/` joining them is
-/// the only one: a catalog target such as a skill's `owner/name` survives.
-String hermesClarifyCardId(String requestId, String questionId) =>
-    '${_escapeCardIdPart(requestId)}/${_escapeCardIdPart(questionId)}';
-
-/// Splits a card id made by [hermesClarifyCardId].
-({String requestId, String questionId})? parseHermesClarifyCardId(
-  String cardId,
-) {
+/// Splits a `<operation>/<target>` card id made by
+/// [hermesConnectionCardId].
+({String head, String tail})? _splitCardId(String cardId) {
   final parts = cardId.split('/');
   if (parts.length != 2 || parts.any((part) => part.isEmpty)) return null;
   return (
-    requestId: _unescapeCardIdPart(parts.first),
-    questionId: _unescapeCardIdPart(parts.last),
+    head: _unescapeCardIdPart(parts.first),
+    tail: _unescapeCardIdPart(parts.last),
   );
 }
 
@@ -150,14 +145,12 @@ String _unescapeCardIdPart(String part) =>
 /// and restores both. `request_id` is the id Conduit answers with: the
 /// request id itself, or a clarify question's card id.
 ///
-/// A chat message holds one decision card, so a clarify request shows its
-/// first question still open ([locked] and the replay's `answers` name the
-/// ones already answered); the next one follows once that one is locked.
+/// A clarify request is one form: every question, with the answers Hermes
+/// already locked (a reconnect replay's `answers`) shown read-only.
 List<HermesDesktopEvent> hermesDesktopEventsForServerRequest({
   required String id,
   required String method,
   required Map<String, dynamic> params,
-  Set<String> locked = const {},
 }) {
   final requestId = validateHermesOpaqueIdentifier(id);
   final sessionId = params['session_id']?.toString();
@@ -206,51 +199,35 @@ List<HermesDesktopEvent> hermesDesktopEventsForServerRequest({
         ),
       ];
     case 'clarify':
-      final questions = params['questions'];
-      if (questions is! List) return const [];
-      final answered = {
-        ...locked,
-        if (params['answers'] is Map)
-          ...(params['answers'] as Map).keys.map((key) => '$key'),
-      };
-      final rows = questions.whereType<Map>().take(16).toList();
-      for (final (index, question) in rows.indexed) {
-        final questionId = validateHermesOpaqueIdentifier(
-          question['qid']?.toString(),
-        );
-        if (questionId == null || answered.contains(questionId)) continue;
-        final text = question['question']?.toString() ?? '';
-        return [
-          HermesDesktopEvent(
-            type: 'clarify.request',
-            sessionId: sessionId,
-            payload: {
-              'request_id': hermesClarifyCardId(requestId, questionId),
-              'question': rows.length > 1
-                  ? '${index + 1}/${rows.length} · $text'
-                  : text,
-              'choices': question['choices'] is List
-                  ? question['choices']
-                  : const <Object?>[],
-              'multi_select': question['multi_select'] == true,
-              'server_request': requestId,
-              'question_id': questionId,
-            },
-          ),
-        ];
-      }
-      return const [];
+      final questions = hermesClarifyQuestions(
+        params['questions'],
+        answers: params['answers'],
+      );
+      if (questions.isEmpty) return const [];
+      return [
+        HermesDesktopEvent(
+          type: 'clarify.request',
+          sessionId: sessionId,
+          payload: {
+            'request_id': requestId,
+            'question': questions.first.text,
+            'questions': [for (final question in questions) question.toJson()],
+            'server_request': requestId,
+          },
+        ),
+      ];
   }
   return const [];
 }
 
-/// One connection target's card id: its operation and the target's name,
-/// escaped like [hermesClarifyCardId]. Hermes does not bound target names:
-/// one too long for an id is named by a digest (`~h`, which escaping never
-/// makes), and the client keeps which name it stands for
-/// ([HermesDesktopRpcClient.connectionCardTarget]).
+/// One connection target's card id: its operation and the target's name.
+/// Each part escapes `~` and `/` (`~0`, `~1`), so the `/` joining them is
+/// the only one: a catalog target such as a skill's `owner/name` survives.
+/// Hermes does not bound target names: one too long for an id is named by
+/// a digest (`~h`, which escaping never makes), and the client keeps which
+/// name it stands for ([HermesDesktopRpcClient.connectionCardTarget]).
 String hermesConnectionCardId(String operationId, String target) {
-  final id = hermesClarifyCardId(operationId, target);
+  final id = '${_escapeCardIdPart(operationId)}/${_escapeCardIdPart(target)}';
   if (validateHermesOpaqueIdentifier(id) != null) return id;
   final digest = sha256.convert(utf8.encode(target)).toString();
   return '${_escapeCardIdPart(operationId)}/~h${digest.substring(0, 32)}';
@@ -260,10 +237,10 @@ String hermesConnectionCardId(String operationId, String target) {
 ({String operationId, String target})? parseHermesConnectionCardId(
   String cardId,
 ) {
-  final parsed = parseHermesClarifyCardId(cardId);
+  final parsed = _splitCardId(cardId);
   return parsed == null
       ? null
-      : (operationId: parsed.requestId, target: parsed.questionId);
+      : (operationId: parsed.head, target: parsed.tail);
 }
 
 /// The MCP setup card for a connection operation's first target still
@@ -386,24 +363,6 @@ final class _OpenConnection {
   final Map<String, int> offers = {};
 }
 
-/// A clarify request being answered one question at a time.
-final class _OpenClarify {
-  /// [params] replace a [previous] frame's of the same request (a replay
-  /// lists the answers locked since); what that one said was answered stays.
-  _OpenClarify(this.params, {_OpenClarify? previous}) {
-    if (previous == null) return;
-    locked.addAll(previous.locked);
-    final answers = previous.params['answers'];
-    if (answers is Map) locked.addAll(answers.keys.map((key) => '$key'));
-  }
-
-  final Map<String, dynamic> params;
-  final Set<String> locked = {};
-
-  /// The card shown now, closed when the request is withdrawn.
-  String? shownCardId;
-}
-
 final class HermesDesktopEventBuffer {
   HermesDesktopEventBuffer({
     this.maximumPerSession = 4096,
@@ -522,9 +481,7 @@ final class HermesDesktopRpcClient {
   bool _ready = false;
   Map<String, dynamic> _readyPayload = const {};
   bool _declinesNotShown = false;
-
-  /// Clarify requests shown and not yet fully answered, by request id.
-  final Map<String, _OpenClarify> _clarifies = {};
+  bool _canonicalClarifyBatch = false;
 
   /// Connection operations with a target card shown, by operation id.
   final Map<String, _OpenConnection> _connections = {};
@@ -549,6 +506,11 @@ final class HermesDesktopRpcClient {
   /// Webapp listener), which speaks the canonical protocol.
   bool get sessionAuthority => _readyPayload['session_authority'] == true;
 
+  /// Whether a session authority asks a turn's questions as one clarify
+  /// form when its `prompt.submit` says `clarify_batch: true`. Older
+  /// authorities refuse that key, so it is sent only when this is true.
+  bool get canonicalClarifyBatch => sessionAuthority && _canonicalClarifyBatch;
+
   /// Connection-wide params merged into every request as a *fallback*.
   /// Callers that pass the same key win (Bot Mode scopes single calls to
   /// another profile without rebuilding the connection).
@@ -568,7 +530,7 @@ final class HermesDesktopRpcClient {
     _ready = false;
     _readyPayload = const {};
     _declinesNotShown = false;
-    _clarifies.clear();
+    _canonicalClarifyBatch = false;
     _connections.clear();
     _unconfirmedCanonicalPrompts.addAll(_canonicalPrompts.keys);
     final ready = Completer<void>();
@@ -620,6 +582,7 @@ final class HermesDesktopRpcClient {
           .then((result) {
             if (generation != _socketGeneration || result is! Map) return;
             _declinesNotShown = result['declines_not_shown'] == true;
+            _canonicalClarifyBatch = result['canonical_clarify_batch'] == true;
           })
           .catchError((Object error) {
             DebugLogger.warning(
@@ -1027,76 +990,15 @@ final class HermesDesktopRpcClient {
     final params = rawParams is Map
         ? Map<String, dynamic>.from(rawParams)
         : <String, dynamic>{};
-    final open = method == 'clarify'
-        ? _OpenClarify(params, previous: _clarifies[id])
-        : null;
     final events = hermesDesktopEventsForServerRequest(
       id: id,
       method: method,
       params: params,
-      locked: open?.locked ?? const {},
     );
     if (events.isEmpty) return false;
-    if (open != null) {
-      if (!_clarifies.containsKey(id) && _clarifies.length >= 64) {
-        _clarifies.remove(_clarifies.keys.first);
-      }
-      // A replay that moved on to another question closes the card it
-      // replaces: that one is answered, and must not stay actionable.
-      final nextCardId = '${events.first.payload['request_id']}';
-      final previousCardId = _clarifies[id]?.shownCardId;
-      if (previousCardId != null && previousCardId != nextCardId) {
-        _events.add(
-          HermesDesktopEvent(
-            type: 'clarify.expire',
-            sessionId: events.first.sessionId,
-            payload: {'request_id': previousCardId},
-          ),
-        );
-      }
-      _clarifies[id] = open..shownCardId = nextCardId;
-    }
     for (final event in events) {
       _events.add(event);
     }
-    return true;
-  }
-
-  /// Records that the clarify question [cardId] was answered and shows the
-  /// request's next open question, if one remains. Returns whether one did.
-  ///
-  /// [remaining] is `clarify.lock`'s list of the questions still unanswered:
-  /// every other one was answered, here or on another surface.
-  bool showNextClarifyQuestion(String cardId, {Iterable<String>? remaining}) {
-    final parsed = parseHermesClarifyCardId(cardId);
-    final open = parsed == null ? null : _clarifies[parsed.requestId];
-    if (parsed == null || open == null) return false;
-    open.locked.add(parsed.questionId);
-    final questions = open.params['questions'];
-    if (remaining != null && questions is List) {
-      final unanswered = remaining.toSet();
-      open.locked
-        ..removeAll(unanswered)
-        ..addAll(
-          questions
-              .whereType<Map>()
-              .map((question) => question['qid']?.toString())
-              .nonNulls
-              .where((questionId) => !unanswered.contains(questionId)),
-        );
-    }
-    final events = hermesDesktopEventsForServerRequest(
-      id: parsed.requestId,
-      method: 'clarify',
-      params: open.params,
-      locked: open.locked,
-    );
-    if (events.isEmpty) {
-      _clarifies.remove(parsed.requestId);
-      return false;
-    }
-    open.shownCardId = '${events.first.payload['request_id']}';
-    _events.add(events.first);
     return true;
   }
 
@@ -1217,21 +1119,13 @@ final class HermesDesktopRpcClient {
     final id = validateHermesOpaqueIdentifier(payload['id']?.toString());
     final method = payload['method']?.toString();
     if (id == null || !kHermesAnsweredServerRequests.contains(method)) return;
-    final cardIds = method == 'clarify'
-        ? [?_clarifies.remove(id)?.shownCardId]
-        : [id];
-    for (final cardId in cardIds) {
-      _events.add(
-        HermesDesktopEvent(
-          type: '$method.expire',
-          sessionId: sessionId,
-          payload: {
-            'request_id': cardId,
-            'reason': payload['reason'],
-          },
-        ),
-      );
-    }
+    _events.add(
+      HermesDesktopEvent(
+        type: '$method.expire',
+        sessionId: sessionId,
+        payload: {'request_id': id, 'reason': payload['reason']},
+      ),
+    );
   }
 
   bool _owns(WebSocketChannel channel, int generation) =>

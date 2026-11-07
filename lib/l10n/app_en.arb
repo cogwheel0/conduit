@@ -9872,5 +9872,41 @@
   "hermesArchivedLoadError": "Couldn't load archived chats.",
   "@hermesArchivedLoadError": {
     "description": "Shown in the Hermes sessions list when its archived chats could not be loaded; a Retry button follows."
+  },
+  "hermesClarifyProgress": "{answered} of {total} answered",
+  "@hermesClarifyProgress": {
+    "description": "Counter on a Hermes question form: how many of its questions have an answer or were skipped, out of all of them.",
+    "placeholders": {
+      "answered": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "hermesClarifySendFailed": "Couldn't send your answers. Try again.",
+  "@hermesClarifySendFailed": {
+    "description": "Error on a Hermes question form when its answers could not be sent."
+  },
+  "hermesClarifyAnswerOrSkip": "Answer or skip each question.",
+  "@hermesClarifyAnswerOrSkip": {
+    "description": "Hint next to the disabled send button of a Hermes question form until every question has an answer or is skipped."
+  },
+  "hermesClarifyOtherAnswer": "Or type your own answer",
+  "@hermesClarifyOtherAnswer": {
+    "description": "Placeholder of the text field under a Hermes question's choices, for an answer that is not one of them."
+  },
+  "hermesClarifySkip": "Skip",
+  "@hermesClarifySkip": {
+    "description": "Toggle on one question of a Hermes question form that sends no answer for it."
+  },
+  "hermesClarifySkipped": "Skipped",
+  "@hermesClarifySkipped": {
+    "description": "Shown for a Hermes question that was skipped on another device."
+  },
+  "hermesClarifyRecommended": "Recommended",
+  "@hermesClarifyRecommended": {
+    "description": "Badge on the choice Hermes recommends in a question form."
   }
 }

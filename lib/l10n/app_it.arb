@@ -4547,5 +4547,13 @@
   "hermesUndoLastTurn": "Annulla l’ultimo scambio",
   "hermesUndoLastTurnDone": "Ultimo scambio annullato.",
   "hermesUndoLastTurnFailed": "Impossibile annullare l’ultimo scambio. Riprova.",
-  "hermesArchivedLoadError": "Impossibile caricare le chat archiviate."
+  "hermesArchivedLoadError": "Impossibile caricare le chat archiviate.",
+  "hermesClarifyProgress": "{answered} di {total} con risposta",
+  "@hermesClarifyProgress": {"placeholders": {"answered": {"type": "int"}, "total": {"type": "int"}}},
+  "hermesClarifySendFailed": "Impossibile inviare le risposte. Riprova.",
+  "hermesClarifyAnswerOrSkip": "Rispondi o salta ogni domanda.",
+  "hermesClarifyOtherAnswer": "Oppure scrivi la tua risposta",
+  "hermesClarifySkip": "Salta",
+  "hermesClarifySkipped": "Saltata",
+  "hermesClarifyRecommended": "Consigliata"
 }

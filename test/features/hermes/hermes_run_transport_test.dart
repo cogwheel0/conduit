@@ -3758,6 +3758,67 @@ void main() {
       check(fake.getRunCalls).equals(1);
     });
 
+    test('a question asked while polling shows once from the run', () async {
+      const question = {
+        'kind': 'clarify',
+        'prompt_id': 'prm_q7',
+        'execution_generation': 5,
+        'question': 'Which branch?',
+        'choices': ['main', 'dev'],
+        'multi_select': false,
+      };
+      final fake = _FakeHermesApiService(
+        const [HermesTokenDelta('Partial')],
+        runResults: const [
+          {
+            'status': 'running',
+            'pending_controls': [question],
+          },
+          {
+            'status': 'running',
+            'pending_controls': [question],
+          },
+          {'status': 'completed', 'output': 'Partial answer'},
+        ],
+      );
+      var changes = 0;
+      var message = ChatMessage(
+        id: 'm',
+        role: 'assistant',
+        content: '',
+        timestamp: DateTime.fromMillisecondsSinceEpoch(0),
+      );
+      await dispatchHermesRun(
+        service: fake,
+        registry: HermesRunRegistry(),
+        assistantMessageId: 'm',
+        input: 'hi',
+        recoveryPollInterval: Duration.zero,
+        streamResumeDelay: Duration.zero,
+        maxExtendedRecoveryPolls: 0,
+        appendContent: (_) {},
+        appendStatus: (_) {},
+        updateMessage: (updater) {
+          final next = updater(message);
+          if (next.metadata?[kHermesDecisionMeta] !=
+              message.metadata?[kHermesDecisionMeta]) {
+            changes++;
+          }
+          message = next;
+        },
+        finishStreaming: () {},
+        completeStreamingUi: () {},
+      ).timeout(const Duration(seconds: 4));
+
+      final decision = message.metadata![kHermesDecisionMeta] as Map;
+      check(decision['requestId']).equals('prm_q7');
+      check(decision['runtimeId']).equals('run-1');
+      check(decision['executionGeneration']).equals(5);
+      check(decision['prompt']).equals('Which branch?');
+      // A later poll listing the same question does not reopen its card.
+      check(changes).equals(1);
+    });
+
     test('a forgotten stream falls back to polling', () async {
       final fake = _ResumingRunApi(
         [

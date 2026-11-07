@@ -8560,5 +8560,41 @@
   "hermesArchivedLoadError": "Nie można wczytać zarchiwizowanych czatów.",
   "@hermesArchivedLoadError": {
     "description": "Shown in the Hermes sessions list when its archived chats could not be loaded; a Retry button follows."
+  },
+  "hermesClarifyProgress": "Odpowiedzi: {answered} z {total}",
+  "@hermesClarifyProgress": {
+    "description": "Counter on a Hermes question form: how many of its questions have an answer or were skipped, out of all of them.",
+    "placeholders": {
+      "answered": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "hermesClarifySendFailed": "Nie udało się wysłać odpowiedzi. Spróbuj ponownie.",
+  "@hermesClarifySendFailed": {
+    "description": "Error on a Hermes question form when its answers could not be sent."
+  },
+  "hermesClarifyAnswerOrSkip": "Odpowiedz na każde pytanie lub je pomiń.",
+  "@hermesClarifyAnswerOrSkip": {
+    "description": "Hint next to the disabled send button of a Hermes question form until every question has an answer or is skipped."
+  },
+  "hermesClarifyOtherAnswer": "Lub wpisz własną odpowiedź",
+  "@hermesClarifyOtherAnswer": {
+    "description": "Placeholder of the text field under a Hermes question's choices, for an answer that is not one of them."
+  },
+  "hermesClarifySkip": "Pomiń",
+  "@hermesClarifySkip": {
+    "description": "Toggle on one question of a Hermes question form that sends no answer for it."
+  },
+  "hermesClarifySkipped": "Pominięto",
+  "@hermesClarifySkipped": {
+    "description": "Shown for a Hermes question that was skipped on another device."
+  },
+  "hermesClarifyRecommended": "Zalecane",
+  "@hermesClarifyRecommended": {
+    "description": "Badge on the choice Hermes recommends in a question form."
   }
 }

@@ -4547,5 +4547,13 @@
   "hermesUndoLastTurn": "Letzten Nachrichtenaustausch rückgängig machen",
   "hermesUndoLastTurnDone": "Letzter Nachrichtenaustausch rückgängig gemacht.",
   "hermesUndoLastTurnFailed": "Der letzte Nachrichtenaustausch konnte nicht rückgängig gemacht werden. Versuche es erneut.",
-  "hermesArchivedLoadError": "Archivierte Chats konnten nicht geladen werden."
+  "hermesArchivedLoadError": "Archivierte Chats konnten nicht geladen werden.",
+  "hermesClarifyProgress": "{answered} von {total} beantwortet",
+  "@hermesClarifyProgress": {"placeholders": {"answered": {"type": "int"}, "total": {"type": "int"}}},
+  "hermesClarifySendFailed": "Deine Antworten konnten nicht gesendet werden. Versuche es erneut.",
+  "hermesClarifyAnswerOrSkip": "Beantworte oder überspringe jede Frage.",
+  "hermesClarifyOtherAnswer": "Oder eigene Antwort eingeben",
+  "hermesClarifySkip": "Überspringen",
+  "hermesClarifySkipped": "Übersprungen",
+  "hermesClarifyRecommended": "Empfohlen"
 }

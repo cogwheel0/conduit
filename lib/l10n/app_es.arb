@@ -4547,5 +4547,13 @@
   "hermesUndoLastTurn": "Deshacer el último turno",
   "hermesUndoLastTurnDone": "Se deshizo el último turno.",
   "hermesUndoLastTurnFailed": "No se pudo deshacer el último turno. Inténtalo de nuevo.",
-  "hermesArchivedLoadError": "No se pudieron cargar los chats archivados."
+  "hermesArchivedLoadError": "No se pudieron cargar los chats archivados.",
+  "hermesClarifyProgress": "{answered} de {total} respondidas",
+  "@hermesClarifyProgress": {"placeholders": {"answered": {"type": "int"}, "total": {"type": "int"}}},
+  "hermesClarifySendFailed": "No se pudieron enviar tus respuestas. Inténtalo de nuevo.",
+  "hermesClarifyAnswerOrSkip": "Responde u omite cada pregunta.",
+  "hermesClarifyOtherAnswer": "O escribe tu propia respuesta",
+  "hermesClarifySkip": "Omitir",
+  "hermesClarifySkipped": "Omitida",
+  "hermesClarifyRecommended": "Recomendada"
 }

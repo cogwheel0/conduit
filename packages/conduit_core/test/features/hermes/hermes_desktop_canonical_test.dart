@@ -409,6 +409,8 @@ void main() {
 
       final submit = gateway.calls('prompt.submit').single;
       check(submit['submission_id'] as String?).isNotNull().isNotEmpty();
+      // The authority said it asks a turn's questions as one form.
+      check(submit['clarify_batch']).equals(true);
       check(events.whereType<HermesTokenDelta>().map((e) => e.content).join())
           .equals('Hello there.');
       check(events.whereType<HermesRunError>()).isEmpty();
@@ -1241,6 +1243,70 @@ void main() {
         'answer': 'Amber',
       });
       check(gateway.calls('clarify.lock')).isEmpty();
+    });
+
+    test('answers a whole question form with its response frame', () async {
+      final gateway = _Authority();
+      final service = _service(gateway);
+      final shown = <HermesDesktopEvent>[];
+      service.rpc.events.listen(shown.add);
+      await service.createDesktopSession();
+      gateway.serverRequest('srq-f1', 'clarify', {
+        'session_id': 'local-1',
+        'questions': [
+          {'qid': 'q0', 'question': 'Which colour?', 'choices': ['Teal']},
+          {'qid': 'q1', 'question': 'Which sizes?', 'multi_select': true},
+          {'qid': 'q2', 'question': 'Anything else?'},
+        ],
+        'answers': {'q2': 'no'},
+      });
+      await _settle();
+
+      final form = shown.singleWhere((e) => e.type == 'clarify.request');
+      check(form.payload['request_id']).equals('srq-f1');
+      check(form.payload['questions'] as List).length.equals(3);
+      await service.respondToClarifyForm(
+        runtimeId: 'local-1',
+        storedSessionId: 'local-1',
+        requestId: 'srq-f1',
+        answers: const {'q0': 'Teal', 'q1': null},
+      );
+
+      check(gateway.sent.last).deepEquals({
+        'jsonrpc': '2.0',
+        'id': 'srq-f1',
+        'result': {
+          'answers': {'q0': 'Teal', 'q1': null},
+          'outcome': 'submitted',
+        },
+      });
+      check(gateway.calls('request.answer')).isEmpty();
+      check(gateway.calls('clarify.lock')).isEmpty();
+      check(gateway.calls('clarify.respond')).isEmpty();
+    });
+
+    test('a skipped lone question is answered empty', () async {
+      final gateway = _Authority()
+        ..prompts = [
+          {
+            'kind': 'clarify',
+            'prompt_id': 'prompt-s',
+            'execution_generation': 2,
+            'question': 'Any notes?',
+          },
+        ];
+      final service = _service(gateway);
+      await service.pendingDecisionsForSession('local-1');
+      await _settle();
+
+      await service.respondToClarifyForm(
+        runtimeId: 'local-1',
+        storedSessionId: 'local-1',
+        requestId: 'prompt-s',
+        answers: const {'q0': null},
+      );
+
+      check(gateway.calls('clarify.respond').single['answer']).equals('');
     });
 
     test('answers a password request with its response frame', () async {

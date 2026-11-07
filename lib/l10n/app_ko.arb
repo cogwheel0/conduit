@@ -4319,5 +4319,13 @@
   "hermesUndoLastTurn": "마지막 주고받은 메시지 취소",
   "hermesUndoLastTurnDone": "마지막으로 주고받은 메시지를 취소했습니다.",
   "hermesUndoLastTurnFailed": "마지막으로 주고받은 메시지를 취소할 수 없습니다. 다시 시도하세요.",
-  "hermesArchivedLoadError": "보관된 채팅을 불러올 수 없습니다."
+  "hermesArchivedLoadError": "보관된 채팅을 불러올 수 없습니다.",
+  "hermesClarifyProgress": "{total}개 중 {answered}개 답변함",
+  "@hermesClarifyProgress": {"placeholders": {"answered": {"type": "int"}, "total": {"type": "int"}}},
+  "hermesClarifySendFailed": "답변을 보내지 못했습니다. 다시 시도하세요.",
+  "hermesClarifyAnswerOrSkip": "각 질문에 답하거나 건너뛰세요.",
+  "hermesClarifyOtherAnswer": "또는 직접 답변 입력",
+  "hermesClarifySkip": "건너뛰기",
+  "hermesClarifySkipped": "건너뜀",
+  "hermesClarifyRecommended": "추천"
 }

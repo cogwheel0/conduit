@@ -16,6 +16,7 @@ import 'package:conduit_core/features/chat/providers/chat_providers.dart'
         chatMessagesProvider,
         hermesRunKeyForConversation;
 
+import 'package:conduit_core/features/hermes/models/hermes_clarify_form.dart';
 import 'package:conduit_core/features/hermes/models/hermes_run_event.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 import 'package:conduit_core/features/hermes/services/hermes_api_service.dart';
@@ -23,6 +24,7 @@ import 'package:conduit_core/features/hermes/services/hermes_desktop_api_service
 import 'package:conduit_core/features/hermes/services/hermes_run_transport.dart';
 
 import 'hermes_approval_card.dart';
+import 'hermes_clarify_form_card.dart';
 import 'hermes_decision_card.dart';
 
 typedef _HermesApprovalBinding = ({
@@ -272,6 +274,20 @@ class _HermesComposerPromptOverlayState
     _expiryTimer = Timer(expiresAt.difference(clock.now().toUtc()), () {
       if (mounted) setState(() {});
     });
+    // A question with no text has nothing to show as a form; it keeps the
+    // plain reply card.
+    if (kind == HermesDecisionKind.clarification &&
+        hermesClarifyQuestionsFromPayload(decision).isNotEmpty) {
+      return _buildClarifyForm(
+        message: message,
+        decision: decision,
+        requestId: requestId,
+        runtimeId: runtimeId,
+        storedSessionId: storedSessionId,
+        ownerConversationId: ownerConversationId,
+        expiresAt: expiresAt,
+      );
+    }
     return HermesDecisionCard(
       key: ValueKey('$runtimeId\u0000$requestId\u0000${kind.name}'),
       kind: kind,
@@ -338,6 +354,101 @@ class _HermesComposerPromptOverlayState
       },
     );
   }
+
+  /// A question Hermes asked, as one form: every question of a Desktop
+  /// Gateway clarify request, or the one question of a REST run's or a
+  /// session authority's `clarify.request`.
+  Widget _buildClarifyForm({
+    required ChatMessage message,
+    required Map<dynamic, dynamic> decision,
+    required String requestId,
+    required String runtimeId,
+    required String storedSessionId,
+    required String ownerConversationId,
+    required DateTime expiresAt,
+  }) {
+    final questions = hermesClarifyQuestionsFromPayload(decision);
+    final generation = decision['executionGeneration'];
+    return HermesClarifyFormCard(
+      key: ValueKey('$runtimeId\u0000$requestId\u0000clarify'),
+      questions: questions,
+      onSubmit: (answers) async {
+        if (!expiresAt.isAfter(clock.now().toUtc())) return false;
+        final service = ref.read(hermesApiServiceProvider);
+        final configController = ref.read(hermesConfigProvider.notifier);
+        final admission = configController.captureSessionActionAdmission();
+        bool owns() => switch (service) {
+          final HermesDesktopApiService desktop => _ownsDesktopDecision(
+            service: desktop,
+            ownerConversationId: ownerConversationId,
+            storedSessionId: storedSessionId,
+          ),
+          final HermesApiService rest => _ownsRestDecision(
+            service: rest,
+            ownerConversationId: ownerConversationId,
+          ),
+          _ => false,
+        };
+        if (admission == null || !owns()) return false;
+        try {
+          switch (service) {
+            case final HermesDesktopApiService desktop:
+              await desktop.respondToClarifyForm(
+                runtimeId: runtimeId,
+                storedSessionId: storedSessionId,
+                requestId: requestId,
+                answers: answers,
+              );
+            case final HermesApiService rest when generation is int:
+              // A run's question takes one answer; empty skips it.
+              await rest.answerClarify(
+                runtimeId,
+                promptId: requestId,
+                executionGeneration: generation,
+                answer: answers.values.firstOrNull ?? '',
+              );
+            default:
+              return false;
+          }
+        } catch (_) {
+          DebugLogger.warning(
+            'clarify-answer-failed',
+            scope: 'chat/hermes_clarify',
+          );
+          return false;
+        }
+        if (!configController.sessionActionAdmissionIsCurrent(admission) ||
+            !owns()) {
+          return false;
+        }
+        ref.read(chatMessagesProvider.notifier).updateMessageById(
+          message.id,
+          (message) {
+            final metadata = Map<String, dynamic>.from(
+              message.metadata ?? const {},
+            );
+            final current = metadata[kHermesDecisionMeta];
+            if (current is Map && current['requestId'] == requestId) {
+              metadata[kHermesDecisionMeta] = {
+                ...current.cast<String, dynamic>(),
+                'state': 'resolved',
+              };
+            }
+            return message.copyWith(metadata: metadata);
+          },
+        );
+        return true;
+      },
+    );
+  }
+
+  bool _ownsRestDecision({
+    required HermesApiService service,
+    required String ownerConversationId,
+  }) =>
+      mounted &&
+      identical(ref.read(hermesApiServiceProvider), service) &&
+      ref.read(activeConversationProvider)?.id == ownerConversationId;
 
   @override
   void dispose() {

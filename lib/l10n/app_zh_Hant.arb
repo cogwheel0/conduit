@@ -4547,5 +4547,13 @@
   "hermesUndoLastTurn": "復原上一輪對話",
   "hermesUndoLastTurnDone": "已復原上一輪對話。",
   "hermesUndoLastTurnFailed": "無法復原上一輪對話。請再試一次。",
-  "hermesArchivedLoadError": "無法載入已存檔的聊天。"
+  "hermesArchivedLoadError": "無法載入已存檔的聊天。",
+  "hermesClarifyProgress": "已回答 {answered}/{total}",
+  "@hermesClarifyProgress": {"placeholders": {"answered": {"type": "int"}, "total": {"type": "int"}}},
+  "hermesClarifySendFailed": "無法傳送你的回答。請再試一次。",
+  "hermesClarifyAnswerOrSkip": "請回答或略過每個問題。",
+  "hermesClarifyOtherAnswer": "或輸入你自己的回答",
+  "hermesClarifySkip": "略過",
+  "hermesClarifySkipped": "已略過",
+  "hermesClarifyRecommended": "推薦"
 }

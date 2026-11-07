@@ -179,8 +179,8 @@ extension _HermesDesktopCanonical on HermesDesktopApiService {
 
   /// Removes the saved approvals and questions of [binding] that its
   /// snapshot's [prompts] no longer list: they were settled while no socket
-  /// of this app was attached, across a restart too. A batch question's
-  /// card (`request/question`) is a server request, listed elsewhere.
+  /// of this app was attached, across a restart too. A clarify form's card
+  /// (an `srq-` server request) is listed elsewhere.
   ///
   /// [settledSince] is the settle mark taken before the snapshot was asked
   /// for (`canonicalSettleMark`): a prompt opened after it is not listed
@@ -205,7 +205,7 @@ extension _HermesDesktopCanonical on HermesDesktopApiService {
       final prompt = switch (decision.kind) {
         HermesPendingDesktopDecisionKind.approval => true,
         HermesPendingDesktopDecisionKind.clarification =>
-          parseHermesClarifyCardId(decision.requestId) == null,
+          !decision.requestId.startsWith(kHermesServerRequestIdPrefix),
         _ => false,
       };
       if (!prompt ||
