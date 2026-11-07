@@ -44,6 +44,7 @@ import 'package:conduit_core/features/hermes/models/hermes_toolset.dart';
 import 'package:conduit_core/features/hermes/services/hermes_api_service.dart';
 import 'package:conduit_core/features/hermes/services/hermes_backend_service.dart';
 import 'package:conduit_core/features/hermes/services/hermes_connection_store.dart';
+import 'package:conduit_core/features/hermes/services/hermes_copied_history_store.dart';
 import 'package:conduit_core/features/hermes/services/hermes_desktop_api_service.dart';
 import 'package:conduit_core/features/hermes/services/hermes_desktop_connection_coordinator.dart';
 import 'package:conduit_core/features/hermes/services/hermes_identifier.dart';
@@ -1374,6 +1375,12 @@ class HermesConfigController extends Notifier<HermesConfig> {
               identity,
             ),
       );
+      await attempt(
+        'deleted-connection-copied-history-cleanup-failed',
+        () => ref
+            .read(hermesCopiedHistoryStoreProvider)
+            .forgetConnection(identity),
+      );
     }
     // Records from before saved connections carry no id and match by origin
     // alone, so a connection still on that origin keeps answering them.
@@ -2347,6 +2354,11 @@ class HermesSessionNavigationEpoch extends Notifier<int> {
   }
 }
 
+/// Earlier messages of REST copies of other apps' chats, saved on this device.
+final hermesCopiedHistoryStoreProvider = Provider<HermesCopiedHistoryStore>(
+  (ref) => HermesCopiedHistoryStore(ref.watch(directLocalDatabaseProvider)),
+);
+
 final hermesSessionNavigationEpochProvider =
     NotifierProvider<HermesSessionNavigationEpoch, int>(
       HermesSessionNavigationEpoch.new,
@@ -2587,6 +2599,9 @@ class HermesSessionsController
     final draftDatabase = connectionIdentity == null
         ? null
         : ref.read(directLocalDatabaseProvider);
+    final copiedHistory = connectionIdentity == null
+        ? null
+        : ref.read(hermesCopiedHistoryStoreProvider);
     if (connectionIdentity != null) {
       // Revoke durable provenance before the destructive request. A process
       // kill or lost response after the server commits deletion must not let a
@@ -2612,6 +2627,20 @@ class HermesSessionsController
       } catch (error) {
         DebugLogger.warning(
           'hermes-draft-cleanup-failed',
+          scope: 'hermes/sessions',
+          data: {'errorType': error.runtimeType.toString()},
+        );
+      }
+      // Kept until the server has deleted the copy, so a failed delete leaves
+      // it whole.
+      try {
+        await copiedHistory!.forgetSession(
+          connectionIdentity: connectionIdentity,
+          sessionId: id,
+        );
+      } catch (error) {
+        DebugLogger.warning(
+          'hermes-copied-history-cleanup-failed',
           scope: 'hermes/sessions',
           data: {'errorType': error.runtimeType.toString()},
         );

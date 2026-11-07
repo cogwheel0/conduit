@@ -31,6 +31,7 @@ import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 import 'package:conduit_core/features/hermes/services/hermes_api_service.dart';
 import 'package:conduit_core/features/hermes/services/hermes_backend_service.dart';
 import 'package:conduit_core/features/hermes/services/hermes_bot_chat.dart';
+import 'package:conduit_core/features/hermes/services/hermes_copied_history_store.dart';
 import 'package:conduit_core/features/hermes/services/hermes_desktop_api_service.dart';
 import 'package:conduit_core/features/hermes/services/hermes_desktop_transport.dart';
 import 'package:conduit_core/features/hermes/services/hermes_decision_projection.dart';
@@ -311,12 +312,41 @@ String? _hermesLoadFailureDetail(String raw) {
   );
 }
 
+/// [server] after the earlier messages saved for copy [sessionId], if any.
+Future<List<Map<String, dynamic>>> _withCopiedHistory(
+  HermesCopiedHistoryStore? store,
+  String? connectionIdentity,
+  String sessionId,
+  List<Map<String, dynamic>> server,
+) async {
+  if (store == null || connectionIdentity == null) return server;
+  try {
+    final saved = await store.load(
+      connectionIdentity: connectionIdentity,
+      sessionId: sessionId,
+    );
+    return saved == null ? server : mergeHermesCopiedHistory(saved, server);
+  } catch (error) {
+    // The server's messages are still the chat; only the copy's earlier
+    // context is missing.
+    DebugLogger.warning(
+      'copied-history-load-failed',
+      scope: 'hermes/sessions',
+      data: {'errorType': error.runtimeType.toString()},
+    );
+    return server;
+  }
+}
+
 /// Loads a Hermes session's transcript, binds it as the active chat, selects the
 /// Hermes model, and navigates to the chat view. Subsequent sends continue the
 /// same server-side session.
 ///
-/// [transcript], when given, is shown instead of the session's own messages:
-/// a copy opens with the transcript it continues.
+/// [transcript], when given, opens a new session that continues it, such as a
+/// copy of another app's chat. Hermes' API server never stores the history
+/// a turn replays, so on REST the transcript is saved on this device as the
+/// session's earlier messages: every later open shows them before the
+/// server's own, and every turn replays them.
 Future<void> openHermesSession(
   BuildContext context,
   WidgetRef ref,
@@ -334,11 +364,26 @@ Future<void> openHermesSession(
   final service = ref.read(hermesApiServiceProvider);
   if (service == null) return;
   final trustPrincipalId = configController.documentTrustPrincipalId();
+  final connectionIdentity = _sessionConnectionIdentity(
+    service,
+    trustPrincipalId,
+  ).connectionIdentity;
+  final copiedHistory =
+      service is HermesApiService && connectionIdentity != null
+      ? ref.read(hermesCopiedHistoryStoreProvider)
+      : null;
 
   List<Map<String, dynamic>> raw;
   var pendingDecisions = const <HermesPendingDesktopDecision>[];
   try {
-    raw = transcript ?? await service.getSessionMessages(session.id);
+    raw =
+        transcript ??
+        await _withCopiedHistory(
+          copiedHistory,
+          connectionIdentity,
+          session.id,
+          await service.getSessionMessages(session.id),
+        );
   } catch (error) {
     // Don't silently open an existing session with an empty transcript — that
     // reads as data loss. Surface the failure and abort the open.
@@ -359,6 +404,22 @@ Future<void> openHermesSession(
       );
     }
     return;
+  }
+  if (transcript != null && copiedHistory != null) {
+    // Saved even if this open is superseded: the session exists either way.
+    try {
+      raw = await copiedHistory.save(
+        connectionIdentity: connectionIdentity!,
+        sessionId: session.id,
+        messages: transcript,
+      );
+    } catch (error) {
+      DebugLogger.warning(
+        'copied-history-save-failed',
+        scope: 'hermes/sessions',
+        data: {'errorType': error.runtimeType.toString()},
+      );
+    }
   }
   if (service is HermesDesktopApiService) {
     try {
@@ -404,10 +465,6 @@ Future<void> openHermesSession(
     return;
   }
 
-  final connectionIdentity = _sessionConnectionIdentity(
-    service,
-    trustPrincipalId,
-  ).connectionIdentity;
   final trustedDocuments = connectionIdentity == null
       ? const <String>{}
       : HermesLocalDocumentTrustStore.trustedDocumentKeys(

@@ -16,6 +16,8 @@ import 'package:conduit/shared/services/navigation_service.dart';
 import 'package:conduit_core/features/hermes/models/hermes_capabilities.dart';
 import 'package:conduit_core/features/hermes/models/hermes_config.dart';
 import 'package:conduit_core/features/hermes/models/hermes_model.dart';
+import 'package:conduit_core/features/chat/providers/chat_providers.dart'
+    show buildHermesVisibleHistoryForTest;
 import 'package:conduit_core/features/hermes/models/hermes_session.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 import 'package:conduit_core/features/hermes/services/hermes_api_service.dart';
@@ -343,25 +345,32 @@ void main() {
           .deepEquals({'harbor-notes': 'telegram'});
     });
 
-    testWidgets('continue in a copy opens a new session with the transcript', (
-      tester,
+    Widget noticeOrComposer() => Consumer(
+      builder: (context, ref, child) {
+        final source = watchHermesReadOnlySessionSource(
+          ref,
+          ref.watch(activeConversationProvider),
+        );
+        return source == null
+            ? const Text('composer')
+            : HermesReadOnlySessionNotice(source: source);
+      },
+    );
+
+    const harborTranscript = <Map<String, dynamic>>[
+      {'id': 11, 'role': 'user', 'content': 'Which tide tables cover it?'},
+      {'id': 12, 'role': 'assistant', 'content': 'The north pier tables.'},
+    ];
+
+    /// Opens the CLI chat "Harbor notes" read-only, with the notice.
+    Future<(BuildContext, WidgetRef)> openForeignChat(
+      WidgetTester tester,
+      ProviderContainer container,
     ) async {
-      final service = _FakeHermesApiService();
-      final container = ownershipContainer(service);
       final (context, ref) = await pumpRouter(
         tester,
         container,
-        home: Consumer(
-          builder: (context, ref, child) {
-            final source = watchHermesReadOnlySessionSource(
-              ref,
-              ref.watch(activeConversationProvider),
-            );
-            return source == null
-                ? const Text('composer')
-                : HermesReadOnlySessionNotice(source: source);
-          },
-        ),
+        home: noticeOrComposer(),
       );
       await openHermesSession(
         context,
@@ -374,9 +383,44 @@ void main() {
       );
       await tester.pumpAndSettle();
       check(find.textContaining('started in cli').evaluate()).isNotEmpty();
+      return (context, ref);
+    }
+
+    /// Pumps until [done], letting native database work run in between.
+    Future<void> pumpUntil(WidgetTester tester, bool Function() done) async {
+      for (var i = 0; i < 2000 && !done(); i++) {
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 1)),
+        );
+        await tester.pump(const Duration(milliseconds: 1));
+      }
+      check(done()).isTrue();
+      await tester.pumpAndSettle();
+    }
+
+    bool showsCopy(ProviderContainer container) =>
+        container.read(activeConversationProvider)?.id ==
+        'local:hermes_harbor-notes-copy';
+
+    String connectionIdentityOf(ProviderContainer container) =>
+        HermesLocalDocumentTrustStore.connectionIdentity(
+          endpointIdentity: HermesConfigController.connectionEndpoint(
+            'https://hermes.example',
+          )!,
+          principalId: container
+              .read(hermesConfigProvider.notifier)
+              .documentTrustPrincipalId(),
+        );
+
+    testWidgets('continue in a copy opens a new session with the transcript', (
+      tester,
+    ) async {
+      final service = _FakeHermesApiService(messages: harborTranscript);
+      final container = ownershipContainer(service);
+      await openForeignChat(tester, container);
 
       await tester.tap(find.byKey(const ValueKey('hermes-continue-in-copy')));
-      await tester.pumpAndSettle();
+      await pumpUntil(tester, () => showsCopy(container));
 
       // Hermes' fork would end the other app's chat; the copy is a new,
       // untitled session instead, and the original is only read.
@@ -387,11 +431,97 @@ void main() {
       final copy = container.read(activeConversationProvider);
       check(copy?.id).equals('local:hermes_harbor-notes-copy');
       check(copy?.metadata['hermesSessionId']).equals('harbor-notes-copy');
-      check(
-        copy!.messages.map((message) => message.content).toList(),
-      ).contains('Saved response');
+      check(copy!.messages.map((message) => message.content).toList())
+          .deepEquals([
+            'Which tide tables cover it?',
+            'The north pier tables.',
+          ]);
       check(find.text('composer').evaluate()).isNotEmpty();
+      // Hermes never stores replayed history, so the copy's earlier
+      // messages are saved on this device.
+      final saved = await pumpDatabaseOperation(
+        tester,
+        () => container
+            .read(hermesCopiedHistoryStoreProvider)
+            .load(
+              connectionIdentity: connectionIdentityOf(container),
+              sessionId: 'harbor-notes-copy',
+            ),
+      );
+      check(saved).isNotNull().deepEquals(harborTranscript);
     });
+
+    testWidgets('reopening a copy shows its earlier messages first and '
+        'replays them', (tester) async {
+      final service = _FakeHermesApiService(messages: harborTranscript);
+      final container = ownershipContainer(service);
+      final (context, ref) = await openForeignChat(tester, container);
+      await tester.tap(find.byKey(const ValueKey('hermes-continue-in-copy')));
+      await pumpUntil(tester, () => showsCopy(container));
+      // The server keeps only the turns sent to the copy.
+      service.messagesById['harbor-notes-copy'] = const [
+        {'id': 40, 'role': 'user', 'content': 'And the south pier?'},
+        {'id': 41, 'role': 'assistant', 'content': 'Posted weekly.'},
+      ];
+
+      await pumpDatabaseOperation(
+        tester,
+        () => openHermesSession(
+          context,
+          ref,
+          const HermesSessionSummary(
+            id: 'harbor-notes-copy',
+            title: 'Untitled session',
+            source: 'api_server',
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final reopened = container.read(activeConversationProvider)!;
+      check(reopened.id).equals('local:hermes_harbor-notes-copy');
+      const expected = [
+        'Which tide tables cover it?',
+        'The north pier tables.',
+        'And the south pier?',
+        'Posted weekly.',
+      ];
+      check(reopened.messages.map((message) => message.content).toList())
+          .deepEquals(expected);
+      check(
+        buildHermesVisibleHistoryForTest(
+          reopened.messages,
+        ).map((entry) => entry['content']).toList(),
+      ).deepEquals(expected);
+    });
+
+    testWidgets('deleting a copy drops its saved earlier messages', (
+      tester,
+    ) async {
+      final service = _FakeHermesApiService(messages: harborTranscript);
+      final container = ownershipContainer(service);
+      final (_, ref) = await openForeignChat(tester, container);
+      await tester.tap(find.byKey(const ValueKey('hermes-continue-in-copy')));
+      await pumpUntil(tester, () => showsCopy(container));
+
+      await pumpDatabaseOperation(
+        tester,
+        () => deleteHermesSession(ref, 'harbor-notes-copy'),
+      );
+
+      check(service.deletedSessionIds).deepEquals(['harbor-notes-copy']);
+      final saved = await pumpDatabaseOperation(
+        tester,
+        () => container
+            .read(hermesCopiedHistoryStoreProvider)
+            .load(
+              connectionIdentity: connectionIdentityOf(container),
+              sessionId: 'harbor-notes-copy',
+            ),
+      );
+      check(saved).isNull();
+    });
+
   });
 
   testWidgets(
@@ -1077,11 +1207,15 @@ class _FakeHermesApiService extends HermesApiService {
   }
 
   int sessionListCalls = 0;
+  List<Map<String, dynamic>> sessionList = const [];
   @override
   Future<List<Map<String, dynamic>>> listSessions() async {
     sessionListCalls++;
-    return const [];
+    return sessionList;
   }
+
+  /// Messages of particular sessions; others return [messages].
+  final Map<String, List<Map<String, dynamic>>> messagesById = {};
 
   @override
   Future<List<Map<String, dynamic>>> getSessionMessages(
@@ -1092,7 +1226,7 @@ class _FakeHermesApiService extends HermesApiService {
     if (!messagesStarted.isCompleted) messagesStarted.complete();
     await messagesGate?.future;
     if (messagesError != null) throw messagesError!;
-    return messages;
+    return messagesById[id] ?? messages;
   }
 
   @override
