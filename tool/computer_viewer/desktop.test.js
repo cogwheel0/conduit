@@ -59,6 +59,22 @@ for (const transport of ['frames', 'vnc']) {
       const received = (await events()).slice(before);
       assert.ok(received.some(event => event.type === 'mouse' && event.buttons === 1), JSON.stringify({bounds, received}));
       assert.ok(received.some(event => event.type === 'key'));
+      if (transport === 'vnc') {
+        const touch = await page.context().newCDPSession(page);
+        await touch.send('Emulation.setTouchEmulationEnabled', {enabled: true, maxTouchPoints: 1});
+        await touch.send('Input.dispatchTouchEvent', {type: 'touchStart', touchPoints: [{x, y}]});
+        for (let delta = 12; delta <= 60; delta += 12) {
+          await touch.send('Input.dispatchTouchEvent', {type: 'touchMove', touchPoints: [{x: x + delta, y}]});
+        }
+        await new Promise(resolve => setTimeout(resolve, 150));
+        assert.equal((await events()).filter(event => event.type === 'mouse').at(-1).buttons, 1);
+        await page.evaluate(() => window.computer.control(false));
+        await new Promise(resolve => setTimeout(resolve, 150));
+        assert.equal((await events()).filter(event => event.type === 'mouse').at(-1).buttons, 0,
+          'Returning to Watch during a touch drag must release the remote button');
+        await touch.send('Input.dispatchTouchEvent', {type: 'touchEnd', touchPoints: []});
+        await touch.detach();
+      }
       await page.evaluate(() => window.computer.control(false));
       const after = (await events()).length;
       await page.mouse.click(x, y);

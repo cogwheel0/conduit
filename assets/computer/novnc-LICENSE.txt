@@ -1,5 +1,8 @@
 noVNC 1.7.0 — https://github.com/novnc/noVNC/tree/v1.7.0
-Source available under MPL-2.0. Bundled without modifications.
+Source available under MPL-2.0. The build removes local cursor encoding
+negotiation from core/rfb.js so the server draws its shared pointer.
+The complete, reproducible source modification is in tool/computer_viewer/build.js
+alongside the pinned upstream dependency in package-lock.json.
 
 
 LICENSE.txt

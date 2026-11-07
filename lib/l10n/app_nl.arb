@@ -1,4 +1,7 @@
 {
+  "computerDesktopDescription": "Volledig bureaublad · apps en vensters",
+  "computerBrowserDescription": "Browsertab · webpagina’s",
+  "computerDesktopGestures": "Tik om te klikken, sleep om te verplaatsen, scrol met twee vingers.",
   "computerTitle": "Computer",
   "computerPreview": "Voorbeeld",
   "computerShowPreview": "Voorbeeld tonen",

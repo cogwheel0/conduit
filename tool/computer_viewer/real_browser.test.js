@@ -44,10 +44,12 @@ test('real Open Terminal: pixels, Watch, typing, resize, blur and reconnect',
         y: box.top + 511 * box.height / canvas.height};
     });
     await viewer.mouse.click(point.x, point.y);
+    assert.equal(await viewer.locator('#computer-pointer').isVisible(), false);
     await new Promise(resolve => setTimeout(resolve, 300));
     assert.equal((await (await fetch('http://127.0.0.1:8767/state')).json()).clicks, before);
     await viewer.evaluate(() => window.computer.control(true));
     await viewer.mouse.click(point.x, point.y);
+    assert.equal(await viewer.locator('#computer-pointer').isVisible(), true);
     await new Promise(resolve => setTimeout(resolve, 500));
     assert.equal((await (await fetch('http://127.0.0.1:8767/state')).json()).clicks, before + 1);
     // Click the remote input through the pixels, then use the same command as
@@ -81,6 +83,7 @@ test('real Open Terminal: pixels, Watch, typing, resize, blur and reconnect',
     await viewer.evaluate(() => window.computer.viewport({width: 1024, height: 768, mobile: false}));
     await viewer.waitForFunction(() => document.querySelector('#frame').width === 1024 && document.querySelector('#frame').height === 768);
     await viewer.evaluate(() => window.dispatchEvent(new Event('blur')));
+    assert.equal(await viewer.locator('#computer-pointer').isVisible(), false);
     await viewer.mouse.click(point.x, point.y);
     await new Promise(resolve => setTimeout(resolve, 300));
     assert.equal((await (await fetch('http://127.0.0.1:8767/state')).json()).clicks, before + 1);

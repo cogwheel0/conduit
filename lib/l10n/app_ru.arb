@@ -1,4 +1,7 @@
 {
+  "computerDesktopDescription": "Весь рабочий стол · приложения и окна",
+  "computerBrowserDescription": "Вкладка браузера · веб-страницы",
+  "computerDesktopGestures": "Касание — щелчок, перетаскивание — перемещение, два пальца — прокрутка.",
   "computerTitle": "Компьютер",
   "computerPreview": "Предпросмотр",
   "computerShowPreview": "Показать предпросмотр",

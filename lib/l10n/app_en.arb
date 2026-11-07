@@ -1,5 +1,8 @@
 {
   "@@locale": "en",
+  "computerDesktopDescription": "Full desktop · apps and windows",
+  "computerBrowserDescription": "Browser tab · web pages",
+  "computerDesktopGestures": "Tap to click, drag to move items, two fingers to scroll.",
   "computerTitle": "Computer",
   "@computerTitle": {"description": "Computer viewer: Title."},
   "computerPreview": "Preview",

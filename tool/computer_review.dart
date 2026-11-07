@@ -18,7 +18,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:material_ui/material_ui.dart';
 
 void main() {
-  const url = 'http://127.0.0.1:8766';
+  const url = String.fromEnvironment(
+    'COMPUTER_REVIEW_URL',
+    defaultValue: 'http://127.0.0.1:18768',
+  );
   final terminal = TerminalService(
     ApiService(
       serverConfig: const ServerConfig(id: 'review', name: 'Review', url: url),
@@ -76,47 +79,59 @@ class _ReviewChat extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            const SizedBox(height: 24),
-            Align(
-              alignment: Alignment.centerRight,
-              child: Container(
-                constraints: const BoxConstraints(maxWidth: 320),
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: const Color(0xfff1f1f1),
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                child: const Text(
-                  'Put together a creative weekend workshop board.',
-                  style: TextStyle(fontSize: 16, height: 1.5),
+            Expanded(
+              child: SingleChildScrollView(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    const SizedBox(height: 24),
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: Container(
+                        constraints: const BoxConstraints(maxWidth: 320),
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          color: const Color(0xfff1f1f1),
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: const Text(
+                          'Put together a creative weekend workshop board.',
+                          style: TextStyle(fontSize: 16, height: 1.5),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 28),
+                    const Text(
+                      'I’ll bring the ideas together in the workspace. You can open the computer to follow along or make a change.',
+                      style: TextStyle(fontSize: 16, height: 1.7),
+                    ),
+                    const SizedBox(height: 20),
+                    Row(
+                      children: [
+                        const Icon(Icons.auto_awesome_outlined, size: 16),
+                        const SizedBox(width: 9),
+                        const Expanded(
+                          child: Text(
+                            'Preparing the workshop board',
+                            style: TextStyle(
+                              fontSize: 13,
+                              color: Color(0xff7a7a7a),
+                            ),
+                          ),
+                        ),
+                        IconButton(
+                          tooltip: 'Run synthetic task',
+                          onPressed: () =>
+                              Dio().post<void>('http://127.0.0.1:8767/run'),
+                          icon: const Icon(Icons.play_arrow_rounded, size: 20),
+                        ),
+                      ],
+                    ),
+                  ],
                 ),
               ),
             ),
-            const SizedBox(height: 28),
-            const Text(
-              'I’ll bring the ideas together in the workspace. You can open the computer to follow along or make a change.',
-              style: TextStyle(fontSize: 16, height: 1.7),
-            ),
-            const SizedBox(height: 20),
-            Row(
-              children: [
-                const Icon(Icons.auto_awesome_outlined, size: 16),
-                const SizedBox(width: 9),
-                const Expanded(
-                  child: Text(
-                    'Preparing the workshop board',
-                    style: TextStyle(fontSize: 13, color: Color(0xff7a7a7a)),
-                  ),
-                ),
-                IconButton(
-                  tooltip: 'Run synthetic task',
-                  onPressed: () =>
-                      Dio().post<void>('http://127.0.0.1:8767/run'),
-                  icon: const Icon(Icons.play_arrow_rounded, size: 20),
-                ),
-              ],
-            ),
-            const Spacer(),
+            const SizedBox(height: 12),
             const ComputerLauncher(),
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),

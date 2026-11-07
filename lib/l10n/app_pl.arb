@@ -1,4 +1,7 @@
 {
+  "computerDesktopDescription": "Cały pulpit · aplikacje i okna",
+  "computerBrowserDescription": "Karta przeglądarki · strony WWW",
+  "computerDesktopGestures": "Dotknij, aby kliknąć, przeciągnij, aby przenieść, przewijaj dwoma palcami.",
   "computerTitle": "Komputer",
   "computerPreview": "Podgląd",
   "computerShowPreview": "Pokaż podgląd",

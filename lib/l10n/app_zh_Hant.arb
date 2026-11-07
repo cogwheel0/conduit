@@ -1,4 +1,7 @@
 {
+  "computerDesktopDescription": "完整桌面 · 應用程式與視窗",
+  "computerBrowserDescription": "瀏覽器分頁 · 網頁",
+  "computerDesktopGestures": "輕點以按一下，拖曳以移動項目，雙指捲動。",
   "computerTitle": "電腦",
   "computerPreview": "預覽",
   "computerShowPreview": "顯示預覽",

@@ -2,7 +2,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "esbuild viewer.js --bundle --minify --format=esm --legal-comments=linked --outfile=../../assets/computer/viewer.js",
+    "build": "node build.js",
     "test": "node --test protocol.test.js"
   },
   "dependencies": {

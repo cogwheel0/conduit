@@ -20,7 +20,7 @@ import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:flutter/foundation.dart';
 
 void main() {
-  registerFallbackValue(const ComputerCapabilities());
+  registerFallbackValue(ComputerSurface.browser);
   const mobilePlatforms = TargetPlatformVariant({
     TargetPlatform.android,
     TargetPlatform.iOS,
@@ -114,8 +114,7 @@ void main() {
         surface: ComputerSurface.browser,
         streamUri: Uri.parse('wss://computer.example/stream'),
       );
-      when(() => service.openPreferred(any()))
-          .thenAnswer((_) async => connection);
+      when(() => service.open(any())).thenAnswer((_) async => connection);
       when(() => service.screenshot(connection)).thenAnswer(
         (_) async => base64Decode(
           'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl6rZkAAAAASUVORK5CYII=',

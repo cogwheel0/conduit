@@ -1,4 +1,7 @@
 {
+  "computerDesktopDescription": "デスクトップ全体 · アプリとウィンドウ",
+  "computerBrowserDescription": "ブラウザーのタブ · ウェブページ",
+  "computerDesktopGestures": "タップでクリック、ドラッグで移動、2本指でスクロール。",
   "computerTitle": "コンピューター",
   "computerPreview": "プレビュー",
   "computerShowPreview": "プレビューを表示",

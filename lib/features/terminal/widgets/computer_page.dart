@@ -13,6 +13,7 @@ import '../../../l10n/app_localizations.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/platform_ui/platform_ui.dart';
 import 'computer_surface.dart';
+import 'computer_mode_selector.dart';
 
 class ComputerPage extends ConsumerStatefulWidget {
   const ComputerPage({
@@ -20,10 +21,12 @@ class ComputerPage extends ConsumerStatefulWidget {
     required this.service,
     required this.capabilities,
     this.initialConnection,
+    this.initialSurface,
   });
   final ComputerService service;
   final ComputerCapabilities capabilities;
   final ComputerConnection? initialConnection;
+  final ComputerSurface? initialSurface;
 
   @override
   ConsumerState<ComputerPage> createState() => _ComputerPageState();
@@ -46,7 +49,9 @@ class _ComputerPageState extends ConsumerState<ComputerPage>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _selected =
-        widget.initialConnection?.surface ?? widget.capabilities.preferred;
+        widget.initialConnection?.surface ??
+        widget.initialSurface ??
+        widget.capabilities.preferred;
     _connection = widget.initialConnection;
     if (_connection == null) unawaited(_open());
     _heartbeat = Timer.periodic(const Duration(seconds: 45), (_) async {
@@ -110,6 +115,11 @@ class _ComputerPageState extends ConsumerState<ComputerPage>
       _connection = null;
       _controlling = false;
       _zoomed = false;
+      _canBack = false;
+      _canForward = false;
+      _url = '';
+      _stopFailed = false;
+      _stopping = false;
     });
     try {
       final connection = await widget.service.open(_selected);
@@ -240,9 +250,286 @@ class _ComputerPageState extends ConsumerState<ComputerPage>
         ? l10n.computerDisconnected
         : l10n.computerConnecting;
     final host = Uri.tryParse(_url)?.host ?? '';
+    final size = MediaQuery.sizeOf(context);
+    final landscape = size.width > size.height && size.height < 600;
+    final modes = widget.capabilities.desktop && widget.capabilities.browser
+        ? Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+            child: SizedBox(
+              width: double.infinity,
+              child: ComputerModeSelector(
+                capabilities: widget.capabilities,
+                selected: _selected,
+                onChanged: (value) {
+                  _selected = value;
+                  unawaited(_open());
+                },
+              ),
+            ),
+          )
+        : const SizedBox.shrink();
+    final status = Padding(
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+      child: Row(
+        children: [
+          Container(
+            width: 7,
+            height: 7,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: live
+                  ? (_controlling
+                        ? theme.buttonPrimary
+                        : const Color(0xff28ad7a))
+                  : theme.textSecondary,
+            ),
+          ),
+          const SizedBox(width: 7),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(statusLabel, style: const TextStyle(fontSize: 13)),
+                Text(
+                  _selected == ComputerSurface.desktop
+                      ? l10n.computerDesktopDescription
+                      : l10n.computerBrowserDescription,
+                  style: TextStyle(color: theme.textSecondary, fontSize: 12),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+    final navigation = _selected == ComputerSurface.browser
+        ? Padding(
+            padding: const EdgeInsets.fromLTRB(8, 0, 12, 8),
+            child: Row(
+              children: [
+                AdaptiveButton.icon(
+                  style: AdaptiveButtonStyle.plain,
+                  semanticLabel: l10n.back,
+                  onPressed: _controlling && _canBack
+                      ? () => _surface.command({'type': 'back'})
+                      : null,
+                  icon: Icons.arrow_back_rounded,
+                  iconSize: 20,
+                ),
+                AdaptiveButton.icon(
+                  style: AdaptiveButtonStyle.plain,
+                  semanticLabel: l10n.computerForward,
+                  onPressed: _controlling && _canForward
+                      ? () => _surface.command({'type': 'forward'})
+                      : null,
+                  icon: Icons.arrow_forward_rounded,
+                  iconSize: 20,
+                ),
+                Expanded(
+                  child: AdaptiveButton.child(
+                    style: AdaptiveButtonStyle.plain,
+                    padding: EdgeInsets.zero,
+                    onPressed: _controlling
+                        ? () => _textInput(navigate: true)
+                        : null,
+                    borderRadius: BorderRadius.circular(12),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 10,
+                      ),
+                      decoration: BoxDecoration(
+                        color: theme.inputBackground,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Text(
+                        host.isEmpty ? l10n.computerBrowser : host,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontSize: 13),
+                      ),
+                    ),
+                  ),
+                ),
+                AdaptiveButton.icon(
+                  style: AdaptiveButtonStyle.plain,
+                  semanticLabel: l10n.computerReload,
+                  onPressed: _controlling
+                      ? () => _surface.command({'type': 'reload'})
+                      : null,
+                  icon: Icons.refresh_rounded,
+                  iconSize: 20,
+                ),
+              ],
+            ),
+          )
+        : const SizedBox.shrink();
+    final screen = Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 12),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(16),
+        child: ColoredBox(
+          color: const Color(0xff111318),
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              if (_connection != null && _scopeValid)
+                ComputerSurfaceView(
+                  key: GlobalObjectKey(_connection!),
+                  connection: _connection!,
+                  controller: _surface,
+                  onState: _onState,
+                ),
+              if (!live)
+                ColoredBox(
+                  color: const Color(0xff111318),
+                  child: Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(28),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          if (failed)
+                            const Icon(
+                              Icons.desktop_access_disabled_outlined,
+                              size: 34,
+                              color: Color(0x99ffffff),
+                            )
+                          else
+                            const SizedBox(
+                              width: 24,
+                              height: 24,
+                              child: AdaptiveProgressIndicator(
+                                strokeWidth: 2,
+                                color: Color(0xb3ffffff),
+                              ),
+                            ),
+                          const SizedBox(height: 16),
+                          Text(
+                            _status == 'browserUnavailable'
+                                ? l10n.computerBrowserUnavailable
+                                : statusLabel,
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(color: Color(0xb3ffffff)),
+                          ),
+                          if (failed)
+                            Padding(
+                              padding: const EdgeInsets.only(top: 12),
+                              child: AdaptiveButton.child(
+                                style: AdaptiveButtonStyle.plain,
+                                onPressed: () => unawaited(_open()),
+                                child: Text(
+                                  l10n.retry,
+                                  style: const TextStyle(
+                                    color: Color(0xff68b5ff),
+                                  ),
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+    final controls = Padding(
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 8),
+      child: Column(
+        children: [
+          Text(
+            _stopFailed
+                ? l10n.computerStopFailed
+                : _controlling
+                ? _connection?.transport == 'vnc'
+                      ? l10n.computerDesktopGestures
+                      : l10n.computerControlHint
+                : l10n.computerWatchHint,
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 12,
+              color: _stopFailed ? theme.inputError : theme.textSecondary,
+            ),
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              if (_controlling && !landscape) ...[
+                AdaptiveButton.icon(
+                  style: AdaptiveButtonStyle.plain,
+                  semanticLabel: l10n.computerTypeText,
+                  onPressed: () => _textInput(),
+                  icon: Icons.keyboard_outlined,
+                ),
+                const SizedBox(width: 8),
+              ],
+              Expanded(
+                child: AdaptiveButton(
+                  onPressed: !live || _stopping
+                      ? null
+                      : _controlling
+                      ? _watch
+                      : _takeControl,
+                  label: _stopping
+                      ? l10n.computerStopping
+                      : _controlling
+                      ? l10n.computerWatch
+                      : l10n.computerTakeControl,
+                  sfSymbol: SFSymbol(_controlling ? 'eye' : 'hand.tap'),
+                  size: AdaptiveButtonSize.large,
+                ),
+              ),
+            ],
+          ),
+          if (_controlling)
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: <Widget>[
+                  if (landscape)
+                    AdaptiveButton.icon(
+                      style: AdaptiveButtonStyle.plain,
+                      semanticLabel: l10n.computerTypeText,
+                      onPressed: () => _textInput(),
+                      icon: Icons.keyboard_outlined,
+                    ),
+                  ...[
+                    'Escape',
+                    'Tab',
+                    'Enter',
+                    'Backspace',
+                    'ArrowUp',
+                    'ArrowDown',
+                  ].map(
+                    (key) => AdaptiveButton.child(
+                      style: AdaptiveButtonStyle.plain,
+                      onPressed: () =>
+                          _surface.command({'type': 'shortcut', 'key': key}),
+                      child: Text(
+                        {
+                              'Escape': 'Esc',
+                              'Backspace': '⌫',
+                              'ArrowUp': '↑',
+                              'ArrowDown': '↓',
+                            }[key] ??
+                            key,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
     return AdaptiveScaffold(
       appBar: AdaptiveAppBar(
-        title: l10n.computerTitle,
+        title: _selected == ComputerSurface.desktop
+            ? l10n.computerDesktop
+            : l10n.computerBrowser,
         actions: [
           AdaptiveAppBarAction(
             semanticLabel: _zoomed ? l10n.computerFit : l10n.computerZoom,
@@ -261,274 +548,41 @@ class _ComputerPageState extends ConsumerState<ComputerPage>
       ),
       body: SafeArea(
         top: false,
-        child: Column(
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-              child: Row(
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            // A side panel leaves the full height available for a landscape desktop.
+            if (constraints.maxWidth > constraints.maxHeight &&
+                constraints.maxHeight < 600) {
+              return Row(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  Container(
-                    width: 7,
-                    height: 7,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: live
-                          ? (_controlling
-                                ? theme.buttonPrimary
-                                : const Color(0xff28ad7a))
-                          : theme.textSecondary,
+                  SizedBox(
+                    width: 240,
+                    child: SingleChildScrollView(
+                      child: Column(children: [modes, status, controls]),
                     ),
                   ),
-                  const SizedBox(width: 7),
                   Expanded(
-                    child: Text(
-                      statusLabel,
-                      style: TextStyle(
-                        color: theme.textSecondary,
-                        fontSize: 13,
-                      ),
-                    ),
-                  ),
-                  if (widget.capabilities.browser &&
-                      widget.capabilities.desktop)
-                    AdaptiveValueSegmentedControl<ComputerSurface>(
-                      value: _selected,
-                      segments: [
-                        AdaptiveSegment(
-                          value: ComputerSurface.desktop,
-                          label: Text(l10n.computerDesktop),
-                        ),
-                        AdaptiveSegment(
-                          value: ComputerSurface.browser,
-                          label: Text(l10n.computerBrowser),
-                        ),
-                      ],
-                      onChanged: (value) {
-                        _selected = value;
-                        unawaited(_open());
-                      },
-                    ),
-                ],
-              ),
-            ),
-            if (_selected == ComputerSurface.browser)
-              Padding(
-                padding: const EdgeInsets.fromLTRB(8, 0, 12, 8),
-                child: Row(
-                  children: [
-                    AdaptiveButton.icon(
-                      style: AdaptiveButtonStyle.plain,
-                      semanticLabel: l10n.back,
-                      onPressed: _controlling && _canBack
-                          ? () => _surface.command({'type': 'back'})
-                          : null,
-                      icon: Icons.arrow_back_rounded,
-                      iconSize: 20,
-                    ),
-                    AdaptiveButton.icon(
-                      style: AdaptiveButtonStyle.plain,
-                      semanticLabel: l10n.computerForward,
-                      onPressed: _controlling && _canForward
-                          ? () => _surface.command({'type': 'forward'})
-                          : null,
-                      icon: Icons.arrow_forward_rounded,
-                      iconSize: 20,
-                    ),
-                    Expanded(
-                      child: AdaptiveButton.child(
-                        style: AdaptiveButtonStyle.plain,
-                        padding: EdgeInsets.zero,
-                        onPressed: _controlling
-                            ? () => _textInput(navigate: true)
-                            : null,
-                        borderRadius: BorderRadius.circular(12),
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 12,
-                            vertical: 10,
-                          ),
-                          decoration: BoxDecoration(
-                            color: theme.inputBackground,
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          child: Text(
-                            host.isEmpty ? l10n.computerBrowser : host,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(fontSize: 13),
-                          ),
-                        ),
-                      ),
-                    ),
-                    AdaptiveButton.icon(
-                      style: AdaptiveButtonStyle.plain,
-                      semanticLabel: l10n.computerReload,
-                      onPressed: _controlling
-                          ? () => _surface.command({'type': 'reload'})
-                          : null,
-                      icon: Icons.refresh_rounded,
-                      iconSize: 20,
-                    ),
-                  ],
-                ),
-              ),
-            Expanded(
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 12),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(16),
-                  child: ColoredBox(
-                    color: const Color(0xff111318),
-                    child: Stack(
-                      fit: StackFit.expand,
+                    child: Column(
                       children: [
-                        if (_connection != null && _scopeValid)
-                          ComputerSurfaceView(
-                            key: ObjectKey(_connection),
-                            connection: _connection!,
-                            controller: _surface,
-                            onState: _onState,
-                          ),
-                        if (!live)
-                          ColoredBox(
-                            color: const Color(0xff111318),
-                            child: Center(
-                              child: Padding(
-                                padding: const EdgeInsets.all(28),
-                                child: Column(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    if (failed)
-                                      const Icon(
-                                        Icons.desktop_access_disabled_outlined,
-                                        size: 34,
-                                        color: Color(0x99ffffff),
-                                      )
-                                    else
-                                      const SizedBox(
-                                        width: 24,
-                                        height: 24,
-                                        child: AdaptiveProgressIndicator(
-                                          strokeWidth: 2,
-                                          color: Color(0xb3ffffff),
-                                        ),
-                                      ),
-                                    const SizedBox(height: 16),
-                                    Text(
-                                      _status == 'browserUnavailable'
-                                          ? l10n.computerBrowserUnavailable
-                                          : statusLabel,
-                                      textAlign: TextAlign.center,
-                                      style: const TextStyle(
-                                        color: Color(0xb3ffffff),
-                                      ),
-                                    ),
-                                    if (failed)
-                                      Padding(
-                                        padding: const EdgeInsets.only(top: 12),
-                                        child: AdaptiveButton.child(
-                                          style: AdaptiveButtonStyle.plain,
-                                          onPressed: () => unawaited(_open()),
-                                          child: Text(l10n.retry),
-                                        ),
-                                      ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                          ),
+                        navigation,
+                        Expanded(child: screen),
                       ],
                     ),
                   ),
-                ),
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 14, 16, 8),
-              child: Column(
-                children: [
-                  Text(
-                    _stopFailed
-                        ? l10n.computerStopFailed
-                        : _controlling
-                        ? l10n.computerControlHint
-                        : l10n.computerWatchHint,
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: _stopFailed
-                          ? theme.inputError
-                          : theme.textSecondary,
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  Row(
-                    children: [
-                      if (_controlling) ...[
-                        AdaptiveButton.icon(
-                          style: AdaptiveButtonStyle.plain,
-                          semanticLabel: l10n.computerTypeText,
-                          onPressed: () => _textInput(),
-                          icon: Icons.keyboard_outlined,
-                        ),
-                        const SizedBox(width: 8),
-                      ],
-                      Expanded(
-                        child: AdaptiveButton(
-                          onPressed: !live || _stopping
-                              ? null
-                              : _controlling
-                              ? _watch
-                              : _takeControl,
-                          label: _stopping
-                              ? l10n.computerStopping
-                              : _controlling
-                              ? l10n.computerWatch
-                              : l10n.computerTakeControl,
-                          sfSymbol: SFSymbol(_controlling ? 'eye' : 'hand.tap'),
-                          size: AdaptiveButtonSize.large,
-                        ),
-                      ),
-                    ],
-                  ),
-                  if (_controlling)
-                    SingleChildScrollView(
-                      scrollDirection: Axis.horizontal,
-                      child: Row(
-                        children:
-                            [
-                                  'Escape',
-                                  'Tab',
-                                  'Enter',
-                                  'Backspace',
-                                  'ArrowUp',
-                                  'ArrowDown',
-                                ]
-                                .map(
-                                  (key) => AdaptiveButton.child(
-                                    style: AdaptiveButtonStyle.plain,
-                                    onPressed: () => _surface.command({
-                                      'type': 'shortcut',
-                                      'key': key,
-                                    }),
-                                    child: Text(
-                                      {
-                                            'Escape': 'Esc',
-                                            'Backspace': '⌫',
-                                            'ArrowUp': '↑',
-                                            'ArrowDown': '↓',
-                                          }[key] ??
-                                          key,
-                                    ),
-                                  ),
-                                )
-                                .toList(),
-                      ),
-                    ),
                 ],
-              ),
-            ),
-          ],
+              );
+            }
+            return Column(
+              children: [
+                modes,
+                status,
+                navigation,
+                Expanded(child: screen),
+                controls,
+              ],
+            );
+          },
         ),
       ),
     );

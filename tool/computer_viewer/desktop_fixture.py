@@ -63,7 +63,8 @@ async def vnc(ws):
             await read(19)
         elif kind == 2:
             count = struct.unpack('!xH', await read(3))[0]
-            await read(count * 4)
+            encodings = struct.unpack(f'!{count}i', await read(count * 4))
+            assert -239 not in encodings and 0x574D5664 not in encodings, 'Server must render the shared pointer'
         elif kind == 3:
             await read(9)
             data = pixels(changed).tobytes('raw', 'BGRX')

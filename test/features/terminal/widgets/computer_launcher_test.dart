@@ -16,7 +16,7 @@ import 'package:mocktail/mocktail.dart';
 class _Service extends Mock implements ComputerService {}
 
 void main() {
-  registerFallbackValue(const ComputerCapabilities());
+  registerFallbackValue(ComputerSurface.browser);
   final connection = ComputerConnection(
     surface: ComputerSurface.browser,
     streamUri: Uri.parse('wss://computer.example/browser/stream'),
@@ -28,12 +28,14 @@ void main() {
   Widget harness(
     ComputerService service, {
     bool available = true,
+    bool desktop = false,
     double scale = 1,
   }) => ProviderScope(
     overrides: [
       computerServiceProvider.overrideWith((ref) async => service),
       computerCapabilitiesProvider.overrideWith(
-        (ref) async => ComputerCapabilities(browser: available),
+        (ref) async =>
+            ComputerCapabilities(browser: available, desktop: desktop),
       ),
     ],
     child: MaterialApp(
@@ -60,7 +62,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Computer'), findsOneWidget);
     expect(find.text('Open live'), findsNothing);
-    verifyNever(() => service.openPreferred(any()));
+    verifyNever(() => service.open(any()));
     verifyNever(() => service.screenshot(connection));
   });
 
@@ -70,19 +72,49 @@ void main() {
     expect(find.text('Computer'), findsNothing);
   });
 
+  testWidgets('both modes are explicit and late pixels cannot cross modes', (
+    tester,
+  ) async {
+    final service = _Service();
+    final desktop = ComputerConnection(
+      surface: ComputerSurface.desktop,
+      streamUri: Uri.parse('wss://computer.example/desktop/stream'),
+    );
+    final pending = Completer<Uint8List>();
+    when(() => service.open(ComputerSurface.desktop))
+        .thenAnswer((_) async => desktop);
+    when(() => service.open(ComputerSurface.browser))
+        .thenAnswer((_) async => connection);
+    when(() => service.screenshot(desktop)).thenAnswer((_) => pending.future);
+    when(() => service.screenshot(connection)).thenAnswer((_) async => png);
+    await tester.pumpWidget(harness(service, desktop: true));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Computer'));
+    await tester.pump();
+    verify(() => service.open(ComputerSurface.desktop)).called(1);
+    expect(find.text('Desktop'), findsOneWidget);
+    expect(find.text('Browser'), findsOneWidget);
+    await tester.tap(find.text('Browser'));
+    await tester.pumpAndSettle();
+    final browserImage = tester.widget<Image>(find.byType(Image)).image;
+    pending.complete(Uint8List.fromList([0]));
+    await tester.pumpAndSettle();
+    expect(tester.widget<Image>(find.byType(Image)).image, same(browserImage));
+    verify(() => service.open(ComputerSurface.browser)).called(1);
+  });
+
   testWidgets('preview is explicit and disappears when collapsed', (
     tester,
   ) async {
     final service = _Service();
-    when(() => service.openPreferred(any()))
-        .thenAnswer((_) async => connection);
+    when(() => service.open(any())).thenAnswer((_) async => connection);
     when(() => service.screenshot(connection)).thenAnswer((_) async => png);
     await tester.pumpWidget(harness(service));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Computer'));
     await tester.pumpAndSettle();
     expect(find.text('Open live'), findsOneWidget);
-    verify(() => service.openPreferred(any())).called(1);
+    verify(() => service.open(any())).called(1);
     await tester.tap(find.text('Computer'));
     await tester.pumpAndSettle();
     expect(find.byType(Image), findsNothing);
@@ -91,8 +123,7 @@ void main() {
   testWidgets('late preview cannot reopen a collapsed card', (tester) async {
     final service = _Service();
     final pending = Completer<Uint8List>();
-    when(() => service.openPreferred(any()))
-        .thenAnswer((_) async => connection);
+    when(() => service.open(any())).thenAnswer((_) async => connection);
     when(() => service.screenshot(connection))
         .thenAnswer((_) => pending.future);
     await tester.pumpWidget(harness(service));
@@ -108,8 +139,7 @@ void main() {
 
   testWidgets('backgrounding discards the preview', (tester) async {
     final service = _Service();
-    when(() => service.openPreferred(any()))
-        .thenAnswer((_) async => connection);
+    when(() => service.open(any())).thenAnswer((_) async => connection);
     when(() => service.screenshot(connection)).thenAnswer((_) async => png);
     await tester.pumpWidget(harness(service));
     await tester.pumpAndSettle();
@@ -129,8 +159,7 @@ void main() {
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
     final service = _Service();
-    when(() => service.openPreferred(any()))
-        .thenAnswer((_) async => connection);
+    when(() => service.open(any())).thenAnswer((_) async => connection);
     when(() => service.screenshot(connection)).thenAnswer((_) async => png);
     await tester.pumpWidget(harness(service, scale: 2));
     await tester.pumpAndSettle();

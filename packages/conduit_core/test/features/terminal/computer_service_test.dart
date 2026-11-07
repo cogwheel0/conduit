@@ -153,47 +153,6 @@ void main() {
   });
 
   test(
-    'preview follows the current browser when both surfaces exist',
-    () async {
-      respond = (request) async {
-        request.response.write(
-          request.uri.path.endsWith('/tabs')
-              ? '{"current_session_id":"agent-tab"}'
-              : '{"id":"agent-tab","token":"scoped-capability","chrome_available":true}',
-        );
-      };
-      final connection = await service.openPreferred(
-        const ComputerCapabilities(desktop: true, browser: true),
-      );
-      expect(connection.surface, ComputerSurface.browser);
-      expect(requests.map((r) => r.method), ['GET', 'GET', 'PATCH']);
-      expect(requests.any((r) => r.path.endsWith('/desktop')), isFalse);
-    },
-  );
-
-  test(
-    'preview defaults to desktop without spawning an unused browser',
-    () async {
-      respond = (request) async {
-        request.response.write(
-          request.uri.path.endsWith('/tabs')
-              ? '{"tabs":[],"current_session_id":null}'
-              : '{"transport":"frames"}',
-        );
-      };
-      final connection = await service.openPreferred(
-        const ComputerCapabilities(desktop: true, browser: true),
-      );
-      expect(connection.surface, ComputerSurface.desktop);
-      expect(requests.map((r) => r.path), [
-        '/nested/browser/tabs',
-        '/nested/desktop',
-      ]);
-      expect(requests.every((r) => r.method == 'GET'), isTrue);
-    },
-  );
-
-  test(
     'reattaches the selected browser without spawning or closing a tab',
     () async {
       respond = (request) async {

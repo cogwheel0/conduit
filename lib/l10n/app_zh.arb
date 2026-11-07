@@ -1,4 +1,7 @@
 {
+  "computerDesktopDescription": "完整桌面 · 应用和窗口",
+  "computerBrowserDescription": "浏览器标签页 · 网页",
+  "computerDesktopGestures": "轻点以单击，拖动以移动项目，双指滚动。",
   "computerTitle": "电脑",
   "computerPreview": "预览",
   "computerShowPreview": "显示预览",

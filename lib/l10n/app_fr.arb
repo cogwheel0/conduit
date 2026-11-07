@@ -1,4 +1,7 @@
 {
+  "computerDesktopDescription": "Bureau complet · apps et fenêtres",
+  "computerBrowserDescription": "Onglet du navigateur · pages web",
+  "computerDesktopGestures": "Touchez pour cliquer, faites glisser pour déplacer, défilez avec deux doigts.",
   "computerTitle": "Ordinateur",
   "computerPreview": "Aperçu",
   "computerShowPreview": "Afficher l’aperçu",

@@ -1,4 +1,7 @@
 {
+  "computerDesktopDescription": "Gesamter Desktop · Apps und Fenster",
+  "computerBrowserDescription": "Browser-Tab · Webseiten",
+  "computerDesktopGestures": "Tippen zum Klicken, Ziehen zum Verschieben, zwei Finger zum Scrollen.",
   "computerTitle": "Computer",
   "computerPreview": "Vorschau",
   "computerShowPreview": "Vorschau anzeigen",

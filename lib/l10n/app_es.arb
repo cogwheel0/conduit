@@ -1,4 +1,7 @@
 {
+  "computerDesktopDescription": "Escritorio completo · apps y ventanas",
+  "computerBrowserDescription": "Pestaña del navegador · páginas web",
+  "computerDesktopGestures": "Toca para hacer clic, arrastra para mover y usa dos dedos para desplazarte.",
   "computerTitle": "Ordenador",
   "computerPreview": "Vista previa",
   "computerShowPreview": "Mostrar vista previa",

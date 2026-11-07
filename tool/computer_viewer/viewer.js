@@ -1,5 +1,6 @@
 import RFB from '@novnc/novnc';
 import {patchHeader, remotePoint, canSendInput} from './protocol.js';
+import {createPointer} from './pointer.js';
 
 // This document only renders pixels. Remote pages never execute in this WebView.
 const surface = document.getElementById('surface');
@@ -12,6 +13,7 @@ let lastPoint = {x: 0, y: 0}, buttons = 0, touch = null;
 let touchTimer, mouseButton = 'left';
 let vncPointer = {clientX: 0, clientY: 0, button: 0};
 const heldKeys = new Map();
+const pointer = createPointer();
 
 function report(status, extra = {}) {
   window.flutter_inappwebview?.callHandler('computer', {status, ...extra});
@@ -39,7 +41,7 @@ function release() {
   if (rfb) {
     // Release through noVNC's event handlers while input is still enabled.
     // JSON control messages must never enter the raw RFB byte stream.
-    const target = surface.querySelector('div canvas');
+    const target = surface.querySelector('canvas:not(#frame)');
     for (const key of heldKeys.values()) target?.dispatchEvent(new KeyboardEvent('keyup', {...key, bubbles: true}));
     if (buttons) target?.dispatchEvent(new MouseEvent('mouseup', {...vncPointer, buttons: 0, bubbles: true}));
   } else if (config?.surface === 'desktop' && config.transport !== 'vnc') send({type: 'release'});
@@ -56,6 +58,7 @@ function close() {
   generation++;
   release();
   controlling = false;
+  pointer.hide();
   connected = false;
   clearTimeout(retryTimer);
   clearTimeout(connectTimer);
@@ -64,6 +67,7 @@ function close() {
   if (socket) { socket.onclose = null; socket.close(); socket = null; }
   surface.replaceChildren(canvas);
   canvas.classList.remove('zoomed');
+  surface.classList.remove('zoomed');
 }
 function lost(code = 1006) {
   if (disposed || !visible) return;
@@ -165,6 +169,10 @@ function connect() {
 }
 function mouse(event, point, down = buttons, deltaX = 0, deltaY = 0) {
   lastPoint = point;
+  if (canSendInput(controlling, connected, visible)) {
+    pointer.move(canvas, point);
+    if (event === 'mousePressed') pointer.click();
+  }
   if (config.surface === 'desktop') {
     input({type: 'mouse', ...point, buttons: down,
       deltaX: Math.sign(deltaX) * Math.ceil(Math.abs(deltaX) / 100),
@@ -235,6 +243,15 @@ surface.addEventListener('mousedown', event => {
   vncPointer = {clientX: event.clientX, clientY: event.clientY, button: event.button};
 }, true);
 surface.addEventListener('mouseup', event => { if (rfb) buttons = event.buttons; }, true);
+for (const type of ['gesturestart', 'gesturemove', 'gestureend']) {
+  surface.addEventListener(type, event => {
+    if (!rfb || !controlling) return;
+    const {type: gesture, clientX, clientY} = event.detail;
+    if (gesture !== 'drag' && gesture !== 'longpress') return;
+    buttons = type === 'gestureend' ? 0 : gesture === 'drag' ? 1 : 2;
+    vncPointer = {clientX, clientY, button: gesture === 'drag' ? 0 : 2};
+  }, true);
+}
 function keyEvent(event, down) {
   if (!controlling || rfb) return;
   event.preventDefault();
@@ -249,6 +266,7 @@ function keyEvent(event, down) {
 window.addEventListener('blur', () => {
   release();
   controlling = false;
+  pointer.hide();
   if (rfb) rfb.viewOnly = true;
   report('watching');
 });
@@ -257,6 +275,7 @@ window.computer = {
   control(value) {
     release();
     controlling = value === true && connected && visible;
+    if (!controlling) pointer.hide();
     canvas.style.touchAction = controlling ? 'none' : 'auto';
     if (rfb) { rfb.viewOnly = !controlling; if (controlling) rfb.focus(); }
   },
@@ -284,6 +303,7 @@ window.computer = {
     } else if (config.surface === 'browser' && ['navigate', 'back', 'forward', 'reload'].includes(value.type)) input(value);
   },
   zoom(value) {
+    surface.classList.toggle('zoomed', value);
     if (rfb) { rfb.scaleViewport = !value; rfb.clipViewport = false; }
     else { canvas.classList.toggle('zoomed', value); }
   },

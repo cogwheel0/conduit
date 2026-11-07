@@ -1,4 +1,7 @@
 {
+  "computerDesktopDescription": "Celá plocha · aplikace a okna",
+  "computerBrowserDescription": "Karta prohlížeče · webové stránky",
+  "computerDesktopGestures": "Klepnutím kliknete, tažením přesunete položky, dvěma prsty posunete.",
   "computerTitle": "Počítač",
   "computerPreview": "Náhled",
   "computerShowPreview": "Zobrazit náhled",

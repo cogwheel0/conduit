@@ -70,6 +70,7 @@ class _ComputerSurfaceViewState extends State<ComputerSurfaceView> {
 <style>
 html,body{margin:0;width:100%;height:100%;background:#111318;overflow:auto;overscroll-behavior:none}
 #surface{width:100%;height:100%;display:flex;align-items:center;justify-content:center;overflow:auto}
+#surface.zoomed{align-items:flex-start;justify-content:flex-start}
 #frame{display:block;max-width:100%;max-height:100%;object-fit:contain;flex-shrink:0}
 #frame.zoomed{max-width:none;max-height:none;width:200%;align-self:flex-start}
 </style></head><body><div id="surface"><canvas id="frame" width="1" height="1"></canvas></div>

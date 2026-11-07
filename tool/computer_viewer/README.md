@@ -9,6 +9,18 @@ Run protocol checks with `npm test`. Dependencies are pinned in the lockfile.
 noVNC is distributed under MPL-2.0; its full license and the third-party
 notices ship alongside the bundle in `assets/computer`.
 
+`build.js` makes one pinned noVNC adaptation: it omits the two local cursor
+encodings, requesting server-rendered cursor pixels instead. This shows the
+actual shared desktop pointer in Watch as well as Control. The build fails if
+the expected upstream negotiation changes. Native desktop frames show whatever
+cursor the server captures. Browser frames do not publish an agent cursor
+position; the blue pointer marks only the user's input during Control and is
+hidden on Watch, blur, disconnect and mode changes.
+
+Desktop is the default when advertised. Both preview and live view explicitly
+select Desktop or Browser. Only Browser has navigation controls. Landscape uses
+a side panel, preserving the live surface across rotation.
+
 Protocol references:
 - https://github.com/open-webui/open-terminal/tree/v0.17.2/open_terminal
 - https://github.com/open-webui/open-webui/tree/v0.13.0/src/lib/apis/terminal
@@ -23,8 +35,8 @@ response. A new chat message continues work.
 ## Local review
 
 `tool/computer_review.dart` is an intentionally synthetic review entry point. It
-uses the production launcher, page, service and bundled viewer with a real Open
-Terminal browser. The surrounding conversation and task progress are invented;
+uses the production launcher, page, service and bundled viewer with real Open
+Terminal Desktop and Browser surfaces. The surrounding conversation and task progress are invented;
 the task is a timed fixture, not a model response. Production response cancellation
 is covered separately in `chat_draft_queue_test.dart`.
 
@@ -43,7 +55,8 @@ profile. Never attach this fixture to a personal browser or production terminal.
    at the empty review workspace. The key is a public, synthetic test value.
 4. Create a browser session at `http://127.0.0.1:8767` with `X-Session-Id:
    computer-review`, then select its Chrome mode. Run Flutter with
-   `--target tool/computer_review.dart` on a fresh simulator.
+   `--target tool/computer_review.dart --dart-define=COMPUTER_REVIEW_URL=http://127.0.0.1:8766`
+   on a fresh simulator for the browser-only setup.
 5. Use the play button to run the timed task. Open the preview, watch live, take
    control, tap or scroll, then return to Watch. Record only the simulator's
    framebuffer. Review the entire recording before sharing.
@@ -59,9 +72,25 @@ and protocol fixtures; it never captures a host desktop. Set `COMPUTER_REVIEW=tr
 and `COMPUTER_REVIEW_PYTHON` to an isolated Python with Pillow and websockets installed,
 then run `node --test desktop.test.js` while the synthetic Chrome is available.
 
+For both modes, use a disposable Linux VM with no host mounts. Install official
+Open Terminal 0.17.2, `tigervnc-standalone-server`, `xfce4`, `dbus-x11`, `xauth`,
+`xdotool`, `scrot`, `xclip` and `mousepad`. Enable Desktop and Browser, with all
+files, profiles and caches confined to the VM's external disk. Forward its port
+8000 to host loopback port 18768; this is the review entry point's default URL.
+The browser may use the same isolated Chrome via the VM's host gateway. Do not
+use the host's native desktop: it can expose personal apps and files.
+
+`real_desktop.test.js` uses this disposable VM (hostname/user `studio`, SSH on
+loopback port 12222, review key and known-hosts files in
+`build/computer-review/linux`). It creates a fresh editor profile per run and
+checks actual server-rendered cursor movement, Watch input blocking, typing and
+saving in Mousepad, and safe reconnect. Run from this directory:
+
+```sh
+COMPUTER_DESKTOP_REVIEW=true node --test real_desktop.test.js
+```
+
 Verified with Open WebUI 0.13 protocol, Open Terminal 0.17.2, iOS 27 simulator,
-Android/iOS widget layouts, and the real browser integration. Browser typing,
-shortcuts, viewport resize, Watch input blocking, blur and reconnect are asserted
-against the real service. Native pointer input, rotation, background recovery and
-the text dialog were exercised manually. Desktop transport coverage uses fixtures;
-it does not establish compatibility with every desktop platform or VNC server.
+Android/iOS widget layouts, a real Linux/XFCE desktop and a real Chrome browser.
+Native Mac/Windows desktop transports also have fixture coverage; this is not
+a claim of end-to-end testing on those host platforms.

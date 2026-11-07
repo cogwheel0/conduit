@@ -1,4 +1,7 @@
 {
+  "computerDesktopDescription": "Desktop completo · app e finestre",
+  "computerBrowserDescription": "Scheda del browser · pagine web",
+  "computerDesktopGestures": "Tocca per fare clic, trascina per spostare, scorri con due dita.",
   "computerTitle": "Computer",
   "computerPreview": "Anteprima",
   "computerShowPreview": "Mostra anteprima",

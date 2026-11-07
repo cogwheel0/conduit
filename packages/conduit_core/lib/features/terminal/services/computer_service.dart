@@ -76,21 +76,6 @@ class ComputerService {
     return _openBrowser(await _json('browser/tabs'));
   }
 
-  /// Follow the agent's existing browser when there is one. Otherwise the
-  /// desktop is the default on terminals that advertise both surfaces.
-  Future<ComputerConnection> openPreferred(
-    ComputerCapabilities capabilities,
-  ) async {
-    if (capabilities.browser) {
-      final tabs = await _json('browser/tabs');
-      final current = tabs['current_session_id'];
-      if (!capabilities.desktop || current is String && current.isNotEmpty) {
-        return _openBrowser(tabs);
-      }
-    }
-    return open(capabilities.preferred);
-  }
-
   Future<ComputerConnection> _openBrowser(Map<String, dynamic> tabs) async {
     // Reattach to the agent's selected tab instead of creating a second browser.
     final current = tabs['current_session_id'];

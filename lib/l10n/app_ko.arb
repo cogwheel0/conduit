@@ -1,4 +1,7 @@
 {
+  "computerDesktopDescription": "전체 데스크톱 · 앱과 창",
+  "computerBrowserDescription": "브라우저 탭 · 웹 페이지",
+  "computerDesktopGestures": "탭하여 클릭하고, 드래그하여 이동하고, 두 손가락으로 스크롤하세요.",
   "computerTitle": "컴퓨터",
   "computerPreview": "미리 보기",
   "computerShowPreview": "미리 보기 표시",

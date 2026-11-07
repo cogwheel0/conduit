@@ -14,6 +14,7 @@ import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/platform_ui/platform_ui.dart';
 import '../../../shared/utils/platform_page_route.dart';
 import 'computer_page.dart';
+import 'computer_mode_selector.dart';
 
 /// A chat-scoped, on-demand entry. No pixels are fetched while collapsed.
 class ComputerLauncher extends ConsumerWidget {
@@ -53,10 +54,12 @@ class _ComputerCardState extends State<_ComputerCard>
   int _generation = 0;
   Uint8List? _preview;
   ComputerConnection? _connection;
+  late ComputerSurface _selected;
 
   @override
   void initState() {
     super.initState();
+    _selected = widget.capabilities.preferred;
     WidgetsBinding.instance.addObserver(this);
   }
 
@@ -95,9 +98,7 @@ class _ComputerCardState extends State<_ComputerCard>
       _forgetPreview();
     });
     try {
-      final connection = await widget.service.openPreferred(
-        widget.capabilities,
-      );
+      final connection = await widget.service.open(_selected);
       if (!mounted || generation != _generation) return;
       _connection = connection;
       final bytes = await widget.service.screenshot(connection);
@@ -119,6 +120,7 @@ class _ComputerCardState extends State<_ComputerCard>
           service: widget.service,
           capabilities: widget.capabilities,
           initialConnection: _connection,
+          initialSurface: _selected,
         ),
       ),
     );
@@ -199,13 +201,27 @@ class _ComputerCardState extends State<_ComputerCard>
               ),
             ),
             if (_expanded) ...[
+              Padding(
+                padding: const EdgeInsets.fromLTRB(12, 0, 12, 10),
+                child: SizedBox(
+                  width: double.infinity,
+                  child: ComputerModeSelector(
+                    capabilities: widget.capabilities,
+                    selected: _selected,
+                    onChanged: (value) {
+                      _selected = value;
+                      unawaited(_load());
+                    },
+                  ),
+                ),
+              ),
               GestureDetector(
                 onTap: _loading ? null : _open,
                 child: Semantics(
                   button: true,
                   label: l10n.computerOpenLive,
                   child: Container(
-                    height: 152,
+                    height: MediaQuery.sizeOf(context).height < 500 ? 88 : 152,
                     width: double.infinity,
                     margin: const EdgeInsets.symmetric(horizontal: 8),
                     decoration: BoxDecoration(
