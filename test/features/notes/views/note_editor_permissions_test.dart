@@ -2503,6 +2503,23 @@ void main() {
     });
   });
 
+  testWidgets('outside iOS 26 the body is edited without a Done button', (
+    tester,
+  ) async {
+    final note = _noteJson(writeAccess: true);
+    await storeLocally(note);
+    await pumpEditor(tester, _DetailApi(detail: note));
+
+    await tester.tap(find.byType(FleatherEditor));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(FleatherToolbar), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey<String>('note-editor-done')),
+      findsNothing,
+    );
+  });
+
   group('iOS 26 bottom toolbar', () {
     setUp(() {
       stubNativePlatformViews();
@@ -2529,6 +2546,18 @@ void main() {
       for (final entry in menu.items)
         entry is CNPopupMenuItem ? entry.label : '-',
     ];
+
+    const doneKey = ValueKey<String>('note-editor-done');
+
+    /// Presses Done in the top bar, as VoiceOver names it.
+    Future<void> pressDone(WidgetTester tester) async {
+      final done = tester.widget<ConduitAdaptiveAppBarIconButton>(
+        find.byKey(doneKey),
+      );
+      expect(done.semanticLabel, l10n(tester).done);
+      done.onPressed!();
+      await tester.pumpAndSettle();
+    }
 
     /// Chooses [label] in [menu] as UIKit reports it: by the row's index.
     Future<void> choose(
@@ -2587,6 +2616,13 @@ void main() {
 
       expect(itemIds(tester), ['space', 'pages', 'more']);
       expect(rows(item<CNToolbarMenu>(tester, 'more')), [text.copy, text.pin]);
+
+      // Reading brings up no keyboard, so the toolbar stays and Done is not
+      // offered.
+      await tester.tap(find.byType(FleatherEditor));
+      await tester.pumpAndSettle();
+      expect(find.byType(CNToolbar), findsOneWidget);
+      expect(find.byKey(doneKey), findsNothing);
 
       item<CNToolbarButton>(tester, 'pages').onPressed!();
       await tester.pumpAndSettle();
@@ -2676,16 +2712,19 @@ void main() {
       expect(find.byType(CNToolbar), findsOneWidget);
     }, variant: ios);
 
-    testWidgets('stays usable while the body is edited, with the formatting '
-        'bar under it and the text above both', (tester) async {
+    testWidgets('gives way to the formatting bar while the body is edited, '
+        'and Done brings it back', (tester) async {
       final note = _noteJson(writeAccess: true);
       await storeLocally(note);
       await pumpEditor(tester, _DetailApi(detail: note), nativeIOS26: true);
+      expect(find.byKey(doneKey), findsNothing);
 
       await tester.tap(find.byType(FleatherEditor));
       await tester.pumpAndSettle();
 
-      final toolbarRect = tester.getRect(find.byType(CNToolbar));
+      expect(find.byType(CNToolbar), findsNothing);
+      expect(find.byKey(doneKey), findsOneWidget);
+      // The text ends above the formatting bar, so the caret stays in view.
       final formattingRect = tester.getRect(find.byType(FleatherToolbar));
       final textRect = tester.getRect(
         find
@@ -2695,8 +2734,42 @@ void main() {
             )
             .first,
       );
-      expect(formattingRect.top, greaterThanOrEqualTo(toolbarRect.bottom));
-      expect(textRect.bottom, lessThanOrEqualTo(toolbarRect.top));
+      expect(textRect.bottom, lessThanOrEqualTo(formattingRect.top));
+
+      await pressDone(tester);
+
+      final editor = tester.widget<FleatherEditor>(find.byType(FleatherEditor));
+      expect(editor.focusNode!.hasFocus, isFalse);
+      expect(find.byType(FleatherToolbar), findsNothing);
+      expect(find.byKey(doneKey), findsNothing);
+      expect(find.byType(CNToolbar), findsOneWidget);
+    }, variant: ios);
+
+    testWidgets('gives way while the title is edited too, and Done ends it', (
+      tester,
+    ) async {
+      final note = _noteJson(writeAccess: true);
+      await storeLocally(note);
+      await pumpEditor(tester, _DetailApi(detail: note), nativeIOS26: true);
+      final title = find.byWidgetPredicate(
+        (widget) =>
+            widget is EditableText &&
+            widget.focusNode.debugLabel == 'note_title',
+      );
+
+      await tester.tap(title, warnIfMissed: false);
+      await tester.pumpAndSettle();
+      expect(tester.widget<EditableText>(title).focusNode.hasFocus, isTrue);
+
+      expect(find.byType(CNToolbar), findsNothing);
+      expect(find.byType(FleatherToolbar), findsNothing);
+      expect(find.byKey(doneKey), findsOneWidget);
+
+      await pressDone(tester);
+
+      expect(tester.widget<EditableText>(title).focusNode.hasFocus, isFalse);
+      expect(find.byKey(doneKey), findsNothing);
+      expect(find.byType(CNToolbar), findsOneWidget);
     }, variant: ios);
   });
 }

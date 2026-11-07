@@ -1121,6 +1121,10 @@
   "@more": {
     "description": "Opens additional actions or content."
   },
+  "done": "Done",
+  "@done": {
+    "description": "Ends editing, such as typing in a note, and hides the keyboard."
+  },
   "clear": "Clear",
   "@clear": {
     "description": "Action to clear input or selection."

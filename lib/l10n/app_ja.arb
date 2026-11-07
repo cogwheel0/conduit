@@ -880,6 +880,7 @@
     "description": "Action to start a new chat."
   },
   "more": "その他",
+  "done": "完了",
   "@more": {
     "description": "Opens additional actions or content."
   },

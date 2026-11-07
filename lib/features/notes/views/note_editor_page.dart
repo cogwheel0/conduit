@@ -288,9 +288,9 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
   /// of its own or discarded.
   bool _pageMissing = false;
 
-  /// Height of the bars at the foot of the page while the body is edited
-  /// with the iOS 26 toolbar: the toolbar and the formatting bar under it.
-  /// The text is laid out above them, so they never hide the caret.
+  /// Height of the bars at the foot of the page with the iOS 26 toolbar.
+  /// While the body is edited that is the formatting bar, and the text is
+  /// laid out above it, so it never hides the caret.
   double _bottomBarsHeight = 0;
 
   /// On iOS 26 a native bottom toolbar holds the voice, AI and note actions
@@ -299,6 +299,18 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
 
   /// Whether the body is being edited, which brings up the formatting bar.
   bool get _editingContent => !_readOnly && _contentFocusNode.hasFocus;
+
+  /// Whether the body or the title is being edited, with the keyboard up.
+  /// On iOS 26 the bottom toolbar then gives way, as in Notes, and Done in
+  /// the top bar ends the edit.
+  bool get _editingWithKeyboard =>
+      !_readOnly && (_contentFocusNode.hasFocus || _titleFocusNode.hasFocus);
+
+  /// Ends editing the title or the body, which hides the keyboard.
+  void _endEditing() {
+    _titleFocusNode.unfocus();
+    _contentFocusNode.unfocus();
+  }
 
   static final _whitespacePattern = RegExp(r'\s+');
   int _cachedWordCount = 0;
@@ -1764,11 +1776,12 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
     );
   }
 
-  /// The iOS 26 toolbar at the foot of the page. While the body is edited it
-  /// stays above the keyboard, with the formatting bar between them.
+  /// The iOS 26 toolbar at the foot of the page. While the keyboard is up it
+  /// gives way: to the formatting bar when the body is edited, to nothing
+  /// when the title is. It stays mounted meanwhile, so its native view is
+  /// not built again each time the keyboard goes down.
   Widget _buildNativeBottomBars(BuildContext context) {
     final note = _note!;
-    final editing = _editingContent;
     const placeholder = SizedBox(height: AdaptiveBottomToolbar.height);
     // A native view would show through a page pushed above the editor, such
     // as the recording overlay, which leaves the bottom inset unpainted.
@@ -1802,13 +1815,11 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          SafeArea(
-            top: false,
-            // The formatting bar below takes the bottom inset.
-            bottom: !editing,
-            child: toolbar,
+          Offstage(
+            offstage: _editingWithKeyboard,
+            child: SafeArea(top: false, child: toolbar),
           ),
-          if (editing) _buildFormattingToolbar(context),
+          if (_editingContent) _buildFormattingToolbar(context),
         ],
       ),
     );
@@ -1874,11 +1885,13 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
   AdaptiveAppBar _buildAdaptiveNoteEditorAppBar(BuildContext context) {
     final tintColor = context.conduitTheme.textPrimary;
     final l10n = AppLocalizations.of(context)!;
-    // On iOS 26 the note's actions are in the bottom toolbar.
+    // On iOS 26 the note's actions are in the bottom toolbar, and the top
+    // bar shows Done while the keyboard is up.
     final showsMenu = !_usesNativeToolbar;
+    final showsDone = _usesNativeToolbar && _editingWithKeyboard;
     final maxTitleWidth = resolveConduitAdaptiveLeadingPillWidth(
       context,
-      trailingActionCount: showsMenu ? 1 : 0,
+      trailingActionCount: showsMenu || showsDone ? 1 : 0,
       maxWidth: kConduitAdaptiveToolbarMaxPillWidth,
     );
     final title = _buildNoteEditorTitlePill(context, maxWidth: maxTitleWidth);
@@ -1894,6 +1907,16 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
         leading: leading,
         title: title,
         actions: const [],
+        cupertinoTrailing: showsDone
+            ? ConduitAdaptiveAppBarIconButton(
+                key: const ValueKey<String>('note-editor-done'),
+                icon: Icons.check,
+                iosSymbol: 'checkmark',
+                iconColor: tintColor,
+                semanticLabel: l10n.done,
+                onPressed: _endEditing,
+              )
+            : null,
         centerTitle: false,
       );
     }

@@ -1096,6 +1096,7 @@
     "description": "Action to start a new chat."
   },
   "more": "Więcej",
+  "done": "Gotowe",
   "@more": {
     "description": "Opens additional actions or content."
   },
