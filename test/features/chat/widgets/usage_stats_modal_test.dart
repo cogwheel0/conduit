@@ -1,5 +1,6 @@
 import 'package:conduit/features/chat/widgets/usage_stats_modal.dart';
 import 'package:conduit/l10n/app_localizations.dart';
+import 'package:conduit/l10n/conduit_localizations.dart';
 import 'package:conduit/shared/theme/app_theme.dart';
 import 'package:conduit/shared/theme/tweakcn_themes.dart';
 import 'package:conduit/shared/widgets/legacy_design_compatibility.dart';
@@ -18,14 +19,21 @@ void main() {
     GlobalKey? anchorKey,
     bool anchorOnScreen = true,
     int? contextLength,
+    Locale? locale,
+    double textScale = 1,
   }) async {
     late AppLocalizations l10n;
     await tester.pumpWidget(
       MaterialApp(
         theme: AppTheme.light(TweakcnThemes.t3Chat),
-        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        locale: locale,
+        localizationsDelegates: conduitLocalizationsDelegates,
         supportedLocales: AppLocalizations.supportedLocales,
-        builder: (context, child) => LegacyDesignCompatibility(child: child!),
+        builder: (context, child) => MediaQuery(
+          data: MediaQuery.of(context)
+              .copyWith(textScaler: TextScaler.linear(textScale)),
+          child: LegacyDesignCompatibility(child: child!),
+        ),
         home: Scaffold(
           body: Builder(
             builder: (context) {
@@ -95,6 +103,41 @@ void main() {
       'completion_tokens': 820,
     }, contextLength: 32768);
     expect(find.text('62% \u00b7 20K of 32K'), findsOneWidget);
+
+    // Under ten of a unit keeps a decimal, rounding up or not.
+    await tester.pumpWidget(const SizedBox.shrink());
+    await openSheet(tester, const <String, dynamic>{
+      'prompt_tokens': 9000,
+      'completion_tokens': 500,
+    }, contextLength: 128000);
+    expect(find.text('7% \u00b7 9.5K of 128K'), findsOneWidget);
+  });
+
+  testWidgets('a long context figure wraps on a narrow sheet', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(320, 700));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    // German has no short form for thousands, so the figure is long.
+    final l10n = await openSheet(
+      tester,
+      const <String, dynamic>{
+        'prompt_tokens': 78000,
+        'completion_tokens': 1360,
+        'prompt_time': 0.25,
+      },
+      contextLength: 128000,
+      locale: const Locale('de'),
+      textScale: 1.3,
+    );
+
+    expect(tester.takeException(), isNull);
+    final value = find.textContaining('79360');
+    final label = find.text(l10n.usageContextWindow);
+    expect(value, findsOneWidget);
+    expect(
+      tester.getRect(value).left,
+      greaterThan(tester.getRect(label).right),
+    );
+    expect(tester.getRect(value).right, lessThanOrEqualTo(320));
   });
 
   test('the native sheet text carries the note too', () async {

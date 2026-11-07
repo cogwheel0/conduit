@@ -121,11 +121,13 @@ class UsageStatsModal {
                   color: theme.textPrimary,
                 ),
                 const SizedBox(width: Spacing.sm),
-                Text(
-                  l10n.usageInfoTitle,
-                  style: AppTypography.bodyLargeStyle.copyWith(
-                    fontWeight: FontWeight.w600,
-                    color: theme.textPrimary,
+                Flexible(
+                  child: Text(
+                    l10n.usageInfoTitle,
+                    style: AppTypography.bodyLargeStyle.copyWith(
+                      fontWeight: FontWeight.w600,
+                      color: theme.textPrimary,
+                    ),
                   ),
                 ),
               ],
@@ -282,17 +284,20 @@ class UsageStatsModal {
   }
 
   /// [count] as a short figure in the app's language, rounded as iOS rounds
-  /// one: to whole units, or to one decimal under ten of them (79K, 128K,
-  /// 1.5M; 7.9万 in Japanese).
+  /// one: to one decimal under ten of its unit, else to whole units (9.5K,
+  /// 79K, 128K, 1.5M; 7.9万 in Japanese).
   static String _compactCount(BuildContext context, int count) {
     final locale = Localizations.localeOf(context).toLanguageTag();
     NumberFormat format(int decimals) => NumberFormat.compact(locale: locale)
       ..significantDigitsInUse = false
       ..maximumFractionDigits = decimals;
-    final whole = format(0).format(count);
-    return _digit.allMatches(whole).length == 1
-        ? format(1).format(count)
-        : whole;
+    // With one decimal, a figure under ten of its unit shows at most two
+    // digits (9.5K, 1K, and 10K once it rounds up); a larger one, three or
+    // more, and then the decimal is dropped.
+    final oneDecimal = format(1).format(count);
+    return _digit.allMatches(oneDecimal).length <= 2
+        ? oneDecimal
+        : format(0).format(count);
   }
 
   static final _digit = RegExp(r'\p{Nd}', unicode: true);
@@ -350,36 +355,49 @@ class _UsageStatRow extends StatelessWidget {
   Widget build(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.only(bottom: Spacing.sm),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Text(
-            label,
-            style: AppTypography.bodyMediumStyle.copyWith(
-              color: theme.textSecondary,
-            ),
-          ),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              Text(
-                value,
+      // The value takes the width it needs, up to most of the row, and wraps
+      // beyond that; the label wraps in what is left. A long figure (a
+      // context window in German at a large text size) then stays on the
+      // sheet.
+      child: LayoutBuilder(
+        builder: (context, constraints) => Row(
+          children: [
+            Expanded(
+              child: Text(
+                label,
                 style: AppTypography.bodyMediumStyle.copyWith(
-                  fontWeight: FontWeight.w600,
-                  fontFamily: AppTypography.monospaceFontFamily,
-                  color: theme.textPrimary,
+                  color: theme.textSecondary,
                 ),
               ),
-              if (detail != null)
-                Text(
-                  detail!,
-                  style: AppTypography.labelSmallStyle.copyWith(
-                    color: theme.textTertiary,
+            ),
+            const SizedBox(width: Spacing.sm),
+            ConstrainedBox(
+              constraints: BoxConstraints(maxWidth: constraints.maxWidth * 0.6),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Text(
+                    value,
+                    textAlign: TextAlign.end,
+                    style: AppTypography.bodyMediumStyle.copyWith(
+                      fontWeight: FontWeight.w600,
+                      fontFamily: AppTypography.monospaceFontFamily,
+                      color: theme.textPrimary,
+                    ),
                   ),
-                ),
-            ],
-          ),
-        ],
+                  if (detail != null)
+                    Text(
+                      detail!,
+                      textAlign: TextAlign.end,
+                      style: AppTypography.labelSmallStyle.copyWith(
+                        color: theme.textTertiary,
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
