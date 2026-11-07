@@ -3,9 +3,11 @@ import 'dart:async';
 import 'package:meta/meta.dart';
 
 import '../models/terminal_models.dart';
+import '../services/terminal_port_preview.dart';
 import '../services/terminal_service.dart';
 import 'terminal_change_notifier.dart';
 import 'terminal_controller_gateways.dart';
+import 'terminal_events_watcher.dart';
 import 'terminal_session_controller.dart';
 
 enum TerminalBrowserFailure {
@@ -57,14 +59,35 @@ class TerminalBrowserController with TerminalChangeNotifier {
   bool _loadingFiles = false;
   int _directoryLoadGeneration = 0;
   int _loadSequence = 0;
+  int _loadingSequence = 0;
   int _publishedSequence = 0;
   String? _publishedPath;
   bool _loadingPorts = false;
   bool _disposed = false;
+  ({String selectionId, String sessionScopeId, TerminalServerFeatures value})?
+  _features;
+  TerminalEventsWatcher? _fileEvents;
+  TerminalEventsWatcher? _portEvents;
+
+  /// Counts port lists the server pushed, so a fetch that started before one
+  /// does not replace it with what it read earlier.
+  int _pushedPorts = 0;
+
+  /// Each start of the live updates is a run of its own, so a listing an
+  /// earlier run left waiting, as for the terminal the user left, does not
+  /// hold up the changes the next one reports.
+  int _liveRun = 0;
+  int? _liveRefreshRun;
+  bool _liveRefreshPending = false;
 
   bool get loadingFiles => _loadingFiles;
 
   bool get loadingPorts => _loadingPorts;
+
+  /// Whether a socket keeps the files or the ports current, rather than only
+  /// the refreshes the user and the app ask for.
+  bool get liveUpdates =>
+      (_fileEvents?.active ?? false) || (_portEvents?.active ?? false);
 
   TerminalBrowserOperationContext? captureOperationContext() {
     if (_disposed) return null;
@@ -113,12 +136,16 @@ class TerminalBrowserController with TerminalChangeNotifier {
   /// chose another path must not put the old one back. Two listings of the
   /// same directory, a refresh among them, publish in the order they were
   /// requested, whatever order they answer in.
+  ///
+  /// A [quiet] listing is one nobody asked for, such as a live update: it
+  /// shows no spinner and reports no failure.
   Future<void> loadDirectory(
     TerminalService service,
     TerminalServerInfo server, {
     required String path,
     required bool updateServerCwd,
     bool refresh = false,
+    bool quiet = false,
   }) async {
     final sessionScopeId = _gateway.sessionScopeId;
     if (!_isCurrentContext(server, sessionScopeId)) return;
@@ -132,7 +159,10 @@ class TerminalBrowserController with TerminalChangeNotifier {
         _isCurrentContext(server, sessionScopeId) &&
         (!refresh || _gateway.currentPath == normalizedPath);
 
-    _setLoadingFiles(true);
+    if (!quiet) {
+      _loadingSequence = sequence;
+      _setLoadingFiles(true);
+    }
     try {
       final entries = await service.listFiles(
         server,
@@ -150,6 +180,7 @@ class TerminalBrowserController with TerminalChangeNotifier {
 
       _gateway.setCurrentPath(normalizedPath);
       _gateway.setEntries(entries);
+      _fileEvents?.watchPath(normalizedPath);
 
       if (updateServerCwd) {
         unawaited(
@@ -161,16 +192,152 @@ class TerminalBrowserController with TerminalChangeNotifier {
         );
       }
     } catch (_) {
-      if (isCurrentLoad()) {
+      if (!quiet && isCurrentLoad()) {
         _onFailure(TerminalBrowserFailure.loadFiles);
       }
     } finally {
-      // Loading ends with the newest request, not with whichever answers last.
-      if (sequence == _loadSequence &&
+      // Loading ends with the newest request that showed it, not with
+      // whichever answers last.
+      if (sequence == _loadingSequence &&
           _isCurrentContext(server, sessionScopeId)) {
         _setLoadingFiles(false);
       }
     }
+  }
+
+  /// Records what [server] can do in [sessionScopeId], for live updates and
+  /// port previews.
+  void setFeatures(
+    TerminalServerInfo server,
+    String sessionScopeId,
+    TerminalServerFeatures features,
+  ) {
+    _features = (
+      selectionId: server.selectionId,
+      sessionScopeId: sessionScopeId,
+      value: features,
+    );
+  }
+
+  /// Keeps [server]'s files and ports current through its events socket,
+  /// when the terminal and the server relaying it have one. Otherwise the
+  /// browser refreshes on demand, as before.
+  void startLiveUpdates(TerminalService service, TerminalServerInfo server) {
+    stopLiveUpdates();
+    final sessionScopeId = _gateway.sessionScopeId;
+    if (_disposed || !_isCurrentContext(server, sessionScopeId)) return;
+    if (_featuresFor(server, sessionScopeId)?.events != true) return;
+    if (server.isSystem && !_gateway.systemTerminalLiveFeatures) return;
+    final token = service.authTokenForServer(server);
+    // A direct terminal without a key accepts an empty one; Open WebUI
+    // always needs the account's.
+    if (server.isSystem && token == null) return;
+
+    TerminalEventsWatcher watch({String? path, bool ports = false}) =>
+        TerminalEventsWatcher(
+          openChannel: _gateway.openChannel,
+          uri: service.buildEventsWebSocketUri(server),
+          kind: server.kind,
+          authPayload: buildTerminalWebSocketAuthPayload(
+            server,
+            token: token ?? '',
+            sessionScopeId: sessionScopeId,
+          ),
+          path: path,
+          ports: ports,
+          onEvent: (event) {
+            if (_disposed || !_isCurrentContext(server, sessionScopeId)) {
+              return;
+            }
+            switch (event) {
+              case TerminalFilesChanged():
+                _refreshLive();
+              case TerminalPortsChanged(:final ports):
+                _pushedPorts++;
+                _gateway.setListeningPorts(ports);
+                _setLoadingPorts(false);
+            }
+          },
+        );
+    final files = watch(path: ensureTerminalDirectoryPath(_gateway.currentPath));
+    final ports = watch(ports: true);
+    _fileEvents = files;
+    _portEvents = ports;
+    files.start();
+    ports.start();
+  }
+
+  /// Starts or stops the live updates of the selected Open WebUI terminal
+  /// once Open WebUI says whether it relays them. Its version arrives with
+  /// its config, which can come after the terminal loaded, so the terminal
+  /// would otherwise stay on demand until it is opened again. The console
+  /// stays connected.
+  void liveFeaturesChanged() {
+    if (_disposed) return;
+    final service = _gateway.service;
+    final server = _selectedServer;
+    if (service == null || server == null || !server.isSystem) return;
+    if (!_isCurrentServer(server)) return;
+    // A terminal still loading starts them itself once it has loaded.
+    if (_featuresFor(server, _gateway.sessionScopeId) == null) return;
+    startLiveUpdates(service, server);
+  }
+
+  void stopLiveUpdates() {
+    final files = _fileEvents;
+    final ports = _portEvents;
+    _fileEvents = null;
+    _portEvents = null;
+    files?.stop();
+    ports?.stop();
+    _liveRun++;
+    _liveRefreshPending = false;
+  }
+
+  /// Lists the current directory again after the server reported a change.
+  /// A change reported while a listing is under way lists once more after
+  /// it, so the listing never ends older than the last change.
+  void _refreshLive() {
+    if (_liveRefreshRun == _liveRun) {
+      _liveRefreshPending = true;
+      return;
+    }
+    unawaited(_runLiveRefresh(_liveRun));
+  }
+
+  Future<void> _runLiveRefresh(int run) async {
+    _liveRefreshRun = run;
+    try {
+      do {
+        _liveRefreshPending = false;
+        final service = _gateway.service;
+        final server = _selectedServer;
+        if (_disposed || service == null || server == null) return;
+        await loadDirectory(
+          service,
+          server,
+          path: _gateway.currentPath,
+          updateServerCwd: false,
+          refresh: true,
+          quiet: true,
+        );
+      } while (_liveRefreshPending && run == _liveRun && !_disposed);
+    } finally {
+      if (_liveRefreshRun == run) _liveRefreshRun = null;
+    }
+  }
+
+  TerminalServerFeatures? _featuresFor(
+    TerminalServerInfo server,
+    String sessionScopeId,
+  ) {
+    final features = _features;
+    if (features == null ||
+        features.selectionId != server.selectionId ||
+        features.sessionScopeId != sessionScopeId) {
+      return null;
+    }
+    return features.value;
   }
 
   Future<void> loadPorts(
@@ -178,6 +345,7 @@ class TerminalBrowserController with TerminalChangeNotifier {
     TerminalServerInfo server,
   ) async {
     final sessionScopeId = _gateway.sessionScopeId;
+    final pushedBefore = _pushedPorts;
     _setLoadingPorts(true);
     try {
       final ports = await service.getListeningPorts(
@@ -187,6 +355,8 @@ class TerminalBrowserController with TerminalChangeNotifier {
       if (!_isCurrentContext(server, sessionScopeId)) {
         return;
       }
+      // The server pushed a newer list while this one was on its way.
+      if (_pushedPorts != pushedBefore) return;
       _gateway.setListeningPorts(ports);
     } catch (_) {
       if (_isCurrentContext(server, sessionScopeId)) {
@@ -336,6 +506,12 @@ class TerminalBrowserController with TerminalChangeNotifier {
     );
   }
 
+  /// Shows [port] in the app's preview. A terminal that opens browser
+  /// sessions shows it through one, for Open WebUI's own terminals only on
+  /// a server that relays them (0.13); any other shows it through the port
+  /// proxy, as before. The proxy needs the terminal's credential, Open
+  /// WebUI's token or a direct terminal's key, which goes only with the
+  /// page loads the app makes.
   Future<void> openPort(TerminalListeningPort port) async {
     if (_disposed) {
       return;
@@ -346,17 +522,57 @@ class TerminalBrowserController with TerminalChangeNotifier {
       return;
     }
 
-    final url = service.buildPortProxyUri(server, port.port);
-    final authToken = server.isSystem
-        ? service.authTokenForServer(server)
-        : null;
-    final launched = await _platformGateway.openPort(
-      url,
-      bearerToken: authToken,
+    final sessionScopeId = _gateway.sessionScopeId;
+    final sessions =
+        _featuresFor(server, sessionScopeId)?.browser == true &&
+        (server.isDirect || _gateway.systemTerminalLiveFeatures);
+    final preview = TerminalPortPreview(
+      port: port.port,
+      terminalBaseUri: server.baseUrl,
+      bearerToken: service.authTokenForServer(server),
+      openSession: sessions
+          ? () => service.createBrowserSession(
+              server,
+              url: 'http://localhost:${port.port}/',
+              sessionScopeId: sessionScopeId,
+            )
+          : null,
+      closeSession: sessions
+          ? (session) => _sessionCloser(service, server).closeBrowserSession(
+              server,
+              session.id,
+              sessionScopeId: sessionScopeId,
+            )
+          : null,
     );
+    final launched = await _platformGateway.openPort(preview);
     if (!launched) {
       _onFailure(TerminalBrowserFailure.openPort);
     }
+  }
+
+  /// The service that closes a browser session [opened] opened on [server].
+  ///
+  /// Open WebUI's own terminals go through the account's client, which the
+  /// app replaces and closes whenever the account's token changes, as a
+  /// silent sign-in does. A close sent through the old one never leaves, and
+  /// the terminal keeps the session for a day, counting it against the
+  /// user's 16 browser tabs. So the current client closes it while it is
+  /// the same saved server's: the session answers only the user who opened
+  /// it, so another user's client could not close it anyway, and another
+  /// server's must not hear of it. A direct terminal's requests make a
+  /// client of their own.
+  TerminalService _sessionCloser(
+    TerminalService opened,
+    TerminalServerInfo server,
+  ) {
+    // The tab that owns the gateway is gone with this controller.
+    if (_disposed || !server.isSystem) return opened;
+    final current = _gateway.service;
+    if (current == null || identical(current, opened)) return opened;
+    return current.api.serverConfig.id == opened.api.serverConfig.id
+        ? current
+        : opened;
   }
 
   void resetLoading() {
@@ -373,6 +589,7 @@ class TerminalBrowserController with TerminalChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
+    stopLiveUpdates();
     super.dispose();
   }
 

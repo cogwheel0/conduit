@@ -5931,5 +5931,8 @@
   "mcpAppLoadFailed": "アプリを読み込めませんでした: {reason}",
   "mcpAppDidNotStart": "アプリが起動しませんでした。",
   "mcpAppOpenLinkTitle": "このリンクを開きますか？",
-  "mcpAppOpenLinkConfirm": "開く"
+  "mcpAppOpenLinkConfirm": "開く",
+  "terminalPortPreviewForward": "進む",
+  "terminalPortPreviewReload": "再読み込み",
+  "terminalPortPreviewLoadFailed": "このページを読み込めませんでした。"
 }

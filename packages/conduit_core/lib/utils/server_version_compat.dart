@@ -52,6 +52,11 @@ class ServerVersionCompat {
   /// holds, and lets its owner set limits of its own.
   static const String knowledgeLimitsVersion = '0.13.0';
 
+  /// The first Open WebUI release that relays its terminals' events socket
+  /// and browser sessions, and that makes port previews report where a link
+  /// leads instead of following it.
+  static const String terminalLiveFeaturesVersion = '0.13.0';
+
   /// Whether [rawVersion] is [minimum] or newer, or null when [rawVersion]
   /// cannot be read. For a choice that must not guess either way.
   static bool? knownAtLeast(String? rawVersion, String minimum) {

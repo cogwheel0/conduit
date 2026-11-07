@@ -6237,5 +6237,8 @@
   "mcpAppLoadFailed": "Aplikáciu sa nepodarilo načítať: {reason}",
   "mcpAppDidNotStart": "Aplikácia sa nespustila.",
   "mcpAppOpenLinkTitle": "Otvoriť tento odkaz?",
-  "mcpAppOpenLinkConfirm": "Otvoriť"
+  "mcpAppOpenLinkConfirm": "Otvoriť",
+  "terminalPortPreviewForward": "Dopredu",
+  "terminalPortPreviewReload": "Znova načítať",
+  "terminalPortPreviewLoadFailed": "Túto stránku sa nepodarilo načítať."
 }

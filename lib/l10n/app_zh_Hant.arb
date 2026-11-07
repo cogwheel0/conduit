@@ -4319,5 +4319,8 @@
   "mcpAppLoadFailed": "無法載入此應用程式：{reason}",
   "mcpAppDidNotStart": "此應用程式未能啟動。",
   "mcpAppOpenLinkTitle": "開啟此連結嗎？",
-  "mcpAppOpenLinkConfirm": "開啟"
+  "mcpAppOpenLinkConfirm": "開啟",
+  "terminalPortPreviewForward": "前進",
+  "terminalPortPreviewReload": "重新載入",
+  "terminalPortPreviewLoadFailed": "無法載入此頁面。"
 }

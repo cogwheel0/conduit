@@ -12,6 +12,7 @@ import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit_core/utils/json_normalization.dart';
 
 import '../models/terminal_models.dart';
+import 'terminal_port_preview.dart';
 
 /// The first frame on a terminal's socket: the credential, and for Open
 /// WebUI's own terminals the saved chat the session belongs to.
@@ -25,6 +26,62 @@ Map<String, dynamic> buildTerminalWebSocketAuthPayload(
   if (server.isSystem && isSavedTerminalChatScopeId(sessionScopeId))
     'chat_id': sessionScopeId,
 };
+
+/// What a client sends on a terminal's events socket after the auth frame:
+/// watch [path] for file changes and, with [ports], report the listening
+/// ports. Sending it again replaces the subscription.
+Map<String, dynamic> buildTerminalEventsSubscribePayload({
+  String? path,
+  bool ports = false,
+}) => <String, dynamic>{
+  'type': 'subscribe',
+  'path': ?path,
+  if (ports) 'ports': true,
+};
+
+/// Reads one frame from a terminal's events socket, or null for a frame that
+/// is not an event this app uses.
+TerminalEvent? parseTerminalEvent(Object? frame) {
+  Object? decoded = frame;
+  if (frame is List<int>) {
+    decoded = utf8.decode(frame, allowMalformed: true);
+  }
+  if (decoded is String) {
+    try {
+      decoded = jsonDecode(decoded);
+    } on FormatException {
+      return null;
+    }
+  }
+  if (decoded is! Map) return null;
+  return switch (decoded['type']) {
+    'fs:ready' || 'fs:change' => const TerminalFilesChanged(),
+    'ports:change' => TerminalPortsChanged(
+      _parseListeningPorts(decoded['ports']),
+    ),
+    _ => null,
+  };
+}
+
+List<TerminalListeningPort> _parseListeningPorts(Object? rawPorts) {
+  if (rawPorts is! List) {
+    return const <TerminalListeningPort>[];
+  }
+
+  return rawPorts
+      .map((rawPort) {
+        final port = _coerceStringKeyedMap(rawPort);
+        final parsedPort = int.tryParse(port['port']?.toString() ?? '') ?? 0;
+        final parsedPid = int.tryParse(port['pid']?.toString() ?? '');
+        return TerminalListeningPort(
+          port: parsedPort,
+          pid: parsedPid,
+          process: _stringValue(port['process']),
+        );
+      })
+      .where((port) => port.port > 0)
+      .toList(growable: false);
+}
 
 String _trimTrailingSlashes(String value) {
   return value.replaceFirst(RegExp(r'/+$'), '');
@@ -392,7 +449,9 @@ class TerminalService {
     });
   }
 
-  Future<bool> isTerminalFeatureEnabled(
+  /// What [server] reports it can do. A server that cannot be asked counts
+  /// as one with a terminal and nothing newer.
+  Future<TerminalServerFeatures> getFeatures(
     TerminalServerInfo server, {
     String? sessionScopeId,
   }) async {
@@ -410,10 +469,15 @@ class TerminalService {
       final data = _coerceStringKeyedMap(response.data);
       final features = data['features'];
       if (features is Map) {
-        return _coerceBool(features['terminal'], fallback: true);
+        return TerminalServerFeatures(
+          terminal: _coerceBool(features['terminal'], fallback: true),
+          // Only a literal true: a missing or odd value is an older server.
+          events: features['events'] == true,
+          browser: features['browser'] == true,
+        );
       }
     } catch (_) {}
-    return true;
+    return const TerminalServerFeatures();
   }
 
   Future<TerminalSessionInfo> createSession(
@@ -456,6 +520,19 @@ class TerminalService {
       );
     }
     return Uri.parse('$wsBase/api/terminals/$sessionId');
+  }
+
+  /// The events socket: Open Terminal's `/events`, which Open WebUI 0.13
+  /// relays for its own terminals.
+  Uri buildEventsWebSocketUri(TerminalServerInfo server) {
+    if (server.isSystem) {
+      return Uri.parse(
+        '${_toWebSocketBaseUrl(_apiBaseUrl)}'
+        '/api/v1/terminals/${server.systemServerId}/events',
+      );
+    }
+    final base = _toWebSocketBaseUrl(server.baseUrl.toString());
+    return Uri.parse('$base/events');
   }
 
   String? authTokenForServer(TerminalServerInfo server) {
@@ -807,35 +884,70 @@ class TerminalService {
           );
 
     final data = _coerceStringKeyedMap(response.data);
-    final rawPorts = data['ports'];
-    if (rawPorts is! List) {
-      return const <TerminalListeningPort>[];
-    }
-
-    return rawPorts
-        .map((rawPort) {
-          final port = _coerceStringKeyedMap(rawPort);
-          final parsedPort = int.tryParse(port['port']?.toString() ?? '') ?? 0;
-          final parsedPid = int.tryParse(port['pid']?.toString() ?? '');
-          return TerminalListeningPort(
-            port: parsedPort,
-            pid: parsedPid,
-            process: _stringValue(port['process']),
-          );
-        })
-        .where((port) => port.port > 0)
-        .toList(growable: false);
+    return _parseListeningPorts(data['ports']);
   }
 
-  Uri buildPortProxyUri(
+  /// Opens a browser session on [server] that starts at [url]. For its own
+  /// terminals Open WebUI 0.13 answers with a signed ticket in place of the
+  /// terminal's token, which is what lets the pages load without the
+  /// account's credentials.
+  Future<TerminalBrowserSession> createBrowserSession(
+    TerminalServerInfo server, {
+    required String url,
+    required String sessionScopeId,
+  }) async {
+    final body = <String, dynamic>{'url': url};
+    final response = server.isSystem
+        ? await _requestSystem(
+            '/api/v1/terminals/${server.systemServerId}/browser/sessions',
+            method: 'POST',
+            data: body,
+            sessionScopeId: sessionScopeId,
+          )
+        : await _requestDirect(
+            server,
+            '/browser/sessions',
+            method: 'POST',
+            data: body,
+            sessionScopeId: sessionScopeId,
+          );
+    final data = _coerceStringKeyedMap(response.data);
+    final id = _stringValue(data['id']);
+    final token = _stringValue(data['token']);
+    if (id.isEmpty || token.isEmpty) {
+      throw Exception('Browser session missing from response');
+    }
+    final mode = _stringValue(data['mode']);
+    return TerminalBrowserSession(
+      id: id,
+      token: token,
+      url: _stringValue(data['url']),
+      title: _stringValue(data['title']),
+      mode: mode.isEmpty ? 'proxy' : mode,
+    );
+  }
+
+  /// Closes a browser session, which the terminal would otherwise keep for
+  /// a day. It must name the same [sessionScopeId] that opened it.
+  Future<void> closeBrowserSession(
     TerminalServerInfo server,
-    int port, {
-    String path = '',
-  }) {
-    final base = _trimTrailingSlashes(server.baseUrl.toString());
-    final suffix = path.trim().replaceFirst(RegExp(r'^/+'), '');
-    return Uri.parse(
-      suffix.isEmpty ? '$base/proxy/$port/' : '$base/proxy/$port/$suffix',
+    String sessionId, {
+    required String sessionScopeId,
+  }) async {
+    final path = 'browser/sessions/${Uri.encodeComponent(sessionId)}';
+    if (server.isSystem) {
+      await _requestSystem(
+        '/api/v1/terminals/${server.systemServerId}/$path',
+        method: 'DELETE',
+        sessionScopeId: sessionScopeId,
+      );
+      return;
+    }
+    await _requestDirect(
+      server,
+      '/$path',
+      method: 'DELETE',
+      sessionScopeId: sessionScopeId,
     );
   }
 

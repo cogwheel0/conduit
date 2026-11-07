@@ -9,6 +9,7 @@ import '../../../shared/utils/platform_page_route.dart';
 import '../../../shared/utils/utf16_sanitizer.dart';
 
 import 'package:conduit_core/features/navigation/models/sidebar_navigation_model.dart';
+import 'package:conduit_core/features/terminal/services/terminal_port_preview.dart';
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 
 import '../../navigation/providers/sidebar_search_providers.dart';
@@ -24,6 +25,7 @@ import '../services/terminal_service.dart';
 import 'terminal_console_section.dart';
 import 'terminal_files_section.dart';
 import 'terminal_fullscreen_page.dart';
+import 'terminal_port_preview_page.dart';
 
 class TerminalTab extends ConsumerStatefulWidget {
   const TerminalTab({super.key, this.isActive = true, this.searchController});
@@ -62,7 +64,9 @@ class _TerminalTabState extends ConsumerState<TerminalTab>
           AppLocalizations.of(context)!.terminalDisconnectedStatus,
       onBrowserFailure: _handleBrowserFailure,
       onContextFailure: _handleContextFailure,
-      platformGateway: const DefaultTerminalBrowserPlatformGateway(),
+      platformGateway: DefaultTerminalBrowserPlatformGateway(
+        showPreview: _showPortPreview,
+      ),
       schedulePostFrame: (callback) =>
           WidgetsBinding.instance.addPostFrameCallback((_) => callback()),
     );
@@ -135,6 +139,19 @@ class _TerminalTabState extends ConsumerState<TerminalTab>
         });
       }
     }
+  }
+
+  Future<bool> _showPortPreview(TerminalPortPreview preview) async {
+    if (!mounted) return false;
+    unawaited(
+      Navigator.of(context, rootNavigator: true).push(
+        buildPlatformPageRoute<void>(
+          fullscreenDialog: true,
+          builder: (_) => TerminalPortPreviewPage(preview: preview),
+        ),
+      ),
+    );
+    return true;
   }
 
   Future<void> _openFullscreen() async {

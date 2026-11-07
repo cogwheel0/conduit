@@ -4357,5 +4357,8 @@
   "mcpAppLoadFailed": "Не удалось загрузить приложение: {reason}",
   "mcpAppDidNotStart": "Приложение не запустилось.",
   "mcpAppOpenLinkTitle": "Открыть эту ссылку?",
-  "mcpAppOpenLinkConfirm": "Открыть"
+  "mcpAppOpenLinkConfirm": "Открыть",
+  "terminalPortPreviewForward": "Вперёд",
+  "terminalPortPreviewReload": "Обновить",
+  "terminalPortPreviewLoadFailed": "Не удалось загрузить эту страницу."
 }

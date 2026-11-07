@@ -4319,5 +4319,8 @@
   "mcpAppLoadFailed": "Die App konnte nicht geladen werden: {reason}",
   "mcpAppDidNotStart": "Die App wurde nicht gestartet.",
   "mcpAppOpenLinkTitle": "Diesen Link öffnen?",
-  "mcpAppOpenLinkConfirm": "Öffnen"
+  "mcpAppOpenLinkConfirm": "Öffnen",
+  "terminalPortPreviewForward": "Vorwärts",
+  "terminalPortPreviewReload": "Neu laden",
+  "terminalPortPreviewLoadFailed": "Diese Seite konnte nicht geladen werden."
 }

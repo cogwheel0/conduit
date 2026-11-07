@@ -9069,5 +9069,17 @@
   "mcpAppOpenLinkConfirm": "Open",
   "@mcpAppOpenLinkConfirm": {
     "description": "Confirm button that opens a link an MCP App asked to open."
+  },
+  "terminalPortPreviewForward": "Forward",
+  "@terminalPortPreviewForward": {
+    "description": "Button in a terminal port preview that goes forward to the next page."
+  },
+  "terminalPortPreviewReload": "Reload",
+  "@terminalPortPreviewReload": {
+    "description": "Button in a terminal port preview that loads the current page again."
+  },
+  "terminalPortPreviewLoadFailed": "Could not load this page.",
+  "@terminalPortPreviewLoadFailed": {
+    "description": "Shown in a terminal port preview when the page could not be reached."
   }
 }

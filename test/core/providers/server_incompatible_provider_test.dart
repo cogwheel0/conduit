@@ -176,4 +176,38 @@ void main() {
       }
     });
   });
+
+  group('systemTerminalLiveFeaturesProvider', () {
+    test('is on for the active server from 0.13.0', () async {
+      final container = await _container(
+        activeServer: _server('A'),
+        config: const BackendConfig(version: '0.13.0', serverId: 'A'),
+      );
+      addTearDown(container.dispose);
+
+      expect(container.read(systemTerminalLiveFeaturesProvider), isTrue);
+    });
+
+    test('is off before 0.13.0, and while the version is unknown', () async {
+      for (final config in const [
+        BackendConfig(version: '0.12.5', serverId: 'A'),
+        BackendConfig(version: 'main', serverId: 'A'),
+        BackendConfig(serverId: 'A'),
+        // Another server's config says nothing about this one.
+        BackendConfig(version: '0.13.0', serverId: 'B'),
+      ]) {
+        final container = await _container(
+          activeServer: _server('A'),
+          config: config,
+        );
+        addTearDown(container.dispose);
+
+        expect(
+          container.read(systemTerminalLiveFeaturesProvider),
+          isFalse,
+          reason: '${config.version} from ${config.serverId}',
+        );
+      }
+    });
+  });
 }
