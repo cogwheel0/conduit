@@ -19,6 +19,12 @@ HermesDesktopAuthKind hermesRecommendedDesktopAuth(
             flow is Map &&
                 (flow['id'] == 'native_pkce' || flow['type'] == 'native_pkce'),
       );
+  // A deployment gated only by its provisioned session token (Hermes 0.22.6+
+  // `session-token` provider) offers no interactive sign-in: its login page
+  // is just a note, so the token itself is the credential.
+  if (!native && hermesDesktopAcceptsSessionToken(status)) {
+    return HermesDesktopAuthKind.legacyToken;
+  }
   return native && !hasAccessHeaders
       ? HermesDesktopAuthKind.nativePkce
       : HermesDesktopAuthKind.dashboardCookie;

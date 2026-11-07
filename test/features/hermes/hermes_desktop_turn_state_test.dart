@@ -170,6 +170,9 @@ final class _RoutesAdapter implements HttpClientAdapter {
   final Map<String, (int, Object?)> routes;
   final requests = <String>[];
 
+  /// Each request's headers, by `METHOD /path`.
+  final headers = <String, Map<String, dynamic>>{};
+
   @override
   void close({bool force = false}) {}
 
@@ -180,6 +183,7 @@ final class _RoutesAdapter implements HttpClientAdapter {
     Future<void>? cancelFuture,
   ) async {
     final key = '${options.method} ${options.uri.path}';
+    headers[key] = options.headers;
     if (options.uri.path != '/api/status') {
       requests.add('$key?${options.uri.query}');
     }
@@ -930,6 +934,24 @@ void main() {
       'GET /api/sessions': (503, {'detail': 'storage_unavailable'}),
     });
     await check(_restService(broken).listSessions()).throws<Exception>();
+  });
+
+  test('a token-gated dashboard gets the session token as a bearer', () async {
+    final adapter = _RoutesAdapter({
+      'GET /api/status': (
+        200,
+        {
+          'auth_required': true,
+          'auth_providers': ['session-token'],
+          'auth_flows': ['cookie'],
+        },
+      ),
+      'GET /api/sessions': (200, {'sessions': <Object?>[]}),
+    });
+    check(await _restService(adapter).listSessions()).isEmpty();
+    check(
+      adapter.headers['GET /api/sessions']?['Authorization'],
+    ).equals('Bearer session-token');
   });
 
   test('a partial session.info does not block the next send', () async {

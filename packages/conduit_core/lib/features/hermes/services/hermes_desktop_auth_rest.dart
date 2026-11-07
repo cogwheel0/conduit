@@ -15,6 +15,13 @@ final class HermesDesktopHttpException implements Exception {
   String toString() => 'Hermes dashboard request failed ($status).';
 }
 
+/// Whether a gated dashboard takes the deployment session token as a bearer
+/// credential (Hermes 0.22.6+ registers its `session-token` auth provider).
+bool hermesDesktopAcceptsSessionToken(Map<String, dynamic> status) {
+  final providers = status['auth_providers'];
+  return providers is List && providers.contains('session-token');
+}
+
 /// The HTTP status a dashboard REST failure carries, from either transport.
 int? _hermesDesktopHttpStatus(Object error) => switch (error) {
   DioException(:final response) => response?.statusCode,
@@ -262,9 +269,15 @@ extension _HermesDesktopAuthRest on HermesDesktopApiService {
       case HermesDesktopAuthKind.dashboardCookie:
         throw StateError('Dashboard requests require the WebView bridge.');
       case HermesDesktopAuthKind.legacyToken:
-        throw StateError(
-          'Choose native or dashboard sign-in for this gateway.',
-        );
+        final token = config.desktopCredentials?.legacyToken;
+        if (!hermesDesktopAcceptsSessionToken(status) ||
+            token == null ||
+            token.isEmpty) {
+          throw StateError(
+            'Choose native or dashboard sign-in for this gateway.',
+          );
+        }
+        headers['Authorization'] = 'Bearer $token';
     }
     return headers;
   }
