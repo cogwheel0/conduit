@@ -1,0 +1,47 @@
+event: message
+data: {"created":true,"message":{"messageId":"u1","parentMessageId":"00000000-0000-0000-0000-000000000000","conversationId":"c1","text":"Weather in Paris?","isCreatedByUser":true,"sender":"User","createdAt":"2026-10-18T10:00:00.000Z"},"streamId":"c1"}
+
+event: message
+data: {"event":"on_reasoning_delta","data":{"id":"step_think","delta":{"content":[{"type":"think","think":"Let me "}]}}}
+
+event: message
+data: {"event":"on_run_step","data":{"id":"step_think","runId":"r1","index":0,"stepDetails":{"type":"message_creation","message_creation":{"message_id":"r1"}}}}
+
+event: message
+data: {"event":"on_reasoning_delta","data":{"id":"step_think","delta":{"content":[{"type":"think","think":"check the weather tool."}]}}}
+
+:
+
+event: message
+data: {"event":"on_run_step","data":{"id":"step_tool","runId":"r1","index":1,"stepDetails":{"type":"tool_calls","tool_calls":[{"id":"call_1","name":"get_weather_mcp_weather","args":""}]}}}
+
+event: message
+data: {"event":"on_run_step_delta","data":{"id":"step_tool","delta":{"type":"tool_calls","tool_calls":[{"args":"{\"city\":","index":0}]}}}
+
+event: message
+data: {"event":"on_run_step_delta","data":{"id":"step_tool","delta":{"type":"tool_calls","tool_calls":[{"args":"\"Paris\"}","index":0}]}}}
+
+event: message
+data: {"event":"on_run_step_completed","data":{"result":{"id":"step_tool","index":1,"tool_call":{"id":"call_1","name":"get_weather_mcp_weather","args":"{\"city\":\"Paris\"}","output":"Sunny, 21C","type":"tool_call"}}}}
+
+event: message
+data: {"event":"attachment","data":{"type":"web_search","messageId":"r1","toolCallId":"call_0","conversationId":"c1","web_search":{"turn":0,"organic":[{"title":"Paris forecast","link":"https://weather.example/paris","snippet":"Sunny all day"}]}}}
+
+event: message
+data: {"event":"on_run_step","data":{"id":"step_text","runId":"r1","index":2,"stepDetails":{"type":"message_creation","message_creation":{"message_id":"r1"}}}}
+
+event: message
+data: {"event":"on_message_delta","data":{"id":"step_text","delta":{"content":[{"type":"text","text":"It is sunny"}]}}}
+
+event: message
+data: {"event":"on_message_delta","data":{"id":"step_text","delta":{"content":[{"type":"text","text":" in Paris\ue202turn0search0."}]}}}
+
+event: message
+data: {"event":"title","data":{"conversationId":"c1","title":"Paris weather"}}
+
+event: message
+data: {"event":"on_token_usage","data":{"usage":{"input_tokens":12,"output_tokens":9}}}
+
+event: message
+data: {"final":true,"conversation":{"conversationId":"c1","title":"Paris weather","endpoint":"agents","agent_id":"agent_weather"},"title":"Paris weather","requestMessage":{"messageId":"u1","parentMessageId":"00000000-0000-0000-0000-000000000000","conversationId":"c1","text":"Weather in Paris?","isCreatedByUser":true,"sender":"User","createdAt":"2026-10-18T10:00:00.000Z"},"responseMessage":{"messageId":"r1","parentMessageId":"u1","conversationId":"c1","isCreatedByUser":false,"sender":"Weather","endpoint":"agents","model":"llama3.2","text":"It is sunny in Paris.","content":[{"type":"think","think":"Let me check the weather tool."},{"type":"tool_call","tool_call":{"id":"call_1","name":"get_weather_mcp_weather","args":"{\"city\":\"Paris\"}","output":"Sunny, 21C","progress":1,"type":"tool_call"}},{"type":"text","text":"It is sunny in Paris\ue202turn0search0."}],"createdAt":"2026-10-18T10:00:05.000Z"},"generationProtocolVersion":2}
+

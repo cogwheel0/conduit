@@ -1,0 +1,12 @@
+event: message
+data: {"created":true,"message":{"messageId":"u4","parentMessageId":"00000000-0000-0000-0000-000000000000","conversationId":"c4","text":"Write a long essay","isCreatedByUser":true},"streamId":"c4"}
+
+event: message
+data: {"event":"on_run_step","data":{"id":"step_text","runId":"r4","index":0,"stepDetails":{"type":"message_creation","message_creation":{"message_id":"r4"}}}}
+
+event: message
+data: {"event":"on_message_delta","data":{"id":"step_text","delta":{"content":[{"type":"text","text":"Once upon"}]}}}
+
+event: message
+data: {"final":true,"conversation":{"conversationId":"c4"},"requestMessage":{"messageId":"u4","parentMessageId":"00000000-0000-0000-0000-000000000000","conversationId":"c4","text":"Write a long essay","isCreatedByUser":true},"responseMessage":{"messageId":"r4","parentMessageId":"u4","conversationId":"c4","isCreatedByUser":false,"text":"Once upon","content":[{"type":"text","text":"Once upon"}],"unfinished":true,"error":false},"aborted":true,"earlyAbort":false,"generationProtocolVersion":2}
+
