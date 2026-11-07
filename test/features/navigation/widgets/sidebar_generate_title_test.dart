@@ -9,7 +9,9 @@ import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit_core/services/worker_manager.dart';
+import 'package:conduit_core/sync/chat_locks.dart';
 import 'package:flutter/widgets.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'sidebar_page_test_support.dart';
@@ -217,6 +219,49 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(api.savedTitles.single, (id: 'server', title: 'Chat server'));
+  });
+
+  testWidgets('a save of the chat under way finishes before the title is saved', (
+    tester,
+  ) async {
+    // A full save sends the title it read; landing after this one, it would
+    // put the old title back.
+    final server = chat('server');
+    final api = _TitlingApi();
+
+    await tester.pumpWidget(
+      sidebarTestBuildHarness(
+        controllers: SidebarTestSidebarHarnessControllers(),
+        conversations: [server],
+        apiService: api,
+      ),
+    );
+    await tester.pumpAndSettle();
+    final container = ProviderScope.containerOf(
+      tester.element(find.byType(ConduitContextMenu).first),
+    );
+    final saving = Completer<void>();
+    final save = container
+        .read(chatLocksProvider)
+        .runExclusive('server', () => saving.future);
+
+    final generate = menuOf(
+      tester,
+      server,
+    ).actions.singleWhere((action) => action.label == l10n.generateTitle);
+    final generated = generate.onSelected();
+    for (var i = 0; i < 5; i++) {
+      await tester.pump();
+    }
+    expect(api.titleRequests, hasLength(1));
+    expect(api.savedTitles, isEmpty);
+
+    saving.complete();
+    await save;
+    await generated;
+    await tester.pumpAndSettle();
+
+    expect(api.savedTitles.single, (id: 'server', title: 'Quines explained'));
   });
 
   testWidgets('a rename made while the title was written is kept', (

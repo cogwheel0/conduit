@@ -1,5 +1,6 @@
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:conduit_core/database/chat_database_repository.dart';
+import 'package:conduit_core/database/database_provider.dart';
 import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/models/folder.dart';
 import 'package:conduit_core/models/model.dart';
@@ -835,23 +836,34 @@ Future<void> _generateConversationTitleOnce(
       // Told apart from the title the server stored, not the chat list's
       // copy, which can lag it or show an empty title as "Chat".
       var saved = false;
+      final database = container.read(appDatabaseProvider);
       await container.read(chatTitleLocksProvider).runExclusive(
         rawConversationId,
-        () async {
-          // Compared as the server stores it, as it was when the title was
-          // asked for: a rename made meanwhile is kept.
-          final stored = await api.getChatRaw(
-            rawConversationId,
-            authSnapshot: authSnapshot,
-          );
-          if (stored == null || stored['title'] != titleAsked) return;
-          await api.updateConversation(
-            rawConversationId,
-            title: title,
-            authSnapshot: authSnapshot,
-          );
-          saved = true;
-        },
+        // In the chat's own lock too: a full save of the chat sends the
+        // title it read, so one under way finishes before this one is
+        // written, and one after it reads the new title from the database.
+        () => container.read(chatLocksProvider).runExclusive(
+          rawConversationId,
+          () async {
+            // Compared as the server stores it, as it was when the title was
+            // asked for: a rename made meanwhile is kept.
+            final stored = await api.getChatRaw(
+              rawConversationId,
+              authSnapshot: authSnapshot,
+            );
+            if (stored == null || stored['title'] != titleAsked) return;
+            await api.updateConversation(
+              rawConversationId,
+              title: title,
+              authSnapshot: authSnapshot,
+            );
+            saved = true;
+            await database?.chatsDao.updateServerGeneratedTitle(
+              rawConversationId,
+              title,
+            );
+          },
+        ),
       );
       if (saved && identical(container.read(apiServiceProvider), api)) {
         // Stored as a server-made title, so a later save of the chat does
