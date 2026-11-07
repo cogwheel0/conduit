@@ -90,9 +90,13 @@ class ComputerService {
     // Viewing or refreshing an empty browser must never create a tab.
     final tabs = await _json('browser/tabs');
     final current = tabs['current_session_id'];
-    return current is String && current.isNotEmpty
-        ? selectBrowserTab(current)
-        : null;
+    if (current is! String || current.isEmpty) return null;
+    final session = ComputerBrowserSession.fromJson(
+      await _json('browser/sessions/${Uri.encodeComponent(current)}'),
+    );
+    return session.mode == 'chrome'
+        ? _browserConnection(session)
+        : _connectBrowser(session);
   }
 
   Future<List<ComputerBrowserTab>> browserTabs() async {
@@ -153,6 +157,11 @@ class ComputerService {
         data: {'mode': 'chrome', 'active': true},
       ),
     );
+    return _browserConnection(selected);
+  }
+
+  ComputerConnection _browserConnection(ComputerBrowserSession selected) {
+    if (!selected.chromeAvailable) throw const ComputerBrowserUnavailable();
     return ComputerConnection(
       surface: ComputerSurface.browser,
       streamUri: _socketUri(

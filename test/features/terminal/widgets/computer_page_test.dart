@@ -100,7 +100,7 @@ void main() {
       when(() => service.open(any())).thenAnswer(
         (call) async =>
             call.positionalArguments.first == ComputerSurface.browser
-            ? browser
+            ? (tabs.isEmpty ? null : browser)
             : _connection(ComputerSurface.desktop),
       );
       when(service.browserTabs).thenAnswer((_) async => tabs);
@@ -146,7 +146,7 @@ void main() {
       await tester.pump();
       expect(find.byType(ComputerSurfaceView), findsNothing);
       expect(find.text('No browser tabs'), findsWidgets);
-      verifyNever(() => service.open(ComputerSurface.browser));
+      verify(() => service.open(ComputerSurface.browser)).called(1);
       verifyNever(service.createBrowserTab);
       await tester.tap(find.text('Browser tabs'));
       await tester.pumpAndSettle();
@@ -173,6 +173,66 @@ void main() {
       expect(tester.takeException(), isNull);
     },
   );
+
+  for (final background in [false, true]) {
+    testWidgets('empty Watch discovers an agent tab (background=$background)', (
+      tester,
+    ) async {
+      final service = _Service();
+      ComputerConnection? browser;
+      when(() => service.open(any())).thenAnswer(
+        (call) async =>
+            call.positionalArguments.first == ComputerSurface.browser
+            ? browser
+            : _connection(ComputerSurface.desktop),
+      );
+      var gates = 0;
+      await tester.pumpWidget(
+        _harness(
+          service,
+          takeControl: () async {
+            gates++;
+            return true;
+          },
+        ),
+      );
+      await tester.pump();
+      await tester.pump();
+      await tester.tap(find.text('Browser'));
+      await tester.pump();
+      await tester.pump();
+      expect(find.text('No browser tabs'), findsWidgets);
+      verify(() => service.open(ComputerSurface.browser)).called(1);
+      await tester.pump(const Duration(seconds: 3));
+      verify(() => service.open(ComputerSurface.browser)).called(1);
+      expect(find.text('No browser tabs'), findsWidgets);
+      if (background) {
+        tester.binding.handleAppLifecycleStateChanged(
+          AppLifecycleState.inactive,
+        );
+      }
+      browser = _connection(ComputerSurface.browser);
+      await tester.pump(const Duration(seconds: 3));
+      if (background) {
+        verifyNever(() => service.open(ComputerSurface.browser));
+        tester.binding.handleAppLifecycleStateChanged(
+          AppLifecycleState.resumed,
+        );
+      }
+      await tester.pump();
+      await tester.pump();
+      expect(
+        tester
+            .widget<ComputerSurfaceView>(find.byType(ComputerSurfaceView))
+            .connection,
+        same(browser),
+      );
+      expect(find.text('Return to Watch'), findsNothing);
+      expect(gates, 0);
+      verifyNever(service.createBrowserTab);
+      await tester.pumpWidget(const SizedBox());
+    });
+  }
 
   testWidgets('pending scope lookup closes the previous live viewer', (
     tester,

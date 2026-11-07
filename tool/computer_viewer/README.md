@@ -70,6 +70,8 @@ and [desktop](https://github.com/open-webui/open-terminal/blob/v0.17.2/open_term
 
 Tab mutations require Take control. A newly selected tab opens in Watch, and
 closing the last tab leaves an empty state rather than silently creating another.
+While empty, Watch rechecks every three seconds and on resume for the agent's
+next tab; it pauses these checks in the background or during tab management.
 Leaving the viewer does not close the user's tabs. Display options include three
 quality levels and a desktop website viewport. Mouse input includes right-click,
 double-click and modifiers; the keyboard dialog also supports named combinations
@@ -173,6 +175,22 @@ Verified with Open WebUI 0.13 protocol, Open Terminal 0.17.2, iOS 27 simulator,
 Android/iOS widget layouts, a real Linux/XFCE desktop and a real Chrome browser.
 Native Mac/Windows desktop transports also have fixture coverage; this is not
 a claim of end-to-end testing on those host platforms.
+
+For a native secure-context check, launch the normal debug app on a disposable
+Android emulator or iOS simulator, attach with `flutter attach`, and open the
+synthetic VNC desktop in Watch. Put the attached Dart VM Service WebSocket URL
+in a local, ignored JSON file with a single `url` field. With Node 22 or later:
+
+```sh
+node tool/computer_viewer/native_context_check.js build/computer-review/native-vm.json
+```
+
+The read-only check evaluates the production document through the mounted native
+WebView and asserts `window.isSecureContext`, `crypto.subtle`, and a rendered VNC
+canvas. It requires an attached debug compiler; it does not add an app test hook.
+The debug URL is a local access capability: never commit or share it. Only the
+three boolean results are printed. This check passed on Android and iOS with the
+normal app connected through Open WebUI 0.13 to the disposable Linux desktop.
 
 The managed-browser path has a separate real-service check. In the same disposable
 VM, run a second official Open Terminal with `browser_mode=managed`, a fresh

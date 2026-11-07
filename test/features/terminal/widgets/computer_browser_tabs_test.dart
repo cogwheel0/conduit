@@ -59,8 +59,11 @@ void main() {
     await tester.tap(find.text('Open tabs'));
     await tester.pumpAndSettle();
     expect(find.byType(ComputerBrowserTabs), findsOneWidget);
+    final l10n = AppLocalizations.of(
+      tester.element(find.byType(ComputerBrowserTabs)),
+    )!;
     final hintStyle = DefaultTextStyle.of(
-      tester.element(find.text('Take control to switch, open, or close tabs.')),
+      tester.element(find.text(l10n.computerTabsWatchHint)),
     ).style;
     expect(hintStyle.fontSize, lessThanOrEqualTo(20));
     expect(hintStyle.decoration, isNot(TextDecoration.underline));

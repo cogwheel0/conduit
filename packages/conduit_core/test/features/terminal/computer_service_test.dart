@@ -223,12 +223,7 @@ void main() {
         '/nested/browser/view/agent-tab/scoped-capability/stream',
       );
       expect(connection.token, isNull);
-      expect(requests.map((request) => request.method), [
-        'GET',
-        'GET',
-        'PATCH',
-      ]);
-      expect(requests.last.data, {'mode': 'chrome', 'active': true});
+      expect(requests.map((request) => request.method), ['GET', 'GET']);
       await service.keepAlive(connection);
       expect(requests.last.data, isEmpty);
       expect(

@@ -380,7 +380,7 @@ function sendViewport() {
 }
 window.computer = {
   start(value) {
-    config = value; disposed = false; visible = value.visible !== false; connect();
+    config = value; disposed = false; visible = value.visible !== false; retries = 0; connect();
     report('audio', {available: config.audio === true && audio.supported(), enabled: false});
   },
   control(value) {

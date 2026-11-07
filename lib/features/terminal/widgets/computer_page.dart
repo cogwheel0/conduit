@@ -52,7 +52,8 @@ class _ComputerPageState extends ConsumerState<ComputerPage>
   String _quality = 'crisp';
   bool _active = true, _scopeValid = true;
   int _generation = 0;
-  Timer? _heartbeat;
+  Timer? _heartbeat, _emptyRefresh;
+  bool _refreshingEmpty = false;
 
   @override
   void initState() {
@@ -73,6 +74,9 @@ class _ComputerPageState extends ConsumerState<ComputerPage>
       } catch (_) {
         /* Stream reports connectivity. */
       }
+    });
+    _emptyRefresh = Timer.periodic(const Duration(seconds: 3), (_) {
+      unawaited(_refreshEmptyBrowser());
     });
     ref.listenManual(computerServiceProvider, (_, next) {
       if (!next.isLoading &&
@@ -120,6 +124,7 @@ class _ComputerPageState extends ConsumerState<ComputerPage>
     if (_active && _scopeValid && _connection == null && !wasEmpty) {
       unawaited(_open());
     }
+    if (_active && wasEmpty) unawaited(_refreshEmptyBrowser());
   }
 
   @override
@@ -127,7 +132,45 @@ class _ComputerPageState extends ConsumerState<ComputerPage>
     WidgetsBinding.instance.removeObserver(this);
     _generation++;
     _heartbeat?.cancel();
+    _emptyRefresh?.cancel();
     super.dispose();
+  }
+
+  Future<void> _refreshEmptyBrowser() async {
+    if (!_active ||
+        !_scopeValid ||
+        _status != 'empty' ||
+        _tabsOpen ||
+        _controlling ||
+        _stopping ||
+        _refreshingEmpty ||
+        _selected != ComputerSurface.browser) {
+      return;
+    }
+    _refreshingEmpty = true;
+    final generation = _generation;
+    try {
+      final connection = await widget.service.open(ComputerSurface.browser);
+      if (!mounted ||
+          generation != _generation ||
+          !_active ||
+          !_scopeValid ||
+          _tabsOpen ||
+          connection == null) {
+        return;
+      }
+      setState(() {
+        _connection = connection;
+        _vnc = connection.transport == 'vnc';
+        _url = connection.browserSession?.url ?? '';
+        _status = 'connecting';
+        _surfaceKey = GlobalKey();
+      });
+    } catch (_) {
+      // An agent may be between closing and creating tabs. Keep watching.
+    } finally {
+      _refreshingEmpty = false;
+    }
   }
 
   Future<void> _open({Future<ComputerConnection?> Function()? connect}) async {
