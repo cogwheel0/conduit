@@ -1,0 +1,15 @@
+{
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "esbuild viewer.js --bundle --minify --format=esm --legal-comments=linked --outfile=../../assets/computer/viewer.js",
+    "test": "node --test protocol.test.js"
+  },
+  "dependencies": {
+    "@novnc/novnc": "1.7.0"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2",
+    "playwright-core": "1.61.1"
+  }
+}

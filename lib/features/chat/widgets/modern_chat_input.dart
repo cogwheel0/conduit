@@ -33,6 +33,7 @@ import '../services/file_attachment_service.dart';
 import '../services/ios_native_paste_service.dart';
 import '../services/ios_keyboard_attachment_bridge.dart';
 import 'speech_playback_bar.dart';
+import '../../terminal/widgets/computer_launcher.dart';
 
 import 'package:conduit_core/features/chat/providers/context_attachments_provider.dart';
 import 'package:conduit_core/features/chat/providers/knowledge_cache_provider.dart';
@@ -4157,6 +4158,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
             ),
           ?compactPromptOverlay,
           const ChatDraftQueueRow(),
+          if (!isHermesComposer && !isDirectComposer) const ComputerLauncher(),
           shell,
         ],
       ),

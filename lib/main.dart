@@ -226,6 +226,12 @@ Future<void> _configureUserAgent() async {
 
 void _registerBundledLicenses() {
   LicenseRegistry.addLicense(() async* {
+    yield LicenseEntryWithLineBreaks(
+      const ['noVNC', 'pako'],
+      await rootBundle.loadString('assets/computer/novnc-LICENSE.txt'),
+    );
+  });
+  LicenseRegistry.addLicense(() async* {
     final notice = await rootBundle.loadString('THIRD_PARTY_NOTICES.md');
     yield LicenseEntryWithLineBreaks(const [
       'Open WebUI icon',

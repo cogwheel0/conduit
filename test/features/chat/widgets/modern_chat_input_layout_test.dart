@@ -1,5 +1,13 @@
 import 'package:conduit/features/chat/services/voice_input_service.dart';
 import 'package:conduit/features/chat/widgets/modern_chat_input.dart';
+import 'package:conduit/features/terminal/widgets/computer_launcher.dart';
+import 'package:conduit_core/features/terminal/models/computer_models.dart';
+import 'package:conduit_core/features/terminal/providers/computer_providers.dart';
+import 'package:conduit_core/features/terminal/services/computer_service.dart';
+import 'package:mocktail/mocktail.dart';
+
+import 'dart:convert';
+
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/l10n/conduit_localizations.dart';
 import 'package:conduit_core/features/prompts/providers/prompts_providers.dart';
@@ -12,6 +20,7 @@ import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:flutter/foundation.dart';
 
 void main() {
+  registerFallbackValue(const ComputerCapabilities());
   const mobilePlatforms = TargetPlatformVariant({
     TargetPlatform.android,
     TargetPlatform.iOS,
@@ -22,6 +31,7 @@ void main() {
     double textScale = 1,
     double keyboardHeight = 0,
     required List<String> sent,
+    ComputerService? computer,
   }) async {
     final isAndroid = defaultTargetPlatform == TargetPlatform.android;
     tester.view.devicePixelRatio = 1;
@@ -32,6 +42,10 @@ void main() {
       ProviderScope(
         overrides: [
           apiServiceProvider.overrideWithValue(null),
+          computerServiceProvider.overrideWith((ref) async => computer),
+          computerCapabilitiesProvider.overrideWith(
+            (ref) async => ComputerCapabilities(browser: computer != null),
+          ),
           voiceInputAvailableProvider.overrideWith((ref) async => false),
           notesFeatureEnabledProvider.overrideWith(_NotesEnabled.new),
           promptsListProvider.overrideWith(
@@ -91,6 +105,41 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 300));
   }
+
+  testWidgets(
+    'Computer preview preserves the draft and sits above the composer',
+    (tester) async {
+      final service = _ComputerService();
+      final connection = ComputerConnection(
+        surface: ComputerSurface.browser,
+        streamUri: Uri.parse('wss://computer.example/stream'),
+      );
+      when(() => service.openPreferred(any()))
+          .thenAnswer((_) async => connection);
+      when(() => service.screenshot(connection)).thenAnswer(
+        (_) async => base64Decode(
+          'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl6rZkAAAAASUVORK5CYII=',
+        ),
+      );
+      await pumpComposer(
+        tester,
+        sent: [],
+        computer: service,
+        keyboardHeight: 300,
+      );
+      await enterDraft(tester, 'Add a paper workshop.');
+      await tester.tap(find.text('Computer'));
+      await tester.pumpAndSettle();
+      expect(find.text('Open live'), findsOneWidget);
+      expect(find.text('Add a paper workshop.'), findsOneWidget);
+      expect(
+        tester.getBottomLeft(find.byType(ComputerLauncher)).dy,
+        lessThanOrEqualTo(tester.getTopLeft(find.byType(EditableText)).dy),
+      );
+      expect(tester.takeException(), isNull);
+    },
+    variant: mobilePlatforms,
+  );
 
   testWidgets('long drafts stop growing at eight visible text lines', (
     tester,
@@ -251,3 +300,5 @@ class _NotesEnabled extends NotesFeatureEnabledNotifier {
   @override
   bool build() => true;
 }
+
+class _ComputerService extends Mock implements ComputerService {}
