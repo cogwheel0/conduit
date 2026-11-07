@@ -1,19 +1,31 @@
+import 'dart:async';
+import 'dart:convert';
+
 import 'package:checks/checks.dart';
 import 'package:conduit/features/hermes/views/hermes_room_page.dart';
+import 'package:conduit/features/hermes/widgets/hermes_room_timeline.dart';
 import 'package:conduit/features/hermes/widgets/hermes_rooms_section.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/platform/flutter_key_value_store.dart';
 import 'package:conduit/shared/widgets/conduit_components.dart';
 import 'package:conduit_core/features/hermes/models/hermes_bot.dart';
+import 'package:conduit_core/features/hermes/models/hermes_config.dart';
 import 'package:conduit_core/features/hermes/models/hermes_room.dart';
 import 'package:conduit_core/features/hermes/models/hermes_room_log.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_room_providers.dart';
+import 'package:conduit_core/features/hermes/services/hermes_desktop_api_service.dart';
+import 'package:conduit_core/features/hermes/services/hermes_desktop_transport.dart';
+import 'package:conduit_core/features/hermes/services/hermes_room_projection.dart';
 import 'package:conduit_core/persistence/preferences_store.dart';
+import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
+import 'package:mocktail/mocktail.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:web_socket_channel/web_socket_channel.dart';
 
 const _bots = [
   HermesBot(name: 'research', title: 'Research'),
@@ -54,6 +66,87 @@ HermesRoomEvent _event(
   'payload': payload,
 })!;
 
+final class _StatusAdapter implements HttpClientAdapter {
+  @override
+  void close({bool force = false}) {}
+
+  @override
+  Future<ResponseBody> fetch(
+    RequestOptions options,
+    Stream<Uint8List>? requestStream,
+    Future<void>? cancelFuture,
+  ) async => ResponseBody.fromString(
+    jsonEncode({'auth_required': false, 'gateway_running': true}),
+    200,
+    headers: {
+      Headers.contentTypeHeader: [Headers.jsonContentType],
+    },
+  );
+}
+
+final class _MockWebSocketChannel extends Mock implements WebSocketChannel {}
+
+final class _MockWebSocketSink extends Mock implements WebSocketSink {}
+
+/// A Desktop Gateway that creates a room once [created] completes.
+final class _CreatingGateway {
+  _CreatingGateway() {
+    when(() => channel.ready).thenAnswer((_) async {});
+    when(() => channel.stream).thenAnswer((_) {
+      scheduleMicrotask(
+        () => incoming.add(
+          jsonEncode({
+            'jsonrpc': '2.0',
+            'method': 'event',
+            'params': {'type': 'gateway.ready', 'payload': {}},
+          }),
+        ),
+      );
+      return incoming.stream;
+    });
+    when(() => channel.sink).thenReturn(sink);
+    when(() => sink.close()).thenAnswer((_) async {});
+    when(() => sink.add(any())).thenAnswer((invocation) {
+      final frame = Map<String, dynamic>.from(
+        jsonDecode(invocation.positionalArguments.single as String) as Map,
+      );
+      final id = frame['id'];
+      if (id == null) return;
+      void reply(Object? result) => incoming.add(
+        jsonEncode({'jsonrpc': '2.0', 'id': id, 'result': result}),
+      );
+      if (frame['method'] == 'groups.create') {
+        created.future.then((room) => reply({'room': room}));
+      } else {
+        scheduleMicrotask(() => reply(<String, Object?>{}));
+      }
+    });
+  }
+
+  final channel = _MockWebSocketChannel();
+  final sink = _MockWebSocketSink();
+  final incoming = StreamController<dynamic>.broadcast();
+  final created = Completer<Map<String, Object?>>();
+
+  late final service = HermesDesktopApiService(
+    config: HermesConfig(
+      enabled: true,
+      baseUrl: 'https://hermes.example',
+      mode: HermesBackendMode.desktopGateway,
+      desktopCredentials: HermesDesktopCredentials(legacyToken: 'token'),
+    ),
+    dio: Dio()..httpClientAdapter = _StatusAdapter(),
+    rpc: HermesDesktopRpcClient(
+      channelFactory: (_, _, {httpClient}) => channel,
+    ),
+  );
+
+  Future<void> close() async {
+    service.close();
+    await incoming.close();
+  }
+}
+
 /// A room controller that shows a fixed view and records what was asked.
 class _FakeRoom extends HermesRoomController {
   _FakeRoom(super.roomId, this.seed);
@@ -65,15 +158,22 @@ class _FakeRoom extends HermesRoomController {
   final saved = <HermesRoomContext>[];
   var stops = 0;
   var disbanded = 0;
+  var refreshes = 0;
+
+  /// Holds sends until completed.
+  Completer<void>? sendGate;
 
   @override
   HermesRoomView build() => seed;
 
   @override
-  Future<void> refresh() async {}
+  Future<void> refresh() async => refreshes++;
 
   @override
-  Future<void> send(String text) async => sent.add(text);
+  Future<void> send(String text) async {
+    sent.add(text);
+    await sendGate?.future;
+  }
 
   @override
   Future<int> stop() async {
@@ -90,8 +190,10 @@ class _FakeRoom extends HermesRoomController {
       answers.add((action.taskId, choice));
 
   @override
-  Future<void> saveContext(HermesRoomContext context) async =>
-      saved.add(context);
+  Future<HermesRoomContext> saveContext(HermesRoomContext context) async {
+    saved.add(context);
+    return context;
+  }
 
   @override
   Future<void> disband() async => disbanded++;
@@ -115,21 +217,28 @@ void main() {
   tearDown(PreferencesStore.debugReset);
 
   group('sidebar section', () {
+    var roomReads = 0;
+
     Future<void> pumpSection(
       WidgetTester tester, {
       HermesRoomCapabilities? capabilities,
       List<HermesRoom> rooms = const [],
       List<HermesBot> bots = _bots,
+      HermesDesktopApiService? service,
     }) async {
+      roomReads = 0;
       await tester.pumpWidget(
         _app(
           overrides: [
             hermesRoomCapabilitiesProvider.overrideWith(
               (ref) async => capabilities,
             ),
-            hermesRoomsProvider.overrideWith((ref) async => rooms),
+            hermesRoomsProvider.overrideWith((ref) async {
+              roomReads++;
+              return rooms;
+            }),
             hermesBotsProvider.overrideWith((ref) async => bots),
-            hermesApiServiceProvider.overrideWithValue(null),
+            hermesApiServiceProvider.overrideWithValue(service),
           ],
           home: const Scaffold(
             body: CustomScrollView(slivers: [HermesRoomsSection()]),
@@ -216,12 +325,89 @@ void main() {
       await tester.pump();
       check(submit().onPressed).isNotNull();
     });
+
+    testWidgets('a room created after the sheet closed still lists', (
+      tester,
+    ) async {
+      final gateway = _CreatingGateway();
+      await pumpSection(
+        tester,
+        capabilities: const HermesRoomCapabilities(driver: true),
+        service: gateway.service,
+      );
+      await tester.tap(find.byKey(const ValueKey('hermes-rooms-create')));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byKey(const ValueKey('hermes-room-create-name')),
+        'Planning',
+      );
+      for (final bot in ['research', 'scout']) {
+        await tester.tap(
+          find.byKey(ValueKey('hermes-room-create-bot-$bot')),
+        );
+        await tester.pump();
+      }
+      await tester.tap(
+        find.byKey(const ValueKey('hermes-room-create-submit')),
+      );
+      await tester.pump();
+      final reads = roomReads;
+
+      // Closed while Hermes creates the room.
+      final name = find.byKey(const ValueKey('hermes-room-create-name'));
+      Navigator.of(tester.element(name)).pop();
+      await tester.pumpAndSettle();
+      gateway.created.complete({
+        'room_id': 'planning',
+        'name': 'Planning',
+        'members': [
+          for (final bot in ['research', 'scout'])
+            {'member_id': bot, 'profile': bot, 'handle': bot},
+        ],
+      });
+      await tester.pumpAndSettle();
+
+      check(roomReads).isGreaterThan(reads);
+      await gateway.close();
+    });
+
+    testWidgets('says when a room was active in the app language', (
+      tester,
+    ) async {
+      final now = DateTime(2026, 1, 7, 12);
+      final monday = DateTime(2026, 1, 5, 9);
+      String? label;
+      await tester.pumpWidget(
+        Localizations(
+          locale: const Locale('de'),
+          delegates: AppLocalizations.localizationsDelegates,
+          child: Builder(
+            builder: (context) {
+              label = hermesRoomActivityLabel(
+                monday,
+                context: context,
+                now: now,
+              );
+              return const SizedBox.shrink();
+            },
+          ),
+        ),
+      );
+      await tester.pump();
+
+      check(label).equals('Mo');
+    });
   });
 
   group('room page', () {
     late _FakeRoom room;
 
-    Future<void> pumpRoom(WidgetTester tester, HermesRoomView view) async {
+    Future<void> pumpRoom(
+      WidgetTester tester,
+      HermesRoomView view, {
+      ValueListenable<bool>? inView,
+    }) async {
+      const page = HermesRoomPage(roomId: 'standup');
       await tester.pumpWidget(
         _app(
           overrides: [
@@ -231,7 +417,16 @@ void main() {
             hermesBotsProvider.overrideWith((ref) async => _bots),
             hermesApiServiceProvider.overrideWithValue(null),
           ],
-          home: const HermesRoomPage(roomId: 'standup'),
+          // The router keeps a page of a hidden destination mounted, with
+          // its tickers muted.
+          home: inView == null
+              ? page
+              : ValueListenableBuilder<bool>(
+                  valueListenable: inView,
+                  builder: (_, enabled, child) =>
+                      TickerMode(enabled: enabled, child: child!),
+                  child: page,
+                ),
         ),
       );
       await tester.pump();
@@ -391,6 +586,49 @@ void main() {
       await unmount(tester);
     });
 
+    testWidgets('keeps words typed while a message sends', (tester) async {
+      await pumpRoom(tester, liveView());
+      final gate = room.sendGate = Completer<void>();
+
+      final field = find.byKey(const ValueKey('hermes-room-composer'));
+      await tester.enterText(field, 'First');
+      await tester.pump();
+      await tester.tap(find.byKey(const ValueKey('hermes-room-send')));
+      await tester.pump();
+      await tester.enterText(field, 'Second');
+      gate.complete();
+      await tester.pump();
+
+      check(room.sent).deepEquals(['First']);
+      expect(find.text('Second'), findsOneWidget);
+
+      await unmount(tester);
+    });
+
+    testWidgets('stops reading the room while it is out of sight', (
+      tester,
+    ) async {
+      final inView = ValueNotifier(true);
+      addTearDown(inView.dispose);
+      await pumpRoom(tester, liveView(), inView: inView);
+      await tester.pump(kHermesRoomPollInterval);
+      final seen = room.refreshes;
+      check(seen).isGreaterThan(0);
+
+      inView.value = false;
+      await tester.pump();
+      final hidden = room.refreshes;
+      await tester.pump(kHermesRoomPollInterval * 5);
+      check(room.refreshes).equals(hidden);
+
+      inView.value = true;
+      await tester.pump();
+      await tester.pump();
+      check(room.refreshes).isGreaterThan(hidden);
+
+      await unmount(tester);
+    });
+
     HermesRoomView settingsView() => HermesRoomView(
       loaded: true,
       snapshot: HermesRoomState(
@@ -458,6 +696,58 @@ void main() {
       check(room.disbanded).equals(1);
 
       await unmount(tester);
+    });
+
+    testWidgets('two bots of one name each show who wrote', (tester) async {
+      Map<String, Object?> seat(String id) => {
+        'member_id': id,
+        'profile': id,
+        'handle': id,
+        'display_name': 'Helper',
+      };
+      final twins = HermesRoom.fromJson({
+        'room_id': 'twins',
+        'name': 'Twins',
+        'members': [seat('a'), seat('b')],
+      })!;
+      HermesRoomEvent reply(int seq, String member) => _event(
+        seq,
+        'message.member',
+        {
+          'text': 'Reply $seq',
+          'thread_id': 'm1',
+          'discussion_event_id': 'm1',
+          'member_id': member,
+        },
+        actor: {'kind': 'member', 'id': member},
+      );
+      final items = projectHermesRoomTimeline([
+        reply(1, 'a'),
+        reply(2, 'b'),
+        reply(3, 'b'),
+      ], twins).whereType<HermesRoomMessageItem>().toList();
+
+      await tester.pumpWidget(
+        _app(
+          overrides: const [],
+          home: Scaffold(
+            body: Column(
+              children: [
+                for (var i = 0; i < items.length; i++)
+                  HermesRoomTimelineRow(
+                    item: items[i],
+                    roomId: 'twins',
+                    previous: i == 0 ? null : items[i - 1],
+                  ),
+              ],
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      // Each bot's first reply names it; the second bot's next one does not.
+      expect(find.text('Helper'), findsNWidgets(2));
     });
 
     testWidgets('says when the room is gone', (tester) async {

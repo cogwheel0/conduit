@@ -179,7 +179,8 @@ class HermesRoomTile extends ConsumerWidget {
     final updated = room.updatedAt;
     final subtitle = [
       l10n.hermesRoomBotCount(room.members.length),
-      if (updated != null) hermesRoomActivityLabel(updated),
+      if (updated != null)
+        hermesRoomActivityLabel(updated, context: context),
     ].join(' · ');
     return ChatStyleSidebarTile(
       key: ValueKey<String>('hermes-room-tile-${room.id}'),
@@ -197,14 +198,25 @@ class HermesRoomTile extends ConsumerWidget {
 }
 
 /// When a room was last active: the time today, the weekday this week,
-/// else the date.
-String hermesRoomActivityLabel(DateTime at, {DateTime? now}) {
+/// else the date, in [locale] (the app's language, from [context] when
+/// not given).
+String hermesRoomActivityLabel(
+  DateTime at, {
+  BuildContext? context,
+  String? locale,
+  DateTime? now,
+}) {
+  final language =
+      locale ??
+      (context == null
+          ? null
+          : Localizations.localeOf(context).toLanguageTag());
   final current = now ?? DateTime.now();
   final local = at.toLocal();
   final today = DateTime(current.year, current.month, current.day);
-  if (!local.isBefore(today)) return DateFormat.jm().format(local);
+  if (!local.isBefore(today)) return DateFormat.jm(language).format(local);
   if (today.difference(local).inDays < 6) {
-    return DateFormat.E().format(local);
+    return DateFormat.E(language).format(local);
   }
-  return DateFormat.MMMd().format(local);
+  return DateFormat.MMMd(language).format(local);
 }

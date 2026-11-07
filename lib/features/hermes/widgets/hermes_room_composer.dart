@@ -84,9 +84,14 @@ class _HermesRoomComposerState extends State<HermesRoomComposer> {
   }
 
   Future<void> _send() async {
-    final text = _controller.text.trim();
+    final typed = _controller.text;
+    final text = typed.trim();
     if (text.isEmpty || widget.sending || !widget.enabled) return;
-    if (await widget.onSend(text) && mounted) _controller.clear();
+    // The field stays editable while Hermes answers: words typed since
+    // the send are the next message, so they stay.
+    if (await widget.onSend(text) && mounted && _controller.text == typed) {
+      _controller.clear();
+    }
   }
 
   @override

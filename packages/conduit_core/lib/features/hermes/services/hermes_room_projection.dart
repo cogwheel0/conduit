@@ -315,10 +315,19 @@ Map<int, HermesRoomPause> hermesRoomPauses(
     final discussion = event.discussionEventId;
     if (discussion == null) continue;
     if (event.isMemberMessage) said[discussion] = (said[discussion] ?? 0) + 1;
+    // The shown log may have lost earlier Continues; each one names its
+    // number (`grant`, from 1), and a pause's id ends in how many came
+    // before it (`:c2`), so neither count rests on what is still shown.
     if (event.kind == 'room.continued') {
-      grants[discussion] = (grants[discussion] ?? 0) + 1;
+      final grant = event.payload['grant'];
+      final counted = (grants[discussion] ?? 0) + 1;
+      grants[discussion] = grant is int && grant > counted ? grant : counted;
     }
-    if (event.isBoundedActivity) counts[event.seq] = said[discussion] ?? 0;
+    if (event.isBoundedActivity) {
+      counts[event.seq] = said[discussion] ?? 0;
+      final before = _continuesBefore(event);
+      if (before > (grants[discussion] ?? 0)) grants[discussion] = before;
+    }
   }
 
   final moved = <int>{};
@@ -358,6 +367,13 @@ Map<int, HermesRoomPause> hermesRoomPauses(
           }(),
         ),
   };
+}
+
+/// How many Continues a discussion had when it paused: Hermes files each
+/// pause after one under `dactivity:<discussion>:<reason>:c<count>`.
+int _continuesBefore(HermesRoomEvent pause) {
+  final match = RegExp(r':c(\d{1,3})$').firstMatch(pause.eventId ?? '');
+  return match == null ? 0 : int.parse(match.group(1)!);
 }
 
 /// A bot's reply that @mentions a teammate who then took a turn in the
@@ -458,9 +474,11 @@ Map<String, HermesRoomMemberStatus> hermesRoomMemberStatuses(
   final outcomes = <String, HermesRoomMemberStatus>{};
   for (final event in events) {
     final member = event.memberId;
+    // A thread whose message left the shown log keeps its last outcome.
+    final current = discussions[event.threadId ?? ''];
     if (member == null ||
         !_terminalKinds.contains(event.kind) ||
-        event.discussionEventId != discussions[event.threadId ?? '']) {
+        (current != null && event.discussionEventId != current)) {
       continue;
     }
     final outcome = switch (event.kind) {

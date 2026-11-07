@@ -72,6 +72,9 @@ class _HermesRoomCreateSheetState extends ConsumerState<HermesRoomCreateSheet> {
     final service = ref.read(hermesApiServiceProvider);
     if (!_ready || service is! HermesDesktopApiService) return;
     final l10n = AppLocalizations.of(context)!;
+    // The sheet can be dismissed while Hermes creates the room; the list
+    // still learns of it.
+    final container = ProviderScope.containerOf(context, listen: false);
     setState(() {
       _creating = true;
       _error = null;
@@ -85,7 +88,7 @@ class _HermesRoomCreateSheetState extends ConsumerState<HermesRoomCreateSheet> {
               HermesRoomMember.forBot(bot),
         ],
       );
-      ref.invalidate(hermesRoomsProvider);
+      container.invalidate(hermesRoomsProvider);
       if (mounted) Navigator.of(context).pop(room.id);
     } catch (error) {
       if (!mounted) return;

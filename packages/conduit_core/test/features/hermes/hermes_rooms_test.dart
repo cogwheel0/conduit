@@ -9,9 +9,11 @@ import 'package:conduit_core/features/hermes/models/hermes_room.dart';
 import 'package:conduit_core/features/hermes/models/hermes_room_log.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_room_providers.dart';
+import 'package:conduit_core/features/hermes/services/hermes_backend_service.dart';
 import 'package:conduit_core/features/hermes/services/hermes_desktop_api_service.dart';
 import 'package:conduit_core/features/hermes/services/hermes_desktop_transport.dart';
 import 'package:conduit_core/features/hermes/services/hermes_room_projection.dart';
+import 'package:crypto/crypto.dart';
 import 'package:dio/dio.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:riverpod/riverpod.dart';
@@ -41,7 +43,7 @@ final class _MockWebSocketChannel extends Mock implements WebSocketChannel {}
 final class _MockWebSocketSink extends Mock implements WebSocketSink {}
 
 /// A gateway socket that answers each request with [answer] (a result, or
-/// a `{'error': ...}` map), else an empty object.
+/// a `{'error': ...}` map, or a future of one), else an empty object.
 final class _Gateway {
   _Gateway([Object? Function(String method, Map params)? answer])
     : answer = answer ?? ((_, _) => null) {
@@ -68,17 +70,24 @@ final class _Gateway {
       final id = frame['id'];
       if (id == null) return;
       final method = frame['method']?.toString() ?? '';
-      final reply = this.answer(method, frame['params'] as Map) ?? {};
-      final error = reply is Map ? reply['error'] : null;
-      scheduleMicrotask(
-        () => incoming.add(
+      void reply(Object? value) {
+        final reply = value ?? {};
+        final error = reply is Map ? reply['error'] : null;
+        incoming.add(
           jsonEncode({
             'jsonrpc': '2.0',
             'id': id,
             if (error != null) 'error': error else 'result': reply,
           }),
-        ),
-      );
+        );
+      }
+
+      final answer = this.answer(method, frame['params'] as Map);
+      if (answer is Future) {
+        answer.then(reply);
+      } else {
+        scheduleMicrotask(() => reply(answer));
+      }
     });
   }
 
@@ -190,6 +199,23 @@ HermesRoomEvent _bounded(String discussion) => _event('room.activity', {
   'thread_id': discussion,
   'discussion_event_id': discussion,
 });
+
+/// The connection in use, which a test switches.
+final class _ActiveService extends Notifier<HermesBackendService?> {
+  _ActiveService(this.initial);
+
+  final HermesBackendService? initial;
+
+  @override
+  HermesBackendService? build() => initial;
+
+  void set(HermesBackendService? service) => state = service;
+}
+
+final _activeService =
+    NotifierProvider<_ActiveService, HermesBackendService?>(
+      () => _ActiveService(null),
+    );
 
 void main() {
   setUp(() => _seq = 0);
@@ -456,6 +482,45 @@ void main() {
           .equals(HermesRoomNoticeKind.workLimit);
     });
 
+    test('a pause counts Continues the shown log no longer holds', () {
+      HermesRoomPauseItem pause(List<HermesRoomEvent> events) =>
+          projectHermesRoomTimeline(
+            events,
+            _room(),
+            maxContinues: 2,
+          ).whereType<HermesRoomPauseItem>().last;
+      HermesRoomEvent pausedAfter(int continues) => _event(
+        'room.activity',
+        {
+          'status': 'bounded',
+          'reason_code': 'max_rounds',
+          'thread_id': 'm1',
+          'discussion_event_id': 'm1',
+        },
+        id: 'dactivity:m1:max_rounds:c$continues',
+      );
+
+      // Only the second Continue is still shown; it names its number.
+      check(
+        pause([
+          _event('room.continued', {
+            'discussion_event_id': 'm1',
+            'thread_id': 'm1',
+            'grant': 2,
+          }),
+          _member('scout', 'm1', 'Two'),
+          _bounded('m1'),
+        ]).actionable,
+      ).isFalse();
+      // No Continue is shown; the pause's id says how many came first.
+      check(
+        pause([_member('scout', 'm1', 'Two'), pausedAfter(2)]).actionable,
+      ).isFalse();
+      check(
+        pause([_member('scout', 'm1', 'Two'), pausedAfter(1)]).actionable,
+      ).isTrue();
+    });
+
     test('a reply that asks a teammate shows the handoff', () {
       final events = [
         _user('m1', 'Plan it'),
@@ -529,6 +594,15 @@ void main() {
         now,
       );
       check(statuses['scout']!.kind).equals(HermesRoomMemberStatusKind.idle);
+
+      // The thread's message left the shown log; its outcome still counts.
+      statuses = hermesRoomMemberStatuses(
+        events.sublist(1),
+        members,
+        const [],
+        now,
+      );
+      check(statuses['scout']!.kind).equals(HermesRoomMemberStatusKind.failed);
       check(
         formatHermesRoomElapsed(const Duration(seconds: 80)),
       ).equals('1m20s');
@@ -927,6 +1001,195 @@ void main() {
       final all = gateway.params('groups.send').map((p) => p['event_id']);
       check(all.toSet().length).equals(2);
       check(sub.read().sending).isFalse();
+    });
+
+    test('an edit after an unclear answer takes the same id', () async {
+      final log = <Map<String, Object?>>[];
+      final ids = <String>[];
+      Object? answer(String method, Map params) {
+        switch (method) {
+          case 'groups.state':
+            return {'room': _roomJson(latest: log.length)};
+          case 'groups.log':
+            final since = params['since_seq'] as int;
+            return {
+              'events': [
+                for (final event in log)
+                  if ((event['seq'] as int) > since) event,
+              ],
+              'cursor': log.length,
+              'has_more': false,
+            };
+          case 'groups.send':
+            final id = params['event_id'] as String;
+            ids.add(id);
+            final logId = 'user:${sha256.convert(utf8.encode(id))}';
+            if (log.any((event) => event['event_id'] == logId)) {
+              return {
+                'error': {
+                  'code': 4111,
+                  'message': 'event_id already exists with different content',
+                },
+              };
+            }
+            // Hermes posts the message, but its receipt is lost.
+            log.add({
+              'seq': log.length + 1,
+              'kind': 'message.user',
+              'event_id': logId,
+              'actor': {'kind': 'user', 'id': 'desktop'},
+              'payload': (params['payload'] as Map).cast<String, Object?>(),
+            });
+            return {
+              'error': {'code': 5112, 'message': 'driver busy'},
+            };
+        }
+        return null;
+      }
+
+      final gateway = _Gateway(answer);
+      final container = containerFor(_service(gateway));
+      final sub = container.listen(hermesRoomProvider('standup'), (_, _) {});
+      addTearDown(sub.close);
+      final room = container.read(hermesRoomProvider('standup').notifier);
+
+      await check(room.send('Helo')).throws();
+      await check(room.send('Hello')).throws();
+      // Hermes refused the edit: the first words were already posted.
+      check(ids.toSet().length).equals(1);
+      check(log.length).equals(1);
+
+      // The log shows the message, so the next words are a new message.
+      await room.refresh();
+      check(sub.read().unsentText).isNull();
+      await check(room.send('Hello')).throws();
+      check(ids.toSet().length).equals(2);
+    });
+
+    test('an unclear message keeps its id across a connection '
+        'switch', () async {
+      final gateway = _Gateway((method, params) {
+        if (method == 'groups.send') {
+          return {
+            'error': {'code': 5112, 'message': 'driver busy'},
+          };
+        }
+        if (method == 'groups.state') return {'room': _roomJson()};
+        if (method == 'groups.log') {
+          return {'events': [], 'cursor': 0, 'has_more': false};
+        }
+        return null;
+      });
+      final service = _service(gateway);
+      final container = ProviderContainer(
+        overrides: [
+          _activeService.overrideWith(() => _ActiveService(service)),
+          hermesApiServiceProvider.overrideWith(
+            (ref) => ref.watch(_activeService),
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+      final sub = container.listen(hermesRoomProvider('standup'), (_, _) {});
+      addTearDown(sub.close);
+      HermesRoomController room() =>
+          container.read(hermesRoomProvider('standup').notifier);
+      final active = container.read(_activeService.notifier);
+
+      await check(room().send('Hello')).throws();
+      active.set(null);
+      check(sub.read().unsentText).equals('Hello');
+      active.set(service);
+      check(sub.read().unsentText).equals('Hello');
+      await check(room().send('Hello')).throws();
+      final ids = gateway.params('groups.send').map((p) => p['event_id']);
+      check(ids.toSet().length).equals(1);
+    });
+
+    test('a save shows what Hermes saved, not a read from before', () async {
+      var stored = <String, Object?>{'purpose': 'Old', 'notes': ''};
+      Completer<void>? hold;
+      var failState = false;
+      final gateway = _Gateway((method, params) {
+        switch (method) {
+          case 'groups.state':
+            if (failState) {
+              return {
+                'error': {'code': 5000, 'message': 'unavailable'},
+              };
+            }
+            final snapshot = {'room': _roomJson(), 'context': {...stored}};
+            final held = hold;
+            return held == null ? snapshot : held.future.then((_) => snapshot);
+          case 'groups.log':
+            return {'events': [], 'cursor': 0, 'has_more': false};
+          case 'groups.list':
+            return {
+              'rooms': [_roomJson()],
+            };
+          case 'groups.context':
+            stored = {'purpose': params['purpose'], 'notes': params['notes']};
+            return {'context': stored};
+        }
+        return null;
+      });
+      final container = containerFor(_service(gateway));
+      final sub = container.listen(hermesRoomProvider('standup'), (_, _) {});
+      addTearDown(sub.close);
+      final room = container.read(hermesRoomProvider('standup').notifier);
+      await room.refresh();
+      check(sub.read().context!.purpose).equals('Old');
+
+      // A poll reads the old settings and answers after the save.
+      final held = hold = Completer<void>();
+      final poll = room.refresh();
+      await pumpEventQueue();
+      hold = null;
+      final save = room.saveContext(const HermesRoomContext(purpose: 'New'));
+      await pumpEventQueue();
+      held.complete();
+      check((await save).purpose).equals('New');
+      await poll;
+      check(sub.read().context!.purpose).equals('New');
+
+      // A read after the save that fails still shows the save.
+      failState = true;
+      final saved = await room.saveContext(
+        const HermesRoomContext(purpose: 'Newer'),
+      );
+      check(saved.purpose).equals('Newer');
+      check(sub.read().context!.purpose).equals('Newer');
+    });
+
+    test('a failed capabilities read is not a gateway without rooms', () async {
+      var code = 5000;
+      final gateway = _Gateway((method, _) {
+        if (method != 'groups.capabilities') return null;
+        return {
+          'error': {'code': code, 'message': 'busy'},
+        };
+      });
+      final container = containerFor(_service(gateway));
+      final sub = container.listen(
+        hermesRoomCapabilitiesProvider,
+        (_, _) {},
+      );
+      addTearDown(sub.close);
+      // Connecting reports the gateway's contract, which reads them again.
+      Future<AsyncValue<HermesRoomCapabilities?>> settled() async {
+        for (var turn = 0; turn < 50 && sub.read().isLoading; turn++) {
+          await pumpEventQueue();
+        }
+        return sub.read();
+      }
+
+      check((await settled()).error).isA<HermesDesktopRpcException>();
+
+      code = -32601;
+      container.invalidate(hermesRoomCapabilitiesProvider);
+      final unsupported = await settled();
+      check(unsupported.hasError).isFalse();
+      check(unsupported.value).isNull();
     });
 
     test('a room that left the gateway reads as gone', () async {

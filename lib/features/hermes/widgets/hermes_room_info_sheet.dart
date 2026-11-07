@@ -122,11 +122,12 @@ class _HermesRoomInfoSheetState extends ConsumerState<HermesRoomInfoSheet> {
       _error = null;
     });
     try {
-      await ref
+      // What Hermes saved, never a read from before the save.
+      final saved = await ref
           .read(hermesRoomProvider(widget.roomId).notifier)
           .saveContext(draft);
       if (!mounted) return;
-      _adopt(ref.read(hermesRoomProvider(widget.roomId)).context ?? draft);
+      _adopt(saved);
       setState(() => _saving = false);
     } catch (error) {
       if (!mounted) return;

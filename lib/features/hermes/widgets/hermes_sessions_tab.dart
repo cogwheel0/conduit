@@ -100,6 +100,8 @@ class _HermesSessionsTabState extends ConsumerState<HermesSessionsTab>
         if (showJobs) ref.invalidate(hermesJobsProvider);
         ref.invalidate(hermesBotsProvider);
         ref.invalidate(hermesArchivedSessionsProvider);
+        // A capabilities read that failed hid Rooms; this one retries it.
+        ref.invalidate(hermesRoomCapabilitiesProvider);
         ref.invalidate(hermesRoomsProvider);
         ref.invalidate(hermesSessionsProvider);
         await ref.read(hermesSessionsProvider.future);

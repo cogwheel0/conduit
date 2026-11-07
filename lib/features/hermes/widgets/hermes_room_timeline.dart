@@ -64,12 +64,16 @@ class HermesRoomTimelineRow extends StatelessWidget {
     };
   }
 
+  /// Two bots may share a name, so the seat and the poster decide.
   static bool _sameAuthor(
     HermesRoomTimelineItem? previous,
     HermesRoomMessageItem item,
   ) =>
       previous is HermesRoomMessageItem &&
       !previous.own &&
+      previous.member?.memberId == item.member?.memberId &&
+      previous.event.actor?.kind == item.event.actor?.kind &&
+      previous.event.actor?.id == item.event.actor?.id &&
       previous.author == item.author &&
       previous.scheduled == item.scheduled;
 }
@@ -196,7 +200,10 @@ class _AuthorMessage extends StatelessWidget {
                         if (created != null) ...[
                           const SizedBox(width: Spacing.sm),
                           Text(
-                            hermesRoomActivityLabel(created),
+                            hermesRoomActivityLabel(
+                              created,
+                              context: context,
+                            ),
                             style: AppTypography.labelSmallStyle.copyWith(
                               color: theme.textSecondary,
                             ),

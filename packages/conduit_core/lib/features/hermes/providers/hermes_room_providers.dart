@@ -7,6 +7,7 @@ import 'package:conduit_core/features/hermes/models/hermes_room.dart';
 import 'package:conduit_core/features/hermes/models/hermes_room_log.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 import 'package:conduit_core/features/hermes/services/hermes_desktop_api_service.dart';
+import 'package:conduit_core/features/hermes/services/hermes_desktop_transport.dart';
 import 'package:conduit_core/features/hermes/services/hermes_room_projection.dart';
 import 'package:conduit_core/persistence/persistence_keys.dart';
 import 'package:conduit_core/persistence/preferences_store.dart';
@@ -19,7 +20,9 @@ const int kMaxHermesRoomEventsShown = 2000;
 const Duration kHermesRoomPollInterval = Duration(seconds: 2);
 
 /// What this gateway can do with Group Chats. Null on the API server and on
-/// a gateway without rooms, which hides the sidebar section.
+/// a gateway without rooms, which hides the sidebar section. A read that
+/// failed for another reason is an error, which also hides the section
+/// until the sidebar is refreshed.
 final hermesRoomCapabilitiesProvider = FutureProvider<HermesRoomCapabilities?>(
   (ref) async {
     final service = ref.watch(hermesApiServiceProvider);
@@ -27,8 +30,10 @@ final hermesRoomCapabilitiesProvider = FutureProvider<HermesRoomCapabilities?>(
     ref.watch(hermesDesktopContractProvider);
     try {
       return await service.roomCapabilities();
-    } catch (_) {
-      return null;
+    } on HermesDesktopRpcException catch (error) {
+      // Only a gateway without the method has no rooms.
+      if (error.code == -32601) return null;
+      rethrow;
     }
   },
 );
@@ -159,10 +164,12 @@ class HermesRoomController extends Notifier<HermesRoomView> {
     _refreshing = null;
     _epoch = null;
     _seq = 0;
-    _unsent = null;
     _stopId = null;
     _listRefreshedAt = null;
-    return const HermesRoomView();
+    // A message Hermes may have keeps its id across a connection switch:
+    // the composer keeps its words, and sending them again on the way back
+    // must not post them twice.
+    return HermesRoomView(unsentText: _unsent?.text);
   }
 
   HermesDesktopApiService get _api =>
@@ -210,6 +217,14 @@ class HermesRoomController extends Notifier<HermesRoomView> {
       }
       _epoch = room.authorityEpoch;
       _seq = merged.isEmpty ? since : merged.last.seq;
+      // A message whose answer was unclear is settled once the log shows
+      // it: the next words start a message of their own.
+      final unsent = _unsent;
+      if (unsent != null &&
+          !state.sending &&
+          _postedText(unsent, merged) != null) {
+        _unsent = null;
+      }
       state = state.copyWith(
         snapshot: snapshot,
         // An unchanged log keeps its identity, so nothing re-projects it.
@@ -219,6 +234,7 @@ class HermesRoomController extends Notifier<HermesRoomView> {
         loaded: true,
         readError: null,
         gone: room.disbanded,
+        unsentText: state.sending ? state.unsentText : _unsent?.text,
       );
       _refreshListIfStale(room);
     } catch (error) {
@@ -261,24 +277,44 @@ class HermesRoomController extends Notifier<HermesRoomView> {
     }
   }
 
+  /// The words the log shows under [send]'s id; null before Hermes posted
+  /// anything under it.
+  static String? _postedText(
+    HermesRoomSend send,
+    List<HermesRoomEvent> events,
+  ) {
+    final id = send.logEventId;
+    for (final event in events.reversed) {
+      if (event.eventId == id) return event.text;
+    }
+    return null;
+  }
+
   /// Posts [text]. Words Hermes refused before posting anything come back
-  /// for editing; after an unclear answer the message is kept, and sending
-  /// the same words again sends it again under the same id.
+  /// for editing. After an unclear answer the message is kept until the
+  /// log shows it, and whatever is sent next goes under the same id, so
+  /// Hermes posts at most one of them.
   Future<void> send(String text) async {
     final unsent = _unsent;
-    final send = unsent != null && unsent.text == text
+    final send = unsent == null
+        ? HermesRoomSend(text: text)
+        : unsent.text == text
         ? unsent
-        : HermesRoomSend(text: text);
+        : unsent.withText(text);
     _unsent = send;
     state = state.copyWith(sending: true, unsentText: text);
     try {
       await _api.sendRoomMessage(roomId, send);
       if (identical(_unsent, send)) _unsent = null;
     } catch (error) {
-      if (hermesRoomSendAdmittedNothing(error) && identical(_unsent, send)) {
+      final posted = _postedText(send, state.events);
+      if (identical(_unsent, send) &&
+          (posted != null || hermesRoomSendAdmittedNothing(error))) {
         _unsent = null;
       }
-      rethrow;
+      // The log already shows these very words: Hermes has them. Other
+      // words under the id are what it refused this send for.
+      if (posted != send.text) rethrow;
     } finally {
       if (ref.mounted) {
         state = state.copyWith(sending: false, unsentText: _unsent?.text);
@@ -308,15 +344,42 @@ class HermesRoomController extends Notifier<HermesRoomView> {
     unawaited(refresh());
   }
 
-  Future<void> rename(String name) async {
-    await _api.renameRoom(roomId, name);
-    ref.invalidate(hermesRoomsProvider);
-    await refresh();
+  /// Waits out a read already under way: it may have read the room before
+  /// a write, so the write's own read starts after it.
+  Future<void> _settleReads() async {
+    final pending = _refreshing;
+    if (pending != null) await pending;
   }
 
-  Future<void> saveContext(HermesRoomContext context) async {
-    await _api.setRoomContext(roomId, context);
+  Future<void> rename(String name) async {
+    final service = _api;
+    await service.renameRoom(roomId, name);
+    if (!ref.mounted) return;
+    ref.invalidate(hermesRoomsProvider);
+    await _settleReads();
+    if (_current(service)) await refresh();
+  }
+
+  /// Saves [context]; returns what Hermes saved, or [context] when it did
+  /// not say. The room shows it even when the read after the save fails.
+  Future<HermesRoomContext> saveContext(HermesRoomContext context) async {
+    final service = _api;
+    final saved = await service.setRoomContext(roomId, context) ?? context;
+    if (!ref.mounted) return saved;
+    await _settleReads();
+    if (!_current(service)) return saved;
+    final snapshot = state.snapshot;
+    if (snapshot != null) {
+      state = state.copyWith(
+        snapshot: HermesRoomState(
+          room: snapshot.room,
+          context: saved,
+          driver: snapshot.driver,
+        ),
+      );
+    }
     await refresh();
+    return saved;
   }
 
   /// Ends the room for good.

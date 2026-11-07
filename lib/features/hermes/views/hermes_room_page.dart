@@ -44,6 +44,11 @@ class _HermesRoomPageState extends ConsumerState<HermesRoomPage>
   Timer? _tick;
   bool _acting = false;
 
+  /// Whether the page is in view: the router keeps it mounted out of sight,
+  /// with its tickers muted, while another sidebar destination is open.
+  bool _inView = true;
+  bool _foreground = true;
+
   List<HermesRoomEvent>? _projectedEvents;
   String? _projectedShape;
   List<HermesRoomTimelineItem> _items = const [];
@@ -75,13 +80,38 @@ class _HermesRoomPageState extends ConsumerState<HermesRoomPage>
   }
 
   @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) {
-      _startPolling();
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final inView = TickerMode.valuesOf(context).enabled;
+    if (inView == _inView) return;
+    _inView = inView;
+    if (!inView) {
+      _stopTimers();
     } else {
-      _poll?.cancel();
-      _poll = null;
+      // Providers may not change while the tree builds.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && _inView && _foreground) _startPolling();
+      });
     }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    _foreground = state == AppLifecycleState.resumed;
+    if (_foreground && _inView) {
+      _startPolling();
+      // The ticker comes back with the next build.
+      setState(() {});
+    } else {
+      _stopTimers();
+    }
+  }
+
+  void _stopTimers() {
+    _poll?.cancel();
+    _poll = null;
+    _tick?.cancel();
+    _tick = null;
   }
 
   void _startPolling() {
@@ -93,13 +123,14 @@ class _HermesRoomPageState extends ConsumerState<HermesRoomPage>
     );
   }
 
-  /// Ticks once a second while a bot works, so its elapsed time moves.
+  /// Ticks once a second while a bot works and the page is seen, so its
+  /// elapsed time moves.
   void _syncTicker(bool working) {
-    if (working && _tick == null) {
+    if (working && _inView && _foreground && _tick == null) {
       _tick = Timer.periodic(const Duration(seconds: 1), (_) {
         if (mounted) setState(() {});
       });
-    } else if (!working) {
+    } else if (!working || !_inView || !_foreground) {
       _tick?.cancel();
       _tick = null;
     }

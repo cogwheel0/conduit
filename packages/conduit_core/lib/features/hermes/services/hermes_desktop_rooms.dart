@@ -18,6 +18,17 @@ final class HermesRoomSend {
 
   /// A message starts its own thread unless it continues one.
   String get threadId => _threadId ?? eventId;
+
+  /// The id the message has in the room's log once Hermes posted it:
+  /// Hermes files a user's message under `user:` and the SHA-256 of the
+  /// id it was sent with (`user_event_id` in gateway/hosted_rooms.py).
+  String get logEventId => 'user:${sha256.convert(utf8.encode(eventId))}';
+
+  /// [text] sent in place of these words, under the same id and thread:
+  /// Hermes posts at most one message per id, so an edit sent after an
+  /// unclear answer can never post next to the words it replaced.
+  HermesRoomSend withText(String text) =>
+      HermesRoomSend(text: text, eventId: eventId, threadId: _threadId);
 }
 
 /// The Group Chat calls (`groups.*`). Both Desktop Gateway wires serve
