@@ -37,7 +37,9 @@ void main() {
     check(caps.sessions).isTrue();
     check(caps.toolsets).isTrue();
     check(caps.jobs).isTrue(); // list surface shown
-    check(caps.jobsAdmin).isFalse(); // writes disabled
+    // `jobs_admin: false` is static on every API server; /api/jobs writes
+    // still work with the bearer key.
+    check(caps.jobsAdmin).isTrue();
     check(caps.inputImages).isTrue();
     check(caps.inputFiles).isFalse(); // /v1/responses rejects file parts
   });
