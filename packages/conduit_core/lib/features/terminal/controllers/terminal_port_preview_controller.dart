@@ -38,6 +38,14 @@ final class TerminalPortPreviewController with TerminalChangeNotifier {
     return (uri: uri, headers: navigator.headers);
   }
 
+  /// The cookies a web view with a private store is given before the first
+  /// page loads: the sign-in proxy's in front of Open WebUI, through a
+  /// browser session only. Its pages are sandboxed, so their scripts cannot
+  /// read them; a page through the port proxy runs on Open WebUI's own
+  /// address and could.
+  Map<String, String> get proxyCookies =>
+      _navigator?.usesSession == true ? preview.proxyCookies : const {};
+
   /// The page as it can be opened outside the app, or null when it needs a
   /// credential the app does not hand out.
   Uri? get externalUri {

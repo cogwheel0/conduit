@@ -17,12 +17,14 @@ void main() {
 
   TerminalPortPreview preview({
     Future<TerminalBrowserSession> Function()? openSession,
+    Map<String, String> proxyCookies = const {},
   }) => TerminalPortPreview(
     port: 5173,
     terminalBaseUri: base,
     bearerToken: 'jwt',
     openSession: openSession,
     closeSession: (session) async => closed.add(session),
+    proxyCookies: proxyCookies,
   );
 
   test('prefers a browser session and closes it when it goes', () async {
@@ -77,6 +79,27 @@ void main() {
 
     check(controller.navigator!.usesSession).isFalse();
     controller.dispose();
+  });
+
+  test("a session's pages are given the sign-in proxy's cookies", () async {
+    const cookies = {'CF_Authorization': 'cf'};
+    final throughSession = TerminalPortPreviewController(
+      preview(openSession: () async => session, proxyCookies: cookies),
+    );
+    final throughProxy = TerminalPortPreviewController(
+      preview(proxyCookies: cookies),
+    );
+    addTearDown(throughSession.dispose);
+    addTearDown(throughProxy.dispose);
+    check(throughSession.proxyCookies).isEmpty();
+
+    await throughSession.start();
+    await throughProxy.start();
+
+    check(throughSession.proxyCookies).deepEquals(cookies);
+    // A page through the proxy runs on Open WebUI's own address, where its
+    // scripts could read them.
+    check(throughProxy.proxyCookies).isEmpty();
   });
 
   test('a session that opens after the page closed is closed', () async {

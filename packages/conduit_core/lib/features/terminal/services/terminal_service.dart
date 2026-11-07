@@ -6,6 +6,7 @@ import 'package:dio/dio.dart';
 import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 
+import 'package:conduit_core/auth/proxy_session.dart';
 import 'package:conduit_core/features/integrations/personal_connection_settings.dart';
 import 'package:conduit_core/services/api_service.dart';
 
@@ -533,6 +534,19 @@ class TerminalService {
     }
     final base = _toWebSocketBaseUrl(server.baseUrl.toString());
     return Uri.parse('$base/events');
+  }
+
+  /// The cookies of a sign-in proxy in front of Open WebUI, which every
+  /// request to it carries, for a preview of one of its own terminals; empty
+  /// for a direct terminal. Open WebUI's own cookies, its account token among
+  /// them, are left out: the preview gets only what the proxy needs.
+  Map<String, String> proxyCookiesForServer(TerminalServerInfo server) {
+    if (!server.isSystem) return const {};
+    final cookies = cookiesFromHeaders(api.serverConfig.customHeaders);
+    return {
+      for (final entry in cookies.entries)
+        if (!openWebUiCookieNames.contains(entry.key)) entry.key: entry.value,
+    };
   }
 
   String? authTokenForServer(TerminalServerInfo server) {

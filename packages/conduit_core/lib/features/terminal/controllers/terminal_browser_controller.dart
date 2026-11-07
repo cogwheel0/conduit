@@ -530,6 +530,7 @@ class TerminalBrowserController with TerminalChangeNotifier {
       port: port.port,
       terminalBaseUri: server.baseUrl,
       bearerToken: service.authTokenForServer(server),
+      proxyCookies: service.proxyCookiesForServer(server),
       openSession: sessions
           ? () => service.createBrowserSession(
               server,
