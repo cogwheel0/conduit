@@ -299,6 +299,9 @@ final class HermesDesktopApiService
   final Map<String, int> _bindingSocketGenerations = {};
   final Set<String> _freshSessionIds = {};
   final Map<String, List<Map<String, dynamic>>> _lastTranscripts = {};
+
+  /// Chats whose next transcript may be shorter than the one shown.
+  final Set<String> _shortenedTranscripts = {};
   final Map<String, String> _appliedSessionOptions = {};
 
   /// Connection targets (operation/target card ids) the user approved on
@@ -387,6 +390,20 @@ final class HermesDesktopApiService
 
   /// Asks the open chat of [storedId] to read its transcript again.
   void refreshTranscript(String storedId) => _emitTranscriptChange(storedId);
+
+  /// Asks the open chat of [storedId] to read its transcript again after a
+  /// change that shortened it (an undo the chat did not see): the read is
+  /// taken as it is, not refused as an incomplete one.
+  void refreshShortenedTranscript(String storedId) {
+    _lastTranscripts.remove(storedId);
+    _shortenedTranscripts.add(storedId);
+    _emitTranscriptChange(storedId);
+  }
+
+  /// Whether [storedId]'s next transcript may be shorter than the one shown
+  /// ([refreshShortenedTranscript]); asking consumes it.
+  bool takeShortenedTranscript(String storedId) =>
+      _shortenedTranscripts.remove(storedId);
   Stream<int> get desktopContractChanges => _desktopContractChanges.stream;
   Stream<int> desktopContracts() => Stream<int>.multi((controller) {
     final subscription = _desktopContractChanges.stream.listen(

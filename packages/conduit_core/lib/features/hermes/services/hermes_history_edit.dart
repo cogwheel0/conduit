@@ -63,7 +63,19 @@ int? hermesTranscriptUserRowIndex({
   for (var place = 0; aligned && place <= ordinal; place++) {
     aligned = samePlace(userMessages[place], userRows[place]);
   }
-  if (aligned) return userRows[ordinal];
+  if (aligned) {
+    if (wanted.isNotEmpty) return userRows[ordinal];
+    // A turn with no text (an image alone) has nothing that tells it apart
+    // from another app's image turn at the same place: only the text turn
+    // after it, matching its own place, confirms the place.
+    final next = ordinal + 1;
+    final confirmed =
+        next < userMessages.length &&
+        next < userRows.length &&
+        typed(userMessages[next]).isNotEmpty &&
+        samePlace(userMessages[next], userRows[next]);
+    return confirmed ? userRows[ordinal] : null;
+  }
 
   // Places drifted: only an exact text match counts, by occurrence. When the
   // chat shows that text as often as the session stores it, the n-th on

@@ -178,10 +178,38 @@ abstract final class HermesSetAsideSessionStore {
           kept.sessionId == record.sessionId &&
           kept.toStorage() == record.toStorage(),
     );
-    if (index < 0) return;
+    // One too long to read back would lose the chat: the record it would
+    // replace stays.
+    if (index < 0 ||
+        replacement.toStorage().length > kMaxHermesSetAsideRecordCharacters) {
+      return;
+    }
     records[index] = replacement;
     await _write(records);
   });
+
+  static final Set<String> _changing = {};
+
+  /// Marks [sessionId]'s flags as being changed in [scope] while [change]
+  /// runs: a lookup then leaves its record alone, since the server's flags
+  /// it reads may be from before the change.
+  static Future<T> whileChanging<T>({
+    required String scope,
+    required String sessionId,
+    required Future<T> Function() change,
+  }) async {
+    final key = jsonEncode([scope, sessionId]);
+    _changing.add(key);
+    try {
+      return await change();
+    } finally {
+      _changing.remove(key);
+    }
+  }
+
+  /// Whether [sessionId]'s flags are being changed in [scope].
+  static bool isChanging({required String scope, required String sessionId}) =>
+      _changing.contains(jsonEncode([scope, sessionId]));
 
   /// Drops every record whose scope passes [test], e.g. those of a saved
   /// connection that was deleted.

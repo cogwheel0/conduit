@@ -320,7 +320,7 @@ class _SeededMessages extends ChatMessagesNotifier {
 
 /// An API server holding [_transcript] that records the sessions it makes.
 class _RestTranscript extends HermesApiService {
-  _RestTranscript()
+  _RestTranscript([this.rows = _transcript])
     : super(
         config: const HermesConfig(
           enabled: true,
@@ -342,7 +342,9 @@ class _RestTranscript extends HermesApiService {
   Future<List<Map<String, dynamic>>> getSessionMessages(
     String id, {
     CancelToken? cancelToken,
-  }) async => [for (final row in _transcript) Map<String, dynamic>.from(row)];
+  }) async => [for (final row in rows) Map<String, dynamic>.from(row)];
+
+  final List<Map<String, Object?>> rows;
 
   @override
   Future<String> createSession({
@@ -563,6 +565,45 @@ void main() {
           index: 2,
         ),
       ).isNull();
+    });
+
+    test('an image turn is certain only with a text turn after it', () {
+      final transcript = [
+        {
+          'id': 1,
+          'role': 'user',
+          'content': [
+            {
+              'type': 'image_url',
+              'image_url': {'url': 'https://hermes.example/other.png'},
+            },
+          ],
+        },
+        {'id': 2, 'role': 'assistant', 'content': 'A photo.'},
+      ];
+      // The chat's image may never have reached Hermes, and another app's
+      // image turn sits at its place: nothing tells them apart.
+      check(
+        hermesTranscriptUserRowIndex(
+          transcript: transcript,
+          messages: [_message('u1', 'user', '')],
+          index: 0,
+        ),
+      ).isNull();
+      check(
+        hermesTranscriptUserRowIndex(
+          transcript: [
+            ...transcript,
+            {'id': 3, 'role': 'user', 'content': 'Thanks'},
+          ],
+          messages: [
+            _message('u1', 'user', ''),
+            _message('a1', 'assistant', 'A photo.'),
+            _message('u2', 'user', 'Thanks'),
+          ],
+          index: 0,
+        ),
+      ).equals(0);
     });
 
     test('of several equal prompts none is certain when places drift', () {
@@ -1163,6 +1204,38 @@ void main() {
       check(service.deleted).isEmpty();
     });
 
+    test('an API server branch whose newest reply alone outgrows the '
+        'device is removed', () async {
+      final huge = 'x' * (1024 * 1024 + 16);
+      final service = _RestTranscript([
+        {'id': 11, 'role': 'user', 'content': 'Write it all out'},
+        {'id': 12, 'role': 'assistant', 'content': huge},
+      ]);
+      final database = AppDatabase(NativeDatabase.memory());
+      addTearDown(database.close);
+      final chat = [
+        _message('u1', 'user', 'Write it all out'),
+        _message('a1', 'assistant', huge),
+      ];
+      final container = _chatContainer(
+        service,
+        chat,
+        copiedHistory: HermesCopiedHistoryStore(database),
+      );
+
+      await check(
+        container
+            .read(hermesSessionsProvider.notifier)
+            .branchFromMessage(
+              sessionId: 'stored-1',
+              title: 'Synthetic essay',
+              messages: chat,
+              index: 1,
+            ),
+      ).throws<StateError>();
+      check(service.deleted).deepEquals(['api_copy']);
+    });
+
     test('an API server branch whose history cannot be kept is removed',
         () async {
       final service = _RestTranscript();
@@ -1232,6 +1305,9 @@ void main() {
 
       check(reloads).contains('stored-1');
       check(container.read(chatMessagesProvider)).deepEquals(reopened);
+      // That read is shorter than the chat shows, and is taken as it is.
+      check(service.takeShortenedTranscript('stored-1')).isTrue();
+      check(service.takeShortenedTranscript('stored-1')).isFalse();
     });
 
     test('drops the turn from the chat and the session', () async {

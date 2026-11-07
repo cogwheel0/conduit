@@ -524,13 +524,20 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
     Future<List<Map<String, dynamic>>> load() async {
       if (isBotChat && runtimeId != null) {
         if (cancelToken?.isCancelled == true) throw cancelToken!.cancelError!;
-        final messages = _objects(
-          await _rpc.request<Object?>(
-            'session.history',
-            params: {'session_id': runtimeId, ..._sessionScope(storedId)},
-          ),
-          'messages',
+        final history = await _rpc.request<Object?>(
+          'session.history',
+          params: {'session_id': runtimeId, ..._sessionScope(storedId)},
         );
+        final rows = history is Map ? history['messages'] : null;
+        // A read for changing the history must hold every row, as the
+        // paged read does.
+        if (current && rows is List && rows.length > 10000) {
+          throw StateError(
+            'This Hermes chat is too long to change from here: it has more '
+            'than 10000 messages.',
+          );
+        }
+        final messages = _objects(history, 'messages');
         if (cancelToken?.isCancelled == true) throw cancelToken!.cancelError!;
         return messages;
       }
@@ -896,7 +903,14 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
     }
     // A session authority has no undo: it rewinds to [rowId], else to the
     // last turn a user started, a row of their own (not a marker Hermes
-    // added).
+    // added). The rewind is fenced at the session as it is now: a turn
+    // added before it lands refuses it rather than being rewound too.
+    final fences = await _canonicalFences(binding, refresh: true);
+    final revision = fences.revision;
+    final generation = fences.generation;
+    if (revision == null || generation == null) {
+      throw StateError('Hermes did not report the chat\'s state.');
+    }
     int? target = rowId;
     final transcript = target != null
         ? const <Map<String, dynamic>>[]
@@ -911,9 +925,12 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
       }
     }
     if (target == null) return false;
-    final receipt = await _canonicalMutate(binding, 'rewind', {
-      'target_message_id': target,
-    });
+    final receipt = await _canonicalMutate(
+      binding,
+      'rewind',
+      {'target_message_id': target},
+      pinned: (revision: revision, generation: generation),
+    );
     final rewound = receipt['rewound_count'];
     return rewound is! int || rewound > 0;
   }

@@ -1502,6 +1502,52 @@ void main() {
     check(resume.containsKey('session_id')).isFalse();
   });
 
+  test('an undo refused because the chat moved on is not sent again',
+      () async {
+    final gateway = _Authority();
+    gateway.handler = (method, params) {
+      if (method == 'session.mutate' && params['operation'] == 'rewind') {
+        // Another turn landed after the undo chose its row.
+        throw const _Refusal(4001, 'stale_generation', {
+          'reason': 'stale_generation',
+          'revision': 3,
+          'execution_generation': 3,
+        });
+      }
+      return gateway.defaults(method, params);
+    };
+    final service = _service(gateway);
+    await service.createDesktopSession();
+
+    await check(
+      service.undoLastTurn('local-1', rowId: 7),
+    ).throws<StateError>();
+    check(
+      gateway.calls('session.mutate').where((p) => p['operation'] == 'rewind'),
+    ).length.equals(1);
+  });
+
+  test('a bot chat too long to read whole refuses history changes',
+      () async {
+    final gateway = _Authority();
+    gateway.handler = (method, params) => method == 'session.history'
+        ? {
+            'messages': [
+              for (var n = 0; n <= 10000; n++)
+                {'id': n + 1, 'role': 'user', 'content': 'Turn $n'},
+            ],
+          }
+        : gateway.defaults(method, params);
+    final service = _service(gateway);
+    final stored = await service.openBotChat(
+      const HermesBot(name: 'default', title: 'Synthetic bot'),
+    );
+
+    await check(service.getCurrentSessionMessages(stored)).throws<StateError>();
+    // Shown, it keeps its bound.
+    check(await service.getSessionMessages(stored)).length.equals(10000);
+  });
+
   group('a gateway that is starting', () {
     test('is tried again until it is ready', () async {
       var probes = 0;

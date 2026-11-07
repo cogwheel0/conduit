@@ -598,6 +598,95 @@ void main() {
       ).equals(HermesSetAsideKind.hidden);
     });
 
+    test('a replacement too long to read back keeps the record', () async {
+      final service = _rest(_Routes({}));
+      final scope = hermesSetAsideScope(service.config);
+      final record = HermesSetAsideSession(
+        scope: scope,
+        sessionId: 'api_1',
+        title: 'Synthetic plan',
+        kind: HermesSetAsideKind.hidden,
+      );
+      await HermesSetAsideSessionStore.remember(record);
+
+      await HermesSetAsideSessionStore.replaceRecord(
+        record,
+        HermesSetAsideSession(
+          scope: scope,
+          sessionId: 'api_1',
+          title: 'T' * 4096,
+          kind: HermesSetAsideKind.archived,
+        ),
+      );
+
+      check(
+        HermesSetAsideSessionStore.find(scope: scope, sessionId: 'api_1')?.kind,
+      ).equals(HermesSetAsideKind.hidden);
+    });
+
+    test('a lookup leaves a record alone while its change is under way',
+        () async {
+      final routes = _Routes({
+        'GET /api/sessions': (_) => (200, {'data': <Object>[]}),
+        // Read before the hide lands: not hidden yet.
+        'GET /api/sessions/api_1': (_) => (
+          200,
+          {
+            'session': {'id': 'api_1', 'title': 'Synthetic plan'},
+          },
+        ),
+      });
+      final service = _rest(routes);
+      final scope = hermesSetAsideScope(service.config);
+      await HermesSetAsideSessionStore.remember(
+        HermesSetAsideSession(
+          scope: scope,
+          sessionId: 'api_1',
+          title: 'Synthetic plan',
+          kind: HermesSetAsideKind.hidden,
+        ),
+      );
+      final container = _container(service);
+
+      await HermesSetAsideSessionStore.whileChanging(
+        scope: scope,
+        sessionId: 'api_1',
+        change: () => container.read(hermesHiddenSessionsProvider.future),
+      );
+
+      check(
+        HermesSetAsideSessionStore.find(scope: scope, sessionId: 'api_1'),
+      ).isNotNull();
+    });
+
+    test('a change saves its record again once Hermes answers', () async {
+      late final String scope;
+      final routes = _Routes({
+        'GET /api/sessions': (_) => (200, {'data': <Object>[]}),
+        'PATCH /api/sessions/api_1': (_) {
+          // A lookup that ran before the change was marked dropped it.
+          unawaited(
+            HermesSetAsideSessionStore.forget(scope: scope, sessionId: 'api_1'),
+          );
+          return (200, {'session': {}});
+        },
+      });
+      final service = _rest(routes);
+      scope = hermesSetAsideScope(service.config);
+      final notifier = _container(
+        service,
+      ).read(hermesSessionsProvider.notifier);
+
+      await notifier.setHidden(
+        const HermesSessionSummary(id: 'api_1', title: 'Plan'),
+        true,
+      );
+
+      check(
+        HermesSetAsideSessionStore.find(scope: scope, sessionId: 'api_1')?.kind,
+      ).equals(HermesSetAsideKind.hidden);
+    });
+
     test('a record too long to read back is refused', () async {
       await check(
         HermesSetAsideSessionStore.remember(

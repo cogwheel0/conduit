@@ -2614,28 +2614,44 @@ class HermesSessionsController
       scope: scope,
       sessionId: session.id,
     );
-    if (setAside != null) {
-      await HermesSetAsideSessionStore.remember(
-        HermesSetAsideSession(
-          scope: scope,
-          sessionId: session.id,
-          title: session.title,
-          kind: setAside,
-          archived:
-              setAside == HermesSetAsideKind.hidden &&
-              (archived ?? session.archived),
-        ),
-      );
-    }
+    final record = setAside == null
+        ? null
+        : HermesSetAsideSession(
+            scope: scope,
+            sessionId: session.id,
+            title: session.title,
+            kind: setAside,
+            archived:
+                setAside == HermesSetAsideKind.hidden &&
+                (archived ?? session.archived),
+          );
+    if (record != null) await HermesSetAsideSessionStore.remember(record);
     // A failed change keeps the record: Hermes may have applied it before
     // its answer was lost. Its lookup reads the chat's flags and keeps,
-    // moves or drops the record to match.
-    await service.setSessionFlags(
-      session.id,
-      pinned: pinned,
-      archived: archived,
-      hidden: hidden,
+    // moves or drops the record to match, once no change is under way.
+    await HermesSetAsideSessionStore.whileChanging(
+      scope: scope,
+      sessionId: session.id,
+      change: () => service.setSessionFlags(
+        session.id,
+        pinned: pinned,
+        archived: archived,
+        hidden: hidden,
+      ),
     );
+    // Saved again: a lookup that ran before the change was marked may have
+    // dropped it.
+    if (record != null) {
+      try {
+        await HermesSetAsideSessionStore.remember(record);
+      } catch (error) {
+        DebugLogger.warning(
+          'set-aside-record-failed',
+          scope: 'hermes/sessions',
+          data: {'errorType': error.runtimeType.toString()},
+        );
+      }
+    }
     if (setAside == null && previous != null) {
       try {
         await HermesSetAsideSessionStore.forget(
@@ -2944,13 +2960,18 @@ class HermesSessionsController
     final kept = transcript.sublist(0, cut.end);
     if (connectionIdentity != null) {
       try {
-        await ref
+        final saved = await ref
             .read(hermesCopiedHistoryStoreProvider)
             .save(
               connectionIdentity: connectionIdentity,
               sessionId: copyId,
               messages: kept,
             );
+        // Kept within the device's bound for a copy (its newest messages);
+        // none kept is a branch without its history.
+        if (saved.isEmpty && kept.isNotEmpty) {
+          throw StateError('The branch history could not be kept.');
+        }
       } catch (error) {
         DebugLogger.warning(
           'branch-history-save-failed',
@@ -3216,6 +3237,17 @@ Future<List<HermesSessionSummary>> _hermesSetAsideSessions(
         ? HermesSetAsideKind.archived
         : null;
     if (actual == kind) return session;
+    // A change under way may not show in the flags read yet: its record
+    // stays as it is.
+    if (HermesSetAsideSessionStore.isChanging(
+      scope: record.scope,
+      sessionId: record.sessionId,
+    )) {
+      return session?.copyWith(
+        hidden: kind == HermesSetAsideKind.hidden,
+        archived: kind == HermesSetAsideKind.archived || session.archived,
+      );
+    }
     // Changed only while still the record read here: a newer one (the chat
     // hidden while this lookup ran) stays.
     if (actual == null) {
