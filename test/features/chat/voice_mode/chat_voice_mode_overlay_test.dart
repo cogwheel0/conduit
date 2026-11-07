@@ -4,9 +4,15 @@ import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/l10n/conduit_localizations.dart';
 import 'package:conduit/shared/theme/app_theme.dart';
 import 'package:conduit/shared/theme/tweakcn_themes.dart';
+import 'package:conduit/shared/widgets/legacy_design_compatibility.dart';
+import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
+import 'package:cupertino_native_better/cupertino_native_better.dart'
+    show CNIcon, CNSymbolEffectType, CNSymbolReplaceTransition;
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+
+import '../../../support/native_platform_views.dart';
 
 void main() {
   testWidgets('inactive overlay does not collapse a loose Stack', (
@@ -187,6 +193,76 @@ void main() {
     expect(size.clipBehavior, Clip.none);
     expect(scale.transform.getMaxScaleOnAxis(), 1);
   });
+
+  testWidgets(
+    'iOS 26 toggles animate their native symbols in place as the call changes',
+    (tester) async {
+      stubNativePlatformViews();
+      PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.iOS;
+      PlatformUiCapabilities.debugIOSMajorVersionOverride = 26;
+      PlatformUiCapabilities.debugNativeIOS26Override = true;
+      addTearDown(PlatformUiCapabilities.resetDebugOverrides);
+      final container = ProviderContainer(
+        overrides: [
+          chatVoiceModeControllerProvider.overrideWith(
+            () => _TestVoiceModeController(
+              const ChatVoiceModeSnapshot(phase: ChatVoiceModePhase.listening),
+            ),
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      await tester.pumpWidget(_buildActiveHarness(container));
+      final controller = container.read(
+        chatVoiceModeControllerProvider.notifier,
+      ) as _TestVoiceModeController;
+      // Mute, speaker and pause, in that order. Minimize and End never change,
+      // so they keep Flutter icons rather than a platform view each.
+      final icons = find.byType(CNIcon);
+      CNIcon icon(int index) => tester.widget<CNIcon>(icons.at(index));
+      final views = [for (var i = 0; i < 3; i++) tester.state(icons.at(i))];
+
+      expect(icons, findsNWidgets(3));
+      expect(icon(0).symbol!.name, 'mic.fill');
+      expect(icon(0).replaceTransition, CNSymbolReplaceTransition.magic);
+      expect(icon(1).symbol!.name, 'speaker.wave.1');
+      expect(icon(1).replaceTransition, CNSymbolReplaceTransition.replace);
+      expect(icon(1).effect, isNull);
+      expect(icon(2).symbol!.name, 'pause.fill');
+      expect(icon(2).replaceTransition, CNSymbolReplaceTransition.replace);
+
+      controller.update(
+        const ChatVoiceModeSnapshot(
+          phase: ChatVoiceModePhase.speaking,
+          spokenResponse: 'Here is the forecast.',
+          isSpeakerphoneEnabled: true,
+        ),
+      );
+      await tester.pump();
+
+      expect(icon(1).symbol!.name, 'speaker.wave.3.fill');
+      expect(icon(1).effect?.type, CNSymbolEffectType.variableColor);
+
+      controller.update(
+        const ChatVoiceModeSnapshot(
+          phase: ChatVoiceModePhase.muted,
+          isMuted: true,
+          isSpeakerphoneEnabled: true,
+        ),
+      );
+      await tester.pump();
+
+      expect(icon(0).symbol!.name, 'mic.slash.fill');
+      expect(icon(1).effect, isNull);
+      expect(icon(2).symbol!.name, 'play.fill');
+      // A replace transition plays only inside the view that showed the old
+      // symbol, so each toggle must update its view rather than replace it.
+      expect([for (var i = 0; i < 3; i++) tester.state(icons.at(i))], views);
+      await tester.pump(const Duration(milliseconds: 500));
+    },
+    variant: TargetPlatformVariant.only(TargetPlatform.iOS),
+  );
 }
 
 Widget _buildActiveHarness(
@@ -199,6 +275,7 @@ Widget _buildActiveHarness(
       theme: AppTheme.light(TweakcnThemes.t3Chat),
       localizationsDelegates: conduitLocalizationsDelegates,
       supportedLocales: AppLocalizations.supportedLocales,
+      builder: (context, child) => LegacyDesignCompatibility(child: child!),
       home: Scaffold(
         body: MediaQuery(
           data: MediaQueryData(disableAnimations: disableAnimations),

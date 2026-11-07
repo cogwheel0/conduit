@@ -174,6 +174,8 @@ class _ExpandedVoicePanel extends ConsumerWidget {
             const SizedBox(height: Spacing.md),
             Row(
               children: [
+                // The three toggles draw native SF Symbols on iOS 26, which
+                // animate each change of state.
                 _CircleAction(
                   tooltip: snapshot.isMuted ? l10n.unmute : l10n.mute,
                   icon: snapshot.isMuted
@@ -183,6 +185,8 @@ class _ExpandedVoicePanel extends ConsumerWidget {
                       : (Platform.isIOS
                             ? CupertinoIcons.mic_fill
                             : Icons.mic_rounded),
+                  symbol: snapshot.isMuted ? 'mic.slash.fill' : 'mic.fill',
+                  symbolTransition: AdaptiveSymbolTransition.magic,
                   onPressed: controller.toggleMute,
                 ),
                 const SizedBox(width: Spacing.sm),
@@ -197,6 +201,14 @@ class _ExpandedVoicePanel extends ConsumerWidget {
                       : (Platform.isIOS
                             ? CupertinoIcons.speaker_1
                             : Icons.volume_down_rounded),
+                  symbol: snapshot.isSpeakerphoneEnabled
+                      ? 'speaker.wave.3.fill'
+                      : 'speaker.wave.1',
+                  symbolTransition: AdaptiveSymbolTransition.replace,
+                  // The waves play while the assistant's voice does.
+                  symbolEffect: snapshot.phase == ChatVoiceModePhase.speaking
+                      ? AdaptiveSymbolEffect.variableColor
+                      : null,
                   onPressed: controller.toggleSpeakerphone,
                 ),
                 const SizedBox(width: Spacing.sm),
@@ -211,6 +223,8 @@ class _ExpandedVoicePanel extends ConsumerWidget {
                       : (Platform.isIOS
                             ? CupertinoIcons.pause_fill
                             : Icons.pause_rounded),
+                  symbol: snapshot.canResume ? 'play.fill' : 'pause.fill',
+                  symbolTransition: AdaptiveSymbolTransition.replace,
                   onPressed: snapshot.canResume
                       ? controller.resume
                       : (snapshot.canPause ? controller.pause : null),
@@ -477,12 +491,18 @@ class _CircleAction extends StatelessWidget {
     required this.tooltip,
     required this.icon,
     required this.onPressed,
+    this.symbol,
+    this.symbolEffect,
+    this.symbolTransition,
     this.destructive = false,
   });
 
   final String tooltip;
   final IconData icon;
   final VoidCallback? onPressed;
+  final String? symbol;
+  final AdaptiveSymbolEffect? symbolEffect;
+  final AdaptiveSymbolTransition? symbolTransition;
   final bool destructive;
 
   @override
@@ -491,6 +511,9 @@ class _CircleAction extends StatelessWidget {
       tooltip: tooltip,
       onPressed: onPressed,
       icon: icon,
+      symbol: symbol,
+      symbolEffect: symbolEffect,
+      symbolTransition: symbolTransition,
       destructive: destructive,
     );
   }
@@ -501,6 +524,9 @@ class _AdaptiveVoiceAction extends StatelessWidget {
     required this.tooltip,
     required this.icon,
     required this.onPressed,
+    this.symbol,
+    this.symbolEffect,
+    this.symbolTransition,
     this.destructive = false,
     this.compact = false,
   });
@@ -508,6 +534,12 @@ class _AdaptiveVoiceAction extends StatelessWidget {
   final String tooltip;
   final IconData icon;
   final VoidCallback? onPressed;
+
+  /// An SF Symbol for [icon], drawn natively on iOS 26 so that it can
+  /// animate; null keeps [icon] everywhere.
+  final String? symbol;
+  final AdaptiveSymbolEffect? symbolEffect;
+  final AdaptiveSymbolTransition? symbolTransition;
   final bool destructive;
   final bool compact;
 
@@ -516,6 +548,7 @@ class _AdaptiveVoiceAction extends StatelessWidget {
     final theme = context.conduitTheme;
     final usesOpaqueFallback = conduitUsesOpaqueGlassFallback();
     final size = compact ? TouchTarget.micro : TouchTarget.medium;
+    final iconSize = compact ? IconSize.sm : IconSize.medium;
     final color = destructive ? Theme.of(context).colorScheme.error : null;
     final iconColor = onPressed == null
         ? theme.iconDisabled
@@ -547,12 +580,23 @@ class _AdaptiveVoiceAction extends StatelessWidget {
           padding: EdgeInsets.zero,
           borderRadius: BorderRadius.circular(AppBorderRadius.circular),
           useSmoothRectangleBorder: false,
-          child: Icon(
-            icon,
-            size: compact ? IconSize.sm : IconSize.medium,
-            color: iconColor,
-            semanticLabel: tooltip,
-          ),
+          child: switch (symbol) {
+            final symbol? => AdaptiveSymbolIcon(
+              symbol: symbol,
+              fallbackIcon: icon,
+              size: iconSize,
+              color: iconColor,
+              semanticLabel: tooltip,
+              effect: symbolEffect,
+              transition: symbolTransition,
+            ),
+            null => Icon(
+              icon,
+              size: iconSize,
+              color: iconColor,
+              semanticLabel: tooltip,
+            ),
+          },
         ),
       ),
     );
