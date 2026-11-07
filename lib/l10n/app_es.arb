@@ -4562,5 +4562,14 @@
   "@hermesChangedFilesMore": {"placeholders": {"count": {"type": "int"}}},
   "hermesDiffUnnamedFile": "Archivo modificado",
   "hermesDiffLineCounts": "Líneas añadidas: {added}, eliminadas: {removed}",
-  "@hermesDiffLineCounts": {"placeholders": {"added": {"type": "int"}, "removed": {"type": "int"}}}
+  "@hermesDiffLineCounts": {"placeholders": {"added": {"type": "int"}, "removed": {"type": "int"}}},
+  "hermesApprovalSpentOfLimit": "Usado: {spent} de {limit}",
+  "@hermesApprovalSpentOfLimit": {"placeholders": {"spent": {"type": "String"}, "limit": {"type": "String"}}},
+  "hermesApprovalSpent": "Usado: {spent}",
+  "@hermesApprovalSpent": {"placeholders": {"spent": {"type": "String"}}},
+  "hermesApprovalSpendLimit": "Límite: {limit}",
+  "@hermesApprovalSpendLimit": {"placeholders": {"limit": {"type": "String"}}},
+  "hermesApprovalOverLimit": "Esta llamada supera el límite de gasto de este chat. Solo puedes permitirla una vez.",
+  "hermesApprovalCost": "Coste estimado: {cost}",
+  "@hermesApprovalCost": {"placeholders": {"cost": {"type": "String"}}}
 }

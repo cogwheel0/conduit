@@ -4562,5 +4562,14 @@
   "@hermesChangedFilesMore": {"placeholders": {"count": {"type": "int"}}},
   "hermesDiffUnnamedFile": "Fichier modifié",
   "hermesDiffLineCounts": "Lignes ajoutées : {added}, supprimées : {removed}",
-  "@hermesDiffLineCounts": {"placeholders": {"added": {"type": "int"}, "removed": {"type": "int"}}}
+  "@hermesDiffLineCounts": {"placeholders": {"added": {"type": "int"}, "removed": {"type": "int"}}},
+  "hermesApprovalSpentOfLimit": "Utilisé : {spent} sur {limit}",
+  "@hermesApprovalSpentOfLimit": {"placeholders": {"spent": {"type": "String"}, "limit": {"type": "String"}}},
+  "hermesApprovalSpent": "Utilisé : {spent}",
+  "@hermesApprovalSpent": {"placeholders": {"spent": {"type": "String"}}},
+  "hermesApprovalSpendLimit": "Limite : {limit}",
+  "@hermesApprovalSpendLimit": {"placeholders": {"limit": {"type": "String"}}},
+  "hermesApprovalOverLimit": "Cet appel dépasse la limite de dépenses de ce chat. Vous ne pouvez l'autoriser qu'une fois.",
+  "hermesApprovalCost": "Coût estimé : {cost}",
+  "@hermesApprovalCost": {"placeholders": {"cost": {"type": "String"}}}
 }

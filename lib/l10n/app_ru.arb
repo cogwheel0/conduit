@@ -4600,5 +4600,14 @@
   "@hermesChangedFilesMore": {"placeholders": {"count": {"type": "int"}}},
   "hermesDiffUnnamedFile": "Изменённый файл",
   "hermesDiffLineCounts": "Добавлено строк: {added}, удалено: {removed}",
-  "@hermesDiffLineCounts": {"placeholders": {"added": {"type": "int"}, "removed": {"type": "int"}}}
+  "@hermesDiffLineCounts": {"placeholders": {"added": {"type": "int"}, "removed": {"type": "int"}}},
+  "hermesApprovalSpentOfLimit": "Использовано {spent} из {limit}",
+  "@hermesApprovalSpentOfLimit": {"placeholders": {"spent": {"type": "String"}, "limit": {"type": "String"}}},
+  "hermesApprovalSpent": "Использовано {spent}",
+  "@hermesApprovalSpent": {"placeholders": {"spent": {"type": "String"}}},
+  "hermesApprovalSpendLimit": "Лимит {limit}",
+  "@hermesApprovalSpendLimit": {"placeholders": {"limit": {"type": "String"}}},
+  "hermesApprovalOverLimit": "Этот вызов превышает лимит расходов чата. Его можно разрешить только один раз.",
+  "hermesApprovalCost": "Ориентировочная стоимость: {cost}",
+  "@hermesApprovalCost": {"placeholders": {"cost": {"type": "String"}}}
 }

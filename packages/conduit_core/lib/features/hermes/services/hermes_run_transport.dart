@@ -12,6 +12,7 @@ import 'package:conduit_core/utils/debug_logger.dart';
 import 'package:conduit_markdown/conduit_markdown.dart';
 import 'package:conduit_core/utils/sensitive_value_utils.dart';
 
+import 'package:conduit_core/features/hermes/models/hermes_approval_cost.dart';
 import 'package:conduit_core/features/hermes/models/hermes_clarify_form.dart';
 import 'package:conduit_core/features/hermes/models/hermes_inline_diff.dart';
 import 'package:conduit_core/features/hermes/models/hermes_run_event.dart';
@@ -1987,6 +1988,17 @@ void _handleEvent(
       final safeChoices = _boundedHermesDecisionChoices(
         choices.isEmpty ? raw['choices'] : choices,
       );
+      // A paid MCP tool states its price in the approval's command; a REST
+      // card shows the description instead, so the price is kept apart.
+      final command = raw['command'];
+      final cost = parseHermesApprovalCost([
+        safeSummary,
+        if (command is String)
+          _sanitizeHermesApprovalSummary(
+            command,
+            sensitiveValues: sensitiveValues,
+          ),
+      ]);
       updateMessage((m) {
         final meta = Map<String, dynamic>.from(m.metadata ?? const {});
         meta[kHermesApprovalMeta] = {
@@ -1997,6 +2009,7 @@ void _handleEvent(
           'summary': ?safeSummary,
           if (safeChoices.isNotEmpty) 'choices': safeChoices,
           'executionGeneration': ?executionGeneration,
+          if (cost != null) 'cost': cost.toJson(),
         };
         return m.copyWith(metadata: meta);
       });

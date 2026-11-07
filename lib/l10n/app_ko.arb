@@ -4334,5 +4334,14 @@
   "@hermesChangedFilesMore": {"placeholders": {"count": {"type": "int"}}},
   "hermesDiffUnnamedFile": "변경된 파일",
   "hermesDiffLineCounts": "추가된 줄: {added}, 삭제된 줄: {removed}",
-  "@hermesDiffLineCounts": {"placeholders": {"added": {"type": "int"}, "removed": {"type": "int"}}}
+  "@hermesDiffLineCounts": {"placeholders": {"added": {"type": "int"}, "removed": {"type": "int"}}},
+  "hermesApprovalSpentOfLimit": "{limit} 중 {spent} 사용",
+  "@hermesApprovalSpentOfLimit": {"placeholders": {"spent": {"type": "String"}, "limit": {"type": "String"}}},
+  "hermesApprovalSpent": "{spent} 사용",
+  "@hermesApprovalSpent": {"placeholders": {"spent": {"type": "String"}}},
+  "hermesApprovalSpendLimit": "한도 {limit}",
+  "@hermesApprovalSpendLimit": {"placeholders": {"limit": {"type": "String"}}},
+  "hermesApprovalOverLimit": "이 호출은 이 채팅의 지출 한도를 넘습니다. 이번 한 번만 허용할 수 있습니다.",
+  "hermesApprovalCost": "예상 비용: {cost}",
+  "@hermesApprovalCost": {"placeholders": {"cost": {"type": "String"}}}
 }

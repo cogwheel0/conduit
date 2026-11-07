@@ -24,6 +24,7 @@ import 'package:conduit_core/features/hermes/services/hermes_desktop_api_service
 import 'package:conduit_core/features/hermes/services/hermes_run_transport.dart';
 
 import 'hermes_approval_card.dart';
+import 'hermes_approval_cost_chip.dart';
 import 'hermes_clarify_form_card.dart';
 import 'hermes_decision_card.dart';
 
@@ -155,11 +156,14 @@ class _HermesComposerPromptOverlayState
           )) {
         return null;
       }
+      final shown = hermesApprovalPresentation(
+        approval['summary'] is String ? approval['summary'] as String : null,
+        approval['cost'],
+      );
       return HermesApprovalCard(
         state: state,
-        summary: approval['summary'] is String
-            ? approval['summary'] as String
-            : null,
+        summary: shown.summary,
+        cost: shown.cost,
         choices: choices,
         onChoice: choices.isEmpty
             ? null
@@ -226,11 +230,14 @@ class _HermesComposerPromptOverlayState
     if (capabilities != null && !capabilities.runApproval) {
       return null;
     }
+    final shown = hermesApprovalPresentation(
+      approval['summary'] is String ? approval['summary'] as String : null,
+      approval['cost'],
+    );
     return HermesApprovalCard(
       state: state,
-      summary: approval['summary'] is String
-          ? approval['summary'] as String
-          : null,
+      summary: shown.summary,
+      cost: shown.cost,
       choices: choices,
       onChoice: choices.isEmpty
           ? null

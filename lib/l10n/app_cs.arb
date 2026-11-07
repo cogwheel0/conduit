@@ -6485,5 +6485,14 @@
   "@hermesChangedFilesMore": {"placeholders": {"count": {"type": "int"}}},
   "hermesDiffUnnamedFile": "Změněný soubor",
   "hermesDiffLineCounts": "Přidané řádky: {added}, odebrané: {removed}",
-  "@hermesDiffLineCounts": {"placeholders": {"added": {"type": "int"}, "removed": {"type": "int"}}}
+  "@hermesDiffLineCounts": {"placeholders": {"added": {"type": "int"}, "removed": {"type": "int"}}},
+  "hermesApprovalSpentOfLimit": "Využito {spent} z {limit}",
+  "@hermesApprovalSpentOfLimit": {"placeholders": {"spent": {"type": "String"}, "limit": {"type": "String"}}},
+  "hermesApprovalSpent": "Využito {spent}",
+  "@hermesApprovalSpent": {"placeholders": {"spent": {"type": "String"}}},
+  "hermesApprovalSpendLimit": "Limit {limit}",
+  "@hermesApprovalSpendLimit": {"placeholders": {"limit": {"type": "String"}}},
+  "hermesApprovalOverLimit": "Toto volání překročí limit útraty tohoto chatu. Můžete ho povolit jen jednou.",
+  "hermesApprovalCost": "Odhadovaná cena: {cost}",
+  "@hermesApprovalCost": {"placeholders": {"cost": {"type": "String"}}}
 }

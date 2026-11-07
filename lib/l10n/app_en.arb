@@ -9942,5 +9942,48 @@
         "type": "int"
       }
     }
+  },
+  "hermesApprovalSpentOfLimit": "Used {spent} of {limit}",
+  "@hermesApprovalSpentOfLimit": {
+    "description": "Chip on a Hermes approval for a paid tool: what this chat spent on the tool's server and its spend limit there. spent includes the unit, for example 20 credits.",
+    "placeholders": {
+      "spent": {
+        "type": "String"
+      },
+      "limit": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesApprovalSpent": "Used {spent}",
+  "@hermesApprovalSpent": {
+    "description": "Chip on a Hermes approval for a paid tool: what this chat spent on the tool's server, which has no spend limit.",
+    "placeholders": {
+      "spent": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesApprovalSpendLimit": "Limit {limit}",
+  "@hermesApprovalSpendLimit": {
+    "description": "Chip on a Hermes approval for a paid tool: this chat's spend limit on the tool's server, before anything was spent.",
+    "placeholders": {
+      "limit": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesApprovalOverLimit": "This call goes past this chat's spend limit. You can only allow it once.",
+  "@hermesApprovalOverLimit": {
+    "description": "Warning on a Hermes approval whose paid tool call would take the chat past its spend limit."
+  },
+  "hermesApprovalCost": "Estimated cost: {cost}",
+  "@hermesApprovalCost": {
+    "description": "Screen reader text for the price chip on a Hermes approval for a paid tool. cost is the price as Hermes states it, for example 5 credits.",
+    "placeholders": {
+      "cost": {
+        "type": "String"
+      }
+    }
   }
 }
