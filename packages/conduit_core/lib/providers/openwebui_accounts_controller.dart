@@ -434,6 +434,11 @@ class OpenWebUiAccountsController {
   }
 
   Future<void> _fallBackWithoutOpenWebUi() async {
+    // With LibreChat owning the Chats tab, Open WebUI was parked, not left:
+    // losing its last account changes nothing about which backend is in use.
+    if (_ref.read(preferredBackendProvider) == PreferredBackend.libreChat) {
+      return;
+    }
     // Direct comes before Hermes: Hermes joins a Direct primary, while
     // Hermes-only mode hides every Direct provider.
     // The synchronous view can still be loading with no value, which would

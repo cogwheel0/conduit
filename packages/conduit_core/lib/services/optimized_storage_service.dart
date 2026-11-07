@@ -455,6 +455,66 @@ class OptimizedStorageService {
   // Per-server token vault
   // ---------------------------------------------------------------------
 
+  /// Whether Open WebUI is parked: no account active and none to fall back
+  /// to, while every account and its session is kept (see
+  /// [parkActiveServer]).
+  bool get isOpenWebUiParked =>
+      PreferencesStore.getBool(PreferenceKeys.openWebUiParked) == true;
+
+  /// Parks Open WebUI so another account backend can own the Chats tab:
+  /// [fromServerId]'s live session (the active account's) goes into its
+  /// vault, and no account is left active -- not even the only one saved,
+  /// which storage otherwise treats as active by fallback. Nothing is
+  /// forgotten: a later [switchActiveServer] to any account takes up its
+  /// vaulted session as usual, and clears the park.
+  ///
+  /// [fromServerId] is the active account the caller read, as for
+  /// [switchActiveServer]; it may be null when none is active.
+  Future<void> parkActiveServer({required String? fromServerId}) {
+    return _authStateLock.synchronized(() async {
+      final activeId = await _serverConfigsLock.synchronized(
+        _effectiveActiveServerIdUnlocked,
+      );
+      if (activeId != fromServerId) {
+        throw StateError('The active account changed before parking.');
+      }
+      if (activeId != null) {
+        // Copy before clearing, as a switch does: the worst a crash can do is
+        // leave the session in two places.
+        await _stashLiveSessionUnlocked(activeId);
+      }
+      try {
+        if (activeId != null) {
+          await _deleteSavedCredentialsUnlocked();
+          // Cleared here, not left to the id clear below: once parked, an
+          // account active only by fallback reads as inactive both before
+          // and after that clear, which would keep its token live.
+          await _deleteAuthTokenUnlocked();
+        }
+        // Parked before the id clears, so the clear is judged with no
+        // fallback account; a crash in between leaves the stored id, which
+        // still wins over the park.
+        await PreferencesStore.putChecked(PreferenceKeys.openWebUiParked, true);
+        await _setActiveServerIdUnlocked(null);
+      } catch (_) {
+        // Put the session back live and the account active. Left only in the
+        // vault, a retry would stash the empty live slots over it.
+        if (activeId != null) {
+          try {
+            await PreferencesStore.putChecked(
+              PreferenceKeys.openWebUiParked,
+              null,
+            );
+          } catch (_) {
+            // The flag write is what failed; the stored id still wins.
+          }
+          await _adoptVaultedSessionUnlocked(activeId);
+        }
+        rethrow;
+      }
+    });
+  }
+
   /// Moves the session for [fromServerId] aside and takes up [toServerId]'s.
   ///
   /// One acquisition of [_authStateLock] for the whole exchange, not three.
@@ -1688,6 +1748,16 @@ class OptimizedStorageService {
         );
         final activeIdNeedsWrite = previousActiveServerId != targetConfig.id;
         final stagedBeforeCommit = _stagedServerConfigCandidate;
+        // Choosing the account by id ends a park; a rollback puts it back.
+        final wasParked = isOpenWebUiParked;
+        Future<void> restorePark() async {
+          if (!wasParked || isOpenWebUiParked) return;
+          await PreferencesStore.putChecked(
+            PreferenceKeys.openWebUiParked,
+            true,
+          );
+        }
+
         var persistenceStarted = false;
         var configsWritten = false;
         var activeIdWritten = false;
@@ -1761,6 +1831,7 @@ class OptimizedStorageService {
                 credentialsPayload: previousCredentialsPayload,
                 credentialsReadSuppressed: previousCredentialsReadSuppressed,
               );
+              await restorePark();
             } catch (rollbackError, rollbackStackTrace) {
               await _bestEffortFailClosedServerSessionRestoreUnlocked(
                 registry: previousRegistry,
@@ -1807,6 +1878,7 @@ class OptimizedStorageService {
                   credentialsReadSuppressed: previousCredentialsReadSuppressed,
                 );
               }
+              await restorePark();
             } catch (rollbackError, rollbackStackTrace) {
               await _bestEffortFailClosedServerSessionRestoreUnlocked(
                 registry: previousRegistry,
@@ -2382,6 +2454,8 @@ class OptimizedStorageService {
         configs.any((config) => config.id == rawActiveServerId)) {
       return rawActiveServerId;
     }
+    // Parked, no account is active until one is chosen by id.
+    if (isOpenWebUiParked) return null;
 
     for (final config in configs) {
       if (config.isActive) return config.id;
@@ -3504,6 +3578,15 @@ class OptimizedStorageService {
       serverId,
       bypassAppDataClearBarrier: bypassAppDataClearBarrier,
     );
+    // Choosing an account by id ends a park: Open WebUI owns the Chats tab
+    // again.
+    if (serverId != null && isOpenWebUiParked) {
+      await PreferencesStore.putChecked(
+        PreferenceKeys.openWebUiParked,
+        null,
+        bypassAppDataClearBarrier: bypassAppDataClearBarrier,
+      );
+    }
     _activeServerIdReadSuppressed = false;
     _serverOwnershipRevision++;
     _cacheActiveServerId(serverId);
