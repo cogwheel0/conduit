@@ -270,13 +270,14 @@ mixin _FilesApi on _ApiServiceBase {
   ///
   /// Asks `/files/{id}/process/status` every [interval], as the web client
   /// waits on it, so no request stays open for the whole extraction, however
-  /// long that takes. Returns once the status is `completed` or `failed`
-  /// (a failure is left to the request that uses the file, which carries the
-  /// server's reason), when a server without the route answers 404 or 405,
-  /// or as soon as [keepWaiting] says the wait is no longer wanted. Throws a
+  /// long that takes. Returns null once the file is processed, when a server
+  /// without the route answers 404 or 405, or as soon as [keepWaiting] says
+  /// the wait is no longer wanted; returns the server's reason when it could
+  /// not process the file. A failed file must not be linked: a batch link
+  /// takes it with no content and reports it added. Throws a
   /// [TimeoutException] after [maxWait], the longest the server itself
   /// reports on a file.
-  Future<void> waitForFileProcessing(
+  Future<String?> waitForFileProcessing(
     String fileId, {
     bool Function()? keepWaiting,
     Duration interval = const Duration(seconds: 1),
@@ -291,17 +292,43 @@ mixin _FilesApi on _ApiServiceBase {
         );
       } on DioException catch (e) {
         final status = e.response?.statusCode;
-        if (status == 404 || status == 405) return;
+        if (status == 404 || status == 405) return null;
         rethrow;
       }
       final data = response.data;
       final status = data is Map ? data['status'] : null;
-      if (status != 'pending') return;
+      if (status == 'failed') return _fileProcessingError(fileId);
+      if (status != 'pending') return null;
       if (DateTime.now().difference(started) >= maxWait) {
         throw TimeoutException('File $fileId is still processing', maxWait);
       }
       await Future<void>.delayed(interval);
     }
+    return null;
+  }
+
+  /// Why Open WebUI could not process [fileId]. Only the status stream names
+  /// the error, in its first event for a failed file, after which it ends.
+  Future<String> _fileProcessingError(String fileId) async {
+    try {
+      final response = await _dio.get<String>(
+        '/api/v1/files/${Uri.encodeComponent(fileId)}/process/status',
+        queryParameters: const {'stream': true},
+        options: Options(responseType: ResponseType.plain),
+      );
+      for (final line in LineSplitter.split(response.data ?? '')) {
+        if (!line.startsWith('data:')) continue;
+        final Object? event;
+        try {
+          event = jsonDecode(line.substring('data:'.length).trim());
+        } on FormatException {
+          continue;
+        }
+        final error = event is Map ? event['error'] : null;
+        if (error is String && error.trim().isNotEmpty) return error.trim();
+      }
+    } catch (_) {}
+    return 'The file could not be processed.';
   }
 
   // File upload for RAG

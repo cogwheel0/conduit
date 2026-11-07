@@ -120,6 +120,22 @@ class _KnowledgeServer implements HttpClientAdapter {
         return _json({'detail': 'Status unavailable'}, status: failure);
       }
       final id = polled.group(1)!;
+      if (options.queryParameters['stream'] == true) {
+        // A failed file's stream names its error in the first event.
+        return ResponseBody(
+          Stream.value(
+            Uint8List.fromList(
+              utf8.encode(
+                'data: ${jsonEncode({'status': 'failed', 'error': 'Unsupported file: $id'})}\n\n',
+              ),
+            ),
+          ),
+          200,
+          headers: {
+            Headers.contentTypeHeader: ['text/event-stream'],
+          },
+        );
+      }
       final poll = _polls[id] = (_polls[id] ?? 0) + 1;
       final statuses = processing[id] ?? const <String>[];
       return _json({
@@ -257,6 +273,59 @@ void main() {
       check(server.deletions.toList()).deepEquals([
         'DELETE /api/v1/files/upload-1',
         'DELETE /api/v1/files/upload-2',
+      ]);
+      check(server.requests.where((r) => r.contains('/add'))).isEmpty();
+    });
+
+    test('a file the server could not process is deleted, not linked', () async {
+      // A batch link would take it with no content and report it added.
+      final server = _KnowledgeServer(
+        processing: {
+          'upload-2': ['failed'],
+        },
+      );
+      final container = await _container(server);
+      addTearDown(container.dispose);
+
+      await check(
+        container
+            .read(workspaceKnowledgeFilesProvider('kb-1').notifier)
+            .uploadMany([_file('a.txt', 3), _file('b.txt', 7)]),
+      ).throws<KnowledgeUploadRefused>(
+        (refused) => refused
+            .has((e) => e.reason, 'reason')
+            .equals('b.txt: Unsupported file: upload-2'),
+      );
+      check(server.deletions.toList()).deepEquals([
+        'DELETE /api/v1/files/upload-2',
+      ]);
+      // The one that was processed goes in alone.
+      check(server.requests).contains('POST /api/v1/knowledge/kb-1/file/add');
+      check(
+        server.requests.where((r) => r.endsWith('/files/batch/add')),
+      ).isEmpty();
+    });
+
+    test('a single upload the server could not process says why', () async {
+      final server = _KnowledgeServer(
+        processing: {
+          'upload-1': ['pending', 'failed'],
+        },
+      );
+      final container = await _container(server);
+      addTearDown(container.dispose);
+
+      await check(
+        container
+            .read(workspaceKnowledgeFilesProvider('kb-1').notifier)
+            .uploadBytes('a.txt', const [1, 2, 3]),
+      ).throws<KnowledgeUploadRefused>(
+        (refused) => refused
+            .has((e) => e.reason, 'reason')
+            .equals('Unsupported file: upload-1'),
+      );
+      check(server.deletions.toList()).deepEquals([
+        'DELETE /api/v1/files/upload-1',
       ]);
       check(server.requests.where((r) => r.contains('/add'))).isEmpty();
     });

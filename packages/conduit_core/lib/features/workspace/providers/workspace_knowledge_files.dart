@@ -279,7 +279,10 @@ class WorkspaceKnowledgeFiles extends _$WorkspaceKnowledgeFiles {
         },
       );
       session.ensureCurrent(ref);
-      await _waitForProcessing(session, [fileId]);
+      await _refuseUnprocessed(
+        session,
+        await _waitForProcessing(session, [fileId]),
+      );
       await _attachUploaded(session.api, [fileId]);
       session.ensureCurrent(ref);
     });
@@ -301,7 +304,10 @@ class WorkspaceKnowledgeFiles extends _$WorkspaceKnowledgeFiles {
       session.ensureCurrent(ref);
       final fileId = await session.api.uploadFileBytes(name, bytes);
       session.ensureCurrent(ref);
-      await _waitForProcessing(session, [fileId]);
+      await _refuseUnprocessed(
+        session,
+        await _waitForProcessing(session, [fileId]),
+      );
       await _attachUploaded(session.api, [fileId]);
       session.ensureCurrent(ref);
     });
@@ -355,11 +361,14 @@ class WorkspaceKnowledgeFiles extends _$WorkspaceKnowledgeFiles {
       );
       session.ensureCurrent(ref);
       final uploaded = <String>[];
+      final names = <String, String>{};
       try {
         for (final file in files) {
           final bytes = await file.read();
           if (bytes.isEmpty) continue;
-          uploaded.add(await session.api.uploadFileBytes(file.name, bytes));
+          final id = await session.api.uploadFileBytes(file.name, bytes);
+          uploaded.add(id);
+          names[id] = file.name;
           session.ensureCurrent(ref);
         }
       } catch (_) {
@@ -367,32 +376,65 @@ class WorkspaceKnowledgeFiles extends _$WorkspaceKnowledgeFiles {
         rethrow;
       }
       if (uploaded.isEmpty) return;
-      await _waitForProcessing(session, uploaded);
-      await _attachUploaded(session.api, uploaded);
-      session.ensureCurrent(ref);
+      // Files the server could not process are deleted and left out; the
+      // rest go in, and the user hears why the others did not.
+      final failed = await _waitForProcessing(session, uploaded);
+      final processed = [
+        for (final id in uploaded)
+          if (!failed.containsKey(id)) id,
+      ];
+      if (processed.isNotEmpty) {
+        await _attachUploaded(session.api, processed);
+        session.ensureCurrent(ref);
+      }
+      await _refuseUnprocessed(session, failed, names: names);
     });
   }
 
   /// Waits until the server has processed [fileIds], which it does in the
   /// background after each upload, so they can be linked; see
-  /// [ApiService.waitForFileProcessing]. The uploads are deleted again if
-  /// the wait fails or the session changes meanwhile.
-  Future<void> _waitForProcessing(
+  /// [ApiService.waitForFileProcessing]. Returns the uploads it could not
+  /// process, with its reason for each. The uploads are deleted again if the
+  /// wait fails or the session changes meanwhile.
+  Future<Map<String, String>> _waitForProcessing(
     WorkspaceSessionIdentity session,
     List<String> fileIds,
   ) async {
+    final failed = <String, String>{};
     try {
       for (final id in fileIds) {
-        await session.api.waitForFileProcessing(
+        final error = await session.api.waitForFileProcessing(
           id,
           keepWaiting: () => session.isCurrent(ref),
         );
         session.ensureCurrent(ref);
+        if (error != null) failed[id] = error;
       }
     } catch (_) {
       await _discardUploads(session.api, fileIds);
       rethrow;
     }
+    return failed;
+  }
+
+  /// Deletes the uploads in [failed], which the server could not process,
+  /// and throws its reasons as [KnowledgeUploadRefused]; each is named from
+  /// [names] when there is a list of them.
+  Future<void> _refuseUnprocessed(
+    WorkspaceSessionIdentity session,
+    Map<String, String> failed, {
+    Map<String, String>? names,
+  }) async {
+    if (failed.isEmpty) return;
+    await _discardUploads(session.api, failed.keys.toList());
+    throw KnowledgeUploadRefused(
+      names == null
+          ? failed.values.join('\n')
+          : [
+              for (final entry in failed.entries)
+                '${names[entry.key] ?? entry.key}: ${entry.value}',
+            ].join('\n'),
+    );
   }
 
   /// Links freshly uploaded [fileIds] into the current directory. When the
