@@ -188,6 +188,15 @@ void main() {
     expect(preview.message, endsWith('shingle…'));
     expect(preview.message!.length, lessThanOrEqualTo(241));
   });
+
+  test('an excerpt without spaces is cut between whole characters', () {
+    final preview = citationPreview(
+      ChatSourceReference(title: 'Wave log', snippet: '🌊' * 300),
+      0,
+    );
+
+    expect(preview.message, '${'🌊' * 240}…');
+  });
 }
 
 class _BrowserPlatform extends InAppWebViewPlatform {

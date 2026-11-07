@@ -84,13 +84,18 @@ Future<void> _openCitationSource(
 }
 
 String? _shortExcerpt(String? text) {
-  if (text == null || text.length <= _kCitationPreviewSnippetLength) {
+  // Counted and cut in user-perceived characters, so an emoji or an accented
+  // letter is never split.
+  final characters = text?.characters;
+  if (characters == null ||
+      characters.length <= _kCitationPreviewSnippetLength) {
     return text;
   }
-  final cut = text.substring(0, _kCitationPreviewSnippetLength);
+  final cut = characters.take(_kCitationPreviewSnippetLength).toString();
   final space = cut.lastIndexOf(' ');
-  // Ends on a word when one ends reasonably close to the limit.
-  final end = space > _kCitationPreviewSnippetLength * 0.6 ? space : cut.length;
+  // Ends on a word when one ends reasonably close to the limit. A space is a
+  // character of its own, so cutting there keeps every character whole.
+  final end = space > cut.length * 0.6 ? space : cut.length;
   return '${cut.substring(0, end).trimRight()}…';
 }
 
