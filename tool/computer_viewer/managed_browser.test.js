@@ -63,8 +63,10 @@ test('managed Browser: VNC pixels, input, navigation and another viewer',
     const second = await open();
     await page.waitForFunction(() => window.states.some(state => state.status === 'unavailable'));
     await new Promise(resolve => setTimeout(resolve, 1500));
-    assert.equal(await second.evaluate(() => window.states.at(-1).status), 'live');
-    assert.equal(await page.evaluate(() => window.states.at(-1).status), 'unavailable');
+    const lastConnectionState = () => window.states.filter(state =>
+      ['live', 'connecting', 'reconnecting', 'unavailable'].includes(state.status)).at(-1)?.status;
+    assert.equal(await second.evaluate(lastConnectionState), 'live');
+    assert.equal(await page.evaluate(lastConnectionState), 'unavailable');
   } finally {
     for (const page of viewers) await page.close();
     for (const id of sessions) await api(`/browser/sessions/${id}`, 'DELETE');

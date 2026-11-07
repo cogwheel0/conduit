@@ -60,12 +60,35 @@ test('real Open Terminal: pixels, Watch, typing, resize, blur and reconnect',
       return {x: frame.left + (box.x + box.width / 2) * frame.width / canvas.width,
         y: frame.top + (box.y + box.height / 2) * frame.height / canvas.height};
     }, titleBox);
+    await remote.evaluate(() => {
+      window.syntheticDoubleClicks = 0;
+      document.querySelector('.title').addEventListener('dblclick', () => window.syntheticDoubleClicks++);
+    });
+    await viewer.mouse.dblclick(titlePoint.x, titlePoint.y, {delay: 80});
+    await new Promise(resolve => setTimeout(resolve, 150));
+    assert.equal(await remote.evaluate(() => window.syntheticDoubleClicks), 1,
+      'A double-click must reach the remote browser as a double-click');
     await viewer.mouse.click(titlePoint.x, titlePoint.y);
     await viewer.keyboard.press('End');
     await viewer.evaluate(() => window.computer.command({type: 'paste', text: ' — Studio'}));
     await remote.waitForFunction(() => document.querySelector('.title').value.includes('Studio'));
     await viewer.evaluate(() => window.computer.command({type: 'shortcut', key: 'Backspace'}));
     await remote.waitForFunction(() => document.querySelector('.title').value.endsWith('Studi'));
+    await viewer.keyboard.press('Control+a');
+    await viewer.evaluate(() => window.computer.command({type: 'paste', text: 'Workshop notes'}));
+    await remote.waitForFunction(() => document.querySelector('.title').value === 'Workshop notes');
+    await remote.evaluate(() => {
+      window.syntheticContextMenus = 0;
+      document.querySelector('.title').addEventListener('contextmenu', event => {
+        event.preventDefault(); window.syntheticContextMenus++;
+      });
+    });
+    await viewer.mouse.click(titlePoint.x, titlePoint.y, {button: 'right'});
+    await remote.waitForFunction(() => window.syntheticContextMenus === 1);
+    await viewer.evaluate(() => window.computer.display({quality: 'low', desktopSite: true}));
+    await viewer.evaluate(() => window.computer.viewport({width: 390, height: 600, mobile: true}));
+    await viewer.waitForFunction(() => document.querySelector('#frame').width === 1024);
+    await viewer.evaluate(() => window.computer.display({quality: 'crisp', desktopSite: false}));
     await viewer.evaluate(() => window.computer.viewport({width: 390, height: 600, mobile: true}));
     await viewer.waitForFunction(() => document.querySelector('#frame').width === 390 && document.querySelector('#frame').height === 600);
     const touch = await viewer.context().newCDPSession(viewer);

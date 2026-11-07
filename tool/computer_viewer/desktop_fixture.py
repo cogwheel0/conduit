@@ -119,7 +119,21 @@ async def handle(ws):
         return
     auth = json.loads(await ws.recv())
     assert auth == {'type': 'auth', 'token': 'fixture-key', 'chat_id': 'fixture-chat'}
-    if ws.request.path == '/frames':
+    if ws.request.path == '/desktop/audio':
+        events.append({'type': 'audio-auth'})
+        process = await asyncio.create_subprocess_exec('ffmpeg', '-loglevel', 'error',
+            '-f', 'lavfi', '-i', 'sine=frequency=440:duration=3', '-c:a', 'libopus',
+            '-b:a', '64k', '-f', 'webm', 'pipe:1', stdout=asyncio.subprocess.PIPE)
+        try:
+            while chunk := await process.stdout.read(4096):
+                await ws.send(chunk)
+                await asyncio.sleep(.05)
+            await ws.wait_closed()
+        finally:
+            if process.returncode is None:
+                process.terminate()
+            await process.wait()
+    elif ws.request.path == '/frames':
         await native(ws)
     else:
         await vnc(ws)

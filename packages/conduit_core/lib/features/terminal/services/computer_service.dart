@@ -70,6 +70,7 @@ class ComputerService {
         transport: transport as String,
         token: terminal.authTokenForServer(server) ?? '',
         chatId: chatId,
+        audioAvailable: info['audio'] == true,
       );
     }
 
@@ -79,22 +80,59 @@ class ComputerService {
   Future<ComputerConnection> _openBrowser(Map<String, dynamic> tabs) async {
     // Reattach to the agent's selected tab instead of creating a second browser.
     final current = tabs['current_session_id'];
-    final existing = current is String && current.isNotEmpty;
+    return current is String && current.isNotEmpty
+        ? selectBrowserTab(current)
+        : createBrowserTab();
+  }
+
+  Future<List<ComputerBrowserTab>> browserTabs() async {
+    final response = await _json('browser/tabs');
+    final tabs = response['tabs'];
+    if (tabs is! List) throw const FormatException('Invalid browser tabs');
+    return tabs
+        .map(
+          (tab) => ComputerBrowserTab.fromJson(
+            Map<String, dynamic>.from(tab as Map),
+          ),
+        )
+        .toList(growable: false);
+  }
+
+  Future<ComputerConnection> selectBrowserTab(String id) async =>
+      _connectBrowser(
+        ComputerBrowserSession.fromJson(
+          await _json('browser/sessions/${Uri.encodeComponent(id)}'),
+        ),
+      );
+
+  Future<ComputerConnection> createBrowserTab() async {
     final session = ComputerBrowserSession.fromJson(
-      existing
-          ? await _json('browser/sessions/${Uri.encodeComponent(current)}')
-          : await _json('browser/sessions', method: 'POST', data: {'url': ''}),
+      await _json('browser/sessions', method: 'POST', data: {'url': ''}),
     );
-    if (!session.chromeAvailable) {
-      if (!existing) {
-        // A failed first open must not accumulate unused tabs on the terminal.
-        await terminal.requestComputer(
-          server,
-          'browser/sessions/${Uri.encodeComponent(session.id)}',
-          sessionScopeId: scope,
-          method: 'DELETE',
-        );
+    try {
+      return await _connectBrowser(session);
+    } catch (_) {
+      // Failed Chrome startup must not consume the server's tab limit.
+      try {
+        await closeBrowserTab(session.id);
+      } catch (_) {
+        /* Keep the original error. */
       }
+      rethrow;
+    }
+  }
+
+  Future<void> closeBrowserTab(String id) async {
+    await _json(
+      'browser/sessions/${Uri.encodeComponent(id)}',
+      method: 'DELETE',
+    );
+  }
+
+  Future<ComputerConnection> _connectBrowser(
+    ComputerBrowserSession session,
+  ) async {
+    if (!session.chromeAvailable) {
       throw const ComputerBrowserUnavailable();
     }
     final selected = ComputerBrowserSession.fromJson(
@@ -122,6 +160,28 @@ class ComputerService {
       'browser/sessions/${Uri.encodeComponent(session.id)}',
       method: 'PATCH',
       data: <String, dynamic>{},
+    );
+  }
+
+  Future<void> sendShortcut(ComputerConnection connection, String key) async {
+    if (!RegExp(r'^[A-Za-z0-9_+]{1,100}$').hasMatch(key)) {
+      throw const FormatException('Invalid keyboard shortcut');
+    }
+    await terminal.requestComputer(
+      server,
+      connection.surface == ComputerSurface.desktop
+          ? 'desktop/action'
+          : 'browser/action',
+      sessionScopeId: scope,
+      method: 'POST',
+      responseType: ResponseType.bytes,
+      data: {
+        if (connection.browserSession != null)
+          'session_id': connection.browserSession!.id,
+        'actions': [
+          {'action': 'key', 'key': key},
+        ],
+      },
     );
   }
 

@@ -34,6 +34,44 @@ Take control waits for the chat's response cancellation; this is not an exclusiv
 lock on the server or on other clients. Returning to Watch does not resume a model
 response. A new chat message continues work.
 
+## API coverage
+
+Audited against the public [Open WebUI 0.13 browser client](https://github.com/open-webui/open-webui/blob/v0.13.0/src/lib/apis/terminal/browser.ts)
+and [Open Terminal 0.17.2 browser](https://github.com/open-webui/open-terminal/blob/v0.17.2/open_terminal/browser/router.py)
+and [desktop](https://github.com/open-webui/open-terminal/blob/v0.17.2/open_terminal/desktop.py) routers.
+
+| Surface | Client behavior |
+| --- | --- |
+| `/api/config`, `/desktop` | Advertised Desktop/Browser capabilities, desktop transport and optional audio |
+| `/desktop/stream` | Authenticated VNC or native frames; shared cursor where captured, pointer/keyboard/paste, release on handoff |
+| `/desktop/audio` | Explicit, initially muted WebM/Opus playback when both server and device support it; stops on background/disconnect |
+| `/desktop/screenshot`, `/browser/screenshot` | On-demand preview, discarded on collapse/background |
+| `/browser/tabs` | Refreshable list limited to the current user and chat |
+| `/browser/sessions`, `/browser/sessions/{id}` | Create, select, keep alive and explicitly close tabs; clean up failed new sessions |
+| `/browser/view/{id}/{token}/stream`, `/vnc` | Both browser transports; navigation, input, frame acknowledgments, visibility, viewport and quality |
+| `/desktop/action`, `/browser/action` | Named keyboard combinations from the mobile toolbar, targeting the displayed browser session explicitly |
+| `/browser/snapshot` and batched action tools | Remain server-side agent capabilities; Conduit does not replace or restrict the model's tools |
+
+Tab mutations require Take control. A newly selected tab opens in Watch, and
+closing the last tab leaves an empty state rather than silently creating another.
+Leaving the viewer does not close the user's tabs. Display options include three
+quality levels and a desktop website viewport. Mouse input includes right-click,
+double-click and modifiers; the keyboard dialog also supports named combinations
+such as `Ctrl+A`, `Alt+Tab` and `Cmd+C` through the server's action API.
+
+This feature is the remote Computer viewer. Upstream's separate HTML Proxy
+preview is not embedded: arbitrary remote HTML never runs in the viewer's
+credential-bearing WebView. Desktop audio requires an advertised audio service
+and WebM/Opus MediaSource support; unsupported devices stay muted. Browser frame
+streams do not expose the agent's cursor coordinates, so their blue marker shows
+user input only. VNC uses the actual server-rendered pointer.
+
+`computer_tabs_integration_test.dart` exercises the production Dart service
+against both isolated browser backends, including creation, selection, shortcuts,
+screenshots, last-tab closure, and rejection of access from another chat scope.
+Run it from `packages/conduit_core` with `COMPUTER_REVIEW=true flutter test
+test/features/terminal/computer_tabs_integration_test.dart` after the setup below.
+
 ## Local review
 
 `tool/computer_review.dart` is an intentionally synthetic review entry point. It

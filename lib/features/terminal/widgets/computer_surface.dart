@@ -24,6 +24,9 @@ class ComputerSurfaceController {
   Future<void> zoom(bool enabled) => _call('zoom', enabled);
   Future<void> visibility(bool visible) => _call('visibility', visible);
   Future<void> reconnect() => _call('reconnect', null);
+  Future<void> audio(bool enabled) => _call('audio', enabled);
+  Future<void> display(String quality, bool desktopSite) =>
+      _call('display', {'quality': quality, 'desktopSite': desktopSite});
 }
 
 class ComputerSurfaceView extends StatefulWidget {
@@ -67,7 +70,7 @@ class _ComputerSurfaceViewState extends State<ComputerSurfaceView> {
     );
     return '''<!doctype html><html><head>
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=3">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src blob: data:; connect-src $allowed data:; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src blob: data:; media-src blob:; connect-src $allowed data:; base-uri 'none'; form-action 'none'">
 <style>
 html,body{margin:0;width:100%;height:100%;background:#111318;overflow:auto;overscroll-behavior:none}
 #surface{width:100%;height:100%;display:flex;align-items:center;justify-content:center;overflow:auto}
@@ -133,6 +136,8 @@ html,body{margin:0;width:100%;height:100%;background:#111318;overflow:auto;overs
               allowsLinkPreview: false,
               isInspectable: false,
               transparentBackground: true,
+              allowsInlineMediaPlayback: true,
+              mediaPlaybackRequiresUserGesture: false,
               javaScriptHandlersForMainFrameOnly: true,
               javaScriptHandlersOriginAllowList: {_origin},
             ),

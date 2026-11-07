@@ -127,3 +127,32 @@ test('managed Browser uses one VNC connection and respects another viewer',
       'A replaced viewer must not reconnect and steal control back');
   } finally { await page.close(); await browser.close(); }
 });
+
+test('optional desktop audio authenticates, decodes and stops on background',
+  {skip: process.env.COMPUTER_REVIEW !== 'true', timeout: 15000}, async () => {
+  const browser = await chromium.connectOverCDP('http://127.0.0.1:8770');
+  const page = await browser.contexts()[0].newPage();
+  try {
+    await page.setContent('<button onclick="window.computer.audio(true)">Play desktop audio</button><div id="surface"><canvas id="frame"></canvas></div>');
+    await page.evaluate(() => {
+      window.states = [];
+      window.flutter_inappwebview = {callHandler: (_, state) => window.states.push(state)};
+      const NativeAudio = window.Audio;
+      window.Audio = class extends NativeAudio { constructor() { super(); window.reviewAudio = this; } };
+    });
+    await page.addScriptTag({content: `(async () => {${await readFile(new URL('../../assets/computer/viewer.js', import.meta.url), 'utf8')}\n})();`});
+    await page.evaluate(port => window.computer.start({surface: 'desktop', transport: 'vnc',
+      url: `ws://127.0.0.1:${port}/desktop/stream`, token: 'fixture-key', chatId: 'fixture-chat', audio: true}), port);
+    await page.waitForFunction(() => window.states.some(state => state.status === 'live'));
+    assert.ok(await page.evaluate(() => window.states.some(state => state.status === 'audio' && state.available)));
+    assert.equal(await page.evaluate(() => !!window.reviewAudio), false, 'Audio must be opt-in');
+    await page.getByRole('button', {name: 'Play desktop audio'}).click();
+    await page.waitForFunction(() => window.reviewAudio?.currentTime > .1 && !window.reviewAudio.paused);
+    assert.ok((await events()).some(event => event.type === 'audio-auth'));
+    await page.evaluate(() => window.computer.visibility(false));
+    assert.equal(await page.evaluate(() => window.reviewAudio.paused && window.reviewAudio.getAttribute('src') === null), true);
+    await page.evaluate(() => window.computer.visibility(true));
+    await page.waitForFunction(() => window.states.at(-1)?.status === 'live');
+    assert.equal(await page.evaluate(() => window.reviewAudio.paused), true, 'Reconnect must remain muted');
+  } finally { await page.close(); await browser.close(); }
+});

@@ -4,6 +4,7 @@ import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/l10n/conduit_localizations.dart';
 import 'package:conduit/shared/theme/app_theme.dart';
 import 'package:conduit/shared/theme/tweakcn_themes.dart';
+import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:conduit_core/features/terminal/models/terminal_models.dart';
 import 'package:conduit_core/features/chat/providers/chat_providers.dart';
 import 'package:conduit_core/models/chat_message.dart';
@@ -51,6 +52,7 @@ void main() {
       ],
       child: MaterialApp(
         debugShowCheckedModeBanner: false,
+        navigatorObservers: [CNTabBarRouteObserver()],
         theme: AppTheme.light(TweakcnThemes.conduit),
         localizationsDelegates: conduitLocalizationsDelegates,
         supportedLocales: AppLocalizations.supportedLocales,

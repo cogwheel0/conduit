@@ -215,6 +215,114 @@ void main() {
     expect(requests.single.scope, isNull);
   });
 
+  test(
+    'tab listing, selection, creation and closure retain the chat scope',
+    () async {
+      respond = (request) async {
+        request.response.write(
+          request.uri.path.endsWith('/tabs')
+              ? '{"current_session_id":"second","tabs":[{"session_id":"first","title":"Sketches","url":"https://studio.example","selected":false},{"session_id":"second","title":"Materials","selected":true}]}'
+              : '{"id":"first","token":"synthetic-viewer-capability","chrome_available":true}',
+        );
+      };
+      final tabs = await service.browserTabs();
+      expect(tabs.map((tab) => tab.title), ['Sketches', 'Materials']);
+      expect(tabs.last.selected, isTrue);
+      final selected = await service.selectBrowserTab('first');
+      expect(selected.browserSession!.id, 'first');
+      expect(requests.last.data, {'mode': 'chrome', 'active': true});
+      await service.createBrowserTab();
+      expect(requests[3].method, 'POST');
+      expect(requests[3].data, {'url': ''});
+      await service.closeBrowserTab('first');
+      expect(requests.last.path, '/nested/browser/sessions/first');
+      expect(requests.last.method, 'DELETE');
+      expect(
+        requests.every((request) => request.scope == 'chat-fixture'),
+        isTrue,
+      );
+      expect(
+        requests.every(
+          (request) => request.auth == 'Bearer synthetic-terminal-key',
+        ),
+        isTrue,
+      );
+    },
+  );
+
+  test(
+    'failed new-tab startup removes only the newly created session',
+    () async {
+      respond = (request) async {
+        if (request.method == 'PATCH') {
+          request.response.statusCode = 409;
+          request.response.write('{}');
+        } else {
+          request.response.write(
+            '{"id":"new-tab","token":"synthetic-capability","chrome_available":true}',
+          );
+        }
+      };
+      await expectLater(
+        service.createBrowserTab(),
+        throwsA(isA<DioException>()),
+      );
+      expect(requests.map((request) => request.method), [
+        'POST',
+        'PATCH',
+        'DELETE',
+      ]);
+      expect(requests.last.path, '/nested/browser/sessions/new-tab');
+      requests.clear();
+      await expectLater(
+        service.selectBrowserTab('existing'),
+        throwsA(isA<DioException>()),
+      );
+      expect(requests.map((request) => request.method), ['GET', 'PATCH']);
+    },
+  );
+
+  test(
+    'shortcuts target the displayed tab and validate before sending',
+    () async {
+      final connection = ComputerConnection(
+        surface: ComputerSurface.browser,
+        streamUri: Uri.parse('ws://computer.example/browser/stream'),
+        browserSession: const ComputerBrowserSession(
+          id: 'displayed-tab',
+          token: 'synthetic-capability',
+          chromeAvailable: true,
+        ),
+      );
+      await service.sendShortcut(connection, 'Ctrl+Shift+Z');
+      expect(requests.single.path, '/nested/browser/action');
+      expect(requests.single.data, {
+        'session_id': 'displayed-tab',
+        'actions': [
+          {'action': 'key', 'key': 'Ctrl+Shift+Z'},
+        ],
+      });
+      await expectLater(
+        service.sendShortcut(connection, 'Ctrl+A\n'),
+        throwsFormatException,
+      );
+      expect(requests, hasLength(1));
+      await service.sendShortcut(
+        ComputerConnection(
+          surface: ComputerSurface.desktop,
+          streamUri: Uri.parse('ws://computer.example/desktop/stream'),
+        ),
+        'Alt+Tab',
+      );
+      expect(requests.last.path, '/nested/desktop/action');
+      expect(requests.last.data, {
+        'actions': [
+          {'action': 'key', 'key': 'Alt+Tab'},
+        ],
+      });
+    },
+  );
+
   test('unrecognized transports fail before opening a socket', () async {
     respond = (request) async {
       request.response.write('{"transport":"unknown"}');

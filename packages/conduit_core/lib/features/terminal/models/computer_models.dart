@@ -20,6 +20,34 @@ class ComputerCapabilities {
 
 enum ComputerSurface { desktop, browser }
 
+/// Tab listings deliberately contain no viewer capability tokens.
+class ComputerBrowserTab {
+  const ComputerBrowserTab({
+    required this.id,
+    this.title = '',
+    this.url = '',
+    this.selected = false,
+  });
+
+  factory ComputerBrowserTab.fromJson(Map<String, dynamic> json) {
+    final id = json['session_id'];
+    if (id is! String || id.isEmpty) {
+      throw const FormatException('Invalid browser tab');
+    }
+    return ComputerBrowserTab(
+      id: id,
+      title: json['title'] is String ? json['title'] as String : '',
+      url: json['url'] is String ? json['url'] as String : '',
+      selected: json['selected'] == true,
+    );
+  }
+
+  final String id;
+  final String title;
+  final String url;
+  final bool selected;
+}
+
 class ComputerBrowserSession {
   const ComputerBrowserSession({
     required this.id,
@@ -63,6 +91,7 @@ class ComputerConnection {
     this.token,
     this.chatId = '',
     this.browserSession,
+    this.audioAvailable = false,
   });
 
   final ComputerSurface surface;
@@ -71,6 +100,7 @@ class ComputerConnection {
   final String? token;
   final String chatId;
   final ComputerBrowserSession? browserSession;
+  final bool audioAvailable;
 
   Map<String, dynamic> toViewerConfig() => {
     'surface': surface.name,
@@ -78,5 +108,6 @@ class ComputerConnection {
     'transport': transport,
     if (token != null) 'token': token,
     'chatId': chatId,
+    'audio': audioAvailable,
   };
 }

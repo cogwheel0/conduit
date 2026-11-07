@@ -14,6 +14,7 @@ import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/platform_ui/platform_ui.dart';
 import 'computer_surface.dart';
 import 'computer_mode_selector.dart';
+import 'computer_browser_tabs.dart';
 
 class ComputerPage extends ConsumerStatefulWidget {
   const ComputerPage({
@@ -42,6 +43,11 @@ class _ComputerPageState extends ConsumerState<ComputerPage>
   bool _controlling = false, _stopping = false, _zoomed = false;
   bool _canBack = false, _canForward = false, _stopFailed = false;
   bool _vnc = false, _hasTakenControl = false;
+  bool _inputFailed = false;
+  bool _audioAvailable = false, _audioEnabled = false, _audioFailed = false;
+  bool _desktopSite = false;
+  bool _tabsOpen = false;
+  String _quality = 'crisp';
   bool _active = true, _scopeValid = true;
   int _generation = 0;
   Timer? _heartbeat;
@@ -79,6 +85,7 @@ class _ComputerPageState extends ConsumerState<ComputerPage>
       }
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
+        if (_tabsOpen) Navigator.of(context).pop();
         final route = ModalRoute.of(context);
         if (route != null) Navigator.of(context).removeRoute(route);
       });
@@ -95,6 +102,7 @@ class _ComputerPageState extends ConsumerState<ComputerPage>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     _active = state == AppLifecycleState.resumed;
+    if (!_active && _tabsOpen) Navigator.of(context).pop();
     _generation++;
     setState(() {
       _controlling = false;
@@ -113,7 +121,7 @@ class _ComputerPageState extends ConsumerState<ComputerPage>
     super.dispose();
   }
 
-  Future<void> _open() async {
+  Future<void> _open({Future<ComputerConnection?> Function()? connect}) async {
     final generation = ++_generation;
     setState(() {
       _status = 'connecting';
@@ -125,17 +133,23 @@ class _ComputerPageState extends ConsumerState<ComputerPage>
       _canForward = false;
       _url = '';
       _stopFailed = false;
+      _inputFailed = false;
+      _audioAvailable = _audioEnabled = _audioFailed = false;
+      _desktopSite = false;
+      _quality = 'crisp';
       _stopping = false;
     });
     try {
-      final connection = await widget.service.open(_selected);
+      final connection =
+          await (connect?.call() ?? widget.service.open(_selected));
       if (!mounted || generation != _generation || !_active || !_scopeValid) {
         return;
       }
       setState(() {
         _connection = connection;
-        _vnc = connection.transport == 'vnc';
-        _url = connection.browserSession?.url ?? '';
+        _vnc = connection?.transport == 'vnc';
+        _url = connection?.browserSession?.url ?? '';
+        if (connection == null) _status = 'empty';
       });
     } on ComputerBrowserUnavailable {
       if (mounted && generation == _generation) {
@@ -152,7 +166,13 @@ class _ComputerPageState extends ConsumerState<ComputerPage>
     if (!mounted || !_scopeValid || !_active) return;
     setState(() {
       final status = message['status'];
-      if (status == 'state') {
+      if (status == 'audio') {
+        if (message['available'] is bool) {
+          _audioAvailable = message['available'] == true;
+        }
+        _audioEnabled = message['enabled'] == true;
+        _audioFailed = message['failed'] == true;
+      } else if (status == 'state') {
         _url = message['url'] as String? ?? '';
         _canBack = message['canGoBack'] == true;
         _canForward = message['canGoForward'] == true;
@@ -188,7 +208,7 @@ class _ComputerPageState extends ConsumerState<ComputerPage>
     }
     setState(() {
       _stopping = false;
-      _controlling = accepted && _status == 'live';
+      _controlling = accepted && (_status == 'live' || _status == 'empty');
       _hasTakenControl = _hasTakenControl || _controlling;
       _stopFailed = !_controlling;
     });
@@ -205,13 +225,80 @@ class _ComputerPageState extends ConsumerState<ComputerPage>
     unawaited(_surface.control(false));
   }
 
-  Future<void> _textInput({bool navigate = false}) async {
+  Future<void> _showTabs() async {
+    if (_tabsOpen) return;
+    final connection = _connection;
+    final hadControl = _controlling;
+    _tabsOpen = true;
+    final choice = await showComputerBrowserTabs(
+      context,
+      service: widget.service,
+      currentId: connection?.browserSession?.id,
+      controlling: hadControl,
+    );
+    _tabsOpen = false;
+    if (!mounted ||
+        !_active ||
+        !_scopeValid ||
+        _selected != ComputerSurface.browser ||
+        !identical(connection, _connection) ||
+        choice == null) {
+      return;
+    }
+    if (choice.action == ComputerTabAction.control) {
+      await _takeControl();
+      if (mounted && _controlling) await _showTabs();
+      return;
+    }
+    // A native sheet may blur the viewer. Reapply the cancellation gate before
+    // the requested mutation, including if a response started while it was open.
+    if (!_controlling && hadControl) await _takeControl();
+    if (!mounted || !_controlling) return;
+    switch (choice.action) {
+      case ComputerTabAction.select:
+        if (choice.id != connection?.browserSession?.id) {
+          await _open(
+            connect: () => widget.service.selectBrowserTab(choice.id!),
+          );
+        }
+      case ComputerTabAction.create:
+        await _open(connect: widget.service.createBrowserTab);
+      case ComputerTabAction.close:
+        await _open(
+          connect: () async {
+            await widget.service.closeBrowserTab(choice.id!);
+            final tabs = await widget.service.browserTabs();
+            if (tabs.isEmpty) return null;
+            final selected =
+                tabs.where((tab) => tab.selected).firstOrNull ?? tabs.first;
+            return widget.service.selectBrowserTab(selected.id);
+          },
+        );
+      case ComputerTabAction.control:
+        break;
+    }
+  }
+
+  Future<void> _textInput({
+    bool navigate = false,
+    bool shortcut = false,
+  }) async {
     final l10n = AppLocalizations.of(context)!;
+    final connection = _connection;
+    setState(() => _inputFailed = false);
     final result = await AdaptiveAlertDialog.inputShow(
       context: context,
-      title: navigate ? l10n.computerAddress : l10n.computerTypeText,
+      title: shortcut
+          ? l10n.computerShortcut
+          : navigate
+          ? l10n.computerAddress
+          : l10n.computerTypeText,
       input: AdaptiveAlertDialogInput(
-        placeholder: navigate ? l10n.computerAddress : l10n.computerTypeText,
+        placeholder: shortcut
+            ? 'Ctrl+A, Alt+Tab, Cmd+C'
+            : navigate
+            ? l10n.computerAddress
+            : l10n.computerTypeText,
         initialValue: navigate ? _url : '',
         keyboardType: navigate ? TextInputType.url : TextInputType.multiline,
       ),
@@ -234,13 +321,25 @@ class _ComputerPageState extends ConsumerState<ComputerPage>
         result != null &&
         result.isNotEmpty &&
         _active &&
-        _scopeValid) {
+        _scopeValid &&
+        connection != null &&
+        identical(connection, _connection)) {
       await _takeControl();
       if (_controlling) {
-        await _surface.command({
-          'type': navigate ? 'navigate' : 'paste',
-          navigate ? 'url' : 'text': result,
-        });
+        try {
+          if (shortcut) {
+            await widget.service.sendShortcut(connection, result.trim());
+          } else {
+            await _surface.command({
+              'type': navigate ? 'navigate' : 'paste',
+              navigate ? 'url' : 'text': result,
+            });
+          }
+        } catch (_) {
+          if (mounted && identical(connection, _connection)) {
+            setState(() => _inputFailed = true);
+          }
+        }
       }
     }
   }
@@ -250,9 +349,12 @@ class _ComputerPageState extends ConsumerState<ComputerPage>
     final l10n = AppLocalizations.of(context)!;
     final theme = context.conduitTheme;
     final live = _status == 'live';
+    final empty = _status == 'empty';
     final failed = _status == 'unavailable' || _status == 'browserUnavailable';
     final statusLabel = live
         ? (_controlling ? l10n.computerYouControl : l10n.computerWatching)
+        : empty
+        ? l10n.computerNoTabs
         : _status == 'reconnecting'
         ? l10n.computerReconnecting
         : failed
@@ -309,6 +411,41 @@ class _ComputerPageState extends ConsumerState<ComputerPage>
               ],
             ),
           ),
+          if (_selected == ComputerSurface.browser)
+            AdaptivePopupMenuButton.icon<String>(
+              icon: Icons.tune_rounded,
+              semanticLabel: l10n.computerDisplay,
+              buttonStyle: PopupButtonStyle.plain,
+              enabled: live,
+              items: [
+                for (final entry in {
+                  'low': l10n.computerQualityLow,
+                  'balanced': l10n.computerQualityBalanced,
+                  'crisp': l10n.computerQualitySharp,
+                }.entries)
+                  AdaptivePopupMenuItem<String>(
+                    value: entry.key,
+                    label: entry.value,
+                    checked: _quality == entry.key,
+                  ),
+                const AdaptivePopupMenuDivider(),
+                AdaptivePopupMenuItem<String>(
+                  value: 'desktop',
+                  label: l10n.computerDesktopSite,
+                  checked: _desktopSite,
+                ),
+              ],
+              onSelected: (_, entry) {
+                setState(() {
+                  if (entry.value == 'desktop') {
+                    _desktopSite = !_desktopSite;
+                  } else {
+                    _quality = entry.value!;
+                  }
+                });
+                unawaited(_surface.display(_quality, _desktopSite));
+              },
+            ),
         ],
       ),
     );
@@ -370,6 +507,15 @@ class _ComputerPageState extends ConsumerState<ComputerPage>
                   icon: Icons.refresh_rounded,
                   iconSize: 20,
                 ),
+                AdaptiveButton.icon(
+                  style: AdaptiveButtonStyle.plain,
+                  semanticLabel: l10n.computerTabs,
+                  onPressed: (live || failed || empty) && !_stopping
+                      ? _showTabs
+                      : null,
+                  icon: Icons.tab_rounded,
+                  iconSize: 20,
+                ),
               ],
             ),
           )
@@ -402,7 +548,7 @@ class _ComputerPageState extends ConsumerState<ComputerPage>
                         child: Column(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            if (failed)
+                            if (failed || empty)
                               const Icon(
                                 Icons.desktop_access_disabled_outlined,
                                 size: 34,
@@ -439,6 +585,17 @@ class _ComputerPageState extends ConsumerState<ComputerPage>
                                   ),
                                 ),
                               ),
+                            if (empty)
+                              AdaptiveButton.child(
+                                style: AdaptiveButtonStyle.plain,
+                                onPressed: _showTabs,
+                                child: Text(
+                                  l10n.computerTabs,
+                                  style: const TextStyle(
+                                    color: Color(0xff68b5ff),
+                                  ),
+                                ),
+                              ),
                           ],
                         ),
                       ),
@@ -455,7 +612,11 @@ class _ComputerPageState extends ConsumerState<ComputerPage>
       child: Column(
         children: [
           Text(
-            _stopFailed
+            _audioFailed
+                ? l10n.computerAudioUnavailable
+                : _inputFailed
+                ? l10n.computerInputFailed
+                : _stopFailed
                 ? l10n.computerStopFailed
                 : _controlling
                 ? _vnc
@@ -473,7 +634,7 @@ class _ComputerPageState extends ConsumerState<ComputerPage>
           const SizedBox(height: 10),
           Row(
             children: [
-              if (_controlling && !landscape) ...[
+              if (_controlling && live && !landscape) ...[
                 AdaptiveButton.icon(
                   style: AdaptiveButtonStyle.plain,
                   semanticLabel: l10n.computerTypeText,
@@ -484,7 +645,7 @@ class _ComputerPageState extends ConsumerState<ComputerPage>
               ],
               Expanded(
                 child: AdaptiveButton(
-                  onPressed: !live || _stopping
+                  onPressed: (!live && !empty) || _stopping
                       ? null
                       : _controlling
                       ? _watch
@@ -500,7 +661,7 @@ class _ComputerPageState extends ConsumerState<ComputerPage>
               ),
             ],
           ),
-          if (_controlling)
+          if (_controlling && live)
             SingleChildScrollView(
               scrollDirection: Axis.horizontal,
               child: Row(
@@ -519,6 +680,8 @@ class _ComputerPageState extends ConsumerState<ComputerPage>
                     'Backspace',
                     'ArrowUp',
                     'ArrowDown',
+                    'ArrowLeft',
+                    'ArrowRight',
                   ].map(
                     (key) => AdaptiveButton.child(
                       style: AdaptiveButtonStyle.plain,
@@ -530,10 +693,18 @@ class _ComputerPageState extends ConsumerState<ComputerPage>
                               'Backspace': '⌫',
                               'ArrowUp': '↑',
                               'ArrowDown': '↓',
+                              'ArrowLeft': '←',
+                              'ArrowRight': '→',
                             }[key] ??
                             key,
                       ),
                     ),
+                  ),
+                  AdaptiveButton.icon(
+                    style: AdaptiveButtonStyle.plain,
+                    semanticLabel: l10n.computerShortcut,
+                    onPressed: () => _textInput(shortcut: true),
+                    icon: Icons.keyboard_command_key,
                   ),
                 ],
               ),
@@ -547,6 +718,19 @@ class _ComputerPageState extends ConsumerState<ComputerPage>
             ? l10n.computerDesktop
             : l10n.computerBrowser,
         actions: [
+          if (_audioAvailable && _selected == ComputerSurface.desktop)
+            AdaptiveAppBarAction(
+              semanticLabel: _audioEnabled
+                  ? l10n.computerMute
+                  : l10n.computerUnmute,
+              iosSymbol: _audioEnabled ? 'speaker.wave.2' : 'speaker.slash',
+              icon: _audioEnabled
+                  ? Icons.volume_up_outlined
+                  : Icons.volume_off_outlined,
+              onPressed: live
+                  ? () => unawaited(_surface.audio(!_audioEnabled))
+                  : null,
+            ),
           AdaptiveAppBarAction(
             semanticLabel: _zoomed ? l10n.computerFit : l10n.computerZoom,
             iosSymbol: _zoomed

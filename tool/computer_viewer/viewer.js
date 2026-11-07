@@ -1,6 +1,7 @@
 import RFB from '@novnc/novnc';
 import {patchHeader, remotePoint, canSendInput} from './protocol.js';
 import {createPointer} from './pointer.js';
+import {createAudio} from './audio.js';
 
 // This document only renders pixels. Remote pages never execute in this WebView.
 const surface = document.getElementById('surface');
@@ -11,9 +12,12 @@ let generation = 0, retries = 0, controlling = false, connected = false;
 let visible = true, disposed = false, frameQueue = Promise.resolve();
 let lastPoint = {x: 0, y: 0}, buttons = 0, touch = null;
 let touchTimer, mouseButton = 'left';
+let clickCount = 1, lastClick = {time: 0, x: 0, y: 0, button: ''};
+let mouseModifiers = 0;
 let vncPointer = {clientX: 0, clientY: 0, button: 0};
 const heldKeys = new Map();
 const pointer = createPointer();
+const audio = createAudio(state => report('audio', state));
 
 function report(status, extra = {}) {
   window.flutter_inappwebview?.callHandler('computer', {status, ...extra});
@@ -23,6 +27,10 @@ function send(message) {
 }
 function input(message) {
   if (canSendInput(controlling, connected, visible)) send(message);
+}
+function modifiers(event) {
+  return (event.altKey ? 1 : 0) | (event.ctrlKey ? 2 : 0) |
+    (event.metaKey ? 4 : 0) | (event.shiftKey ? 8 : 0);
 }
 function live() {
   if (!connected) {
@@ -59,6 +67,8 @@ function close() {
   release();
   controlling = false;
   pointer.hide();
+  audio.stop();
+  lastClick.time = 0;
   connected = false;
   clearTimeout(retryTimer);
   clearTimeout(connectTimer);
@@ -139,8 +149,8 @@ function connect() {
       if (config.transport === 'vnc') attachVnc(socket, epoch);
     } else {
       send({type: 'frames'});
-      send({type: 'quality', quality: 'crisp'});
-      send({type: 'viewport', ...(config.viewport ?? {width: 1024, height: 768, mobile: false})});
+      send({type: 'quality', quality: config.quality ?? 'crisp'});
+      sendViewport();
       send({type: 'visibility', visible: true});
     }
   };
@@ -178,6 +188,12 @@ function connect() {
 }
 function mouse(event, point, down = buttons, deltaX = 0, deltaY = 0) {
   lastPoint = point;
+  if (event === 'mousePressed') {
+    const now = performance.now();
+    clickCount = now - lastClick.time < 500 && lastClick.button === mouseButton &&
+      Math.hypot(point.x - lastClick.x, point.y - lastClick.y) < 5 ? 2 : 1;
+    lastClick = {time: clickCount === 2 ? 0 : now, ...point, button: mouseButton};
+  }
   if (canSendInput(controlling, connected, visible)) {
     pointer.move(canvas, point);
     if (event === 'mousePressed') pointer.click();
@@ -189,7 +205,7 @@ function mouse(event, point, down = buttons, deltaX = 0, deltaY = 0) {
   } else {
     input({type: 'mouse', event, ...point, buttons: down,
       button: event === 'mouseMoved' || event === 'mouseWheel' ? 'none' : mouseButton,
-      clickCount: 1, modifiers: 0, deltaX, deltaY});
+      clickCount, modifiers: mouseModifiers, deltaX, deltaY});
   }
 }
 canvas.addEventListener('pointerdown', event => {
@@ -197,6 +213,7 @@ canvas.addEventListener('pointerdown', event => {
   event.preventDefault();
   canvas.setPointerCapture(event.pointerId);
   const point = remotePoint(event, canvas.getBoundingClientRect(), canvas.width, canvas.height);
+  mouseModifiers = modifiers(event);
   mouseButton = event.button === 2 ? 'right' : event.button === 1 ? 'middle' : 'left';
   if (event.pointerType === 'touch') {
     touch = {point, x: event.clientX, y: event.clientY, moved: false, dragging: false};
@@ -209,6 +226,7 @@ canvas.addEventListener('pointerdown', event => {
 });
 canvas.addEventListener('pointermove', event => {
   if (!controlling) return;
+  mouseModifiers = modifiers(event);
   const point = remotePoint(event, canvas.getBoundingClientRect(), canvas.width, canvas.height);
   if (touch) {
     if (touch.dragging) { mouse('mouseMoved', point); return; }
@@ -223,6 +241,7 @@ canvas.addEventListener('pointermove', event => {
 });
 canvas.addEventListener('pointerup', event => {
   if (!controlling) return;
+  mouseModifiers = modifiers(event);
   clearTimeout(touchTimer);
   const point = remotePoint(event, canvas.getBoundingClientRect(), canvas.width, canvas.height);
   if (touch?.dragging) { buttons = 0; mouse('mouseReleased', point); }
@@ -233,6 +252,7 @@ canvas.addEventListener('pointerup', event => {
 canvas.addEventListener('pointercancel', release);
 canvas.addEventListener('wheel', event => {
   if (!controlling) return;
+  mouseModifiers = modifiers(event);
   event.preventDefault();
   mouse('mouseWheel', remotePoint(event, canvas.getBoundingClientRect(), canvas.width, canvas.height),
     buttons, event.deltaX, event.deltaY);
@@ -270,11 +290,12 @@ for (const type of ['gesturestart', 'gesturemove', 'gestureend']) {
 function keyEvent(event, down) {
   if (!controlling || rfb) return;
   event.preventDefault();
+  const edit = {a: 'selectAll', c: 'copy', x: 'cut', z: event.shiftKey ? 'redo' : 'undo'}[event.key.toLowerCase()];
   const key = config.surface === 'desktop' ? {type: 'key', code: event.code, down} :
     {type: 'key', event: down ? 'keyDown' : 'keyUp', key: event.key, code: event.code,
-      windowsVirtualKeyCode: event.keyCode, modifiers: (event.altKey ? 1 : 0) |
-      (event.ctrlKey ? 2 : 0) | (event.metaKey ? 4 : 0) | (event.shiftKey ? 8 : 0),
-      ...(down && event.key.length === 1 ? {text: event.key} : {})};
+      windowsVirtualKeyCode: event.keyCode, modifiers: modifiers(event),
+      ...(down && event.key.length === 1 && !event.ctrlKey && !event.metaKey && !event.altKey ? {text: event.key} : {}),
+      ...(down && (event.ctrlKey || event.metaKey) && edit ? {commands: [edit]} : {})};
   if (down) heldKeys.set(event.code, key); else heldKeys.delete(event.code);
   input(key);
 }
@@ -285,8 +306,17 @@ window.addEventListener('blur', () => {
   if (rfb) rfb.viewOnly = true;
   report('watching');
 });
+function sendViewport() {
+  const viewport = config.viewport ?? {width: 1024, height: 768, mobile: false};
+  send({type: 'viewport', ...(config.desktopSite ? {
+    width: Math.max(1024, viewport.width), height: Math.max(768, viewport.height), mobile: false,
+  } : viewport)});
+}
 window.computer = {
-  start(value) { config = value; disposed = false; visible = true; connect(); },
+  start(value) {
+    config = value; disposed = false; visible = true; connect();
+    report('audio', {available: config.audio === true && audio.supported(), enabled: false});
+  },
   control(value) {
     release();
     controlling = value === true && connected && visible;
@@ -325,7 +355,17 @@ window.computer = {
   viewport(value) {
     if (!config || config.surface !== 'browser') return;
     config.viewport = value;
-    if (visible) send({type: 'viewport', ...value});
+    if (visible) sendViewport();
+  },
+  display(value) {
+    if (!config || config.surface !== 'browser') return;
+    if (['low', 'balanced', 'crisp'].includes(value.quality)) config.quality = value.quality;
+    config.desktopSite = value.desktopSite === true;
+    if (visible) { send({type: 'quality', quality: config.quality ?? 'crisp'}); sendViewport(); }
+  },
+  audio(enabled) {
+    if (enabled && visible && connected && config?.surface === 'desktop') audio.start(config);
+    else audio.stop();
   },
   visibility(value) { visible = value; if (value) connect(); else close(); },
   reconnect() { connect(); },

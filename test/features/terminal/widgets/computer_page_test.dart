@@ -13,6 +13,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:conduit/features/terminal/widgets/computer_surface.dart';
+import 'package:conduit/features/terminal/widgets/computer_browser_tabs.dart';
 
 import 'computer_test_platform.dart';
 
@@ -77,6 +78,87 @@ void main() {
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMessageHandler('flutter/assets', null);
   });
+
+  testWidgets(
+    'tabs require takeover, close to empty, and dismiss on background',
+    (tester) async {
+      final service = _Service();
+      var tabs = [const ComputerBrowserTab(id: 'one', title: 'Workshop')];
+      var gates = 0;
+      final browser = ComputerConnection(
+        surface: ComputerSurface.browser,
+        streamUri: Uri.parse('ws://computer.example/browser/stream'),
+        browserSession: const ComputerBrowserSession(
+          id: 'one',
+          token: 'synthetic',
+          chromeAvailable: true,
+        ),
+      );
+      when(() => service.open(any())).thenAnswer(
+        (call) async =>
+            call.positionalArguments.first == ComputerSurface.browser
+            ? browser
+            : _connection(ComputerSurface.desktop),
+      );
+      when(service.browserTabs).thenAnswer((_) async => tabs);
+      when(() => service.closeBrowserTab('one')).thenAnswer((_) async {
+        tabs = [];
+      });
+      when(service.createBrowserTab).thenAnswer((_) async => browser);
+      await tester.pumpWidget(
+        _harness(
+          service,
+          takeControl: () async {
+            gates++;
+            return true;
+          },
+        ),
+      );
+      await tester.pump();
+      await tester.pump();
+      await tester.tap(find.text('Browser'));
+      await tester.pump();
+      await tester.pump();
+      tester
+          .widget<ComputerSurfaceView>(find.byType(ComputerSurfaceView))
+          .onState({'status': 'live'});
+      await tester.pumpAndSettle();
+      await tester.tap(find.bySemanticsLabel('Browser tabs'));
+      await tester.pumpAndSettle();
+      expect(find.byType(ComputerBrowserTabs), findsOneWidget);
+      await tester.tap(find.text('Take control').last);
+      await tester.pumpAndSettle();
+      expect(gates, 1);
+      await tester.tap(find.bySemanticsLabel('Close tab: Workshop'));
+      await tester.pumpAndSettle();
+      verify(() => service.closeBrowserTab('one')).called(1);
+      expect(find.byType(ComputerSurfaceView), findsNothing);
+      verifyNever(service.createBrowserTab);
+      await tester.tap(find.text('Browser tabs'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Take control').last);
+      await tester.pumpAndSettle();
+      await tester.tap(find.bySemanticsLabel('New tab'));
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 1));
+      verify(service.createBrowserTab).called(1);
+      tester
+          .widget<ComputerSurfaceView>(find.byType(ComputerSurfaceView))
+          .onState({'status': 'live'});
+      await tester.pumpAndSettle();
+      expect(find.text('Watching live'), findsOneWidget);
+      await tester.tap(find.bySemanticsLabel('Browser tabs'));
+      await tester.pumpAndSettle();
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 1));
+      expect(find.byType(ComputerBrowserTabs), findsNothing);
+      expect(find.byType(ComputerPage), findsOneWidget);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pumpWidget(const SizedBox());
+      expect(tester.takeException(), isNull);
+    },
+  );
 
   testWidgets('late Desktop events cannot corrupt a Browser connection', (
     tester,
