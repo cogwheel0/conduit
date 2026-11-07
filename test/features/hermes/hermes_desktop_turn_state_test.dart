@@ -162,6 +162,58 @@ final class _StubAdapter implements HttpClientAdapter {
   }
 }
 
+/// Answers dashboard REST requests from a `METHOD /path` table (status and
+/// JSON body), serving `/api/status` with auth off, and records each request.
+final class _RoutesAdapter implements HttpClientAdapter {
+  _RoutesAdapter(this.routes);
+
+  final Map<String, (int, Object?)> routes;
+  final requests = <String>[];
+
+  @override
+  void close({bool force = false}) {}
+
+  @override
+  Future<ResponseBody> fetch(
+    RequestOptions options,
+    Stream<Uint8List>? requestStream,
+    Future<void>? cancelFuture,
+  ) async {
+    final key = '${options.method} ${options.uri.path}';
+    if (options.uri.path != '/api/status') {
+      requests.add('$key?${options.uri.query}');
+    }
+    final (status, body) =
+        routes[key] ??
+        (options.uri.path == '/api/status'
+            ? (200, {'auth_required': false, 'gateway_running': true})
+            : (404, {'detail': 'Not Found'}));
+    return ResponseBody.fromString(
+      jsonEncode(body),
+      status,
+      headers: {
+        Headers.contentTypeHeader: [Headers.jsonContentType],
+      },
+    );
+  }
+}
+
+HermesDesktopApiService _restService(_RoutesAdapter adapter) {
+  final service = HermesDesktopApiService(
+    config: HermesConfig(
+      enabled: true,
+      baseUrl: 'https://hermes.example',
+      mode: HermesBackendMode.desktopGateway,
+      desktopCredentials: HermesDesktopCredentials(
+        legacyToken: 'session-token',
+      ),
+    ),
+    dio: Dio()..httpClientAdapter = adapter,
+  );
+  addTearDown(service.close);
+  return service;
+}
+
 /// Serves `/api/status` like [_StubAdapter] but fails the transcript request.
 final class _FailingMessagesAdapter extends _StubAdapter {
   _FailingMessagesAdapter({required this.status});
@@ -805,6 +857,79 @@ void main() {
     ).equals('Answered by the owner.');
     check(turn.events.last).isA<HermesRunDone>();
     check(turn.events.whereType<HermesRunError>()).isEmpty();
+  });
+
+  group('session delete', () {
+    const path = '/api/sessions/stored-1';
+
+    setUp(() async {
+      SharedPreferences.setMockInitialValues({});
+      PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
+    });
+
+    test('names the revision its snapshot reports', () async {
+      final adapter = _RoutesAdapter({
+        'GET $path/mutation-snapshot': (
+          200,
+          {
+            'session_id': 'stored-1',
+            'exists': true,
+            'runtime_revision': 2,
+            'runtime_generation': 1,
+          },
+        ),
+        'DELETE $path': (200, {'ok': true}),
+      });
+      await _restService(adapter).deleteSession('stored-1');
+
+      final delete = Uri.parse(
+        'https://hermes.example/${adapter.requests.last.split(' ').last}',
+      );
+      check(adapter.requests.last).startsWith('DELETE $path?');
+      check(delete.queryParameters['expected_revision']).equals('2');
+      check(delete.queryParameters['expected_generation']).equals('1');
+      check(delete.queryParameters['request_id']).isNotNull().isNotEmpty();
+      check(delete.queryParameters['profile']).isNotNull();
+    });
+
+    test('takes the plain delete on a dashboard without snapshots', () async {
+      final adapter = _RoutesAdapter({'DELETE $path': (200, {'ok': true})});
+      await _restService(adapter).deleteSession('stored-1');
+
+      check(adapter.requests.last).startsWith('DELETE $path?');
+      check(adapter.requests.last).not((it) => it.contains('request_id'));
+    });
+
+    test('skips a session that is already gone', () async {
+      final adapter = _RoutesAdapter({
+        'GET $path/mutation-snapshot': (
+          200,
+          {'session_id': 'stored-1', 'exists': false, 'runtime_revision': 0},
+        ),
+      });
+      await _restService(adapter).deleteSession('stored-1');
+
+      check(adapter.requests.where((r) => r.startsWith('DELETE'))).isEmpty();
+    });
+  });
+
+  test('a profile without a session store lists no sessions', () async {
+    final missing = _RoutesAdapter({
+      'GET /api/sessions': (
+        503,
+        {
+          'detail':
+              "Session store is not initialized. Start this profile's "
+              'gateway to initialize it.',
+        },
+      ),
+    });
+    check(await _restService(missing).listSessions()).isEmpty();
+
+    final broken = _RoutesAdapter({
+      'GET /api/sessions': (503, {'detail': 'storage_unavailable'}),
+    });
+    await check(_restService(broken).listSessions()).throws<Exception>();
   });
 
   test('a partial session.info does not block the next send', () async {

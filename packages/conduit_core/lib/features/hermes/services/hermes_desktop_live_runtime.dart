@@ -343,14 +343,28 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
     return stored;
   }
 
-  Future<List<Map<String, dynamic>>> _runtimeListSessions() async => _objects(
-    await _requestJson(
-      'GET',
-      '/api/sessions',
-      query: {'limit': 100, 'offset': 0, 'order': 'recent'},
-    ),
-    'sessions',
-  );
+  Future<List<Map<String, dynamic>>> _runtimeListSessions() async {
+    try {
+      return _objects(
+        await _requestJson(
+          'GET',
+          '/api/sessions',
+          query: {'limit': 100, 'offset': 0, 'order': 'recent'},
+          readErrorDetail: true,
+        ),
+        'sessions',
+      );
+    } on HermesDesktopHttpException catch (error) {
+      // Hermes 0.22+ browses read-only: a profile whose gateway never ran
+      // has no session store yet, which is an empty list, not a failure.
+      if (_hermesSessionStoreNotInitialized(error)) return const [];
+      rethrow;
+    }
+  }
+
+  bool _hermesSessionStoreNotInitialized(HermesDesktopHttpException error) =>
+      error.status == 503 &&
+      (error.detail?.startsWith('Session store is not initialized') ?? false);
 
   Future<List<Map<String, dynamic>>> _runtimeGetSessionMessages(
     String id, {
@@ -515,10 +529,8 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
         );
       }
     }
-    await _requestJson(
-      'DELETE',
-      '/api/sessions/${Uri.encodeComponent(binding?.storedId ?? id)}',
-      query: _sessionScope(binding?.storedId ?? id),
+    await _deleteStoredSession(
+      binding?.storedId ?? id,
       cancelToken: cancelToken,
     );
     if (binding != null) {
@@ -536,6 +548,48 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
       origin: _origin,
       connectionId: config.connectionId,
       storedSessionId: binding?.storedId ?? id,
+    );
+  }
+
+  /// Deletes a stored session over REST. Hermes 0.22.3+ fences session
+  /// edits: the delete must name the revision and generation its
+  /// `mutation-snapshot` reports, under a request id a retry can repeat, or
+  /// it is refused with 409 `client_upgrade_required`. An older dashboard
+  /// has no snapshot route (404) and takes the plain delete.
+  Future<void> _deleteStoredSession(
+    String storedId, {
+    CancelToken? cancelToken,
+  }) async {
+    final path = '/api/sessions/${Uri.encodeComponent(storedId)}';
+    final scope = _sessionScope(storedId);
+    Map<String, dynamic>? snapshot;
+    try {
+      snapshot = _object(
+        await _requestJson(
+          'GET',
+          '$path/mutation-snapshot',
+          query: scope,
+          cancelToken: cancelToken,
+        ),
+      );
+    } catch (error) {
+      if (_hermesDesktopHttpStatus(error) != 404) rethrow;
+    }
+    if (snapshot != null && snapshot['exists'] == false) return;
+    final revision = snapshot?['runtime_revision'];
+    final generation = snapshot?['runtime_generation'];
+    await _requestJson(
+      'DELETE',
+      path,
+      query: {
+        ...scope,
+        if (snapshot != null) ...{
+          'request_id': const Uuid().v4(),
+          if (revision is int) 'expected_revision': revision,
+          if (generation is int) 'expected_generation': generation,
+        },
+      },
+      cancelToken: cancelToken,
     );
   }
 
