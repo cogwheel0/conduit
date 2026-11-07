@@ -443,6 +443,10 @@ final class _HermesDesktopAdministration {
   /// `manage_connections` card). Hermes does the work itself once a target
   /// is approved: it installs, enables, or starts the authorization, whose
   /// browser link arrives in a later `connection.update`.
+  ///
+  /// A target whose sign-in Hermes started before sending the card (an MCP
+  /// authorization, a hosted connector) waits on its link alone: approving
+  /// it opens the link.
   Future<void> respondToConnection({
     required String runtimeId,
     required String cardId,
@@ -451,6 +455,13 @@ final class _HermesDesktopAdministration {
     final card = parseHermesConnectionCardId(cardId);
     if (card == null) {
       throw StateError('Hermes returned an invalid connection request.');
+    }
+    final link = approved ? _owner._rpc.connectionLink(cardId) : null;
+    if (link != null) {
+      if (!await _owner._openExternalUrl.open(link)) {
+        throw StateError('Could not open the sign-in link.');
+      }
+      return;
     }
     if (approved) _owner._approvedConnectionTargets.add(cardId);
     await _owner._rpc.request<Object?>(

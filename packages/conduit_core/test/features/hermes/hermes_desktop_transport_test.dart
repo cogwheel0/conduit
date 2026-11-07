@@ -741,6 +741,134 @@ void main() {
       check(events.last.payload['request_id']).equals('op-1/notes');
     });
 
+    test('a replay with newer answers moves the next question on', () async {
+      final questions = [
+        for (final qid in ['q0', 'q1', 'q2'])
+          {'qid': qid, 'question': 'Pick $qid?'},
+      ];
+      socket.serverRequest('srq-c3', 'clarify', {
+        'session_id': 'runtime-1',
+        'questions': questions,
+      });
+      await Future<void>.delayed(Duration.zero);
+      // Another surface answered q0 before this socket's resume.
+      client.replayOpenRequests([
+        {
+          'id': 'srq-c3',
+          'method': 'clarify',
+          'params': {
+            'session_id': 'runtime-1',
+            'questions': questions,
+            'answers': {'q0': 'Teal'},
+          },
+        },
+      ]);
+      await Future<void>.delayed(Duration.zero);
+      check(
+        events.where((e) => e.type == 'clarify.request').last,
+      ).has((e) => e.payload['request_id'], 'request_id').equals('srq-c3/q1');
+
+      check(client.showNextClarifyQuestion('srq-c3/q1')).isTrue();
+      await Future<void>.delayed(Duration.zero);
+      check(
+        events.where((e) => e.type == 'clarify.request').last,
+      ).has((e) => e.payload['request_id'], 'request_id').equals('srq-c3/q2');
+    });
+
+    test('the lock result names the questions still open', () async {
+      socket.serverRequest('srq-c4', 'clarify', {
+        'session_id': 'runtime-1',
+        'questions': [
+          for (final qid in ['q0', 'q1', 'q2'])
+            {'qid': qid, 'question': 'Pick $qid?'},
+        ],
+      });
+      await Future<void>.delayed(Duration.zero);
+
+      // q1 was answered on another surface while q0 was shown here.
+      check(
+        client.showNextClarifyQuestion('srq-c4/q0', remaining: ['q2']),
+      ).isTrue();
+      await Future<void>.delayed(Duration.zero);
+      check(
+        events.where((e) => e.type == 'clarify.request').last,
+      ).has((e) => e.payload['request_id'], 'request_id').equals('srq-c4/q2');
+    });
+
+    test('card ids keep a slash in either part', () {
+      final id = hermesConnectionCardId('op-1', 'owner/skill~beta');
+      check(id).equals('op-1/owner~1skill~0beta');
+      final card = parseHermesConnectionCardId(id);
+      check(card?.operationId).equals('op-1');
+      check(card?.target).equals('owner/skill~beta');
+      check(parseHermesClarifyCardId('srq-1/q0/extra')).isNull();
+      check(parseHermesClarifyCardId('srq-1/')).isNull();
+    });
+
+    test('shows a target whose sign-in already started', () async {
+      const link = 'https://auth.example/authorize?state=abc';
+      Map<String, Object?> target(String state) => {
+        'name': 'docs',
+        'kind': 'mcp',
+        'action': 'authorize',
+        'state': state,
+        if (state == 'initiated') 'connect_url': link,
+      };
+      socket.event('connection.request', {
+        'op_id': 'op-2',
+        'targets': [target('initiated')],
+      }, session: 'runtime-1');
+      await Future<void>.delayed(Duration.zero);
+
+      final card = events.singleWhere((e) => e.type == 'mcp.setup.request');
+      check(card.payload['request_id']).equals('op-2/docs');
+      check(card.payload['action']).equals('authorize');
+      check(client.connectionLink('op-2/docs')).equals(Uri.parse(link));
+
+      socket.event('connection.update', {
+        'op_id': 'op-2',
+        'settled': true,
+        'targets': [target('connected')],
+      }, session: 'runtime-1');
+      await Future<void>.delayed(Duration.zero);
+      check(events.last.type).equals('mcp.setup.expire');
+      check(client.connectionLink('op-2/docs')).isNull();
+    });
+
+    test('a target answered once is not asked about again', () async {
+      Map<String, Object?> target(String name, String state, {String? url}) =>
+          {
+            'name': name,
+            'kind': 'mcp',
+            'action': 'install',
+            'state': state,
+            'connect_url': ?url,
+          };
+      void update(List<Map<String, Object?>> targets) => socket.event(
+        'connection.update',
+        {'op_id': 'op-3', 'targets': targets},
+        session: 'runtime-1',
+      );
+      update([target('docs', 'pending'), target('notes', 'pending')]);
+      // Approved: the install starts, then its sign-in link arrives.
+      update([target('docs', 'initiated'), target('notes', 'pending')]);
+      update([
+        target('docs', 'initiated', url: 'https://auth.example/docs'),
+        target('notes', 'pending'),
+      ]);
+      await Future<void>.delayed(Duration.zero);
+
+      check(
+        events
+            .where((event) => event.type.startsWith('mcp.setup.'))
+            .map((event) => '${event.type} ${event.payload['request_id']}'),
+      ).deepEquals([
+        'mcp.setup.request op-3/docs',
+        'mcp.setup.expire op-3/docs',
+        'mcp.setup.request op-3/notes',
+      ]);
+    });
+
     test('declines Desktop-only requests with 4404 once allowed', () async {
       socket.serverRequest('srq-t0', 'tour', {'session_id': 'runtime-1'});
       await Future<void>.delayed(Duration.zero);

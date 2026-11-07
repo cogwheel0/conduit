@@ -11,6 +11,7 @@ import 'package:conduit_core/features/hermes/models/hermes_run_event.dart';
 import 'package:conduit_core/features/hermes/models/hermes_config.dart';
 import 'package:conduit_core/features/hermes/services/hermes_desktop_api_service.dart';
 import 'package:conduit_core/features/hermes/services/hermes_desktop_transport.dart';
+import 'package:conduit_core/ports/external_url_port.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
@@ -971,6 +972,186 @@ void main() {
       turn.service.turnStateFor('stored-race'),
     ).equals(HermesDesktopTurnState.idle);
   });
+
+  group('decisions in a restored chat', () {
+    test('the next question skips ones answered elsewhere', () async {
+      final chat = await _restoredChat({
+        'open_requests': [
+          {
+            'id': 'srq-c1',
+            'method': 'clarify',
+            'params': {
+              'session_id': 'runtime-1',
+              'questions': [
+                for (final qid in ['q0', 'q1', 'q2'])
+                  {'qid': qid, 'question': 'Pick $qid?'},
+              ],
+            },
+          },
+        ],
+      }, lock: {'status': 'ok', 'remaining': ['q2']});
+
+      await chat.service.respondToDecision(
+        storedSessionId: 'stored-1',
+        runtimeId: 'runtime-1',
+        requestId: 'srq-c1/q0',
+        kind: HermesDecisionKind.clarification,
+        value: 'Teal',
+      );
+      await pumpEventQueue();
+
+      check(
+        chat.events
+            .where((event) => event.type == 'clarify.request')
+            .map((event) => event.payload['request_id']),
+      ).deepEquals(['srq-c1/q0', 'srq-c1/q2']);
+    });
+
+    test('approving a started sign-in opens its link', () async {
+      const link = 'https://auth.example/authorize?state=abc';
+      final chat = await _restoredChat({
+        'pending_connection': {
+          'op_id': 'op-1',
+          'owner': {'type': 'session', 'session_id': 'runtime-1'},
+          'targets': [
+            {
+              'name': 'docs',
+              'kind': 'mcp',
+              'action': 'authorize',
+              'state': 'initiated',
+              'resolved': false,
+              'connect_url': link,
+            },
+          ],
+        },
+      });
+      check(
+        (await chat.service.pendingDecisionsForSession(
+          'stored-1',
+        )).map((decision) => decision.requestId),
+      ).deepEquals(['op-1/docs']);
+
+      await chat.service.respondToDecision(
+        storedSessionId: 'stored-1',
+        runtimeId: 'runtime-1',
+        requestId: 'op-1/docs',
+        kind: HermesDecisionKind.mcpSetup,
+        value: 'approve',
+      );
+
+      check(chat.opened).deepEquals([Uri.parse(link)]);
+      check(
+        chat.harness.sent.where(
+          (frame) => frame['method'] == 'connection.respond',
+        ),
+      ).isEmpty();
+    });
+
+    test('the next target re-reads the chat once it is saved', () async {
+      final chat = await _restoredChat(const {});
+      Map<String, Object?> target(String name, String state) => {
+        'name': name,
+        'kind': 'mcp',
+        'action': 'enable',
+        'state': state,
+      };
+      chat.harness.event('runtime-1', 'connection.request', {
+        'op_id': 'op-2',
+        'targets': [target('docs', 'pending'), target('notes', 'pending')],
+      });
+      await pumpEventQueue();
+      final reads = <Future<List<String>>>[];
+      final changes = chat.service.transcriptChanges.listen((storedId) {
+        reads.add(
+          chat.service
+              .pendingDecisionsForSession(storedId)
+              .then((all) => [for (final d in all) d.requestId]),
+        );
+      });
+      addTearDown(changes.cancel);
+
+      // The first card's buffered event keeps the queue non-empty.
+      chat.harness.event('runtime-1', 'connection.update', {
+        'op_id': 'op-2',
+        'targets': [target('docs', 'connected'), target('notes', 'pending')],
+      });
+      await pumpEventQueue();
+
+      check(reads).isNotEmpty();
+      check(await reads.last).deepEquals(['op-2/notes']);
+    });
+  });
+}
+
+/// A Desktop chat restored with no turn running: `session.resume` returns
+/// [snapshot]'s extras, `clarify.lock` returns [lock]. Collects the RPC
+/// events and the links opened.
+Future<
+  ({
+    HermesDesktopApiService service,
+    _GatewayHarness harness,
+    List<HermesDesktopEvent> events,
+    List<Uri> opened,
+  })
+>
+_restoredChat(
+  Map<String, Object?> snapshot, {
+  Map<String, Object?> lock = const {'status': 'ok', 'remaining': <String>[]},
+}) async {
+  SharedPreferences.setMockInitialValues({});
+  PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
+  final harness = _GatewayHarness();
+  final rpc = HermesDesktopRpcClient(
+    channelFactory: (_, _, {httpClient}) => harness.channel,
+  );
+  final events = <HermesDesktopEvent>[];
+  rpc.events.listen(events.add);
+  final opener = _RecordingUrlOpener();
+  final service = HermesDesktopApiService(
+    config: HermesConfig(
+      enabled: true,
+      baseUrl: 'https://hermes.example',
+      mode: HermesBackendMode.desktopGateway,
+      desktopCredentials: HermesDesktopCredentials(
+        legacyToken: 'session-token',
+      ),
+    ),
+    dio: _statusDio(),
+    rpc: rpc,
+    openExternalUrl: opener,
+  );
+  addTearDown(() async {
+    service.close();
+    await harness.dispose();
+  });
+  harness.responder = (method) => switch (method) {
+    'session.resume' => {
+      'session_id': 'runtime-1',
+      'stored_session_id': 'stored-1',
+      'running': false,
+      ...snapshot,
+    },
+    'clarify.lock' => lock,
+    _ => const {},
+  };
+  await service.pendingDecisionsForSession('stored-1');
+  await pumpEventQueue();
+  return (
+    service: service,
+    harness: harness,
+    events: events,
+    opened: opener.opened,
+  );
+}
+
+final class _RecordingUrlOpener implements OpenExternalUrlPort {
+  final opened = <Uri>[];
+
+  @override
+  Future<bool> open(Uri url) async {
+    opened.add(url);
+    return true;
+  }
 }
 
 /// Streams one turn on a resumed session: Hermes acknowledges

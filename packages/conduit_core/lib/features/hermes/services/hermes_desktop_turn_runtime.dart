@@ -1064,8 +1064,9 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
   );
 
   /// Locks one clarify question's [answer]; the last question's lock answers
-  /// the whole request. Then shows the next open question, which after a
-  /// restart only a fresh resume snapshot still lists.
+  /// the whole request. Then shows the next question the lock's `remaining`
+  /// names (another surface may have answered some), which after a restart
+  /// only a fresh resume snapshot still lists.
   Future<void> _lockClarifyAnswer(
     String runtimeId, {
     required String cardId,
@@ -1091,7 +1092,10 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
     if (result['status'] != 'ok' || remaining is! List || remaining.isEmpty) {
       return;
     }
-    if (!_rpc.showNextClarifyQuestion(cardId)) {
+    if (!_rpc.showNextClarifyQuestion(
+      cardId,
+      remaining: remaining.map((questionId) => '$questionId'),
+    )) {
       final storedId = storedSessionId ?? _storedIdForRuntime(runtimeId);
       if (storedId != null) await _resume(storedId, refresh: true);
     }

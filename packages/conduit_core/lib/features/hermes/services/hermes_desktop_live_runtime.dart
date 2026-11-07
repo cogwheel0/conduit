@@ -44,6 +44,15 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
     }
     _stateSubscription ??= _rpc.events.listen((event) {
       final startedBuffering = _eventBuffer.add(event);
+      // Buffered: no turn shows this session's events, so a restored chat
+      // re-reads its cards once the saved decisions changed.
+      final sessionId = event.sessionId;
+      final buffered = sessionId != null && _eventBuffer.hasPending(sessionId);
+      void refreshRestoredCards() {
+        final storedId = _storedIdForRuntime(sessionId);
+        if (buffered && storedId != null) _emitTranscriptChange(storedId);
+      }
+
       // Partial infos (a forwarded owner's relay, a service-tier change)
       // carry no `running` and say nothing about the turn.
       if (event.type == 'session.info' && event.payload['running'] is bool) {
@@ -62,7 +71,11 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
           event.type == 'sudo.request' ||
           event.type == 'secret.request' ||
           event.type == 'mcp.setup.request') {
-        unawaited(_persistPendingDecisionEvent(event));
+        unawaited(
+          _persistPendingDecisionEvent(
+            event,
+          ).whenComplete(refreshRestoredCards),
+        );
       }
       if (event.type == 'connection.update') {
         _administration.openApprovedConnectionLink(event.payload);
@@ -73,11 +86,14 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
           event.type == 'sudo.expire' ||
           event.type == 'secret.expire' ||
           event.type == 'mcp.setup.expire') {
-        unawaited(_resolvePendingDecisionEvent(event));
+        unawaited(
+          _resolvePendingDecisionEvent(
+            event,
+          ).whenComplete(refreshRestoredCards),
+        );
       }
       if (startedBuffering &&
           (event.type == 'message.complete' ||
-              event.type.endsWith('.request') ||
               (event.type == 'session.info' &&
                   event.payload['running'] == false))) {
         final storedId = _storedIdForRuntime(event.sessionId);
