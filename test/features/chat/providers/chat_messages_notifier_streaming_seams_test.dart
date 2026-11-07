@@ -176,6 +176,8 @@ class _UnknownHeadHermesApi extends HermesApiService {
     String runId, {
     String? sessionId,
     CancelToken? cancelToken,
+    int? lastEventId,
+    void Function(int seq)? onSequence,
   }) => Stream<HermesRunEvent>.fromIterable(const [
     HermesTokenDelta('Back on track.'),
     HermesRunDone(),
@@ -512,6 +514,8 @@ class _SessionRecordingHermesApi extends HermesApiService {
     String runId, {
     String? sessionId,
     CancelToken? cancelToken,
+    int? lastEventId,
+    void Function(int seq)? onSequence,
   }) {
     if (!runEventsStarted.isCompleted) runEventsStarted.complete();
     return events?.stream ??
@@ -590,6 +594,8 @@ class _MultiRunHermesApi extends HermesApiService {
     String runId, {
     String? sessionId,
     CancelToken? cancelToken,
+    int? lastEventId,
+    void Function(int seq)? onSequence,
   }) {
     _startedStreams++;
     if (_startedStreams == 2 && !twoStreamsStarted.isCompleted) {
@@ -653,6 +659,8 @@ class _RevocationHermesApi extends HermesApiService {
     String runId, {
     String? sessionId,
     CancelToken? cancelToken,
+    int? lastEventId,
+    void Function(int seq)? onSequence,
   }) {
     if (!runEventsStarted.isCompleted) runEventsStarted.complete();
     return events.stream;
@@ -811,6 +819,8 @@ class _BranchingHermesApi extends HermesApiService {
     String runId, {
     String? sessionId,
     CancelToken? cancelToken,
+    int? lastEventId,
+    void Function(int seq)? onSequence,
   }) => Stream<HermesRunEvent>.value(const HermesRunDone());
 }
 

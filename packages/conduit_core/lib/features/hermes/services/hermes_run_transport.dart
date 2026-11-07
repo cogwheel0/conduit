@@ -451,6 +451,10 @@ Future<void> dispatchHermesRun({
   Duration recoveryPollInterval = const Duration(seconds: 1),
   int maxQueuedPolls = 180,
   Duration queuedPollInterval = const Duration(seconds: 10),
+  int maxStreamResumes = 3,
+  Duration streamResumeDelay = const Duration(seconds: 1),
+  int maxExtendedRecoveryPolls = 300,
+  Duration extendedRecoveryPollInterval = const Duration(seconds: 5),
   required void Function(String content) appendContent,
   void Function(String content)? replaceContent,
   required void Function(ChatStatusUpdate update) appendStatus,
@@ -588,9 +592,15 @@ Future<void> dispatchHermesRun({
   Object? streamError;
 
   late final StreamSubscription<HermesRunEvent> sub;
-  sub = service
-      .runEvents(runId, sessionId: sessionId, cancelToken: eventCancelToken)
-      .listen(
+  sub =
+      _resumableHermesRunEvents(
+        service,
+        runId,
+        sessionId: sessionId,
+        cancelToken: eventCancelToken,
+        maxResumes: maxStreamResumes,
+        resumeDelay: streamResumeDelay,
+      ).listen(
         (event) {
           // A queued run.cancelled/run.stopped frame may race Conduit's own
           // Stop. The cancelled owner is authoritative, so discard all later
@@ -725,6 +735,12 @@ Future<void> dispatchHermesRun({
             pollInterval: allowsCheckpointRecovery
                 ? Duration.zero
                 : recoveryPollInterval,
+            // A long tool-heavy run can outlive the quick polling budget;
+            // keep checking, more slowly, while Hermes says it is active.
+            maxExtendedPolls: allowsCheckpointRecovery
+                ? 0
+                : maxExtendedRecoveryPolls,
+            extendedPollInterval: extendedRecoveryPollInterval,
           );
         }
         if (recovered == null) return;
@@ -983,6 +999,8 @@ Future<({String text, String status})?> _recoverRunOutput(
   required int maxPolls,
   required Duration pollInterval,
   int maxConsecutiveErrors = 3,
+  int maxExtendedPolls = 0,
+  Duration extendedPollInterval = const Duration(seconds: 5),
 }) async {
   if (maxPolls <= 0) {
     throw ArgumentError.value(maxPolls, 'maxPolls', 'Must be positive');
@@ -991,10 +1009,12 @@ Future<({String text, String status})?> _recoverRunOutput(
   var malformedResponses = 0;
   var polls = 0;
   var resolvedUnknown = false;
+  var lastStatusActive = false;
   while (!cancelToken.isCancelled) {
-    if (polls >= maxPolls) {
+    if (polls >= maxPolls &&
+        (!lastStatusActive || polls >= maxPolls + maxExtendedPolls)) {
       throw TimeoutException(
-        'Hermes run did not reach a terminal state after $maxPolls polls',
+        'Hermes run did not reach a terminal state after $polls polls',
       );
     }
     polls++;
@@ -1063,6 +1083,7 @@ Future<({String text, String status})?> _recoverRunOutput(
     };
     if (status == null || !nonTerminalStatuses.contains(status)) {
       malformedResponses++;
+      lastStatusActive = false;
       if (malformedResponses >= 3) {
         throw StateError(
           'Hermes getRun returned an unknown status: ${status ?? '(missing)'}',
@@ -1070,11 +1091,178 @@ Future<({String text, String status})?> _recoverRunOutput(
       }
     } else {
       malformedResponses = 0;
+      lastStatusActive = status != 'unknown';
     }
-    await Future<void>.delayed(pollInterval);
+    if (polls < maxPolls) {
+      await Future<void>.delayed(pollInterval);
+    } else if (lastStatusActive && polls < maxPolls + maxExtendedPolls) {
+      await Future<void>.delayed(
+        extendedPollInterval > pollInterval
+            ? extendedPollInterval
+            : pollInterval,
+      );
+    }
   }
   return null;
 }
+
+/// Follows a run's event stream across drops.
+///
+/// Hermes v0.21.7+ numbers run events (`seq`) and detaches a slow subscriber
+/// by simply ending its stream. When a stream ends early, or a connection
+/// error cuts it, this reconnects with `Last-Event-ID` and Hermes replays the
+/// missed events. Servers without `seq`, a run Hermes no longer streams
+/// (404), a run saved during a restart (`run.queued`), and [maxResumes]
+/// attempts without new events all end the stream so the caller polls.
+Stream<HermesRunEvent> _resumableHermesRunEvents(
+  HermesApiService service,
+  String runId, {
+  required String? sessionId,
+  required CancelToken cancelToken,
+  required int maxResumes,
+  required Duration resumeDelay,
+}) {
+  // A controller rather than `await for`: cancelling the returned stream must
+  // reach the live connection at once (Stop, account revocation), not at the
+  // connection's next event.
+  late final StreamController<HermesRunEvent> controller;
+  StreamSubscription<HermesRunEvent>? connection;
+  int? lastSeq;
+  var attemptsWithoutProgress = 0;
+  var totalResumes = 0;
+  var closed = false;
+
+  void close() {
+    if (closed) return;
+    closed = true;
+    unawaited(controller.close());
+  }
+
+  late void Function() connect;
+
+  void connectionEnded({
+    required int? resumeFrom,
+    required HermesRunEvent? lastEvent,
+    Object? error,
+    StackTrace? stackTrace,
+  }) {
+    connection = null;
+    if (closed) return;
+    if (error != null) {
+      // Hermes forgets a run's stream a while after it ends (404); polling
+      // still reads the run.
+      final gone = error is DioException && error.response?.statusCode == 404;
+      final protocolFailure = _isHermesProtocolFailure(error);
+      final resumable =
+          !gone &&
+          !protocolFailure &&
+          !cancelToken.isCancelled &&
+          lastSeq != null;
+      if (!resumable) {
+        // A failed resume falls back to polling; the first connection's own
+        // failure keeps its existing handling.
+        if (resumeFrom == null || protocolFailure) {
+          controller.addError(error, stackTrace);
+        }
+        close();
+        return;
+      }
+    }
+    final seq = lastSeq;
+    if (cancelToken.isCancelled ||
+        seq == null ||
+        (lastEvent is HermesLifecycle && lastEvent.status == 'queued')) {
+      close();
+      return;
+    }
+    attemptsWithoutProgress = seq == resumeFrom
+        ? attemptsWithoutProgress + 1
+        : 0;
+    totalResumes++;
+    if (attemptsWithoutProgress >= maxResumes ||
+        totalResumes > _maxHermesRunStreamResumes) {
+      close();
+      return;
+    }
+    unawaited(
+      Future<void>.delayed(resumeDelay).then((_) {
+        if (closed || cancelToken.isCancelled) {
+          close();
+        } else {
+          connect();
+        }
+      }),
+    );
+  }
+
+  connect = () {
+    final resumeFrom = lastSeq;
+    HermesRunEvent? lastEvent;
+    try {
+      connection = service
+          .runEvents(
+            runId,
+            sessionId: sessionId,
+            cancelToken: cancelToken,
+            lastEventId: resumeFrom,
+            onSequence: (seq) {
+              final current = lastSeq;
+              if (current == null || seq > current) lastSeq = seq;
+            },
+          )
+          .listen(
+            (event) {
+              if (closed) return;
+              lastEvent = event;
+              controller.add(event);
+              if (event is HermesRunDone || event is HermesRunError) {
+                final finished = connection;
+                connection = null;
+                if (finished != null) {
+                  _cancelHermesTransportSubscription(
+                    finished,
+                    message: 'run-subscription-cleanup-failed',
+                  );
+                }
+                close();
+              }
+            },
+            onError: (Object error, StackTrace stackTrace) => connectionEnded(
+              resumeFrom: resumeFrom,
+              lastEvent: lastEvent,
+              error: error,
+              stackTrace: stackTrace,
+            ),
+            onDone: () =>
+                connectionEnded(resumeFrom: resumeFrom, lastEvent: lastEvent),
+            cancelOnError: true,
+          );
+      if (controller.isPaused) connection?.pause();
+    } catch (error, stackTrace) {
+      connectionEnded(
+        resumeFrom: resumeFrom,
+        lastEvent: lastEvent,
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+  };
+
+  controller = StreamController<HermesRunEvent>(
+    onListen: () => connect(),
+    onPause: () => connection?.pause(),
+    onResume: () => connection?.resume(),
+    onCancel: () {
+      closed = true;
+      final live = connection;
+      connection = null;
+      return live?.cancel();
+    },
+  );
+  return controller.stream;
+}
+
+const int _maxHermesRunStreamResumes = 50;
 
 /// Sends `resolve-unknown` for [run] when it reports the exact admission
 /// identity Hermes requires. Returns the receipt, or null when [run] does not

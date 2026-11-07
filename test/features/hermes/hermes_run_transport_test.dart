@@ -135,6 +135,8 @@ class _FakeHermesApiService extends HermesApiService {
     String runId, {
     String? sessionId,
     CancelToken? cancelToken,
+    int? lastEventId,
+    void Function(int seq)? onSequence,
   }) {
     lastRunEventsCancelToken = cancelToken;
     final streamError = runStreamError;
@@ -262,6 +264,36 @@ class _FakeHermesApiService extends HermesApiService {
       return results[index];
     }
     return responseResult;
+  }
+}
+
+/// Serves one scripted run stream per connection, numbering events like
+/// Hermes v0.21.7+, and records each connection's `Last-Event-ID`.
+class _ResumingRunApi extends _FakeHermesApiService {
+  _ResumingRunApi(this.connections, {super.runResult, this.failResumeWith})
+    : super(const []);
+
+  final List<List<(int?, HermesRunEvent)>> connections;
+  final Object? failResumeWith;
+  final List<int?> lastEventIds = [];
+
+  @override
+  Stream<HermesRunEvent> runEvents(
+    String runId, {
+    String? sessionId,
+    CancelToken? cancelToken,
+    int? lastEventId,
+    void Function(int seq)? onSequence,
+  }) async* {
+    final index = lastEventIds.length;
+    lastEventIds.add(lastEventId);
+    final failure = failResumeWith;
+    if (index > 0 && failure != null) throw failure;
+    if (index >= connections.length) return;
+    for (final (seq, event) in connections[index]) {
+      if (seq != null) onSequence?.call(seq);
+      yield event;
+    }
   }
 }
 
@@ -3049,7 +3081,7 @@ void main() {
     },
   );
 
-  test('recovery stops after the configured poll budget', () async {
+  test('recovery keeps polling an active run, then stops', () async {
     final fake = _FakeHermesApiService(
       const [],
       runResult: const {'status': 'running', 'output': 'Partial'},
@@ -3068,6 +3100,8 @@ void main() {
       input: 'hi',
       maxRecoveryPolls: 2,
       recoveryPollInterval: Duration.zero,
+      maxExtendedRecoveryPolls: 3,
+      extendedRecoveryPollInterval: Duration.zero,
       appendContent: (_) {},
       appendStatus: (_) {},
       updateMessage: (updater) => message = updater(message),
@@ -3075,7 +3109,7 @@ void main() {
       completeStreamingUi: () {},
     );
 
-    check(fake.getRunCalls).equals(2);
+    check(fake.getRunCalls).equals(5);
     check(message.error).isNotNull();
   });
 
@@ -3362,6 +3396,107 @@ void main() {
           'description',
         ).equals(kHermesIncompleteNotice)
         ..has((s) => s.done, 'done').equals(true);
+    });
+  });
+
+  group('run stream resume', () {
+    Future<(ChatMessage, String)> dispatch(_FakeHermesApiService fake) async {
+      var message = ChatMessage(
+        id: 'm',
+        role: 'assistant',
+        content: '',
+        timestamp: DateTime.fromMillisecondsSinceEpoch(0),
+      );
+      final content = StringBuffer();
+      await dispatchHermesRun(
+        service: fake,
+        registry: HermesRunRegistry(),
+        assistantMessageId: 'm',
+        input: 'hi',
+        recoveryPollInterval: Duration.zero,
+        streamResumeDelay: Duration.zero,
+        maxExtendedRecoveryPolls: 0,
+        appendContent: content.write,
+        appendStatus: (_) {},
+        updateMessage: (updater) => message = updater(message),
+        finishStreaming: () {},
+        completeStreamingUi: () {},
+      ).timeout(const Duration(seconds: 4));
+      return (message, content.toString());
+    }
+
+    test('a dropped stream resumes after the last seq', () async {
+      final fake = _ResumingRunApi([
+        [
+          (0, const HermesToolProgress(toolName: 'terminal', done: false)),
+          (1, const HermesTokenDelta('Low tide ')),
+        ],
+        [
+          (2, const HermesTokenDelta('is at four.')),
+          (3, const HermesFinalOutput('Low tide is at four.')),
+          (3, const HermesRunDone()),
+        ],
+      ]);
+      final (message, content) = await dispatch(fake);
+
+      check(fake.lastEventIds).deepEquals(<int?>[null, 1]);
+      check(content).equals('Low tide is at four.');
+      check(fake.getRunCalls).equals(0);
+      check(message.error).isNull();
+    });
+
+    test('streams without seq are polled, not resumed', () async {
+      final fake = _ResumingRunApi(
+        [
+          [(null, const HermesTokenDelta('Partial'))],
+        ],
+        runResult: const {'status': 'completed', 'output': 'Partial answer'},
+      );
+      final (message, content) = await dispatch(fake);
+
+      check(fake.lastEventIds).deepEquals(<int?>[null]);
+      check(fake.getRunCalls).equals(1);
+      check(content).equals('Partial answer');
+      check(message.error).isNull();
+    });
+
+    test('resumes stop after attempts without new events', () async {
+      final fake = _ResumingRunApi(
+        [
+          [(5, const HermesTokenDelta('Half'))],
+          const [],
+          const [],
+          const [],
+          const [],
+        ],
+        runResult: const {'status': 'completed', 'output': 'Half done'},
+      );
+      await dispatch(fake);
+
+      check(fake.lastEventIds).deepEquals(<int?>[null, 5, 5, 5]);
+      check(fake.getRunCalls).equals(1);
+    });
+
+    test('a forgotten stream falls back to polling', () async {
+      final fake = _ResumingRunApi(
+        [
+          [(2, const HermesTokenDelta('Half'))],
+        ],
+        failResumeWith: DioException(
+          requestOptions: RequestOptions(path: '/v1/runs/run-1/events'),
+          response: Response<void>(
+            requestOptions: RequestOptions(path: '/v1/runs/run-1/events'),
+            statusCode: 404,
+          ),
+          type: DioExceptionType.badResponse,
+        ),
+        runResult: const {'status': 'completed', 'output': 'Half and whole'},
+      );
+      final (message, content) = await dispatch(fake);
+
+      check(fake.lastEventIds).deepEquals(<int?>[null, 2]);
+      check(content).equals('Half and whole');
+      check(message.error).isNull();
     });
   });
 }

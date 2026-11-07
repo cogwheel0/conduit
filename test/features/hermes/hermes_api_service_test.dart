@@ -1483,6 +1483,29 @@ void main() {
       check(receipt['outcome']).equals('interrupted');
     });
 
+    test('runEvents resumes with Last-Event-ID and reports seq', () async {
+      final capture = _CaptureInterceptor(
+        ResponseBody.fromString(
+          ': open\n\n'
+          'id: 8\ndata: {"event":"message.delta","run_id":"r1","delta":"lo","seq":8}\n\n'
+          'id: 9\ndata: {"event":"run.completed","run_id":"r1","output":"Hello","seq":9}\n\n',
+          200,
+          headers: {
+            Headers.contentTypeHeader: ['text/event-stream'],
+          },
+        ),
+      );
+      final seqs = <int>[];
+      final events = await _service(capture)
+          .runEvents('r1', lastEventId: 7, onSequence: seqs.add)
+          .toList();
+
+      check(capture.requests.single.headers['Last-Event-ID']).equals('7');
+      check(seqs).deepEquals([8, 9]);
+      check(events.whereType<HermesTokenDelta>().single.content).equals('lo');
+      check(events.last).isA<HermesRunDone>();
+    });
+
     test('approval identifiers cannot inject URI path or fragments', () async {
       final capture = _CaptureInterceptor({});
       await _service(capture).resolveApproval(

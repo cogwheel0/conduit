@@ -32,8 +32,18 @@ const int _maxHermesStreamJsonDepth = 256;
 ///
 /// Reuses the shared [SseFrameScanner] for byte-level framing (split frames,
 /// CRLF, multibyte UTF-8) and layers Hermes-specific decoding on top.
-Stream<HermesRunEvent> parseHermesRunStream(Stream<List<int>> chunks) =>
-    _parseHermesStream(chunks, parseHermesRunFrame);
+///
+/// Hermes v0.21.7+ numbers every run event with `seq`; [onSequence] receives
+/// each one so a dropped stream can resume with `Last-Event-ID`.
+Stream<HermesRunEvent> parseHermesRunStream(
+  Stream<List<int>> chunks, {
+  void Function(int seq)? onSequence,
+}) => _parseHermesStream(
+  chunks,
+  onSequence == null
+      ? parseHermesRunFrame
+      : (frame) => parseHermesRunFrame(frame, onSequence: onSequence),
+);
 
 /// Parses the OpenAI-compatible `/v1/responses` stream with `openai_dart`.
 ///
@@ -294,7 +304,10 @@ HermesToolProgress? _sdkToolProgress(
 /// chat-completion chunks, Responses-API event types, and bespoke
 /// `tool.*` / `approval.*` events depending on version. Unrecognized frames
 /// yield nothing rather than throwing.
-Iterable<HermesRunEvent> parseHermesRunFrame(SseFrame frame) sync* {
+Iterable<HermesRunEvent> parseHermesRunFrame(
+  SseFrame frame, {
+  void Function(int seq)? onSequence,
+}) sync* {
   final raw = frame.data.trim();
   final declaredEvent = frame.event?.trim().toLowerCase();
   final frameEventType = declaredEvent == null || declaredEvent.isEmpty
@@ -324,6 +337,8 @@ Iterable<HermesRunEvent> parseHermesRunFrame(SseFrame frame) sync* {
     } catch (_) {
       return;
     }
+    final seq = data['seq'];
+    if (onSequence != null && seq is int && seq >= 0) onSequence(seq);
   }
 
   final eventType =

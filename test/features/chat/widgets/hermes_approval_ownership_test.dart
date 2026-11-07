@@ -70,6 +70,8 @@ class _GatedApprovalService extends HermesApiService {
     String runId, {
     String? sessionId,
     CancelToken? cancelToken,
+    int? lastEventId,
+    void Function(int seq)? onSequence,
   }) {
     if (!runEventsStarted.isCompleted) runEventsStarted.complete();
     return events.stream;

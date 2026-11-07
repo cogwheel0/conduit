@@ -1467,10 +1467,16 @@ class HermesApiService implements HermesBackendService, HermesTurnService {
 
   /// Opens the run event stream (`GET /v1/runs/{id}/events`) and decodes it into
   /// typed [HermesRunEvent]s. The caller owns the returned subscription.
+  ///
+  /// [onSequence] receives each event's `seq` (Hermes v0.21.7+). Passing the
+  /// last one as [lastEventId] resumes a dropped stream: Hermes replays the
+  /// events after it from its backlog.
   Stream<HermesRunEvent> runEvents(
     String runId, {
     String? sessionId,
     CancelToken? cancelToken,
+    int? lastEventId,
+    void Function(int seq)? onSequence,
   }) async* {
     final streamCancelToken = cancelToken ?? CancelToken();
     final encodedRunId = Uri.encodeComponent(runId);
@@ -1485,6 +1491,7 @@ class HermesApiService implements HermesBackendService, HermesTurnService {
         headers: {
           'Accept': 'text/event-stream',
           ..._sessionHeaders(sessionId: sessionId),
+          if (lastEventId != null) 'Last-Event-ID': '$lastEventId',
         },
       ),
     );
@@ -1500,6 +1507,7 @@ class HermesApiService implements HermesBackendService, HermesTurnService {
           cancelToken: streamCancelToken,
           limits: streamLimits,
         ),
+        onSequence: onSequence,
       ),
       cancelToken: streamCancelToken,
       limits: streamLimits,

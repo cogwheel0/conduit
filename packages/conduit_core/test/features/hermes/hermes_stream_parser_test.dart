@@ -357,6 +357,22 @@ void main() {
       check(events.last).isA<HermesRunDone>();
     });
 
+    test('reports each event seq for stream resume', () async {
+      final seqs = <int>[];
+      await parseHermesRunStream(
+        _sse([
+          ': open\n\n',
+          'id: 0\ndata: {"event":"tool.started","tool":"terminal","seq":0}\n\n',
+          'id: 1\ndata: {"event":"message.delta","delta":"Hi","seq":1}\n\n',
+          'data: {"event":"replay.truncated","oldest_retained_seq":4}\n\n',
+          'data: {"event":"message.delta","delta":"!","seq":"2"}\n\n',
+        ]),
+        onSequence: seqs.add,
+      ).toList();
+
+      check(seqs).deepEquals([0, 1]);
+    });
+
     test('does not decode an answered gate as a new request', () async {
       // Issue #769: the runs API follows an approval with approval.responded
       // (only run_id, choice and resolved), which used to reopen the card.
