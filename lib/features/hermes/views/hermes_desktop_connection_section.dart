@@ -366,6 +366,7 @@ class _HermesDesktopConnectionSectionState
             children: [
               AdaptiveSegmentedControl(
                 key: const ValueKey<String>('hermes-desktop-auth-selector'),
+                semanticLabel: l10n.hermesDesktopAuthentication,
                 labels: [
                   l10n.hermesAuthLegacy,
                   l10n.hermesAuthNative,

@@ -4229,7 +4229,7 @@
   "calendarRemoveEnd": "Убрать время окончания",
   "calendarEventReadOnlyNotInvited": "Вы не можете изменить это событие.",
   "calendarFieldOrganizer": "Организатор",
-  "calendarColorName": "{color, select, blue{Синий} green{Зелёный} amber{Янтарный} red{Красный} purple{Фиолетовый} teal{Бирюзовый} other{Цвет}}",
+  "calendarColorName": "{color, select, blue{Синий} green{Зелёный} amber{Янтарный} red{Красный} purple{Фиолетовый} teal{Бирюзовый} custom{Свой цвет} other{Цвет}}",
   "calendarVisibilityFooter": "Показываются события из отмеченных календарей. Нажмите на календарь, чтобы показать или скрыть его события.",
   "personalizationMemoryTypeUserDescription": "Предпочтение, факт или указание о вас.",
   "personalizationMemoryTypeContextDescription": "Контекст, который нужно учитывать в будущих чатах.",

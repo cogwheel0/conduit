@@ -6109,7 +6109,7 @@
   "calendarRemoveEnd": "Odstrániť čas konca",
   "calendarEventReadOnlyNotInvited": "Túto udalosť nemôžete meniť.",
   "calendarFieldOrganizer": "Organizátor",
-  "calendarColorName": "{color, select, blue{Modrá} green{Zelená} amber{Jantárová} red{Červená} purple{Fialová} teal{Tyrkysová} other{Farba}}",
+  "calendarColorName": "{color, select, blue{Modrá} green{Zelená} amber{Jantárová} red{Červená} purple{Fialová} teal{Tyrkysová} custom{Vlastná farba} other{Farba}}",
   "calendarVisibilityFooter": "Zobrazujú sa udalosti zo začiarknutých kalendárov. Ťuknutím na kalendár jeho udalosti zobrazíte alebo skryjete.",
   "personalizationMemoryTypeUserDescription": "Preferencia, fakt alebo pokyn týkajúci sa vás.",
   "personalizationMemoryTypeContextDescription": "Súvislosti, na ktoré treba pamätať v ďalších chatoch.",

@@ -3963,7 +3963,7 @@
   "calendarRemoveEnd": "종료 시간 삭제",
   "calendarEventReadOnlyNotInvited": "이 일정은 변경할 수 없습니다.",
   "calendarFieldOrganizer": "주최자",
-  "calendarColorName": "{color, select, blue{파란색} green{초록색} amber{호박색} red{빨간색} purple{보라색} teal{청록색} other{색상}}",
+  "calendarColorName": "{color, select, blue{파란색} green{초록색} amber{호박색} red{빨간색} purple{보라색} teal{청록색} custom{사용자 지정 색상} other{색상}}",
   "calendarVisibilityFooter": "체크한 캘린더의 일정이 표시됩니다. 캘린더를 탭하면 해당 일정을 표시하거나 숨길 수 있습니다.",
   "personalizationMemoryTypeUserDescription": "나에 대한 선호, 사실 또는 지시입니다.",
   "personalizationMemoryTypeContextDescription": "이후 채팅에서 염두에 둘 배경 정보입니다.",

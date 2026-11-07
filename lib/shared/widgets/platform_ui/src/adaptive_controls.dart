@@ -58,6 +58,10 @@ enum AdaptiveButtonStyle {
   plain,
   glass,
   prominentGlass,
+
+  /// Clear Liquid Glass for controls over photos and video: it lets the media
+  /// through instead of frosting it. Elsewhere it looks like [glass].
+  clearGlass,
 }
 
 enum AdaptiveButtonSize { small, medium, large }
@@ -194,6 +198,7 @@ class AdaptiveButton extends StatelessWidget {
     AdaptiveButtonStyle.plain => CNButtonStyle.plain,
     AdaptiveButtonStyle.glass => CNButtonStyle.glass,
     AdaptiveButtonStyle.prominentGlass => CNButtonStyle.prominentGlass,
+    AdaptiveButtonStyle.clearGlass => CNButtonStyle.clearGlass,
   };
 
   @override
@@ -350,7 +355,8 @@ class AdaptiveButton extends StatelessWidget {
         useNative &&
         PlatformUiCapabilities.usesNativeIOS26 &&
         (style == AdaptiveButtonStyle.glass ||
-            style == AdaptiveButtonStyle.prominentGlass);
+            style == AdaptiveButtonStyle.prominentGlass ||
+            style == AdaptiveButtonStyle.clearGlass);
     final background = switch (style) {
       AdaptiveButtonStyle.filled => primary,
       AdaptiveButtonStyle.gray =>
@@ -358,7 +364,8 @@ class AdaptiveButton extends StatelessWidget {
       AdaptiveButtonStyle.bordered => null,
       AdaptiveButtonStyle.tinted ||
       AdaptiveButtonStyle.glass ||
-      AdaptiveButtonStyle.prominentGlass => primary.withValues(alpha: 0.15),
+      AdaptiveButtonStyle.prominentGlass ||
+      AdaptiveButtonStyle.clearGlass => primary.withValues(alpha: 0.15),
       AdaptiveButtonStyle.plain => null,
     };
     final button = CupertinoButton(
@@ -384,9 +391,11 @@ class AdaptiveButton extends StatelessWidget {
     Widget result = customGlass
         ? LiquidGlassContainer(
             config: LiquidGlassConfig(
-              effect: style == AdaptiveButtonStyle.prominentGlass
-                  ? CNGlassEffect.prominent
-                  : CNGlassEffect.regular,
+              effect: switch (style) {
+                AdaptiveButtonStyle.prominentGlass => CNGlassEffect.prominent,
+                AdaptiveButtonStyle.clearGlass => CNGlassEffect.clear,
+                _ => CNGlassEffect.regular,
+              },
               shape: CNGlassEffectShape.rect,
               cornerRadius: resolvedRadius
                   .resolve(Directionality.of(context))
@@ -670,8 +679,7 @@ class AdaptivePopupMenuButton<T> {
       // UIKit reports original entry indices, including separator slots.
       if (entry is AdaptivePopupMenuDivider) return true;
       if (entry is! AdaptivePopupMenuItem<T>) return false;
-      return entry.subtitle?.isNotEmpty != true &&
-          entry.imageBytes == null &&
+      return entry.imageBytes == null &&
           (entry.icon == null ||
               entry.icon is String ||
               entry.icon is IconData);
@@ -688,6 +696,9 @@ class AdaptivePopupMenuButton<T> {
         else if (entry is AdaptivePopupMenuItem<T>)
           CNPopupMenuItem(
             label: entry.label,
+            subtitle: entry.subtitle?.isNotEmpty == true
+                ? entry.subtitle
+                : null,
             icon: entry.icon is String ? CNSymbol(entry.icon as String) : null,
             customIcon: entry.icon is IconData ? entry.icon as IconData : null,
             enabled: entry.enabled,

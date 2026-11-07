@@ -4191,7 +4191,7 @@
   "calendarRemoveEnd": "Supprimer l'heure de fin",
   "calendarEventReadOnlyNotInvited": "Vous ne pouvez pas modifier cet événement.",
   "calendarFieldOrganizer": "Organisateur",
-  "calendarColorName": "{color, select, blue{Bleu} green{Vert} amber{Ambre} red{Rouge} purple{Violet} teal{Turquoise} other{Couleur}}",
+  "calendarColorName": "{color, select, blue{Bleu} green{Vert} amber{Ambre} red{Rouge} purple{Violet} teal{Turquoise} custom{Couleur personnalisée} other{Couleur}}",
   "calendarVisibilityFooter": "Les événements des calendriers cochés sont affichés. Touchez un calendrier pour afficher ou masquer ses événements.",
   "personalizationMemoryTypeUserDescription": "Une préférence, un fait ou une consigne vous concernant.",
   "personalizationMemoryTypeContextDescription": "Un contexte à garder à l'esprit dans les prochains chats.",

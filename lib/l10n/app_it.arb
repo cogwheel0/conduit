@@ -4191,7 +4191,7 @@
   "calendarRemoveEnd": "Rimuovi l'ora di fine",
   "calendarEventReadOnlyNotInvited": "Non puoi modificare questo evento.",
   "calendarFieldOrganizer": "Organizzatore",
-  "calendarColorName": "{color, select, blue{Blu} green{Verde} amber{Ambra} red{Rosso} purple{Viola} teal{Verde acqua} other{Colore}}",
+  "calendarColorName": "{color, select, blue{Blu} green{Verde} amber{Ambra} red{Rosso} purple{Viola} teal{Verde acqua} custom{Colore personalizzato} other{Colore}}",
   "calendarVisibilityFooter": "Vengono mostrati gli eventi dei calendari selezionati. Tocca un calendario per mostrarne o nasconderne gli eventi.",
   "personalizationMemoryTypeUserDescription": "Una preferenza, un fatto o un'istruzione che ti riguarda.",
   "personalizationMemoryTypeContextDescription": "Contesto da tenere presente nelle chat future.",

@@ -984,7 +984,8 @@ class ConduitIconButton extends StatelessWidget {
   final bool isCompact;
   final bool isCircular;
 
-  /// Uses system glass for controls floating over full-screen iOS content.
+  /// Uses system glass for controls floating over full-screen iOS media: the
+  /// clear variant, which lets the photo or video through.
   final bool useGlass;
 
   const ConduitIconButton({
@@ -1043,7 +1044,7 @@ class ConduitIconButton extends StatelessWidget {
                 iconSize: isCompact ? IconSize.small : IconSize.medium,
                 iconColor: effectiveIconColor,
                 semanticLabel: semanticLabel,
-                style: AdaptiveButtonStyle.glass,
+                style: AdaptiveButtonStyle.clearGlass,
                 minSize: Size.square(size),
                 padding: EdgeInsets.zero,
                 useSmoothRectangleBorder: !isCircular,

@@ -93,6 +93,10 @@ class AdaptiveSwitch extends StatelessWidget {
   }
 }
 
+/// The most [AdaptiveSlider.divisions] for which the native iOS 26 slider
+/// draws a tick mark at each step. Sliders with more steps still snap to them.
+const int kAdaptiveSliderMaxTickedDivisions = 12;
+
 class AdaptiveSlider extends StatefulWidget {
   const AdaptiveSlider({
     super.key,
@@ -108,6 +112,7 @@ class AdaptiveSlider extends StatefulWidget {
     this.thumbColor,
     this.semanticLabel,
     this.semanticValue,
+    this.thumbless = false,
   });
 
   final double value;
@@ -122,6 +127,10 @@ class AdaptiveSlider extends StatefulWidget {
   final Color? thumbColor;
   final String? semanticLabel;
   final String? semanticValue;
+
+  /// A media scrubber: on iOS 26 the system draws it without a thumb, as in
+  /// Music. Other platforms keep their slider.
+  final bool thumbless;
 
   @override
   State<AdaptiveSlider> createState() => _AdaptiveSliderState();
@@ -181,6 +190,7 @@ class _AdaptiveSliderState extends State<AdaptiveSlider> {
     if (PlatformUiCapabilities.usesNativeIOS26 &&
         widget.onChangeStart == null &&
         widget.onChangeEnd == null) {
+      final divisions = widget.divisions;
       return CNSlider(
         value: widget.value.clamp(widget.min, widget.max),
         min: widget.min,
@@ -189,9 +199,19 @@ class _AdaptiveSliderState extends State<AdaptiveSlider> {
         onChanged: widget.onChanged == null ? (_) {} : _handleChanged,
         trackColor: widget.activeColor,
         thumbColor: widget.thumbColor,
-        step: widget.divisions == null || widget.divisions == 0
+        style: widget.thumbless
+            ? CNSliderStyle.thumbless
+            : CNSliderStyle.standard,
+        step: divisions == null || divisions == 0
             ? null
-            : (widget.max - widget.min) / widget.divisions!,
+            : (widget.max - widget.min) / divisions,
+        // A mark per step reads as a scale only when the steps are few.
+        numberOfTicks:
+            divisions != null &&
+                divisions > 0 &&
+                divisions <= kAdaptiveSliderMaxTickedDivisions
+            ? divisions + 1
+            : null,
       );
     }
     if (PlatformUiCapabilities.isIOS) {
@@ -237,6 +257,7 @@ class AdaptiveSegmentedControl extends StatelessWidget {
     this.iconColor,
     this.textColor,
     this.selectedTextColor,
+    this.semanticLabel,
   });
 
   final List<String> labels;
@@ -251,6 +272,10 @@ class AdaptiveSegmentedControl extends StatelessWidget {
   final Color? iconColor;
   final Color? textColor;
   final Color? selectedTextColor;
+
+  /// What the control chooses, read by VoiceOver and TalkBack before the
+  /// selected segment, e.g. the field label shown above it.
+  final String? semanticLabel;
 
   @override
   Widget build(BuildContext context) {
@@ -291,6 +316,7 @@ class AdaptiveSegmentedControl extends StatelessWidget {
         sfSymbols: nativeSymbols?.cast<CNSymbol>(),
         iconSize: iconSize,
         iconColor: iconColor,
+        semanticLabel: semanticLabel,
       );
     }
 
@@ -330,7 +356,7 @@ class AdaptiveSegmentedControl extends StatelessWidget {
       if (shrinkWrap) {
         control = Center(child: IntrinsicWidth(child: control));
       }
-      return control;
+      return _labelled(control);
     }
 
     Widget control = ConstrainedBox(
@@ -362,7 +388,13 @@ class AdaptiveSegmentedControl extends StatelessWidget {
     if (shrinkWrap) {
       control = Center(child: IntrinsicWidth(child: control));
     }
-    return control;
+    return _labelled(control);
+  }
+
+  Widget _labelled(Widget control) {
+    final label = semanticLabel;
+    if (label == null || label.isEmpty) return control;
+    return Semantics(container: true, label: label, child: control);
   }
 }
 
