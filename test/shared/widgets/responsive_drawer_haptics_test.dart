@@ -331,7 +331,7 @@ void main() {
         await tester.pumpAndSettle();
       });
 
-      expect(drawerTestLightSettleHapticCalls(calls), isEmpty);
+      expect(drawerTestSettleHapticCalls(calls), isEmpty);
     });
   });
 }
