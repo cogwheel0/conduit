@@ -3,7 +3,7 @@
   "type": "module",
   "scripts": {
     "build": "node build.js",
-    "test": "node --test protocol.test.js"
+    "test": "node --test protocol.test.js trackpad.test.js"
   },
   "dependencies": {
     "@novnc/novnc": "1.7.0"

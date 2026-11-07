@@ -35,6 +35,10 @@ IconData? cupertinoIconForSFSymbol(String symbol) => switch (symbol) {
   'plus' => CupertinoIcons.plus,
   'mic' => CupertinoIcons.mic,
   'paperplane.fill' => CupertinoIcons.arrow_up_circle_fill,
+  'eye' => CupertinoIcons.eye,
+  'hand.tap' => Icons.touch_app_outlined,
+  'arrow.up.left.and.arrow.down.right' =>
+    CupertinoIcons.arrow_up_left_arrow_down_right,
   _ => null,
 };
 
@@ -177,6 +181,8 @@ class AdaptiveButton extends StatelessWidget {
   bool _canUseNative(BuildContext context) =>
       useNative &&
       PlatformUiCapabilities.usesNativeIOS26 &&
+      // UIKit buttons otherwise remain above a Flutter dialog's barrier.
+      ModalRoute.of(context)?.isCurrent != false &&
       child == null &&
       context.findAncestorWidgetOfExactType<AlertDialog>() == null;
 
@@ -460,8 +466,8 @@ class AdaptiveButton extends StatelessWidget {
       AdaptiveButtonStyle.filled => ElevatedButton(
         onPressed: callback,
         style: ElevatedButton.styleFrom(
-          backgroundColor: color,
-          foregroundColor: textColor,
+          backgroundColor: color ?? colorScheme.primary,
+          foregroundColor: textColor ?? colorScheme.onPrimary,
           padding: padding,
           minimumSize: minSize,
           shape: shape,
@@ -784,6 +790,7 @@ class AdaptivePopupMenuButton<T> {
       ],
       child: SizedBox(
         height: height,
+        width: icon == null ? null : height,
         child: icon == null
             ? Center(
                 child: Text(label ?? '', style: TextStyle(color: tint)),

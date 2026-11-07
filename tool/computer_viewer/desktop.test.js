@@ -1,3 +1,4 @@
+import {touchTrackpad} from './trackpad_review.js';
 import test, {before, after} from 'node:test';
 import {spawn} from 'node:child_process';
 import assert from 'node:assert/strict';
@@ -89,6 +90,29 @@ for (const transport of ['frames', 'vnc']) {
         await touch.send('Input.dispatchTouchEvent', {type: 'touchEnd', touchPoints: []});
         await touch.detach();
       }
+      await page.evaluate(() => window.computer.control(true));
+      await touchTrackpad(page, async ({slide, tap}) => {
+        const start = (await events()).length;
+        await slide(60, 30);
+        const motion = (await events()).slice(start).filter(e => e.type === 'mouse');
+        assert.ok(motion.length > 0, 'Trackpad movement must reach the transport');
+        assert.ok(motion.every(e => e.buttons === 0), 'Moving a finger must not click');
+        assert.ok(Math.abs(motion.at(-1).x - 220) < 10, JSON.stringify(motion));
+        await tap();
+        if (transport === 'vnc') assert.equal(await page.locator('#noVNC_mouse_capture_elem').isVisible(), false, 'A tap must release noVNC capture');
+        assert.ok((await events()).slice(start).some(e => e.type === 'mouse' && e.buttons === 1));
+        await page.evaluate(() => window.computer.command({type: 'startDrag'}));
+        if (transport === 'vnc') await page.locator('#noVNC_mouse_capture_elem').waitFor({state: 'visible'});
+        const dragStart = (await events()).filter(e => e.type === 'mouse').at(-1);
+        await slide(30, 0);
+        const dragged = (await events()).filter(e => e.type === 'mouse').at(-1);
+        assert.ok(dragged.x > dragStart.x + 15, 'A captured VNC drag must still receive the next touch gesture');
+        assert.equal((await events()).filter(e => e.type === 'mouse').at(-1).buttons, 1);
+        await page.evaluate(() => window.computer.control(false));
+        await new Promise(resolve => setTimeout(resolve, 150));
+        const tail = (await events()).at(-1);
+        assert.ok(tail.type === 'release' || tail.buttons === 0, JSON.stringify(tail));
+      });
       await page.evaluate(() => window.computer.control(false));
       const after = (await events()).length;
       await page.mouse.click(x, y);

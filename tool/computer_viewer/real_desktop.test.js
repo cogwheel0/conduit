@@ -1,4 +1,5 @@
 // Opt-in test against the disposable Linux review VM, never the host desktop.
+import {touchTrackpad} from './trackpad_review.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {execFileSync} from 'node:child_process';
@@ -91,6 +92,32 @@ test('real Linux desktop: shared pointer, Watch, native editing and reconnect',
     await new Promise(resolve => setTimeout(resolve, 200));
     assert.ok(Number(geometry().X) > Number(original.X) + 20,
       `Touch drag did not move the native window: ${JSON.stringify({original, after: geometry(), title})}`);
+    await touchTrackpad(viewer, async ({slide, tap, size}) => {
+      const before = geometry();
+      await slide(before.X + 160 - size.width / 2, before.Y - 12 - size.height / 2);
+      const pointer = ssh('xdotool getmouselocation --shell');
+      assert.ok(Math.abs(Number(pointer.match(/Y=(\d+)/)[1]) - (before.Y - 12)) <= 2, pointer);
+      assert.deepEqual(geometry(), before, 'Moving the cursor must not drag the window');
+      await viewer.evaluate(() => window.computer.command({type: 'startDrag'}));
+      await new Promise(resolve => setTimeout(resolve, 100));
+      await slide(80, 40);
+      await tap();
+      assert.equal(await viewer.locator('#noVNC_mouse_capture_elem').isVisible(), false);
+      assert.ok(geometry().X > before.X + 40, 'Trackpad must drag the real native window');
+      const released = geometry();
+      await slide(50, 0);
+      assert.deepEqual(geometry(), released, 'Tapping must release the drag');
+      await viewer.evaluate(() => window.computer.command({type: 'doubleClick'}));
+      await new Promise(resolve => setTimeout(resolve, 350));
+      assert.match(ssh(`xprop -id ${window} _NET_WM_STATE`), /MAXIMIZED/, 'Double-click must maximize a real window');
+      const maximized = geometry();
+      const position = ssh('xdotool getmouselocation --shell');
+      await slide(maximized.X + 160 - Number(position.match(/X=(\d+)/)[1]),
+        maximized.Y - 12 - Number(position.match(/Y=(\d+)/)[1]));
+      await viewer.evaluate(() => window.computer.command({type: 'doubleClick'}));
+      await new Promise(resolve => setTimeout(resolve, 200));
+      assert.doesNotMatch(ssh(`xprop -id ${window} _NET_WM_STATE`), /MAXIMIZED/);
+    });
     const editorPoint = await viewer.locator('#surface canvas').last().evaluate((canvas, geometry) => {
       const box = canvas.getBoundingClientRect();
       return {x: box.x + (geometry.X + 100) * box.width / canvas.width,
@@ -102,7 +129,7 @@ test('real Linux desktop: shared pointer, Watch, native editing and reconnect',
     await viewer.evaluate(() => window.computer.command({type: 'paste', text: 'Shared desktop input works.'}));
     await new Promise(resolve => setTimeout(resolve, 500));
     await viewer.screenshot({path: '../../build/computer-review/linux/editing-test.png'});
-    await viewer.keyboard.press('Control+s');
+    await api('/desktop/action', {actions: [{action: 'key', key: 'Ctrl+s'}]});
     await viewer.screenshot({path: '../../build/computer-review/linux/saving-test.png'});
     await new Promise(resolve => setTimeout(resolve, 400));
     assert.match(ssh(`cat ${file}`), /Shared desktop input works\./);

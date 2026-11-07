@@ -59,6 +59,15 @@ quality levels and a desktop website viewport. Mouse input includes right-click,
 double-click and modifiers; the keyboard dialog also supports named combinations
 such as `Ctrl+A`, `Alt+Tab` and `Cmd+C` through the server's action API.
 
+On phones and tablets, Pointer controls switches between direct touch and a
+relative trackpad. In trackpad mode, slide to move without clicking, tap to click,
+hold to drag, and use two fingers to scroll or tap for a right-click. Explicit
+click, right-click, double-click and Start/End drag controls support precise work
+without covering the pointer. A locked drag survives finger lifts and ends on a
+tap, explicit End drag, Watch, blur, disconnect or backgrounding. The pointer
+state is independent of the connection status. Input mode resets when switching
+Desktop/Browser or browser tabs.
+
 This feature is the remote Computer viewer. Upstream's separate HTML Proxy
 preview is not embedded: arbitrary remote HTML never runs in the viewer's
 credential-bearing WebView. Desktop audio requires an advertised audio service

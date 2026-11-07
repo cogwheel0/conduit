@@ -1,10 +1,75 @@
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:cupertino_ui/cupertino_ui.dart' show CupertinoActivityIndicator;
+import 'package:cupertino_native_better/cupertino_native_better.dart'
+    show CNButton;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
 
 void main() {
   tearDown(PlatformUiCapabilities.resetDebugOverrides);
+
+  testWidgets('covered routes use composited buttons beneath dialogs', (
+    tester,
+  ) async {
+    PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.iOS;
+    PlatformUiCapabilities.debugIOSMajorVersionOverride = 26;
+    PlatformUiCapabilities.debugNativeIOS26Override = true;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: AdaptiveButton(label: 'Take control', onPressed: () {}),
+        ),
+      ),
+    );
+    expect(find.byType(CNButton), findsOneWidget);
+    final context = tester.element(find.byType(AdaptiveButton));
+    final dialog = showDialog<void>(
+      context: context,
+      builder: (_) => const AlertDialog(content: Text('Input')),
+    );
+    await tester.pumpAndSettle();
+    expect(find.byType(CNButton, skipOffstage: false), findsNothing);
+    Navigator.of(context).pop();
+    await tester.pumpAndSettle();
+    await dialog;
+    expect(find.byType(CNButton), findsOneWidget);
+    await tester.pumpWidget(const SizedBox());
+    await tester.pump(const Duration(seconds: 1));
+  });
+
+  for (final brightness in Brightness.values) {
+    testWidgets(
+      'Android filled controls retain readable labels in $brightness',
+      (tester) async {
+        PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.android;
+        final colors = ColorScheme.fromSeed(
+          seedColor: Colors.blue,
+          brightness: brightness,
+        );
+        await tester.pumpWidget(
+          MaterialApp(
+            theme: ThemeData(colorScheme: colors),
+            home: Scaffold(
+              body: AdaptiveButton(
+                onPressed: () {},
+                label: 'Take control',
+                sfSymbol: const SFSymbol('hand.tap'),
+              ),
+            ),
+          ),
+        );
+        final button = tester.widget<ElevatedButton>(
+          find.byType(ElevatedButton),
+        );
+        expect(button.style!.backgroundColor!.resolve({}), colors.primary);
+        expect(
+          tester.widget<Text>(find.text('Take control')).style!.color,
+          colors.onPrimary,
+        );
+        expect(find.byIcon(Icons.touch_app_outlined), findsOneWidget);
+      },
+    );
+  }
 
   testWidgets(
     'Android chips keep selection, disabled state and separate deletion',

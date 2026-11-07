@@ -129,6 +129,8 @@ void main() {
       await tester.tap(find.text('Take control').last);
       await tester.pumpAndSettle();
       expect(gates, 1);
+      expect(find.text('Return to Watch'), findsNothing);
+      expect(find.bySemanticsLabel('Type on computer'), findsNothing);
       await tester.tap(find.bySemanticsLabel('Close tab: Workshop'));
       await tester.pumpAndSettle();
       verify(() => service.closeBrowserTab('one')).called(1);
@@ -198,6 +200,37 @@ void main() {
     await tester.pumpWidget(const SizedBox());
   });
 
+  testWidgets('Computer shortcuts preserve literal keyboard input', (
+    tester,
+  ) async {
+    final service = _Service();
+    final connection = _connection(ComputerSurface.desktop);
+    when(() => service.open(any())).thenAnswer((_) async => connection);
+    when(() => service.sendShortcut(connection, 'Ctrl+S'))
+        .thenAnswer((_) async {});
+    await tester.pumpWidget(_harness(service, takeControl: () async => true));
+    await tester.pump();
+    await tester.pump();
+    tester
+        .widget<ComputerSurfaceView>(find.byType(ComputerSurfaceView))
+        .onState({'status': 'live'});
+    await tester.pump();
+    await tester.tap(find.text('Take control'));
+    await tester.pumpAndSettle();
+    final shortcut = find.bySemanticsLabel('Keyboard shortcut');
+    await tester.ensureVisible(shortcut);
+    await tester.tap(shortcut);
+    await tester.pumpAndSettle();
+    final field = tester.widget<EditableText>(find.byType(EditableText));
+    expect(field.autocorrect, isFalse);
+    expect(field.smartQuotesType, SmartQuotesType.disabled);
+    await tester.enterText(find.byType(EditableText), 'Ctrl+S');
+    await tester.tap(find.text('Send'));
+    await tester.pumpAndSettle();
+    verify(() => service.sendShortcut(connection, 'Ctrl+S')).called(1);
+    await tester.pumpWidget(const SizedBox());
+  });
+
   testWidgets(
     'mode changes cancel pending control and rotation keeps the viewer',
     (tester) async {
@@ -262,6 +295,35 @@ void main() {
     },
   );
 
+  testWidgets('dialog keyboard does not resize the remote workspace', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1280, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final service = _Service();
+    when(() => service.open(any()))
+        .thenAnswer((_) async => _connection(ComputerSurface.desktop));
+    await tester.pumpWidget(_harness(service, takeControl: () async => true));
+    await tester.pump();
+    await tester.pump();
+    tester.widget<ComputerSurfaceView>(find.byType(ComputerSurfaceView))
+        .onState({'status': 'live'});
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Take control'));
+    await tester.pumpAndSettle();
+    final before = tester.getRect(find.byType(ComputerSurfaceView));
+    await tester.tap(find.bySemanticsLabel('Type on computer'));
+    tester.view.viewInsets = const FakeViewPadding(bottom: 300);
+    await tester.pumpAndSettle();
+    expect(tester.getRect(find.byType(ComputerSurfaceView)), before);
+    await tester.tap(find.text('Cancel'));
+    tester.view.viewInsets = FakeViewPadding.zero;
+    await tester.pumpAndSettle();
+    expect(tester.getRect(find.byType(ComputerSurfaceView)), before);
+    await tester.pumpWidget(const SizedBox());
+  });
+
   for (final size in [const Size(320, 568), const Size(568, 320)]) {
     testWidgets('connection failure stays usable at large text in $size', (
       tester,
@@ -277,6 +339,89 @@ void main() {
       await tester.pumpAndSettle();
       expect(tester.takeException(), isNull);
       expect(find.text('Retry'), findsOneWidget);
+      await tester.pumpWidget(const SizedBox());
+    });
+  }
+
+  for (final size in [
+    const Size(320, 568),
+    const Size(820, 1180),
+    const Size(1280, 800),
+  ]) {
+    testWidgets('trackpad actions and drag state remain usable at $size', (
+      tester,
+    ) async {
+      tester.view.physicalSize = size;
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final service = _Service();
+      when(() => service.open(any()))
+          .thenAnswer((_) async => _connection(ComputerSurface.desktop));
+      await tester.pumpWidget(_harness(service, takeControl: () async => true));
+      await tester.pump();
+      await tester.pump();
+      final view = tester.widget<ComputerSurfaceView>(
+        find.byType(ComputerSurfaceView),
+      );
+      view.onState({'status': 'live'});
+      final web = ComputerTestWebController();
+      tester
+          .widget<InAppWebView>(find.byType(InAppWebView))
+          .platform
+          .params
+          .onWebViewCreated!(web);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Take control'));
+      await tester.pumpAndSettle();
+      if (size.width > size.height) {
+        expect(
+          tester.getRect(find.byType(ComputerSurfaceView)).left,
+          greaterThan(
+            tester.getRect(find.text('Full desktop · apps and windows')).right,
+          ),
+        );
+        expect(
+          tester.getSize(find.byType(ComputerSurfaceView)).height,
+          greaterThan(size.height * .8),
+        );
+      }
+      expect(
+        tester.getSize(find.byTooltip('Pointer controls')).width,
+        greaterThanOrEqualTo(44),
+      );
+      await tester.tap(find.byTooltip('Pointer controls'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Trackpad'));
+      await tester.pumpAndSettle();
+      expect(web.scripts, contains('window.computer?.trackpad(true)'));
+      expect(
+        find.text(
+          'Slide to move the cursor. Tap to click, hold to drag; two fingers scroll.',
+        ),
+        findsOneWidget,
+      );
+      await tester.tap(find.byTooltip('Pointer controls'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Start drag'));
+      await tester.pumpAndSettle();
+      expect(web.scripts.any((s) => s.contains('startDrag')), isTrue);
+      view.onState({'status': 'pointer', 'dragging': true});
+      await tester.pumpAndSettle();
+      expect(find.text('You’re in control'), findsOneWidget);
+      expect(
+        find.text('Drag is held. Slide to move, then tap or choose End drag.'),
+        findsOneWidget,
+      );
+      await tester.tap(find.byTooltip('Pointer controls'));
+      await tester.pumpAndSettle();
+      // A native menu can release the pointer on blur. Its selected End action
+      // must still release, never toggle a fresh drag on after reacquiring control.
+      view.onState({'status': 'pointer', 'dragging': false});
+      await tester.tap(find.text('End drag'));
+      await tester.pumpAndSettle();
+      expect(web.scripts.any((s) => s.contains('endDrag')), isTrue);
+      expect(tester.takeException(), isNull);
       await tester.pumpWidget(const SizedBox());
     });
   }

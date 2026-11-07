@@ -2,6 +2,7 @@ import RFB from '@novnc/novnc';
 import {patchHeader, remotePoint, canSendInput} from './protocol.js';
 import {createPointer} from './pointer.js';
 import {createAudio} from './audio.js';
+import {createTrackpad} from './trackpad.js';
 
 // This document only renders pixels. Remote pages never execute in this WebView.
 const surface = document.getElementById('surface');
@@ -14,6 +15,7 @@ let lastPoint = {x: 0, y: 0}, buttons = 0, touch = null;
 let touchTimer, mouseButton = 'left';
 let clickCount = 1, lastClick = {time: 0, x: 0, y: 0, button: ''};
 let mouseModifiers = 0;
+let trackpadMode = false, trackpad;
 let vncPointer = {clientX: 0, clientY: 0, button: 0};
 const heldKeys = new Map();
 const pointer = createPointer();
@@ -41,6 +43,7 @@ function live() {
   }
 }
 function release() {
+  trackpad?.cancel();
   clearTimeout(touchTimer);
   if (!controlling && !buttons && !heldKeys.size) {
     touch = null;
@@ -51,7 +54,10 @@ function release() {
     // JSON control messages must never enter the raw RFB byte stream.
     const target = surface.querySelector('canvas:not(#frame)');
     for (const key of heldKeys.values()) target?.dispatchEvent(new KeyboardEvent('keyup', {...key, bubbles: true}));
-    if (buttons) target?.dispatchEvent(new MouseEvent('mouseup', {...vncPointer, buttons: 0, bubbles: true}));
+    if (buttons) {
+      window.dispatchEvent(new MouseEvent('mouseup', {...vncPointer, buttons: 0, bubbles: true}));
+      if (buttons) target?.dispatchEvent(new MouseEvent('mouseup', {...vncPointer, buttons: 0, bubbles: true}));
+    }
   } else if (config?.surface === 'desktop' && config.transport !== 'vnc') send({type: 'release'});
   else {
     for (const key of heldKeys.values()) send({...key, event: 'keyUp'});
@@ -66,8 +72,10 @@ function close() {
   generation++;
   release();
   controlling = false;
+  document.documentElement.style.touchAction = 'auto';
   pointer.hide();
   audio.stop();
+  trackpad?.reset();
   lastClick.time = 0;
   connected = false;
   clearTimeout(retryTimer);
@@ -208,6 +216,58 @@ function mouse(event, point, down = buttons, deltaX = 0, deltaY = 0) {
       clickCount, modifiers: mouseModifiers, deltaX, deltaY});
   }
 }
+const inputCanvas = () => rfb ? surface.querySelector('canvas:not(#frame)') : canvas;
+trackpad = createTrackpad({
+  enabled: () => trackpadMode && canSendInput(controlling, connected, visible),
+  bounds() {
+    const target = inputCanvas() ?? canvas, box = target.getBoundingClientRect();
+    return {width: target.width, height: target.height,
+      scaleX: target.width / Math.max(1, box.width), scaleY: target.height / Math.max(1, box.height)};
+  },
+  mouse(type, point, button) {
+    if (rfb) {
+      const target = inputCanvas(), box = target.getBoundingClientRect();
+      const receiver = type === 'up' ? window : target;
+      receiver.dispatchEvent(new MouseEvent({move: 'mousemove', down: 'mousedown', up: 'mouseup'}[type], {
+        clientX: box.x + point.x * box.width / target.width,
+        clientY: box.y + point.y * box.height / target.height,
+        button, buttons: type === 'down' ? (button === 2 ? 2 : 1) : type === 'up' ? 0 : buttons,
+        bubbles: true, cancelable: true,
+      }));
+      // Send releases through noVNC's document capture proxy so it also
+      // removes the overlay before the next direct touch or mouse gesture.
+    } else {
+      mouseButton = button === 2 ? 'right' : 'left';
+      buttons = type === 'down' ? (button === 2 ? 2 : 1) : type === 'up' ? 0 : buttons;
+      mouse({move: 'mouseMoved', down: 'mousePressed', up: 'mouseReleased'}[type], point);
+    }
+  },
+  wheel(point, deltaX, deltaY) {
+    if (rfb) {
+      const target = inputCanvas(), box = target.getBoundingClientRect();
+      target.dispatchEvent(new WheelEvent('wheel', {deltaX, deltaY,
+        clientX: box.x + point.x * box.width / target.width,
+        clientY: box.y + point.y * box.height / target.height,
+        bubbles: true, cancelable: true}));
+    } else mouse('mouseWheel', point, 0, deltaX, deltaY);
+  },
+  dragging: value => report('pointer', {dragging: value}),
+});
+for (const type of ['pointerdown', 'pointermove', 'pointerup', 'pointercancel']) {
+  document.addEventListener(type, event => {
+    mouseModifiers = modifiers(event);
+    if (trackpad.handle(event) && type === 'pointerdown') surface.setPointerCapture(event.pointerId);
+  }, {capture: true, passive: false});
+}
+// noVNC captures a held mouse with a document overlay outside the surface.
+// Relative touch input owns gestures even when that overlay is active.
+for (const type of ['touchstart', 'touchmove', 'touchend', 'touchcancel']) {
+  document.addEventListener(type, event => {
+    if (trackpadMode && canSendInput(controlling, connected, visible)) {
+      event.preventDefault(); event.stopImmediatePropagation();
+    }
+  }, {capture: true, passive: false});
+}
 canvas.addEventListener('pointerdown', event => {
   if (!controlling) return;
   event.preventDefault();
@@ -302,6 +362,7 @@ function keyEvent(event, down) {
 window.addEventListener('blur', () => {
   release();
   controlling = false;
+  document.documentElement.style.touchAction = 'auto';
   pointer.hide();
   if (rfb) rfb.viewOnly = true;
   report('watching');
@@ -322,11 +383,15 @@ window.computer = {
     controlling = value === true && connected && visible;
     if (!controlling) pointer.hide();
     canvas.style.touchAction = controlling ? 'none' : 'auto';
+    document.documentElement.style.touchAction = controlling && trackpadMode ? 'none' : 'auto';
     if (rfb) { rfb.viewOnly = !controlling; if (controlling) rfb.focus(); }
   },
   command(value) {
     if (!canSendInput(controlling, connected, visible)) return;
-    if (value.type === 'paste') {
+    if (trackpadMode && ['click', 'rightClick', 'doubleClick', 'startDrag', 'endDrag'].includes(value.type)) {
+      if (value.type === 'startDrag' || value.type === 'endDrag') trackpad.drag(value.type === 'startDrag');
+      else trackpad.click(value.type === 'rightClick' ? 2 : 0, value.type === 'doubleClick' ? 2 : 1);
+    } else if (value.type === 'paste') {
       if (rfb) {
         rfb.clipboardPasteFrom(value.text);
         rfb.sendKey(0xffe3, 'ControlLeft', true);
@@ -351,6 +416,10 @@ window.computer = {
     surface.classList.toggle('zoomed', value);
     if (rfb) { rfb.scaleViewport = !value; rfb.clipViewport = false; }
     else { canvas.classList.toggle('zoomed', value); }
+  },
+  trackpad(value) {
+    trackpad.cancel(); trackpadMode = value === true;
+    document.documentElement.style.touchAction = controlling && trackpadMode ? 'none' : 'auto';
   },
   viewport(value) {
     if (!config || config.surface !== 'browser') return;

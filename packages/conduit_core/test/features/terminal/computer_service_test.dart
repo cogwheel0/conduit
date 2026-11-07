@@ -299,7 +299,7 @@ void main() {
       expect(requests.single.data, {
         'session_id': 'displayed-tab',
         'actions': [
-          {'action': 'key', 'key': 'Ctrl+Shift+Z'},
+          {'action': 'key', 'key': 'Ctrl+Shift+z'},
         ],
       });
       await expectLater(
@@ -320,6 +320,20 @@ void main() {
           {'action': 'key', 'key': 'Alt+Tab'},
         ],
       });
+      for (final pair in [
+        ('Ctrl+S', 'Ctrl+s'),
+        ('Ctrl+Shift+S', 'Ctrl+Shift+s'),
+        ('Alt+F2', 'Alt+F2'),
+        ('S', 'S'),
+      ]) {
+        await service.sendShortcut(connection, pair.$1);
+        expect(requests.last.data, {
+          'session_id': 'displayed-tab',
+          'actions': [
+            {'action': 'key', 'key': pair.$2},
+          ],
+        });
+      }
     },
   );
 

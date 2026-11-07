@@ -1,4 +1,5 @@
 // Opt-in integration against the loopback-only, synthetic review environment.
+import {touchTrackpad} from './trackpad_review.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
@@ -18,7 +19,11 @@ test('real Open Terminal: pixels, Watch, typing, resize, blur and reconnect',
   const previousPages = new Set(browser.contexts()[0].pages());
   const session = await api('/browser/sessions', 'POST', {url: 'http://127.0.0.1:8767'});
   await api(`/browser/sessions/${session.id}`, 'PATCH', {mode: 'chrome', active: true});
-  const remote = browser.contexts()[0].pages().find(page => !previousPages.has(page));
+  let remote;
+  for (let i = 0; i < 40 && !remote; i++) {
+    remote = browser.contexts()[0].pages().find(page => !previousPages.has(page) && page.url().startsWith('http://127.0.0.1:8767'));
+    if (!remote) await new Promise(resolve => setTimeout(resolve, 100));
+  }
   assert.ok(remote, 'the synthetic remote tab was created');
   const viewer = await browser.contexts()[0].newPage();
   try {
@@ -85,6 +90,22 @@ test('real Open Terminal: pixels, Watch, typing, resize, blur and reconnect',
     });
     await viewer.mouse.click(titlePoint.x, titlePoint.y, {button: 'right'});
     await remote.waitForFunction(() => window.syntheticContextMenus === 1);
+    await touchTrackpad(viewer, async ({slide, tap, scroll, size}) => {
+      await slide(titleBox.x + titleBox.width / 2 - size.width / 2,
+        titleBox.y + titleBox.height / 2 - size.height / 2);
+      const previous = await remote.evaluate(() => window.syntheticContextMenus);
+      await viewer.evaluate(() => window.computer.command({type: 'rightClick'}));
+      await remote.waitForFunction(previous => window.syntheticContextMenus === previous + 1, previous);
+      await tap();
+      await viewer.evaluate(() => window.computer.command({type: 'doubleClick'}));
+      await remote.waitForFunction(() => window.syntheticDoubleClicks >= 2);
+      await viewer.keyboard.press('Control+a');
+      await viewer.evaluate(() => window.computer.command({type: 'paste', text: 'Trackpad verified'}));
+      await remote.waitForFunction(() => document.querySelector('.title').value === 'Trackpad verified');
+      await scroll();
+      await remote.waitForFunction(() => window.scrollY > 100);
+      await remote.evaluate(() => window.scrollTo(0, 0));
+    });
     await viewer.evaluate(() => window.computer.display({quality: 'low', desktopSite: true}));
     await viewer.evaluate(() => window.computer.viewport({width: 390, height: 600, mobile: true}));
     await viewer.waitForFunction(() => document.querySelector('#frame').width === 1024);

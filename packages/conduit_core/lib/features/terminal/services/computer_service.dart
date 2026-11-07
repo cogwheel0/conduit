@@ -167,6 +167,14 @@ class ComputerService {
     if (!RegExp(r'^[A-Za-z0-9_+]{1,100}$').hasMatch(key)) {
       throw const FormatException('Invalid keyboard shortcut');
     }
+    // Uppercase letters imply Shift in the Linux desktop backend. Modifiers
+    // must be explicit: Ctrl+S means save, while Ctrl+Shift+S means Save As.
+    if (key.contains('+')) {
+      key = key
+          .split('+')
+          .map((part) => part.length == 1 ? part.toLowerCase() : part)
+          .join('+');
+    }
     await terminal.requestComputer(
       server,
       connection.surface == ComputerSurface.desktop

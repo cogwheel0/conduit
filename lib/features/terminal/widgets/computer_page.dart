@@ -12,6 +12,7 @@ import '../../../shared/widgets/platform_ui/vocabulary.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/platform_ui/platform_ui.dart';
+import '../../../shared/widgets/themed_sheets.dart';
 import 'computer_surface.dart';
 import 'computer_mode_selector.dart';
 import 'computer_browser_tabs.dart';
@@ -47,6 +48,7 @@ class _ComputerPageState extends ConsumerState<ComputerPage>
   bool _audioAvailable = false, _audioEnabled = false, _audioFailed = false;
   bool _desktopSite = false;
   bool _tabsOpen = false;
+  bool _trackpad = false, _dragging = false;
   String _quality = 'crisp';
   bool _active = true, _scopeValid = true;
   int _generation = 0;
@@ -136,6 +138,7 @@ class _ComputerPageState extends ConsumerState<ComputerPage>
       _inputFailed = false;
       _audioAvailable = _audioEnabled = _audioFailed = false;
       _desktopSite = false;
+      _trackpad = _dragging = false;
       _quality = 'crisp';
       _stopping = false;
     });
@@ -166,7 +169,9 @@ class _ComputerPageState extends ConsumerState<ComputerPage>
     if (!mounted || !_scopeValid || !_active) return;
     setState(() {
       final status = message['status'];
-      if (status == 'audio') {
+      if (status == 'pointer') {
+        _dragging = message['dragging'] == true;
+      } else if (status == 'audio') {
         if (message['available'] is bool) {
           _audioAvailable = message['available'] == true;
         }
@@ -300,7 +305,13 @@ class _ComputerPageState extends ConsumerState<ComputerPage>
             ? l10n.computerAddress
             : l10n.computerTypeText,
         initialValue: navigate ? _url : '',
-        keyboardType: navigate ? TextInputType.url : TextInputType.multiline,
+        autocorrect: false,
+        maxLines: navigate || shortcut ? 1 : 4,
+        keyboardType: navigate
+            ? TextInputType.url
+            : shortcut
+            ? TextInputType.text
+            : TextInputType.multiline,
       ),
       actions: [
         AlertAction(
@@ -344,6 +355,18 @@ class _ComputerPageState extends ConsumerState<ComputerPage>
     }
   }
 
+  Future<void> _pointerAction(String action) async {
+    final connection = _connection;
+    await _takeControl();
+    if (!_controlling || !identical(connection, _connection)) return;
+    if (action == 'touch' || action == 'trackpad') {
+      setState(() => _trackpad = action == 'trackpad');
+      await _surface.trackpad(_trackpad);
+    } else {
+      await _surface.command({'type': action});
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
@@ -363,7 +386,7 @@ class _ComputerPageState extends ConsumerState<ComputerPage>
     final host = Uri.tryParse(_url)?.host ?? '';
     final connection = _connection;
     final size = MediaQuery.sizeOf(context);
-    final landscape = size.width > size.height && size.height < 600;
+    final landscape = size.width > size.height;
     final modes = widget.capabilities.desktop && widget.capabilities.browser
         ? Padding(
             padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
@@ -619,7 +642,11 @@ class _ComputerPageState extends ConsumerState<ComputerPage>
                 : _stopFailed
                 ? l10n.computerStopFailed
                 : _controlling
-                ? _vnc
+                ? _trackpad
+                      ? _dragging
+                            ? l10n.computerDraggingHint
+                            : l10n.computerTrackpadHint
+                      : _vnc
                       ? l10n.computerDesktopGestures
                       : l10n.computerControlHint
                 : _hasTakenControl
@@ -643,6 +670,50 @@ class _ComputerPageState extends ConsumerState<ComputerPage>
                 ),
                 const SizedBox(width: 8),
               ],
+              if (_controlling && live)
+                AdaptivePopupMenuButton.icon<String>(
+                  icon: _trackpad
+                      ? Icons.mouse_outlined
+                      : Icons.touch_app_outlined,
+                  semanticLabel: l10n.computerPointerControls,
+                  buttonStyle: PopupButtonStyle.plain,
+                  items: [
+                    AdaptivePopupMenuItem(
+                      value: 'touch',
+                      label: l10n.computerDirectTouch,
+                      checked: !_trackpad,
+                    ),
+                    AdaptivePopupMenuItem(
+                      value: 'trackpad',
+                      label: l10n.computerTrackpad,
+                      checked: _trackpad,
+                    ),
+                    if (_trackpad) ...[
+                      const AdaptivePopupMenuDivider(),
+                      AdaptivePopupMenuItem(
+                        value: 'click',
+                        label: l10n.computerClick,
+                      ),
+                      AdaptivePopupMenuItem(
+                        value: 'rightClick',
+                        label: l10n.computerRightClick,
+                      ),
+                      AdaptivePopupMenuItem(
+                        value: 'doubleClick',
+                        label: l10n.computerDoubleClick,
+                      ),
+                      AdaptivePopupMenuItem(
+                        value: _dragging ? 'endDrag' : 'startDrag',
+                        label: _dragging
+                            ? l10n.computerEndDrag
+                            : l10n.computerStartDrag,
+                        checked: _dragging,
+                      ),
+                    ],
+                  ],
+                  onSelected: (_, entry) =>
+                      unawaited(_pointerAction(entry.value!)),
+                ),
               Expanded(
                 child: AdaptiveButton(
                   onPressed: (!live && !empty) || _stopping
@@ -655,7 +726,9 @@ class _ComputerPageState extends ConsumerState<ComputerPage>
                       : _controlling
                       ? l10n.computerWatch
                       : l10n.computerTakeControl,
-                  sfSymbol: SFSymbol(_controlling ? 'eye' : 'hand.tap'),
+                  sfSymbol: landscape
+                      ? null
+                      : SFSymbol(_controlling ? 'eye' : 'hand.tap'),
                   size: AdaptiveButtonSize.large,
                 ),
               ),
@@ -712,7 +785,18 @@ class _ComputerPageState extends ConsumerState<ComputerPage>
         ],
       ),
     );
+    // UIKit chrome must leave the compositor while a root sheet covers it.
+    final safeModes = ThemedSheets.hideNativeChromeWhileCovered(child: modes);
+    final safeStatus = ThemedSheets.hideNativeChromeWhileCovered(child: status);
+    final safeControls = ThemedSheets.hideNativeChromeWhileCovered(
+      child: controls,
+    );
+    final safeNavigation = ThemedSheets.hideNativeChromeWhileCovered(
+      child: navigation,
+    );
     return AdaptiveScaffold(
+      // Text entry lives in a dialog. Keep the remote viewport stable behind it.
+      resizeToAvoidBottomInset: false,
       appBar: AdaptiveAppBar(
         title: _selected == ComputerSurface.desktop
             ? l10n.computerDesktop
@@ -751,21 +835,22 @@ class _ComputerPageState extends ConsumerState<ComputerPage>
         child: LayoutBuilder(
           builder: (context, constraints) {
             // A side panel leaves the full height available for a landscape desktop.
-            if (constraints.maxWidth > constraints.maxHeight &&
-                constraints.maxHeight < 600) {
+            if (landscape) {
               return Row(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   SizedBox(
                     width: 240,
                     child: SingleChildScrollView(
-                      child: Column(children: [modes, status, controls]),
+                      child: Column(
+                        children: [safeModes, safeStatus, safeControls],
+                      ),
                     ),
                   ),
                   Expanded(
                     child: Column(
                       children: [
-                        navigation,
+                        safeNavigation,
                         Expanded(child: screen),
                       ],
                     ),
@@ -777,25 +862,25 @@ class _ComputerPageState extends ConsumerState<ComputerPage>
               return SingleChildScrollView(
                 child: Column(
                   children: [
-                    modes,
-                    status,
-                    navigation,
+                    safeModes,
+                    safeStatus,
+                    safeNavigation,
                     SizedBox(
                       height: constraints.maxHeight * .65,
                       child: screen,
                     ),
-                    controls,
+                    safeControls,
                   ],
                 ),
               );
             }
             return Column(
               children: [
-                modes,
-                status,
-                navigation,
+                safeModes,
+                safeStatus,
+                safeNavigation,
                 Expanded(child: screen),
-                controls,
+                safeControls,
               ],
             );
           },

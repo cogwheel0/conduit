@@ -14,6 +14,53 @@ void main() {
     debugDefaultTargetPlatformOverride = null;
   });
 
+  for (final platform in [TargetPlatform.android, TargetPlatform.iOS]) {
+    testWidgets(
+      'input survives keyboard dismissal during the closing animation on $platform',
+      (tester) async {
+        PlatformUiCapabilities.debugPlatformOverride = platform;
+        await tester.pumpWidget(
+          const MaterialApp(home: Scaffold(body: SizedBox())),
+        );
+        final result = AdaptiveAlertDialog.inputShow(
+          context: tester.element(find.byType(Scaffold)),
+          title: 'Keyboard shortcut',
+          input: const AdaptiveAlertDialogInput(
+            placeholder: 'Shortcut',
+            autocorrect: false,
+            maxLines: 3,
+          ),
+          actions: [AlertAction(title: 'Send', onPressed: () {})],
+        );
+        await tester.pumpAndSettle();
+        final field = tester.widget<EditableText>(find.byType(EditableText));
+        expect(field.autocorrect, isFalse);
+        expect(field.enableSuggestions, isFalse);
+        expect(field.smartDashesType, SmartDashesType.disabled);
+        expect(field.smartQuotesType, SmartQuotesType.disabled);
+        expect(field.maxLines, 3);
+        const text = 'First line\nLiteral "quotes" -- and a second line.';
+        await tester.enterText(find.byType(EditableText), text);
+        final controller = tester
+            .widget<EditableText>(find.byType(EditableText))
+            .controller;
+        tester.view.viewInsets = const FakeViewPadding(bottom: 250);
+        addTearDown(tester.view.resetViewInsets);
+        await tester.pump();
+        await tester.tap(find.text('Send'));
+        await tester.pump();
+        // The route still owns an EditableText while reversing its transition.
+        void listener() {}
+        expect(() => controller.addListener(listener), returnsNormally);
+        controller.removeListener(listener);
+        tester.view.resetViewInsets();
+        await tester.pumpAndSettle();
+        expect(await result, text);
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
+
   testWidgets('Cupertino app applies an explicit dark theme at its root', (
     tester,
   ) async {

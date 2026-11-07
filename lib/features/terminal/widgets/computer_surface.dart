@@ -25,6 +25,7 @@ class ComputerSurfaceController {
   Future<void> visibility(bool visible) => _call('visibility', visible);
   Future<void> reconnect() => _call('reconnect', null);
   Future<void> audio(bool enabled) => _call('audio', enabled);
+  Future<void> trackpad(bool enabled) => _call('trackpad', enabled);
   Future<void> display(String quality, bool desktopSite) =>
       _call('display', {'quality': quality, 'desktopSite': desktopSite});
 }
