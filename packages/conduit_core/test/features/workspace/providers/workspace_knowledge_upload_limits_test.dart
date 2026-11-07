@@ -306,6 +306,24 @@ void main() {
       ).isEmpty();
     });
 
+    test('an unprocessed upload is deleted even when the link then fails', () async {
+      final server = _KnowledgeServer(
+        processing: {
+          'upload-2': ['failed'],
+        },
+        attachStatus: 500,
+      );
+      final container = await _container(server);
+      addTearDown(container.dispose);
+
+      await check(
+        container
+            .read(workspaceKnowledgeFilesProvider('kb-1').notifier)
+            .uploadMany([_file('a.txt', 3), _file('b.txt', 7)]),
+      ).throws<DioException>();
+      check(server.deletions).contains('DELETE /api/v1/files/upload-2');
+    });
+
     test('a single upload the server could not process says why', () async {
       final server = _KnowledgeServer(
         processing: {

@@ -376,9 +376,11 @@ class WorkspaceKnowledgeFiles extends _$WorkspaceKnowledgeFiles {
         rethrow;
       }
       if (uploaded.isEmpty) return;
-      // Files the server could not process are deleted and left out; the
+      // Files the server could not process are deleted and left out: first,
+      // so a link that fails cannot leave them among the user's files. The
       // rest go in, and the user hears why the others did not.
       final failed = await _waitForProcessing(session, uploaded);
+      await _discardUploads(session.api, failed.keys.toList());
       final processed = [
         for (final id in uploaded)
           if (!failed.containsKey(id)) id,
@@ -387,7 +389,7 @@ class WorkspaceKnowledgeFiles extends _$WorkspaceKnowledgeFiles {
         await _attachUploaded(session.api, processed);
         session.ensureCurrent(ref);
       }
-      await _refuseUnprocessed(session, failed, names: names);
+      if (failed.isNotEmpty) throw _unprocessed(failed, names: names);
     });
   }
 
@@ -418,24 +420,29 @@ class WorkspaceKnowledgeFiles extends _$WorkspaceKnowledgeFiles {
   }
 
   /// Deletes the uploads in [failed], which the server could not process,
-  /// and throws its reasons as [KnowledgeUploadRefused]; each is named from
-  /// [names] when there is a list of them.
+  /// and throws its reasons.
   Future<void> _refuseUnprocessed(
     WorkspaceSessionIdentity session,
-    Map<String, String> failed, {
-    Map<String, String>? names,
-  }) async {
+    Map<String, String> failed,
+  ) async {
     if (failed.isEmpty) return;
     await _discardUploads(session.api, failed.keys.toList());
-    throw KnowledgeUploadRefused(
-      names == null
-          ? failed.values.join('\n')
-          : [
-              for (final entry in failed.entries)
-                '${names[entry.key] ?? entry.key}: ${entry.value}',
-            ].join('\n'),
-    );
+    throw _unprocessed(failed);
   }
+
+  /// The server's reasons for not processing the uploads in [failed], each
+  /// named from [names] when there is a list of them.
+  static KnowledgeUploadRefused _unprocessed(
+    Map<String, String> failed, {
+    Map<String, String>? names,
+  }) => KnowledgeUploadRefused(
+    names == null
+        ? failed.values.join('\n')
+        : [
+            for (final entry in failed.entries)
+              '${names[entry.key] ?? entry.key}: ${entry.value}',
+          ].join('\n'),
+  );
 
   /// Links freshly uploaded [fileIds] into the current directory. When the
   /// server refuses them, as for the knowledge base's limits, they are
