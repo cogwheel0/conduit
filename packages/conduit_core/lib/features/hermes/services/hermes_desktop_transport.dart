@@ -57,12 +57,34 @@ final class HermesDesktopEvent {
     required this.type,
     required this.payload,
     this.sessionId,
+    this.seq,
+    this.replayEpoch,
+    this.executionGeneration,
+    this.admissionId,
   });
 
   final String type;
   final Map<String, dynamic> payload;
   final String? sessionId;
+
+  /// The event's place in its session's replay stream ([replayEpoch]),
+  /// stamped by a session authority (the canonical wire).
+  final int? seq;
+  final String? replayEpoch;
+
+  /// The execution generation of the turn the event belongs to: what a
+  /// control (stop, steer, an answer) must name on the canonical wire.
+  final int? executionGeneration;
+
+  /// The admission (one submitted prompt) whose turn produced the event.
+  final String? admissionId;
 }
+
+/// The protocol a gateway's session authority speaks (its Webapp listener):
+/// `gateway.ready` says `session_authority: true` and session snapshots name
+/// it as `info.desktop_protocol`.
+const String kHermesCanonicalGatewayProtocol = 'hermes-gateway-v1';
+
 
 /// Server→client requests Conduit answers. Since Hermes 0.21.3 the gateway
 /// asks for approvals, clarifications, sudo passwords and secrets this way
@@ -490,6 +512,7 @@ final class HermesDesktopRpcClient {
   /// Connection operations with a target card shown, by operation id.
   final Map<String, _OpenConnection> _connections = {};
 
+
   Stream<HermesDesktopEvent> get events => _events.stream;
   Stream<void> get disconnects => _disconnects.stream;
   bool get isReady => _ready;
@@ -721,13 +744,18 @@ final class HermesDesktopRpcClient {
           if (!ready.isCompleted) ready.complete();
         }
         final sessionId = params['session_id']?.toString();
-        _events.add(
-          HermesDesktopEvent(
-            type: type,
-            payload: payload,
-            sessionId: sessionId,
-          ),
+        final seq = params['seq'];
+        final generation = params['execution_generation'];
+        final event = HermesDesktopEvent(
+          type: type,
+          payload: payload,
+          sessionId: sessionId,
+          seq: seq is int ? seq : null,
+          replayEpoch: validateHermesOpaqueIdentifier(params['replay_epoch']),
+          executionGeneration: generation is int ? generation : null,
+          admissionId: validateHermesOpaqueIdentifier(params['admission_id']),
         );
+        _events.add(event);
         switch (type) {
           case 'request.cancel':
             _withdrawServerRequest(payload, sessionId);

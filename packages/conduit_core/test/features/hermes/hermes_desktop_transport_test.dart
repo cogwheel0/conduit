@@ -1008,6 +1008,59 @@ void main() {
     });
   });
 
+  group('session authority', () {
+    late _SocketHarness socket;
+    late HermesDesktopRpcClient client;
+    late List<HermesDesktopEvent> events;
+
+    setUp(() async {
+      socket = _SocketHarness();
+      client = HermesDesktopRpcClient(
+        channelFactory: (_, _, {httpClient}) => socket.channel,
+      )..setDefaultParams({'profile': 'work'});
+      events = [];
+      client.events.listen(events.add);
+      final connecting = client.connect(Uri.parse('ws://localhost/api/ws'));
+      socket.ready({'session_authority': true});
+      await connecting;
+      await socket.answerCapabilities();
+    });
+
+    tearDown(() async {
+      await client.close();
+      await socket.dispose();
+    });
+
+    void stamped(String type, Map<String, Object?> payload, int seq) =>
+        socket.incoming.add(
+          jsonEncode({
+            'jsonrpc': '2.0',
+            'method': 'event',
+            'params': {
+              'type': type,
+              'session_id': 'local-1',
+              'payload': payload,
+              'replay_epoch': 'epoch-1',
+              'seq': seq,
+              'execution_generation': 4,
+              'admission_id': 'adm-1',
+            },
+          }),
+        );
+
+    test('keeps the stream position its events are stamped with', () async {
+      stamped('message.delta', {'text': 'Hi'}, 12);
+      await Future<void>.delayed(Duration.zero);
+
+      final delta = events.last;
+      check(client.sessionAuthority).isTrue();
+      check(delta.seq).equals(12);
+      check(delta.replayEpoch).equals('epoch-1');
+      check(delta.executionGeneration).equals(4);
+      check(delta.admissionId).equals('adm-1');
+    });
+  });
+
   group('reply segments', () {
     test('drop a re-sent segment and keep only new text', () {
       final segments = HermesDeltaSegments();

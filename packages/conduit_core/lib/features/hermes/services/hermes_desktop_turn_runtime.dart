@@ -57,6 +57,13 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
       await _detachStaged(binding.runtimeId, stagedPaths);
       throw cancelToken!.cancelError!;
     }
+    // A session authority admits a prompt once per submission id: a submit
+    // sent again after a lost answer is the same prompt, not a second one.
+    final canonical = _canonical;
+    final submissionId = canonical ? const Uuid().v4() : null;
+    // The admission Hermes gave the prompt (canonical wire): its own events
+    // carry it, so another prompt's turn on the session is told apart.
+    String? admissionId;
     final controller = StreamController<HermesRunEvent>();
     var terminal = false;
     final seenEventIds = <String>{};
@@ -112,6 +119,18 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
         if (eventsBeforePromptAcknowledgement.length > 4096) {
           eventsBeforePromptAcknowledgement.removeFirst();
         }
+        return;
+      }
+      // Another prompt's turn on this session (one queued ahead, another
+      // device's): its reply is not this one, and it neither starts nor
+      // ends this turn. Its approvals and questions still need an answer.
+      final foreign =
+          admissionId != null &&
+          event.admissionId != null &&
+          event.admissionId != admissionId;
+      if (foreign &&
+          !event.type.endsWith('.request') &&
+          !event.type.endsWith('.expire')) {
         return;
       }
       final payload = event.payload;
@@ -327,17 +346,54 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
         }
       }());
     });
+    Future<void> interruptTurn() async {
+      try {
+        if (canonical) {
+          await _canonicalInterrupt(binding, admissionId: admissionId);
+        } else {
+          await _rpc.request<Object?>(
+            'session.interrupt',
+            params: {
+              'session_id': binding.runtimeId,
+              ..._sessionScope(binding.storedId),
+            },
+          );
+        }
+      } catch (_) {}
+    }
+
+    Future<Object?> submitPrompt() => _rpc.request<Object?>(
+      'prompt.submit',
+      params: {
+        ...hermesPromptSubmitParams(
+          runtimeId: binding.runtimeId,
+          text: text,
+          voiceContext: voiceContext,
+        ),
+        'submission_id': ?submissionId,
+        if (attached.attachments.isNotEmpty)
+          'attachments': attached.attachments,
+        ..._sessionScope(binding.storedId),
+      },
+    );
+
+    void adoptAdmission(Object? submitted) {
+      if (!canonical || submitted is! Map) return;
+      admissionId = validateHermesOpaqueIdentifier(submitted['admission_id']);
+    }
+
+    void replayEventsBeforeAcknowledgement() {
+      for (final event in List<HermesDesktopEvent>.of(
+        eventsBeforePromptAcknowledgement,
+      )) {
+        if (!terminal) handleEvent(event);
+      }
+      eventsBeforePromptAcknowledgement.clear();
+    }
+
     cancelToken?.whenCancel.then((_) async {
       if (terminal) return;
-      try {
-        await _rpc.request<Object?>(
-          'session.interrupt',
-          params: {
-            'session_id': binding.runtimeId,
-            ..._sessionScope(binding.storedId),
-          },
-        );
-      } catch (_) {}
+      await interruptTurn();
       if (!promptAcknowledged) {
         await _detachStaged(binding.runtimeId, stagedPaths);
       }
@@ -369,7 +425,9 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
         await _detachStaged(binding.runtimeId, stagedPaths);
         throw cancelToken!.cancelError!;
       }
-      promptBaseline = freshSession
+      // A lost submit is recovered by its submission id on the canonical
+      // wire; elsewhere by finding the prompt in the transcript.
+      promptBaseline = freshSession || canonical
           ? const <String>{}
           : await _matchingPromptMarkers(storedId, text);
       if (cancelToken?.isCancelled == true) {
@@ -378,29 +436,12 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
       }
       eventsBeforePromptAcknowledgement.clear();
       if (freshSession) _freshSessionIds.remove(storedId);
-      final submitted = await _rpc.request<Object?>(
-        'prompt.submit',
-        params: {
-          ...hermesPromptSubmitParams(
-            runtimeId: binding.runtimeId,
-            text: text,
-            voiceContext: voiceContext,
-          ),
-          ..._sessionScope(binding.storedId),
-        },
-      );
+      final submitted = await submitPrompt();
       forwarded = submitted is Map && submitted['forwarded'] == true;
+      adoptAdmission(submitted);
       if (cancelToken?.isCancelled == true) {
         promptAcknowledged = true;
-        try {
-          await _rpc.request<Object?>(
-            'session.interrupt',
-            params: {
-              'session_id': binding.runtimeId,
-              ..._sessionScope(binding.storedId),
-            },
-          );
-        } catch (_) {}
+        await interruptTurn();
         finish();
         return HermesResponseStream(
           events: controller.stream,
@@ -415,19 +456,53 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
           runtimeId: binding.runtimeId,
         );
       }
-      for (final event in List<HermesDesktopEvent>.of(
-        eventsBeforePromptAcknowledgement,
-      )) {
-        if (!terminal) handleEvent(event);
-      }
-      eventsBeforePromptAcknowledgement.clear();
+      replayEventsBeforeAcknowledgement();
     } catch (error) {
       DebugLogger.error(
         'prompt-submit-failed',
         scope: 'hermes/desktop/ws',
         data: {'errorType': error.runtimeType.toString()},
       );
-      if (error is HermesDesktopRpcException && error.deliveryAmbiguous) {
+      if (canonical &&
+          error is HermesDesktopRpcException &&
+          error.deliveryAmbiguous) {
+        try {
+          // Sent again under the same submission id, the prompt is admitted
+          // once: Hermes answers with the admission the lost submit made.
+          binding = (await _resumeSnapshot(storedId, refresh: true)).binding;
+          final submitted = await submitPrompt();
+          adoptAdmission(submitted);
+          promptAcknowledged = true;
+          if (cancelToken?.isCancelled == true) {
+            await interruptTurn();
+            finish();
+          } else if (submitted is Map && submitted['status'] == 'terminal') {
+            // It ran while the socket was down: its reply is stored.
+            finish(authoritativeIdle: true);
+            _emitTranscriptChange(storedId);
+          } else {
+            if (hasAuthoritativeState()) {
+              _applyAuthoritativeRunning(
+                true,
+                storedId: binding.storedId,
+                runtimeId: binding.runtimeId,
+              );
+            }
+            replayEventsBeforeAcknowledgement();
+          }
+          return HermesResponseStream(
+            events: controller.stream,
+            sessionId: storedId,
+          );
+        } catch (reconcileError) {
+          DebugLogger.error(
+            'prompt-submit-reconcile-failed',
+            scope: 'hermes/desktop/ws',
+            data: {'errorType': reconcileError.runtimeType.toString()},
+          );
+        }
+      } else if (error is HermesDesktopRpcException &&
+          error.deliveryAmbiguous) {
         try {
           final reconciled = await _resumeSnapshot(storedId, refresh: true);
           binding = reconciled.binding;
@@ -447,22 +522,9 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
               );
           if (accepted) {
             promptAcknowledged = true;
-            for (final event in List<HermesDesktopEvent>.of(
-              eventsBeforePromptAcknowledgement,
-            )) {
-              if (!terminal) handleEvent(event);
-            }
-            eventsBeforePromptAcknowledgement.clear();
+            replayEventsBeforeAcknowledgement();
             if (cancelToken?.isCancelled == true) {
-              try {
-                await _rpc.request<Object?>(
-                  'session.interrupt',
-                  params: {
-                    'session_id': binding.runtimeId,
-                    ..._sessionScope(binding.storedId),
-                  },
-                );
-              } catch (_) {}
+              await interruptTurn();
               finish();
               return HermesResponseStream(
                 events: controller.stream,
@@ -504,6 +566,8 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
     final explicit =
         payload['event_id'] ?? payload['sequence_id'] ?? payload['sequence'];
     if (explicit != null) return '${event.type}:$explicit';
+    // A decision is one card however often it is shown (live, then again
+    // from a snapshot).
     if (event.type.endsWith('.request')) {
       final request = payload['request_id'] ?? payload['id'];
       // A connection card offered again is a new offer of the same card.
@@ -511,6 +575,10 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
       if (request != null) {
         return '${event.type}:$request${offer is int ? '#$offer' : ''}';
       }
+    }
+    // A session authority numbers every event of a session's stream.
+    if (event.seq != null && event.replayEpoch != null) {
+      return 'seq:${event.replayEpoch}:${event.seq}';
     }
     if (event.type == 'message.complete') {
       final message = payload['message_id'] ?? payload['id'];
@@ -636,8 +704,16 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
         },
       );
     }
+    if (_canonical && selection.model != null) {
+      // A session authority switches a session's model as a fenced edit;
+      // it refuses `config.set model`.
+      await _canonicalMutate(binding, 'model', {
+        'model': selection.model,
+        'provider': ?selection.provider,
+      });
+    }
     for (final option in <(String, Object?)>[
-      ('model', modelSwitch),
+      if (!_canonical) ('model', modelSwitch),
       ('reasoning', reasoning?.isEmpty == true ? null : reasoning),
       (
         'fast',
@@ -669,6 +745,20 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
     int aliasDepth = 0,
   }) async {
     if (aliasDepth > 8) throw StateError('Hermes slash alias loop detected.');
+    final edit = _canonical ? hermesCanonicalSlashMutation(command) : null;
+    if (edit != null) {
+      final storedId = _storedIdForRuntime(runtimeId) ?? runtimeId;
+      final receipt = await _canonicalMutate(
+        await _resume(storedId),
+        edit.operation,
+        edit.payload,
+      );
+      return (
+        submit: null,
+        display: hermesCanonicalMutationSummary(edit.operation, receipt),
+        prefill: null,
+      );
+    }
     Object? raw;
     try {
       raw = await _rpc.request<Object?>(
@@ -731,18 +821,35 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
     }
   }
 
-  Future<({String text, List<String> paths})> _attachInput(
-    String runtimeId,
-    HermesChatInput input,
-  ) async {
+  /// Stages [input]'s images and files for the next prompt. Returns its
+  /// text, the staged image paths (released again if the prompt is not
+  /// sent), and the images a session authority's `prompt.submit` must name:
+  /// there, staging alone attaches nothing.
+  Future<
+    ({
+      String text,
+      List<String> paths,
+      List<Map<String, String>> attachments,
+    })
+  >
+  _attachInput(String runtimeId, HermesChatInput input) async {
     if (input is HermesTextChatInput) {
-      return (text: input.text, paths: const <String>[]);
+      return (
+        text: input.text,
+        paths: const <String>[],
+        attachments: const <Map<String, String>>[],
+      );
     }
     if (input is! HermesMultimodalChatInput) {
-      return (text: input.toJson().toString(), paths: const <String>[]);
+      return (
+        text: input.toJson().toString(),
+        paths: const <String>[],
+        attachments: const <Map<String, String>>[],
+      );
     }
     final text = StringBuffer();
     final paths = <String>[];
+    final attachments = <Map<String, String>>[];
     try {
       for (final part in input.parts) {
         if (part is HermesInputTextPart) {
@@ -768,12 +875,19 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
           );
           final path = result['path']?.toString();
           if (path?.isNotEmpty == true) paths.add(path!);
+          final mime = result['mime']?.toString();
+          if (_canonical && path?.isNotEmpty == true && mime != null) {
+            attachments.add({'path': path!, 'mime': mime});
+          }
         } else if (part is HermesInputFilePart) {
           _requireDesktopUploadContract();
+          // A session authority stages a PDF like any file, by reference;
+          // `pdf.attach` only knows the dashboard's own sessions.
+          final pdfPages = part.isPdf && !_canonical;
           final result = _object(
             await _rpc.request<Object?>(
-              part.isPdf ? 'pdf.attach' : 'file.attach',
-              params: part.isPdf
+              pdfPages ? 'pdf.attach' : 'file.attach',
+              params: pdfPages
                   ? {
                       'session_id': runtimeId,
                       'content_base64': part.base64Data,
@@ -791,7 +905,7 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
           if (result['attached'] != true) {
             throw StateError('Hermes did not accept ${part.filename}.');
           }
-          if (part.isPdf) {
+          if (pdfPages) {
             for (final page in _objects(result['pages'])) {
               final path = page['path']?.toString();
               if (path?.isNotEmpty == true) paths.add(path!);
@@ -803,7 +917,7 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
             }
           }
           final refText = result['ref_text']?.toString();
-          if (!part.isPdf && refText != null && refText.isNotEmpty) {
+          if (!pdfPages && refText != null && refText.isNotEmpty) {
             if (text.isNotEmpty) text.writeln();
             text.write(refText);
           }
@@ -818,10 +932,14 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
           ? '[User attached a file]'
           : text.toString(),
       paths: paths,
+      attachments: attachments,
     );
   }
 
   Future<void> _detachStaged(String runtimeId, Iterable<String> paths) async {
+    // A session authority attaches only what a submit names: an unsent
+    // staged image is attached to nothing, and it has no `image.detach`.
+    if (_canonical) return;
     for (final path in paths) {
       try {
         await _rpc.request<Object?>(
@@ -838,7 +956,11 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
 
   void _recordDesktopContract(Map<String, dynamic> info) {
     final raw = info['desktop_contract'];
-    final value = raw is num
+    // A session authority names its protocol instead, and stages uploads
+    // the way contract 2 did.
+    final value = info['desktop_protocol'] == kHermesCanonicalGatewayProtocol
+        ? 2
+        : raw is num
         ? raw.toInt()
         : int.tryParse(raw?.toString() ?? '');
     if (value != null && value > _desktopContract) {
@@ -857,6 +979,7 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
 
   Future<void> _runtimeInterrupt(String storedId) async {
     final binding = await _resume(storedId);
+    if (_canonical) return _canonicalInterrupt(binding);
     await _rpc.request<Object?>(
       'session.interrupt',
       params: {
@@ -868,6 +991,7 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
 
   Future<bool> _runtimeSteer(String storedId, String text) async {
     final binding = await _resume(storedId);
+    final canonical = _canonical;
     final baseline = await _matchingPromptMarkers(storedId, text);
     late final Map<String, dynamic> result;
     try {
@@ -877,6 +1001,10 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
           params: {
             'session_id': binding.runtimeId,
             'text': text,
+            if (canonical)
+              'execution_generation': (await _canonicalFences(
+                binding,
+              )).generation,
             ..._sessionScope(binding.storedId),
           },
         ),
@@ -886,19 +1014,54 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
           await _ambiguousPromptWasAccepted(storedId, text, baseline)) {
         return true;
       }
-      if (!error.deliveryAmbiguous && error.code == 4010) {
+      // Refusals that say the steer never reached the turn (no turn ready
+      // for it, a turn already over, an agent that cannot be steered).
+      if (!error.deliveryAmbiguous &&
+          (error.code == 4010 ||
+              (canonical &&
+                  _kHermesCanonicalUndeliveredSteer.contains(error.reason)))) {
         await queue(storedId, text);
         return false;
       }
       rethrow;
     }
-    if (result['status'] == 'queued') return true;
+    final status = result['status'];
+    if (status == 'queued') return true;
+    if (canonical) {
+      if (status == 'redirected') return true;
+      // A plain rejection may follow delivery (an acknowledgement that
+      // timed out), so only one Hermes says no agent saw is sent again.
+      if (result['delivered'] != false) return false;
+    }
     await queue(storedId, text);
     return false;
   }
 
   Future<void> _runtimeQueue(String storedId, String text) async {
     final binding = await _resume(storedId);
+    if (_canonical) {
+      // Sent again under the same submission id after a lost answer, the
+      // prompt is still queued once.
+      final submissionId = const Uuid().v4();
+      Future<void> submit(HermesSessionBinding binding) =>
+          _rpc.request<Object?>(
+            'prompt.submit',
+            params: {
+              'session_id': binding.runtimeId,
+              'text': text,
+              'queued': true,
+              'submission_id': submissionId,
+              ..._sessionScope(binding.storedId),
+            },
+          );
+      try {
+        await submit(binding);
+      } on HermesDesktopRpcException catch (error) {
+        if (!error.deliveryAmbiguous) rethrow;
+        await submit((await _resumeSnapshot(storedId, refresh: true)).binding);
+      }
+      return;
+    }
     final baseline = await _matchingPromptMarkers(storedId, text);
     try {
       await _rpc.request<Object?>(

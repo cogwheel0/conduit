@@ -81,6 +81,23 @@ final class _HermesDesktopAdministration {
 
   Future<Map<String, dynamic>> reloadSkills() async {
     await _owner._ensureConnected();
+    if (_owner._canonical) {
+      // A session authority rescans skills for a chat it serves, which
+      // refreshes the command map every chat reads. With no chat open there
+      // is no map to refresh: the next chat reads the skills afresh.
+      final storedId = _owner._bindings.values.firstOrNull?.storedId;
+      if (storedId == null) return const {};
+      final binding = await _owner._resume(storedId);
+      return _owner._object(
+        await _owner._rpc.request<Object?>(
+          'skills.reload',
+          params: {
+            'session_id': binding.runtimeId,
+            ..._owner._sessionScope(binding.storedId),
+          },
+        ),
+      );
+    }
     return _owner._object(await _owner._rpc.request<Object?>('skills.reload'));
   }
 
