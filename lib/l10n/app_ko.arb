@@ -4248,5 +4248,6 @@
   "hermesBranchFailed": "이 채팅을 분기할 수 없습니다. 다시 시도하세요.",
   "hermesUndoLastTurn": "마지막 대화 취소",
   "hermesUndoLastTurnDone": "마지막 대화를 취소했습니다.",
-  "hermesUndoLastTurnFailed": "마지막 대화를 취소할 수 없습니다. 다시 시도하세요."
+  "hermesUndoLastTurnFailed": "마지막 대화를 취소할 수 없습니다. 다시 시도하세요.",
+  "hermesArchivedLoadError": "보관된 채팅을 불러올 수 없습니다."
 }

@@ -72,8 +72,20 @@ final class HermesSetAsideSession {
   }
 }
 
+/// Thrown when [HermesSetAsideSessionStore] has no room for another chat.
+/// Nothing is dropped to make room: a record is the only way back to its
+/// chat.
+final class HermesSetAsideStoreFullException implements Exception {
+  const HermesSetAsideStoreFullException();
+
+  @override
+  String toString() =>
+      'Too many hidden or archived Hermes chats are kept on this device.';
+}
+
 /// Persisted [HermesSetAsideSession]s, newest last.
 abstract final class HermesSetAsideSessionStore {
+  /// Records kept across all connections. A new one beyond this is refused.
   static const int maxRecords = 200;
 
   static Future<void>? _writes;
@@ -87,16 +99,32 @@ abstract final class HermesSetAsideSessionStore {
         record,
   ];
 
-  /// Records [record], replacing what was kept for its session.
+  /// What is kept for [sessionId] in [scope], if anything.
+  static HermesSetAsideSession? find({
+    required String scope,
+    required String sessionId,
+  }) => _read()
+      .where(
+        (record) => record.scope == scope && record.sessionId == sessionId,
+      )
+      .lastOrNull;
+
+  /// Records [record], replacing what was kept for its session. Throws
+  /// [HermesSetAsideStoreFullException] when it would be one too many, and
+  /// whatever the preferences write throws.
   static Future<void> remember(HermesSetAsideSession record) =>
       _serialize(() async {
-        final records = _read()
-          ..removeWhere(
-            (candidate) =>
-                candidate.scope == record.scope &&
-                candidate.sessionId == record.sessionId,
-          )
-          ..add(record);
+        final records = _read();
+        final before = records.length;
+        records.removeWhere(
+          (candidate) =>
+              candidate.scope == record.scope &&
+              candidate.sessionId == record.sessionId,
+        );
+        if (records.length == before && records.length >= maxRecords) {
+          throw const HermesSetAsideStoreFullException();
+        }
+        records.add(record);
         await _write(records);
       });
 
@@ -107,8 +135,10 @@ abstract final class HermesSetAsideSessionStore {
     (record) => record.scope == scope && record.sessionId == sessionId,
   );
 
-  static Future<void> clearScope(String scope) =>
-      _remove((record) => record.scope == scope);
+  /// Drops every record whose scope passes [test], e.g. those of a saved
+  /// connection that was deleted.
+  static Future<void> clearScopes(bool Function(String scope) test) =>
+      _remove((record) => test(record.scope));
 
   static Future<void> _remove(
     bool Function(HermesSetAsideSession record) predicate,
@@ -131,15 +161,13 @@ abstract final class HermesSetAsideSessionStore {
     ];
   }
 
-  static Future<void> _write(List<HermesSetAsideSession> records) {
-    final bounded = records.length <= maxRecords
-        ? records
-        : records.sublist(records.length - maxRecords);
-    return PreferencesStore.put(
-      PreferenceKeys.hermesSetAsideSessions,
-      bounded.map((record) => record.toStorage()).toList(growable: false),
-    );
-  }
+  /// Checked: a record is only as good as its write, and the caller changes
+  /// the server only once it is saved.
+  static Future<void> _write(List<HermesSetAsideSession> records) =>
+      PreferencesStore.putChecked(
+        PreferenceKeys.hermesSetAsideSessions,
+        records.map((record) => record.toStorage()).toList(growable: false),
+      );
 
   static Future<void> _serialize(Future<void> Function() operation) {
     final result = (_writes ?? Future<void>.value()).then((_) => operation());

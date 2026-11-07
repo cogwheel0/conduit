@@ -8411,5 +8411,9 @@
   "hermesUndoLastTurnFailed": "Nie można cofnąć ostatniej wymiany. Spróbuj ponownie.",
   "@hermesUndoLastTurnFailed": {
     "description": "Error shown when undoing the last turn of a Hermes chat fails."
+  },
+  "hermesArchivedLoadError": "Nie można wczytać zarchiwizowanych czatów.",
+  "@hermesArchivedLoadError": {
+    "description": "Shown in the Hermes sessions list when its archived chats could not be loaded; a Retry button follows."
   }
 }

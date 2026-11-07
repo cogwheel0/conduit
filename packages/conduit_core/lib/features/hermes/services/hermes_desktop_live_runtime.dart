@@ -475,9 +475,13 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
       error.status == 503 &&
       (error.detail?.startsWith('Session store is not initialized') ?? false);
 
+  /// [current] reads what Hermes stores now; otherwise a read shorter than
+  /// the last one gives way to it (a read can miss rows a turn is still
+  /// writing).
   Future<List<Map<String, dynamic>>> _runtimeGetSessionMessages(
     String id, {
     CancelToken? cancelToken,
+    bool current = false,
   }) async {
     // Hermes persists session.create lazily; resume fails until the first prompt.
     if (_freshSessionIds.contains(id) &&
@@ -562,10 +566,12 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
     // A failed resume left the connection state at "synchronizing"; the
     // transcript is loaded, and no turn is known to be running.
     if (binding == null) _emitTurnState(HermesDesktopTurnState.idle);
-    final usable = preferLastUsableHermesTranscript(
-      _lastTranscripts[id] ?? const [],
-      messages,
-    );
+    final usable = current
+        ? messages
+        : preferLastUsableHermesTranscript(
+            _lastTranscripts[id] ?? const [],
+            messages,
+          );
     _lastTranscripts[id] = usable;
     return usable;
   }
@@ -708,26 +714,37 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
     );
   }
 
+  /// Archived chats, newest first, page by page: archiving is how older
+  /// chats are tidied away, so they can be many more than one page.
   Future<List<Map<String, dynamic>>> _runtimeListArchivedSessions() async {
-    try {
-      return _objects(
-        await _requestJson(
-          'GET',
-          '/api/sessions',
-          query: {
-            'limit': 100,
-            'offset': 0,
-            'order': 'recent',
-            'archived': 'only',
-          },
-          readErrorDetail: true,
-        ),
-        'sessions',
-      );
-    } on HermesDesktopHttpException catch (error) {
-      if (_hermesSessionStoreNotInitialized(error)) return const [];
-      rethrow;
+    const pageSize = 100;
+    const maxPages = 5;
+    final sessions = <Map<String, dynamic>>[];
+    for (var page = 0; page < maxPages; page++) {
+      final List<Map<String, dynamic>> rows;
+      try {
+        rows = _objects(
+          await _requestJson(
+            'GET',
+            '/api/sessions',
+            query: {
+              'limit': pageSize,
+              'offset': page * pageSize,
+              'order': 'recent',
+              'archived': 'only',
+            },
+            readErrorDetail: true,
+          ),
+          'sessions',
+        );
+      } on HermesDesktopHttpException catch (error) {
+        if (_hermesSessionStoreNotInitialized(error)) return sessions;
+        rethrow;
+      }
+      sessions.addAll(rows.take(pageSize));
+      if (rows.length < pageSize) break;
     }
+    return sessions;
   }
 
   Future<Map<String, dynamic>?> _runtimeGetSession(String id) async {
@@ -856,7 +873,7 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
 
   /// Drops session [id]'s last user turn and everything after it. False
   /// when there was no turn to drop.
-  Future<bool> _runtimeUndoLastTurn(String id) async {
+  Future<bool> _runtimeUndoLastTurn(String id, {int? rowId}) async {
     final binding = await _resume(id);
     _lastTranscripts
       ..remove(id)
@@ -874,11 +891,14 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
       final removed = result['removed'];
       return removed is int && removed > 0;
     }
-    // A session authority has no undo: it rewinds to the last turn a user
-    // started, a row of their own (not a marker Hermes added).
-    final transcript = await _runtimeGetSessionMessages(binding.storedId);
+    // A session authority has no undo: it rewinds to [rowId], else to the
+    // last turn a user started, a row of their own (not a marker Hermes
+    // added).
+    int? target = rowId;
+    final transcript = target != null
+        ? const <Map<String, dynamic>>[]
+        : await _runtimeGetSessionMessages(binding.storedId, current: true);
     _lastTranscripts.remove(binding.storedId);
-    int? target;
     for (final row in transcript.reversed) {
       final kind = row['display_kind'];
       if ((kind == null || kind == '' || kind == 'steer') &&

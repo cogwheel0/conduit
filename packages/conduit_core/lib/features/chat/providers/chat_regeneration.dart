@@ -25,7 +25,10 @@ Future<({String sessionId, int? rowId})?> hermesDesktopRewindTarget({
     conversation!.metadata['hermesSessionId'],
   );
   if (sessionId == null) return null;
-  final transcript = await service.getSessionMessages(sessionId);
+  // What the session holds now, never a longer read from before another app
+  // shortened it: a cut at a row that is gone, or a turn that is gone
+  // matched, would cut the wrong history.
+  final transcript = await service.getCurrentSessionMessages(sessionId);
   final row = hermesTranscriptUserRowIndex(
     transcript: transcript,
     messages: messages,

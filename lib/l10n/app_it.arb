@@ -4476,5 +4476,6 @@
   "hermesBranchFailed": "Impossibile diramare questa chat. Riprova.",
   "hermesUndoLastTurn": "Annulla l’ultimo scambio",
   "hermesUndoLastTurnDone": "Ultimo scambio annullato.",
-  "hermesUndoLastTurnFailed": "Impossibile annullare l’ultimo scambio. Riprova."
+  "hermesUndoLastTurnFailed": "Impossibile annullare l’ultimo scambio. Riprova.",
+  "hermesArchivedLoadError": "Impossibile caricare le chat archiviate."
 }

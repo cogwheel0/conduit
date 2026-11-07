@@ -9568,5 +9568,9 @@
   "hermesUndoLastTurnFailed": "Couldn't undo the last turn. Try again.",
   "@hermesUndoLastTurnFailed": {
     "description": "Error shown when undoing the last turn of a Hermes chat fails."
+  },
+  "hermesArchivedLoadError": "Couldn't load archived chats.",
+  "@hermesArchivedLoadError": {
+    "description": "Shown in the Hermes sessions list when its archived chats could not be loaded; a Retry button follows."
   }
 }

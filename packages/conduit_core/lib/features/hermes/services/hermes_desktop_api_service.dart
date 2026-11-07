@@ -442,6 +442,9 @@ final class HermesDesktopApiService
     String id, {
     CancelToken? cancelToken,
   }) => _runtimeGetSessionMessages(id, cancelToken: cancelToken);
+  @override
+  Future<List<Map<String, dynamic>>> getCurrentSessionMessages(String id) =>
+      _runtimeGetSessionMessages(id, current: true);
   Future<List<HermesPendingDesktopDecision>> pendingDecisionsForSession(
     String storedId,
   ) => _runtimePendingDecisionsForSession(storedId);
@@ -481,7 +484,12 @@ final class HermesDesktopApiService
 
   /// Drops session [id]'s last user turn and everything after it, on the
   /// server. False when there was no turn to drop.
-  Future<bool> undoLastTurn(String id) => _runtimeUndoLastTurn(id);
+  ///
+  /// [rowId] is that turn's row as the caller read it: a session authority
+  /// rewinds to exactly that row. The legacy wire drops whatever turn is
+  /// last, and refuses while a turn runs.
+  Future<bool> undoLastTurn(String id, {int? rowId}) =>
+      _runtimeUndoLastTurn(id, rowId: rowId);
 
   /// The text the gateway's speech-to-text heard in [audio]; empty when it
   /// heard none.

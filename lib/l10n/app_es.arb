@@ -4476,5 +4476,6 @@
   "hermesBranchFailed": "No se pudo ramificar este chat. Inténtalo de nuevo.",
   "hermesUndoLastTurn": "Deshacer el último turno",
   "hermesUndoLastTurnDone": "Se deshizo el último turno.",
-  "hermesUndoLastTurnFailed": "No se pudo deshacer el último turno. Inténtalo de nuevo."
+  "hermesUndoLastTurnFailed": "No se pudo deshacer el último turno. Inténtalo de nuevo.",
+  "hermesArchivedLoadError": "No se pudieron cargar los chats archivados."
 }

@@ -18,6 +18,16 @@ import 'package:material_ui/material_ui.dart';
 
 final _l10n = AppLocalizationsEn();
 
+/// Where `_FlagsService` keeps its set-aside chats.
+final _scope = hermesSetAsideScope(
+  const HermesConfig(
+    enabled: true,
+    baseUrl: 'https://hermes.example',
+    apiKey: 'synthetic-key',
+    connectionId: 'conn-1',
+  ),
+);
+
 /// An API server with a fixed session list that records flag edits.
 class _FlagsService extends HermesApiService {
   _FlagsService({
@@ -171,7 +181,7 @@ void main() {
     ]);
     expect(find.text(_l10n.hermesSessionHiddenNotice), findsOneWidget);
     check(
-      HermesSetAsideSessionStore.forScope('conn-1').map((r) => r.sessionId),
+      HermesSetAsideSessionStore.forScope(_scope).map((r) => r.sessionId),
     ).deepEquals(['two', 'one']);
   });
 
@@ -195,8 +205,8 @@ void main() {
       },
     );
     await HermesSetAsideSessionStore.remember(
-      const HermesSetAsideSession(
-        scope: 'conn-1',
+      HermesSetAsideSession(
+        scope: _scope,
         sessionId: 'old',
         title: 'Synthetic archived',
         kind: HermesSetAsideKind.archived,
@@ -248,8 +258,8 @@ void main() {
       },
     );
     await HermesSetAsideSessionStore.remember(
-      const HermesSetAsideSession(
-        scope: 'conn-1',
+      HermesSetAsideSession(
+        scope: _scope,
         sessionId: 'secret',
         title: 'Synthetic hidden',
         kind: HermesSetAsideKind.hidden,
@@ -268,6 +278,51 @@ void main() {
     check(service.edits).deepEquals(['secret hidden=false']);
     expect(find.text('Synthetic hidden'), findsNothing);
     expect(find.text(_l10n.hermesHiddenChatsEmpty), findsOneWidget);
-    check(HermesSetAsideSessionStore.forScope('conn-1')).isEmpty();
+    check(HermesSetAsideSessionStore.forScope(_scope)).isEmpty();
+  });
+
+  testWidgets('an archived list that fails says so and retries', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(800, 1600);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    var fail = true;
+    final container = ProviderContainer(
+      overrides: [
+        hermesApiServiceProvider.overrideWithValue(_FlagsService()),
+        hermesArchivedSessionsProvider.overrideWith((ref) async {
+          if (fail) throw StateError('synthetic outage');
+          return const [
+            HermesSessionSummary(
+              id: 'old',
+              title: 'Synthetic archived',
+              archived: true,
+            ),
+          ];
+        }),
+      ],
+    );
+    addTearDown(container.dispose);
+    await tester.pumpWidget(
+      _host(
+        container,
+        const HermesSessionsTab(showBottomNavigationBar: false),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // Every chat is archived: the failure is not read as having none.
+    expect(find.text(_l10n.hermesNoConversationsMessage), findsNothing);
+    expect(find.text(_l10n.hermesArchivedLoadError), findsOneWidget);
+
+    fail = false;
+    await tester.tap(find.text(_l10n.retry));
+    await tester.pumpAndSettle();
+    expect(find.text(_l10n.hermesArchivedLoadError), findsNothing);
+    expect(
+      find.byKey(const ValueKey<String>('hermes-archived-sessions')),
+      findsOneWidget,
+    );
   });
 }

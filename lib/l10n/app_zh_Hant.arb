@@ -4476,5 +4476,6 @@
   "hermesBranchFailed": "無法為此聊天建立分支。請再試一次。",
   "hermesUndoLastTurn": "復原上一輪對話",
   "hermesUndoLastTurnDone": "已復原上一輪對話。",
-  "hermesUndoLastTurnFailed": "無法復原上一輪對話。請再試一次。"
+  "hermesUndoLastTurnFailed": "無法復原上一輪對話。請再試一次。",
+  "hermesArchivedLoadError": "無法載入已存檔的聊天。"
 }

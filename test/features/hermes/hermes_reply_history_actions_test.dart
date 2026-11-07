@@ -104,6 +104,7 @@ Future<List<String>> _overflowLabels(
   required HermesBackendService service,
   required ChatMessage reply,
   Conversation? conversation,
+  Future<void> Function()? beforeOverflow,
 }) async {
   await tester.pumpWidget(
     ProviderScope(
@@ -142,6 +143,7 @@ Future<List<String>> _overflowLabels(
     ),
   );
   await tester.pumpAndSettle();
+  await beforeOverflow?.call();
   await tester.tap(
     find.byKey(const ValueKey('assistant-response-overflow-button')),
   );
@@ -171,6 +173,41 @@ void main() {
     expect(
       await _overflowLabels(tester, service: _rest(), reply: _chat[3]),
       [_l10n.hermesBranchFromHere],
+    );
+  });
+
+  testWidgets('an older answer shown in place of the reply does not '
+      'branch', (tester) async {
+    final reply = _chat[3].copyWith(
+      versions: [
+        ChatMessageVersion(
+          id: 'a2-older',
+          content: 'Synthetic iced tea.',
+          timestamp: DateTime.utc(2026, 11, 7),
+        ),
+      ],
+    );
+    expect(
+      await _overflowLabels(
+        tester,
+        service: _desktop(),
+        reply: reply,
+        beforeOverflow: () async {
+          await tester.tap(
+            find
+                .descendant(
+                  of: find.byKey(
+                    const ValueKey<String>('assistant-version-pager'),
+                  ),
+                  matching: find.bySemanticsLabel(_l10n.previousLabel),
+                )
+                .first,
+          );
+          await tester.pumpAndSettle();
+          expect(find.textContaining('Synthetic iced tea.'), findsOneWidget);
+        },
+      ),
+      [_l10n.hermesUndoLastTurn],
     );
   });
 

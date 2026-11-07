@@ -151,11 +151,16 @@ class _HermesSessionsTabState extends ConsumerState<HermesSessionsTab>
   ) {
     final theme = context.conduitTheme;
     final l10n = AppLocalizations.of(context)!;
-    final archived =
-        ref.watch(hermesArchivedSessionsProvider).asData?.value ?? const [];
+    final archivedAsync = ref.watch(hermesArchivedSessionsProvider);
+    final archived = archivedAsync.asData?.value ?? const [];
+    // The archived list has its own loading and failure: neither reads as
+    // having no archived chats.
+    final archivedFailed = archivedAsync.hasError && !archivedAsync.hasValue;
+    final archivedLoading = archivedAsync.isLoading && !archivedAsync.hasValue;
     return sessionsAsync.when(
       data: (sessions) {
-        if (sessions.isEmpty && archived.isEmpty) {
+        if (sessions.isEmpty && archived.isEmpty && !archivedFailed) {
+          if (archivedLoading) return _loadingSlivers;
           return [
             SliverToBoxAdapter(
               child: _message(
@@ -206,16 +211,17 @@ class _HermesSessionsTabState extends ConsumerState<HermesSessionsTab>
             ),
             if (_showArchived) _sessionList(archived),
           ],
+          if (archived.isEmpty && archivedFailed) ...[
+            SliverToBoxAdapter(child: _SectionHeader(title: l10n.archived)),
+            SliverToBoxAdapter(
+              child: _ArchivedLoadError(
+                onRetry: () => ref.invalidate(hermesArchivedSessionsProvider),
+              ),
+            ),
+          ],
         ];
       },
-      loading: () => const [
-        SliverToBoxAdapter(
-          child: Padding(
-            padding: EdgeInsets.only(top: 64),
-            child: Center(child: AdaptiveProgressIndicator()),
-          ),
-        ),
-      ],
+      loading: () => _loadingSlivers,
       error: (_, _) => [
         SliverToBoxAdapter(
           child: _message(
@@ -228,6 +234,15 @@ class _HermesSessionsTabState extends ConsumerState<HermesSessionsTab>
       ],
     );
   }
+
+  static const List<Widget> _loadingSlivers = [
+    SliverToBoxAdapter(
+      child: Padding(
+        padding: EdgeInsets.only(top: 64),
+        child: Center(child: AdaptiveProgressIndicator()),
+      ),
+    ),
+  ];
 
   Widget _sessionList(List<HermesSessionSummary> sessions) => SliverPadding(
     // The shared conversation tile supplies the 4.0.3 Hermes 8pt row
@@ -377,6 +392,43 @@ class _ScheduledAgentsTile extends ConsumerWidget {
 }
 
 /// Section header with an optional count badge.
+/// The archived row when its list failed to load: says so, with a retry.
+class _ArchivedLoadError extends StatelessWidget {
+  const _ArchivedLoadError({required this.onRetry});
+
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = context.conduitTheme;
+    final l10n = AppLocalizations.of(context)!;
+    return Padding(
+      key: const ValueKey<String>('hermes-archived-sessions-error'),
+      padding: const EdgeInsets.symmetric(
+        horizontal: Spacing.md,
+        vertical: Spacing.xs,
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              l10n.hermesArchivedLoadError,
+              style: AppTypography.bodySmallStyle.copyWith(color: theme.error),
+            ),
+          ),
+          const SizedBox(width: Spacing.sm),
+          AdaptiveButton(
+            onPressed: onRetry,
+            label: l10n.retry,
+            style: AdaptiveButtonStyle.tinted,
+            size: AdaptiveButtonSize.small,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _SectionHeader extends StatelessWidget {
   const _SectionHeader({
     super.key,

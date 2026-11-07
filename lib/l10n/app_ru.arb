@@ -4514,5 +4514,6 @@
   "hermesBranchFailed": "Не удалось создать ответвление этого чата. Повторите попытку.",
   "hermesUndoLastTurn": "Отменить последний обмен",
   "hermesUndoLastTurnDone": "Последний обмен отменён.",
-  "hermesUndoLastTurnFailed": "Не удалось отменить последний обмен. Повторите попытку."
+  "hermesUndoLastTurnFailed": "Не удалось отменить последний обмен. Повторите попытку.",
+  "hermesArchivedLoadError": "Не удалось загрузить архивные чаты."
 }

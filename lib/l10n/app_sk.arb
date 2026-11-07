@@ -6399,5 +6399,6 @@
   "hermesBranchFailed": "Z tohto chatu sa nepodarilo vytvoriť vetvu. Skúste to znova.",
   "hermesUndoLastTurn": "Vrátiť poslednú výmenu",
   "hermesUndoLastTurnDone": "Posledná výmena bola vrátená.",
-  "hermesUndoLastTurnFailed": "Poslednú výmenu sa nepodarilo vrátiť. Skúste to znova."
+  "hermesUndoLastTurnFailed": "Poslednú výmenu sa nepodarilo vrátiť. Skúste to znova.",
+  "hermesArchivedLoadError": "Archivované chaty sa nepodarilo načítať."
 }

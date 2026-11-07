@@ -272,6 +272,10 @@ Future<bool> resendEditedUserMessage(
   }
 }
 
+/// Sessions with an undo in flight: a second undo would read the same last
+/// turn and drop another one on the server.
+final Set<String> _hermesUndoing = <String>{};
+
 /// Undoes the last turn of the active Hermes Desktop Gateway chat: its last
 /// user message and everything after it leave the chat and the session's
 /// stored transcript, so other Hermes apps see the same history.
@@ -279,7 +283,8 @@ Future<bool> resendEditedUserMessage(
 /// A last turn that never reached the session leaves only the chat. One the
 /// session holds but cannot be matched for certain, or one followed by turns
 /// the chat does not show, is refused rather than dropping the wrong turn.
-/// Returns false when there is nothing to undo here.
+/// Returns false when there is nothing to undo here, or an undo of this
+/// chat is already running.
 Future<bool> undoLastHermesTurn(dynamic ref) async {
   final active = ref.read(activeConversationProvider) as Conversation?;
   final service = ref.read(hermesApiServiceProvider);
@@ -289,16 +294,47 @@ Future<bool> undoLastHermesTurn(dynamic ref) async {
       sessionId is! String) {
     return false;
   }
-  final scopedId = conversationScopedId(active!);
-  final messages = List<ChatMessage>.of(
-    ref.read(chatMessagesProvider) as List<ChatMessage>,
-  );
+  if (!_hermesUndoing.add(sessionId)) return false;
+  try {
+    return await _undoLastHermesTurn(ref, active!, service, sessionId);
+  } finally {
+    _hermesUndoing.remove(sessionId);
+  }
+}
+
+bool _sameUserTurns(List<ChatMessage> left, List<ChatMessage> right) {
+  List<String> turns(List<ChatMessage> messages) => [
+    for (final message in messages)
+      if (message.role == 'user') message.id,
+  ];
+  final a = turns(left);
+  final b = turns(right);
+  if (a.length != b.length) return false;
+  for (var index = 0; index < a.length; index++) {
+    if (a[index] != b[index]) return false;
+  }
+  return true;
+}
+
+Future<bool> _undoLastHermesTurn(
+  dynamic ref,
+  Conversation active,
+  HermesDesktopApiService service,
+  String sessionId,
+) async {
+  final scopedId = conversationScopedId(active);
+  List<ChatMessage> shown() =>
+      ref.read(chatMessagesProvider) as List<ChatMessage>;
+  final messages = List<ChatMessage>.of(shown());
   final lastUser = messages.lastIndexWhere(
     (message) => message.role == 'user',
   );
   if (lastUser < 0) return false;
+  if (messages.any((message) => message.isStreaming)) {
+    throw StateError('A reply is still running in this Hermes chat.');
+  }
 
-  final transcript = await service.getSessionMessages(sessionId);
+  final transcript = await service.getCurrentSessionMessages(sessionId);
   final userRows = <int>[
     for (var row = 0; row < transcript.length; row++)
       if (hermesTranscriptUserContent(transcript[row]) != null) row,
@@ -312,20 +348,37 @@ Future<bool> undoLastHermesTurn(dynamic ref) async {
       .take(lastUser)
       .where((message) => message.role == 'user')
       .length;
-  if (row != null && userRows.isNotEmpty && row == userRows.last) {
-    await service.undoLastTurn(sessionId);
-  } else if (row != null || userRows.length > ordinal) {
+  final stored = row != null && userRows.isNotEmpty && row == userRows.last;
+  if (!stored && (row != null || userRows.length > ordinal)) {
     throw StateError(
       'The last turn could not be found in the Hermes chat. Reopen the chat '
       'and try again.',
     );
+  }
+  // The legacy undo drops whatever turn is last: one sent from this chat
+  // while the transcript was read would be dropped instead.
+  if (!_sameUserTurns(shown(), messages)) {
+    throw StateError('The Hermes chat changed. Try again.');
+  }
+  if (stored &&
+      !await service.undoLastTurn(
+        sessionId,
+        rowId: hermesTranscriptRowId(transcript[row]),
+      )) {
+    // Hermes dropped nothing: the chat keeps the turn the session kept.
+    throw StateError('Hermes did not undo the last turn.');
   }
 
   final current = ref.read(activeConversationProvider) as Conversation?;
   if (current == null || !conversationMatchesScopedId(current, scopedId)) {
     return true;
   }
-  final kept = List<ChatMessage>.unmodifiable(messages.sublist(0, lastUser));
+  // Only the undone turn leaves: anything sent since stays.
+  final undone = {for (final message in messages.skip(lastUser)) message.id};
+  final kept = List<ChatMessage>.unmodifiable([
+    for (final message in shown())
+      if (!undone.contains(message.id)) message,
+  ]);
   (ref.read(chatMessagesProvider.notifier) as ChatMessagesNotifier)
       .setMessages(kept);
   final updated = inheritNativeHermesConversationProvenance(

@@ -6093,5 +6093,6 @@
   "hermesBranchFailed": "このチャットを分岐できませんでした。もう一度お試しください。",
   "hermesUndoLastTurn": "最後のやり取りを取り消す",
   "hermesUndoLastTurnDone": "最後のやり取りを取り消しました。",
-  "hermesUndoLastTurnFailed": "最後のやり取りを取り消せませんでした。もう一度お試しください。"
+  "hermesUndoLastTurnFailed": "最後のやり取りを取り消せませんでした。もう一度お試しください。",
+  "hermesArchivedLoadError": "アーカイブ済みのチャットを読み込めませんでした。"
 }

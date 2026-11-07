@@ -107,6 +107,12 @@ abstract interface class HermesTurnService
 
 abstract interface class HermesDesktopTurnService
     implements HermesBackendService {
+  /// Session [id]'s transcript as Hermes stores it now. Unlike
+  /// [getSessionMessages], a shorter read never gives way to a longer one
+  /// read earlier: an edit, undo, or branch must match what is there, even
+  /// after another app shortened it.
+  Future<List<Map<String, dynamic>>> getCurrentSessionMessages(String id);
+
   Future<String> createDesktopSession({
     String? title,
     required HermesDesktopSessionOptions options,

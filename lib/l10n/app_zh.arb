@@ -4476,5 +4476,6 @@
   "hermesBranchFailed": "无法为此聊天创建分支。请重试。",
   "hermesUndoLastTurn": "撤销上一轮对话",
   "hermesUndoLastTurnDone": "已撤销上一轮对话。",
-  "hermesUndoLastTurnFailed": "无法撤销上一轮对话。请重试。"
+  "hermesUndoLastTurnFailed": "无法撤销上一轮对话。请重试。",
+  "hermesArchivedLoadError": "无法加载已存档的聊天。"
 }

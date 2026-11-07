@@ -2871,7 +2871,9 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
           ),
           sfSymbol: 'arrow.triangle.branch',
         ),
-      if (hermesHistory.branch)
+      // Hermes branches from the reply it stores, not an older version
+      // shown in its place.
+      if (hermesHistory.branch && !previewingVersion)
         _AssistantFooterAction(
           id: 'hermes-branch',
           icon: Platform.isIOS ? CupertinoIcons.arrow_branch : Icons.call_split,

@@ -521,6 +521,44 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
         ..remove(storedId)
         ..remove(binding.storedId);
     }
+    // A slash command is resolved before a cut: one that submits nothing
+    // (such as `/model`) must leave the history the edit would replace.
+    var slashResolved = false;
+    if (canonical &&
+        truncateBeforeRowId != null &&
+        text.trimLeft().startsWith('/')) {
+      try {
+        final slash = await _dispatchSlash(binding.runtimeId, text.trim());
+        if (slash.display != null && slash.display!.isNotEmpty) {
+          controller.add(HermesFinalOutput(slash.display!));
+        }
+        if (slash.prefill != null && slash.prefill!.isNotEmpty) {
+          controller.add(HermesComposerPrefill(slash.prefill!));
+        }
+        if (slash.submit == null) {
+          await _detachStaged(binding.runtimeId, stagedPaths);
+          finish();
+          return HermesResponseStream(
+            events: controller.stream,
+            sessionId: storedId,
+          );
+        }
+        text = slash.submit!;
+        slashResolved = true;
+      } catch (error) {
+        DebugLogger.error(
+          'slash-before-rewind-failed',
+          scope: 'hermes/desktop/ws',
+          data: {'errorType': error.runtimeType.toString()},
+        );
+        await _detachStaged(binding.runtimeId, stagedPaths);
+        finish(error: error.toString());
+        return HermesResponseStream(
+          events: controller.stream,
+          sessionId: storedId,
+        );
+      }
+    }
     if (canonical && truncateBeforeRowId != null) {
       // Cut first, apart from the submit's recovery below: a lost answer to
       // this edit must not be read as a lost prompt and sent again uncut.
@@ -547,7 +585,7 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
     // command's.
     var submitting = false;
     try {
-      if (text.trimLeft().startsWith('/')) {
+      if (!slashResolved && text.trimLeft().startsWith('/')) {
         final slash = await _dispatchSlash(binding.runtimeId, text.trim());
         if (slash.display != null && slash.display!.isNotEmpty) {
           controller.add(HermesFinalOutput(slash.display!));

@@ -1413,7 +1413,9 @@ class HermesConfigController extends Notifier<HermesConfig> {
     }
     await attempt(
       'deleted-connection-set-aside-cleanup-failed',
-      () => HermesSetAsideSessionStore.clearScope(profile.id),
+      () => HermesSetAsideSessionStore.clearScopes(
+        (scope) => hermesSetAsideScopeOfConnection(scope, profile.id),
+      ),
     );
     // Records from before saved connections carry no id and match by origin
     // alone, so a connection still on that origin keeps answering them.
@@ -2508,12 +2510,26 @@ Map<String, String>? alignHermesForkedMessageIds(
   return mapping;
 }
 
-/// Where [config]'s set-aside chats are kept: its saved connection, or its
-/// endpoint for a connection saved before connections had ids.
-String hermesSetAsideScope(HermesConfig config) =>
-    config.connectionId ??
-    HermesConfigController.connectionEndpoint(config.baseUrl) ??
-    config.baseUrl;
+/// Where [config]'s set-aside chats are kept: its saved connection (none
+/// for one saved before connections had ids), its endpoint, and on the
+/// Desktop Gateway its profile. Session ids belong to one server and
+/// profile, so an endpoint edited or a profile switched looks up none of the
+/// other's chats, and finds them again when switched back.
+String hermesSetAsideScope(HermesConfig config) => jsonEncode([
+  config.connectionId ?? '',
+  HermesConfigController.connectionEndpoint(config.baseUrl) ?? config.baseUrl,
+  if (config.mode == HermesBackendMode.desktopGateway) config.desktopProfile,
+]);
+
+/// Whether set-aside [scope] belongs to saved connection [connectionId].
+bool hermesSetAsideScopeOfConnection(String scope, String connectionId) {
+  try {
+    final parts = jsonDecode(scope);
+    return parts is List && parts.isNotEmpty && parts.first == connectionId;
+  } catch (_) {
+    return false;
+  }
+}
 
 /// [raw] session rows as summaries, newest first. Rows without an id go.
 List<HermesSessionSummary> _hermesSessionSummaries(
@@ -2583,46 +2599,74 @@ class HermesSessionsController
     }
     final service = _service;
     if (service == null) return;
-    await service.setSessionFlags(
-      session.id,
-      pinned: pinned,
-      archived: archived,
-      hidden: hidden,
-    );
-    if (!configController.sessionActionAdmissionIsCurrent(admission) ||
-        !identical(ref.read(hermesApiServiceProvider), service)) {
-      return;
-    }
     final scope = hermesSetAsideScope(service.config);
     // No Hermes list shows a hidden chat, and the API server lists no
-    // archived ones: this device keeps them so they can be brought back.
-    final setAside = hidden == true
+    // archived ones: this device keeps the way back to them. The record
+    // follows the flags the chat ends with (an archived chat brought out of
+    // hiding is archived again), and is saved before the server changes, so
+    // a chat is never set aside without one.
+    final setAside = (hidden ?? session.hidden)
         ? HermesSetAsideKind.hidden
-        : archived == true && service is HermesApiService
+        : (archived ?? session.archived) && service is HermesApiService
         ? HermesSetAsideKind.archived
         : null;
+    final previous = HermesSetAsideSessionStore.find(
+      scope: scope,
+      sessionId: session.id,
+    );
+    if (setAside != null) {
+      await HermesSetAsideSessionStore.remember(
+        HermesSetAsideSession(
+          scope: scope,
+          sessionId: session.id,
+          title: session.title,
+          kind: setAside,
+        ),
+      );
+    }
     try {
+      await service.setSessionFlags(
+        session.id,
+        pinned: pinned,
+        archived: archived,
+        hidden: hidden,
+      );
+    } catch (_) {
       if (setAside != null) {
-        await HermesSetAsideSessionStore.remember(
-          HermesSetAsideSession(
-            scope: scope,
-            sessionId: session.id,
-            title: session.title,
-            kind: setAside,
-          ),
-        );
-      } else if (hidden == false || archived == false) {
+        try {
+          if (previous == null) {
+            await HermesSetAsideSessionStore.forget(
+              scope: scope,
+              sessionId: session.id,
+            );
+          } else {
+            await HermesSetAsideSessionStore.remember(previous);
+          }
+        } catch (_) {
+          // A leftover record is dropped once its lookup finds the chat
+          // listed again.
+        }
+      }
+      rethrow;
+    }
+    if (setAside == null && previous != null) {
+      try {
         await HermesSetAsideSessionStore.forget(
           scope: scope,
           sessionId: session.id,
         );
+      } catch (error) {
+        // Dropped once its lookup finds the chat listed again.
+        DebugLogger.warning(
+          'set-aside-record-failed',
+          scope: 'hermes/sessions',
+          data: {'errorType': error.runtimeType.toString()},
+        );
       }
-    } catch (error) {
-      DebugLogger.warning(
-        'set-aside-record-failed',
-        scope: 'hermes/sessions',
-        data: {'errorType': error.runtimeType.toString()},
-      );
+    }
+    if (!configController.sessionActionAdmissionIsCurrent(admission) ||
+        !identical(ref.read(hermesApiServiceProvider), service)) {
+      return;
     }
     final current = state.asData?.value;
     if (current != null) {
@@ -2836,11 +2880,34 @@ class HermesSessionsController
     }
     final service = _service;
     if (service == null) return null;
+    final principalId = configController.documentTrustPrincipalId();
     bool current() =>
         configController.sessionActionAdmissionIsCurrent(admission) &&
-        identical(ref.read(hermesApiServiceProvider), service);
+        identical(ref.read(hermesApiServiceProvider), service) &&
+        configController.documentTrustPrincipalId() == principalId;
+    final endpointIdentity = HermesConfigController.connectionEndpoint(
+      service.config.baseUrl,
+    );
+    final connectionIdentity = endpointIdentity == null
+        ? null
+        : HermesLocalDocumentTrustStore.connectionIdentity(
+            endpointIdentity: endpointIdentity,
+            principalId: principalId,
+          );
 
-    final transcript = await service.getSessionMessages(sessionId);
+    final List<Map<String, dynamic>> transcript;
+    if (service is HermesDesktopTurnService) {
+      // What the session holds now: the branch is cut from that.
+      transcript = await service.getCurrentSessionMessages(sessionId);
+    } else {
+      // A REST copy's earlier messages are kept on this device, before the
+      // server's own, as when it opens.
+      transcript = await _withSavedEarlierMessages(
+        connectionIdentity,
+        sessionId,
+        await service.getSessionMessages(sessionId),
+      );
+    }
     final cut = hermesBranchCut(
       transcript: transcript,
       messages: messages,
@@ -2857,12 +2924,25 @@ class HermesSessionsController
         throughRowId: cut.throughRowId,
       );
       if (!current()) return null;
+      if (connectionIdentity != null) {
+        await _carryBranchDocumentTrust(
+          service,
+          connectionIdentity: connectionIdentity,
+          sourceSessionId: sessionId,
+          branchId: branchId,
+          kept: transcript.sublist(0, cut.end),
+        );
+        if (!current()) return null;
+      }
       Map<String, dynamic>? row;
       try {
         row = await service.getSession(branchId);
       } catch (_) {
         // The branch is made; Hermes names it after its parent.
       }
+      // Opened through another connection, the id would name nothing, or
+      // another chat.
+      if (!current()) return null;
       ref.invalidateSelf();
       return (
         session:
@@ -2882,6 +2962,84 @@ class HermesSessionsController
       ),
       transcript: transcript.sublist(0, cut.end),
     );
+  }
+
+  /// [server] after the earlier messages this device keeps for REST copy
+  /// [sessionId], as the chat shows it.
+  Future<List<Map<String, dynamic>>> _withSavedEarlierMessages(
+    String? connectionIdentity,
+    String sessionId,
+    List<Map<String, dynamic>> server,
+  ) async {
+    if (connectionIdentity == null) return server;
+    try {
+      final saved = await ref
+          .read(hermesCopiedHistoryStoreProvider)
+          .load(connectionIdentity: connectionIdentity, sessionId: sessionId);
+      return saved == null ? server : mergeHermesCopiedHistory(saved, server);
+    } catch (error) {
+      DebugLogger.warning(
+        'copied-history-load-failed',
+        scope: 'hermes/sessions',
+        data: {'errorType': error.runtimeType.toString()},
+      );
+      return server;
+    }
+  }
+
+  /// Gives branch [branchId] the local document records of the [kept] rows
+  /// it copied, as [fork] does, so their attachments keep their cards. A
+  /// branch whose rows cannot be matched to [kept] one for one starts with
+  /// none rather than a guess.
+  Future<void> _carryBranchDocumentTrust(
+    HermesBackendService service, {
+    required String connectionIdentity,
+    required String sourceSessionId,
+    required String branchId,
+    required List<Map<String, dynamic>> kept,
+  }) async {
+    Map<String, String>? messageIdMap;
+    if (HermesLocalDocumentTrustStore.trustedDocumentKeys(
+      connectionIdentity: connectionIdentity,
+      sessionId: sourceSessionId,
+    ).isNotEmpty) {
+      try {
+        final branch = await service.getSessionMessages(branchId);
+        // A session authority copies every row; the legacy wire only those
+        // a legacy branch keeps.
+        messageIdMap =
+            alignHermesForkedMessageIds(kept, branch) ??
+            alignHermesForkedMessageIds([
+              for (final row in kept)
+                if (hermesLegacyBranchKeepsRow(row)) row,
+            ], branch);
+        if (messageIdMap != null) {
+          await HermesLocalDocumentTrustStore.rebindForkedSession(
+            connectionIdentity: connectionIdentity,
+            sourceSessionId: sourceSessionId,
+            targetSessionId: branchId,
+            messageIdMap: messageIdMap,
+          );
+          return;
+        }
+      } catch (_) {
+        DebugLogger.warning(
+          'local-document-trust-branch-rebind-failed',
+          scope: 'hermes/sessions',
+        );
+      }
+    }
+    try {
+      await HermesLocalDocumentTrustStore.prepareNewSession(
+        connectionIdentity: connectionIdentity,
+        sessionId: branchId,
+      );
+    } catch (_) {
+      DebugLogger.warning(
+        'local-document-trust-branch-purge-failed',
+        scope: 'hermes/sessions',
+      );
+    }
   }
 
   Future<void> rename(String id, String title) async {
@@ -2994,28 +3152,26 @@ final hermesSessionsProvider =
       HermesSessionsController.new,
     );
 
-/// The most set-aside chats looked up one by one on a server that cannot
+/// How many set-aside chats are looked up at once on a server that cannot
 /// list them.
-const int _kMaxHermesSetAsideLookups = 50;
+const int _kHermesSetAsideLookupConcurrency = 6;
 
-/// Set-aside chats of [kind] still flagged so on the server, newest first.
-/// Each is looked up by id: one gone from the server, or brought back from
-/// another app, is forgotten.
+/// Set-aside chats of [kind] still flagged so on the server, newest first:
+/// every record kept for the connection. Each is looked up by id: one gone
+/// from the server, or brought back from another app, is forgotten.
 Future<List<HermesSessionSummary>> _hermesSetAsideSessions(
   HermesBackendService service,
   HermesSetAsideKind kind,
 ) async {
   final scope = hermesSetAsideScope(service.config);
   final records = HermesSetAsideSessionStore.forScope(scope, kind: kind);
-  final sessions = <HermesSessionSummary>[];
-  for (final record in records.reversed.take(_kMaxHermesSetAsideLookups)) {
+  Future<HermesSessionSummary?> lookUp(HermesSetAsideSession record) async {
     final Map<String, dynamic>? row;
     try {
       row = await service.getSession(record.sessionId);
     } catch (_) {
       // Unreachable now; keep it as last seen.
-      sessions.add(record.toSummary());
-      continue;
+      return record.toSummary();
     }
     final session = row == null ? null : HermesSessionSummary.fromJson(row);
     final stillSetAside = switch (kind) {
@@ -3028,9 +3184,24 @@ Future<List<HermesSessionSummary>> _hermesSetAsideSessions(
         scope: scope,
         sessionId: record.sessionId,
       );
-      continue;
+      return null;
     }
-    sessions.add(session);
+    return session;
+  }
+
+  final sessions = <HermesSessionSummary>[];
+  for (
+    var start = 0;
+    start < records.length;
+    start += _kHermesSetAsideLookupConcurrency
+  ) {
+    final batch = await Future.wait([
+      for (final record in records.skip(start).take(
+        _kHermesSetAsideLookupConcurrency,
+      ))
+        lookUp(record),
+    ]);
+    sessions.addAll(batch.nonNulls);
   }
   return _newestFirst(sessions);
 }

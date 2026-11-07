@@ -224,6 +224,30 @@ void main() {
       check(body).deepEquals({'hidden': true, 'profile': 'default'});
     });
 
+    test('reads every page of archived sessions', () async {
+      final routes = _Routes({
+        'GET /api/sessions': (options) {
+          final offset = int.parse(options.uri.queryParameters['offset']!);
+          final count = offset == 0 ? 100 : 30;
+          return (
+            200,
+            {
+              'sessions': [
+                for (var index = 0; index < count; index++)
+                  {'id': 'local-${offset + index}', 'archived': true},
+              ],
+            },
+          );
+        },
+      });
+      final rows = await _desktop(routes).listArchivedSessions();
+
+      check(rows).isNotNull().length.equals(130);
+      check(
+        routes.called('GET', '/api/sessions').map((r) => r.query['offset']),
+      ).deepEquals(['0', '100']);
+    });
+
     test('lists only archived sessions for the archived row', () async {
       final routes = _Routes({
         'GET /api/sessions': (options) => (
@@ -305,9 +329,8 @@ void main() {
       final patch =
           routes.called('PATCH', '/api/sessions/api_1').single.body as Map;
       check(patch).deepEquals({'pinned': false, 'archived': true});
-      check(
-        HermesSetAsideSessionStore.forScope('conn-rest'),
-      ).length.equals(1);
+      final scope = hermesSetAsideScope(service.config);
+      check(HermesSetAsideSessionStore.forScope(scope)).length.equals(1);
       final archived = await container.read(
         hermesArchivedSessionsProvider.future,
       );
@@ -316,7 +339,7 @@ void main() {
       await container
           .read(hermesSessionsProvider.notifier)
           .setArchived(archived.single, false);
-      check(HermesSetAsideSessionStore.forScope('conn-rest')).isEmpty();
+      check(HermesSetAsideSessionStore.forScope(scope)).isEmpty();
     });
 
     test('a hidden chat is listed for settings until it is unhidden '
@@ -339,6 +362,7 @@ void main() {
         'GET /api/sessions': (_) => (200, {'sessions': <Object>[]}),
       });
       final service = _desktop(routes);
+      final scope = hermesSetAsideScope(service.config);
       final container = _container(service);
       final sessions = container.read(hermesSessionsProvider.notifier);
 
@@ -347,8 +371,8 @@ void main() {
         true,
       );
       await HermesSetAsideSessionStore.remember(
-        const HermesSetAsideSession(
-          scope: 'conn-desktop',
+        HermesSetAsideSession(
+          scope: scope,
           sessionId: 'local-gone',
           title: 'Deleted elsewhere',
           kind: HermesSetAsideKind.hidden,
@@ -360,9 +384,7 @@ void main() {
       );
       check(hidden.map((session) => session.id)).deepEquals(['local-h']);
       // The deleted one is forgotten once its lookup finds nothing.
-      check(
-        HermesSetAsideSessionStore.forScope('conn-desktop'),
-      ).length.equals(1);
+      check(HermesSetAsideSessionStore.forScope(scope)).length.equals(1);
 
       // Unhidden from another app: no longer offered here.
       hiddenOnServer = false;
@@ -370,7 +392,206 @@ void main() {
       check(
         await container.read(hermesHiddenSessionsProvider.future),
       ).isEmpty();
-      check(HermesSetAsideSessionStore.forScope('conn-desktop')).isEmpty();
+      check(HermesSetAsideSessionStore.forScope(scope)).isEmpty();
+    });
+
+    test('an archived chat brought out of hiding is archived again', () async {
+      var flags = <String, Object?>{'archived': true, 'hidden': true};
+      final routes = _Routes({
+        'GET /api/sessions': (_) => (200, {'data': <Object>[]}),
+        'PATCH /api/sessions/api_1': (options) {
+          final data = options.data;
+          flags = {
+            ...flags,
+            ...(data is String ? jsonDecode(data) as Map : data as Map),
+          };
+          return (200, {'session': {}});
+        },
+        'GET /api/sessions/api_1': (_) => (
+          200,
+          {
+            'session': {'id': 'api_1', 'title': 'Synthetic plan', ...flags},
+          },
+        ),
+      });
+      final service = _rest(routes);
+      final container = _container(service);
+      final notifier = container.read(hermesSessionsProvider.notifier);
+      const archived = HermesSessionSummary(
+        id: 'api_1',
+        title: 'Synthetic plan',
+        archived: true,
+      );
+      flags = {'archived': true, 'hidden': false};
+
+      await notifier.setHidden(archived, true);
+      final hidden = await container.read(hermesHiddenSessionsProvider.future);
+      check(hidden.single.archived).isTrue();
+
+      await notifier.setHidden(hidden.single, false);
+      check(
+        HermesSetAsideSessionStore.find(
+          scope: hermesSetAsideScope(service.config),
+          sessionId: 'api_1',
+        )?.kind,
+      ).equals(HermesSetAsideKind.archived);
+      final archivedRow = await container.read(
+        hermesArchivedSessionsProvider.future,
+      );
+      check(archivedRow.map((session) => session.id)).deepEquals(['api_1']);
+    });
+
+    test('the way back is saved before the server sets a chat aside, and '
+        'restored when the server refuses', () async {
+      HermesSetAsideSession? savedAtPatch;
+      var refuse = false;
+      late final String scope;
+      final routes = _Routes({
+        'GET /api/sessions': (_) => (200, {'data': <Object>[]}),
+        'PATCH /api/sessions/api_1': (_) {
+          savedAtPatch = HermesSetAsideSessionStore.find(
+            scope: scope,
+            sessionId: 'api_1',
+          );
+          return refuse ? (500, {'error': 'refused'}) : (200, {'session': {}});
+        },
+      });
+      final service = _rest(routes);
+      scope = hermesSetAsideScope(service.config);
+      final notifier = _container(
+        service,
+      ).read(hermesSessionsProvider.notifier);
+      const session = HermesSessionSummary(id: 'api_1', title: 'Plan');
+
+      await notifier.setArchived(session, true);
+      check(savedAtPatch?.kind).equals(HermesSetAsideKind.archived);
+
+      refuse = true;
+      await check(
+        notifier.setHidden(session.copyWith(archived: true), true),
+      ).throws<DioException>();
+      check(savedAtPatch?.kind).equals(HermesSetAsideKind.hidden);
+      check(
+        HermesSetAsideSessionStore.find(scope: scope, sessionId: 'api_1')?.kind,
+      ).equals(HermesSetAsideKind.archived);
+    });
+
+    test('a full store refuses before the server changes', () async {
+      const full = HermesSetAsideSessionStore.maxRecords;
+      for (var index = 0; index < full; index++) {
+        await HermesSetAsideSessionStore.remember(
+          HermesSetAsideSession(
+            scope: 'elsewhere',
+            sessionId: 'old_$index',
+            title: 'Old',
+            kind: HermesSetAsideKind.hidden,
+          ),
+        );
+      }
+      final routes = _Routes();
+      final notifier = _container(
+        _rest(routes),
+      ).read(hermesSessionsProvider.notifier);
+
+      await check(
+        notifier.setHidden(
+          const HermesSessionSummary(id: 'api_1', title: 'Plan'),
+          true,
+        ),
+      ).throws<HermesSetAsideStoreFullException>();
+      check(routes.called('PATCH', '/api/sessions/api_1')).isEmpty();
+      // Nothing older was dropped to make room.
+      check(HermesSetAsideSessionStore.forScope('elsewhere'))
+          .length
+          .equals(HermesSetAsideSessionStore.maxRecords);
+    });
+
+    test('every saved chat is looked up, not only the newest', () async {
+      final routes = _Routes({
+        'GET /api/sessions': (_) => (200, {'data': <Object>[]}),
+      });
+      final service = _rest(routes);
+      final scope = hermesSetAsideScope(service.config);
+      for (var index = 0; index < 60; index++) {
+        routes.routes['GET /api/sessions/api_$index'] = (_) => (
+          200,
+          {
+            'session': {'id': 'api_$index', 'title': 'Chat', 'hidden': true},
+          },
+        );
+        await HermesSetAsideSessionStore.remember(
+          HermesSetAsideSession(
+            scope: scope,
+            sessionId: 'api_$index',
+            title: 'Chat',
+            kind: HermesSetAsideKind.hidden,
+          ),
+        );
+      }
+
+      final hidden = await _container(
+        service,
+      ).read(hermesHiddenSessionsProvider.future);
+      check(hidden).length.equals(60);
+    });
+  });
+
+  group('set-aside scope', () {
+    HermesConfig config({
+      String baseUrl = 'https://hermes.example',
+      String profile = 'default',
+      HermesBackendMode mode = HermesBackendMode.desktopGateway,
+    }) => HermesConfig(
+      enabled: true,
+      baseUrl: baseUrl,
+      mode: mode,
+      desktopProfile: profile,
+      connectionId: 'conn-1',
+    );
+
+    test('follows the endpoint and Desktop profile', () {
+      final base = hermesSetAsideScope(config());
+      check(hermesSetAsideScope(config(profile: 'research'))).not(
+        (it) => it.equals(base),
+      );
+      check(
+        hermesSetAsideScope(config(baseUrl: 'https://other.example')),
+      ).not((it) => it.equals(base));
+      // The API server has no profiles.
+      check(
+        hermesSetAsideScope(
+          config(mode: HermesBackendMode.responsesApi, profile: 'research'),
+        ),
+      ).equals(
+        hermesSetAsideScope(config(mode: HermesBackendMode.responsesApi)),
+      );
+    });
+
+    test('every scope of a deleted connection is cleared', () async {
+      for (final scope in [
+        hermesSetAsideScope(config()),
+        hermesSetAsideScope(config(profile: 'research')),
+      ]) {
+        await HermesSetAsideSessionStore.remember(
+          HermesSetAsideSession(
+            scope: scope,
+            sessionId: 'local-1',
+            title: 'Chat',
+            kind: HermesSetAsideKind.hidden,
+          ),
+        );
+      }
+      await HermesSetAsideSessionStore.clearScopes(
+        (scope) => hermesSetAsideScopeOfConnection(scope, 'conn-1'),
+      );
+      check(
+        HermesSetAsideSessionStore.forScope(hermesSetAsideScope(config())),
+      ).isEmpty();
+      check(
+        HermesSetAsideSessionStore.forScope(
+          hermesSetAsideScope(config(profile: 'research')),
+        ),
+      ).isEmpty();
     });
   });
 }

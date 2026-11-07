@@ -16,6 +16,7 @@ import 'package:conduit_core/features/hermes/services/hermes_backend_service.dar
 import 'package:conduit_core/features/hermes/services/hermes_desktop_api_service.dart';
 import 'package:conduit_core/features/hermes/services/hermes_desktop_transport.dart';
 import 'package:conduit_core/features/hermes/services/hermes_history_edit.dart';
+import 'package:conduit_core/features/hermes/services/hermes_local_document_trust_store.dart';
 import 'package:conduit_core/features/hermes/services/hermes_session_provenance.dart';
 import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit_core/models/conversation.dart';
@@ -176,11 +177,19 @@ final class _Gateway {
   ];
 }
 
-/// Serves `/api/status` and the stored session's transcript.
+/// Serves `/api/status` and the stored session's transcript ([others] for
+/// other sessions).
 final class _Rest implements HttpClientAdapter {
   _Rest(this.transcript);
 
   List<Map<String, Object?>> transcript;
+  final others = <String, List<Map<String, Object?>>>{};
+
+  /// When set, the next transcript read waits for it.
+  Completer<void>? hold;
+
+  /// Called with each request's path before it is answered.
+  void Function(String path)? onRequest;
 
   @override
   void close({bool force = false}) {}
@@ -192,12 +201,20 @@ final class _Rest implements HttpClientAdapter {
     Future<void>? cancelFuture,
   ) async {
     final path = options.uri.path;
+    onRequest?.call(path);
+    final other = RegExp(r'^/api/sessions/([^/]+)/messages$').firstMatch(path);
     final Object body;
     if (path == '/api/status') {
       body = {'auth_required': false, 'gateway_running': true};
     } else if (path == '/api/sessions/stored-1/messages') {
+      final held = hold;
+      hold = null;
+      await held?.future;
       final offset = int.parse(options.uri.queryParameters['offset'] ?? '0');
       body = {'messages': transcript.skip(offset).toList()};
+    } else if (other != null && others.containsKey(other.group(1))) {
+      final offset = int.parse(options.uri.queryParameters['offset'] ?? '0');
+      body = {'messages': others[other.group(1)]!.skip(offset).toList()};
     } else {
       body = <String, Object?>{};
     }
@@ -347,13 +364,31 @@ final _picnic = markNativeHermesConversation(
   ),
 );
 
+/// Switches the connection a container's providers read.
+final class _Connection extends Notifier<HermesBackendService?> {
+  _Connection(this.initial);
+
+  final HermesBackendService initial;
+
+  @override
+  HermesBackendService? build() => initial;
+
+  void use(HermesBackendService service) => state = service;
+}
+
 ProviderContainer _chatContainer(
   HermesBackendService service,
-  List<ChatMessage> messages,
-) {
+  List<ChatMessage> messages, {
+  NotifierProvider<_Connection, HermesBackendService?>? connection,
+}) {
   final container = ProviderContainer(
     overrides: [
-      hermesApiServiceProvider.overrideWithValue(service),
+      if (connection == null)
+        hermesApiServiceProvider.overrideWithValue(service)
+      else
+        hermesApiServiceProvider.overrideWith(
+          (ref) => ref.watch(connection),
+        ),
       activeConversationProvider.overrideWith(
         () => _SeededConversation(_picnic),
       ),
@@ -411,6 +446,78 @@ void main() {
           index: 4,
         ),
       ).isNull();
+    });
+
+    test('a prompt asked again that never reached Hermes finds nothing', () {
+      final once = [
+        {'id': 1, 'role': 'user', 'content': 'Hi'},
+        {'id': 2, 'role': 'assistant', 'content': 'Hello.'},
+      ];
+      final again = [
+        _message('u1', 'user', 'Hi'),
+        _message('a1', 'assistant', 'Hello.'),
+        _message('u2', 'user', 'Hi'),
+      ];
+      check(
+        hermesTranscriptUserRowIndex(
+          transcript: once,
+          messages: again,
+          index: 2,
+        ),
+      ).isNull();
+      check(
+        hermesTranscriptUserRowIndex(
+          transcript: once,
+          messages: again,
+          index: 0,
+        ),
+      ).equals(0);
+    });
+
+    test('out of place, only the exact text matches', () {
+      final stored = [
+        {'id': 1, 'role': 'user', 'content': 'ok, now rewrite it'},
+      ];
+      check(
+        hermesTranscriptUserRowIndex(
+          transcript: stored,
+          messages: [
+            _message('x', 'user', 'Never sent'),
+            _message('y', 'user', 'ok'),
+          ],
+          index: 1,
+        ),
+      ).isNull();
+    });
+
+    test('out of place, equal prompts match in order', () {
+      final repeated = [
+        {'id': 1, 'role': 'user', 'content': 'Again'},
+        {'id': 2, 'role': 'assistant', 'content': 'One'},
+        {'id': 3, 'role': 'user', 'content': 'Again'},
+        {'id': 4, 'role': 'assistant', 'content': 'Two'},
+      ];
+      final drifted = [
+        _message('x', 'user', 'Never sent'),
+        _message('a', 'user', 'Again'),
+        _message('b', 'assistant', 'One'),
+        _message('c', 'user', 'Again'),
+      ];
+      // By place, the first would take the second stored "Again".
+      check(
+        hermesTranscriptUserRowIndex(
+          transcript: repeated,
+          messages: drifted,
+          index: 1,
+        ),
+      ).equals(0);
+      check(
+        hermesTranscriptUserRowIndex(
+          transcript: repeated,
+          messages: drifted,
+          index: 3,
+        ),
+      ).equals(2);
     });
 
     test('of several equal prompts only the newest is certain', () {
@@ -541,6 +648,28 @@ void main() {
       check(submit.containsKey('truncate_before_row_id')).isFalse();
     });
 
+    test('an edit into a command that sends nothing cuts nothing', () async {
+      final gateway = _Gateway(authority: true);
+      gateway.handler = (method, params) =>
+          method == 'slash.exec' ? {'output': 'Synthetic status.'} : null;
+      final service = _service(gateway, _Rest(_transcript));
+
+      final response = await service.streamDesktopResponse(
+        HermesChatInput.text('/status'),
+        sessionId: 'stored-1',
+        options: const HermesDesktopSessionOptions(),
+        truncateBeforeRowId: 15,
+      );
+      final events = await response.events.toList().timeout(
+        const Duration(seconds: 5),
+      );
+
+      check(events.whereType<HermesRunError>()).isEmpty();
+      check(gateway.calls('slash.exec')).length.equals(1);
+      check(gateway.calls('session.mutate')).isEmpty();
+      check(gateway.calls('prompt.submit')).isEmpty();
+    });
+
     test('a refused rewind sends no prompt', () async {
       final gateway = _Gateway(authority: true);
       gateway.handler = (method, params) {
@@ -626,6 +755,23 @@ void main() {
       ).throws<StateError>();
     });
 
+    test('reads the session as it is now, not a longer earlier read', () async {
+      final rest = _Rest(_transcript);
+      final service = _service(_Gateway(), rest);
+      await service.getSessionMessages('stored-1');
+      // Another app undid the second turn.
+      rest.transcript = _transcript.take(4).toList();
+
+      final target = await hermesDesktopRewindTarget(
+        service: service,
+        conversation: conversation,
+        messages: _chat,
+        replayedUserIndex: 2,
+      );
+
+      check(target).isNotNull().has((t) => t.rowId, 'rowId').isNull();
+    });
+
     test('the API server replays its history instead', () async {
       check(
         await hermesDesktopRewindTarget(
@@ -664,6 +810,77 @@ void main() {
         ..has((cut) => cut.end, 'end').equals(6)
         ..has((cut) => cut.throughRowId, 'throughRowId').equals(16)
         ..has((cut) => cut.visibleCount, 'visibleCount').equals(4);
+    });
+
+    test('a legacy branch counts the rows Hermes keeps', () {
+      check(
+        hermesLegacyBranchKeepsRow({
+          'role': 'user',
+          'content': [
+            {
+              'type': 'image_url',
+              'image_url': {'url': 'https://hermes.example/photo.png'},
+            },
+          ],
+        }),
+      ).isTrue();
+      check(
+        hermesLegacyBranchKeepsRow({
+          'role': 'user',
+          'content': [
+            {'type': 'input_audio'},
+          ],
+        }),
+      ).isTrue();
+      check(
+        hermesLegacyBranchKeepsRow({'role': 'assistant', 'content': '  '}),
+      ).isFalse();
+      check(
+        hermesLegacyBranchKeepsRow({
+          'role': 'assistant',
+          'content': [
+            {'type': 'text', 'text': ' '},
+          ],
+        }),
+      ).isFalse();
+      // Hermes reads `role` as written.
+      check(
+        hermesLegacyBranchKeepsRow({'role': 'User', 'content': 'Hi'}),
+      ).isFalse();
+      check(
+        hermesLegacyBranchKeepsRow({'author': 'user', 'content': 'Hi'}),
+      ).isFalse();
+      check(
+        hermesLegacyBranchKeepsRow({'role': 'tool', 'content': 'ok'}),
+      ).isFalse();
+
+      final withPhoto = [
+        {
+          'id': 1,
+          'role': 'user',
+          'content': [
+            {
+              'type': 'image_url',
+              'image_url': {'url': 'https://hermes.example/photo.png'},
+            },
+          ],
+        },
+        {'id': 2, 'role': 'assistant', 'content': 'A synthetic photo.'},
+        {'id': 3, 'role': 'user', 'content': 'Thanks'},
+        {'id': 4, 'role': 'assistant', 'content': 'Welcome.'},
+      ];
+      check(
+        hermesBranchCut(
+          transcript: withPhoto,
+          messages: [
+            _message('u1', 'user', ''),
+            _message('a1', 'assistant', 'A synthetic photo.'),
+            _message('u2', 'user', 'Thanks'),
+            _message('a2', 'assistant', 'Welcome.'),
+          ],
+          index: 1,
+        ),
+      ).isNotNull().has((cut) => cut.visibleCount, 'visibleCount').equals(2);
     });
 
     test('is counted on the legacy wire', () async {
@@ -717,6 +934,95 @@ void main() {
         ..has((b) => b.session.id, 'id').equals('stored-2')
         ..has((b) => b.transcript, 'transcript').isNull();
       check(gateway.calls('session.branch').single['count']).equals(2);
+    });
+
+    test('a branch made while the connection changed is not opened', () async {
+      final gateway = _Gateway();
+      final rest = _Rest(_transcript);
+      final service = _service(gateway, rest);
+      final connection = NotifierProvider<_Connection, HermesBackendService?>(
+        () => _Connection(service),
+      );
+      final container = _chatContainer(
+        service,
+        _chat,
+        connection: connection,
+      );
+      rest.onRequest = (path) {
+        if (path == '/api/sessions/stored-2') {
+          container
+              .read(connection.notifier)
+              .use(_service(_Gateway(), _Rest(_transcript)));
+        }
+      };
+
+      final branch = await container
+          .read(hermesSessionsProvider.notifier)
+          .branchFromMessage(
+            sessionId: 'stored-1',
+            title: 'Synthetic picnic',
+            messages: _chat,
+            index: 1,
+          );
+
+      check(gateway.calls('session.branch')).length.equals(1);
+      check(branch).isNull();
+    });
+
+    test('a Desktop branch keeps the document cards of the rows it '
+        'copied', () async {
+      const envelope = '<<<BEGIN_HERMES_UNTRUSTED_REFERENCE_1>>>notes';
+      const prompt = 'Summarize\n\n$envelope';
+      final rest = _Rest([
+        {'id': 'm1', 'role': 'user', 'content': prompt},
+        {'id': 'm2', 'role': 'assistant', 'content': 'Synthetic summary.'},
+        {'id': 'm3', 'role': 'user', 'content': 'Shorter?'},
+        {'id': 'm4', 'role': 'assistant', 'content': 'Yes.'},
+      ]);
+      rest.others['stored-2'] = [
+        {'id': 'b1', 'role': 'user', 'content': prompt},
+        {'id': 'b2', 'role': 'assistant', 'content': 'Synthetic summary.'},
+      ];
+      final service = _service(_Gateway(), rest);
+      final chat = [
+        _message('u1', 'user', 'Summarize'),
+        _message('a1', 'assistant', 'Synthetic summary.'),
+        _message('u2', 'user', 'Shorter?'),
+        _message('a2', 'assistant', 'Yes.'),
+      ];
+      final container = _chatContainer(service, chat);
+      final identity = HermesLocalDocumentTrustStore.connectionIdentity(
+        endpointIdentity: HermesConfigController.connectionEndpoint(
+          'https://hermes.example',
+        )!,
+        principalId: container
+            .read(hermesConfigProvider.notifier)
+            .documentTrustPrincipalId(),
+      );
+      await HermesLocalDocumentTrustStore.remember(
+        connectionIdentity: identity,
+        sessionId: 'stored-1',
+        messageId: 'm1',
+        promptText: prompt,
+        documentEnvelopes: const [envelope],
+      );
+
+      final branch = await container
+          .read(hermesSessionsProvider.notifier)
+          .branchFromMessage(
+            sessionId: 'stored-1',
+            title: 'Synthetic notes',
+            messages: chat,
+            index: 1,
+          );
+
+      check(branch).isNotNull();
+      check(
+        HermesLocalDocumentTrustStore.trustedDocumentKeys(
+          connectionIdentity: identity,
+          sessionId: 'stored-2',
+        ),
+      ).isNotEmpty();
     });
 
     test('an API server chat opens a new session with the transcript '
@@ -797,6 +1103,84 @@ void main() {
       check(
         container.read(chatMessagesProvider).map((message) => message.id),
       ).deepEquals(['u1', 'a1', 'u2', 'a2']);
+    });
+
+    test('rewinds to the row it checked on the canonical wire', () async {
+      final gateway = _Gateway(authority: true);
+      final service = _service(gateway, _Rest(_transcript));
+
+      check(await service.undoLastTurn('stored-1', rowId: 11)).isTrue();
+      check(
+        gateway.calls('session.mutate').single['payload'] as Map,
+      ).deepEquals({'target_message_id': 11});
+    });
+
+    test('a second undo while one runs does nothing', () async {
+      final gateway = _Gateway();
+      final rest = _Rest(_transcript);
+      final service = _service(gateway, rest);
+      final container = _chatContainer(service, _chat);
+      final held = rest.hold = Completer<void>();
+
+      final first = undoLastHermesTurn(container);
+      await _settle();
+      check(await undoLastHermesTurn(container)).isFalse();
+      held.complete();
+
+      check(await first).isTrue();
+      check(gateway.calls('session.undo')).length.equals(1);
+      check(
+        container.read(chatMessagesProvider).map((message) => message.id),
+      ).deepEquals(['u1', 'a1']);
+    });
+
+    test('a message sent while the transcript is read stops the '
+        'undo', () async {
+      final gateway = _Gateway();
+      final rest = _Rest(_transcript);
+      final service = _service(gateway, rest);
+      final container = _chatContainer(service, _chat);
+      final held = rest.hold = Completer<void>();
+
+      final undo = undoLastHermesTurn(container);
+      await _settle();
+      container.read(chatMessagesProvider.notifier).setMessages([
+        ..._chat,
+        _message('u3', 'user', 'One more thing'),
+      ]);
+      held.complete();
+
+      await check(undo).throws<StateError>();
+      check(gateway.calls('session.undo')).isEmpty();
+      check(container.read(chatMessagesProvider)).length.equals(5);
+    });
+
+    test('a turn Hermes did not drop stays in the chat', () async {
+      final gateway = _Gateway();
+      gateway.handler = (method, params) =>
+          method == 'session.undo' ? {'removed': 0} : null;
+      final service = _service(gateway, _Rest(_transcript));
+      final container = _chatContainer(service, _chat);
+
+      await check(undoLastHermesTurn(container)).throws<StateError>();
+      check(container.read(chatMessagesProvider)).length.equals(4);
+    });
+
+    test('a turn another app already undid leaves only the chat', () async {
+      final gateway = _Gateway();
+      final rest = _Rest(_transcript);
+      final service = _service(gateway, rest);
+      await service.getSessionMessages('stored-1');
+      rest.transcript = _transcript.take(4).toList();
+      final container = _chatContainer(service, _chat);
+
+      check(await undoLastHermesTurn(container)).isTrue();
+
+      // The session's last turn now is the first one: it stays.
+      check(gateway.calls('session.undo')).isEmpty();
+      check(
+        container.read(chatMessagesProvider).map((message) => message.id),
+      ).deepEquals(['u1', 'a1']);
     });
 
     test('a last turn the chat cannot match is not undone', () async {
