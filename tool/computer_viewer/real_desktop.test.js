@@ -19,7 +19,7 @@ test('real Linux desktop: shared pointer, Watch, native editing and reconnect',
   const ssh = script => execFileSync('ssh', ['-o', 'BatchMode=yes', '-o',
     'UserKnownHostsFile=../../build/computer-review/linux/known_hosts', '-i',
     '../../build/computer-review/linux/review-key', '-p', '12222', 'studio@127.0.0.1', 'bash -s'],
-  {input: `set -e\ntest "$(hostname)" = studio\nexport DISPLAY=:40\nexport XAUTHORITY=$(printf '%s' /tmp/open-terminal-desktop-*/Xauthority)\n${script}`, encoding: 'utf8', timeout: 20000}).trim();
+  {input: `set -e\ntest "$(hostname)" = studio\nexport DISPLAY=:40\nexport XAUTHORITY=$(ps -eo args | awk '$1 == "Xtigervnc" && $2 == ":40" {for (i=1; i<NF; i++) if ($i == "-auth") print $(i+1)}')\n${script}`, encoding: 'utf8', timeout: 20000}).trim();
   assert.equal((await api('/desktop')).transport, 'vnc');
   const browser = await chromium.connectOverCDP('http://127.0.0.1:8770');
   const viewer = await browser.contexts()[0].newPage();

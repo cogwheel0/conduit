@@ -35,11 +35,13 @@ class ComputerPage extends ConsumerStatefulWidget {
 class _ComputerPageState extends ConsumerState<ComputerPage>
     with WidgetsBindingObserver {
   final _surface = ComputerSurfaceController();
+  GlobalKey _surfaceKey = GlobalKey();
   ComputerConnection? _connection;
   late ComputerSurface _selected;
   String _status = 'connecting', _url = '';
   bool _controlling = false, _stopping = false, _zoomed = false;
   bool _canBack = false, _canForward = false, _stopFailed = false;
+  bool _vnc = false, _hasTakenControl = false;
   bool _active = true, _scopeValid = true;
   int _generation = 0;
   Timer? _heartbeat;
@@ -53,6 +55,7 @@ class _ComputerPageState extends ConsumerState<ComputerPage>
         widget.initialSurface ??
         widget.capabilities.preferred;
     _connection = widget.initialConnection;
+    _vnc = _connection?.transport == 'vnc';
     if (_connection == null) unawaited(_open());
     _heartbeat = Timer.periodic(const Duration(seconds: 45), (_) async {
       final connection = _connection;
@@ -81,7 +84,9 @@ class _ComputerPageState extends ConsumerState<ComputerPage>
       });
     });
     ref.listenManual(chatMessagesProvider, (_, messages) {
-      if (_controlling && messages.any((message) => message.isStreaming)) {
+      if ((_controlling || _hasTakenControl) &&
+          messages.any((message) => message.isStreaming)) {
+        _hasTakenControl = false;
         _watch();
       }
     });
@@ -113,6 +118,7 @@ class _ComputerPageState extends ConsumerState<ComputerPage>
     setState(() {
       _status = 'connecting';
       _connection = null;
+      _surfaceKey = GlobalKey();
       _controlling = false;
       _zoomed = false;
       _canBack = false;
@@ -128,6 +134,7 @@ class _ComputerPageState extends ConsumerState<ComputerPage>
       }
       setState(() {
         _connection = connection;
+        _vnc = connection.transport == 'vnc';
         _url = connection.browserSession?.url ?? '';
       });
     } on ComputerBrowserUnavailable {
@@ -149,6 +156,7 @@ class _ComputerPageState extends ConsumerState<ComputerPage>
         _url = message['url'] as String? ?? '';
         _canBack = message['canGoBack'] == true;
         _canForward = message['canGoForward'] == true;
+        _vnc = message['transport'] == 'vnc';
       } else if (status == 'watching') {
         _controlling = false;
       } else if (status is String) {
@@ -181,6 +189,7 @@ class _ComputerPageState extends ConsumerState<ComputerPage>
     setState(() {
       _stopping = false;
       _controlling = accepted && _status == 'live';
+      _hasTakenControl = _hasTakenControl || _controlling;
       _stopFailed = !_controlling;
     });
     await _surface.control(_controlling);
@@ -250,6 +259,7 @@ class _ComputerPageState extends ConsumerState<ComputerPage>
         ? l10n.computerDisconnected
         : l10n.computerConnecting;
     final host = Uri.tryParse(_url)?.host ?? '';
+    final connection = _connection;
     final size = MediaQuery.sizeOf(context);
     final landscape = size.width > size.height && size.height < 600;
     final modes = widget.capabilities.desktop && widget.capabilities.browser
@@ -373,60 +383,64 @@ class _ComputerPageState extends ConsumerState<ComputerPage>
           child: Stack(
             fit: StackFit.expand,
             children: [
-              if (_connection != null && _scopeValid)
+              if (connection != null && _scopeValid)
                 ComputerSurfaceView(
-                  key: GlobalObjectKey(_connection!),
-                  connection: _connection!,
+                  key: _surfaceKey,
+                  connection: connection,
                   controller: _surface,
-                  onState: _onState,
+                  onState: (message) {
+                    if (identical(connection, _connection)) _onState(message);
+                  },
                 ),
               if (!live)
                 ColoredBox(
                   color: const Color(0xff111318),
                   child: Center(
-                    child: Padding(
-                      padding: const EdgeInsets.all(28),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          if (failed)
-                            const Icon(
-                              Icons.desktop_access_disabled_outlined,
-                              size: 34,
-                              color: Color(0x99ffffff),
-                            )
-                          else
-                            const SizedBox(
-                              width: 24,
-                              height: 24,
-                              child: AdaptiveProgressIndicator(
-                                strokeWidth: 2,
-                                color: Color(0xb3ffffff),
+                    child: SingleChildScrollView(
+                      child: Padding(
+                        padding: const EdgeInsets.all(28),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            if (failed)
+                              const Icon(
+                                Icons.desktop_access_disabled_outlined,
+                                size: 34,
+                                color: Color(0x99ffffff),
+                              )
+                            else
+                              const SizedBox(
+                                width: 24,
+                                height: 24,
+                                child: AdaptiveProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: Color(0xb3ffffff),
+                                ),
                               ),
+                            const SizedBox(height: 16),
+                            Text(
+                              _status == 'browserUnavailable'
+                                  ? l10n.computerBrowserUnavailable
+                                  : statusLabel,
+                              textAlign: TextAlign.center,
+                              style: const TextStyle(color: Color(0xb3ffffff)),
                             ),
-                          const SizedBox(height: 16),
-                          Text(
-                            _status == 'browserUnavailable'
-                                ? l10n.computerBrowserUnavailable
-                                : statusLabel,
-                            textAlign: TextAlign.center,
-                            style: const TextStyle(color: Color(0xb3ffffff)),
-                          ),
-                          if (failed)
-                            Padding(
-                              padding: const EdgeInsets.only(top: 12),
-                              child: AdaptiveButton.child(
-                                style: AdaptiveButtonStyle.plain,
-                                onPressed: () => unawaited(_open()),
-                                child: Text(
-                                  l10n.retry,
-                                  style: const TextStyle(
-                                    color: Color(0xff68b5ff),
+                            if (failed)
+                              Padding(
+                                padding: const EdgeInsets.only(top: 12),
+                                child: AdaptiveButton.child(
+                                  style: AdaptiveButtonStyle.plain,
+                                  onPressed: () => unawaited(_open()),
+                                  child: Text(
+                                    l10n.retry,
+                                    style: const TextStyle(
+                                      color: Color(0xff68b5ff),
+                                    ),
                                   ),
                                 ),
                               ),
-                            ),
-                        ],
+                          ],
+                        ),
                       ),
                     ),
                   ),
@@ -444,9 +458,11 @@ class _ComputerPageState extends ConsumerState<ComputerPage>
             _stopFailed
                 ? l10n.computerStopFailed
                 : _controlling
-                ? _connection?.transport == 'vnc'
+                ? _vnc
                       ? l10n.computerDesktopGestures
                       : l10n.computerControlHint
+                : _hasTakenControl
+                ? l10n.computerContinueHint
                 : l10n.computerWatchHint,
             textAlign: TextAlign.center,
             style: TextStyle(
@@ -571,6 +587,22 @@ class _ComputerPageState extends ConsumerState<ComputerPage>
                     ),
                   ),
                 ],
+              );
+            }
+            if (MediaQuery.textScalerOf(context).scale(14) > 20) {
+              return SingleChildScrollView(
+                child: Column(
+                  children: [
+                    modes,
+                    status,
+                    navigation,
+                    SizedBox(
+                      height: constraints.maxHeight * .65,
+                      child: screen,
+                    ),
+                    controls,
+                  ],
+                ),
               );
             }
             return Column(

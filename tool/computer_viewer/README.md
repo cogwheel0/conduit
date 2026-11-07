@@ -19,7 +19,9 @@ hidden on Watch, blur, disconnect and mode changes.
 
 Desktop is the default when advertised. Both preview and live view explicitly
 select Desktop or Browser. Only Browser has navigation controls. Landscape uses
-a side panel, preserving the live surface across rotation.
+a side panel, preserving the live surface across rotation. Larger accessibility
+text uses a scrollable layout so every control remains reachable. After taking
+control, Watch explains that a new chat message continues the task.
 
 Protocol references:
 - https://github.com/open-webui/open-terminal/tree/v0.17.2/open_terminal
@@ -83,7 +85,7 @@ use the host's native desktop: it can expose personal apps and files.
 `real_desktop.test.js` uses this disposable VM (hostname/user `studio`, SSH on
 loopback port 12222, review key and known-hosts files in
 `build/computer-review/linux`). It creates a fresh editor profile per run and
-checks actual server-rendered cursor movement, Watch input blocking, typing and
+checks actual server-rendered cursor movement, Watch input blocking, dragging, typing and
 saving in Mousepad, and safe reconnect. Run from this directory:
 
 ```sh
@@ -94,3 +96,18 @@ Verified with Open WebUI 0.13 protocol, Open Terminal 0.17.2, iOS 27 simulator,
 Android/iOS widget layouts, a real Linux/XFCE desktop and a real Chrome browser.
 Native Mac/Windows desktop transports also have fixture coverage; this is not
 a claim of end-to-end testing on those host platforms.
+
+The managed-browser path has a separate real-service check. In the same disposable
+VM, run a second official Open Terminal with `browser_mode=managed`, a fresh
+workspace, and an official Chromium executable. Forward its port to loopback
+18769 and keep the synthetic site reachable at the VM host gateway, `10.0.2.2:8767`.
+The test uses the same public test API key. Chromium must retain its sandbox;
+Ubuntu may require an [executable-specific AppArmor profile](https://chromium.googlesource.com/chromium/src/+/main/docs/security/apparmor-userns-restrictions.md).
+
+```sh
+COMPUTER_MANAGED_REVIEW=true node --test managed_browser.test.js
+```
+
+This covers the VNC browser path, navigation, input gating and a second viewer
+replacing the first. Protocol fixtures additionally exercise repeated transport
+announcements and releasing held mouse buttons and keys during takeover changes.

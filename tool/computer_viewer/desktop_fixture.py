@@ -11,6 +11,7 @@ from PIL import Image, ImageDraw
 from websockets.asyncio.server import serve
 
 events = []
+browser_peers = set()
 WIDTH, HEIGHT = 320, 240
 
 
@@ -92,6 +93,29 @@ async def vnc(ws):
 async def handle(ws):
     if ws.request.path == '/events':
         await ws.send(json.dumps(events))
+        return
+    if ws.request.path == '/browser/stream':
+        state = json.dumps({'type': 'state', 'transport': 'vnc', 'url': 'https://studio.example'})
+        await ws.send(state)
+        await ws.send(state)
+        async for raw in ws:
+            message = json.loads(raw)
+            if message['type'] == 'navigate':
+                events.append(message)
+        return
+    if ws.request.path == '/browser/vnc':
+        events.append({'type': 'browser-viewer'})
+        browser_peers.add(ws)
+        try:
+            await asyncio.sleep(.1)
+            await vnc(ws)
+        finally:
+            browser_peers.discard(ws)
+        return
+    if ws.request.path == '/replace-browser-viewer':
+        for peer in list(browser_peers):
+            await peer.close(code=4000)
+        await ws.send('done')
         return
     auth = json.loads(await ws.recv())
     assert auth == {'type': 'auth', 'token': 'fixture-key', 'chat_id': 'fixture-chat'}

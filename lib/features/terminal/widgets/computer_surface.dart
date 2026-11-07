@@ -49,6 +49,7 @@ class _ComputerSurfaceViewState extends State<ComputerSurfaceView> {
   late final Future<String> _document = _load();
   bool _started = false;
   Size? _lastSize;
+  InAppWebViewController? _web;
 
   Map<String, Object> _viewport(Size size) => {
     'width': size.width.round().clamp(320, 1280),
@@ -79,8 +80,8 @@ html,body{margin:0;width:100%;height:100%;background:#111318;overflow:auto;overs
 
   @override
   void dispose() {
-    final web = widget.controller._web;
-    widget.controller._web = null;
+    final web = _web;
+    if (identical(widget.controller._web, web)) widget.controller._web = null;
     web?.removeJavaScriptHandler(handlerName: 'computer');
     if (web != null) {
       unawaited(
@@ -136,6 +137,7 @@ html,body{margin:0;width:100%;height:100%;background:#111318;overflow:auto;overs
               javaScriptHandlersOriginAllowList: {_origin},
             ),
             onWebViewCreated: (web) {
+              _web = web;
               widget.controller._web = web;
               web.addJavaScriptHandler(
                 handlerName: 'computer',

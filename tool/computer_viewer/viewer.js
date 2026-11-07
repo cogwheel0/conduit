@@ -6,7 +6,7 @@ import {createPointer} from './pointer.js';
 const surface = document.getElementById('surface');
 const canvas = document.getElementById('frame');
 const context = canvas.getContext('2d', {alpha: false});
-let config, socket, rfb, retryTimer, connectTimer;
+let config, socket, vncSocket, rfb, retryTimer, connectTimer;
 let generation = 0, retries = 0, controlling = false, connected = false;
 let visible = true, disposed = false, frameQueue = Promise.resolve();
 let lastPoint = {x: 0, y: 0}, buttons = 0, touch = null;
@@ -64,6 +64,8 @@ function close() {
   clearTimeout(connectTimer);
   rfb?.disconnect();
   rfb = null;
+  vncSocket?.close();
+  vncSocket = null;
   if (socket) { socket.onclose = null; socket.close(); socket = null; }
   surface.replaceChildren(canvas);
   canvas.classList.remove('zoomed');
@@ -79,6 +81,9 @@ function lost(code = 1006) {
 }
 function attachVnc(ws, epoch) {
   canvas.style.display = 'none';
+  ws.addEventListener('close', event => {
+    if (epoch === generation) lost(event.code);
+  });
   rfb = new RFB(surface, ws, {shared: true});
   rfb.scaleViewport = true;
   rfb.resizeSession = false;
@@ -86,7 +91,10 @@ function attachVnc(ws, epoch) {
   rfb.qualityLevel = 6;
   rfb.compressionLevel = 2;
   rfb.addEventListener('connect', () => { if (epoch === generation) live(); });
-  rfb.addEventListener('disconnect', () => { if (epoch === generation) lost(); });
+  // Let the socket's close code distinguish a replaced viewer from a network loss.
+  rfb.addEventListener('disconnect', () => queueMicrotask(() => {
+    if (epoch === generation) lost();
+  }));
   rfb.addEventListener('securityfailure', () => { if (epoch === generation) lost(4003); });
 }
 async function draw(data, epoch) {
@@ -148,10 +156,11 @@ function connect() {
       const message = JSON.parse(event.data);
       if (message.type === 'state') {
         report('state', {title: String(message.title ?? ''), url: String(message.url ?? ''),
-          canGoBack: message.canGoBack === true, canGoForward: message.canGoForward === true});
+          canGoBack: message.canGoBack === true, canGoForward: message.canGoForward === true,
+          transport: message.transport});
         if (message.error) { lost(4002); return; }
-        if (message.transport === 'vnc' && !rfb) {
-          const vnc = new WebSocket(config.url.replace(/\/stream$/, '/vnc'));
+        if (message.transport === 'vnc' && !vncSocket) {
+          const vnc = vncSocket = new WebSocket(config.url.replace(/\/stream$/, '/vnc'));
           vnc.binaryType = 'arraybuffer';
           vnc.onopen = () => {
             if (epoch !== generation) { vnc.close(); return; }
@@ -243,6 +252,12 @@ surface.addEventListener('mousedown', event => {
   vncPointer = {clientX: event.clientX, clientY: event.clientY, button: event.button};
 }, true);
 surface.addEventListener('mouseup', event => { if (rfb) buttons = event.buttons; }, true);
+surface.addEventListener('mousemove', event => {
+  if (rfb && controlling) {
+    vncPointer.clientX = event.clientX;
+    vncPointer.clientY = event.clientY;
+  }
+}, true);
 for (const type of ['gesturestart', 'gesturemove', 'gestureend']) {
   surface.addEventListener(type, event => {
     if (!rfb || !controlling) return;

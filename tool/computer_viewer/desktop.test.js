@@ -60,6 +60,20 @@ for (const transport of ['frames', 'vnc']) {
       assert.ok(received.some(event => event.type === 'mouse' && event.buttons === 1), JSON.stringify({bounds, received}));
       assert.ok(received.some(event => event.type === 'key'));
       if (transport === 'vnc') {
+        await page.mouse.move(x, y);
+        await page.mouse.down();
+        await page.mouse.move(x + 50, y + 25);
+        await page.keyboard.down('Shift');
+        await page.evaluate(() => window.computer.control(false));
+        await new Promise(resolve => setTimeout(resolve, 150));
+        const released = (await events()).filter(event => event.type === 'mouse').at(-1);
+        assert.equal(released.buttons, 0);
+        assert.equal(released.x, Math.round((x + 50 - bounds.x) * 320 / bounds.width),
+          'Watch must release at the current pointer, without jumping back');
+        assert.equal((await events()).filter(event => event.type === 'key').at(-1).down, 0);
+        await page.mouse.up();
+        await page.keyboard.up('Shift');
+        await page.evaluate(() => window.computer.control(true));
         const touch = await page.context().newCDPSession(page);
         await touch.send('Emulation.setTouchEmulationEnabled', {enabled: true, maxTouchPoints: 1});
         await touch.send('Input.dispatchTouchEvent', {type: 'touchStart', touchPoints: [{x, y}]});
@@ -85,3 +99,31 @@ for (const transport of ['frames', 'vnc']) {
     } finally { await page.close(); await browser.close(); }
   });
 }
+
+test('managed Browser uses one VNC connection and respects another viewer',
+  {skip: process.env.COMPUTER_REVIEW !== 'true', timeout: 15000}, async () => {
+  const browser = await chromium.connectOverCDP('http://127.0.0.1:8770');
+  const page = await browser.contexts()[0].newPage();
+  try {
+    await page.setContent('<div id="surface" style="width:640px;height:480px"><canvas id="frame"></canvas></div>');
+    await page.evaluate(() => {window.states = []; window.flutter_inappwebview = {callHandler: (_, state) => window.states.push(state)};});
+    await page.addScriptTag({content: `(async () => {${await readFile(new URL('../../assets/computer/viewer.js', import.meta.url), 'utf8')}\n})();`});
+    await page.evaluate(port => window.computer.start({surface: 'browser',
+      url: `ws://127.0.0.1:${port}/browser/stream`}), port);
+    await page.waitForFunction(() => window.states.some(state => state.status === 'live'));
+    assert.equal((await events()).filter(event => event.type === 'browser-viewer').length, 1,
+      'Repeated state messages must not create competing VNC connections');
+    await page.evaluate(() => window.computer.control(true));
+    await page.evaluate(() => window.computer.command({type: 'navigate', url: 'https://studio.example/plan'}));
+    await new Promise(resolve => setTimeout(resolve, 100));
+    assert.ok((await events()).some(event => event.type === 'navigate'));
+    await new Promise((resolve, reject) => {
+      const ws = new WebSocket(`ws://127.0.0.1:${port}/replace-browser-viewer`);
+      ws.onmessage = resolve; ws.onerror = reject;
+    });
+    await page.waitForFunction(() => window.states.some(state => state.status === 'unavailable'));
+    await new Promise(resolve => setTimeout(resolve, 1300));
+    assert.equal((await events()).filter(event => event.type === 'browser-viewer').length, 1,
+      'A replaced viewer must not reconnect and steal control back');
+  } finally { await page.close(); await browser.close(); }
+});
