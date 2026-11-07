@@ -18,6 +18,10 @@ import 'package:conduit_core/utils/usage_summary.dart';
 import 'package:conduit_core/models/chat_comparison.dart';
 import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit_core/models/message_voice.dart';
+import 'package:conduit_core/features/direct_connections/providers/direct_connection_providers.dart'
+    show directContextLengthOverridesProvider;
+import 'package:conduit_core/features/direct_connections/services/direct_chat_bridge.dart'
+    show directModelAdvertisedContextLength;
 import 'package:conduit_core/features/web_search/services/direct_web_search_mode.dart';
 import 'package:conduit_markdown/conduit_markdown.dart';
 
@@ -2494,6 +2498,27 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     return message?.model;
   }
 
+  /// The context length of the model that wrote the response on screen,
+  /// when it is known: the one the model advertises (Direct connections and
+  /// some providers do), else the one set for a Direct model that advertises
+  /// none. Null when the response names no model or the model has left the
+  /// list.
+  int? _activeModelContextLength() {
+    final rawModelId =
+        _activeVersionIndex >= 0 &&
+            _activeVersionIndex < widget.message.versions.length
+        ? widget.message.versions[_activeVersionIndex].model
+        : widget.message.model;
+    final modelId = (rawModelId as String?)?.trim();
+    if (modelId == null || modelId.isEmpty) return null;
+    final model = (ref.read(modelsProvider).value ?? const <Model>[])
+        .where((model) => model.id == modelId)
+        .firstOrNull;
+    if (model == null) return null;
+    return directModelAdvertisedContextLength(model) ??
+        ref.read(directContextLengthOverridesProvider)[model.id];
+  }
+
   /// The model a live regeneration routes this answer through: ordinary
   /// answers run on the model selected now, while a comparison answer
   /// regenerates with its own model.
@@ -2786,6 +2811,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
             anchorKey: _inlineUsageButtonKey.currentContext != null
                 ? _inlineUsageButtonKey
                 : _overflowButtonKey,
+            contextLength: _activeModelContextLength(),
           ),
           sfSymbol: 'info.circle',
         ),
@@ -2938,6 +2964,75 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     );
   }
 
+  /// The actions More shows as a row of icons when two or more of them are
+  /// in it: the everyday ones, each told apart by its symbol alone.
+  static const _paletteActionIds = {
+    'copy',
+    'tts',
+    'regenerate',
+    'retry',
+    'share',
+  };
+
+  /// [actions] grouped as an iOS 26 menu groups them: the everyday actions
+  /// as a row of icons on top, then the ones that make another answer or
+  /// chat from this one, then the ones that read, pass on or describe this
+  /// answer, and Delete last on its own. A lone everyday action is a row in
+  /// its group rather than a row of one icon. Each group keeps the footer's
+  /// order.
+  List<AdaptivePopupMenuEntry> _overflowMenuSections(
+    List<_AssistantFooterAction> actions,
+  ) {
+    final palette = [
+      for (final action in actions)
+        if (_paletteActionIds.contains(action.id)) action,
+    ];
+    final usePalette = palette.length >= 2;
+    final answer = <_AssistantFooterAction>[];
+    final response = <_AssistantFooterAction>[];
+    final destructive = <_AssistantFooterAction>[];
+    for (final action in actions) {
+      if (usePalette && _paletteActionIds.contains(action.id)) continue;
+      switch (action.id) {
+        case 'regenerate' ||
+            'retry' ||
+            'retry-without-effort' ||
+            'merge' ||
+            'stop-merge' ||
+            'fork':
+          answer.add(action);
+        case 'delete':
+          destructive.add(action);
+        default:
+          response.add(action);
+      }
+    }
+    AdaptivePopupMenuItem<String> item(_AssistantFooterAction action) =>
+        AdaptivePopupMenuItem<String>(
+          value: action.id,
+          label: action.label,
+          icon: PlatformUiCapabilities.isIOS ? action.sfSymbol : action.icon,
+          enabled: action.onTap != null,
+          isDestructive: action.id == 'delete',
+        );
+    return [
+      for (final (group, style) in [
+        (
+          usePalette ? palette : const [],
+          AdaptivePopupMenuSectionStyle.palette,
+        ),
+        (answer, AdaptivePopupMenuSectionStyle.inline),
+        (response, AdaptivePopupMenuSectionStyle.inline),
+        (destructive, AdaptivePopupMenuSectionStyle.inline),
+      ])
+        if (group.isNotEmpty)
+          AdaptivePopupMenuSection<String>(
+            items: [for (final action in group) item(action)],
+            style: style,
+          ),
+    ];
+  }
+
   Widget _buildOverflowActionButton(
     List<_AssistantFooterAction> overflowActions,
   ) {
@@ -2956,19 +3051,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
           icon: PlatformUiCapabilities.isIOS
               ? 'ellipsis'
               : Icons.more_horiz_rounded,
-          items: overflowActions
-              .map(
-                (action) => AdaptivePopupMenuItem<String>(
-                  value: action.id,
-                  label: action.label,
-                  icon: PlatformUiCapabilities.isIOS
-                      ? action.sfSymbol
-                      : action.icon,
-                  enabled: action.onTap != null,
-                  isDestructive: action.id == 'delete',
-                ),
-              )
-              .toList(growable: false),
+          items: _overflowMenuSections(overflowActions),
           onSelected: (_, entry) {
             final selectedId = entry.value;
             if (selectedId == null) {

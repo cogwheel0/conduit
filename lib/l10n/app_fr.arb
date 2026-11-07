@@ -1019,6 +1019,24 @@
   "usageQueueTime": "Temps d'attente",
   "usageReasoningTokens": "Tokens de raisonnement",
   "usageTotalTokens": "Tokens totaux",
+  "usageContextWindow": "Fenêtre de contexte",
+  "usageContextWindowValue": "{percent} · {used} sur {total}",
+  "@usageContextWindowValue": {
+    "placeholders": {
+      "percent": {
+        "type": "String",
+        "example": "62%"
+      },
+      "used": {
+        "type": "String",
+        "example": "79K"
+      },
+      "total": {
+        "type": "String",
+        "example": "128K"
+      }
+    }
+  },
   "proxyAuthentication": "Authentification Proxy",
   "proxyAuthPlatformNotSupported": "L'authentification proxy nécessite un appareil mobile. Veuillez d'abord vous authentifier via un navigateur.",
   "proxyAuthLoading": "Chargement de la page d'authentification...",

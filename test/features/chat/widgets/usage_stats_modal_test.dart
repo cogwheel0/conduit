@@ -17,6 +17,7 @@ void main() {
     Map<String, dynamic> usage, {
     GlobalKey? anchorKey,
     bool anchorOnScreen = true,
+    int? contextLength,
   }) async {
     late AppLocalizations l10n;
     await tester.pumpWidget(
@@ -31,8 +32,12 @@ void main() {
               l10n = AppLocalizations.of(context)!;
               return TextButton(
                 key: anchorOnScreen ? anchorKey : null,
-                onPressed: () =>
-                    UsageStatsModal.show(context, usage, anchorKey: anchorKey),
+                onPressed: () => UsageStatsModal.show(
+                  context,
+                  usage,
+                  anchorKey: anchorKey,
+                  contextLength: contextLength,
+                ),
                 child: const Text('open'),
               );
             },
@@ -66,6 +71,30 @@ void main() {
 
     expect(find.text(l10n.usageTokenCount(120)), findsOneWidget);
     expect(find.text(l10n.usageIncomplete), findsNothing);
+  });
+
+  testWidgets('the context window shows when the model\'s length is known', (
+    tester,
+  ) async {
+    const usage = <String, dynamic>{
+      'prompt_tokens': 78000,
+      'completion_tokens': 1360,
+    };
+    var l10n = await openSheet(tester, usage, contextLength: 128000);
+    expect(find.text(l10n.usageContextWindow), findsOneWidget);
+    expect(find.text('62% \u00b7 79K of 128K'), findsOneWidget);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    l10n = await openSheet(tester, usage);
+    expect(find.text(l10n.usageContextWindow), findsNothing);
+
+    // A length of whole 1,024-token blocks is named as models name it.
+    await tester.pumpWidget(const SizedBox.shrink());
+    await openSheet(tester, const <String, dynamic>{
+      'prompt_tokens': 19500,
+      'completion_tokens': 820,
+    }, contextLength: 32768);
+    expect(find.text('62% \u00b7 20K of 32K'), findsOneWidget);
   });
 
   test('the native sheet text carries the note too', () async {
@@ -138,6 +167,65 @@ void main() {
         ],
       );
       expect(find.text(l10n.usageInfoTitle), findsNothing);
+    }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
+
+    List<Map<Object?, Object?>> popoverRows() => [
+      for (final row
+          in ((calls.last.arguments as Map)['content'] as Map)['rows'] as List)
+        row as Map<Object?, Object?>,
+    ];
+
+    testWidgets('the context window leads, with a gauge of how full it was', (
+      tester,
+    ) async {
+      final l10n = await openSheet(
+        tester,
+        <String, dynamic>{'prompt_tokens': 78000, 'completion_tokens': 1360},
+        anchorKey: GlobalKey(),
+        contextLength: 128000,
+      );
+
+      final rows = popoverRows();
+      expect(
+        (
+          rows.first['title'],
+          rows.first['trailingText'],
+          rows.first['leadingSfSymbol'],
+        ),
+        (
+          l10n.usageContextWindow,
+          '62% \u00b7 79K of 128K',
+          'gauge.with.dots.needle.67percent',
+        ),
+      );
+      expect(
+        rows.skip(1).map((row) => row['leadingSfSymbol']),
+        everyElement(isNull),
+      );
+    }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
+
+    testWidgets('the gauge shows the needle nearest to the fill', (
+      tester,
+    ) async {
+      final needles = <String?>[];
+      for (final tokens in [10000, 50000, 70000, 95000, 150000]) {
+        await openSheet(
+          tester,
+          <String, dynamic>{'prompt_tokens': tokens, 'completion_tokens': 0},
+          anchorKey: GlobalKey(),
+          contextLength: 128000,
+        );
+        needles.add(popoverRows().first['leadingSfSymbol'] as String?);
+        await tester.pumpWidget(const SizedBox.shrink());
+      }
+      // 8%, 39%, 55%, 74% and, past the length, 117%.
+      expect(needles, [
+        'gauge.with.dots.needle.0percent',
+        'gauge.with.dots.needle.33percent',
+        'gauge.with.dots.needle.50percent',
+        'gauge.with.dots.needle.67percent',
+        'gauge.with.dots.needle.100percent',
+      ]);
     }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
 
     for (final fallback in [

@@ -797,6 +797,24 @@
   "usageQueueTime": "대기 시간",
   "usageReasoningTokens": "추론 토큰",
   "usageTotalTokens": "총 토큰",
+  "usageContextWindow": "컨텍스트 창",
+  "usageContextWindowValue": "{percent} · {total} 중 {used}",
+  "@usageContextWindowValue": {
+    "placeholders": {
+      "percent": {
+        "type": "String",
+        "example": "62%"
+      },
+      "used": {
+        "type": "String",
+        "example": "79K"
+      },
+      "total": {
+        "type": "String",
+        "example": "128K"
+      }
+    }
+  },
   "proxyAuthentication": "프록시 인증",
   "proxyAuthPlatformNotSupported": "프록시 인증은 모바일 장치가 필요합니다. 먼저 브라우저를 통해 인증해 주세요.",
   "proxyAuthLoading": "인증 페이지 로딩 중...",

@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io' show Platform;
 
+import 'package:intl/intl.dart';
 import 'package:material_ui/material_ui.dart';
 
 import 'package:conduit/l10n/app_localizations.dart';
@@ -8,12 +9,18 @@ import 'package:conduit_core/utils/usage_summary.dart';
 
 import '../../../core/services/native_sheet_bridge.dart';
 import '../../../shared/theme/theme_extensions.dart';
+import '../../../shared/utils/locale_display_formatters.dart';
 import '../../../shared/widgets/platform_ui/platform_ui.dart';
 import '../../../shared/widgets/themed_sheets.dart';
 
-/// One figure of a response's usage: what it is, its value and, for a rate,
-/// the count it was measured on.
-typedef _UsageStat = ({String label, String value, String? detail});
+/// One figure of a response's usage: what it is, its value, for a rate the
+/// count it was measured on, and the SF Symbol the popover draws before it.
+typedef _UsageStat = ({
+  String label,
+  String value,
+  String? detail,
+  String? symbol,
+});
 
 /// Usage/performance statistics for a chat response, behind its Info
 /// button as in Open WebUI: a popover on iOS 26 and later, a sheet
@@ -27,10 +34,15 @@ class UsageStatsModal {
   /// widget of [anchorKey] (the button that asked for them). Without an
   /// anchor, elsewhere, or when the usage holds no figure the summary knows,
   /// they open in a sheet.
+  ///
+  /// With the [contextLength] of the model that wrote the response, and
+  /// usage that gives the prompt and answer of its last call, they include
+  /// how full the model's context window was.
   static void show(
     BuildContext context,
     Map<String, dynamic> usage, {
     GlobalKey? anchorKey,
+    int? contextLength,
   }) async {
     final theme = context.conduitTheme;
     final l10n = AppLocalizations.of(context)!;
@@ -43,11 +55,16 @@ class UsageStatsModal {
         title: l10n.usageInfoTitle,
         message: summary.incomplete ? l10n.usageIncomplete : null,
         rows: [
-          for (final stat in _usageStats(summary, l10n))
+          for (final stat in _usageStats(
+            context,
+            summary,
+            contextLength: contextLength,
+          ))
             AdaptiveInfoPopoverRow(
               label: stat.label,
               value: stat.value,
               detail: stat.detail,
+              symbol: stat.symbol,
             ),
         ],
       );
@@ -116,7 +133,7 @@ class UsageStatsModal {
             const SizedBox(height: Spacing.lg),
 
             // Stats grid
-            ..._buildUsageStats(ctx, usage, l10n, theme),
+            ..._buildUsageStats(ctx, usage, l10n, theme, contextLength),
           ],
         );
       },
@@ -129,10 +146,15 @@ class UsageStatsModal {
     Map<String, dynamic> usage,
     AppLocalizations l10n,
     ConduitThemeExtension theme,
+    int? contextLength,
   ) {
     final summary = UsageSummary.fromUsage(usage);
     final stats = <Widget>[
-      for (final stat in _usageStats(summary, l10n))
+      for (final stat in _usageStats(
+        context,
+        summary,
+        contextLength: contextLength,
+      ))
         _UsageStatRow(
           label: stat.label,
           value: stat.value,
@@ -163,15 +185,43 @@ class UsageStatsModal {
   /// The figures of [summary], in the order the sheet and the popover list
   /// them. The arithmetic is the core's, shared with the desktop app; this
   /// only words it.
+  ///
+  /// How full the context window was leads, when [contextLength] and the
+  /// summary's context tokens are both known.
   static List<_UsageStat> _usageStats(
-    UsageSummary summary,
-    AppLocalizations l10n,
-  ) {
+    BuildContext context,
+    UsageSummary summary, {
+    int? contextLength,
+  }) {
+    final l10n = AppLocalizations.of(context)!;
     final stats = <_UsageStat>[];
-    void add(String label, String value, {String? detail}) =>
-        stats.add((label: label, value: value, detail: detail));
+    void add(String label, String value, {String? detail, String? symbol}) =>
+        stats.add((label: label, value: value, detail: detail, symbol: symbol));
     String? count(int? tokens) =>
         tokens == null ? null : l10n.usageTokenCount(tokens);
+
+    if ((summary.contextTokens, contextLength)
+        case (final tokens?, final length?) when length > 0) {
+      final fill = tokens / length;
+      add(
+        l10n.usageContextWindow,
+        l10n.usageContextWindowValue(
+          LocaleDisplayFormatters.percentage(context, fill),
+          _compactCount(context, tokens),
+          // A length of whole 1,024-token blocks that is not a round
+          // thousand is named by their number, as models advertise it and
+          // the Direct settings show it: 32,768 is 32K, 131,072 is 128K,
+          // and 128,000 stays 128K.
+          _compactCount(
+            context,
+            length % 1000 != 0 && length % 1024 == 0
+                ? length ~/ 1024 * 1000
+                : length,
+          ),
+        ),
+        symbol: _gaugeSymbol(fill),
+      );
+    }
 
     if (summary.generationPerSecond case final rate?) {
       add(
@@ -219,6 +269,33 @@ class UsageStatsModal {
     }
     return stats;
   }
+
+  /// The gauge glyph whose needle is nearest to [fill], a share of the
+  /// context window: SF Symbols draws it at 0, 33, 50, 67 and 100 percent.
+  static String _gaugeSymbol(double fill) {
+    const stops = [0, 33, 50, 67, 100];
+    final percent = fill * 100;
+    final nearest = stops.reduce(
+      (a, b) => (percent - a).abs() <= (percent - b).abs() ? a : b,
+    );
+    return 'gauge.with.dots.needle.${nearest}percent';
+  }
+
+  /// [count] as a short figure in the app's language, rounded as iOS rounds
+  /// one: to whole units, or to one decimal under ten of them (79K, 128K,
+  /// 1.5M; 7.9万 in Japanese).
+  static String _compactCount(BuildContext context, int count) {
+    final locale = Localizations.localeOf(context).toLanguageTag();
+    NumberFormat format(int decimals) => NumberFormat.compact(locale: locale)
+      ..significantDigitsInUse = false
+      ..maximumFractionDigits = decimals;
+    final whole = format(0).format(count);
+    return _digit.allMatches(whole).length == 1
+        ? format(1).format(count)
+        : whole;
+  }
+
+  static final _digit = RegExp(r'\p{Nd}', unicode: true);
 
   /// The text the native iOS sheet shows: each field of [usage], then, when
   /// Open WebUI marked it incomplete, the same note the other sheet gives.
