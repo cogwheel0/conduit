@@ -3260,4 +3260,108 @@ void main() {
       check(await settleUnknownHermesRun(missingIdentity, 'run-9')).isFalse();
     });
   });
+
+  group('Responses wrap-ups', () {
+    test('streamed reasoning is not repeated at the end', () async {
+      final statuses = <ChatStatusUpdate>[];
+      final fake = _FakeHermesApiService(
+        const [],
+        responseEvents: const [
+          HermesResponseCreated('resp-1'),
+          HermesReasoningDelta('Weigh '),
+          HermesReasoningDelta('the parcels.'),
+          HermesTokenDelta('Two kilos.'),
+          HermesReasoningDelta('Weigh the parcels.', terminal: true),
+          HermesFinalOutput('Two kilos.'),
+          HermesRunDone(),
+        ],
+      );
+      await _dispatchFakeHermesResponse(
+        service: fake,
+        registry: HermesRunRegistry(),
+        assistantMessageId: 'm',
+        input: HermesChatInput.text('hi'),
+        appendContent: (_) {},
+        appendStatus: statuses.add,
+        updateMessage: (_) {},
+        finishStreaming: () {},
+        completeStreamingUi: () {},
+      );
+
+      final reasoning = statuses
+          .where((s) => s.action == 'reasoning')
+          .map((s) => s.description);
+      check(reasoning.last).equals('Thinking… Weigh the parcels.');
+      check(reasoning.where((d) => d!.contains('parcels.Weigh'))).isEmpty();
+    });
+
+    test('terminal reasoning shows when nothing was streamed', () async {
+      final statuses = <ChatStatusUpdate>[];
+      final fake = _FakeHermesApiService(
+        const [],
+        responseEvents: const [
+          HermesResponseCreated('resp-1'),
+          HermesReasoningDelta('Read the tide table.', terminal: true),
+          HermesFinalOutput('High tide is at six.'),
+          HermesRunDone(),
+        ],
+      );
+      await _dispatchFakeHermesResponse(
+        service: fake,
+        registry: HermesRunRegistry(),
+        assistantMessageId: 'm',
+        input: HermesChatInput.text('hi'),
+        appendContent: (_) {},
+        appendStatus: statuses.add,
+        updateMessage: (_) {},
+        finishStreaming: () {},
+        completeStreamingUi: () {},
+      );
+
+      check(statuses.single.description)
+          .equals('Thinking… Read the tide table.');
+    });
+
+    test('an incomplete answer is kept with a note, not an error', () async {
+      final statuses = <ChatStatusUpdate>[];
+      final content = StringBuffer();
+      var message = ChatMessage(
+        id: 'm',
+        role: 'assistant',
+        content: '',
+        timestamp: DateTime.fromMillisecondsSinceEpoch(0),
+      );
+      final fake = _FakeHermesApiService(
+        const [],
+        responseEvents: const [
+          HermesResponseCreated('resp-1'),
+          HermesFinalOutput('First half of the list.'),
+          HermesRunNotice(kHermesIncompleteNotice),
+          HermesRunDone(),
+        ],
+      );
+      final succeeded = await _dispatchFakeHermesResponse(
+        service: fake,
+        registry: HermesRunRegistry(),
+        assistantMessageId: 'm',
+        input: HermesChatInput.text('hi'),
+        appendContent: content.write,
+        appendStatus: statuses.add,
+        updateMessage: (updater) => message = updater(message),
+        finishStreaming: () {},
+        completeStreamingUi: () {},
+      );
+
+      check(succeeded).isTrue();
+      check(content.toString()).equals('First half of the list.');
+      check(message.error).isNull();
+      check(statuses.single)
+        ..has((s) => s.action, 'action').equals('hermes_run_notice')
+        ..has(
+          (s) => s.description,
+          'description',
+        ).equals(kHermesIncompleteNotice)
+        ..has((s) => s.done, 'done').equals(true);
+    });
+  });
 }

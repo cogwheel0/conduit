@@ -220,6 +220,7 @@ Future<bool> dispatchHermesTurn({
   var sawTerminal = false;
   var completedSuccessfully = false;
   var gotContent = false;
+  var streamedReasoning = false;
   final streamedText = StringBuffer();
   String? finalOutput;
   String? responseId;
@@ -232,6 +233,12 @@ Future<bool> dispatchHermesTurn({
       // the owner has cancelled this token, transport teardown is silent and
       // no later provider event may turn that user action into a message error.
       if (sawTerminal || responseCancelToken.isCancelled) return;
+      // A terminal response repeats its reasoning items; show them only when
+      // nothing was streamed as deltas.
+      if (event is HermesReasoningDelta) {
+        if (event.terminal && streamedReasoning) return;
+        if (!event.terminal) streamedReasoning = true;
+      }
       switch (event) {
         case HermesTokenDelta(:final content):
           gotContent = true;
@@ -364,15 +371,22 @@ Future<bool> dispatchHermesTurn({
             replaceContent: replaceContent,
           );
         }
-        completedSuccessfully = recovered.status == 'completed';
-        if (!completedSuccessfully) {
+        // Hermes marks a turn that stopped short as incomplete; its text is
+        // still the answer, shown with a note rather than as a failure.
+        final incomplete = recovered.status == 'incomplete';
+        completedSuccessfully = recovered.status == 'completed' || incomplete;
+        if (incomplete) {
+          statusAccumulator.appendStatus(
+            const ChatStatusUpdate(
+              action: 'hermes_run_notice',
+              description: kHermesIncompleteNotice,
+              done: true,
+            ),
+          );
+        } else if (!completedSuccessfully) {
           updateMessage(
             (message) => message.copyWith(
-              error: ChatMessageError(
-                content: recovered.status == 'incomplete'
-                    ? 'Hermes stopped this response before it completed.'
-                    : 'Hermes response failed.',
-              ),
+              error: const ChatMessageError(content: 'Hermes response failed.'),
             ),
           );
         }
@@ -1165,7 +1179,9 @@ Future<({String text, String status})?> _recoverResponseOutput(
     String status;
     String text;
     try {
-      final decoded = OpenAiResponsesCodec.decodeResponse(response);
+      final decoded = OpenAiResponsesCodec.decodeResponse(
+        withoutHermesCommentary(response),
+      );
       status = decoded.status.toJson();
       text = _requireHermesRecoveryTextWithinLimit(
         OpenAiResponsesCodec.content(decoded).text,
@@ -1676,6 +1692,18 @@ void _handleEvent(
               sensitiveValues: sensitiveValues,
             ),
           ),
+        ),
+      );
+
+    case HermesRunNotice(:final message):
+      appendStatus(
+        ChatStatusUpdate(
+          action: 'hermes_run_notice',
+          description: sanitizeHermesProviderErrorMessage(
+            message,
+            sensitiveValues: sensitiveValues,
+          ),
+          done: true,
         ),
       );
 

@@ -10,6 +10,14 @@ import 'package:conduit_core/features/hermes/models/hermes_run_event.dart';
 import 'package:conduit_core/features/hermes/services/hermes_identifier.dart';
 import 'package:conduit_core/features/hermes/services/hermes_json_guard.dart';
 
+/// Shown with the answer when Hermes ran out of steps and wrapped up early.
+const String kHermesBudgetExhaustedNotice =
+    'Hermes reached its step limit, so it wrapped up early.';
+
+/// Shown with the answer when a Responses turn ended `incomplete`.
+const String kHermesIncompleteNotice =
+    'Hermes stopped before finishing, so this answer may be incomplete.';
+
 /// Shown when a Hermes restart interrupted a run (`run.interrupted`, or a run
 /// whose outcome Conduit had to acknowledge as unknown).
 const String kHermesRunInterruptedMessage =
@@ -109,7 +117,9 @@ Iterable<HermesRunEvent> parseHermesResponseFrame(SseFrame frame) sync* {
 
   if (type == 'error' || type.startsWith('response.')) {
     try {
-      final event = OpenAiResponsesCodec.decodeStreamEvent(payload);
+      final event = OpenAiResponsesCodec.decodeStreamEvent(
+        withoutHermesCommentary(payload),
+      );
       yield* _mapOpenAiResponseEvent(event);
       return;
     } catch (_) {
@@ -175,13 +185,13 @@ Iterable<HermesRunEvent> _mapOpenAiResponseEvent(
       yield const HermesRunDone();
 
     case openai.ResponseIncompleteEvent(:final response):
+      // Hermes reports a turn that stopped short (for example on its step
+      // budget) as incomplete; its text is still a usable answer.
       yield HermesResponseCreated(response.id);
-      yield HermesRunError(
-        OpenAiResponsesCodec.statusError(
-              response,
-              subject: 'Hermes response',
-            ) ??
-            'The Hermes response was incomplete.',
+      final text = OpenAiResponsesCodec.content(response).text;
+      if (text.isNotEmpty) yield HermesFinalOutput(text);
+      yield HermesRunNotice(
+        _incompleteNotice(response.incompleteDetails?.reason),
       );
       yield const HermesRunDone();
 
@@ -203,10 +213,10 @@ Iterable<HermesRunEvent> _mapOpenAiResponseEvent(
 
 Iterable<HermesRunEvent> _mapTerminalResponse(openai.Response response) sync* {
   yield HermesResponseCreated(response.id);
-  final statusError = OpenAiResponsesCodec.statusError(
-    response,
-    subject: 'Hermes response',
-  );
+  final incomplete = response.status == openai.ResponseStatus.incomplete;
+  final statusError = incomplete
+      ? null
+      : OpenAiResponsesCodec.statusError(response, subject: 'Hermes response');
   if (statusError != null) {
     yield HermesRunError(statusError);
     yield const HermesRunDone();
@@ -214,11 +224,57 @@ Iterable<HermesRunEvent> _mapTerminalResponse(openai.Response response) sync* {
   }
   final content = OpenAiResponsesCodec.content(response);
   if (content.reasoning.isNotEmpty) {
-    yield HermesReasoningDelta(content.reasoning);
+    yield HermesReasoningDelta(content.reasoning, terminal: true);
   }
   if (content.text.isNotEmpty) yield HermesFinalOutput(content.text);
+  if (incomplete) {
+    yield HermesRunNotice(
+      _incompleteNotice(response.incompleteDetails?.reason),
+    );
+  }
   yield const HermesRunDone();
 }
+
+String _incompleteNotice(Object? reason) {
+  if (reason is! String ||
+      !RegExp(r'^[A-Za-z0-9_.-]{1,64}$').hasMatch(reason)) {
+    return kHermesIncompleteNotice;
+  }
+  return 'Hermes stopped before finishing ($reason), so this answer may be '
+      'incomplete.';
+}
+
+/// Drops Responses message items Hermes marks `phase: "commentary"`.
+///
+/// Hermes v2026.9.24+ lists mid-turn commentary as separate message items,
+/// including in the final `response.output`; it is progress, not part of the
+/// answer. Checked on the raw JSON because the SDK may drop unknown keys.
+Map<String, dynamic> withoutHermesCommentary(Map<String, dynamic> payload) {
+  final response = payload['response'];
+  if (response is Map) {
+    final filtered = _withoutCommentaryOutput(response);
+    if (identical(filtered, response)) return payload;
+    return <String, dynamic>{...payload, 'response': filtered};
+  }
+  return _withoutCommentaryOutput(payload).cast<String, dynamic>();
+}
+
+Map _withoutCommentaryOutput(Map response) {
+  final output = response['output'];
+  if (output is! List || !output.any(_isHermesCommentaryItem)) {
+    return response;
+  }
+  return <String, dynamic>{
+    ...response.cast<String, dynamic>(),
+    'output': [
+      for (final item in output)
+        if (!_isHermesCommentaryItem(item)) item,
+    ],
+  };
+}
+
+bool _isHermesCommentaryItem(Object? item) =>
+    item is Map && item['phase'] == 'commentary';
 
 HermesToolProgress? _sdkToolProgress(
   openai.OutputItem item, {
@@ -342,9 +398,13 @@ Iterable<HermesRunEvent> parseHermesRunFrame(SseFrame frame) sync* {
     if (responseId != null && responseId.isNotEmpty) {
       yield HermesResponseCreated(responseId);
     }
-    yield HermesRunError(
-      _fallbackResponseStatusError('incomplete', responseMap ?? data) ??
-          'The Hermes response was incomplete.',
+    final output = _extractHermesTerminalOutput(
+      responseMap?['output'] ?? data['output'],
+    );
+    if (output != null && output.isNotEmpty) yield HermesFinalOutput(output);
+    final details = (responseMap ?? data)['incomplete_details'];
+    yield HermesRunNotice(
+      _incompleteNotice(details is Map ? details['reason'] : null),
     );
     yield const HermesRunDone();
     return;
@@ -357,6 +417,31 @@ Iterable<HermesRunEvent> parseHermesRunFrame(SseFrame frame) sync* {
     yield HermesRunError(
       _isTruthyError(error) ? _errorMessage(error) : 'Hermes run failed.',
     );
+    return;
+  }
+
+  // Since v0.22 a turn that ran out of steps ends `run.failed` with no
+  // `error` but with its wrap-up `output` and a `turn_exit_reason`. Keep the
+  // output; a budget stop is a note, not a failure.
+  if (eventType == 'run.failed' &&
+      (data.containsKey('output') || data.containsKey('turn_exit_reason'))) {
+    final output = _extractHermesTerminalOutput(data['output']);
+    if (output == null) {
+      yield const HermesRunError(
+        'The Hermes response output exceeded Conduit\'s size or shape limit.',
+      );
+      return;
+    }
+    if (output.isNotEmpty) yield HermesFinalOutput(output);
+    final exitReason = _strictString(data['turn_exit_reason']) ?? '';
+    if (!_isTruthyError(data['error']) &&
+        (exitReason.startsWith('budget_exhausted') ||
+            exitReason.startsWith('max_iterations_reached('))) {
+      yield const HermesRunNotice(kHermesBudgetExhaustedNotice);
+    } else {
+      yield HermesRunError(_failureMessage(data['error']));
+    }
+    yield const HermesRunDone();
     return;
   }
 
@@ -600,6 +685,7 @@ String extractHermesOutputText(
       final rawType = value['type'];
       final type = rawType is String ? rawType : null;
       if (type != null && type.contains('function')) continue;
+      if (value['phase'] == 'commentary') continue;
       schedule(value['text'] ?? value['content'], current.depth + 1);
       continue;
     }

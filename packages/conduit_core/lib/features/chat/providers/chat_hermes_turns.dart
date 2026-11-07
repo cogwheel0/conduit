@@ -1989,10 +1989,18 @@ Future<void> _dispatchRegisteredHermesRunFromChat(
         if (!responseStartsNewChain &&
             requestedSessionId != null &&
             establishedSessionId != requestedSessionId) {
-          throw StateError(
-            'Hermes returned a different session for an existing-session '
-            'request.',
-          );
+          // Hermes moves a response chain to a fresh session when its
+          // session was deleted, and reports the lineage root of a compressed
+          // one. A chained turn continues wherever Hermes says it lives.
+          if (responsePreviousResponseId == null || isDesktop) {
+            throw StateError(
+              'Hermes returned a different session for an existing-session '
+              'request.',
+            );
+          }
+          // The pre-turn history belonged to the old session; without a
+          // baseline for the new one, document provenance fails closed.
+          baselineServerMessageIds = null;
         }
         final responseCreatedSession = responseStartsNewChain;
         if (responseCreatedSession && documentTrustConnectionIdentity != null) {

@@ -493,6 +493,7 @@ int _hermesEventCharacters(
   HermesFinalOutput(:final text) => text.length,
   HermesComposerPrefill(:final text) => text.length,
   HermesRunError(:final message) => message.length,
+  HermesRunNotice(:final message) => message.length,
   HermesRunDone() => 0,
 };
 

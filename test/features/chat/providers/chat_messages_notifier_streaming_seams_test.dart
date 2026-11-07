@@ -2390,6 +2390,81 @@ void main() {
       container.read(chatMessagesProvider.notifier).clearMessages();
     });
 
+    test('a chained Responses turn follows a moved session', () async {
+      final service = _ResponsesHermesApi(
+        establishedSessionIdOverride: 'api-5e7d1c0a2b3f4e6d',
+      );
+      final container = _testContainer(
+        overrides: [
+          activeConversationProvider.overrideWith(
+            () => _TestActiveConversationNotifier(),
+          ),
+          apiServiceProvider.overrideWithValue(null),
+          socketServiceProvider.overrideWithValue(null),
+          hermesConfigProvider.overrideWith(
+            () => _FixedHermesConfigController(),
+          ),
+          hermesApiServiceProvider.overrideWithValue(service),
+        ],
+      );
+      addTearDown(container.dispose);
+      final earlier = _assistantMessage(
+        id: 'earlier-assistant',
+        content: 'The ferry leaves at noon.',
+        metadata: const <String, dynamic>{
+          'transport': kHermesTransport,
+          'hermesTransportMode': kHermesResponsesMode,
+          'hermesResponseId': 'resp-earlier',
+          'hermesSessionId': 'ferry-plans',
+        },
+      );
+      final placeholder = _assistantMessage(
+        id: 'moved-session-assistant',
+        content: '',
+        isStreaming: true,
+        metadata: const <String, dynamic>{'transport': kHermesTransport},
+      );
+      container
+          .read(activeConversationProvider.notifier)
+          .set(
+            markNativeHermesConversation(
+              Conversation(
+                id: 'local:hermes_ferry-plans',
+                title: 'Ferry plans',
+                createdAt: DateTime(2024, 1, 1),
+                updatedAt: DateTime(2024, 1, 1),
+                messages: <ChatMessage>[earlier, placeholder],
+                metadata: const <String, dynamic>{
+                  'backend': 'hermes',
+                  'hermesSessionId': 'ferry-plans',
+                },
+              ),
+            ),
+          );
+      await Future<void>.delayed(Duration.zero);
+
+      await dispatchHermesRunFromChatForTest(
+        container,
+        assistantMessageId: placeholder.id,
+        assistantSeed: placeholder,
+        input: 'and the return?',
+        existingMessages: <ChatMessage>[earlier],
+        responseInput: HermesChatInput.text('and the return?'),
+      ).timeout(const Duration(seconds: 1));
+
+      check(service.previousResponseIds).deepEquals(<String?>['resp-earlier']);
+      check(service.sessionIds).deepEquals(<String?>['ferry-plans']);
+      final assistant = container
+          .read(chatMessagesProvider)
+          .firstWhere((message) => message.id == placeholder.id);
+      check(assistant.error).isNull();
+      check(assistant.content).equals('answer 1');
+      check(
+        container.read(activeConversationProvider)!.metadata['hermesSessionId'],
+      ).equals('api-5e7d1c0a2b3f4e6d');
+      container.read(chatMessagesProvider.notifier).clearMessages();
+    });
+
     test('first Responses turn adopts the server-owned session', () async {
       final service = _ResponsesHermesApi(
         establishedSessionIdOverride: 'foreign-session',

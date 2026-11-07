@@ -328,6 +328,35 @@ void main() {
           .equals('queued');
     });
 
+    test('a step-budget wrap-up keeps its answer with a note', () async {
+      final events = await parseHermesRunStream(
+        _sse([
+          'data: {"event":"run.failed","run_id":"run_7","completed":false,"partial":true,"interrupted":false,"turn_exit_reason":"max_iterations_reached(40)","output":"Here is what I found so far.","seq":30}\n\n',
+        ]),
+      ).toList();
+
+      check(events.whereType<HermesRunError>()).isEmpty();
+      check(events.whereType<HermesFinalOutput>().single.text)
+          .equals('Here is what I found so far.');
+      check(events.whereType<HermesRunNotice>().single.message)
+          .equals(kHermesBudgetExhaustedNotice);
+      check(events.last).isA<HermesRunDone>();
+    });
+
+    test('a failed run keeps its output and still fails', () async {
+      final events = await parseHermesRunStream(
+        _sse([
+          'data: {"event":"run.failed","run_id":"run_7","completed":false,"partial":false,"turn_exit_reason":"provider_error","output":"Partial notes.","error":"upstream timeout"}\n\n',
+        ]),
+      ).toList();
+
+      check(events.whereType<HermesFinalOutput>().single.text)
+          .equals('Partial notes.');
+      check(events.whereType<HermesRunError>().single.message)
+          .equals('upstream timeout');
+      check(events.last).isA<HermesRunDone>();
+    });
+
     test('does not decode an answered gate as a new request', () async {
       // Issue #769: the runs API follows an approval with approval.responded
       // (only run_id, choice and resolved), which used to reopen the card.
@@ -725,7 +754,7 @@ void main() {
           .equals('a1');
     });
 
-    test('surfaces typed incomplete responses as terminal errors', () async {
+    test('keeps typed incomplete responses as answers with a note', () async {
       final events = await parseHermesResponseStream(
         _sse([
           'data: ${jsonEncode({
@@ -746,9 +775,73 @@ void main() {
           .isA<HermesResponseCreated>()
           .has((event) => event.responseId, 'responseId')
           .equals('resp_incomplete');
-      check(events.whereType<HermesRunError>().single.message)
+      check(events.whereType<HermesRunError>()).isEmpty();
+      check(events.whereType<HermesRunNotice>().single.message)
           .contains('max_output_tokens');
       check(events.last).isA<HermesRunDone>();
+    });
+
+    test('commentary items never join the final answer', () async {
+      Map<String, dynamic> message(String id, String text, {String? phase}) => {
+        'type': 'message',
+        'id': id,
+        'role': 'assistant',
+        'status': 'completed',
+        'phase': ?phase,
+        'content': [
+          {'type': 'output_text', 'text': text, 'annotations': <Object>[]},
+        ],
+      };
+      final events = await parseHermesResponseStream(
+        _sse([
+          'data: ${jsonEncode({
+            'type': 'response.completed',
+            'response': {
+              'id': 'resp_orchard',
+              'object': 'response',
+              'created_at': 1,
+              'status': 'completed',
+              'output': [
+                {
+                  'type': 'reasoning',
+                  'id': 'rs_1',
+                  'summary': [
+                    {'type': 'summary_text', 'text': 'Count the rows.'},
+                  ],
+                },
+                message('msg_c', 'Checking the orchard map…', phase: 'commentary'),
+                message('msg_a', 'There are twelve apple rows.'),
+              ],
+            },
+          })}\n\n',
+        ]),
+      ).toList();
+
+      check(events.whereType<HermesFinalOutput>().single.text)
+          .equals('There are twelve apple rows.');
+      check(events.whereType<HermesReasoningDelta>().single)
+        ..has((e) => e.content, 'content').equals('Count the rows.')
+        ..has((e) => e.terminal, 'terminal').isTrue();
+    });
+
+    test('the fallback output reader skips commentary too', () {
+      check(
+        extractHermesOutputText([
+          {
+            'type': 'message',
+            'phase': 'commentary',
+            'content': [
+              {'type': 'output_text', 'text': 'Looking around… '},
+            ],
+          },
+          {
+            'type': 'message',
+            'content': [
+              {'type': 'output_text', 'text': 'Found it.'},
+            ],
+          },
+        ]),
+      ).equals('Found it.');
     });
 
     test('rejects a sparse completed envelope with cancelled status', () async {
@@ -768,7 +861,7 @@ void main() {
       check(events.last).isA<HermesRunDone>();
     });
 
-    test('surfaces sparse incomplete envelopes through the fallback', () async {
+    test('keeps sparse incomplete envelopes through the fallback', () async {
       final events = await parseHermesResponseStream(
         _sse([
           'event: response.incomplete\n'
@@ -780,7 +873,8 @@ void main() {
           .isA<HermesResponseCreated>()
           .has((event) => event.responseId, 'responseId')
           .equals('resp_sparse');
-      check(events.whereType<HermesRunError>().single.message)
+      check(events.whereType<HermesRunError>()).isEmpty();
+      check(events.whereType<HermesRunNotice>().single.message)
           .contains('content_filter');
       check(events.last).isA<HermesRunDone>();
     });

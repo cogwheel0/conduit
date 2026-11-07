@@ -26,9 +26,13 @@ final class HermesTokenDelta extends HermesRunEvent {
 
 /// Incremental reasoning/thinking text, when the agent exposes it.
 final class HermesReasoningDelta extends HermesRunEvent {
-  const HermesReasoningDelta(this.content);
+  const HermesReasoningDelta(this.content, {this.terminal = false});
 
   final String content;
+
+  /// Whether this is the whole reasoning repeated by a terminal response,
+  /// which duplicates any reasoning already streamed as deltas.
+  final bool terminal;
 }
 
 /// A tool the agent is running (started / progressing / completed).
@@ -118,6 +122,14 @@ final class HermesDecisionRequested extends HermesRunEvent {
   final String requestId;
   final String? prompt;
   final Map<String, dynamic> raw;
+}
+
+/// A non-error note about how a run ended, such as a wrap-up after Hermes
+/// ran out of steps. The answer so far is kept and shown with the note.
+final class HermesRunNotice extends HermesRunEvent {
+  const HermesRunNotice(this.message);
+
+  final String message;
 }
 
 /// A lifecycle transition (created / completed / failed / cancelled / stopping).
