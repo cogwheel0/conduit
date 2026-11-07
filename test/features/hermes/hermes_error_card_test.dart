@@ -12,11 +12,13 @@ import 'package:conduit_core/features/chat/providers/chat_providers.dart';
 import 'package:conduit_core/features/hermes/models/hermes_config.dart';
 import 'package:conduit_core/features/hermes/models/hermes_context_usage.dart';
 import 'package:conduit_core/features/hermes/models/hermes_error_surface.dart';
+import 'package:conduit_core/features/hermes/models/hermes_model.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 import 'package:conduit_core/features/hermes/services/hermes_backend_service.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_context_providers.dart';
 import 'package:conduit_core/features/hermes/services/hermes_desktop_api_service.dart';
 import 'package:conduit_core/features/hermes/services/hermes_desktop_transport.dart';
+import 'package:conduit_core/features/hermes/services/hermes_message_mapper.dart';
 import 'package:conduit_core/features/hermes/services/hermes_run_transport.dart';
 import 'package:conduit_core/features/hermes/services/hermes_session_provenance.dart';
 import 'package:conduit_core/models/chat_message.dart';
@@ -284,6 +286,66 @@ void main() {
     expect(find.text(_l10n.retry), findsNothing);
   });
 
+  testWidgets('a context overflow it cannot compact here offers a new chat', (
+    tester,
+  ) async {
+    // No Desktop Gateway session to compact: the second option shows.
+    await _pumpCard(
+      tester,
+      const HermesErrorSurface(
+        layer: HermesErrorLayer.provider,
+        code: 'context_overflow',
+        retryable: false,
+      ),
+    );
+
+    expect(find.text(_l10n.hermesErrorCompact), findsNothing);
+    expect(
+      find.byKey(const ValueKey('hermes-error-action-newChat')),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('a new chat stays on the Hermes model', (tester) async {
+    final container = await _pumpCard(
+      tester,
+      const HermesErrorSurface(
+        layer: HermesErrorLayer.gateway,
+        code: 'SESSION_NOT_OWNED',
+        retryable: false,
+      ),
+    );
+    final hermes = hermesSyntheticModel(name: 'Synthetic Hermes');
+    container.read(selectedModelProvider.notifier).set(hermes);
+
+    await tester.tap(find.byKey(const ValueKey('hermes-error-action-newChat')));
+    await tester.pumpAndSettle();
+
+    expect(container.read(activeConversationProvider), isNull);
+    expect(container.read(selectedModelProvider), same(hermes));
+    expect(container.read(isManualModelSelectionProvider), isTrue);
+  });
+
+  testWidgets('a new chat picks Hermes when another model is selected', (
+    tester,
+  ) async {
+    final container = await _pumpCard(
+      tester,
+      const HermesErrorSurface(
+        layer: HermesErrorLayer.gateway,
+        code: 'SESSION_NOT_OWNED',
+        retryable: false,
+      ),
+    );
+
+    await tester.tap(find.byKey(const ValueKey('hermes-error-action-newChat')));
+    await tester.pumpAndSettle();
+
+    final selected = container.read(selectedModelProvider);
+    expect(selected, isNotNull);
+    expect(isHermesModel(selected!), isTrue);
+  });
+
   testWidgets('a session another gateway owns offers a new chat', (
     tester,
   ) async {
@@ -346,6 +408,38 @@ void main() {
 
       expect(find.byType(HermesErrorCard), findsOneWidget);
       expect(find.text(_l10n.hermesErrorContextOverflow), findsOneWidget);
+    });
+
+    testWidgets('a failed turn read back from its transcript keeps its card', (
+      tester,
+    ) async {
+      // A reloaded or reopened chat: the row Hermes stored to close the
+      // failed turn carries the live frame's descriptor.
+      final stored = hermesMessagesToChatMessages([
+        {'id': 1, 'role': 'user', 'content': 'Synthetic prompt'},
+        {
+          'id': 2,
+          'role': 'assistant',
+          'content': 'Synthetic notice: the request was not run.',
+          'display_kind': 'failed_turn',
+          'display_metadata': {
+            'error': 'HTTP 401: synthetic key refused',
+            'error_surface': {
+              'layer': 'auth',
+              'code': 'auth',
+              'retryable': false,
+              'provider': 'custom',
+              'auth_kind': 'api_key',
+            },
+          },
+        },
+      ]).last;
+
+      await pumpReply(tester, stored);
+
+      expect(find.byType(HermesErrorCard), findsOneWidget);
+      expect(find.text(_l10n.hermesErrorAuth), findsOneWidget);
+      expect(find.text('HTTP 401: synthetic key refused'), findsOneWidget);
     });
 
     testWidgets('any other failure keeps the plain banner', (tester) async {

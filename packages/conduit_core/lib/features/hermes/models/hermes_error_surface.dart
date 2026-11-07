@@ -104,16 +104,28 @@ final class HermesModelSuggestion {
   final String label;
   final String provider;
 
-  static HermesModelSuggestion? fromJson(Object? json) {
+  /// Reads one suggestion; a field reflecting one of [sensitiveValues] is
+  /// dropped (a model id that does drops the suggestion).
+  static HermesModelSuggestion? fromJson(
+    Object? json, {
+    Iterable<String> sensitiveValues = const <String>[],
+  }) {
     if (json is! Map) return null;
-    final model = validateHermesOpaqueIdentifier(json['model']);
+    final model = validateHermesOpaqueIdentifier(
+      json['model'],
+      sensitiveValues: sensitiveValues,
+    );
     if (model == null) return null;
     return HermesModelSuggestion(
       model: model,
       label:
-          validateHermesBoundedString(json['label'], maxCharacters: 128) ??
-          model,
-      provider: validateHermesOpaqueIdentifier(json['provider']) ?? 'nous',
+          _label(json['label'], sensitiveValues, maxCharacters: 128) ?? model,
+      provider:
+          validateHermesOpaqueIdentifier(
+            json['provider'],
+            sensitiveValues: sensitiveValues,
+          ) ??
+          'nous',
     );
   }
 
@@ -181,6 +193,9 @@ final class HermesErrorSurface {
 
   /// Reads a failed `message.complete` [payload]; null when it carries no
   /// structured failure (older gateways), so the plain error text stays.
+  ///
+  /// A provider-controlled field that reflects one of [sensitiveValues] or
+  /// a credential is redacted (a sentence) or left out (a name, a link).
   static HermesErrorSurface? fromCompletion(
     Map<String, dynamic> payload, {
     Iterable<String> sensitiveValues = const <String>[],
@@ -189,6 +204,10 @@ final class HermesErrorSurface {
     final billing = payload['billing'];
     if (raw is! Map && billing is! Map) return null;
     String? sentence(Object? value) => _sentence(value, sensitiveValues);
+    String? identifier(Object? value) => validateHermesOpaqueIdentifier(
+      value,
+      sensitiveValues: sensitiveValues,
+    );
     final surface = raw is Map ? raw : const <Object?, Object?>{};
     final billingBlock = billing is Map ? billing : const <Object?, Object?>{};
     final layer =
@@ -208,16 +227,13 @@ final class HermesErrorSurface {
       layer: layer,
       code: code,
       retryable: surface['retryable'] != false,
-      provider: validateHermesOpaqueIdentifier(
-        surface['provider'] ?? billingBlock['provider'],
-      ),
-      providerLabel: validateHermesBoundedString(
+      provider: identifier(surface['provider'] ?? billingBlock['provider']),
+      providerLabel: _label(
         surface['provider_label'] ?? billingBlock['provider_label'],
+        sensitiveValues,
         maxCharacters: 80,
       ),
-      model: validateHermesOpaqueIdentifier(
-        surface['model'] ?? billingBlock['model'],
-      ),
+      model: identifier(surface['model'] ?? billingBlock['model']),
       authKind: switch (surface['auth_kind']) {
         'oauth' => 'oauth',
         'api_key' => 'api_key',
@@ -233,7 +249,10 @@ final class HermesErrorSurface {
       suggestions: [
         if (limitMap['suggestions'] case final List items)
           for (final item in items.take(_kMaxHermesModelSuggestions))
-            ?HermesModelSuggestion.fromJson(item),
+            ?HermesModelSuggestion.fromJson(
+              item,
+              sensitiveValues: sensitiveValues,
+            ),
       ],
       creditsAction: switch (creditsAction) {
         'use_credits' ||
@@ -241,7 +260,7 @@ final class HermesErrorSurface {
         'add_credits_and_keep_going' => creditsAction as String,
         _ => null,
       },
-      billingUrl: _webUrl(billingBlock['billing_url']),
+      billingUrl: _webUrl(billingBlock['billing_url'], sensitiveValues),
       partial: payload['partial'] == true,
     );
   }
@@ -389,9 +408,16 @@ final class HermesErrorSurface {
   ///
   /// Follows Hermes Desktop's table of a main fix and a second option per
   /// failure, and takes the first of the two Conduit can perform.
-  HermesErrorAction? actionAt(DateTime now) {
+  HermesErrorAction? actionAt(DateTime now) => actionsAt(now).firstOrNull;
+
+  /// The main fix and the second option at [now] that Conduit has an
+  /// action for, best first: a screen that cannot perform the first (no
+  /// session to compact here) offers the next.
+  List<HermesErrorAction> actionsAt(DateTime now) {
     final (primary, secondary) = _fixes(now);
-    return _performable(primary) ?? _performable(secondary);
+    final first = _performable(primary);
+    final second = _performable(secondary);
+    return [?first, if (second != first) ?second];
   }
 
   /// Whether the chat still works ([HermesErrorSeverity.degraded]) or is
@@ -542,8 +568,17 @@ String? _sentence(Object? value, Iterable<String> sensitiveValues) {
   return safe.isEmpty || safe == '[REDACTED]' ? null : safe;
 }
 
+/// The last second of the year 9999, past which no reset is meant.
+const int _kMaxHermesResetSeconds = 253402300799;
+
 DateTime? _epochSeconds(Object? value) {
-  if (value is! num || value is bool || !value.isFinite || value <= 0) {
+  // Bounded before scaling: a huge finite value would overflow to infinity,
+  // which `round` refuses.
+  if (value is! num ||
+      value is bool ||
+      !value.isFinite ||
+      value <= 0 ||
+      value > _kMaxHermesResetSeconds) {
     return null;
   }
   return _bounded((value * 1000).round());
@@ -555,12 +590,38 @@ DateTime? _epochMilliseconds(Object? value) {
 }
 
 /// Rejects a reset time a provider could not mean (past the year 9999).
-DateTime? _bounded(int milliseconds) => milliseconds > 253402300799000
+DateTime? _bounded(int milliseconds) =>
+    milliseconds > _kMaxHermesResetSeconds * 1000
     ? null
     : DateTime.fromMillisecondsSinceEpoch(milliseconds, isUtc: true);
 
-String? _webUrl(Object? value) {
-  final text = validateHermesBoundedString(value, maxCharacters: 2048);
+/// [value] as a short name a card can show, or null when it reflects one
+/// of [sensitiveValues] or a credential: redacting part of a name would
+/// still show the rest of it.
+String? _label(
+  Object? value,
+  Iterable<String> sensitiveValues, {
+  required int maxCharacters,
+}) {
+  final text = validateHermesBoundedString(
+    value,
+    maxCharacters: maxCharacters,
+  );
+  if (text == null) return null;
+  final safe = sanitizeProviderErrorMessage(
+    text,
+    fallback: '',
+    sensitiveValues: sensitiveValues,
+    maxCharacters: maxCharacters,
+  );
+  return safe == text ? text : null;
+}
+
+String? _webUrl(
+  Object? value, [
+  Iterable<String> sensitiveValues = const <String>[],
+]) {
+  final text = _label(value, sensitiveValues, maxCharacters: 2048);
   if (text == null) return null;
   final uri = Uri.tryParse(text);
   return uri != null && uri.scheme == 'https' && uri.host.isNotEmpty

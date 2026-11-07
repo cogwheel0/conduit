@@ -7,6 +7,7 @@ import 'package:conduit_core/features/hermes/models/hermes_chat_input.dart';
 import 'package:conduit_core/features/hermes/models/hermes_config.dart';
 import 'package:conduit_core/features/hermes/models/hermes_context_usage.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_context_providers.dart';
+import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 import 'package:conduit_core/features/hermes/services/hermes_api_service.dart';
 import 'package:conduit_core/features/hermes/services/hermes_backend_service.dart';
 import 'package:conduit_core/features/hermes/services/hermes_desktop_api_service.dart';
@@ -15,6 +16,7 @@ import 'package:conduit_core/persistence/preferences_store.dart';
 import 'package:conduit_core/ports/key_value_store.dart';
 import 'package:dio/dio.dart';
 import 'package:mocktail/mocktail.dart';
+import 'package:riverpod/riverpod.dart';
 import 'package:test/test.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
@@ -216,6 +218,20 @@ void main() {
       check(plan.rateLimitedUntil).equals(DateTime.utc(2026, 11, 7, 15));
       check(plan.usageLevel).equals('medium');
     });
+  });
+
+  test('totals with only reasoning, cache or compactions are not empty', () {
+    check(const HermesTokenTotals().isEmpty).isTrue();
+    check(const HermesTokenTotals(input: 0, calls: 0).isEmpty).isTrue();
+    for (final totals in const [
+      HermesTokenTotals(reasoning: 120),
+      HermesTokenTotals(cacheRead: 2400),
+      HermesTokenTotals(cacheWrite: 300),
+      HermesTokenTotals(cacheHitPercent: 50),
+      HermesTokenTotals(compressions: 1),
+    ]) {
+      check(totals.isEmpty).isFalse();
+    }
   });
 
   test('unavailable bars and a plain provider add nothing', () {
@@ -420,6 +436,62 @@ void main() {
       final call = gateway.calls('session.compress').single;
       check(call['session_id']).equals('rt-1');
       check(call['focus_topic']).equals('the dessert');
+      check(changes).deepEquals(['stored-1']);
+      // The shorter read that follows replaces the chat's messages, once.
+      check(service.takeCompactedTranscript('stored-1')).isTrue();
+      check(service.takeCompactedTranscript('stored-1')).isFalse();
+    });
+
+    test('tells the chat of each change, twice for one chat', () async {
+      final gateway = _Gateway();
+      final service = _service(gateway);
+      final container = ProviderContainer(
+        overrides: [hermesApiServiceProvider.overrideWithValue(service)],
+      );
+      addTearDown(container.dispose);
+      final seen = <String>[];
+      container.listen(
+        hermesDesktopTranscriptChangesProvider,
+        (_, next) => next.whenData((change) => seen.add(change.storedId)),
+      );
+
+      await service.compactSession('stored-1');
+      await _settle();
+      await service.compactSession('stored-1');
+      await _settle();
+
+      check(seen).deepEquals(['stored-1', 'stored-1']);
+    });
+
+    test('reloads the chat when a background compaction finishes', () async {
+      final gateway = _Gateway()
+        ..answers['session.compress'] = {
+          'status': 'pending',
+          'turn_isolation': true,
+          'message': 'compression still running in the background',
+        };
+      final service = _service(gateway);
+      final changes = <String>[];
+      final subscription = service.transcriptChanges.listen(changes.add);
+      addTearDown(subscription.cancel);
+
+      final result = await service.compactSession('stored-1');
+      await _settle();
+
+      check(result.outcome).equals(HermesCompactOutcome.pending);
+      // Nothing changed yet: the chat keeps what it shows.
+      check(changes).isEmpty();
+      check(service.takeCompactedTranscript('stored-1')).isFalse();
+
+      gateway.emit('session.info', {'model': 'synthetic-model'});
+      await _settle();
+
+      check(changes).deepEquals(['stored-1']);
+      check(service.takeCompactedTranscript('stored-1')).isTrue();
+
+      // Only once: a later info is the session's own business.
+      gateway.emit('session.info', {'model': 'synthetic-model'});
+      await _settle();
       check(changes).deepEquals(['stored-1']);
     });
 

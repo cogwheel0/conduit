@@ -263,6 +263,48 @@ void main() {
     // The report is read again for the compacted chat.
     expect(loads, 2);
   });
+
+  testWidgets('a compaction still running refreshes the report when done', (
+    tester,
+  ) async {
+    _tall(tester);
+    final gateway = _Gateway()
+      ..answers['session.compress'] = {
+        'status': 'pending',
+        'turn_isolation': true,
+        'message': 'compression still running in the background',
+      };
+    var loads = 0;
+    await tester.pumpWidget(
+      _sheet(
+        _withReport(() async {
+          loads++;
+          return _desktopReport;
+        }, service: _service(gateway)),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.ensureVisible(find.text(_l10n.hermesContextCompactNow));
+    await tester.tap(find.text(_l10n.hermesContextCompactNow));
+    for (var i = 0; i < 20; i++) {
+      await tester.pump(const Duration(milliseconds: 20));
+    }
+    await tester.pumpAndSettle();
+
+    expect(find.text(_l10n.hermesContextCompactPending), findsOneWidget);
+    expect(loads, 1);
+
+    // Hermes reports the session in once its host finishes compacting.
+    gateway.emit('session.info', {'model': 'synthetic-model'});
+    for (var i = 0; i < 10; i++) {
+      await tester.pump(const Duration(milliseconds: 20));
+    }
+    await tester.pumpAndSettle();
+
+    expect(find.text(_l10n.hermesContextCompactPending), findsNothing);
+    expect(loads, 2);
+  });
 }
 
 final class _MockWebSocketChannel extends Mock implements WebSocketChannel {}
@@ -297,7 +339,11 @@ final class _Gateway {
       sent.add(frame);
       scheduleMicrotask(
         () => incoming.add(
-          jsonEncode({'jsonrpc': '2.0', 'id': id, 'result': _answer(method)}),
+          jsonEncode({
+            'jsonrpc': '2.0',
+            'id': id,
+            'result': answers[method] ?? _answer(method),
+          }),
         ),
       );
     });
@@ -307,6 +353,15 @@ final class _Gateway {
   final sink = _MockWebSocketSink();
   final incoming = StreamController<dynamic>.broadcast();
   final sent = <Map<String, dynamic>>[];
+  final answers = <String, Object?>{};
+
+  void emit(String type, Map<String, dynamic> payload) => incoming.add(
+    jsonEncode({
+      'jsonrpc': '2.0',
+      'method': 'event',
+      'params': {'type': type, 'session_id': 'rt-1', 'payload': payload},
+    }),
+  );
 
   List<String> get methods => [
     for (final frame in sent) frame['method'] as String,

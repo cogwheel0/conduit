@@ -79,15 +79,46 @@ extension _HermesDesktopContext on HermesDesktopApiService {
       );
     }
     final compacted = HermesCompactResult.fromJson(result);
-    final pending = compacted.outcome == HermesCompactOutcome.pending;
-    if (compacted.changed || pending) {
-      _lastTranscripts
-        ..remove(storedId)
-        ..remove(binding.storedId);
-      _lastTurnUsage.remove(binding.storedId);
-      _emitTranscriptChange(binding.storedId);
+    if (compacted.changed) {
+      _compactedTranscript(binding, storedId);
+    } else if (compacted.outcome == HermesCompactOutcome.pending) {
+      _watchPendingCompaction(binding, storedId);
     }
     return compacted;
+  }
+
+  /// [binding]'s transcript was compacted: what was read of it is stale,
+  /// and its chat reads it again, even if shorter.
+  void _compactedTranscript(HermesSessionBinding binding, String storedId) {
+    _lastTranscripts
+      ..remove(storedId)
+      ..remove(binding.storedId);
+    _lastTurnUsage.remove(binding.storedId);
+    for (final id in {binding.storedId, storedId}) {
+      _compactedTranscripts.add(id);
+      _emitTranscriptChange(id);
+    }
+  }
+
+  /// A compaction Hermes finishes in the background (a turn-isolated
+  /// session's host outlasting the wait) reports in with its session's
+  /// info, or an error: its chat and report are read again then.
+  void _watchPendingCompaction(
+    HermesSessionBinding binding,
+    String storedId,
+  ) {
+    final runtimeId = binding.runtimeId;
+    unawaited(_pendingCompactions.remove(runtimeId)?.cancel());
+    _pendingCompactions[runtimeId] = _rpc.events
+        .where(
+          (event) =>
+              event.sessionId == runtimeId &&
+              (event.type == 'session.info' || event.type == 'error'),
+        )
+        .listen((_) {
+          unawaited(_pendingCompactions.remove(runtimeId)?.cancel());
+          _compactedTranscript(binding, storedId);
+        });
   }
 
   /// Turns on a window plan's "Keep going on credits"; false when Hermes

@@ -11,6 +11,7 @@ import 'package:conduit_core/features/hermes/services/hermes_api_service.dart';
 import 'package:conduit_core/features/hermes/services/hermes_backend_service.dart';
 import 'package:conduit_core/features/hermes/services/hermes_desktop_api_service.dart';
 import 'package:conduit_core/features/hermes/services/hermes_desktop_transport.dart';
+import 'package:conduit_core/features/hermes/services/hermes_message_mapper.dart';
 import 'package:conduit_core/features/hermes/services/hermes_run_transport.dart';
 import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit_core/persistence/preferences_store.dart';
@@ -303,6 +304,86 @@ void main() {
           .not((it) => it.contains('synthetic-secret-value'));
     });
 
+    test('names, models and links carrying a known secret are dropped', () {
+      const secret = 'synthetic-secret-value';
+      final surface = HermesErrorSurface.fromCompletion(
+        {
+          'status': 'error',
+          'error_surface': {
+            'layer': 'billing',
+            'code': 'usage_window',
+            'provider': 'nous-$secret',
+            'provider_label': 'Portal $secret',
+            'model': 'model-$secret',
+            'usage_limit': {
+              'suggestions': [
+                {'model': 'small-$secret', 'label': 'Small'},
+                {'model': 'synthetic-medium', 'label': 'Medium $secret'},
+                {
+                  'model': 'synthetic-large',
+                  'label': 'Large',
+                  'provider': 'p-$secret',
+                },
+              ],
+            },
+          },
+          'billing': {
+            'billing_url': 'https://billing.example/top-up?key=$secret',
+          },
+        },
+        sensitiveValues: const [secret],
+      )!;
+
+      check(surface.provider).isNull();
+      check(surface.providerLabel).isNull();
+      check(surface.model).isNull();
+      check(surface.billingUrl).isNull();
+      check(
+        surface.suggestions.map((item) => (item.model, item.label)),
+      ).deepEquals([
+        ('synthetic-medium', 'synthetic-medium'),
+        ('synthetic-large', 'Large'),
+      ]);
+      check(surface.suggestions.last.provider).equals('nous');
+      check(jsonEncode(surface.toJson())).not((it) => it.contains(secret));
+    });
+
+    test('a link carrying a credential is dropped', () {
+      final surface = HermesErrorSurface.fromCompletion({
+        'status': 'error',
+        'failure_reason': 'billing',
+        'billing': {
+          'provider': 'openrouter',
+          'billing_url': 'https://billing.example/pay?api_key=synthetic123',
+        },
+      })!;
+
+      check(surface.billingUrl).isNull();
+    });
+
+    test('a reset too far ahead to scale is ignored, not thrown', () {
+      final surface = _surface({
+        'layer': 'provider',
+        'code': 'rate_limit',
+        'resets_at': 1e308,
+      });
+
+      check(surface.resetsAt).isNull();
+      check(surface.actionAt(_now)).equals(HermesErrorAction.retry);
+    });
+
+    test('lists the second option after the main fix', () {
+      final surface = _surface({
+        'layer': 'provider',
+        'code': 'context_overflow',
+        'retryable': false,
+      });
+
+      check(
+        surface.actionsAt(_now),
+      ).deepEquals([HermesErrorAction.compact, HermesErrorAction.newChat]);
+    });
+
     test('a completion without a descriptor keeps the plain text', () {
       check(
         HermesErrorSurface.fromCompletion({
@@ -387,6 +468,106 @@ void main() {
       ).copyWith(error: const ChatMessageError(content: 'Other.'));
 
       check(hermesErrorSurfaceOf(failed)).isNull();
+    });
+  });
+
+  group('a failed turn read back from its transcript', () {
+    // The rows Hermes stores for a turn its provider refused: the prompt,
+    // then the boundary row closing the turn, which keeps the live frame's
+    // `error_surface` and error in its display metadata.
+    List<Map<String, dynamic>> rows(Object? displayMetadata) => [
+      {'id': 1, 'role': 'user', 'content': 'Synthetic prompt'},
+      {
+        'id': 2,
+        'role': 'assistant',
+        'content': 'Synthetic notice: the request was not run.',
+        'display_kind': 'failed_turn',
+        'display_metadata': displayMetadata,
+      },
+    ];
+    final stored = {
+      'error': 'HTTP 429: synthetic limit reached',
+      'error_surface': {
+        'layer': 'provider',
+        'code': 'rate_limit',
+        'retryable': true,
+        'provider': 'custom',
+        'provider_label': 'Synthetic Provider',
+        'model': 'synthetic-model',
+        'resets_at': _now.millisecondsSinceEpoch / 1000 + 60,
+      },
+    };
+
+    test('shows the card the live turn showed', () {
+      final messages = hermesMessagesToChatMessages(rows(stored));
+
+      final failed = messages.last;
+      check(
+        failed.content,
+      ).equals('Synthetic notice: the request was not run.');
+      check(failed.error?.content).equals('HTTP 429: synthetic limit reached');
+      final surface = hermesErrorSurfaceOf(failed)!;
+      check(surface.kind).equals(HermesErrorKind.rateLimit);
+      check(surface.providerName).equals('Synthetic Provider');
+      check(surface.model).equals('synthetic-model');
+      check(surface.upcomingResetAt(_now)).isNotNull();
+      check(surface.actionAt(_now)).equals(HermesErrorAction.retry);
+    });
+
+    test('reads display metadata served as JSON text', () {
+      final failed = hermesMessagesToChatMessages(
+        rows(jsonEncode(stored)),
+      ).last;
+
+      check(hermesErrorSurfaceOf(failed)?.code).equals('rate_limit');
+    });
+
+    test('redacts a known secret in the stored error', () {
+      final failed = hermesMessagesToChatMessages(
+        rows({
+          ...stored,
+          'error': 'HTTP 401: key synthetic-secret-value refused',
+        }),
+        sensitiveValues: const ['synthetic-secret-value'],
+      ).last;
+
+      check(failed.error?.content)
+          .isNotNull()
+          .not((it) => it.contains('synthetic-secret-value'));
+      check(hermesErrorSurfaceOf(failed)).isNotNull();
+    });
+
+    test('falls back to the notice when no error was stored', () {
+      final failed = hermesMessagesToChatMessages(
+        rows({'error_surface': stored['error_surface']}),
+      ).last;
+
+      check(failed.error?.content)
+          .equals('Synthetic notice: the request was not run.');
+      check(hermesErrorSurfaceOf(failed)).isNotNull();
+    });
+
+    test('keeps a boundary without a descriptor as plain text', () {
+      final failed = hermesMessagesToChatMessages(rows(null)).last;
+
+      check(
+        failed.content,
+      ).equals('Synthetic notice: the request was not run.');
+      check(failed.error).isNull();
+      check(hermesErrorSurfaceOf(failed)).isNull();
+    });
+
+    test('ignores display metadata on an ordinary reply', () {
+      final messages = hermesMessagesToChatMessages([
+        {
+          'id': 3,
+          'role': 'assistant',
+          'content': 'Synthetic reply.',
+          'display_metadata': stored,
+        },
+      ]);
+
+      check(messages.single.error).isNull();
     });
   });
 

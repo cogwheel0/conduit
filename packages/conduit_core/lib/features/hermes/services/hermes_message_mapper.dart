@@ -5,11 +5,13 @@ import 'package:uuid/uuid.dart';
 import 'package:conduit_core/models/chat_message.dart';
 
 import 'package:conduit_core/features/hermes/models/hermes_chat_input.dart';
+import 'package:conduit_core/features/hermes/models/hermes_error_surface.dart';
 import 'package:conduit_core/features/hermes/models/hermes_inline_diff.dart';
 import 'package:conduit_core/features/hermes/utils/hermes_time_parsing.dart';
 import 'package:conduit_core/features/hermes/services/hermes_identifier.dart';
 import 'package:conduit_core/features/hermes/services/hermes_local_document_service.dart';
 import 'package:conduit_core/features/hermes/services/hermes_local_document_trust_store.dart';
+import 'package:conduit_core/utils/sensitive_value_utils.dart';
 
 const int kHermesMaxHistoryMessageTextCharacters = 512 * 1024;
 const int kHermesMaxHistoryContentNodes = 10000;
@@ -116,7 +118,9 @@ List<ChatMessage> restoreHermesDesktopRunningMessage(
 /// plain string or an array of typed text/image parts. System rows are skipped;
 /// persisted tool rows are folded into status history on the assistant row
 /// that requested them. An edit's stored diff is redacted of
-/// [sensitiveValues] (the connection's secrets), as a live one is.
+/// [sensitiveValues] (the connection's secrets), as a live one is. The row
+/// Hermes writes to close a failed turn comes back as that turn's error
+/// card, its text checked against [sensitiveValues] too.
 List<ChatMessage> hermesMessagesToChatMessages(
   List<Map<String, dynamic>> raw, {
   String? modelId,
@@ -203,6 +207,9 @@ List<ChatMessage> hermesMessagesToChatMessages(
             item['session_id'] ?? itemMetadata['session_id'],
           )
         : null;
+    final failure = acceptedRole == 'assistant'
+        ? _storedTurnFailure(item, sensitiveValues)
+        : null;
     final transportMetadata = <String, dynamic>{
       if (responseId != null) ...{
         'transport': 'hermesRun',
@@ -213,6 +220,12 @@ List<ChatMessage> hermesMessagesToChatMessages(
         'hermesRunId': runId,
       },
       'hermesSessionId': ?sessionId,
+      // Bound to the error it explains, as a live failure stores it.
+      if (failure != null)
+        kHermesErrorSurfaceMeta: {
+          ...failure.surface.toJson(),
+          'error': failure.error,
+        },
     };
 
     messages.add(
@@ -228,6 +241,9 @@ List<ChatMessage> hermesMessagesToChatMessages(
         files: files.isEmpty ? null : List.unmodifiable(files),
         metadata: transportMetadata.isEmpty ? null : transportMetadata,
         statusHistory: statusHistory,
+        error: failure == null
+            ? null
+            : ChatMessageError(content: failure.error),
       ),
     );
   }
@@ -307,10 +323,9 @@ String? _persistedHermesToolDetail(Object? value) {
   return String.fromCharCodes(safe.runes.take(2048));
 }
 
-/// A stored tool row's `display_metadata.tool_result_metadata`: what Hermes
-/// prepared to show with the result (an edit's `inline_diff`). Stored as
-/// JSON text or an object.
-Map<Object?, Object?> _storedToolResultMetadata(Map<String, dynamic> item) {
+/// A stored row's `display_metadata`, which Hermes serves as JSON text or
+/// an object; empty when it holds neither.
+Map<Object?, Object?> _storedDisplayMetadata(Map<String, dynamic> item) {
   var display = item['display_metadata'];
   if (display is String) {
     if (display.length > kMaxHermesInlineDiffCharacters * 4) return const {};
@@ -320,9 +335,51 @@ Map<Object?, Object?> _storedToolResultMetadata(Map<String, dynamic> item) {
       return const {};
     }
   }
-  final metadata = display is Map ? display['tool_result_metadata'] : null;
+  return display is Map ? display : const {};
+}
+
+/// A stored tool row's `display_metadata.tool_result_metadata`: what Hermes
+/// prepared to show with the result (an edit's `inline_diff`).
+Map<Object?, Object?> _storedToolResultMetadata(Map<String, dynamic> item) {
+  final metadata = _storedDisplayMetadata(item)['tool_result_metadata'];
   return metadata is Map ? metadata : const {};
 }
+
+/// The error card of the assistant row Hermes writes to close a failed turn
+/// (`display_kind: failed_turn`), which keeps the live failure's
+/// `error_surface` and error in its `display_metadata` (Hermes v0.22+). A
+/// reloaded or reopened chat shows the card the live turn showed, its text
+/// the stored error, else Hermes' own notice.
+({String error, HermesErrorSurface surface})? _storedTurnFailure(
+  Map<String, dynamic> item,
+  Iterable<String> sensitiveValues,
+) {
+  if (item['display_kind'] != 'failed_turn') return null;
+  final display = _storedDisplayMetadata(item);
+  final surface = HermesErrorSurface.fromCompletion({
+    'error_surface': display['error_surface'],
+  }, sensitiveValues: sensitiveValues);
+  if (surface == null) return null;
+  String? text(Object? value) {
+    if (value is! String || value.trim().isEmpty) return null;
+    final safe = sanitizeProviderErrorMessage(
+      value,
+      fallback: '',
+      sensitiveValues: sensitiveValues,
+      maxCharacters: _kMaxStoredTurnErrorCharacters,
+    );
+    return safe.isEmpty ? null : safe;
+  }
+
+  final error =
+      text(display['error']) ??
+      text(_extractContent(item['content'] ?? item['text']).text) ??
+      surface.code;
+  return (error: error, surface: surface);
+}
+
+/// The longest stored error a reloaded card shows, as a live one does.
+const int _kMaxStoredTurnErrorCharacters = 512;
 
 void _completePersistedHermesTool(
   Map<String, dynamic> item, {

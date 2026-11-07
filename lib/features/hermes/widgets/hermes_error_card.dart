@@ -6,7 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:conduit/shared/widgets/platform_ui/vocabulary.dart';
 import 'package:conduit_core/features/chat/providers/chat_providers.dart'
-    show startNewChat;
+    show startNewChat, startNewHermesChat;
 import 'package:conduit_core/features/hermes/models/hermes_error_surface.dart';
 import 'package:conduit_core/features/hermes/models/hermes_model.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
@@ -149,7 +149,14 @@ class _HermesErrorCardState extends ConsumerState<HermesErrorCard> {
         final url = _surface.billingPageUrl;
         return url != null && await launchExternalLink(url);
       case HermesErrorAction.newChat:
-        startNewChat(ref);
+        // The fresh chat stays on Hermes: the app's default model may be
+        // another backend's.
+        final model = ref.read(selectedModelProvider);
+        if (model != null && isHermesModel(model)) {
+          startNewChat(ref, modelForNewConversation: model);
+        } else {
+          await startNewHermesChat(ref);
+        }
         return true;
     }
   }
@@ -181,7 +188,9 @@ class _HermesErrorCardState extends ConsumerState<HermesErrorCard> {
     final now = DateTime.now();
     final surface = _surface;
     final blocking = surface.severityAt(now) == HermesErrorSeverity.blocking;
-    final action = surface.actionAt(now);
+    // The best fix this screen can perform: when it cannot compact (no
+    // Hermes session of its own), the second option shows instead.
+    final action = surface.actionsAt(now).where(_canPerform).firstOrNull;
     final reset = surface.upcomingResetAt(now);
     final accent = blocking ? theme.error : theme.textSecondary;
     final body = surface.message ?? widget.errorText;
@@ -261,7 +270,7 @@ class _HermesErrorCardState extends ConsumerState<HermesErrorCard> {
               style: detail.copyWith(fontWeight: FontWeight.w600),
             ),
           ],
-          if (action != null && _canPerform(action)) ...[
+          if (action != null) ...[
             const SizedBox(height: Spacing.sm),
             ConduitButton(
               key: ValueKey<String>('hermes-error-action-${action.name}'),

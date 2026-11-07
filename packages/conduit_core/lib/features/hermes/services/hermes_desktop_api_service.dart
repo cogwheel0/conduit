@@ -315,6 +315,16 @@ final class HermesDesktopApiService
   /// The `usage` of each session's last finished turn, by stored id.
   final Map<String, Map<String, dynamic>> _lastTurnUsage = {};
 
+  /// Stored ids an explicit compaction rewrote since their chat last read
+  /// them: that read may hold fewer messages (a Bot Chat's history leaves
+  /// compacted rows out) and still replaces what the chat shows.
+  final Set<String> _compactedTranscripts = {};
+
+  /// Compactions still running on the server, by runtime id, until their
+  /// session reports in.
+  final Map<String, StreamSubscription<HermesDesktopEvent>>
+  _pendingCompactions = {};
+
   /// Connection targets (operation/target card ids) the user approved on
   /// this device, whose authorization link this device then opens.
   final Set<String> _approvedConnectionTargets = {};
@@ -550,6 +560,10 @@ final class HermesDesktopApiService
   /// keeping [focus] in view.
   Future<HermesCompactResult> compactSession(String id, {String? focus}) =>
       _compactSession(id, focus: focus);
+
+  /// Whether a compaction rewrote session [id]'s transcript since the chat
+  /// last took it; true once, so that read may replace a longer one.
+  bool takeCompactedTranscript(String id) => _compactedTranscripts.remove(id);
 
   /// Lets a window plan keep going on credits past its limit. False when
   /// Hermes could not turn it on.
@@ -879,6 +893,11 @@ final class HermesDesktopApiService
     _lastTranscripts.clear();
     _appliedSessionOptions.clear();
     _lastTurnUsage.clear();
+    _compactedTranscripts.clear();
+    for (final watch in _pendingCompactions.values) {
+      unawaited(watch.cancel());
+    }
+    _pendingCompactions.clear();
     _sessionTurnStates.clear();
     _canonicalSessions.clear();
     _canonicalCreateIds.clear();

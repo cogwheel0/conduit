@@ -49,11 +49,17 @@ final class HermesTokenTotals {
   /// Whether [costUsd] is Hermes' estimate rather than the provider's bill.
   final bool costEstimated;
 
+  /// Whether no counter the sheet shows has anything to say.
   bool get isEmpty =>
       (input ?? 0) == 0 &&
       (output ?? 0) == 0 &&
+      (reasoning ?? 0) == 0 &&
+      (cacheRead ?? 0) == 0 &&
+      (cacheWrite ?? 0) == 0 &&
+      (cacheHitPercent ?? 0) == 0 &&
       (total ?? 0) == 0 &&
       (calls ?? 0) == 0 &&
+      (compressions ?? 0) == 0 &&
       costUsd == null;
 }
 

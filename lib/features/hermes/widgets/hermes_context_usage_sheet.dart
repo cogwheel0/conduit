@@ -122,6 +122,16 @@ class _HermesContextUsageSheetState
   Widget build(BuildContext context) {
     final theme = context.conduitTheme;
     final l10n = AppLocalizations.of(context)!;
+    // A compaction still running when it answered is done once the chat's
+    // transcript changes: the report is read again and the note goes.
+    ref.listen(hermesDesktopTranscriptChangesProvider, (_, next) {
+      if (_result?.outcome != HermesCompactOutcome.pending ||
+          next.asData?.value.storedId != widget.sessionId) {
+        return;
+      }
+      setState(() => _result = null);
+      ref.invalidate(hermesContextReportProvider(widget.sessionId));
+    });
     final report = ref.watch(hermesContextReportProvider(widget.sessionId));
     final model = report.asData?.value.model;
     return Column(
