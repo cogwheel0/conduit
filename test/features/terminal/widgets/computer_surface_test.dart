@@ -114,7 +114,7 @@ void main() {
           .params;
       expect(
         params.initialData!.baseUrl.toString(),
-        'http://computer.conduit.invalid/index.html',
+        'http://127.0.0.1/index.html',
       );
       final document = params.initialData!.data;
       expect(document, isNot(contains('synthetic-proxy')));
@@ -128,7 +128,7 @@ void main() {
       );
       expect(params.initialSettings!.sharedCookiesEnabled, isFalse);
       expect(params.initialSettings!.javaScriptHandlersOriginAllowList, {
-        'http://computer.conduit.invalid',
+        'http://127.0.0.1',
       });
       expect(document, contains('connect-src ws://127.0.0.1:* data:'));
       final decision = await params.shouldOverrideUrlLoading!(

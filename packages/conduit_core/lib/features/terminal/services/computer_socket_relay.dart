@@ -10,8 +10,9 @@ import '../models/computer_models.dart';
 final class ComputerSocketRelay {
   ComputerSocketRelay._(this._server, this._connection, this._secret);
 
-  /// Origin of the bundled pixel document; remote HTML never loads here.
-  static const viewerOrigin = 'http://computer.conduit.invalid';
+  /// Loopback gives the bundled document a secure context for VNC crypto.
+  /// Remote HTML never loads here.
+  static const viewerOrigin = 'http://127.0.0.1';
   final HttpServer _server;
   final ComputerConnection _connection;
   final String _secret;
