@@ -78,6 +78,64 @@ HermesDesktopApiService _service(_RoutesAdapter adapter) {
 const _cancel = 'POST /api/cron/jobs/job-1/cancel';
 
 void main() {
+  test('a new job sends only an explicit missed-run policy', () async {
+    final adapter = _RoutesAdapter({
+      'POST /api/cron/jobs': (200, {'id': 'job-1'}),
+    });
+    final service = _service(adapter);
+
+    await service.createJob(
+      name: 'Digest',
+      prompt: 'Summarize the notes',
+      schedule: '0 7 * * *',
+    );
+    check(adapter.bodies['POST /api/cron/jobs']).isA<Map>().deepEquals({
+      'name': 'Digest',
+      'prompt': 'Summarize the notes',
+      'schedule': '0 7 * * *',
+      'deliver': 'local',
+    });
+
+    await service.createJob(
+      name: 'Digest',
+      prompt: 'Summarize the notes',
+      schedule: '0 7 * * *',
+      catchUp: HermesJobCatchUp.skip,
+    );
+    check(adapter.bodies['POST /api/cron/jobs']).isA<Map>().deepEquals({
+      'name': 'Digest',
+      'prompt': 'Summarize the notes',
+      'schedule': '0 7 * * *',
+      'deliver': 'local',
+      'catch_up': false,
+    });
+    check(adapter.requests.last.query).deepEquals({'profile': 'ops'});
+  });
+
+  test('an edit sends only the policy it changes', () async {
+    final adapter = _RoutesAdapter();
+    final service = _service(adapter);
+    const key = 'PUT /api/cron/jobs/job-1';
+
+    await service.updateJob('job-1', name: 'Renamed');
+    check(adapter.bodies[key]).isA<Map>().deepEquals({
+      'updates': {'name': 'Renamed'},
+    });
+
+    await service.updateJob(
+      'job-1',
+      catchUp: HermesJobCatchUp.hermesDefault,
+    );
+    check(adapter.bodies[key]).isA<Map>().deepEquals({
+      'updates': {'catch_up': null},
+    });
+
+    await service.updateJob('job-1', catchUp: HermesJobCatchUp.runOnce);
+    check(adapter.bodies[key]).isA<Map>().deepEquals({
+      'updates': {'catch_up': true},
+    });
+  });
+
   test('stop reads the attempt Hermes cancelled', () async {
     final adapter = _RoutesAdapter({
       _cancel: (
@@ -147,6 +205,30 @@ void main() {
       addTearDown(container.dispose);
       return container;
     }
+
+    test('creates and edits with a missed-run policy', () async {
+      final adapter = _RoutesAdapter({
+        'POST /api/cron/jobs': (200, {'id': 'job-1'}),
+      });
+      final jobs = containerFor(_service(adapter)).read(
+        hermesJobsProvider.notifier,
+      );
+
+      await jobs.create(
+        name: 'Digest',
+        prompt: 'Summarize the notes',
+        schedule: '0 7 * * *',
+        catchUp: HermesJobCatchUp.runOnce,
+      );
+      check(
+        (adapter.bodies['POST /api/cron/jobs'] as Map)['catch_up'],
+      ).equals(true);
+
+      await jobs.edit('job-1', name: 'Renamed');
+      check(adapter.bodies['PUT /api/cron/jobs/job-1']).isA<Map>().deepEquals({
+        'updates': {'name': 'Renamed'},
+      });
+    });
 
     test('stop is unsupported on the API server', () async {
       final container = ProviderContainer(

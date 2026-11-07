@@ -6855,6 +6855,26 @@
   "@hermesJobLastCancelledNoReason": {
     "description": "Note on a Hermes scheduled job whose newest run was stopped, when Hermes recorded no reason."
   },
+  "hermesJobCatchUpLabel": "Missed runs",
+  "@hermesJobCatchUpLabel": {
+    "description": "Label for the field choosing what a Hermes scheduled job does with runs it missed."
+  },
+  "hermesJobCatchUpHint": "What to do with runs missed while Hermes was not running.",
+  "@hermesJobCatchUpHint": {
+    "description": "Help text under the missed-runs field of the Hermes scheduled job editor."
+  },
+  "hermesJobCatchUpDefault": "Hermes default",
+  "@hermesJobCatchUpDefault": {
+    "description": "Missed-runs choice that follows the Hermes server's default policy."
+  },
+  "hermesJobCatchUpRunOnce": "Run once after missed runs",
+  "@hermesJobCatchUpRunOnce": {
+    "description": "Missed-runs choice that runs the job once when Hermes comes back after missing runs."
+  },
+  "hermesJobCatchUpSkip": "Skip missed runs",
+  "@hermesJobCatchUpSkip": {
+    "description": "Missed-runs choice that skips the runs the job missed."
+  },
   "hermesApprovalAllowOnce": "Allow once",
   "@hermesApprovalAllowOnce": {
     "description": "Approval option that permits a Hermes tool call once."

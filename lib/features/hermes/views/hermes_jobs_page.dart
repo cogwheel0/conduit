@@ -306,7 +306,7 @@ class _HermesJobsPageState extends ConsumerState<HermesJobsPage> {
 
   Future<void> _createJob() async {
     final l10n = AppLocalizations.of(context) ?? AppLocalizationsEn();
-    final result = await showHermesJobEditor(context);
+    final result = await showHermesJobEditor(context, scheduling: _desktop);
     if (result == null || !mounted || _creating) return;
     if (ref.read(hermesApiServiceProvider) == null) {
       UiUtils.showMessage(context, l10n.hermesJobCreateFailed, isError: true);
@@ -321,6 +321,7 @@ class _HermesJobsPageState extends ConsumerState<HermesJobsPage> {
             name: result.name,
             prompt: result.prompt,
             schedule: result.schedule,
+            catchUp: result.catchUp ?? HermesJobCatchUp.hermesDefault,
           ),
       failureMessage: l10n.hermesJobCreateFailed,
       successMessage: l10n.hermesJobCreated,
@@ -725,6 +726,10 @@ class _JobCardState extends ConsumerState<_JobCard> {
       initialName: job.name ?? job.displayName,
       initialPrompt: job.prompt,
       initialSchedule: job.schedule,
+      initialCatchUp: job.catchUpChoice,
+      scheduling:
+          ref.read(hermesConfigProvider).mode ==
+          HermesBackendMode.desktopGateway,
     );
     if (result == null || !mounted) return;
     await _runMutation(
@@ -736,6 +741,7 @@ class _JobCardState extends ConsumerState<_JobCard> {
             name: result.name,
             prompt: result.prompt,
             schedule: result.schedule,
+            catchUp: result.catchUp,
           ),
       failureMessage: _l10n(context).hermesJobUpdateFailed,
       successMessage: _l10n(context).hermesJobUpdated,

@@ -553,8 +553,13 @@ final class HermesDesktopApiService
     required String name,
     required String prompt,
     required String schedule,
-  }) =>
-      _administration.createJob(name: name, prompt: prompt, schedule: schedule);
+    HermesJobCatchUp catchUp = HermesJobCatchUp.hermesDefault,
+  }) => _administration.createJob(
+    name: name,
+    prompt: prompt,
+    schedule: schedule,
+    catchUp: catchUp,
+  );
 
   @override
   Future<void> updateJob(
@@ -563,12 +568,14 @@ final class HermesDesktopApiService
     String? prompt,
     String? schedule,
     bool? enabled,
+    HermesJobCatchUp? catchUp,
   }) => _administration.updateJob(
     id,
     name: name,
     prompt: prompt,
     schedule: schedule,
     enabled: enabled,
+    catchUp: catchUp,
   );
 
   /// Stops the job's running run (`POST /api/cron/jobs/{id}/cancel`).

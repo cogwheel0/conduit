@@ -54,6 +54,32 @@ class HermesJobExecution {
   }
 }
 
+/// What a job does with the runs it missed while Hermes was not running.
+enum HermesJobCatchUp {
+  /// Stores nothing: recurring jobs follow `cron.catch_up_missed`, one-shot
+  /// jobs skip.
+  hermesDefault,
+
+  /// Runs once for the missed runs (`catch_up: true`).
+  runOnce,
+
+  /// Skips the missed runs (`catch_up: false`).
+  skip;
+
+  static HermesJobCatchUp fromValue(bool? value) => switch (value) {
+    true => runOnce,
+    false => skip,
+    null => hermesDefault,
+  };
+
+  /// The `catch_up` value Hermes stores for this choice.
+  bool? get value => switch (this) {
+    runOnce => true,
+    skip => false,
+    hermesDefault => null,
+  };
+}
+
 /// How a Stop aimed at one execution ended, read from a later job list.
 enum HermesJobStopOutcome { cancelled, finished, pending }
 
@@ -128,6 +154,7 @@ class HermesJob {
     this.lastDeliveryError,
     this.nextRun,
     this.lastRun,
+    this.catchUp,
     this.latestExecution,
     this.liveExecution,
   });
@@ -166,12 +193,18 @@ class HermesJob {
   final DateTime? nextRun;
   final DateTime? lastRun;
 
+  /// The job's missed-run policy: true runs once, false skips, null follows
+  /// Hermes' default.
+  final bool? catchUp;
+
   /// The job's newest execution attempt (dashboard records only).
   final HermesJobExecution? latestExecution;
 
   /// The job's newest attempt still running under a live owner. It finds a
   /// run that a newer refused Run-now row hides from [latestExecution].
   final HermesJobExecution? liveExecution;
+
+  HermesJobCatchUp get catchUpChoice => HermesJobCatchUp.fromValue(catchUp);
 
   /// Whether a run of this job is in flight, which is when Stop applies.
   bool get runInFlight =>
@@ -240,6 +273,7 @@ class HermesJob {
       ),
       nextRun: parseHermesTimestamp(json['next_run_at'] ?? json['next_run']),
       lastRun: parseHermesTimestamp(json['last_run_at'] ?? json['last_run']),
+      catchUp: json['catch_up'] is bool ? json['catch_up'] as bool : null,
       latestExecution: HermesJobExecution.fromJson(json['latest_execution']),
       liveExecution: HermesJobExecution.fromJson(json['live_execution']),
     );

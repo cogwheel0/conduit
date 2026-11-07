@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:checks/checks.dart';
 import 'package:conduit/features/hermes/views/hermes_jobs_page.dart';
+import 'package:conduit/features/hermes/widgets/hermes_job_editor.dart';
 import 'package:conduit_core/features/hermes/models/hermes_capabilities.dart';
 import 'package:conduit_core/features/hermes/models/hermes_config.dart';
 import 'package:conduit_core/features/hermes/models/hermes_job.dart';
@@ -196,6 +197,88 @@ void main() {
       expect(find.byKey(_stopKey), findsNothing);
       expect(find.text('Running now'), findsNothing);
       await _unmount(tester);
+    });
+
+  });
+
+  group('editor', () {
+    /// Opens the editor over a bare page; `result` completes when it closes.
+    Future<({Future<HermesJobEditorResult?> result})> openEditor(
+      WidgetTester tester, {
+      String? initialPrompt,
+      HermesJobCatchUp initialCatchUp = HermesJobCatchUp.hermesDefault,
+    }) async {
+      await tester.pumpWidget(
+        const ProviderScope(child: MaterialApp(home: Scaffold())),
+      );
+      final result = showHermesJobEditor(
+        tester.element(find.byType(Scaffold)),
+        initialName: initialPrompt == null ? null : 'Digest',
+        initialPrompt: initialPrompt,
+        initialSchedule: '0 7 * * *',
+        initialCatchUp: initialCatchUp,
+        scheduling: true,
+      );
+      await tester.pumpAndSettle();
+      return (result: result);
+    }
+
+    Future<void> save(WidgetTester tester) async {
+      await tester.tap(find.text('Save'));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('an untouched edit leaves the policy alone', (
+      tester,
+    ) async {
+      final editor = await openEditor(
+        tester,
+        initialPrompt: 'Summarize the overnight notes',
+        initialCatchUp: HermesJobCatchUp.skip,
+      );
+
+      expect(find.text('Skip missed runs'), findsOneWidget);
+      await save(tester);
+
+      check(await editor.result).isNotNull()
+        ..has((r) => r.name, 'name').equals('Digest')
+        ..has((r) => r.catchUp, 'catchUp').isNull();
+    });
+
+    testWidgets('returns the policy the user changed', (
+      tester,
+    ) async {
+      final editor = await openEditor(
+        tester,
+        initialPrompt: 'Summarize the overnight notes',
+      );
+
+      await tester.tap(find.text('Hermes default'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Run once after missed runs').last);
+      await tester.pumpAndSettle();
+      await save(tester);
+
+      check(await editor.result).isNotNull()
+          .has((r) => r.catchUp, 'catchUp')
+          .equals(HermesJobCatchUp.runOnce);
+    });
+
+    testWidgets('a new job always carries its policy', (
+      tester,
+    ) async {
+      final editor = await openEditor(tester);
+
+      await tester.enterText(find.byType(EditableText).at(0), 'Digest');
+      await tester.enterText(
+        find.byType(EditableText).at(1),
+        'Summarize the overnight notes',
+      );
+      await save(tester);
+
+      check(await editor.result).isNotNull()
+          .has((r) => r.catchUp, 'catchUp')
+          .equals(HermesJobCatchUp.hermesDefault);
     });
   });
 }

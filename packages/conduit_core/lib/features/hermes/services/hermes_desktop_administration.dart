@@ -410,10 +410,13 @@ final class _HermesDesktopAdministration {
   Future<List<Map<String, dynamic>>> listJobs() async =>
       _owner._objects(await _owner._requestJson('GET', '/api/cron/jobs'));
 
+  /// [catchUp] is sent only for an explicit choice: a dashboard older than
+  /// Hermes 0.22.6 knows no `catch_up`.
   Future<Map<String, dynamic>> createJob({
     required String name,
     required String prompt,
     required String schedule,
+    HermesJobCatchUp catchUp = HermesJobCatchUp.hermesDefault,
   }) async => _owner._object(
     await _owner._requestJson(
       'POST',
@@ -423,16 +426,21 @@ final class _HermesDesktopAdministration {
         'prompt': prompt,
         'schedule': schedule,
         'deliver': 'local',
+        if (catchUp != HermesJobCatchUp.hermesDefault)
+          'catch_up': catchUp.value,
       },
     ),
   );
 
+  /// A null [catchUp] leaves the stored policy untouched;
+  /// [HermesJobCatchUp.hermesDefault] clears the job's own policy.
   Future<void> updateJob(
     String id, {
     String? name,
     String? prompt,
     String? schedule,
     bool? enabled,
+    HermesJobCatchUp? catchUp,
   }) async {
     await _owner._requestJson(
       'PUT',
@@ -443,6 +451,7 @@ final class _HermesDesktopAdministration {
           'prompt': ?prompt,
           'schedule': ?schedule,
           'enabled': ?enabled,
+          if (catchUp != null) 'catch_up': catchUp.value,
         },
       },
     );

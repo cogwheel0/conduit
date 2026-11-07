@@ -2908,24 +2908,53 @@ class HermesJobsController extends AsyncNotifier<List<HermesJob>> {
     }
   }
 
+  /// [catchUp] applies on the Desktop Gateway; the API server keeps Hermes'
+  /// default policy.
   Future<void> create({
     required String name,
     required String prompt,
     required String schedule,
+    HermesJobCatchUp catchUp = HermesJobCatchUp.hermesDefault,
   }) async {
     final service = _service;
-    await service.createJob(name: name, prompt: prompt, schedule: schedule);
+    if (service is HermesDesktopApiService) {
+      await service.createJob(
+        name: name,
+        prompt: prompt,
+        schedule: schedule,
+        catchUp: catchUp,
+      );
+    } else {
+      await service.createJob(name: name, prompt: prompt, schedule: schedule);
+    }
     ref.invalidateSelf();
   }
 
+  /// A null [catchUp] leaves the job's policy as stored.
   Future<void> edit(
     String id, {
     String? name,
     String? prompt,
     String? schedule,
+    HermesJobCatchUp? catchUp,
   }) async {
     final service = _service;
-    await service.updateJob(id, name: name, prompt: prompt, schedule: schedule);
+    if (service is HermesDesktopApiService) {
+      await service.updateJob(
+        id,
+        name: name,
+        prompt: prompt,
+        schedule: schedule,
+        catchUp: catchUp,
+      );
+    } else {
+      await service.updateJob(
+        id,
+        name: name,
+        prompt: prompt,
+        schedule: schedule,
+      );
+    }
     ref.invalidateSelf();
   }
 

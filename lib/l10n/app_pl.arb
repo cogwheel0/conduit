@@ -6968,6 +6968,11 @@
     }
   },
   "hermesJobLastCancelledNoReason": "Ostatnie uruchomienie zatrzymane",
+  "hermesJobCatchUpLabel": "Pominięte uruchomienia",
+  "hermesJobCatchUpHint": "Co zrobić z uruchomieniami pominiętymi, gdy Hermes nie działał.",
+  "hermesJobCatchUpDefault": "Domyślne ustawienie Hermes",
+  "hermesJobCatchUpRunOnce": "Uruchom raz po pominięciu",
+  "hermesJobCatchUpSkip": "Pomijaj zaległe uruchomienia",
   "hermesApprovalAllowOnce": "Zezwól raz",
   "hermesApprovalAllowSession": "Zezwól w sesji",
   "hermesApprovalAlwaysAllow": "Zawsze zezwalaj",

@@ -14,6 +14,7 @@ Map<String, dynamic> _execution(String id, String status, {String? error}) =>
 HermesJob _job({
   Map<String, dynamic>? latest,
   Map<String, dynamic>? live,
+  Object? catchUp,
 }) => HermesJob.fromJson({
   'id': 'job-1',
   'name': 'Morning digest',
@@ -21,16 +22,18 @@ HermesJob _job({
   'schedule': '0 7 * * *',
   'latest_execution': latest,
   'live_execution': live,
+  'catch_up': catchUp,
 })!;
 
 void main() {
   group('job record', () {
-    test('reads the ledger attempts and delivery', () {
+    test('reads the ledger attempts, policy, and delivery', () {
       final job = HermesJob.fromJson({
         'id': 'job-1',
         'prompt': 'Summarize the overnight notes',
         'schedule': '0 7 * * *',
         'deliver': 'local,bot-chat:research',
+        'catch_up': false,
         'last_status': 'cancelled',
         'latest_execution': _execution(
           'exec-2',
@@ -41,6 +44,8 @@ void main() {
       })!;
 
       check(job.deliveryTarget).equals('local,bot-chat:research');
+      check(job.catchUp).equals(false);
+      check(job.catchUpChoice).equals(HermesJobCatchUp.skip);
       check(job.lastStatus).equals('cancelled');
       check(job.latestExecution).isNotNull()
         ..has((e) => e.id, 'id').equals('exec-2')
@@ -51,19 +56,23 @@ void main() {
       check(job.lastCancelReason).equals('cancelled on request (Stop)');
     });
 
-    test('a record without the new fields has no run to stop', () {
+    test('a record without the new fields follows Hermes defaults', () {
       final job = _job();
 
+      check(job.catchUp).isNull();
+      check(job.catchUpChoice).equals(HermesJobCatchUp.hermesDefault);
       check(job.runInFlight).isFalse();
       check(job.lastCancelReason).isNull();
     });
 
-    test('ignores malformed attempts', () {
+    test('ignores a non-boolean policy and malformed attempts', () {
       final job = _job(
+        catchUp: 'yes',
         latest: {'id': '', 'status': 'running'},
         live: {'id': 'exec-1'},
       );
 
+      check(job.catchUp).isNull();
       check(job.latestExecution).isNull();
       check(job.liveExecution).isNull();
       check(job.runInFlight).isFalse();
@@ -138,6 +147,16 @@ void main() {
       check(hermesJobStopOutcome(_job(), ''))
           .equals(HermesJobStopOutcome.finished);
     });
+  });
+
+  test('missed-run choices map to the stored catch_up value', () {
+    check(HermesJobCatchUp.fromValue(true)).equals(HermesJobCatchUp.runOnce);
+    check(HermesJobCatchUp.fromValue(false)).equals(HermesJobCatchUp.skip);
+    check(HermesJobCatchUp.fromValue(null))
+        .equals(HermesJobCatchUp.hermesDefault);
+    check(HermesJobCatchUp.runOnce.value).equals(true);
+    check(HermesJobCatchUp.skip.value).equals(false);
+    check(HermesJobCatchUp.hermesDefault.value).isNull();
   });
 
   test('a cancel answer names the attempt it reached', () {
