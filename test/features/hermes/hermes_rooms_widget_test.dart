@@ -163,6 +163,14 @@ class _FakeRoom extends HermesRoomController {
   /// Holds sends until completed.
   Completer<void>? sendGate;
 
+  /// How a send ends, after [sendGate]: null posts it.
+  Future<void> Function(String text)? sendOutcome;
+
+  /// Shows [view], as a read of the room does.
+  void show(HermesRoomView view) => state = view;
+
+  HermesRoomView get view => state;
+
   @override
   HermesRoomView build() => seed;
 
@@ -173,6 +181,7 @@ class _FakeRoom extends HermesRoomController {
   Future<void> send(String text) async {
     sent.add(text);
     await sendGate?.future;
+    await sendOutcome?.call(text);
   }
 
   @override
@@ -676,6 +685,51 @@ void main() {
       check(room.sent).deepEquals(['First']);
       expect(find.text('Second'), findsOneWidget);
 
+      await unmount(tester);
+    });
+
+    testWidgets('a message the log settles leaves the field', (tester) async {
+      await pumpRoom(tester, liveView());
+      // Hermes' answer is lost: the words stay, marked unclear.
+      room.sendOutcome = (text) async {
+        room.show(room.view.copyWith(sending: false, unsentText: text));
+        throw StateError('answer lost');
+      };
+      final field = find.byKey(const ValueKey('hermes-room-composer'));
+      await tester.enterText(field, 'Ship it');
+      await tester.pump();
+      await tester.tap(find.byKey(const ValueKey('hermes-room-send')));
+      await tester.pump();
+      expect(find.text('Ship it'), findsOneWidget);
+
+      // A later read finds the message in the log.
+      room.show(room.view.copyWith(unsentText: null));
+      await tester.pump();
+
+      expect(find.text('Ship it'), findsNothing);
+      await unmount(tester);
+    });
+
+    testWidgets('refused words stay for editing', (tester) async {
+      await pumpRoom(tester, liveView());
+      final refusal = Completer<void>();
+      room.sendOutcome = (text) async {
+        room.show(room.view.copyWith(sending: true, unsentText: text));
+        await refusal.future;
+        // Hermes refused before posting anything: the send settles it.
+        room.show(room.view.copyWith(sending: false, unsentText: null));
+        throw StateError('refused');
+      };
+      final field = find.byKey(const ValueKey('hermes-room-composer'));
+      await tester.enterText(field, 'Ship it');
+      await tester.pump();
+      await tester.tap(find.byKey(const ValueKey('hermes-room-send')));
+      await tester.pump();
+      refusal.complete();
+      await tester.pump();
+      await tester.pump();
+
+      expect(find.text('Ship it'), findsOneWidget);
       await unmount(tester);
     });
 

@@ -705,7 +705,7 @@ void main() {
         'profile': 'ops',
         'room_id': 'standup',
         'since_seq': 500,
-        'limit': 200,
+        'limit': 15,
       });
       check(logs.map((p) => p['since_seq']).toList()).deepEquals([500, 502]);
       check(
@@ -910,6 +910,22 @@ void main() {
         ),
       ).isNull();
     });
+  });
+
+  test('a log page of the longest replies fits one socket frame', () {
+    // The page size the service asks for (`limit`, checked above).
+    const pageSize = 15;
+    final reply = jsonEncode({
+      'seq': 1,
+      'kind': 'message.member',
+      'event_id': 'member:${'e' * 64}',
+      'actor': {'kind': 'member', 'id': 'research'},
+      // Every character needs an escape in JSON.
+      'payload': {'text': '\n' * kMaxHermesRoomTextCharacters},
+    });
+    check(
+      pageSize * reply.length,
+    ).isLessThan(kMaxHermesDesktopFrameCharacters);
   });
 
   group('controller', () {

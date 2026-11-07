@@ -1,8 +1,10 @@
 part of 'hermes_desktop_api_service.dart';
 
 /// Events read per `groups.log` page, and the most a room opens with: the
-/// newest of a long log, so a busy room opens in a few pages.
-const int _kHermesRoomLogPageSize = 200;
+/// newest of a long log. A page of replies at the room's 64 KiB text limit
+/// must fit one socket frame (2 MiB) even when every character is escaped
+/// in JSON, or the answer is dropped and the read never catches up.
+const int _kHermesRoomLogPageSize = 15;
 const int _kHermesRoomLogWindow = 1000;
 
 /// One send of a room message: the event id Hermes deduplicates it by, so
@@ -83,7 +85,9 @@ extension _HermesDesktopRooms on HermesDesktopApiService {
       cursor = max(0, latestSeq - _kHermesRoomLogWindow);
     }
     final events = <HermesRoomEvent>[];
-    for (var page = 0; page < 64; page++) {
+    // Enough pages for the whole window, and a bound on a log that keeps
+    // growing while it is read.
+    for (var page = 0; page < 100; page++) {
       final result = await _roomLog(roomId, sinceSeq: cursor);
       events.addAll(result.events);
       if (!result.hasMore) break;

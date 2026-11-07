@@ -326,6 +326,7 @@ class _HermesRoomPageState extends ConsumerState<HermesRoomPage>
                   members: room?.members ?? const [],
                   enabled: room != null && driver != null && !view.gone,
                   sending: view.sending,
+                  unsentText: view.unsentText,
                   onSend: _send,
                   onStop: canStop ? _stop : null,
                 ),

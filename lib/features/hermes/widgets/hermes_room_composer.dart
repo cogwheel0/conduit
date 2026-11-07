@@ -25,6 +25,7 @@ class HermesRoomComposer extends StatefulWidget {
     this.onStop,
     this.enabled = true,
     this.sending = false,
+    this.unsentText,
   });
 
   final List<HermesRoomMember> members;
@@ -36,6 +37,10 @@ class HermesRoomComposer extends StatefulWidget {
   final VoidCallback? onStop;
   final bool enabled;
   final bool sending;
+
+  /// A message whose send was answered unclearly, until the room log
+  /// settles it.
+  final String? unsentText;
 
   @override
   State<HermesRoomComposer> createState() => _HermesRoomComposerState();
@@ -50,6 +55,23 @@ class _HermesRoomComposerState extends State<HermesRoomComposer> {
   void initState() {
     super.initState();
     _controller.addListener(_onChanged);
+  }
+
+  @override
+  void didUpdateWidget(HermesRoomComposer oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // The room log showed an unclearly answered message (it settled with no
+    // send under way): the field gives up those words, so Send cannot post
+    // them a second time. A refused send settles during its send, and its
+    // words stay for editing.
+    final settled = oldWidget.unsentText;
+    if (settled != null &&
+        widget.unsentText == null &&
+        !oldWidget.sending &&
+        !widget.sending &&
+        _controller.text.trim() == settled) {
+      _controller.clear();
+    }
   }
 
   @override
