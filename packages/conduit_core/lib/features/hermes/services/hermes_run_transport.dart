@@ -1006,13 +1006,15 @@ Future<({String text, String status})?> _recoverRunOutput(
     throw ArgumentError.value(maxPolls, 'maxPolls', 'Must be positive');
   }
   var consecutiveErrors = 0;
+  var resolveErrors = 0;
   var malformedResponses = 0;
   var polls = 0;
+  var pollBudget = maxPolls;
   var resolvedUnknown = false;
   var lastStatusActive = false;
   while (!cancelToken.isCancelled) {
-    if (polls >= maxPolls &&
-        (!lastStatusActive || polls >= maxPolls + maxExtendedPolls)) {
+    if (polls >= pollBudget &&
+        (!lastStatusActive || polls >= pollBudget + maxExtendedPolls)) {
       throw TimeoutException(
         'Hermes run did not reach a terminal state after $polls polls',
       );
@@ -1051,20 +1053,36 @@ Future<({String text, String status})?> _recoverRunOutput(
     if (status == 'unknown' && !resolvedUnknown) {
       // An unclean Hermes restart left this run's outcome unknown, and the
       // session's later turns wait behind it until a client acknowledges it.
-      final receipt = await _resolveUnknownHermesRun(
-        service,
-        runId,
-        run,
-        cancelToken: cancelToken,
-      );
+      final Map<String, dynamic>? receipt;
+      try {
+        receipt = await _resolveUnknownHermesRun(
+          service,
+          runId,
+          run,
+          cancelToken: cancelToken,
+        );
+      } catch (error) {
+        if (_isHermesProtocolFailure(error)) rethrow;
+        if (cancelToken.isCancelled) return null;
+        // Hermes replays the receipt to an exact retry, so a dropped
+        // acknowledgement is retried on the next poll that still sees it.
+        resolveErrors++;
+        if (resolveErrors >= maxConsecutiveErrors || polls >= pollBudget) {
+          rethrow;
+        }
+        await Future<void>.delayed(pollInterval);
+        continue;
+      }
       if (cancelToken.isCancelled) return null;
       if (receipt != null) {
         resolvedUnknown = true;
         // A turn that finished before the restart commits its own answer;
-        // the next poll reads it. Anything else was interrupted.
+        // the next poll reads it, even past the last one. Anything else was
+        // interrupted.
         if (receipt['outcome'] != 'completed') {
           return (text: text, status: 'interrupted');
         }
+        if (polls >= pollBudget) pollBudget = polls + 1;
         continue;
       }
     }
@@ -1093,9 +1111,9 @@ Future<({String text, String status})?> _recoverRunOutput(
       malformedResponses = 0;
       lastStatusActive = status != 'unknown';
     }
-    if (polls < maxPolls) {
+    if (polls < pollBudget) {
       await Future<void>.delayed(pollInterval);
-    } else if (lastStatusActive && polls < maxPolls + maxExtendedPolls) {
+    } else if (lastStatusActive && polls < pollBudget + maxExtendedPolls) {
       await Future<void>.delayed(
         extendedPollInterval > pollInterval
             ? extendedPollInterval

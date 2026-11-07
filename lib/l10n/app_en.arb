@@ -9379,7 +9379,7 @@
   },
   "hermesReadOnlySessionNoticeFrom": "This chat started in {source}. You can read it here, but Hermes only lets Conduit reply in chats it started.",
   "@hermesReadOnlySessionNoticeFrom": {
-    "description": "Shown instead of the composer for a Hermes chat that another Hermes app owns. source is the Hermes name of that app, for example telegram or cli.",
+    "description": "Shown instead of the composer for a Hermes chat that another Hermes app owns. source is the name of that app, for example Telegram or Hermes CLI.",
     "placeholders": {
       "source": {
         "type": "String"

@@ -41,6 +41,43 @@ String? watchHermesReadOnlySessionSource(
 /// readable and offers two ways to continue it in a session Conduit owns:
 /// here, through Hermes' fork, which ends the chat in the other app; or in a
 /// copy, which leaves it alone but keeps its earlier messages on this device.
+/// The product name of the Hermes app a session [source] names ("cli" →
+/// "Hermes CLI", "telegram" → "Telegram"), or [source] as Hermes sent it.
+String hermesSessionSourceName(String source) =>
+    _hermesSessionSourceNames[source.trim().toLowerCase()] ?? source.trim();
+
+const Map<String, String> _hermesSessionSourceNames = {
+  'cli': 'Hermes CLI',
+  'tui': 'Hermes TUI',
+  'gui': 'Hermes Desktop',
+  'desktop': 'Hermes Desktop',
+  'webapp': 'Hermes Webapp',
+  'acp': 'ACP',
+  'cron': 'Hermes cron',
+  'telegram': 'Telegram',
+  'discord': 'Discord',
+  'slack': 'Slack',
+  'whatsapp': 'WhatsApp',
+  'whatsapp_cloud': 'WhatsApp',
+  'signal': 'Signal',
+  'matrix': 'Matrix',
+  'mattermost': 'Mattermost',
+  'email': 'Email',
+  'sms': 'SMS',
+  'teams': 'Microsoft Teams',
+  'msteams': 'Microsoft Teams',
+  'google_chat': 'Google Chat',
+  'homeassistant': 'Home Assistant',
+  'bluebubbles': 'iMessage',
+  'imessage': 'iMessage',
+  'feishu': 'Feishu',
+  'dingtalk': 'DingTalk',
+  'wecom': 'WeCom',
+  'weixin': 'WeChat',
+  'qqbot': 'QQ',
+  'webhook': 'Webhook',
+};
+
 class HermesReadOnlySessionNotice extends ConsumerStatefulWidget {
   const HermesReadOnlySessionNotice({super.key, required this.source});
 
@@ -138,6 +175,7 @@ class _HermesReadOnlySessionNoticeState
     AppLocalizations.of(context)!.hermesContinueInCopyFailed,
     (service, conversation, sessionId) async {
       final transcript = await service.getSessionMessages(sessionId);
+      if (!mounted || !_sameChat(service, conversation)) return;
       final copyId = await service.createSession();
       if (!mounted || !_sameChat(service, conversation)) {
         // Nothing will open the copy or save its earlier messages, so don't
@@ -199,7 +237,9 @@ class _HermesReadOnlySessionNoticeState
                     Text(
                       source.isEmpty
                           ? l10n.hermesReadOnlySessionNotice
-                          : l10n.hermesReadOnlySessionNoticeFrom(source),
+                          : l10n.hermesReadOnlySessionNoticeFrom(
+                              hermesSessionSourceName(source),
+                            ),
                       style: AppTypography.bodySmallStyle.copyWith(
                         color: theme.textSecondary,
                       ),

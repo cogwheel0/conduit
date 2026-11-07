@@ -122,8 +122,9 @@ class _StoppingHermesApi extends HermesApiService {
 /// A REST Hermes server whose previous run in the session crashed into an
 /// `unknown` outcome.
 class _UnknownHeadHermesApi extends HermesApiService {
-  _UnknownHeadHermesApi()
-    : super(
+  _UnknownHeadHermesApi({
+    this.events = const [HermesTokenDelta('Back on track.'), HermesRunDone()],
+  }) : super(
         config: const HermesConfig(
           enabled: true,
           baseUrl: 'https://hermes.example',
@@ -131,6 +132,7 @@ class _UnknownHeadHermesApi extends HermesApiService {
         dio: Dio(),
       );
 
+  final List<HermesRunEvent> events;
   final List<String> calls = [];
 
   @override
@@ -178,10 +180,7 @@ class _UnknownHeadHermesApi extends HermesApiService {
     CancelToken? cancelToken,
     int? lastEventId,
     void Function(int seq)? onSequence,
-  }) => Stream<HermesRunEvent>.fromIterable(const [
-    HermesTokenDelta('Back on track.'),
-    HermesRunDone(),
-  ]);
+  }) => Stream<HermesRunEvent>.fromIterable(events);
 }
 
 class _RecoveredHermesApi extends HermesApiService {
@@ -2398,6 +2397,106 @@ void main() {
           .firstWhere((message) => message.id == placeholder.id);
       check(assistant.content).equals('Back on track.');
       container.read(chatMessagesProvider.notifier).clearMessages();
+    });
+
+    group('a chat reopened from Hermes', () {
+      ProviderContainer reopenedContainer(_UnknownHeadHermesApi service) {
+        final container = _testContainer(
+          overrides: [
+            activeConversationProvider.overrideWith(
+              () => _TestActiveConversationNotifier(),
+            ),
+            apiServiceProvider.overrideWithValue(null),
+            socketServiceProvider.overrideWithValue(null),
+            hermesConfigProvider.overrideWith(
+              () => _FixedHermesConfigController(),
+            ),
+            hermesApiServiceProvider.overrideWithValue(service),
+          ],
+        );
+        addTearDown(container.dispose);
+        return container;
+      }
+
+      // Session messages from Hermes carry no run id and no error.
+      final reloaded = _assistantMessage(
+        id: 'reloaded-assistant',
+        content: 'Half an answer',
+      );
+
+      Future<ChatMessage> send(
+        ProviderContainer container,
+        String placeholderId,
+      ) async {
+        final placeholder = _assistantMessage(
+          id: placeholderId,
+          content: '',
+          isStreaming: true,
+          metadata: const <String, dynamic>{'transport': kHermesTransport},
+        );
+        container
+            .read(activeConversationProvider.notifier)
+            .set(
+              markNativeHermesConversation(
+                Conversation(
+                  id: 'local:hermes_tidepool',
+                  title: 'Tidepool',
+                  createdAt: DateTime(2024, 1, 1),
+                  updatedAt: DateTime(2024, 1, 1),
+                  messages: <ChatMessage>[reloaded, placeholder],
+                  metadata: const <String, dynamic>{
+                    'backend': 'hermes',
+                    'hermesSessionId': 'tidepool',
+                  },
+                ),
+              ),
+            );
+        await Future<void>.delayed(Duration.zero);
+        await dispatchHermesRunFromChatForTest(
+          container,
+          assistantMessageId: placeholder.id,
+          assistantSeed: placeholder,
+          input: 'try again',
+          existingMessages: <ChatMessage>[reloaded],
+        ).timeout(const Duration(seconds: 2));
+        final assistant = container
+            .read(chatMessagesProvider)
+            .firstWhere((message) => message.id == placeholder.id);
+        container.read(chatMessagesProvider.notifier).clearMessages();
+        return assistant;
+      }
+
+      test('still acknowledges a run that failed before', () async {
+        final service = _UnknownHeadHermesApi();
+        final container = reopenedContainer(service);
+        container
+            .read(hermesUnsettledRunsProvider.notifier)
+            .remember('tidepool', 'run-old');
+
+        final assistant = await send(container, 'next-assistant');
+
+        check(service.calls).deepEquals([
+          'get:run-old',
+          'resolve:run-old:adm_head:5',
+          'create:tidepool',
+        ]);
+        check(assistant.content).equals('Back on track.');
+        check(container.read(hermesUnsettledRunsProvider)).isEmpty();
+      });
+
+      test('remembers a run that fails', () async {
+        final service = _UnknownHeadHermesApi(
+          events: const [HermesRunError('The model crashed.'), HermesRunDone()],
+        );
+        final container = reopenedContainer(service);
+
+        final assistant = await send(container, 'failing-assistant');
+
+        check(assistant.error).isNotNull();
+        check(
+          container.read(hermesUnsettledRunsProvider),
+        ).deepEquals({'tidepool': 'run-new'});
+      });
     });
 
     test('a chained Responses turn follows a moved session', () async {

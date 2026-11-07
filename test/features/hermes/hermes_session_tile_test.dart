@@ -21,6 +21,7 @@ import 'package:conduit_core/features/chat/providers/chat_providers.dart'
 import 'package:conduit_core/features/hermes/models/hermes_session.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 import 'package:conduit_core/features/hermes/services/hermes_api_service.dart';
+import 'package:conduit_core/features/hermes/services/hermes_copied_history_store.dart';
 import 'package:conduit_core/features/hermes/services/hermes_desktop_transport.dart';
 import 'package:conduit_core/features/hermes/services/hermes_json_guard.dart';
 import 'package:conduit_core/features/hermes/services/hermes_local_document_service.dart';
@@ -42,6 +43,14 @@ import 'package:conduit/platform/flutter_secure_key_value_store.dart';
 import 'package:conduit/platform/flutter_key_value_store.dart';
 
 void main() {
+  test('names the Hermes app a read-only session came from', () {
+    check(hermesSessionSourceName('cli')).equals('Hermes CLI');
+    check(hermesSessionSourceName(' Telegram ')).equals('Telegram');
+    check(hermesSessionSourceName('desktop')).equals('Hermes Desktop');
+    // Names Conduit doesn't know stay as Hermes sent them.
+    check(hermesSessionSourceName('newchat')).equals('newchat');
+  });
+
   setUp(() async {
     SharedPreferences.setMockInitialValues(<String, Object>{});
     // The plugin mock is process-wide: a Hermes key another file stored would
@@ -256,12 +265,17 @@ void main() {
   });
 
   group('sessions owned by another Hermes app', () {
-    ProviderContainer ownershipContainer(_FakeHermesApiService service) {
+    ProviderContainer ownershipContainer(
+      _FakeHermesApiService service, {
+      HermesCopiedHistoryStore? copiedHistory,
+    }) {
       final container = ProviderContainer(
         retry: (retryCount, error) => null,
         overrides: [
           secureStorageProvider.overrideWithValue(FlutterSecureKeyValueStore()),
           hermesApiServiceProvider.overrideWithValue(service),
+          if (copiedHistory != null)
+            hermesCopiedHistoryStoreProvider.overrideWithValue(copiedHistory),
           hermesCapabilitiesProvider.overrideWith(
             (ref) async => const HermesCapabilities(apiOwnsSessions: true),
           ),
@@ -382,7 +396,7 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      check(find.textContaining('started in cli').evaluate()).isNotEmpty();
+      check(find.textContaining('started in Hermes CLI').evaluate()).isNotEmpty();
       return (context, ref);
     }
 
@@ -449,6 +463,34 @@ void main() {
             ),
       );
       check(saved).isNotNull().deepEquals(harborTranscript);
+    });
+
+    testWidgets('a copy whose earlier messages cannot be saved is removed', (
+      tester,
+    ) async {
+      final service = _FakeHermesApiService(messages: harborTranscript);
+      // A database without its cache table refuses every save.
+      final brokenDatabase = AppDatabase(NativeDatabase.memory());
+      addTearDown(brokenDatabase.close);
+      await pumpDatabaseOperation(
+        tester,
+        () => brokenDatabase.customStatement('DROP TABLE app_cache'),
+      );
+      final container = ownershipContainer(
+        service,
+        copiedHistory: HermesCopiedHistoryStore(brokenDatabase),
+      );
+      await openForeignChat(tester, container);
+
+      await tester.tap(find.byKey(const ValueKey('hermes-continue-in-copy')));
+      await pumpUntil(tester, () => service.deletedSessionIds.isNotEmpty);
+
+      check(service.createdSessionTitles).deepEquals([null]);
+      check(service.deletedSessionIds).deepEquals(['harbor-notes-copy']);
+      check(showsCopy(container)).isFalse();
+      check(
+        find.text(AppLocalizationsEn().hermesContinueInCopyFailed).evaluate(),
+      ).isNotEmpty();
     });
 
     testWidgets('reopening a copy shows its earlier messages first and '

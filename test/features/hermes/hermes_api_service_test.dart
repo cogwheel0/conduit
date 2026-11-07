@@ -111,6 +111,30 @@ final class _AdvancingCaptureInterceptor extends _CaptureInterceptor {
   }
 }
 
+/// Refuses after advancing [clock] to just before the request deadline, then
+/// never finishes the error body.
+final class _LateRefusalInterceptor extends _CaptureInterceptor {
+  _LateRefusalInterceptor({required this.clock, required this.advance})
+    : super(null);
+
+  final _MutableRecoveryClock clock;
+  final Duration advance;
+  final StreamController<Uint8List> body = StreamController<Uint8List>();
+
+  @override
+  void onRequest(RequestOptions options, RequestInterceptorHandler handler) {
+    requests.add(options);
+    clock.advance(advance);
+    handler.resolve(
+      Response<dynamic>(
+        requestOptions: options,
+        data: ResponseBody(body.stream, 409),
+        statusCode: 409,
+      ),
+    );
+  }
+}
+
 HermesApiService _service(
   _CaptureInterceptor interceptor, {
   String? session,
@@ -1460,6 +1484,34 @@ void main() {
         }
       },
     );
+
+    test('a trickled error body ends at the request deadline', () async {
+      const window = Duration(seconds: 30);
+      final clock = _MutableRecoveryClock();
+      final refusal = _LateRefusalInterceptor(
+        clock: clock,
+        advance: window - const Duration(milliseconds: 50),
+      );
+      addTearDown(refusal.body.close);
+      final service = _service(
+        refusal,
+        streamLimits: const HermesStreamLimits(
+          idleTimeout: window,
+          maxDuration: window,
+        ),
+        recoveryClock: clock.call,
+      );
+
+      final elapsed = Stopwatch()..start();
+      final error = await service
+          .stopRun('r1')
+          .then<Object?>((_) => null, onError: (Object error) => error)
+          .timeout(const Duration(seconds: 5));
+      check(elapsed.elapsed).isLessThan(const Duration(seconds: 5));
+      check(error).isA<HermesApiException>()
+        ..has((e) => e.statusCode, 'status').equals(409)
+        ..has((e) => e.code, 'code').isNull();
+    });
 
     test('resolveUnknownRun sends exactly the admission identity', () async {
       final capture = _CaptureInterceptor({

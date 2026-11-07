@@ -236,6 +236,28 @@ void main() {
       check(mergeHermesCopiedHistory(transcript, server)).deepEquals(server);
     });
 
+    test('keeps saved messages whose images the server lacks', () {
+      Map<String, dynamic> withImage(String url) => <String, dynamic>{
+        'role': 'user',
+        'content': [
+          {'type': 'text', 'text': 'What is on this chart?'},
+          {
+            'type': 'image_url',
+            'image_url': {'url': url},
+          },
+        ],
+      };
+      final saved = [withImage('https://charts.example/north.png')];
+      final server = [
+        withImage('https://charts.example/south.png'),
+        _message('assistant', 'A sounding of the south channel.'),
+      ];
+
+      check(
+        mergeHermesCopiedHistory(saved, server),
+      ).deepEquals([...saved, ...server]);
+    });
+
     test('drops a saved id the server also uses', () {
       final server = [_message('user', 'And the south pier?', id: 12)];
 

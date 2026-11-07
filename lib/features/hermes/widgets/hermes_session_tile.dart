@@ -346,7 +346,8 @@ Future<List<Map<String, dynamic>>> _withCopiedHistory(
 /// copy of another app's chat. Hermes' API server never stores the history
 /// a turn replays, so on REST the transcript is saved on this device as the
 /// session's earlier messages: every later open shows them before the
-/// server's own, and every turn replays them.
+/// server's own, and every turn replays them. When they cannot be saved, the
+/// new session is deleted and nothing opens.
 Future<void> openHermesSession(
   BuildContext context,
   WidgetRef ref,
@@ -419,6 +420,22 @@ Future<void> openHermesSession(
         scope: 'hermes/sessions',
         data: {'errorType': error.runtimeType.toString()},
       );
+      // Unsaved, the earlier messages would vanish from the copy on its next
+      // open and from what its turns replay. Remove the copy instead.
+      try {
+        await service.deleteSession(session.id);
+      } catch (_) {
+        // Best effort: the copy stays as an empty session.
+      }
+      if (context.mounted) {
+        ref.invalidate(hermesSessionsProvider);
+        UiUtils.showMessage(
+          context,
+          AppLocalizations.of(context)!.hermesContinueInCopyFailed,
+          isError: true,
+        );
+      }
+      return;
     }
   }
   if (service is HermesDesktopApiService) {

@@ -126,10 +126,12 @@ final class HermesApiException extends DioException {
 /// `{"error": {"code", "message"}}` envelope into a [HermesApiException].
 ///
 /// Oversized, slow, or malformed bodies still produce the exception, just
-/// without a code, so a refusal is never mistaken for success.
+/// without a code, so a refusal is never mistaken for success. [maxWait]
+/// keeps the read inside the request's own deadline.
 Future<HermesApiException> _hermesApiExceptionFor(
-  Response<dynamic> response,
-) async {
+  Response<dynamic> response, {
+  Duration maxWait = _hermesErrorBodyTimeout,
+}) async {
   final statusCode = response.statusCode ?? 0;
   String? code;
   String? message;
@@ -137,7 +139,12 @@ Future<HermesApiException> _hermesApiExceptionFor(
     final data = response.data;
     String? source;
     if (data is ResponseBody) {
-      source = await _readHermesErrorBody(data.stream.cast<List<int>>());
+      source = await _readHermesErrorBody(
+        data.stream.cast<List<int>>(),
+        timeout: maxWait < _hermesErrorBodyTimeout
+            ? maxWait
+            : _hermesErrorBodyTimeout,
+      );
     } else if (data is String) {
       source = data.length <= kMaxHermesErrorBodyBytes ? data : null;
     } else if (data is Map) {
@@ -174,13 +181,16 @@ Future<HermesApiException> _hermesApiExceptionFor(
   );
 }
 
-Future<String?> _readHermesErrorBody(Stream<List<int>> source) async {
+Future<String?> _readHermesErrorBody(
+  Stream<List<int>> source, {
+  required Duration timeout,
+}) async {
   final iterator = StreamIterator<List<int>>(source);
   final builder = BytesBuilder(copy: false);
   try {
     final deadline = Stopwatch()..start();
     while (true) {
-      final remaining = _hermesErrorBodyTimeout - deadline.elapsed;
+      final remaining = timeout - deadline.elapsed;
       if (remaining <= Duration.zero) return null;
       final hasNext = await iterator.moveNext().timeout(remaining);
       if (!hasNext) break;
@@ -1140,7 +1150,10 @@ class HermesApiService implements HermesBackendService, HermesTurnService {
             },
           );
       if (decodesErrors && !_isHermesSuccessStatus(response.statusCode)) {
-        throw await _hermesApiExceptionFor(response);
+        throw await _hermesApiExceptionFor(
+          response,
+          maxWait: recoveryBudget.remainingDuration,
+        );
       }
       recoveryBudget.requireRemainingDuration();
       return response;
@@ -1291,7 +1304,10 @@ class HermesApiService implements HermesBackendService, HermesTurnService {
             },
           );
       if (!_isHermesSuccessStatus(response.statusCode)) {
-        throw await _hermesApiExceptionFor(response);
+        throw await _hermesApiExceptionFor(
+          response,
+          maxWait: budget.remainingDuration,
+        );
       }
       return await _decodeHermesRecoveryObject(
         response.data,

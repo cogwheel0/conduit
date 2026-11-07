@@ -223,8 +223,10 @@ bool _startsWithMessages(
     final a = messages[index];
     final b = prefix[index];
     if (a['role'] != b['role'] ||
-        hermesMessageTextContent(a['content'] ?? a['text']) !=
-            hermesMessageTextContent(b['content'] ?? b['text'])) {
+        !hermesMessageContentMatches(
+          a['content'] ?? a['text'],
+          b['content'] ?? b['text'],
+        )) {
       return false;
     }
   }

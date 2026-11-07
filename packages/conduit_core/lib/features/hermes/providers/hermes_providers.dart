@@ -2343,6 +2343,46 @@ final hermesReadOnlySessionsProvider =
       HermesReadOnlySessions.new,
     );
 
+/// The last `/v1/runs` turn that ended in an error, per Hermes session.
+///
+/// A crash can leave such a run `unknown`, and Hermes then holds every later
+/// turn in its session until a client acknowledges it. A chat reopened from
+/// Hermes has no run ids (session messages never carry them), so the next
+/// send looks the run up here.
+class HermesUnsettledRuns extends Notifier<Map<String, String>> {
+  /// Sessions remembered at once; the oldest go first.
+  static const int maxSessions = 64;
+
+  @override
+  Map<String, String> build() {
+    // Run and session ids belong to one connection.
+    ref.watch(hermesApiServiceProvider);
+    return const <String, String>{};
+  }
+
+  void remember(String sessionId, String runId) {
+    if (state[sessionId] == runId) return;
+    final next = <String, String>{...state}..remove(sessionId);
+    next[sessionId] = runId;
+    while (next.length > maxSessions) {
+      next.remove(next.keys.first);
+    }
+    state = next;
+  }
+
+  /// Forgets [sessionId]'s run, or only [runId] when given.
+  void forget(String sessionId, {String? runId}) {
+    final current = state[sessionId];
+    if (current == null || (runId != null && current != runId)) return;
+    state = <String, String>{...state}..remove(sessionId);
+  }
+}
+
+final hermesUnsettledRunsProvider =
+    NotifierProvider<HermesUnsettledRuns, Map<String, String>>(
+      HermesUnsettledRuns.new,
+    );
+
 /// Invalidates asynchronous Hermes-session opens whenever navigation changes.
 class HermesSessionNavigationEpoch extends Notifier<int> {
   @override

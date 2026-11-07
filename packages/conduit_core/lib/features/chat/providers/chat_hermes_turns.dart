@@ -2107,17 +2107,28 @@ Future<void> _dispatchRegisteredHermesRunFromChat(
   }
 
   // A crash can leave the session's previous run `unknown`; Hermes then holds
-  // every new turn in the session until a client acknowledges that run.
-  final unsettledRunId = sessionId == null || sessionId.isEmpty
+  // every new turn in the session until a client acknowledges that run. A
+  // chat reopened from Hermes has no run ids, so fall back to the one
+  // remembered when that run failed.
+  final runSessionId = sessionId == null || sessionId.isEmpty
       ? null
-      : _lastFailedHermesRunId(existingMessages);
+      : sessionId;
+  final unsettledRunId = runSessionId == null
+      ? null
+      : _lastFailedHermesRunId(existingMessages) ??
+            ref.read(hermesUnsettledRunsProvider)[runSessionId] as String?;
   if (unsettledRunId != null) {
-    await settleUnknownHermesRun(
+    final settled = await settleUnknownHermesRun(
       service,
       unsettledRunId,
       cancelToken: cancelToken,
     );
     if (cancelled()) return;
+    if (settled) {
+      ref
+          .read(hermesUnsettledRunsProvider.notifier)
+          .forget(runSessionId!, runId: unsettledRunId);
+    }
   }
 
   await dispatchHermesRun(
@@ -2140,6 +2151,22 @@ Future<void> _dispatchRegisteredHermesRunFromChat(
     finishStreaming: finishOwned,
     completeStreamingUi: completeStreamingUiOwned,
   );
+
+  final finalMessage = projection.message;
+  final runId = finalMessage.metadata?['hermesRunId'];
+  if (runSessionId == null ||
+      runId is! String ||
+      runId.isEmpty ||
+      !owner.backendContextIsCurrent(ref)) {
+    return;
+  }
+  final unsettledRuns = ref.read(hermesUnsettledRunsProvider.notifier);
+  if (finalMessage.error == null) {
+    // Hermes took this turn, so an earlier failed run no longer holds it.
+    unsettledRuns.forget(runSessionId);
+  } else {
+    unsettledRuns.remember(runSessionId, runId);
+  }
 }
 
 /// The run id of the newest Hermes `/v1/runs` answer when that answer ended

@@ -416,7 +416,13 @@ Iterable<HermesRunEvent> parseHermesRunFrame(
     final output = _extractHermesTerminalOutput(
       responseMap?['output'] ?? data['output'],
     );
-    if (output != null && output.isNotEmpty) yield HermesFinalOutput(output);
+    if (output == null) {
+      yield const HermesRunError(
+        'The Hermes response output exceeded Conduit\'s size or shape limit.',
+      );
+      return;
+    }
+    if (output.isNotEmpty) yield HermesFinalOutput(output);
     final details = (responseMap ?? data)['incomplete_details'];
     yield HermesRunNotice(
       _incompleteNotice(details is Map ? details['reason'] : null),

@@ -639,6 +639,31 @@ void main() {
           .contains('size or shape limit');
     });
 
+    test('rejects an incomplete envelope whose output is too deep', () async {
+      Object? output = 'leaf';
+      for (var depth = 0; depth <= 128; depth++) {
+        output = <Object?>[output];
+      }
+
+      final events = await parseHermesResponseStream(
+        _sse([
+          'event: response.incomplete\n'
+              'data: ${jsonEncode(<String, Object?>{
+                'response': <String, Object?>{
+                  'id': 'resp_deep_incomplete',
+                  'status': 'incomplete',
+                  'output': output,
+                },
+              })}\n\n',
+        ]),
+      ).toList();
+
+      check(events.whereType<HermesRunError>().single.message)
+          .contains('size or shape limit');
+      check(events.whereType<HermesRunNotice>()).isEmpty();
+      check(events.whereType<HermesRunDone>()).isEmpty();
+    });
+
     test(
       'delegates event-only terminal frames to the Hermes fallback',
       () async {

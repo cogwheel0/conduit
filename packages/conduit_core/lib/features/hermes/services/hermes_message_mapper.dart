@@ -751,6 +751,22 @@ String? hermesMessageTextContent(dynamic content) {
   return extracted.overflowed ? null : extracted.text;
 }
 
+/// Whether two raw Hermes message payloads show the same text and the same
+/// images, in order. Payloads too large to read in full never match.
+bool hermesMessageContentMatches(dynamic a, dynamic b) {
+  final left = _extractContent(a);
+  final right = _extractContent(b);
+  if (left.overflowed || right.overflowed) return false;
+  if (left.text != right.text ||
+      left.images.length != right.images.length) {
+    return false;
+  }
+  for (var index = 0; index < left.images.length; index++) {
+    if (left.images[index] != right.images[index]) return false;
+  }
+  return true;
+}
+
 _HermesImageCandidate _coerceImageUrl(
   dynamic candidate, {
   required int maxDecodedBytes,
