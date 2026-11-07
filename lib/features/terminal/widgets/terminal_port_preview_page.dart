@@ -74,6 +74,9 @@ String terminalPreviewFormScript(String target) =>
   'use strict';
   const target = ${jsonEncode(target)};
   const local = new Set(['localhost', '127.0.0.1', '0.0.0.0', '[::1]']);
+  // Read past a control named "action", which hides the form's own.
+  const action = Object.getOwnPropertyDescriptor(
+    HTMLFormElement.prototype, 'action');
   const through = (value) => {
     let url;
     try { url = new URL(value, location.href); } catch (_) { return null; }
@@ -91,14 +94,14 @@ String terminalPreviewFormScript(String target) =>
       if (sent) button.formAction = sent;
       return;
     }
-    const sent = through(form.action);
-    if (sent) form.action = sent;
+    const sent = through(action.get.call(form));
+    if (sent) action.set.call(form, sent);
   }, true);
   // A form submitted by script fires no submit event.
   const submit = HTMLFormElement.prototype.submit;
   HTMLFormElement.prototype.submit = function () {
-    const sent = through(this.action);
-    if (sent) this.action = sent;
+    const sent = through(action.get.call(this));
+    if (sent) action.set.call(this, sent);
     return submit.call(this);
   };
 })();

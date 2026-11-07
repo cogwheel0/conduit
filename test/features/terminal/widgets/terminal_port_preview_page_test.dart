@@ -400,6 +400,11 @@ void main() {
       terminalPreviewFormScript('http://10.0.0.5:8000/proxy'),
       contains('HTMLFormElement.prototype.submit = function'),
     );
+    // A control named "action" hides the form's own action property.
+    expect(
+      terminalPreviewFormScript('http://10.0.0.5:8000/proxy'),
+      contains("getOwnPropertyDescriptor(\n    HTMLFormElement.prototype, 'action')"),
+    );
     // Behind a credential the page's own post could not get through.
     expect(terminalPreviewUserScripts(keyed), [
       terminalPreviewNavigationScript,
