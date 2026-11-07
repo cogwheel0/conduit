@@ -8,6 +8,8 @@ import 'package:conduit_core/features/terminal/controllers/terminal_session_cont
 import 'package:conduit_core/features/terminal/models/terminal_models.dart';
 import 'package:conduit_core/features/terminal/services/terminal_port_preview.dart';
 import 'package:conduit_core/features/terminal/services/terminal_service.dart';
+import 'package:conduit_core/models/server_config.dart';
+import 'package:conduit_core/services/api_service.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:test/test.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
@@ -641,6 +643,56 @@ void main() {
       ).called(1);
     });
 
+    test('a listing left waiting does not hold up the next terminal', () async {
+      final service = _MockTerminalService();
+      final harness = syncedHarness(service, direct);
+      await harness.context.sync(force: true);
+      await pumpEventQueue();
+      final stalled = Completer<List<TerminalFileEntry>>();
+      when(
+        () => service.listFiles(direct, '/workspace/', sessionScopeId: 'scope'),
+      ).thenAnswer((_) => stalled.future);
+      harness.gateway.channels.first.receive({'type': 'fs:change'});
+      await pumpEventQueue();
+
+      // The user moves to another terminal while that listing waits.
+      final other = TerminalServerInfo(
+        kind: TerminalServerKind.direct,
+        selectionId: 'https://other.test',
+        baseUrl: Uri.parse('https://other.test'),
+      );
+      var otherListings = 0;
+      when(() => service.getFeatures(other, sessionScopeId: 'scope'))
+          .thenAnswer((_) async => const TerminalServerFeatures(events: true));
+      when(() => service.getCwd(other, sessionScopeId: 'scope'))
+          .thenAnswer((_) async => '/home');
+      when(() => service.listFiles(other, '/home/', sessionScopeId: 'scope'))
+          .thenAnswer((_) async {
+            otherListings++;
+            return const [];
+          });
+      when(() => service.getListeningPorts(other, sessionScopeId: 'scope'))
+          .thenAnswer((_) async => const []);
+      when(() => service.authTokenForServer(other)).thenReturn(null);
+      when(
+        () => service.buildEventsWebSocketUri(other),
+      ).thenReturn(Uri.parse('wss://other.test/events'));
+      harness.gateway
+        ..selectedTerminalId = other.selectionId
+        ..selectedServer = other;
+      await harness.context.sync(force: true);
+      await pumpEventQueue();
+      check(otherListings).equals(1);
+
+      harness.gateway.channels[2].receive({'type': 'fs:change'});
+      await pumpEventQueue();
+
+      check(otherListings).equals(2);
+      stalled.complete(const []);
+      await pumpEventQueue();
+      check(otherListings).equals(2);
+    });
+
     test('reported ports replace the list', () async {
       final service = _MockTerminalService();
       final harness = syncedHarness(service, direct);
@@ -830,6 +882,79 @@ void main() {
       ).deepEquals({'Authorization': 'Bearer key'});
     });
 
+    test('a session closes through the account\'s current client', () async {
+      _MockTerminalService serviceFor(String serverConfigId) {
+        final api = _MockApiService();
+        when(() => api.serverConfig).thenReturn(
+          ServerConfig(
+            id: serverConfigId,
+            name: serverConfigId,
+            url: 'https://$serverConfigId.test',
+          ),
+        );
+        final service = _MockTerminalService();
+        when(() => service.api).thenReturn(api);
+        when(() => service.authTokenForServer(server)).thenReturn('jwt');
+        when(
+          () => service.closeBrowserSession(
+            server,
+            any(),
+            sessionScopeId: any(named: 'sessionScopeId'),
+          ),
+        ).thenAnswer((_) async {});
+        return service;
+      }
+
+      final opener = serviceFor('owui');
+      final gateway = _FakeTerminalGateway(service: opener)
+        ..selectedTerminalId = server.selectionId
+        ..selectedServer = server
+        ..systemTerminalLiveFeatures = true;
+      final harness = _TerminalControllerHarness(gateway);
+      addTearDown(harness.dispose);
+      harness.browser.setFeatures(
+        server,
+        'scope',
+        const TerminalServerFeatures(browser: true),
+      );
+      await harness.browser.openPort(const TerminalListeningPort(port: 5173));
+      final preview = harness.platform.previews.single;
+
+      // A silent sign-in replaced, and closed, the client that opened it.
+      final signedInAgain = serviceFor('owui');
+      gateway.service = signedInAgain;
+      await preview.closeSession!(session);
+      verify(
+        () => signedInAgain.closeBrowserSession(
+          server,
+          'sid',
+          sessionScopeId: 'scope',
+        ),
+      ).called(1);
+      verifyNever(
+        () => opener.closeBrowserSession(
+          server,
+          any(),
+          sessionScopeId: any(named: 'sessionScopeId'),
+        ),
+      );
+
+      // Another server's client never hears of it.
+      final elsewhere = serviceFor('elsewhere');
+      gateway.service = elsewhere;
+      await preview.closeSession!(session);
+      verify(
+        () => opener.closeBrowserSession(server, 'sid', sessionScopeId: 'scope'),
+      ).called(1);
+      verifyNever(
+        () => elsewhere.closeBrowserSession(
+          server,
+          any(),
+          sessionScopeId: any(named: 'sessionScopeId'),
+        ),
+      );
+    });
+
     test('Open WebUI terminals use sessions only where it relays them',
         () async {
       final older = await openPreview(
@@ -893,6 +1018,8 @@ final class _TerminalControllerHarness {
 }
 
 final class _MockTerminalService extends Mock implements TerminalService {}
+
+final class _MockApiService extends Mock implements ApiService {}
 
 final class _FakeTerminalGateway
     implements

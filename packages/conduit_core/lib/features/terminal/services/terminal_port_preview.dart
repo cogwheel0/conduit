@@ -161,6 +161,21 @@ final class TerminalPreviewNavigator {
   /// links need no credential, but a proxy behind a token or key does.
   bool get pagesOpenElsewhere => headers.isEmpty;
 
+  /// Where the page's own forms aimed at the terminal's machine are sent,
+  /// `{origin}{prefix}` with the port and path to follow, or null when
+  /// nothing needs doing.
+  ///
+  /// Open WebUI's proxy and Open Terminal's browser sessions give their
+  /// pages a script that sends such a form through them. Open Terminal's
+  /// own proxy shows a page as it is, so a form aimed at
+  /// `http://localhost:{port}` would go to the phone itself, and the app
+  /// could only load that address again without the form's data: neither
+  /// platform hands over a post's body. Only a proxy that needs no
+  /// credential can take the form, as the page's own requests carry none.
+  String? get formTarget => usesSession || headers.isNotEmpty
+      ? null
+      : '${_base.scheme}://${_base.authority}$_prefix';
+
   /// The address the app loads to show [remote], an address on the
   /// terminal's machine.
   Uri pageUri(Uri remote) {
@@ -198,6 +213,9 @@ final class TerminalPreviewNavigator {
       try {
         authority = Uri.decodeComponent(parts[1]);
       } on ArgumentError {
+        return null;
+      } on FormatException {
+        // Escapes that are not UTF-8, such as `%FF`.
         return null;
       }
       if (authority.isEmpty || authority.contains('/')) return null;

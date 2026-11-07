@@ -72,7 +72,12 @@ class TerminalBrowserController with TerminalChangeNotifier {
   /// Counts port lists the server pushed, so a fetch that started before one
   /// does not replace it with what it read earlier.
   int _pushedPorts = 0;
-  bool _liveRefreshing = false;
+
+  /// Each start of the live updates is a run of its own, so a listing an
+  /// earlier run left waiting, as for the terminal the user left, does not
+  /// hold up the changes the next one reports.
+  int _liveRun = 0;
+  int? _liveRefreshRun;
   bool _liveRefreshPending = false;
 
   bool get loadingFiles => _loadingFiles;
@@ -285,6 +290,7 @@ class TerminalBrowserController with TerminalChangeNotifier {
     _portEvents = null;
     files?.stop();
     ports?.stop();
+    _liveRun++;
     _liveRefreshPending = false;
   }
 
@@ -292,15 +298,15 @@ class TerminalBrowserController with TerminalChangeNotifier {
   /// A change reported while a listing is under way lists once more after
   /// it, so the listing never ends older than the last change.
   void _refreshLive() {
-    if (_liveRefreshing) {
+    if (_liveRefreshRun == _liveRun) {
       _liveRefreshPending = true;
       return;
     }
-    _liveRefreshing = true;
-    unawaited(_runLiveRefresh());
+    unawaited(_runLiveRefresh(_liveRun));
   }
 
-  Future<void> _runLiveRefresh() async {
+  Future<void> _runLiveRefresh(int run) async {
+    _liveRefreshRun = run;
     try {
       do {
         _liveRefreshPending = false;
@@ -315,9 +321,9 @@ class TerminalBrowserController with TerminalChangeNotifier {
           refresh: true,
           quiet: true,
         );
-      } while (_liveRefreshPending && !_disposed);
+      } while (_liveRefreshPending && run == _liveRun && !_disposed);
     } finally {
-      _liveRefreshing = false;
+      if (_liveRefreshRun == run) _liveRefreshRun = null;
     }
   }
 
@@ -532,7 +538,7 @@ class TerminalBrowserController with TerminalChangeNotifier {
             )
           : null,
       closeSession: sessions
-          ? (session) => service.closeBrowserSession(
+          ? (session) => _sessionCloser(service, server).closeBrowserSession(
               server,
               session.id,
               sessionScopeId: sessionScopeId,
@@ -543,6 +549,30 @@ class TerminalBrowserController with TerminalChangeNotifier {
     if (!launched) {
       _onFailure(TerminalBrowserFailure.openPort);
     }
+  }
+
+  /// The service that closes a browser session [opened] opened on [server].
+  ///
+  /// Open WebUI's own terminals go through the account's client, which the
+  /// app replaces and closes whenever the account's token changes, as a
+  /// silent sign-in does. A close sent through the old one never leaves, and
+  /// the terminal keeps the session for a day, counting it against the
+  /// user's 16 browser tabs. So the current client closes it while it is
+  /// the same saved server's: the session answers only the user who opened
+  /// it, so another user's client could not close it anyway, and another
+  /// server's must not hear of it. A direct terminal's requests make a
+  /// client of their own.
+  TerminalService _sessionCloser(
+    TerminalService opened,
+    TerminalServerInfo server,
+  ) {
+    // The tab that owns the gateway is gone with this controller.
+    if (_disposed || !server.isSystem) return opened;
+    final current = _gateway.service;
+    if (current == null || identical(current, opened)) return opened;
+    return current.api.serverConfig.id == opened.api.serverConfig.id
+        ? current
+        : opened;
   }
 
   void resetLoading() {

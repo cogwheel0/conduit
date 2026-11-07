@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:collection';
+import 'dart:convert';
 
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:conduit/shared/widgets/platform_ui/vocabulary.dart';
@@ -60,6 +61,52 @@ const terminalPreviewNavigationScript = r'''
   });
 })();
 ''';
+
+/// Sends a form the page aims at the terminal's machine through the port
+/// proxy at [target] (see [TerminalPreviewNavigator.formTarget]), as Open
+/// WebUI's proxy and Open Terminal's browser sessions do for their pages,
+/// so the post keeps its data. A button's own `formaction` goes the same
+/// way.
+@visibleForTesting
+String terminalPreviewFormScript(String target) =>
+    '''
+(() => {
+  'use strict';
+  const target = ${jsonEncode(target)};
+  const local = new Set(['localhost', '127.0.0.1', '0.0.0.0', '[::1]']);
+  const through = (value) => {
+    let url;
+    try { url = new URL(value, location.href); } catch (_) { return null; }
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') return null;
+    if (!local.has(url.hostname.toLowerCase())) return null;
+    const port = url.port || (url.protocol === 'https:' ? '443' : '80');
+    return target + '/' + port + url.pathname + url.search + url.hash;
+  };
+  document.addEventListener('submit', (event) => {
+    const form = event.target;
+    if (!(form instanceof HTMLFormElement)) return;
+    const button = event.submitter;
+    if (button && button.hasAttribute('formaction')) {
+      const sent = through(button.formAction);
+      if (sent) button.formAction = sent;
+      return;
+    }
+    const sent = through(form.action);
+    if (sent) form.action = sent;
+  }, true);
+})();
+''';
+
+/// The scripts a preview's pages get: [terminalPreviewNavigationScript],
+/// and [terminalPreviewFormScript] when [navigator]'s forms need it.
+@visibleForTesting
+List<String> terminalPreviewUserScripts(TerminalPreviewNavigator? navigator) {
+  final formTarget = navigator?.formTarget;
+  return [
+    terminalPreviewNavigationScript,
+    if (formTarget != null) terminalPreviewFormScript(formTarget),
+  ];
+}
 
 /// The web view settings of a preview.
 ///
@@ -311,9 +358,10 @@ class _TerminalPortPreviewPageState extends State<TerminalPortPreviewPage>
     bool userActivated = false,
     bool linkActivated = false,
   }) async {
-    // Whatever the link does, the tap that followed it is spent, so a page
-    // it opens cannot leave on that tap too.
-    final tapped = linkActivated && _takeTap();
+    // Any navigation spends the tap before it, so a page it opens cannot
+    // leave on that tap too. A link Open Terminal's pages follow by script
+    // is not one iOS says was followed, yet it was tapped all the same.
+    final tapped = _takeTap() && linkActivated;
     switch (preview.decide(target, history: history)) {
       case TerminalPreviewAllow():
         return NavigationActionPolicy.ALLOW;
@@ -512,12 +560,13 @@ Widget buildTerminalPreviewWebView(
     ),
     initialSettings: terminalPreviewWebViewSettings(),
     initialUserScripts: UnmodifiableListView([
-      UserScript(
-        source: terminalPreviewNavigationScript,
-        injectionTime: UserScriptInjectionTime.AT_DOCUMENT_START,
-        forMainFrameOnly: true,
-        allowedOriginRules: const {'*'},
-      ),
+      for (final source in terminalPreviewUserScripts(host.preview.navigator))
+        UserScript(
+          source: source,
+          injectionTime: UserScriptInjectionTime.AT_DOCUMENT_START,
+          forMainFrameOnly: true,
+          allowedOriginRules: const {'*'},
+        ),
     ]),
     onWebViewCreated: host.attach,
     shouldOverrideUrlLoading: (controller, action) =>

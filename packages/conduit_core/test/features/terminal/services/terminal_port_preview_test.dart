@@ -27,6 +27,8 @@ void main() {
       check(navigator.headers).isEmpty();
       check(navigator.usesSession).isTrue();
       check(navigator.pagesOpenElsewhere).isTrue();
+      // Open Terminal's session script sends forms through the session.
+      check(navigator.formTarget).isNull();
     });
 
     test('reads the address back from a framed page', () {
@@ -44,6 +46,16 @@ void main() {
       }
       check(navigator.remoteUri(Uri.parse('$view/runtime.js'))).isNull();
       check(navigator.remoteUri(Uri.parse('$view/frame/ftp/x/y'))).isNull();
+      // A page can name any address; one whose escapes are not UTF-8 is
+      // none of the terminal's, and the rules still answer for it.
+      for (final authority in ['%FF', '%E2%82']) {
+        final page = Uri.parse('$view/frame/http/$authority/');
+        check(navigator.remoteUri(page), because: authority).isNull();
+        check(
+          navigator.decide(page),
+          because: authority,
+        ).isA<TerminalPreviewAllow>();
+      }
       check(
         navigator.remoteUri(
           Uri.parse('https://other.test/base/api/v1/terminals/t1/browser/'
@@ -115,6 +127,8 @@ void main() {
       check(navigator.remoteUri(Uri.parse('$proxy/70000/'))).isNull();
       check(navigator.headers).deepEquals({'Authorization': 'Bearer jwt'});
       check(navigator.pagesOpenElsewhere).isFalse();
+      // A form the page posts could not carry the credential.
+      check(navigator.formTarget).isNull();
     });
 
     test('makes each page load itself, with the credential', () {
@@ -171,6 +185,9 @@ void main() {
     check(navigator.decide(page)).isA<TerminalPreviewAllow>();
     check(navigator.headers).isEmpty();
     check(navigator.pagesOpenElsewhere).isTrue();
+    // Open Terminal's proxy shows pages as they are, so their forms aimed at
+    // the terminal's machine are sent through it by the app's script.
+    check(navigator.formTarget).equals('http://10.0.0.5:8000/proxy');
   });
 
   test('the preview starts at the port and names it briefly', () {

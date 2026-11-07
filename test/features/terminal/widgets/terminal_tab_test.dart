@@ -648,6 +648,75 @@ void main() {
       expect(fakeService.terminalEnabledRequestCount, loads);
     });
 
+    testWidgets('a new account token reopens the event sockets with it', (
+      tester,
+    ) async {
+      // A token change replaces the account's client, and so the terminal
+      // service: the terminal loads again and its watchers start afresh,
+      // so none reconnects with the token it started with.
+      TerminalServerInfo system() => TerminalServerInfo(
+        kind: TerminalServerKind.system,
+        selectionId: 'system:t1',
+        systemServerId: 't1',
+        baseUrl: Uri.parse('https://owui.example/api/v1/terminals/t1'),
+        name: 'Workspace',
+      );
+      _FakeTerminalService serviceWith(String token) => _FakeTerminalService(
+        servers: <TerminalServerInfo>[system()],
+        entries: const <TerminalFileEntry>[],
+        ports: const <TerminalListeningPort>[],
+        features: const TerminalServerFeatures(events: true),
+        token: token,
+      );
+      final current = ValueNotifier<TerminalService>(serviceWith('old-jwt'));
+      addTearDown(current.dispose);
+      final sockets = List.generate(4, (_) => _TestWebSocketConnection());
+      for (final socket in sockets) {
+        addTearDown(socket.dispose);
+      }
+      var opened = 0;
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            terminalServiceProvider.overrideWith((ref) {
+              void changed() => ref.invalidateSelf();
+              current.addListener(changed);
+              ref.onDispose(() => current.removeListener(changed));
+              return current.value;
+            }),
+            terminalAutoConnectProvider.overrideWithValue(false),
+            terminalChannelConnectorProvider.overrideWithValue(
+              (uri, {required kind}) => sockets[opened++].channel,
+            ),
+            systemTerminalLiveFeaturesProvider.overrideWithValue(true),
+          ],
+          child: MaterialApp(
+            localizationsDelegates: conduitLocalizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            home: const Scaffold(body: TerminalTab(isActive: true)),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(opened, 2);
+
+      // A silent sign-in.
+      current.value = serviceWith('new-jwt');
+      await tester.pumpAndSettle();
+
+      expect(opened, 4);
+      expect(sockets[0].closeCallCount, 1);
+      expect(sockets[1].closeCallCount, 1);
+      for (final socket in sockets.skip(2)) {
+        final frames = verify(() => socket.sink.add(captureAny())).captured;
+        expect(jsonDecode(frames.first as String), {
+          'type': 'auth',
+          'token': 'new-jwt',
+        });
+      }
+    });
+
     testWidgets('returning to the files panel lists files made meanwhile', (
       tester,
     ) async {
@@ -1008,6 +1077,7 @@ class _FakeTerminalService extends TerminalService {
     Map<int, Completer<bool>> terminalEnabledCompletersByRequest =
         const <int, Completer<bool>>{},
     this.features = const TerminalServerFeatures(),
+    this.token = 'terminal-token',
   }) : terminalEnabledCompletersByRequest = Map<int, Completer<bool>>.from(
          terminalEnabledCompletersByRequest,
        ),
@@ -1021,6 +1091,7 @@ class _FakeTerminalService extends TerminalService {
   final Map<String, Completer<List<TerminalFileEntry>>> listFileCompleters;
   final Map<int, Completer<bool>> terminalEnabledCompletersByRequest;
   final TerminalServerFeatures features;
+  final String token;
   final List<String> readPaths = <String>[];
   Object? readError;
   TerminalFileReadResult? readResult;
@@ -1072,7 +1143,7 @@ class _FakeTerminalService extends TerminalService {
   }
 
   @override
-  String? authTokenForServer(TerminalServerInfo server) => 'terminal-token';
+  String? authTokenForServer(TerminalServerInfo server) => token;
 
   @override
   Uri buildEventsWebSocketUri(TerminalServerInfo server) => server.isSystem

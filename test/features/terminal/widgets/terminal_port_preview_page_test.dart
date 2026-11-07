@@ -234,6 +234,30 @@ void main() {
     expect(find.text(login.toString()), findsOneWidget);
   });
 
+  testWidgets('a tap spent on a page the script loaded cannot leave again', (
+    tester,
+  ) async {
+    await tester.pumpWidget(page(preview(openSession: () async => session)));
+    await settle(tester);
+    final login = Uri.parse('https://login.example.com/');
+
+    // Open Terminal's pages follow a tapped link by script, which iOS does
+    // not report as a followed link.
+    await tester.tap(find.textContaining('web '));
+    await tester.pump();
+    final docs = await host!.navigate(
+      Uri.parse('$view/frame/http/localhost%3A5173/docs'),
+      history: false,
+    );
+    expect(docs, NavigationActionPolicy.ALLOW);
+
+    // The page it opened clicks a link straight away: the user is asked.
+    await host!.navigate(login, history: false, linkActivated: true);
+    await pumpDialog(tester);
+    expect(opened, isEmpty);
+    expect(find.text(login.toString()), findsOneWidget);
+  });
+
   testWidgets('a form post that leaves the preview is turned back', (
     tester,
   ) async {
@@ -353,6 +377,31 @@ void main() {
       terminalPreviewNavigationScript,
       contains("'terminal-browser-popup'"),
     );
+  });
+
+  test('pages shown as they are get the script that sends forms through', () {
+    final base = Uri.parse('http://10.0.0.5:8000/');
+    final plain = TerminalPreviewNavigator.proxy(terminalBaseUri: base);
+    final keyed = TerminalPreviewNavigator.proxy(
+      terminalBaseUri: base,
+      bearerToken: 'key',
+    );
+
+    expect(terminalPreviewUserScripts(plain), [
+      terminalPreviewNavigationScript,
+      terminalPreviewFormScript('http://10.0.0.5:8000/proxy'),
+    ]);
+    expect(
+      terminalPreviewFormScript('http://10.0.0.5:8000/proxy'),
+      contains('const target = "http://10.0.0.5:8000/proxy";'),
+    );
+    // Behind a credential the page's own post could not get through.
+    expect(terminalPreviewUserScripts(keyed), [
+      terminalPreviewNavigationScript,
+    ]);
+    expect(terminalPreviewUserScripts(null), [
+      terminalPreviewNavigationScript,
+    ]);
   });
 
   test('ports open in the app\'s preview where it has a web view', () async {
