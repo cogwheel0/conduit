@@ -14,7 +14,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
 
-import '../../../support/native_platform_views.dart';
+import '../../../support/floating_island.dart';
 
 Widget _harness(_Playback playback, {bool nativeIOS26 = false}) =>
     ProviderScope(
@@ -38,44 +38,6 @@ Widget _harness(_Playback playback, {bool nativeIOS26 = false}) =>
         },
       ),
     );
-
-void _useNativeIOS26() {
-  stubNativePlatformViews();
-  PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.iOS;
-  PlatformUiCapabilities.debugIOSMajorVersionOverride = 26;
-  PlatformUiCapabilities.debugNativeIOS26Override = true;
-  addTearDown(PlatformUiCapabilities.resetDebugOverrides);
-}
-
-/// The island's glass: its size for the current state, at the bottom centre
-/// of the island, which is where the native view and the Flutter one draw it.
-Rect _glass(WidgetTester tester) {
-  final island = find.byType(CNFloatingIsland);
-  final config = tester.widget<CNFloatingIsland>(island);
-  final size = config.isExpanded
-      ? Size(config.expandedWidth!, config.expandedHeight!)
-      : Size(config.collapsedWidth!, config.collapsedHeight);
-  final box = tester.getRect(island);
-  return Rect.fromLTWH(
-    box.center.dx - size.width / 2,
-    box.bottom - size.height,
-    size.width,
-    size.height,
-  );
-}
-
-void _expectOnGlass(WidgetTester tester, Finder control) {
-  final glass = _glass(tester).inflate(0.5);
-  final rect = tester.getRect(control);
-  expect(
-    glass.contains(rect.topLeft) && glass.contains(rect.bottomRight),
-    isTrue,
-    reason: '$control at $rect is off the glass at $glass',
-  );
-}
-
-bool _islandExpanded(WidgetTester tester) =>
-    tester.widget<CNFloatingIsland>(find.byType(CNFloatingIsland)).isExpanded;
 
 /// Presses a control the way its native button would.
 void _press(WidgetTester tester, String key) =>
@@ -194,7 +156,11 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  for (final size in [const Size(390, 844), const Size(1024, 768)]) {
+  for (final size in [
+    const Size(320, 568),
+    const Size(390, 844),
+    const Size(1024, 768),
+  ]) {
     testWidgets(
       'iOS 26 island expands from a compact pill with every control on its '
       'glass at 2x text in $size',
@@ -202,7 +168,7 @@ void main() {
         tester.view.physicalSize = size;
         tester.view.devicePixelRatio = 1;
         addTearDown(tester.view.reset);
-        _useNativeIOS26();
+        useNativeIOS26();
         final actions = <String>[];
         await tester.pumpWidget(
           _harness(_Playback(actions.add), nativeIOS26: true),
@@ -210,8 +176,8 @@ void main() {
         await tester.pumpAndSettle();
 
         // Compact: the progress and play/pause only.
-        expect(_islandExpanded(tester), isFalse);
-        final compactWidth = _glass(tester).width;
+        expect(floatingIsland(tester).isExpanded, isFalse);
+        final compactWidth = floatingIslandGlass(tester).width;
         for (final key in [
           'speech-playback-backward',
           'speech-playback-forward',
@@ -219,11 +185,11 @@ void main() {
         ]) {
           expect(find.byKey(ValueKey(key)), findsNothing);
         }
-        _expectOnGlass(
+        expectOnFloatingIslandGlass(
           tester,
           find.byKey(const ValueKey('speech-playback-expand')),
         );
-        _expectOnGlass(
+        expectOnFloatingIslandGlass(
           tester,
           find.byKey(const ValueKey('speech-playback-toggle')),
         );
@@ -234,9 +200,12 @@ void main() {
         await tester.pumpAndSettle();
 
         // Expanded: every control, across the composer's width.
-        expect(_islandExpanded(tester), isTrue);
-        expect(_glass(tester).width, size.width - 2 * Spacing.inputPadding);
-        expect(compactWidth, lessThan(_glass(tester).width));
+        expect(floatingIsland(tester).isExpanded, isTrue);
+        expect(
+          floatingIslandGlass(tester).width,
+          size.width - 2 * Spacing.inputPadding,
+        );
+        expect(compactWidth, lessThan(floatingIslandGlass(tester).width));
         for (final key in [
           'speech-playback-collapse',
           'speech-playback-backward',
@@ -244,8 +213,15 @@ void main() {
           'speech-playback-forward',
           'speech-playback-stop',
         ]) {
-          _expectOnGlass(tester, find.byKey(ValueKey(key)));
+          expectOnFloatingIslandGlass(tester, find.byKey(ValueKey(key)));
         }
+        // However narrow the panel, the time keeps a target that minimises.
+        expect(
+          tester
+              .getSize(find.byKey(const ValueKey('speech-playback-collapse')))
+              .width,
+          greaterThanOrEqualTo(TouchTarget.minimum),
+        );
         _press(tester, 'speech-playback-forward');
         expect(actions, ['pause', 'skip:15']);
 
@@ -254,7 +230,7 @@ void main() {
         );
         await tester.pumpAndSettle();
 
-        expect(_islandExpanded(tester), isFalse);
+        expect(floatingIsland(tester).isExpanded, isFalse);
         expect(
           find.byKey(const ValueKey('speech-playback-stop')),
           findsNothing,
@@ -268,7 +244,7 @@ void main() {
   testWidgets(
     'iOS 26 compact island keeps an error readable beside its retry',
     (tester) async {
-      _useNativeIOS26();
+      useNativeIOS26();
       final actions = <String>[];
       await tester.pumpWidget(
         _harness(_Playback(actions.add, failed: true), nativeIOS26: true),
@@ -278,9 +254,9 @@ void main() {
         tester.element(find.byType(SpeechPlaybackBar)),
       )!;
 
-      expect(_islandExpanded(tester), isFalse);
+      expect(floatingIsland(tester).isExpanded, isFalse);
       expect(find.textContaining('Synthetic engine details'), findsNothing);
-      _expectOnGlass(tester, find.text(l10n.error));
+      expectOnFloatingIslandGlass(tester, find.text(l10n.error));
       _press(tester, 'speech-playback-retry');
       expect(actions, ['retry']);
     },
@@ -290,7 +266,7 @@ void main() {
   testWidgets(
     'iOS 26 island leaves a covering sheet clear and keeps its room',
     (tester) async {
-      _useNativeIOS26();
+      useNativeIOS26();
       await tester.pumpWidget(_harness(_Playback((_) {}), nativeIOS26: true));
       await tester.pumpAndSettle();
       final bar = find.byType(SpeechPlaybackBar);
@@ -315,7 +291,7 @@ void main() {
       Navigator.of(tester.element(find.byType(SizedBox).last)).pop();
       await tester.pumpAndSettle();
 
-      expect(_islandExpanded(tester), isTrue);
+      expect(floatingIsland(tester).isExpanded, isTrue);
       expect(ThemedSheets.hasActiveSheet, isFalse);
     },
     variant: TargetPlatformVariant.only(TargetPlatform.iOS),

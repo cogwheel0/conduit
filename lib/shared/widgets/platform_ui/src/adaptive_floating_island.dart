@@ -21,7 +21,8 @@ const double _nativeHeadroom = 16;
 /// Callers that keep their own design below iOS 26 check
 /// `PlatformUiCapabilities.usesNativeIOS26` first.
 ///
-/// The native glass reads its sizes once, when its view is created, so the
+/// The native glass reads its sizes once, when its view is created
+/// (https://github.com/gunumdogdu/cupertino_native_better/issues/128), so the
 /// island has one fixed size per state, and [collapsedSize] fits within
 /// [expandedSize]. The content is laid out in that size less
 /// [collapsedPadding] or [expandedPadding], which keeps it on the glass. A

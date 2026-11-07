@@ -9,7 +9,7 @@ import '../../../shared/widgets/platform_ui/vocabulary.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/adaptive_toolbar_components.dart';
-import '../../../shared/widgets/themed_sheets.dart';
+import '../../../shared/widgets/native_chrome_visibility.dart';
 import '../providers/text_to_speech_provider.dart';
 
 /// Width of the island's compact progress track, or of its error label.
@@ -21,6 +21,14 @@ const double _trackHeight = 4;
 
 /// Extent of the leading waveform glyph.
 const double _glyphExtent = 20;
+
+/// The most controls the expanded island shows: back, play/pause, forward
+/// and stop.
+const int _maxPanelActions = 4;
+
+/// The narrowest time-and-progress area that may share a row with the
+/// controls. It is also the target that minimises the island.
+const double _minInfoWidth = 64;
 
 /// Controls the active read-aloud request without covering the transcript.
 ///
@@ -177,10 +185,25 @@ class _SpeechPlaybackBarState extends ConsumerState<SpeechPlaybackBar> {
       child: LayoutBuilder(
         builder: (context, constraints) {
           final controlExtent = conduitScaledControlExtent(context);
-          final contentHeight = math.max(
-            controlExtent,
-            _measureInfoHeight(context, elapsedStyle),
-          );
+          final infoHeight = _measureInfoHeight(context, elapsedStyle);
+          final contentHeight = math.max(controlExtent, infoHeight);
+          final panelWidth = AdaptiveFloatingIsland.expandedPadding
+              .deflateSize(Size(constraints.maxWidth, 0))
+              .width;
+          // A narrow panel, such as at large text sizes, gives the controls
+          // a row of their own, so that the time stays readable and the
+          // island can still be minimised.
+          final stacked =
+              panelWidth - Spacing.sm - _maxPanelActions * controlExtent <
+              _minInfoWidth;
+          final panelControlExtent = stacked
+              ? math.min(controlExtent, panelWidth / _maxPanelActions)
+              : controlExtent;
+          final panelHeight = stacked
+              ? math.max(TouchTarget.minimum, infoHeight) +
+                    Spacing.sm +
+                    panelControlExtent
+              : contentHeight;
           final collapsedSize = Size(
             math.min(
               constraints.maxWidth,
@@ -195,7 +218,7 @@ class _SpeechPlaybackBarState extends ConsumerState<SpeechPlaybackBar> {
           );
           final expandedSize = Size(
             constraints.maxWidth,
-            contentHeight + AdaptiveFloatingIsland.expandedPadding.vertical,
+            panelHeight + AdaptiveFloatingIsland.expandedPadding.vertical,
           );
           final glyph = AdaptiveSymbolIcon(
             symbol: 'waveform',
@@ -205,6 +228,37 @@ class _SpeechPlaybackBarState extends ConsumerState<SpeechPlaybackBar> {
             effect: playback.status == TtsPlaybackStatus.speaking
                 ? AdaptiveSymbolEffect.variableColor
                 : null,
+          );
+
+          final panelInfo = _IslandToggle(
+            key: const ValueKey('speech-playback-collapse'),
+            label: l10n.voiceCallMinimize,
+            onTap: () => setExpanded(false),
+            child: LayoutBuilder(
+              builder: (context, constraints) => Row(
+                children: [
+                  // A narrow area keeps its room for the time.
+                  if (constraints.maxWidth >= _compactTrackWidth) ...[
+                    glyph,
+                    const SizedBox(width: Spacing.sm),
+                  ],
+                  Expanded(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        elapsed,
+                        const SizedBox(height: Spacing.xs),
+                        SizedBox(
+                          height: _trackHeight,
+                          child: Center(child: track),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
           );
 
           final island = AdaptiveFloatingIsland(
@@ -240,63 +294,41 @@ class _SpeechPlaybackBarState extends ConsumerState<SpeechPlaybackBar> {
                 _IslandButton(action: compactAction, extent: controlExtent),
               ],
             ),
-            expanded: Row(
-              children: [
-                Expanded(
-                  child: _IslandToggle(
-                    key: const ValueKey('speech-playback-collapse'),
-                    label: l10n.voiceCallMinimize,
-                    onTap: () => setExpanded(false),
-                    child: LayoutBuilder(
-                      builder: (context, constraints) => Row(
+            expanded: stacked
+                ? Column(
+                    children: [
+                      Expanded(child: panelInfo),
+                      const SizedBox(height: Spacing.sm),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                         children: [
-                          // Narrow panels, such as at large text sizes,
-                          // keep their room for the time.
-                          if (constraints.maxWidth >= _compactTrackWidth) ...[
-                            glyph,
-                            const SizedBox(width: Spacing.sm),
-                          ],
-                          Expanded(
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                elapsed,
-                                const SizedBox(height: Spacing.xs),
-                                SizedBox(
-                                  height: _trackHeight,
-                                  child: Center(child: track),
-                                ),
-                              ],
+                          for (final action in actions)
+                            _IslandButton(
+                              action: action,
+                              extent: panelControlExtent,
                             ),
-                          ),
                         ],
                       ),
-                    ),
+                    ],
+                  )
+                : Row(
+                    children: [
+                      Expanded(child: panelInfo),
+                      const SizedBox(width: Spacing.sm),
+                      for (final action in actions)
+                        _IslandButton(action: action, extent: controlExtent),
+                    ],
                   ),
-                ),
-                const SizedBox(width: Spacing.sm),
-                for (final action in actions)
-                  _IslandButton(action: action, extent: controlExtent),
-              ],
-            ),
           );
 
           // Like the composer's native chrome, the glass leaves while a
           // sheet or another route covers it, so that UIKit cannot draw it
           // above them; its room stays so that the composer does not move.
-          return ListenableBuilder(
-            listenable: ThemedSheets.activeSheetListenable,
-            builder: (context, _) {
-              final visible =
-                  !ThemedSheets.isCoveredBySheet(context) &&
-                  TickerMode.valuesOf(context).enabled &&
-                  (ModalRoute.isCurrentOf(context) ?? true);
-              if (visible) return island;
-              return SizedBox(
-                height: expanded ? expandedSize.height : collapsedSize.height,
-              );
-            },
+          return NativeChromeWhileRouteVisible(
+            replacement: SizedBox(
+              height: expanded ? expandedSize.height : collapsedSize.height,
+            ),
+            child: island,
           );
         },
       ),

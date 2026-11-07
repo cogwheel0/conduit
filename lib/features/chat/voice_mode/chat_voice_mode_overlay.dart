@@ -1,4 +1,5 @@
 import 'dart:io' show Platform;
+import 'dart:math' as math;
 
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:cupertino_ui/cupertino_ui.dart';
@@ -9,6 +10,7 @@ import '../../../l10n/app_localizations.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/adaptive_glass.dart';
 import '../../../shared/utils/ui_utils.dart';
+import '../../../shared/widgets/native_chrome_visibility.dart';
 import 'chat_voice_mode_controller.dart';
 import 'voice_mode_error_text.dart';
 
@@ -37,6 +39,14 @@ class ChatVoiceModeOverlay extends ConsumerWidget {
     }
 
     final bottom = bottomOffset + Spacing.sm;
+    if (PlatformUiCapabilities.usesNativeIOS26) {
+      return Positioned(
+        left: Spacing.inputPadding,
+        right: Spacing.inputPadding,
+        bottom: bottom,
+        child: _VoiceIsland(snapshot: snapshot),
+      );
+    }
     return Positioned(
       left: Spacing.inputPadding,
       right: Spacing.inputPadding,
@@ -93,16 +103,357 @@ class ChatVoiceModeOverlay extends ConsumerWidget {
   }
 }
 
-class _ExpandedVoicePanel extends ConsumerWidget {
-  const _ExpandedVoicePanel({super.key, required this.snapshot});
+/// The call on iOS 26: one Liquid Glass island that morphs between the pill
+/// and the panel.
+///
+/// The native island keeps the sizes it was created with
+/// (https://github.com/gunumdogdu/cupertino_native_better/issues/128), so
+/// the panel cannot grow with the call as it does elsewhere. It keeps room
+/// for its tallest content at the current text size instead, and the island
+/// is created again only when that room changes, such as with the text size
+/// or the width.
+class _VoiceIsland extends StatelessWidget {
+  const _VoiceIsland({required this.snapshot});
 
   final ChatVoiceModeSnapshot snapshot;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final metrics = _VoiceIslandMetrics.of(context);
+        final collapsedSize = Size(
+          math.min(constraints.maxWidth, metrics.pillWidth),
+          metrics.pillHeight,
+        );
+        final expandedSize = Size(
+          constraints.maxWidth,
+          metrics.panelHeight + AdaptiveFloatingIsland.expandedPadding.vertical,
+        );
+        final expanded = !snapshot.isCollapsed;
+        return NativeChromeWhileRouteVisible(
+          replacement: SizedBox.fromSize(
+            size: expanded ? expandedSize : collapsedSize,
+          ),
+          child: AdaptiveFloatingIsland(
+            key: const ValueKey('voice-mode-island'),
+            isExpanded: expanded,
+            collapsedSize: collapsedSize,
+            expandedSize: expandedSize,
+            collapsed: _CollapsedVoicePill(snapshot: snapshot, onGlass: true),
+            expanded: _ExpandedVoicePanel(snapshot: snapshot, onGlass: true),
+          ),
+        );
+      },
+    );
+  }
+}
+
+/// The voice island's sizes at the current text size and language.
+@immutable
+class _VoiceIslandMetrics {
+  const _VoiceIslandMetrics({
+    required this.pillWidth,
+    required this.pillHeight,
+    required this.panelHeight,
+  });
+
+  /// The pill's width, glass included: room for the longest status label.
+  final double pillWidth;
+
+  /// The pill's height.
+  final double pillHeight;
+
+  /// The panel's height inside its glass: room for the header, the tallest
+  /// text (three transcript lines or the two-line reply, then a two-line
+  /// error) and the controls.
+  final double panelHeight;
+
+  /// The metrics last measured, with what they were measured for. The
+  /// overlay rebuilds with every change of the call, such as the voice's
+  /// intensity, and the text size and language rarely change.
+  static (Object, _VoiceIslandMetrics)? _last;
+
+  static _VoiceIslandMetrics of(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final scaler = MediaQuery.textScalerOf(context);
+    final direction = Directionality.of(context);
+    final labelStyle = AppTypography.labelStyle.copyWith(
+      fontWeight: FontWeight.w700,
+    );
+    final smallStyle = AppTypography.small;
+    final bodyStyle = AppTypography.bodyMediumStyle;
+    final key = (
+      scaler,
+      direction,
+      l10n.localeName,
+      labelStyle,
+      smallStyle,
+      bodyStyle,
+    );
+    if (_last case (final lastKey, final metrics) when lastKey == key) {
+      return metrics;
+    }
+
+    TextPainter layOut(TextStyle style, String text, int lines) => TextPainter(
+      text: TextSpan(text: text, style: style),
+      textDirection: direction,
+      textScaler: scaler,
+      maxLines: lines,
+    )..layout();
+    // Lines with an ascender, an accent and a descender.
+    double linesHeight(TextStyle style, int lines) {
+      final painter = layOut(style, List.filled(lines, 'Åg').join('\n'), lines);
+      final height = painter.height;
+      painter.dispose();
+      return height;
+    }
+
+    double labelWidth = 0;
+    for (final label in [
+      l10n.voiceCallReady,
+      l10n.voiceCallConnecting,
+      l10n.voiceCallListening,
+      l10n.voiceCallProcessing,
+      l10n.voiceCallSpeaking,
+      l10n.voiceCallPaused,
+      l10n.voiceCallMuted,
+      l10n.voiceCallDisconnected,
+      l10n.error,
+    ]) {
+      final painter = layOut(labelStyle, label, 1);
+      labelWidth = math.max(labelWidth, painter.width.ceilToDouble());
+      painter.dispose();
+    }
+    labelWidth = math.min(labelWidth, _pillLabelMaxWidth);
+    final labelLine = linesHeight(labelStyle, 1);
+    final smallLine = linesHeight(smallStyle, 1);
+
+    final pillHeight = math.max(
+      _pillMinHeight,
+      math.max(labelLine, TouchTarget.micro) + 2 * _pillVerticalPadding,
+    );
+    final pillWidth =
+        AdaptiveFloatingIsland.collapsedPadding.horizontal +
+        _StatusDot.compactExtent +
+        Spacing.sm +
+        labelWidth +
+        Spacing.sm +
+        TouchTarget.micro +
+        Spacing.xxs +
+        TouchTarget.micro;
+
+    final header = [
+      _StatusDot.envelopeExtent,
+      labelLine + smallLine,
+      TouchTarget.micro,
+    ].reduce(math.max);
+    final text = [
+      linesHeight(bodyStyle, _VoiceText.transcriptMaxLines),
+      linesHeight(
+            _KaraokeResponseBar.baseStyleOf(bodyStyle),
+            _KaraokeResponseBar.maxLines,
+          ) +
+          _KaraokeResponseBar.padding.vertical,
+      _VoiceText.emptyReplyHeight,
+      _VoiceText.emptyTranscriptHeight,
+    ].reduce(math.max);
+    final error = Spacing.xs + linesHeight(smallStyle, _errorMaxLines);
+    final panelHeight =
+        header + Spacing.sm + text + error + Spacing.md + TouchTarget.medium;
+
+    final metrics = _VoiceIslandMetrics(
+      pillWidth: pillWidth,
+      pillHeight: pillHeight,
+      panelHeight: panelHeight.ceilToDouble(),
+    );
+    _last = (key, metrics);
+    return metrics;
+  }
+}
+
+/// The widest the pill's status label gets.
+const double _pillLabelMaxWidth = 220;
+
+/// The pill's least height.
+const double _pillMinHeight = 52;
+
+/// The pill's room above and below its row.
+const double _pillVerticalPadding = 10;
+
+/// The lines an error may take in the panel.
+const int _errorMaxLines = 2;
+
+class _ExpandedVoicePanel extends ConsumerWidget {
+  const _ExpandedVoicePanel({
+    super.key,
+    required this.snapshot,
+    this.onGlass = false,
+  });
+
+  final ChatVoiceModeSnapshot snapshot;
+
+  /// Whether the panel is the island's content, which keeps one height: its
+  /// text then sits under the header, above room for its tallest text.
+  final bool onGlass;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final theme = context.conduitTheme;
     final l10n = AppLocalizations.of(context)!;
     final controller = ref.read(chatVoiceModeControllerProvider.notifier);
+
+    final header = Row(
+      children: [
+        _StatusDot(snapshot: snapshot),
+        const SizedBox(width: Spacing.sm),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                _phaseLabel(l10n, snapshot),
+                style: AppTypography.labelStyle.copyWith(
+                  color: theme.textPrimary,
+                  fontWeight: FontWeight.w700,
+                ),
+                // The island's panel keeps room for one line.
+                maxLines: onGlass ? 1 : null,
+                overflow: onGlass ? TextOverflow.ellipsis : null,
+              ),
+              Text(
+                _formatElapsed(snapshot.elapsed),
+                style: AppTypography.small.copyWith(color: theme.textSecondary),
+              ),
+            ],
+          ),
+        ),
+        _AdaptiveVoiceAction(
+          tooltip: l10n.voiceCallMinimize,
+          onPressed: controller.collapse,
+          icon: Platform.isIOS
+              ? CupertinoIcons.chevron_down
+              : Icons.keyboard_arrow_down_rounded,
+          compact: true,
+        ),
+      ],
+    );
+    final voiceText = <Widget>[
+      _VoiceText(snapshot: snapshot),
+      if (snapshot.errorMessage != null) ...[
+        const SizedBox(height: Spacing.xs),
+        Text(
+          voiceModeErrorText(
+                l10n,
+                kind: snapshot.errorKind,
+                message: snapshot.errorMessage,
+              ) ??
+              snapshot.errorMessage!,
+          style: AppTypography.small.copyWith(
+            color: Theme.of(context).colorScheme.error,
+          ),
+          maxLines: _errorMaxLines,
+          overflow: TextOverflow.ellipsis,
+        ),
+      ],
+    ];
+    final controls = Row(
+      children: [
+        // The three toggles draw native SF Symbols on iOS 26, which
+        // animate each change of state.
+        _CircleAction(
+          tooltip: snapshot.isMuted ? l10n.unmute : l10n.mute,
+          icon: snapshot.isMuted
+              ? (Platform.isIOS
+                    ? CupertinoIcons.mic_slash_fill
+                    : Icons.mic_off_rounded)
+              : (Platform.isIOS ? CupertinoIcons.mic_fill : Icons.mic_rounded),
+          symbol: snapshot.isMuted ? 'mic.slash.fill' : 'mic.fill',
+          symbolTransition: AdaptiveSymbolTransition.magic,
+          onPressed: controller.toggleMute,
+        ),
+        const SizedBox(width: Spacing.sm),
+        _CircleAction(
+          tooltip: snapshot.isSpeakerphoneEnabled
+              ? l10n.voiceCallSpeakerOff
+              : l10n.voiceCallSpeakerOn,
+          icon: snapshot.isSpeakerphoneEnabled
+              ? (Platform.isIOS
+                    ? CupertinoIcons.speaker_3_fill
+                    : Icons.volume_up_rounded)
+              : (Platform.isIOS
+                    ? CupertinoIcons.speaker_1
+                    : Icons.volume_down_rounded),
+          symbol: snapshot.isSpeakerphoneEnabled
+              ? 'speaker.wave.3.fill'
+              : 'speaker.wave.1',
+          symbolTransition: AdaptiveSymbolTransition.replace,
+          // The waves play while the assistant's voice does.
+          symbolEffect: snapshot.phase == ChatVoiceModePhase.speaking
+              ? AdaptiveSymbolEffect.variableColor
+              : null,
+          onPressed: controller.toggleSpeakerphone,
+        ),
+        const SizedBox(width: Spacing.sm),
+        _CircleAction(
+          tooltip: snapshot.canResume
+              ? l10n.voiceCallResume
+              : l10n.voiceCallPause,
+          icon: snapshot.canResume
+              ? (Platform.isIOS
+                    ? CupertinoIcons.play_fill
+                    : Icons.play_arrow_rounded)
+              : (Platform.isIOS
+                    ? CupertinoIcons.pause_fill
+                    : Icons.pause_rounded),
+          symbol: snapshot.canResume ? 'play.fill' : 'pause.fill',
+          symbolTransition: AdaptiveSymbolTransition.replace,
+          onPressed: snapshot.canResume
+              ? controller.resume
+              : (snapshot.canPause ? controller.pause : null),
+        ),
+        const Spacer(),
+        _CircleAction(
+          tooltip: l10n.voiceCallEnd,
+          destructive: true,
+          icon: Platform.isIOS
+              ? CupertinoIcons.phone_down_fill
+              : Icons.call_end_rounded,
+          onPressed: controller.stop,
+        ),
+      ],
+    );
+
+    if (onGlass) {
+      return Column(
+        key: const ValueKey('voice-overlay-expanded'),
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          header,
+          const SizedBox(height: Spacing.sm),
+          // The panel keeps room for its tallest text, so shorter text sits
+          // under the header with the room below it. Text taller than
+          // measured, such as in a script with taller lines, is clipped
+          // rather than pushing the controls.
+          Expanded(
+            child: ClipRect(
+              child: OverflowBox(
+                alignment: AlignmentDirectional.topStart,
+                maxHeight: double.infinity,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: voiceText,
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: Spacing.md),
+          controls,
+        ],
+      );
+    }
 
     return DecoratedBox(
       key: const ValueKey('voice-overlay-expanded'),
@@ -118,128 +469,11 @@ class _ExpandedVoicePanel extends ConsumerWidget {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
-              children: [
-                _StatusDot(snapshot: snapshot),
-                const SizedBox(width: Spacing.sm),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        _phaseLabel(l10n, snapshot),
-                        style: AppTypography.labelStyle.copyWith(
-                          color: theme.textPrimary,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                      Text(
-                        _formatElapsed(snapshot.elapsed),
-                        style: AppTypography.small.copyWith(
-                          color: theme.textSecondary,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                _AdaptiveVoiceAction(
-                  tooltip: l10n.voiceCallMinimize,
-                  onPressed: controller.collapse,
-                  icon: Platform.isIOS
-                      ? CupertinoIcons.chevron_down
-                      : Icons.keyboard_arrow_down_rounded,
-                  compact: true,
-                ),
-              ],
-            ),
+            header,
             const SizedBox(height: Spacing.sm),
-            _VoiceText(snapshot: snapshot),
-            if (snapshot.errorMessage != null) ...[
-              const SizedBox(height: Spacing.xs),
-              Text(
-                voiceModeErrorText(
-                      l10n,
-                      kind: snapshot.errorKind,
-                      message: snapshot.errorMessage,
-                    ) ??
-                    snapshot.errorMessage!,
-                style: AppTypography.small.copyWith(
-                  color: Theme.of(context).colorScheme.error,
-                ),
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ],
+            ...voiceText,
             const SizedBox(height: Spacing.md),
-            Row(
-              children: [
-                // The three toggles draw native SF Symbols on iOS 26, which
-                // animate each change of state.
-                _CircleAction(
-                  tooltip: snapshot.isMuted ? l10n.unmute : l10n.mute,
-                  icon: snapshot.isMuted
-                      ? (Platform.isIOS
-                            ? CupertinoIcons.mic_slash_fill
-                            : Icons.mic_off_rounded)
-                      : (Platform.isIOS
-                            ? CupertinoIcons.mic_fill
-                            : Icons.mic_rounded),
-                  symbol: snapshot.isMuted ? 'mic.slash.fill' : 'mic.fill',
-                  symbolTransition: AdaptiveSymbolTransition.magic,
-                  onPressed: controller.toggleMute,
-                ),
-                const SizedBox(width: Spacing.sm),
-                _CircleAction(
-                  tooltip: snapshot.isSpeakerphoneEnabled
-                      ? l10n.voiceCallSpeakerOff
-                      : l10n.voiceCallSpeakerOn,
-                  icon: snapshot.isSpeakerphoneEnabled
-                      ? (Platform.isIOS
-                            ? CupertinoIcons.speaker_3_fill
-                            : Icons.volume_up_rounded)
-                      : (Platform.isIOS
-                            ? CupertinoIcons.speaker_1
-                            : Icons.volume_down_rounded),
-                  symbol: snapshot.isSpeakerphoneEnabled
-                      ? 'speaker.wave.3.fill'
-                      : 'speaker.wave.1',
-                  symbolTransition: AdaptiveSymbolTransition.replace,
-                  // The waves play while the assistant's voice does.
-                  symbolEffect: snapshot.phase == ChatVoiceModePhase.speaking
-                      ? AdaptiveSymbolEffect.variableColor
-                      : null,
-                  onPressed: controller.toggleSpeakerphone,
-                ),
-                const SizedBox(width: Spacing.sm),
-                _CircleAction(
-                  tooltip: snapshot.canResume
-                      ? l10n.voiceCallResume
-                      : l10n.voiceCallPause,
-                  icon: snapshot.canResume
-                      ? (Platform.isIOS
-                            ? CupertinoIcons.play_fill
-                            : Icons.play_arrow_rounded)
-                      : (Platform.isIOS
-                            ? CupertinoIcons.pause_fill
-                            : Icons.pause_rounded),
-                  symbol: snapshot.canResume ? 'play.fill' : 'pause.fill',
-                  symbolTransition: AdaptiveSymbolTransition.replace,
-                  onPressed: snapshot.canResume
-                      ? controller.resume
-                      : (snapshot.canPause ? controller.pause : null),
-                ),
-                const Spacer(),
-                _CircleAction(
-                  tooltip: l10n.voiceCallEnd,
-                  destructive: true,
-                  icon: Platform.isIOS
-                      ? CupertinoIcons.phone_down_fill
-                      : Icons.call_end_rounded,
-                  onPressed: controller.stop,
-                ),
-              ],
-            ),
+            controls,
           ],
         ),
       ),
@@ -248,9 +482,17 @@ class _ExpandedVoicePanel extends ConsumerWidget {
 }
 
 class _CollapsedVoicePill extends ConsumerWidget {
-  const _CollapsedVoicePill({super.key, required this.snapshot});
+  const _CollapsedVoicePill({
+    super.key,
+    required this.snapshot,
+    this.onGlass = false,
+  });
 
   final ChatVoiceModeSnapshot snapshot;
+
+  /// Whether the pill is the island's content, which has a fixed width: the
+  /// status label then takes the room the island keeps for its longest one.
+  final bool onGlass;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -258,11 +500,61 @@ class _CollapsedVoicePill extends ConsumerWidget {
     final l10n = AppLocalizations.of(context)!;
     final controller = ref.read(chatVoiceModeControllerProvider.notifier);
 
+    final label = Text(
+      _phaseLabel(l10n, snapshot),
+      style: AppTypography.labelStyle.copyWith(
+        color: theme.textPrimary,
+        fontWeight: FontWeight.w700,
+      ),
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+    );
+    final row = Row(
+      mainAxisSize: onGlass ? MainAxisSize.max : MainAxisSize.min,
+      children: [
+        _StatusDot(snapshot: snapshot, compact: true),
+        const SizedBox(width: Spacing.sm),
+        if (onGlass)
+          Expanded(child: label)
+        else
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: _pillLabelMaxWidth),
+            child: label,
+          ),
+        const SizedBox(width: Spacing.sm),
+        _AdaptiveVoiceAction(
+          tooltip: l10n.voiceCallExpand,
+          onPressed: controller.expand,
+          icon: Platform.isIOS
+              ? CupertinoIcons.chevron_up
+              : Icons.keyboard_arrow_up_rounded,
+          compact: true,
+        ),
+        const SizedBox(width: Spacing.xxs),
+        _AdaptiveVoiceAction(
+          tooltip: l10n.voiceCallEnd,
+          onPressed: controller.stop,
+          icon: Platform.isIOS
+              ? CupertinoIcons.phone_down_fill
+              : Icons.call_end_rounded,
+          destructive: true,
+          compact: true,
+        ),
+      ],
+    );
+
+    if (onGlass) {
+      return KeyedSubtree(
+        key: const ValueKey('voice-overlay-collapsed'),
+        child: row,
+      );
+    }
+
     return Align(
       key: const ValueKey('voice-overlay-collapsed'),
       alignment: Alignment.center,
       child: ConstrainedBox(
-        constraints: const BoxConstraints(minHeight: 52),
+        constraints: const BoxConstraints(minHeight: _pillMinHeight),
         child: DecoratedBox(
           decoration: BoxDecoration(
             color: theme.cardBackground.withValues(alpha: 0.96),
@@ -271,45 +563,13 @@ class _CollapsedVoicePill extends ConsumerWidget {
             boxShadow: ConduitShadows.messageBubble(context),
           ),
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 10, 10, 10),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                _StatusDot(snapshot: snapshot, compact: true),
-                const SizedBox(width: Spacing.sm),
-                ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 220),
-                  child: Text(
-                    _phaseLabel(l10n, snapshot),
-                    style: AppTypography.labelStyle.copyWith(
-                      color: theme.textPrimary,
-                      fontWeight: FontWeight.w700,
-                    ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-                const SizedBox(width: Spacing.sm),
-                _AdaptiveVoiceAction(
-                  tooltip: l10n.voiceCallExpand,
-                  onPressed: controller.expand,
-                  icon: Platform.isIOS
-                      ? CupertinoIcons.chevron_up
-                      : Icons.keyboard_arrow_up_rounded,
-                  compact: true,
-                ),
-                const SizedBox(width: Spacing.xxs),
-                _AdaptiveVoiceAction(
-                  tooltip: l10n.voiceCallEnd,
-                  onPressed: controller.stop,
-                  icon: Platform.isIOS
-                      ? CupertinoIcons.phone_down_fill
-                      : Icons.call_end_rounded,
-                  destructive: true,
-                  compact: true,
-                ),
-              ],
+            padding: const EdgeInsets.fromLTRB(
+              16,
+              _pillVerticalPadding,
+              10,
+              _pillVerticalPadding,
             ),
+            child: row,
           ),
         ),
       ),
@@ -323,6 +583,12 @@ class _StatusDot extends StatelessWidget {
   final ChatVoiceModeSnapshot snapshot;
   final bool compact;
 
+  /// The compact dot's side, in the pill.
+  static const double compactExtent = 10;
+
+  /// The room the full dot keeps for its largest pulse, in the panel.
+  static const double envelopeExtent = 22;
+
   @override
   Widget build(BuildContext context) {
     final color = switch (snapshot.phase) {
@@ -334,12 +600,12 @@ class _StatusDot extends StatelessWidget {
       _ => context.conduitTheme.textSecondary,
     };
     const baseSize = 14.0;
-    const maxSize = 22.0;
+    const maxSize = envelopeExtent;
     final intensityScale =
         1.0 +
         (snapshot.intensity.clamp(0, 10).toDouble() / 10.0) *
             (maxSize / baseSize - 1.0);
-    final coreSize = compact ? 10.0 : baseSize;
+    final coreSize = compact ? compactExtent : baseSize;
     final envelopeSize = compact ? coreSize : maxSize;
 
     return SizedBox.square(
@@ -366,20 +632,29 @@ class _VoiceText extends StatelessWidget {
 
   final ChatVoiceModeSnapshot snapshot;
 
+  /// The lines the transcript may take.
+  static const int transcriptMaxLines = 3;
+
+  /// The room kept while the reply has not started.
+  static const double emptyReplyHeight = 36;
+
+  /// The room kept while nothing has been heard.
+  static const double emptyTranscriptHeight = 20;
+
   @override
   Widget build(BuildContext context) {
     if (snapshot.phase == ChatVoiceModePhase.speaking ||
         snapshot.phase == ChatVoiceModePhase.sending) {
       final spoken = snapshot.spokenResponse.trim();
       if (spoken.isEmpty) {
-        return const SizedBox(height: 36);
+        return const SizedBox(height: emptyReplyHeight);
       }
       return _KaraokeResponseBar(snapshot: snapshot);
     }
 
     final text = snapshot.transcript;
     if (text.trim().isEmpty) {
-      return const SizedBox(height: 20);
+      return const SizedBox(height: emptyTranscriptHeight);
     }
 
     return Text(
@@ -387,7 +662,7 @@ class _VoiceText extends StatelessWidget {
       style: AppTypography.bodyMediumStyle.copyWith(
         color: context.conduitTheme.textPrimary,
       ),
-      maxLines: 3,
+      maxLines: transcriptMaxLines,
       overflow: TextOverflow.ellipsis,
     );
   }
@@ -397,6 +672,19 @@ class _KaraokeResponseBar extends StatelessWidget {
   const _KaraokeResponseBar({required this.snapshot});
 
   final ChatVoiceModeSnapshot snapshot;
+
+  /// The lines the reply may take.
+  static const int maxLines = 2;
+
+  /// The room around the reply inside its box.
+  static const EdgeInsets padding = EdgeInsets.symmetric(
+    horizontal: Spacing.sm,
+    vertical: Spacing.xs,
+  );
+
+  /// The reply's style, before its colour, from the body style [body].
+  static TextStyle baseStyleOf(TextStyle body) =>
+      body.copyWith(fontWeight: FontWeight.w500, height: 1.25);
 
   @override
   Widget build(BuildContext context) {
@@ -410,11 +698,8 @@ class _KaraokeResponseBar extends StatelessWidget {
     final adjustedEnd = snapshot.spokenWordEnd == null
         ? null
         : snapshot.spokenWordEnd! - leadingTrim;
-    final baseStyle = AppTypography.bodyMediumStyle.copyWith(
-      color: theme.textPrimary.withValues(alpha: Alpha.strong),
-      fontWeight: FontWeight.w500,
-      height: 1.25,
-    );
+    final baseStyle = baseStyleOf(AppTypography.bodyMediumStyle)
+        .copyWith(color: theme.textPrimary.withValues(alpha: Alpha.strong));
     final highlightStyle = baseStyle.copyWith(
       color: theme.buttonPrimaryText,
       backgroundColor: theme.buttonPrimary,
@@ -433,10 +718,7 @@ class _KaraokeResponseBar extends StatelessWidget {
           ),
         ),
         child: Padding(
-          padding: const EdgeInsets.symmetric(
-            horizontal: Spacing.sm,
-            vertical: Spacing.xs,
-          ),
+          padding: padding,
           child: RichText(
             text: _karaokeTextSpan(
               text: text,
@@ -445,7 +727,7 @@ class _KaraokeResponseBar extends StatelessWidget {
               start: adjustedStart,
               end: adjustedEnd,
             ),
-            maxLines: 2,
+            maxLines: maxLines,
             overflow: TextOverflow.ellipsis,
             textScaler: MediaQuery.textScalerOf(context),
           ),
