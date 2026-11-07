@@ -69,12 +69,13 @@ final class ComputerSocketRelay {
     _active++;
     WebSocket? local;
     WebSocket? remote;
-    final client = HttpClient()
-      ..connectionTimeout = const Duration(seconds: 15);
-    _clients.add(client);
+    HttpClient? client;
     try {
       local = await WebSocketTransformer.upgrade(request);
       _sockets.add(local);
+      client = (_connection.createHttpClient?.call() ?? HttpClient())
+        ..connectionTimeout = const Duration(seconds: 15);
+      _clients.add(client);
       final uri = _connection.streamUri.replace(
         path: _connection.streamUri.path.replaceFirst(
           RegExp(r'/stream$'),
@@ -114,7 +115,7 @@ final class ComputerSocketRelay {
       unawaited(remote?.close());
       _sockets.remove(local);
       _sockets.remove(remote);
-      client.close(force: true);
+      client?.close(force: true);
       _clients.remove(client);
       _active--;
     }

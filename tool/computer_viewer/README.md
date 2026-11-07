@@ -37,7 +37,9 @@ A per-viewer loopback relay connects the native WebSocket client to the trusted
 pixel document. It forwards only the selected server's proxy cookies and custom
 headers, without reading or changing the platform WebView cookie store. The relay
 requires an unguessable path and the fixed viewer origin; only that connection's
-stream, VNC and advertised audio endpoints are reachable. Open WebUI account
+stream, VNC and advertised audio endpoints are reachable. System terminal streams
+reuse the configured server TLS policy, including client certificates and
+explicitly enabled, host-scoped self-signed trust. Open WebUI account
 cookies are excluded, direct terminals receive no proxy credentials, and remote
 HTML navigation stays blocked. Closing the viewer closes the relay and sockets.
 
@@ -104,6 +106,10 @@ JSON file with `url`, `token` and `server_id`. Use a fresh synthetic account and
 terminal; never commit that configuration. The test creates and deletes its own
 chat and browser tabs. Run it from `packages/conduit_core` with `flutter test
 test/features/terminal/computer_webui_integration_test.dart`.
+
+`computer_socket_relay_tls_test.dart` generates temporary synthetic certificates
+with OpenSSL and verifies real TLS handshakes, including client-certificate
+authentication and rejection when trust or a required identity is absent.
 
 ## Local review
 

@@ -3,7 +3,7 @@
   "computerDirectTouch": "Přímý dotyk",
   "computerTrackpad": "Trackpad",
   "computerTrackpadHint": "Posunutím pohybujte kurzorem. Klepnutím klikněte, podržením táhněte; dvěma prsty posouvejte.",
-  "computerDraggingHint": "Při tažení podržením zvedněte prst. Po volbě Zahájit tažení klepněte nebo zvolte Ukončit tažení.",
+  "computerDraggingHint": "Při tažení podržením zvedněte prst. Po volbě Začít tažení klepněte nebo zvolte Ukončit tažení.",
   "computerClick": "Kliknout",
   "computerRightClick": "Pravé kliknutí",
   "computerDoubleClick": "Dvojité kliknutí",

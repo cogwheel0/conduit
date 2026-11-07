@@ -1,6 +1,8 @@
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:dio/dio.dart';
+import 'package:conduit_core/services/server_tls_http_client_factory.dart';
 
 import '../models/computer_models.dart';
 import '../models/terminal_models.dart';
@@ -15,6 +17,10 @@ class ComputerService {
   final TerminalServerInfo server;
   final String scope;
   String get chatId => isSavedTerminalChatScopeId(scope) ? scope : '';
+
+  HttpClient _createHttpClient() => server.isSystem
+      ? ServerTlsHttpClientFactory.createHttpClient(terminal.api.serverConfig)
+      : HttpClient();
 
   Future<ComputerCapabilities> capabilities() async {
     try {
@@ -77,6 +83,7 @@ class ComputerService {
         audioAvailable: info['audio'] == true,
         proxyCookies: terminal.proxyCookiesForServer(server),
         proxyHeaders: terminal.computerProxyHeadersForServer(server),
+        createHttpClient: _createHttpClient,
       );
     }
 
@@ -155,6 +162,7 @@ class ComputerService {
       browserSession: selected,
       proxyCookies: terminal.proxyCookiesForServer(server),
       proxyHeaders: terminal.computerProxyHeadersForServer(server),
+      createHttpClient: _createHttpClient,
       chatId: chatId,
     );
   }

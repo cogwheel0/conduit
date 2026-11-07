@@ -3,7 +3,7 @@
   "computerDirectTouch": "Tocco diretto",
   "computerTrackpad": "Trackpad",
   "computerTrackpadHint": "Scorri per muovere il cursore. Tocca per fare clic, tieni premuto per trascinare; scorri con due dita.",
-  "computerDraggingHint": "Solleva il dito per terminare un trascinamento tenuto premuto. Dopo Avvia trascinamento, tocca o scegli Termina trascinamento.",
+  "computerDraggingHint": "Solleva il dito per terminare un trascinamento tenuto premuto. Dopo Inizia trascinamento, tocca o scegli Termina trascinamento.",
   "computerClick": "Clic",
   "computerRightClick": "Clic destro",
   "computerDoubleClick": "Doppio clic",

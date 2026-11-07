@@ -1,3 +1,5 @@
+import 'dart:io';
+
 /// Capabilities advertised by Open Terminal's /api/config endpoint.
 /// Older terminals omit these flags; never probe their Computer endpoints.
 class ComputerCapabilities {
@@ -94,6 +96,7 @@ class ComputerConnection {
     this.audioAvailable = false,
     this.proxyCookies = const {},
     this.proxyHeaders = const {},
+    this.createHttpClient,
   });
 
   final ComputerSurface surface;
@@ -108,6 +111,9 @@ class ComputerConnection {
 
   /// Native handshake headers; never serialized into the pixel document.
   final Map<String, String> proxyHeaders;
+
+  /// Per-socket native TLS policy; never exposed to the WebView.
+  final HttpClient Function()? createHttpClient;
 
   Map<String, dynamic> toViewerConfig() => {
     'surface': surface.name,

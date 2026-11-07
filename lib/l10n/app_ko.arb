@@ -3,7 +3,7 @@
   "computerDirectTouch": "직접 터치",
   "computerTrackpad": "트랙패드",
   "computerTrackpadHint": "밀어서 커서를 이동하세요. 탭하면 클릭, 길게 누르면 드래그, 두 손가락으로 스크롤합니다.",
-  "computerDraggingHint": "길게 눌러 끌 때는 손가락을 떼면 끝납니다. 끌기 시작을 선택한 뒤에는 탭하거나 끌기 종료를 선택하세요.",
+  "computerDraggingHint": "길게 눌러 끌 때는 손가락을 떼면 끝납니다. 드래그 시작을 선택한 뒤에는 탭하거나 드래그 종료를 선택하세요.",
   "computerClick": "클릭",
   "computerRightClick": "오른쪽 클릭",
   "computerDoubleClick": "두 번 클릭",
