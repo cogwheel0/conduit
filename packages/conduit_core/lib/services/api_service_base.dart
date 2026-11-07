@@ -573,7 +573,7 @@ abstract class _ApiServiceBase {
   // Parse OpenWebUI message format to our ChatMessage format
   // Build ordered messages list from Open‑WebUI history using parent chain to currentId
   // ===== Helpers to synthesize tool-call details blocks for UI parsing =====
-  List<String>? _sanitizeEmbedsForWebUI(List<Map<String, dynamic>>? embeds) {
+  List<Object>? _sanitizeEmbedsForWebUI(List<Map<String, dynamic>>? embeds) {
     return sanitizeEmbedsForWebUi(embeds);
   }
 

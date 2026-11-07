@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/foundation.dart';
 
 import 'renderer/latex_preprocessor.dart';
@@ -973,12 +975,14 @@ class CompiledMarkdownToolCallData {
     this.isError = false,
     required List<String> embedSources,
     required List<String> imageUrls,
+    List<Map<String, Object?>> mcpApps = const [],
   }) : argumentEntries =
            List<CompiledMarkdownToolCallArgumentEntry>.unmodifiable(
              argumentEntries,
            ),
        embedSources = List<String>.unmodifiable(embedSources),
-       imageUrls = List<String>.unmodifiable(imageUrls);
+       imageUrls = List<String>.unmodifiable(imageUrls),
+       mcpApps = List<Map<String, Object?>>.unmodifiable(mcpApps);
 
   final String argumentsText;
   final String resultText;
@@ -990,7 +994,16 @@ class CompiledMarkdownToolCallData {
   final List<String> embedSources;
   final List<String> imageUrls;
 
-  bool get hasEmbeds => embedSources.isNotEmpty;
+  /// MCP Apps the tool call showed (Open WebUI 0.13), as their embed objects.
+  final List<Map<String, Object?>> mcpApps;
+
+  /// [mcpApps] encoded once, for equality and weight: an app carries its whole
+  /// tool result.
+  late final String _mcpAppsSignature = mcpApps.isEmpty
+      ? ''
+      : jsonEncode(mcpApps);
+
+  bool get hasEmbeds => embedSources.isNotEmpty || mcpApps.isNotEmpty;
 
   bool get hasImages => imageUrls.isNotEmpty;
 
@@ -1007,7 +1020,8 @@ class CompiledMarkdownToolCallData {
       resultDisplayText.length +
       argumentEntries.fold<int>(0, (sum, entry) => sum + entry.weight) +
       embedSources.fold<int>(0, (sum, entry) => sum + entry.length) +
-      imageUrls.fold<int>(0, (sum, entry) => sum + entry.length);
+      imageUrls.fold<int>(0, (sum, entry) => sum + entry.length) +
+      _mcpAppsSignature.length;
 
   Map<String, Object?> toMap() => <String, Object?>{
     'argumentsText': argumentsText,
@@ -1021,6 +1035,7 @@ class CompiledMarkdownToolCallData {
     'isError': isError,
     'embedSources': embedSources,
     'imageUrls': imageUrls,
+    'mcpApps': mcpApps,
   };
 
   factory CompiledMarkdownToolCallData.fromMap(Map<String, Object?> map) {
@@ -1048,6 +1063,10 @@ class CompiledMarkdownToolCallData {
       imageUrls: ((map['imageUrls'] as List<dynamic>? ?? const <dynamic>[]))
           .map((value) => value.toString())
           .toList(growable: false),
+      mcpApps: [
+        for (final app in map['mcpApps'] as List<dynamic>? ?? const [])
+          if (app is Map) app.cast<String, Object?>(),
+      ],
     );
   }
 
@@ -1062,7 +1081,8 @@ class CompiledMarkdownToolCallData {
         other.resultDisplayText == resultDisplayText &&
         other.isError == isError &&
         listEquals(other.embedSources, embedSources) &&
-        listEquals(other.imageUrls, imageUrls);
+        listEquals(other.imageUrls, imageUrls) &&
+        other._mcpAppsSignature == _mcpAppsSignature;
   }
 
   @override
@@ -1076,6 +1096,7 @@ class CompiledMarkdownToolCallData {
     isError,
     Object.hashAll(embedSources),
     Object.hashAll(imageUrls),
+    _mcpAppsSignature,
   );
 }
 

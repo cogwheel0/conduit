@@ -78,7 +78,9 @@ final class _DirectMcpAppViewState extends State<DirectMcpAppView> {
 
   void _resetSession() {
     final originToken = _randomHexToken(18);
-    _documentUrl = Uri.parse('https://$originToken.mcp-app.invalid/index.html');
+    // A host of its own straight under `.invalid`: no parent domain shared
+    // with another app's page, so its cookies reach no other app.
+    _documentUrl = Uri.parse('https://mcp-app-$originToken.invalid/index.html');
     _bridgeName = 'conduit_mcp_app_${_randomToken(18)}';
     _bridgeToken = _randomToken(32);
     _initialNavigationAllowed = true;
@@ -259,7 +261,14 @@ InAppWebViewSettings directMcpAppWebViewSettings(String origin) =>
       useShouldInterceptRequest: true,
       useOnDownloadStart: true,
       useOnShowFileChooser: true,
-      incognito: true,
+      // On iOS this gives the view a store of its own. On Android the plugin
+      // implements it by deleting every cookie and the cache of all web views
+      // in the app, which would sign the user out of other web sessions. The
+      // view is kept apart there instead by its page's host, one of its own
+      // with no parent domain shared with another app's, so a cookie the page
+      // sets reaches no other app, and by refusing third-party cookies and
+      // credentials.
+      incognito: defaultTargetPlatform != TargetPlatform.android,
       cacheEnabled: false,
       domStorageEnabled: false,
       databaseEnabled: false,

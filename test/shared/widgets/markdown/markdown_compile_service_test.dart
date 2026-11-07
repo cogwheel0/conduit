@@ -502,6 +502,40 @@ void main() {
       );
     });
 
+    test('keeps an MCP App a tool call showed (Open WebUI 0.13)', () {
+      const app = {
+        'type': 'mcp_app',
+        'server_id': 'maps',
+        'tool_name': 'show_map',
+        'binding': 'b',
+        'arguments': {'city': 'Oslo'},
+        'result': {'content': <Object>[]},
+      };
+      final embeds = const HtmlEscape(
+        HtmlEscapeMode.attribute,
+      ).convert(jsonEncode([app]));
+      final document = compilePreparedMarkdownSync(
+        [
+          '<details type="tool_calls" done="true" name="show_map" '
+              'embeds="$embeds">',
+          '</details>',
+        ].join('\n'),
+      );
+
+      final toolCallData =
+          (document.nodes.first as CompiledMarkdownElement)
+              .detailsData!
+              .toolCallData!;
+      expect(toolCallData.embedSources, isEmpty);
+      expect(toolCallData.mcpApps, [app]);
+      expect(toolCallData.hasEmbeds, isTrue);
+      // It survives the trip from the compile isolate.
+      expect(
+        CompiledMarkdownToolCallData.fromMap(toolCallData.toMap()),
+        toolCallData,
+      );
+    });
+
     test('compiles semantic tool call detail payloads', () {
       final document = compilePreparedMarkdownSync(
         [

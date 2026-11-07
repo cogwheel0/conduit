@@ -10,6 +10,8 @@ import '../../themed_sheets.dart';
 import '../../web_content_embed.dart';
 import '../../../theme/theme_extensions.dart';
 import '../compiled_markdown_document.dart';
+import 'package:conduit/features/chat/widgets/mcp_app_embed.dart';
+import 'package:conduit_core/features/mcp_apps/openwebui_mcp_app.dart';
 import '../markdown_config.dart';
 import 'details_group_widget.dart';
 import 'markdown_style.dart';
@@ -686,6 +688,15 @@ class _MarkdownDetailsBlockState extends State<MarkdownDetailsBlock> {
               ),
             ),
           ],
+          for (final (index, embed) in data.mcpApps.indexed)
+            if (OpenWebUiMcpApp.tryParse(embed) case final app?) ...[
+              if (index > 0 || data.embedSources.isNotEmpty)
+                const SizedBox(height: Spacing.sm),
+              KeyedSubtree(
+                key: ValueKey('tool-call-mcp-app-$index-${app.binding}'),
+                child: McpAppEmbed(app: app),
+              ),
+            ],
         ],
       ),
     ];
