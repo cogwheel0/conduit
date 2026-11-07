@@ -1,3 +1,4 @@
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../../../l10n/app_localizations.dart';
@@ -8,26 +9,32 @@ import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/themed_dialogs.dart';
 
 import 'package:conduit_core/features/hermes/models/hermes_job.dart';
+import 'package:conduit_core/features/hermes/models/hermes_job_delivery.dart';
+import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 import 'package:conduit_core/features/hermes/utils/hermes_schedule_validation.dart';
 
-/// What the job editor returns. [catchUp] is null when the editor did not
-/// offer it or, when editing, the user left it as it was, so an edit never
-/// rewrites a policy it did not touch.
+import 'hermes_job_delivery_field.dart';
+
+/// What the job editor returns. [deliver] and [catchUp] are null when the
+/// editor did not offer them or, when editing, the user left them as they
+/// were, so an edit never rewrites a value it did not touch.
 typedef HermesJobEditorResult = ({
   String name,
   String prompt,
   String schedule,
+  String? deliver,
   HermesJobCatchUp? catchUp,
 });
 
 /// Shows the create/edit dialog for a scheduled Hermes job, or null if
-/// cancelled. [scheduling] adds the missed-run policy, which only the
-/// Desktop Gateway's dashboard accepts.
+/// cancelled. [scheduling] adds the missed-run policy and the "Deliver to"
+/// checklist, which only the Desktop Gateway's dashboard accepts.
 Future<HermesJobEditorResult?> showHermesJobEditor(
   BuildContext context, {
   String? initialName,
   String? initialPrompt,
   String? initialSchedule,
+  String? initialDeliver,
   HermesJobCatchUp initialCatchUp = HermesJobCatchUp.hermesDefault,
   bool scheduling = false,
 }) {
@@ -37,6 +44,7 @@ Future<HermesJobEditorResult?> showHermesJobEditor(
       initialName: initialName,
       initialPrompt: initialPrompt,
       initialSchedule: initialSchedule,
+      initialDeliver: initialDeliver,
       initialCatchUp: initialCatchUp,
       scheduling: scheduling,
     ),
@@ -55,6 +63,7 @@ class _HermesJobEditorDialog extends StatefulWidget {
     this.initialName,
     this.initialPrompt,
     this.initialSchedule,
+    this.initialDeliver,
     this.initialCatchUp = HermesJobCatchUp.hermesDefault,
     this.scheduling = false,
   });
@@ -62,6 +71,7 @@ class _HermesJobEditorDialog extends StatefulWidget {
   final String? initialName;
   final String? initialPrompt;
   final String? initialSchedule;
+  final String? initialDeliver;
   final HermesJobCatchUp initialCatchUp;
   final bool scheduling;
 
@@ -73,6 +83,7 @@ class _HermesJobEditorDialogState extends State<_HermesJobEditorDialog> {
   late final TextEditingController _name;
   late final TextEditingController _prompt;
   late final TextEditingController _schedule;
+  late String _deliver;
   late HermesJobCatchUp _catchUp;
   bool _showErrors = false;
 
@@ -86,6 +97,7 @@ class _HermesJobEditorDialogState extends State<_HermesJobEditorDialog> {
     _schedule = TextEditingController(
       text: widget.initialSchedule ?? '0 9 * * *',
     );
+    _deliver = parseHermesDeliveryTargets(widget.initialDeliver).join(',');
     _catchUp = widget.initialCatchUp;
   }
 
@@ -108,11 +120,15 @@ class _HermesJobEditorDialogState extends State<_HermesJobEditorDialog> {
       return;
     }
     final scheduling = widget.scheduling;
+    final deliverChanged =
+        !_isEditing ||
+        !hermesDeliveryTargetsMatch(_deliver, widget.initialDeliver);
     final catchUpChanged = !_isEditing || _catchUp != widget.initialCatchUp;
     Navigator.of(context).pop((
       name: name,
       prompt: prompt,
       schedule: schedule,
+      deliver: scheduling && deliverChanged ? _deliver : null,
       catchUp: scheduling && catchUpChanged ? _catchUp : null,
     ));
   }
@@ -218,6 +234,18 @@ class _HermesJobEditorDialogState extends State<_HermesJobEditorDialog> {
                   helperMaxLines: 3,
                 ),
                 nativeTitle: l10n.hermesJobCatchUpLabel,
+              ),
+              const SizedBox(height: Spacing.md),
+              Consumer(
+                builder: (context, ref, _) {
+                  final options = ref.watch(hermesJobDeliveryOptionsProvider);
+                  return HermesJobDeliveryField(
+                    value: _deliver,
+                    options: options.asData?.value,
+                    loading: options.isLoading,
+                    onChanged: (value) => setState(() => _deliver = value),
+                  );
+                },
               ),
             ],
           ],

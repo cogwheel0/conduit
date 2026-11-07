@@ -6875,6 +6875,52 @@
   "@hermesJobCatchUpSkip": {
     "description": "Missed-runs choice that skips the runs the job missed."
   },
+  "hermesJobDeliverLabel": "Deliver to",
+  "@hermesJobDeliverLabel": {
+    "description": "Label for where a Hermes scheduled job sends its output."
+  },
+  "hermesJobDeliverLocal": "Save in Hermes only",
+  "@hermesJobDeliverLocal": {
+    "description": "Delivery choice that keeps a Hermes scheduled job's output in Hermes without sending it anywhere."
+  },
+  "hermesJobDeliverMessaging": "Messaging apps",
+  "@hermesJobDeliverMessaging": {
+    "description": "Section title for messaging platform delivery choices of a Hermes scheduled job."
+  },
+  "hermesJobDeliverBotChats": "Bot Chats",
+  "@hermesJobDeliverBotChats": {
+    "description": "Section title for Bot Chat delivery choices of a Hermes scheduled job."
+  },
+  "hermesJobDeliverGroupChats": "Group Chats",
+  "@hermesJobDeliverGroupChats": {
+    "description": "Section title for Group Chat delivery choices of a Hermes scheduled job."
+  },
+  "hermesJobDeliverBotChat": "Bot Chat: {name}",
+  "@hermesJobDeliverBotChat": {
+    "description": "Delivery target naming a bot's Bot Chat.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesJobDeliverGroupChat": "Group Chat: {name}",
+  "@hermesJobDeliverGroupChat": {
+    "description": "Delivery target naming a Hermes Group Chat.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesJobDeliverNeedsHomeChannel": "Set a home channel in Hermes first.",
+  "@hermesJobDeliverNeedsHomeChannel": {
+    "description": "Hint on a messaging platform that cannot receive scheduled job output until a home channel is set in Hermes."
+  },
+  "hermesJobDeliverRoomHint": "Group Chats wake only the bots the job @mentions.",
+  "@hermesJobDeliverRoomHint": {
+    "description": "Hint explaining that delivering to a Group Chat only wakes the bots the job mentions."
+  },
   "hermesApprovalAllowOnce": "Allow once",
   "@hermesApprovalAllowOnce": {
     "description": "Approval option that permits a Hermes tool call once."

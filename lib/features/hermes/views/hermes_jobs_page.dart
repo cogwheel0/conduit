@@ -17,6 +17,7 @@ import 'package:conduit_core/features/hermes/models/hermes_config.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 import 'package:conduit_core/features/hermes/utils/hermes_schedule_format.dart';
 
+import '../widgets/hermes_job_delivery_field.dart';
 import '../widgets/hermes_job_editor.dart';
 import '../widgets/hermes_session_tile.dart' show openHermesSession;
 
@@ -321,6 +322,7 @@ class _HermesJobsPageState extends ConsumerState<HermesJobsPage> {
             name: result.name,
             prompt: result.prompt,
             schedule: result.schedule,
+            deliver: result.deliver,
             catchUp: result.catchUp ?? HermesJobCatchUp.hermesDefault,
           ),
       failureMessage: l10n.hermesJobCreateFailed,
@@ -384,6 +386,14 @@ class _JobCardState extends ConsumerState<_JobCard> {
     final desktop =
         ref.watch(hermesConfigProvider.select((config) => config.mode)) ==
         HermesBackendMode.desktopGateway;
+    final deliveryOptions = desktop
+        ? ref.watch(hermesJobDeliveryOptionsProvider).asData?.value
+        : null;
+    final delivery = describeHermesJobDelivery(
+      l10n,
+      job.deliveryTarget,
+      options: deliveryOptions,
+    );
     final cancelReason = _runLive ? null : job.lastCancelReason;
 
     return Container(
@@ -489,7 +499,7 @@ class _JobCardState extends ConsumerState<_JobCard> {
                   ),
                 ),
                 Text(
-                  '${l10n.hermesJobDeliveryLabel}: ${job.deliveryTarget ?? 'local'}',
+                  '${l10n.hermesJobDeliveryLabel}: $delivery',
                   style: AppTypography.bodySmallStyle.copyWith(
                     color: theme.textSecondary,
                   ),
@@ -726,6 +736,7 @@ class _JobCardState extends ConsumerState<_JobCard> {
       initialName: job.name ?? job.displayName,
       initialPrompt: job.prompt,
       initialSchedule: job.schedule,
+      initialDeliver: job.deliveryTarget,
       initialCatchUp: job.catchUpChoice,
       scheduling:
           ref.read(hermesConfigProvider).mode ==
@@ -741,6 +752,7 @@ class _JobCardState extends ConsumerState<_JobCard> {
             name: result.name,
             prompt: result.prompt,
             schedule: result.schedule,
+            deliver: result.deliver,
             catchUp: result.catchUp,
           ),
       failureMessage: _l10n(context).hermesJobUpdateFailed,

@@ -20,8 +20,10 @@ import 'package:conduit_core/features/hermes/models/hermes_bot.dart';
 import 'package:conduit_core/features/hermes/models/hermes_chat_input.dart';
 import 'package:conduit_core/features/hermes/models/hermes_config.dart';
 import 'package:conduit_core/features/hermes/models/hermes_job.dart';
+import 'package:conduit_core/features/hermes/models/hermes_job_delivery.dart';
 import 'package:conduit_core/features/hermes/models/hermes_mcp.dart';
 import 'package:conduit_core/features/hermes/models/hermes_model.dart';
+import 'package:conduit_core/features/hermes/models/hermes_room.dart';
 import 'package:conduit_core/features/hermes/models/hermes_run_event.dart';
 import 'package:conduit_core/features/hermes/services/hermes_backend_service.dart';
 import 'package:conduit_core/features/hermes/services/hermes_http_transport.dart';
@@ -553,11 +555,13 @@ final class HermesDesktopApiService
     required String name,
     required String prompt,
     required String schedule,
+    String deliver = kHermesLocalDeliveryTarget,
     HermesJobCatchUp catchUp = HermesJobCatchUp.hermesDefault,
   }) => _administration.createJob(
     name: name,
     prompt: prompt,
     schedule: schedule,
+    deliver: deliver,
     catchUp: catchUp,
   );
 
@@ -568,6 +572,7 @@ final class HermesDesktopApiService
     String? prompt,
     String? schedule,
     bool? enabled,
+    String? deliver,
     HermesJobCatchUp? catchUp,
   }) => _administration.updateJob(
     id,
@@ -575,6 +580,7 @@ final class HermesDesktopApiService
     prompt: prompt,
     schedule: schedule,
     enabled: enabled,
+    deliver: deliver,
     catchUp: catchUp,
   );
 
@@ -582,6 +588,14 @@ final class HermesDesktopApiService
   /// Throws [HermesJobStopUnsupportedException] on Hermes before 0.22.6.
   Future<HermesJobStopResult> stopJobRun(String id) =>
       _administration.cancelJobRun(id);
+
+  /// Where a job can deliver (`GET /api/cron/delivery-targets`).
+  Future<List<Map<String, dynamic>>> listJobDeliveryTargets() =>
+      _administration.listJobDeliveryTargets();
+
+  /// Group Chats hosted by this gateway (`groups.list`); empty without rooms.
+  Future<List<HermesRoom>> listRooms({bool includeDisbanded = false}) =>
+      _administration.listRooms(includeDisbanded: includeDisbanded);
 
   @override
   Future<void> deleteJob(String id) =>

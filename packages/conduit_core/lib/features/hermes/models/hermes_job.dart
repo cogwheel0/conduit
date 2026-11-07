@@ -7,6 +7,7 @@ const int kMaxHermesJobNameCharacters = 200;
 const int kMaxHermesJobPromptCharacters = 5000;
 const int kMaxHermesJobScheduleCharacters = 2048;
 const int kMaxHermesJobStatusCharacters = 256;
+const int kMaxHermesJobDeliverCharacters = 2048;
 const int kMaxHermesJobErrorCharacters = 4096;
 
 /// Ledger statuses of an attempt that has not finished
@@ -261,7 +262,7 @@ class HermesJob {
       ),
       deliveryTarget: validateHermesBoundedString(
         json['deliver'],
-        maxCharacters: kMaxHermesJobStatusCharacters,
+        maxCharacters: kMaxHermesJobDeliverCharacters,
       ),
       lastError: validateHermesBoundedString(
         json['last_error'],

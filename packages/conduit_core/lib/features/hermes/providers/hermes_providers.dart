@@ -38,7 +38,9 @@ import 'package:conduit_core/features/hermes/models/hermes_capabilities.dart';
 import 'package:conduit_core/features/hermes/models/hermes_config.dart';
 import 'package:conduit_core/features/hermes/models/hermes_connection_profile.dart';
 import 'package:conduit_core/features/hermes/models/hermes_job.dart';
+import 'package:conduit_core/features/hermes/models/hermes_job_delivery.dart';
 import 'package:conduit_core/features/hermes/models/hermes_model.dart';
+import 'package:conduit_core/features/hermes/models/hermes_room.dart';
 import 'package:conduit_core/features/hermes/models/hermes_session.dart';
 import 'package:conduit_core/features/hermes/models/hermes_toolset.dart';
 import 'package:conduit_core/features/hermes/services/hermes_api_service.dart';
@@ -2908,12 +2910,13 @@ class HermesJobsController extends AsyncNotifier<List<HermesJob>> {
     }
   }
 
-  /// [catchUp] applies on the Desktop Gateway; the API server keeps Hermes'
-  /// default policy.
+  /// [deliver] and [catchUp] apply on the Desktop Gateway; the API server
+  /// keeps its default (`local`, Hermes' catch-up policy).
   Future<void> create({
     required String name,
     required String prompt,
     required String schedule,
+    String? deliver,
     HermesJobCatchUp catchUp = HermesJobCatchUp.hermesDefault,
   }) async {
     final service = _service;
@@ -2922,6 +2925,7 @@ class HermesJobsController extends AsyncNotifier<List<HermesJob>> {
         name: name,
         prompt: prompt,
         schedule: schedule,
+        deliver: deliver ?? kHermesLocalDeliveryTarget,
         catchUp: catchUp,
       );
     } else {
@@ -2930,12 +2934,13 @@ class HermesJobsController extends AsyncNotifier<List<HermesJob>> {
     ref.invalidateSelf();
   }
 
-  /// A null [catchUp] leaves the job's policy as stored.
+  /// A null [deliver] or [catchUp] leaves the job's value as stored.
   Future<void> edit(
     String id, {
     String? name,
     String? prompt,
     String? schedule,
+    String? deliver,
     HermesJobCatchUp? catchUp,
   }) async {
     final service = _service;
@@ -2945,6 +2950,7 @@ class HermesJobsController extends AsyncNotifier<List<HermesJob>> {
         name: name,
         prompt: prompt,
         schedule: schedule,
+        deliver: deliver,
         catchUp: catchUp,
       );
     } else {
@@ -2996,6 +3002,33 @@ final hermesJobsProvider =
     AsyncNotifierProvider<HermesJobsController, List<HermesJob>>(
       HermesJobsController.new,
     );
+
+/// Where the connection's jobs can deliver: local, messaging platforms, Bot
+/// Chats, and Group Chats. Null on the API server, which lists no targets.
+final hermesJobDeliveryOptionsProvider =
+    FutureProvider.autoDispose<HermesDeliveryOptions?>((ref) async {
+      final service = ref.watch(hermesApiServiceProvider);
+      if (service is! HermesDesktopApiService) return null;
+      Future<T> orElse<T>(Future<T> future, T fallback) async {
+        try {
+          return await future;
+        } catch (_) {
+          return fallback;
+        }
+      }
+
+      final (targets, bots, rooms) = await (
+        orElse(service.listJobDeliveryTargets(), <Map<String, dynamic>>[]),
+        orElse(ref.watch(hermesBotsProvider.future), <HermesBot>[]),
+        orElse(service.listRooms(), <HermesRoom>[]),
+      ).wait;
+      return HermesDeliveryOptions.build(
+        targets: targets,
+        bots: bots,
+        rooms: rooms,
+        roomProfile: service.config.desktopProfile,
+      );
+    });
 
 /// Desktop cron runs are ordinary Hermes sessions, newest first.
 final hermesJobRunsProvider = FutureProvider.autoDispose

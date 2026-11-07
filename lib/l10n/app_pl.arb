@@ -6973,6 +6973,29 @@
   "hermesJobCatchUpDefault": "Domyślne ustawienie Hermes",
   "hermesJobCatchUpRunOnce": "Uruchom raz po pominięciu",
   "hermesJobCatchUpSkip": "Pomijaj zaległe uruchomienia",
+  "hermesJobDeliverLabel": "Dostarczaj do",
+  "hermesJobDeliverLocal": "Zapisz tylko w Hermes",
+  "hermesJobDeliverMessaging": "Komunikatory",
+  "hermesJobDeliverBotChats": "Czaty botów",
+  "hermesJobDeliverGroupChats": "Czaty grupowe",
+  "hermesJobDeliverBotChat": "Czat bota: {name}",
+  "@hermesJobDeliverBotChat": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesJobDeliverGroupChat": "Czat grupowy: {name}",
+  "@hermesJobDeliverGroupChat": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesJobDeliverNeedsHomeChannel": "Najpierw ustaw kanał domowy w Hermes.",
+  "hermesJobDeliverRoomHint": "Czaty grupowe budzą tylko boty, które zadanie oznaczy przez @.",
   "hermesApprovalAllowOnce": "Zezwól raz",
   "hermesApprovalAllowSession": "Zezwól w sesji",
   "hermesApprovalAlwaysAllow": "Zawsze zezwalaj",

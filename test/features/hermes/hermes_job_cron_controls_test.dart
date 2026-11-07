@@ -6,6 +6,7 @@ import 'package:conduit/features/hermes/widgets/hermes_job_editor.dart';
 import 'package:conduit_core/features/hermes/models/hermes_capabilities.dart';
 import 'package:conduit_core/features/hermes/models/hermes_config.dart';
 import 'package:conduit_core/features/hermes/models/hermes_job.dart';
+import 'package:conduit_core/features/hermes/models/hermes_job_delivery.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -25,6 +26,17 @@ HermesJob _job({String? status, String? error, String deliver = 'local'}) =>
           'error': error,
         },
     })!;
+
+final _options = HermesDeliveryOptions.build(
+  targets: [
+    {'id': 'local', 'name': 'Local (save only)'},
+    {'id': 'telegram', 'name': 'Telegram', 'home_target_set': true},
+    {'id': 'discord', 'name': 'Discord', 'home_target_set': false},
+    {'id': 'bot-chat:research', 'name': 'Bot Chat (research)'},
+  ],
+  rooms: const [],
+  roomProfile: 'ops',
+);
 
 final class _DesktopConfig extends HermesConfigController {
   @override
@@ -89,6 +101,7 @@ Future<void> _pumpPage(
           (ref) async => const HermesCapabilities(),
         ),
         hermesApiServiceProvider.overrideWithValue(null),
+        hermesJobDeliveryOptionsProvider.overrideWith((ref) async => _options),
       ],
       child: const MaterialApp(home: HermesJobsPage()),
     ),
@@ -199,6 +212,21 @@ void main() {
       await _unmount(tester);
     });
 
+    testWidgets('names each delivery target on the card', (tester) async {
+      final jobs = _CronJobs([
+        _job(deliver: 'local,bot-chat:research,room:standup@ops'),
+      ]);
+      await _pumpPage(tester, jobs);
+
+      expect(
+        find.text(
+          'Delivery: Save in Hermes only, Bot Chat: research, '
+          'Group Chat: standup',
+        ),
+        findsOneWidget,
+      );
+      await _unmount(tester);
+    });
   });
 
   group('editor', () {
@@ -206,16 +234,25 @@ void main() {
     Future<({Future<HermesJobEditorResult?> result})> openEditor(
       WidgetTester tester, {
       String? initialPrompt,
+      String? initialDeliver,
       HermesJobCatchUp initialCatchUp = HermesJobCatchUp.hermesDefault,
     }) async {
       await tester.pumpWidget(
-        const ProviderScope(child: MaterialApp(home: Scaffold())),
+        ProviderScope(
+          overrides: [
+            hermesJobDeliveryOptionsProvider.overrideWith(
+              (ref) async => _options,
+            ),
+          ],
+          child: const MaterialApp(home: Scaffold()),
+        ),
       );
       final result = showHermesJobEditor(
         tester.element(find.byType(Scaffold)),
         initialName: initialPrompt == null ? null : 'Digest',
         initialPrompt: initialPrompt,
         initialSchedule: '0 7 * * *',
+        initialDeliver: initialDeliver,
         initialCatchUp: initialCatchUp,
         scheduling: true,
       );
@@ -228,43 +265,92 @@ void main() {
       await tester.pumpAndSettle();
     }
 
-    testWidgets('an untouched edit leaves the policy alone', (
+    Future<void> scrollTo(WidgetTester tester, Finder finder) =>
+        tester.scrollUntilVisible(
+          finder,
+          100,
+          scrollable: find
+              .descendant(
+                of: find.byType(SingleChildScrollView),
+                matching: find.byType(Scrollable),
+              )
+              .first,
+        );
+
+    Finder target(String id) =>
+        find.byKey(ValueKey<String>('hermes-job-deliver-$id'));
+
+    testWidgets('an untouched edit leaves delivery and policy alone', (
       tester,
     ) async {
       final editor = await openEditor(
         tester,
         initialPrompt: 'Summarize the overnight notes',
+        initialDeliver: 'origin,local',
         initialCatchUp: HermesJobCatchUp.skip,
       );
 
       expect(find.text('Skip missed runs'), findsOneWidget);
+      await scrollTo(tester, target('bot-chat:research'));
+      // A saved target Hermes does not list stays shown as stored.
+      expect(find.text('origin'), findsOneWidget);
+      expect(find.text('Messaging apps'), findsOneWidget);
+      expect(find.text('Bot Chats'), findsOneWidget);
+      expect(find.text('Research'), findsNothing);
+      expect(find.text('research'), findsOneWidget);
+      expect(find.text('Set a home channel in Hermes first.'), findsOneWidget);
       await save(tester);
 
       check(await editor.result).isNotNull()
         ..has((r) => r.name, 'name').equals('Digest')
+        ..has((r) => r.deliver, 'deliver').isNull()
         ..has((r) => r.catchUp, 'catchUp').isNull();
     });
 
-    testWidgets('returns the policy the user changed', (
+    testWidgets('returns the delivery and policy the user changed', (
       tester,
     ) async {
       final editor = await openEditor(
         tester,
         initialPrompt: 'Summarize the overnight notes',
+        initialDeliver: 'local',
       );
 
       await tester.tap(find.text('Hermes default'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Run once after missed runs').last);
       await tester.pumpAndSettle();
+
+      await scrollTo(tester, target('discord'));
+      await tester.tap(target('telegram'));
+      // A platform without a home channel cannot be picked.
+      await tester.tap(target('discord'));
+      await tester.pumpAndSettle();
       await save(tester);
 
       check(await editor.result).isNotNull()
-          .has((r) => r.catchUp, 'catchUp')
-          .equals(HermesJobCatchUp.runOnce);
+        ..has((r) => r.deliver, 'deliver').equals('local,telegram')
+        ..has((r) => r.catchUp, 'catchUp').equals(HermesJobCatchUp.runOnce);
     });
 
-    testWidgets('a new job always carries its policy', (
+    testWidgets('the last target cannot be cleared', (tester) async {
+      final editor = await openEditor(
+        tester,
+        initialPrompt: 'Summarize the overnight notes',
+        initialDeliver: 'telegram',
+      );
+
+      await scrollTo(tester, target('telegram'));
+      await tester.tap(target('telegram'));
+      await tester.pumpAndSettle();
+      await save(tester);
+
+      check(await editor.result).isNotNull()
+          .has((r) => r.deliver, 'deliver')
+          .isNull();
+    });
+
+    testWidgets('a new job always carries its delivery and policy', (
       tester,
     ) async {
       final editor = await openEditor(tester);
@@ -277,8 +363,9 @@ void main() {
       await save(tester);
 
       check(await editor.result).isNotNull()
-          .has((r) => r.catchUp, 'catchUp')
-          .equals(HermesJobCatchUp.hermesDefault);
+        ..has((r) => r.deliver, 'deliver').equals('local')
+        ..has((r) => r.catchUp, 'catchUp')
+            .equals(HermesJobCatchUp.hermesDefault);
     });
   });
 }

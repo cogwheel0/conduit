@@ -416,6 +416,7 @@ final class _HermesDesktopAdministration {
     required String name,
     required String prompt,
     required String schedule,
+    String deliver = kHermesLocalDeliveryTarget,
     HermesJobCatchUp catchUp = HermesJobCatchUp.hermesDefault,
   }) async => _owner._object(
     await _owner._requestJson(
@@ -425,14 +426,14 @@ final class _HermesDesktopAdministration {
         'name': name,
         'prompt': prompt,
         'schedule': schedule,
-        'deliver': 'local',
+        'deliver': deliver,
         if (catchUp != HermesJobCatchUp.hermesDefault)
           'catch_up': catchUp.value,
       },
     ),
   );
 
-  /// A null [catchUp] leaves the stored policy untouched;
+  /// A null [deliver] or [catchUp] leaves the stored value untouched;
   /// [HermesJobCatchUp.hermesDefault] clears the job's own policy.
   Future<void> updateJob(
     String id, {
@@ -440,6 +441,7 @@ final class _HermesDesktopAdministration {
     String? prompt,
     String? schedule,
     bool? enabled,
+    String? deliver,
     HermesJobCatchUp? catchUp,
   }) async {
     await _owner._requestJson(
@@ -451,6 +453,7 @@ final class _HermesDesktopAdministration {
           'prompt': ?prompt,
           'schedule': ?schedule,
           'enabled': ?enabled,
+          'deliver': ?deliver,
           if (catchUp != null) 'catch_up': catchUp.value,
         },
       },
@@ -476,6 +479,51 @@ final class _HermesDesktopAdministration {
       }
       rethrow;
     }
+  }
+
+  /// `local` plus the gateway's configured platforms and Bot Chats; a
+  /// platform without a home channel has `home_target_set: false`.
+  Future<List<Map<String, dynamic>>> listJobDeliveryTargets() async =>
+      _owner._objects(
+        await _owner._requestJson('GET', '/api/cron/delivery-targets'),
+        'targets',
+      );
+
+  /// Group Chats hosted by this gateway, most recently changed first. Empty
+  /// on a gateway without rooms.
+  Future<List<HermesRoom>> listRooms({bool includeDisbanded = false}) async {
+    await _owner._ensureConnected();
+    const pageSize = 100;
+    final rooms = <HermesRoom>[];
+    var offset = 0;
+    for (var page = 0; page < 5; page++) {
+      final Map<String, dynamic> result;
+      try {
+        result = _owner._object(
+          await _owner._rpc.request<Object?>(
+            'groups.list',
+            params: {
+              'include_disbanded': includeDisbanded,
+              'limit': pageSize,
+              'offset': offset,
+            },
+          ),
+        );
+      } on HermesDesktopRpcException catch (error) {
+        if (error.code == -32601 || error.code == 4000) return rooms;
+        rethrow;
+      }
+      final rows = result['rooms'];
+      if (rows is! List) break;
+      for (final row in rows.take(pageSize)) {
+        final room = HermesRoom.fromJson(row);
+        if (room != null) rooms.add(room);
+      }
+      final next = result['next_offset'];
+      if (next is! int || next <= offset) break;
+      offset = next;
+    }
+    return rooms;
   }
 
   Future<void> mutateJob(String id, String method, String suffix) async {

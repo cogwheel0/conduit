@@ -56,6 +56,18 @@ void main() {
       check(job.lastCancelReason).equals('cancelled on request (Stop)');
     });
 
+    test('keeps a long multi-target delivery as stored', () {
+      final deliver = List.generate(20, (i) => 'room:room-$i@ops').join(',');
+      final job = HermesJob.fromJson({
+        'id': 'job-1',
+        'prompt': 'p',
+        'schedule': '0 7 * * *',
+        'deliver': deliver,
+      })!;
+
+      check(job.deliveryTarget).equals(deliver);
+    });
+
     test('a record without the new fields follows Hermes defaults', () {
       final job = _job();
 
