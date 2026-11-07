@@ -137,7 +137,14 @@ final class HermesPendingDesktopDecision {
         requestId: requestId,
         kind: kind,
         expiresAt: expiresAt,
-        prompt: prompt is String && prompt.length <= 512 ? prompt : null,
+        // The bound the sanitizer keeps (512 scalars, so up to 1024 UTF-16
+        // units): a prompt read back is the prompt saved.
+        prompt:
+            prompt is String &&
+                prompt.length <= 1024 &&
+                prompt.runes.length <= 512
+            ? prompt
+            : null,
         mcpServer: mcpServer,
         mcpAction: mcpAction,
         choices: choices,
@@ -462,16 +469,36 @@ String? _sanitizePrompt(String? value, Iterable<String> sensitiveValues) {
     sensitiveValues: secrets,
     maxVisibleScalars: 512,
   );
+  // A whole Authorization or Cookie value goes, scheme and all, as do
+  // labelled and Bearer credentials.
   safe = safe
       .replaceAllMapped(
         RegExp(
-          r'\b(authorization|cookie|api[-_ ]?key|access[-_ ]?token|password|secret)\b\s*[:=]\s*[^\s,;]+',
+          r'\b(authorization|proxy-authorization|cookie)\b\s*[:=][^\r\n]*',
           caseSensitive: false,
         ),
         (match) => '${match.group(1)}: [REDACTED]',
       )
+      .replaceAllMapped(
+        RegExp(
+          r'\b(api[-_ ]?key|access[-_ ]?token|password|secret)\b'
+          r'\s*[:=]\s*[^\s,;]+',
+          caseSensitive: false,
+        ),
+        (match) => '${match.group(1)}: [REDACTED]',
+      )
+      .replaceAll(
+        RegExp(r'\bbearer\s+[A-Za-z0-9._~+/=-]+', caseSensitive: false),
+        'Bearer [REDACTED]',
+      )
       .replaceAll(RegExp(r'[\u0000-\u001F\u007F-\u009F]'), ' ')
       .replaceAll(RegExp(r'\s+'), ' ')
       .trim();
+  // A marker can outgrow what it replaced: the field keeps its budget, so a
+  // record stays within what is read back.
+  final scalars = safe.runes;
+  if (scalars.length > 512) {
+    safe = String.fromCharCodes(scalars.take(512)).trim();
+  }
   return safe.isEmpty ? null : safe;
 }

@@ -453,7 +453,8 @@ final class _HermesDesktopAdministration {
     required bool approved,
   }) async {
     final card = parseHermesConnectionCardId(cardId);
-    if (card == null) {
+    final target = _owner._rpc.connectionCardTarget(cardId);
+    if (card == null || target == null) {
       throw StateError('Hermes returned an invalid connection request.');
     }
     final link = approved ? _owner._rpc.connectionLink(cardId) : null;
@@ -471,7 +472,7 @@ final class _HermesDesktopAdministration {
         'op_id': card.operationId,
         'result': {
           'targets': [
-            {'name': card.target, 'status': approved ? 'approved' : 'skipped'},
+            {'name': target, 'status': approved ? 'approved' : 'skipped'},
           ],
         },
         ..._owner._runtimeScope(runtimeId),

@@ -3,6 +3,7 @@ import 'dart:collection';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:crypto/crypto.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
 import 'package:conduit_core/network/external_link.dart';
@@ -205,9 +206,16 @@ List<HermesDesktopEvent> hermesDesktopEventsForServerRequest({
 }
 
 /// One connection target's card id: its operation and the target's name,
-/// escaped like [hermesClarifyCardId].
-String hermesConnectionCardId(String operationId, String target) =>
-    hermesClarifyCardId(operationId, target);
+/// escaped like [hermesClarifyCardId]. Hermes does not bound target names:
+/// one too long for an id is named by a digest (`~h`, which escaping never
+/// makes), and the client keeps which name it stands for
+/// ([HermesDesktopRpcClient.connectionCardTarget]).
+String hermesConnectionCardId(String operationId, String target) {
+  final id = hermesClarifyCardId(operationId, target);
+  if (validateHermesOpaqueIdentifier(id) != null) return id;
+  final digest = sha256.convert(utf8.encode(target)).toString();
+  return '${_escapeCardIdPart(operationId)}/~h${digest.substring(0, 32)}';
+}
 
 /// Splits a card id made by [hermesConnectionCardId].
 ({String operationId, String target})? parseHermesConnectionCardId(
@@ -326,6 +334,9 @@ final class _OpenConnection {
   /// Targets whose card was shown and then closed: answered here or
   /// elsewhere. One whose sign-in starts later is not asked about again.
   final Set<String> passed = {};
+
+  /// The target name each card shown for this operation stands for.
+  final Map<String, String> cardTargets = {};
 }
 
 /// A clarify request being answered one question at a time.
@@ -405,6 +416,22 @@ final class HermesDesktopEventBuffer {
       _removeQueue(sessionId)?.toList(growable: false) ?? const [];
 
   void discard(String sessionId) => _removeQueue(sessionId);
+
+  /// Drops [sessionId]'s buffered requests for [requestId]: one closed
+  /// (answered, withdrawn, timed out) must not be saved again from here.
+  void dropRequest(String sessionId, String requestId) {
+    final queue = _pending[sessionId];
+    if (queue == null) return;
+    final before = queue.length;
+    queue.removeWhere(
+      (event) =>
+          event.type.endsWith('.request') &&
+          (event.payload['request_id'] ?? event.payload['id'])?.toString() ==
+              requestId,
+    );
+    _totalEvents -= before - queue.length;
+    if (queue.isEmpty) _pending.remove(sessionId);
+  }
 
   Queue<HermesDesktopEvent>? _removeQueue(String sessionId) {
     final removed = _pending.remove(sessionId);
@@ -778,8 +805,20 @@ final class HermesDesktopRpcClient {
       if (!_clarifies.containsKey(id) && _clarifies.length >= 64) {
         _clarifies.remove(_clarifies.keys.first);
       }
-      _clarifies[id] = open
-        ..shownCardId = '${events.first.payload['request_id']}';
+      // A replay that moved on to another question closes the card it
+      // replaces: that one is answered, and must not stay actionable.
+      final nextCardId = '${events.first.payload['request_id']}';
+      final previousCardId = _clarifies[id]?.shownCardId;
+      if (previousCardId != null && previousCardId != nextCardId) {
+        _events.add(
+          HermesDesktopEvent(
+            type: 'clarify.expire',
+            sessionId: events.first.sessionId,
+            payload: {'request_id': previousCardId},
+          ),
+        );
+      }
+      _clarifies[id] = open..shownCardId = nextCardId;
     }
     for (final event in events) {
       _events.add(event);
@@ -852,7 +891,7 @@ final class HermesDesktopRpcClient {
     final shown = open.shownCardId;
     final shownTarget = shown == null
         ? null
-        : parseHermesConnectionCardId(shown)?.target;
+        : open.cardTargets[shown] ?? parseHermesConnectionCardId(shown)?.target;
     final next = payload['settled'] == true
         ? null
         : hermesDesktopConnectionTargetEvent(
@@ -886,7 +925,26 @@ final class HermesDesktopRpcClient {
     _connections[operationId] = open
       ..shownCardId = nextCardId
       ..shownLink = _connectLinkOf(payload['targets'], nextTarget);
+    if (nextCardId != null && nextTarget != null) {
+      if (open.cardTargets.length >= 32 &&
+          !open.cardTargets.containsKey(nextCardId)) {
+        open.cardTargets.remove(open.cardTargets.keys.first);
+      }
+      open.cardTargets[nextCardId] = nextTarget;
+    }
     if (next != null && shown != nextCardId) _events.add(next);
+  }
+
+  /// The target name connection card [cardId] stands for; null when its
+  /// operation is no longer open and the id carries only a digest.
+  String? connectionCardTarget(String cardId) {
+    final card = parseHermesConnectionCardId(cardId);
+    if (card == null) return null;
+    final known = _connections[card.operationId]?.cardTargets[cardId];
+    if (known != null) return known;
+    return hermesConnectionCardId(card.operationId, card.target) == cardId
+        ? card.target
+        : null;
   }
 
   /// Offers connection target [cardId] again with [update] (the frame that
@@ -897,7 +955,7 @@ final class HermesDesktopRpcClient {
     final open = card == null ? null : _connections[card.operationId];
     if (card == null || open == null) return;
     // Its card was answered; one still counted as shown is shown anew.
-    open.passed.remove(card.target);
+    open.passed.remove(open.cardTargets[cardId] ?? card.target);
     if (open.shownCardId == cardId) open.shownCardId = null;
     _showConnection(update, open.sessionId);
   }

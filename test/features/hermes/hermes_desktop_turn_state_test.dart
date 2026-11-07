@@ -1111,6 +1111,28 @@ void main() {
       },
     );
 
+    test('a request closed while no turn listens stays closed', () async {
+      final chat = await _restoredChat(const {});
+      // Asked and withdrawn while no turn of this chat was open: both wait
+      // in the buffer a resume reads.
+      chat.harness.event('runtime-1', 'sudo.request', {
+        'request_id': 'srq-s9',
+        'command': 'apt update',
+      });
+      await pumpEventQueue();
+      chat.harness.event('runtime-1', 'sudo.expire', {'request_id': 'srq-s9'});
+      await pumpEventQueue();
+
+      // Reading the chat resumes it, which saves what the buffer holds.
+      await chat.service.getSessionMessages('stored-1');
+      await pumpEventQueue();
+      final pending = await chat.service.pendingDecisionsForSession(
+        'stored-1',
+      );
+
+      check(pending.map((decision) => decision.requestId)).isEmpty();
+    });
+
     test('the next target re-reads the chat once it is saved', () async {
       final chat = await _restoredChat(const {});
       Map<String, Object?> target(String name, String state) => {

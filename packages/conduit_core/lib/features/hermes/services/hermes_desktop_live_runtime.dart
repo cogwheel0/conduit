@@ -116,6 +116,8 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
       sensitiveValues: config.sensitiveValues,
     );
     if (runtimeId == null || requestId == null) return false;
+    // A resume saves what the buffer holds: a closed request leaves it too.
+    _eventBuffer.dropRequest(runtimeId, requestId);
     return HermesPendingDecisionStore.resolve(
       origin: _origin,
       connectionId: config.connectionId,

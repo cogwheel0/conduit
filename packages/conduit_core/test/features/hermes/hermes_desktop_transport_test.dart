@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:checks/checks.dart';
 import 'package:conduit_core/features/hermes/services/hermes_desktop_api_service.dart';
 import 'package:conduit_core/features/hermes/services/hermes_desktop_transport.dart';
+import 'package:conduit_core/features/hermes/services/hermes_identifier.dart';
 import 'package:conduit_core/features/hermes/services/hermes_json_guard.dart';
 import 'package:conduit_core/features/hermes/models/hermes_config.dart';
 import 'package:conduit_core/features/hermes/models/hermes_mcp.dart';
@@ -527,6 +528,31 @@ void main() {
     check(buffer.hasPending('runtime-1')).isFalse();
   });
 
+  test('a closed request leaves the buffer', () {
+    final buffer = HermesDesktopEventBuffer();
+    HermesDesktopEvent request(String id) => HermesDesktopEvent(
+      type: 'clarify.request',
+      sessionId: 'rt-1',
+      payload: {'request_id': id},
+    );
+    buffer
+      ..add(request('srq-1'))
+      ..add(request('srq-2'))
+      ..add(
+        const HermesDesktopEvent(
+          type: 'message.delta',
+          sessionId: 'rt-1',
+          payload: {'request_id': 'srq-1'},
+        ),
+      );
+
+    buffer.dropRequest('rt-1', 'srq-1');
+
+    check(
+      buffer.pending('rt-1').map((e) => '${e.type} ${e.payload['request_id']}'),
+    ).deepEquals(['clarify.request srq-2', 'message.delta srq-1']);
+  });
+
   test('bounds buffered events across unknown sessions', () {
     final buffer = HermesDesktopEventBuffer(
       maximumPerSession: 4,
@@ -773,6 +799,71 @@ void main() {
       check(
         events.where((e) => e.type == 'clarify.request').last,
       ).has((e) => e.payload['request_id'], 'request_id').equals('srq-c3/q2');
+    });
+
+    test('a replay that moves on closes the card it replaces', () async {
+      final questions = [
+        for (final qid in ['q0', 'q1'])
+          {'qid': qid, 'question': 'Pick $qid?'},
+      ];
+      socket.serverRequest('srq-c5', 'clarify', {
+        'session_id': 'runtime-1',
+        'questions': questions,
+      });
+      await Future<void>.delayed(Duration.zero);
+      // q0 was answered on another surface while this socket was down.
+      client.replayOpenRequests([
+        {
+          'id': 'srq-c5',
+          'method': 'clarify',
+          'params': {
+            'session_id': 'runtime-1',
+            'questions': questions,
+            'answers': {'q0': 'Teal'},
+          },
+        },
+      ]);
+      await Future<void>.delayed(Duration.zero);
+
+      check(
+        events
+            .where((e) => e.type.startsWith('clarify.'))
+            .map((e) => '${e.type} ${e.payload['request_id']}'),
+      ).deepEquals([
+        'clarify.request srq-c5/q0',
+        'clarify.expire srq-c5/q0',
+        'clarify.request srq-c5/q1',
+      ]);
+      check(
+        events.singleWhere((e) => e.type == 'clarify.expire').sessionId,
+      ).equals('runtime-1');
+    });
+
+    test('a target name too long for a card id still gets its card', () async {
+      // 510 scalars: valid as a name, too long once the operation joins it.
+      final name = 'server-${'x' * 503}';
+      socket.event('connection.request', {
+        'op_id': 'op-9',
+        'seq': 1,
+        'deadline_at': 0,
+        'timeout_seconds': 300,
+        'targets': [
+          {
+            'name': name,
+            'kind': 'mcp',
+            'action': 'install',
+            'state': 'pending',
+          },
+        ],
+      }, session: 'runtime-1');
+      await Future<void>.delayed(Duration.zero);
+
+      final card = events.singleWhere((e) => e.type == 'mcp.setup.request');
+      final cardId = card.payload['request_id'] as String;
+      check(validateHermesOpaqueIdentifier(cardId)).isNotNull();
+      check(client.connectionCardTarget(cardId)).equals(name);
+      // A short name's card id still names it.
+      check(client.connectionCardTarget('op-9/docs')).equals('docs');
     });
 
     test('the lock result names the questions still open', () async {
