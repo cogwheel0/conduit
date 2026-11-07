@@ -395,6 +395,11 @@ void main() {
       terminalPreviewFormScript('http://10.0.0.5:8000/proxy'),
       contains('const target = "http://10.0.0.5:8000/proxy";'),
     );
+    // A form the page submits by script fires no submit event.
+    expect(
+      terminalPreviewFormScript('http://10.0.0.5:8000/proxy'),
+      contains('HTMLFormElement.prototype.submit = function'),
+    );
     // Behind a credential the page's own post could not get through.
     expect(terminalPreviewUserScripts(keyed), [
       terminalPreviewNavigationScript,

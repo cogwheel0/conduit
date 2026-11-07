@@ -65,8 +65,8 @@ const terminalPreviewNavigationScript = r'''
 /// Sends a form the page aims at the terminal's machine through the port
 /// proxy at [target] (see [TerminalPreviewNavigator.formTarget]), as Open
 /// WebUI's proxy and Open Terminal's browser sessions do for their pages,
-/// so the post keeps its data. A button's own `formaction` goes the same
-/// way.
+/// so the post keeps its data. A button's own `formaction`, and a form the
+/// page submits by script, go the same way.
 @visibleForTesting
 String terminalPreviewFormScript(String target) =>
     '''
@@ -94,6 +94,13 @@ String terminalPreviewFormScript(String target) =>
     const sent = through(form.action);
     if (sent) form.action = sent;
   }, true);
+  // A form submitted by script fires no submit event.
+  const submit = HTMLFormElement.prototype.submit;
+  HTMLFormElement.prototype.submit = function () {
+    const sent = through(this.action);
+    if (sent) this.action = sent;
+    return submit.call(this);
+  };
 })();
 ''';
 
