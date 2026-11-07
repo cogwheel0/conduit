@@ -343,7 +343,7 @@ void main() {
           .deepEquals({'harbor-notes': 'telegram'});
     });
 
-    testWidgets('continue in a copy forks the session and opens the copy', (
+    testWidgets('continue in a copy opens a new session with the transcript', (
       tester,
     ) async {
       final service = _FakeHermesApiService();
@@ -378,9 +378,18 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('hermes-continue-in-copy')));
       await tester.pumpAndSettle();
 
-      check(service.forkedSessionIds).deepEquals(['harbor-notes']);
-      check(container.read(activeConversationProvider)?.id)
-          .equals('local:hermes_harbor-notes-copy');
+      // Hermes' fork would end the other app's chat; the copy is a new,
+      // untitled session instead, and the original is only read.
+      check(service.forkedSessionIds).isEmpty();
+      check(service.createdSessionTitles).deepEquals([null]);
+      check(service.operationLog.where((op) => op.startsWith('get:')))
+          .deepEquals(['get:harbor-notes', 'get:harbor-notes']);
+      final copy = container.read(activeConversationProvider);
+      check(copy?.id).equals('local:hermes_harbor-notes-copy');
+      check(copy?.metadata['hermesSessionId']).equals('harbor-notes-copy');
+      check(
+        copy!.messages.map((message) => message.content).toList(),
+      ).contains('Saved response');
       check(find.text('composer').evaluate()).isNotEmpty();
     });
   });
@@ -1055,6 +1064,16 @@ class _FakeHermesApiService extends HermesApiService {
   Future<String> forkSession(String id) async {
     forkedSessionIds.add(id);
     return '$id-copy';
+  }
+
+  final List<String?> createdSessionTitles = [];
+  @override
+  Future<String> createSession({
+    String? title,
+    CancelToken? cancelToken,
+  }) async {
+    createdSessionTitles.add(title);
+    return 'harbor-notes-copy';
   }
 
   int sessionListCalls = 0;

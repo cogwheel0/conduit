@@ -62,7 +62,13 @@ class _HermesReadOnlySessionNoticeState
     }
     setState(() => _copying = true);
     try {
-      final copyId = await service.forkSession(sessionId);
+      // Not Hermes' fork: it ends the original as "branched", so the other
+      // app's chat would start over on its next message. A fresh session
+      // owned by the API server leaves that chat alone, and every REST turn
+      // replays the visible transcript, so the copy keeps its context. It is
+      // untitled because Hermes refuses a second session with the same title.
+      final transcript = await service.getSessionMessages(sessionId);
+      final copyId = await service.createSession();
       if (!mounted ||
           !identical(ref.read(hermesApiServiceProvider), service) ||
           ref.read(activeConversationProvider)?.id != conversation.id) {
@@ -77,6 +83,7 @@ class _HermesReadOnlySessionNoticeState
           title: conversation.title,
           source: kHermesApiOwnedSessionSources.first,
         ),
+        transcript: transcript,
       );
     } catch (error) {
       DebugLogger.error(

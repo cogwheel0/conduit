@@ -314,12 +314,16 @@ String? _hermesLoadFailureDetail(String raw) {
 /// Loads a Hermes session's transcript, binds it as the active chat, selects the
 /// Hermes model, and navigates to the chat view. Subsequent sends continue the
 /// same server-side session.
+///
+/// [transcript], when given, is shown instead of the session's own messages:
+/// a copy opens with the transcript it continues.
 Future<void> openHermesSession(
   BuildContext context,
   WidgetRef ref,
   HermesSessionSummary session, {
   HermesBot? bot,
   String? botAvatar,
+  List<Map<String, dynamic>>? transcript,
 }) async {
   final openEpoch = ref
       .read(hermesSessionNavigationEpochProvider.notifier)
@@ -334,7 +338,7 @@ Future<void> openHermesSession(
   List<Map<String, dynamic>> raw;
   var pendingDecisions = const <HermesPendingDesktopDecision>[];
   try {
-    raw = await service.getSessionMessages(session.id);
+    raw = transcript ?? await service.getSessionMessages(session.id);
   } catch (error) {
     // Don't silently open an existing session with an empty transcript — that
     // reads as data loss. Surface the failure and abort the open.
