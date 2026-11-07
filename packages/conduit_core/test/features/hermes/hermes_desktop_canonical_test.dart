@@ -510,6 +510,25 @@ void main() {
       check(events.whereType<HermesFinalOutput>().single.text)
           .startsWith('model: ');
     });
+
+    test('a lost slash edit is not sent as a prompt', () async {
+      gateway.handler = (method, params) {
+        if (method == 'session.mutate') {
+          scheduleMicrotask(
+            () => gateway.incoming.addError(StateError('gone')),
+          );
+          return _Authority.silent;
+        }
+        return gateway.defaults(method, params);
+      };
+      final events = await stream(
+        () {},
+        input: HermesChatInput.text('/model synthetic-model'),
+      );
+
+      check(events.whereType<HermesRunError>()).isNotEmpty();
+      check(gateway.calls('prompt.submit')).isEmpty();
+    });
   });
 
   test('a recovered turn is stopped at its generation, read again once '
@@ -651,6 +670,62 @@ void main() {
     check(rest.requests).contains('DELETE /api/sessions/local-1');
   });
 
+  test('a lost edit is retried only until another edit is made', () async {
+    final gateway = _Authority();
+    var lose = true;
+    gateway.handler = (method, params) {
+      if (method == 'session.mutate' && lose) {
+        lose = false;
+        scheduleMicrotask(() => gateway.incoming.addError(StateError('gone')));
+        return _Authority.silent;
+      }
+      return gateway.defaults(method, params);
+    };
+    final service = _service(gateway);
+    await service.createDesktopSession();
+
+    await check(service.renameSession('local-1', 'Alpha')).throws<Object>();
+    await service.renameSession('local-1', 'Beta');
+    await service.renameSession('local-1', 'Alpha');
+    lose = true;
+    await check(service.renameSession('local-1', 'Gamma')).throws<Object>();
+    await service.renameSession('local-1', 'Gamma');
+
+    final ids = [
+      for (final edit in gateway.calls('session.mutate')) edit['request_id'],
+    ];
+    check(ids).length.equals(5);
+    // After Beta, Alpha again is new work, not the lost request ...
+    check(ids[2]).not((it) => it.equals(ids[0]));
+    // ... while a retry right after a loss is the same request.
+    check(ids[4]).equals(ids[3]);
+  });
+
+  test('a chat left before a failed delete is attached again', () async {
+    final gateway = _Authority();
+    final rest = _Rest({
+      'GET /api/sessions/local-1/mutation-snapshot': (_) => (
+        200,
+        {
+          'session_id': 'local-1',
+          'exists': true,
+          'runtime_revision': 3,
+          'runtime_generation': 2,
+        },
+      ),
+      'DELETE /api/sessions/local-1': (_) => (500, {'detail': 'busy'}),
+    });
+    final service = _service(gateway, rest: rest);
+    await service.createDesktopSession();
+
+    await check(service.deleteSession('local-1')).throws<Object>();
+    check(gateway.calls('session.detach')).length.equals(1);
+    final resumes = gateway.calls('session.resume').length;
+    await service.renameSession('local-1', 'Kept');
+
+    check(gateway.calls('session.resume')).length.equals(resumes + 1);
+  });
+
   group('decisions', () {
     test('answers an approval by its prompt and generation', () async {
       final gateway = _Authority();
@@ -744,6 +819,99 @@ void main() {
         'result': {'value': 'synthetic-password'},
       });
       check(gateway.calls('request.answer')).isEmpty();
+    });
+
+    test('a password the socket could not send is not reported', () async {
+      final gateway = _Authority();
+      final service = _service(gateway);
+      await service.createDesktopSession();
+      gateway.serverRequest('srq-s2', 'sudo', {
+        'session_id': 'local-1',
+        'command': 'apt update',
+      });
+      await _settle();
+      // The socket drops and comes back; it drops again right after the
+      // resume that re-attaches the chat answers.
+      gateway.incoming.addError(StateError('gone'));
+      await _settle();
+      gateway.handler = (method, params) {
+        if (method == 'session.resume') {
+          // One hop later than the reply, so the resume itself succeeds.
+          scheduleMicrotask(
+            () => scheduleMicrotask(
+              () => gateway.incoming.addError(StateError('gone again')),
+            ),
+          );
+        }
+        return gateway.defaults(method, params);
+      };
+
+      await check(
+        service.respondToDecision(
+          runtimeId: 'local-1',
+          storedSessionId: 'local-1',
+          requestId: 'srq-s2',
+          kind: HermesDecisionKind.sudo,
+          value: 'synthetic-password',
+        ),
+      ).throws<StateError>();
+      check(gateway.sent.where((frame) => frame['id'] == 'srq-s2')).isEmpty();
+    });
+
+    test('one settled while the socket was down closes on resume', () async {
+      final gateway = _Authority();
+      final service = _service(gateway);
+      final shown = <HermesDesktopEvent>[];
+      service.rpc.events.listen(shown.add);
+      await service.createDesktopSession();
+      gateway.event('approval.request', {
+        'kind': 'approval',
+        'prompt_id': 'prompt-b',
+        'execution_generation': 2,
+        'command': 'rm -rf build',
+        'choices': ['once', 'deny'],
+      }, seq: 4);
+      await _settle();
+      check(
+        (await service.pendingDecisionsForSession('local-1')).map(
+          (decision) => decision.requestId,
+        ),
+      ).deepEquals(['prompt-b']);
+
+      // Answered on another device while this socket was down.
+      gateway.incoming.addError(StateError('gone'));
+      await _settle();
+      final pending = await service.pendingDecisionsForSession('local-1');
+      await _settle();
+
+      check(pending).isEmpty();
+      check(
+        shown.where((e) => e.type == 'approval.expire').map(
+          (e) => e.payload['request_id'],
+        ),
+      ).deepEquals(['prompt-b']);
+    });
+
+    test('one settled while the app was closed is not shown again', () async {
+      final first = _Authority();
+      final before = _service(first);
+      await before.createDesktopSession();
+      first.event('approval.request', {
+        'kind': 'approval',
+        'prompt_id': 'prompt-c',
+        'execution_generation': 2,
+        'command': 'rm -rf build',
+        'choices': ['once', 'deny'],
+      }, seq: 4);
+      await _settle();
+      check(await before.pendingDecisionsForSession('local-1')).length
+          .equals(1);
+      before.close();
+
+      // A new start: the snapshot no longer lists the approval.
+      final after = _service(_Authority());
+
+      check(await after.pendingDecisionsForSession('local-1')).isEmpty();
     });
   });
 

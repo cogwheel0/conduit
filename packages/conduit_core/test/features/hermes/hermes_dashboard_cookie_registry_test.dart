@@ -97,11 +97,13 @@ void main() {
     final signIn = identity('hermes_webapp_signin_0123456789abcdef');
     final other = identity('token');
 
+    // Refreshed in place: the gateway's cookies were recorded before.
     check(
       hermesDashboardCookieIdentityDelta(
         current: {session, signIn, other},
         baseline: {session, signIn, other},
         retainedNames: kHermesDashboardRetainedCookieNames,
+        recorded: {session},
       ),
     ).deepEquals({session, signIn});
     // Only the Webapp's 16-hex suffix is dropped.
@@ -112,6 +114,41 @@ void main() {
         retainedNames: kHermesDashboardRetainedCookieNames,
       ),
     ).isEmpty();
+  });
+
+  test('another gateway\'s cookies on the same host stay out', () {
+    // Gateway A's Webapp (port 9121) and gateway B's (port 9122) share the
+    // host's cookie jar; each names its cookies with its own suffix.
+    final mine = identity('hermes_session_at_aaaaaaaaaaaaaaaa');
+    final theirs = identity('hermes_session_at_bbbbbbbbbbbbbbbb');
+    final theirSignIn = identity('hermes_webapp_signin_bbbbbbbbbbbbbbbb');
+    final dashboard = identity('hermes_session_at');
+
+    // First sign-in into A: its cookie is new.
+    check(
+      hermesDashboardCookieIdentityDelta(
+        current: {mine, theirs, theirSignIn, dashboard},
+        baseline: {theirs, theirSignIn, dashboard},
+        retainedNames: kHermesDashboardRetainedCookieNames,
+      ),
+    ).deepEquals({mine});
+    // A later sign-in refreshes A's cookie in place.
+    check(
+      hermesDashboardCookieIdentityDelta(
+        current: {mine, theirs, theirSignIn, dashboard},
+        baseline: {mine, theirs, theirSignIn, dashboard},
+        retainedNames: kHermesDashboardRetainedCookieNames,
+        recorded: {mine},
+      ),
+    ).deepEquals({mine});
+    // The standalone dashboard keeps only its unsuffixed names.
+    check(
+      hermesDashboardCookieIdentityDelta(
+        current: {mine, theirs, dashboard},
+        baseline: {mine, theirs, dashboard},
+        retainedNames: kHermesDashboardRetainedCookieNames,
+      ),
+    ).deepEquals({dashboard});
   });
 
   test('a refreshed session cookie moves to the end of the record', () {

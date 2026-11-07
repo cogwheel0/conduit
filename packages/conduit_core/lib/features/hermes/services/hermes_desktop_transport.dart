@@ -532,6 +532,11 @@ final class HermesDesktopRpcClient {
   /// Canonical approvals and questions still open, by prompt id.
   final Map<String, HermesCanonicalPrompt> _canonicalPrompts = {};
 
+  /// Prompts kept from an earlier socket. The next snapshot of their
+  /// session lists them again or closes them (they were settled while the
+  /// socket was down); until then none is answered from here.
+  final Set<String> _unconfirmedCanonicalPrompts = {};
+
   Stream<HermesDesktopEvent> get events => _events.stream;
   Stream<void> get disconnects => _disconnects.stream;
   bool get isReady => _ready;
@@ -565,7 +570,7 @@ final class HermesDesktopRpcClient {
     _declinesNotShown = false;
     _clarifies.clear();
     _connections.clear();
-    _canonicalPrompts.clear();
+    _unconfirmedCanonicalPrompts.addAll(_canonicalPrompts.keys);
     final ready = Completer<void>();
 
     _subscription = channel.stream.listen(
@@ -856,7 +861,9 @@ final class HermesDesktopRpcClient {
 
   /// The canonical approval or question [promptId], while it is open.
   HermesCanonicalPrompt? canonicalPrompt(String promptId) =>
-      _canonicalPrompts[promptId];
+      _unconfirmedCanonicalPrompts.contains(promptId)
+      ? null
+      : _canonicalPrompts[promptId];
 
   /// Re-shows the approvals and questions a canonical session snapshot
   /// lists as open (`prompts`), and closes the ones of [sessionId] it no
@@ -901,8 +908,10 @@ final class HermesDesktopRpcClient {
       return null;
     }
     payload['request_id'] = promptId;
+    _unconfirmedCanonicalPrompts.remove(promptId);
     if (!_canonicalPrompts.containsKey(promptId) &&
         _canonicalPrompts.length >= 64) {
+      _unconfirmedCanonicalPrompts.remove(_canonicalPrompts.keys.first);
       _canonicalPrompts.remove(_canonicalPrompts.keys.first);
     }
     _canonicalPrompts[promptId] = (
@@ -925,6 +934,7 @@ final class HermesDesktopRpcClient {
         ? null
         : _canonicalPrompts.remove(promptId);
     if (promptId == null || prompt == null) return;
+    _unconfirmedCanonicalPrompts.remove(promptId);
     _events.add(
       HermesDesktopEvent(
         type: '${prompt.kind}.expire',

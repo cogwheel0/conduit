@@ -172,6 +172,41 @@ extension _HermesDesktopCanonical on HermesDesktopApiService {
     _rpc.replayCanonicalPrompts(sessionId, snapshot['prompts']);
   }
 
+  /// Removes the saved approvals and questions of [binding] that its
+  /// snapshot's [prompts] no longer list: they were settled while no socket
+  /// of this app was attached, across a restart too. A batch question's
+  /// card (`request/question`) is a server request, listed elsewhere.
+  Future<void> _settleUnlistedCanonicalDecisions(
+    HermesSessionBinding binding,
+    Object? prompts,
+  ) async {
+    if (prompts is! List) return;
+    final listed = {
+      for (final prompt in prompts.whereType<Map>().take(32))
+        ?validateHermesOpaqueIdentifier(prompt['prompt_id']),
+    };
+    final saved = await HermesPendingDecisionStore.forSession(
+      origin: _origin,
+      connectionId: config.connectionId,
+      storedSessionId: binding.storedId,
+    );
+    for (final decision in saved) {
+      final prompt = switch (decision.kind) {
+        HermesPendingDesktopDecisionKind.approval => true,
+        HermesPendingDesktopDecisionKind.clarification =>
+          parseHermesClarifyCardId(decision.requestId) == null,
+        _ => false,
+      };
+      if (!prompt || listed.contains(decision.requestId)) continue;
+      await HermesPendingDecisionStore.resolve(
+        origin: _origin,
+        connectionId: config.connectionId,
+        runtimeId: decision.runtimeId,
+        requestId: decision.requestId,
+      );
+    }
+  }
+
   /// Tracks the fences events carry: every turn event names its execution
   /// generation, and `session.info` / `session.updated` the revision too.
   void _observeCanonicalEvent(HermesDesktopEvent event) {
@@ -208,6 +243,15 @@ extension _HermesDesktopCanonical on HermesDesktopApiService {
     return session;
   }
 
+  /// Forgets the edits of [sessionId] whose answer was lost, but [keep].
+  /// Only a session's very next edit may retry one: after any other edit or
+  /// a prompt, repeating it is new work, and resending the kept request
+  /// would only replay its old receipt.
+  void _retireCanonicalMutations(String sessionId, {String? keep}) =>
+      _canonicalMutations.removeWhere(
+        (key, params) => key != keep && params['session_id'] == sessionId,
+      );
+
   /// One fenced session edit (`session.mutate`). A refusal for stale fences
   /// changed nothing and names the current ones, so it is sent once more
   /// at those. A request whose answer was lost is kept, so a retry of the
@@ -221,6 +265,7 @@ extension _HermesDesktopCanonical on HermesDesktopApiService {
   }) async {
     final sessionId = binding.runtimeId;
     final key = jsonEncode([sessionId, operation, payload]);
+    _retireCanonicalMutations(sessionId, keep: key);
     var params = _canonicalMutations.remove(key);
     if (params == null) {
       final fences = await _canonicalFences(binding);

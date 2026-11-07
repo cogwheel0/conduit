@@ -402,6 +402,9 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
 
     controller.add(HermesResponseCreated(binding.runtimeId));
     Set<String> promptBaseline = const {};
+    // Set once `prompt.submit` is sent; before it, an error is the slash
+    // command's.
+    var submitting = false;
     try {
       if (text.trimLeft().startsWith('/')) {
         final slash = await _dispatchSlash(binding.runtimeId, text.trim());
@@ -436,6 +439,8 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
       }
       eventsBeforePromptAcknowledgement.clear();
       if (freshSession) _freshSessionIds.remove(storedId);
+      if (canonical) _retireCanonicalMutations(binding.runtimeId);
+      submitting = true;
       final submitted = await submitPrompt();
       forwarded = submitted is Map && submitted['forwarded'] == true;
       adoptAdmission(submitted);
@@ -463,7 +468,11 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
         scope: 'hermes/desktop/ws',
         data: {'errorType': error.runtimeType.toString()},
       );
+      // Only a lost `prompt.submit` is sent again: a slash edit that lost
+      // its answer must not reach the agent as a prompt. Its kept request
+      // makes repeating the command apply it once.
       if (canonical &&
+          submitting &&
           error is HermesDesktopRpcException &&
           error.deliveryAmbiguous) {
         try {
@@ -501,7 +510,8 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
             data: {'errorType': reconcileError.runtimeType.toString()},
           );
         }
-      } else if (error is HermesDesktopRpcException &&
+      } else if (!canonical &&
+          error is HermesDesktopRpcException &&
           error.deliveryAmbiguous) {
         try {
           final reconciled = await _resumeSnapshot(storedId, refresh: true);
@@ -1226,7 +1236,9 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
       // request's response, from a socket attached to its session; one
       // whose request is gone settles nothing.
       await _resume(_storedIdForRuntime(runtimeId) ?? runtimeId);
-      _rpc.answerServerRequest(requestId, {'value': value});
+      if (!_rpc.answerServerRequest(requestId, {'value': value})) {
+        throw StateError('Hermes gateway disconnected.');
+      }
     } else {
       await _answerServerRequest(runtimeId, requestId, {'value': value});
     }

@@ -324,7 +324,10 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
     // Questions asked while no socket of ours was attached. Replayed as
     // events: the events listener persists them, and an open turn shows
     // them once it adopts this runtime id.
-    if (_canonical) _adoptCanonicalSnapshot(runtime, result);
+    if (_canonical) {
+      _adoptCanonicalSnapshot(runtime, result);
+      await _settleUnlistedCanonicalDecisions(binding, result['prompts']);
+    }
     _rpc.replayOpenRequests(result['open_requests']);
     _rpc.replayPendingConnection(result['pending_connection'], runtime);
     return (binding: binding, running: running is bool ? running : null);
@@ -630,6 +633,12 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
             },
           );
         }
+        // This socket left the session: should the delete below fail, the
+        // chat's next use resumes (and attaches) it again.
+        final closed = binding;
+        _bindingSocketGenerations.removeWhere(
+          (alias, _) => identical(_bindings[alias], closed),
+        );
       } catch (error) {
         DebugLogger.warning(
           'session-close-before-delete-failed',

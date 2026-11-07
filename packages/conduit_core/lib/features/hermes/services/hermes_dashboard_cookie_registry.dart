@@ -21,26 +21,57 @@ const int kHermesDashboardCookieRegistryCap = 64;
 /// prefix) is in [retainedNames], since an automatic sign-in refreshes those
 /// in place. An identity is `name\u0000domain\u0000path` (the app's
 /// `WebViewCookieHelper.cookieIdentityParts`).
+///
+/// Cookies ignore ports, so a gateway's Webapp listener names its own with
+/// a suffix for that gateway, and the standalone dashboard leaves its
+/// unsuffixed. This gateway's suffix is on a retained cookie this sign-in
+/// created, or on one [recorded] for this origin before; with one known,
+/// only retained cookies with it count, else only unsuffixed ones. Another
+/// gateway's, or the dashboard's, on the same host stay out.
 Set<String> hermesDashboardCookieIdentityDelta({
   required Set<String> current,
   required Set<String> baseline,
   Set<String> retainedNames = const {},
-}) => {
-  for (final identity in current)
-    if (!baseline.contains(identity) ||
-        retainedNames.contains(_cookieBaseName(identity)))
-      identity,
-};
+  Set<String> recorded = const {},
+}) {
+  final gateways = {
+    for (final identity in {...recorded, ...current.difference(baseline)})
+      if (retainedNames.contains(_cookieBaseName(identity)))
+        ?_cookieGateway(identity),
+  };
+  bool own(String identity) {
+    final gateway = _cookieGateway(identity);
+    return gateways.isEmpty ? gateway == null : gateways.contains(gateway);
+  }
+
+  return {
+    for (final identity in current)
+      if (!baseline.contains(identity) ||
+          (retainedNames.contains(_cookieBaseName(identity)) && own(identity)))
+        identity,
+  };
+}
+
+final RegExp _cookieGatewaySuffix = RegExp(r'_([0-9a-f]{16})$');
+
+/// The name in a cookie [identity], without a `__Host-` or `__Secure-`
+/// prefix.
+String _cookieName(String identity) => identity
+    .split('\u0000')
+    .first
+    .replaceFirst(RegExp(r'^__(?:Host|Secure)-'), '');
+
+/// The gateway a Webapp listener's cookie [identity] names, by the
+/// `_<16 hex>` suffix of its name; null for an unsuffixed name.
+String? _cookieGateway(String identity) =>
+    _cookieGatewaySuffix.firstMatch(_cookieName(identity))?.group(1);
 
 /// The name in a cookie [identity], without a `__Host-` or `__Secure-`
 /// prefix, and without the `_<16 hex>` suffix a gateway's Webapp listener
 /// gives its cookies (one per gateway home, so two gateways on one host
 /// keep apart).
-String _cookieBaseName(String identity) => identity
-    .split('\u0000')
-    .first
-    .replaceFirst(RegExp(r'^__(?:Host|Secure)-'), '')
-    .replaceFirst(RegExp(r'_[0-9a-f]{16}$'), '');
+String _cookieBaseName(String identity) =>
+    _cookieName(identity).replaceFirst(_cookieGatewaySuffix, '');
 
 /// The registry key for a dashboard origin (`scheme://host:port`, lower
 /// case, default port filled in), or null when [origin] has no host.
