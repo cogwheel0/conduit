@@ -306,6 +306,71 @@ void main() {
     });
   }
 
+  for (final discoveredMode in ['proxy', 'chrome']) {
+    testWidgets(
+      'new response during activation recovers from $discoveredMode',
+      (tester) async {
+        final service = _Service();
+        final activation = Completer<ComputerConnection>();
+        var mode = 'proxy';
+        ComputerConnection browser() => ComputerConnection(
+          surface: ComputerSurface.browser,
+          streamUri: Uri.parse('ws://computer.example/browser/stream'),
+          browserSession: ComputerBrowserSession(
+            id: 'proxy-tab',
+            token: 'synthetic',
+            chromeAvailable: true,
+            mode: mode,
+          ),
+        );
+        when(() => service.open(any())).thenAnswer(
+          (call) async =>
+              call.positionalArguments.first == ComputerSurface.browser
+              ? browser()
+              : _connection(ComputerSurface.desktop),
+        );
+        when(() => service.selectBrowserTab('proxy-tab'))
+            .thenAnswer((_) => activation.future);
+        await tester.pumpWidget(
+          _harness(service, takeControl: () async => true),
+        );
+        await tester.pump();
+        await tester.pump();
+        await tester.tap(find.text('Browser'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Take control'));
+        await tester.pump();
+        mode = discoveredMode;
+        ProviderScope.containerOf(tester.element(find.byType(ComputerPage)))
+            .read(chatMessagesProvider.notifier)
+            .setMessages([
+              ChatMessage(
+                id: 'new-response',
+                role: 'assistant',
+                content: '',
+                timestamp: DateTime.utc(2026),
+                isStreaming: true,
+              ),
+            ]);
+        await tester.pump();
+        await tester.pump();
+        mode = 'chrome';
+        activation.complete(browser());
+        await tester.pump(const Duration(seconds: 3));
+        await tester.pump();
+        expect(find.byType(ComputerSurfaceView), findsOneWidget);
+        tester
+            .widget<ComputerSurfaceView>(find.byType(ComputerSurfaceView))
+            .onState({'status': 'live'});
+        await tester.pumpAndSettle();
+        expect(find.text('Watching live'), findsOneWidget);
+        expect(find.text('You’re in control'), findsNothing);
+        verify(() => service.selectBrowserTab('proxy-tab')).called(1);
+        await tester.pumpWidget(const SizedBox());
+      },
+    );
+  }
+
   testWidgets('Watch follows a proxy tab activated by the agent', (
     tester,
   ) async {

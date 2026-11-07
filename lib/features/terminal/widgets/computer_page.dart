@@ -111,8 +111,11 @@ class _ComputerPageState extends ConsumerState<ComputerPage>
     ref.listenManual(chatMessagesProvider, (_, messages) {
       if ((_controlling || _hasTakenControl || _controlWhenLive) &&
           messages.any((message) => message.isStreaming)) {
+        final activating = _controlWhenLive && _connection == null;
         _hasTakenControl = false;
         _watch();
+        // The pending activation is stale; rediscover its surface in Watch.
+        if (activating) unawaited(_open());
       }
     });
   }
