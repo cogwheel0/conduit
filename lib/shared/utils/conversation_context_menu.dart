@@ -952,7 +952,9 @@ Future<void> _showConversationError(
     ),
     actions: [
       AdaptiveButton(
-        onPressed: () => Navigator.of(context).pop(),
+        // The dialog is on the root navigator; the chat list can sit in a
+        // nested one, whose page this would close instead.
+        onPressed: () => Navigator.of(context, rootNavigator: true).pop(),
         label: l10n.ok,
         style: AdaptiveButtonStyle.plain,
       ),
