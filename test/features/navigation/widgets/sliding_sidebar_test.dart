@@ -6,7 +6,9 @@ import 'package:conduit/features/navigation/widgets/drawer_shell_page.dart';
 import 'package:conduit/features/navigation/widgets/responsive_drawer_layout.dart';
 import 'package:conduit/features/navigation/providers/sidebar_providers.dart';
 import 'package:conduit/features/navigation/widgets/sidebar_user_pill.dart';
+import 'package:conduit/shared/theme/app_theme.dart';
 import 'package:conduit/shared/theme/theme_extensions.dart';
+import 'package:conduit/shared/theme/tweakcn_themes.dart';
 import 'package:conduit/shared/widgets/chrome_gradient_fade.dart';
 import 'package:conduit/shared/widgets/sidebar_layout_contract.dart';
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
@@ -47,6 +49,7 @@ void main() {
     );
     expect(drawer.maxFraction, 1.0);
     expect(drawer.roundPushedContent, isFalse);
+    expect(drawer.settleHaptics, isFalse);
     expect(
       find.byKey(const ValueKey<String>('sidebar-destinations')),
       findsNothing,
@@ -119,14 +122,14 @@ void main() {
           ),
         );
         expect(layout.maxFraction, lessThan(1));
+        expect(layout.settleHaptics, isTrue);
         expect(accessibleLabels(), contains('Open menu'));
         await tester.tap(find.text('Open menu'));
         await tester.pumpAndSettle();
-        final curve = tester.widget<ClipRSuperellipse>(
-          find.byType(ClipRSuperellipse).first,
-        );
         expect(
-          curve.borderRadius.resolve(TextDirection.ltr).topLeft.x,
+          tester
+              .widget<PushedContentFrame>(find.byType(PushedContentFrame))
+              .radius,
           greaterThan(0),
         );
         expect(accessibleLabels(), isNot(contains('Open menu')));
@@ -142,6 +145,69 @@ void main() {
       }
     },
   );
+
+  testWidgets('the open chat turns grey inside a glass edge', (tester) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(
+      sidebarTestBuildHarness(
+        controllers: SidebarTestSidebarHarnessControllers(),
+        theme: AppTheme.dark(TweakcnThemes.conduit),
+        shellChat: Builder(
+          builder: (context) => Scaffold(
+            body: Center(
+              child: TextButton(
+                onPressed: () =>
+                    SidebarDrawerControllerScope.maybeOf(context)!.open(),
+                child: const Text('Open menu'),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final frame = find.byType(PushedContentFrame);
+    final theme = tester.element(frame).conduitTheme;
+    PushedContentFrame current() => tester.widget<PushedContentFrame>(frame);
+    expect(current().veil.a, 0);
+    expect(current().edge.a, 0);
+
+    await tester.tap(find.text('Open menu'));
+    await tester.pumpAndSettle();
+    // A dark page lightens to grey beside the drawer, instead of going black,
+    // while its text dims.
+    final page = Color.alphaBlend(current().veil, theme.surfaceBackground);
+    final text = Color.alphaBlend(current().veil, theme.textPrimary);
+    expect(
+      page.computeLuminance(),
+      greaterThan(theme.surfaceBackground.computeLuminance()),
+    );
+    expect(
+      text.computeLuminance(),
+      lessThan(theme.textPrimary.computeLuminance()),
+    );
+    expect(current().edgeWidth, greaterThan(0));
+    expect(current().edge.a, greaterThan(0));
+    expect(current().backdrop, theme.surfaceBackground);
+    // A rounded clip around the chat's native controls makes iOS draw the
+    // veil above them twice, so the corners are painted instead.
+    expect(
+      find.ancestor(
+        of: find.text('Open menu'),
+        matching: find.byWidgetPredicate(
+          (widget) =>
+              widget is ClipRSuperellipse ||
+              widget is ClipRRect ||
+              widget is ClipPath ||
+              widget is ClipOval,
+        ),
+      ),
+      findsNothing,
+    );
+    expect(tester.takeException(), isNull);
+  });
 
   for (final (fillsScreen, radius) in [(true, 55.0), (false, 36.0)]) {
     testWidgets(
@@ -164,11 +230,8 @@ void main() {
         );
         await tester.pumpAndSettle();
         double corner() => tester
-            .widget<ClipRSuperellipse>(find.byType(ClipRSuperellipse).first)
-            .borderRadius
-            .resolve(TextDirection.ltr)
-            .topLeft
-            .x;
+            .widget<PushedContentFrame>(find.byType(PushedContentFrame))
+            .radius;
         expect(corner(), 0);
         await sidebarTestOpenSidebar(tester);
         expect(corner(), radius);
@@ -357,6 +420,48 @@ void main() {
     expect(tester.getTopLeft(search), searchBefore);
     expect(tester.getTopLeft(create), createBefore);
     expect(tester.getTopLeft(destinations).dy, lessThan(destinationsBefore));
+  });
+
+  testWidgets('the sliding layout takes the tabbed sidebar surface', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(
+      sidebarTestBuildHarness(
+        controllers: SidebarTestSidebarHarnessControllers(),
+        currentUser: _user,
+        theme: AppTheme.light(TweakcnThemes.conduit),
+        shellChat: const Scaffold(body: Text('Chat content')),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final surface = find.byKey(const ValueKey<String>('sidebar-page-surface'));
+    final theme = tester.element(surface).conduitTheme;
+    expect(theme.surfaceBackground, isNot(theme.surfaceContainerHighest));
+    expect(tester.widget<Material>(surface).color, theme.surfaceBackground);
+    final fades = tester.widgetList<ConduitChromeGradientFade>(
+      find.descendant(
+        of: surface,
+        matching: find.byType(ConduitChromeGradientFade),
+      ),
+    );
+    expect(fades, hasLength(2));
+    for (final fade in fades) {
+      expect(fade.backgroundColor, theme.surfaceBackground);
+    }
+    // The backdrop shows at the open chat's rounded corners, beside the
+    // sidebar.
+    final backdrop = tester.widget<ColoredBox>(
+      find
+          .descendant(
+            of: find.byType(ResponsiveDrawerLayout),
+            matching: find.byType(ColoredBox),
+          )
+          .first,
+    );
+    expect(backdrop.color, theme.surfaceBackground);
   });
 
   testWidgets('history scrollbars run between the header and bottom bar', (

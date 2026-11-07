@@ -135,7 +135,8 @@ private final class RowReportingTabBar: UITabBar {
 /// while the window's other glass buttons follow the text size, so the bar is
 /// scaled to their size, keeping its selection lens, and the action takes the
 /// same size. The action follows the tab buttons UIKit laid out, so the two
-/// line up on every device.
+/// line up on every device. Tab icons are drawn for that scale, so each
+/// appears at the size it was given, as the window's other glyphs do.
 final class FloatingTabBarView: UIView, UITabBarDelegate {
   var onSelect: ((Int) -> Void)?
   var onAction: (() -> Void)?
@@ -148,7 +149,15 @@ final class FloatingTabBarView: UIView, UITabBarDelegate {
   private var selectedIndex = 0
   private var itemLabels: [String] = []
   private var itemImages: [Data] = []
+  private var itemIconSizes: [CGFloat] = []
   private var actionSymbol = ""
+
+  /// Each tab's icon, and its longest side on screen in points.
+  private var tabIcons: [(image: UIImage?, size: CGFloat)] = []
+
+  /// The bar scale and display scale the tab icons were last drawn for.
+  private var iconBarScale: CGFloat = 1
+  private var iconDisplayScale: CGFloat = 0
 
   /// Height of the window's other glass buttons, which the platter is scaled
   /// to and the action takes. Zero keeps UIKit's size.
@@ -243,11 +252,15 @@ final class FloatingTabBarView: UIView, UITabBarDelegate {
   private func setTabs(_ tabs: [[String: Any]]) {
     let labels = tabs.map { $0["label"] as? String ?? "" }
     let images = tabs.map { ($0["image"] as? FlutterStandardTypedData)?.data ?? Data() }
+    let iconSizes = tabs.map { CGFloat($0["iconSize"] as? Double ?? 24) }
     tabCount = tabs.count
     tabBarWidth.constant = CGFloat(max(tabCount, 1)) * itemWidth + Self.platterMargin * 2
-    guard labels != itemLabels || images != itemImages || tabBar.items == nil else { return }
+    guard labels != itemLabels || images != itemImages || iconSizes != itemIconSizes
+      || tabBar.items == nil
+    else { return }
     itemLabels = labels
     itemImages = images
+    itemIconSizes = iconSizes
 
     // A lone action still lines up with the bar UIKit would lay out, so a
     // hidden placeholder item keeps the row measurable.
@@ -255,22 +268,40 @@ final class FloatingTabBarView: UIView, UITabBarDelegate {
     tabBar.alpha = hidesTabs ? 0 : 1
     tabBar.isUserInteractionEnabled = !hidesTabs
     tabBar.accessibilityElementsHidden = hidesTabs
+    tabIcons = hidesTabs ? [] : zip(tabs, iconSizes).map { tab, size in
+      let image = (tab["image"] as? FlutterStandardTypedData).flatMap { data in
+        UIImage(data: data.data, scale: CGFloat(tab["imageScale"] as? Double ?? 1))
+      }
+      return (image, size)
+    }
     let items: [UITabBarItem] = hidesTabs
       ? [UITabBarItem(title: nil, image: UIImage(systemName: "circle"), tag: 0)]
-      : tabs.enumerated().map { index, tab in
-        let image = (tab["image"] as? FlutterStandardTypedData).flatMap { data in
-          UIImage(data: data.data, scale: CGFloat(tab["imageScale"] as? Double ?? 1))
-        }
-        let item = UITabBarItem(
-          title: nil,
-          image: Self.tabIcon(image, size: CGFloat(tab["iconSize"] as? Double ?? 24)),
-          tag: index
-        )
-        item.accessibilityLabel = tab["label"] as? String
+      : labels.enumerated().map { index, label in
+        let item = UITabBarItem(title: nil, image: nil, tag: index)
+        item.accessibilityLabel = label
         return item
       }
     tabBar.items = items
+    drawTabIcons()
     updateSelection()
+  }
+
+  /// Draws each tab's icon so that, once the bar is scaled by
+  /// [iconBarScale], it appears at its own size and as sharp as the screen.
+  private func drawTabIcons() {
+    iconDisplayScale = traitCollection.displayScale
+    guard let items = tabBar.items, items.count == tabIcons.count else { return }
+    // One box for every tab, so UIKit lays them out alike.
+    let side = tabIcons.map(\.size).max() ?? 0
+    for (item, icon) in zip(items, tabIcons) {
+      item.image = Self.tabIcon(
+        icon.image,
+        size: icon.size,
+        canvas: side,
+        barScale: iconBarScale,
+        displayScale: iconDisplayScale
+      )
+    }
   }
 
   private func updateSelection() {
@@ -318,6 +349,12 @@ final class FloatingTabBarView: UIView, UITabBarDelegate {
       y: platterBottom - center.y - scale * corner.y
     ).scaledBy(x: scale, y: scale)
     if tabBar.transform != transform { tabBar.transform = transform }
+    if abs(scale - iconBarScale) > 0.001
+      || traitCollection.displayScale != iconDisplayScale
+    {
+      iconBarScale = scale
+      drawTabIcons()
+    }
 
     let size = platter.height * scale
     let platterMidY = platterBottom - size / 2
@@ -348,14 +385,27 @@ final class FloatingTabBarView: UIView, UITabBarDelegate {
     onSelect?(item.tag)
   }
 
-  /// Fits an icon into the same box for every tab, as a template the bar
-  /// tints; UIKit would otherwise draw bitmaps at their own size.
-  private static func tabIcon(_ image: UIImage?, size: CGFloat) -> UIImage? {
-    guard let image, image.size.width > 0, image.size.height > 0 else { return nil }
-    let canvas = CGSize(width: 28, height: 28)
-    let scale = min(size / image.size.width, size / image.size.height)
-    let drawn = CGSize(width: image.size.width * scale, height: image.size.height * scale)
-    return UIGraphicsImageRenderer(size: canvas).image { _ in
+  /// Fits an icon, [size] points on its longest side, into a [canvas] point
+  /// square, as a template the bar tints; UIKit would otherwise draw bitmaps
+  /// at their own size. Both are measured on screen: the bar shrinks by
+  /// [barScale], so the icon is drawn larger by its inverse, with as many
+  /// fewer pixels per point, and appears at [size] with the screen's pixels.
+  private static func tabIcon(
+    _ image: UIImage?,
+    size: CGFloat,
+    canvas side: CGFloat,
+    barScale: CGFloat,
+    displayScale: CGFloat
+  ) -> UIImage? {
+    guard let image, image.size.width > 0, image.size.height > 0, barScale > 0 else {
+      return nil
+    }
+    let canvas = CGSize(width: side / barScale, height: side / barScale)
+    let fit = size / barScale / max(image.size.width, image.size.height)
+    let drawn = CGSize(width: image.size.width * fit, height: image.size.height * fit)
+    let format = UIGraphicsImageRendererFormat.preferred()
+    if displayScale > 0 { format.scale = displayScale * barScale }
+    return UIGraphicsImageRenderer(size: canvas, format: format).image { _ in
       image.draw(in: CGRect(
         x: (canvas.width - drawn.width) / 2,
         y: (canvas.height - drawn.height) / 2,
