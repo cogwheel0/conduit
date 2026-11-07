@@ -4,6 +4,7 @@ import 'package:meta/meta.dart';
 import 'package:riverpod/riverpod.dart';
 
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
+import 'package:conduit_core/features/librechat/providers/librechat_providers.dart';
 import 'package:conduit_core/persistence/persistence_keys.dart';
 import 'package:conduit_core/persistence/preferences_store.dart';
 import 'package:conduit_core/providers/app_providers.dart';
@@ -50,22 +51,44 @@ final class PrimaryAccountRef {
 }
 
 // ---------------------------------------------------------------------------
-// LibreChat's side. Its accounts are not wired up yet: these stand in until
-// they are, and say "no account, not signed in".
+// LibreChat's side.
 // ---------------------------------------------------------------------------
 
 /// The active LibreChat account's id, or null when none is.
-final libreChatActiveAccountIdProvider = Provider<String?>((ref) => null);
-
-/// Where routing should take the active LibreChat account.
-final libreChatAuthNavigationStateProvider = Provider<AuthNavigationState>(
-  (ref) => AuthNavigationState.needsLogin,
+final libreChatActiveAccountIdProvider = Provider<String?>(
+  (ref) => ref.watch(activeLibreChatAccountProvider)?.id,
 );
+
+/// Where routing should take the active LibreChat account: signed in, or to
+/// sign-in when it has none or its session ended. A session that cannot be
+/// read is routed like one that ended.
+final libreChatAuthNavigationStateProvider = Provider<AuthNavigationState>((
+  ref,
+) {
+  final session = ref.watch(libreChatSessionProvider);
+  return switch (session) {
+    AsyncData(value: LibreChatSignedInState()) =>
+      AuthNavigationState.authenticated,
+    AsyncData() || AsyncError() => AuthNavigationState.needsLogin,
+    _ => AuthNavigationState.loading,
+  };
+});
 
 /// The signed-in LibreChat user, or null.
-final libreChatPrimaryUserProvider = Provider<PrimaryUserSummary?>(
-  (ref) => null,
-);
+final libreChatPrimaryUserProvider = Provider<PrimaryUserSummary?>((ref) {
+  final session = ref.watch(libreChatSessionProvider).asData?.value;
+  if (session is! LibreChatSignedInState) return null;
+  final user = session.handle.current?.user;
+  final account = user == null
+      ? session.account
+      : session.account.withUser(user);
+  return PrimaryUserSummary(
+    kind: PrimaryAccountKind.libreChat,
+    id: account.userId,
+    displayName: account.displayName,
+    email: account.email,
+  );
+});
 
 // ---------------------------------------------------------------------------
 
