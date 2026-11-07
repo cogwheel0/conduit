@@ -1315,4 +1315,20 @@ void main() {
     await client.connect(Uri.parse('ws://127.0.0.1:${server.port}/api/ws'));
     check(client.isReady).isTrue();
   });
+
+  test('a gateway closing with 1013 before ready is not ready yet', () async {
+    final socket = _SocketHarness();
+    when(() => socket.channel.closeCode).thenReturn(1013);
+    final client = HermesDesktopRpcClient(
+      channelFactory: (_, _, {httpClient}) => socket.channel,
+    );
+    addTearDown(client.close);
+
+    final connecting = client.connect(Uri.parse('ws://localhost/api/ws'));
+    await socket.dispose();
+
+    await check(connecting).throws<HermesDesktopRpcException>(
+      (error) => error.has((e) => e.notReady, 'notReady').isTrue(),
+    );
+  });
 }

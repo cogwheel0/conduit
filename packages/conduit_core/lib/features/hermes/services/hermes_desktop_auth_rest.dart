@@ -15,6 +15,23 @@ final class HermesDesktopHttpException implements Exception {
   String toString() => 'Hermes dashboard request failed ($status).';
 }
 
+/// Hermes kept answering that its gateway is not ready (it is starting,
+/// restarting or draining), which is not a sign-in problem.
+final class HermesDesktopGatewayStartingException implements Exception {
+  const HermesDesktopGatewayStartingException();
+
+  @override
+  String toString() =>
+      'Hermes is starting or restarting. Try again in a moment.';
+}
+
+/// Whether [error] says Hermes' gateway is not ready yet: a gateway's own
+/// listener answers every request with 503 (`gateway_not_ready`) and closes
+/// sockets with 1013 while it starts or drains.
+bool hermesDesktopGatewayNotReady(Object error) =>
+    _hermesDesktopHttpStatus(error) == 503 ||
+    (error is HermesDesktopRpcException && error.notReady);
+
 /// Whether a gated dashboard takes the deployment session token as a bearer
 /// credential (Hermes 0.22.6+ registers its `session-token` auth provider).
 bool hermesDesktopAcceptsSessionToken(Map<String, dynamic> status) {

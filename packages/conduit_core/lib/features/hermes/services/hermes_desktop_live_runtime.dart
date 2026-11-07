@@ -7,8 +7,31 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
     return _connecting ??= _connect().whenComplete(() => _connecting = null);
   }
 
+  /// Connects, waiting out a gateway that is starting or draining: its
+  /// listener refuses everything until it is ready, so the attempt is
+  /// repeated a few times before Conduit reports it.
   Future<void> _connect() async {
     _emitTurnState(HermesDesktopTurnState.reconnecting);
+    for (var attempt = 0; ; attempt++) {
+      try {
+        return await _connectOnce();
+      } catch (error) {
+        if (_closed || !hermesDesktopGatewayNotReady(error)) rethrow;
+        if (attempt >= gatewayStartRetryDelays.length) {
+          throw const HermesDesktopGatewayStartingException();
+        }
+        DebugLogger.warning(
+          'gateway-not-ready',
+          scope: 'hermes/desktop/ws',
+          data: {'attempt': attempt + 1},
+        );
+        await Future<void>.delayed(gatewayStartRetryDelays[attempt]);
+        if (_closed) throw StateError('Hermes service is closed.');
+      }
+    }
+  }
+
+  Future<void> _connectOnce() async {
     final status = await statusProbe(refresh: true);
     if (_closed) throw StateError('Hermes service is closed.');
     final query = <String, String>{};

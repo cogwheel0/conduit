@@ -243,6 +243,7 @@ HermesDesktopApiService _service(
   _Authority gateway, {
   _Rest? rest,
   HermesDesktopAuthKind authKind = HermesDesktopAuthKind.legacyToken,
+  List<Duration> retryDelays = const [Duration.zero],
 }) {
   final service = HermesDesktopApiService(
     config: HermesConfig(
@@ -258,6 +259,7 @@ HermesDesktopApiService _service(
     rpc: HermesDesktopRpcClient(
       channelFactory: (_, _, {httpClient}) => gateway.channel,
     ),
+    gatewayStartRetryDelays: retryDelays,
   );
   addTearDown(() async {
     service.close();
@@ -757,6 +759,39 @@ void main() {
     final resume = gateway.calls('session.resume').single;
     check(resume['title']).equals('Bot Chat');
     check(resume.containsKey('session_id')).isFalse();
+  });
+
+  group('a gateway that is starting', () {
+    test('is tried again until it is ready', () async {
+      var probes = 0;
+      final gateway = _Authority();
+      final service = _service(
+        gateway,
+        rest: _Rest({
+          'GET /api/status': (_) => probes++ == 0
+              ? (503, {'error': 'gateway_not_ready', 'state': 'starting'})
+              : (200, {'auth_required': false}),
+        }),
+      );
+
+      check(await service.createDesktopSession()).equals('local-1');
+      check(probes).isGreaterOrEqual(2);
+    });
+
+    test('is reported as starting, not as a sign-in failure', () async {
+      final gateway = _Authority();
+      final service = _service(
+        gateway,
+        retryDelays: const [Duration.zero, Duration.zero],
+        rest: _Rest({
+          'GET /api/status': (_) =>
+              (503, {'error': 'gateway_not_ready', 'state': 'draining'}),
+        }),
+      );
+
+      await check(service.createDesktopSession())
+          .throws<HermesDesktopGatewayStartingException>();
+    });
   });
 
   test('skills are rescanned for an open chat', () async {

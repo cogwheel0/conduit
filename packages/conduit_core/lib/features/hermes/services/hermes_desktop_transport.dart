@@ -14,6 +14,10 @@ import 'package:conduit_core/features/hermes/services/hermes_identifier.dart';
 import 'package:conduit_core/features/hermes/services/hermes_json_guard.dart';
 
 const int kMaxHermesDesktopFrameBytes = 4 * 1024 * 1024;
+
+/// The close code a gateway's listener sends while it is starting,
+/// restarting or draining: try again later.
+const int kHermesGatewayNotReadyCloseCode = 1013;
 const int kMaxHermesDesktopFrameCharacters = 2 * 1024 * 1024;
 
 typedef HermesDesktopChannelFactory = WebSocketChannel Function(
@@ -29,10 +33,15 @@ final class HermesDesktopRpcException implements Exception {
     this.data,
     this.timedOut = false,
     this.disconnected = false,
+    this.notReady = false,
   });
 
   final String message;
   final int? code;
+
+  /// Hermes closed the socket with 1013 (try again later): its gateway is
+  /// starting, restarting or draining.
+  final bool notReady;
 
   /// The error's `data` member, when Hermes sent one: refusals such as
   /// `{reason: 'SESSION_OWNER_BUSY'}` explain themselves there.
@@ -570,8 +579,9 @@ final class HermesDesktopRpcClient {
         if (!_owns(channel, generation)) return;
         if (!ready.isCompleted) {
           ready.completeError(
-            const HermesDesktopRpcException(
+            HermesDesktopRpcException(
               'Hermes closed the gateway before it became ready.',
+              notReady: channel.closeCode == kHermesGatewayNotReadyCloseCode,
             ),
           );
         }

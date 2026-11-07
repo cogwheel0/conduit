@@ -212,6 +212,12 @@ final class HermesDesktopApiService
     OpenExternalUrlPort? openExternalUrl,
     HermesDashboardBridgeFactory? dashboardBridgeFactory,
     this.onCredentialsChanged,
+    @visibleForTesting
+    this.gatewayStartRetryDelays = const [
+      Duration(seconds: 1),
+      Duration(seconds: 2),
+      Duration(seconds: 4),
+    ],
   }) : _openExternalUrl = openExternalUrl ?? const NullOpenExternalUrlPort(),
        _dashboardBridgeFactory = dashboardBridgeFactory,
        _nativeTokens = config.desktopCredentials?.nativeTokens,
@@ -242,6 +248,10 @@ final class HermesDesktopApiService
   /// sidecar has no browser and refuses, and the flow reports that it could
   /// not start rather than waiting for a callback nothing will send.
   final OpenExternalUrlPort _openExternalUrl;
+
+  /// How long to wait before each new attempt to reach a gateway that said
+  /// it is not ready (starting, restarting or draining).
+  final List<Duration> gatewayStartRetryDelays;
 
   /// Supplies the WebView-backed dashboard bridge, when the host has one.
   final HermesDashboardBridgeFactory? _dashboardBridgeFactory;
