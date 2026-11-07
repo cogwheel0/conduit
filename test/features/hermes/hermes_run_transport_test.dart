@@ -52,6 +52,10 @@ class _FakeHermesApiService extends HermesApiService {
     this.cancelTokenOnCreateError = false,
     this.cancelTokenOnStreamError = false,
     this.cancelTokenOnRecoveryError = false,
+    this.resolveUnknownReceipt = const {
+      'status': 'terminal',
+      'outcome': 'interrupted',
+    },
     HermesConfig? serviceConfig,
     HermesStreamLimits serviceStreamLimits = const HermesStreamLimits(),
   }) : super(
@@ -87,6 +91,8 @@ class _FakeHermesApiService extends HermesApiService {
   final bool cancelTokenOnCreateError;
   final bool cancelTokenOnStreamError;
   final bool cancelTokenOnRecoveryError;
+  final Map<String, dynamic> resolveUnknownReceipt;
+  final List<(String, String, int)> resolvedUnknownRuns = [];
   var getRunCalls = 0;
   var streamResponseCalls = 0;
   var getResponseCalls = 0;
@@ -168,6 +174,17 @@ class _FakeHermesApiService extends HermesApiService {
       return runResults[index.clamp(0, runResults.length - 1)];
     }
     return runResult;
+  }
+
+  @override
+  Future<Map<String, dynamic>> resolveUnknownRun(
+    String runId, {
+    required String admissionId,
+    required int executionGeneration,
+    CancelToken? cancelToken,
+  }) async {
+    resolvedUnknownRuns.add((runId, admissionId, executionGeneration));
+    return resolveUnknownReceipt;
   }
 
   @override
@@ -3092,4 +3109,155 @@ void main() {
       check(message.error).isNotNull();
     },
   );
+
+  group('Hermes v0.23 run states', () {
+    Future<(ChatMessage, List<ChatStatusUpdate>, String)> recover(
+      _FakeHermesApiService fake, {
+      int maxRecoveryPolls = 5,
+    }) async {
+      var message = ChatMessage(
+        id: 'm',
+        role: 'assistant',
+        content: '',
+        timestamp: DateTime.fromMillisecondsSinceEpoch(0),
+      );
+      final statuses = <ChatStatusUpdate>[];
+      final content = StringBuffer();
+      await dispatchHermesRun(
+        service: fake,
+        registry: HermesRunRegistry(),
+        assistantMessageId: 'm',
+        input: 'hi',
+        maxRecoveryPolls: maxRecoveryPolls,
+        recoveryPollInterval: Duration.zero,
+        maxQueuedPolls: 4,
+        queuedPollInterval: Duration.zero,
+        appendContent: content.write,
+        appendStatus: statuses.add,
+        updateMessage: (updater) => message = updater(message),
+        finishStreaming: () {},
+        completeStreamingUi: () {},
+      ).timeout(const Duration(seconds: 4));
+      return (message, statuses, content.toString());
+    }
+
+    test('an unknown outcome is acknowledged as interrupted', () async {
+      final fake = _FakeHermesApiService(
+        const [],
+        runResult: const {
+          'object': 'hermes.run',
+          'run_id': 'run-1',
+          'status': 'unknown',
+          'session_id': 'tidepool-notes',
+          'admission_id': 'adm_4c1e',
+          'execution_generation': 7,
+          'pending_controls': [],
+          'output': '',
+        },
+      );
+      final (message, _, _) = await recover(fake);
+
+      check(fake.resolvedUnknownRuns).deepEquals([('run-1', 'adm_4c1e', 7)]);
+      check(message.error?.content).equals(kHermesRunInterruptedMessage);
+    });
+
+    test('a resolved unknown run that had finished keeps its answer', () async {
+      final fake = _FakeHermesApiService(
+        const [],
+        runResults: const [
+          {
+            'status': 'unknown',
+            'admission_id': 'adm_9d20',
+            'execution_generation': 2,
+          },
+          {'status': 'completed', 'output': 'Seven lanterns were lit.'},
+        ],
+        resolveUnknownReceipt: const {
+          'status': 'terminal',
+          'outcome': 'completed',
+        },
+      );
+      final (message, _, content) = await recover(fake);
+
+      check(fake.resolvedUnknownRuns).length.equals(1);
+      check(content).equals('Seven lanterns were lit.');
+      check(message.error).isNull();
+    });
+
+    test('approval waits and server restarts are not malformed', () async {
+      final fake = _FakeHermesApiService(
+        const [],
+        runResults: const [
+          {'status': 'waiting_for_approval'},
+          {'status': 'waiting_for_approval'},
+          {'status': 'waiting_for_approval'},
+          {'status': 'interrupted', 'output': ''},
+        ],
+      );
+      final (message, _, _) = await recover(fake);
+
+      check(fake.getRunCalls).equals(4);
+      check(message.error?.content).equals(kHermesRunInterruptedMessage);
+    });
+
+    test('a run saved during a restart is not a failure', () async {
+      final fake = _FakeHermesApiService(
+        const [HermesLifecycle('queued')],
+        runResults: const [
+          {'status': 'queued'},
+          {'status': 'running'},
+          {'status': 'completed', 'output': 'The kettle is on.'},
+        ],
+      );
+      final (message, statuses, content) = await recover(fake);
+
+      final queued = statuses.where((s) => s.action == 'hermes_run_queued');
+      check(queued.map((s) => s.done)).deepEquals([false, true]);
+      check(queued.first.description).equals(kHermesRunQueuedMessage);
+      check(content).equals('The kettle is on.');
+      check(message.error).isNull();
+    });
+
+    test('a saved run that outlasts polling stays a notice', () async {
+      final fake = _FakeHermesApiService(
+        const [HermesLifecycle('queued')],
+        getRunError: DioException(
+          requestOptions: RequestOptions(path: '/v1/runs/run-1'),
+          type: DioExceptionType.connectionError,
+        ),
+      );
+      final (message, statuses, _) = await recover(fake);
+
+      check(fake.getRunCalls).equals(4);
+      check(message.error).isNull();
+      check(statuses.last.action).equals('hermes_run_queued');
+      check(statuses.last.done).equals(true);
+    });
+
+    test('settleUnknownHermesRun acknowledges only unknown runs', () async {
+      final unknown = _FakeHermesApiService(
+        const [],
+        runResult: const {
+          'status': 'unknown',
+          'admission_id': 'adm_77aa',
+          'execution_generation': 3,
+        },
+      );
+      check(await settleUnknownHermesRun(unknown, 'run-9')).isTrue();
+      check(unknown.resolvedUnknownRuns).deepEquals([('run-9', 'adm_77aa', 3)]);
+
+      final running = _FakeHermesApiService(
+        const [],
+        runResult: const {'status': 'running'},
+      );
+      check(await settleUnknownHermesRun(running, 'run-9')).isFalse();
+      check(running.resolvedUnknownRuns).isEmpty();
+
+      final missingIdentity = _FakeHermesApiService(
+        const [],
+        runResult: const {'status': 'unknown'},
+      );
+      check(await settleUnknownHermesRun(missingIdentity, 'run-9')).isFalse();
+    });
+  });
 }

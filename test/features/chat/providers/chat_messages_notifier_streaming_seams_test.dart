@@ -119,6 +119,69 @@ class _StoppingHermesApi extends HermesApiService {
   }
 }
 
+/// A REST Hermes server whose previous run in the session crashed into an
+/// `unknown` outcome.
+class _UnknownHeadHermesApi extends HermesApiService {
+  _UnknownHeadHermesApi()
+    : super(
+        config: const HermesConfig(
+          enabled: true,
+          baseUrl: 'https://hermes.example',
+        ),
+        dio: Dio(),
+      );
+
+  final List<String> calls = [];
+
+  @override
+  Future<Map<String, dynamic>> getRun(
+    String runId, {
+    CancelToken? cancelToken,
+  }) async {
+    calls.add('get:$runId');
+    return <String, dynamic>{
+      'status': 'unknown',
+      'admission_id': 'adm_head',
+      'execution_generation': 5,
+    };
+  }
+
+  @override
+  Future<Map<String, dynamic>> resolveUnknownRun(
+    String runId, {
+    required String admissionId,
+    required int executionGeneration,
+    CancelToken? cancelToken,
+  }) async {
+    calls.add('resolve:$runId:$admissionId:$executionGeneration');
+    return const <String, dynamic>{'outcome': 'interrupted'};
+  }
+
+  @override
+  Future<String> createRunWithReasoning({
+    required String input,
+    String? sessionId,
+    String? instructions,
+    String? previousResponseId,
+    List<Map<String, dynamic>>? conversationHistory,
+    String? reasoningEffort,
+    CancelToken? cancelToken,
+  }) async {
+    calls.add('create:$sessionId');
+    return 'run-new';
+  }
+
+  @override
+  Stream<HermesRunEvent> runEvents(
+    String runId, {
+    String? sessionId,
+    CancelToken? cancelToken,
+  }) => Stream<HermesRunEvent>.fromIterable(const [
+    HermesTokenDelta('Back on track.'),
+    HermesRunDone(),
+  ]);
+}
+
 class _RecoveredHermesApi extends HermesApiService {
   _RecoveredHermesApi()
     : super(
@@ -2257,6 +2320,75 @@ void main() {
             .equals('hermes');
       },
     );
+
+    test('a send first acknowledges a crashed run left unknown', () async {
+      final service = _UnknownHeadHermesApi();
+      final container = _testContainer(
+        overrides: [
+          activeConversationProvider.overrideWith(
+            () => _TestActiveConversationNotifier(),
+          ),
+          apiServiceProvider.overrideWithValue(null),
+          socketServiceProvider.overrideWithValue(null),
+          hermesConfigProvider.overrideWith(
+            () => _FixedHermesConfigController(),
+          ),
+          hermesApiServiceProvider.overrideWithValue(service),
+        ],
+      );
+      addTearDown(container.dispose);
+      final failed = _assistantMessage(
+        id: 'crashed-assistant',
+        content: 'Half an answer',
+        metadata: const <String, dynamic>{
+          'transport': kHermesTransport,
+          'hermesRunId': 'run-old',
+        },
+      ).copyWith(error: const ChatMessageError(content: 'Hermes run failed.'));
+      final placeholder = _assistantMessage(
+        id: 'next-assistant',
+        content: '',
+        isStreaming: true,
+        metadata: const <String, dynamic>{'transport': kHermesTransport},
+      );
+      container
+          .read(activeConversationProvider.notifier)
+          .set(
+            markNativeHermesConversation(
+              Conversation(
+                id: 'local:hermes_tidepool',
+                title: 'Tidepool',
+                createdAt: DateTime(2024, 1, 1),
+                updatedAt: DateTime(2024, 1, 1),
+                messages: <ChatMessage>[failed, placeholder],
+                metadata: const <String, dynamic>{
+                  'backend': 'hermes',
+                  'hermesSessionId': 'tidepool',
+                },
+              ),
+            ),
+          );
+      await Future<void>.delayed(Duration.zero);
+
+      await dispatchHermesRunFromChatForTest(
+        container,
+        assistantMessageId: placeholder.id,
+        assistantSeed: placeholder,
+        input: 'try again',
+        existingMessages: <ChatMessage>[failed],
+      ).timeout(const Duration(seconds: 2));
+
+      check(service.calls).deepEquals([
+        'get:run-old',
+        'resolve:run-old:adm_head:5',
+        'create:tidepool',
+      ]);
+      final assistant = container
+          .read(chatMessagesProvider)
+          .firstWhere((message) => message.id == placeholder.id);
+      check(assistant.content).equals('Back on track.');
+      container.read(chatMessagesProvider.notifier).clearMessages();
+    });
 
     test('first Responses turn adopts the server-owned session', () async {
       final service = _ResponsesHermesApi(

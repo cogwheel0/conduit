@@ -39,6 +39,12 @@ const int kMaxHermesToolNameCharacters = 80;
 const int kMaxHermesStatusDetailCharacters = 120;
 const int kMaxHermesApprovalSummaryCharacters = 512;
 const int _maxHermesRecoveryStatusCharacters = 64;
+const String _hermesRunQueuedAction = 'hermes_run_queued';
+
+/// Shown while a run Hermes saved during a restart waits for it to return.
+const String kHermesRunQueuedMessage =
+    'Hermes is restarting. Your message is saved and will run once Hermes '
+    'is back, so there is no need to send it again.';
 
 /// Maximum number of status-history rows one Hermes turn may introduce.
 ///
@@ -429,6 +435,8 @@ Future<void> dispatchHermesRun({
   Duration remoteStopTimeout = const Duration(seconds: 5),
   int maxRecoveryPolls = 120,
   Duration recoveryPollInterval = const Duration(seconds: 1),
+  int maxQueuedPolls = 180,
+  Duration queuedPollInterval = const Duration(seconds: 10),
   required void Function(String content) appendContent,
   void Function(String content)? replaceContent,
   required void Function(ChatStatusUpdate update) appendStatus,
@@ -558,6 +566,9 @@ Future<void> dispatchHermesRun({
 
   var sawTerminal = false;
   var gotContent = false;
+  // Hermes v0.23 sends `run.queued` and closes the stream when it restarts
+  // before the run starts; the input is saved and runs once it is back.
+  var queuedForRestart = false;
   final streamedText = StringBuffer();
   String? finalOutput;
   Object? streamError;
@@ -577,6 +588,9 @@ Future<void> dispatchHermesRun({
             streamedText.write(event.content);
           }
           if (event is HermesFinalOutput) finalOutput = event.text;
+          if (event is HermesLifecycle) {
+            queuedForRestart = event.status == 'queued';
+          }
           if (event is HermesRunDone || event is HermesRunError) {
             sawTerminal = true;
             if (!completer.isCompleted) completer.complete();
@@ -658,15 +672,47 @@ Future<void> dispatchHermesRun({
             !allowsCheckpointRecovery) {
           throw guardedError!;
         }
-        final recovered = await _recoverRunOutput(
-          service,
-          runId,
-          cancelToken: runCancelToken,
-          maxPolls: allowsCheckpointRecovery ? 1 : maxRecoveryPolls,
-          pollInterval: allowsCheckpointRecovery
-              ? Duration.zero
-              : recoveryPollInterval,
-        );
+        final waitingForRestart = queuedForRestart && guardedError == null;
+        void showQueued({required bool done}) {
+          statusAccumulator.appendStatus(
+            ChatStatusUpdate(
+              action: _hermesRunQueuedAction,
+              description: kHermesRunQueuedMessage,
+              done: done,
+            ),
+          );
+        }
+
+        ({String text, String status})? recovered;
+        if (waitingForRestart) {
+          // Not an error: poll slowly, tolerating the restart's outage. If
+          // Hermes stays away, the saved input still runs once it is back.
+          showQueued(done: false);
+          try {
+            recovered = await _recoverRunOutput(
+              service,
+              runId,
+              cancelToken: runCancelToken,
+              maxPolls: maxQueuedPolls,
+              pollInterval: queuedPollInterval,
+              maxConsecutiveErrors: maxQueuedPolls,
+            );
+          } catch (error) {
+            if (_isHermesProtocolFailure(error)) rethrow;
+            recovered = null;
+          }
+          if (!runCancelToken.isCancelled) showQueued(done: true);
+        } else {
+          recovered = await _recoverRunOutput(
+            service,
+            runId,
+            cancelToken: runCancelToken,
+            maxPolls: allowsCheckpointRecovery ? 1 : maxRecoveryPolls,
+            pollInterval: allowsCheckpointRecovery
+                ? Duration.zero
+                : recoveryPollInterval,
+          );
+        }
         if (recovered == null) return;
         if (runCancelToken.isCancelled) return;
         if (recovered.text.isNotEmpty) {
@@ -682,6 +728,7 @@ Future<void> dispatchHermesRun({
           final errorMessage = switch (recovered.status) {
             'cancelled' || 'canceled' => 'Hermes run was cancelled.',
             'stopped' => 'Hermes run was stopped.',
+            'interrupted' => kHermesRunInterruptedMessage,
             'incomplete' => 'Hermes stopped this response before it completed.',
             _ => 'Hermes run failed.',
           };
@@ -733,7 +780,7 @@ void _reportHermesStartFailure(
       error.code == HermesApiErrorCode.admissionQueued) {
     appendStatus(
       ChatStatusUpdate(
-        action: 'hermes_run_queued',
+        action: _hermesRunQueuedAction,
         description: hermesApiRefusalMessage(error),
         done: true,
       ),
@@ -921,6 +968,7 @@ Future<({String text, String status})?> _recoverRunOutput(
   required CancelToken cancelToken,
   required int maxPolls,
   required Duration pollInterval,
+  int maxConsecutiveErrors = 3,
 }) async {
   if (maxPolls <= 0) {
     throw ArgumentError.value(maxPolls, 'maxPolls', 'Must be positive');
@@ -928,6 +976,7 @@ Future<({String text, String status})?> _recoverRunOutput(
   var consecutiveErrors = 0;
   var malformedResponses = 0;
   var polls = 0;
+  var resolvedUnknown = false;
   while (!cancelToken.isCancelled) {
     if (polls >= maxPolls) {
       throw TimeoutException(
@@ -947,7 +996,7 @@ Future<({String text, String status})?> _recoverRunOutput(
       if (_isHermesProtocolFailure(error)) rethrow;
       if (cancelToken.isCancelled) return null;
       consecutiveErrors++;
-      if (consecutiveErrors >= 3) rethrow;
+      if (consecutiveErrors >= maxConsecutiveErrors) rethrow;
       await Future<void>.delayed(pollInterval);
       continue;
     }
@@ -962,17 +1011,41 @@ Future<({String text, String status})?> _recoverRunOutput(
         status == 'cancelled' ||
         status == 'canceled' ||
         status == 'stopped' ||
-        status == 'incomplete';
+        status == 'incomplete' ||
+        status == 'interrupted';
     if (terminal) return (text: text, status: status!);
+    if (status == 'unknown' && !resolvedUnknown) {
+      // An unclean Hermes restart left this run's outcome unknown, and the
+      // session's later turns wait behind it until a client acknowledges it.
+      final receipt = await _resolveUnknownHermesRun(
+        service,
+        runId,
+        run,
+        cancelToken: cancelToken,
+      );
+      if (cancelToken.isCancelled) return null;
+      if (receipt != null) {
+        resolvedUnknown = true;
+        // A turn that finished before the restart commits its own answer;
+        // the next poll reads it. Anything else was interrupted.
+        if (receipt['outcome'] != 'completed') {
+          return (text: text, status: 'interrupted');
+        }
+        continue;
+      }
+    }
     const nonTerminalStatuses = {
       'created',
       'queued',
       'pending',
+      'started',
       'running',
       'in_progress',
       'requires_action',
       'waiting',
+      'waiting_for_approval',
       'stopping',
+      'unknown',
     };
     if (status == null || !nonTerminalStatuses.contains(status)) {
       malformedResponses++;
@@ -987,6 +1060,71 @@ Future<({String text, String status})?> _recoverRunOutput(
     await Future<void>.delayed(pollInterval);
   }
   return null;
+}
+
+/// Sends `resolve-unknown` for [run] when it reports the exact admission
+/// identity Hermes requires. Returns the receipt, or null when [run] does not
+/// carry that identity (older servers never report `unknown`).
+Future<Map<String, dynamic>?> _resolveUnknownHermesRun(
+  HermesApiService service,
+  String runId,
+  Map<String, dynamic> run, {
+  required CancelToken cancelToken,
+}) async {
+  final admissionId = validateHermesOpaqueIdentifier(
+    run['admission_id'],
+    sensitiveValues: _hermesSensitiveValues(service),
+  );
+  final generation = run['execution_generation'];
+  if (admissionId == null || generation is! int || generation < 0) {
+    return null;
+  }
+  return service.resolveUnknownRun(
+    runId,
+    admissionId: admissionId,
+    executionGeneration: generation,
+    cancelToken: cancelToken,
+  );
+}
+
+/// Before a new turn joins a session, acknowledges the session's previous
+/// run when a Hermes restart left its outcome unknown. Hermes v0.22.1+ holds
+/// every later turn in that session until this is done.
+///
+/// Best effort: returns whether a run was acknowledged and never throws.
+Future<bool> settleUnknownHermesRun(
+  HermesApiService service,
+  String runId, {
+  CancelToken? cancelToken,
+}) async {
+  final safeRunId = _validatedHermesOpaqueIdentifier(
+    runId,
+    sensitiveValues: _hermesSensitiveValues(service),
+  );
+  if (safeRunId == null) return false;
+  // getRun shares a recovery deadline per token; keep this check's own.
+  final checkToken = CancelToken();
+  void cancelCheck(Object? _) {
+    if (!checkToken.isCancelled) checkToken.cancel('Hermes turn cancelled');
+  }
+
+  unawaited(cancelToken?.whenCancel.then<void>(cancelCheck));
+  try {
+    final run = await service.getRun(safeRunId, cancelToken: checkToken);
+    if (_hermesRecoveryStatus(run['status']) != 'unknown') return false;
+    final receipt = await _resolveUnknownHermesRun(
+      service,
+      safeRunId,
+      run,
+      cancelToken: checkToken,
+    );
+    return receipt != null;
+  } catch (_) {
+    DebugLogger.warning('settle-unknown-run-failed', scope: 'hermes/transport');
+    return false;
+  } finally {
+    _signalHermesTransportCancellation(checkToken);
+  }
 }
 
 Future<({String text, String status})?> _recoverResponseOutput(

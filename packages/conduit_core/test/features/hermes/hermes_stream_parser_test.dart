@@ -300,6 +300,34 @@ void main() {
       check(settled.map((e) => e.kind)).deepEquals(['approval', 'clarify']);
     });
 
+    test('a restart interruption is a terminal, explained error', () async {
+      final events = await parseHermesRunStream(
+        _sse([
+          'data: {"event":"run.interrupted","run_id":"run_5be1c0de","error":"Gateway shutdown interrupted the run.","seq":9}\n\n',
+        ]),
+      ).toList();
+
+      check(events).length.equals(2);
+      check(events.first)
+          .isA<HermesRunError>()
+          .has((e) => e.message, 'message')
+          .equals(kHermesRunInterruptedMessage);
+      check(events.last).isA<HermesRunDone>();
+    });
+
+    test('a run saved during a restart is a non-terminal lifecycle', () async {
+      final events = await parseHermesRunStream(
+        _sse([
+          'data: {"event":"run.queued","run_id":"run_5be1c0de","message":"Hermes is restarting.","seq":3}\n\n',
+        ]),
+      ).toList();
+
+      check(events.single)
+          .isA<HermesLifecycle>()
+          .has((e) => e.status, 'status')
+          .equals('queued');
+    });
+
     test('does not decode an answered gate as a new request', () async {
       // Issue #769: the runs API follows an approval with approval.responded
       // (only run_id, choice and resolved), which used to reopen the card.

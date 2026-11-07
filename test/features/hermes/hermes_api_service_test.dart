@@ -1461,6 +1461,28 @@ void main() {
       },
     );
 
+    test('resolveUnknownRun sends exactly the admission identity', () async {
+      final capture = _CaptureInterceptor({
+        'admission_id': 'adm_31',
+        'status': 'terminal',
+        'outcome': 'interrupted',
+        'execution_generation': 4,
+      });
+      final receipt = await _service(capture).resolveUnknownRun(
+        'run_5',
+        admissionId: 'adm_31',
+        executionGeneration: 4,
+      );
+
+      final request = capture.requests.single;
+      check(request.method).equals('POST');
+      check(request.path)
+          .equals('http://host:8642/v1/runs/run_5/resolve-unknown');
+      check(request.data as Map<String, dynamic>)
+          .deepEquals({'admission_id': 'adm_31', 'execution_generation': 4});
+      check(receipt['outcome']).equals('interrupted');
+    });
+
     test('approval identifiers cannot inject URI path or fragments', () async {
       final capture = _CaptureInterceptor({});
       await _service(capture).resolveApproval(

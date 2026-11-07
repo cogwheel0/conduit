@@ -2098,6 +2098,20 @@ Future<void> _dispatchRegisteredHermesRunFromChat(
     return;
   }
 
+  // A crash can leave the session's previous run `unknown`; Hermes then holds
+  // every new turn in the session until a client acknowledges that run.
+  final unsettledRunId = sessionId == null || sessionId.isEmpty
+      ? null
+      : _lastFailedHermesRunId(existingMessages);
+  if (unsettledRunId != null) {
+    await settleUnknownHermesRun(
+      service,
+      unsettledRunId,
+      cancelToken: cancelToken,
+    );
+    if (cancelled()) return;
+  }
+
   await dispatchHermesRun(
     service: service,
     registry: registry,
@@ -2118,6 +2132,22 @@ Future<void> _dispatchRegisteredHermesRunFromChat(
     finishStreaming: finishOwned,
     completeStreamingUi: completeStreamingUiOwned,
   );
+}
+
+/// The run id of the newest Hermes `/v1/runs` answer when that answer ended
+/// in an error, which is when its outcome may still be unknown to Hermes.
+String? _lastFailedHermesRunId(List<ChatMessage> messages) {
+  for (final message in messages.reversed) {
+    if (message.role != 'assistant') continue;
+    final metadata = message.metadata;
+    if (metadata?['transport'] != kHermesTransport) return null;
+    final runId = metadata?['hermesRunId'];
+    if (runId is! String || runId.isEmpty || message.error == null) {
+      return null;
+    }
+    return runId;
+  }
+  return null;
 }
 
 @visibleForTesting

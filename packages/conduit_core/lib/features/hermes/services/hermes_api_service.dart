@@ -1548,6 +1548,35 @@ class HermesApiService implements HermesBackendService, HermesTurnService {
     }
   }
 
+  /// Acknowledges a run whose outcome became `unknown` after an unclean
+  /// Hermes restart (`POST /v1/runs/{id}/resolve-unknown`, v0.22.1+).
+  ///
+  /// Later turns in that session wait until this is done. [admissionId] and
+  /// [executionGeneration] must be the exact values `GET /v1/runs/{id}`
+  /// reported. Returns the admission receipt; its `outcome` is usually
+  /// `interrupted`, or `completed` when the answer was produced but its
+  /// receipt had been lost.
+  Future<Map<String, dynamic>> resolveUnknownRun(
+    String runId, {
+    required String admissionId,
+    required int executionGeneration,
+    CancelToken? cancelToken,
+  }) async {
+    final encodedRunId = Uri.encodeComponent(runId);
+    final data = await _requestBoundedJson(
+      'POST',
+      '$_root/v1/runs/$encodedRunId/resolve-unknown',
+      cancelToken: cancelToken,
+      data: <String, dynamic>{
+        'admission_id': admissionId,
+        'execution_generation': executionGeneration,
+      },
+      maxBytes: kMaxHermesMutationResponseBytes,
+      maxCharacters: kMaxHermesMutationResponseCharacters,
+    );
+    return data is Map ? data.cast<String, dynamic>() : const {};
+  }
+
   // ---------------------------------------------------------------------------
   // Sessions API (`/api/sessions/*`) — server-side transcript persistence.
   // ---------------------------------------------------------------------------

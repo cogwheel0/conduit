@@ -10,6 +10,11 @@ import 'package:conduit_core/features/hermes/models/hermes_run_event.dart';
 import 'package:conduit_core/features/hermes/services/hermes_identifier.dart';
 import 'package:conduit_core/features/hermes/services/hermes_json_guard.dart';
 
+/// Shown when a Hermes restart interrupted a run (`run.interrupted`, or a run
+/// whose outcome Conduit had to acknowledge as unknown).
+const String kHermesRunInterruptedMessage =
+    'Hermes restarted, so this run was interrupted.';
+
 // Keep the lexical decoder ceiling above the typed-output traversal ceiling so
 // a moderately over-nested terminal output can still become a useful typed
 // error. It remains finite before `jsonDecode` constructs any containers.
@@ -352,6 +357,14 @@ Iterable<HermesRunEvent> parseHermesRunFrame(SseFrame frame) sync* {
     yield HermesRunError(
       _isTruthyError(error) ? _errorMessage(error) : 'Hermes run failed.',
     );
+    return;
+  }
+
+  // A Hermes restart interrupted the run (v0.23+). Its `error` field is a
+  // fixed server sentence; show Conduit's own explanation instead.
+  if (eventType == 'run.interrupted') {
+    yield const HermesRunError(kHermesRunInterruptedMessage);
+    yield const HermesRunDone();
     return;
   }
 
@@ -758,7 +771,8 @@ bool _isTerminal(String status) =>
     status == 'incomplete' ||
     status == 'cancelled' ||
     status == 'canceled' ||
-    status == 'stopped';
+    status == 'stopped' ||
+    status == 'interrupted';
 
 /// Whether an `error` field represents a real failure (vs. a falsy marker like
 /// `false` / `"False"` / `"None"` that some events include).
@@ -805,6 +819,8 @@ String? _terminalRunStatusError(String status, dynamic error) {
       return 'Hermes run was cancelled.';
     case 'stopped':
       return 'Hermes run was stopped.';
+    case 'interrupted':
+      return kHermesRunInterruptedMessage;
     default:
       return null;
   }
