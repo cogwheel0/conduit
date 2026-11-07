@@ -31,6 +31,8 @@ class ComputerBrowserTab {
     this.selected = false,
   });
 
+  /// Requires a nonempty `session_id`, otherwise throws [FormatException].
+  /// Missing optional text and selection fields default to empty and false.
   factory ComputerBrowserTab.fromJson(Map<String, dynamic> json) {
     final id = json['session_id'];
     if (id is! String || id.isEmpty) {
@@ -60,6 +62,9 @@ class ComputerBrowserSession {
     this.mode = 'proxy',
   });
 
+  /// Requires nonempty `id` and `token` strings or throws [FormatException].
+  /// Optional text defaults to empty, Chrome availability to false, and mode
+  /// to `proxy` when omitted.
   factory ComputerBrowserSession.fromJson(Map<String, dynamic> json) {
     final id = json['id'];
     final token = json['token'];
@@ -115,6 +120,9 @@ class ComputerConnection {
   /// Per-socket native TLS policy; never exposed to the WebView.
   final HttpClient Function()? createHttpClient;
 
+  /// Includes the stream URL and optional token, excluding native proxy
+  /// cookies, headers and the HTTP-client factory. Replace the upstream URL
+  /// with the scoped relay URL before passing this map to the WebView.
   Map<String, dynamic> toViewerConfig() => {
     'surface': surface.name,
     'url': streamUri.toString(),

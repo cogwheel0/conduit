@@ -22,6 +22,7 @@ class ComputerService {
       ? ServerTlsHttpClientFactory.createHttpClient(terminal.api.serverConfig)
       : HttpClient();
 
+  /// Returns no capabilities for HTTP 404; other request errors propagate.
   Future<ComputerCapabilities> capabilities() async {
     try {
       final response = await terminal.requestComputer(
@@ -123,6 +124,8 @@ class ComputerService {
         .toList(growable: false);
   }
 
+  /// Selects the tab and activates Chrome mode, changing server state.
+  /// Throws [ComputerBrowserUnavailable] if the session cannot use Chrome.
   Future<ComputerConnection> selectBrowserTab(String id) async =>
       _connectBrowser(
         ComputerBrowserSession.fromJson(

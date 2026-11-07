@@ -23,9 +23,18 @@ class ComputerSurfaceController {
   }
 
   Future<void> control(bool enabled) => _call('control', enabled);
+
+  /// Sends a `type` command: `paste` with `text`, `shortcut` with `key`,
+  /// `navigate` with `url`, or `back`, `forward` and `reload`. Trackpad mode
+  /// also accepts `click`, `rightClick`, `doubleClick`, `startDrag`, `endDrag`.
+  /// The viewer gates input on control, connection and visibility. Commands
+  /// are not queued when no WebView is mounted.
   Future<void> command(Map<String, Object?> command) =>
       _call('command', command);
   Future<void> zoom(bool enabled) => _call('zoom', enabled);
+
+  /// Retains visibility for startup, even before a WebView is mounted.
+  /// Hiding closes streaming connections; showing reconnects in Watch.
   Future<void> visibility(bool visible) {
     _visible = visible;
     return _call('visibility', visible);
