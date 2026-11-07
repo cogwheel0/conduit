@@ -12,12 +12,14 @@ import 'package:conduit_core/auth/webview_origin.dart';
 
 /// The dashboard's session cookies. They are kept in the sign-in registry
 /// even when the WebView held them before the sign-in began (an automatic
-/// sign-in refreshes them in place).
+/// sign-in refreshes them in place). A gateway's Webapp listener names them
+/// with a `_<16 hex>` suffix, and binds its sign-in with one more.
 const Set<String> kHermesDashboardRetainedCookieNames = {
   'hermes_session_at',
   'hermes_session_pkce',
   'hermes_session_rt',
   'hermes_session_provider',
+  'hermes_webapp_signin',
 };
 
 /// The dashboard root for a configured Hermes base URL: the base URL

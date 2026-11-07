@@ -33,11 +33,14 @@ Set<String> hermesDashboardCookieIdentityDelta({
 };
 
 /// The name in a cookie [identity], without a `__Host-` or `__Secure-`
-/// prefix.
+/// prefix, and without the `_<16 hex>` suffix a gateway's Webapp listener
+/// gives its cookies (one per gateway home, so two gateways on one host
+/// keep apart).
 String _cookieBaseName(String identity) => identity
     .split('\u0000')
     .first
-    .replaceFirst(RegExp(r'^__(?:Host|Secure)-'), '');
+    .replaceFirst(RegExp(r'^__(?:Host|Secure)-'), '')
+    .replaceFirst(RegExp(r'_[0-9a-f]{16}$'), '');
 
 /// The registry key for a dashboard origin (`scheme://host:port`, lower
 /// case, default port filled in), or null when [origin] has no host.

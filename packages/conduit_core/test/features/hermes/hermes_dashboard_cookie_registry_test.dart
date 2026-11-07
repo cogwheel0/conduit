@@ -92,6 +92,28 @@ void main() {
     check(merged[62]).equals(identity('hermes_session_at_x'));
   });
 
+  test('a Webapp listener\'s suffixed session cookies are retained', () {
+    final session = identity('hermes_session_at_0123456789abcdef');
+    final signIn = identity('hermes_webapp_signin_0123456789abcdef');
+    final other = identity('token');
+
+    check(
+      hermesDashboardCookieIdentityDelta(
+        current: {session, signIn, other},
+        baseline: {session, signIn, other},
+        retainedNames: kHermesDashboardRetainedCookieNames,
+      ),
+    ).deepEquals({session, signIn});
+    // Only the Webapp's 16-hex suffix is dropped.
+    check(
+      hermesDashboardCookieIdentityDelta(
+        current: {identity('hermes_session_at_0123')},
+        baseline: {identity('hermes_session_at_0123')},
+        retainedNames: kHermesDashboardRetainedCookieNames,
+      ),
+    ).isEmpty();
+  });
+
   test('a refreshed session cookie moves to the end of the record', () {
     final merged = mergeHermesDashboardCookieIdentities(
       existing: [identity('hermes_session_at'), identity('a'), identity('b')],
