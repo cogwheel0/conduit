@@ -1,6 +1,7 @@
 import 'package:conduit/features/terminal/widgets/computer_surface.dart';
 import 'package:conduit_core/features/terminal/models/computer_models.dart';
 import 'package:flutter/widgets.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -82,26 +83,86 @@ void main() {
     },
   );
 
-  testWidgets('private viewer seeds proxy cookies only at the socket origin', (
+  testWidgets(
+    'viewer keeps proxy cookies outside the WebView cookie store',
+    (tester) async {
+      await tester.pumpWidget(
+        Directionality(
+          textDirection: TextDirection.ltr,
+          child: ComputerSurfaceView(
+            connection: ComputerConnection(
+              surface: ComputerSurface.desktop,
+              streamUri: Uri.parse(
+                'wss://computer.example:9443/nested/desktop/stream',
+              ),
+              proxyCookies: {
+                'CF_Authorization': 'synthetic-proxy',
+                'unsafe': '</script><script>bad()</script>',
+                'bad;name': 'discard',
+                'bad_value': 'discard; path=/other',
+              },
+            ),
+            controller: ComputerSurfaceController(),
+            onState: (_) {},
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final params = tester
+          .widget<InAppWebView>(find.byType(InAppWebView))
+          .platform
+          .params;
+      expect(
+        params.initialData!.baseUrl.toString(),
+        'http://computer.conduit.invalid/index.html',
+      );
+      final document = params.initialData!.data;
+      expect(document, isNot(contains('synthetic-proxy')));
+      expect(document, isNot(contains('document.cookie')));
+      expect(document, isNot(contains('computer.example')));
+      expect(document, contains('-webkit-user-select:none'));
+      expect(document, contains('-webkit-touch-callout:none'));
+      expect(
+        params.initialSettings!.incognito,
+        defaultTargetPlatform != TargetPlatform.android,
+      );
+      expect(params.initialSettings!.sharedCookiesEnabled, isFalse);
+      expect(params.initialSettings!.javaScriptHandlersOriginAllowList, {
+        'http://computer.conduit.invalid',
+      });
+      expect(document, contains('connect-src ws://127.0.0.1:* data:'));
+      final decision = await params.shouldOverrideUrlLoading!(
+        ComputerTestWebController(),
+        NavigationAction(
+          request: URLRequest(
+            url: WebUri('https://computer.example:9443/private'),
+          ),
+          isForMainFrame: true,
+        ),
+      );
+      expect(decision, NavigationActionPolicy.CANCEL);
+      await tester.pumpWidget(const SizedBox());
+    },
+    variant: TargetPlatformVariant({
+      TargetPlatform.android,
+      TargetPlatform.iOS,
+    }),
+  );
+
+  testWidgets('backgrounding before WebView startup remains hidden', (
     tester,
   ) async {
+    final controller = ComputerSurfaceController();
+    await controller.visibility(false);
     await tester.pumpWidget(
       Directionality(
         textDirection: TextDirection.ltr,
         child: ComputerSurfaceView(
           connection: ComputerConnection(
             surface: ComputerSurface.desktop,
-            streamUri: Uri.parse(
-              'wss://computer.example:9443/nested/desktop/stream',
-            ),
-            proxyCookies: {
-              'CF_Authorization': 'synthetic-proxy',
-              'unsafe': '</script><script>bad()</script>',
-              'bad;name': 'discard',
-              'bad_value': 'discard; path=/other',
-            },
+            streamUri: Uri.parse('ws://computer.example/desktop/stream'),
           ),
-          controller: ComputerSurfaceController(),
+          controller: controller,
           onState: (_) {},
         ),
       ),
@@ -111,38 +172,18 @@ void main() {
         .widget<InAppWebView>(find.byType(InAppWebView))
         .platform
         .params;
-    expect(
-      params.initialData!.baseUrl.toString(),
-      'https://computer.example:9443/index.html',
-    );
-    final document = params.initialData!.data;
-    expect(
-      document,
-      contains(
-        'CF_Authorization=synthetic-proxy; path=/; secure; samesite=none',
-      ),
-    );
-    expect(document, isNot(contains('</script><script>bad()')));
-    expect(document, isNot(contains('discard')));
-    expect(document, contains('-webkit-user-select:none'));
-    expect(document, contains('-webkit-touch-callout:none'));
-    expect(params.initialSettings!.incognito, isTrue);
-    expect(params.initialSettings!.sharedCookiesEnabled, isFalse);
-    expect(params.initialSettings!.javaScriptHandlersOriginAllowList, {
-      'https://computer.example:9443',
-    });
-    expect(document, contains('connect-src wss://computer.example:9443 data:'));
-    final decision = await params.shouldOverrideUrlLoading!(
-      ComputerTestWebController(),
-      NavigationAction(
-        request: URLRequest(
-          url: WebUri('https://computer.example:9443/private'),
-        ),
-        isForMainFrame: true,
-      ),
-    );
-    expect(decision, NavigationActionPolicy.CANCEL);
+    final web = ComputerTestWebController();
+    params.onWebViewCreated!(web);
+    params.onLoadStop!(web, null);
+    for (var i = 0; i < 50 && web.scripts.isEmpty; i++) {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 10)),
+      );
+      await tester.pump();
+    }
+    expect(web.scripts.single, contains('"visible":false'));
     await tester.pumpWidget(const SizedBox());
+    await tester.runAsync(() => Future<void>.delayed(Duration.zero));
   });
 
   testWidgets('retiring viewer cannot dispose or detach its replacement', (

@@ -93,6 +93,7 @@ class ComputerConnection {
     this.browserSession,
     this.audioAvailable = false,
     this.proxyCookies = const {},
+    this.proxyHeaders = const {},
   });
 
   final ComputerSurface surface;
@@ -104,6 +105,9 @@ class ComputerConnection {
   final bool audioAvailable;
   // Only the sign-in proxy cookies for this server, never Open WebUI tokens.
   final Map<String, String> proxyCookies;
+
+  /// Native handshake headers; never serialized into the pixel document.
+  final Map<String, String> proxyHeaders;
 
   Map<String, dynamic> toViewerConfig() => {
     'surface': surface.name,

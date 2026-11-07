@@ -4,6 +4,7 @@ import 'dart:io';
 
 import 'package:conduit_core/features/terminal/models/computer_models.dart';
 import 'package:conduit_core/features/terminal/services/computer_service.dart';
+import 'package:conduit_core/features/terminal/services/computer_socket_relay.dart';
 import 'package:conduit_core/features/terminal/services/terminal_service.dart';
 import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/services/api_service.dart';
@@ -44,15 +45,21 @@ void main() {
       final chatId = chat.data!['id'] as String;
       final service = ComputerService(terminal, server, chatId);
       final ownedTabs = <String>[];
+      final relays = <ComputerSocketRelay>[];
       try {
         final capabilities = await service.capabilities();
         expect(capabilities.desktop, isTrue);
         expect(capabilities.browser, isTrue);
-        final desktop = await service.open(ComputerSurface.desktop);
+        final desktop = (await service.open(ComputerSurface.desktop))!;
         expect(desktop.streamUri.query, isEmpty);
         expect(desktop.chatId, chatId);
         expect(await service.screenshot(desktop), isNotEmpty);
-        final socket = await WebSocket.connect(desktop.streamUri.toString());
+        final desktopRelay = await ComputerSocketRelay.start(desktop);
+        relays.add(desktopRelay);
+        final socket = await WebSocket.connect(
+          desktopRelay.streamUri.toString(),
+          headers: {'Origin': ComputerSocketRelay.viewerOrigin},
+        );
         socket.add(
           jsonEncode({
             'type': 'auth',
@@ -78,7 +85,12 @@ void main() {
         final browser = await service.selectBrowserTab(ownedTabs.first);
         await service.sendShortcut(browser, 'Ctrl+A');
         expect((await service.screenshot(browser)).take(4), [137, 80, 78, 71]);
-        final stream = await WebSocket.connect(browser.streamUri.toString());
+        final browserRelay = await ComputerSocketRelay.start(browser);
+        relays.add(browserRelay);
+        final stream = await WebSocket.connect(
+          browserRelay.streamUri.toString(),
+          headers: {'Origin': ComputerSocketRelay.viewerOrigin},
+        );
         stream.add(jsonEncode({'type': 'frames'}));
         final state = await stream
             .firstWhere(
@@ -97,7 +109,11 @@ void main() {
         await service.closeBrowserTab(ownedTabs.removeLast());
         await service.closeBrowserTab(ownedTabs.removeLast());
         expect(await service.browserTabs(), isEmpty);
+        expect(await service.open(ComputerSurface.browser), isNull);
       } finally {
+        for (final relay in relays) {
+          await relay.close();
+        }
         for (final id in ownedTabs) {
           await service.closeBrowserTab(id);
         }

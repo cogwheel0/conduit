@@ -22,8 +22,16 @@ class ComputerLauncher extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final service = ref.watch(computerServiceProvider).value;
-    final capabilities = ref.watch(computerCapabilitiesProvider).value;
+    final serviceState = ref.watch(computerServiceProvider);
+    final capabilitiesState = ref.watch(computerCapabilitiesProvider);
+    if (serviceState.isLoading ||
+        serviceState.hasError ||
+        capabilitiesState.isLoading ||
+        capabilitiesState.hasError) {
+      return const SizedBox.shrink();
+    }
+    final service = serviceState.value;
+    final capabilities = capabilitiesState.value;
     if (service == null || capabilities == null || !capabilities.available) {
       return const SizedBox.shrink();
     }
@@ -101,6 +109,7 @@ class _ComputerCardState extends State<_ComputerCard>
       final connection = await widget.service.open(_selected);
       if (!mounted || generation != _generation) return;
       _connection = connection;
+      if (connection == null) return;
       final bytes = await widget.service.screenshot(connection);
       if (!mounted || generation != _generation) return;
       setState(() => _preview = bytes);
@@ -254,6 +263,10 @@ class _ComputerCardState extends State<_ComputerCard>
                                     child: Text(
                                       _failed
                                           ? l10n.computerPreviewUnavailable
+                                          : _selected ==
+                                                    ComputerSurface.browser &&
+                                                _connection == null
+                                          ? l10n.computerNoTabs
                                           : l10n.computerWatchHint,
                                       textAlign: TextAlign.center,
                                       style: const TextStyle(

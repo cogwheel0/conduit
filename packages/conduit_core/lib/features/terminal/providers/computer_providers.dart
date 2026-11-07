@@ -3,6 +3,7 @@ import 'package:riverpod/riverpod.dart';
 import 'package:conduit_core/features/chat/providers/chat_providers.dart';
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit_core/models/chat_comparison.dart';
+import 'package:conduit_core/features/tools/providers/tools_providers.dart';
 
 import '../models/computer_models.dart';
 import '../models/terminal_models.dart';
@@ -12,16 +13,17 @@ import 'terminal_providers.dart';
 final computerServiceProvider = FutureProvider.autoDispose<ComputerService?>((
   ref,
 ) async {
-  final terminal = ref.watch(terminalServiceProvider);
   final scope = ref.watch(terminalSessionScopeIdProvider);
-  final server = await ref.watch(terminalSelectedServerProvider.future);
   // Browser tabs belong to a saved chat. Never attach a draft to the unscoped
   // terminal's last tab, which may belong to a different conversation.
-  if (terminal == null ||
-      server == null ||
-      !isSavedTerminalChatScopeId(scope)) {
+  if (!isSavedTerminalChatScopeId(scope) ||
+      ref.watch(selectedTerminalIdProvider) == null) {
     return null;
   }
+  final terminal = ref.watch(terminalServiceProvider);
+  if (terminal == null) return null;
+  final server = await ref.watch(terminalSelectedServerProvider.future);
+  if (server == null) return null;
   return ComputerService(terminal, server, scope);
 });
 

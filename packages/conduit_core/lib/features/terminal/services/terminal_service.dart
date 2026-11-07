@@ -583,6 +583,26 @@ class TerminalService {
     };
   }
 
+  /// Custom proxy authentication for Computer's native WebSocket handshake.
+  /// Direct terminals must never receive the Open WebUI server's credentials.
+  Map<String, String> computerProxyHeadersForServer(TerminalServerInfo server) {
+    if (!server.isSystem) return const {};
+    return {
+      for (final entry in api.serverConfig.customHeaders.entries)
+        if (!const {
+              'cookie',
+              'host',
+              'origin',
+              'connection',
+              'upgrade',
+              'content-length',
+              'transfer-encoding',
+            }.contains(entry.key.toLowerCase()) &&
+            !entry.key.toLowerCase().startsWith('sec-websocket-'))
+          entry.key: entry.value,
+    };
+  }
+
   String? authTokenForServer(TerminalServerInfo server) {
     if (server.isSystem) {
       return _authToken;

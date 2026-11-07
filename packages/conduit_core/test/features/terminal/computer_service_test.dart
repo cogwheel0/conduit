@@ -59,6 +59,7 @@ void main() {
         customHeaders: {
           'Cookie':
               'CF_Authorization=synthetic-proxy; token=private-webui-cookie',
+          'X-Proxy-Credential': 'synthetic-header',
         },
       ),
       authToken: 'synthetic-webui-token',
@@ -99,7 +100,7 @@ void main() {
       respond = (request) async {
         request.response.write('{"transport":"frames"}');
       };
-      final connection = await service.open(ComputerSurface.desktop);
+      final connection = (await service.open(ComputerSurface.desktop))!;
       expect(requests.single.path, '/nested/desktop');
       expect(requests.single.scope, 'chat-fixture');
       expect(requests.single.auth, 'Bearer synthetic-terminal-key');
@@ -109,6 +110,7 @@ void main() {
       expect(connection.token, 'synthetic-terminal-key');
       expect(connection.chatId, 'chat-fixture');
       expect(connection.proxyCookies, isEmpty);
+      expect(connection.proxyHeaders, isEmpty);
     },
   );
 
@@ -146,7 +148,7 @@ void main() {
     respond = (request) async {
       request.response.write('{"transport":"frames"}');
     };
-    final connection = await proxy.open(ComputerSurface.desktop);
+    final connection = (await proxy.open(ComputerSurface.desktop))!;
     expect(
       requests.single.path,
       '/nested/api/v1/terminals/terminal-fixture/desktop',
@@ -155,6 +157,11 @@ void main() {
     expect(requests.single.scope, 'chat-fixture');
     expect(connection.token, 'synthetic-webui-token');
     expect(connection.proxyCookies, {'CF_Authorization': 'synthetic-proxy'});
+    expect(connection.proxyHeaders, {'X-Proxy-Credential': 'synthetic-header'});
+    expect(
+      connection.toViewerConfig().toString(),
+      isNot(contains('synthetic-header')),
+    );
     expect(connection.toViewerConfig(), isNot(contains('proxyCookies')));
     expect(connection.streamUri.query, isEmpty);
     expect(
@@ -179,13 +186,25 @@ void main() {
           ? '{"current_session_id":"tab"}'
           : '{"id":"tab","token":"ticket","chrome_available":true}',
     );
-    final connection = await proxy.open(ComputerSurface.browser);
+    final connection = (await proxy.open(ComputerSurface.browser))!;
     expect(connection.proxyCookies, {'CF_Authorization': 'synthetic-proxy'});
+    expect(connection.proxyHeaders, {'X-Proxy-Credential': 'synthetic-header'});
+    expect(
+      connection.toViewerConfig().toString(),
+      isNot(contains('synthetic-header')),
+    );
     expect(connection.token, isNull);
     expect(
       connection.toViewerConfig().toString(),
       isNot(contains('synthetic-proxy')),
     );
+  });
+
+  test('watching an empty browser never creates a session', () async {
+    respond = (request) async =>
+        request.response.write('{"tabs":[],"current_session_id":null}');
+    expect(await service.open(ComputerSurface.browser), isNull);
+    expect(requests.map((request) => request.method), ['GET']);
   });
 
   test(
@@ -198,7 +217,7 @@ void main() {
               : '{"id":"agent-tab","token":"scoped-capability","chrome_available":true,"mode":"chrome"}',
         );
       };
-      final connection = await service.open(ComputerSurface.browser);
+      final connection = (await service.open(ComputerSurface.browser))!;
       expect(
         connection.streamUri.path,
         '/nested/browser/view/agent-tab/scoped-capability/stream',
@@ -228,11 +247,11 @@ void main() {
         );
       };
       await expectLater(
-        service.open(ComputerSurface.browser),
+        service.createBrowserTab(),
         throwsA(isA<ComputerBrowserUnavailable>()),
       );
-      expect(requests[1].method, 'POST');
-      expect(requests[1].scope, 'chat-fixture');
+      expect(requests.first.method, 'POST');
+      expect(requests.first.scope, 'chat-fixture');
       expect(requests.any((request) => request.method == 'PATCH'), isFalse);
     },
   );
@@ -246,7 +265,7 @@ void main() {
     respond = (request) async {
       request.response.write('{"transport":"vnc"}');
     };
-    final connection = await draft.open(ComputerSurface.desktop);
+    final connection = (await draft.open(ComputerSurface.desktop))!;
     expect(connection.chatId, isEmpty);
     expect(requests.single.scope, isNull);
   });

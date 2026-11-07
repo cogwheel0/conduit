@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:conduit_core/features/terminal/models/computer_models.dart';
+import 'package:conduit_core/features/terminal/services/computer_socket_relay.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/services.dart';
@@ -11,6 +12,7 @@ import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 /// Commands are scoped to one mounted viewer; no credentials or pixels persist.
 class ComputerSurfaceController {
   InAppWebViewController? _web;
+  bool _visible = true;
 
   Future<void> _call(String name, Object? value) async {
     final web = _web;
@@ -24,7 +26,11 @@ class ComputerSurfaceController {
   Future<void> command(Map<String, Object?> command) =>
       _call('command', command);
   Future<void> zoom(bool enabled) => _call('zoom', enabled);
-  Future<void> visibility(bool visible) => _call('visibility', visible);
+  Future<void> visibility(bool visible) {
+    _visible = visible;
+    return _call('visibility', visible);
+  }
+
   Future<void> reconnect() => _call('reconnect', null);
   Future<void> audio(bool enabled) => _call('audio', enabled);
   Future<void> trackpad(bool enabled) => _call('trackpad', enabled);
@@ -49,17 +55,8 @@ class ComputerSurfaceView extends StatefulWidget {
 }
 
 class _ComputerSurfaceViewState extends State<ComputerSurfaceView> {
-  late final _origin = Uri(
-    scheme: widget.connection.streamUri.scheme == 'wss' ? 'https' : 'http',
-    host: widget.connection.proxyCookies.isEmpty
-        ? 'computer.conduit.invalid'
-        : widget.connection.streamUri.host,
-    port:
-        widget.connection.proxyCookies.isNotEmpty &&
-            widget.connection.streamUri.hasPort
-        ? widget.connection.streamUri.port
-        : null,
-  ).origin;
+  static const _origin = ComputerSocketRelay.viewerOrigin;
+  ComputerSocketRelay? _relay;
   late final Future<String> _document = _load();
   bool _started = false;
   Size? _lastSize;
@@ -73,28 +70,9 @@ class _ComputerSurfaceViewState extends State<ComputerSurfaceView> {
 
   Future<String> _load() async {
     final script = await rootBundle.loadString('assets/computer/viewer.js');
-    final uri = widget.connection.streamUri;
-    final allowed = Uri(
-      scheme: uri.scheme,
-      host: uri.host,
-      port: uri.hasPort ? uri.port : null,
-    );
-    // A private WebView starts without the sign-in proxy's cookies. Seed only
-    // this trusted pixel document, at the socket server's origin; no remote
-    // HTML is loaded. The cookies disappear with the nonpersistent viewer.
-    final cookieName = RegExp(r"^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$");
-    final cookieValue = RegExp(
-      r'^[\x21\x23-\x2B\x2D-\x3A\x3C-\x5B\x5D-\x7E]*$',
-    );
-    final suffix = uri.scheme == 'wss' ? '; secure; samesite=none' : '';
-    final cookies = [
-      for (final entry in widget.connection.proxyCookies.entries)
-        if (cookieName.hasMatch(entry.key) && cookieValue.hasMatch(entry.value))
-          'document.cookie = ${jsonEncode('${entry.key}=${entry.value}; path=/$suffix').replaceAll('<', r'\u003c')};',
-    ].join('\n');
     return '''<!doctype html><html><head>
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=3">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src blob: data:; media-src blob:; connect-src $allowed data:; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src blob: data:; media-src blob:; connect-src ws://127.0.0.1:* data:; base-uri 'none'; form-action 'none'">
 <style>
 html,body{margin:0;width:100%;height:100%;background:#111318;overflow:auto;overscroll-behavior:none;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
 #surface{width:100%;height:100%;display:flex;align-items:center;justify-content:center;overflow:auto}
@@ -102,12 +80,13 @@ html,body{margin:0;width:100%;height:100%;background:#111318;overflow:auto;overs
 #frame{display:block;max-width:100%;max-height:100%;object-fit:contain;flex-shrink:0}
 #frame.zoomed{max-width:none;max-height:none;width:200%;align-self:flex-start}
 </style></head><body><div id="surface"><canvas id="frame" width="1" height="1"></canvas></div>
-<script>$cookies
+<script>
 (async () => {${script.replaceAll('</script', '<\\/script')} })();</script></body></html>''';
   }
 
   @override
   void dispose() {
+    unawaited(_relay?.close());
     final web = _web;
     if (identical(widget.controller._web, web)) widget.controller._web = null;
     web?.removeJavaScriptHandler(handlerName: 'computer');
@@ -148,7 +127,9 @@ html,body{margin:0;width:100%;height:100%;background:#111318;overflow:auto;overs
             ),
             initialSettings: InAppWebViewSettings(
               javaScriptEnabled: true,
-              incognito: true,
+              // Android incognito clears the process-wide cookie store. The relay
+              // keeps authentication outside WebView cookies on every platform.
+              incognito: defaultTargetPlatform != TargetPlatform.android,
               cacheEnabled: false,
               domStorageEnabled: false,
               databaseEnabled: false,
@@ -192,15 +173,27 @@ html,body{margin:0;width:100%;height:100%;background:#111318;overflow:auto;overs
             onLoadStop: (web, _) async {
               if (_started || !mounted) return;
               _started = true;
-              final size = context.size;
-              final config = widget.connection.toViewerConfig();
-              if (size != null) {
-                config['viewport'] = _viewport(size);
+              try {
+                final relay = await ComputerSocketRelay.start(
+                  widget.connection,
+                );
+                if (!mounted || !context.mounted) {
+                  await relay.close();
+                  return;
+                }
+                _relay = relay;
+                final size = context.size;
+                final config = widget.connection.toViewerConfig()
+                  ..['url'] = relay.streamUri.toString()
+                  ..['visible'] = widget.controller._visible;
+                if (size != null) config['viewport'] = _viewport(size);
+                await web.evaluateJavascript(
+                  source:
+                      '(() => { const start = () => window.computer.start(${jsonEncode(config)}); if (window.computer) start(); else window.addEventListener("computerReady", start, {once:true}); })()',
+                );
+              } catch (_) {
+                if (mounted) widget.onState({'status': 'unavailable'});
               }
-              await web.evaluateJavascript(
-                source:
-                    '(() => { const start = () => window.computer.start(${jsonEncode(config)}); if (window.computer) start(); else window.addEventListener("computerReady", start, {once:true}); })()',
-              );
             },
             shouldOverrideUrlLoading: (_, action) async =>
                 !_started &&

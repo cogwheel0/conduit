@@ -31,9 +31,12 @@ Widget _harness(
   ComputerService service, {
   Future<bool> Function()? takeControl,
   double textScale = 1,
+  Future<ComputerService?> Function()? loadService,
 }) => ProviderScope(
   overrides: [
-    computerServiceProvider.overrideWith((ref) async => service),
+    computerServiceProvider.overrideWith(
+      (ref) async => loadService == null ? service : await loadService(),
+    ),
     chatMessagesProvider.overrideWith(_Messages.new),
     if (takeControl != null)
       computerTakeControlProvider.overrideWithValue(takeControl),
@@ -136,6 +139,15 @@ void main() {
       verify(() => service.closeBrowserTab('one')).called(1);
       expect(find.byType(ComputerSurfaceView), findsNothing);
       verifyNever(service.createBrowserTab);
+      verify(() => service.open(ComputerSurface.browser)).called(1);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pump();
+      await tester.pump();
+      expect(find.byType(ComputerSurfaceView), findsNothing);
+      expect(find.text('No browser tabs'), findsWidgets);
+      verifyNever(() => service.open(ComputerSurface.browser));
+      verifyNever(service.createBrowserTab);
       await tester.tap(find.text('Browser tabs'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Take control').last);
@@ -161,6 +173,34 @@ void main() {
       expect(tester.takeException(), isNull);
     },
   );
+
+  testWidgets('pending scope lookup closes the previous live viewer', (
+    tester,
+  ) async {
+    final service = _Service();
+    when(() => service.open(any()))
+        .thenAnswer((_) async => _connection(ComputerSurface.desktop));
+    final pending = Completer<ComputerService?>();
+    var refreshing = false;
+    await tester.pumpWidget(
+      _harness(
+        service,
+        loadService: () async => refreshing ? await pending.future : service,
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    final container = ProviderScope.containerOf(
+      tester.element(find.byType(ComputerPage)),
+    );
+    refreshing = true;
+    container.invalidate(computerServiceProvider);
+    await tester.pump();
+    await tester.pump();
+    expect(find.byType(ComputerSurfaceView), findsNothing);
+    pending.complete(null);
+    await tester.pumpWidget(const SizedBox());
+  });
 
   testWidgets('late Desktop events cannot corrupt a Browser connection', (
     tester,
@@ -307,7 +347,8 @@ void main() {
     await tester.pumpWidget(_harness(service, takeControl: () async => true));
     await tester.pump();
     await tester.pump();
-    tester.widget<ComputerSurfaceView>(find.byType(ComputerSurfaceView))
+    tester
+        .widget<ComputerSurfaceView>(find.byType(ComputerSurfaceView))
         .onState({'status': 'live'});
     await tester.pumpAndSettle();
     await tester.tap(find.text('Take control'));
@@ -410,7 +451,9 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('You’re in control'), findsOneWidget);
       expect(
-        find.text('Drag is held. Slide to move, then tap or choose End drag.'),
+        find.text(
+          'Lift to end a held drag. After Start drag, tap or choose End drag.',
+        ),
         findsOneWidget,
       );
       await tester.tap(find.byTooltip('Pointer controls'));

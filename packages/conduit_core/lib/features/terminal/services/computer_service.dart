@@ -6,6 +6,8 @@ import '../models/computer_models.dart';
 import '../models/terminal_models.dart';
 import 'terminal_service.dart';
 
+/// Chat-scoped access to advertised Open Terminal Computer surfaces.
+/// Viewer credentials remain in memory and never enter chat messages.
 class ComputerService {
   ComputerService(this.terminal, this.server, this.scope);
 
@@ -57,7 +59,9 @@ class ComputerService {
     return Map<String, dynamic>.from(response.data as Map);
   }
 
-  Future<ComputerConnection> open(ComputerSurface surface) async {
+  /// Attaches to an existing surface; an empty browser returns null.
+  /// Tab creation is explicit through [createBrowserTab].
+  Future<ComputerConnection?> open(ComputerSurface surface) async {
     if (surface == ComputerSurface.desktop) {
       final info = await _json('desktop');
       final transport = info['transport'] ?? 'vnc';
@@ -72,18 +76,16 @@ class ComputerService {
         chatId: chatId,
         audioAvailable: info['audio'] == true,
         proxyCookies: terminal.proxyCookiesForServer(server),
+        proxyHeaders: terminal.computerProxyHeadersForServer(server),
       );
     }
 
-    return _openBrowser(await _json('browser/tabs'));
-  }
-
-  Future<ComputerConnection> _openBrowser(Map<String, dynamic> tabs) async {
-    // Reattach to the agent's selected tab instead of creating a second browser.
+    // Viewing or refreshing an empty browser must never create a tab.
+    final tabs = await _json('browser/tabs');
     final current = tabs['current_session_id'];
     return current is String && current.isNotEmpty
         ? selectBrowserTab(current)
-        : createBrowserTab();
+        : null;
   }
 
   Future<List<ComputerBrowserTab>> browserTabs() async {
@@ -106,6 +108,7 @@ class ComputerService {
         ),
       );
 
+  /// Creates and selects a Chrome tab, cleaning up if activation fails.
   Future<ComputerConnection> createBrowserTab() async {
     final session = ComputerBrowserSession.fromJson(
       await _json('browser/sessions', method: 'POST', data: {'url': ''}),
@@ -151,10 +154,12 @@ class ComputerService {
       ),
       browserSession: selected,
       proxyCookies: terminal.proxyCookiesForServer(server),
+      proxyHeaders: terminal.computerProxyHeadersForServer(server),
       chatId: chatId,
     );
   }
 
+  /// Renews the selected browser session without changing its active state.
   Future<void> keepAlive(ComputerConnection connection) async {
     final session = connection.browserSession;
     if (session == null) return;
@@ -165,6 +170,7 @@ class ComputerService {
     );
   }
 
+  /// Sends a named key combination to the displayed surface and chat scope.
   Future<void> sendShortcut(ComputerConnection connection, String key) async {
     if (!RegExp(r'^[A-Za-z0-9_+]{1,100}$').hasMatch(key)) {
       throw const FormatException('Invalid keyboard shortcut');

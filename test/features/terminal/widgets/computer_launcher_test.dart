@@ -28,6 +28,12 @@ class _Messages extends ChatMessagesNotifier {
 
 void main() {
   registerFallbackValue(ComputerSurface.browser);
+  registerFallbackValue(
+    ComputerConnection(
+      surface: ComputerSurface.browser,
+      streamUri: Uri.parse('ws://computer.example/browser/stream'),
+    ),
+  );
   final connection = ComputerConnection(
     surface: ComputerSurface.browser,
     streamUri: Uri.parse('wss://computer.example/browser/stream'),
@@ -41,9 +47,12 @@ void main() {
     bool available = true,
     bool desktop = false,
     double scale = 1,
+    Future<ComputerService?> Function()? loadService,
   }) => ProviderScope(
     overrides: [
-      computerServiceProvider.overrideWith((ref) async => service),
+      computerServiceProvider.overrideWith(
+        (ref) async => loadService == null ? service : await loadService(),
+      ),
       computerCapabilitiesProvider.overrideWith(
         (ref) async =>
             ComputerCapabilities(browser: available, desktop: desktop),
@@ -75,6 +84,66 @@ void main() {
     expect(find.text('Open live'), findsNothing);
     verifyNever(() => service.open(any()));
     verifyNever(() => service.screenshot(connection));
+  });
+
+  testWidgets(
+    'pending scope lookup immediately discards the previous preview',
+    (tester) async {
+      final service = _Service();
+      when(() => service.open(any())).thenAnswer((_) async => connection);
+      when(() => service.screenshot(connection)).thenAnswer((_) async => png);
+      final pending = Completer<ComputerService?>();
+      var refreshing = false;
+      await tester.pumpWidget(
+        harness(
+          service,
+          loadService: () async => refreshing ? await pending.future : service,
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Computer'));
+      await tester.pumpAndSettle();
+      expect(find.byType(Image), findsOneWidget);
+      final container = ProviderScope.containerOf(
+        tester.element(find.byType(ComputerLauncher)),
+      );
+      refreshing = true;
+      container.invalidate(computerServiceProvider);
+      await tester.pump();
+      await tester.pump();
+      expect(find.byType(Image), findsNothing);
+      expect(find.text('Open live'), findsNothing);
+      pending.completeError(StateError('Synthetic lookup failure'));
+      await tester.pumpAndSettle();
+      expect(find.text('Computer'), findsNothing);
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
+
+  testWidgets('empty browser stays empty after returning from live view', (
+    tester,
+  ) async {
+    final previous = InAppWebViewPlatform.instance;
+    InAppWebViewPlatform.instance = ComputerTestPlatform();
+    addTearDown(() {
+      if (previous != null) InAppWebViewPlatform.instance = previous;
+    });
+    final service = _Service();
+    when(() => service.open(any())).thenAnswer((_) async => null);
+    when(() => service.browserTabs()).thenAnswer((_) async => []);
+    await tester.pumpWidget(harness(service));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Computer'));
+    await tester.pumpAndSettle();
+    expect(find.text('No browser tabs'), findsOneWidget);
+    await tester.tap(find.text('Open live'));
+    await tester.pumpAndSettle();
+    Navigator.of(tester.element(find.byType(ComputerPage))).pop();
+    await tester.pumpAndSettle();
+    expect(find.text('No browser tabs'), findsOneWidget);
+    verifyNever(() => service.createBrowserTab());
+    verifyNever(() => service.screenshot(any()));
+    await tester.pumpWidget(const SizedBox());
   });
 
   testWidgets('unsupported terminal has no Computer entry', (tester) async {

@@ -75,7 +75,11 @@ class _ComputerPageState extends ConsumerState<ComputerPage>
       }
     });
     ref.listenManual(computerServiceProvider, (_, next) {
-      if (identical(next.value, widget.service)) return;
+      if (!next.isLoading &&
+          !next.hasError &&
+          identical(next.value, widget.service)) {
+        return;
+      }
       _scopeValid = false;
       _generation++;
       unawaited(_surface.visibility(false));
@@ -106,13 +110,16 @@ class _ComputerPageState extends ConsumerState<ComputerPage>
     _active = state == AppLifecycleState.resumed;
     if (!_active && _tabsOpen) Navigator.of(context).pop();
     _generation++;
+    final wasEmpty = _status == 'empty';
     setState(() {
       _controlling = false;
       _stopping = false;
-      _status = 'connecting';
+      if (!wasEmpty) _status = 'connecting';
     });
     unawaited(_surface.visibility(_active && _scopeValid));
-    if (_active && _scopeValid && _connection == null) unawaited(_open());
+    if (_active && _scopeValid && _connection == null && !wasEmpty) {
+      unawaited(_open());
+    }
   }
 
   @override

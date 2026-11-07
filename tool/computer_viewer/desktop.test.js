@@ -33,12 +33,23 @@ for (const transport of ['frames', 'vnc']) {
     try {
       await page.setViewportSize({width: 640, height: 480});
       await page.setContent('<style>body{margin:0}#surface{width:640px;height:480px;display:flex;align-items:center;justify-content:center}canvas{max-width:100%;max-height:100%}</style><div id="surface"><canvas id="frame"></canvas></div>');
-      await page.evaluate(() => {window.states = []; window.flutter_inappwebview = {callHandler: (_, state) => window.states.push(state)};});
+      await page.evaluate(() => {
+        window.states = [];
+        window.flutter_inappwebview = {callHandler: (_, state) => window.states.push(state)};
+        const NativeSocket = WebSocket;
+        window.socketAttempts = 0;
+        window.WebSocket = new Proxy(NativeSocket, {
+          construct(target, args) { window.socketAttempts++; return new target(...args); }
+        });
+      });
       const source = await readFile(new URL('../../assets/computer/viewer.js', import.meta.url), 'utf8');
       await page.addScriptTag({content: `(async () => {${source}\n})();`});
       await page.waitForFunction(() => !!window.computer);
       await page.evaluate(({transport, port}) => window.computer.start({surface: 'desktop', transport,
-        url: `ws://127.0.0.1:${port}/${transport}`, token: 'fixture-key', chatId: 'fixture-chat'}), {transport, port});
+        url: `ws://127.0.0.1:${port}/${transport}`, token: 'fixture-key', chatId: 'fixture-chat', visible: false}), {transport, port});
+      await new Promise(resolve => setTimeout(resolve, 150));
+      assert.equal(await page.evaluate(() => window.socketAttempts), 0, 'A backgrounded viewer must not connect during startup');
+      await page.evaluate(() => window.computer.visibility(true));
       await page.waitForFunction(() => window.states.some(s => s.status === 'live'));
       const bounds = await page.locator('#surface canvas').last().boundingBox();
       assert.ok(bounds && bounds.width > 0 && bounds.height > 0);
@@ -60,6 +71,26 @@ for (const transport of ['frames', 'vnc']) {
       const received = (await events()).slice(before);
       assert.ok(received.some(event => event.type === 'mouse' && event.buttons === 1), JSON.stringify({bounds, received}));
       assert.ok(received.some(event => event.type === 'key'));
+      if (transport === 'frames') {
+        const touch = await page.context().newCDPSession(page);
+        await touch.send('Emulation.setTouchEmulationEnabled', {enabled: true, maxTouchPoints: 2});
+        const first = {x: x - 50, y, id: 1};
+        const second = {x: x + 80, y: y + 60, id: 2};
+        for (const held of [false, true]) {
+          const start = (await events()).length;
+          await touch.send('Input.dispatchTouchEvent', {type: 'touchStart', touchPoints: [first]});
+          await touch.send('Input.dispatchTouchEvent', {type: 'touchStart', touchPoints: [first, second]});
+          if (held) await new Promise(resolve => setTimeout(resolve, 550));
+          await touch.send('Input.dispatchTouchEvent', {type: 'touchEnd', touchPoints: []});
+          await new Promise(resolve => setTimeout(resolve, 150));
+          const input = (await events()).slice(start).filter(event => event.type === 'mouse');
+          assert.equal(input.filter(event => event.buttons === 1).length, 1, JSON.stringify(input));
+          assert.equal(input.at(-1).buttons, 0, 'A secondary finger must not strand the held button');
+          assert.ok(input.every(event => event.x === Math.round((first.x - bounds.x) * 320 / bounds.width)),
+            'A secondary finger must not replace the primary tap or hold position');
+        }
+        await touch.detach();
+      }
       if (transport === 'vnc') {
         await page.mouse.move(x, y);
         await page.mouse.down();

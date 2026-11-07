@@ -271,12 +271,13 @@ for (const type of ['touchstart', 'touchmove', 'touchend', 'touchcancel']) {
 canvas.addEventListener('pointerdown', event => {
   if (!controlling) return;
   event.preventDefault();
+  if (event.pointerType === 'touch' && touch) return;
   canvas.setPointerCapture(event.pointerId);
   const point = remotePoint(event, canvas.getBoundingClientRect(), canvas.width, canvas.height);
   mouseModifiers = modifiers(event);
   mouseButton = event.button === 2 ? 'right' : event.button === 1 ? 'middle' : 'left';
   if (event.pointerType === 'touch') {
-    touch = {point, x: event.clientX, y: event.clientY, moved: false, dragging: false};
+    touch = {id: event.pointerId, point, x: event.clientX, y: event.clientY, moved: false, dragging: false};
     touchTimer = setTimeout(() => {
       if (!touch || touch.moved || !controlling) return;
       touch.dragging = true; buttons = 1;
@@ -286,6 +287,7 @@ canvas.addEventListener('pointerdown', event => {
 });
 canvas.addEventListener('pointermove', event => {
   if (!controlling) return;
+  if (event.pointerType === 'touch' && event.pointerId !== touch?.id) return;
   mouseModifiers = modifiers(event);
   const point = remotePoint(event, canvas.getBoundingClientRect(), canvas.width, canvas.height);
   if (touch) {
@@ -301,6 +303,7 @@ canvas.addEventListener('pointermove', event => {
 });
 canvas.addEventListener('pointerup', event => {
   if (!controlling) return;
+  if (event.pointerType === 'touch' && event.pointerId !== touch?.id) return;
   mouseModifiers = modifiers(event);
   clearTimeout(touchTimer);
   const point = remotePoint(event, canvas.getBoundingClientRect(), canvas.width, canvas.height);
@@ -309,7 +312,9 @@ canvas.addEventListener('pointerup', event => {
   else if (!touch) { buttons = event.buttons; mouse('mouseReleased', point); }
   touch = null;
 });
-canvas.addEventListener('pointercancel', release);
+canvas.addEventListener('pointercancel', event => {
+  if (event.pointerType !== 'touch' || event.pointerId === touch?.id) release();
+});
 canvas.addEventListener('wheel', event => {
   if (!controlling) return;
   mouseModifiers = modifiers(event);
@@ -375,7 +380,7 @@ function sendViewport() {
 }
 window.computer = {
   start(value) {
-    config = value; disposed = false; visible = true; connect();
+    config = value; disposed = false; visible = value.visible !== false; connect();
     report('audio', {available: config.audio === true && audio.supported(), enabled: false});
   },
   control(value) {

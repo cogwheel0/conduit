@@ -1,7 +1,6 @@
 # Computer viewer
 
-The bundled viewer renders Open Terminal pixels in an isolated, nonpersistent
-WebView. Browser content runs on the terminal, never in this WebView. It supports
+The bundled viewer renders Open Terminal pixels in a restricted WebView. Browser content runs on the terminal, never in this WebView. It supports
 the browser patch/JPEG stream, native desktop patches, and VNC desktops.
 
 Rebuild the checked-in asset with `npm ci && npm run build` in this directory.
@@ -34,9 +33,13 @@ Protocol references:
 - https://github.com/open-webui/open-terminal/tree/v0.17.2/open_terminal
 - https://github.com/open-webui/open-webui/tree/v0.13.0/src/lib/apis/terminal
 
-Sign-in proxy cookies are seeded only into the trusted pixel document's private
-cookie store, at the WebSocket server's origin. Open WebUI account cookies are
-excluded, direct terminals receive none, and remote HTML navigation stays blocked.
+A per-viewer loopback relay connects the native WebSocket client to the trusted
+pixel document. It forwards only the selected server's proxy cookies and custom
+headers, without reading or changing the platform WebView cookie store. The relay
+requires an unguessable path and the fixed viewer origin; only that connection's
+stream, VNC and advertised audio endpoints are reachable. Open WebUI account
+cookies are excluded, direct terminals receive no proxy credentials, and remote
+HTML navigation stays blocked. Closing the viewer closes the relay and sockets.
 
 Credentials exist only in a mounted viewer's in-memory configuration. Never log
 WebSocket URLs: browser viewer URLs contain a scoped access token. Previews are
