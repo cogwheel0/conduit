@@ -82,12 +82,14 @@ extension HermesDesktopBackgroundWork on HermesDesktopApiService {
     );
   }
 
-  /// The end of [subagentId]'s live transcript.
-  Future<HermesSubagentTail> subagentTail(
+  /// The end of [subagentId]'s live transcript, or null while the chat is
+  /// not attached on this socket: an output poll must not reattach it.
+  Future<HermesSubagentTail?> subagentTail(
     String storedId,
     String subagentId,
   ) async {
-    final binding = await _resume(storedId);
+    final binding = _liveBindingFor(storedId);
+    if (binding == null) return null;
     return HermesSubagentTail.fromJson(
       await _rpc.request<Object?>(
         'subagent.tail',

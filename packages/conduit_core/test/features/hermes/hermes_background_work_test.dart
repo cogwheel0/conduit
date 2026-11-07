@@ -71,13 +71,25 @@ final class _Gateway {
           },
         };
       }
-      scheduleMicrotask(
-        () => incoming.add(jsonEncode({'jsonrpc': '2.0', 'id': id, ...reply})),
-      );
+      void send() {
+        if (!incoming.isClosed) {
+          incoming.add(jsonEncode({'jsonrpc': '2.0', 'id': id, ...reply}));
+        }
+      }
+
+      final hold = method == 'subagent.tail' ? holdTail : null;
+      if (hold != null) {
+        unawaited(hold.future.then((_) => send()));
+      } else {
+        scheduleMicrotask(send);
+      }
     });
   }
 
   final bool authority;
+
+  /// While set, a `subagent.tail` answer waits for it to complete.
+  Completer<Object?>? holdTail;
   final channel = _MockWebSocketChannel();
   final sink = _MockWebSocketSink();
   final incoming = StreamController<dynamic>.broadcast();
@@ -411,6 +423,13 @@ void main() {
         }
       });
 
+      test('reads no output while the chat is not attached', () async {
+        // An output poll must not resume the chat itself.
+        check(await service.subagentTail('local-1', 'sa-1')).isNull();
+        check(gateway.calls('session.resume')).isEmpty();
+        check(gateway.calls('subagent.tail')).isEmpty();
+      });
+
       test('a gateway without process.list still lists subagents', () async {
         gateway
           ..subagents = [_child('sa-1')]
@@ -447,7 +466,7 @@ void main() {
         await open();
 
         final tail = await service.subagentTail('local-1', 'sa-1');
-        check(tail.text).equals('Reading tide tables…');
+        check(tail?.text).equals('Reading tide tables…');
         check(
           await service.steerSubagent('local-1', 'sa-1', 'Only check May'),
         ).isTrue();
@@ -615,6 +634,37 @@ void main() {
       });
     });
 
+    test('lists again once a chat it gave up on attaches', () {
+      fakeAsync((async) {
+        gateway = _Gateway(authority: false);
+        service = _service(gateway);
+        lifecycle = FakeAppLifecycle();
+        // Not attached: reads find nothing until polling gives up.
+        container = ProviderContainer(
+          overrides: [
+            hermesApiServiceProvider.overrideWithValue(service),
+            activeConversationProvider.overrideWith(_OpenHermesChat.new),
+            appLifecycleProvider.overrideWithValue(lifecycle),
+          ],
+        );
+        gateway.processes = [_process('proc_a')];
+        container.listen(hermesBackgroundWorkProvider, (_, _) {});
+        async.elapse(const Duration(minutes: 2));
+        check(lists()).equals(0);
+        check(container.read(hermesBackgroundWorkProvider)).isNull();
+
+        // Sending or reopening reattaches it; no event names the process.
+        unawaited(service.pendingDecisionsForSession('local-1'));
+        async.elapse(const Duration(seconds: 1));
+
+        check(lists()).equals(1);
+        check(
+          container.read(hermesBackgroundWorkProvider)!.runningProcesses,
+        ).equals(1);
+        stop(async);
+      });
+    });
+
     test('stops polling once the chat is closed', () {
       fakeAsync((async) {
         start(async);
@@ -690,6 +740,82 @@ void main() {
         // The last output read stays on screen.
         check(container.read(tail).tail!.available).isTrue();
 
+        sub.close();
+        stop(async);
+      });
+    });
+
+    test('reads a finished subagent\'s output once', () {
+      fakeAsync((async) {
+        start(async);
+        var reads = 0;
+        gateway
+          ..subagents = [_child('sa-1', status: 'completed')]
+          ..handler = (method, params) {
+            if (method != 'subagent.tail') return null;
+            reads++;
+            return {'subagent_id': 'sa-1', 'available': true, 'text': 'done'};
+          };
+        container.listen(hermesBackgroundWorkProvider, (_, _) {});
+        async.elapse(Duration.zero);
+        check(container.read(hermesBackgroundWorkProvider)!.active).isFalse();
+
+        final tail = hermesSubagentTailProvider((
+          storedId: 'local-1',
+          subagentId: 'sa-1',
+        ));
+        final sub = container.listen(tail, (_, _) {});
+        async.elapse(const Duration(minutes: 1));
+
+        check(reads).equals(1);
+        check(container.read(tail).tail!.text).equals('done');
+        sub.close();
+        stop(async);
+      });
+    });
+
+    test('keeps the newest output when an older read answers last', () {
+      fakeAsync((async) {
+        start(async);
+        gateway
+          ..subagents = [_child('sa-1')]
+          ..handler = (method, params) => method == 'subagent.tail'
+              ? {'subagent_id': 'sa-1', 'available': true, 'text': 'step 1'}
+              : null;
+        container.listen(hermesBackgroundWorkProvider, (_, _) {});
+        final tail = hermesSubagentTailProvider((
+          storedId: 'local-1',
+          subagentId: 'sa-1',
+        ));
+        final sub = container.listen(tail, (_, _) {});
+        async.elapse(Duration.zero);
+        check(container.read(tail).tail!.text).equals('step 1');
+
+        // Hold the next read's answer; a return to the app reads again
+        // and that newer read answers first.
+        final held = Completer<Object?>();
+        var replies = 0;
+        gateway.handler = (method, params) {
+          if (method != 'subagent.tail') return null;
+          replies++;
+          return {
+            'subagent_id': 'sa-1',
+            'available': true,
+            'text': replies == 1 ? 'old' : 'new',
+          };
+        };
+        gateway.holdTail = held;
+        async.elapse(kHermesSubagentTailPollInterval);
+        gateway.holdTail = null;
+        lifecycle
+          ..emit(AppLifecyclePhase.paused)
+          ..emit(AppLifecyclePhase.resumed);
+        async.elapse(Duration.zero);
+        check(container.read(tail).tail!.text).equals('new');
+
+        held.complete();
+        async.elapse(Duration.zero);
+        check(container.read(tail).tail!.text).equals('new');
         sub.close();
         stop(async);
       });

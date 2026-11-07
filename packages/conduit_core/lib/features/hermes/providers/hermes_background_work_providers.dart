@@ -105,11 +105,22 @@ class HermesBackgroundWorkController extends Notifier<HermesBackgroundWork?> {
         _timer = null;
       } else {
         _failures = 0;
+        _unattachedReads = 0;
         _schedule(Duration.zero);
       }
     });
+    // The chat attaching (a send or a resume reattaches it) or its turn
+    // starting or ending: list again if polling had stopped, as it does
+    // after reads that found the chat not attached yet.
+    final turns = service.turnStatesFor(storedId).listen((_) {
+      if (generation != _generation || _timer != null || _refreshing) return;
+      _failures = 0;
+      _unattachedReads = 0;
+      _schedule(_kHintDebounce);
+    });
     ref.onDispose(hints.cancel);
     ref.onDispose(phases.cancel);
+    ref.onDispose(turns.cancel);
     _schedule(Duration.zero);
     return null;
   }
@@ -249,6 +260,9 @@ class HermesSubagentTailController extends Notifier<HermesSubagentTailView> {
   int _failures = 0;
   int _generation = 0;
 
+  /// The newest read started: an older one answering late is stale.
+  int _reads = 0;
+
   @override
   HermesSubagentTailView build() {
     final service = ref.watch(hermesApiServiceProvider);
@@ -274,13 +288,14 @@ class HermesSubagentTailController extends Notifier<HermesSubagentTailView> {
       if (!_paused) _schedule(service, generation, Duration.zero);
     });
     ref.onDispose(phases.cancel);
-    // Once the chat's list no longer runs it, read a last time and stop.
+    // Once the chat's list no longer runs it, read a last time and stop;
+    // that includes one already finished when its output is opened.
     ref.listen(hermesBackgroundWorkProvider, (_, work) {
       if (generation != _generation || work == null || _finished) return;
       if (work.subagent(subagent.subagentId)?.running ?? false) return;
       _finished = true;
       _schedule(service, generation, Duration.zero);
-    });
+    }, fireImmediately: true);
     _schedule(service, generation, Duration.zero);
     return const HermesSubagentTailView();
   }
@@ -300,7 +315,11 @@ class HermesSubagentTailController extends Notifier<HermesSubagentTailView> {
   }
 
   Future<void> _read(HermesDesktopApiService service, int generation) async {
-    bool stale() => generation != _generation || !ref.mounted;
+    // A read a resume or the finish started while another was waiting:
+    // only the newest one's answer counts, and it schedules the next.
+    final read = ++_reads;
+    bool stale() =>
+        generation != _generation || !ref.mounted || read != _reads;
     final finished = _finished;
     try {
       final tail = await service.subagentTail(
@@ -310,8 +329,10 @@ class HermesSubagentTailController extends Notifier<HermesSubagentTailView> {
       if (stale()) return;
       _failures = 0;
       final kept = state.tail;
-      // A finished child's transcript is cleaned up: keep what was read.
-      if (tail.available || kept == null || !kept.available) {
+      // Null while the chat is not attached: keep what was read. A
+      // finished child's transcript is cleaned up: keep what was read.
+      if (tail != null &&
+          (tail.available || kept == null || !kept.available)) {
         state = HermesSubagentTailView(tail: tail);
       }
     } catch (_) {

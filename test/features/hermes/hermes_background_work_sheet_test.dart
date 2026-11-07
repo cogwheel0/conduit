@@ -134,9 +134,21 @@ void main() {
     testWidgets('shows only while something runs', (tester) async {
       check(withHermesBackgroundWork(null, agents: 0, processes: 0)).isNull();
       const plan = SizedBox(key: ValueKey('plan'));
-      check(
-        withHermesBackgroundWork(plan, agents: 0, processes: 0),
-      ).identicalTo(plan);
+
+      await tester.pumpWidget(
+        app(
+          Align(
+            alignment: Alignment.bottomCenter,
+            child: withHermesBackgroundWork(plan, agents: 0, processes: 0),
+          ),
+          null,
+        ),
+      );
+      expect(find.byKey(const ValueKey('plan')), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('hermes-background-work-chip')),
+        findsNothing,
+      );
 
       await tester.pumpWidget(
         app(
@@ -160,6 +172,65 @@ void main() {
         ),
       );
       expect(find.text('3 processes'), findsOneWidget);
+    });
+
+    testWidgets('keeps a half-answered card as work starts and ends', (
+      tester,
+    ) async {
+      Widget composer(int processes) => app(
+        Align(
+          alignment: Alignment.bottomCenter,
+          child: withHermesBackgroundWork(
+            const ConduitInput(
+              key: ValueKey('synthetic-answer'),
+              hint: 'Answer',
+            ),
+            agents: 0,
+            processes: processes,
+          ),
+        ),
+        null,
+      );
+      Finder field() => find.descendant(
+        of: find.byKey(const ValueKey('synthetic-answer')),
+        matching: find.byType(EditableText),
+      );
+
+      await tester.pumpWidget(composer(0));
+      await tester.enterText(field(), 'Half an answer');
+      final state = tester.state(field());
+
+      await tester.pumpWidget(composer(1));
+      expect(find.text('1 process'), findsOneWidget);
+      await tester.pumpWidget(composer(0));
+      expect(find.text('1 process'), findsNothing);
+
+      expect(tester.state(field()), same(state));
+      expect(find.text('Half an answer'), findsOneWidget);
+    });
+
+    testWidgets('a screen reader can open the sheet', (tester) async {
+      final semantics = tester.ensureSemantics();
+      await tester.pumpWidget(
+        app(
+          const Align(
+            alignment: Alignment.bottomCenter,
+            child: HermesBackgroundWorkChip(agents: 1, processes: 0),
+          ),
+          _work(subagents: [_survey]),
+        ),
+      );
+
+      final chip = find.semantics.byLabel('1 agent');
+      expect(
+        tester.getSemantics(find.bySemanticsLabel('1 agent')),
+        isSemantics(isButton: true, hasTapAction: true),
+      );
+      tester.semantics.tap(chip);
+      await tester.pumpAndSettle();
+
+      expect(find.text('Background work'), findsOneWidget);
+      semantics.dispose();
     });
 
     testWidgets('opens the background work sheet', (tester) async {

@@ -9,21 +9,34 @@ import 'hermes_background_work_sheet.dart';
 /// [overlay] (the plan and any prompt card) with a chip above it naming
 /// the open chat's running subagents and background processes, when any
 /// run.
+///
+/// [overlay] always sits in the same keyed place, chip or not: the chip
+/// coming or going must not rebuild it from scratch (a half-answered form
+/// would lose its answers).
 Widget? withHermesBackgroundWork(
   Widget? overlay, {
   required int agents,
   required int processes,
 }) {
-  if (agents <= 0 && processes <= 0) return overlay;
+  final working = agents > 0 || processes > 0;
+  if (!working && overlay == null) return null;
   return Column(
     crossAxisAlignment: CrossAxisAlignment.stretch,
     mainAxisSize: MainAxisSize.min,
     children: [
-      Align(
-        alignment: AlignmentDirectional.centerStart,
-        child: HermesBackgroundWorkChip(agents: agents, processes: processes),
-      ),
-      ?overlay,
+      if (working)
+        Align(
+          alignment: AlignmentDirectional.centerStart,
+          child: HermesBackgroundWorkChip(
+            agents: agents,
+            processes: processes,
+          ),
+        ),
+      if (overlay != null)
+        KeyedSubtree(
+          key: const ValueKey('hermes-composer-overlay'),
+          child: overlay,
+        ),
     ],
   );
 }
@@ -52,6 +65,9 @@ class HermesBackgroundWorkChip extends StatelessWidget {
         button: true,
         label: label,
         hint: l10n.hermesBackgroundWorkShow,
+        // The child's tap is left out with its semantics: a screen reader
+        // opens the sheet through this one.
+        onTap: () => showHermesBackgroundWorkSheet(context),
         excludeSemantics: true,
         child: GestureDetector(
           key: const ValueKey('hermes-background-work-chip'),
