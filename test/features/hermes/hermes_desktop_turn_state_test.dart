@@ -1024,6 +1024,36 @@ void main() {
     ]);
   });
 
+  test('tool errors read with Hermes truthiness', () async {
+    final turn = await _streamTurn((harness) {
+      harness.event('runtime-race', 'message.start');
+      void tool(String name, Object? result) =>
+          harness.event('runtime-race', 'tool.complete', {
+            'tool_id': 'call-$name',
+            'name': name,
+            'result': result,
+          });
+      tool('memory', {'error': false});
+      tool('todo', {'error': 0, 'count': 3});
+      // Hermes reads `error or message`, so a null error with a message is
+      // a failure there as well.
+      tool('cronjob', {'error': null, 'message': 'Job not found'});
+      harness.event('runtime-race', 'message.complete', {'text': 'Done.'});
+      harness.sessionInfo('runtime-race', running: false);
+    });
+
+    final finished = turn.events
+        .whereType<HermesToolProgress>()
+        .where((event) => event.done)
+        .map((event) => (event.toolName, event.failed, event.detail))
+        .toList();
+    check(finished).deepEquals([
+      ('memory', false, ''),
+      ('todo', false, ''),
+      ('cronjob', true, 'Job not found'),
+    ]);
+  });
+
   test('a forwarded prompt ends at message.complete', () async {
     final turn = await _streamTurn(
       submitResult: {

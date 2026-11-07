@@ -78,9 +78,10 @@ String? _desktopToolFailure(String toolName, Object? result) {
     final error = text(data['error']);
     return error.isNotEmpty ? error : 'exit $exitCode';
   }
-  final error = text(data['error']).isNotEmpty
-      ? text(data['error'])
-      : text(data['message']);
+  // Hermes reads `error or message` with Python truthiness, so a `false` or
+  // `0` error falls through to the message instead of naming a failure.
+  final reason = _truthy(data['error']) ? data['error'] : data['message'];
+  final error = _truthy(reason) ? text(reason) : '';
   if (error.isNotEmpty &&
       (data['success'] == false || data.containsKey('error'))) {
     return error;
