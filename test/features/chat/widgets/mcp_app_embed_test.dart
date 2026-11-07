@@ -53,7 +53,7 @@ final class _RefusingApi extends ApiService {
 /// Serves the app's page, with [csp] as its policy, and runs the tools it
 /// calls.
 final class _ServingApi extends ApiService {
-  _ServingApi({this.csp = "default-src 'none'"})
+  _ServingApi({this.csp = "default-src 'none'", this.html = '<p>app</p>'})
     : super(
         serverConfig: const ServerConfig(
           id: 's',
@@ -64,6 +64,7 @@ final class _ServingApi extends ApiService {
       );
 
   final String? csp;
+  final String html;
   final requests = <({String method, Map<String, dynamic> params})>[];
 
   @override
@@ -76,7 +77,7 @@ final class _ServingApi extends ApiService {
     requests.add((method: method, params: params));
     if (method == 'ui/resource') {
       return {
-        'html': '<p>app</p>',
+        'html': html,
         'csp': ?csp,
         'ui': const <String, dynamic>{},
         'tool': const {'name': 'show_map'},
@@ -295,6 +296,32 @@ void main() {
       findsOneWidget,
     );
     expect(webViews.built, isEmpty);
+  });
+
+  testWidgets("an app's own doctype stays first", (tester) async {
+    // Before the host's tags it would be ignored, and the page laid out in
+    // quirks mode.
+    final app = await _openApp(
+      tester,
+      _ServingApi(html: '<!DOCTYPE html>\n<html><body>app</body></html>'),
+    );
+    final document = app.view.initialData!.data;
+
+    expect(document, startsWith('<!DOCTYPE html><meta'));
+    expect('<!DOCTYPE'.allMatches(document), hasLength(1));
+    expect(document, contains('Content-Security-Policy'));
+    expect(document, endsWith('\n<html><body>app</body></html>'));
+  });
+
+  testWidgets('an app without a doctype gets the host tags first', (
+    tester,
+  ) async {
+    final app = await _openApp(tester, _ServingApi());
+
+    expect(
+      app.view.initialData!.data,
+      startsWith('<meta http-equiv="X-DNS-Prefetch-Control"'),
+    );
   });
 
   testWidgets('an app loads only when opened', (tester) async {

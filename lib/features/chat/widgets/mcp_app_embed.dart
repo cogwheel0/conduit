@@ -304,12 +304,25 @@ class _McpAppEmbedState extends ConsumerState<McpAppEmbed> {
         ? ''
         : '<meta http-equiv="Content-Security-Policy" '
               'content="${const HtmlEscape(HtmlEscapeMode.attribute).convert(policy)}">';
-    return '<meta http-equiv="X-DNS-Prefetch-Control" content="off">'
+    // The host's tags go before the app's page, as in the web client. An
+    // app that opens with a doctype keeps it first, so it is laid out in
+    // standards mode as written; one without stays in quirks mode, as there.
+    final doctype = _leadingDoctype.firstMatch(resource.html);
+    final page = doctype == null
+        ? resource.html
+        : resource.html.substring(doctype.end);
+    return '${doctype?.group(1) ?? ''}'
+        '<meta http-equiv="X-DNS-Prefetch-Control" content="off">'
         '${csp(resource.csp)}${csp(resource.additionalCsp)}'
         '<meta name="viewport" content="width=device-width, initial-scale=1">'
         '<style>*{scrollbar-width:none}::-webkit-scrollbar{display:none}</style>'
-        '${resource.html}';
+        '$page';
   }
+
+  static final _leadingDoctype = RegExp(
+    r'^\s*(<!doctype[^>]*>)',
+    caseSensitive: false,
+  );
 
   @override
   Widget build(BuildContext context) {
