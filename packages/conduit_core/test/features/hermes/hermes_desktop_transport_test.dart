@@ -687,6 +687,60 @@ void main() {
       check(events.last.payload['prompt']).equals('apt update');
     });
 
+    test('shows a connection operation one waiting target at a time', () async {
+      Map<String, Object?> target(String name, String state) => {
+        'name': name,
+        'kind': 'mcp',
+        'action': 'install',
+        'state': state,
+        'launch': {'kind': 'stdio', 'target': 'npx demo-$name'},
+      };
+      socket.event('connection.request', {
+        'op_id': 'op-1',
+        'seq': 1,
+        'deadline_at': 0,
+        'timeout_seconds': 300,
+        'targets': [target('docs', 'pending'), target('notes', 'pending')],
+      }, session: 'runtime-1');
+      await Future<void>.delayed(Duration.zero);
+      final first = events.singleWhere(
+        (event) => event.type == 'mcp.setup.request',
+      );
+      check(first.sessionId).equals('runtime-1');
+      check(first.payload['request_id']).equals('op-1/docs');
+      check(first.payload['action']).equals('install');
+      check(first.payload['reason']).equals('npx demo-docs');
+
+      socket.event('connection.update', {
+        'op_id': 'op-1',
+        'seq': 2,
+        'settled': false,
+        'owner': {'type': 'session', 'session_id': 'runtime-1'},
+        'targets': [target('docs', 'connected'), target('notes', 'pending')],
+      }, session: 'runtime-1');
+      await Future<void>.delayed(Duration.zero);
+      check(
+        events
+            .where((event) => event.type.startsWith('mcp.setup.'))
+            .map((event) => '${event.type} ${event.payload['request_id']}'),
+      ).deepEquals([
+        'mcp.setup.request op-1/docs',
+        'mcp.setup.expire op-1/docs',
+        'mcp.setup.request op-1/notes',
+      ]);
+
+      socket.event('connection.update', {
+        'op_id': 'op-1',
+        'seq': 3,
+        'settled': true,
+        'owner': {'type': 'session', 'session_id': 'runtime-1'},
+        'targets': [target('docs', 'connected'), target('notes', 'skipped')],
+      }, session: 'runtime-1');
+      await Future<void>.delayed(Duration.zero);
+      check(events.last.type).equals('mcp.setup.expire');
+      check(events.last.payload['request_id']).equals('op-1/notes');
+    });
+
     test('declines Desktop-only requests with 4404 once allowed', () async {
       socket.serverRequest('srq-t0', 'tour', {'session_id': 'runtime-1'});
       await Future<void>.delayed(Duration.zero);

@@ -611,29 +611,47 @@ void main() {
       await service.respondToDecision(
         storedSessionId: 'stored-bot',
         runtimeId: 'runtime-bot',
-        requestId: 'req-2',
+        requestId: 'srq-2/q0',
         kind: HermesDecisionKind.clarification,
         value: 'answer',
       );
       await service.reloadMcp(runtimeId: 'runtime-bot');
-      // A DENIED MCP setup skips install/enable/authorize and goes straight
-      // to mcp.setup.respond, which must also name the bot profile.
+      // A skipped connection target goes straight to connection.respond,
+      // which must also name the bot profile.
       await service.respondToDecision(
         storedSessionId: 'stored-bot',
         runtimeId: 'runtime-bot',
-        requestId: 'req-3',
+        requestId: 'op-3/docs',
         kind: HermesDecisionKind.mcpSetup,
         value: 'deny',
         mcpServer: 'docs',
         mcpAction: 'enable',
       );
 
+      // reload.mcp takes no profile (Hermes refuses one); its session id
+      // scopes it to the bot's profile.
+      final reload = harness.sent.singleWhere(
+        (frame) => frame['method'] == 'reload.mcp',
+      );
+      check(
+        reload['params'] as Map<String, dynamic>,
+      ).deepEquals({'confirm': true, 'session_id': 'runtime-bot'});
+
       // The transport injects the CONNECTION profile as a default, so any bot
       // frame that fails to name its own profile silently travels as 'default'.
+      // Answers carry no session id but act on the bot's session too.
+      const answers = {'request.answer', 'clarify.lock', 'connection.respond'};
       final botFrames = harness.sent
-          .where((frame) => (frame['params'] as Map)['session_id'] != null)
+          .where(
+            (frame) =>
+                frame['method'] != 'reload.mcp' &&
+                ((frame['params'] as Map)['session_id'] != null ||
+                    answers.contains(frame['method'])),
+          )
           .toList();
-      check(botFrames).isNotEmpty();
+      check(
+        botFrames.map((frame) => frame['method']).toSet().containsAll(answers),
+      ).isTrue();
       for (final frame in botFrames) {
         final params = frame['params'] as Map;
         check(

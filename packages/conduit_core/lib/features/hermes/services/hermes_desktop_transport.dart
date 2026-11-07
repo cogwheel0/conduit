@@ -194,6 +194,73 @@ List<HermesDesktopEvent> hermesDesktopEventsForServerRequest({
   return const [];
 }
 
+/// One connection target's card id: its operation and the target's name.
+String hermesConnectionCardId(String operationId, String target) =>
+    '$operationId/$target';
+
+/// Splits a card id made by [hermesConnectionCardId].
+({String operationId, String target})? parseHermesConnectionCardId(
+  String cardId,
+) {
+  final parsed = parseHermesClarifyCardId(cardId);
+  return parsed == null
+      ? null
+      : (operationId: parsed.requestId, target: parsed.questionId);
+}
+
+/// The MCP setup card for a connection operation's first target still
+/// waiting on the user (Hermes 0.22+ `connection.request`, the
+/// `manage_connections` card), shaped like earlier gateways'
+/// `mcp.setup.request`. Null when no target is waiting. The operation itself
+/// installs, enables or authorizes a target once the user approves it.
+HermesDesktopEvent? hermesDesktopConnectionTargetEvent({
+  required String operationId,
+  required String? sessionId,
+  required Object? targets,
+}) {
+  if (targets is! List) return null;
+  for (final raw in targets.whereType<Map>().take(32)) {
+    final name = validateHermesOpaqueIdentifier(raw['name']?.toString());
+    if (name == null || raw['state'] != 'pending' || raw['resolved'] == true) {
+      continue;
+    }
+    final launch = raw['launch'];
+    final reason = [
+      raw['detail'],
+      raw['description'],
+      raw['instructions'],
+      if (launch is Map) launch['target'],
+    ].map((value) => value?.toString().trim() ?? '').firstWhere(
+      (value) => value.isNotEmpty,
+      orElse: () => '',
+    );
+    return HermesDesktopEvent(
+      type: 'mcp.setup.request',
+      sessionId: sessionId,
+      payload: {
+        'request_id': hermesConnectionCardId(operationId, name),
+        'server': raw['display']?.toString().trim().isNotEmpty == true
+            ? raw['display']
+            : name,
+        'action': raw['action'],
+        'kind': raw['kind'],
+        'reason': reason,
+        'connection_operation': operationId,
+        'connection_target': name,
+      },
+    );
+  }
+  return null;
+}
+
+/// A connection operation whose targets are shown one at a time.
+final class _OpenConnection {
+  _OpenConnection(this.sessionId);
+
+  final String? sessionId;
+  String? shownCardId;
+}
+
 /// A clarify request being answered one question at a time.
 final class _OpenClarify {
   _OpenClarify(this.params);
@@ -311,6 +378,9 @@ final class HermesDesktopRpcClient {
   /// Clarify requests shown and not yet fully answered, by request id.
   final Map<String, _OpenClarify> _clarifies = {};
 
+  /// Connection operations with a target card shown, by operation id.
+  final Map<String, _OpenConnection> _connections = {};
+
   Stream<HermesDesktopEvent> get events => _events.stream;
   Stream<void> get disconnects => _disconnects.stream;
   bool get isReady => _ready;
@@ -343,6 +413,7 @@ final class HermesDesktopRpcClient {
     _readyPayload = const {};
     _declinesNotShown = false;
     _clarifies.clear();
+    _connections.clear();
     final ready = Completer<void>();
 
     _subscription = channel.stream.listen(
@@ -548,7 +619,13 @@ final class HermesDesktopRpcClient {
             sessionId: sessionId,
           ),
         );
-        if (type == 'request.cancel') _withdrawServerRequest(payload, sessionId);
+        switch (type) {
+          case 'request.cancel':
+            _withdrawServerRequest(payload, sessionId);
+          case 'connection.request':
+          case 'connection.update':
+            _showConnection(payload, sessionId);
+        }
         return;
       }
 
@@ -655,6 +732,59 @@ final class HermesDesktopRpcClient {
     open.shownCardId = '${events.first.payload['request_id']}';
     _events.add(events.first);
     return true;
+  }
+
+  /// Re-shows the connection operation a `session.resume` snapshot lists as
+  /// open (`pending_connection`, shaped like `connection.request`).
+  void replayPendingConnection(Object? payload, String? sessionId) {
+    if (payload is Map) {
+      _showConnection(Map<String, dynamic>.from(payload), sessionId);
+    }
+  }
+
+  /// Keeps a connection operation's card on its first target still waiting
+  /// on the user. Every frame carries the full target list, so a request, an
+  /// update and a resume snapshot are handled alike: the shown card closes
+  /// (as an `mcp.setup.expire`) once its target moved on or the operation
+  /// settled, and the next waiting target gets its card.
+  void _showConnection(Map<String, dynamic> payload, String? sessionId) {
+    final operationId = validateHermesOpaqueIdentifier(
+      payload['op_id']?.toString(),
+    );
+    if (operationId == null) return;
+    final owner = payload['owner'];
+    final session =
+        sessionId ??
+        (owner is Map ? owner['session_id']?.toString() : null) ??
+        _connections[operationId]?.sessionId;
+    final open = _connections[operationId] ?? _OpenConnection(session);
+    final next = payload['settled'] == true
+        ? null
+        : hermesDesktopConnectionTargetEvent(
+            operationId: operationId,
+            sessionId: open.sessionId ?? session,
+            targets: payload['targets'],
+          );
+    final nextCardId = next?.payload['request_id']?.toString();
+    final shown = open.shownCardId;
+    if (shown != null && shown != nextCardId) {
+      _events.add(
+        HermesDesktopEvent(
+          type: 'mcp.setup.expire',
+          sessionId: open.sessionId ?? session,
+          payload: {'request_id': shown},
+        ),
+      );
+    }
+    if (next == null) {
+      _connections.remove(operationId);
+      return;
+    }
+    if (!_connections.containsKey(operationId) && _connections.length >= 32) {
+      _connections.remove(_connections.keys.first);
+    }
+    _connections[operationId] = open..shownCardId = nextCardId;
+    if (shown != nextCardId) _events.add(next);
   }
 
   /// `request.cancel` withdraws a server request: close its cards the way an

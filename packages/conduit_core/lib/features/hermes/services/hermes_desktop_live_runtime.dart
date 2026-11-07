@@ -62,6 +62,9 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
           event.type == 'mcp.setup.request') {
         unawaited(_persistPendingDecisionEvent(event));
       }
+      if (event.type == 'connection.update') {
+        _administration.openApprovedConnectionLink(event.payload);
+      }
       if (event.type == 'approval.responded' ||
           event.type == 'approval.expire' ||
           event.type == 'clarify.expire' ||
@@ -265,6 +268,7 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
     // events: the events listener persists them, and an open turn shows
     // them once it adopts this runtime id.
     _rpc.replayOpenRequests(result['open_requests']);
+    _rpc.replayPendingConnection(result['pending_connection'], runtime);
     return (binding: binding, running: running is bool ? running : null);
   }
 

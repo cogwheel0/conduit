@@ -1009,16 +1009,12 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
     }
     await _ensureConnected();
     if (kind == HermesDecisionKind.mcpSetup) {
-      await _administration.respondToMcpSetup(
+      await _administration.respondToConnection(
         runtimeId: runtimeId,
-        requestId: requestId,
+        cardId: requestId,
         approved: value == 'approve',
-        server: mcpServer,
-        action: mcpAction,
       );
-      return;
-    }
-    if (kind == HermesDecisionKind.clarification) {
+    } else if (kind == HermesDecisionKind.clarification) {
       await _lockClarifyAnswer(
         runtimeId,
         cardId: requestId,

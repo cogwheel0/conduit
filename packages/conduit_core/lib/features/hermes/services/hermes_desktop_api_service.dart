@@ -261,6 +261,10 @@ final class HermesDesktopApiService
   final Map<String, List<Map<String, dynamic>>> _lastTranscripts = {};
   final Map<String, String> _appliedSessionOptions = {};
 
+  /// Connection targets (operation/target card ids) the user approved on
+  /// this device, whose authorization link this device then opens.
+  final Set<String> _approvedConnectionTargets = {};
+
   /// Sessions owned by another profile (Bot Mode chats), keyed by stored id.
   /// Absent means the connection's configured profile owns the session.
   final Map<String, String> _sessionProfiles = {};

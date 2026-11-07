@@ -122,7 +122,11 @@ final class HermesPendingDesktopDecision {
         maxCharacters: 128,
       );
       final mcpAction = switch (value['mcp_action']) {
-        'authorize' || 'enable' || 'install' => value['mcp_action']!.toString(),
+        'authorize' ||
+        'connect' ||
+        'enable' ||
+        'install' ||
+        'reconnect' => value['mcp_action']!.toString(),
         _ => null,
       };
       final choices = _sanitizeChoices(value['choices']);
@@ -234,7 +238,13 @@ final class HermesPendingDecisionStore {
           : null,
       mcpAction:
           kind == HermesPendingDesktopDecisionKind.mcpSetup &&
-              const {'authorize', 'enable', 'install'}.contains(mcpAction)
+              const {
+                'authorize',
+                'connect',
+                'enable',
+                'install',
+                'reconnect',
+              }.contains(mcpAction)
           ? mcpAction
           : null,
       choices: sanitizedChoices.isEmpty
