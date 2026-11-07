@@ -4298,5 +4298,17 @@
   "chatHandoffPromptTitle": "切換到 {model}？",
   "chatHandoffPromptMessage": "伺服器建議使用 {model} 在新對話中繼續。建議的訊息會留在輸入框中，直到你傳送。",
   "chatHandoffStartNewChat": "開始新對話",
-  "chatHandoffStayHere": "留在這裡"
+  "chatHandoffStayHere": "留在這裡",
+  "chatWaitingForApproval": "等待核准",
+  "generateTitleNone": "伺服器沒有為此對話產生標題。標題產生功能可能已關閉。",
+  "generateTitleFailed": "無法產生標題，請再試一次。",
+  "workspaceToolActivate": "啟用",
+  "workspaceToolDeactivate": "停用",
+  "workspaceKnowledgeLimitsTitle": "檔案限制",
+  "workspaceKnowledgeLimitsFooter": "將限制留空即只使用伺服器的限制。伺服器的限制一律適用。",
+  "workspaceKnowledgeMaxFileCount": "最大檔案數",
+  "workspaceKnowledgeMaxFileSize": "最大檔案大小 (MB)",
+  "workspaceKnowledgeLimitDefault": "伺服器限制",
+  "workspaceKnowledgeLimitInvalid": "請將每個限制填寫為大於零的整數，或留空。",
+  "workspaceToolToggleSaveFirst": "請先儲存或捨棄變更，再啟用或停用此工具。"
 }

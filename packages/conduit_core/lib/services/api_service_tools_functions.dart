@@ -76,6 +76,17 @@ mixin _ToolsFunctionsApi on _ApiServiceBase {
         : null;
   }
 
+  /// Switches a tool on or off (Open WebUI 0.13 and later). A tool switched
+  /// off cannot be picked or run in any chat.
+  Future<WorkspaceToolDetail?> toggleWorkspaceTool(String toolId) async {
+    final response = await _dio.post('/api/v1/tools/id/$toolId/toggle');
+    return response.data is Map
+        ? WorkspaceToolSummary.fromJson(
+            Map<String, dynamic>.from(response.data as Map),
+          )
+        : null;
+  }
+
   Future<void> deleteTool(String toolId) async {
     _traceApi('Deleting tool: $toolId');
     await _dio.delete('/api/v1/tools/id/$toolId/delete');

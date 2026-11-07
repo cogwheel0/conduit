@@ -4298,5 +4298,17 @@
   "chatHandoffPromptTitle": "Passare a {model}?",
   "chatHandoffPromptMessage": "Il tuo server suggerisce di continuare in una nuova chat con {model}. Un eventuale messaggio suggerito resta nel campo di testo finché non lo invii.",
   "chatHandoffStartNewChat": "Inizia nuova chat",
-  "chatHandoffStayHere": "Resta qui"
+  "chatHandoffStayHere": "Resta qui",
+  "chatWaitingForApproval": "In attesa di approvazione",
+  "generateTitleNone": "Il server non ha creato un titolo per questa chat. La generazione dei titoli potrebbe essere disattivata.",
+  "generateTitleFailed": "Impossibile generare un titolo. Riprova.",
+  "workspaceToolActivate": "Attiva",
+  "workspaceToolDeactivate": "Disattiva",
+  "workspaceKnowledgeLimitsTitle": "Limiti dei file",
+  "workspaceKnowledgeLimitsFooter": "Lascia vuoto un limite per usare solo quello del server. I limiti del server si applicano sempre.",
+  "workspaceKnowledgeMaxFileCount": "Numero massimo di file",
+  "workspaceKnowledgeMaxFileSize": "Dimensione massima del file (MB)",
+  "workspaceKnowledgeLimitDefault": "Limite del server",
+  "workspaceKnowledgeLimitInvalid": "Inserisci ogni limite come numero intero maggiore di zero, oppure lascialo vuoto.",
+  "workspaceToolToggleSaveFirst": "Salva o annulla le modifiche prima di attivare o disattivare lo strumento."
 }

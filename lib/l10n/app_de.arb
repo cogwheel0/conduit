@@ -4298,5 +4298,17 @@
   "chatHandoffPromptTitle": "Zu {model} wechseln?",
   "chatHandoffPromptMessage": "Dein Server schlägt vor, in einem neuen Chat mit {model} weiterzumachen. Eine vorgeschlagene Nachricht wartet im Eingabefeld, bis du sie sendest.",
   "chatHandoffStartNewChat": "Neuen Chat starten",
-  "chatHandoffStayHere": "Hierbleiben"
+  "chatHandoffStayHere": "Hierbleiben",
+  "chatWaitingForApproval": "Wartet auf Freigabe",
+  "generateTitleNone": "Der Server hat keinen Titel für diesen Chat erstellt. Möglicherweise ist die Titelgenerierung deaktiviert.",
+  "generateTitleFailed": "Der Titel konnte nicht generiert werden. Bitte versuche es erneut.",
+  "workspaceToolActivate": "Aktivieren",
+  "workspaceToolDeactivate": "Deaktivieren",
+  "workspaceKnowledgeLimitsTitle": "Dateilimits",
+  "workspaceKnowledgeLimitsFooter": "Lass ein Limit leer, um nur das des Servers zu verwenden. Die Limits des Servers gelten immer.",
+  "workspaceKnowledgeMaxFileCount": "Maximale Dateianzahl",
+  "workspaceKnowledgeMaxFileSize": "Maximale Dateigröße (MB)",
+  "workspaceKnowledgeLimitDefault": "Limit des Servers",
+  "workspaceKnowledgeLimitInvalid": "Gib jedes Limit als ganze Zahl über null ein oder lass es leer.",
+  "workspaceToolToggleSaveFirst": "Speichere oder verwirf deine Änderungen, bevor du das Tool ein- oder ausschaltest."
 }

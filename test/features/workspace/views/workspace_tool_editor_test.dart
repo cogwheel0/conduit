@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -203,6 +205,197 @@ void main() {
     expect(tools.created.single.accessGrants, isEmpty);
   });
 
+  testWidgets('a server that reports the switch offers Deactivate', (
+    tester,
+  ) async {
+    final tools = _FakeTools();
+    await tester.pumpWidget(
+      _harness(
+        tools,
+        mode: WorkspaceRouteMode.detail,
+        resourceId: 't-1',
+        detail: _writable(isActive: true),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('workspace-editor-overflow')));
+    await tester.pumpAndSettle();
+    expect(find.text('Deactivate'), findsOneWidget);
+    await tester.tap(find.byKey(const Key('workspace-tool-action-toggle')));
+    await tester.pump();
+    await tester.pump();
+
+    expect(tools.toggled, ['t-1']);
+  });
+
+  testWidgets('switching a tool says it was saved', (tester) async {
+    final tools = _FakeTools();
+    await tester.pumpWidget(
+      _harness(
+        tools,
+        mode: WorkspaceRouteMode.detail,
+        resourceId: 't-1',
+        detail: _writable(isActive: true),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('workspace-editor-overflow')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('workspace-tool-action-toggle')));
+    await tester.pumpAndSettle();
+
+    expect(tools.toggled, ['t-1']);
+    expect(find.text('Tool saved'), findsOneWidget);
+  });
+
+  testWidgets('a switch says it was saved when the tool reloads first', (
+    tester,
+  ) async {
+    // The reloaded tool rebuilds the form before the switch answers.
+    final tools = _FakeTools()
+      ..reloadOnToggle = true
+      ..holdToggle = Completer<void>();
+    await tester.pumpWidget(
+      _harness(
+        tools,
+        mode: WorkspaceRouteMode.detail,
+        resourceId: 't-1',
+        detailOf: () => _writable(isActive: true),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('workspace-editor-overflow')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('workspace-tool-action-toggle')));
+    for (var i = 0; i < 5; i++) {
+      await tester.pump();
+    }
+    tools.holdToggle!.complete();
+    await tester.pumpAndSettle();
+
+    expect(tools.toggled, ['t-1']);
+    expect(find.text('Tool saved'), findsOneWidget);
+  });
+
+  testWidgets('after a switch the menu offers the other one', (tester) async {
+    final tools = _FakeTools()..reloadOnToggle = true;
+    await tester.pumpWidget(
+      _harness(
+        tools,
+        mode: WorkspaceRouteMode.detail,
+        resourceId: 't-1',
+        // The server's answer once the tool is reloaded.
+        detailOf: () => _writable(isActive: tools.toggled.isEmpty),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('workspace-editor-overflow')));
+    await tester.pumpAndSettle();
+    expect(find.text('Deactivate'), findsOneWidget);
+    await tester.tap(find.byKey(const Key('workspace-tool-action-toggle')));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('workspace-editor-overflow')));
+    await tester.pumpAndSettle();
+    expect(find.text('Activate'), findsOneWidget);
+  });
+
+  testWidgets('a switch that fails says so', (tester) async {
+    final tools = _FakeTools()..failToggle = true;
+    await tester.pumpWidget(
+      _harness(
+        tools,
+        mode: WorkspaceRouteMode.detail,
+        resourceId: 't-1',
+        detail: _writable(isActive: true),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('workspace-editor-overflow')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('workspace-tool-action-toggle')));
+    await tester.pumpAndSettle();
+
+    expect(tools.toggled, ['t-1']);
+    expect(find.text("Couldn't save the tool."), findsOneWidget);
+    expect(find.text('Tool saved'), findsNothing);
+  });
+
+  testWidgets('unsaved edits are not risked by switching the tool', (
+    tester,
+  ) async {
+    final tools = _FakeTools();
+    await tester.pumpWidget(
+      _harness(
+        tools,
+        mode: WorkspaceRouteMode.edit,
+        resourceId: 't-1',
+        detail: _writable(isActive: true),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const Key('workspace-tool-content')),
+      'class Tools:\n    changed = True\n',
+    );
+    await tester.pump();
+
+    await tester.tap(find.byKey(const Key('workspace-editor-overflow')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('workspace-tool-action-toggle')));
+    await tester.pumpAndSettle();
+
+    expect(tools.toggled, isEmpty);
+    expect(
+      find.text(
+        'Save or discard your changes before switching the tool on or off.',
+      ),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('a tool switched off offers Activate', (tester) async {
+    final tools = _FakeTools();
+    await tester.pumpWidget(
+      _harness(
+        tools,
+        mode: WorkspaceRouteMode.detail,
+        resourceId: 't-1',
+        detail: _writable(isActive: false),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('workspace-editor-overflow')));
+    await tester.pumpAndSettle();
+    expect(find.text('Activate'), findsOneWidget);
+  });
+
+  testWidgets('a server before 0.13 has no switch', (tester) async {
+    final tools = _FakeTools();
+    await tester.pumpWidget(
+      _harness(
+        tools,
+        mode: WorkspaceRouteMode.detail,
+        resourceId: 't-1',
+        detail: _writable(),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('workspace-editor-overflow')));
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const Key('workspace-tool-action-toggle')),
+      findsNothing,
+    );
+  });
+
   testWidgets('delete action deletes after confirmation', (tester) async {
     final tools = _FakeTools();
     await tester.pumpWidget(
@@ -301,6 +494,7 @@ Widget _harness(
   required WorkspaceRouteMode mode,
   String? resourceId,
   WorkspaceToolDetail? detail,
+  WorkspaceToolDetail Function()? detailOf,
   WorkspaceCapabilities capabilities = WorkspaceCapabilities.all,
   String? serverVersion = '0.10.2',
   bool isAdmin = true,
@@ -320,9 +514,10 @@ Widget _harness(
         ),
       ),
       workspaceToolsProvider.overrideWith(() => tools),
-      if (resourceId != null && detail != null)
-        workspaceToolDetailProvider(resourceId)
-            .overrideWith((ref) async => detail),
+      if (resourceId != null && (detail != null || detailOf != null))
+        workspaceToolDetailProvider(
+          resourceId,
+        ).overrideWith((ref) async => detailOf?.call() ?? detail!),
     ],
     child: _app(mode, resourceId),
   );
@@ -352,12 +547,13 @@ Widget _app(WorkspaceRouteMode mode, String? resourceId) {
   );
 }
 
-WorkspaceToolDetail _writable() => const WorkspaceToolSummary(
+WorkspaceToolDetail _writable({bool? isActive}) => WorkspaceToolSummary(
   id: 't-1',
   name: 'Search',
   userId: 'owner',
   content: '"""\ntitle: Search\n"""\nclass Tools:\n    pass\n',
   writeAccess: true,
+  isActive: isActive,
 );
 
 WorkspaceToolDetail _readOnly() => const WorkspaceToolSummary(
@@ -372,6 +568,23 @@ class _FakeTools extends WorkspaceTools {
   final created = <WorkspaceToolForm>[];
   final updated = <(String, WorkspaceToolForm)>[];
   final deleted = <String>[];
+  final toggled = <String>[];
+  bool failToggle = false;
+
+  /// Reloads the tool as soon as the switch is sent, as a quick reload can.
+  bool reloadOnToggle = false;
+
+  /// Completes the switch when set, so a test can act meanwhile.
+  Completer<void>? holdToggle;
+
+  @override
+  Future<WorkspaceToolDetail> toggle(String id) async {
+    toggled.add(id);
+    if (reloadOnToggle) ref.invalidate(workspaceToolDetailProvider(id));
+    await holdToggle?.future;
+    if (failToggle) throw StateError('toggle refused');
+    return _detail(id);
+  }
 
   @override
   Future<WorkspaceCollectionState<WorkspaceToolSummary>> build() async {

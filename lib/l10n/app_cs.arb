@@ -6216,5 +6216,17 @@
   "chatHandoffPromptTitle": "Přepnout na {model}?",
   "chatHandoffPromptMessage": "Váš server navrhuje pokračovat v novém chatu s modelem {model}. Navržená zpráva počká v poli pro psaní, dokud ji neodešlete.",
   "chatHandoffStartNewChat": "Začít nový chat",
-  "chatHandoffStayHere": "Zůstat tady"
+  "chatHandoffStayHere": "Zůstat tady",
+  "chatWaitingForApproval": "Čeká na schválení",
+  "generateTitleNone": "Server pro tento chat nevytvořil název. Generování názvů může být vypnuté.",
+  "generateTitleFailed": "Název se nepodařilo vygenerovat. Zkuste to znovu.",
+  "workspaceToolActivate": "Aktivovat",
+  "workspaceToolDeactivate": "Deaktivovat",
+  "workspaceKnowledgeLimitsTitle": "Limity souborů",
+  "workspaceKnowledgeLimitsFooter": "Ponechte limit prázdný, chcete-li použít jen limit serveru. Limity serveru platí vždy.",
+  "workspaceKnowledgeMaxFileCount": "Maximální počet souborů",
+  "workspaceKnowledgeMaxFileSize": "Maximální velikost souboru (MB)",
+  "workspaceKnowledgeLimitDefault": "Limit serveru",
+  "workspaceKnowledgeLimitInvalid": "Zadejte každý limit jako celé číslo větší než nula, nebo jej ponechte prázdný.",
+  "workspaceToolToggleSaveFirst": "Před zapnutím nebo vypnutím nástroje změny uložte nebo zahoďte."
 }

@@ -1154,6 +1154,7 @@ class OpenWebUiAccountStorageIsolation extends Notifier<void> {
       ref.invalidate(conversationsProvider);
       ref.invalidate(foldersProvider);
       ref.read(activeChatIdsProvider.notifier).setAll(const <String>{});
+      ref.read(pendingApprovalChatIdsProvider.notifier).setAll(const {});
     } catch (error, stackTrace) {
       DebugLogger.error(
         'visible-state-provider-reset-failed',

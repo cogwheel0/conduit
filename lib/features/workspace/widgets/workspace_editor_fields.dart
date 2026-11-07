@@ -42,6 +42,7 @@ class WorkspaceEditorField extends StatelessWidget {
     this.minLines = 1,
     this.maxLines = 1,
     this.textInputAction,
+    this.keyboardType,
   });
 
   final String fieldKey;
@@ -59,6 +60,7 @@ class WorkspaceEditorField extends StatelessWidget {
   final int minLines;
   final int maxLines;
   final TextInputAction? textInputAction;
+  final TextInputType? keyboardType;
 
   @override
   Widget build(BuildContext context) {
@@ -83,6 +85,7 @@ class WorkspaceEditorField extends StatelessWidget {
         errorText: errorText,
         prefixIcon: prefixIcon,
         textInputAction: textInputAction,
+        keyboardType: keyboardType,
         iosSettingsRow: true,
         onChanged: onChanged,
       ),

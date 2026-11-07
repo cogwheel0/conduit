@@ -3,6 +3,7 @@ import 'dart:io' show Platform;
 import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
+import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 
 import '../../../shared/theme/theme_extensions.dart';
@@ -378,6 +379,10 @@ class ConversationTileContent extends StatelessWidget {
   /// Whether the conversation has an active generation running on the server.
   final bool isGenerating;
 
+  /// Whether a tool call in the conversation waits for the user to allow or
+  /// deny it (Open WebUI 0.13 and later).
+  final bool isAwaitingApproval;
+
   /// Optional compact provenance label, such as "On device".
   final String? badge;
 
@@ -393,6 +398,7 @@ class ConversationTileContent extends StatelessWidget {
     this.unread = false,
     required this.isLoading,
     this.isGenerating = false,
+    this.isAwaitingApproval = false,
     this.badge,
     this.shrinkWrap = false,
   });
@@ -449,10 +455,32 @@ class ConversationTileContent extends StatelessWidget {
       ]);
     }
 
-    // A server-side generation in progress shows the same spinner as a tile
-    // that's loading on tap (the tap-load state takes precedence so we never
-    // show two spinners).
-    if (isLoading || isGenerating) {
+    // A chat waiting for the user to approve a tool call is paused, not
+    // working, so it shows a raised hand instead of the generation spinner.
+    if (isAwaitingApproval && !isLoading) {
+      final label = AppLocalizations.of(context)!.chatWaitingForApproval;
+      trailingWidgets.addAll([
+        const SizedBox(width: Spacing.sm),
+        Tooltip(
+          message: label,
+          excludeFromSemantics: true,
+          child: Semantics(
+            label: label,
+            child: Icon(
+              Platform.isIOS
+                  ? CupertinoIcons.hand_raised_fill
+                  : Icons.back_hand_rounded,
+              key: const ValueKey<String>('conversation-approval-indicator'),
+              color: theme.warning,
+              size: IconSize.sm,
+            ),
+          ),
+        ),
+      ]);
+    } else if (isLoading || isGenerating) {
+      // A server-side generation in progress shows the same spinner as a
+      // tile that's loading on tap (the tap-load state takes precedence so we
+      // never show two spinners).
       trailingWidgets.addAll([
         const SizedBox(width: Spacing.sm),
         SizedBox(
@@ -522,6 +550,9 @@ class ConversationTile extends StatelessWidget {
   /// Whether the conversation has an active generation running on the server.
   final bool isGenerating;
 
+  /// Whether a tool call in the conversation waits for the user's approval.
+  final bool isAwaitingApproval;
+
   /// Optional compact provenance label.
   final String? badge;
 
@@ -537,6 +568,7 @@ class ConversationTile extends StatelessWidget {
     this.unread = false,
     required this.isLoading,
     this.isGenerating = false,
+    this.isAwaitingApproval = false,
     this.badge,
     required this.onTap,
   });
@@ -563,6 +595,7 @@ class ConversationTile extends StatelessWidget {
             unread: unread,
             isLoading: isLoading,
             isGenerating: isGenerating,
+            isAwaitingApproval: isAwaitingApproval,
             badge: badge,
           ),
         ),

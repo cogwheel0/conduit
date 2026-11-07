@@ -1,4 +1,5 @@
 import 'package:conduit/features/navigation/widgets/conversation_tile.dart';
+import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/shared/theme/app_theme.dart';
 import 'package:conduit/shared/theme/theme_extensions.dart';
 import 'package:conduit/shared/theme/tweakcn_themes.dart';
@@ -301,6 +302,42 @@ void main() {
     expect(find.byType(CircularProgressIndicator), findsOneWidget);
   });
 
+  testWidgets('a chat waiting for approval shows a hand, not a spinner', (
+    tester,
+  ) async {
+    final semantics = tester.ensureSemantics();
+    await tester.pumpWidget(
+      _localizedHarness(
+        const ConversationTile(
+          title: 'Paused chat',
+          pinned: false,
+          selected: false,
+          unread: false,
+          isLoading: false,
+          isGenerating: true,
+          isAwaitingApproval: true,
+          onTap: null,
+        ),
+      ),
+    );
+
+    final indicator = find.byKey(
+      const ValueKey<String>('conversation-approval-indicator'),
+    );
+    expect(indicator, findsOneWidget);
+    expect(find.byType(CircularProgressIndicator), findsNothing);
+    final tooltip = tester.widget<Tooltip>(
+      find.ancestor(of: indicator, matching: find.byType(Tooltip)),
+    );
+    expect(tooltip.message, 'Waiting for approval');
+    // The row reads its title and that it waits.
+    expect(
+      find.bySemanticsLabel(RegExp('Paused chat.*Waiting for approval', dotAll: true)),
+      findsOneWidget,
+    );
+    semantics.dispose();
+  });
+
   testWidgets('tap-load spinner takes precedence over generating spinner', (
     tester,
   ) async {
@@ -350,6 +387,15 @@ void main() {
     expect(tester.getSize(find.text(badge)).width, lessThanOrEqualTo(104));
     expect(tester.takeException(), isNull);
   });
+}
+
+Widget _localizedHarness(Widget child) {
+  return MaterialApp(
+    theme: AppTheme.light(TweakcnThemes.t3Chat),
+    localizationsDelegates: AppLocalizations.localizationsDelegates,
+    supportedLocales: AppLocalizations.supportedLocales,
+    home: Scaffold(body: Center(child: child)),
+  );
 }
 
 Widget _harness(Widget child) {

@@ -4298,5 +4298,17 @@
   "chatHandoffPromptTitle": "Overschakelen naar {model}?",
   "chatHandoffPromptMessage": "Je server stelt voor om verder te gaan in een nieuwe chat met {model}. Een voorgesteld bericht blijft in het invoerveld staan tot je het verstuurt.",
   "chatHandoffStartNewChat": "Nieuwe chat starten",
-  "chatHandoffStayHere": "Hier blijven"
+  "chatHandoffStayHere": "Hier blijven",
+  "chatWaitingForApproval": "Wacht op goedkeuring",
+  "generateTitleNone": "De server heeft geen titel voor deze chat gemaakt. Mogelijk staat het genereren van titels uit.",
+  "generateTitleFailed": "Kan geen titel genereren. Probeer het opnieuw.",
+  "workspaceToolActivate": "Activeren",
+  "workspaceToolDeactivate": "Deactiveren",
+  "workspaceKnowledgeLimitsTitle": "Bestandslimieten",
+  "workspaceKnowledgeLimitsFooter": "Laat een limiet leeg om alleen die van de server te gebruiken. De limieten van de server gelden altijd.",
+  "workspaceKnowledgeMaxFileCount": "Maximaal aantal bestanden",
+  "workspaceKnowledgeMaxFileSize": "Maximale bestandsgrootte (MB)",
+  "workspaceKnowledgeLimitDefault": "Limiet van de server",
+  "workspaceKnowledgeLimitInvalid": "Voer elke limiet in als een geheel getal groter dan nul, of laat hem leeg.",
+  "workspaceToolToggleSaveFirst": "Sla je wijzigingen op of verwerp ze voordat je de tool in- of uitschakelt."
 }

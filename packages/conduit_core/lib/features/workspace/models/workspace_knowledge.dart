@@ -27,6 +27,19 @@ class WorkspaceKnowledgeSummary {
   final int createdAt;
   final int updatedAt;
 
+  /// The most files this base may hold, set by its owner (Open WebUI 0.13 and
+  /// later). The server's own limit applies as well; null when unset.
+  int? get maxFileCount => _positiveInt(meta['max_file_count']);
+
+  /// The largest file, in MB, this base takes, set by its owner (Open WebUI
+  /// 0.13 and later). The server's own limit applies as well; null when unset.
+  int? get maxFileSize => _positiveInt(meta['max_file_size']);
+
+  static int? _positiveInt(Object? value) {
+    final parsed = value is int ? value : int.tryParse('${value ?? ''}');
+    return parsed != null && parsed > 0 ? parsed : null;
+  }
+
   /// External (connected) knowledge bases are backed by a remote source and are
   /// read-only in this client: no local file/directory mutation is permitted.
   bool get isExternal => meta['source']?.toString() == 'external';
@@ -58,22 +71,37 @@ class WorkspaceKnowledgeSummary {
       );
 }
 
+/// A knowledge base's own file limits (Open WebUI 0.13 and later): the most
+/// files it may hold and the largest file, in MB, it takes. Null for no limit
+/// of its own; the server's limits apply either way.
+typedef WorkspaceKnowledgeLimits = ({int? maxFileCount, int? maxFileSize});
+
 @immutable
 class WorkspaceKnowledgeForm {
   const WorkspaceKnowledgeForm({
     required this.name,
     this.description = '',
     this.accessGrants = const [],
+    this.limits,
   });
 
   final String name;
   final String description;
   final List<WorkspaceAccessGrantInput> accessGrants;
 
+  /// Sent only when set. Open WebUI 0.13 takes them only from the base's
+  /// owner or an admin, and never for an external base.
+  final WorkspaceKnowledgeLimits? limits;
+
   Map<String, dynamic> toJson() => <String, dynamic>{
     'name': name,
     'description': description,
     'access_grants': workspaceGrantInputs(accessGrants),
+    if (limits case final limits?)
+      'meta': <String, dynamic>{
+        'max_file_count': limits.maxFileCount,
+        'max_file_size': limits.maxFileSize,
+      },
   };
 }
 
@@ -227,10 +255,16 @@ class WorkspaceKnowledgeDetail {
   const WorkspaceKnowledgeDetail({
     required this.summary,
     this.files = const [],
+    this.warning,
   });
 
   final WorkspaceKnowledgeSummary summary;
   final List<WorkspaceKnowledgeFile> files;
+
+  /// The server's account of files it could not add, as a batch add reports
+  /// it (`warnings`: a message and one line per file); null when all went in.
+  /// Only the files in [files] were added then.
+  final String? warning;
 
   bool get isExternal => summary.isExternal;
 
@@ -240,7 +274,21 @@ class WorkspaceKnowledgeDetail {
         files: workspaceJsonList(json['files'])
             .map(WorkspaceKnowledgeFile.fromJson)
             .toList(growable: false),
+        warning: _warningText(json['warnings']),
       );
+
+  static String? _warningText(Object? warnings) {
+    if (warnings is! Map) return null;
+    final lines = <String>[
+      if (warnings['message'] case final String message
+          when message.trim().isNotEmpty)
+        message.trim(),
+      if (warnings['errors'] case final List errors)
+        for (final error in errors)
+          if ('$error'.trim().isNotEmpty) '$error'.trim(),
+    ];
+    return lines.isEmpty ? null : lines.join('\n');
+  }
 }
 
 @immutable

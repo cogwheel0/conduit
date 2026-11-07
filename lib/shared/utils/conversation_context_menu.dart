@@ -1,7 +1,9 @@
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:conduit_core/database/chat_database_repository.dart';
+import 'package:conduit_core/database/database_provider.dart';
 import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/models/folder.dart';
+import 'package:conduit_core/models/model.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/sync/chat_locks.dart';
 import 'package:conduit/core/services/native_sheet_bridge.dart';
@@ -17,6 +19,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:conduit_core/features/chat/providers/chat_providers.dart'
     as chat;
+import 'package:conduit_core/features/chat/services/chat_title_generation.dart';
+import 'package:conduit_core/features/direct_connections/providers/direct_connection_providers.dart';
+import 'package:conduit_core/features/hermes/models/hermes_model.dart';
+import 'package:conduit_core/features/hermes/services/hermes_session_provenance.dart';
 import 'package:conduit/features/chat/widgets/chat_share_sheet.dart';
 import 'package:conduit/features/navigation/widgets/folder_tree_guides.dart';
 
@@ -277,6 +283,13 @@ List<ConduitContextMenuAction> buildConversationActionsWithFolders({
       canMarkUnread &&
       !isOnDevice &&
       ref.watch(chatMarkUnreadSupportedProvider);
+  // The server titles a chat it holds; on-device and temporary chats have
+  // nothing there to read.
+  final canGenerateTitle =
+      !isOnDevice &&
+      !isTemporaryChat(conversation.id as String?) &&
+      !isNativeHermesConversation(conversation as Conversation?) &&
+      ref.watch(apiServiceProvider) != null;
 
   Future<void> togglePin() async {
     final errorMessage = l10n.failedToUpdatePin;
@@ -306,6 +319,10 @@ List<ConduitContextMenuAction> buildConversationActionsWithFolders({
       if (!context.mounted) return;
       await _showConversationError(context, errorMessage);
     }
+  }
+
+  Future<void> generateTitle() async {
+    await _generateConversationTitle(context, ref, selectionId);
   }
 
   Future<void> rename() async {
@@ -382,6 +399,15 @@ List<ConduitContextMenuAction> buildConversationActionsWithFolders({
       onBeforeClose: () => ConduitHaptics.selectionClick(),
       onSelected: rename,
     ),
+    if (canGenerateTitle)
+      ConduitContextMenuAction(
+        cupertinoIcon: CupertinoIcons.sparkles,
+        sfSymbol: 'sparkles',
+        materialIcon: Icons.auto_awesome_rounded,
+        label: l10n.generateTitle,
+        onBeforeClose: () => ConduitHaptics.selectionClick(),
+        onSelected: generateTitle,
+      ),
     if (showMarkUnread)
       ConduitContextMenuAction(
         cupertinoIcon: CupertinoIcons.envelope_badge,
@@ -650,7 +676,6 @@ Future<void> _renameConversation(
   String currentTitle, {
   required bool isOnDevice,
 }) async {
-  final rawConversationId = ChatStorageIdentity.parse(conversationId).rawId;
   final l10n = AppLocalizations.of(context)!;
   final newName = await ThemedDialogs.promptTextInput(
     context,
@@ -672,35 +697,196 @@ Future<void> _renameConversation(
       ConduitHaptics.selectionClick();
       return;
     }
-    final api = ref.read(apiServiceProvider);
-    if (api == null) throw Exception('No API service');
-    // A title being generated for this chat waits for the rename, and keeps
-    // it.
-    await ref
-        .read(chatTitleLocksProvider)
-        .runExclusive(
-          rawConversationId,
-          () => api.updateConversation(rawConversationId, title: newName),
-        );
+    await _saveConversationTitle(ref, conversationId, newName);
     ConduitHaptics.selectionClick();
-    ref
-        .read(conversationsProvider.notifier)
-        .updateConversationFromRemote(
-          conversationId,
-          (conversation) =>
-              conversation.copyWith(title: newName, updatedAt: DateTime.now()),
-        );
-    refreshConversationsCache(ref);
-    final active = ref.read(activeConversationProvider);
-    if (active != null && conversationMatchesScopedId(active, conversationId)) {
-      ref
-          .read(activeConversationProvider.notifier)
-          .set(active.copyWith(title: newName));
-    }
   } catch (_) {
     if (!context.mounted) return;
     await _showConversationError(context, renameError);
   }
+}
+
+/// Saves [title] as the Open WebUI chat [conversationId]'s title, and shows
+/// it in the chat list and the open chat.
+Future<void> _saveConversationTitle(
+  WidgetRef ref,
+  String conversationId,
+  String title,
+) async {
+  final rawConversationId = ChatStorageIdentity.parse(conversationId).rawId;
+  final api = ref.read(apiServiceProvider);
+  if (api == null) throw Exception('No API service');
+  // A title being generated for this chat waits for the rename, and keeps
+  // it.
+  await ref
+      .read(chatTitleLocksProvider)
+      .runExclusive(
+        rawConversationId,
+        () => api.updateConversation(rawConversationId, title: title),
+      );
+  _showConversationTitle(ref, conversationId, title);
+}
+
+/// Shows [title] for the chat [conversationId] in the chat list and the
+/// open chat, once the server holds it.
+void _showConversationTitle(
+  WidgetRef ref,
+  String conversationId,
+  String title,
+) {
+  ref
+      .read(conversationsProvider.notifier)
+      .updateConversationFromRemote(
+        conversationId,
+        (conversation) =>
+            conversation.copyWith(title: title, updatedAt: DateTime.now()),
+      );
+  refreshConversationsCache(ref);
+  final active = ref.read(activeConversationProvider);
+  if (active != null && conversationMatchesScopedId(active, conversationId)) {
+    ref
+        .read(activeConversationProvider.notifier)
+        .set(active.copyWith(title: title));
+  }
+}
+
+/// Chats whose title is being generated: a second tap waits for the first.
+final Set<String> _titlesBeingGenerated = <String>{};
+
+/// Asks the server for a title made from the Open WebUI chat
+/// [conversationId] and saves it straight away, as the Generate button of
+/// Open WebUI 0.13's chat title does.
+///
+/// Every request goes out as the account that asked, and the title is saved
+/// only while the chat still has the title it had then: a rename made while
+/// the model wrote one is kept.
+Future<void> _generateConversationTitle(
+  BuildContext context,
+  WidgetRef ref,
+  String conversationId,
+) async {
+  if (!_titlesBeingGenerated.add(conversationId)) return;
+  try {
+    await _generateConversationTitleOnce(context, ref, conversationId);
+  } finally {
+    _titlesBeingGenerated.remove(conversationId);
+  }
+}
+
+Future<void> _generateConversationTitleOnce(
+  BuildContext context,
+  WidgetRef ref,
+  String conversationId,
+) async {
+  final l10n = AppLocalizations.of(context)!;
+  // The menu can close while the title is written; the app's container
+  // outlives it.
+  final container = ProviderScope.containerOf(context, listen: false);
+  final rawConversationId = ChatStorageIdentity.parse(conversationId).rawId;
+  final api = container.read(apiServiceProvider);
+  final authSnapshot = api?.captureAuthSnapshot();
+  String? selectedModelId;
+  final active = container.read(activeConversationProvider);
+  if (active != null && conversationMatchesScopedId(active, conversationId)) {
+    selectedModelId = container.read(selectedModelProvider)?.id;
+  }
+  String? message;
+  try {
+    if (api == null) throw Exception('No API service');
+    // Only the server's own models can title a chat: not a Direct or Hermes
+    // model, which turns of an Open WebUI chat may have used. The model list
+    // leaves out models hidden from the picker, which are still the
+    // server's, so only a model it lists as Direct or Hermes is passed over.
+    final directModels = container.read(directModelRegistryProvider);
+    List<Model>? knownModels;
+    try {
+      knownModels = await container
+          .read(modelsProvider.future)
+          .timeout(const Duration(seconds: 5));
+    } catch (_) {}
+    bool isServerModel(String id) {
+      for (final model in knownModels ?? const <Model>[]) {
+        if (model.id != id) continue;
+        return !isHermesModel(model) && directModels.resolve(model) == null;
+      }
+      return true;
+    }
+
+    final chatJson = await api.getChatRaw(
+      rawConversationId,
+      authSnapshot: authSnapshot,
+    );
+    // A chat the server does not hold has nothing to title there.
+    if (chatJson == null) throw Exception('Chat not found');
+    final titleAsked = chatJson['title'];
+    final request = chatTitleRequest(
+      chatJson,
+      selectedModelId: selectedModelId,
+      isServerModel: isServerModel,
+    );
+    final title = request == null
+        ? null
+        : (await api.generateChatTitle(
+            model: request.model,
+            messages: request.messages,
+            authSnapshot: authSnapshot,
+          ))?.trim();
+    if (title == null || title.isEmpty) {
+      message = l10n.generateTitleNone;
+    } else if (title != titleAsked) {
+      // Told apart from the title the server stored, not the chat list's
+      // copy, which can lag it or show an empty title as "Chat".
+      var saved = false;
+      final database = container.read(appDatabaseProvider);
+      await container.read(chatTitleLocksProvider).runExclusive(
+        rawConversationId,
+        // In the chat's own lock too: a full save of the chat sends the
+        // title it read, so one under way finishes before this one is
+        // written, and one after it reads the new title from the database.
+        () => container.read(chatLocksProvider).runExclusive(
+          rawConversationId,
+          () async {
+            // Compared as the server stores it, as it was when the title was
+            // asked for: a rename made meanwhile is kept.
+            final stored = await api.getChatRaw(
+              rawConversationId,
+              authSnapshot: authSnapshot,
+            );
+            if (stored == null || stored['title'] != titleAsked) return;
+            await api.updateConversation(
+              rawConversationId,
+              title: title,
+              authSnapshot: authSnapshot,
+            );
+            saved = true;
+            await database?.chatsDao.updateServerGeneratedTitle(
+              rawConversationId,
+              title,
+            );
+          },
+        ),
+      );
+      if (saved && identical(container.read(apiServiceProvider), api)) {
+        // Stored as a server-made title, so a later save of the chat does
+        // not send the old one back.
+        container
+            .read(conversationsProvider.notifier)
+            .applyServerGeneratedTitle(rawConversationId, title);
+        final open = container.read(activeConversationProvider);
+        if (open != null && conversationMatchesScopedId(open, conversationId)) {
+          container
+              .read(activeConversationProvider.notifier)
+              .set(open.copyWith(title: title));
+        }
+        ConduitHaptics.success();
+      }
+    } else {
+      ConduitHaptics.success();
+    }
+  } catch (_) {
+    message = l10n.generateTitleFailed;
+  }
+  if (message == null || !context.mounted) return;
+  await _showConversationError(context, message);
 }
 
 Future<void> _confirmAndDeleteConversation(
@@ -778,7 +964,9 @@ Future<void> _showConversationError(
     ),
     actions: [
       AdaptiveButton(
-        onPressed: () => Navigator.of(context).pop(),
+        // The dialog is on the root navigator; the chat list can sit in a
+        // nested one, whose page this would close instead.
+        onPressed: () => Navigator.of(context, rootNavigator: true).pop(),
         label: l10n.ok,
         style: AdaptiveButtonStyle.plain,
       ),

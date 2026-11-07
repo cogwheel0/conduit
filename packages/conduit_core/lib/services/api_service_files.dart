@@ -251,12 +251,84 @@ mixin _FilesApi on _ApiServiceBase {
     final formData = FormData.fromMap({
       'file': MultipartFile.fromBytes(bytes, filename: fileName),
     });
+    final uploadTimeout = uploadTimeoutForBytes(bytes.length);
+    // The server processes the file in the background after answering; see
+    // [waitForFileProcessing].
     final response = await _dio.post(
       '/api/v1/files/',
       data: formData,
       onSendProgress: onProgress,
+      options: Options(sendTimeout: uploadTimeout, receiveTimeout: uploadTimeout),
     );
     return response.data['id'] as String;
+  }
+
+  /// Waits while Open WebUI processes the uploaded file [fileId], which it
+  /// does in the background after the upload answers. A knowledge base takes
+  /// a file only once it is processed: linked before, it is refused as not
+  /// processed or empty.
+  ///
+  /// Asks `/files/{id}/process/status` every [interval], as the web client
+  /// waits on it, so no request stays open for the whole extraction, however
+  /// long that takes. Returns null once the file is processed, when a server
+  /// without the route answers 404 or 405, or as soon as [keepWaiting] says
+  /// the wait is no longer wanted; returns the server's reason when it could
+  /// not process the file. A failed file must not be linked: a batch link
+  /// takes it with no content and reports it added. Throws a
+  /// [TimeoutException] after [maxWait], the longest the server itself
+  /// reports on a file.
+  Future<String?> waitForFileProcessing(
+    String fileId, {
+    bool Function()? keepWaiting,
+    Duration interval = const Duration(seconds: 1),
+    Duration maxWait = const Duration(hours: 2),
+  }) async {
+    final started = DateTime.now();
+    while (keepWaiting?.call() ?? true) {
+      final Response<dynamic> response;
+      try {
+        response = await _dio.get(
+          '/api/v1/files/${Uri.encodeComponent(fileId)}/process/status',
+        );
+      } on DioException catch (e) {
+        final status = e.response?.statusCode;
+        if (status == 404 || status == 405) return null;
+        rethrow;
+      }
+      final data = response.data;
+      final status = data is Map ? data['status'] : null;
+      if (status == 'failed') return _fileProcessingError(fileId);
+      if (status != 'pending') return null;
+      if (DateTime.now().difference(started) >= maxWait) {
+        throw TimeoutException('File $fileId is still processing', maxWait);
+      }
+      await Future<void>.delayed(interval);
+    }
+    return null;
+  }
+
+  /// Why Open WebUI could not process [fileId]. Only the status stream names
+  /// the error, in its first event for a failed file, after which it ends.
+  Future<String> _fileProcessingError(String fileId) async {
+    try {
+      final response = await _dio.get<String>(
+        '/api/v1/files/${Uri.encodeComponent(fileId)}/process/status',
+        queryParameters: const {'stream': true},
+        options: Options(responseType: ResponseType.plain),
+      );
+      for (final line in LineSplitter.split(response.data ?? '')) {
+        if (!line.startsWith('data:')) continue;
+        final Object? event;
+        try {
+          event = jsonDecode(line.substring('data:'.length).trim());
+        } on FormatException {
+          continue;
+        }
+        final error = event is Map ? event['error'] : null;
+        if (error is String && error.trim().isNotEmpty) return error.trim();
+      }
+    } catch (_) {}
+    return 'The file could not be processed.';
   }
 
   // File upload for RAG

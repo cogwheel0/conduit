@@ -5910,5 +5910,17 @@
   "chatHandoffPromptTitle": "{model} に切り替えますか？",
   "chatHandoffPromptMessage": "サーバーが {model} との新しいチャットで続けることを提案しています。提案されたメッセージは、送信するまで入力欄に残ります。",
   "chatHandoffStartNewChat": "新しいチャットを開始",
-  "chatHandoffStayHere": "このままにする"
+  "chatHandoffStayHere": "このままにする",
+  "chatWaitingForApproval": "承認待ち",
+  "generateTitleNone": "サーバーはこのチャットのタイトルを作成しませんでした。タイトル生成がオフになっている可能性があります。",
+  "generateTitleFailed": "タイトルを生成できませんでした。もう一度お試しください。",
+  "workspaceToolActivate": "有効にする",
+  "workspaceToolDeactivate": "無効にする",
+  "workspaceKnowledgeLimitsTitle": "ファイルの上限",
+  "workspaceKnowledgeLimitsFooter": "上限を空欄にすると、サーバーの上限だけが使われます。サーバーの上限は常に適用されます。",
+  "workspaceKnowledgeMaxFileCount": "最大ファイル数",
+  "workspaceKnowledgeMaxFileSize": "最大ファイルサイズ (MB)",
+  "workspaceKnowledgeLimitDefault": "サーバーの上限",
+  "workspaceKnowledgeLimitInvalid": "各上限は 0 より大きい整数で入力するか、空欄にしてください。",
+  "workspaceToolToggleSaveFirst": "ツールを有効または無効にする前に、変更を保存するか破棄してください。"
 }

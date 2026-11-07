@@ -4298,5 +4298,17 @@
   "chatHandoffPromptTitle": "切换到 {model}？",
   "chatHandoffPromptMessage": "服务器建议使用 {model} 在新对话中继续。建议的消息会留在输入框中，直到你发送。",
   "chatHandoffStartNewChat": "开始新对话",
-  "chatHandoffStayHere": "留在这里"
+  "chatHandoffStayHere": "留在这里",
+  "chatWaitingForApproval": "等待批准",
+  "generateTitleNone": "服务器没有为此对话生成标题。标题生成可能已关闭。",
+  "generateTitleFailed": "无法生成标题，请重试。",
+  "workspaceToolActivate": "启用",
+  "workspaceToolDeactivate": "停用",
+  "workspaceKnowledgeLimitsTitle": "文件限制",
+  "workspaceKnowledgeLimitsFooter": "将限制留空即只使用服务器的限制。服务器的限制始终适用。",
+  "workspaceKnowledgeMaxFileCount": "最大文件数",
+  "workspaceKnowledgeMaxFileSize": "最大文件大小 (MB)",
+  "workspaceKnowledgeLimitDefault": "服务器限制",
+  "workspaceKnowledgeLimitInvalid": "请将每个限制填写为大于零的整数，或留空。",
+  "workspaceToolToggleSaveFirst": "请先保存或放弃更改，再启用或停用该工具。"
 }
