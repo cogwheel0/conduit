@@ -34,6 +34,7 @@ typedef _HermesApprovalBinding = ({
   String approvalId,
   String? storedSessionId,
   int? executionGeneration,
+  List<String> choices,
 });
 
 String? _nonEmptyString(Object? value) {
@@ -216,6 +217,7 @@ class _HermesComposerPromptOverlayState
       executionGeneration: approval['executionGeneration'] is int
           ? approval['executionGeneration'] as int
           : null,
+      choices: choices,
     );
 
     final capabilities = ref.watch(hermesCapabilitiesProvider).asData?.value;
@@ -548,6 +550,9 @@ class _HermesComposerPromptOverlayState
           approvalId: approvalId,
           approved: approved,
           executionGeneration: binding.executionGeneration,
+          // The scope the user picked (`session`, `always`), when the
+          // approval offered it; otherwise once or deny.
+          choice: binding.choices.contains(choice) ? choice : null,
         );
       } else {
         await service.resolveApproval(
