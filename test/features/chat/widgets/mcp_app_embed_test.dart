@@ -169,16 +169,20 @@ final class _OpenApp {
     final token = RegExp(
       r'const bridgeToken = "([0-9a-f]+)"',
     ).firstMatch(script)!.group(1);
-    final handler =
-        page.handlers.values.single as Future<Object?> Function(Object?);
-    return handler(
-      JavaScriptHandlerFunctionData(
-        args: [token, jsonEncode(message)],
-        isMainFrame: true,
-        origin: WebUri(documentUrl.origin),
-        requestUrl: WebUri(documentUrl.toString()),
-      ),
+    final data = JavaScriptHandlerFunctionData(
+      args: [token, jsonEncode(message)],
+      isMainFrame: true,
+      origin: WebUri(documentUrl.origin),
+      requestUrl: WebUri(documentUrl.toString()),
     );
+    // Called as the plugin calls it: a handler that takes any argument
+    // counts as the older kind (a list of arguments) and is handed the bare
+    // arguments.
+    final handler = page.handlers.values.single;
+    if (handler is dynamic Function(List<dynamic>)) {
+      return Future<Object?>.value(handler(data.args));
+    }
+    return Future<Object?>.value((handler as JavaScriptHandlerFunction)(data));
   }
 }
 

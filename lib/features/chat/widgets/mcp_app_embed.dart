@@ -402,7 +402,9 @@ class _McpAppEmbedState extends ConsumerState<McpAppEmbed> {
         _controller = controller;
         controller.addJavaScriptHandler(
           handlerName: _bridgeName,
-          callback: (data) async {
+          // Typed: the plugin hands a handler that takes any argument only
+          // the bare arguments, without the origin the bridge checks.
+          callback: (JavaScriptHandlerFunctionData data) async {
             if (!directMcpAppBridgeMessageAllowed(
               data,
               expectedOrigin: origin,
