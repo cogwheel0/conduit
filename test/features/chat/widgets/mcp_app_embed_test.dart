@@ -340,6 +340,24 @@ void main() {
     expect(webViews.built, isEmpty);
   });
 
+  testWidgets('an app page has a host of its own, with no shared parent', (
+    tester,
+  ) async {
+    // Android keeps one cookie store for the whole app. The only parent
+    // domain of the page's host is the top-level `.invalid`, so a cookie the
+    // page sets cannot be read by another app's page.
+    final app = await _openApp(tester, _ServingApi());
+
+    expect(
+      app.documentUrl.host,
+      matches(RegExp(r'^mcp-app-[0-9a-f]{36}\.invalid$')),
+    );
+    expect(
+      mcpAppDocumentUrl('ab12'),
+      Uri.parse('https://mcp-app-ab12.invalid/index.html'),
+    );
+  });
+
   testWidgets("an app's own doctype stays first", (tester) async {
     // Before the host's tags it would be ignored, and the page laid out in
     // quirks mode.

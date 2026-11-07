@@ -67,10 +67,11 @@ class _McpAppEmbedState extends ConsumerState<McpAppEmbed> {
   bool _documentLoaded = false;
 
   // A fresh, unreachable origin per app: the page has none of the server's
-  // or the app's own, and the bridge accepts only this one.
-  late final Uri _documentUrl = Uri.parse(
-    'https://${_randomHex(18)}.mcp-app.invalid/index.html',
-  );
+  // or the app's own, and the bridge accepts only this one. The host sits
+  // straight under `.invalid`, with no parent domain shared with other
+  // apps, so a cookie a page sets (Android keeps one store for the whole
+  // app) can reach no other app.
+  late final Uri _documentUrl = mcpAppDocumentUrl(_randomHex(18));
   late final String _bridgeName = 'conduit_mcp_app_${_randomHex(12)}';
   late final String _bridgeToken = _randomHex(24);
   late final String _deliverName = '__conduitMcpDeliver_${_randomHex(12)}';
@@ -523,6 +524,12 @@ class _McpAppEmbedState extends ConsumerState<McpAppEmbed> {
 /// page itself in a web view, through [deliverName]. Navigation, popups and
 /// device access are refused, as in a sandboxed frame. A form's submit still
 /// reaches the app's own handlers, but it loads no page.
+/// The address an app's page is loaded under: `https://mcp-app-{token}.invalid`,
+/// a host of its own that no other app shares a parent domain with.
+@visibleForTesting
+Uri mcpAppDocumentUrl(String token) =>
+    Uri.parse('https://mcp-app-$token.invalid/index.html');
+
 /// Whether an app's page may make a fetch or XHR request to [url], which
 /// the web view's hooks report as the page wrote it.
 ///
