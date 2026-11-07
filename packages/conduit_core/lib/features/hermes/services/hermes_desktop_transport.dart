@@ -704,7 +704,8 @@ final class HermesDesktopRpcClient {
       if (!_clarifies.containsKey(id) && _clarifies.length >= 64) {
         _clarifies.remove(_clarifies.keys.first);
       }
-      _clarifies[id] = open..shownCardId = '${events.first.payload['request_id']}';
+      _clarifies[id] = open
+        ..shownCardId = '${events.first.payload['request_id']}';
     }
     for (final event in events) {
       _events.add(event);

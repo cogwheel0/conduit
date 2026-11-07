@@ -67,6 +67,11 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
     // `session.info` is left over from before the prompt (session setup, a
     // late MCP refresh) and must not end the turn before it starts.
     var turnStarted = false;
+    // Set when Hermes admitted the prompt into the session owner's queue
+    // instead of running it here: only the owner's message.start and
+    // message.complete are relayed, so message.complete ends the turn.
+    var forwarded = false;
+    final segments = HermesDeltaSegments();
     var disconnectReconciliationRunning = false;
     final eventsBeforePromptAcknowledgement = Queue<HermesDesktopEvent>();
     late final StreamSubscription<HermesDesktopEvent> subscription;
@@ -129,6 +134,20 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
           (event.type == 'session.info' && payload['running'] == true)) {
         turnStarted = true;
       }
+      if (event.type == 'message.delta') {
+        final text = value('delta').isNotEmpty ? value('delta') : value('text');
+        final fresh = segments.unseen(
+          turnId: payload['turn_id'],
+          segment: payload['segment'],
+          offset: payload['offset'],
+          text: text,
+        );
+        if (fresh == null) return;
+        if (fresh.length != text.length) {
+          controller.add(HermesTokenDelta(fresh));
+          return;
+        }
+      }
       if (_projectHermesTurnEvent(
         event,
         add: controller.add,
@@ -150,6 +169,10 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
                   ? 'Hermes failed to complete the response.'
                   : value('error'),
             );
+          } else if (forwarded) {
+            // The owner wrote the reply to the stored transcript; read it.
+            finish(authoritativeIdle: true);
+            _emitTranscriptChange(storedId);
           }
         case 'approval.request':
           final requestId = validateHermesOpaqueIdentifier(
@@ -257,14 +280,10 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
             );
           }
         case 'session.info':
-          final running = payload['running'];
-          if (running is! bool) {
-            _applyAuthoritativeRunning(
-              running,
-              storedId: binding.storedId,
-              runtimeId: binding.runtimeId,
-            );
-          } else if (!running && promptAcknowledged && turnStarted) {
+          // A partial info without `running` says nothing about the turn.
+          if (payload['running'] == false &&
+              promptAcknowledged &&
+              turnStarted) {
             finish(authoritativeIdle: true);
           }
         case 'error':
@@ -359,7 +378,7 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
       }
       eventsBeforePromptAcknowledgement.clear();
       if (freshSession) _freshSessionIds.remove(storedId);
-      await _rpc.request<Object?>(
+      final submitted = await _rpc.request<Object?>(
         'prompt.submit',
         params: {
           ...hermesPromptSubmitParams(
@@ -370,6 +389,7 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
           ..._sessionScope(binding.storedId),
         },
       );
+      forwarded = submitted is Map && submitted['forwarded'] == true;
       if (cancelToken?.isCancelled == true) {
         promptAcknowledged = true;
         try {

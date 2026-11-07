@@ -44,7 +44,9 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
     }
     _stateSubscription ??= _rpc.events.listen((event) {
       final startedBuffering = _eventBuffer.add(event);
-      if (event.type == 'session.info') {
+      // Partial infos (a forwarded owner's relay, a service-tier change)
+      // carry no `running` and say nothing about the turn.
+      if (event.type == 'session.info' && event.payload['running'] is bool) {
         // Update BOTH keys. `session.create` can omit `running`, which parks
         // the stored id at unsupportedGateway; a runtime-only update never
         // clears that, so the second turn onward fails the safety gate with

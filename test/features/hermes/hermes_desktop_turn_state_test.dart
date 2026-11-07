@@ -759,6 +759,126 @@ void main() {
       check(deltas).equals('Hello there.');
     },
   );
+
+  test('a re-sent reply segment is shown once', () async {
+    final turn = await _streamTurn((harness) {
+      harness.event('runtime-race', 'message.start', {'turn_id': 't1'});
+      for (final (offset, text) in [
+        (0, 'Hello '),
+        (6, 'there.'),
+        // A replay re-sends the segment from its start.
+        (0, 'Hello there.'),
+      ]) {
+        harness.event('runtime-race', 'message.delta', {
+          'text': text,
+          'turn_id': 't1',
+          'segment': 0,
+          'offset': offset,
+        });
+      }
+      harness.event('runtime-race', 'message.complete', {
+        'text': 'Hello there.',
+      });
+      harness.sessionInfo('runtime-race', running: false);
+    });
+    check(
+      turn.events.whereType<HermesTokenDelta>().map((e) => e.content).join(),
+    ).equals('Hello there.');
+  });
+
+  test('a forwarded prompt ends at message.complete', () async {
+    final turn = await _streamTurn(
+      submitResult: {
+        'status': 'queued',
+        'forwarded': true,
+        'admission_id': 'adm-1',
+      },
+      (harness) {
+        harness.event('runtime-race', 'message.start');
+        harness.event('runtime-race', 'message.complete', {
+          'text': 'Answered by the owner.',
+        });
+      },
+    );
+    check(
+      turn.events.whereType<HermesFinalOutput>().single.text,
+    ).equals('Answered by the owner.');
+    check(turn.events.last).isA<HermesRunDone>();
+    check(turn.events.whereType<HermesRunError>()).isEmpty();
+  });
+
+  test('a partial session.info does not block the next send', () async {
+    final turn = await _streamTurn((harness) {
+      harness.event('runtime-race', 'message.start');
+      // An owner relay's info: pending submissions, no `running`.
+      harness.event('runtime-race', 'session.info', {
+        'stored_session_id': 'stored-race',
+        'pending_submissions': <Object?>[],
+      });
+      harness.event('runtime-race', 'message.delta', {'text': 'Done.'});
+      harness.event('runtime-race', 'message.complete', {'text': 'Done.'});
+      harness.sessionInfo('runtime-race', running: false);
+    });
+    check(turn.events.whereType<HermesRunError>()).isEmpty();
+    check(
+      turn.service.turnStateFor('stored-race'),
+    ).equals(HermesDesktopTurnState.idle);
+  });
+}
+
+/// Streams one turn on a resumed session: Hermes acknowledges
+/// `prompt.submit` with [submitResult], then [frames] arrive. Returns the
+/// events that reached the caller, and the service.
+Future<({List<HermesRunEvent> events, HermesDesktopApiService service})>
+_streamTurn(
+  void Function(_GatewayHarness harness) frames, {
+  Map<String, dynamic> submitResult = const {'status': 'streaming'},
+}) async {
+  SharedPreferences.setMockInitialValues({});
+  PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
+  final harness = _GatewayHarness();
+  final rpc = HermesDesktopRpcClient(
+    channelFactory: (_, _, {httpClient}) => harness.channel,
+  );
+  final service = HermesDesktopApiService(
+    config: HermesConfig(
+      enabled: true,
+      baseUrl: 'https://hermes.example',
+      mode: HermesBackendMode.desktopGateway,
+      desktopCredentials: HermesDesktopCredentials(
+        legacyToken: 'session-token',
+      ),
+    ),
+    dio: _statusDio(),
+    rpc: rpc,
+  );
+  addTearDown(() async {
+    service.close();
+    await harness.dispose();
+  });
+  harness.responder = (method) => switch (method) {
+    'prompt.submit' => submitResult,
+    'session.resume' => {
+      'session_id': 'runtime-race',
+      'stored_session_id': 'stored-race',
+      'running': false,
+    },
+    'config.get' => {'value': 'medium'},
+    _ => const {},
+  };
+
+  final response = await service.streamDesktopResponse(
+    HermesChatInput.text('hello'),
+    sessionId: 'stored-race',
+    options: const HermesDesktopSessionOptions(),
+  );
+  final events = response.events.toList();
+  await Future<void>.delayed(Duration.zero);
+  frames(harness);
+  return (
+    events: await events.timeout(const Duration(seconds: 5)),
+    service: service,
+  );
 }
 
 /// Streams a reply while [preTurnFrames] arrive before `prompt.submit` is

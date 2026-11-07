@@ -579,7 +579,7 @@ void main() {
       ).deepEquals({'server_requests': true});
     });
 
-    test('shows an approval as a decision event and writes nothing back', () async {
+    test('shows an approval as a decision and writes nothing back', () async {
       await socket.answerCapabilities();
       socket.serverRequest('srq-a1', 'approval', {
         'session_id': 'runtime-1',
@@ -753,6 +753,49 @@ void main() {
       check(decline['id']).equals('srq-t1');
       check((decline['error'] as Map)['code']).equals(4404);
       check(events.where((event) => event.type != 'gateway.ready')).isEmpty();
+    });
+  });
+
+  group('reply segments', () {
+    test('drop a re-sent segment and keep only new text', () {
+      final segments = HermesDeltaSegments();
+      String? seen(int offset, String text, {int segment = 0}) =>
+          segments.unseen(
+            turnId: 'turn-1',
+            segment: segment,
+            offset: offset,
+            text: text,
+          );
+
+      check(seen(0, 'Hello ')).equals('Hello ');
+      check(seen(6, 'there')).equals('there');
+      // A replay re-sends the segment from its start.
+      check(seen(0, 'Hello ')).isNull();
+      check(seen(0, 'Hello there, friend')).equals(', friend');
+      // Another segment of the same turn counts from zero.
+      check(seen(0, 'Next', segment: 1)).equals('Next');
+    });
+
+    test('pass through deltas without positions', () {
+      final segments = HermesDeltaSegments();
+      check(
+        segments.unseen(turnId: null, segment: null, offset: null, text: 'a'),
+      ).equals('a');
+      check(
+        segments.unseen(turnId: null, segment: null, offset: null, text: 'a'),
+      ).equals('a');
+    });
+
+    test('count offsets in UTF-16 code units', () {
+      final segments = HermesDeltaSegments();
+      String? seen(int offset, String text) => segments.unseen(
+        turnId: 't',
+        segment: 0,
+        offset: offset,
+        text: text,
+      );
+      check(seen(0, '🙂 ok')).equals('🙂 ok');
+      check(seen(0, '🙂 ok!')).equals('!');
     });
   });
 
