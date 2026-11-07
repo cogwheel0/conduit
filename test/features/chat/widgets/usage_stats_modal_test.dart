@@ -110,14 +110,25 @@ void main() {
       'completion_tokens': 820,
     }, contextLength: 32768);
     expect(find.text('62% \u00b7 20K of 32K'), findsOneWidget);
+  });
 
-    // Under ten of a unit keeps a decimal, rounding up or not.
-    await tester.pumpWidget(const SizedBox.shrink());
-    await openSheet(tester, const <String, dynamic>{
-      'prompt_tokens': 9000,
-      'completion_tokens': 500,
-    }, contextLength: 128000);
-    expect(find.text('7% \u00b7 9.5K of 128K'), findsOneWidget);
+  testWidgets('counts round as iOS rounds them, ties to even', (tester) async {
+    for (final (tokens, length, figure) in [
+      (9500, 128000, '7% \u00b7 9.5K of 128K'),
+      // Under ten of a unit keeps one decimal, ties going to the even digit.
+      (9850, 128000, '8% \u00b7 9.8K of 128K'),
+      // Rounding up into the next ten or the next unit.
+      (9950, 128000, '8% \u00b7 10K of 128K'),
+      (999500, 2000000, '50% \u00b7 1M of 2M'),
+      (999499, 2000000, '50% \u00b7 999K of 2M'),
+    ]) {
+      await openSheet(tester, <String, dynamic>{
+        'prompt_tokens': tokens,
+        'completion_tokens': 0,
+      }, contextLength: length);
+      expect(find.text(figure), findsOneWidget, reason: '$tokens tokens');
+      await tester.pumpWidget(const SizedBox.shrink());
+    }
   });
 
   testWidgets('a long context figure wraps on a narrow sheet', (tester) async {

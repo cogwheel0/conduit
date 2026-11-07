@@ -132,10 +132,13 @@ class UsageSummary {
       promptCount = inputTokens ?? promptTokens;
     }
 
-    // The last call's prompt and answer. Open WebUI 0.12.5 keeps that call's
-    // counts in prompt_tokens/completion_tokens and sums every call's in
-    // input_tokens/output_tokens, so the sums come last. llama.cpp's prompt_n
-    // leaves out the part of the prompt it reused from its cache (cache_n).
+    // The last call's prompt and answer. Over several calls, Open WebUI
+    // 0.12.5 and Direct connections alike keep that call's counts in
+    // prompt_tokens/completion_tokens and sum every call's in
+    // input_tokens/output_tokens, so input/output without prompt/completion
+    // are one call's (a Responses API reply), and come last. llama.cpp's
+    // prompt_n leaves out the part of the prompt it reused from its cache
+    // (cache_n).
     num? both(num? prompt, num? answer) =>
         prompt != null && answer != null ? prompt + answer : null;
     final contextCount =

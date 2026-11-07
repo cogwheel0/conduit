@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:math' as math;
 
 import 'package:intl/intl.dart';
 import 'package:material_ui/material_ui.dart';
@@ -283,20 +284,33 @@ class UsageStatsModal {
   }
 
   /// [count] as a short figure in the app's language, rounded as iOS rounds
-  /// one: to one decimal under ten of its unit, else to whole units (9.5K,
-  /// 79K, 128K, 1.5M; 7.9万 in Japanese).
+  /// one (to nearest, ties to even): to one decimal under ten of its unit,
+  /// else to whole units. So 9,500 is 9.5K, 9,950 is 10K, 79,123 is 79K and
+  /// 999,500 is 1M; 7.9万 in Japanese.
   static String _compactCount(BuildContext context, int count) {
-    final locale = Localizations.localeOf(context).toLanguageTag();
-    NumberFormat format(int decimals) => NumberFormat.compact(locale: locale)
-      ..significantDigitsInUse = false
-      ..maximumFractionDigits = decimals;
-    // With one decimal, a figure under ten of its unit shows at most two
-    // digits (9.5K, 1K, and 10K once it rounds up); a larger one, three or
-    // more, and then the decimal is dropped.
-    final oneDecimal = format(1).format(count);
-    return _digit.allMatches(oneDecimal).length <= 2
-        ? oneDecimal
-        : format(0).format(count);
+    final format =
+        NumberFormat.compact(
+            locale: Localizations.localeOf(context).toLanguageTag(),
+          )
+          ..significantDigitsInUse = false
+          ..maximumFractionDigits = 1;
+    // How many digits the locale's unit hides at this magnitude (3 for K, 4
+    // for 万, none where there is no short form, as for German thousands),
+    // read off the magnitude's smallest number, which needs no rounding.
+    final digits = '$count'.length;
+    final hidden =
+        digits -
+        _digit.allMatches(format.format(math.pow(10, digits - 1))).length;
+    if (hidden <= 0) return format.format(count);
+    // Rounded here, in integers: the formatter divides in floating point,
+    // where 9.95 is a little less, so 9,950 would read 9.9K.
+    final step = math
+        .pow(10, digits - hidden == 1 ? hidden - 1 : hidden)
+        .toInt();
+    final steps = count ~/ step;
+    final twiceRest = count % step * 2;
+    final roundUp = twiceRest > step || (twiceRest == step && steps.isOdd);
+    return format.format((steps + (roundUp ? 1 : 0)) * step);
   }
 
   static final _digit = RegExp(r'\p{Nd}', unicode: true);
