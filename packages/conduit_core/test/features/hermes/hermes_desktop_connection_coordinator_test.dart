@@ -328,6 +328,7 @@ final class _ProfileBridge implements HermesDashboardBridge {
     Uri url, {
     String? body,
     bool urgent = false,
+    bool Function()? beforeSend,
   }) async {
     requests.add('$method ${url.path}');
     if (method == 'POST' && url.path == '/api/auth/ws-ticket') {

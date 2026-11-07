@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:checks/checks.dart';
+import 'package:conduit_core/features/hermes/services/hermes_dashboard_bridge.dart';
 import 'package:conduit_core/features/hermes/services/hermes_dashboard_rest_session.dart';
 import 'package:conduit_core/features/hermes/services/hermes_dashboard_webview_rules.dart';
 import 'package:test/test.dart';
@@ -240,6 +241,59 @@ void main() {
     check((await trigger).body).equals('https://hermes.example/trigger');
     check(pages).length.equals(1);
     check(page.disposed).isFalse();
+  });
+
+  test('a queued request withdrawn before its turn is never sent', () async {
+    final bridge = session();
+    await bridge.request('GET', Uri.parse('https://hermes.example/warm'));
+    final page = pages.single;
+    final held = page.hold = Completer<void>();
+    final first = bridge.request(
+      'POST',
+      Uri.parse('https://hermes.example/run-a'),
+    );
+    await pumpEventQueue();
+    page.hold = null;
+    var withdrawn = false;
+    final second = bridge.request(
+      'POST',
+      Uri.parse('https://hermes.example/run-b'),
+      beforeSend: () => !withdrawn,
+    );
+
+    // A Stop overtakes it while the first holds the queue.
+    withdrawn = true;
+    held.complete();
+    await first;
+
+    await check(second).throws<HermesDashboardRequestWithdrawn>();
+    check(page.log).not(
+      (it) => it.contains('call https://hermes.example/run-b'),
+    );
+  });
+
+  test('close waits for an urgent request still answering', () async {
+    final bridge = session();
+    await bridge.request('GET', Uri.parse('https://hermes.example/warm'));
+    final page = pages.single;
+    final held = page.hold = Completer<void>();
+    final stop = bridge.request(
+      'POST',
+      Uri.parse('https://hermes.example/cancel'),
+      urgent: true,
+    );
+    await pumpEventQueue();
+
+    var closed = false;
+    final closing = bridge.close().then((_) => closed = true);
+    await pumpEventQueue();
+    check(closed).isFalse();
+    check(page.disposed).isFalse();
+
+    held.complete();
+    check((await stop).status).equals(200);
+    await closing;
+    check(page.disposed).isTrue();
   });
 
   test('an urgent request on a closed bridge opens it in order', () async {

@@ -310,6 +310,23 @@ void main() {
       await _unmount(tester);
     });
 
+    testWidgets('a Run now withdrawn before it was sent reads stopped', (
+      tester,
+    ) async {
+      final jobs = _CronJobs([_job(status: 'claimed')]);
+      jobs.onStop = () async =>
+          const HermesJobStopResult(cancelled: true, beforeStart: true);
+      await _pumpPage(tester, jobs);
+
+      await tester.tap(find.byKey(_stopKey));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+
+      expect(find.text('Run stopped.'), findsOneWidget);
+      expect(find.text('Stopping…'), findsNothing);
+      await _unmount(tester);
+    });
+
     testWidgets('asks for an update on an older Hermes', (tester) async {
       final jobs = _CronJobs([_job(status: 'running')]);
       jobs.onStop = () async => throw const HermesJobStopUnsupportedException();

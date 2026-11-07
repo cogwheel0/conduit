@@ -213,6 +213,12 @@ class _HermesJobsPageState extends ConsumerState<HermesJobsPage> {
     try {
       final result = await notifier.stopRun(job.id);
       if (!mounted || switched()) return;
+      if (result.beforeStart) {
+        // Its Run now was withdrawn unsent: nothing ran to wait for.
+        setState(() => _stopping.remove(job.id));
+        UiUtils.showMessage(context, l10n.hermesJobStopped);
+        return;
+      }
       if (!result.cancelled) {
         setState(() => _stopping.remove(job.id));
         UiUtils.showMessage(context, l10n.hermesJobNothingToStop);

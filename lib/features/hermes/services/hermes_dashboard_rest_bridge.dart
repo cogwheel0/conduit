@@ -65,9 +65,16 @@ final class HermesDashboardRestBridge implements HermesDashboardBridge {
     Uri uri, {
     String? body,
     bool urgent = false,
+    bool Function()? beforeSend,
   }) async {
     await _requireHeaderSupport();
-    return _session.request(method, uri, body: body, urgent: urgent);
+    return _session.request(
+      method,
+      uri,
+      body: body,
+      urgent: urgent,
+      beforeSend: beforeSend,
+    );
   }
 
   /// Signs the dashboard's session out on the server

@@ -13,6 +13,7 @@ final class _FakeBridge implements HermesDashboardBridge {
     Uri url, {
     String? body,
     bool urgent = false,
+    bool Function()? beforeSend,
   }) async {
     requests.add(url);
     return (status: 200, body: '{"profiles":[{"name":"default"}]}');

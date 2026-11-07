@@ -88,11 +88,68 @@ final class _UrgencyBridge implements HermesDashboardBridge {
     Uri url, {
     String? body,
     bool urgent = false,
+    bool Function()? beforeSend,
   }) async {
     this.urgent['$method ${url.path}'] = urgent;
     return url.path.endsWith('/cancel')
         ? (status: 200, body: '{"cancelled":true,"execution_id":"exec-1"}')
         : (status: 200, body: '{}');
+  }
+
+  @override
+  Future<void> reload() async {}
+
+  @override
+  Future<void> close() async {}
+}
+
+/// A dashboard sign-in's request queue: requests run one at a time, the
+/// first trigger holds it until [release], and urgent ones skip it.
+final class _QueueBridge implements HermesDashboardBridge {
+  final sent = <String>[];
+  final _gate = Completer<void>();
+
+  /// What a cancel answers; null: whether its job's trigger was sent.
+  bool? cancels;
+  Future<void> _tail = Future<void>.value();
+
+  void release() => _gate.complete();
+
+  @override
+  Future<({int status, String body})> request(
+    String method,
+    Uri url, {
+    String? body,
+    bool urgent = false,
+    bool Function()? beforeSend,
+  }) {
+    Future<({int status, String body})> send() async {
+      if (beforeSend?.call() == false) {
+        throw const HermesDashboardRequestWithdrawn();
+      }
+      sent.add('$method ${url.path}');
+      if (url.path.endsWith('/cancel')) {
+        // Only a run Hermes was sent is live.
+        final live =
+            cancels ??
+            sent.contains(
+              'POST ${url.path.replaceFirst('/cancel', '/trigger')}',
+            );
+        return (
+          status: 200,
+          body: live
+              ? '{"cancelled":true,"execution_id":"exec-1"}'
+              : '{"cancelled":false}',
+        );
+      }
+      await _gate.future;
+      return (status: 200, body: '{}');
+    }
+
+    if (urgent) return send();
+    final result = _tail.then((_) => send());
+    _tail = result.then<void>((_) {}, onError: (Object _) {});
+    return result;
   }
 
   @override
@@ -303,6 +360,87 @@ void main() {
       'POST /api/cron/jobs/job-1/trigger': false,
       'POST /api/cron/jobs/job-1/cancel': true,
     });
+  });
+
+  test('a Stop withdraws a Run now still waiting in the queue', () async {
+    final bridge = _QueueBridge();
+    final service = HermesDesktopApiService(
+      config: HermesConfig(
+        enabled: true,
+        baseUrl: 'https://hermes.example',
+        mode: HermesBackendMode.desktopGateway,
+        desktopAuthKind: HermesDesktopAuthKind.dashboardCookie,
+      ),
+      dashboardBridgeFactory: ({required root, required accessHeaders}) =>
+          bridge,
+    );
+    addTearDown(service.close);
+
+    // Job A's run holds the queue; job B's Run now waits behind it.
+    final runA = service.runJob('job-a');
+    final runB = service.runJob('job-b');
+    await pumpEventQueue();
+    final stop = await service.stopJobRun('job-b');
+    bridge.release();
+    await runA;
+
+    check(stop)
+      ..has((r) => r.cancelled, 'cancelled').isTrue()
+      ..has((r) => r.beforeStart, 'beforeStart').isTrue();
+    await check(runB).throws<HermesDashboardRequestWithdrawn>();
+    check(bridge.sent).deepEquals([
+      'POST /api/cron/jobs/job-a/trigger',
+      'POST /api/cron/jobs/job-b/cancel',
+    ]);
+  });
+
+  test('a Stop of a Run now already sent cancels it on Hermes', () async {
+    final bridge = _QueueBridge();
+    final service = HermesDesktopApiService(
+      config: HermesConfig(
+        enabled: true,
+        baseUrl: 'https://hermes.example',
+        mode: HermesBackendMode.desktopGateway,
+        desktopAuthKind: HermesDesktopAuthKind.dashboardCookie,
+      ),
+      dashboardBridgeFactory: ({required root, required accessHeaders}) =>
+          bridge,
+    );
+    addTearDown(service.close);
+
+    final run = service.runJob('job-a');
+    await pumpEventQueue();
+    final stop = await service.stopJobRun('job-a');
+    bridge.release();
+    await run;
+
+    check(stop.beforeStart).isFalse();
+    check(stop.executionId).equals('exec-1');
+  });
+
+  test('a sent Run now that already ended has nothing to stop', () async {
+    final bridge = _QueueBridge()..cancels = false;
+    final service = HermesDesktopApiService(
+      config: HermesConfig(
+        enabled: true,
+        baseUrl: 'https://hermes.example',
+        mode: HermesBackendMode.desktopGateway,
+        desktopAuthKind: HermesDesktopAuthKind.dashboardCookie,
+      ),
+      dashboardBridgeFactory: ({required root, required accessHeaders}) =>
+          bridge,
+    );
+    addTearDown(service.close);
+
+    final run = service.runJob('job-a');
+    await pumpEventQueue();
+    final stop = await service.stopJobRun('job-a');
+    bridge.release();
+    await run;
+
+    check(stop)
+      ..has((r) => r.cancelled, 'cancelled').isFalse()
+      ..has((r) => r.beforeStart, 'beforeStart').isFalse();
   });
 
   test('stop with nothing in flight says so', () async {
@@ -558,6 +696,121 @@ void main() {
       check(
         container.read(hermesJobsProvider).value!.map((j) => j.id),
       ).deepEquals(['job-b']);
+    });
+
+    test('a quiet refresh read before a delete does not bring it back',
+        () async {
+      Map<String, Object?> job(String id) => {
+        'id': id,
+        'prompt': 'Summarize the notes',
+        'schedule': '0 7 * * *',
+      };
+      final adapter = _RoutesAdapter({
+        'GET /api/cron/jobs': (200, [job('job-1'), job('job-2')]),
+      });
+      final container = containerFor(_service(adapter));
+      container.listen(hermesJobsProvider, (_, _) {});
+      await container.read(hermesJobsProvider.future);
+      final jobs = container.read(hermesJobsProvider.notifier);
+
+      // A poll reads the list, then the delete lands before it answers.
+      final held = adapter.hold = Completer<void>();
+      final stale = jobs.refreshQuietly();
+      await pumpEventQueue();
+      adapter.hold = null;
+      adapter.routes['GET /api/cron/jobs'] = (200, [job('job-2')]);
+      await jobs.delete('job-1');
+      await container.read(hermesJobsProvider.future);
+      held.complete();
+
+      check(await stale).isNull();
+      check(
+        container.read(hermesJobsProvider).value!.map((j) => j.id),
+      ).deepEquals(['job-2']);
+    });
+
+    test('a failed bot lookup is asked for again', () {
+      fakeAsync((async) {
+        final adapter = _RoutesAdapter({
+          'GET /api/cron/delivery-targets': (
+            200,
+            {
+              'targets': [
+                {'id': 'bot-chat:research', 'name': 'Bot Chat (research)'},
+              ],
+            },
+          ),
+        });
+        final errors = <String, Map<String, Object?>>{
+          'profiles.list': {'code': -32000, 'message': 'busy'},
+        };
+        final gateway = _Gateway(
+          errors: errors,
+          results: {
+            'profiles.list': {
+              'bot_mode_protocol': true,
+              'profiles': [
+                {
+                  'name': 'research',
+                  'ui_meta': {
+                    'hermes-bots': {'title': 'Research'},
+                  },
+                },
+              ],
+            },
+          },
+        );
+        final container = ProviderContainer(
+          overrides: [
+            hermesApiServiceProvider.overrideWithValue(
+              _service(adapter, gateway),
+            ),
+            // The sidebar's roster answers a failure with no bots; the
+            // picker must not rely on it.
+            hermesBotsProvider.overrideWith((ref) async => const []),
+          ],
+        );
+        addTearDown(container.dispose);
+        HermesDeliveryOptions? options;
+        final subscription = container.listen(
+          hermesJobDeliveryOptionsProvider,
+          (_, next) => options = next.asData?.value ?? options,
+        );
+        async.flushMicrotasks();
+        check(options?.optionFor('bot-chat:research')?.name).not(
+          (it) => it.equals('Research'),
+        );
+
+        errors.clear();
+        async.elapse(kHermesDeliveryRetryDelay);
+        async.flushMicrotasks();
+        check(options?.optionFor('bot-chat:research')?.name).equals('Research');
+        subscription.close();
+      });
+    });
+
+    test('a stalled bot lookup is asked for again', () {
+      fakeAsync((async) {
+        final adapter = _RoutesAdapter({
+          'GET /api/cron/delivery-targets': (200, {'targets': <Object>[]}),
+        });
+        // The gateway never answers profiles.list.
+        final gateway = _Gateway(silent: {'profiles.list'});
+        final container = containerFor(_service(adapter, gateway));
+        HermesDeliveryOptions? options;
+        final subscription = container.listen(
+          hermesJobDeliveryOptionsProvider,
+          (_, next) => options = next.asData?.value ?? options,
+        );
+        async.elapse(const Duration(seconds: 11));
+        check(options).isNotNull();
+        final lookups = gateway.calls('profiles.list').length;
+
+        async.elapse(kHermesDeliveryRetryDelay);
+        async.flushMicrotasks();
+        check(gateway.calls('profiles.list').length).isGreaterThan(lookups);
+        subscription.close();
+      });
     });
 
     test('a delivery list that stalls is not waited for', () {

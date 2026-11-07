@@ -83,6 +83,10 @@ final class HermesDashboardRestSession implements HermesDashboardBridge {
   Future<HermesDashboardPage>? _ready;
   Future<void> _tail = Future<void>.value();
 
+  /// Urgent requests still running: they hold no queue, so [close] waits
+  /// for them before it closes their page.
+  final Set<Future<void>> _urgent = {};
+
   /// Whether a page is open or opening.
   bool get isOpen => _ready != null;
 
@@ -92,18 +96,37 @@ final class HermesDashboardRestSession implements HermesDashboardBridge {
     Uri uri, {
     String? body,
     bool urgent = false,
+    bool Function()? beforeSend,
   }) {
     // Opening a page stays the queue's job, so an urgent request skips the
     // queue only once one is open or opening.
     final ready = _ready;
     if (urgent && ready != null) {
-      return _fetch(ready, method, uri, body, queued: false);
+      final fetch = _fetch(
+        ready,
+        method,
+        uri,
+        body,
+        queued: false,
+        beforeSend: beforeSend,
+      );
+      final settled = fetch.then<void>((_) {}, onError: (Object _) {});
+      _urgent.add(settled);
+      unawaited(settled.whenComplete(() => _urgent.remove(settled)));
+      return fetch;
     }
     final completer = Completer<({int status, String body})>();
     _tail = _tail.then((_) async {
       try {
         completer.complete(
-          await _fetch(_ensureReady(), method, uri, body, queued: true),
+          await _fetch(
+            _ensureReady(),
+            method,
+            uri,
+            body,
+            queued: true,
+            beforeSend: beforeSend,
+          ),
         );
       } catch (error, stackTrace) {
         completer.completeError(error, stackTrace);
@@ -147,8 +170,14 @@ final class HermesDashboardRestSession implements HermesDashboardBridge {
     Uri uri,
     String? body, {
     required bool queued,
+    bool Function()? beforeSend,
   }) async {
     final page = await _onDashboard(ready);
+    // Asked with nothing awaited before the send, so a withdrawal is
+    // either seen here or comes after the request went out.
+    if (beforeSend?.call() == false) {
+      throw const HermesDashboardRequestWithdrawn();
+    }
     final Object? value;
     try {
       value = await page
@@ -254,6 +283,9 @@ final class HermesDashboardRestSession implements HermesDashboardBridge {
   @override
   Future<void> close() async {
     await _tail;
+    // An urgent request (a Stop) still waiting for its answer keeps the
+    // page until it has one.
+    await Future.wait([..._urgent]);
     final page = _page;
     _page = null;
     _ready = null;

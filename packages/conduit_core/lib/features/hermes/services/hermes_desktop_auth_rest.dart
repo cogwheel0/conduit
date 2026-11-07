@@ -320,6 +320,7 @@ extension _HermesDesktopAuthRest on HermesDesktopApiService {
     int dashboardRetry = 0,
     bool readErrorDetail = false,
     bool dashboardUrgent = false,
+    bool Function()? dashboardBeforeSend,
   }) async {
     final requestQuery = <String, dynamic>{...?query};
     if (authenticated && _isProfileScopedRestPath(path)) {
@@ -335,6 +336,7 @@ extension _HermesDesktopAuthRest on HermesDesktopApiService {
         cancelToken: cancelToken,
         retry: dashboardRetry,
         urgent: dashboardUrgent,
+        beforeSend: dashboardBeforeSend,
       );
     }
     try {
@@ -410,6 +412,7 @@ extension _HermesDesktopAuthRest on HermesDesktopApiService {
     CancelToken? cancelToken,
     int retry = 0,
     bool urgent = false,
+    bool Function()? beforeSend,
   }) async {
     if (!hermesDashboardHeadersSupported(
       isIOS: Platform.isIOS,
@@ -435,6 +438,7 @@ extension _HermesDesktopAuthRest on HermesDesktopApiService {
       _uri(path, query),
       body: body == null ? null : jsonEncode(body),
       urgent: urgent,
+      beforeSend: beforeSend,
     );
     if (cancelToken?.isCancelled == true) throw cancelToken!.cancelError!;
     if (response.status == 401 || response.status == 403) {
@@ -448,6 +452,7 @@ extension _HermesDesktopAuthRest on HermesDesktopApiService {
           cancelToken: cancelToken,
           retry: retry + 1,
           urgent: urgent,
+          beforeSend: beforeSend,
         );
       }
       throw StateError('Hermes dashboard sign-in expired.');

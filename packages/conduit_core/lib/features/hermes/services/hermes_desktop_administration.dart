@@ -467,9 +467,14 @@ final class _HermesDesktopAdministration {
   /// Urgent on a dashboard sign-in: a Run now of the same job holds that
   /// queue until its run ends, so a queued Stop would wait for the very run
   /// it stops.
+  ///
+  /// A Run now of this job still queued behind another request is
+  /// withdrawn first, so it cannot start after the Stop: Hermes, which never
+  /// saw it, would answer that nothing runs.
   Future<HermesJobStopResult> cancelJobRun(String id) async {
+    final withdrew = _owner._jobTriggers[id]?.withdraw() ?? false;
     try {
-      return HermesJobStopResult.fromJson(
+      final result = HermesJobStopResult.fromJson(
         await _owner._requestJson(
           'POST',
           '/api/cron/jobs/${Uri.encodeComponent(id)}/cancel',
@@ -477,7 +482,13 @@ final class _HermesDesktopAdministration {
           dashboardUrgent: true,
         ),
       );
+      return withdrew && !result.cancelled
+          ? const HermesJobStopResult(cancelled: true, beforeStart: true)
+          : result;
     } on HermesDesktopHttpException catch (error) {
+      if (withdrew) {
+        return const HermesJobStopResult(cancelled: true, beforeStart: true);
+      }
       if (error.status == 405 ||
           (error.status == 404 && error.detail != 'Job not found')) {
         throw const HermesJobStopUnsupportedException();
@@ -529,6 +540,24 @@ final class _HermesDesktopAdministration {
       offset = next;
     }
     return rooms;
+  }
+
+  /// Starts the job now (`POST /api/cron/jobs/{id}/trigger`). Hermes answers
+  /// once the run ends.
+  Future<void> runJob(String id) async {
+    final trigger = _QueuedJobTrigger();
+    _owner._jobTriggers[id] = trigger;
+    try {
+      await _owner._requestJson(
+        'POST',
+        '/api/cron/jobs/${Uri.encodeComponent(id)}/trigger',
+        dashboardBeforeSend: trigger.send,
+      );
+    } finally {
+      if (identical(_owner._jobTriggers[id], trigger)) {
+        _owner._jobTriggers.remove(id);
+      }
+    }
   }
 
   Future<void> mutateJob(String id, String method, String suffix) async {
@@ -640,5 +669,26 @@ final class _HermesDesktopAdministration {
       opened = false;
     }
     if (!opened) _owner._rpc.offerConnectionTargetAgain(cardId, update);
+  }
+}
+
+/// A Run now trigger on its way: sent, or withdrawn by a Stop first. Both
+/// happen in one isolate turn each, so exactly one of them wins.
+final class _QueuedJobTrigger {
+  bool _sent = false;
+  bool _withdrawn = false;
+
+  /// Whether the trigger may go out now; false once withdrawn.
+  bool send() {
+    if (_withdrawn) return false;
+    _sent = true;
+    return true;
+  }
+
+  /// Withdraws a trigger not sent yet; false when it already went out.
+  bool withdraw() {
+    if (_sent) return false;
+    _withdrawn = true;
+    return true;
   }
 }

@@ -113,10 +113,18 @@ HermesJobStopOutcome hermesJobStopOutcome(HermesJob? job, String executionId) {
 
 /// The answer to `POST /api/cron/jobs/{id}/cancel`.
 class HermesJobStopResult {
-  const HermesJobStopResult({required this.cancelled, this.executionId});
+  const HermesJobStopResult({
+    required this.cancelled,
+    this.executionId,
+    this.beforeStart = false,
+  });
 
   /// False when no run of the job was in flight.
   final bool cancelled;
+
+  /// The job's Run now was withdrawn before it reached Hermes: nothing ran,
+  /// so the job is stopped already.
+  final bool beforeStart;
 
   /// The attempt the cancel was sent to, when Hermes named it.
   final String? executionId;

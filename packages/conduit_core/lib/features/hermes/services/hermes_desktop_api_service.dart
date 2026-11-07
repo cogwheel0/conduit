@@ -276,6 +276,10 @@ final class HermesDesktopApiService
   final HermesDesktopRpcClient _rpc;
   late final _HermesDesktopAdministration _administration;
   HermesDashboardBridge? _dashboardBridge;
+
+  /// Run now triggers not yet answered, by job: on a dashboard sign-in one
+  /// can still wait in the request queue, where a Stop withdraws it.
+  final Map<String, _QueuedJobTrigger> _jobTriggers = {};
   final HermesDesktopCredentialsWriter? onCredentialsChanged;
   HermesDesktopTokenSet? _nativeTokens;
   bool _closed = false;
@@ -606,9 +610,10 @@ final class HermesDesktopApiService
   @override
   Future<void> resumeJob(String id) =>
       _administration.mutateJob(id, "POST", "/resume");
+  /// Throws [HermesDashboardRequestWithdrawn] when a Stop withdrew it
+  /// before it reached Hermes: the job did not run.
   @override
-  Future<void> runJob(String id) =>
-      _administration.mutateJob(id, "POST", "/trigger");
+  Future<void> runJob(String id) => _administration.runJob(id);
 
   Future<List<Map<String, dynamic>>> listJobRuns(String id) =>
       _administration.listJobRuns(id);
