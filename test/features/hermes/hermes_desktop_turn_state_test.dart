@@ -1047,6 +1047,70 @@ void main() {
       ).isEmpty();
     });
 
+    // The approval was used up before the link opened, so a device that
+    // refused the link left the target with no way to try again.
+    test('an approved link the device refuses is offered again', () async {
+      final chat = await _restoredChat(const {}, opens: false);
+      Map<String, Object?> docs(String state, {String? url}) => {
+        'name': 'docs',
+        'kind': 'mcp',
+        'action': 'install',
+        'state': state,
+        'connect_url': ?url,
+      };
+      chat.harness.event('runtime-1', 'connection.request', {
+        'op_id': 'op-5',
+        'targets': [docs('pending')],
+      });
+      await pumpEventQueue();
+      await chat.service.respondToDecision(
+        storedSessionId: 'stored-1',
+        runtimeId: 'runtime-1',
+        requestId: 'op-5/docs',
+        kind: HermesDecisionKind.mcpSetup,
+        value: 'approve',
+      );
+      chat.harness.event('runtime-1', 'connection.update', {
+        'op_id': 'op-5',
+        'targets': [docs('initiated', url: 'https://auth.example/docs')],
+      });
+      await pumpEventQueue();
+
+      check(chat.opened).deepEquals([Uri.parse('https://auth.example/docs')]);
+      check(
+        chat.events
+            .where((event) => event.type == 'mcp.setup.request')
+            .map((event) => event.payload['request_id']),
+      ).deepEquals(['op-5/docs', 'op-5/docs']);
+    });
+
+    // Reading a restored chat resumes it, which replays its open requests;
+    // each replay re-saved the request and asked for another read.
+    test(
+      'a replayed request that changed nothing reads the chat once',
+      () async {
+        final chat = await _restoredChat({
+          'open_requests': [
+            {
+              'id': 'srq-s7',
+              'method': 'sudo',
+              'params': {'session_id': 'runtime-1', 'command': 'apt update'},
+            },
+          ],
+        });
+        final changes = <String>[];
+        final sub = chat.service.transcriptChanges.listen(changes.add);
+        addTearDown(sub.cancel);
+
+        await chat.service.getSessionMessages('stored-1');
+        await pumpEventQueue();
+        await chat.service.getSessionMessages('stored-1');
+        await pumpEventQueue();
+
+        check(changes).isEmpty();
+      },
+    );
+
     test('the next target re-reads the chat once it is saved', () async {
       final chat = await _restoredChat(const {});
       Map<String, Object?> target(String name, String state) => {
@@ -1097,6 +1161,7 @@ Future<
 _restoredChat(
   Map<String, Object?> snapshot, {
   Map<String, Object?> lock = const {'status': 'ok', 'remaining': <String>[]},
+  bool opens = true,
 }) async {
   SharedPreferences.setMockInitialValues({});
   PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
@@ -1106,7 +1171,7 @@ _restoredChat(
   );
   final events = <HermesDesktopEvent>[];
   rpc.events.listen(events.add);
-  final opener = _RecordingUrlOpener();
+  final opener = _RecordingUrlOpener(opens: opens);
   final service = HermesDesktopApiService(
     config: HermesConfig(
       enabled: true,
@@ -1145,12 +1210,16 @@ _restoredChat(
 }
 
 final class _RecordingUrlOpener implements OpenExternalUrlPort {
+  _RecordingUrlOpener({this.opens = true});
+
+  /// What [open] answers: false is a device that refuses the link.
+  final bool opens;
   final opened = <Uri>[];
 
   @override
   Future<bool> open(Uri url) async {
     opened.add(url);
-    return true;
+    return opens;
   }
 }
 

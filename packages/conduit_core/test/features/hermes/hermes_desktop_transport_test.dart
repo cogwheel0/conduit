@@ -869,6 +869,39 @@ void main() {
       ]);
     });
 
+    // With no target left waiting the operation was forgotten, so the link
+    // arriving later opened a fresh one and asked about the target again.
+    test('a lone target answered is not asked about again', () async {
+      Map<String, Object?> target(String state, {String? url}) => {
+        'name': 'docs',
+        'kind': 'mcp',
+        'action': 'install',
+        'state': state,
+        'connect_url': ?url,
+      };
+      void update(Map<String, Object?> docs) => socket.event(
+        'connection.update',
+        {
+          'op_id': 'op-4',
+          'targets': [docs],
+        },
+        session: 'runtime-1',
+      );
+      update(target('pending'));
+      update(target('initiated'));
+      update(target('initiated', url: 'https://auth.example/docs'));
+      await Future<void>.delayed(Duration.zero);
+
+      check(
+        events
+            .where((event) => event.type.startsWith('mcp.setup.'))
+            .map((event) => '${event.type} ${event.payload['request_id']}'),
+      ).deepEquals([
+        'mcp.setup.request op-4/docs',
+        'mcp.setup.expire op-4/docs',
+      ]);
+    });
+
     test('declines Desktop-only requests with 4404 once allowed', () async {
       socket.serverRequest('srq-t0', 'tour', {'session_id': 'runtime-1'});
       await Future<void>.delayed(Duration.zero);

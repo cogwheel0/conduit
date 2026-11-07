@@ -174,7 +174,10 @@ final class HermesPendingDecisionStore {
   // zone alive (see SecureCredentialStorage).
   static Future<void>? _writes;
 
-  static Future<void> upsert({
+  /// Saves a decision shown in a chat. Resolves to whether that changed a
+  /// saved decision: a new one, or one whose content differs. A replay that
+  /// only renews the expiry changes nothing.
+  static Future<bool> upsert({
     required String origin,
     required String storedSessionId,
     required String runtimeId,
@@ -199,7 +202,7 @@ final class HermesPendingDecisionStore {
         stored == null ||
         runtime == null ||
         request == null) {
-      return;
+      return false;
     }
     final records = _read();
     final identity =
@@ -256,6 +259,10 @@ final class HermesPendingDecisionStore {
               ? previous?.multiSelect ?? multiSelect
               : multiSelect),
     );
+    final changed =
+        previous == null ||
+        previous.identity != record.identity ||
+        !_sameContent(previous, record);
     records
       ..removeWhere(
         (candidate) =>
@@ -264,9 +271,25 @@ final class HermesPendingDecisionStore {
       )
       ..add(record);
     await _write(records);
+    return changed;
   });
 
-  static Future<void> resolve({
+  /// Whether [a] and [b] save the same decision, whatever their expiry.
+  static bool _sameContent(
+    HermesPendingDesktopDecision a,
+    HermesPendingDesktopDecision b,
+  ) {
+    // toStorage writes its keys in one order, so equal content encodes alike.
+    String content(HermesPendingDesktopDecision record) => jsonEncode(
+      Map<String, Object?>.from(jsonDecode(record.toStorage()) as Map)
+        ..remove('expires_at'),
+    );
+    return content(a) == content(b);
+  }
+
+
+  /// Removes a saved decision; resolves to whether one was saved.
+  static Future<bool> resolve({
     required String origin,
     required String runtimeId,
     required String requestId,
@@ -366,11 +389,15 @@ final class HermesPendingDecisionStore {
     );
   }
 
-  static Future<void> _remove(
+  static Future<bool> _remove(
     bool Function(HermesPendingDesktopDecision record) predicate,
   ) => _serialize(() async {
-    final records = _read()..removeWhere(predicate);
+    final records = _read();
+    final before = records.length;
+    records.removeWhere(predicate);
+    if (records.length == before) return false;
     await _write(records);
+    return true;
   });
 
   static List<HermesPendingDesktopDecision> _read() {
@@ -398,10 +425,10 @@ final class HermesPendingDecisionStore {
     );
   }
 
-  static Future<void> _serialize(Future<void> Function() operation) {
+  static Future<T> _serialize<T>(Future<T> Function() operation) {
     final result = (_writes ?? Future<void>.value()).then((_) => operation());
     late final Future<void> tail;
-    tail = result.catchError((_) {}).whenComplete(() {
+    tail = result.then<void>((_) {}, onError: (Object _) {}).whenComplete(() {
       if (identical(_writes, tail)) _writes = null;
     });
     _writes = tail;

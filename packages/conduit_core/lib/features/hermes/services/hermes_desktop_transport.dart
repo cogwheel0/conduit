@@ -874,17 +874,32 @@ final class HermesDesktopRpcClient {
         ),
       );
     }
-    if (next == null) {
+    if (payload['settled'] == true) {
       _connections.remove(operationId);
       return;
     }
+    // Kept while the operation runs, card or not: a target answered here
+    // is not asked about again when its sign-in link arrives later.
     if (!_connections.containsKey(operationId) && _connections.length >= 32) {
       _connections.remove(_connections.keys.first);
     }
     _connections[operationId] = open
       ..shownCardId = nextCardId
       ..shownLink = _connectLinkOf(payload['targets'], nextTarget);
-    if (shown != nextCardId) _events.add(next);
+    if (next != null && shown != nextCardId) _events.add(next);
+  }
+
+  /// Offers connection target [cardId] again with [update] (the frame that
+  /// carried its sign-in link): its link could not be opened, so approving
+  /// it again retries. No other card of its operation is displaced.
+  void offerConnectionTargetAgain(String cardId, Map<String, dynamic> update) {
+    final card = parseHermesConnectionCardId(cardId);
+    final open = card == null ? null : _connections[card.operationId];
+    if (card == null || open == null) return;
+    // Its card was answered; one still counted as shown is shown anew.
+    open.passed.remove(card.target);
+    if (open.shownCardId == cardId) open.shownCardId = null;
+    _showConnection(update, open.sessionId);
   }
 
   /// The sign-in link of the connection target [cardId] while its card is

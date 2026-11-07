@@ -45,12 +45,16 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
     _stateSubscription ??= _rpc.events.listen((event) {
       final startedBuffering = _eventBuffer.add(event);
       // Buffered: no turn shows this session's events, so a restored chat
-      // re-reads its cards once the saved decisions changed.
+      // re-reads its cards once the saved decisions changed. Only a change
+      // counts: reading the chat resumes it, which replays its open requests,
+      // and a replay that changed nothing must not read it again.
       final sessionId = event.sessionId;
       final buffered = sessionId != null && _eventBuffer.hasPending(sessionId);
-      void refreshRestoredCards() {
+      void refreshRestoredCards(bool changed) {
         final storedId = _storedIdForRuntime(sessionId);
-        if (buffered && storedId != null) _emitTranscriptChange(storedId);
+        if (changed && buffered && storedId != null) {
+          _emitTranscriptChange(storedId);
+        }
       }
 
       // Partial infos (a forwarded owner's relay, a service-tier change)
@@ -74,7 +78,7 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
         unawaited(
           _persistPendingDecisionEvent(
             event,
-          ).whenComplete(refreshRestoredCards),
+          ).then(refreshRestoredCards, onError: (Object _) {}),
         );
       }
       if (event.type == 'connection.update') {
@@ -89,7 +93,7 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
         unawaited(
           _resolvePendingDecisionEvent(
             event,
-          ).whenComplete(refreshRestoredCards),
+          ).then(refreshRestoredCards, onError: (Object _) {}),
         );
       }
       if (startedBuffering &&
@@ -103,14 +107,16 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
     _emitTurnState(HermesDesktopTurnState.idle);
   }
 
-  Future<void> _resolvePendingDecisionEvent(HermesDesktopEvent event) async {
+  /// Removes the saved decision [event] closes; resolves to whether one
+  /// was saved.
+  Future<bool> _resolvePendingDecisionEvent(HermesDesktopEvent event) async {
     final runtimeId = validateHermesOpaqueIdentifier(event.sessionId);
     final requestId = validateHermesOpaqueIdentifier(
       event.payload['request_id'] ?? event.payload['id'],
       sensitiveValues: config.sensitiveValues,
     );
-    if (runtimeId == null || requestId == null) return;
-    await HermesPendingDecisionStore.resolve(
+    if (runtimeId == null || requestId == null) return false;
+    return HermesPendingDecisionStore.resolve(
       origin: _origin,
       connectionId: config.connectionId,
       runtimeId: runtimeId,

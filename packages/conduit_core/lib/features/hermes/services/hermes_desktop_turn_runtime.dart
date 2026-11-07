@@ -523,14 +523,16 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
     return null;
   }
 
-  Future<void> _persistPendingDecisionEvent(HermesDesktopEvent event) async {
+  /// Saves the decision [event] asks for; resolves to whether that changed
+  /// what is saved (a replay of one already saved changes nothing).
+  Future<bool> _persistPendingDecisionEvent(HermesDesktopEvent event) async {
     final storedId = _storedIdForRuntime(event.sessionId);
     final runtimeId = validateHermesOpaqueIdentifier(event.sessionId);
     final requestId = validateHermesOpaqueIdentifier(
       event.payload['request_id'] ?? event.payload['id'],
       sensitiveValues: config.sensitiveValues,
     );
-    if (storedId == null || runtimeId == null || requestId == null) return;
+    if (storedId == null || runtimeId == null || requestId == null) return false;
     final kind = switch (event.type) {
       'approval.request' => HermesPendingDesktopDecisionKind.approval,
       'clarify.request' => HermesPendingDesktopDecisionKind.clarification,
@@ -539,7 +541,7 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
       'mcp.setup.request' => HermesPendingDesktopDecisionKind.mcpSetup,
       _ => null,
     };
-    if (kind == null) return;
+    if (kind == null) return false;
     final prompt = switch (event.type) {
       'approval.request' =>
         event.payload['command'] ?? event.payload['description'],
@@ -548,7 +550,7 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
       'mcp.setup.request' => event.payload['reason'] ?? event.payload['server'],
       _ => event.payload['prompt'],
     };
-    await HermesPendingDecisionStore.upsert(
+    return HermesPendingDecisionStore.upsert(
       origin: _origin,
       connectionId: config.connectionId,
       storedSessionId: storedId,

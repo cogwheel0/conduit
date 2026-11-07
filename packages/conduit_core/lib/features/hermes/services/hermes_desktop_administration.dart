@@ -493,7 +493,23 @@ final class _HermesDesktopAdministration {
           !_owner._approvedConnectionTargets.remove(cardId)) {
         continue;
       }
-      unawaited(_owner._openExternalUrl.open(link));
+      unawaited(_openApprovedLink(cardId, link, update));
     }
+  }
+
+  /// Opens [link]; when the device refuses it, [cardId]'s card comes back,
+  /// and approving it again opens the link from there.
+  Future<void> _openApprovedLink(
+    String cardId,
+    Uri link,
+    Map<String, dynamic> update,
+  ) async {
+    var opened = false;
+    try {
+      opened = await _owner._openExternalUrl.open(link);
+    } catch (_) {
+      opened = false;
+    }
+    if (!opened) _owner._rpc.offerConnectionTargetAgain(cardId, update);
   }
 }
