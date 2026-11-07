@@ -1023,6 +1023,20 @@ Future<void> regenerateMessage(
         'Open WebUI direct connections require an active server socket.',
       );
     }
+    if (isTemporary &&
+        socketSessionId == null &&
+        ref.read(temporaryChatNeedsSocketProvider)) {
+      throw const TemporaryChatNeedsConnectionException();
+    }
+    if (isTemporary && socketSessionId != null) {
+      regenerationOwner.chatId = await _temporaryChatIdForSession(
+        ref,
+        api: api!,
+        chatId: regenerationOwner.chatId,
+        sessionId: socketSessionId,
+        unknownToServer: false,
+      );
+    }
     if (!ownsLiveRegenerationPlaceholder()) {
       _clearOpenWebUiRegenerationAttemptMarker(
         ref,

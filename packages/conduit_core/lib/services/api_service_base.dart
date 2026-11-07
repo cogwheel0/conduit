@@ -1980,6 +1980,15 @@ abstract class _ApiServiceBase {
         );
       }
     }
+    // Open WebUI 0.13 refuses a temporary chat sent without a socket session
+    // as one it does not hold. That one needs a connection, not a new chat.
+    if (status == 404 &&
+        sessionId == null &&
+        chatId != null &&
+        chatId.startsWith('local:') &&
+        error.trim() == TemporaryChatUnavailable.serverDetail) {
+      throw const TemporaryChatNeedsConnectionException();
+    }
     throw ChatCompletionHttpException(status, error);
   }
 
@@ -2192,6 +2201,12 @@ abstract class _ApiServiceBase {
   /// Depending on the deployment's web fallback, the removed POST can surface
   /// as either status, so subsequent refreshes go straight to the list fallback.
   bool _activeChatsEndpointUnsupported = false;
+
+  /// When the server last answered a temporary chat resume as an unknown
+  /// route: servers before Open WebUI 0.13 have none. Asked again after
+  /// [_temporaryChatResumeRecheck], in case the server was upgraded.
+  DateTime? _temporaryChatResumeUnsupportedAt;
+  static const Duration _temporaryChatResumeRecheck = Duration(minutes: 15);
   // Keep the total fallback ceiling at 20 requests while reserving capacity
   // for archived chats instead of allowing the regular list to consume all of
   // it before the archived endpoint is attempted.

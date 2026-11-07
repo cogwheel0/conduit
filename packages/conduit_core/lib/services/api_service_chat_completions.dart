@@ -647,6 +647,66 @@ mixin _ChatCompletionsApi on _ApiServiceBase {
     }
   }
 
+  /// Moves a temporary chat to the socket session [sessionId] and reads what
+  /// its running replies have written so far.
+  ///
+  /// Open WebUI 0.13 sends a temporary chat's events only to the socket
+  /// session that owns it, so after a reconnect its replies arrive only once
+  /// the new session takes it over. Null when the server has no such endpoint
+  /// (before 0.13, where the events go to every session of the account).
+  /// Throws [TemporaryChatUnavailable] when the server no longer holds the
+  /// chat.
+  Future<TemporaryChatResume?> resumeTemporaryChat(
+    String chatId, {
+    required String sessionId,
+  }) async {
+    final unsupportedAt = _temporaryChatResumeUnsupportedAt;
+    if (unsupportedAt != null &&
+        DateTime.now().difference(unsupportedAt) <
+            _ApiServiceBase._temporaryChatResumeRecheck) {
+      return null;
+    }
+    final Response<dynamic> resp;
+    try {
+      resp = await _dio.post(
+        '/api/tasks/chat/${Uri.encodeComponent(chatId)}/resume',
+        data: <String, dynamic>{'session_id': sessionId},
+      );
+    } on DioException catch (e) {
+      final status = e.response?.statusCode;
+      // Older servers match the path to the GET route that lists a chat's
+      // tasks, and refuse the method.
+      final data = e.response?.data;
+      final detail = data is Map ? data['detail']?.toString().trim() : null;
+      // Open WebUI 0.13's own answer for a chat it does not hold.
+      if (status == 404 && detail == TemporaryChatUnavailable.serverDetail) {
+        throw TemporaryChatUnavailable(detail!);
+      }
+      // Any other unknown route: a server, or a proxy before it, without
+      // the endpoint (older servers match the GET route and answer 405).
+      if (status == 404 || status == 405) {
+        _temporaryChatResumeUnsupportedAt = DateTime.now();
+        return null;
+      }
+      rethrow;
+    }
+    final data = resp.data;
+    if (data is! Map) return null;
+    final rawTaskIds = data['task_ids'];
+    final rawStreams = data['streams'];
+    return TemporaryChatResume(
+      taskIds: rawTaskIds is List
+          ? [for (final id in rawTaskIds) id.toString()]
+          : const <String>[],
+      streams: rawStreams is List
+          ? [
+              for (final stream in rawStreams)
+                if (stream is Map) Map<String, dynamic>.from(stream),
+            ]
+          : const <Map<String, dynamic>>[],
+    );
+  }
+
   Future<List<String>> getTaskIdsByChat(String chatId) async {
     try {
       final resp = await _dio.get('/api/tasks/chat/$chatId');
@@ -745,6 +805,59 @@ mixin _ChatCompletionsApi on _ApiServiceBase {
   void clearStreamCancelToken(String messageId) {
     _streamCancelActions.remove(messageId);
   }
+}
+
+/// What Open WebUI reports when a temporary chat moves to a new socket
+/// session: the chat's running tasks, and a snapshot of each running reply
+/// (`chat_id`, `message_id`, `output` and its text as `content`).
+final class TemporaryChatResume {
+  const TemporaryChatResume({required this.taskIds, required this.streams});
+
+  /// The error a running reply shows when the chat resumes with no task left:
+  /// the reply ended, or failed, while no session received it.
+  static const String connectionLostMessage = 'Connection lost. Please retry.';
+
+  final List<String> taskIds;
+  final List<Map<String, dynamic>> streams;
+
+  /// The snapshot of the reply [messageId], if it is still running.
+  Map<String, dynamic>? streamFor(String messageId) {
+    for (final stream in streams) {
+      if (stream['message_id']?.toString() == messageId) return stream;
+    }
+    return null;
+  }
+}
+
+/// A temporary chat on Open WebUI 0.13 or later was sent without a connected
+/// socket, which such a server refuses.
+final class TemporaryChatNeedsConnectionException implements Exception {
+  const TemporaryChatNeedsConnectionException();
+
+  @override
+  String toString() =>
+      'TemporaryChatNeedsConnectionException: no socket session';
+}
+
+/// The server does not hold a temporary chat: it forgot it after a day or a
+/// restart, another session started it, or the session asking for it is no
+/// longer connected.
+final class TemporaryChatUnavailable implements Exception {
+  const TemporaryChatUnavailable(this.detail);
+
+  /// Open WebUI's `detail` for a temporary chat it no longer holds, both on a
+  /// resume and on a completion request.
+  static const String serverDetail = 'Temporary chat expired or unavailable';
+
+  /// What the user is told when the server no longer holds the chat.
+  static const String userMessage =
+      'The server no longer has this temporary chat. Start a new temporary '
+      'chat to continue.';
+
+  final String detail;
+
+  @override
+  String toString() => 'TemporaryChatUnavailable: $detail';
 }
 
 /// The server answered a task stop successfully but did not stop the task.

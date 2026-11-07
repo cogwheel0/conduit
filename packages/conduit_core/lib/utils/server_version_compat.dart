@@ -17,10 +17,10 @@ class ServerVersionCompat {
   /// Servers reporting a `/api/config` `version` strictly greater than this are
   /// shown a compatibility warning. Bump this (and re-verify against
   /// `openwebui-src/`) whenever a newer server release is validated.
-  static const String maxSupportedVersion = '0.12.5';
+  static const String maxSupportedVersion = '0.13.0';
 
   /// Parsed [maxSupportedVersion] components: `[major, minor, patch]`.
-  static const List<int> _maxSupported = [0, 12, 5];
+  static const List<int> _maxSupported = [0, 13, 0];
 
   /// Whether [rawVersion] is within the supported range (<= [maxSupportedVersion]).
   ///
@@ -43,6 +43,10 @@ class ServerVersionCompat {
   /// The first Open WebUI release that stores a note as pages, with its
   /// attachments as links in the page content.
   static const String notePagesVersion = '0.12.5';
+
+  /// The first Open WebUI release that ties a temporary chat to the socket
+  /// session that started it, and refuses one sent without a session.
+  static const String temporaryChatSessionVersion = '0.13.0';
 
   /// Whether [rawVersion] is [minimum] or newer, or null when [rawVersion]
   /// cannot be read. For a choice that must not guess either way.

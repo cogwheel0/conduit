@@ -969,6 +969,8 @@ Future<void> _sendMessageInternal(
 
   // Check if we need to create a new conversation first
   var activeConversation = ref.read(activeConversationProvider);
+  // A temporary chat named in this send: the server has never seen it.
+  var mintedTemporaryChat = false;
 
   if (activeConversation == null) {
     final pendingFolderId =
@@ -976,10 +978,24 @@ Future<void> _sendMessageInternal(
     final isTemporary = ref.read(temporaryChatEnabledProvider);
 
     if (isTemporary) {
-      // Temporary chat: use local ID, skip server creation entirely
-      final socketId = ref.read(socketServiceProvider)?.sessionId ?? 'unknown';
+      // Temporary chat: use local ID, skip server creation entirely. The id
+      // names the socket session the request below is sent from, so on Open
+      // WebUI 0.13, which refuses a new temporary chat from any other, the
+      // socket is connected first; an older server is not waited for. A
+      // session that changes before the request renames the chat then.
+      final socket = _readOpenWebUiSocketForApi(ref, api);
+      final socketSessionId = ref.read(temporaryChatNeedsSocketProvider)
+          ? await _ensureConnectedSocketSessionId(socket)
+          : _connectedSocketSessionId(socket);
+      // The user may have opened another chat while the socket connected.
+      if (!chatMutationTokenStillActive(ref, sendMutationOwner)) {
+        throw StateError(
+          'The conversation changed while preparing the message.',
+        );
+      }
+      mintedTemporaryChat = true;
       final localConversation = Conversation(
-        id: 'local:${socketId}_${const Uuid().v4()}',
+        id: newTemporaryChatId(socketSessionId),
         title: 'New Chat',
         createdAt: DateTime.now(),
         updatedAt: DateTime.now(),
@@ -1269,7 +1285,30 @@ Future<void> _sendMessageInternal(
         'Open WebUI direct connections require an active server socket.',
       );
     }
+    if (isTemporary &&
+        socketSessionId == null &&
+        ref.read(temporaryChatNeedsSocketProvider)) {
+      throw const TemporaryChatNeedsConnectionException();
+    }
     requireOpenWebUiPreflightOwner();
+    if (isTemporary && socketSessionId != null && submittedOwner != null) {
+      final renewedId = await _temporaryChatIdForSession(
+        ref,
+        api: api,
+        chatId: submittedOwner.chatId,
+        sessionId: socketSessionId,
+        unknownToServer: mintedTemporaryChat,
+      );
+      if (renewedId != submittedOwner.chatId) {
+        submittedOwner.chatId = renewedId;
+        final renewed = ref.read(activeConversationProvider) as Conversation?;
+        if (renewed != null && renewed.id == renewedId) {
+          activeConversation = renewed;
+          sendHandle._bindConversation(renewed);
+        }
+      }
+      requireOpenWebUiPreflightOwner();
+    }
 
     List<Map<String, dynamic>>? toolServers;
     final admittedToolServers = <PersonalToolAdmission>[];
@@ -1565,10 +1604,97 @@ Future<void> _sendMessageInternal(
   }
 }
 
+/// A new temporary chat's id: `local:<socket session>:<uuid>`.
+///
+/// Open WebUI 0.13 reads the socket session that started a temporary chat from
+/// its id, after the prefix and up to a colon, and refuses the chat's first
+/// request from any other session, or any id whose rest is not a lowercase
+/// hyphenated uuid. Older servers only check the prefix. Without a session
+/// the id is `local:<uuid>`, which only an older server answers (over HTTP).
+String newTemporaryChatId(String? socketSessionId) {
+  final id = const Uuid().v4();
+  if (socketSessionId == null || socketSessionId.isEmpty) return 'local:$id';
+  return 'local:$socketSessionId:$id';
+}
+
+/// The session part of a temporary chat id `local:<session>:<uuid>`, or null
+/// for an id that names none.
+String? temporaryChatSessionOf(String chatId) {
+  if (!chatId.startsWith('local:')) return null;
+  final rest = chatId.substring('local:'.length);
+  final colon = rest.indexOf(':');
+  return colon <= 0 ? null : rest.substring(0, colon);
+}
+
+/// The id the temporary chat [chatId] is sent under from the socket session
+/// [sessionId].
+///
+/// Open WebUI 0.13 takes a temporary chat it does not hold yet only from the
+/// session its id names. A chat it holds follows the account's newest
+/// session, so a later turn from another session is fine. When the id names
+/// another session, the server is asked through its resume endpoint, which
+/// also moves a chat it holds to [sessionId]. A chat it does not hold
+/// ([unknownToServer] when this send named it), whose first request failed
+/// or that the server forgot, is renamed in place for [sessionId]: the server
+/// keeps nothing else of a temporary chat, as every request carries the whole
+/// conversation. Servers before 0.13 do not check the session, and keep the
+/// id.
+Future<String> _temporaryChatIdForSession(
+  dynamic ref, {
+  required ApiService api,
+  required String chatId,
+  required String sessionId,
+  required bool unknownToServer,
+}) async {
+  // Only a temporary chat: temporary mode can be on while a saved chat is
+  // open, and a saved chat's id is the server's.
+  if (!isTemporaryChat(chatId)) return chatId;
+  if (temporaryChatSessionOf(chatId) == sessionId) return chatId;
+  // A chat kept on the device, such as one made offline that has not reached
+  // the server yet, has an id its stored rows depend on.
+  final active = ref.read(activeConversationProvider) as Conversation?;
+  if (active == null ||
+      active.id != chatId ||
+      chatStorageKindOf(active) != null) {
+    return chatId;
+  }
+  if (!unknownToServer) {
+    try {
+      await api.resumeTemporaryChat(chatId, sessionId: sessionId);
+      return chatId;
+    } on TemporaryChatUnavailable {
+      // Not held for this session: renamed below.
+    } catch (error) {
+      DebugLogger.log(
+        'temporary-chat-session-check-failed',
+        scope: 'chat/providers',
+        data: {'errorType': error.runtimeType.toString()},
+      );
+      return chatId;
+    }
+  }
+  final renewedId = newTemporaryChatId(sessionId);
+  ref
+      .read(activeConversationProvider.notifier)
+      .remapIdInPlace(fromId: chatId, toId: renewedId);
+  return renewedId;
+}
+
 /// Returns a user-friendly error description based on the exception.
 String chatErrorContentForException(Object e) {
   if (e is _DirectConversationOwnerUnavailable) {
     return 'This conversation is no longer available.';
+  }
+  if (e is TemporaryChatNeedsConnectionException) {
+    return 'Temporary chats need a live connection to the server. Check '
+        'your connection and try again.';
+  }
+  // Open WebUI 0.13's answer to a temporary chat it no longer holds: one it
+  // forgot after a day or a restart, or one first sent from another session.
+  if (e is ChatCompletionHttpException &&
+      e.statusCode == 404 &&
+      e.detail.trim() == TemporaryChatUnavailable.serverDetail) {
+    return TemporaryChatUnavailable.userMessage;
   }
   if (e is HermesAttachmentsUnsupportedException) return e.message;
   if (e is HermesChatInputException) return e.message;

@@ -26,15 +26,23 @@ void main() {
       check(ServerVersionCompat.knownAtLeast(null, pages)).isNull();
       check(ServerVersionCompat.knownAtLeast('main', pages)).isNull();
     });
+
+    test('a temporary chat needs its session from 0.13.0', () {
+      const session = ServerVersionCompat.temporaryChatSessionVersion;
+      check(ServerVersionCompat.knownAtLeast('0.13.0', session)).equals(true);
+      check(ServerVersionCompat.knownAtLeast('0.12.5', session)).equals(false);
+      check(ServerVersionCompat.knownAtLeast(null, session)).isNull();
+    });
   });
 
   group('ServerVersionCompat.isSupported', () {
     test('the max supported version itself is supported', () {
-      check(ServerVersionCompat.isSupported('0.12.5')).isTrue();
+      check(ServerVersionCompat.isSupported('0.13.0')).isTrue();
     });
 
     test('older versions are supported', () {
       for (final v in [
+        '0.12.5',
         '0.12.4',
         '0.12.3',
         '0.12.2',
@@ -55,22 +63,22 @@ void main() {
     });
 
     test('newer patch / minor / major versions are unsupported', () {
-      for (final v in ['0.12.6', '0.13.0', '0.20.0', '1.0.0', '2.5.3']) {
+      for (final v in ['0.13.1', '0.14.0', '0.20.0', '1.0.0', '2.5.3']) {
         check(because: v, ServerVersionCompat.isSupported(v)).isFalse();
       }
     });
 
     test('tolerates a leading v prefix', () {
-      check(ServerVersionCompat.isSupported('v0.12.5')).isTrue();
-      check(ServerVersionCompat.isSupported('v0.12.6')).isFalse();
+      check(ServerVersionCompat.isSupported('v0.13.0')).isTrue();
+      check(ServerVersionCompat.isSupported('v0.13.1')).isFalse();
     });
 
     test('strips pre-release / build metadata before comparing', () {
       // A pre-release of the max version is treated as the max version.
-      check(ServerVersionCompat.isSupported('0.12.5-dev')).isTrue();
-      check(ServerVersionCompat.isSupported('0.12.5+build.7')).isTrue();
+      check(ServerVersionCompat.isSupported('0.13.0-dev')).isTrue();
+      check(ServerVersionCompat.isSupported('0.13.0+build.7')).isTrue();
       // Metadata on a newer core still gates.
-      check(ServerVersionCompat.isSupported('0.12.6-rc1')).isFalse();
+      check(ServerVersionCompat.isSupported('0.13.1-rc1')).isFalse();
     });
 
     test('partial versions are padded with zeros', () {
@@ -86,8 +94,8 @@ void main() {
     });
 
     test('isUnsupported is the inverse of isSupported', () {
-      check(ServerVersionCompat.isUnsupported('0.12.6')).isTrue();
-      check(ServerVersionCompat.isUnsupported('0.12.5')).isFalse();
+      check(ServerVersionCompat.isUnsupported('0.13.1')).isTrue();
+      check(ServerVersionCompat.isUnsupported('0.13.0')).isFalse();
       check(ServerVersionCompat.isUnsupported(null)).isFalse();
     });
 
