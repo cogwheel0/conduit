@@ -81,6 +81,15 @@ Future<void> drawerTestRecordPlatformCallsDuring(
   }
 }
 
+/// The light taps the sliding sidebar's drawer plays when it settles.
+Iterable<DrawerTestRecordedPlatformCall> drawerTestLightSettleHapticCalls(
+  List<DrawerTestRecordedPlatformCall> calls,
+) => calls.where(
+  (call) =>
+      call.method == 'HapticFeedback.vibrate' &&
+      call.arguments == 'HapticFeedbackType.lightImpact',
+);
+
 Iterable<DrawerTestRecordedPlatformCall> drawerTestSettleHapticCalls(
   List<DrawerTestRecordedPlatformCall> calls,
 ) => calls.where(
@@ -97,6 +106,7 @@ Widget drawerTestBuildHarness({
   Widget? drawer,
   double edgeFraction = 0.5,
   VoidCallback? onOpenStart,
+  bool settleHaptics = false,
   bool tabletDismissible = true,
   bool tabletInitiallyDocked = true,
   double tabletDrawerWidth = 320,
@@ -113,6 +123,7 @@ Widget drawerTestBuildHarness({
         key: layoutKey,
         edgeFraction: edgeFraction,
         onOpenStart: onOpenStart,
+        settleHaptics: settleHaptics,
         tabletDismissible: tabletDismissible,
         tabletInitiallyDocked: tabletInitiallyDocked,
         tabletDrawerWidth: tabletDrawerWidth,

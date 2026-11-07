@@ -59,6 +59,7 @@ class DrawerShellPage extends ConsumerWidget {
           ? 0.84
           : 1.0,
       roundPushedContent: sliding,
+      settleHaptics: sliding,
       edgeFraction: isTablet ? 0.36 : 1.0,
       settleFraction: 0.06,
       scrimColor: scrim,

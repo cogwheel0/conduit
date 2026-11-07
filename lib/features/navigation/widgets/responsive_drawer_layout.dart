@@ -8,6 +8,7 @@ import 'package:flutter/services.dart';
 
 import 'package:conduit_core/services/performance_profiler.dart';
 
+import '../../../core/services/haptic_service.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/horizontal_gesture_ownership.dart';
 import '../../../shared/widgets/drawer_slot.dart';
@@ -42,6 +43,10 @@ class ResponsiveDrawerLayout extends StatefulWidget {
   final bool pushContent;
   final bool roundPushedContent;
   final double contentScaleDelta;
+
+  /// Whether the mobile drawer taps once when it comes to rest fully open
+  /// after being closed, or fully closed after being open.
+  final bool settleHaptics;
   final VoidCallback? onOpenStart;
   final double mobileBottomDragGestureExclusion;
 
@@ -70,6 +75,7 @@ class ResponsiveDrawerLayout extends StatefulWidget {
     this.pushContent = true,
     this.roundPushedContent = false,
     this.contentScaleDelta = 0.02,
+    this.settleHaptics = false,
     this.onOpenStart,
     this.mobileBottomDragGestureExclusion = 0.0,
     this.tabletDrawerWidth = defaultSidebarTabletWidth,
@@ -99,9 +105,26 @@ class ResponsiveDrawerLayoutState extends State<ResponsiveDrawerLayout>
 
   /// Radius the pushed content's corners reach where the screen's is unknown.
   static const double _kPushedContentCornerRadius = 36.0;
+
+  /// How far the pushed content fades, when the drawer is open, toward a
+  /// grey [_kPushedContentVeilTone] of the way from the page to its text. The
+  /// page turns grey beside the drawer while its text dims, rather than both
+  /// sinking into black.
+  static const double _kPushedContentVeilOpacity = 0.5;
+  static const double _kPushedContentVeilTone = 0.16;
+
+  /// A faint line in the text colour around the open pushed content, like the
+  /// edge of a pane of glass.
+  static const double _kPushedContentEdgeOpacity = 0.12;
+  static const double _kPushedContentEdgeWidth = 1.0;
   static const double _kEdgeOpenTouchSlop = kTouchSlop;
   static const double _kHorizontalScrollableOpenThreshold = 45.0;
   static const double _kEdgeOpenAxisBias = 1.0;
+
+  /// How near, in points, the settling drawer comes to an endpoint before it
+  /// counts as there. [_spring] is within a point at about 230 ms but only
+  /// comes to rest at about 490 ms, a lag a haptic on landing would show.
+  static const double _kSettleLandingDistance = 1.0;
 
   late final AnimationController _controller;
   late bool _isTabletDocked = widget.tabletInitiallyDocked;
@@ -235,6 +258,7 @@ class ResponsiveDrawerLayoutState extends State<ResponsiveDrawerLayout>
     super.initState();
     _controller = AnimationController(vsync: this, value: 0.0);
     _lastSettledEndpoint = _settledEndpointForValue(_controller.value);
+    _controller.addListener(_onControllerValueChanged);
     _controller.addStatusListener(_onControllerStatusChanged);
   }
 
@@ -342,9 +366,24 @@ class ResponsiveDrawerLayoutState extends State<ResponsiveDrawerLayout>
     if (_pendingSettledEndpoint != endpoint) {
       return;
     }
+    _settle(endpoint);
+  }
 
+  /// Settles the drawer as soon as it lands within [_kSettleLandingDistance]
+  /// of the endpoint it is heading for, before the spring comes to rest.
+  void _onControllerValueChanged() {
+    final endpoint = _pendingSettledEndpoint;
+    if (endpoint == null || _isDragging || _cachedIsTablet || !mounted) return;
+    final target = endpoint == _DrawerSettleEndpoint.open ? 1.0 : 0.0;
+    final distance = (_controller.value - target).abs() * _panelWidth;
+    if (distance > _kSettleLandingDistance) return;
+    _settle(endpoint);
+  }
+
+  void _settle(_DrawerSettleEndpoint endpoint) {
     _pendingSettledEndpoint = null;
     _lastSettledEndpoint = endpoint;
+    if (widget.settleHaptics) unawaited(ConduitHaptics.lightImpact());
   }
 
   @override
@@ -804,15 +843,20 @@ class ResponsiveDrawerLayoutState extends State<ResponsiveDrawerLayout>
 
   Widget _buildMobileLayout(ConduitThemeExtension theme, Color scrim) {
     final roundContent = widget.pushContent && widget.roundPushedContent;
-    // Fixed for the whole animation, so it is read once per build.
+    // Fixed for the whole animation, so they are read once per build.
     final cornerRadius = roundContent
         ? _pushedContentCornerRadius(context)
         : 0.0;
+    final veil = Color.lerp(
+      theme.surfaceBackground,
+      theme.textPrimary,
+      _kPushedContentVeilTone,
+    )!;
     return Stack(
       children: [
-        Positioned.fill(
-          child: ColoredBox(color: theme.surfaceContainerHighest),
-        ),
+        // Shows at the pushed content's rounded corners, so it matches the
+        // drawer beside them.
+        Positioned.fill(child: ColoredBox(color: theme.surfaceBackground)),
         // Content (optionally pushed by the drawer)
         Positioned.fill(
           child: RepaintBoundary(
@@ -839,17 +883,23 @@ class ResponsiveDrawerLayoutState extends State<ResponsiveDrawerLayout>
                     excluding: t > 0,
                     child: ExcludeSemantics(
                       excluding: t > 0,
-                      child: ClipRSuperellipse(
-                        borderRadius: BorderRadius.circular(cornerRadius * t),
+                      // Only a rectangular clip: see [PushedContentFrame].
+                      child: ClipRect(
                         child: Stack(
                           fit: StackFit.expand,
                           children: [
                             child!,
                             if (roundContent)
-                              IgnorePointer(
-                                child: ColoredBox(
-                                  color: scrim.withValues(alpha: 0.6 * t),
+                              PushedContentFrame(
+                                radius: cornerRadius * t,
+                                backdrop: theme.surfaceBackground,
+                                veil: veil.withValues(
+                                  alpha: _kPushedContentVeilOpacity * t,
                                 ),
+                                edge: theme.textPrimary.withValues(
+                                  alpha: _kPushedContentEdgeOpacity * t,
+                                ),
+                                edgeWidth: _kPushedContentEdgeWidth,
                               ),
                           ],
                         ),
@@ -901,7 +951,7 @@ class ResponsiveDrawerLayoutState extends State<ResponsiveDrawerLayout>
                       onHorizontalDragEnd: _onDragEnd,
                       onHorizontalDragCancel: _onDragCancel,
                       child: ColoredBox(
-                        // Rounded pushed content carries its own scrim.
+                        // Rounded pushed content carries its own grey veil.
                         color: roundContent
                             ? Colors.transparent
                             : scrim.withValues(alpha: 0.6 * t),
@@ -937,8 +987,97 @@ class ResponsiveDrawerLayoutState extends State<ResponsiveDrawerLayout>
 
   @override
   void dispose() {
+    _controller.removeListener(_onControllerValueChanged);
     _controller.removeStatusListener(_onControllerStatusChanged);
     _controller.dispose();
     super.dispose();
+  }
+}
+
+/// Covers the content an open mobile drawer pushes aside: a [veil] across it,
+/// its corners rounded to [radius] in the [backdrop] colour around them, and
+/// a glassy [edge] along them.
+///
+/// The corners are painted rather than clipped. On iOS, a rounded clip around
+/// a platform view makes the engine keep what Flutter draws above that view
+/// in the layer beneath as well as in its overlay, so a translucent veil came
+/// out twice as strong across the bounds of the content's native controls.
+@visibleForTesting
+class PushedContentFrame extends StatelessWidget {
+  const PushedContentFrame({
+    super.key,
+    required this.radius,
+    required this.backdrop,
+    required this.veil,
+    required this.edge,
+    required this.edgeWidth,
+  });
+
+  final double radius;
+  final Color backdrop;
+  final Color veil;
+  final Color edge;
+  final double edgeWidth;
+
+  @override
+  Widget build(BuildContext context) {
+    return IgnorePointer(
+      child: CustomPaint(
+        size: Size.infinite,
+        painter: _PushedContentFramePainter(this),
+      ),
+    );
+  }
+}
+
+class _PushedContentFramePainter extends CustomPainter {
+  const _PushedContentFramePainter(this.frame);
+
+  final PushedContentFrame frame;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final bounds = Offset.zero & size;
+    if (frame.veil.a > 0) {
+      canvas.drawRect(bounds, Paint()..color = frame.veil);
+    }
+    if (frame.radius > 0) {
+      canvas.drawPath(
+        Path()
+          ..fillType = PathFillType.evenOdd
+          ..addRect(bounds)
+          ..addRSuperellipse(
+            RSuperellipse.fromRectAndRadius(
+              bounds,
+              Radius.circular(frame.radius),
+            ),
+          ),
+        Paint()..color = frame.backdrop,
+      );
+    }
+    if (frame.edge.a > 0 && frame.edgeWidth > 0) {
+      // Stroked inside the corners, along the line between them.
+      final inset = frame.edgeWidth / 2;
+      canvas.drawRSuperellipse(
+        RSuperellipse.fromRectAndRadius(
+          bounds.deflate(inset),
+          Radius.circular((frame.radius - inset).clamp(0.0, frame.radius)),
+        ),
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = frame.edgeWidth
+          ..color = frame.edge,
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(_PushedContentFramePainter oldDelegate) {
+    final old = oldDelegate.frame;
+    return old.radius != frame.radius ||
+        old.backdrop != frame.backdrop ||
+        old.veil != frame.veil ||
+        old.edge != frame.edge ||
+        old.edgeWidth != frame.edgeWidth;
   }
 }

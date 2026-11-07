@@ -720,7 +720,8 @@ class _SlidingSidebarPage extends ConsumerWidget {
           display.shortestSide != viewport.shortestSide,
       isIOSAppOnMac: PlatformInfo.isIOSAppOnMac,
     );
-    final surface = theme.surfaceContainerHighest;
+    // The tabbed sidebar's surface, so both layouts follow the theme alike.
+    final surface = theme.surfaceBackground;
     final safePadding = MediaQuery.paddingOf(context);
     final controlExtent = conduitScaledControlExtent(context);
     final toolbarHeight = conduitAdaptiveToolbarHeightOf(context);

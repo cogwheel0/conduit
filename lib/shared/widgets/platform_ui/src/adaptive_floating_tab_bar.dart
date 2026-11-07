@@ -42,7 +42,9 @@ class AdaptiveFloatingTab {
   /// shows.
   final String nativeAsset;
 
-  /// Longest side of [nativeAsset] in the native tab bar, in points.
+  /// Longest side of [nativeAsset] on screen, in points. The native bar
+  /// shrinks to [AdaptiveFloatingTabBar.controlExtent] and draws the icon for
+  /// that scale, so it matches glyphs of the same size elsewhere.
   final double nativeIconSize;
 }
 
