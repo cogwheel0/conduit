@@ -5,7 +5,9 @@ WebView. Browser content runs on the terminal, never in this WebView. It support
 the browser patch/JPEG stream, native desktop patches, and VNC desktops.
 
 Rebuild the checked-in asset with `npm ci && npm run build` in this directory.
-Run protocol checks with `npm test`. Dependencies are pinned in the lockfile.
+Run protocol and gesture checks with `npm test`. CI runs these checks and
+rebuilds the viewer to verify the checked-in bundle matches its source.
+Dependencies are pinned in the lockfile.
 noVNC is distributed under MPL-2.0; its full license and the third-party
 notices ship alongside the bundle in `assets/computer`.
 
