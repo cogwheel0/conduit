@@ -1364,11 +1364,22 @@ class HermesApiService implements HermesBackendService, HermesTurnService {
           'reasoning': <String, dynamic>{'effort': effort},
         };
 
-  Map<String, String> _sessionHeaders({String? sessionId}) {
+  /// Session headers for a request about [sessionId].
+  ///
+  /// `X-Hermes-Session-Key` is only a long-term memory scope while the turn
+  /// already names its session: a run's `session_id`, or a Responses
+  /// `previous_response_id`. Without one, Hermes also uses the key to pick
+  /// the session, so every new chat would land in one shared session that
+  /// runs a turn at a time. Callers send the key ([withSessionKey]) only
+  /// when the session is named.
+  Map<String, String> _sessionHeaders({
+    String? sessionId,
+    required bool withSessionKey,
+  }) {
     final validatedSessionId = _validatedOptionalSessionId(sessionId);
     return {
       'X-Hermes-Session-Id': ?validatedSessionId,
-      if ((config.sessionKey ?? '').isNotEmpty)
+      if (withSessionKey && (config.sessionKey ?? '').isNotEmpty)
         'X-Hermes-Session-Key': config.sessionKey!,
     };
   }
@@ -1490,7 +1501,10 @@ class HermesApiService implements HermesBackendService, HermesTurnService {
         else
           'previous_response_id': ?previousResponseId,
       },
-      headers: _sessionHeaders(sessionId: validatedSessionId),
+      headers: _sessionHeaders(
+        sessionId: validatedSessionId,
+        withSessionKey: validatedSessionId != null,
+      ),
     );
     return _requireOpaqueIdentifier(data['run_id'] ?? data['id']);
   }
@@ -1520,7 +1534,10 @@ class HermesApiService implements HermesBackendService, HermesTurnService {
         receiveTimeout: streamLimits.idleTimeout,
         headers: {
           'Accept': 'text/event-stream',
-          ..._sessionHeaders(sessionId: sessionId),
+          ..._sessionHeaders(
+            sessionId: sessionId,
+            withSessionKey: sessionId != null,
+          ),
           if (lastEventId != null) 'Last-Event-ID': '$lastEventId',
         },
       ),
@@ -1840,7 +1857,12 @@ class HermesApiService implements HermesBackendService, HermesTurnService {
         receiveTimeout: streamLimits.idleTimeout,
         headers: {
           'Accept': 'text/event-stream',
-          ..._sessionHeaders(sessionId: sessionId),
+          // Responses reads no session id header: only a chain names the
+          // session.
+          ..._sessionHeaders(
+            sessionId: sessionId,
+            withSessionKey: previousResponseId?.isNotEmpty ?? false,
+          ),
         },
         validateStatus: _acceptEveryHermesStatus,
       ),

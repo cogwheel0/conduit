@@ -331,6 +331,42 @@ void main() {
       check(req.responseType).equals(ResponseType.stream);
     });
 
+    test('session key stays off turns that name no session', () async {
+      // Without a session, Hermes picks the session the key declares, so
+      // every such chat would share one serialized session.
+      final runCapture = _CaptureInterceptor({'run_id': 'r1'});
+      await _service(runCapture, session: 'mem-key').createRun(input: 'hi');
+      check(
+        runCapture.requests.single.headers.containsKey('X-Hermes-Session-Key'),
+      ).isFalse();
+
+      ResponseBody done() => ResponseBody.fromString(
+        'data: [DONE]\n\n',
+        200,
+        headers: {
+          Headers.contentTypeHeader: ['text/event-stream'],
+        },
+      );
+      final newChain = _CaptureInterceptor(done());
+      final firstTurn = await _service(newChain, session: 'mem-key')
+          .streamResponse(HermesChatInput.text('hi'));
+      await firstTurn.events.drain<void>();
+      check(
+        newChain.requests.single.headers.containsKey('X-Hermes-Session-Key'),
+      ).isFalse();
+
+      final chained = _CaptureInterceptor(done());
+      final nextTurn = await _service(chained, session: 'mem-key')
+          .streamResponse(
+            HermesChatInput.text('more'),
+            previousResponseId: 'resp_1',
+          );
+      await nextTurn.events.drain<void>();
+      check(
+        chained.requests.single.headers['X-Hermes-Session-Key'],
+      ).equals('mem-key');
+    });
+
     test('reasoning effort travels in model_options', () async {
       final runCapture = _CaptureInterceptor({'run_id': 'r1'});
       await _service(runCapture).createRunWithReasoning(
