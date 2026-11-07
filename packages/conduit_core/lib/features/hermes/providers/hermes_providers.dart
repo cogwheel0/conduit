@@ -2886,15 +2886,22 @@ class HermesJobsController extends AsyncNotifier<List<HermesJob>> {
       ref.read(hermesApiServiceProvider) ??
       (throw StateError('Hermes is not configured'));
 
-  Future<List<HermesJob>>? _refreshing;
+  /// The quiet refresh in flight and the connection it reads. A rebuild
+  /// for another connection keeps this notifier, so a request still pending
+  /// for the previous one must not be shared with the new one.
+  ({HermesBackendService service, Future<List<HermesJob>> jobs})? _refreshing;
 
   /// Reloads the list in place, without a loading state, for watching a run
-  /// that is in flight. Overlapping calls share one request; a failure keeps
-  /// the current list.
+  /// that is in flight. Overlapping calls for the same connection share one
+  /// request; a failure keeps the current list.
   Future<List<HermesJob>?> refreshQuietly() async {
     final service = ref.read(hermesApiServiceProvider);
     if (service == null) return null;
-    final pending = _refreshing ??= _load(service);
+    final shared = _refreshing;
+    final refresh = shared != null && identical(shared.service, service)
+        ? shared
+        : _refreshing = (service: service, jobs: _load(service));
+    final pending = refresh.jobs;
     try {
       final jobs = await pending;
       if (!ref.mounted ||
@@ -2906,7 +2913,7 @@ class HermesJobsController extends AsyncNotifier<List<HermesJob>> {
     } catch (_) {
       return null;
     } finally {
-      if (identical(_refreshing, pending)) _refreshing = null;
+      if (identical(_refreshing?.jobs, pending)) _refreshing = null;
     }
   }
 
@@ -3003,16 +3010,27 @@ final hermesJobsProvider =
       HermesJobsController.new,
     );
 
+/// How long the delivery picker waits for each of its lists. Rooms come over
+/// the gateway socket, whose connect has no deadline of its own.
+const Duration _kHermesDeliveryLookupTimeout = Duration(seconds: 10);
+
+/// How soon a picker that had to do without a list asks again, while the
+/// page that shows it keeps it alive.
+@visibleForTesting
+const Duration kHermesDeliveryRetryDelay = Duration(seconds: 30);
+
 /// Where the connection's jobs can deliver: local, messaging platforms, Bot
 /// Chats, and Group Chats. Null on the API server, which lists no targets.
 final hermesJobDeliveryOptionsProvider =
     FutureProvider.autoDispose<HermesDeliveryOptions?>((ref) async {
       final service = ref.watch(hermesApiServiceProvider);
       if (service is! HermesDesktopApiService) return null;
+      var partial = false;
       Future<T> orElse<T>(Future<T> future, T fallback) async {
         try {
-          return await future;
+          return await future.timeout(_kHermesDeliveryLookupTimeout);
         } catch (_) {
+          partial = true;
           return fallback;
         }
       }
@@ -3022,6 +3040,12 @@ final hermesJobDeliveryOptionsProvider =
         orElse(ref.watch(hermesBotsProvider.future), <HermesBot>[]),
         orElse(service.listRooms(), <HermesRoom>[]),
       ).wait;
+      if (partial) {
+        // A list that failed or stalled is asked for again rather than kept
+        // missing for as long as the job cards hold this provider.
+        final retry = Timer(kHermesDeliveryRetryDelay, ref.invalidateSelf);
+        ref.onDispose(retry.cancel);
+      }
       return HermesDeliveryOptions.build(
         targets: targets,
         bots: bots,

@@ -104,8 +104,10 @@ class AdaptiveDropdownField<T> extends StatelessWidget {
           errorText: state.errorText,
         );
         // UIKit's pop-up button has no item subtitles; those lists keep the
-        // native single-choice sheet below.
+        // native single-choice sheet below. It cannot lay out inside a
+        // Material dialog either, which sizes itself to its content.
         if (PlatformUiCapabilities.usesNativeIOS26 &&
+            !isInsideMaterialAlertDialog(context) &&
             options.isNotEmpty &&
             options.every((option) => option.subtitle?.isNotEmpty != true)) {
           final fieldName =

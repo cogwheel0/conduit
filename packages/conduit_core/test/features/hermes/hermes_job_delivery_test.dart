@@ -24,6 +24,21 @@ void main() {
           .equals('slack');
     });
 
+    test('toggling keeps every saved target of a long list', () {
+      final saved = [for (var i = 0; i < 70; i++) 'room:r$i@ops'].join(',');
+      final toggled = toggleHermesDeliveryTarget(
+        saved,
+        'telegram',
+        selected: true,
+      );
+      check(parseHermesDeliveryTargets(toggled))
+        ..length.equals(71)
+        ..last.equals('telegram');
+      check(
+        toggleHermesDeliveryTarget(toggled, 'telegram', selected: false),
+      ).equals(saved);
+    });
+
     test('matches the same targets in any order', () {
       check(hermesDeliveryTargetsMatch('local,slack', 'slack, local')).isTrue();
       check(hermesDeliveryTargetsMatch(null, 'local')).isTrue();

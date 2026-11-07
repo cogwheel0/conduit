@@ -3,11 +3,15 @@ import 'dart:async';
 import 'package:checks/checks.dart';
 import 'package:conduit/features/hermes/views/hermes_jobs_page.dart';
 import 'package:conduit/features/hermes/widgets/hermes_job_editor.dart';
+import 'package:conduit/shared/theme/theme_extensions.dart';
+import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:conduit_core/features/hermes/models/hermes_capabilities.dart';
 import 'package:conduit_core/features/hermes/models/hermes_config.dart';
 import 'package:conduit_core/features/hermes/models/hermes_job.dart';
 import 'package:conduit_core/features/hermes/models/hermes_job_delivery.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
+import 'package:conduit_core/features/hermes/services/hermes_api_service.dart';
+import 'package:conduit_core/features/hermes/services/hermes_backend_service.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
@@ -73,10 +77,13 @@ final class _CronJobs extends HermesJobsController {
     return onStop();
   }
 
+  /// A fresh list each time, as a real read is: an identical one would not
+  /// notify the page.
   @override
   Future<List<HermesJob>?> refreshQuietly() async {
-    state = AsyncData(jobs);
-    return jobs;
+    final fresh = [...jobs];
+    state = AsyncData(fresh);
+    return fresh;
   }
 
   void publish(List<HermesJob> next) {
@@ -84,6 +91,17 @@ final class _CronJobs extends HermesJobsController {
     state = AsyncData(next);
   }
 }
+
+/// The connection the page reads; tests switch it to another server.
+final class _Connection extends Notifier<HermesBackendService?> {
+  @override
+  HermesBackendService? build() => null;
+
+  void use(HermesBackendService service) => state = service;
+}
+
+final _connectionProvider =
+    NotifierProvider<_Connection, HermesBackendService?>(_Connection.new);
 
 Future<void> _pumpPage(
   WidgetTester tester,
@@ -100,7 +118,9 @@ Future<void> _pumpPage(
         hermesCapabilitiesProvider.overrideWith(
           (ref) async => const HermesCapabilities(),
         ),
-        hermesApiServiceProvider.overrideWithValue(null),
+        hermesApiServiceProvider.overrideWith(
+          (ref) => ref.watch(_connectionProvider),
+        ),
         hermesJobDeliveryOptionsProvider.overrideWith((ref) async => _options),
       ],
       child: const MaterialApp(home: HermesJobsPage()),
@@ -118,7 +138,16 @@ Future<void> _unmount(WidgetTester tester) async {
 
 const _stopKey = ValueKey<String>('hermes-job-stop-job-1');
 
+/// Lays out native iOS 26 controls, as on a current iPhone.
+void _useNativeIOS26() {
+  PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.iOS;
+  PlatformUiCapabilities.debugIOSMajorVersionOverride = 26;
+  PlatformUiCapabilities.debugNativeIOS26Override = true;
+}
+
 void main() {
+  tearDown(PlatformUiCapabilities.resetDebugOverrides);
+
   group('stop', () {
     testWidgets('holds Stopping… until the run is cancelled', (tester) async {
       final jobs = _CronJobs([_job(status: 'running')]);
@@ -175,6 +204,98 @@ void main() {
       await _unmount(tester);
     });
 
+    testWidgets('a list read before the cancel is answered does not settle '
+        'it', (tester) async {
+      final jobs = _CronJobs([_job(status: 'running')]);
+      final cancel = Completer<HermesJobStopResult>();
+      jobs.onStop = () => cancel.future;
+      await _pumpPage(tester, jobs);
+
+      await tester.tap(find.byKey(_stopKey));
+      await tester.pump();
+      // A poll sent before Stop answers with the job idle.
+      jobs.publish([_job()]);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(find.text('The run finished before it could stop.'), findsNothing);
+
+      cancel.complete(
+        const HermesJobStopResult(cancelled: true, executionId: 'exec-1'),
+      );
+      await tester.pump();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(find.text('Run stopped.'), findsOneWidget);
+      expect(find.text('The run finished before it could stop.'), findsNothing);
+      await _unmount(tester);
+    });
+
+    testWidgets('an idle list is polled, so a run started elsewhere shows '
+        'Stop', (tester) async {
+      final jobs = _CronJobs([_job(status: 'completed')]);
+      await _pumpPage(tester, jobs);
+      expect(find.byKey(_stopKey), findsNothing);
+
+      // The scheduler starts the job; nothing on the page asked for it.
+      jobs.jobs = [_job(status: 'running')];
+      await tester.pump(const Duration(seconds: 16));
+      await tester.pump();
+
+      expect(find.text('Running now'), findsOneWidget);
+      expect(find.byKey(_stopKey), findsOneWidget);
+      await _unmount(tester);
+    });
+
+    testWidgets('leaving while Stop waits is safe', (tester) async {
+      final jobs = _CronJobs([_job(status: 'running')]);
+      final cancel = Completer<HermesJobStopResult>();
+      jobs.onStop = () => cancel.future;
+      await _pumpPage(tester, jobs);
+
+      await tester.tap(find.byKey(_stopKey));
+      await tester.pump();
+      await tester.pumpWidget(const SizedBox.shrink());
+      cancel.complete(const HermesJobStopResult(cancelled: false));
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 5));
+
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('a reply from the previous connection is ignored', (
+      tester,
+    ) async {
+      final jobs = _CronJobs([_job(status: 'running')]);
+      final answer = Completer<void>();
+      jobs.onStop = () async {
+        await answer.future;
+        throw const HermesJobStopUnsupportedException();
+      };
+      await _pumpPage(tester, jobs);
+
+      await tester.tap(find.byKey(_stopKey));
+      await tester.pump();
+      ProviderScope.containerOf(tester.element(find.byType(HermesJobsPage)))
+          .read(_connectionProvider.notifier)
+          .use(
+            HermesApiService(
+              config: const HermesConfig(
+                enabled: true,
+                baseUrl: 'https://hermes-b.example',
+                apiKey: 'synthetic-key',
+              ),
+            ),
+          );
+      await tester.pump();
+      answer.complete();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+
+      expect(find.text('Update Hermes to stop running jobs.'), findsNothing);
+      expect(find.byKey(_stopKey), findsOneWidget);
+      await _unmount(tester);
+    });
+
     testWidgets('says when nothing is in flight', (tester) async {
       final jobs = _CronJobs([_job(status: 'claimed')]);
       jobs.onStop = () async => const HermesJobStopResult(cancelled: false);
@@ -202,6 +323,52 @@ void main() {
       expect(find.byKey(_stopKey), findsNothing);
       await _unmount(tester);
     });
+
+    testWidgets('reads Stopping… with one ellipsis while it waits', (
+      tester,
+    ) async {
+      final jobs = _CronJobs([_job(status: 'running')]);
+      final cancel = Completer<HermesJobStopResult>();
+      jobs.onStop = () => cancel.future;
+      await _pumpPage(tester, jobs);
+
+      await tester.tap(find.byKey(_stopKey));
+      await tester.pump();
+
+      expect(
+        find.descendant(
+          of: find.byKey(_stopKey),
+          matching: find.text('Stopping…'),
+        ),
+        findsOneWidget,
+      );
+      expect(find.text('Stopping……'), findsNothing);
+      cancel.complete(
+        const HermesJobStopResult(cancelled: true, executionId: 'exec-1'),
+      );
+      await _unmount(tester);
+    });
+
+    testWidgets('labels the glass Stop in the error colour on iOS 26', (
+      tester,
+    ) async {
+      _useNativeIOS26();
+      final jobs = _CronJobs([_job(status: 'running')]);
+      await _pumpPage(tester, jobs);
+
+      final stop = tester.widget<CNButton>(
+        find.descendant(
+          of: find.byKey(_stopKey),
+          matching: find.byType(CNButton),
+        ),
+      );
+      final theme = tester.element(find.byKey(_stopKey)).conduitTheme;
+      check(stop.label).equals('Stop');
+      check(stop.config.style).equals(CNButtonStyle.glass);
+      // The light text of a filled destructive button vanishes on glass.
+      check(stop.config.labelColor).equals(theme.error);
+      await _unmount(tester);
+    }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
 
     testWidgets('is not offered by the API server', (tester) async {
       final jobs = _CronJobs([_job(status: 'running')]);
@@ -367,5 +534,27 @@ void main() {
         ..has((r) => r.catchUp, 'catchUp')
             .equals(HermesJobCatchUp.hermesDefault);
     });
+
+    // The dialog sizes its body to its intrinsic width, which the native
+    // menu button cannot report: the editor opened blank and froze.
+    testWidgets('lays out with native iOS 26 controls', (tester) async {
+      _useNativeIOS26();
+      final editor = await openEditor(
+        tester,
+        initialPrompt: 'Summarize the overnight notes',
+        initialCatchUp: HermesJobCatchUp.skip,
+      );
+
+      check(tester.takeException()).isNull();
+      expect(find.byType(CNPopupMenuButton), findsNothing);
+      expect(find.text('Skip missed runs'), findsOneWidget);
+      await scrollTo(tester, target('telegram'));
+      await save(tester);
+
+      check(await editor.result).isNotNull()
+          .has((r) => r.name, 'name')
+          .equals('Digest');
+      await _unmount(tester);
+    }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
   });
 }

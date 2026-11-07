@@ -8,9 +8,12 @@ import 'package:conduit_core/features/hermes/models/hermes_job.dart';
 import 'package:conduit_core/features/hermes/models/hermes_job_delivery.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 import 'package:conduit_core/features/hermes/services/hermes_api_service.dart';
+import 'package:conduit_core/features/hermes/services/hermes_backend_service.dart';
+import 'package:conduit_core/features/hermes/services/hermes_dashboard_bridge.dart';
 import 'package:conduit_core/features/hermes/services/hermes_desktop_api_service.dart';
 import 'package:conduit_core/features/hermes/services/hermes_desktop_transport.dart';
 import 'package:dio/dio.dart';
+import 'package:fake_async/fake_async.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:riverpod/riverpod.dart';
 import 'package:test/test.dart';
@@ -26,6 +29,9 @@ final class _RoutesAdapter implements HttpClientAdapter {
   final Map<String, (int, Object?)> routes;
   final requests = <_Request>[];
   final bodies = <String, Object?>{};
+
+  /// When set, the next request waits for it before it is answered.
+  Completer<void>? hold;
 
   @override
   void close({bool force = false}) {}
@@ -45,6 +51,9 @@ final class _RoutesAdapter implements HttpClientAdapter {
       ));
       bodies[key] = options.data;
     }
+    final held = hold;
+    hold = null;
+    await held?.future;
     final (status, body) =
         routes[key] ??
         switch (options.uri.path) {
@@ -69,10 +78,50 @@ final class _MockWebSocketChannel extends Mock implements WebSocketChannel {}
 
 final class _MockWebSocketSink extends Mock implements WebSocketSink {}
 
+/// A dashboard sign-in's bridge that records which requests were urgent.
+final class _UrgencyBridge implements HermesDashboardBridge {
+  final urgent = <String, bool>{};
+
+  @override
+  Future<({int status, String body})> request(
+    String method,
+    Uri url, {
+    String? body,
+    bool urgent = false,
+  }) async {
+    this.urgent['$method ${url.path}'] = urgent;
+    return url.path.endsWith('/cancel')
+        ? (status: 200, body: '{"cancelled":true,"execution_id":"exec-1"}')
+        : (status: 200, body: '{}');
+  }
+
+  @override
+  Future<void> reload() async {}
+
+  @override
+  Future<void> close() async {}
+}
+
+/// Switches the connection a container's providers read.
+final class _Connection extends Notifier<HermesBackendService?> {
+  _Connection(this.initial);
+
+  final HermesBackendService initial;
+
+  @override
+  HermesBackendService? build() => initial;
+
+  void use(HermesBackendService service) => state = service;
+}
+
 /// A gateway socket that answers every request: [results] by method, else an
-/// empty object; [errors] by method as JSON-RPC errors.
+/// empty object; [errors] by method as JSON-RPC errors; never [silent] ones.
 final class _Gateway {
-  _Gateway({this.results = const {}, this.errors = const {}}) {
+  _Gateway({
+    this.results = const {},
+    this.errors = const {},
+    this.silent = const {},
+  }) {
     when(() => channel.ready).thenAnswer((_) async {});
     when(() => channel.stream).thenAnswer((_) {
       scheduleMicrotask(
@@ -96,6 +145,7 @@ final class _Gateway {
       final id = frame['id'];
       if (id == null) return;
       final method = frame['method']?.toString() ?? '';
+      if (silent.contains(method)) return;
       final error = errors[method];
       scheduleMicrotask(
         () => incoming.add(
@@ -114,6 +164,7 @@ final class _Gateway {
 
   final Map<String, Object?> results;
   final Map<String, Map<String, Object?>> errors;
+  final Set<String> silent;
   final channel = _MockWebSocketChannel();
   final sink = _MockWebSocketSink();
   final incoming = StreamController<dynamic>.broadcast();
@@ -228,6 +279,30 @@ void main() {
       ..has((r) => r.method, 'method').equals('POST')
       ..has((r) => r.path, 'path').equals('/api/cron/jobs/job-1/cancel')
       ..has((r) => r.query, 'query').deepEquals({'profile': 'ops'});
+  });
+
+  test('a dashboard sign-in sends Stop ahead of a waiting Run now', () async {
+    final bridge = _UrgencyBridge();
+    final service = HermesDesktopApiService(
+      config: HermesConfig(
+        enabled: true,
+        baseUrl: 'https://hermes.example',
+        mode: HermesBackendMode.desktopGateway,
+        desktopAuthKind: HermesDesktopAuthKind.dashboardCookie,
+      ),
+      dashboardBridgeFactory: ({required root, required accessHeaders}) =>
+          bridge,
+    );
+    addTearDown(service.close);
+
+    await service.runJob('job-1');
+    final result = await service.stopJobRun('job-1');
+
+    check(result.executionId).equals('exec-1');
+    check(bridge.urgent).deepEquals({
+      'POST /api/cron/jobs/job-1/trigger': false,
+      'POST /api/cron/jobs/job-1/cancel': true,
+    });
   });
 
   test('stop with nothing in flight says so', () async {
@@ -437,6 +512,88 @@ void main() {
       check(jobs).isNotNull().length.equals(1);
       check(jobs!.single.runInFlight).isTrue();
       check(states.map((s) => s.isLoading)).every((s) => s.isFalse());
+    });
+
+    test('a quiet refresh never shares a request of the previous '
+        'connection', () async {
+      Map<String, Object?> job(String id) => {
+        'id': id,
+        'prompt': 'Summarize the notes',
+        'schedule': '0 7 * * *',
+      };
+      final adapterA = _RoutesAdapter({
+        'GET /api/cron/jobs': (200, [job('job-a')]),
+      });
+      final adapterB = _RoutesAdapter({
+        'GET /api/cron/jobs': (200, [job('job-b')]),
+      });
+      final serviceA = _service(adapterA);
+      final serviceB = _service(adapterB);
+      final connection = NotifierProvider<_Connection, HermesBackendService?>(
+        () => _Connection(serviceA),
+      );
+      final container = ProviderContainer(
+        overrides: [
+          hermesApiServiceProvider.overrideWith((ref) => ref.watch(connection)),
+        ],
+      );
+      addTearDown(container.dispose);
+      container.listen(hermesJobsProvider, (_, _) {});
+      await container.read(hermesJobsProvider.future);
+      final jobs = container.read(hermesJobsProvider.notifier);
+
+      // A's refresh is still waiting when the user switches to B.
+      final held = adapterA.hold = Completer<void>();
+      final staleRefresh = jobs.refreshQuietly();
+      await pumpEventQueue();
+      container.read(connection.notifier).use(serviceB);
+      await container.read(hermesJobsProvider.future);
+
+      final fresh = jobs.refreshQuietly();
+      held.complete();
+      check(await fresh).isNotNull().single.has((j) => j.id, 'id').equals(
+        'job-b',
+      );
+      check(await staleRefresh).isNull();
+      check(
+        container.read(hermesJobsProvider).value!.map((j) => j.id),
+      ).deepEquals(['job-b']);
+    });
+
+    test('a delivery list that stalls is not waited for', () {
+      fakeAsync((async) {
+        final adapter = _RoutesAdapter({
+          'GET /api/cron/delivery-targets': (
+            200,
+            {
+              'targets': [
+                {'id': 'slack', 'name': 'Slack', 'home_target_set': true},
+              ],
+            },
+          ),
+        });
+        // The gateway never answers groups.list.
+        final gateway = _Gateway(silent: {'groups.list'});
+        final container = containerFor(_service(adapter, gateway));
+        HermesDeliveryOptions? options;
+        final subscription = container.listen(
+          hermesJobDeliveryOptionsProvider,
+          (_, next) => options = next.asData?.value ?? options,
+        );
+        async.elapse(const Duration(seconds: 11));
+
+        check(options).isNotNull().has(
+          (o) => o.options.map((option) => option.target).toList(),
+          'targets',
+        ).deepEquals(['local', 'slack']);
+        final listsBefore = gateway.calls('groups.list').length;
+
+        // The list that timed out is asked for again later.
+        async.elapse(kHermesDeliveryRetryDelay);
+        async.flushMicrotasks();
+        check(gateway.calls('groups.list').length).isGreaterThan(listsBefore);
+        subscription.close();
+      });
     });
 
     test('delivery options combine targets, bots, and rooms', () async {

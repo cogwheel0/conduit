@@ -12,10 +12,17 @@
 /// interpret.
 abstract interface class HermesDashboardBridge {
   /// Issues [method] against [url] from inside the authenticated context.
+  ///
+  /// Requests run one at a time, in order. An [urgent] one runs at once on a
+  /// context that is already open instead: for a request whose order does
+  /// not matter and that must not wait behind a long one, such as a Stop
+  /// behind the Run now it stops (Hermes answers that only once the run
+  /// ends).
   Future<({int status, String body})> request(
     String method,
     Uri url, {
     String? body,
+    bool urgent = false,
   });
 
   /// Reloads the dashboard, re-establishing cookies after a 401 or 403.

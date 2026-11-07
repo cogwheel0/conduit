@@ -7,7 +7,6 @@ const String kHermesLocalDeliveryTarget = 'local';
 
 const String _botChatToken = 'bot-chat';
 const String _roomPrefix = 'room:';
-const int _maxDeliveryTargets = 64;
 const int _maxDeliveryNameCharacters = 256;
 
 // `cron/scheduler_delivery_room.py` `_ROOM_TOKEN_RE`: a room id, then the
@@ -34,14 +33,15 @@ enum HermesDeliveryKind {
 }
 
 /// The targets in a `deliver` value, a comma-separated list. Empty means
-/// `local`, as Hermes reads it.
+/// `local`, as Hermes reads it. Every target is kept: a toggle writes this
+/// list back, so dropping one would remove a saved route. The value itself
+/// is already bounded when a job is read.
 List<String> parseHermesDeliveryTargets(String? value) {
   final targets = <String>[];
   for (final part in (value ?? '').split(',')) {
     final target = part.trim();
     if (target.isEmpty || targets.contains(target)) continue;
     targets.add(target);
-    if (targets.length >= _maxDeliveryTargets) break;
   }
   return targets.isEmpty ? const [kHermesLocalDeliveryTarget] : targets;
 }

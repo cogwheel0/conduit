@@ -213,6 +213,72 @@ void main() {
     ]);
   });
 
+  test('an urgent request does not wait behind a long one', () async {
+    final bridge = session(requestTimeout: const Duration(milliseconds: 50));
+    await bridge.request('GET', Uri.parse('https://hermes.example/warm'));
+    final page = pages.single;
+    final held = page.hold = Completer<void>();
+    final trigger = bridge.request(
+      'POST',
+      Uri.parse('https://hermes.example/trigger'),
+    );
+    await pumpEventQueue();
+    // Only the trigger is slow to answer.
+    page.hold = null;
+    var triggerDone = false;
+    unawaited(trigger.then((_) => triggerDone = true));
+
+    final cancel = await bridge.request(
+      'POST',
+      Uri.parse('https://hermes.example/cancel'),
+      urgent: true,
+    );
+    check(cancel.body).equals('https://hermes.example/cancel');
+    check(triggerDone).isFalse();
+
+    held.complete();
+    check((await trigger).body).equals('https://hermes.example/trigger');
+    check(pages).length.equals(1);
+    check(page.disposed).isFalse();
+  });
+
+  test('an urgent request on a closed bridge opens it in order', () async {
+    final bridge = session();
+    final first = bridge.request('GET', Uri.parse('https://hermes.example/a'));
+    final urgent = bridge.request(
+      'POST',
+      Uri.parse('https://hermes.example/b'),
+      urgent: true,
+    );
+    await Future.wait([first, urgent]);
+    check(pages).length.equals(1);
+    check(pages.single.log).deepEquals([
+      'call https://hermes.example/a',
+      'call https://hermes.example/b',
+    ]);
+  });
+
+  test('an urgent request that times out keeps the page', () async {
+    final bridge = session(requestTimeout: const Duration(milliseconds: 20));
+    await bridge.request('GET', Uri.parse('https://hermes.example/warm'));
+    final page = pages.single;
+    final held = page.hold = Completer<void>();
+    await check(
+      bridge.request(
+        'POST',
+        Uri.parse('https://hermes.example/cancel'),
+        urgent: true,
+      ),
+    ).throws<TimeoutException>();
+    check(page.disposed).isFalse();
+    page.hold = null;
+    held.complete();
+    check(
+      (await bridge.request('GET', Uri.parse('https://hermes.example/n'))).body,
+    ).equals('https://hermes.example/n');
+    check(pages).length.equals(1);
+  });
+
   test(
     'a page that fails to load is closed and the next request retries',
     () async {

@@ -59,12 +59,17 @@ class HermesJobsPage extends ConsumerStatefulWidget {
 /// second after it is asked for.
 const Duration _kLiveRunPollInterval = Duration(seconds: 2);
 
+/// How often an idle list is re-read, so a run the scheduler or another
+/// client starts shows up with its Stop.
+const Duration _kIdlePollInterval = Duration(seconds: 15);
+
 class _HermesJobsPageState extends ConsumerState<HermesJobsPage> {
   bool _creating = false;
 
-  /// Jobs with a Stop in progress, to the execution each Stop targeted
-  /// (empty until Hermes names it).
-  final Map<String, String> _stopping = {};
+  /// Jobs with a Stop in progress, to the execution each Stop targeted:
+  /// null until the cancel is answered, so no list read before then settles
+  /// it, and empty when Hermes named no execution.
+  final Map<String, String?> _stopping = {};
 
   /// Jobs whose Run now request is still waiting: Hermes answers it only once
   /// the run ends, so the run counts as live meanwhile.
@@ -72,6 +77,7 @@ class _HermesJobsPageState extends ConsumerState<HermesJobsPage> {
 
   bool _stopUnsupported = false;
   Timer? _pollTimer;
+  Duration? _pollInterval;
 
   /// Jobs whose run was in flight in the previous list.
   Set<String> _liveJobIds = const {};
@@ -125,6 +131,7 @@ class _HermesJobsPageState extends ConsumerState<HermesJobsPage> {
     final l10n = _l10n(context);
     final settled = <String, HermesJobStopOutcome>{};
     for (final MapEntry(key: jobId, value: executionId) in _stopping.entries) {
+      if (executionId == null) continue;
       final job = jobs.where((candidate) => candidate.id == jobId).firstOrNull;
       final outcome = hermesJobStopOutcome(job, executionId);
       if (outcome != HermesJobStopOutcome.pending) settled[jobId] = outcome;
@@ -141,22 +148,35 @@ class _HermesJobsPageState extends ConsumerState<HermesJobsPage> {
     }
   }
 
-  /// Polls while there is a run to watch, so Stop appears for a run started
-  /// elsewhere and "Stopping…" settles without a manual refresh.
+  /// Polls the Desktop Gateway's list while it is shown: quickly while there
+  /// is a run to watch, so "Stopping…" settles without a manual refresh, and
+  /// slowly otherwise, so a run started elsewhere shows up with its Stop.
   void _syncPolling([List<HermesJob>? jobs]) {
-    final current = jobs ?? ref.read(hermesJobsProvider).asData?.value;
-    final active =
-        mounted &&
-        _desktop &&
-        (_stopping.isNotEmpty ||
-            _runPending.isNotEmpty ||
-            (current?.any((job) => job.runInFlight) ?? false));
-    if (!active) {
-      _pollTimer?.cancel();
-      _pollTimer = null;
-    } else {
-      _pollTimer ??= Timer.periodic(_kLiveRunPollInterval, (_) => _poll());
+    // A Stop answered after the page closed still reaches its `finally`.
+    if (!mounted) {
+      _stopPolling();
+      return;
     }
+    final current = jobs ?? ref.read(hermesJobsProvider).asData?.value;
+    if (!_desktop || current == null) {
+      _stopPolling();
+      return;
+    }
+    final watching =
+        _stopping.isNotEmpty ||
+        _runPending.isNotEmpty ||
+        current.any((job) => job.runInFlight);
+    final interval = watching ? _kLiveRunPollInterval : _kIdlePollInterval;
+    if (_pollTimer != null && _pollInterval == interval) return;
+    _pollTimer?.cancel();
+    _pollInterval = interval;
+    _pollTimer = Timer.periodic(interval, (_) => _poll());
+  }
+
+  void _stopPolling() {
+    _pollTimer?.cancel();
+    _pollTimer = null;
+    _pollInterval = null;
   }
 
   void _poll() {
@@ -184,11 +204,15 @@ class _HermesJobsPageState extends ConsumerState<HermesJobsPage> {
     if (_stopping.containsKey(job.id)) return;
     final l10n = _l10n(context);
     final notifier = ref.read(hermesJobsProvider.notifier);
-    setState(() => _stopping[job.id] = '');
+    final service = ref.read(hermesApiServiceProvider);
+    // A reply from a connection the user has since left says nothing about
+    // the one now shown. Read only while mounted.
+    bool switched() => !identical(ref.read(hermesApiServiceProvider), service);
+    setState(() => _stopping[job.id] = null);
     _syncPolling();
     try {
       final result = await notifier.stopRun(job.id);
-      if (!mounted) return;
+      if (!mounted || switched()) return;
       if (!result.cancelled) {
         setState(() => _stopping.remove(job.id));
         UiUtils.showMessage(context, l10n.hermesJobNothingToStop);
@@ -199,7 +223,7 @@ class _HermesJobsPageState extends ConsumerState<HermesJobsPage> {
       }
       await notifier.refreshQuietly();
     } on HermesJobStopUnsupportedException {
-      if (!mounted) return;
+      if (!mounted || switched()) return;
       setState(() {
         _stopping.remove(job.id);
         _stopUnsupported = true;
@@ -210,7 +234,7 @@ class _HermesJobsPageState extends ConsumerState<HermesJobsPage> {
         isError: true,
       );
     } catch (_) {
-      if (!mounted) return;
+      if (!mounted || switched()) return;
       setState(() => _stopping.remove(job.id));
       UiUtils.showMessage(context, l10n.hermesJobStopFailed, isError: true);
     } finally {
