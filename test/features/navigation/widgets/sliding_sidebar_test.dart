@@ -582,6 +582,11 @@ void main() {
     expect(position.maxScrollExtent, 0);
   });
 
+  // On the default target platform, as the other sidebar tests. Under an iOS
+  // target, Linux CI draws the package's Flutter fallback for every native
+  // control in the sidebar, and one of them overflows its row by a few
+  // pixels. The toolbar follows PlatformUiCapabilities, so its configuration
+  // is checked either way.
   testWidgets('iOS 26 draws the bottom bar as the system toolbar', (
     tester,
   ) async {
@@ -682,7 +687,7 @@ void main() {
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pumpAndSettle();
-  }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
+  });
 
   testWidgets('Material backend tabs are an icon-only pill beside a FAB', (
     tester,

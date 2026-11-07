@@ -437,7 +437,6 @@ void main() {
       await tester.pumpWidget(const SizedBox.shrink());
       await tester.pumpAndSettle();
     },
-    variant: TargetPlatformVariant.only(TargetPlatform.iOS),
   );
 
   testWidgets('iOS 26 tabbed sidebar keeps the Terminal control an icon', (
