@@ -1,5 +1,7 @@
+import 'package:conduit/core/services/native_sheet_bridge.dart';
 import 'package:conduit/features/chat/widgets/usage_stats_modal.dart';
 import 'package:conduit/l10n/app_localizations.dart';
+import 'package:conduit/platform/conduit_platform_apis.g.dart';
 import 'package:conduit/shared/theme/app_theme.dart';
 import 'package:conduit/shared/theme/tweakcn_themes.dart';
 import 'package:conduit/shared/widgets/legacy_design_compatibility.dart';
@@ -7,6 +9,11 @@ import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
+
+final _nativeSheetChannel = BasicMessageChannel<Object?>(
+  'dev.flutter.pigeon.conduit.NativeSheetHostApi.presentResultSheet',
+  NativeSheetHostApi.pigeonChannelCodec,
+);
 
 void main() {
   /// Opens the usage of [usage] from a button. With [anchorKey], the button
@@ -83,30 +90,49 @@ void main() {
     );
   });
 
-  group('on iOS 26', () {
+  group('on iOS', () {
     const channel = MethodChannel('cn_popover');
     final calls = <MethodCall>[];
+    final sheets = <PlatformNativeSheetResultRequest>[];
 
     setUp(() {
       PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.iOS;
       PlatformUiCapabilities.debugIOSMajorVersionOverride = 26;
       PlatformUiCapabilities.debugNativeIOS26Override = true;
+      NativeSheetBridge.instance.debugIsIOSOverride = true;
       calls.clear();
-      // Answers as the native popover does once it is closed without a choice.
-      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
-          .setMockMethodCallHandler(channel, (call) async {
-            calls.add(call);
-            return null;
-          });
+      sheets.clear();
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      // Both answer as the native side does once closed without a choice.
+      messenger.setMockMethodCallHandler(channel, (call) async {
+        calls.add(call);
+        return null;
+      });
+      messenger.setMockDecodedMessageHandler<Object?>(_nativeSheetChannel, (
+        message,
+      ) async {
+        sheets.add(
+          (message! as List<Object?>).single!
+              as PlatformNativeSheetResultRequest,
+        );
+        return <Object?>[null];
+      });
     });
 
     tearDown(() {
-      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
-          .setMockMethodCallHandler(channel, null);
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      messenger.setMockMethodCallHandler(channel, null);
+      messenger.setMockDecodedMessageHandler<Object?>(
+        _nativeSheetChannel,
+        null,
+      );
+      NativeSheetBridge.instance.debugIsIOSOverride = null;
       PlatformUiCapabilities.resetDebugOverrides();
     });
 
-    testWidgets('the figures open in a popover instead of the sheet', (
+    testWidgets('from iOS 26 the figures open in a popover, not a sheet', (
       tester,
     ) async {
       final l10n = await openSheet(tester, <String, dynamic>{
@@ -137,7 +163,7 @@ void main() {
           (l10n.usageTotalDuration, null, l10n.usageSecondsFormat('5.00')),
         ],
       );
-      expect(find.text(l10n.usageInfoTitle), findsNothing);
+      expect(sheets, isEmpty);
     }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
 
     for (final fallback in [
@@ -145,22 +171,27 @@ void main() {
         name: 'before iOS 26',
         iOSVersion: 18,
         usage: <String, dynamic>{'output_tokens': 120},
+        field: 'Output Tokens: 120',
         anchorOnScreen: true,
       ),
       (
         name: 'for usage with no figure the summary knows',
         iOSVersion: 26,
         usage: <String, dynamic>{'cache_hits': 3},
+        field: 'Cache Hits: 3',
         anchorOnScreen: true,
       ),
       (
         name: 'when the anchor is not on screen',
         iOSVersion: 26,
         usage: <String, dynamic>{'output_tokens': 120},
+        field: 'Output Tokens: 120',
         anchorOnScreen: false,
       ),
     ]) {
-      testWidgets('the sheet still opens ${fallback.name}', (tester) async {
+      testWidgets('the native sheet lists the raw fields ${fallback.name}', (
+        tester,
+      ) async {
         PlatformUiCapabilities.debugIOSMajorVersionOverride =
             fallback.iOSVersion;
         final l10n = await openSheet(
@@ -171,7 +202,10 @@ void main() {
         );
 
         expect(calls, isEmpty);
-        expect(find.text(l10n.usageInfoTitle), findsOneWidget);
+        expect(sheets, hasLength(1));
+        final root = sheets.single.root;
+        expect(root.title, l10n.usageInfoTitle);
+        expect(root.items.single.value, contains(fallback.field));
       }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
     }
   });
