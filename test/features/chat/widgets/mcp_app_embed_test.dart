@@ -277,6 +277,13 @@ void main() {
 
     expect(byPath!.action, isNot(FetchRequestAction.ABORT));
     expect(elsewhere!.action, FetchRequestAction.ABORT);
+
+    // Unparsable here, though the web view would drop the tab and go on.
+    final unparsable = await hook(
+      app.controller,
+      FetchRequest(url: WebUri('//evil.example:8\t0/foo')),
+    );
+    expect(unparsable!.action, FetchRequestAction.ABORT);
   });
 
   test('the bridge takes only MCP Apps messages from the page', () {
@@ -410,6 +417,25 @@ void main() {
     expect('<!DOCTYPE'.allMatches(document), hasLength(1));
     expect(document, contains('Content-Security-Policy'));
     expect(document, endsWith('\n<html><body>app</body></html>'));
+  });
+
+  testWidgets('comments before an app\'s doctype move with it', (
+    tester,
+  ) async {
+    final app = await _openApp(
+      tester,
+      _ServingApi(
+        html: '<!-- built by tool -->\n<!DOCTYPE html><html><body>app</body></html>',
+      ),
+    );
+    final document = app.view.initialData!.data;
+
+    expect(
+      document,
+      startsWith('<!-- built by tool -->\n<!DOCTYPE html><meta'),
+    );
+    expect('<!DOCTYPE'.allMatches(document), hasLength(1));
+    expect(document, endsWith('<html><body>app</body></html>'));
   });
 
   testWidgets('an app without a doctype gets the host tags first', (

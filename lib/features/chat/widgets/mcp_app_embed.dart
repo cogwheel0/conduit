@@ -330,8 +330,10 @@ class _McpAppEmbedState extends ConsumerState<McpAppEmbed> {
         '$page';
   }
 
+  // Comments may come before the doctype and it still counts, so they move
+  // with it.
   static final _leadingDoctype = RegExp(
-    r'^\s*(<!doctype[^>]*>)',
+    r'^(\s*(?:<!--[\s\S]*?-->\s*)*<!doctype[^>]*>)',
     caseSensitive: false,
   );
 
@@ -476,7 +478,7 @@ class _McpAppEmbedState extends ConsumerState<McpAppEmbed> {
       },
       shouldInterceptAjaxRequest: (_, request) async {
         if (!mcpAppScriptRequestAllowed(
-          request.url?.uriValue,
+          mcpAppParsedUrl(request.url),
           connect,
           pageScheme: _documentUrl.scheme,
         )) {
@@ -487,7 +489,7 @@ class _McpAppEmbedState extends ConsumerState<McpAppEmbed> {
       },
       shouldInterceptFetchRequest: (_, request) async {
         if (!mcpAppScriptRequestAllowed(
-          request.url?.uriValue,
+          mcpAppParsedUrl(request.url),
           connect,
           pageScheme: _documentUrl.scheme,
         )) {
@@ -528,17 +530,18 @@ class _McpAppEmbedState extends ConsumerState<McpAppEmbed> {
   }
 }
 
-/// The script an MCP App page starts with: its `postMessage` to the host
-/// reaches Conduit through [bridgeName], with [bridgeToken], and Conduit's
-/// messages arrive as `message` events from the page's parent, which is the
-/// page itself in a web view, through [deliverName]. Navigation, popups and
-/// device access are refused, as in a sandboxed frame. A form's submit still
-/// reaches the app's own handlers, but it loads no page.
 /// The address an app's page is loaded under: `https://mcp-app-{token}.invalid`,
 /// a host of its own that no other app shares a parent domain with.
 @visibleForTesting
 Uri mcpAppDocumentUrl(String token) =>
     Uri.parse('https://mcp-app-$token.invalid/index.html');
+
+/// [url] as a [Uri], or null when it does not parse. The web view would
+/// still clean such an address up and go there, a tab inside its port for
+/// one, but its [WebUri.uriValue] is empty, which would read as a path.
+@visibleForTesting
+Uri? mcpAppParsedUrl(WebUri? url) =>
+    url != null && url.isValidUri ? url.uriValue : null;
 
 /// Whether an app's page may make a fetch or XHR request to [url], which
 /// the web view's hooks report as the page wrote it.
@@ -563,6 +566,12 @@ bool mcpAppScriptRequestAllowed(
   return directMcpAppNetworkRequestAllowed(url, connect);
 }
 
+/// The script an MCP App page starts with: its `postMessage` to the host
+/// reaches Conduit through [bridgeName], with [bridgeToken], and Conduit's
+/// messages arrive as `message` events from the page's parent, which is the
+/// page itself in a web view, through [deliverName]. Navigation, popups and
+/// device access are refused, as in a sandboxed frame. A form's submit still
+/// reaches the app's own handlers, but it loads no page.
 @visibleForTesting
 String mcpAppBridgeScript({
   required String bridgeName,
