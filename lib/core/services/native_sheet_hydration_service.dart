@@ -30,6 +30,9 @@ import '../network/image_header_utils.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 import 'package:conduit_core/features/hermes/models/hermes_model.dart';
+import 'package:conduit_core/features/librechat/providers/librechat_providers.dart';
+import 'package:conduit_core/providers/backend_mode_providers.dart'
+    show PrimaryAccountKind, primaryAccountKindProvider;
 import 'package:conduit_core/features/automations/providers/automation_providers.dart'
     show scheduledTasksEntryVisibleProvider;
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart'
@@ -142,6 +145,12 @@ NativeProfileRootVisibility readNativeProfileRootVisibility(
     hermesInUseId: read(hermesEnabledProvider)
         ? read(hermesActiveConnectionIdProvider)
         : null,
+    libreChatPrimary:
+        read(primaryAccountKindProvider) == PrimaryAccountKind.libreChat
+        ? read(activeLibreChatAccountProvider)
+        : null,
+    libreChatAccounts:
+        read(libreChatRegistryProvider).value?.accounts ?? const [],
   );
 }
 
@@ -160,8 +169,17 @@ NativeSheetDetailConfig readNativeAccountsDetail(
   // The Apple toggles default to on: only where Apple Intelligence can exist
   // are they rows.
   final apple = read(applePccPlatformSupportedProvider);
+  final libreChatSession = read(libreChatSessionProvider).value;
   return buildNativeAccountsDetail(
     l10n,
+    libreChatEnabled: read(libreChatBackendEnabledProvider),
+    libreChatAccounts:
+        read(libreChatRegistryProvider).value?.accounts ?? const [],
+    libreChatInChargeId:
+        read(primaryAccountKindProvider) == PrimaryAccountKind.libreChat
+        ? read(activeLibreChatAccountProvider)?.id
+        : null,
+    libreChatInChargeSignedIn: libreChatSession is! LibreChatNeedsSignIn,
     accounts: read(openWebUiAccountsProvider).value,
     hermesConnections: read(hermesConnectionsProvider),
     hermesInUseId: read(hermesEnabledProvider)
@@ -667,7 +685,18 @@ class NativeSheetHydrationService {
     switch (detailId) {
       case nativeAccountsDetailId:
         // As they are now: the Direct providers may have been read since the
-        // sheet opened, and a pushed page comes back to this one.
+        // sheet opened, and a pushed page comes back to this one. LibreChat's
+        // saved accounts come out of secure storage, which may still be
+        // being read: they are waited for rather than shown as none.
+        try {
+          await _ref.read(libreChatRegistryProvider.future);
+        } catch (error) {
+          DebugLogger.warning(
+            'native-accounts-librechat-unreadable',
+            scope: 'native-sheet/hydration',
+            data: {'error': error.runtimeType.toString()},
+          );
+        }
         final accounts = readNativeAccountsDetail(_ref.read, l10n);
         await NativeSheetBridge.instance.applyDetailPatch(
           detailId: nativeAccountsDetailId,

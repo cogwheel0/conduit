@@ -9,12 +9,18 @@ import 'package:conduit_core/features/direct_connections/providers/direct_connec
 import 'package:conduit_core/features/hermes/models/hermes_config.dart';
 import 'package:conduit_core/features/hermes/models/hermes_connection_profile.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
+import 'package:conduit_core/features/librechat/models/librechat_account.dart';
+import 'package:conduit_core/features/librechat/models/librechat_server.dart';
+import 'package:conduit_core/features/librechat/models/librechat_session.dart';
+import 'package:conduit_core/features/librechat/providers/librechat_providers.dart';
 import 'package:conduit_core/models/openwebui_registry.dart';
 import 'package:conduit_core/navigation/routes.dart';
 import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/providers/backend_mode_providers.dart';
 import 'package:conduit_core/providers/openwebui_accounts_controller.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/misc.dart' show Override;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 
@@ -82,6 +88,15 @@ final class _SignInNeeded implements OpenWebUiAccountsController {
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
+final class _Registry extends LibreChatRegistryController {
+  _Registry(this.registry);
+
+  final LibreChatRegistry registry;
+
+  @override
+  Future<LibreChatRegistry> build() async => registry;
+}
+
 final class _DirectProfiles extends DirectConnectionProfilesController {
   _DirectProfiles(this.profiles);
 
@@ -101,6 +116,7 @@ void main() {
     String? hermesActiveId,
     bool hermesEnabled = false,
     List<DirectConnectionProfile> direct = const [],
+    List<Override> overrides = const [],
   }) async {
     final controller = _SignInNeeded();
     Widget target(String name) => Text(name);
@@ -164,6 +180,7 @@ void main() {
           ),
           applePccPlatformSupportedProvider.overrideWithValue(false),
           reviewerModeProvider.overrideWithValue(false),
+          ...overrides,
         ],
         child: MaterialApp.router(
           localizationsDelegates: conduitLocalizationsDelegates,
@@ -351,6 +368,69 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byType(AccountSheet), findsOne);
     expect(find.byKey(const Key('account-sheet-direct')), findsOne);
+  });
+
+  testWidgets('LibreChat lists its accounts once it is on, the one in '
+      'charge checked', (tester) async {
+    final dev = LibreChatAccount.forUser(
+      const LibreChatServer(baseUrl: 'https://chat.example.com'),
+      const LibreChatUser(id: 'u1', name: 'Dev'),
+      serverTitle: 'Team Chat',
+    );
+    final ops = LibreChatAccount.forUser(
+      const LibreChatServer(baseUrl: 'https://ops.example.com'),
+      const LibreChatUser(id: 'u2', name: 'Ops'),
+    );
+    await pumpAccounts(
+      tester,
+      const [],
+      overrides: [
+        libreChatBackendEnabledProvider.overrideWithValue(true),
+        libreChatRegistryProvider.overrideWith(
+          () => _Registry(
+            LibreChatRegistry(accounts: [dev, ops], activeId: dev.id),
+          ),
+        ),
+        primaryAccountKindProvider.overrideWithValue(
+          PrimaryAccountKind.libreChat,
+        ),
+      ],
+    );
+
+    expect(inCard('accounts-librechat', find.text('Dev')), findsOne);
+    expect(inCard('accounts-librechat', find.text('Ops')), findsOne);
+    // Neither has a saved session here: both read signed out, with where
+    // they are.
+    expect(
+      inCard('accounts-librechat', find.text('Signed out · ops.example.com')),
+      findsOne,
+    );
+    expect(
+      inCard('accounts-librechat', find.text('Signed out · Team Chat')),
+      findsOne,
+    );
+    expect(
+      find.descendant(
+        of: find.byKey(Key('accounts-librechat-${dev.id}')),
+        matching: find.bySemanticsLabel('Active'),
+      ),
+      findsOne,
+    );
+    expect(find.byKey(const Key('accounts-librechat-add')), findsOne);
+    // Several accounts, counting LibreChat's: signing out of all is offered.
+    await tester.scrollUntilVisible(
+      find.byKey(const Key('accounts-sign-out-all')),
+      200,
+      scrollable: find.byType(Scrollable).first,
+    );
+    expect(find.byKey(const Key('accounts-sign-out-all')), findsOne);
+  });
+
+  testWidgets('LibreChat stays out of the list while it is off and unused', (
+    tester,
+  ) async {
+    await pumpAccounts(tester, const []);
+    expect(find.byKey(const Key('accounts-librechat')), findsNothing);
   });
 
   testWidgets('every card shows when empty, offering to add its first', (

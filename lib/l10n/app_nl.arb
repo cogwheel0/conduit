@@ -4322,5 +4322,19 @@
   "mcpAppOpenLinkConfirm": "Openen",
   "terminalPortPreviewForward": "Vooruit",
   "terminalPortPreviewReload": "Opnieuw laden",
-  "terminalPortPreviewLoadFailed": "Deze pagina kan niet worden geladen."
+  "terminalPortPreviewLoadFailed": "Deze pagina kan niet worden geladen.",
+  "libreChatTitle": "LibreChat",
+  "libreChatBetaLabel": "Bèta",
+  "libreChatChooserSubtitle": "Log in op je LibreChat-server voor gesynchroniseerde chats, agents en meer.",
+  "libreChatAddAccount": "LibreChat-account toevoegen",
+  "libreChatAddAccountMessage": "Voer het adres van je LibreChat-server in.",
+  "libreChatInvalidAddress": "Voer een serveradres in, zoals chat.example.com.",
+  "libreChatUnreachable": "Kan de server niet bereiken. Controleer het adres en je verbinding.",
+  "libreChatNotLibreChat": "Deze server is geen LibreChat-server. Controleer het adres.",
+  "libreChatIsOpenWebUi": "Dit is een Open WebUI-server. Voeg hem toe via het tabblad Open WebUI.",
+  "libreChatPasswordSignInOff": "Deze server staat alleen inloggen via single sign-on toe.",
+  "libreChatGoogleUnsupported": "Google staat inloggen binnen apps niet toe. Log op een andere manier in.",
+  "libreChatSsoUnfinished": "Het inloggen is niet voltooid. Probeer het opnieuw.",
+  "libreChatChangeServer": "Andere server gebruiken",
+  "libreChatSessionEnded": "Je sessie op {server} is beëindigd. Log opnieuw in."
 }

@@ -4322,5 +4322,19 @@
   "mcpAppOpenLinkConfirm": "開啟",
   "terminalPortPreviewForward": "前進",
   "terminalPortPreviewReload": "重新載入",
-  "terminalPortPreviewLoadFailed": "無法載入此頁面。"
+  "terminalPortPreviewLoadFailed": "無法載入此頁面。",
+  "libreChatTitle": "LibreChat",
+  "libreChatBetaLabel": "測試版",
+  "libreChatChooserSubtitle": "登入你的 LibreChat 伺服器，同步聊天、代理程式等。",
+  "libreChatAddAccount": "新增 LibreChat 帳號",
+  "libreChatAddAccountMessage": "輸入你的 LibreChat 伺服器位址。",
+  "libreChatInvalidAddress": "輸入伺服器位址，例如 chat.example.com。",
+  "libreChatUnreachable": "無法連線到伺服器。請檢查位址和網路連線。",
+  "libreChatNotLibreChat": "此伺服器不是 LibreChat。請檢查位址。",
+  "libreChatIsOpenWebUi": "這是 Open WebUI 伺服器。請在 Open WebUI 分頁中新增。",
+  "libreChatPasswordSignInOff": "此伺服器僅允許單一登入。",
+  "libreChatGoogleUnsupported": "Google 不允許在 App 內登入。請使用其他方式登入。",
+  "libreChatSsoUnfinished": "登入未完成。請再試一次。",
+  "libreChatChangeServer": "使用其他伺服器",
+  "libreChatSessionEnded": "你在 {server} 上的工作階段已結束。請重新登入。"
 }

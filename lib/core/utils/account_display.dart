@@ -1,6 +1,7 @@
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit_core/features/direct_connections/models/direct_connection_profile.dart';
 import 'package:conduit_core/features/hermes/models/hermes_connection_profile.dart';
+import 'package:conduit_core/features/librechat/models/librechat_account.dart';
 import 'package:conduit_core/models/openwebui_registry.dart';
 import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/providers/app_providers.dart';
@@ -100,12 +101,13 @@ String directProviderName(
 }
 
 /// Whom Settings' account card is for.
-enum AccountCardKind { openWebUi, hermes, direct }
+enum AccountCardKind { openWebUi, hermes, direct, libreChat }
 
-/// What Settings' account card says: whom it is for -- the Open WebUI
-/// account signed in, named [signedInName], else the Hermes connection in
-/// use, else Direct -- then where that is, and how many other accounts and
-/// connections there are to switch to.
+/// What Settings' account card says: whom it is for -- the LibreChat
+/// account in charge of the Chats tab ([libreChatPrimary]), else the Open
+/// WebUI account signed in, named [signedInName], else the Hermes
+/// connection in use, else Direct -- then where that is, and how many other
+/// accounts and connections there are to switch to.
 ///
 /// [hermesInUseId] is null while Hermes is off.
 ({AccountCardKind kind, String title, String? subtitle}) accountCardSummary(
@@ -114,6 +116,8 @@ enum AccountCardKind { openWebUi, hermes, direct }
   required List<OpenWebUiAccountEntry> accounts,
   required List<HermesConnectionProfile> hermesConnections,
   required String? hermesInUseId,
+  LibreChatAccount? libreChatPrimary,
+  List<LibreChatAccount> libreChatAccounts = const [],
 }) {
   final hermes = hermesConnections
       .where((connection) => connection.id == hermesInUseId)
@@ -121,7 +125,11 @@ enum AccountCardKind { openWebUi, hermes, direct }
   final AccountCardKind kind;
   final String title;
   final String? place;
-  if (signedInName != null) {
+  if (libreChatPrimary != null) {
+    kind = AccountCardKind.libreChat;
+    title = libreChatPrimary.displayName;
+    place = libreChatPrimary.serverTitle ?? libreChatPrimary.host;
+  } else if (signedInName != null) {
     kind = AccountCardKind.openWebUi;
     title = signedInName;
     final active = accounts.where((entry) => entry.isActive).firstOrNull;
@@ -146,6 +154,9 @@ enum AccountCardKind { openWebUi, hermes, direct }
             (connection) =>
                 kind != AccountCardKind.hermes || connection.id != hermes!.id,
           )
+          .length +
+      libreChatAccounts
+          .where((account) => account.id != libreChatPrimary?.id)
           .length;
   final subtitle = [?place, if (others > 0) '+$others'].join(' ');
   return (

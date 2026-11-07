@@ -5934,5 +5934,19 @@
   "mcpAppOpenLinkConfirm": "開く",
   "terminalPortPreviewForward": "進む",
   "terminalPortPreviewReload": "再読み込み",
-  "terminalPortPreviewLoadFailed": "このページを読み込めませんでした。"
+  "terminalPortPreviewLoadFailed": "このページを読み込めませんでした。",
+  "libreChatTitle": "LibreChat",
+  "libreChatBetaLabel": "ベータ",
+  "libreChatChooserSubtitle": "LibreChat サーバーにサインインして、チャットやエージェントなどを同期します。",
+  "libreChatAddAccount": "LibreChat アカウントを追加",
+  "libreChatAddAccountMessage": "LibreChat サーバーのアドレスを入力してください。",
+  "libreChatInvalidAddress": "chat.example.com のようなサーバーアドレスを入力してください。",
+  "libreChatUnreachable": "サーバーに接続できませんでした。アドレスと接続を確認してください。",
+  "libreChatNotLibreChat": "このサーバーは LibreChat ではありません。アドレスを確認してください。",
+  "libreChatIsOpenWebUi": "これは Open WebUI サーバーです。Open WebUI タブから追加してください。",
+  "libreChatPasswordSignInOff": "このサーバーではシングルサインオンでのみサインインできます。",
+  "libreChatGoogleUnsupported": "Google はアプリ内でのサインインを許可していません。別の方法でサインインしてください。",
+  "libreChatSsoUnfinished": "サインインが完了しませんでした。もう一度お試しください。",
+  "libreChatChangeServer": "別のサーバーを使用",
+  "libreChatSessionEnded": "{server} のセッションが終了しました。もう一度サインインしてください。"
 }

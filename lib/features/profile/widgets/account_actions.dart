@@ -1,8 +1,12 @@
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
+import 'package:conduit_core/features/librechat/models/librechat_account.dart';
+import 'package:conduit_core/features/librechat/providers/librechat_providers.dart';
 import 'package:conduit_core/navigation/routes.dart';
 import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/providers/backend_mode_providers.dart';
 import 'package:conduit_core/providers/openwebui_accounts_controller.dart';
+import 'package:conduit_core/providers/primary_account_switcher.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/misc.dart' show ProviderListenable;
@@ -198,6 +202,17 @@ Future<void> switchToSavedAccount(
   final l10n = AppLocalizations.of(context)!;
   // The page this began on may not outlast the switch.
   final router = GoRouter.of(context);
+  if (ref.read(primaryAccountKindProvider) == PrimaryAccountKind.libreChat) {
+    // Open WebUI takes the Chats tab back from LibreChat; routing opens the
+    // account's sign-in when its saved session is gone.
+    await _usePrimary(
+      context,
+      (force) => ref
+          .read(primaryAccountSwitcherProvider)
+          .useOpenWebUi(accountId, force: force),
+    );
+    return;
+  }
   final controller = ref.read(openWebUiAccountsControllerProvider);
   try {
     var result = await controller.switchTo(accountId);
@@ -349,6 +364,128 @@ Future<void> signOutOfSavedAccount(
   } catch (error, stackTrace) {
     DebugLogger.error(
       'account-sign-out-failed',
+      scope: 'profile/accounts',
+      error: error,
+      stackTrace: stackTrace,
+    );
+    if (context.mounted) UiUtils.showMessage(context, l10n.errorMessage);
+  }
+}
+
+/// Puts LibreChat account [accountId] in charge of the Chats tab, asking
+/// first when that would stop a reply that is still being written, and goes
+/// to chat -- or, when its session has ended, routing goes to its sign-in.
+///
+/// [beforeLeaving] runs once the switch happened, before chat opens: a sheet
+/// the switch began in closes there.
+Future<void> switchToLibreChatAccount(
+  BuildContext context,
+  WidgetRef ref,
+  String accountId, {
+  VoidCallback? beforeLeaving,
+}) async {
+  final router = GoRouter.of(context);
+  final used = await _usePrimary(
+    context,
+    (force) => ref
+        .read(primaryAccountSwitcherProvider)
+        .useLibreChat(accountId, force: force),
+  );
+  if (!used) return;
+  beforeLeaving?.call();
+  router.go(Routes.chat);
+}
+
+/// Runs a primary-account [change], asking once when a reply in progress
+/// blocks it. Returns whether it happened.
+Future<bool> _usePrimary(
+  BuildContext context,
+  Future<PrimarySwitchResult> Function(bool force) change,
+) async {
+  final l10n = AppLocalizations.of(context)!;
+  try {
+    var result = await change(false);
+    if (result == PrimarySwitchResult.blockedByActiveReply) {
+      if (!context.mounted) return false;
+      if (!await _confirmSwitchStopsReply(context)) return false;
+      result = await change(true);
+    }
+    return result == PrimarySwitchResult.done;
+  } catch (error, stackTrace) {
+    DebugLogger.error(
+      'primary-switch-failed',
+      scope: 'profile/accounts',
+      error: error,
+      stackTrace: stackTrace,
+    );
+    if (context.mounted) UiUtils.showMessage(context, l10n.errorMessage);
+    return false;
+  }
+}
+
+/// Signs out of LibreChat account [accountId] with its local history. When
+/// it was in charge of the Chats tab, the most recently used other
+/// LibreChat account takes over, else an Open WebUI account, else the
+/// backend is chosen again. Returns whether it was in charge.
+Future<bool> signOutOfLibreChatAndHandOver(
+  ProviderContainer container,
+  String accountId,
+) async {
+  final wasPrimary =
+      container.read(primaryAccountKindProvider) ==
+          PrimaryAccountKind.libreChat &&
+      container.read(activeLibreChatAccountProvider)?.id == accountId;
+  await container.read(libreChatAccountsProvider).signOut(accountId);
+  if (!wasPrimary) return false;
+  final remaining = [
+    ...(await container.read(libreChatRegistryProvider.future)).accounts,
+  ]..sort((a, b) => (b.lastUsedAt ?? DateTime(0)).compareTo(
+      a.lastUsedAt ?? DateTime(0),
+    ));
+  final switcher = container.read(primaryAccountSwitcherProvider);
+  if (remaining.isNotEmpty) {
+    await switcher.useLibreChat(remaining.first.id, force: true);
+  } else {
+    final openWebUi = await container.read(openWebUiAccountsProvider.future);
+    if (openWebUi.isNotEmpty) {
+      await switcher.useOpenWebUi(openWebUi.first.id, force: true);
+    } else {
+      await container
+          .read(preferredBackendProvider.notifier)
+          .set(PreferredBackend.unset);
+    }
+  }
+  return true;
+}
+
+/// Signs out of LibreChat [account] after confirming; see
+/// [signOutOfLibreChatAndHandOver].
+Future<void> signOutOfLibreChatAccount(
+  BuildContext context,
+  LibreChatAccount account,
+) async {
+  final l10n = AppLocalizations.of(context)!;
+  final confirmed = await ThemedDialogs.confirm(
+    context,
+    title: l10n.accountsSignOutConfirmTitle(account.displayName),
+    message: l10n.accountsSignOutConfirmMessage,
+    confirmText: l10n.signOut,
+    isDestructive: true,
+  );
+  if (!confirmed || !context.mounted) return;
+  final router = GoRouter.of(context);
+  // The row this started from goes with the account, and its ref with it,
+  // so the rest runs on the app's container.
+  final container = ProviderScope.containerOf(context, listen: false);
+  try {
+    final wasPrimary = await signOutOfLibreChatAndHandOver(
+      container,
+      account.id,
+    );
+    if (wasPrimary) router.go(Routes.chat);
+  } catch (error, stackTrace) {
+    DebugLogger.error(
+      'librechat-sign-out-failed',
       scope: 'profile/accounts',
       error: error,
       stackTrace: stackTrace,

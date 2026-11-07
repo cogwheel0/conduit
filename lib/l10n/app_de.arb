@@ -4322,5 +4322,19 @@
   "mcpAppOpenLinkConfirm": "Öffnen",
   "terminalPortPreviewForward": "Vorwärts",
   "terminalPortPreviewReload": "Neu laden",
-  "terminalPortPreviewLoadFailed": "Diese Seite konnte nicht geladen werden."
+  "terminalPortPreviewLoadFailed": "Diese Seite konnte nicht geladen werden.",
+  "libreChatTitle": "LibreChat",
+  "libreChatBetaLabel": "Beta",
+  "libreChatChooserSubtitle": "Melde dich bei deinem LibreChat-Server an – für synchronisierte Chats, Agenten und mehr.",
+  "libreChatAddAccount": "LibreChat-Konto hinzufügen",
+  "libreChatAddAccountMessage": "Gib die Adresse deines LibreChat-Servers ein.",
+  "libreChatInvalidAddress": "Gib eine Serveradresse ein, z. B. chat.example.com.",
+  "libreChatUnreachable": "Der Server ist nicht erreichbar. Prüfe die Adresse und deine Verbindung.",
+  "libreChatNotLibreChat": "Dieser Server ist kein LibreChat-Server. Prüfe die Adresse.",
+  "libreChatIsOpenWebUi": "Das ist ein Open WebUI-Server. Füge ihn im Tab „Open WebUI“ hinzu.",
+  "libreChatPasswordSignInOff": "Dieser Server erlaubt nur die Anmeldung per Single Sign-On.",
+  "libreChatGoogleUnsupported": "Google erlaubt keine Anmeldung innerhalb von Apps. Melde dich auf andere Weise an.",
+  "libreChatSsoUnfinished": "Die Anmeldung wurde nicht abgeschlossen. Versuche es erneut.",
+  "libreChatChangeServer": "Anderen Server verwenden",
+  "libreChatSessionEnded": "Deine Sitzung auf {server} ist abgelaufen. Melde dich erneut an."
 }

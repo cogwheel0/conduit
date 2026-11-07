@@ -4322,5 +4322,19 @@
   "mcpAppOpenLinkConfirm": "Abrir",
   "terminalPortPreviewForward": "Adelante",
   "terminalPortPreviewReload": "Recargar",
-  "terminalPortPreviewLoadFailed": "No se pudo cargar esta página."
+  "terminalPortPreviewLoadFailed": "No se pudo cargar esta página.",
+  "libreChatTitle": "LibreChat",
+  "libreChatBetaLabel": "Beta",
+  "libreChatChooserSubtitle": "Inicia sesión en tu servidor LibreChat para chats sincronizados, agentes y más.",
+  "libreChatAddAccount": "Añadir una cuenta de LibreChat",
+  "libreChatAddAccountMessage": "Introduce la dirección de tu servidor LibreChat.",
+  "libreChatInvalidAddress": "Introduce la dirección de un servidor, como chat.example.com.",
+  "libreChatUnreachable": "No se pudo conectar con el servidor. Comprueba la dirección y tu conexión.",
+  "libreChatNotLibreChat": "Este servidor no es LibreChat. Comprueba la dirección.",
+  "libreChatIsOpenWebUi": "Este es un servidor Open WebUI. Añádelo desde la pestaña Open WebUI.",
+  "libreChatPasswordSignInOff": "Este servidor solo permite el inicio de sesión único (SSO).",
+  "libreChatGoogleUnsupported": "Google no permite iniciar sesión dentro de apps. Usa otro método para iniciar sesión.",
+  "libreChatSsoUnfinished": "El inicio de sesión no se completó. Inténtalo de nuevo.",
+  "libreChatChangeServer": "Usar otro servidor",
+  "libreChatSessionEnded": "Tu sesión en {server} ha terminado. Vuelve a iniciar sesión."
 }

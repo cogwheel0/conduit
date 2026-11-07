@@ -133,6 +133,7 @@ void main() {
     const allowed = [Routes.chat, Routes.profile, Routes.accounts];
     const setup = [
       Routes.backendChooser,
+      Routes.libreChatSignIn,
       Routes.hermesSettings,
       Routes.directConnections,
     ];
@@ -151,11 +152,14 @@ void main() {
         Routes.chat: Routes.splash,
         Routes.workspace: Routes.splash,
       },
+      // Its own sign-in, for the account's server; choosing another
+      // backend stays open.
       AuthNavigationState.needsLogin: {
+        Routes.libreChatSignIn: null,
         Routes.backendChooser: null,
-        Routes.chat: Routes.backendChooser,
-        Routes.splash: Routes.backendChooser,
-        Routes.notes: Routes.backendChooser,
+        Routes.chat: Routes.libreChatSignIn,
+        Routes.splash: Routes.libreChatSignIn,
+        Routes.notes: Routes.libreChatSignIn,
       },
       AuthNavigationState.authenticated: {
         Routes.splash: Routes.chat,
