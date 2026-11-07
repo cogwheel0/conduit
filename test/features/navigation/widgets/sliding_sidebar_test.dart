@@ -15,12 +15,18 @@ import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/models/user.dart';
 import 'package:conduit_core/features/navigation/models/sidebar_navigation_model.dart';
-import 'package:flutter/foundation.dart' show SynchronousFuture;
+import 'package:cupertino_native_better/cupertino_native_better.dart'
+    show
+        CNToolbar,
+        CNToolbarButton,
+        CNToolbarItemStyle,
+        CNToolbarSegmentedGroup;
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
 
+import '../../../support/native_platform_views.dart';
 import 'sidebar_page_test_support.dart';
 
 const _user = User(
@@ -390,10 +396,7 @@ void main() {
     expect(find.text('Conduit'), findsNothing);
     expect(sidebarTestTooltip('New Chat'), findsOneWidget);
     expect(tester.getCenter(profile).dy, tester.getCenter(search).dy);
-    expect(
-      tester.getCenter(profile).dx,
-      lessThan(tester.getCenter(search).dx),
-    );
+    expect(tester.getCenter(profile).dx, lessThan(tester.getCenter(search).dx));
     expect(find.byType(ConduitChromeGradientFade), findsNWidgets(2));
     // The destinations lead the history, which runs under both bars.
     expect(
@@ -567,7 +570,9 @@ void main() {
     expect(empty, findsOneWidget);
     expect(
       tester.getTopLeft(empty).dy,
-      greaterThan(tester.getBottomLeft(sidebarTestDestinationLabel('Notes')).dy),
+      greaterThan(
+        tester.getBottomLeft(sidebarTestDestinationLabel('Notes')).dy,
+      ),
     );
     final history = find.descendant(
       of: find.byKey(const ValueKey<String>('sidebar-chat-history')),
@@ -577,136 +582,107 @@ void main() {
     expect(position.maxScrollExtent, 0);
   });
 
-  testWidgets('iOS 26 draws the bottom bar as one native view', (
+  testWidgets('iOS 26 draws the bottom bar as the system toolbar', (
     tester,
   ) async {
+    stubNativePlatformViews();
     PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.iOS;
     PlatformUiCapabilities.debugIOSMajorVersionOverride = 26;
     PlatformUiCapabilities.debugNativeIOS26Override = true;
     addTearDown(PlatformUiCapabilities.resetDebugOverrides);
-    AdaptiveFloatingTabBar.debugIconRenderer = (_, asset, _, _) =>
-        SynchronousFuture(Uint8List.fromList(asset.codeUnits));
-    addTearDown(AdaptiveFloatingTabBar.debugReset);
-    final updates = <Map<Object?, Object?>>[];
+    final haptics = <Object?>[];
     tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
-      SystemChannels.platform_views,
-      (_) async => null,
+      SystemChannels.platform,
+      (call) async {
+        if (call.method == 'HapticFeedback.vibrate') {
+          haptics.add(call.arguments);
+        }
+        return null;
+      },
     );
-    const channel = MethodChannel('conduit/floating_tab_bar_4242');
-    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(channel, (
-      call,
-    ) async {
-      if (call.method == 'update') {
-        updates.add(call.arguments as Map<Object?, Object?>);
-      }
-      return null;
-    });
-    try {
-      await tester.pumpWidget(
-        sidebarTestBuildHarness(
-          controllers: SidebarTestSidebarHarnessControllers(),
-          currentUser: _user,
-          hermesEnabled: true,
-        ),
-      );
-      await tester.pump(const Duration(milliseconds: 500));
-      final search = tester.widget<CNButton>(
-        find.descendant(
-          of: find.byKey(const ValueKey<String>('sidebar-search-button')),
-          matching: find.byType(CNButton),
-        ),
-      );
-      expect(search.icon?.name, 'magnifyingglass');
-      expect(search.config.style, CNButtonStyle.glass);
-      expect(find.byType(CNTabBar), findsNothing);
-
-      final bar = find.byKey(const ValueKey<String>('sidebar-backend-selector'));
-      final view = tester.widget<UiKitView>(
-        find.descendant(of: bar, matching: find.byType(UiKitView)),
-      );
-      expect(view.viewType, 'conduit/floating_tab_bar');
-      final params = view.creationParams as Map;
-      final tabs = (params['tabs'] as List).cast<Map>();
-      expect([for (final tab in tabs) tab['label']], ['Open WebUI', 'Hermes']);
-      expect([
-        for (final tab in tabs) String.fromCharCodes(tab['image'] as Uint8List),
-      ], ['assets/icons/open_webui_tab.png', 'assets/icons/hermes_agent.png']);
-      expect(params['selectedIndex'], 0);
-      expect(params['actionSymbol'], 'square.and.pencil');
-      expect(params['actionLabel'], 'New Chat');
-      // The bar is drawn at the size of the header's search button.
-      final searchButton = find.byKey(
-        const ValueKey<String>('sidebar-search-button'),
-      );
-      expect(params['controlExtent'], tester.getSize(searchButton).height);
-      expect(params['actionSymbolSize'], search.icon?.size);
-      expect(
-        params['edgeInset'],
-        tester
-                .getTopRight(
-                  find.byKey(const ValueKey<String>('sidebar-page-surface')),
-                )
-                .dx -
-            tester.getTopRight(searchButton).dx,
-      );
-      // The chat composer's gap, so the bar lines up with it.
-      expect(params['bottomInset'], Spacing.sm);
-
-      view.onPlatformViewCreated!(4242);
-      await tester.binding.defaultBinaryMessenger.handlePlatformMessage(
-        channel.name,
-        const StandardMethodCodec().encodeMethodCall(
-          const MethodCall('select', 1),
-        ),
-        (_) {},
-      );
-      await tester.pump();
-      final container = ProviderScope.containerOf(tester.element(bar));
-      expect(container.read(sidebarHistoryTabProvider), SidebarTabId.hermes);
-      expect(updates.last['selectedIndex'], 1);
-      expect(tester.takeException(), isNull);
-    } finally {
-      await tester.pumpWidget(const SizedBox.shrink());
-      await tester.pumpAndSettle();
-      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
-        SystemChannels.platform_views,
+    addTearDown(
+      () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
         null,
-      );
-      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
-        channel,
-        null,
-      );
-    }
-  });
-
-  testWidgets('native tab icons render at their point size', (tester) async {
-    final icons = await tester.runAsync(
-      () => Future.wait([
-        AdaptiveFloatingTabBar.renderNativeIcon(
-          rootBundle,
-          'assets/icons/open_webui_tab.png',
-          22,
-          3,
-        ),
-        AdaptiveFloatingTabBar.renderNativeIcon(
-          rootBundle,
-          'assets/icons/hermes_agent.png',
-          26,
-          3,
-        ),
-      ]),
+      ),
     );
-    final sizes = [
-      for (final icon in icons!)
-        (() {
-          final png = ByteData.sublistView(icon);
-          expect(png.getUint32(0), 0x89504E47);
-          return (png.getUint32(16), png.getUint32(20));
-        })(),
-    ];
-    expect(sizes.first, (66, 66));
-    expect(sizes.last.$2, 78);
-  });
+    await tester.pumpWidget(
+      sidebarTestBuildHarness(
+        controllers: SidebarTestSidebarHarnessControllers(),
+        currentUser: _user,
+        hermesEnabled: true,
+      ),
+    );
+    await tester.pump(const Duration(milliseconds: 500));
+    final search = tester.widget<CNButton>(
+      find.descendant(
+        of: find.byKey(const ValueKey<String>('sidebar-search-button')),
+        matching: find.byType(CNButton),
+      ),
+    );
+    expect(search.icon?.name, 'magnifyingglass');
+    expect(search.config.style, CNButtonStyle.glass);
+    expect(find.byType(CNTabBar), findsNothing);
+
+    final bar = find.byKey(const ValueKey<String>('sidebar-backend-selector'));
+    final toolbar = find.descendant(of: bar, matching: find.byType(CNToolbar));
+    CNToolbar config() => tester.widget<CNToolbar>(toolbar);
+    CNToolbarSegmentedGroup tabs() =>
+        config().items.whereType<CNToolbarSegmentedGroup>().single;
+    final theme = tester.element(bar).conduitTheme;
+
+    expect(
+      [for (final s in tabs().segments) s.label],
+      ['Open WebUI', 'Hermes'],
+    );
+    expect(
+      [for (final s in tabs().segments) s.imageAsset?.assetPath],
+      ['assets/icons/open_webui_tab.png', 'assets/icons/hermes_agent.png'],
+    );
+    expect(tabs().selectedIndices, {0});
+    expect(config().tint, theme.buttonPrimary);
+    final action = config().items.whereType<CNToolbarButton>().single;
+    expect(action.label, 'New Chat');
+    expect(action.icon?.name, 'square.and.pencil');
+    expect(action.style, CNToolbarItemStyle.prominent);
+    // The palette's primary button, as the Material action is.
+    expect(action.tint, theme.buttonPrimary);
+    expect(action.icon?.color, theme.buttonPrimaryText);
+
+    // The chat composer's gap, so the toolbar lines up with it, and the
+    // history keeps the toolbar's room clear.
+    final surface = find.byKey(const ValueKey<String>('sidebar-page-surface'));
+    expect(
+      tester.getBottomLeft(toolbar).dy,
+      tester.getBottomLeft(surface).dy - Spacing.sm,
+    );
+    expect(tester.getSize(toolbar).height, 44);
+    final layout = tester.widget<SidebarTabLayoutScope>(
+      find.byType(SidebarTabLayoutScope).first,
+    );
+    expect(layout.floatingChromeInsets?.bottom, Spacing.sm + 44);
+
+    // Choosing the other backend switches the history and taps once.
+    tabs().onSelected!(1);
+    await tester.pump();
+    final container = ProviderScope.containerOf(tester.element(bar));
+    expect(container.read(sidebarHistoryTabProvider), SidebarTabId.hermes);
+    expect(tabs().selectedIndices, {1});
+    expect(haptics, ['HapticFeedbackType.selectionClick']);
+    // The selected backend again changes nothing, and stays quiet.
+    tabs().onSelected!(1);
+    await tester.pump();
+    expect(container.read(sidebarHistoryTabProvider), SidebarTabId.hermes);
+    expect(haptics, hasLength(1));
+    // New Chat stays the action of the Hermes history.
+    expect(
+      config().items.whereType<CNToolbarButton>().single.icon?.name,
+      'square.and.pencil',
+    );
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pumpAndSettle();
+  }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
 
   testWidgets('Material backend tabs are an icon-only pill beside a FAB', (
     tester,
@@ -726,14 +702,16 @@ void main() {
           matching: find.byType(NavigationBar),
         ),
       );
-      expect(
-        pill.labelBehavior,
-        NavigationDestinationLabelBehavior.alwaysHide,
-      );
+      expect(pill.labelBehavior, NavigationDestinationLabelBehavior.alwaysHide);
       expect(pill.selectedIndex, 0);
-      final create = find.byKey(const ValueKey<String>('sidebar-create-button'));
+      final create = find.byKey(
+        const ValueKey<String>('sidebar-create-button'),
+      );
       expect(
-        find.descendant(of: create, matching: find.byType(FloatingActionButton)),
+        find.descendant(
+          of: create,
+          matching: find.byType(FloatingActionButton),
+        ),
         findsOneWidget,
       );
       expect(
@@ -746,7 +724,9 @@ void main() {
       );
       expect(tester.getSize(create), tester.getSize(search));
       expect(
-        tester.getSize(find.byKey(const ValueKey<String>('sidebar-backend-tabs'))).height,
+        tester
+            .getSize(find.byKey(const ValueKey<String>('sidebar-backend-tabs')))
+            .height,
         tester.getSize(search).height,
       );
       expect(tester.getTopRight(create).dx, tester.getTopRight(search).dx);
@@ -772,9 +752,7 @@ void main() {
     }
   });
 
-  testWidgets('destinations lead only the Open WebUI history', (
-    tester,
-  ) async {
+  testWidgets('destinations lead only the Open WebUI history', (tester) async {
     await tester.pumpWidget(
       sidebarTestBuildHarness(
         controllers: SidebarTestSidebarHarnessControllers(),

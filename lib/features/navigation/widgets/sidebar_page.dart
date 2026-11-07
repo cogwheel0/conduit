@@ -978,7 +978,6 @@ class _SlidingSidebarBottomBar extends ConsumerWidget {
                       size: _kOpenWebUiTabIconSize,
                     ),
                     nativeAsset: _kOpenWebUiTabIcon,
-                    nativeIconSize: _kOpenWebUiTabIconSize,
                   )
                 : AdaptiveFloatingTab(
                     label: tab.label(l10n),
@@ -987,7 +986,6 @@ class _SlidingSidebarBottomBar extends ConsumerWidget {
                       size: tab.assetIconSize ?? IconSize.tabBar,
                     ),
                     nativeAsset: tab.assetName!,
-                    nativeIconSize: _kHermesNativeBackendIconSize,
                   ),
       ],
       selectedIndex: selectedIndex,
@@ -1005,7 +1003,11 @@ class _SlidingSidebarBottomBar extends ConsumerWidget {
       itemWidth: _kSlidingSidebarBackendWidth,
       selectedItemColor: theme.buttonPrimary,
       unselectedItemColor: theme.textSecondary,
-      actionForegroundColor: PlatformUiCapabilities.isIOS
+      // The glass action before iOS 26 has no fill of its own; the others
+      // are filled with buttonPrimary.
+      actionForegroundColor:
+          PlatformUiCapabilities.isIOS &&
+              !PlatformUiCapabilities.usesNativeIOS26
           ? theme.textPrimary
           : theme.buttonPrimaryText,
       actionBackgroundColor: theme.buttonPrimary,
@@ -1024,5 +1026,3 @@ class _SlidingSidebarBottomBar extends ConsumerWidget {
 /// tinted as a template.
 const String _kOpenWebUiTabIcon = 'assets/icons/open_webui_tab.png';
 const double _kOpenWebUiTabIconSize = 22;
-const double _kHermesNativeBackendIconSize = 26;
-
