@@ -4309,5 +4309,6 @@
   "workspaceKnowledgeMaxFileCount": "最大檔案數",
   "workspaceKnowledgeMaxFileSize": "最大檔案大小 (MB)",
   "workspaceKnowledgeLimitDefault": "伺服器限制",
-  "workspaceKnowledgeLimitInvalid": "請將每個限制填寫為大於零的整數，或留空。"
+  "workspaceKnowledgeLimitInvalid": "請將每個限制填寫為大於零的整數，或留空。",
+  "workspaceToolToggleSaveFirst": "請先儲存或捨棄變更，再啟用或停用此工具。"
 }

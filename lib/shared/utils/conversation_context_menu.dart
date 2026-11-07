@@ -2,6 +2,7 @@ import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:conduit_core/database/chat_database_repository.dart';
 import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/models/folder.dart';
+import 'package:conduit_core/models/model.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/sync/chat_locks.dart';
 import 'package:conduit/core/services/native_sheet_bridge.dart';
@@ -788,36 +789,46 @@ Future<void> _generateConversationTitleOnce(
   String currentTitle,
 ) async {
   final l10n = AppLocalizations.of(context)!;
+  // The menu can close while the title is written; the app's container
+  // outlives it.
+  final container = ProviderScope.containerOf(context, listen: false);
   final rawConversationId = ChatStorageIdentity.parse(conversationId).rawId;
-  final api = ref.read(apiServiceProvider);
+  final api = container.read(apiServiceProvider);
   final authSnapshot = api?.captureAuthSnapshot();
-  // Only the server's own models can title a chat: not a Direct or Hermes
-  // model, which turns of an Open WebUI chat may have used.
-  final directModels = ref.read(directModelRegistryProvider);
-  final knownModels = ref.read(modelsProvider).asData?.value;
-  bool isServerModel(String id) {
-    if (knownModels == null) return true;
-    for (final model in knownModels) {
-      if (model.id != id) continue;
-      return !isHermesModel(model) && directModels.resolve(model) == null;
-    }
-    return false;
-  }
-
   String? selectedModelId;
-  final active = ref.read(activeConversationProvider);
+  final active = container.read(activeConversationProvider);
   if (active != null && conversationMatchesScopedId(active, conversationId)) {
-    selectedModelId = ref.read(selectedModelProvider)?.id;
+    selectedModelId = container.read(selectedModelProvider)?.id;
   }
   String? message;
   try {
     if (api == null) throw Exception('No API service');
+    // Only the server's own models can title a chat: not a Direct or Hermes
+    // model, which turns of an Open WebUI chat may have used. The model list
+    // leaves out models hidden from the picker, which are still the
+    // server's, so only a model it lists as Direct or Hermes is passed over.
+    final directModels = container.read(directModelRegistryProvider);
+    List<Model>? knownModels;
+    try {
+      knownModels = await container
+          .read(modelsProvider.future)
+          .timeout(const Duration(seconds: 5));
+    } catch (_) {}
+    bool isServerModel(String id) {
+      for (final model in knownModels ?? const <Model>[]) {
+        if (model.id != id) continue;
+        return !isHermesModel(model) && directModels.resolve(model) == null;
+      }
+      return true;
+    }
+
     final chatJson = await api.getChatRaw(
       rawConversationId,
       authSnapshot: authSnapshot,
     );
     // A chat the server does not hold has nothing to title there.
     if (chatJson == null) throw Exception('Chat not found');
+    final titleAsked = chatJson['title'];
     final request = chatTitleRequest(
       chatJson,
       selectedModelId: selectedModelId,
@@ -834,14 +845,16 @@ Future<void> _generateConversationTitleOnce(
       message = l10n.generateTitleNone;
     } else if (title != currentTitle) {
       var saved = false;
-      await ref.read(chatTitleLocksProvider).runExclusive(
+      await container.read(chatTitleLocksProvider).runExclusive(
         rawConversationId,
         () async {
-          final stored = await api.getConversation(
+          // Compared as the server stores it, as it was when the title was
+          // asked for: a rename made meanwhile is kept.
+          final stored = await api.getChatRaw(
             rawConversationId,
             authSnapshot: authSnapshot,
           );
-          if (stored.title != currentTitle) return;
+          if (stored == null || stored['title'] != titleAsked) return;
           await api.updateConversation(
             rawConversationId,
             title: title,
@@ -850,8 +863,18 @@ Future<void> _generateConversationTitleOnce(
           saved = true;
         },
       );
-      if (saved && identical(ref.read(apiServiceProvider), api)) {
-        _showConversationTitle(ref, conversationId, title);
+      if (saved && identical(container.read(apiServiceProvider), api)) {
+        // Stored as a server-made title, so a later save of the chat does
+        // not send the old one back.
+        container
+            .read(conversationsProvider.notifier)
+            .applyServerGeneratedTitle(rawConversationId, title);
+        final open = container.read(activeConversationProvider);
+        if (open != null && conversationMatchesScopedId(open, conversationId)) {
+          container
+              .read(activeConversationProvider.notifier)
+              .set(open.copyWith(title: title));
+        }
         ConduitHaptics.success();
       }
     } else {

@@ -41,7 +41,10 @@ ChatTitleRequest? chatTitleRequest(
       id = message['parentId'];
     }
     branch.setAll(0, branch.reversed.toList());
-  } else if (content['messages'] is List) {
+  }
+  // A history whose current message cannot be found reads the flat list,
+  // as the chat's own parsing does.
+  if (branch.isEmpty && content['messages'] is List) {
     for (final message in content['messages'] as List) {
       if (message is Map) branch.add(message);
     }

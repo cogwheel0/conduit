@@ -8049,5 +8049,9 @@
   "workspaceKnowledgeLimitInvalid": "Podaj każdy limit jako liczbę całkowitą większą od zera albo pozostaw go pusty.",
   "@workspaceKnowledgeLimitInvalid": {
     "description": "Error when a knowledge base file limit is not a whole number above zero."
+  },
+  "workspaceToolToggleSaveFirst": "Zapisz lub odrzuć zmiany, zanim włączysz lub wyłączysz narzędzie.",
+  "@workspaceToolToggleSaveFirst": {
+    "description": "Shown when the user tries to switch a workspace tool on or off while the editor has unsaved changes."
   }
 }

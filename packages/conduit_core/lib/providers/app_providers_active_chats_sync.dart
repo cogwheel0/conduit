@@ -101,15 +101,35 @@ class PendingApprovalChatIds extends _$PendingApprovalChatIds {
   @override
   Set<String> build() => const <String>{};
 
+  int _seq = 0;
+  final Map<String, int> _changedAt = {};
+
   /// Records whether [chatId] waits for an approval.
   void set(String chatId, {required bool pending}) {
+    _changedAt[chatId] = ++_seq;
     if (state.contains(chatId) == pending) return;
     state = pending ? {...state, chatId} : ({...state}..remove(chatId));
   }
 
-  /// Replaces the whole set from a server response.
-  void setAll(Set<String> chatIds) {
-    state = chatIds;
+  /// A mark to take before asking the server, for [setAll]'s `since`.
+  int mark() => _seq;
+
+  /// Replaces the whole set from a server response. With [since], a chat
+  /// whose state an event changed after that [mark] keeps the event's state:
+  /// the response may have been read before it.
+  void setAll(Set<String> chatIds, {int? since}) {
+    if (since == null) {
+      _changedAt.clear();
+      state = chatIds;
+      return;
+    }
+    final next = <String>{
+      for (final id in chatIds)
+        if ((_changedAt[id] ?? 0) <= since) id,
+      for (final id in state)
+        if ((_changedAt[id] ?? 0) > since) id,
+    };
+    state = next;
   }
 }
 
@@ -361,6 +381,7 @@ class ActiveChatsSync extends _$ActiveChatsSync {
     final socket = _boundSocket;
     final generation = _bindingGeneration;
     final authSessionEpoch = _boundAuthSessionEpoch;
+    final pendingMark = ref.read(pendingApprovalChatIdsProvider.notifier).mark();
     try {
       final activity = await api.checkChatActivity(ids);
       if (generation != _bindingGeneration ||
@@ -376,7 +397,7 @@ class ActiveChatsSync extends _$ActiveChatsSync {
       ref.read(activeChatIdsProvider.notifier).setAll(activity.active);
       ref
           .read(pendingApprovalChatIdsProvider.notifier)
-          .setAll(activity.pendingApproval);
+          .setAll(activity.pendingApproval, since: pendingMark);
     } catch (error, stackTrace) {
       DebugLogger.error(
         'active-chats refresh failed',

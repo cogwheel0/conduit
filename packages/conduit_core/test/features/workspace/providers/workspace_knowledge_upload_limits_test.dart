@@ -37,6 +37,9 @@ class _KnowledgeServer implements HttpClientAdapter {
   final Set<String>? batchProcessed;
   final requests = <String>[];
   final validations = <Map<String, dynamic>>[];
+
+  /// The query of every upload.
+  final uploadQueries = <Map<String, dynamic>>[];
   var _uploads = 0;
 
   Iterable<String> get uploads =>
@@ -64,6 +67,7 @@ class _KnowledgeServer implements HttpClientAdapter {
       };
     }
     if (path == '/api/v1/files/' && options.method == 'POST') {
+      uploadQueries.add(Map<String, dynamic>.of(options.queryParameters));
       if (++_uploads == failUpload) {
         return _json({'detail': 'Upload failed'}, status: 500);
       }
@@ -157,6 +161,34 @@ void main() {
       check(server.requests).contains(
         'POST /api/v1/knowledge/kb-1/files/batch/add',
       );
+    });
+
+    test('uploads are processed before they are linked', () async {
+      // Linked while still extracting, a file is refused as empty.
+      final server = _KnowledgeServer();
+      final container = await _container(server);
+      addTearDown(container.dispose);
+
+      await container
+          .read(workspaceKnowledgeFilesProvider('kb-1').notifier)
+          .uploadBytes('a.txt', const [1, 2, 3]);
+
+      check(server.uploadQueries.single).deepEquals({
+        'process_in_background': false,
+      });
+    });
+
+    test('an empty file does not count against the limit', () async {
+      final server = _KnowledgeServer();
+      final container = await _container(server);
+      addTearDown(container.dispose);
+
+      await container
+          .read(workspaceKnowledgeFilesProvider('kb-1').notifier)
+          .uploadMany([_file('a.txt', 3), _file('empty.txt', 0)]);
+
+      check(server.validations.single['count']).equals(1);
+      check(server.uploads).length.equals(1);
     });
 
     test('a refused batch uploads nothing and says why', () async {

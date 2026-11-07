@@ -251,9 +251,12 @@ mixin _FilesApi on _ApiServiceBase {
     final formData = FormData.fromMap({
       'file': MultipartFile.fromBytes(bytes, filename: fileName),
     });
+    // Processed before the server answers, so a knowledge base can link the
+    // file at once: linked while still extracting, it is refused as empty.
     final response = await _dio.post(
       '/api/v1/files/',
       data: formData,
+      queryParameters: const {'process_in_background': false},
       onSendProgress: onProgress,
     );
     return response.data['id'] as String;

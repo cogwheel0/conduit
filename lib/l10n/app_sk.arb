@@ -6227,5 +6227,6 @@
   "workspaceKnowledgeMaxFileCount": "Maximálny počet súborov",
   "workspaceKnowledgeMaxFileSize": "Maximálna veľkosť súboru (MB)",
   "workspaceKnowledgeLimitDefault": "Limit servera",
-  "workspaceKnowledgeLimitInvalid": "Zadajte každý limit ako celé číslo väčšie ako nula, alebo ho nechajte prázdny."
+  "workspaceKnowledgeLimitInvalid": "Zadajte každý limit ako celé číslo väčšie ako nula, alebo ho nechajte prázdny.",
+  "workspaceToolToggleSaveFirst": "Pred zapnutím alebo vypnutím nástroja zmeny uložte alebo zahoďte."
 }

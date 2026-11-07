@@ -4309,5 +4309,6 @@
   "workspaceKnowledgeMaxFileCount": "Máximo de archivos",
   "workspaceKnowledgeMaxFileSize": "Tamaño máximo de archivo (MB)",
   "workspaceKnowledgeLimitDefault": "Límite del servidor",
-  "workspaceKnowledgeLimitInvalid": "Introduce cada límite como un número entero mayor que cero, o déjalo vacío."
+  "workspaceKnowledgeLimitInvalid": "Introduce cada límite como un número entero mayor que cero, o déjalo vacío.",
+  "workspaceToolToggleSaveFirst": "Guarda o descarta los cambios antes de activar o desactivar la herramienta."
 }

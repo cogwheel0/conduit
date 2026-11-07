@@ -251,7 +251,7 @@ class _Browser extends ConsumerWidget {
       for (final picked in files) {
         sources.add((
           name: picked.name,
-          size: await picked.length() ?? 0,
+          size: await picked.length() ?? -1,
           read: () async => picked.path != null
               ? await File(picked.path!).readAsBytes()
               : await picked.readAsBytes(),

@@ -18,15 +18,18 @@ import 'sidebar_page_test_support.dart';
 final class _TitlingApi extends SidebarTestSidebarApiService {
   _TitlingApi({
     this.title = 'Quines explained',
-    this.storedTitle = 'Chat server',
+    this.renameWhileWriting,
     this.chatExists = true,
   });
 
   final String? title;
 
-  /// The chat's title on the server when the generated one is saved.
-  final String storedTitle;
+  /// The title the user gives the chat elsewhere while the title is written.
+  final String? renameWhileWriting;
   final bool chatExists;
+
+  /// The chat's title on the server.
+  String serverTitle = 'Chat server';
 
   /// Completes the title request when set, so a test can act meanwhile.
   Completer<void>? holdTitle;
@@ -47,6 +50,7 @@ final class _TitlingApi extends SidebarTestSidebarApiService {
     ApiAuthSnapshot? authSnapshot,
   }) async => !chatExists ? null : {
     'id': id,
+    'title': serverTitle,
     'chat': {
       'models': ['chat-model'],
       'history': {
@@ -79,6 +83,7 @@ final class _TitlingApi extends SidebarTestSidebarApiService {
   }) async {
     titleRequests.add((model: model, messages: messages));
     await holdTitle?.future;
+    serverTitle = renameWhileWriting ?? serverTitle;
     return title;
   }
 
@@ -88,7 +93,7 @@ final class _TitlingApi extends SidebarTestSidebarApiService {
     ApiAuthSnapshot? authSnapshot,
   }) async => Conversation(
     id: id,
-    title: storedTitle,
+    title: serverTitle,
     createdAt: DateTime(2026, 1, 1),
     updatedAt: DateTime(2026, 1, 1, 10),
     messages: const [],
@@ -191,7 +196,7 @@ void main() {
     tester,
   ) async {
     final server = chat('server');
-    final api = _TitlingApi(storedTitle: 'Renamed meanwhile');
+    final api = _TitlingApi(renameWhileWriting: 'Renamed meanwhile');
 
     await tester.pumpWidget(
       sidebarTestBuildHarness(

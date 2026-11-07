@@ -14,8 +14,9 @@ import 'package:conduit_core/features/workspace/providers/workspace_session.dart
 
 part 'workspace_knowledge_files.g.dart';
 
-/// A file picked for upload: its name, size in bytes, and a way to read it
-/// once it is its turn.
+/// A file picked for upload: its name, size in bytes (-1 when the platform
+/// cannot tell before reading it), and a way to read it once it is its
+/// turn.
 typedef WorkspaceUploadSource = ({
   String name,
   int size,
@@ -328,7 +329,12 @@ class WorkspaceKnowledgeFiles extends _$WorkspaceKnowledgeFiles {
   /// a refused upload sends nothing. Files uploaded before a later failure,
   /// or that the server still refuses to link, are deleted again rather than
   /// left among the user's files.
-  Future<void> uploadMany(List<WorkspaceUploadSource> files) async {
+  Future<void> uploadMany(List<WorkspaceUploadSource> picked) async {
+    // An empty file is not uploaded, so it does not count against a limit.
+    final files = [
+      for (final file in picked)
+        if (file.size != 0) file,
+    ];
     if (files.isEmpty) return;
     await _run(() async {
       final session = WorkspaceSessionIdentity.read(ref);

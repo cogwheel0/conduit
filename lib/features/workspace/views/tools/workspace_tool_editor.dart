@@ -363,6 +363,12 @@ class _WorkspaceToolFormState extends ConsumerState<_WorkspaceToolForm> {
     final l10n = AppLocalizations.of(context)!;
     final summary = widget.summary;
     if (summary == null) return;
+    // Switching reloads the tool, which would drop unsaved edits if the
+    // reload failed.
+    if (_session.dirty) {
+      _showSnack(l10n.workspaceToolToggleSaveFirst, isError: true);
+      return;
+    }
     await WorkspaceEditorOperationRunner.stay<void>(
       session: _session,
       scope: 'workspace/tools',

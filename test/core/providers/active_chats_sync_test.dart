@@ -102,6 +102,9 @@ class _FakeApiService extends ApiService {
 
   Set<String> nextActive = const <String>{};
   Set<String> nextPendingApproval = const <String>{};
+
+  /// Holds each refresh until completed, when set.
+  Completer<void>? hold;
   Object? nextError;
   int checkActiveChatsCalls = 0;
   List<String>? lastCheckedIds;
@@ -110,9 +113,11 @@ class _FakeApiService extends ApiService {
   Future<ChatActivity> checkChatActivity(List<String> chatIds) async {
     checkActiveChatsCalls += 1;
     lastCheckedIds = chatIds;
+    final answer = (active: nextActive, pendingApproval: nextPendingApproval);
+    await hold?.future;
     final error = nextError;
     if (error != null) throw error;
-    return (active: nextActive, pendingApproval: nextPendingApproval);
+    return answer;
   }
 }
 
@@ -282,6 +287,33 @@ void main() {
       reg.handler(_activeEnvelope(chatId: 'c1', active: false), null);
 
       check(container.read(pendingApprovalChatIdsProvider)).isEmpty();
+    });
+
+    test('a refresh read before an event does not undo it', () async {
+      final socket = _MockSocketService();
+      addTearDown(socket.disposeController);
+      final api = _FakeApiService()
+        ..nextActive = {'c1'}
+        ..hold = Completer<void>();
+      final container = _makeContainer(
+        socket: socket,
+        api: api,
+        conversations: [_conv('c1'), _conv('c2')],
+      );
+      container.read(activeChatsSyncProvider);
+      await container.read(conversationsProvider.future);
+      await Future<void>.delayed(Duration.zero);
+      check(api.checkActiveChatsCalls).equals(1);
+
+      // The chat pauses for an approval while the list is being read.
+      socket.registrations.single.handler(
+        _activeEnvelope(chatId: 'c1', active: true, pendingApproval: true),
+        null,
+      );
+      api.hold!.complete();
+      await Future<void>.delayed(Duration.zero);
+
+      check(container.read(pendingApprovalChatIdsProvider)).deepEquals({'c1'});
     });
 
     test('a refresh replaces the set from the chat list', () async {

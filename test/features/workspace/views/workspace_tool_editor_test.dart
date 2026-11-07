@@ -227,6 +227,82 @@ void main() {
     expect(tools.toggled, ['t-1']);
   });
 
+  testWidgets('switching a tool says it was saved', (tester) async {
+    final tools = _FakeTools();
+    await tester.pumpWidget(
+      _harness(
+        tools,
+        mode: WorkspaceRouteMode.detail,
+        resourceId: 't-1',
+        detail: _writable(isActive: true),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('workspace-editor-overflow')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('workspace-tool-action-toggle')));
+    await tester.pumpAndSettle();
+
+    expect(tools.toggled, ['t-1']);
+    expect(find.text('Tool saved'), findsOneWidget);
+  });
+
+  testWidgets('a switch that fails says so', (tester) async {
+    final tools = _FakeTools()..failToggle = true;
+    await tester.pumpWidget(
+      _harness(
+        tools,
+        mode: WorkspaceRouteMode.detail,
+        resourceId: 't-1',
+        detail: _writable(isActive: true),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('workspace-editor-overflow')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('workspace-tool-action-toggle')));
+    await tester.pumpAndSettle();
+
+    expect(tools.toggled, ['t-1']);
+    expect(find.text("Couldn't save the tool."), findsOneWidget);
+    expect(find.text('Tool saved'), findsNothing);
+  });
+
+  testWidgets('unsaved edits are not risked by switching the tool', (
+    tester,
+  ) async {
+    final tools = _FakeTools();
+    await tester.pumpWidget(
+      _harness(
+        tools,
+        mode: WorkspaceRouteMode.edit,
+        resourceId: 't-1',
+        detail: _writable(isActive: true),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const Key('workspace-tool-content')),
+      'class Tools:\n    changed = True\n',
+    );
+    await tester.pump();
+
+    await tester.tap(find.byKey(const Key('workspace-editor-overflow')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('workspace-tool-action-toggle')));
+    await tester.pumpAndSettle();
+
+    expect(tools.toggled, isEmpty);
+    expect(
+      find.text(
+        'Save or discard your changes before switching the tool on or off.',
+      ),
+      findsOneWidget,
+    );
+  });
+
   testWidgets('a tool switched off offers Activate', (tester) async {
     final tools = _FakeTools();
     await tester.pumpWidget(
@@ -435,10 +511,12 @@ class _FakeTools extends WorkspaceTools {
   final updated = <(String, WorkspaceToolForm)>[];
   final deleted = <String>[];
   final toggled = <String>[];
+  bool failToggle = false;
 
   @override
   Future<WorkspaceToolDetail> toggle(String id) async {
     toggled.add(id);
+    if (failToggle) throw StateError('toggle refused');
     return _detail(id);
   }
 

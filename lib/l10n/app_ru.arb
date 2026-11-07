@@ -4347,5 +4347,6 @@
   "workspaceKnowledgeMaxFileCount": "Максимум файлов",
   "workspaceKnowledgeMaxFileSize": "Максимальный размер файла (МБ)",
   "workspaceKnowledgeLimitDefault": "Ограничение сервера",
-  "workspaceKnowledgeLimitInvalid": "Укажите каждое ограничение целым числом больше нуля или оставьте его пустым."
+  "workspaceKnowledgeLimitInvalid": "Укажите каждое ограничение целым числом больше нуля или оставьте его пустым.",
+  "workspaceToolToggleSaveFirst": "Сохраните или отмените изменения, прежде чем включать или выключать инструмент."
 }

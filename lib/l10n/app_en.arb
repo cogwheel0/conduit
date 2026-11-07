@@ -9011,5 +9011,9 @@
   "workspaceKnowledgeLimitInvalid": "Enter each limit as a whole number above zero, or leave it empty.",
   "@workspaceKnowledgeLimitInvalid": {
     "description": "Error when a knowledge base file limit is not a whole number above zero."
+  },
+  "workspaceToolToggleSaveFirst": "Save or discard your changes before switching the tool on or off.",
+  "@workspaceToolToggleSaveFirst": {
+    "description": "Shown when the user tries to switch a workspace tool on or off while the editor has unsaved changes."
   }
 }

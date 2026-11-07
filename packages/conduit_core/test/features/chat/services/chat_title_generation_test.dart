@@ -119,6 +119,22 @@ void main() {
       check(chatTitleRequest(const {'id': 'chat-1'})).isNull();
     });
 
+    test('a history whose current message is missing reads the flat list', () {
+      final request = chatTitleRequest(
+        _chat({
+          'history': {'currentId': 'gone', 'messages': <String, dynamic>{}},
+          'messages': [
+            {'role': 'user', 'content': 'Hello'},
+          ],
+          'models': ['m'],
+        }),
+      );
+
+      check(request!.messages).deepEquals([
+        {'role': 'user', 'content': 'Hello'},
+      ]);
+    });
+
     test('a cycle in the history does not loop', () {
       final request = chatTitleRequest(
         _chat({
