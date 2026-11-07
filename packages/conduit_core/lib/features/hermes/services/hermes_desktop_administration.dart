@@ -84,10 +84,15 @@ final class _HermesDesktopAdministration {
     return _owner._object(await _owner._rpc.request<Object?>('skills.reload'));
   }
 
+  /// `tools.list` takes no `profile` (Hermes 0.23 refuses one with 4000);
+  /// it lists the gateway's own profile's toolsets.
   Future<List<Map<String, dynamic>>> listToolsets() async {
     await _owner._ensureConnected();
     final result = _owner._object(
-      await _owner._rpc.request<Object?>('tools.list'),
+      await _owner._rpc.request<Object?>(
+        'tools.list',
+        includeDefaultParams: false,
+      ),
     );
     return _owner._objects(result['sections'] ?? result['toolsets']);
   }
@@ -319,14 +324,12 @@ final class _HermesDesktopAdministration {
       }
     }
     for (final id in runtimeIds) {
+      // Takes no `profile` (Hermes 0.23 refuses one with 4000): the session
+      // id scopes it, bot chats in another profile included.
       await _owner._rpc.request<Object?>(
         'reload.mcp',
-        // Bound sessions can include bot chats, which live in another profile.
-        params: {
-          'confirm': true,
-          'session_id': id,
-          ..._owner._runtimeScope(id),
-        },
+        params: {'confirm': true, 'session_id': id},
+        includeDefaultParams: false,
       );
     }
   }
@@ -355,7 +358,12 @@ final class _HermesDesktopAdministration {
           params: const {'action': 'list'},
         ),
       ),
-      supported(() => _owner._rpc.request<Object?>('tools.list')),
+      supported(
+        () => _owner._rpc.request<Object?>(
+          'tools.list',
+          includeDefaultParams: false,
+        ),
+      ),
       supported(
         () => _owner._requestJson('GET', '/api/cron/jobs', query: {'limit': 1}),
       ),
