@@ -1661,14 +1661,12 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
 
   ChatMessageError? _coldHermesTerminalError(String status) {
     return switch (status) {
-      'completed' => null,
+      // A wrap-up or a stopped-short answer is still the answer.
+      'completed' || kHermesWrappedUpStatus || 'incomplete' => null,
       'cancelled' || 'canceled' => const ChatMessageError(
         content: 'Hermes run was cancelled.',
       ),
       'stopped' => const ChatMessageError(content: 'Hermes run was stopped.'),
-      'incomplete' => const ChatMessageError(
-        content: 'Hermes stopped this response before it completed.',
-      ),
       _ => const ChatMessageError(content: 'Hermes run failed.'),
     };
   }

@@ -2533,6 +2533,23 @@ class HermesSessionsController
             scope: 'hermes/sessions',
           );
         }
+        // Earlier messages saved for the fork go with it, and free their
+        // slot.
+        if (service is HermesApiService) {
+          try {
+            await ref
+                .read(hermesCopiedHistoryStoreProvider)
+                .forgetSession(
+                  connectionIdentity: connectionIdentity,
+                  sessionId: newId,
+                );
+          } catch (_) {
+            DebugLogger.warning(
+              'copied-history-stale-fork-purge-failed',
+              scope: 'hermes/sessions',
+            );
+          }
+        }
       }
       try {
         await service.deleteSession(newId);

@@ -3054,8 +3054,80 @@ void main() {
 
     check(fake.getRunCalls).equals(1);
     check(content.toString()).equals('Partial answer');
-    check(message.error?.content)
-        .equals('Hermes stopped this response before it completed.');
+    // Its text is still the answer: a note, not a failure.
+    check(message.error).isNull();
+  });
+
+  test('a recovered run that ran out of steps keeps its answer', () async {
+    final fake = _FakeHermesApiService(
+      const [],
+      runResult: const {
+        'status': 'failed',
+        'output': 'Here is what I found so far.',
+        'completed': false,
+        'turn_exit_reason': 'budget_exhausted',
+      },
+    );
+    final content = StringBuffer();
+    final statuses = <ChatStatusUpdate>[];
+    var message = ChatMessage(
+      id: 'm-budget',
+      role: 'assistant',
+      content: '',
+      timestamp: DateTime.fromMillisecondsSinceEpoch(0),
+    );
+
+    await dispatchHermesRun(
+      service: fake,
+      registry: HermesRunRegistry(),
+      assistantMessageId: message.id,
+      input: 'hi',
+      recoveryPollInterval: Duration.zero,
+      appendContent: content.write,
+      appendStatus: statuses.add,
+      updateMessage: (updater) => message = updater(message),
+      finishStreaming: () {},
+      completeStreamingUi: () {},
+    );
+
+    check(content.toString()).equals('Here is what I found so far.');
+    check(message.error).isNull();
+    check(
+      statuses.map((status) => status.description),
+    ).contains(kHermesBudgetExhaustedNotice);
+  });
+
+  test('a recovered run that failed with an error still fails', () async {
+    final fake = _FakeHermesApiService(
+      const [],
+      runResult: const {
+        'status': 'failed',
+        'output': '',
+        'error': 'provider down',
+        'turn_exit_reason': 'budget_exhausted',
+      },
+    );
+    var message = ChatMessage(
+      id: 'm-failed',
+      role: 'assistant',
+      content: '',
+      timestamp: DateTime.fromMillisecondsSinceEpoch(0),
+    );
+
+    await dispatchHermesRun(
+      service: fake,
+      registry: HermesRunRegistry(),
+      assistantMessageId: message.id,
+      input: 'hi',
+      recoveryPollInterval: Duration.zero,
+      appendContent: (_) {},
+      appendStatus: (_) {},
+      updateMessage: (updater) => message = updater(message),
+      finishStreaming: () {},
+      completeStreamingUi: () {},
+    );
+
+    check(message.error?.content).equals('Hermes run failed.');
   });
 
   test(

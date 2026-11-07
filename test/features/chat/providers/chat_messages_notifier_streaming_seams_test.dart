@@ -184,8 +184,12 @@ class _UnknownHeadHermesApi extends HermesApiService {
 }
 
 class _RecoveredHermesApi extends HermesApiService {
-  _RecoveredHermesApi()
-    : super(
+  _RecoveredHermesApi([
+    this.run = const <String, dynamic>{
+      'status': 'completed',
+      'output': 'Authoritative recovered answer',
+    },
+  ]) : super(
         config: const HermesConfig(
           enabled: true,
           baseUrl: 'https://hermes.example',
@@ -193,6 +197,7 @@ class _RecoveredHermesApi extends HermesApiService {
         dio: Dio(),
       );
 
+  final Map<String, dynamic> run;
   int getRunCalls = 0;
 
   @override
@@ -201,10 +206,7 @@ class _RecoveredHermesApi extends HermesApiService {
     CancelToken? cancelToken,
   }) async {
     getRunCalls += 1;
-    return <String, dynamic>{
-      'status': 'completed',
-      'output': 'Authoritative recovered answer',
-    };
+    return run;
   }
 }
 
@@ -6167,6 +6169,60 @@ void main() {
         check(service.getRunCalls).equals(1);
         check(recovered.content).equals('Authoritative recovered answer');
         check(recovered.isStreaming).isFalse();
+        check(recovered.error).isNull();
+      },
+    );
+
+    test(
+      'a cold-restored Hermes turn that ran out of steps keeps its answer',
+      () async {
+        final service = _RecoveredHermesApi(const <String, dynamic>{
+          'status': 'failed',
+          'output': 'Here is what I found so far.',
+          'completed': false,
+          'turn_exit_reason': 'max_iterations_reached(60)',
+        });
+        final container = _testContainer(
+          overrides: [
+            activeConversationProvider.overrideWith(
+              () => _TestActiveConversationNotifier(),
+            ),
+            apiServiceProvider.overrideWithValue(null),
+            socketServiceProvider.overrideWithValue(null),
+            hermesApiServiceProvider.overrideWithValue(service),
+          ],
+        );
+        addTearDown(container.dispose);
+        final assistant = _assistantMessage(
+          id: 'cold-hermes-wrapup',
+          content: 'Retained Hermes partial',
+          isStreaming: true,
+          metadata: const <String, dynamic>{
+            'transport': kHermesTransport,
+            'hermesRunId': 'run-cold',
+            'hermesSessionId': 'session-cold',
+          },
+        );
+        container
+            .read(activeConversationProvider.notifier)
+            .set(
+              markNativeHermesConversation(
+                withChatStorageProvenance(
+                  _conversation('local:hermes_session-cold', <ChatMessage>[
+                    assistant,
+                  ]),
+                  ChatStorageKind.directLocal,
+                ),
+              ),
+            );
+        await _waitForCondition(
+          () =>
+              container.read(chatMessagesProvider).singleOrNull?.isStreaming ==
+              false,
+        );
+
+        final recovered = container.read(chatMessagesProvider).single;
+        check(recovered.content).equals('Here is what I found so far.');
         check(recovered.error).isNull();
       },
     );

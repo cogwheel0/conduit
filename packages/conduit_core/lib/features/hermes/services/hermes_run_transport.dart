@@ -71,6 +71,23 @@ typedef HermesResponseRecoverer =
       Duration pollInterval,
     );
 
+/// The recovery status of a turn that ran out of steps and ended with its
+/// wrap-up answer: shown with a note, never as a failure.
+const String kHermesWrappedUpStatus = 'wrapped_up';
+
+/// Whether a `failed` run [record] (`GET /v1/runs/{id}`) is a turn that ran
+/// out of steps and wrote its wrap-up answer, with no error.
+bool hermesRunEndedOnBudget(Map<String, dynamic> record) {
+  final error = record['error'];
+  if (error != null && error != false && '$error'.trim().isNotEmpty) {
+    return false;
+  }
+  final reason = record['turn_exit_reason'];
+  return reason is String &&
+      (reason.startsWith('budget_exhausted') ||
+          reason.startsWith('max_iterations_reached('));
+}
+
 HermesResponseRecoverer hermesResponseRecoverer(HermesApiService service) =>
     (responseId, cancelToken, maxPolls, pollInterval) => _recoverResponseOutput(
       service,
@@ -795,7 +812,22 @@ Future<void> dispatchHermesRun({
             replaceContent: replaceContent,
           );
         }
-        if (recovered.status != 'completed') {
+        // A wrap-up or a stopped-short answer is still the answer: shown with
+        // a note, as its stream would have.
+        final notice = switch (recovered.status) {
+          kHermesWrappedUpStatus => kHermesBudgetExhaustedNotice,
+          'incomplete' => kHermesIncompleteNotice,
+          _ => null,
+        };
+        if (notice != null) {
+          statusAccumulator.appendStatus(
+            ChatStatusUpdate(
+              action: 'hermes_run_notice',
+              description: notice,
+              done: true,
+            ),
+          );
+        } else if (recovered.status != 'completed') {
           final errorMessage = switch (recovered.status) {
             'cancelled' || 'canceled' => 'Hermes run was cancelled.',
             'stopped' => 'Hermes run was stopped.',
@@ -1094,6 +1126,11 @@ Future<({String text, String status})?> _recoverRunOutput(
     if (terminal) {
       // A finished run asks nothing more: a card still open closes.
       onPendingControls?.call(const <HermesRunEvent>[]);
+      // A turn that ran out of steps is `failed` with its wrap-up answer and
+      // no error, as its stream's `run.failed` is: a note, not a failure.
+      if (status == 'failed' && hermesRunEndedOnBudget(run)) {
+        return (text: text, status: kHermesWrappedUpStatus);
+      }
       return (text: text, status: status!);
     }
     // Approvals asked while no stream was attached.
