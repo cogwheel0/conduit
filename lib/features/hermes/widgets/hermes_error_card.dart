@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:conduit/shared/widgets/platform_ui/vocabulary.dart';
+import 'package:conduit_core/features/hermes/services/hermes_bot_chat.dart';
 import 'package:conduit_core/features/chat/providers/chat_providers.dart'
     show startNewChat, startNewHermesChat;
 import 'package:conduit_core/features/hermes/models/hermes_error_surface.dart';
@@ -71,8 +72,13 @@ class _HermesErrorCardState extends ConsumerState<HermesErrorCard> {
     HermesErrorAction.compact =>
       _sessionId != null &&
           ref.read(hermesApiServiceProvider) is HermesDesktopApiService,
+    // A Bot Chat runs on its bot's model: the picker's choice never
+    // reaches its retry.
     HermesErrorAction.switchModel =>
-      widget.onRetry != null && _surface.suggestions.isNotEmpty,
+      widget.onRetry != null &&
+          _surface.suggestions.isNotEmpty &&
+          chatHermesBotPresentation(ref.read(activeConversationProvider)) ==
+              null,
     HermesErrorAction.useCredits =>
       widget.onRetry != null &&
           ref.read(hermesApiServiceProvider) is HermesDesktopApiService,

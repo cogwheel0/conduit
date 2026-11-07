@@ -6,6 +6,8 @@ import 'package:conduit/l10n/app_localizations_en.dart';
 import 'package:conduit/l10n/conduit_localizations.dart';
 import 'package:conduit/shared/theme/app_theme.dart';
 import 'package:conduit/shared/theme/tweakcn_themes.dart';
+import 'package:conduit_core/features/hermes/models/hermes_bot.dart';
+import 'package:conduit_core/features/hermes/services/hermes_bot_chat.dart';
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart'
     show isAuthenticatedProvider2;
 import 'package:conduit_core/features/chat/providers/chat_providers.dart';
@@ -87,7 +89,10 @@ Conversation _hermesChat() => markNativeHermesConversation(
   ),
 );
 
-List<Override> _overrides(HermesBackendService? service) => [
+List<Override> _overrides(
+  HermesBackendService? service, {
+  Conversation? conversation,
+}) => [
   apiServiceProvider.overrideWithValue(null),
   openWebUiAuthSessionEpochProvider.overrideWithValue(Object()),
   isAuthenticatedProvider2.overrideWithValue(false),
@@ -97,7 +102,9 @@ List<Override> _overrides(HermesBackendService? service) => [
   streamingHapticsEnabledProvider.overrideWithValue(false),
   isChatStreamingProvider.overrideWithValue(false),
   hermesApiServiceProvider.overrideWithValue(service),
-  activeConversationProvider.overrideWith(() => _Seeded(_hermesChat())),
+  activeConversationProvider.overrideWith(
+    () => _Seeded(conversation ?? _hermesChat()),
+  ),
   chatMessagesProvider.overrideWith(_Messages.new),
   selectedModelProvider.overrideWith(_Selected.new),
   hermesDesktopModelsProvider.overrideWith((ref) async => const []),
@@ -235,6 +242,53 @@ void main() {
     expect(selected?.metadata?['hermesProvider'], 'nous');
     expect(container.read(isManualModelSelectionProvider), isTrue);
     expect(retried, 1);
+  });
+
+  testWidgets('a Bot Chat is not offered a model its retry cannot use', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      _app(
+        _overrides(
+          _desktop(),
+          conversation: markNativeHermesConversation(
+            _hermesChat().copyWith(
+              metadata: {
+                ..._hermesChat().metadata,
+                ...hermesBotChatMetadata(
+                  bot: const HermesBot(name: 'scout', title: 'Scout'),
+                ),
+              },
+            ),
+          ),
+        ),
+        HermesErrorCard(
+          surface: const HermesErrorSurface(
+            layer: HermesErrorLayer.billing,
+            code: 'usage_window',
+            provider: 'nous',
+            suggestions: [
+              HermesModelSuggestion(
+                model: 'synthetic-small',
+                label: 'Synthetic Small',
+                provider: 'nous',
+              ),
+            ],
+            creditsAction: 'use_credits',
+          ),
+          errorText: 'Synthetic provider error',
+          onRetry: () {},
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text(_l10n.hermesErrorSwitchModel('Synthetic Small')),
+      findsNothing,
+    );
+    // The next way out is offered instead.
+    expect(find.text(_l10n.hermesErrorUseCredits), findsOneWidget);
   });
 
   testWidgets('a plan limit without suggestions offers Use credits on a '

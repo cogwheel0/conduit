@@ -483,14 +483,25 @@ void main() {
       check(changes).isEmpty();
       check(service.takeCompactedTranscript('stored-1')).isFalse();
 
+      // A partial info (an owner relay, a service-tier change) is not the
+      // end of it.
+      gateway.emit('session.info', {'service_tier': 'priority'});
+      await _settle();
+      check(changes).isEmpty();
+
+      // Hermes ends it as its in-process /compress does.
       gateway.emit('session.info', {'model': 'synthetic-model'});
+      gateway.emit('status.update', {
+        'kind': 'compacted',
+        'text': 'Context compression complete',
+      });
       await _settle();
 
       check(changes).deepEquals(['stored-1']);
       check(service.takeCompactedTranscript('stored-1')).isTrue();
 
-      // Only once: a later info is the session's own business.
-      gateway.emit('session.info', {'model': 'synthetic-model'});
+      // Only once: a later status is the session's own business.
+      gateway.emit('status.update', {'kind': 'compacted'});
       await _settle();
       check(changes).deepEquals(['stored-1']);
     });

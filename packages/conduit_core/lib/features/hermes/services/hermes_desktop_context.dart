@@ -101,8 +101,9 @@ extension _HermesDesktopContext on HermesDesktopApiService {
   }
 
   /// A compaction Hermes finishes in the background (a turn-isolated
-  /// session's host outlasting the wait) reports in with its session's
-  /// info, or an error: its chat and report are read again then.
+  /// session's host outlasting the wait) ends with a `compacted` status,
+  /// or an error: its chat and report are read again then. Other session
+  /// info (an owner relay, a service-tier change) says nothing about it.
   void _watchPendingCompaction(
     HermesSessionBinding binding,
     String storedId,
@@ -113,7 +114,9 @@ extension _HermesDesktopContext on HermesDesktopApiService {
         .where(
           (event) =>
               event.sessionId == runtimeId &&
-              (event.type == 'session.info' || event.type == 'error'),
+              (event.type == 'error' ||
+                  (event.type == 'status.update' &&
+                      event.payload['kind'] == 'compacted')),
         )
         .listen((_) {
           unawaited(_pendingCompactions.remove(runtimeId)?.cancel());

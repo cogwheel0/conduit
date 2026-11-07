@@ -295,8 +295,10 @@ void main() {
     expect(find.text(_l10n.hermesContextCompactPending), findsOneWidget);
     expect(loads, 1);
 
-    // Hermes reports the session in once its host finishes compacting.
+    // Hermes reports the session in once its host finishes compacting, and
+    // says it is done.
     gateway.emit('session.info', {'model': 'synthetic-model'});
+    gateway.emit('status.update', {'kind': 'compacted'});
     for (var i = 0; i < 10; i++) {
       await tester.pump(const Duration(milliseconds: 20));
     }
