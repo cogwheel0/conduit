@@ -2590,6 +2590,33 @@ class HermesSessionsController
         }
       }
     }
+    if (connectionIdentity != null && service is HermesApiService) {
+      // A REST copy's earlier messages live only on this device, and Hermes
+      // forks only the copy's own turns: the fork keeps them too.
+      final copiedHistory = ref.read(hermesCopiedHistoryStoreProvider);
+      try {
+        final saved = await copiedHistory.load(
+          connectionIdentity: connectionIdentity,
+          sessionId: sourceSessionId,
+        );
+        if (saved != null) {
+          await copiedHistory.save(
+            connectionIdentity: connectionIdentity,
+            sessionId: newId,
+            messages: saved,
+          );
+        }
+      } catch (error) {
+        DebugLogger.warning(
+          'copied-history-fork-failed',
+          scope: 'hermes/sessions',
+          data: {'errorType': error.runtimeType.toString()},
+        );
+        // Without them the fork would open as a stranger to its own chat.
+        await discardStaleFork();
+        rethrow;
+      }
+    }
     if (!forkContextIsCurrent()) {
       await discardStaleFork();
       return null;

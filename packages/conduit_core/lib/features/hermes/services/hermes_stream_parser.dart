@@ -298,6 +298,28 @@ HermesToolProgress? _sdkToolProgress(
   );
 }
 
+/// The approvals a run still waits on (`GET /v1/runs/{id}`
+/// `pending_controls`, v0.22.3+), as the events that first showed them: a
+/// run whose stream cannot come back (saved during a restart) can still
+/// show and answer them.
+List<HermesRunEvent> hermesPendingControlEvents(Object? controls) {
+  if (controls is! List) return const [];
+  final events = <HermesRunEvent>[];
+  for (final control in controls.whereType<Map>().take(16)) {
+    if (control['kind'] != 'approval') continue;
+    final String data;
+    try {
+      data = jsonEncode(control);
+    } catch (_) {
+      continue;
+    }
+    events.addAll(
+      parseHermesRunFrame(SseFrame(event: 'approval.request', data: data)),
+    );
+  }
+  return events;
+}
+
 /// Decodes a single SSE [frame] into zero or more [HermesRunEvent]s.
 ///
 /// Decoding is intentionally tolerant: the Hermes runs API mixes OpenAI

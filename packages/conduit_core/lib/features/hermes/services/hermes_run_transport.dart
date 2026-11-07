@@ -707,6 +707,46 @@ Future<void> dispatchHermesRun({
           );
         }
 
+        // A run saved during a restart cannot resume its stream: the
+        // approval it asks once Hermes is back is listed by the poll. One
+        // card at a time; a shown one that is no longer listed (answered
+        // here or elsewhere, timed out, or the run ended) is closed, which
+        // makes room for the next. None is shown twice.
+        String? shownApproval;
+        final closedApprovals = <String>{};
+        void handle(HermesRunEvent event) => _handleEvent(
+          event,
+          runId: runId,
+          storedSessionId: null,
+          sensitiveValues: sensitiveProviderValues,
+          appendContent: appendContent,
+          appendStatus: statusAccumulator.appendStatus,
+          appendReasoning: statusAccumulator.appendReasoning,
+          updateMessage: updateMessage,
+        );
+        void showPendingControls(List<HermesRunEvent> events) {
+          if (runCancelToken.isCancelled) return;
+          final listed = {
+            for (final event in events)
+              if (event case HermesApprovalRequested(:final approvalId))
+                approvalId,
+          };
+          final shown = shownApproval;
+          if (shown != null && !listed.contains(shown)) {
+            shownApproval = null;
+            closedApprovals.add(shown);
+            handle(HermesPromptSettled(promptId: shown, kind: 'approval'));
+          }
+          for (final event in events) {
+            if (shownApproval != null) break;
+            if (event case HermesApprovalRequested(:final approvalId)
+                when !closedApprovals.contains(approvalId)) {
+              shownApproval = approvalId;
+              handle(event);
+            }
+          }
+        }
+
         ({String text, String status})? recovered;
         if (waitingForRestart) {
           // Not an error: poll slowly, tolerating the restart's outage. If
@@ -720,6 +760,7 @@ Future<void> dispatchHermesRun({
               maxPolls: maxQueuedPolls,
               pollInterval: queuedPollInterval,
               maxConsecutiveErrors: maxQueuedPolls,
+              onPendingControls: showPendingControls,
             );
           } catch (error) {
             if (_isHermesProtocolFailure(error)) rethrow;
@@ -1001,6 +1042,7 @@ Future<({String text, String status})?> _recoverRunOutput(
   int maxConsecutiveErrors = 3,
   int maxExtendedPolls = 0,
   Duration extendedPollInterval = const Duration(seconds: 5),
+  void Function(List<HermesRunEvent> events)? onPendingControls,
 }) async {
   if (maxPolls <= 0) {
     throw ArgumentError.value(maxPolls, 'maxPolls', 'Must be positive');
@@ -1049,7 +1091,15 @@ Future<({String text, String status})?> _recoverRunOutput(
         status == 'stopped' ||
         status == 'incomplete' ||
         status == 'interrupted';
-    if (terminal) return (text: text, status: status!);
+    if (terminal) {
+      // A finished run asks nothing more: a card still open closes.
+      onPendingControls?.call(const <HermesRunEvent>[]);
+      return (text: text, status: status!);
+    }
+    // Approvals asked while no stream was attached.
+    onPendingControls?.call(
+      hermesPendingControlEvents(run['pending_controls']),
+    );
     if (status == 'unknown' && !resolvedUnknown) {
       // An unclean Hermes restart left this run's outcome unknown, and the
       // session's later turns wait behind it until a client acknowledges it.

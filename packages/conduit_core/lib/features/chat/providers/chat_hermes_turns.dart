@@ -1808,6 +1808,8 @@ Future<void> _dispatchRegisteredHermesRunFromChat(
         );
   final responseStartsNewChain =
       !isDesktop && responseInput != null && responsePreviousResponseId == null;
+  // The session a new chain leaves: a copy's earlier messages follow it.
+  final chainSourceSessionId = responseStartsNewChain ? sessionId : null;
   if (responseStartsNewChain) {
     // The official Responses endpoint owns the session id for a new chain; it
     // does not bind to a pre-created /api/sessions row via request headers.
@@ -2031,6 +2033,15 @@ Future<void> _dispatchRegisteredHermesRunFromChat(
             // establishing that boundary lets exact document provenance be
             // recorded after the turn without trusting an older lookalike.
             baselineServerMessageIds = <String>{};
+          }
+          if (service is HermesApiService && chainSourceSessionId != null) {
+            await _carryHermesCopiedHistory(
+              ref,
+              service,
+              connectionIdentity: documentTrustConnectionIdentity,
+              fromSessionId: chainSourceSessionId,
+              toSessionId: establishedSessionId,
+            );
           }
         }
         sessionId = establishedSessionId;
@@ -2540,4 +2551,41 @@ void _retryHermesProjectionPersistenceAfterAdoption(
       );
     }
   }());
+}
+
+/// A REST copy's earlier messages live only on this device (see
+/// [HermesCopiedHistoryStore]). When the copy moves to the session a new
+/// Responses chain starts, they follow it with the turns the copy stored:
+/// Hermes gives the new session neither, so reopening it would drop them.
+Future<void> _carryHermesCopiedHistory(
+  dynamic ref,
+  HermesApiService service, {
+  required String connectionIdentity,
+  required String fromSessionId,
+  required String toSessionId,
+}) async {
+  try {
+    final store =
+        ref.read(hermesCopiedHistoryStoreProvider) as HermesCopiedHistoryStore;
+    final saved = await store.load(
+      connectionIdentity: connectionIdentity,
+      sessionId: fromSessionId,
+    );
+    if (saved == null) return;
+    await store.save(
+      connectionIdentity: connectionIdentity,
+      sessionId: toSessionId,
+      messages: mergeHermesCopiedHistory(
+        saved,
+        await service.getSessionMessages(fromSessionId),
+      ),
+    );
+  } catch (error) {
+    // The turn runs either way; only a later reopen misses the context.
+    DebugLogger.warning(
+      'copied-history-carry-failed',
+      scope: 'hermes/sessions',
+      data: {'errorType': error.runtimeType.toString()},
+    );
+  }
 }

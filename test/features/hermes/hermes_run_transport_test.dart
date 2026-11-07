@@ -3312,6 +3312,69 @@ void main() {
       check(message.error).isNull();
     });
 
+    test('a saved run shows the approval it asks after a restart', () async {
+      Map<String, Object?> approval(String id) => {
+        'kind': 'approval',
+        'prompt_id': id,
+        'execution_generation': 3,
+        'command': 'make deploy-$id',
+        'choices': ['once', 'deny'],
+      };
+      final shown = <Object?>[];
+      final fake = _FakeHermesApiService(
+        const [HermesLifecycle('queued')],
+        runResults: [
+          const {'status': 'queued', 'pending_controls': []},
+          {
+            'status': 'waiting_for_approval',
+            'pending_controls': [approval('prompt-a'), approval('prompt-b')],
+          },
+          // Listed again: still one card, not a second.
+          {
+            'status': 'waiting_for_approval',
+            'pending_controls': [approval('prompt-a'), approval('prompt-b')],
+          },
+          // The first was answered: it closes and the next shows.
+          {
+            'status': 'waiting_for_approval',
+            'pending_controls': [approval('prompt-b')],
+          },
+          const {'status': 'completed', 'output': 'Deployed.'},
+        ],
+      );
+      var message = ChatMessage(
+        id: 'm',
+        role: 'assistant',
+        content: '',
+        timestamp: DateTime.fromMillisecondsSinceEpoch(0),
+      );
+      await dispatchHermesRun(
+        service: fake,
+        registry: HermesRunRegistry(),
+        assistantMessageId: 'm',
+        input: 'hi',
+        maxQueuedPolls: 6,
+        queuedPollInterval: Duration.zero,
+        appendContent: (_) {},
+        appendStatus: (_) {},
+        updateMessage: (updater) {
+          message = updater(message);
+          final card = message.metadata?[kHermesApprovalMeta];
+          if (card is Map) shown.add('${card['approvalId']}:${card['state']}');
+        },
+        finishStreaming: () {},
+        completeStreamingUi: () {},
+      ).timeout(const Duration(seconds: 4));
+
+      check(shown.toSet().toList()).deepEquals([
+        'prompt-a:pending',
+        'prompt-a:settled',
+        'prompt-b:pending',
+        'prompt-b:settled',
+      ]);
+      check(message.error).isNull();
+    });
+
     test('a saved run that outlasts polling stays a notice', () async {
       final fake = _FakeHermesApiService(
         const [HermesLifecycle('queued')],
