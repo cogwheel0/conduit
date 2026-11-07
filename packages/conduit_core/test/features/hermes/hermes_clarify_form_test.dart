@@ -351,6 +351,146 @@ void main() {
       ).deepEquals(['q0', 'q1', 'q2']);
     });
 
+    // Credentials a locked answer can carry, each with a token that is not
+    // a configured connection secret.
+    const credentialAnswers = {
+      'Authorization: Bearer tok-alpha-1': 'tok-alpha-1',
+      'Proxy-Authorization: Basic dG9rLWJldGEtMg==': 'dG9rLWJldGEtMg',
+      'Bearer tok-gamma-3': 'tok-gamma-3',
+      'password=tok-delta-4': 'tok-delta-4',
+      'api_key: "tok epsilon 5"': 'epsilon',
+      '{"secret": "tok-zeta-6"}': 'tok-zeta-6',
+      "access_token='tok eta 7'": 'eta',
+      'password="a\\"tok-theta-8"': 'tok-theta-8',
+      'Cookie: sid=tok-iota-9; theme=dark': 'tok-iota-9',
+    };
+
+    test('redact every credential form from a locked answer', () async {
+      for (final MapEntry(key: answer, value: token)
+          in credentialAnswers.entries) {
+        await HermesPendingDecisionStore.upsert(
+          origin: 'https://hermes.example',
+          storedSessionId: 'stored-1',
+          runtimeId: 'runtime-1',
+          requestId: 'srq-cred',
+          kind: HermesPendingDesktopDecisionKind.clarification,
+          prompt: 'Which header?',
+          questions: hermesClarifyQuestions(
+            [
+              {'qid': 'q0', 'question': 'Which header?'},
+            ],
+            answers: {'q0': answer},
+          ),
+        );
+
+        final stored = PreferencesStore.getStringList(
+          PreferenceKeys.hermesPendingDesktopDecisions,
+        )!.join();
+        check(because: answer, stored).not((it) => it.contains(token));
+        final record = (await HermesPendingDecisionStore.forSession(
+          origin: 'https://hermes.example',
+          storedSessionId: 'stored-1',
+        )).single;
+        check(
+          because: answer,
+          record.questions.single.lockedAnswer,
+        ).isNotNull().not((it) => it.contains(token));
+      }
+    });
+
+    test('redact a locked answer saved by an earlier build', () async {
+      final expires = DateTime.now()
+          .toUtc()
+          .add(const Duration(hours: 1))
+          .toIso8601String();
+      await PreferencesStore.putChecked(
+        PreferenceKeys.hermesPendingDesktopDecisions,
+        [
+          jsonEncode({
+            'origin': 'https://hermes.example',
+            'stored_session_id': 'stored-1',
+            'runtime_id': 'runtime-1',
+            'request_id': 'srq-old',
+            'kind': 'clarification',
+            'expires_at': expires,
+            'questions': [
+              {
+                'qid': 'q0',
+                'question': 'Which header?',
+                'locked': true,
+                'answer': 'Authorization: Bearer tok-kappa-10',
+              },
+            ],
+          }),
+        ],
+      );
+
+      final record = (await HermesPendingDecisionStore.forSession(
+        origin: 'https://hermes.example',
+        storedSessionId: 'stored-1',
+      )).single;
+
+      check(
+        record.questions.single.lockedAnswer,
+      ).isNotNull().not((it) => it.contains('tok-kappa-10'));
+    });
+
+    test('a live card shows no credential from a locked answer', () {
+      for (final MapEntry(key: answer, value: token)
+          in credentialAnswers.entries) {
+        final message = applyHermesRunEventForTest(
+          ChatMessage(
+            id: 'assistant-1',
+            role: 'assistant',
+            content: '',
+            timestamp: DateTime.utc(2030),
+          ),
+          HermesDecisionRequested(
+            kind: HermesDecisionKind.clarification,
+            requestId: 'prm_c1a4',
+            prompt: 'Which header?',
+            raw: {
+              'prompt_id': 'prm_c1a4',
+              'execution_generation': 3,
+              'questions': [
+                {'qid': 'q0', 'question': 'Which header?'},
+              ],
+              'answers': {'q0': answer},
+            },
+          ),
+          runId: 'run_5be1c0de',
+        );
+
+        final decision = message.metadata![kHermesDecisionMeta] as Map;
+        final question = hermesClarifyQuestionsFromPayload(decision).single;
+        check(
+          because: answer,
+          question.lockedAnswer,
+        ).isNotNull().not((it) => it.contains(token));
+      }
+    });
+
+    test('a lone surrogate is kept within the field budget', () async {
+      await HermesPendingDecisionStore.upsert(
+        origin: 'https://hermes.example',
+        storedSessionId: 'stored-1',
+        runtimeId: 'runtime-1',
+        requestId: 'srq-sur',
+        kind: HermesPendingDesktopDecisionKind.clarification,
+        prompt: '${'\uD800' * 400}?',
+      );
+
+      final stored = PreferencesStore.getStringList(
+        PreferenceKeys.hermesPendingDesktopDecisions,
+      )!.single;
+      check(stored).not((it) => it.contains(r'\ud800'));
+      final record = (await HermesPendingDecisionStore.forSession(
+        origin: 'https://hermes.example',
+        storedSessionId: 'stored-1',
+      )).single;
+      check(record.prompt).isNotNull().startsWith('\uFFFD');
+    });
+
     test('redact connection secrets from stored questions', () async {
       await HermesPendingDecisionStore.upsert(
         origin: 'https://hermes.example',

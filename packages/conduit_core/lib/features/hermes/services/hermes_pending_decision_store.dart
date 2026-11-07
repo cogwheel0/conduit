@@ -164,8 +164,13 @@ final class HermesPendingDesktopDecision {
         mcpAction: mcpAction,
         choices: choices,
         multiSelect: value['multi_select'] == true,
+        // Sanitized again as read: a record saved by an earlier build may
+        // hold an answer this one redacts.
         questions: kind == HermesPendingDesktopDecisionKind.clarification
-            ? hermesClarifyQuestions(value['questions'])
+            ? _sanitizeQuestions(
+                hermesClarifyQuestions(value['questions']),
+                const <String>[],
+              )
             : const <HermesClarifyQuestion>[],
         // Same validation the RPC layer applies before a profile can scope a
         // request, so a tampered store cannot redirect one.
@@ -544,6 +549,12 @@ String? _sanitizePrompt(String? value, Iterable<String> sensitiveValues) {
       .replaceAll(RegExp(r'[\u0000-\u001F\u007F-\u009F]'), ' ')
       .replaceAll(RegExp(r'\s+'), ' ')
       .trim();
+  // A lone surrogate is stored as a six-character escape: it becomes the
+  // replacement character, so the field's budget holds in JSON too.
+  safe = String.fromCharCodes([
+    for (final rune in safe.runes)
+      rune >= 0xD800 && rune <= 0xDFFF ? 0xFFFD : rune,
+  ]);
   // A marker can outgrow what it replaced: the field keeps its budget, so a
   // record stays within what is read back.
   final scalars = safe.runes;

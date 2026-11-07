@@ -796,7 +796,11 @@ final class HermesDesktopRpcClient {
     Map<String, dynamic> frame,
   ) {
     final id = frame['id'];
-    if (_showServerRequest(id, frame['method'], frame['params'])) return;
+    if (_showServerRequest(id, frame['method'], frame['params'])) {
+      // Asked live: a snapshot read before it must not close its card.
+      _noteCanonicalOpened(validateHermesOpaqueIdentifier(id));
+      return;
+    }
     if (!_declinesNotShown || sessionAuthority) return;
     channel.sink.add(
       jsonEncode({

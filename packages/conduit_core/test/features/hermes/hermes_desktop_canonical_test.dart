@@ -12,6 +12,9 @@ import 'package:conduit_core/features/hermes/services/hermes_desktop_api_service
 import 'package:conduit_core/features/hermes/services/hermes_desktop_transport.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_todo_providers.dart';
+import 'package:conduit_core/features/chat/providers/chat_providers.dart'
+    show ChatMessagesNotifier, chatMessagesProvider;
+import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/persistence/preferences_store.dart';
 import 'package:conduit_core/providers/app_providers.dart';
@@ -212,6 +215,31 @@ final class _Authority {
 }
 
 /// The open chat continues Hermes session `local-1`.
+/// An OpenWebUI chat whose latest reply came from Hermes session
+/// `local-1`.
+final class _MixedChat extends ActiveConversationNotifier {
+  @override
+  Conversation? build() => Conversation(
+    id: 'owui-chat-1',
+    title: 'Tides',
+    createdAt: DateTime.utc(2030),
+    updatedAt: DateTime.utc(2030),
+  );
+}
+
+final class _MixedMessages extends ChatMessagesNotifier {
+  @override
+  List<ChatMessage> build() => [
+    ChatMessage(
+      id: 'reply-1',
+      role: 'assistant',
+      content: 'Working on it.',
+      timestamp: DateTime.utc(2030),
+      metadata: const {'hermesSessionId': 'local-1'},
+    ),
+  ];
+}
+
 final class _OpenHermesChat extends ActiveConversationNotifier {
   @override
   Conversation? build() => Conversation(
@@ -1514,6 +1542,41 @@ void main() {
       check(shown.where((e) => e.type == 'clarify.request')).isEmpty();
     });
 
+    test('a form settled elsewhere leaves when the snapshot drops it',
+        () async {
+      final gateway = _Authority();
+      final service = _service(gateway);
+      await service.createDesktopSession();
+      gateway.serverRequest('srq-f9', 'clarify', {
+        'session_id': 'local-1',
+        'questions': [
+          {'qid': 'q0', 'question': 'Which colour?'},
+        ],
+      });
+      await _settle();
+      check(
+        (await service.pendingDecisionsForSession('local-1')).map(
+          (decision) => decision.requestId,
+        ),
+      ).contains('srq-f9');
+
+      // Answered on another device while this socket was down: the
+      // snapshot no longer lists it.
+      gateway.handler = (method, params) => method == 'session.resume'
+          ? {...gateway.snapshot('local-1'), 'open_requests': <Object>[]}
+          : gateway.defaults(method, params);
+      gateway.incoming.addError(StateError('gone'));
+      await _settle();
+      await service.pendingDecisionsForSession('local-1');
+      await _settle();
+
+      check(
+        (await service.pendingDecisionsForSession('local-1')).map(
+          (decision) => decision.requestId,
+        ),
+      ).not((it) => it.contains('srq-f9'));
+    });
+
     test('one opened while its snapshot was read stays open', () async {
       final gateway = _Authority();
       gateway.handler = (method, params) {
@@ -1684,6 +1747,36 @@ void main() {
       await _settle();
 
       check(revisions.whereType<int>()).deepEquals([1, 2]);
+    });
+
+    test('a Hermes turn inside an OpenWebUI chat shows its plan', () async {
+      final gateway = _Authority()..todoState = plan(3, ['in_progress']);
+      final service = _service(gateway);
+      await service.pendingDecisionsForSession('local-1');
+      final container = ProviderContainer(
+        overrides: [
+          hermesApiServiceProvider.overrideWithValue(service),
+          activeConversationProvider.overrideWith(_MixedChat.new),
+          chatMessagesProvider.overrideWith(_MixedMessages.new),
+        ],
+      );
+      addTearDown(container.dispose);
+      final revisions = <int?>[];
+      container.listen(
+        hermesActiveTodoProvider,
+        (_, next) => revisions.add(next.asData?.value?.revision),
+        fireImmediately: true,
+      );
+      await _settle();
+      // The reply's metadata alone, which the server could have written,
+      // names no plan.
+      check(revisions.whereType<int>()).isEmpty();
+
+      // This app ran the chat's turn in that session.
+      container.read(hermesActiveSessionProvider.notifier).set('local-1');
+      await _settle();
+
+      check(revisions.whereType<int>()).deepEquals([3]);
     });
 
     // A resume can move a chat to a new stored id. The chat still asks by

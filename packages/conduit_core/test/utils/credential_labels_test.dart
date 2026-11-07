@@ -19,6 +19,13 @@ void main() {
     check(safe.split('\n')).length.equals(2);
   });
 
+  test('an escaped quote does not end a quoted value', () {
+    final safe = redactCredentialLabels(r'password="abc\"DEFSECRET" next');
+
+    check(safe).not((it) => it.contains('DEFSECRET'));
+    check(safe).contains('next');
+  });
+
   test('an Authorization value goes with its scheme', () {
     check(
       redactCredentialLabels('Authorization: Bearer service-token'),

@@ -153,6 +153,32 @@ void main() {
     ).contains('caption: Costs about 10 credits.');
   });
 
+  test('a REST approval loses a credential past a blank line', () {
+    final message = applyHermesRunEventForTest(
+      ChatMessage(
+        id: 'a',
+        role: 'assistant',
+        content: '',
+        timestamp: DateTime.utc(2030),
+      ),
+      const HermesApprovalRequested(
+        approvalId: 'prm_a3',
+        summary:
+            'Call the upload API with Authorization:\n\n'
+            'Basic dG9rLWxhbWJkYQ==',
+        choices: ['once', 'deny'],
+        executionGeneration: 2,
+        raw: {},
+      ),
+      runId: 'run-1',
+    );
+
+    final approval = message.metadata![kHermesApprovalMeta] as Map;
+    check(
+      approval['summary'] as String,
+    ).not((it) => it.contains('dG9rLWxhbWJkYQ'));
+  });
+
   test('a REST approval keeps the price its command states', () {
     final message = applyHermesRunEventForTest(
       ChatMessage(

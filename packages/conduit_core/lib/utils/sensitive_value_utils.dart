@@ -11,18 +11,21 @@ const int kMaxProviderErrorSecretTotalCharacters = 64 * 1024;
 const String _redacted = '[REDACTED]';
 
 /// Redacts common credential values in [text] even when they are not among
-/// the configured secrets: `Authorization` header values, `password=`,
-/// `api_key:` and similar assignments, and Bearer tokens. With [keepLines]
+/// the configured secrets: `Authorization` and `Cookie` header values,
+/// `password=`, `api_key:` and similar assignments (quoted ones whole), and
+/// Bearer tokens. With [keepLines]
 /// a label and its value must share a line, and line breaks are left alone,
 /// so a diff keeps its lines.
 String redactCredentialLabels(String text, {bool keepLines = false}) {
   final space = keepLines ? r'[ \t]' : r'\s';
   // Authorization values can contain a scheme followed by whitespace-rich
-  // credentials (for example Digest parameters). Redact the complete header
-  // value before applying the narrower single-token rules below.
+  // credentials (for example Digest parameters), and a Cookie header holds
+  // several. Redact the complete header value before applying the narrower
+  // single-token rules below.
   var safe = text.replaceAllMapped(
     RegExp(
-      '\\b(authorization|proxy-authorization)\\b$space*[:=]$space*'
+      '\\b(authorization|proxy-authorization|cookie|set-cookie)\\b'
+      '$space*[:=]$space*'
       r'[^\r\n]*',
       caseSensitive: false,
     ),
@@ -38,7 +41,8 @@ String redactCredentialLabels(String text, {bool keepLines = false}) {
       r'\b(api[-_ ]?key|access[-_ ]?token|password|secret|session[-_ ]?key)'
       r'''\b(["']?)'''
       '$space*[:=]$space*(?:bearer$space+)?'
-      r'''(?:"[^"\r\n]*"|'[^'\r\n]*'|[^\s,;]+)''',
+      // A quoted value ends at its closing quote, not an escaped one.
+      r'''(?:"(?:\\.|[^"\\\r\n])*"|'(?:\\.|[^'\\\r\n])*'|[^\s,;]+)''',
       caseSensitive: false,
     ),
     (match) => '${match.group(1)}${match.group(2)}: $_redacted',

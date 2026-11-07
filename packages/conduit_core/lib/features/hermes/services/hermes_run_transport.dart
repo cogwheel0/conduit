@@ -2208,6 +2208,9 @@ String? _sanitizeHermesApprovalSummary(
     return safe == 'Hermes run failed.' || safe == '[REDACTED]' ? null : safe;
   }
 
+  // Credentials go first, across the whole text: a label and its value
+  // can sit on either side of the blank line split below.
+  raw = redactCredentialLabels(raw);
   // Sanitizing folds whitespace: the opening paragraph (where Hermes states
   // a price) stays apart from the tool's input after it, which must never
   // read as a price.

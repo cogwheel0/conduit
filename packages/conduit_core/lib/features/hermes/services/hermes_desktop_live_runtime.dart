@@ -336,6 +336,7 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
       await _settleUnlistedCanonicalDecisions(
         binding,
         result['prompts'],
+        openRequests: result['open_requests'],
         settledSince: settleMark,
       );
     }

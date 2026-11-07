@@ -188,9 +188,18 @@ extension _HermesDesktopCanonical on HermesDesktopApiService {
   Future<void> _settleUnlistedCanonicalDecisions(
     HermesSessionBinding binding,
     Object? prompts, {
+    Object? openRequests,
     int? settledSince,
   }) async {
     if (prompts is! List) return;
+    // A server request's card (a clarify form's `srq-` one) is listed by
+    // the snapshot's `open_requests`, when it names them.
+    final openIds = openRequests is List
+        ? {
+            for (final request in openRequests.whereType<Map>().take(256))
+              ?validateHermesOpaqueIdentifier(request['id']),
+          }
+        : null;
     // Every listed prompt, not only the ones a replay shows.
     final listed = {
       for (final prompt in prompts.whereType<Map>().take(256))
@@ -202,14 +211,21 @@ extension _HermesDesktopCanonical on HermesDesktopApiService {
       storedSessionId: binding.storedId,
     );
     for (final decision in saved) {
-      final prompt = switch (decision.kind) {
-        HermesPendingDesktopDecisionKind.approval => true,
-        HermesPendingDesktopDecisionKind.clarification =>
-          !decision.requestId.startsWith(kHermesServerRequestIdPrefix),
-        _ => false,
-      };
-      if (!prompt ||
-          listed.contains(decision.requestId) ||
+      final serverRequest = decision.requestId.startsWith(
+        kHermesServerRequestIdPrefix,
+      );
+      final reconciled = serverRequest
+          ? openIds != null
+          : switch (decision.kind) {
+              HermesPendingDesktopDecisionKind.approval ||
+              HermesPendingDesktopDecisionKind.clarification => true,
+              _ => false,
+            };
+      final stillListed = serverRequest
+          ? openIds?.contains(decision.requestId) ?? true
+          : listed.contains(decision.requestId);
+      if (!reconciled ||
+          stillListed ||
           (settledSince != null &&
               _rpc.canonicalOpenedSince(decision.requestId, settledSince))) {
         continue;

@@ -1,4 +1,8 @@
+import 'package:collection/collection.dart';
 import 'package:riverpod/riverpod.dart';
+
+import 'package:conduit_core/features/chat/providers/chat_providers.dart'
+    show chatMessagesProvider;
 
 import 'package:conduit_core/features/hermes/models/hermes_todo.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
@@ -6,14 +10,29 @@ import 'package:conduit_core/features/hermes/services/hermes_desktop_api_service
 import 'package:conduit_core/providers/app_providers.dart'
     show activeConversationProvider;
 
-/// The Hermes session the open chat continues, when it is a Hermes chat.
+/// The Hermes session the open chat continues, when it is a Hermes chat, or
+/// the one a Hermes turn inside an OpenWebUI chat runs in.
 final _activeHermesSessionProvider = Provider.autoDispose<String?>((ref) {
   final id = ref.watch(
     activeConversationProvider.select(
       (conversation) => conversation?.metadata['hermesSessionId'],
     ),
   );
-  return id is String && id.isNotEmpty ? id : null;
+  if (id is String && id.isNotEmpty) return id;
+  // A Hermes turn inside an OpenWebUI chat keeps its session on its reply,
+  // and the chat itself names none. Only the session this app bound for
+  // the chat's latest turn counts: a reply's metadata alone may come from
+  // the server.
+  final bound = ref.watch(hermesActiveSessionProvider);
+  if (bound == null) return null;
+  final latest = ref.watch(
+    chatMessagesProvider.select(
+      (messages) => messages
+          .lastWhereOrNull((message) => message.role == 'assistant')
+          ?.metadata?['hermesSessionId'],
+    ),
+  );
+  return latest == bound ? bound : null;
 });
 
 /// The agent's task list for the open chat, live: only a Desktop Gateway
