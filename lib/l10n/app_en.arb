@@ -6921,6 +6921,306 @@
   "@hermesJobDeliverRoomHint": {
     "description": "Hint explaining that delivering to a Group Chat only wakes the bots the job mentions."
   },
+  "hermesRoomsTitle": "Rooms",
+  "@hermesRoomsTitle": {
+    "description": "Title of the Hermes sidebar section listing Group Chats (rooms of several bots)."
+  },
+  "hermesRoomNew": "New room",
+  "@hermesRoomNew": {
+    "description": "Button and sheet title for creating a new Hermes room from bots."
+  },
+  "hermesRoomCreateHint": "Pick 2 to 6 bots. Each answers in the room as itself.",
+  "@hermesRoomCreateHint": {
+    "description": "Explains how many bots a new Hermes room takes."
+  },
+  "hermesRoomNameHint": "Room name",
+  "@hermesRoomNameHint": {
+    "description": "Placeholder of the name field when creating or renaming a Hermes room."
+  },
+  "hermesRoomCreateFailed": "Couldn't create the room.",
+  "@hermesRoomCreateFailed": {
+    "description": "Error shown when Hermes could not create a room."
+  },
+  "hermesRoomNeedsBots": "A room needs at least two bots on this connection.",
+  "@hermesRoomNeedsBots": {
+    "description": "Shown when the connection has fewer than two bots to put in a room."
+  },
+  "hermesRoomMessageHint": "Message the room, @ to mention a bot",
+  "@hermesRoomMessageHint": {
+    "description": "Placeholder of the composer in a Hermes room."
+  },
+  "hermesRoomScheduled": "Scheduled",
+  "@hermesRoomScheduled": {
+    "description": "Badge on a room message posted by a scheduled job."
+  },
+  "hermesRoomEveryone": "Everyone",
+  "@hermesRoomEveryone": {
+    "description": "The @everyone mention and the who-answers choice where every bot answers."
+  },
+  "hermesRoomBotCount": "{count, plural, =1{1 bot} other{{count} bots}}",
+  "@hermesRoomBotCount": {
+    "description": "How many bots a Hermes room has.",
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "2"
+      }
+    }
+  },
+  "hermesRoomWorking": "working",
+  "@hermesRoomWorking": {
+    "description": "Short status of a bot that is answering right now, after its name."
+  },
+  "hermesRoomWaiting": "waiting",
+  "@hermesRoomWaiting": {
+    "description": "Short status of a bot that waits for its turn, after its name."
+  },
+  "hermesRoomQuiet": "quiet for {elapsed}",
+  "@hermesRoomQuiet": {
+    "description": "Short status of a working bot that has shown no activity for a while; elapsed is like 3m10s.",
+    "placeholders": {
+      "elapsed": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesRoomNeedsYou": "Needs your answer",
+  "@hermesRoomNeedsYou": {
+    "description": "Room status when a bot waits for the user's approval."
+  },
+  "hermesRoomTurnFailed": "Turn failed",
+  "@hermesRoomTurnFailed": {
+    "description": "Notice in a room when a bot's turn failed."
+  },
+  "hermesRoomTurnCancelled": "Turn cancelled",
+  "@hermesRoomTurnCancelled": {
+    "description": "Notice in a room when a bot's turn was cancelled."
+  },
+  "hermesRoomTurnDeferred": "Turn put off",
+  "@hermesRoomTurnDeferred": {
+    "description": "Notice in a room when a bot's turn was put off for later."
+  },
+  "hermesRoomMemberUnavailable": "Bot unavailable",
+  "@hermesRoomMemberUnavailable": {
+    "description": "Notice in a room when a bot could not be reached."
+  },
+  "hermesRoomStopped": "Room stopped",
+  "@hermesRoomStopped": {
+    "description": "Notice in a room when its work was stopped."
+  },
+  "hermesRoomDisbanded": "Room disbanded",
+  "@hermesRoomDisbanded": {
+    "description": "Notice in a room when it was disbanded."
+  },
+  "hermesRoomAuthorityLost": "Another gateway took over this room",
+  "@hermesRoomAuthorityLost": {
+    "description": "Notice in a room when another Hermes gateway took it over."
+  },
+  "hermesRoomWorkLimit": "Turn limit reached",
+  "@hermesRoomWorkLimit": {
+    "description": "Notice in a room when the bots reached their turn limit for a message."
+  },
+  "hermesRoomRoutedTo": "Assigned to {names}",
+  "@hermesRoomRoutedTo": {
+    "description": "Line in a room naming the bots Hermes picked to answer a message.",
+    "placeholders": {
+      "names": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesRoomRoutedEveryone": "Assigned to everyone",
+  "@hermesRoomRoutedEveryone": {
+    "description": "Line in a room when Hermes picked every bot to answer a message."
+  },
+  "hermesRoomRoutedFallback": "Couldn't choose who answers, so everyone will",
+  "@hermesRoomRoutedFallback": {
+    "description": "Line in a room when Hermes could not pick who answers."
+  },
+  "hermesRoomAssigned": "{lead} gave this to {names}",
+  "@hermesRoomAssigned": {
+    "description": "Line in a room when the lead bot gave a message to other bots.",
+    "placeholders": {
+      "lead": {
+        "type": "String"
+      },
+      "names": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesRoomLeadTaking": "{lead} is taking this",
+  "@hermesRoomLeadTaking": {
+    "description": "Line in a room when the lead bot answers a message itself.",
+    "placeholders": {
+      "lead": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesRoomContinued": "Continued",
+  "@hermesRoomContinued": {
+    "description": "Line in a room after the user continued a paused discussion."
+  },
+  "hermesRoomHandoff": "{from} asked {to}",
+  "@hermesRoomHandoff": {
+    "description": "Line in a room when one bot asked another bot in its reply.",
+    "placeholders": {
+      "from": {
+        "type": "String"
+      },
+      "to": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesRoomPaused": "{count, plural, =1{Paused after 1 message} other{Paused after {count} messages}}",
+  "@hermesRoomPaused": {
+    "description": "Shown when a room's discussion paused at its limit, with a Continue button.",
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "2"
+      }
+    }
+  },
+  "hermesRoomRetryPrompt": "{name}'s turn ended without a clear result.",
+  "@hermesRoomRetryPrompt": {
+    "description": "Card text when a bot's turn ended uncertainly and can be retried.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesRoomLoadFailed": "Couldn't load this room.",
+  "@hermesRoomLoadFailed": {
+    "description": "Error when a Hermes room could not be read."
+  },
+  "hermesRoomRefreshFailed": "Couldn't refresh the room.",
+  "@hermesRoomRefreshFailed": {
+    "description": "Banner when the latest read of a Hermes room failed."
+  },
+  "hermesRoomGone": "This room is no longer available.",
+  "@hermesRoomGone": {
+    "description": "Shown when an open Hermes room was disbanded or is no longer listed."
+  },
+  "hermesRoomNotRunning": "Hermes isn't running this room right now, so it can't take messages.",
+  "@hermesRoomNotRunning": {
+    "description": "Shown when Hermes does not run the room right now, so nothing can be sent."
+  },
+  "hermesRoomSendUnclear": "Hermes didn't confirm the message. Send it again; it won't be posted twice.",
+  "@hermesRoomSendUnclear": {
+    "description": "Shown when Hermes did not confirm a room message; sending again is safe."
+  },
+  "hermesRoomStoppedCount": "{count, plural, =0{Nothing was running} =1{Stopped 1 task} other{Stopped {count} tasks}}",
+  "@hermesRoomStoppedCount": {
+    "description": "Result of stopping a room's work.",
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "2"
+      }
+    }
+  },
+  "hermesRoomRefused": "Hermes refused: {reason}",
+  "@hermesRoomRefused": {
+    "description": "Error with Hermes' own reason for refusing a room request.",
+    "placeholders": {
+      "reason": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesRoomActionFailed": "That didn't work. Try again.",
+  "@hermesRoomActionFailed": {
+    "description": "Generic error for a room action that failed."
+  },
+  "hermesRoomInfoTitle": "Room info",
+  "@hermesRoomInfoTitle": {
+    "description": "Title of the sheet with a Hermes room's settings and bots."
+  },
+  "hermesRoomPurpose": "Purpose",
+  "@hermesRoomPurpose": {
+    "description": "Label of a Hermes room's one-line purpose."
+  },
+  "hermesRoomPurposeHint": "What this room is for, in one line",
+  "@hermesRoomPurposeHint": {
+    "description": "Placeholder of a Hermes room's purpose field."
+  },
+  "hermesRoomNotes": "Shared notes",
+  "@hermesRoomNotes": {
+    "description": "Label of a Hermes room's shared notes."
+  },
+  "hermesRoomNotesHint": "Facts every bot should keep in mind",
+  "@hermesRoomNotesHint": {
+    "description": "Placeholder of a Hermes room's shared notes field."
+  },
+  "hermesRoomNotesTooLong": "Shared notes are too long.",
+  "@hermesRoomNotesTooLong": {
+    "description": "Error when a Hermes room's shared notes exceed Hermes' size limit."
+  },
+  "hermesRoomWhoAnswers": "Who answers a message that names nobody",
+  "@hermesRoomWhoAnswers": {
+    "description": "Label of the setting choosing who answers a room message that mentions no bot."
+  },
+  "hermesRoomRoutingEveryoneHint": "Every bot takes a turn.",
+  "@hermesRoomRoutingEveryoneHint": {
+    "description": "Explains the Everyone choice of who answers."
+  },
+  "hermesRoomRoutingLead": "Lead bot",
+  "@hermesRoomRoutingLead": {
+    "description": "Who-answers choice where a lead bot decides."
+  },
+  "hermesRoomRoutingLeadHint": "The lead picks who takes it. @mentions still go straight to the bots you name.",
+  "@hermesRoomRoutingLeadHint": {
+    "description": "Explains the Lead bot choice of who answers."
+  },
+  "hermesRoomRoutingAuto": "Auto",
+  "@hermesRoomRoutingAuto": {
+    "description": "Who-answers choice where Hermes picks automatically."
+  },
+  "hermesRoomRoutingAutoHint": "A quick model call picks who it's for. @mentions still go straight to the bots you name.",
+  "@hermesRoomRoutingAutoHint": {
+    "description": "Explains the Auto choice of who answers."
+  },
+  "hermesRoomLead": "Lead",
+  "@hermesRoomLead": {
+    "description": "Badge on the lead bot, and label of the lead bot picker."
+  },
+  "hermesRoomMembers": "Bots",
+  "@hermesRoomMembers": {
+    "description": "Section title listing the bots in a Hermes room."
+  },
+  "hermesRoomMembersFixed": "Bots can't be added or removed once a room exists.",
+  "@hermesRoomMembersFixed": {
+    "description": "Explains that a Hermes room's bots are fixed."
+  },
+  "hermesRoomStopWork": "Stop all work",
+  "@hermesRoomStopWork": {
+    "description": "Action that stops everything the bots in a room are doing."
+  },
+  "hermesRoomDisband": "Disband room",
+  "@hermesRoomDisband": {
+    "description": "Destructive action that ends a Hermes room for good."
+  },
+  "hermesRoomDisbandTitle": "Disband “{name}”?",
+  "@hermesRoomDisbandTitle": {
+    "description": "Confirmation title before disbanding a Hermes room.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesRoomDisbandMessage": "Its work stops and the room is gone for good.",
+  "@hermesRoomDisbandMessage": {
+    "description": "Confirmation message before disbanding a Hermes room."
+  },
+  "hermesRoomRenameTitle": "Rename room",
+  "@hermesRoomRenameTitle": {
+    "description": "Title of the dialog renaming a Hermes room."
+  },
   "hermesApprovalAllowOnce": "Allow once",
   "@hermesApprovalAllowOnce": {
     "description": "Approval option that permits a Hermes tool call once."

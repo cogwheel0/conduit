@@ -471,6 +471,13 @@ void main() {
       }
     });
 
+    test('an open Hermes room is a Hermes page', () {
+      check(isHermesOnlyAppLocation(Routes.hermesRoomPath('standup')))
+          .isTrue();
+      check(Routes.hermesRoomPath('a b')).equals('/hermes-room/a%20b');
+      check(isHermesOnlyAppLocation('/hermes-roomless')).isFalse();
+    });
+
     test('a usable accountless backend never needs an account', () {
       final read = _reader(
         activeServer: const AsyncData(null),

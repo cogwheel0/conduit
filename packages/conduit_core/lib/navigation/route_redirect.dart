@@ -72,8 +72,13 @@ bool _isAccountlessBackendLocation(String location) {
       location == Routes.hermesSessions ||
       location == Routes.hermesJobs ||
       location == Routes.hermesHiddenSessions ||
+      isHermesRoomLocation(location) ||
       location == Routes.about;
 }
+
+/// An open Hermes Group Chat.
+bool isHermesRoomLocation(String location) =>
+    location.startsWith('/hermes-room/');
 
 /// The saved Hermes connection list and its connection editors.
 bool isHermesSettingsLocation(String location) =>

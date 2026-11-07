@@ -6996,6 +6996,151 @@
   },
   "hermesJobDeliverNeedsHomeChannel": "Najpierw ustaw kanał domowy w Hermes.",
   "hermesJobDeliverRoomHint": "Czaty grupowe budzą tylko boty, które zadanie oznaczy przez @.",
+  "hermesRoomsTitle": "Pokoje",
+  "hermesRoomNew": "Nowy pokój",
+  "hermesRoomCreateHint": "Wybierz od 2 do 6 botów. Każdy odpowiada w pokoju jako on sam.",
+  "hermesRoomNameHint": "Nazwa pokoju",
+  "hermesRoomCreateFailed": "Nie można utworzyć pokoju.",
+  "hermesRoomNeedsBots": "Pokój wymaga co najmniej dwóch botów w tym połączeniu.",
+  "hermesRoomMessageHint": "Wiadomość do pokoju, @ wspomina bota",
+  "hermesRoomScheduled": "Zaplanowane",
+  "hermesRoomEveryone": "Wszyscy",
+  "hermesRoomBotCount": "{count, plural, =1{1 bot} few{{count} boty} many{{count} botów} other{{count} bota}}",
+  "@hermesRoomBotCount": {
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "2"
+      }
+    }
+  },
+  "hermesRoomWorking": "pracuje",
+  "hermesRoomWaiting": "czeka",
+  "hermesRoomQuiet": "cisza od {elapsed}",
+  "@hermesRoomQuiet": {
+    "placeholders": {
+      "elapsed": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesRoomNeedsYou": "Czeka na Twoją odpowiedź",
+  "hermesRoomTurnFailed": "Tura nieudana",
+  "hermesRoomTurnCancelled": "Tura anulowana",
+  "hermesRoomTurnDeferred": "Tura odłożona",
+  "hermesRoomMemberUnavailable": "Bot niedostępny",
+  "hermesRoomStopped": "Pokój zatrzymany",
+  "hermesRoomDisbanded": "Pokój rozwiązany",
+  "hermesRoomAuthorityLost": "Inna brama przejęła ten pokój",
+  "hermesRoomWorkLimit": "Osiągnięto limit tur",
+  "hermesRoomRoutedTo": "Przydzielono: {names}",
+  "@hermesRoomRoutedTo": {
+    "placeholders": {
+      "names": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesRoomRoutedEveryone": "Przydzielono wszystkim",
+  "hermesRoomRoutedFallback": "Nie udało się wybrać, kto odpowie, więc odpowiedzą wszyscy",
+  "hermesRoomAssigned": "{lead} przekazuje to: {names}",
+  "@hermesRoomAssigned": {
+    "placeholders": {
+      "lead": {
+        "type": "String"
+      },
+      "names": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesRoomLeadTaking": "{lead} się tym zajmie",
+  "@hermesRoomLeadTaking": {
+    "placeholders": {
+      "lead": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesRoomContinued": "Wznowiono",
+  "hermesRoomHandoff": "{from} pyta {to}",
+  "@hermesRoomHandoff": {
+    "placeholders": {
+      "from": {
+        "type": "String"
+      },
+      "to": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesRoomPaused": "{count, plural, =1{Wstrzymano po 1 wiadomości} few{Wstrzymano po {count} wiadomościach} many{Wstrzymano po {count} wiadomościach} other{Wstrzymano po {count} wiadomości}}",
+  "@hermesRoomPaused": {
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "2"
+      }
+    }
+  },
+  "hermesRoomRetryPrompt": "Tura bota {name} zakończyła się bez jasnego wyniku.",
+  "@hermesRoomRetryPrompt": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesRoomLoadFailed": "Nie można wczytać tego pokoju.",
+  "hermesRoomRefreshFailed": "Nie można odświeżyć pokoju.",
+  "hermesRoomGone": "Ten pokój nie jest już dostępny.",
+  "hermesRoomNotRunning": "Hermes nie obsługuje teraz tego pokoju, więc nie może przyjmować wiadomości.",
+  "hermesRoomSendUnclear": "Hermes nie potwierdził wiadomości. Wyślij ją ponownie; nie zostanie opublikowana dwa razy.",
+  "hermesRoomStoppedCount": "{count, plural, =0{Nic nie było uruchomione} =1{Zatrzymano 1 zadanie} few{Zatrzymano {count} zadania} many{Zatrzymano {count} zadań} other{Zatrzymano {count} zadania}}",
+  "@hermesRoomStoppedCount": {
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "2"
+      }
+    }
+  },
+  "hermesRoomRefused": "Hermes odmówił: {reason}",
+  "@hermesRoomRefused": {
+    "placeholders": {
+      "reason": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesRoomActionFailed": "To się nie udało. Spróbuj ponownie.",
+  "hermesRoomInfoTitle": "Informacje o pokoju",
+  "hermesRoomPurpose": "Cel",
+  "hermesRoomPurposeHint": "Do czego służy ten pokój, w jednym wierszu",
+  "hermesRoomNotes": "Wspólne notatki",
+  "hermesRoomNotesHint": "Fakty, o których każdy bot ma pamiętać",
+  "hermesRoomNotesTooLong": "Wspólne notatki są za długie.",
+  "hermesRoomWhoAnswers": "Kto odpowiada na wiadomość, która nikogo nie wymienia",
+  "hermesRoomRoutingEveryoneHint": "Każdy bot zabiera głos.",
+  "hermesRoomRoutingLead": "Bot prowadzący",
+  "hermesRoomRoutingLeadHint": "Prowadzący wybiera, kto się tym zajmie. @wzmianki nadal trafiają prosto do wskazanych botów.",
+  "hermesRoomRoutingAuto": "Automatycznie",
+  "hermesRoomRoutingAutoHint": "Szybkie wywołanie modelu wybiera, do kogo jest wiadomość. @wzmianki nadal trafiają prosto do wskazanych botów.",
+  "hermesRoomLead": "Prowadzący",
+  "hermesRoomMembers": "Boty",
+  "hermesRoomMembersFixed": "Po utworzeniu pokoju nie można dodawać ani usuwać botów.",
+  "hermesRoomStopWork": "Zatrzymaj całą pracę",
+  "hermesRoomDisband": "Rozwiąż pokój",
+  "hermesRoomDisbandTitle": "Rozwiązać „{name}”?",
+  "@hermesRoomDisbandTitle": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesRoomDisbandMessage": "Jego praca się zatrzyma, a pokój zniknie na zawsze.",
+  "hermesRoomRenameTitle": "Zmień nazwę pokoju",
   "hermesApprovalAllowOnce": "Zezwól raz",
   "hermesApprovalAllowSession": "Zezwól w sesji",
   "hermesApprovalAlwaysAllow": "Zawsze zezwalaj",

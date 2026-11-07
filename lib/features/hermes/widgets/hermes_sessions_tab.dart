@@ -20,11 +20,13 @@ import 'package:conduit_core/features/navigation/providers/drawer_section_notifi
 import 'package:conduit_core/features/hermes/models/hermes_bot.dart';
 import 'package:conduit_core/features/hermes/models/hermes_session.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
+import 'package:conduit_core/features/hermes/providers/hermes_room_providers.dart';
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 
 import 'hermes_bot_tile.dart';
 import 'hermes_connection_switcher.dart';
 import 'hermes_jobs_sheet.dart';
+import 'hermes_rooms_section.dart';
 import 'hermes_session_tile.dart';
 
 /// Sidebar tab listing the user's Hermes server-side conversations, with one
@@ -78,6 +80,7 @@ class _HermesSessionsTabState extends ConsumerState<HermesSessionsTab>
         // Names the active connection; switches when several are saved.
         const SliverToBoxAdapter(child: HermesConnectionSwitcherTile()),
         ..._botSlivers(context, ref.watch(hermesBotsProvider).asData?.value),
+        const HermesRoomsSection(),
         if (showJobs) const SliverToBoxAdapter(child: _ScheduledAgentsTile()),
         ..._sessionSlivers(context, sessionsAsync),
         SliverToBoxAdapter(
@@ -97,6 +100,7 @@ class _HermesSessionsTabState extends ConsumerState<HermesSessionsTab>
         if (showJobs) ref.invalidate(hermesJobsProvider);
         ref.invalidate(hermesBotsProvider);
         ref.invalidate(hermesArchivedSessionsProvider);
+        ref.invalidate(hermesRoomsProvider);
         ref.invalidate(hermesSessionsProvider);
         await ref.read(hermesSessionsProvider.future);
       },
