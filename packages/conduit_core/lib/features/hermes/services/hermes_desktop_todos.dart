@@ -22,12 +22,14 @@ extension _HermesDesktopTodos on HermesDesktopApiService {
     if (!_closed) _todoChanges.add(key);
   }
 
-  /// The task list of [storedId], under its stored or its runtime id.
+  /// The task list of [storedId], under its stored or its runtime id. A
+  /// chat a resume moved to a new stored id reads that id's list first: one
+  /// kept under the id it was asked by is from before the move.
   HermesTodoState? _todoStateFor(String storedId) {
     final binding = _bindings[storedId];
-    return _todoStates[storedId] ??
-        _todoStates[binding?.storedId] ??
-        _todoStates[binding?.runtimeId];
+    return _todoStates[binding?.storedId] ??
+        _todoStates[binding?.runtimeId] ??
+        _todoStates[storedId];
   }
 
   Stream<HermesTodoState?> _todoStatesFor(String storedId) =>

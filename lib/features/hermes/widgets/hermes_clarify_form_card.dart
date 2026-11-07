@@ -13,7 +13,10 @@ import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/composer_prompt_surface.dart';
 import '../../../shared/widgets/conduit_components.dart';
 
-/// The share of the screen a long form may take before it scrolls.
+import 'hermes_todo_card.dart' show hermesHeightAboveKeyboard;
+
+/// The share of the space above the keyboard a long form may take before
+/// it scrolls.
 const double _kMaxFormHeightFraction = 0.45;
 
 /// Every question Hermes asked in one clarify call, answered with one
@@ -143,7 +146,7 @@ class _HermesClarifyFormCardState extends State<HermesClarifyFormCard> {
         .length;
     final maxHeight = math.max(
       160.0,
-      MediaQuery.sizeOf(context).height * _kMaxFormHeightFraction,
+      hermesHeightAboveKeyboard(context) * _kMaxFormHeightFraction,
     );
     return ComposerPromptSurface(
       semanticsLabel: l10n.hermesClarificationTitle,
@@ -301,7 +304,7 @@ class _QuestionBlock extends StatelessWidget {
                 for (final choice in question.choices)
                   _ChoiceRow(
                     key: ValueKey('hermes-clarify-${question.id}-$choice'),
-                    label: hermesClarifyBareChoice(choice),
+                    label: hermesClarifyChoiceLabel(choice),
                     recommended: hermesClarifyChoiceIsRecommended(choice),
                     multiSelect: question.multiSelect,
                     selected: draft.choices.contains(choice),

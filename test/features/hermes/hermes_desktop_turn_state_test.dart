@@ -6,6 +6,7 @@ import 'package:checks/checks.dart';
 import 'package:conduit_core/persistence/preferences_store.dart';
 import 'package:conduit_core/features/hermes/models/hermes_bot.dart';
 import 'package:conduit_core/features/hermes/models/hermes_chat_input.dart';
+import 'package:conduit_core/features/hermes/models/hermes_clarify_form.dart';
 import 'package:conduit_core/features/hermes/services/hermes_backend_service.dart';
 import 'package:conduit_core/features/hermes/models/hermes_run_event.dart';
 import 'package:conduit_core/features/hermes/models/hermes_config.dart';
@@ -919,6 +920,41 @@ void main() {
     check(
       turn.events.whereType<HermesTokenDelta>().map((e) => e.content).join(),
     ).equals('Hello there.');
+  });
+
+  // A reconnect replays an open form with the answers another device locked
+  // since. Keyed by its request alone, the replay was dropped as a repeat,
+  // so the locked questions stayed editable here.
+  test('a form replayed with new locks refreshes its card', () async {
+    String form([Map<String, Object?>? answers]) => jsonEncode({
+      'jsonrpc': '2.0',
+      'id': 'srq-r9',
+      'method': 'clarify',
+      'params': {
+        'session_id': 'runtime-race',
+        'questions': [
+          {'qid': 'q0', 'question': 'Which colour?'},
+          {'qid': 'q1', 'question': 'Which size?'},
+        ],
+        'answers': ?answers,
+      },
+    });
+    final turn = await _streamTurn((harness) {
+      harness.incoming
+        ..add(form())
+        // Shown again unchanged, it stays one card.
+        ..add(form())
+        ..add(form({'q0': 'Teal'}));
+      harness.event('runtime-race', 'message.complete', {'text': 'Done.'});
+      harness.sessionInfo('runtime-race', running: false);
+    });
+
+    final forms = turn.events.whereType<HermesDecisionRequested>().toList();
+    check(forms).length.equals(2);
+    final questions = hermesClarifyQuestionsFromPayload(forms.last.raw);
+    check(questions.first.locked).isTrue();
+    check(questions.first.lockedAnswer).equals('Teal');
+    check(questions.last.locked).isFalse();
   });
 
   test('a PDF Hermes cannot render is sent as a file', () async {

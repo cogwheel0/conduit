@@ -117,16 +117,21 @@ HermesApprovalCost? parseHermesApprovalCost(Iterable<String?> texts) {
 }
 
 HermesApprovalCost? _parse(String text) {
-  final costMatch = _costSentence.firstMatch(text);
-  final spentMatch = _spentSentence.firstMatch(text);
+  // Hermes states prices in the approval's opening paragraph; what follows
+  // a blank line (the call's arguments) is the tool's input, kept as is.
+  final split = text.indexOf('\n\n');
+  final head = split < 0 ? text : text.substring(0, split);
+  final tail = split < 0 ? '' : text.substring(split);
+  final costMatch = _costSentence.firstMatch(head);
+  final spentMatch = _spentSentence.firstMatch(head);
   final limitMatch = spentMatch == null
-      ? _limitSentence.firstMatch(text)
+      ? _limitSentence.firstMatch(head)
       : null;
-  final overLimit = _overLimitSentence.hasMatch(text);
+  final overLimitMatch = _overLimitSentence.firstMatch(head);
   if (costMatch == null &&
       spentMatch == null &&
       limitMatch == null &&
-      !overLimit) {
+      overLimitMatch == null) {
     return null;
   }
   String? cost;
@@ -140,16 +145,31 @@ HermesApprovalCost? _parse(String text) {
         : '${costMatch.namedGroup('low')}–'
               '${costMatch.namedGroup('high')} $unit';
   }
-  // Each sentence read leaves one space behind, however many sat in a
-  // row; everything else (an arguments block's indentation) is untouched.
-  final remainder = text
-      .replaceAll(_overLimitSentence, '\u0000')
-      .replaceAll(_costSentence, '\u0000')
-      .replaceAll(_spentSentence, '\u0000')
-      .replaceAll(_limitSentence, '\u0000')
+  // Only the sentences read are cut, each once where it was read. A tool's
+  // own over-limit sentence names the tool and server, so it stays.
+  final cuts = [
+    ?costMatch,
+    ?spentMatch,
+    ?limitMatch,
+    if (overLimitMatch != null && !overLimitMatch[0]!.startsWith('MCP tool'))
+      overLimitMatch,
+  ]..sort((a, b) => a.start.compareTo(b.start));
+  final kept = StringBuffer();
+  var at = 0;
+  for (final cut in cuts) {
+    if (cut.start < at) continue;
+    kept
+      ..write(head.substring(at, cut.start))
+      ..write('\u0000');
+    at = cut.end;
+  }
+  kept.write(head.substring(at));
+  // Each sentence cut leaves one space behind, however many sat in a row.
+  final cleaned = kept
+      .toString()
       .replaceAll(RegExp('(?:[ \\t]*\u0000)+[ \\t]*'), ' ')
-      .replaceAll(RegExp(' \n'), '\n')
-      .trim();
+      .replaceAll(RegExp(' \n'), '\n');
+  final remainder = '$cleaned$tail'.trim();
   return HermesApprovalCost(
     cost: cost,
     approximate: approximate,
@@ -166,7 +186,7 @@ HermesApprovalCost? _parse(String text) {
                   '${limitMatch.namedGroup('unit')!.trim()}'),
     server:
         spentMatch?.namedGroup('server') ?? limitMatch?.namedGroup('server'),
-    overLimit: overLimit,
+    overLimit: overLimitMatch != null,
     remainder: remainder,
   );
 }

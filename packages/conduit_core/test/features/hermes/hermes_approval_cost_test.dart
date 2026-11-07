@@ -44,7 +44,37 @@ void main() {
 
       check(cost.overLimit).isTrue();
       check(cost.cost).equals('5 credits');
-      check(cost.remainder).isEmpty();
+      // The only sentence naming the tool and server stays: without it the
+      // card would not say what it approves.
+      check(cost.remainder).equals(
+        "MCP tool 'render' on server 'mesh-studio' would take this chat "
+        'past its spend limit.',
+      );
+    });
+
+    // The arguments are the tool's input: a sentence there that looks like
+    // a price is the user's text, and the opening one is the price.
+    test('leave the arguments as they are', () {
+      final cost = parseHermesApprovalCost([
+        "MCP tool 'render' on UNTRUSTED server 'mesh-studio' wants to run. "
+            'Costs about 5 credits. This tool is write-capable.\n\n'
+            'Arguments:\n  caption: Costs about 10 credits. Costs about '
+            '10 credits.',
+      ])!;
+
+      check(cost.cost).equals('5 credits');
+      check(cost.remainder).equals(
+        "MCP tool 'render' on UNTRUSTED server 'mesh-studio' wants to run. "
+        'This tool is write-capable.\n\nArguments:\n  caption: Costs about '
+        '10 credits. Costs about 10 credits.',
+      );
+      // A price-like sentence only in the arguments is no price at all.
+      check(
+        parseHermesApprovalCost([
+          "MCP tool 'render' on UNTRUSTED server 'mesh-studio' wants to run."
+              '\n\nArguments:\n  caption: Costs about 10 credits.',
+        ]),
+      ).isNull();
     });
 
     test('read ranges, notes, one unit and a fresh limit', () {

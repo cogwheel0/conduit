@@ -7,7 +7,13 @@ import 'package:conduit_core/features/hermes/services/hermes_identifier.dart';
 const int kMaxHermesClarifyQuestions = 6;
 const int kMaxHermesClarifyChoices = 6;
 const int kMaxHermesClarifyQuestionCharacters = 600;
-const int kMaxHermesClarifyChoiceCharacters = 300;
+
+/// Hermes' own limit (`MAX_CHOICE_CHARS`): a choice is sent back whole, so
+/// a longer one is left out rather than cut.
+const int kMaxHermesClarifyChoiceCharacters = 8000;
+
+/// The most of a choice a form shows.
+const int kMaxHermesClarifyChoiceLabelCharacters = 300;
 const int kMaxHermesClarifyAnswerCharacters = 4000;
 
 /// The label Hermes appends to the choice it recommends. Hermes strips it
@@ -61,7 +67,7 @@ final class HermesClarifyQuestion {
     final choices = <String>[
       if (rawChoices is List)
         for (final choice in rawChoices.take(kMaxHermesClarifyChoices))
-          ?_bounded(choice, kMaxHermesClarifyChoiceCharacters),
+          ?_whole(choice, kMaxHermesClarifyChoiceCharacters),
     ];
     final locked = raw['locked'] == true || lockedAnswers.containsKey(id);
     final answer = lockedAnswers.containsKey(id)
@@ -166,6 +172,15 @@ String hermesClarifyBareChoice(String choice) {
       .trim();
 }
 
+/// [choice] as a form shows it: without its "(Recommended)" label, cut to
+/// [kMaxHermesClarifyChoiceLabelCharacters]. The answer is the whole choice.
+String hermesClarifyChoiceLabel(String choice) =>
+    _bounded(
+      hermesClarifyBareChoice(choice),
+      kMaxHermesClarifyChoiceLabelCharacters,
+    ) ??
+    '';
+
 /// Whether [choice] carries the "(Recommended)" label.
 bool hermesClarifyChoiceIsRecommended(String choice) =>
     hermesClarifyBareChoice(choice) != choice.trim();
@@ -185,6 +200,14 @@ Map<String, String?> hermesClarifyAnswers(
 /// The `result` that answers a whole clarify server request.
 Map<String, Object?> hermesClarifySubmission(Map<String, String?> answers) =>
     {'answers': answers, 'outcome': 'submitted'};
+
+/// [value] trimmed, or null when it is empty or longer than [maxCharacters].
+String? _whole(Object? value, int maxCharacters) {
+  if (value is! String) return null;
+  final trimmed = value.trim();
+  if (trimmed.isEmpty || trimmed.contains('\u0000')) return null;
+  return trimmed.runes.length <= maxCharacters ? trimmed : null;
+}
 
 String? _bounded(Object? value, int maxCharacters) {
   if (value is! String) return null;

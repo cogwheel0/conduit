@@ -115,13 +115,15 @@ List<ChatMessage> restoreHermesDesktopRunningMessage(
 /// Tolerant of the shape variations across Hermes versions: content may be a
 /// plain string or an array of typed text/image parts. System rows are skipped;
 /// persisted tool rows are folded into status history on the assistant row
-/// that requested them.
+/// that requested them. An edit's stored diff is redacted of
+/// [sensitiveValues] (the connection's secrets), as a live one is.
 List<ChatMessage> hermesMessagesToChatMessages(
   List<Map<String, dynamic>> raw, {
   String? modelId,
   Map<String, List<HermesPreparedDocument>> trustedLocalDocumentsByMessageId =
       const <String, List<HermesPreparedDocument>>{},
   Set<String> trustedLocalDocumentKeys = const <String>{},
+  Iterable<String> sensitiveValues = const <String>[],
 }) {
   const uuid = Uuid();
   final messages = <ChatMessage>[];
@@ -138,6 +140,7 @@ List<ChatMessage> hermesMessagesToChatMessages(
         item,
         messages: messages,
         pendingTools: pendingTools,
+        sensitiveValues: sensitiveValues,
       );
       continue;
     }
@@ -325,6 +328,7 @@ void _completePersistedHermesTool(
   Map<String, dynamic> item, {
   required List<ChatMessage> messages,
   required Map<String, ({int messageIndex, int statusIndex})> pendingTools,
+  required Iterable<String> sensitiveValues,
 }) {
   final callId = validateHermesOpaqueIdentifier(
     item['tool_call_id'] ?? item['toolCallId'],
@@ -343,7 +347,7 @@ void _completePersistedHermesTool(
   final rawDiff =
       item['inline_diff'] ?? _storedToolResultMetadata(item)['inline_diff'];
   final inlineDiff = rawDiff is String
-      ? sanitizeHermesInlineDiff(rawDiff)
+      ? sanitizeHermesInlineDiff(rawDiff, sensitiveValues: sensitiveValues)
       : null;
   final details = <ChatStatusItem>[
     ...statuses[pending.statusIndex].items,

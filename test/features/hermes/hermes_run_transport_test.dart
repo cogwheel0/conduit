@@ -3815,8 +3815,71 @@ void main() {
       check(decision['runtimeId']).equals('run-1');
       check(decision['executionGeneration']).equals(5);
       check(decision['prompt']).equals('Which branch?');
-      // A later poll listing the same question does not reopen its card.
-      check(changes).equals(1);
+      // A later poll listing the same question does not reopen its card;
+      // the run's end closes it.
+      check(changes).equals(2);
+      check(decision['state']).equals('resolved');
+    });
+
+    // With no stream, only the polls say a question was answered elsewhere
+    // or timed out. A reply holds one question card, so a second question
+    // waits for the first to close instead of replacing it.
+    test('polled questions close when settled, then the next shows', () async {
+      Map<String, Object?> question(String id) => {
+        'kind': 'clarify',
+        'prompt_id': id,
+        'execution_generation': 5,
+        'question': 'Synthetic question $id?',
+      };
+      final fake = _FakeHermesApiService(
+        const [HermesTokenDelta('Partial')],
+        runResults: [
+          {
+            'status': 'running',
+            'pending_controls': [question('prm_a'), question('prm_b')],
+          },
+          {
+            'status': 'running',
+            'pending_controls': [question('prm_b')],
+          },
+          {'status': 'completed', 'output': 'Partial answer'},
+        ],
+      );
+      final seen = <String>[];
+      var message = ChatMessage(
+        id: 'm',
+        role: 'assistant',
+        content: '',
+        timestamp: DateTime.fromMillisecondsSinceEpoch(0),
+      );
+      await dispatchHermesRun(
+        service: fake,
+        registry: HermesRunRegistry(),
+        assistantMessageId: 'm',
+        input: 'hi',
+        recoveryPollInterval: Duration.zero,
+        streamResumeDelay: Duration.zero,
+        maxExtendedRecoveryPolls: 0,
+        appendContent: (_) {},
+        appendStatus: (_) {},
+        updateMessage: (updater) {
+          message = updater(message);
+          final decision = message.metadata?[kHermesDecisionMeta];
+          if (decision is Map) {
+            final step = '${decision['requestId']} ${decision['state']}';
+            if (seen.isEmpty || seen.last != step) seen.add(step);
+          }
+        },
+        finishStreaming: () {},
+        completeStreamingUi: () {},
+      ).timeout(const Duration(seconds: 4));
+
+      check(seen).deepEquals([
+        'prm_a pending',
+        'prm_a resolved',
+        'prm_b pending',
+        'prm_b resolved',
+      ]);
     });
 
     test('a forgotten stream falls back to polling', () async {

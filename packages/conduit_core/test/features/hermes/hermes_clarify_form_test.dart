@@ -63,8 +63,28 @@ void main() {
           .equals(kMaxHermesClarifyQuestionCharacters);
       check(questions.first.text).endsWith('…');
       check(questions.first.choices).length.equals(kMaxHermesClarifyChoices);
-      check(questions.first.choices.first.runes.length)
-          .equals(kMaxHermesClarifyChoiceCharacters);
+    });
+
+    // A choice is a literal answer, such as a path or a command: one cut
+    // to fit the card sent Hermes a different answer.
+    test('keep a long choice whole and shorten only its label', () {
+      final path = '/srv/synthetic/${'nested/' * 60}report.md';
+      final question = hermesClarifyQuestions([
+        {
+          'qid': 'q0',
+          'question': 'Which file?',
+          'choices': [path, 'z' * (kMaxHermesClarifyChoiceCharacters + 1)],
+        },
+      ]).single;
+
+      check(question.choices).deepEquals([path]);
+      check(
+        HermesClarifyDraft(choices: [path]).answerFor(question),
+      ).equals(path);
+      final label = hermesClarifyChoiceLabel(path);
+      check(label.runes.length)
+          .equals(kMaxHermesClarifyChoiceLabelCharacters);
+      check(label).endsWith('…');
     });
 
     test('drop malformed questions and choices', () {
@@ -324,6 +344,97 @@ void main() {
       );
       check(stored).isNotNull();
       check(stored!.join()).not((it) => it.contains('synthetic-secret-123'));
+    });
+
+    // The store keeps each field to 512 scalars; one of two UTF-16 units
+    // each made a full form longer than the store would read back.
+    test('a form of the longest fields survives a restart', () async {
+      const wide = '😀';
+      final questions = hermesClarifyQuestions(
+        [
+          for (var q = 0; q < kMaxHermesClarifyQuestions; q++)
+            {
+              'qid': 'q$q',
+              'question': wide * 600,
+              'choices': [
+                for (var c = 0; c < kMaxHermesClarifyChoices; c++)
+                  '${String.fromCharCode(0x41 + c)}${wide * 511}',
+              ],
+            },
+        ],
+        answers: {'q0': wide * 600},
+      );
+      await HermesPendingDecisionStore.upsert(
+        origin: 'https://hermes.example',
+        storedSessionId: 'stored-1',
+        runtimeId: 'runtime-1',
+        requestId: 'srq-f3',
+        kind: HermesPendingDesktopDecisionKind.clarification,
+        questions: questions,
+      );
+
+      final record = (await HermesPendingDecisionStore.forSession(
+        origin: 'https://hermes.example',
+        storedSessionId: 'stored-1',
+      )).single;
+      check(record.questions).length.equals(kMaxHermesClarifyQuestions);
+      check(record.questions.last.choices)
+          .length
+          .equals(kMaxHermesClarifyChoices);
+      check(record.questions.last.choices.first.runes.length).equals(512);
+    });
+
+    // Earlier builds saved each question of a form as its own card. Only
+    // the whole form is answered now, and a resume shows it again.
+    test('question-by-question records are dropped', () async {
+      for (final (id, kind) in [
+        ('srq-old/q1', HermesPendingDesktopDecisionKind.clarification),
+        ('srq-new', HermesPendingDesktopDecisionKind.clarification),
+        ('op-1/docs', HermesPendingDesktopDecisionKind.mcpSetup),
+      ]) {
+        await HermesPendingDecisionStore.upsert(
+          origin: 'https://hermes.example',
+          storedSessionId: 'stored-1',
+          runtimeId: 'runtime-1',
+          requestId: id,
+          kind: kind,
+          prompt: 'Pick one',
+        );
+      }
+
+      final ids = [
+        for (final record in await HermesPendingDecisionStore.forSession(
+          origin: 'https://hermes.example',
+          storedSessionId: 'stored-1',
+        ))
+          record.requestId,
+      ]..sort();
+      check(ids).deepEquals(['op-1/docs', 'srq-new']);
+    });
+
+    test('a choice the store would change is left out', () async {
+      await HermesPendingDecisionStore.upsert(
+        origin: 'https://hermes.example',
+        storedSessionId: 'stored-1',
+        runtimeId: 'runtime-1',
+        requestId: 'srq-f4',
+        kind: HermesPendingDesktopDecisionKind.clarification,
+        questions: hermesClarifyQuestions([
+          {
+            'qid': 'q0',
+            'question': 'Which command?',
+            'choices': ['ls  -la', 'pwd', 'x' * 600],
+          },
+        ]),
+      );
+
+      final record = (await HermesPendingDecisionStore.forSession(
+        origin: 'https://hermes.example',
+        storedSessionId: 'stored-1',
+      )).single;
+      // Restored, the form answers with what it stored: never an altered
+      // command or a cut one.
+      check(record.questions.single.choices).deepEquals(['pwd']);
     });
   });
 }

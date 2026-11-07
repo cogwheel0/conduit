@@ -1391,6 +1391,42 @@ void main() {
       check(gateway.sent.where((frame) => frame['id'] == 'srq-s2')).isEmpty();
     });
 
+    test('a form the socket could not send stays open', () async {
+      final gateway = _Authority();
+      final service = _service(gateway);
+      await service.createDesktopSession();
+      gateway.serverRequest('srq-c9', 'clarify', {
+        'session_id': 'local-1',
+        'questions': [
+          {'qid': 'q0', 'question': 'Which colour?'},
+        ],
+      });
+      await _settle();
+      gateway.incoming.addError(StateError('gone'));
+      await _settle();
+      gateway.handler = (method, params) {
+        if (method == 'session.resume') {
+          scheduleMicrotask(
+            () => scheduleMicrotask(
+              () => gateway.incoming.addError(StateError('gone again')),
+            ),
+          );
+        }
+        return gateway.defaults(method, params);
+      };
+
+      // Reported as sent, the card would close on answers Hermes never got.
+      await check(
+        service.respondToClarifyForm(
+          runtimeId: 'local-1',
+          storedSessionId: 'local-1',
+          requestId: 'srq-c9',
+          answers: const {'q0': 'Teal'},
+        ),
+      ).throws<StateError>();
+      check(gateway.sent.where((frame) => frame['id'] == 'srq-c9')).isEmpty();
+    });
+
     test('one settled while the socket was down closes on resume', () async {
       final gateway = _Authority();
       final service = _service(gateway);
@@ -1648,6 +1684,27 @@ void main() {
       await _settle();
 
       check(revisions.whereType<int>()).deepEquals([1, 2]);
+    });
+
+    // A resume can move a chat to a new stored id. The chat still asks by
+    // the id it had, and must not keep the plan cached from before.
+    test('a chat moved to a new stored id follows its new plan', () async {
+      final gateway = _Authority()..todoState = plan(5, ['in_progress']);
+      final service = _service(gateway);
+      await service.pendingDecisionsForSession('local-1');
+      check(service.todoStateFor('local-1')!.revision).equals(5);
+
+      gateway.incoming.addError(StateError('gone'));
+      await _settle();
+      gateway
+        ..todoState = plan(6, ['completed', 'in_progress'])
+        ..handler = (method, params) => method == 'session.resume'
+            ? {...gateway.snapshot('local-1'), 'stored_session_id': 'local-2'}
+            : gateway.defaults(method, params);
+      await service.pendingDecisionsForSession('local-1');
+
+      check(service.todoStateFor('local-1')!.revision).equals(6);
+      check(service.todoStateFor('local-1')!.done).equals(1);
     });
 
     test('a cleared plan is empty, not gone', () async {

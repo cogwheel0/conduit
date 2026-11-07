@@ -10,6 +10,42 @@ const int kMaxProviderErrorSecretTotalCharacters = 64 * 1024;
 
 const String _redacted = '[REDACTED]';
 
+/// Redacts common credential values in [text] even when they are not among
+/// the configured secrets: `Authorization` header values, `password=`,
+/// `api_key:` and similar assignments, and Bearer tokens. With [keepLines]
+/// a label and its value must share a line, and line breaks are left alone,
+/// so a diff keeps its lines.
+String redactCredentialLabels(String text, {bool keepLines = false}) {
+  final space = keepLines ? r'[ \t]' : r'\s';
+  // Authorization values can contain a scheme followed by whitespace-rich
+  // credentials (for example Digest parameters). Redact the complete header
+  // value before applying the narrower single-token rules below.
+  var safe = text.replaceAllMapped(
+    RegExp(
+      '\\b(authorization|proxy-authorization)\\b$space*[:=]$space*'
+      r'[^\r\n]*',
+      caseSensitive: false,
+    ),
+    (match) => '${match.group(1)}: $_redacted',
+  );
+
+  // Redact common credential labels even when a provider reflects a value
+  // that was not part of the configured credentials.
+  safe = safe.replaceAllMapped(
+    RegExp(
+      r'\b(api[-_ ]?key|access[-_ ]?token|password|secret|session[-_ ]?key)'
+      '\\b$space*[:=]$space*(?:bearer$space+)?'
+      r'[^\s,;]+',
+      caseSensitive: false,
+    ),
+    (match) => '${match.group(1)}: $_redacted',
+  );
+  return safe.replaceAllMapped(
+    RegExp('\\bbearer$space+' r'[A-Za-z0-9._~+/=-]+', caseSensitive: false),
+    (_) => 'Bearer $_redacted',
+  );
+}
+
 /// Makes an error reported by a model provider safe to show and persist in a
 /// chat: configured secrets and common credential values are redacted,
 /// control characters are removed, and the result is capped at
@@ -50,30 +86,7 @@ String sanitizeProviderErrorMessage(
     maxVisibleScalars: maxCharacters,
   );
 
-  // Authorization values can contain a scheme followed by whitespace-rich
-  // credentials (for example Digest parameters). Redact the complete header
-  // value before applying the narrower single-token rules below.
-  safe = safe.replaceAllMapped(
-    RegExp(
-      r'\b(authorization|proxy-authorization)\b\s*[:=]\s*[^\r\n]*',
-      caseSensitive: false,
-    ),
-    (match) => '${match.group(1)}: $_redacted',
-  );
-
-  // Redact common credential labels even when a provider reflects a value
-  // that was not part of the configured credentials.
-  safe = safe.replaceAllMapped(
-    RegExp(
-      r'\b(api[-_ ]?key|access[-_ ]?token|password|secret|session[-_ ]?key)\b\s*[:=]\s*(?:bearer\s+)?[^\s,;]+',
-      caseSensitive: false,
-    ),
-    (match) => '${match.group(1)}: $_redacted',
-  );
-  safe = safe.replaceAllMapped(
-    RegExp(r'\bbearer\s+[A-Za-z0-9._~+/=-]+', caseSensitive: false),
-    (_) => 'Bearer $_redacted',
-  );
+  safe = redactCredentialLabels(safe);
 
   safe = safe
       .replaceAll(RegExp(r'[\u0000-\u001F\u007F-\u009F]'), ' ')

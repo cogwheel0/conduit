@@ -123,6 +123,13 @@ final class HermesPendingDesktopDecision {
           expiresAt == null) {
         return null;
       }
+      // Earlier builds saved a clarify form question by question
+      // (`srq-x/q1`). Hermes answers only the whole form, which a resume
+      // shows again, so such a card can no longer be answered.
+      if (kind == HermesPendingDesktopDecisionKind.clarification &&
+          requestId.contains('/')) {
+        return null;
+      }
       final prompt = value['prompt'];
       final mcpServer = validateHermesBoundedString(
         value['mcp_server'],
@@ -180,8 +187,11 @@ final class HermesPendingDesktopDecision {
   }
 }
 
-/// The longest stored record: a clarify form's questions and choices.
-const int kMaxHermesPendingDecisionCharacters = 32768;
+/// The longest stored record: a clarify form's questions and choices. Six
+/// questions of a text, six choices and an answer, each at most 512 scalars
+/// of up to two UTF-16 units, come to about 49,000 before JSON adds keys and
+/// escapes.
+const int kMaxHermesPendingDecisionCharacters = 131072;
 
 /// Restart-safe presentation state only. Sensitive answers are deliberately
 /// absent; Hermes remains authoritative for whether a request is resolved.
@@ -494,8 +504,10 @@ List<HermesClarifyQuestion> _sanitizeQuestions(
         id: question.id,
         text: text,
         choices: List.unmodifiable([
+          // A restored form answers with the stored choice: one the store
+          // would cut, redact or reflow is left out instead of sent altered.
           for (final choice in question.choices)
-            ?_sanitizePrompt(choice, sensitiveValues),
+            if (_sanitizePrompt(choice, sensitiveValues) == choice) choice,
         ]),
         multiSelect: question.multiSelect,
         locked: question.locked,

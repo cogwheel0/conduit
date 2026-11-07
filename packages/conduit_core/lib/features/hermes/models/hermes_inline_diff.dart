@@ -1,4 +1,5 @@
 import 'package:conduit_core/models/chat_message.dart';
+import 'package:conduit_core/utils/sensitive_value_utils.dart';
 import 'package:conduit_core/utils/unicode_prefix.dart';
 
 /// The title of the tool detail row that carries an edit's diff.
@@ -21,10 +22,14 @@ final RegExp _ansiEscape = RegExp(
 final RegExp _otherControls = RegExp(
   r'[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F]',
 );
-final RegExp _hunkHeader = RegExp(r'^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@');
+final RegExp _hunkHeader = RegExp(
+  r'^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@',
+);
 
 /// An edit's diff as Conduit keeps it: terminal colours removed, connection
-/// secrets redacted, line breaks kept, bounded. Null when nothing is left.
+/// secrets and credential values (`password=`, `api_key:`, `Authorization:`,
+/// Bearer tokens) redacted, line breaks kept, bounded. Null when nothing is
+/// left.
 String? sanitizeHermesInlineDiff(
   String raw, {
   Iterable<String> sensitiveValues = const <String>[],
@@ -41,10 +46,17 @@ String? sanitizeHermesInlineDiff(
     sensitiveValues: secrets,
     maxVisibleScalars: maxCharacters,
   );
-  final safe = redacted
+  final normalized = redacted
       .replaceAll(_ansiEscape, '')
       .replaceAll('\r\n', '\n')
       .replaceAll(_otherControls, '');
+  // Colour codes and control characters can split a secret or a label, so
+  // both are checked again once those are gone.
+  final safe = redactSensitiveValuesInUnicodePrefix(
+    redactCredentialLabels(normalized, keepLines: true),
+    sensitiveValues: secrets,
+    maxVisibleScalars: maxCharacters,
+  );
   return safe.trim().isEmpty ? null : safe;
 }
 
@@ -134,6 +146,10 @@ HermesInlineDiff? parseHermesInlineDiff(
   HermesDiffFile? current;
   int? oldLine;
   int? newLine;
+  // The lines the current hunk's `@@ -a,b +c,d @@` still owes. Inside a
+  // hunk, `--- x` and `+++ x` are a removed `-- x` and an added `++ x`.
+  var oldLeft = 0;
+  var newLeft = 0;
   String? pendingFrom;
   var read = 0;
 
@@ -142,36 +158,46 @@ HermesInlineDiff? parseHermesInlineDiff(
     files.add(file);
     oldLine = null;
     newLine = null;
+    oldLeft = 0;
+    newLeft = 0;
     return file;
   }
 
   for (final raw in text.replaceAll(_ansiEscape, '').split('\n')) {
-    if (++read > maxLines || files.length > maxFiles) {
+    if (++read > maxLines) {
       truncated = true;
       break;
     }
     final line = raw.replaceAll('\r', '');
-    if (line.startsWith('--- ')) {
+    final inHunk = oldLeft > 0 || newLeft > 0;
+    if (!inHunk && line.startsWith('--- ')) {
       pendingFrom = line.substring(4).trim();
       continue;
     }
-    if (line.startsWith('+++ ')) {
-      current = open(_diffPath(pendingFrom, line.substring(4).trim()));
+    final String? path;
+    if (!inHunk && line.startsWith('+++ ')) {
+      path = _diffPath(pendingFrom, line.substring(4).trim());
       pendingFrom = null;
-      continue;
+    } else {
+      path = _fileHeader(line);
     }
-    final arrow = _fileHeader(line);
-    if (arrow != null) {
-      current = open(arrow);
+    if (path != null) {
+      if (files.length >= maxFiles) {
+        truncated = true;
+        break;
+      }
+      current = open(path);
       continue;
     }
     if (line.startsWith('@@')) {
+      // Opened first: opening a file clears the numbers read below.
+      final file = current ??= open('');
       final hunk = _hunkHeader.firstMatch(line);
-      oldLine = hunk == null ? null : int.parse(hunk.group(1)!);
-      newLine = hunk == null ? null : int.parse(hunk.group(2)!);
-      (current ??= open('')).lines.add(
-        HermesDiffLine(HermesDiffLineKind.hunk, line),
-      );
+      oldLine = int.tryParse(hunk?.group(1) ?? '');
+      newLine = int.tryParse(hunk?.group(3) ?? '');
+      oldLeft = hunk == null ? 0 : int.tryParse(hunk.group(2) ?? '1') ?? 0;
+      newLeft = hunk == null ? 0 : int.tryParse(hunk.group(4) ?? '1') ?? 0;
+      file.lines.add(HermesDiffLine(HermesDiffLineKind.hunk, line));
       continue;
     }
     if (line.startsWith('+')) {
@@ -185,6 +211,7 @@ HermesInlineDiff? parseHermesInlineDiff(
       );
       file.added++;
       if (newLine != null) newLine = newLine! + 1;
+      if (newLeft > 0) newLeft--;
       continue;
     }
     if (line.startsWith('-')) {
@@ -198,10 +225,12 @@ HermesInlineDiff? parseHermesInlineDiff(
       );
       file.removed++;
       if (oldLine != null) oldLine = oldLine! + 1;
+      if (oldLeft > 0) oldLeft--;
       continue;
     }
     final trimmed = line.trim();
-    if (trimmed.isEmpty) continue;
+    // A blank context line is a lone space: it is a line, and counts.
+    if (line.isEmpty || (trimmed.isEmpty && !line.startsWith(' '))) continue;
     if (current == null) {
       // The review header (localized by Hermes) and anything else before
       // the first file.
@@ -223,6 +252,8 @@ HermesInlineDiff? parseHermesInlineDiff(
     );
     if (oldLine != null) oldLine = oldLine! + 1;
     if (newLine != null) newLine = newLine! + 1;
+    if (oldLeft > 0) oldLeft--;
+    if (newLeft > 0) newLeft--;
   }
   final changed = files
       .where((file) => file.lines.isNotEmpty || file.path.isNotEmpty)

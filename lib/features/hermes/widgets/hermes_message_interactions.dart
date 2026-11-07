@@ -45,6 +45,13 @@ String? _nonEmptyString(Object? value) {
   return text == null || text.isEmpty ? null : text;
 }
 
+/// A REST run's question, answered by its run, prompt id and generation:
+/// it needs no Hermes session, so a run started without one still asks it.
+bool _isRunQuestion(ChatMessage message, Map<dynamic, dynamic> decision) =>
+    message.metadata?['restoredDesktopDecision'] != true &&
+    decision['kind'] == HermesDecisionKind.clarification.name &&
+    decision['executionGeneration'] is int;
+
 ChatMessage? findPendingHermesComposerPrompt(List<ChatMessage> messages) {
   for (final message in messages.reversed) {
     if (message.metadata?['archivedVariant'] == true) continue;
@@ -72,7 +79,7 @@ ChatMessage? findPendingHermesComposerPrompt(List<ChatMessage> messages) {
         _nonEmptyString(message.metadata?['hermesSessionId']);
     if (_nonEmptyString(decision['requestId']) != null &&
         _nonEmptyString(decision['runtimeId']) != null &&
-        storedSessionId != null &&
+        (storedSessionId != null || _isRunQuestion(message, decision)) &&
         expiresAt != null &&
         expiresAt.isAfter(clock.now().toUtc())) {
       return message;
@@ -275,7 +282,8 @@ class _HermesComposerPromptOverlayState
     final storedSessionId =
         _nonEmptyString(decision['storedSessionId']) ??
         _nonEmptyString(message.metadata?['hermesSessionId']);
-    if (ownerConversationId == null || storedSessionId == null) {
+    if (ownerConversationId == null ||
+        (storedSessionId == null && !_isRunQuestion(message, decision))) {
       return null;
     }
     _expiryTimer = Timer(expiresAt.difference(clock.now().toUtc()), () {
@@ -295,6 +303,7 @@ class _HermesComposerPromptOverlayState
         expiresAt: expiresAt,
       );
     }
+    if (storedSessionId == null) return null;
     return HermesDecisionCard(
       key: ValueKey('$runtimeId\u0000$requestId\u0000${kind.name}'),
       kind: kind,
@@ -370,7 +379,7 @@ class _HermesComposerPromptOverlayState
     required Map<dynamic, dynamic> decision,
     required String requestId,
     required String runtimeId,
-    required String storedSessionId,
+    required String? storedSessionId,
     required String ownerConversationId,
     required DateTime expiresAt,
   }) {
@@ -385,11 +394,13 @@ class _HermesComposerPromptOverlayState
         final configController = ref.read(hermesConfigProvider.notifier);
         final admission = configController.captureSessionActionAdmission();
         bool owns() => switch (service) {
-          final HermesDesktopApiService desktop => _ownsDesktopDecision(
-            service: desktop,
-            ownerConversationId: ownerConversationId,
-            storedSessionId: storedSessionId,
-          ),
+          final HermesDesktopApiService desktop =>
+            storedSessionId != null &&
+                _ownsDesktopDecision(
+                  service: desktop,
+                  ownerConversationId: ownerConversationId,
+                  storedSessionId: storedSessionId,
+                ),
           final HermesApiService rest => _ownsRestDecision(
             service: rest,
             ownerConversationId: ownerConversationId,

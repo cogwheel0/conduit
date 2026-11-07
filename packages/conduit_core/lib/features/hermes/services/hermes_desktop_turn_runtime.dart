@@ -831,10 +831,13 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
     // from a snapshot).
     if (event.type.endsWith('.request')) {
       final request = payload['request_id'] ?? payload['id'];
-      // A connection card offered again is a new offer of the same card.
+      // A connection card offered again is a new offer of the same card. A
+      // form shown again with more answers locked elsewhere (a reconnect
+      // replay) is news, so its locked questions are part of the identity.
       final offer = payload['offer'];
       if (request != null) {
-        return '${event.type}:$request${offer is int ? '#$offer' : ''}';
+        return '${event.type}:$request${offer is int ? '#$offer' : ''}'
+            '${_lockedQuestionIds(payload)}';
       }
     }
     // A session authority numbers every event of a session's stream.
@@ -846,6 +849,18 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
       if (message != null) return '${event.type}:$message';
     }
     return null;
+  }
+
+  /// The ids of a clarify form's locked questions, as `|q0,q2`; empty for
+  /// any other request.
+  static String _lockedQuestionIds(Map<String, dynamic> payload) {
+    final questions = payload['questions'];
+    if (questions is! List) return '';
+    final locked = [
+      for (final question in questions.whereType<Map>().take(16))
+        if (question['locked'] == true) '${question['qid']}',
+    ];
+    return locked.isEmpty ? '' : '|${locked.join(',')}';
   }
 
   String? _storedIdForRuntime(String? runtimeId) {
@@ -1640,6 +1655,12 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
       return;
     }
     await _resume(_storedIdForRuntime(runtimeId) ?? runtimeId);
-    _rpc.answerServerRequest(requestId, hermesClarifySubmission(answers));
+    // A socket lost since the resume sent nothing: the form stays open.
+    if (!_rpc.answerServerRequest(
+      requestId,
+      hermesClarifySubmission(answers),
+    )) {
+      throw StateError('Hermes gateway disconnected.');
+    }
   }
 }

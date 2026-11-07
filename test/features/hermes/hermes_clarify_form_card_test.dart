@@ -256,4 +256,81 @@ void main() {
     expect(find.byType(HermesClarifyFormCard), findsOneWidget);
     expect(find.text('3. Anything else?'), findsOneWidget);
   });
+
+  // A REST run started without a session (its creation failed) still asks
+  // its questions; the answer names the run, the prompt and generation.
+  testWidgets('a REST run question without a session still shows', (
+    tester,
+  ) async {
+    final message = ChatMessage(
+      id: 'run-question',
+      role: 'assistant',
+      content: '',
+      timestamp: DateTime(2030),
+      metadata: {
+        'transport': kHermesTransport,
+        kHermesDecisionMeta: {
+          'state': 'pending',
+          'kind': HermesDecisionKind.clarification.name,
+          'requestId': 'prompt-1',
+          'runtimeId': 'run-1',
+          'executionGeneration': 3,
+          'prompt': 'Which colour?',
+          'questions': [_questions.first.toJson()],
+          'expiresAt': DateTime.now()
+              .add(const Duration(hours: 1))
+              .toUtc()
+              .toIso8601String(),
+        },
+      },
+    );
+    expect(findPendingHermesComposerPrompt([message]), same(message));
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          activeConversationProvider.overrideWith(_ActiveConversation.new),
+          chatMessagesProvider.overrideWith(_Messages.new),
+        ],
+        child: _app(HermesComposerPromptOverlay(message: message)),
+      ),
+    );
+
+    expect(find.byType(HermesClarifyFormCard), findsOneWidget);
+    expect(find.text('Which colour?'), findsOneWidget);
+  });
+
+  testWidgets('a long form keeps to the space above the keyboard', (
+    tester,
+  ) async {
+    final questions = hermesClarifyQuestions([
+      for (var q = 0; q < kMaxHermesClarifyQuestions; q++)
+        {
+          'qid': 'q$q',
+          'question': 'Synthetic question $q?',
+          'choices': ['First', 'Second'],
+        },
+    ]);
+    await tester.pumpWidget(
+      _app(
+        MediaQuery(
+          data: const MediaQueryData(
+            size: Size(400, 800),
+            viewInsets: EdgeInsets.only(bottom: 400),
+          ),
+          child: HermesClarifyFormCard(
+            questions: questions,
+            onSubmit: (_) async => true,
+          ),
+        ),
+      ),
+    );
+
+    final scroll = find.descendant(
+      of: find.byType(HermesClarifyFormCard),
+      matching: find.byType(SingleChildScrollView),
+    );
+    // Its share of the 400 points above the keyboard, not of the screen.
+    expect(tester.getSize(scroll.first).height, lessThanOrEqualTo(180));
+  });
 }

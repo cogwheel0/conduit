@@ -107,6 +107,86 @@ void main() {
           .deepEquals([null, null, null]);
     });
 
+    // A blank line of the file is a context line holding one space; it
+    // vanished, and every later line in its hunk got the wrong number.
+    test('keep blank context lines and count them', () {
+      final diff = parseHermesInlineDiff(
+        [
+          'a/notes.md → b/notes.md',
+          '@@ -1,4 +1,4 @@',
+          ' # Notes',
+          ' ',
+          '-Colour: teal',
+          '+Colour: amber',
+          ' Size: small',
+        ].join('\n'),
+      )!;
+
+      final lines = diff.files.single.lines.skip(1).toList();
+      check(lines.map((l) => (l.kind, l.text))).deepEquals([
+        (HermesDiffLineKind.context, '# Notes'),
+        (HermesDiffLineKind.context, ''),
+        (HermesDiffLineKind.removed, 'Colour: teal'),
+        (HermesDiffLineKind.added, 'Colour: amber'),
+        (HermesDiffLineKind.context, 'Size: small'),
+      ]);
+      check(lines.map((l) => l.oldNumber)).deepEquals([1, 2, 3, null, 4]);
+      check(lines.map((l) => l.newNumber)).deepEquals([1, 2, null, 3, 4]);
+    });
+
+    test('a hunk without a file header keeps its line numbers', () {
+      final diff = parseHermesInlineDiff('@@ -7,1 +7,1 @@\n-old\n+new')!;
+
+      final lines = diff.files.single.lines;
+      check(lines[1].oldNumber).equals(7);
+      check(lines[2].newNumber).equals(7);
+    });
+
+    // Inside a hunk `--- x` is a removed `-- x` (a SQL comment, say) and
+    // `+++ x` an added `++ x`; read as headers, they dropped the change
+    // and opened a file that does not exist.
+    test('lines inside a hunk are never file headers', () {
+      final diff = parseHermesInlineDiff(
+        [
+          '--- a/query.sql',
+          '+++ b/query.sql',
+          '@@ -1,2 +1,2 @@',
+          '--- old comment',
+          '+++ new comment',
+          ' SELECT 1;',
+          '--- a/next.sql',
+          '+++ b/next.sql',
+          '@@ -1 +1 @@',
+          '-a',
+          '+b',
+        ].join('\n'),
+      )!;
+
+      check(diff.files.map((f) => f.path))
+          .deepEquals(['query.sql', 'next.sql']);
+      final first = diff.files.first;
+      check(first.removed).equals(1);
+      check(first.added).equals(1);
+      check(first.lines[1].text).equals('-- old comment');
+      check(first.lines[2].text).equals('++ new comment');
+      check(first.lines[3].oldNumber).equals(2);
+    });
+
+    test('a file past the limit is not opened empty', () {
+      final diff = parseHermesInlineDiff(
+        [
+          for (var file = 0; file < 3; file++) ...[
+            'a/f$file.txt → b/f$file.txt',
+            '+line',
+          ],
+        ].join('\n'),
+        maxFiles: 2,
+      )!;
+
+      check(diff.truncated).isTrue();
+      check(diff.files.map((f) => f.path)).deepEquals(['f0.txt', 'f1.txt']);
+    });
+
     test('text without changes is no diff', () {
       check(parseHermesInlineDiff('  ┊ review diff\nnothing')).isNull();
       check(parseHermesInlineDiff('')).isNull();
@@ -122,7 +202,7 @@ void main() {
 
       final diff = parseHermesInlineDiff(huge)!;
       check(diff.truncated).isTrue();
-      check(diff.files.length).isLessOrEqual(kMaxHermesInlineDiffFiles + 1);
+      check(diff.files.length).isLessOrEqual(kMaxHermesInlineDiffFiles);
       check(
         diff.files.fold(0, (sum, f) => sum + f.lines.length),
       ).isLessOrEqual(kMaxHermesInlineDiffLines);
@@ -137,6 +217,37 @@ void main() {
       )!;
 
       check(safe).equals('-token = [REDACTED]\n+token = env');
+    });
+
+    // The diff sanitizer replaced the error sanitizer, which also caught
+    // credentials that are not the connection's own.
+    test('redact credential values in every form, line by line', () {
+      final safe = sanitizeHermesInlineDiff(
+        [
+          '+password=tool-secret-42',
+          '+api_key: tool-secret-43',
+          '-Authorization: Basic dG9vbC1zZWNyZXQ=',
+          '+headers = {"x": "Bearer tool-secret-44"}',
+          ' keep this line',
+        ].join('\n'),
+      )!;
+
+      check(safe.split('\n')).deepEquals([
+        '+password: [REDACTED]',
+        '+api_key: [REDACTED]',
+        '-Authorization: [REDACTED]',
+        '+headers = {"x": "Bearer [REDACTED]"}',
+        ' keep this line',
+      ]);
+    });
+
+    test('redact a secret that colour codes split', () {
+      final safe = sanitizeHermesInlineDiff(
+        '+token = synthetic-${_ansi('1', 'secret')}-42',
+        sensitiveValues: const ['synthetic-secret-42'],
+      )!;
+
+      check(safe).equals('+token = [REDACTED]');
     });
 
     test('are bounded', () {
@@ -236,6 +347,42 @@ void main() {
           file.path,
       ];
     }
+
+    test('a stored diff loses the connection\'s secrets too', () {
+      final messages = hermesMessagesToChatMessages(
+        [
+          {
+            'role': 'assistant',
+            'content': '',
+            'tool_calls': [
+              {
+                'id': 'call-1',
+                'type': 'function',
+                'function': {'name': 'patch', 'arguments': '{}'},
+              },
+            ],
+          },
+          {
+            'role': 'tool',
+            'tool_call_id': 'call-1',
+            'content': '{"success": true}',
+            'inline_diff':
+                'a/env → b/env\n@@ -1 +1 @@\n-KEY=old\n'
+                '+KEY=synthetic-connection-secret',
+          },
+        ],
+        modelId: 'hermes',
+        sensitiveValues: const ['synthetic-connection-secret'],
+      );
+
+      final diff = messages
+          .expand((m) => m.statusHistory)
+          .expand((s) => s.items)
+          .singleWhere(isHermesInlineDiffItem)
+          .snippet!;
+      check(diff).not((it) => it.contains('synthetic-connection-secret'));
+      check(diff).contains('+KEY=[REDACTED]');
+    });
 
     test('come from a stored transcript', () {
       // Hermes 0.23 keeps it with the row's display metadata, as JSON.

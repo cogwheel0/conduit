@@ -12,23 +12,40 @@ import '../../../shared/theme/theme_extensions.dart';
 /// of the app. Absent means folded once nothing is left to do.
 final Map<String, bool> _foldedByChat = {};
 
-/// The share of the screen the open plan may take before it scrolls.
+/// The share of the space above the keyboard the open plan may take
+/// before it scrolls.
 const double _kMaxListHeightFraction = 0.28;
 
 /// [overlay] (an approval or question card) with the open chat's [plan]
 /// above it, when the chat has one.
+///
+/// [overlay] always sits in the same keyed place, plan or not: the plan
+/// appearing or going must not rebuild it from scratch (a half-answered
+/// form would lose its answers).
 Widget? withHermesPlan(
   Widget? overlay, {
   required HermesTodoState? plan,
   required String? chatKey,
 }) {
-  if (plan == null || plan.isEmpty || chatKey == null) return overlay;
+  final shown = plan == null || plan.isEmpty || chatKey == null
+      ? null
+      : (plan: plan, chatKey: chatKey);
+  if (shown == null && overlay == null) return null;
   return Column(
     crossAxisAlignment: CrossAxisAlignment.stretch,
     mainAxisSize: MainAxisSize.min,
     children: [
-      HermesTodoCard(plan: plan, chatKey: chatKey),
-      ?overlay,
+      if (shown != null)
+        HermesTodoCard(
+          plan: shown.plan,
+          chatKey: shown.chatKey,
+          yieldsToCard: overlay != null,
+        ),
+      if (overlay != null)
+        KeyedSubtree(
+          key: const ValueKey('hermes-plan-overlay'),
+          child: overlay,
+        ),
     ],
   );
 }
@@ -37,12 +54,21 @@ Widget? withHermesPlan(
 /// what is done, under way and still to do. Tapping the header folds it to
 /// one line with the step under way.
 class HermesTodoCard extends StatefulWidget {
-  const HermesTodoCard({super.key, required this.plan, required this.chatKey});
+  const HermesTodoCard({
+    super.key,
+    required this.plan,
+    required this.chatKey,
+    this.yieldsToCard = false,
+  });
 
   final HermesTodoState plan;
 
   /// The chat the plan belongs to; its fold state is kept per chat.
   final String chatKey;
+
+  /// Whether a prompt card sits below the plan. While the keyboard is up
+  /// the plan then shows folded, so the card keeps the room it needs.
+  final bool yieldsToCard;
 
   @override
   State<HermesTodoCard> createState() => _HermesTodoCardState();
@@ -51,14 +77,35 @@ class HermesTodoCard extends StatefulWidget {
 class _HermesTodoCardState extends State<HermesTodoCard> {
   bool get _folded => _foldedByChat[widget.chatKey] ?? !widget.plan.active;
 
-  void _toggle() => setState(() => _foldedByChat[widget.chatKey] = !_folded);
+  /// Opened by the user while it yields to a card over the keyboard; the
+  /// chat's own fold choice stays as it was.
+  bool _openWhileTyping = false;
+
+  bool get _yields =>
+      widget.yieldsToCard && MediaQuery.viewInsetsOf(context).bottom > 0;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (MediaQuery.viewInsetsOf(context).bottom == 0) {
+      _openWhileTyping = false;
+    }
+  }
+
+  void _toggle(bool folded) => setState(() {
+    if (_yields) {
+      _openWhileTyping = folded;
+    } else {
+      _foldedByChat[widget.chatKey] = !folded;
+    }
+  });
 
   @override
   Widget build(BuildContext context) {
     final theme = context.conduitTheme;
     final l10n = AppLocalizations.of(context)!;
     final plan = widget.plan;
-    final folded = _folded;
+    final folded = _yields ? !_openWhileTyping : _folded;
     final current = plan.current;
     return Padding(
       padding: const EdgeInsets.only(bottom: Spacing.xs),
@@ -81,7 +128,7 @@ class _HermesTodoCardState extends State<HermesTodoCard> {
               child: GestureDetector(
                 key: const ValueKey('hermes-todo-toggle'),
                 behavior: HitTestBehavior.opaque,
-                onTap: _toggle,
+                onTap: () => _toggle(folded),
                 child: Padding(
                   padding: const EdgeInsets.symmetric(
                     horizontal: Spacing.md,
@@ -139,7 +186,7 @@ class _HermesTodoCardState extends State<HermesTodoCard> {
                 constraints: BoxConstraints(
                   maxHeight: math.max(
                     96,
-                    MediaQuery.sizeOf(context).height *
+                    hermesHeightAboveKeyboard(context) *
                         _kMaxListHeightFraction,
                   ),
                 ),
@@ -164,6 +211,13 @@ class _HermesTodoCardState extends State<HermesTodoCard> {
     );
   }
 }
+
+/// The screen's height less the keyboard's: what cards above the composer
+/// share while the user types.
+double hermesHeightAboveKeyboard(BuildContext context) => math.max(
+  0,
+  MediaQuery.sizeOf(context).height - MediaQuery.viewInsetsOf(context).bottom,
+);
 
 class _TodoRow extends StatelessWidget {
   const _TodoRow({required this.item, required this.depth});
