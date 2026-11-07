@@ -69,6 +69,10 @@ abstract final class HermesApiErrorCode {
   static const approvalNotPending = 'approval_not_pending';
   static const unknownExecution = 'unknown_execution';
 
+  /// A session title Hermes refuses, usually one another session already
+  /// has: titles are unique per Hermes profile.
+  static const invalidTitle = 'invalid_title';
+
   /// Accepted and saved; it runs once Hermes is back. Must not be resent.
   static const admissionQueued = 'admission_queued';
 }
@@ -1617,16 +1621,32 @@ class HermesApiService implements HermesBackendService, HermesTurnService {
   // ---------------------------------------------------------------------------
 
   /// Creates a session (`POST /api/sessions`) and returns its id.
+  ///
+  /// Hermes refuses a [title] another session already has (two chats that
+  /// both start with "hi"). The session is then created untitled instead:
+  /// without one, the turn would run outside any session.
   @override
   Future<String> createSession({
     String? title,
     CancelToken? cancelToken,
   }) async {
-    final data = await _postBoundedCreateObject(
-      '$_root/api/sessions',
-      cancelToken: cancelToken,
-      data: {'title': ?title},
-    );
+    Map<String, dynamic> data;
+    try {
+      data = await _postBoundedCreateObject(
+        '$_root/api/sessions',
+        cancelToken: cancelToken,
+        data: {'title': ?title},
+      );
+    } on HermesApiException catch (error) {
+      if (title == null || error.code != HermesApiErrorCode.invalidTitle) {
+        rethrow;
+      }
+      data = await _postBoundedCreateObject(
+        '$_root/api/sessions',
+        cancelToken: cancelToken,
+        data: const <String, dynamic>{},
+      );
+    }
     return _requireOpaqueIdentifier(_sessionId(data));
   }
 
