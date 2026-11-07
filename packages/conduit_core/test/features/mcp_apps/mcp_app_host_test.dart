@@ -301,6 +301,17 @@ void main() {
       check(rig.sent).isEmpty();
     });
 
+    test('counts a message in bytes, not characters', () async {
+      final rig = _Rig();
+
+      // Half the limit in characters, half as much again over it in bytes.
+      await rig.request(1, 'ping', {
+        'pad': '漢' * (kMcpAppMaxMessageBytes ~/ 2),
+      });
+
+      check(rig.sent).isEmpty();
+    });
+
     test('asks a started app to tear down and waits for its answer', () async {
       final rig = _Rig();
       await rig.notify('ui/notifications/initialized');

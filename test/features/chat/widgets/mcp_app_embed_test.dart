@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:conduit/features/chat/widgets/mcp_app_embed.dart';
 import 'package:conduit/features/direct_connections/widgets/direct_mcp_app_view.dart';
 import 'package:flutter/foundation.dart';
@@ -11,6 +13,7 @@ import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit_core/services/worker_manager.dart';
 import 'package:dio/dio.dart';
+import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
@@ -45,6 +48,153 @@ final class _RefusingApi extends ApiService {
     requests.add(method);
     throw const McpAppRpcException('Invalid app binding. Run the tool again.');
   }
+}
+
+/// Serves the app's page and runs the tools it calls.
+final class _ServingApi extends ApiService {
+  _ServingApi()
+    : super(
+        serverConfig: const ServerConfig(
+          id: 's',
+          name: 'S',
+          url: 'http://localhost:0',
+        ),
+        workerManager: WorkerManager(),
+      );
+
+  final requests = <({String method, Map<String, dynamic> params})>[];
+
+  @override
+  Future<Map<String, dynamic>> runMcpAppRequest(
+    OpenWebUiMcpApp app, {
+    required String method,
+    Map<String, dynamic> params = const <String, dynamic>{},
+    CancelToken? cancelToken,
+  }) async {
+    requests.add((method: method, params: params));
+    if (method == 'ui/resource') {
+      return {
+        'html': '<p>app</p>',
+        'csp': "default-src 'none'",
+        'ui': const <String, dynamic>{},
+        'tool': const {'name': 'show_map'},
+      };
+    }
+    return {'content': const <Object?>[]};
+  }
+}
+
+/// Plays the web view plugin: records each web view the embed builds.
+final class _WebViews extends InAppWebViewPlatform {
+  final built = <PlatformInAppWebViewWidgetCreationParams>[];
+
+  @override
+  PlatformInAppWebViewWidget createPlatformInAppWebViewWidget(
+    PlatformInAppWebViewWidgetCreationParams params,
+  ) {
+    built.add(params);
+    return _WebView(params);
+  }
+}
+
+final class _WebView extends PlatformInAppWebViewWidget {
+  _WebView(super.params) : super.implementation();
+
+  @override
+  Widget build(BuildContext context) => const SizedBox.expand();
+
+  @override
+  T controllerFromPlatform<T>(PlatformInAppWebViewController controller) =>
+      throw UnimplementedError();
+
+  @override
+  void dispose() {}
+}
+
+/// The page's side of a web view: the bridge handler the embed registers,
+/// and the scripts it runs to deliver messages.
+final class _Page extends PlatformInAppWebViewController {
+  _Page()
+    : super.implementation(
+        const PlatformInAppWebViewControllerCreationParams(id: 'mcp-app'),
+      );
+
+  final handlers = <String, Function>{};
+  final delivered = <String>[];
+
+  @override
+  void addJavaScriptHandler({
+    required String handlerName,
+    required Function callback,
+  }) => handlers[handlerName] = callback;
+
+  @override
+  Future<dynamic> evaluateJavascript({
+    required String source,
+    ContentWorld? contentWorld,
+  }) async {
+    delivered.add(source);
+    return null;
+  }
+}
+
+/// An app opened in the embed, its web view created as the plugin would.
+final class _OpenApp {
+  _OpenApp(this.webViews);
+
+  final _WebViews webViews;
+  final page = _Page();
+  late final controller = InAppWebViewController.fromPlatform(platform: page);
+
+  /// The web view as the embed built it last.
+  PlatformInAppWebViewWidgetCreationParams get view => webViews.built.last;
+
+  Uri get documentUrl => view.initialData!.baseUrl!.uriValue;
+
+  Future<NavigationActionPolicy?> navigate(Uri url) async =>
+      view.shouldOverrideUrlLoading!(
+        controller,
+        NavigationAction(
+          request: URLRequest(url: WebUri(url.toString())),
+          isForMainFrame: true,
+          hasGesture: false,
+        ),
+      );
+
+  /// Posts [message] from the page over the MCP Apps bridge.
+  Future<Object?> post(Map<String, Object?> message) {
+    final script = view.initialUserScripts!.first.source;
+    final token = RegExp(
+      r'const bridgeToken = "([0-9a-f]+)"',
+    ).firstMatch(script)!.group(1);
+    final handler =
+        page.handlers.values.single as Future<Object?> Function(Object?);
+    return handler(
+      JavaScriptHandlerFunctionData(
+        args: [token, jsonEncode(message)],
+        isMainFrame: true,
+        origin: WebUri(documentUrl.origin),
+        requestUrl: WebUri(documentUrl.toString()),
+      ),
+    );
+  }
+}
+
+/// Opens the app and creates its web view, whose page has not loaded yet.
+Future<_OpenApp> _openApp(WidgetTester tester, ApiService api) async {
+  final previous = InAppWebViewPlatform.instance;
+  final webViews = _WebViews();
+  InAppWebViewPlatform.instance = webViews;
+  addTearDown(() {
+    if (previous != null) InAppWebViewPlatform.instance = previous;
+  });
+  await tester.pumpWidget(_harness(api));
+  await tester.tap(find.text('Open app'));
+  await tester.pump();
+  await tester.pump();
+  final app = _OpenApp(webViews);
+  app.view.onWebViewCreated!(app.controller);
+  return app;
 }
 
 Widget _harness(ApiService api, {OpenWebUiMcpApp app = _app}) => ProviderScope(
@@ -141,5 +291,93 @@ void main() {
 
     expect(find.text('Open app'), findsOneWidget);
     expect(find.text('Retry'), findsNothing);
+  });
+
+  testWidgets('an app that did not start loads its page again on retry', (
+    tester,
+  ) async {
+    final api = _ServingApi();
+    final app = await _openApp(tester, api);
+    // iOS asks before loading the page, and lets it load once.
+    expect(await app.navigate(app.documentUrl), NavigationActionPolicy.ALLOW);
+
+    await tester.pump(const Duration(seconds: 31));
+    expect(find.text('The app did not start.'), findsOneWidget);
+
+    await tester.tap(find.text('Retry'));
+    await tester.pump();
+    await tester.pump();
+
+    expect(api.requests.map((request) => request.method), [
+      'ui/resource',
+      'ui/resource',
+    ]);
+    expect(await app.navigate(app.documentUrl), NavigationActionPolicy.ALLOW);
+  });
+
+  testWidgets('on Android the loaded page cannot load itself again', (
+    tester,
+  ) async {
+    final app = await _openApp(tester, _ServingApi());
+    // Android starts the page without asking shouldOverrideUrlLoading.
+    app.view.onLoadStart?.call(
+      app.controller,
+      WebUri(app.documentUrl.toString()),
+    );
+
+    expect(await app.navigate(app.documentUrl), NavigationActionPolicy.CANCEL);
+  });
+
+  testWidgets("the page cannot open Android's file picker", (tester) async {
+    final app = await _openApp(tester, _ServingApi());
+
+    expect(app.view.initialSettings?.useOnShowFileChooser, isTrue);
+    final response = await app.view.onShowFileChooser?.call(
+      app.controller,
+      ShowFileChooserRequest(
+        acceptTypes: const ['*/*'],
+        isCaptureEnabled: false,
+        mode: ShowFileChooserRequestMode.OPEN,
+      ),
+    );
+    expect(response?.handledByClient, isTrue);
+    expect(response?.filePaths, isNull);
+  });
+
+  testWidgets('a tool call shows every argument before it runs', (
+    tester,
+  ) async {
+    final api = _ServingApi();
+    final app = await _openApp(tester, api);
+    await app.post({
+      'jsonrpc': '2.0',
+      'method': 'ui/notifications/initialized',
+    });
+    await tester.pumpAndSettle();
+
+    // A long field first, and what matters after it.
+    final arguments = {'note': 'x' * 3000, 'target': 'all-records'};
+    final call = app.post({
+      'jsonrpc': '2.0',
+      'id': 1,
+      'method': 'tools/call',
+      'params': {'name': 'delete', 'arguments': arguments},
+    });
+    await tester.pumpAndSettle();
+
+    expect(
+      find.textContaining(const JsonEncoder.withIndent('  ').convert(arguments)),
+      findsOneWidget,
+    );
+
+    await tester.tap(find.text('Allow'));
+    await tester.pumpAndSettle();
+    await call;
+    expect(api.requests.last.method, 'tools/call');
+    expect(api.requests.last.params, {'name': 'delete', 'arguments': arguments});
+
+    // A started app is told it is going, and is not waited for.
+    await tester.pumpWidget(const SizedBox());
+    await tester.pump(Duration.zero);
   });
 }

@@ -18,6 +18,7 @@ import 'package:conduit/features/direct_connections/widgets/direct_mcp_app_view.
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/shared/theme/theme_extensions.dart';
 import 'package:conduit/shared/utils/external_link_launcher.dart';
+import 'package:conduit/shared/widgets/conduit_components.dart';
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:conduit/shared/widgets/platform_ui/vocabulary.dart';
 import 'package:conduit/shared/widgets/themed_dialogs.dart';
@@ -145,6 +146,9 @@ class _McpAppEmbedState extends ConsumerState<McpAppEmbed> {
     setState(() {
       _opened = true;
       _failure = null;
+      // A retry opens a new web view, which loads the page afresh.
+      _documentLoaded = false;
+      _controller = null;
     });
     if (api == null) {
       setState(() => _failure = l10n.mcpAppLoadFailed(l10n.errorMessage));
@@ -220,22 +224,53 @@ class _McpAppEmbedState extends ConsumerState<McpAppEmbed> {
   static String _themeName(Brightness brightness) =>
       brightness == Brightness.dark ? 'dark' : 'light';
 
+  /// Asks before the app runs a tool. Every argument it would send is shown,
+  /// as in the web client; long ones scroll rather than being cut short.
   Future<bool> _confirmToolCall(
     String name,
     Map<String, dynamic> arguments,
   ) async {
     if (!mounted) return false;
     final l10n = AppLocalizations.of(context)!;
-    var details = const JsonEncoder.withIndent('  ').convert(arguments);
-    if (details.length > 2000) details = '${details.substring(0, 2000)}…';
-    return ThemedDialogs.confirm(
-      context,
-      title: l10n.mcpAppToolCallTitle,
-      message:
-          '${l10n.mcpAppToolCallMessage(widget.app.serverId, name)}\n\n$details',
-      confirmText: l10n.mcpAppToolCallAllow,
-      cancelText: l10n.directMcpApprovalDeny,
+    final details = const JsonEncoder.withIndent('  ').convert(arguments);
+    final allowed = await ThemedDialogs.showCustom<bool>(
+      context: context,
+      builder: (dialogContext) {
+        final theme = dialogContext.conduitTheme;
+        return ThemedDialogs.buildBase(
+          context: dialogContext,
+          title: l10n.mcpAppToolCallTitle,
+          scrollable: true,
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(l10n.mcpAppToolCallMessage(widget.app.serverId, name)),
+              const SizedBox(height: Spacing.sm),
+              Text(
+                details,
+                style: AppTypography.bodySmallStyle.copyWith(
+                  color: theme.textSecondary,
+                  fontFamily: 'monospace',
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            ConduitTextButton(
+              text: l10n.directMcpApprovalDeny,
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+            ),
+            ConduitTextButton(
+              text: l10n.mcpAppToolCallAllow,
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              isPrimary: true,
+            ),
+          ],
+        );
+      },
     );
+    return allowed ?? false;
   }
 
   /// A link the app asks to open opens only once the user agrees: the app
@@ -379,6 +414,11 @@ class _McpAppEmbedState extends ConsumerState<McpAppEmbed> {
           },
         );
       },
+      // Android loads the page without asking shouldOverrideUrlLoading, so
+      // its start is what marks it loaded there.
+      onLoadStart: (_, url) {
+        if (url?.uriValue == _documentUrl) _documentLoaded = true;
+      },
       shouldOverrideUrlLoading: (_, action) async {
         final url = action.request.url?.uriValue;
         if (action.isForMainFrame == true) {
@@ -441,6 +481,10 @@ class _McpAppEmbedState extends ConsumerState<McpAppEmbed> {
       onCreateWindow: (_, _) async => false,
       onPermissionRequest: (_, _) async =>
           PermissionResponse(action: PermissionResponseAction.DENY),
+      // Without an answer here Android opens its file picker and hands the
+      // chosen files to the page.
+      onShowFileChooser: (_, _) async =>
+          ShowFileChooserResponse(handledByClient: true, filePaths: null),
       onDownloadStarting: (_, _) async => DownloadStartResponse(
         action: DownloadStartResponseAction.CANCEL,
         handled: true,

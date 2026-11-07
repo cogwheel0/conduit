@@ -88,7 +88,13 @@ final class McpAppHost {
   /// Handles one message from the app. A message that is not a JSON-RPC 2.0
   /// object, or one too large, is dropped.
   Future<void> receive(String payload) async {
-    if (_closed || payload.length > kMcpAppMaxMessageBytes) return;
+    // The limit is in UTF-8 bytes. A string's length counts UTF-16 units, and
+    // text outside ASCII takes up to three bytes for each.
+    if (_closed ||
+        payload.length > kMcpAppMaxMessageBytes ||
+        utf8.encode(payload).length > kMcpAppMaxMessageBytes) {
+      return;
+    }
     final Object? decoded;
     try {
       decoded = jsonDecode(payload);
