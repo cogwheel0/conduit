@@ -262,6 +262,22 @@ class TerminalBrowserController with TerminalChangeNotifier {
     ports.start();
   }
 
+  /// Starts or stops the live updates of the selected Open WebUI terminal
+  /// once Open WebUI says whether it relays them. Its version arrives with
+  /// its config, which can come after the terminal loaded, so the terminal
+  /// would otherwise stay on demand until it is opened again. The console
+  /// stays connected.
+  void liveFeaturesChanged() {
+    if (_disposed) return;
+    final service = _gateway.service;
+    final server = _selectedServer;
+    if (service == null || server == null || !server.isSystem) return;
+    if (!_isCurrentServer(server)) return;
+    // A terminal still loading starts them itself once it has loaded.
+    if (_featuresFor(server, _gateway.sessionScopeId) == null) return;
+    startLiveUpdates(service, server);
+  }
+
   void stopLiveUpdates() {
     final files = _fileEvents;
     final ports = _portEvents;
@@ -487,7 +503,9 @@ class TerminalBrowserController with TerminalChangeNotifier {
   /// Shows [port] in the app's preview. A terminal that opens browser
   /// sessions shows it through one, for Open WebUI's own terminals only on
   /// a server that relays them (0.13); any other shows it through the port
-  /// proxy, as before.
+  /// proxy, as before. The proxy needs the terminal's credential, Open
+  /// WebUI's token or a direct terminal's key, which goes only with the
+  /// page loads the app makes.
   Future<void> openPort(TerminalListeningPort port) async {
     if (_disposed) {
       return;
@@ -505,7 +523,7 @@ class TerminalBrowserController with TerminalChangeNotifier {
     final preview = TerminalPortPreview(
       port: port.port,
       terminalBaseUri: server.baseUrl,
-      bearerToken: server.isSystem ? service.authTokenForServer(server) : null,
+      bearerToken: service.authTokenForServer(server),
       openSession: sessions
           ? () => service.createBrowserSession(
               server,

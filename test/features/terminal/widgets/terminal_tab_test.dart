@@ -12,6 +12,8 @@ import 'package:conduit/features/terminal/services/terminal_service.dart';
 import 'package:conduit/features/terminal/widgets/terminal_console_surface.dart';
 import 'package:conduit/features/terminal/widgets/terminal_tab.dart';
 import 'package:conduit_core/features/tools/providers/tools_providers.dart';
+import 'package:conduit_core/providers/app_providers.dart'
+    show systemTerminalLiveFeaturesProvider;
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/l10n/conduit_localizations.dart';
 import 'package:material_ui/material_ui.dart';
@@ -594,6 +596,58 @@ void main() {
       expect(find.text('localhost:5173'), findsOneWidget);
     });
 
+    testWidgets('an Open WebUI terminal goes live once it relays events', (
+      tester,
+    ) async {
+      final relays = ValueNotifier<bool>(false);
+      addTearDown(relays.dispose);
+      final fakeService = _FakeTerminalService(
+        servers: <TerminalServerInfo>[
+          TerminalServerInfo(
+            kind: TerminalServerKind.system,
+            selectionId: 'system:t1',
+            systemServerId: 't1',
+            baseUrl: Uri.parse('https://owui.example/api/v1/terminals/t1'),
+            name: 'Workspace',
+          ),
+        ],
+        entries: const <TerminalFileEntry>[],
+        ports: const <TerminalListeningPort>[],
+        features: const TerminalServerFeatures(events: true),
+      );
+      final sockets = [_TestWebSocketConnection(), _TestWebSocketConnection()];
+      for (final socket in sockets) {
+        addTearDown(socket.dispose);
+      }
+      final opened = <Uri>[];
+
+      await tester.pumpWidget(
+        _buildHarness(
+          fakeService,
+          liveFeatures: relays,
+          channelConnector: (uri, {required kind}) {
+            opened.add(uri);
+            return sockets[opened.length - 1].channel;
+          },
+        ),
+      );
+      await tester.pumpAndSettle();
+      // Open WebUI's version was not known when the terminal loaded.
+      expect(opened, isEmpty);
+      final loads = fakeService.terminalEnabledRequestCount;
+
+      relays.value = true;
+      await tester.pumpAndSettle();
+
+      expect(opened, [
+        Uri.parse('wss://owui.example/api/v1/terminals/t1/events'),
+        Uri.parse('wss://owui.example/api/v1/terminals/t1/events'),
+      ]);
+      // Only the watches start: the terminal is not loaded again, which
+      // would also reconnect its console.
+      expect(fakeService.terminalEnabledRequestCount, loads);
+    });
+
     testWidgets('returning to the files panel lists files made meanwhile', (
       tester,
     ) async {
@@ -868,6 +922,7 @@ Widget _buildHarness(
   bool autoConnect = false,
   TerminalChannelConnector? channelConnector,
   bool resizeToAvoidBottomInset = true,
+  ValueNotifier<bool>? liveFeatures,
 }) {
   return ProviderScope(
     overrides: [
@@ -875,6 +930,13 @@ Widget _buildHarness(
       terminalAutoConnectProvider.overrideWithValue(autoConnect),
       if (channelConnector != null)
         terminalChannelConnectorProvider.overrideWithValue(channelConnector),
+      if (liveFeatures != null)
+        systemTerminalLiveFeaturesProvider.overrideWith((ref) {
+          void changed() => ref.invalidateSelf();
+          liveFeatures.addListener(changed);
+          ref.onDispose(() => liveFeatures.removeListener(changed));
+          return liveFeatures.value;
+        }),
     ],
     child: MaterialApp(
       localizationsDelegates: conduitLocalizationsDelegates,
@@ -1011,6 +1073,13 @@ class _FakeTerminalService extends TerminalService {
 
   @override
   String? authTokenForServer(TerminalServerInfo server) => 'terminal-token';
+
+  @override
+  Uri buildEventsWebSocketUri(TerminalServerInfo server) => server.isSystem
+      ? Uri.parse(
+          'wss://owui.example/api/v1/terminals/${server.systemServerId}/events',
+        )
+      : super.buildEventsWebSocketUri(server);
 
   @override
   Future<String?> getCwd(

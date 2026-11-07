@@ -538,6 +538,44 @@ void main() {
       }
     });
 
+    test('Open WebUI terminals are watched once it says it relays them',
+        () async {
+      final service = _MockTerminalService();
+      final harness = syncedHarness(service, server);
+      await harness.context.sync(force: true);
+      await pumpEventQueue();
+      // The terminal loaded before Open WebUI's version was known.
+      check(harness.gateway.openedChannels).isEmpty();
+
+      harness.gateway.systemTerminalLiveFeatures = true;
+      harness.browser.liveFeaturesChanged();
+      await pumpEventQueue();
+
+      check(harness.gateway.openedChannels).length.equals(2);
+      check(harness.browser.liveUpdates).isTrue();
+      // Only the watches start; the terminal is not loaded again.
+      verify(
+        () => service.getFeatures(server, sessionScopeId: 'scope'),
+      ).called(1);
+
+      harness.gateway.systemTerminalLiveFeatures = false;
+      harness.browser.liveFeaturesChanged();
+      await pumpEventQueue();
+      check(harness.gateway.channels.first.sinkClosed).isTrue();
+      check(harness.browser.liveUpdates).isFalse();
+    });
+
+    test('a terminal still loading starts its own watches', () async {
+      final service = _MockTerminalService();
+      final harness = syncedHarness(service, server);
+      harness.gateway.systemTerminalLiveFeatures = true;
+
+      harness.browser.liveFeaturesChanged();
+      await pumpEventQueue();
+
+      check(harness.gateway.openedChannels).isEmpty();
+    });
+
     test('a change lists the directory again without a spinner', () async {
       final service = _MockTerminalService();
       final harness = syncedHarness(
@@ -718,7 +756,9 @@ void main() {
         ..selectedTerminalId = target.selectionId
         ..selectedServer = target
         ..systemTerminalLiveFeatures = relayed;
-      when(() => service.authTokenForServer(target)).thenReturn('jwt');
+      when(
+        () => service.authTokenForServer(target),
+      ).thenReturn(target.isSystem ? 'jwt' : target.apiKey);
       when(
         () => service.createBrowserSession(
           target,
@@ -770,8 +810,8 @@ void main() {
       check(preview.port).equals(5173);
       check(preview.terminalBaseUri).equals(direct.baseUrl);
       check(preview.openSession).isNotNull();
-      // A direct terminal's key never goes to the page.
-      check(preview.bearerToken).isNull();
+      // A direct terminal's key never goes with a session's pages.
+      check(preview.sessionNavigator(session).headers).isEmpty();
     });
 
     test('a terminal without them previews through the proxy', () async {
@@ -782,6 +822,12 @@ void main() {
 
       check(preview.openSession).isNull();
       check(preview.closeSession).isNull();
+      // Open Terminal's proxy needs the key, which goes with the page loads
+      // the app makes, as Open WebUI's token does for its own terminals.
+      check(preview.bearerToken).equals('key');
+      check(
+        preview.proxyNavigator().headers,
+      ).deepEquals({'Authorization': 'Bearer key'});
     });
 
     test('Open WebUI terminals use sessions only where it relays them',

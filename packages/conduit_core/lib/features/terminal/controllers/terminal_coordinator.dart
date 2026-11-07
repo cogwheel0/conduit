@@ -2,6 +2,9 @@ import 'dart:async';
 
 import 'package:riverpod/riverpod.dart';
 
+import 'package:conduit_core/providers/app_providers.dart'
+    show systemTerminalLiveFeaturesProvider;
+
 import '../models/terminal_models.dart';
 import '../providers/terminal_providers.dart';
 import 'terminal_browser_controller.dart';
@@ -99,6 +102,15 @@ final class TerminalCoordinator<S extends TerminalScreen>
           terminalAvailableServersProvider,
           (_, next) => _handleInitialServerList(next),
         );
+    // Open WebUI's version can arrive after its terminal loaded.
+    _liveFeaturesSubscription = listen<bool>(
+      systemTerminalLiveFeaturesProvider,
+      (previous, next) {
+        if (previous != next && _gateway.isActive) {
+          _browserController.liveFeaturesChanged();
+        }
+      },
+    );
   }
 
   final TerminalProviderRead _read;
@@ -114,6 +126,7 @@ final class TerminalCoordinator<S extends TerminalScreen>
   late final ProviderSubscription<int> _refreshSubscription;
   late final ProviderSubscription<String> _sessionScopeSubscription;
   late final ProviderSubscription<TerminalSidebarPanel> _panelSubscription;
+  late final ProviderSubscription<bool> _liveFeaturesSubscription;
   late final ProviderSubscription<AsyncValue<TerminalServerInfo?>>
   _selectedServerSubscription;
   ProviderSubscription<AsyncValue<List<TerminalServerInfo>>>?
@@ -221,6 +234,7 @@ final class TerminalCoordinator<S extends TerminalScreen>
     _refreshSubscription.close();
     _sessionScopeSubscription.close();
     _panelSubscription.close();
+    _liveFeaturesSubscription.close();
     _selectedServerSubscription.close();
     _singleServerDefaultPanelSubscription?.close();
     _contextController

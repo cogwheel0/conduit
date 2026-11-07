@@ -87,6 +87,31 @@ final class TerminalPortPreviewController with TerminalChangeNotifier {
     return decision;
   }
 
+  /// Checks a page the main frame started to load. Android loads a form
+  /// post without asking [decide] first, so a post can take the preview to
+  /// a page it does not show, under the address it showed before. Null
+  /// when the preview may show [page]. Otherwise the load is to be stopped
+  /// for the decision returned: a page on the terminal's machine loads
+  /// through the preview instead; any other returns to [address], and a
+  /// page outside the terminal is offered outside the app.
+  TerminalPreviewDecision? checkStartedLoad(Uri? page) {
+    final navigator = _navigator;
+    if (navigator == null || page == null) return null;
+    final decision = navigator.decide(page, history: true);
+    if (decision is TerminalPreviewAllow) return null;
+    if (decision is TerminalPreviewLoad) _expectLoad(decision.uri);
+    return decision;
+  }
+
+  /// The load that takes the page back to [address].
+  TerminalPreviewLoad? returnToAddress() {
+    final navigator = _navigator;
+    if (navigator == null) return null;
+    final uri = navigator.pageUri(address);
+    _expectLoad(uri);
+    return TerminalPreviewLoad(uri, navigator.headers);
+  }
+
   /// The web view now shows [page], after a load or a history change.
   void pageChanged(Uri? page) {
     final navigator = _navigator;

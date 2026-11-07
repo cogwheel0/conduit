@@ -31,8 +31,8 @@ final class TerminalBrowserSession {
 /// The page prefers a [TerminalBrowserSession] from [openSession] and closes
 /// it with [closeSession] when it goes away. Without one, or when the
 /// terminal cannot open one, it falls back to the port proxy, sending
-/// [bearerToken] only with the page loads it makes itself: the same
-/// credential, to the same place, the app always sent with a preview.
+/// [bearerToken] only with the page loads it makes itself, to the terminal
+/// that the app already sends it to.
 @immutable
 final class TerminalPortPreview {
   const TerminalPortPreview({
@@ -49,7 +49,8 @@ final class TerminalPortPreview {
   /// the direct connection's URL.
   final Uri terminalBaseUri;
 
-  /// Open WebUI's token for its own terminals; null for a direct one.
+  /// What the port proxy needs: Open WebUI's token for its own terminals,
+  /// a direct terminal's key, or null for a direct one without a key.
   final String? bearerToken;
 
   final Future<TerminalBrowserSession> Function()? openSession;
@@ -153,11 +154,11 @@ final class TerminalPreviewNavigator {
   final bool usesSession;
 
   /// What the app sends with the page loads it makes itself. Empty through
-  /// a session, and through a direct terminal's proxy.
+  /// a session, and through the proxy of a direct terminal without a key.
   final Map<String, String> headers;
 
   /// Whether a page can be opened outside the app as it is: a session's
-  /// links need no credential, but Open WebUI's proxy needs the account's.
+  /// links need no credential, but a proxy behind a token or key does.
   bool get pagesOpenElsewhere => headers.isEmpty;
 
   /// The address the app loads to show [remote], an address on the

@@ -168,6 +168,47 @@ void main() {
     controller.dispose();
   });
 
+  test('a load the rules never saw is turned back', () async {
+    final controller = TerminalPortPreviewController(preview());
+    await controller.start();
+    controller.pageChanged(Uri.parse('$proxy/5173/form'));
+
+    // The preview's own pages, and pages it was let through to, may show.
+    check(controller.checkStartedLoad(Uri.parse('$proxy/5173/'))).isNull();
+    check(controller.checkStartedLoad(Uri.parse('about:blank'))).isNull();
+    check(controller.checkStartedLoad(null)).isNull();
+
+    // Android posts a form without asking: to a site elsewhere, it is
+    // offered outside the app and the page goes back to where it was.
+    check(
+      controller.checkStartedLoad(Uri.parse('https://collect.example/post')),
+    ).isA<TerminalPreviewOpenExternally>().has((d) => d.uri, 'uri').equals(
+      Uri.parse('https://collect.example/post'),
+    );
+    // To Open WebUI itself, it is only stopped.
+    check(
+      controller.checkStartedLoad(Uri.parse('https://owui.test/api/v1/chats')),
+    ).isA<TerminalPreviewBlock>();
+    final back = controller.returnToAddress()!;
+    check(back.uri).equals(Uri.parse('$proxy/5173/form'));
+    check(back.headers).deepEquals({'Authorization': 'Bearer jwt'});
+    // The app's own load back is let through as it is.
+    check(controller.decide(back.uri)).isA<TerminalPreviewAllow>();
+
+    // To the terminal's machine by its own address, it loads through the
+    // proxy instead.
+    final local = controller.checkStartedLoad(
+      Uri.parse('http://localhost:5173/login'),
+    );
+    check(local).isA<TerminalPreviewLoad>().has((d) => d.uri, 'uri').equals(
+      Uri.parse('$proxy/5173/login'),
+    );
+    check(
+      controller.decide(Uri.parse('$proxy/5173/login')),
+    ).isA<TerminalPreviewAllow>();
+    controller.dispose();
+  });
+
   test('blocks navigation before it knows how pages load', () {
     final controller = TerminalPortPreviewController(preview());
 
@@ -175,6 +216,10 @@ void main() {
       controller.decide(Uri.parse('http://localhost:5173/')),
     ).isA<TerminalPreviewBlock>();
     check(controller.initialRequest).isNull();
+    check(
+      controller.checkStartedLoad(Uri.parse('https://elsewhere.test/')),
+    ).isNull();
+    check(controller.returnToAddress()).isNull();
     controller.dispose();
   });
 }

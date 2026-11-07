@@ -6,6 +6,7 @@ import 'package:conduit/shared/widgets/platform_ui/vocabulary.dart';
 import 'package:conduit_core/features/terminal/controllers/terminal_port_preview_controller.dart';
 import 'package:conduit_core/features/terminal/services/terminal_port_preview.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/gestures.dart' show kTouchSlop;
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:flutter/widgets.dart';
 import 'package:url_launcher/url_launcher.dart' show LaunchMode;
@@ -102,13 +103,52 @@ abstract interface class TerminalPreviewWebViewHost {
 
   void attach(InAppWebViewController controller);
   void loadingChanged({required bool loading});
+
+  /// The main frame started to load [page], which may be one the
+  /// navigation rules never saw.
+  void loadStarted(Uri? page);
   void historyChanged({required bool canGoBack, required bool canGoForward});
   void loadFailed();
+
+  /// [userActivated] when the platform says the user started it (Android).
+  /// [linkActivated] when it says a link was followed (iOS), which a
+  /// script can do too, so it counts only right after the user tapped the
+  /// page.
   Future<NavigationActionPolicy> navigate(
     Uri target, {
     required bool history,
     bool userActivated = false,
+    bool linkActivated = false,
   });
+}
+
+/// How long after the user taps the page a link that iOS says was followed
+/// counts as tapped.
+const _tapWindow = Duration(seconds: 1);
+
+/// Asks the preview's rules about a navigation of the web view.
+@visibleForTesting
+Future<NavigationActionPolicy> terminalPreviewOverrideUrlLoading(
+  TerminalPreviewWebViewHost host,
+  NavigationAction action,
+) async {
+  final target = action.request.url?.uriValue;
+  if (target == null || action.isForMainFrame != true) {
+    return NavigationActionPolicy.ALLOW;
+  }
+  final type = action.navigationType;
+  final method = action.request.method?.toUpperCase();
+  return host.navigate(
+    target,
+    userActivated: action.hasGesture == true,
+    linkActivated: type == NavigationType.LINK_ACTIVATED,
+    // A form post cannot be made again with the credential added, so it
+    // goes as the page sent it, like back, forward and reload.
+    history:
+        type == NavigationType.BACK_FORWARD ||
+        type == NavigationType.RELOAD ||
+        (method != null && method != 'GET'),
+  );
 }
 
 /// A terminal port shown in the app's own web view, with back, forward,
@@ -152,10 +192,41 @@ class _TerminalPortPreviewPageState extends State<TerminalPortPreviewPage>
 
   @override
   void dispose() {
+    _tapTimer?.cancel();
     preview
       ..removeListener(_changed)
       ..dispose();
     super.dispose();
+  }
+
+  /// Whether the user tapped the page within [_tapWindow], so a link iOS
+  /// says was followed was most likely tapped rather than clicked by a
+  /// script. One tap lets one such link leave.
+  bool _tapped = false;
+  Timer? _tapTimer;
+  Offset? _touchOrigin;
+
+  void _touchStarted(PointerDownEvent event) => _touchOrigin = event.position;
+
+  void _touchCancelled(PointerCancelEvent _) => _touchOrigin = null;
+
+  void _touchEnded(PointerUpEvent event) {
+    final origin = _touchOrigin;
+    _touchOrigin = null;
+    // A drag scrolls the page; only a tap follows a link.
+    if (origin == null || (event.position - origin).distance > kTouchSlop) {
+      return;
+    }
+    _tapTimer?.cancel();
+    _tapped = true;
+    _tapTimer = Timer(_tapWindow, () => _tapped = false);
+  }
+
+  bool _takeTap() {
+    final tapped = _tapped;
+    _tapped = false;
+    _tapTimer?.cancel();
+    return tapped;
   }
 
   void _changed() {
@@ -173,6 +244,38 @@ class _TerminalPortPreviewPageState extends State<TerminalPortPreviewPage>
       // A new load replaces the failure; the end of a failed one keeps it.
       if (loading) _failed = false;
     });
+  }
+
+  @override
+  void loadStarted(Uri? page) {
+    loadingChanged(loading: true);
+    final stray = preview.checkStartedLoad(page);
+    if (stray == null) return;
+    final replacement = stray is TerminalPreviewLoad
+        ? stray
+        : preview.returnToAddress();
+    final controller = _controller;
+    if (controller != null && replacement != null) {
+      unawaited(_replaceLoad(controller, replacement));
+    }
+    if (stray case TerminalPreviewOpenExternally(:final uri)) {
+      unawaited(_confirmLeave(uri));
+    }
+  }
+
+  Future<void> _replaceLoad(
+    InAppWebViewController controller,
+    TerminalPreviewLoad load,
+  ) async {
+    try {
+      await controller.stopLoading();
+      await controller.loadUrl(
+        urlRequest: URLRequest(
+          url: WebUri.uri(load.uri),
+          headers: load.headers,
+        ),
+      );
+    } catch (_) {}
   }
 
   @override
@@ -206,7 +309,11 @@ class _TerminalPortPreviewPageState extends State<TerminalPortPreviewPage>
     Uri target, {
     required bool history,
     bool userActivated = false,
+    bool linkActivated = false,
   }) async {
+    // Whatever the link does, the tap that followed it is spent, so a page
+    // it opens cannot leave on that tap too.
+    final tapped = linkActivated && _takeTap();
     switch (preview.decide(target, history: history)) {
       case TerminalPreviewAllow():
         return NavigationActionPolicy.ALLOW;
@@ -222,7 +329,7 @@ class _TerminalPortPreviewPageState extends State<TerminalPortPreviewPage>
         // leave without a tap (a dev server's hosted login, a loop), and a
         // link followed through Open WebUI's proxy script looks the same, so
         // the user is asked first.
-        if (userActivated) {
+        if (userActivated || tapped) {
           unawaited(widget.openExternally(uri));
         } else {
           unawaited(_confirmLeave(uri));
@@ -295,7 +402,12 @@ class _TerminalPortPreviewPageState extends State<TerminalPortPreviewPage>
                 : Stack(
                     children: [
                       Positioned.fill(
-                        child: widget.webViewBuilder(context, this),
+                        child: Listener(
+                          onPointerDown: _touchStarted,
+                          onPointerUp: _touchEnded,
+                          onPointerCancel: _touchCancelled,
+                          child: widget.webViewBuilder(context, this),
+                        ),
                       ),
                       if (_failed)
                         Positioned.fill(
@@ -408,29 +520,14 @@ Widget buildTerminalPreviewWebView(
       ),
     ]),
     onWebViewCreated: host.attach,
-    shouldOverrideUrlLoading: (controller, action) async {
-      final target = action.request.url?.uriValue;
-      if (target == null || action.isForMainFrame != true) {
-        return NavigationActionPolicy.ALLOW;
-      }
-      final type = action.navigationType;
-      final method = action.request.method?.toUpperCase();
-      return host.navigate(
-        target,
-        userActivated:
-            action.hasGesture == true || type == NavigationType.LINK_ACTIVATED,
-        // A form post cannot be made again with the credential added, so it
-        // goes as the page sent it, like back, forward and reload.
-        history:
-            type == NavigationType.BACK_FORWARD ||
-            type == NavigationType.RELOAD ||
-            (method != null && method != 'GET'),
-      );
-    },
+    shouldOverrideUrlLoading: (controller, action) =>
+        terminalPreviewOverrideUrlLoading(host, action),
     // A link that asks for a new window loads in this one instead, through
     // the same rules as any other (Android does so without asking).
     onCreateWindow: (controller, action) async => false,
-    onLoadStart: (controller, url) => host.loadingChanged(loading: true),
+    // Android does not ask the rules about a form post; this catches one
+    // that leaves the preview's pages.
+    onLoadStart: (controller, url) => host.loadStarted(url?.uriValue),
     onLoadStop: (controller, url) async {
       host.loadingChanged(loading: false);
       host.preview.pageLoaded(url?.uriValue);

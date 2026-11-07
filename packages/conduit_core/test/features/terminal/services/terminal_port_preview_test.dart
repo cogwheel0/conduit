@@ -161,7 +161,7 @@ void main() {
     });
   });
 
-  test('a direct terminal\'s proxy needs no credential', () {
+  test('the proxy of a direct terminal without a key needs no credential', () {
     final navigator = TerminalPreviewNavigator.proxy(
       terminalBaseUri: Uri.parse('http://10.0.0.5:8000/'),
     );

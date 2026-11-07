@@ -9,8 +9,11 @@ import 'package:conduit_core/features/terminal/services/terminal_port_preview.da
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
+import 'package:mocktail/mocktail.dart';
 
 void main() {
+  setUpAll(() => registerFallbackValue(URLRequest()));
+
   final base = Uri.parse('https://owui.test/api/v1/terminals/t1');
   const session = TerminalBrowserSession(id: 'sid', token: 'ticket');
   const view = 'https://owui.test/api/v1/terminals/t1/browser/view/sid/ticket';
@@ -176,6 +179,149 @@ void main() {
     expect(find.text(message), findsNothing);
   });
 
+  // Pumps the confirmation in and out; the page's spinner never settles.
+  Future<void> pumpDialog(WidgetTester tester) async {
+    for (var i = 0; i < 5; i++) {
+      await tester.pump(const Duration(milliseconds: 100));
+    }
+  }
+
+  testWidgets('a link iOS says was followed leaves at once only after a tap', (
+    tester,
+  ) async {
+    await tester.pumpWidget(page(preview()));
+    await settle(tester);
+    final guide = Uri.parse('https://example.com/guide');
+    final login = Uri.parse('https://login.example.com/');
+
+    // The user taps the page: the link leaves for the system browser.
+    await tester.tap(find.textContaining('web '));
+    await tester.pump();
+    final tapped = await host!.navigate(
+      guide,
+      history: false,
+      linkActivated: true,
+    );
+    expect(tapped, NavigationActionPolicy.CANCEL);
+    expect(opened, [guide]);
+
+    // That tap is spent: a script clicking a link after it is asked about.
+    await host!.navigate(login, history: false, linkActivated: true);
+    await pumpDialog(tester);
+    expect(opened, [guide]);
+    expect(find.text(login.toString()), findsOneWidget);
+    await tester.tap(find.text(l10n(tester).terminalOpenInBrowserAction).last);
+    await pumpDialog(tester);
+    expect(opened, [guide, login]);
+
+    // So is one long after the last tap.
+    await tester.tap(find.textContaining('web '));
+    await tester.pump(const Duration(seconds: 2));
+    await host!.navigate(guide, history: false, linkActivated: true);
+    await pumpDialog(tester);
+    expect(opened, [guide, login]);
+    expect(find.text(guide.toString()), findsOneWidget);
+    await tester.tap(find.text(l10n(tester).terminalOpenInBrowserAction).last);
+    await pumpDialog(tester);
+    expect(opened, [guide, login, guide]);
+
+    // A drag scrolls the page rather than tapping a link.
+    await tester.drag(find.textContaining('web '), const Offset(0, -200));
+    await tester.pump();
+    await host!.navigate(login, history: false, linkActivated: true);
+    await pumpDialog(tester);
+    expect(opened, hasLength(3));
+    expect(find.text(login.toString()), findsOneWidget);
+  });
+
+  testWidgets('a form post that leaves the preview is turned back', (
+    tester,
+  ) async {
+    await tester.pumpWidget(page(preview()));
+    await settle(tester);
+    final controller = _MockWebViewController();
+    when(controller.stopLoading).thenAnswer((_) async {});
+    when(
+      () => controller.loadUrl(urlRequest: any(named: 'urlRequest')),
+    ).thenAnswer((_) async {});
+    host!.attach(controller);
+    host!.preview.pageChanged(Uri.parse('$proxy/5173/form'));
+
+    // The preview's own pages load as they are.
+    host!.loadStarted(Uri.parse('$proxy/5173/form'));
+    await tester.pump();
+    verifyNever(controller.stopLoading);
+
+    // Android posts a form to a site elsewhere without asking the rules:
+    // the page goes back to where it was and the user is asked.
+    host!.loadStarted(Uri.parse('https://collect.example/post'));
+    await pumpDialog(tester);
+    verify(controller.stopLoading).called(1);
+    final captured = verify(
+      () => controller.loadUrl(urlRequest: captureAny(named: 'urlRequest')),
+    ).captured;
+    final request = captured.single as URLRequest;
+    expect(request.url.toString(), '$proxy/5173/form');
+    expect(request.headers, {'Authorization': 'Bearer jwt'});
+    expect(opened, isEmpty);
+    expect(find.text('https://collect.example/post'), findsOneWidget);
+    await tester.tap(find.text(l10n(tester).terminalOpenInBrowserAction).last);
+    await pumpDialog(tester);
+    expect(opened, [Uri.parse('https://collect.example/post')]);
+
+    // One to Open WebUI itself is only turned back.
+    host!.loadStarted(Uri.parse('https://owui.test/api/v1/chats'));
+    await pumpDialog(tester);
+    verify(controller.stopLoading).called(1);
+    expect(opened, hasLength(1));
+  });
+
+  test('a navigation reports how the platform says it started', () async {
+    final recorder = _RecordingHost();
+    Future<NavigationActionPolicy> ask({
+      String method = 'GET',
+      bool mainFrame = true,
+      bool? hasGesture,
+      NavigationType? type,
+    }) => terminalPreviewOverrideUrlLoading(
+      recorder,
+      NavigationAction(
+        request: URLRequest(
+          url: WebUri('https://example.com/'),
+          method: method,
+        ),
+        isForMainFrame: mainFrame,
+        hasGesture: hasGesture,
+        navigationType: type,
+      ),
+    );
+
+    // iOS says a link was followed, which a script can do too: not a tap.
+    await ask(type: NavigationType.LINK_ACTIVATED);
+    expect(recorder.calls.last, (
+      history: false,
+      userActivated: false,
+      linkActivated: true,
+    ));
+    // Android says whether the user started it.
+    await ask(hasGesture: true);
+    expect(recorder.calls.last, (
+      history: false,
+      userActivated: true,
+      linkActivated: false,
+    ));
+    await ask(method: 'POST', type: NavigationType.FORM_SUBMITTED);
+    expect(recorder.calls.last.history, isTrue);
+    await ask(type: NavigationType.BACK_FORWARD);
+    expect(recorder.calls.last.history, isTrue);
+
+    expect(
+      await ask(mainFrame: false, type: NavigationType.LINK_ACTIVATED),
+      NavigationActionPolicy.ALLOW,
+    );
+    expect(recorder.calls, hasLength(4));
+  });
+
   test('the web view keeps a cookie store of its own on iOS only', () {
     final ios = terminalPreviewWebViewSettings(platform: TargetPlatform.iOS);
     final android = terminalPreviewWebViewSettings(
@@ -224,4 +370,29 @@ void main() {
     expect(await gateway.openPort(target), isTrue);
     expect(shown, [target]);
   });
+}
+
+class _MockWebViewController extends Mock implements InAppWebViewController {}
+
+final class _RecordingHost implements TerminalPreviewWebViewHost {
+  final calls = <({bool history, bool userActivated, bool linkActivated})>[];
+
+  @override
+  Future<NavigationActionPolicy> navigate(
+    Uri target, {
+    required bool history,
+    bool userActivated = false,
+    bool linkActivated = false,
+  }) async {
+    calls.add((
+      history: history,
+      userActivated: userActivated,
+      linkActivated: linkActivated,
+    ));
+    return NavigationActionPolicy.CANCEL;
+  }
+
+  @override
+  Object? noSuchMethod(Invocation invocation) =>
+      throw UnimplementedError('${invocation.memberName}');
 }
