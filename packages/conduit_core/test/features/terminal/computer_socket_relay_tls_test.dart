@@ -22,21 +22,28 @@ void main() {
     certificates = await Directory.systemTemp.createTemp('computer-tls-');
     addTearDown(() => certificates.delete(recursive: true));
     for (final name in ['server', 'client']) {
-      final result = await Process.run('openssl', [
-        'req',
-        '-x509',
-        '-newkey',
-        'rsa:2048',
-        '-nodes',
-        '-keyout',
-        '${certificates.path}/$name.key',
-        '-out',
-        '${certificates.path}/$name.crt',
-        '-subj',
-        '/CN=synthetic-$name',
-        '-days',
-        '1',
-      ]);
+      late final ProcessResult result;
+      try {
+        result = await Process.run('openssl', [
+          'req',
+          '-x509',
+          '-newkey',
+          'rsa:2048',
+          '-nodes',
+          '-keyout',
+          '${certificates.path}/$name.key',
+          '-out',
+          '${certificates.path}/$name.crt',
+          '-subj',
+          '/CN=synthetic-$name',
+          '-days',
+          '1',
+        ]);
+      } on ProcessException {
+        fail(
+          'OpenSSL is required for the Computer TLS tests. Install openssl and rerun this test.',
+        );
+      }
       expect(
         result.exitCode,
         0,
