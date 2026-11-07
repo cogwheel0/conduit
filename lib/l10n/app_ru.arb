@@ -4360,5 +4360,7 @@
   "mcpAppOpenLinkConfirm": "Открыть",
   "terminalPortPreviewForward": "Вперёд",
   "terminalPortPreviewReload": "Обновить",
-  "terminalPortPreviewLoadFailed": "Не удалось загрузить эту страницу."
+  "terminalPortPreviewLoadFailed": "Не удалось загрузить эту страницу.",
+  "modelMenuAllModels": "Все модели…",
+  "citationPreviewOpen": "Открыть"
 }

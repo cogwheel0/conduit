@@ -4322,5 +4322,7 @@
   "mcpAppOpenLinkConfirm": "Apri",
   "terminalPortPreviewForward": "Avanti",
   "terminalPortPreviewReload": "Ricarica",
-  "terminalPortPreviewLoadFailed": "Impossibile caricare questa pagina."
+  "terminalPortPreviewLoadFailed": "Impossibile caricare questa pagina.",
+  "modelMenuAllModels": "Tutti i modelli…",
+  "citationPreviewOpen": "Apri"
 }

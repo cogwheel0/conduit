@@ -22,6 +22,7 @@ import '../../../shared/widgets/sidebar_layout_contract.dart';
 import 'dart:async';
 
 import 'package:conduit_core/features/chat/providers/chat_model_choice.dart';
+import 'package:conduit_core/features/chat/models/model_selector_layout.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 
 import 'package:conduit_core/services/interaction_activity.dart';
@@ -4272,17 +4273,36 @@ class _ChatPageState extends ConsumerState<ChatPage> {
 
   bool _isOpeningModelSelector = false;
 
-  Future<void> _openModelSelector(BuildContext context) async {
+  /// Whether the pinned-model menu is up. The pill it hangs from keeps its
+  /// label meanwhile, so this, not [_isOpeningModelSelector], rejects a
+  /// second opening.
+  bool _isModelMenuOpen = false;
+
+  /// Opens the model picker. With [menuAnchor], the pill that was tapped, the
+  /// account's pinned models come first as a native menu under it on iOS 26;
+  /// its last item, or a tap with nothing pinned, opens the full list.
+  Future<void> _openModelSelector(
+    BuildContext context, {
+    BuildContext? menuAnchor,
+  }) async {
     // Model loading can take a moment on a cold cache. Show that on the
     // selector itself and reject overlapping taps instead of letting the
     // control look dead (#692).
-    if (_isOpeningModelSelector || ref.read(isLoadingConversationProvider)) return;
+    if (_isOpeningModelSelector ||
+        _isModelMenuOpen ||
+        ref.read(isLoadingConversationProvider)) {
+      return;
+    }
     setState(() => _isOpeningModelSelector = true);
     try {
       final models = await ref
           .read(nativeSheetHydrationServiceProvider)
           .loadModels();
       if (!mounted || !context.mounted) return;
+      if (menuAnchor != null && menuAnchor.mounted) {
+        final openFullList = await _showPinnedModelMenu(menuAnchor, models);
+        if (!openFullList || !mounted || !context.mounted) return;
+      }
       await _showModelDropdown(context, ref, models);
     } catch (error, stackTrace) {
       DebugLogger.error(
@@ -4428,13 +4448,84 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         active: hermesBotActive,
       );
     }
-    return ConduitAdaptiveAppBarModelSelector(
-      label: modelLabel,
-      maxWidth: maxModelWidth,
-      isLoading: isLoadingConversation || _isOpeningModelSelector,
-      showChevron: showModelDropdown,
-      onPressed: () => _openModelSelector(context),
+    return Builder(
+      builder: (pillContext) => ConduitAdaptiveAppBarModelSelector(
+        label: modelLabel,
+        maxWidth: maxModelWidth,
+        isLoading: isLoadingConversation || _isOpeningModelSelector,
+        showChevron: showModelDropdown,
+        onPressed: () => _openModelSelector(context, menuAnchor: pillContext),
+      ),
     );
+  }
+
+  /// Shows the account's pinned models as a native menu under [anchor], the
+  /// model pill, with the chat's model checked and "All models…" last.
+  /// Returns whether the full model list should open instead: when that item
+  /// is chosen, or when there is no menu to show (no pinned model that is
+  /// offered now, or no native menu on this platform).
+  Future<bool> _showPinnedModelMenu(
+    BuildContext anchor,
+    List<Model> models,
+  ) async {
+    final pinned = availablePinnedModels(
+      models: models,
+      pinnedModelIds: ref.read(effectivePinnedModelIdsProvider),
+    );
+    if (pinned.isEmpty || !AdaptiveAnchoredMenu.canShow(anchor)) return true;
+
+    const allModelsId = '\u0000all-models';
+    final selectedId = ref.read(selectedModelProvider)?.id;
+    // The chat and account the menu opens for: a pick is only for them.
+    final pickTarget = captureChatModelPickTarget(ref);
+    final allModelsLabel = AppLocalizations.of(context)!.modelMenuAllModels;
+    String labelOf(Model model) {
+      final name = _formatModelDisplayName(model.name);
+      return name.isEmpty ? model.id : name;
+    }
+
+    // The menu hangs from the pill, which keeps its label while it is up.
+    setState(() {
+      _isOpeningModelSelector = false;
+      _isModelMenuOpen = true;
+    });
+    final String? choice;
+    try {
+      choice = await AdaptiveAnchoredMenu.show(
+        anchorContext: anchor,
+        items: [
+          for (final model in pinned)
+            AdaptiveAnchoredMenuItem(
+              id: model.id,
+              label: labelOf(model),
+              checked: model.id == selectedId,
+            ),
+          AdaptiveAnchoredMenuItem(
+            id: allModelsId,
+            label: allModelsLabel,
+            sfSymbol: 'square.stack.3d.up',
+            startsSection: true,
+          ),
+        ],
+      );
+    } finally {
+      _isModelMenuOpen = false;
+    }
+    if (!mounted) return false;
+    if (choice == allModelsId) {
+      setState(() => _isOpeningModelSelector = true);
+      return true;
+    }
+    for (final model in pinned) {
+      if (model.id != choice) continue;
+      // As a pick in the full list: an explicit choice, which a late default
+      // or New Chat must not replace.
+      if (applyChatModelPick(ref, model, target: pickTarget)) {
+        ref.read(isManualModelSelectionProvider.notifier).set(true);
+      }
+      break;
+    }
+    return false;
   }
 
   List<_ChatToolbarActionDescriptor> _buildAdaptiveToolbarActions({
