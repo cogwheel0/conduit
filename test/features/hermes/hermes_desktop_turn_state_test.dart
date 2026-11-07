@@ -905,6 +905,57 @@ void main() {
     ).equals('Hello there.');
   });
 
+  test('a PDF Hermes cannot render is sent as a file', () async {
+    // A host without pdftoppm refuses `pdf.attach` (issue #898).
+    final turn = await _streamTurn(
+      input: HermesChatInput.multimodal([
+        HermesInputTextPart('Summarize this.'),
+        HermesInputFilePart(
+          filename: 'report.pdf',
+          mediaType: 'application/pdf',
+          base64Data: 'JVBERi0=',
+        ),
+      ]),
+      desktopContract: 2,
+      errors: {
+        'pdf.attach': {
+          'code': 5028,
+          'message': 'pdftoppm not installed (poppler-utils package required)',
+        },
+      },
+      responses: {
+        'file.attach': {
+          'attached': true,
+          'ref_text': '@file:/staged/report.pdf',
+        },
+      },
+      (harness) {
+        harness.event('runtime-race', 'message.start');
+        harness.event('runtime-race', 'message.complete', {
+          'text': 'It covers the plan.',
+        });
+        harness.sessionInfo('runtime-race', running: false);
+      },
+    );
+
+    Map<String, dynamic> params(String method) => Map<String, dynamic>.from(
+      turn.harness.sent.singleWhere((f) => f['method'] == method)['params']
+          as Map,
+    );
+    check(params('pdf.attach')['filename']).equals('report.pdf');
+    check(params('file.attach')['name']).equals('report.pdf');
+    check(
+      params('file.attach')['data_url'],
+    ).equals('data:application/pdf;base64,JVBERi0=');
+    check(
+      params('prompt.submit')['text'] as String,
+    ).contains('@file:/staged/report.pdf');
+    check(turn.events.whereType<HermesRunError>()).isEmpty();
+    check(
+      turn.events.whereType<HermesFinalOutput>().single.text,
+    ).equals('It covers the plan.');
+  });
+
   test('a forwarded prompt ends at message.complete', () async {
     final turn = await _streamTurn(
       submitResult: {
@@ -1456,11 +1507,24 @@ final class _RecordingUrlOpener implements OpenExternalUrlPort {
 
 /// Streams one turn on a resumed session: Hermes acknowledges
 /// `prompt.submit` with [submitResult], then [frames] arrive. Returns the
-/// events that reached the caller, and the service.
-Future<({List<HermesRunEvent> events, HermesDesktopApiService service})>
+/// events that reached the caller, the service and the gateway.
+///
+/// [input] defaults to plain text; [responses] and [errors] answer extra
+/// methods, and [desktopContract] is the one the resumed session reports.
+Future<
+  ({
+    List<HermesRunEvent> events,
+    HermesDesktopApiService service,
+    _GatewayHarness harness,
+  })
+>
 _streamTurn(
   void Function(_GatewayHarness harness) frames, {
   Map<String, dynamic> submitResult = const {'status': 'streaming'},
+  HermesChatInput? input,
+  Map<String, Map<String, dynamic>> responses = const {},
+  Map<String, Map<String, dynamic>> errors = const {},
+  int? desktopContract,
 }) async {
   SharedPreferences.setMockInitialValues({});
   PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
@@ -1484,19 +1548,24 @@ _streamTurn(
     service.close();
     await harness.dispose();
   });
-  harness.responder = (method) => switch (method) {
-    'prompt.submit' => submitResult,
-    'session.resume' => {
-      'session_id': 'runtime-race',
-      'stored_session_id': 'stored-race',
-      'running': false,
-    },
-    'config.get' => {'value': 'medium'},
-    _ => const {},
-  };
+  harness.errorResponder = (method) => errors[method];
+  harness.responder = (method) =>
+      responses[method] ??
+      switch (method) {
+        'prompt.submit' => submitResult,
+        'session.resume' => {
+          'session_id': 'runtime-race',
+          'stored_session_id': 'stored-race',
+          'running': false,
+          if (desktopContract != null)
+            'info': {'desktop_contract': desktopContract},
+        },
+        'config.get' => {'value': 'medium'},
+        _ => const {},
+      };
 
   final response = await service.streamDesktopResponse(
-    HermesChatInput.text('hello'),
+    input ?? HermesChatInput.text('hello'),
     sessionId: 'stored-race',
     options: const HermesDesktopSessionOptions(),
   );
@@ -1506,6 +1575,7 @@ _streamTurn(
   return (
     events: await events.timeout(const Duration(seconds: 5)),
     service: service,
+    harness: harness,
   );
 }
 

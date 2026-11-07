@@ -1023,25 +1023,23 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
           _requireDesktopUploadContract();
           // A session authority stages a PDF like any file, by reference;
           // `pdf.attach` only knows the dashboard's own sessions.
-          final pdfPages = part.isPdf && !_canonical;
-          final result = _object(
-            await _rpc.request<Object?>(
-              pdfPages ? 'pdf.attach' : 'file.attach',
-              params: pdfPages
-                  ? {
-                      'session_id': runtimeId,
-                      'content_base64': part.base64Data,
-                      'filename': part.filename,
-                      ..._runtimeScope(runtimeId),
-                    }
-                  : {
-                      'session_id': runtimeId,
-                      'name': part.filename,
-                      'data_url': part.dataUrl,
-                      ..._runtimeScope(runtimeId),
-                    },
-            ),
-          );
+          final pageResult = part.isPdf && !_canonical
+              ? await _attachPdfPages(runtimeId, part)
+              : null;
+          final pdfPages = pageResult != null;
+          final result =
+              pageResult ??
+              _object(
+                await _rpc.request<Object?>(
+                  'file.attach',
+                  params: {
+                    'session_id': runtimeId,
+                    'name': part.filename,
+                    'data_url': part.dataUrl,
+                    ..._runtimeScope(runtimeId),
+                  },
+                ),
+              );
           if (result['attached'] != true) {
             throw StateError('Hermes did not accept ${part.filename}.');
           }
@@ -1074,6 +1072,37 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
       paths: paths,
       attachments: attachments,
     );
+  }
+
+  /// Attaches [part] as page images (`pdf.attach`). Returns null when Hermes
+  /// cannot render it, for example on a host without `pdftoppm`: the PDF is
+  /// then sent as a file the agent reads with its own tools.
+  Future<Map<String, dynamic>?> _attachPdfPages(
+    String runtimeId,
+    HermesInputFilePart part,
+  ) async {
+    try {
+      return _object(
+        await _rpc.request<Object?>(
+          'pdf.attach',
+          params: {
+            'session_id': runtimeId,
+            'content_base64': part.base64Data,
+            'filename': part.filename,
+            ..._runtimeScope(runtimeId),
+          },
+        ),
+      );
+    } on HermesDesktopRpcException catch (error) {
+      // Only a refusal from Hermes itself; a lost connection fails the turn.
+      if (error.timedOut || error.disconnected || error.notReady) rethrow;
+      DebugLogger.warning(
+        'pdf-pages-unavailable',
+        scope: 'hermes/desktop',
+        data: <String, Object?>{'code': error.code},
+      );
+      return null;
+    }
   }
 
   Future<void> _detachStaged(String runtimeId, Iterable<String> paths) async {
