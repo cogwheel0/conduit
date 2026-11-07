@@ -43,4 +43,32 @@ class TelecomCallBridgeTest {
             telecomAudioRouteFor(false, ROUTE_SPEAKER, earpieceAndSpeaker),
         )
     }
+
+    @Test
+    fun holdsTheRouteTheCallerAskedForEvenWhenTelecomReportsIt() {
+        // Telecom says SPEAKER after it threw the request away, so the route
+        // to re-ask for is the one the caller wanted, not the one reported.
+        assertEquals(ROUTE_SPEAKER, telecomAudioRouteToHold(true, ROUTE_SPEAKER, earpieceAndSpeaker))
+        assertEquals(ROUTE_SPEAKER, telecomAudioRouteToHold(true, ROUTE_EARPIECE, earpieceAndSpeaker))
+        assertEquals(ROUTE_SPEAKER, telecomAudioRouteToHold(true, null, 0))
+    }
+
+    @Test
+    fun holdsACallOffTheLoudspeakerOnTheRouteTelecomPicked() {
+        assertEquals(ROUTE_EARPIECE, telecomAudioRouteToHold(false, ROUTE_EARPIECE, earpieceAndSpeaker))
+        assertEquals(
+            ROUTE_WIRED_HEADSET,
+            telecomAudioRouteToHold(false, ROUTE_WIRED_HEADSET, ROUTE_WIRED_HEADSET or ROUTE_SPEAKER),
+        )
+        assertEquals(
+            ROUTE_BLUETOOTH,
+            telecomAudioRouteToHold(false, ROUTE_SPEAKER, earpieceAndSpeaker or ROUTE_BLUETOOTH),
+        )
+        assertEquals(
+            ROUTE_WIRED_OR_EARPIECE,
+            telecomAudioRouteToHold(false, ROUTE_SPEAKER, earpieceAndSpeaker),
+        )
+        // No audio state from Telecom yet: the same fallbacks the first ask uses.
+        assertEquals(ROUTE_WIRED_OR_EARPIECE, telecomAudioRouteToHold(false, null, 0))
+    }
 }

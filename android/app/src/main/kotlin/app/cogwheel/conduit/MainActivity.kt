@@ -1805,6 +1805,9 @@ class MainActivity : FlutterFragmentActivity() {
         if (::backgroundStreamingHandler.isInitialized) {
             backgroundStreamingHandler.cleanup()
         }
+        if (::telecomCallBridge.isInitialized) {
+            telecomCallBridge.dispose()
+        }
         super.onDestroy()
     }
 }
