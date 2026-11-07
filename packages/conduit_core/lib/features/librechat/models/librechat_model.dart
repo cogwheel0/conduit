@@ -64,6 +64,15 @@ bool isLibreChatModel(Model model) => _mintedTargets[model] != null;
 /// Where [model] sends a turn, or null when it is not a LibreChat model.
 LibreChatTarget? libreChatTargetOf(Model model) => _mintedTargets[model];
 
+/// The picker section LibreChat [model] is listed in, and where that section
+/// sorts; null for any other model.
+({String label, int order})? libreChatModelSection(Model model) {
+  final target = libreChatTargetOf(model);
+  final label = target?.section;
+  if (target == null || label == null) return null;
+  return (label: label, order: target.sectionOrder);
+}
+
 /// Whether a model from elsewhere claims the LibreChat namespace.
 bool hasReservedLibreChatIdentity(Model model) =>
     model.id.startsWith(kLibreChatModelIdPrefix) ||
@@ -76,6 +85,29 @@ List<Model> sanitizeRemoteLibreChatModels(Iterable<Model> models) => models
           !isLibreChatModel(model) && !hasReservedLibreChatIdentity(model),
     )
     .toList(growable: false);
+
+/// The picker id of what a conversation or turn ran on: its spec, else its
+/// agent, else its endpoint and model. Null when none is known.
+///
+/// The same id the catalog mints, so a stored conversation finds its model
+/// in the picker again.
+String? libreChatModelIdFor({
+  String? endpoint,
+  String? model,
+  String? agentId,
+  String? spec,
+}) {
+  if (spec != null && spec.isNotEmpty) {
+    return '${kLibreChatModelIdPrefix}spec:$spec';
+  }
+  if (agentId != null && agentId.isNotEmpty) {
+    return '${kLibreChatModelIdPrefix}agent:$agentId';
+  }
+  if (endpoint == null || endpoint.isEmpty || model == null || model.isEmpty) {
+    return null;
+  }
+  return '${kLibreChatModelIdPrefix}model:${Uri.encodeComponent(endpoint)}/$model';
+}
 
 Model _mint(String id, String name, LibreChatTarget target, {String? icon}) {
   final model = Model(

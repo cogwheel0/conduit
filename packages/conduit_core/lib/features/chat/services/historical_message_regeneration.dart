@@ -4,6 +4,7 @@ import 'package:meta/meta.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit_core/services/api_service.dart';
+import 'package:conduit_core/features/librechat/models/librechat_transport.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
 
 import '../providers/chat_providers.dart';
@@ -303,11 +304,14 @@ void _cancelPendingHistoricalRegeneration({
     return;
   }
 
-  stopActiveTransport(lastMessage, api);
+  // A LibreChat reply settles through its own run, which the failure that
+  // got here has already ended; only Open WebUI transports are stopped here.
+  final libreChat = lastMessage.metadata?['transport'] == kLibreChatTransport;
+  if (!libreChat) stopActiveTransport(lastMessage, api);
   ref
       .read(chatMessagesProvider.notifier)
       .cancelActiveMessageStreamPreservingContent();
   ref
       .read(chatMessagesProvider.notifier)
-      .finishStreamingMessage(lastMessage.id);
+      .finishStreamingMessage(lastMessage.id, persistTurn: !libreChat);
 }

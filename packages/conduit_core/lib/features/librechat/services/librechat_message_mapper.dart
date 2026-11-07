@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:conduit_core/database/mappers/chat_blob_mapper.dart';
 import 'package:conduit_core/features/librechat/models/librechat_message.dart';
+import 'package:conduit_core/features/librechat/models/librechat_model.dart';
 
 /// The key LibreChat's own record sits under, in a stored message payload
 /// and in a stored chat blob.
@@ -52,9 +53,21 @@ abstract final class LibreChatMessageMapper {
         },
         'currentId': currentLeaf(messages),
       },
-      if (conversation.model != null) 'models': [conversation.model],
+      'models': ?_modelIds(conversation),
       kLibreChatPayloadKey: conversation.raw,
     };
+  }
+
+  /// The picker id of what [conversation] runs on, as the chat's `models`,
+  /// so opening it selects that model again.
+  static List<String>? _modelIds(LibreChatConversation conversation) {
+    final id = libreChatModelIdFor(
+      endpoint: conversation.endpoint,
+      model: conversation.model,
+      agentId: conversation.agentId,
+      spec: conversation.spec,
+    );
+    return id == null ? null : [id];
   }
 
   /// The rows [conversation] with [messages] is stored as.

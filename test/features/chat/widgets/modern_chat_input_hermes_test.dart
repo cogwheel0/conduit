@@ -36,6 +36,18 @@ void main() {
     );
   });
 
+  test('LibreChat composer offers no overflow actions', () {
+    expect(
+      shouldShowComposerOverflowButton(
+        isHermesComposer: false,
+        isDirectComposer: false,
+        directSupportsImages: true,
+        isLibreChatComposer: true,
+      ),
+      isFalse,
+    );
+  });
+
   testWidgets('Hermes image capability reveals only local attachment actions', (
     tester,
   ) async {

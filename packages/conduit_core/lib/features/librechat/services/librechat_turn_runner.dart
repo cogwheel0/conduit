@@ -175,6 +175,8 @@ final class LibreChatTurnRunner {
               );
               return;
             case LibreChatStreamSync():
+              final userMessage = reducer.userMessage;
+              if (userMessage != null) yield LibreChatTurnCreated(userMessage);
               if (reducer.pendingAction != null) {
                 yield LibreChatTurnPaused(reducer.pendingAction!);
               }

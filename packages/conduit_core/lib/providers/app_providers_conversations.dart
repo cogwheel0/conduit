@@ -670,10 +670,58 @@ class Conversations extends _$Conversations {
     );
   }
 
-  void _applyGeneratedTitleToLoadedState(String rawId, String title) {
+  /// Applies a title LibreChat generated for its conversation [rawId]: a
+  /// server-origin write to the LibreChat database (no outbox, nothing to
+  /// push back), and to the loaded list and open chat.
+  void applyLibreChatGeneratedTitle(String rawId, String title) {
+    final normalizedTitle = title.trim();
+    if (rawId.isEmpty || normalizedTitle.isEmpty) return;
+    final location = ref.read(chatDatabaseRepositoryProvider).libreChatLocation;
+    if (location == null) {
+      _applyGeneratedTitleToLoadedState(
+        rawId,
+        normalizedTitle,
+        storage: ChatStorageKind.libreChat,
+      );
+      return;
+    }
+    final locks = ref.read(libreChatChatLocksProvider);
+    unawaited(
+      locks
+          .runExclusive(
+            rawId,
+            () => location.database.chatsDao.updateServerGeneratedTitle(
+              rawId,
+              normalizedTitle,
+            ),
+          )
+          .then<void>((persistedTitle) {
+            _applyGeneratedTitleToLoadedState(
+              rawId,
+              persistedTitle ?? normalizedTitle,
+              storage: ChatStorageKind.libreChat,
+            );
+          })
+          .catchError((Object error, StackTrace stackTrace) {
+            DebugLogger.error(
+              'librechat-generated-title-write-failed',
+              scope: 'conversations',
+              error: error,
+              stackTrace: stackTrace,
+              data: {'id': rawId},
+            );
+          }),
+    );
+  }
+
+  void _applyGeneratedTitleToLoadedState(
+    String rawId,
+    String title, {
+    ChatStorageKind storage = ChatStorageKind.openWebUi,
+  }) {
     final scopedId = ChatStorageIdentity(
       rawId: rawId,
-      storage: ChatStorageKind.openWebUi,
+      storage: storage,
     ).scopedId;
     final current = state.asData?.value;
     final index = current == null

@@ -64,6 +64,8 @@ import 'package:conduit_core/features/hermes/services/hermes_local_document_trus
 import 'package:conduit_core/features/hermes/services/hermes_message_mapper.dart';
 import 'package:conduit_core/features/hermes/services/hermes_pending_decision_store.dart';
 import 'package:conduit_core/features/hermes/services/hermes_session_provenance.dart';
+import 'package:conduit_core/features/librechat/models/librechat_model.dart'
+    show isLibreChatModel;
 
 import '../../hermes/widgets/hermes_bot_avatar.dart';
 import '../../hermes/widgets/hermes_message_interactions.dart';
@@ -237,8 +239,11 @@ bool shouldShowTemporaryChatAction({
   required bool isHermes,
   required Conversation? activeConversation,
   bool temporaryChatEnforced = false,
+  bool isLibreChat = false,
 }) =>
     !isHermes &&
+    // Temporary chats are Open WebUI's; a LibreChat chat is always saved.
+    !isLibreChat &&
     // The server keeps the chat temporary, and would refuse to save it.
     !temporaryChatEnforced &&
     (activeConversation == null || isTemporaryChat(activeConversation.id));
@@ -548,7 +553,17 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   bool get _wantsPinToTop => _pinToTopState.isActive;
   bool get _shouldAutoFollowPinnedTurn =>
       _pinToTopState.isActive && _pinToTopState.isAutoFollowing;
-  String? get _pinnedUserMessageId => _pinToTopState.userMessageId;
+  String? get _pinnedUserMessageId =>
+      _currentMessageId(_pinToTopState.userMessageId);
+
+  /// The pinned reply, by the id it has now: a LibreChat turn swaps the ids
+  /// minted here for the server's while it runs.
+  String? get _pinnedStreamingMessageId =>
+      _currentMessageId(_pinToTopState.streamingMessageId);
+
+  String? _currentMessageId(String? id) => id == null
+      ? null
+      : ref.read(chatMessagesProvider.notifier).currentMessageId(id);
 
   bool get _isUserInteractingWithScroll =>
       _bottomAnchorController.isUserInteractingWithScroll;
@@ -2518,7 +2533,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     ChatTurnPhase? assistantPhase,
   ) {
     if (!_shouldAutoFollowPinnedTurn) return;
-    final assistantMessageId = _pinToTopState.streamingMessageId;
+    final assistantMessageId = _pinnedStreamingMessageId;
     if (assistantMessageId == null) return;
     if (!debugShouldSettlePinnedTurnForLifecycleForTesting(
       pinActive: true,
@@ -2536,7 +2551,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       }
       if (!mounted ||
           scheduledGeneration != _pinPositionGeneration ||
-          _pinToTopState.streamingMessageId != assistantMessageId) {
+          _pinnedStreamingMessageId != assistantMessageId) {
         return;
       }
       ChatMessage? currentAssistant;
@@ -2797,7 +2812,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     final paging = watchRef.watch(chatTranscriptPagingProvider);
     final requestedCount = _renderedTranscriptCount(completeMessages, paging);
     final messages = _renderedTranscriptWindow(completeMessages, paging);
-    final pinnedAssistantId = _pinToTopState.streamingMessageId;
+    final pinnedAssistantId = _pinnedStreamingMessageId;
     final pinnedAssistantPhase = pinnedAssistantId == null
         ? null
         : watchRef.watch(
@@ -4518,10 +4533,14 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     required bool hasMessages,
     required Color tintColor,
   }) {
+    final selectedModel = ref.watch(selectedModelProvider);
     final showTemporaryAction = shouldShowTemporaryChatAction(
       isHermes: isHermes,
       activeConversation: activeConversation,
       temporaryChatEnforced: ref.watch(temporaryChatEnforcedProvider),
+      isLibreChat:
+          (selectedModel != null && isLibreChatModel(selectedModel)) ||
+          isLibreChatConversation(activeConversation),
     );
     if (!showTemporaryAction) {
       return null;
