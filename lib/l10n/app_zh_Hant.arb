@@ -4571,5 +4571,10 @@
   "@hermesApprovalSpendLimit": {"placeholders": {"limit": {"type": "String"}}},
   "hermesApprovalOverLimit": "此呼叫會超出本聊天的花費上限，只能允許這一次。",
   "hermesApprovalCost": "預估費用：{cost}",
-  "@hermesApprovalCost": {"placeholders": {"cost": {"type": "String"}}}
+  "@hermesApprovalCost": {"placeholders": {"cost": {"type": "String"}}},
+  "hermesPlanTitle": "計畫",
+  "hermesPlanProgress": "已完成 {done}/{total}",
+  "@hermesPlanProgress": {"placeholders": {"done": {"type": "int"}, "total": {"type": "int"}}},
+  "hermesPlanShow": "顯示計畫",
+  "hermesPlanHide": "隱藏計畫"
 }

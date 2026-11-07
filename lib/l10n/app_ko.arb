@@ -4343,5 +4343,10 @@
   "@hermesApprovalSpendLimit": {"placeholders": {"limit": {"type": "String"}}},
   "hermesApprovalOverLimit": "이 호출은 이 채팅의 지출 한도를 넘습니다. 이번 한 번만 허용할 수 있습니다.",
   "hermesApprovalCost": "예상 비용: {cost}",
-  "@hermesApprovalCost": {"placeholders": {"cost": {"type": "String"}}}
+  "@hermesApprovalCost": {"placeholders": {"cost": {"type": "String"}}},
+  "hermesPlanTitle": "계획",
+  "hermesPlanProgress": "{total}개 중 {done}개 완료",
+  "@hermesPlanProgress": {"placeholders": {"done": {"type": "int"}, "total": {"type": "int"}}},
+  "hermesPlanShow": "계획 보기",
+  "hermesPlanHide": "계획 숨기기"
 }

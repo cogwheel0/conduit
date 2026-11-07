@@ -4571,5 +4571,10 @@
   "@hermesApprovalSpendLimit": {"placeholders": {"limit": {"type": "String"}}},
   "hermesApprovalOverLimit": "Esta llamada supera el límite de gasto de este chat. Solo puedes permitirla una vez.",
   "hermesApprovalCost": "Coste estimado: {cost}",
-  "@hermesApprovalCost": {"placeholders": {"cost": {"type": "String"}}}
+  "@hermesApprovalCost": {"placeholders": {"cost": {"type": "String"}}},
+  "hermesPlanTitle": "Plan",
+  "hermesPlanProgress": "{done} de {total} hechas",
+  "@hermesPlanProgress": {"placeholders": {"done": {"type": "int"}, "total": {"type": "int"}}},
+  "hermesPlanShow": "Mostrar plan",
+  "hermesPlanHide": "Ocultar plan"
 }

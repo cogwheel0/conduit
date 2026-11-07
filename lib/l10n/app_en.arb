@@ -9985,5 +9985,29 @@
         "type": "String"
       }
     }
+  },
+  "hermesPlanTitle": "Plan",
+  "@hermesPlanTitle": {
+    "description": "Title of the agent's task list pinned above the composer of a Hermes chat."
+  },
+  "hermesPlanProgress": "{done} of {total} done",
+  "@hermesPlanProgress": {
+    "description": "How many items of the agent's task list are done, out of all of them.",
+    "placeholders": {
+      "done": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "hermesPlanShow": "Show plan",
+  "@hermesPlanShow": {
+    "description": "Screen reader label of the folded task list header: unfolds the agent's plan."
+  },
+  "hermesPlanHide": "Hide plan",
+  "@hermesPlanHide": {
+    "description": "Screen reader label of the open task list header: folds the agent's plan to one line."
   }
 }

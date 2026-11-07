@@ -4609,5 +4609,10 @@
   "@hermesApprovalSpendLimit": {"placeholders": {"limit": {"type": "String"}}},
   "hermesApprovalOverLimit": "Этот вызов превышает лимит расходов чата. Его можно разрешить только один раз.",
   "hermesApprovalCost": "Ориентировочная стоимость: {cost}",
-  "@hermesApprovalCost": {"placeholders": {"cost": {"type": "String"}}}
+  "@hermesApprovalCost": {"placeholders": {"cost": {"type": "String"}}},
+  "hermesPlanTitle": "План",
+  "hermesPlanProgress": "Выполнено {done} из {total}",
+  "@hermesPlanProgress": {"placeholders": {"done": {"type": "int"}, "total": {"type": "int"}}},
+  "hermesPlanShow": "Показать план",
+  "hermesPlanHide": "Скрыть план"
 }

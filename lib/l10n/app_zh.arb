@@ -4571,5 +4571,10 @@
   "@hermesApprovalSpendLimit": {"placeholders": {"limit": {"type": "String"}}},
   "hermesApprovalOverLimit": "此调用会超出本聊天的花费上限，只能允许这一次。",
   "hermesApprovalCost": "预计费用：{cost}",
-  "@hermesApprovalCost": {"placeholders": {"cost": {"type": "String"}}}
+  "@hermesApprovalCost": {"placeholders": {"cost": {"type": "String"}}},
+  "hermesPlanTitle": "计划",
+  "hermesPlanProgress": "已完成 {done}/{total}",
+  "@hermesPlanProgress": {"placeholders": {"done": {"type": "int"}, "total": {"type": "int"}}},
+  "hermesPlanShow": "显示计划",
+  "hermesPlanHide": "隐藏计划"
 }

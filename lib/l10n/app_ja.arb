@@ -6188,5 +6188,10 @@
   "@hermesApprovalSpendLimit": {"placeholders": {"limit": {"type": "String"}}},
   "hermesApprovalOverLimit": "この呼び出しはこのチャットの利用上限を超えます。許可できるのは今回のみです。",
   "hermesApprovalCost": "推定コスト: {cost}",
-  "@hermesApprovalCost": {"placeholders": {"cost": {"type": "String"}}}
+  "@hermesApprovalCost": {"placeholders": {"cost": {"type": "String"}}},
+  "hermesPlanTitle": "計画",
+  "hermesPlanProgress": "{total} 件中 {done} 件完了",
+  "@hermesPlanProgress": {"placeholders": {"done": {"type": "int"}, "total": {"type": "int"}}},
+  "hermesPlanShow": "計画を表示",
+  "hermesPlanHide": "計画を隠す"
 }

@@ -4571,5 +4571,10 @@
   "@hermesApprovalSpendLimit": {"placeholders": {"limit": {"type": "String"}}},
   "hermesApprovalOverLimit": "Deze aanroep gaat over de bestedingslimiet van deze chat. Je kunt hem maar één keer toestaan.",
   "hermesApprovalCost": "Geschatte kosten: {cost}",
-  "@hermesApprovalCost": {"placeholders": {"cost": {"type": "String"}}}
+  "@hermesApprovalCost": {"placeholders": {"cost": {"type": "String"}}},
+  "hermesPlanTitle": "Plan",
+  "hermesPlanProgress": "{done} van {total} klaar",
+  "@hermesPlanProgress": {"placeholders": {"done": {"type": "int"}, "total": {"type": "int"}}},
+  "hermesPlanShow": "Plan tonen",
+  "hermesPlanHide": "Plan verbergen"
 }

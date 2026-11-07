@@ -108,6 +108,11 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
       if (event.type == 'connection.update') {
         _administration.openApprovedConnectionLink(event.payload);
       }
+      // The agent's task list: a full snapshot either way.
+      if (event.type == 'todo.updated' ||
+          (event.type == 'tool.complete' && event.payload['todos'] is List)) {
+        _adoptTodoState(event.sessionId, event.payload);
+      }
       if (event.type == 'approval.responded' ||
           event.type == 'approval.expire' ||
           event.type == 'clarify.expire' ||
@@ -334,6 +339,7 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
         settledSince: settleMark,
       );
     }
+    _adoptTodoState(stored, result['todo_state']);
     _rpc.replayOpenRequests(result['open_requests']);
     _rpc.replayPendingConnection(result['pending_connection'], runtime);
     return (binding: binding, running: running is bool ? running : null);

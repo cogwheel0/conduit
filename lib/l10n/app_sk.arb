@@ -6494,5 +6494,10 @@
   "@hermesApprovalSpendLimit": {"placeholders": {"limit": {"type": "String"}}},
   "hermesApprovalOverLimit": "Toto volanie prekročí limit výdavkov tohto chatu. Môžete ho povoliť iba raz.",
   "hermesApprovalCost": "Odhadovaná cena: {cost}",
-  "@hermesApprovalCost": {"placeholders": {"cost": {"type": "String"}}}
+  "@hermesApprovalCost": {"placeholders": {"cost": {"type": "String"}}},
+  "hermesPlanTitle": "Plán",
+  "hermesPlanProgress": "Hotové {done} z {total}",
+  "@hermesPlanProgress": {"placeholders": {"done": {"type": "int"}, "total": {"type": "int"}}},
+  "hermesPlanShow": "Zobraziť plán",
+  "hermesPlanHide": "Skryť plán"
 }

@@ -10,10 +10,15 @@ import 'package:conduit_core/features/hermes/models/hermes_run_event.dart';
 import 'package:conduit_core/features/hermes/services/hermes_backend_service.dart';
 import 'package:conduit_core/features/hermes/services/hermes_desktop_api_service.dart';
 import 'package:conduit_core/features/hermes/services/hermes_desktop_transport.dart';
+import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
+import 'package:conduit_core/features/hermes/providers/hermes_todo_providers.dart';
+import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/persistence/preferences_store.dart';
+import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/ports/key_value_store.dart';
 import 'package:dio/dio.dart';
 import 'package:mocktail/mocktail.dart';
+import 'package:riverpod/riverpod.dart';
 import 'package:test/test.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
@@ -95,6 +100,7 @@ final class _Authority {
   int revision = 3;
   int generation = 2;
   List<Map<String, Object?>> prompts = const [];
+  Map<String, Object?>? todoState;
 
   Map<String, Object?> snapshot(String id) => {
     'session_id': id,
@@ -110,6 +116,7 @@ final class _Authority {
     'execution_generation': generation,
     'pending': const <Object?>[],
     'prompts': prompts,
+    'todo_state': ?todoState,
     'info': {'desktop_protocol': kHermesCanonicalGatewayProtocol},
   };
 
@@ -202,6 +209,18 @@ final class _Authority {
   ];
 
   Future<void> dispose() => incoming.close();
+}
+
+/// The open chat continues Hermes session `local-1`.
+final class _OpenHermesChat extends ActiveConversationNotifier {
+  @override
+  Conversation? build() => Conversation(
+    id: 'local:hermes_local-1',
+    title: 'Tides',
+    createdAt: DateTime.utc(2030),
+    updatedAt: DateTime.utc(2030),
+    metadata: const {'hermesSessionId': 'local-1'},
+  );
 }
 
 /// Serves `/api/status` (auth off) and the routes given, recording each
@@ -1551,6 +1570,96 @@ void main() {
       check(pending.map((decision) => decision.requestId)).contains(
         'prompt-33',
       );
+    });
+  });
+
+  group('plans', () {
+    Map<String, Object?> plan(int revision, List<String> statuses) => {
+      'revision': revision,
+      'todos': [
+        for (final (index, status) in statuses.indexed)
+          {'id': 't$index', 'content': 'Step $index', 'status': status},
+      ],
+    };
+
+    test('a resume restores the chat\'s plan', () async {
+      final gateway = _Authority()
+        ..todoState = plan(3, ['completed', 'in_progress', 'pending']);
+      final service = _service(gateway);
+
+      await service.pendingDecisionsForSession('local-1');
+
+      final restored = service.todoStateFor('local-1')!;
+      check(restored.revision).equals(3);
+      check(restored.done).equals(1);
+      check(restored.current!.content).equals('Step 1');
+    });
+
+    test('live updates replace the plan, never with an older one', () async {
+      final gateway = _Authority();
+      final service = _service(gateway);
+      await service.createDesktopSession();
+      final seen = <int?>[];
+      final sub = service
+          .todoStatesFor('local-1')
+          .listen((state) => seen.add(state?.revision));
+      addTearDown(sub.cancel);
+
+      gateway.event('tool.complete', {
+        'name': 'todo',
+        ...plan(1, ['in_progress', 'pending']),
+      });
+      gateway.event('todo.updated', plan(1, ['in_progress', 'pending']));
+      gateway.event('todo.updated', plan(2, ['completed', 'in_progress']));
+      // A late frame from before is not news.
+      gateway.event('todo.updated', plan(1, ['pending', 'pending']));
+      // Another chat's plan stays with that chat.
+      gateway.event(
+        'todo.updated',
+        plan(9, ['pending']),
+        session: 'local-other',
+      );
+      await _settle();
+
+      check(seen).deepEquals([null, 1, 1, 2]);
+      check(service.todoStateFor('local-1')!.done).equals(1);
+    });
+
+    test('the open chat\'s plan is provided live', () async {
+      final gateway = _Authority()..todoState = plan(1, ['in_progress']);
+      final service = _service(gateway);
+      await service.pendingDecisionsForSession('local-1');
+      final container = ProviderContainer(
+        overrides: [
+          hermesApiServiceProvider.overrideWithValue(service),
+          activeConversationProvider.overrideWith(_OpenHermesChat.new),
+        ],
+      );
+      addTearDown(container.dispose);
+      final revisions = <int?>[];
+      container.listen(
+        hermesActiveTodoProvider,
+        (_, next) => revisions.add(next.asData?.value?.revision),
+        fireImmediately: true,
+      );
+      await _settle();
+
+      gateway.event('todo.updated', plan(2, ['completed']));
+      await _settle();
+
+      check(revisions.whereType<int>()).deepEquals([1, 2]);
+    });
+
+    test('a cleared plan is empty, not gone', () async {
+      final gateway = _Authority();
+      final service = _service(gateway);
+      await service.createDesktopSession();
+
+      gateway.event('todo.updated', plan(4, ['pending']));
+      gateway.event('todo.updated', {'revision': 5, 'todos': <Object?>[]});
+      await _settle();
+
+      check(service.todoStateFor('local-1')!.isEmpty).isTrue();
     });
   });
 
