@@ -189,9 +189,14 @@ void main() {
             ),
           );
           await tester.pumpAndSettle();
+          // What VoiceOver speaks for each node: its label, then its value.
+          // The pop-up button's Flutter fallback reads the choice as its value.
           final label = tester.semantics
               .simulatedAccessibilityTraversal()
-              .map((node) => node.getSemanticsData().label)
+              .map((node) {
+                final data = node.getSemanticsData();
+                return '${data.label}\n${data.value}';
+              })
               .join('\n');
           final nativeView = find.byType(UiKitView);
           expect(
