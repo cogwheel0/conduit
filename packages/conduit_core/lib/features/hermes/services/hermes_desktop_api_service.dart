@@ -533,7 +533,7 @@ final class HermesDesktopApiService
       _administration.capabilities();
 
   @override
-  Future<Map<String, dynamic>> healthDetailed() => statusProbe(refresh: true);
+  Future<Map<String, dynamic>> healthDetailed() => _authDetailedStatus();
 
   @override
   Future<List<Map<String, dynamic>>> listJobs() => _administration.listJobs();

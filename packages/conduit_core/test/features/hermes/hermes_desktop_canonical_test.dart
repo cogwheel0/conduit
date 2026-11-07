@@ -794,6 +794,37 @@ void main() {
     });
   });
 
+  test('the status screen reads the signed-in status', () async {
+    final gateway = _Authority();
+    final service = _service(
+      gateway,
+      rest: _Rest({
+        'GET /api/status': (options) =>
+            options.headers['Authorization'] == 'Bearer session-token'
+            ? (
+                200,
+                {
+                  'auth_required': true,
+                  'version': '0.23.0',
+                  'active_sessions': 2,
+                },
+              )
+            : (
+                200,
+                {
+                  'auth_required': true,
+                  'version': '0.23.0',
+                  'auth_providers': ['session-token'],
+                },
+              ),
+      }),
+    );
+
+    final status = await service.healthDetailed();
+
+    check(status['active_sessions']).equals(2);
+  });
+
   test('skills are rescanned for an open chat', () async {
     final gateway = _Authority();
     final service = _service(gateway);

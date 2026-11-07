@@ -96,6 +96,25 @@ extension _HermesDesktopAuthRest on HermesDesktopApiService {
     return _status = Map<String, dynamic>.from(data);
   }
 
+  /// The server status the status screen lists. A gated Webapp listener
+  /// answers a signed-out caller with only its version, health and sign-in
+  /// options, so it is read signed in when that works.
+  Future<Map<String, dynamic>> _authDetailedStatus() async {
+    final public = await statusProbe(refresh: true);
+    if (public['auth_required'] != true) return public;
+    try {
+      final data = await _requestJson('GET', '/api/status');
+      if (data is Map) return Map<String, dynamic>.from(data);
+    } catch (error) {
+      DebugLogger.warning(
+        'signed-in-status-unavailable',
+        scope: 'hermes/desktop',
+        data: {'errorType': error.runtimeType.toString()},
+      );
+    }
+    return public;
+  }
+
   Future<List<String>> _authListProfiles() async {
     final data = _object(await _requestJson('GET', '/api/profiles'));
     return _objects(data['profiles'])
