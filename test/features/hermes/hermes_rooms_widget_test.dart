@@ -426,14 +426,10 @@ void main() {
       );
       await tester.tap(find.text('Lead bot'));
       await tester.pump();
-      await tester.ensureVisible(
-        find.byKey(const ValueKey('hermes-room-member-scout')),
-      );
+      await _scrollTo(tester, 'hermes-room-member-scout');
       await tester.tap(find.byKey(const ValueKey('hermes-room-member-scout')));
       await tester.pump();
-      await tester.ensureVisible(
-        find.byKey(const ValueKey('hermes-room-save')),
-      );
+      await _scrollTo(tester, 'hermes-room-save');
       await tester.tap(find.byKey(const ValueKey('hermes-room-save')));
       await tester.pump();
 
@@ -451,9 +447,7 @@ void main() {
 
       await tester.tap(find.byKey(const ValueKey('hermes-room-title')));
       await tester.pumpAndSettle();
-      await tester.ensureVisible(
-        find.byKey(const ValueKey('hermes-room-disband')),
-      );
+      await _scrollTo(tester, 'hermes-room-disband');
       await tester.tap(find.byKey(const ValueKey('hermes-room-disband')));
       await tester.pumpAndSettle();
       check(room.disbanded).equals(0);
@@ -477,4 +471,15 @@ void main() {
       await unmount(tester);
     });
   });
+}
+
+/// Scrolls the room info sheet until the lazily built [key] exists and is on
+/// screen.
+Future<void> _scrollTo(WidgetTester tester, String key) async {
+  await tester.scrollUntilVisible(
+    find.byKey(ValueKey<String>(key)),
+    120,
+    scrollable: find.byType(Scrollable).last,
+  );
+  await tester.pump();
 }
