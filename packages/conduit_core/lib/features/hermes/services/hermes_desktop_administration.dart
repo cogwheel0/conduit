@@ -448,6 +448,27 @@ final class _HermesDesktopAdministration {
     );
   }
 
+  /// Stops the job's live run; its schedule is untouched. A dashboard older
+  /// than Hermes 0.22.6 has no cancel route and answers 404 or 405 (its
+  /// catch-all only serves GET), unlike a missing job's 404 "Job not found".
+  Future<HermesJobStopResult> cancelJobRun(String id) async {
+    try {
+      return HermesJobStopResult.fromJson(
+        await _owner._requestJson(
+          'POST',
+          '/api/cron/jobs/${Uri.encodeComponent(id)}/cancel',
+          readErrorDetail: true,
+        ),
+      );
+    } on HermesDesktopHttpException catch (error) {
+      if (error.status == 405 ||
+          (error.status == 404 && error.detail != 'Job not found')) {
+        throw const HermesJobStopUnsupportedException();
+      }
+      rethrow;
+    }
+  }
+
   Future<void> mutateJob(String id, String method, String suffix) async {
     await _owner._requestJson(
       method,

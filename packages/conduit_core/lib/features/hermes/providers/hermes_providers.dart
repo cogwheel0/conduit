@@ -2867,6 +2867,10 @@ class HermesJobsController extends AsyncNotifier<List<HermesJob>> {
   Future<List<HermesJob>> build() async {
     final service = ref.watch(hermesApiServiceProvider);
     if (service == null) return const [];
+    return _load(service);
+  }
+
+  static Future<List<HermesJob>> _load(HermesBackendService service) async {
     final raw = await service.listJobs();
     final jobs = <HermesJob>[];
     for (final item in raw) {
@@ -2879,6 +2883,30 @@ class HermesJobsController extends AsyncNotifier<List<HermesJob>> {
   HermesBackendService get _service =>
       ref.read(hermesApiServiceProvider) ??
       (throw StateError('Hermes is not configured'));
+
+  Future<List<HermesJob>>? _refreshing;
+
+  /// Reloads the list in place, without a loading state, for watching a run
+  /// that is in flight. Overlapping calls share one request; a failure keeps
+  /// the current list.
+  Future<List<HermesJob>?> refreshQuietly() async {
+    final service = ref.read(hermesApiServiceProvider);
+    if (service == null) return null;
+    final pending = _refreshing ??= _load(service);
+    try {
+      final jobs = await pending;
+      if (!ref.mounted ||
+          !identical(ref.read(hermesApiServiceProvider), service)) {
+        return null;
+      }
+      state = AsyncData(jobs);
+      return jobs;
+    } catch (_) {
+      return null;
+    } finally {
+      if (identical(_refreshing, pending)) _refreshing = null;
+    }
+  }
 
   Future<void> create({
     required String name,
@@ -2899,6 +2927,18 @@ class HermesJobsController extends AsyncNotifier<List<HermesJob>> {
     final service = _service;
     await service.updateJob(id, name: name, prompt: prompt, schedule: schedule);
     ref.invalidateSelf();
+  }
+
+  /// Stops the job's running run. Only the Desktop Gateway can; the API
+  /// server has no cancel route.
+  Future<HermesJobStopResult> stopRun(String id) async {
+    final service = _service;
+    if (service is! HermesDesktopApiService) {
+      throw const HermesJobStopUnsupportedException();
+    }
+    final result = await service.stopJobRun(id);
+    ref.invalidate(hermesJobRunsProvider(id));
+    return result;
   }
 
   Future<void> setEnabled(String id, bool enabled) async {

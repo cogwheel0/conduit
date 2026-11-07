@@ -6951,6 +6951,23 @@
   "hermesJobLastLabel": "Ostatnie",
   "hermesJobNextLabel": "Następne",
   "hermesJobRunHistory": "Historia uruchomień",
+  "hermesJobStop": "Zatrzymaj",
+  "hermesJobStopping": "Zatrzymywanie…",
+  "hermesJobStopped": "Zatrzymano uruchomienie.",
+  "hermesJobFinishedBeforeStop": "Uruchomienie zakończyło się, zanim udało się je zatrzymać.",
+  "hermesJobNothingToStop": "Żadne uruchomienie nie trwa.",
+  "hermesJobStopFailed": "Nie można zatrzymać uruchomienia.",
+  "hermesJobStopUnsupported": "Zaktualizuj Hermes, aby zatrzymywać trwające zadania.",
+  "hermesJobRunning": "Trwa teraz",
+  "hermesJobLastCancelled": "Ostatnie uruchomienie zatrzymane: {reason}",
+  "@hermesJobLastCancelled": {
+    "placeholders": {
+      "reason": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesJobLastCancelledNoReason": "Ostatnie uruchomienie zatrzymane",
   "hermesApprovalAllowOnce": "Zezwól raz",
   "hermesApprovalAllowSession": "Zezwól w sesji",
   "hermesApprovalAlwaysAllow": "Zawsze zezwalaj",

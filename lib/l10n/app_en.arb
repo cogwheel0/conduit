@@ -6810,6 +6810,51 @@
   "@hermesJobRunHistory": {
     "description": "Disclosure title for a Hermes job run history."
   },
+  "hermesJobStop": "Stop",
+  "@hermesJobStop": {
+    "description": "Button that stops a Hermes scheduled job's run that is in progress."
+  },
+  "hermesJobStopping": "Stopping…",
+  "@hermesJobStopping": {
+    "description": "Button label while a Hermes scheduled job's run is being stopped."
+  },
+  "hermesJobStopped": "Run stopped.",
+  "@hermesJobStopped": {
+    "description": "Message shown after a Hermes scheduled job's run was stopped."
+  },
+  "hermesJobFinishedBeforeStop": "The run finished before it could stop.",
+  "@hermesJobFinishedBeforeStop": {
+    "description": "Message shown when a Hermes scheduled job's run ended on its own before the stop reached it."
+  },
+  "hermesJobNothingToStop": "No run is in progress.",
+  "@hermesJobNothingToStop": {
+    "description": "Message shown when Stop was pressed but no run of the Hermes scheduled job was in progress."
+  },
+  "hermesJobStopFailed": "Could not stop the run.",
+  "@hermesJobStopFailed": {
+    "description": "Error shown when stopping a Hermes scheduled job's run fails."
+  },
+  "hermesJobStopUnsupported": "Update Hermes to stop running jobs.",
+  "@hermesJobStopUnsupported": {
+    "description": "Error shown when the Hermes server is too old to stop a running scheduled job."
+  },
+  "hermesJobRunning": "Running now",
+  "@hermesJobRunning": {
+    "description": "Status shown on a Hermes scheduled job while one of its runs is in progress."
+  },
+  "hermesJobLastCancelled": "Last run stopped: {reason}",
+  "@hermesJobLastCancelled": {
+    "description": "Note on a Hermes scheduled job whose newest run was stopped, with the reason Hermes recorded.",
+    "placeholders": {
+      "reason": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesJobLastCancelledNoReason": "Last run stopped",
+  "@hermesJobLastCancelledNoReason": {
+    "description": "Note on a Hermes scheduled job whose newest run was stopped, when Hermes recorded no reason."
+  },
   "hermesApprovalAllowOnce": "Allow once",
   "@hermesApprovalAllowOnce": {
     "description": "Approval option that permits a Hermes tool call once."

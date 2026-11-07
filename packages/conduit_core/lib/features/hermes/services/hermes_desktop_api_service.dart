@@ -19,6 +19,7 @@ import 'package:conduit_core/network/upload_timeout.dart';
 import 'package:conduit_core/features/hermes/models/hermes_bot.dart';
 import 'package:conduit_core/features/hermes/models/hermes_chat_input.dart';
 import 'package:conduit_core/features/hermes/models/hermes_config.dart';
+import 'package:conduit_core/features/hermes/models/hermes_job.dart';
 import 'package:conduit_core/features/hermes/models/hermes_mcp.dart';
 import 'package:conduit_core/features/hermes/models/hermes_model.dart';
 import 'package:conduit_core/features/hermes/models/hermes_run_event.dart';
@@ -569,6 +570,11 @@ final class HermesDesktopApiService
     schedule: schedule,
     enabled: enabled,
   );
+
+  /// Stops the job's running run (`POST /api/cron/jobs/{id}/cancel`).
+  /// Throws [HermesJobStopUnsupportedException] on Hermes before 0.22.6.
+  Future<HermesJobStopResult> stopJobRun(String id) =>
+      _administration.cancelJobRun(id);
 
   @override
   Future<void> deleteJob(String id) =>
