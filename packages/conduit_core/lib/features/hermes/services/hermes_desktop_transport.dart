@@ -8,6 +8,7 @@ import 'package:web_socket_channel/web_socket_channel.dart';
 import 'package:conduit_core/network/no_redirect_web_socket.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
 
+import 'package:conduit_core/features/hermes/services/hermes_identifier.dart';
 import 'package:conduit_core/features/hermes/services/hermes_json_guard.dart';
 
 const int kMaxHermesDesktopFrameBytes = 4 * 1024 * 1024;
@@ -23,15 +24,27 @@ final class HermesDesktopRpcException implements Exception {
   const HermesDesktopRpcException(
     this.message, {
     this.code,
+    this.data,
     this.timedOut = false,
     this.disconnected = false,
   });
 
   final String message;
   final int? code;
+
+  /// The error's `data` member, when Hermes sent one: refusals such as
+  /// `{reason: 'SESSION_OWNER_BUSY'}` explain themselves there.
+  final Object? data;
   final bool timedOut;
   final bool disconnected;
   bool get deliveryAmbiguous => timedOut || disconnected;
+
+  /// `data.reason`, when Hermes named one.
+  String? get reason {
+    final data = this.data;
+    if (data is! Map) return null;
+    return validateHermesBoundedString(data['reason'], maxCharacters: 128);
+  }
 
   @override
   String toString() => message;
@@ -47,6 +60,149 @@ final class HermesDesktopEvent {
   final String type;
   final Map<String, dynamic> payload;
   final String? sessionId;
+}
+
+/// Server→client requests Conduit answers. Since Hermes 0.21.3 the gateway
+/// asks for approvals, clarifications, sudo passwords and secrets this way
+/// instead of with `*.request` events, and only of a client that advertised
+/// `client.capabilities {server_requests: true}`.
+const Set<String> kHermesAnsweredServerRequests = {
+  'approval',
+  'clarify',
+  'sudo',
+  'secret',
+};
+
+/// The JSON-RPC error a client sends for a server request it does not show,
+/// when the gateway said it takes declines (`declines_not_shown`).
+const int kHermesServerRequestNotShownCode = 4404;
+
+/// One clarify question's card id: the request it belongs to and the
+/// question's id. Each question is answered on its own with `clarify.lock`;
+/// the last one answers the request.
+String hermesClarifyCardId(String requestId, String questionId) =>
+    '$requestId/$questionId';
+
+/// Splits a card id made by [hermesClarifyCardId].
+({String requestId, String questionId})? parseHermesClarifyCardId(
+  String cardId,
+) {
+  final separator = cardId.lastIndexOf('/');
+  if (separator <= 0 || separator == cardId.length - 1) return null;
+  return (
+    requestId: cardId.substring(0, separator),
+    questionId: cardId.substring(separator + 1),
+  );
+}
+
+/// The decision events a server→client request stands for, shaped like the
+/// `*.request` events earlier gateways sent, so one pipeline shows, persists
+/// and restores both. `request_id` is the id Conduit answers with: the
+/// request id itself, or a clarify question's card id.
+///
+/// A chat message holds one decision card, so a clarify request shows its
+/// first question still open ([locked] and the replay's `answers` name the
+/// ones already answered); the next one follows once that one is locked.
+List<HermesDesktopEvent> hermesDesktopEventsForServerRequest({
+  required String id,
+  required String method,
+  required Map<String, dynamic> params,
+  Set<String> locked = const {},
+}) {
+  final requestId = validateHermesOpaqueIdentifier(id);
+  final sessionId = params['session_id']?.toString();
+  if (requestId == null) return const [];
+  final payload = <String, dynamic>{
+    for (final entry in params.entries)
+      if (entry.key != 'session_id') entry.key: entry.value,
+  };
+  switch (method) {
+    case 'approval':
+      return [
+        HermesDesktopEvent(
+          type: 'approval.request',
+          sessionId: sessionId,
+          payload: {
+            ...payload,
+            'request_id': requestId,
+            'approval_request_id': params['request_id'],
+            'server_request': requestId,
+          },
+        ),
+      ];
+    case 'sudo':
+      return [
+        HermesDesktopEvent(
+          type: 'sudo.request',
+          sessionId: sessionId,
+          payload: {
+            ...payload,
+            'request_id': requestId,
+            'prompt': params['command']?.toString() ?? '',
+            'server_request': requestId,
+          },
+        ),
+      ];
+    case 'secret':
+      return [
+        HermesDesktopEvent(
+          type: 'secret.request',
+          sessionId: sessionId,
+          payload: {
+            ...payload,
+            'request_id': requestId,
+            'server_request': requestId,
+          },
+        ),
+      ];
+    case 'clarify':
+      final questions = params['questions'];
+      if (questions is! List) return const [];
+      final answered = {
+        ...locked,
+        if (params['answers'] is Map)
+          ...(params['answers'] as Map).keys.map((key) => '$key'),
+      };
+      final rows = questions.whereType<Map>().take(16).toList();
+      for (final (index, question) in rows.indexed) {
+        final questionId = validateHermesOpaqueIdentifier(
+          question['qid']?.toString(),
+        );
+        if (questionId == null || answered.contains(questionId)) continue;
+        final text = question['question']?.toString() ?? '';
+        return [
+          HermesDesktopEvent(
+            type: 'clarify.request',
+            sessionId: sessionId,
+            payload: {
+              'request_id': hermesClarifyCardId(requestId, questionId),
+              'question': rows.length > 1
+                  ? '${index + 1}/${rows.length} · $text'
+                  : text,
+              'choices': question['choices'] is List
+                  ? question['choices']
+                  : const <Object?>[],
+              'multi_select': question['multi_select'] == true,
+              'server_request': requestId,
+              'question_id': questionId,
+            },
+          ),
+        ];
+      }
+      return const [];
+  }
+  return const [];
+}
+
+/// A clarify request being answered one question at a time.
+final class _OpenClarify {
+  _OpenClarify(this.params);
+
+  final Map<String, dynamic> params;
+  final Set<String> locked = {};
+
+  /// The card shown now, closed when the request is withdrawn.
+  String? shownCardId;
 }
 
 final class HermesDesktopEventBuffer {
@@ -127,10 +283,16 @@ final class HermesDesktopRpcClient {
   HermesDesktopRpcClient({
     HermesDesktopChannelFactory? channelFactory,
     this.requestTimeout = const Duration(seconds: 60),
+    this.heartbeatInterval = const Duration(seconds: 15),
   }) : _channelFactory = channelFactory ?? connectNoRedirectWebSocket;
 
   final HermesDesktopChannelFactory _channelFactory;
   final Duration requestTimeout;
+
+  /// How often to ping a gateway that offers `heartbeat`, so a socket that
+  /// died while the phone slept is noticed. A ping unanswered for one more
+  /// interval drops the socket.
+  final Duration heartbeatInterval;
   final _events = StreamController<HermesDesktopEvent>.broadcast();
   final _disconnects = StreamController<void>.broadcast();
   final Map<String, _PendingRpc> _pending = {};
@@ -138,14 +300,28 @@ final class HermesDesktopRpcClient {
 
   WebSocketChannel? _channel;
   StreamSubscription<dynamic>? _subscription;
+  Timer? _heartbeat;
+  DateTime _lastFrameAt = DateTime.now();
   int _socketGeneration = 0;
   int _requestId = 0;
   bool _ready = false;
+  Map<String, dynamic> _readyPayload = const {};
+  bool _declinesNotShown = false;
+
+  /// Clarify requests shown and not yet fully answered, by request id.
+  final Map<String, _OpenClarify> _clarifies = {};
 
   Stream<HermesDesktopEvent> get events => _events.stream;
   Stream<void> get disconnects => _disconnects.stream;
   bool get isReady => _ready;
   int get socketGeneration => _socketGeneration;
+
+  /// The current socket's `gateway.ready` payload.
+  Map<String, dynamic> get readyPayload => _readyPayload;
+
+  /// Whether the socket is served by a gateway's session authority (its own
+  /// Webapp listener), which speaks the canonical protocol.
+  bool get sessionAuthority => _readyPayload['session_authority'] == true;
 
   /// Connection-wide params merged into every request as a *fallback*.
   /// Callers that pass the same key win (Bot Mode scopes single calls to
@@ -164,6 +340,9 @@ final class HermesDesktopRpcClient {
     final channel = _channelFactory(uri, headers, httpClient: httpClient);
     _channel = channel;
     _ready = false;
+    _readyPayload = const {};
+    _declinesNotShown = false;
+    _clarifies.clear();
     final ready = Completer<void>();
 
     _subscription = channel.stream.listen(
@@ -194,12 +373,68 @@ final class HermesDesktopRpcClient {
       if (_owns(channel, generation)) await disconnect();
       rethrow;
     }
+    _advertiseCapabilities(generation);
+    if (_readyPayload['heartbeat'] == true) _startHeartbeat(generation);
+  }
+
+  /// Tells the gateway this client answers server→client requests. Without
+  /// it Hermes withdraws every approval and question at once. The contract
+  /// is closed, so the connection's default `profile` must stay out.
+  void _advertiseCapabilities(int generation) {
+    unawaited(
+      request<Object?>(
+            'client.capabilities',
+            params: const {'server_requests': true},
+            includeDefaultParams: false,
+            timeout: const Duration(seconds: 15),
+          )
+          .then((result) {
+            if (generation != _socketGeneration || result is! Map) return;
+            _declinesNotShown = result['declines_not_shown'] == true;
+          })
+          .catchError((Object error) {
+            DebugLogger.warning(
+              'client-capabilities-refused',
+              scope: 'hermes/desktop/ws',
+              data: {'errorType': error.runtimeType.toString()},
+            );
+          }),
+    );
+  }
+
+  /// Pings every [heartbeatInterval]; any frame counts as a sign of life, and
+  /// three intervals without one drop the socket so reconnection can start.
+  void _startHeartbeat(int generation) {
+    _heartbeat?.cancel();
+    _lastFrameAt = DateTime.now();
+    _heartbeat = Timer.periodic(heartbeatInterval, (timer) {
+      final channel = _channel;
+      if (generation != _socketGeneration || channel == null) {
+        timer.cancel();
+        return;
+      }
+      if (DateTime.now().difference(_lastFrameAt) >= heartbeatInterval * 3) {
+        DebugLogger.warning('heartbeat-missed', scope: 'hermes/desktop/ws');
+        timer.cancel();
+        unawaited(channel.sink.close());
+        _handleDisconnect(channel, generation);
+        return;
+      }
+      unawaited(
+        request<Object?>(
+          'gateway.ping',
+          includeDefaultParams: false,
+          timeout: heartbeatInterval * 3,
+        ).then<void>((_) {}, onError: (Object _) {}),
+      );
+    });
   }
 
   Future<T> request<T>(
     String method, {
     Map<String, dynamic> params = const {},
     Duration? timeout,
+    bool includeDefaultParams = true,
   }) {
     final channel = _channel;
     if (!_ready || channel == null) {
@@ -225,7 +460,10 @@ final class HermesDesktopRpcClient {
           'jsonrpc': '2.0',
           'id': id,
           'method': method,
-          'params': {..._defaultParams, ...params},
+          'params': {
+            if (includeDefaultParams) ..._defaultParams,
+            ...params,
+          },
         }),
       );
     } catch (error, stackTrace) {
@@ -242,6 +480,7 @@ final class HermesDesktopRpcClient {
     Completer<void> ready,
   ) {
     if (!_owns(channel, generation)) return;
+    _lastFrameAt = DateTime.now();
     try {
       final String source;
       if (raw is String) {
@@ -279,6 +518,7 @@ final class HermesDesktopRpcClient {
             HermesDesktopRpcException(
               error['message']?.toString() ?? 'Hermes RPC failed.',
               code: error['code'] is int ? error['code'] as int : null,
+              data: error['data'],
             ),
           );
         } else {
@@ -296,31 +536,24 @@ final class HermesDesktopRpcClient {
             ? Map<String, dynamic>.from(rawPayload)
             : <String, dynamic>{};
         if (type == 'gateway.ready') {
+          _readyPayload = Map.unmodifiable(payload);
           _ready = true;
           if (!ready.isCompleted) ready.complete();
         }
+        final sessionId = params['session_id']?.toString();
         _events.add(
           HermesDesktopEvent(
             type: type,
             payload: payload,
-            sessionId: params['session_id']?.toString(),
+            sessionId: sessionId,
           ),
         );
+        if (type == 'request.cancel') _withdrawServerRequest(payload, sessionId);
         return;
       }
 
-      // Desktop-only host requests must never reach mobile platform features.
       if (frame['method'] is String && frame['id'] != null) {
-        channel.sink.add(
-          jsonEncode({
-            'jsonrpc': '2.0',
-            'id': frame['id'],
-            'error': {
-              'code': -32601,
-              'message': 'Method not supported on mobile',
-            },
-          }),
-        );
+        _handleServerRequest(channel, frame);
       }
     } catch (error) {
       DebugLogger.warning(
@@ -331,11 +564,129 @@ final class HermesDesktopRpcClient {
     }
   }
 
+  /// Shows the gateway's questions as decision events. They are answered
+  /// later, by RPC (`request.answer`, `clarify.lock`), from whichever socket
+  /// is open by then, so nothing is written back here.
+  ///
+  /// Anything else is a Desktop-only bridge (themes, tours, previews) that
+  /// must never reach mobile platform features. Declined with 4404 only when
+  /// the gateway takes declines; any other error would settle the request as
+  /// unanswered for every client sharing the session, including a Desktop
+  /// that could have shown it.
+  void _handleServerRequest(
+    WebSocketChannel channel,
+    Map<String, dynamic> frame,
+  ) {
+    final id = frame['id'];
+    if (_showServerRequest(id, frame['method'], frame['params'])) return;
+    if (!_declinesNotShown) return;
+    channel.sink.add(
+      jsonEncode({
+        'jsonrpc': '2.0',
+        'id': id,
+        'error': {
+          'code': kHermesServerRequestNotShownCode,
+          'message': 'Not shown on mobile',
+        },
+      }),
+    );
+  }
+
+  /// Re-shows the requests a `session.resume` snapshot lists as still open
+  /// (`open_requests`), for a socket that was not attached when they were
+  /// sent. Their ids are unchanged, so answers made now still count.
+  void replayOpenRequests(Object? openRequests) {
+    if (openRequests is! List) return;
+    for (final entry in openRequests.whereType<Map>().take(32)) {
+      _showServerRequest(entry['id'], entry['method'], entry['params']);
+    }
+  }
+
+  /// Emits the decision events for one request; false when it is not one
+  /// Conduit answers.
+  bool _showServerRequest(Object? id, Object? method, Object? rawParams) {
+    if (id is! String ||
+        method is! String ||
+        !kHermesAnsweredServerRequests.contains(method)) {
+      return false;
+    }
+    final params = rawParams is Map
+        ? Map<String, dynamic>.from(rawParams)
+        : <String, dynamic>{};
+    final open = method == 'clarify'
+        ? (_clarifies[id] ?? _OpenClarify(params))
+        : null;
+    final events = hermesDesktopEventsForServerRequest(
+      id: id,
+      method: method,
+      params: params,
+      locked: open?.locked ?? const {},
+    );
+    if (events.isEmpty) return false;
+    if (open != null) {
+      if (!_clarifies.containsKey(id) && _clarifies.length >= 64) {
+        _clarifies.remove(_clarifies.keys.first);
+      }
+      _clarifies[id] = open..shownCardId = '${events.first.payload['request_id']}';
+    }
+    for (final event in events) {
+      _events.add(event);
+    }
+    return true;
+  }
+
+  /// Records that the clarify question [cardId] was answered and shows the
+  /// request's next open question, if one remains. Returns whether one did.
+  bool showNextClarifyQuestion(String cardId) {
+    final parsed = parseHermesClarifyCardId(cardId);
+    final open = parsed == null ? null : _clarifies[parsed.requestId];
+    if (parsed == null || open == null) return false;
+    open.locked.add(parsed.questionId);
+    final events = hermesDesktopEventsForServerRequest(
+      id: parsed.requestId,
+      method: 'clarify',
+      params: open.params,
+      locked: open.locked,
+    );
+    if (events.isEmpty) {
+      _clarifies.remove(parsed.requestId);
+      return false;
+    }
+    open.shownCardId = '${events.first.payload['request_id']}';
+    _events.add(events.first);
+    return true;
+  }
+
+  /// `request.cancel` withdraws a server request: close its cards the way an
+  /// expiry event did on earlier gateways.
+  void _withdrawServerRequest(Map<String, dynamic> payload, String? sessionId) {
+    final id = validateHermesOpaqueIdentifier(payload['id']?.toString());
+    final method = payload['method']?.toString();
+    if (id == null || !kHermesAnsweredServerRequests.contains(method)) return;
+    final cardIds = method == 'clarify'
+        ? [?_clarifies.remove(id)?.shownCardId]
+        : [id];
+    for (final cardId in cardIds) {
+      _events.add(
+        HermesDesktopEvent(
+          type: '$method.expire',
+          sessionId: sessionId,
+          payload: {
+            'request_id': cardId,
+            'reason': payload['reason'],
+          },
+        ),
+      );
+    }
+  }
+
   bool _owns(WebSocketChannel channel, int generation) =>
       identical(_channel, channel) && generation == _socketGeneration;
 
   void _handleDisconnect(WebSocketChannel channel, int generation) {
     if (!_owns(channel, generation)) return;
+    _heartbeat?.cancel();
+    _heartbeat = null;
     _ready = false;
     _channel = null;
     _rejectPending('Hermes gateway disconnected.');
@@ -354,6 +705,8 @@ final class HermesDesktopRpcClient {
 
   Future<void> disconnect() async {
     _socketGeneration++;
+    _heartbeat?.cancel();
+    _heartbeat = null;
     _ready = false;
     final subscription = _subscription;
     final channel = _channel;

@@ -32,16 +32,60 @@ final class _SocketHarness {
   final incoming = StreamController<dynamic>();
   final sent = <String>[];
 
-  void ready() => incoming.add(
+  void ready([Map<String, Object?> payload = const {}]) => incoming.add(
     jsonEncode({
       'jsonrpc': '2.0',
       'method': 'event',
-      'params': {'type': 'gateway.ready', 'payload': {}},
+      'params': {'type': 'gateway.ready', 'payload': payload},
     }),
   );
 
-  Map<String, dynamic> sentFrame(int index) =>
-      Map<String, dynamic>.from(jsonDecode(sent[index]) as Map);
+  List<Map<String, dynamic>> get frames => [
+    for (final raw in sent) Map<String, dynamic>.from(jsonDecode(raw) as Map),
+  ];
+
+  /// The [index]th frame after the connection's capability handshake.
+  Map<String, dynamic> sentFrame(int index) => frames
+      .where((frame) => frame['method'] != 'client.capabilities')
+      .elementAt(index);
+
+  /// Answers the capability handshake the way Hermes 0.22+ does.
+  Future<void> answerCapabilities({bool declinesNotShown = true}) async {
+    await Future<void>.delayed(Duration.zero);
+    final handshake = frames.singleWhere(
+      (frame) => frame['method'] == 'client.capabilities',
+    );
+    incoming.add(
+      jsonEncode({
+        'jsonrpc': '2.0',
+        'id': handshake['id'],
+        'result': {
+          'server_requests': ['approval', 'clarify', 'secret', 'sudo', 'tour'],
+          'declines_not_shown': declinesNotShown,
+        },
+      }),
+    );
+    await Future<void>.delayed(Duration.zero);
+  }
+
+  void serverRequest(String id, String method, Map<String, Object?> params) =>
+      incoming.add(
+        jsonEncode({
+          'jsonrpc': '2.0',
+          'id': id,
+          'method': method,
+          'params': params,
+        }),
+      );
+
+  void event(String type, Map<String, Object?> payload, {String? session}) =>
+      incoming.add(
+        jsonEncode({
+          'jsonrpc': '2.0',
+          'method': 'event',
+          'params': {'type': type, 'session_id': ?session, 'payload': payload},
+        }),
+      );
 
   Future<void> dispose() => incoming.close();
 }
@@ -504,36 +548,196 @@ void main() {
     check(buffer.take('three')).length.equals(1);
   });
 
-  test(
-    'rejects unsupported host requests without invoking mobile features',
-    () async {
-      final socket = _SocketHarness();
-      final client = HermesDesktopRpcClient(
+  group('server requests', () {
+    late _SocketHarness socket;
+    late HermesDesktopRpcClient client;
+    late List<HermesDesktopEvent> events;
+
+    setUp(() async {
+      socket = _SocketHarness();
+      client = HermesDesktopRpcClient(
         channelFactory: (_, _, {httpClient}) => socket.channel,
-      );
-      addTearDown(() async {
-        await client.close();
-        await socket.dispose();
-      });
+      )..setDefaultParams({'profile': 'work'});
+      events = [];
+      client.events.listen(events.add);
       final connecting = client.connect(Uri.parse('ws://localhost/api/ws'));
       socket.ready();
       await connecting;
+    });
 
-      socket.incoming.add(
-        jsonEncode({
-          'jsonrpc': '2.0',
-          'id': 'host-1',
-          'method': 'terminal.open',
-          'params': {},
-        }),
-      );
+    tearDown(() async {
+      await client.close();
+      await socket.dispose();
+    });
+
+    test('advertises answering them, without the default profile', () async {
+      await Future<void>.delayed(Duration.zero);
+      final handshake = socket.frames.single;
+      check(handshake['method']).equals('client.capabilities');
+      check(
+        handshake['params'] as Map<String, dynamic>,
+      ).deepEquals({'server_requests': true});
+    });
+
+    test('shows an approval as a decision event and writes nothing back', () async {
+      await socket.answerCapabilities();
+      socket.serverRequest('srq-a1', 'approval', {
+        'session_id': 'runtime-1',
+        'request_id': 'queue-7',
+        'command': 'rm -rf build',
+        'description': 'delete in root path',
+        'choices': ['once', 'session', 'always', 'deny'],
+      });
       await Future<void>.delayed(Duration.zero);
 
-      final response = socket.sentFrame(0);
-      check(response['id']).equals('host-1');
-      check((response['error'] as Map)['code']).equals(-32601);
-    },
-  );
+      final approval = events.singleWhere(
+        (event) => event.type == 'approval.request',
+      );
+      check(approval.sessionId).equals('runtime-1');
+      check(approval.payload['request_id']).equals('srq-a1');
+      check(approval.payload['approval_request_id']).equals('queue-7');
+      check(approval.payload['command']).equals('rm -rf build');
+      check(socket.frames.length).equals(1);
+    });
+
+    test('shows a clarify form one question at a time', () async {
+      await socket.answerCapabilities();
+      socket.serverRequest('srq-c1', 'clarify', {
+        'session_id': 'runtime-1',
+        'questions': [
+          {
+            'qid': 'q0',
+            'question': 'Which colour?',
+            'choices': ['Teal', 'Amber'],
+            'multi_select': false,
+          },
+          {'qid': 'q1', 'question': 'Anything else?', 'choices': null},
+        ],
+      });
+      await Future<void>.delayed(Duration.zero);
+
+      final first = events.singleWhere(
+        (event) => event.type == 'clarify.request',
+      );
+      check(first.payload['request_id']).equals('srq-c1/q0');
+      check(first.payload['question']).equals('1/2 · Which colour?');
+      check(first.payload['choices'] as List).deepEquals(['Teal', 'Amber']);
+
+      check(client.showNextClarifyQuestion('srq-c1/q0')).isTrue();
+      await Future<void>.delayed(Duration.zero);
+      final second = events.where((e) => e.type == 'clarify.request').last;
+      check(second.payload['request_id']).equals('srq-c1/q1');
+      check(second.payload['question']).equals('2/2 · Anything else?');
+
+      check(client.showNextClarifyQuestion('srq-c1/q1')).isFalse();
+    });
+
+    test('a withdrawal closes the question shown now', () async {
+      await socket.answerCapabilities();
+      socket.serverRequest('srq-c2', 'clarify', {
+        'session_id': 'runtime-1',
+        'questions': [
+          {'qid': 'q0', 'question': 'First?'},
+          {'qid': 'q1', 'question': 'Second?'},
+        ],
+      });
+      await Future<void>.delayed(Duration.zero);
+      client.showNextClarifyQuestion('srq-c2/q0');
+      socket.event('request.cancel', {
+        'id': 'srq-c2',
+        'method': 'clarify',
+        'reason': 'timeout',
+      }, session: 'runtime-1');
+      await Future<void>.delayed(Duration.zero);
+
+      final expired = events.singleWhere(
+        (event) => event.type == 'clarify.expire',
+      );
+      check(expired.sessionId).equals('runtime-1');
+      check(expired.payload['request_id']).equals('srq-c2/q1');
+    });
+
+    test('replays open requests, skipping answered questions', () async {
+      client.replayOpenRequests([
+        {
+          'id': 'srq-r1',
+          'method': 'clarify',
+          'params': {
+            'session_id': 'runtime-2',
+            'questions': [
+              {'qid': 'q0', 'question': 'First?'},
+              {'qid': 'q1', 'question': 'Second?'},
+            ],
+            'answers': {'q0': 'yes'},
+          },
+        },
+        {
+          'id': 'srq-r2',
+          'method': 'sudo',
+          'params': {'session_id': 'runtime-2', 'command': 'apt update'},
+        },
+      ]);
+      await Future<void>.delayed(Duration.zero);
+
+      check(
+        events
+            .where((event) => event.type != 'gateway.ready')
+            .map((event) => '${event.type} ${event.payload['request_id']}'),
+      ).deepEquals(['clarify.request srq-r1/q1', 'sudo.request srq-r2']);
+      check(events.last.payload['prompt']).equals('apt update');
+    });
+
+    test('declines Desktop-only requests with 4404 once allowed', () async {
+      socket.serverRequest('srq-t0', 'tour', {'session_id': 'runtime-1'});
+      await Future<void>.delayed(Duration.zero);
+      check(socket.frames.length).equals(1);
+
+      await socket.answerCapabilities();
+      socket.serverRequest('srq-t1', 'tour', {'session_id': 'runtime-1'});
+      await Future<void>.delayed(Duration.zero);
+      final decline = socket.frames.last;
+      check(decline['id']).equals('srq-t1');
+      check((decline['error'] as Map)['code']).equals(4404);
+      check(events.where((event) => event.type != 'gateway.ready')).isEmpty();
+    });
+  });
+
+  test('error data reaches the caller', () async {
+    final socket = _SocketHarness();
+    final client = HermesDesktopRpcClient(
+      channelFactory: (_, _, {httpClient}) => socket.channel,
+    );
+    addTearDown(() async {
+      await client.close();
+      await socket.dispose();
+    });
+    final connecting = client.connect(Uri.parse('ws://localhost/api/ws'));
+    socket.ready({'heartbeat': false, 'session_authority': true});
+    await connecting;
+    check(client.sessionAuthority).isTrue();
+
+    final submit = client.request<Object?>(
+      'prompt.submit',
+      includeDefaultParams: false,
+    );
+    await Future<void>.delayed(Duration.zero);
+    socket.incoming.add(
+      jsonEncode({
+        'jsonrpc': '2.0',
+        'id': socket.sentFrame(0)['id'],
+        'error': {
+          'code': 4090,
+          'message': 'busy',
+          'data': {'reason': 'SESSION_OWNER_BUSY'},
+        },
+      }),
+    );
+    await check(submit).throws<HermesDesktopRpcException>(
+      (error) => error
+        ..has((error) => error.code, 'code').equals(4090)
+        ..has((error) => error.reason, 'reason').equals('SESSION_OWNER_BUSY'),
+    );
+  });
 
   test('times out requests and rejects pending work on disconnect', () async {
     final socket = _SocketHarness();

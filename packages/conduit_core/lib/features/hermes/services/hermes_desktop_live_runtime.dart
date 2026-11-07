@@ -261,55 +261,11 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
     for (final event in _eventBuffer.pending(runtime)) {
       await _persistPendingDecisionEvent(event);
     }
-    await _restorePendingFromResume(result, binding);
+    // Questions asked while no socket of ours was attached. Replayed as
+    // events: the events listener persists them, and an open turn shows
+    // them once it adopts this runtime id.
+    _rpc.replayOpenRequests(result['open_requests']);
     return (binding: binding, running: running is bool ? running : null);
-  }
-
-  Future<void> _restorePendingFromResume(
-    Map<String, dynamic> result,
-    HermesSessionBinding binding,
-  ) async {
-    final approval = _object(result['pending_approval']);
-    final approvalId = validateHermesOpaqueIdentifier(
-      approval['request_id'],
-      sensitiveValues: config.sensitiveValues,
-    );
-    if (approvalId != null) {
-      final command = approval['command']?.toString() ?? '';
-      final description = approval['description']?.toString() ?? '';
-      await HermesPendingDecisionStore.upsert(
-        origin: _origin,
-        connectionId: config.connectionId,
-        storedSessionId: binding.storedId,
-        runtimeId: binding.runtimeId,
-        requestId: approvalId,
-        kind: HermesPendingDesktopDecisionKind.approval,
-        prompt: command.isNotEmpty ? command : description,
-        choices: _desktopDecisionChoices(approval['choices']),
-        sensitiveValues: config.sensitiveValues,
-        profile: _sessionProfiles[binding.storedId],
-      );
-    }
-    final clarify = _object(result['pending_clarify']);
-    final clarifyId = validateHermesOpaqueIdentifier(
-      clarify['request_id'],
-      sensitiveValues: config.sensitiveValues,
-    );
-    if (clarifyId != null) {
-      await HermesPendingDecisionStore.upsert(
-        origin: _origin,
-        connectionId: config.connectionId,
-        storedSessionId: binding.storedId,
-        runtimeId: binding.runtimeId,
-        requestId: clarifyId,
-        kind: HermesPendingDesktopDecisionKind.clarification,
-        prompt: clarify['question']?.toString(),
-        choices: _desktopDecisionChoices(clarify['choices']),
-        multiSelect: clarify['multi_select'] == true,
-        sensitiveValues: config.sensitiveValues,
-        profile: _sessionProfiles[binding.storedId],
-      );
-    }
   }
 
   Future<String> _runtimeCreateSession({

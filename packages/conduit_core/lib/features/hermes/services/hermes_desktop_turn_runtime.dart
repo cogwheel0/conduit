@@ -971,15 +971,9 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
       throw ArgumentError.value(choice, 'choice');
     }
     await _ensureConnected();
-    await _rpc.request<Object?>(
-      'approval.respond',
-      params: {
-        'session_id': runId,
-        'request_id': approvalId,
-        'choice': choice,
-        ..._runtimeScope(runId),
-      },
-    );
+    // [approvalId] is the server request's id; `expired` means another
+    // surface or the deadline settled it first, which closes the card too.
+    await _answerServerRequest(runId, approvalId, {'choice': choice});
     await HermesPendingDecisionStore.resolve(
       origin: _origin,
       connectionId: config.connectionId,
@@ -1024,32 +1018,66 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
       );
       return;
     }
-    final method = switch (kind) {
-      HermesDecisionKind.clarification => 'clarify.respond',
-      HermesDecisionKind.sudo => 'sudo.respond',
-      HermesDecisionKind.secret => 'secret.respond',
-      HermesDecisionKind.mcpSetup => throw StateError('unreachable'),
-    };
-    final valueKey = switch (kind) {
-      HermesDecisionKind.clarification => 'answer',
-      HermesDecisionKind.sudo => 'password',
-      HermesDecisionKind.secret => 'value',
-      HermesDecisionKind.mcpSetup => throw StateError('unreachable'),
-    };
-    await _rpc.request<Object?>(
-      method,
-      params: {
-        'session_id': runtimeId,
-        'request_id': requestId,
-        valueKey: value,
-        ..._runtimeScope(runtimeId),
-      },
-    );
+    if (kind == HermesDecisionKind.clarification) {
+      await _lockClarifyAnswer(
+        runtimeId,
+        cardId: requestId,
+        answer: value,
+        storedSessionId: storedSessionId,
+      );
+    } else {
+      await _answerServerRequest(runtimeId, requestId, {'value': value});
+    }
     await HermesPendingDecisionStore.resolve(
       origin: _origin,
       connectionId: config.connectionId,
       runtimeId: runtimeId,
       requestId: requestId,
     );
+  }
+
+  /// Answers the open server request [requestId] by RPC. It works from any
+  /// socket, including one opened after the request was sent.
+  Future<void> _answerServerRequest(
+    String runtimeId,
+    String requestId,
+    Map<String, Object?> result,
+  ) => _rpc.request<Object?>(
+    'request.answer',
+    params: {'id': requestId, 'result': result, ..._runtimeScope(runtimeId)},
+  );
+
+  /// Locks one clarify question's [answer]; the last question's lock answers
+  /// the whole request. Then shows the next open question, which after a
+  /// restart only a fresh resume snapshot still lists.
+  Future<void> _lockClarifyAnswer(
+    String runtimeId, {
+    required String cardId,
+    required String answer,
+    String? storedSessionId,
+  }) async {
+    final card = parseHermesClarifyCardId(cardId);
+    if (card == null) {
+      throw StateError('Hermes returned an invalid question.');
+    }
+    final result = _object(
+      await _rpc.request<Object?>(
+        'clarify.lock',
+        params: {
+          'request_id': card.requestId,
+          'question_id': card.questionId,
+          'answer': answer,
+          ..._runtimeScope(runtimeId),
+        },
+      ),
+    );
+    final remaining = result['remaining'];
+    if (result['status'] != 'ok' || remaining is! List || remaining.isEmpty) {
+      return;
+    }
+    if (!_rpc.showNextClarifyQuestion(cardId)) {
+      final storedId = storedSessionId ?? _storedIdForRuntime(runtimeId);
+      if (storedId != null) await _resume(storedId, refresh: true);
+    }
   }
 }
