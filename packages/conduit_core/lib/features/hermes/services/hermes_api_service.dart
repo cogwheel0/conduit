@@ -1350,6 +1350,16 @@ class HermesApiService implements HermesBackendService, HermesTurnService {
     return url;
   }
 
+  /// The per-turn reasoning choice. Hermes reads it only from
+  /// `model_options` on both `/v1/runs` and `/v1/responses`; a top-level
+  /// `reasoning_effort` or `reasoning` is ignored.
+  static Map<String, dynamic>? _reasoningModelOptions(String? effort) =>
+      effort == null
+      ? null
+      : <String, dynamic>{
+          'reasoning': <String, dynamic>{'effort': effort},
+        };
+
   Map<String, String> _sessionHeaders({String? sessionId}) {
     final validatedSessionId = _validatedOptionalSessionId(sessionId);
     return {
@@ -1470,7 +1480,7 @@ class HermesApiService implements HermesBackendService, HermesTurnService {
         'input': input,
         'session_id': ?validatedSessionId,
         'instructions': ?instructions,
-        'reasoning_effort': ?reasoningEffort,
+        'model_options': ?_reasoningModelOptions(reasoningEffort),
         if (conversationHistory != null && conversationHistory.isNotEmpty)
           'conversation_history': conversationHistory
         else
@@ -1803,8 +1813,7 @@ class HermesApiService implements HermesBackendService, HermesTurnService {
         'conversation': ?conversation,
         if (conversationHistory != null && conversationHistory.isNotEmpty)
           'conversation_history': conversationHistory,
-        if (reasoningEffort != null)
-          'reasoning': <String, dynamic>{'effort': reasoningEffort},
+        'model_options': ?_reasoningModelOptions(reasoningEffort),
       },
       options: Options(
         responseType: ResponseType.stream,

@@ -331,6 +331,50 @@ void main() {
       check(req.responseType).equals(ResponseType.stream);
     });
 
+    test('reasoning effort travels in model_options', () async {
+      final runCapture = _CaptureInterceptor({'run_id': 'r1'});
+      await _service(runCapture).createRunWithReasoning(
+        input: 'hello',
+        sessionId: 'conv-1',
+        reasoningEffort: 'high',
+      );
+      final runBody = runCapture.requests.single.data as Map;
+      expect(runBody['model_options'], {
+        'reasoning': {'effort': 'high'},
+      });
+      check(runBody.containsKey('reasoning_effort')).isFalse();
+      check(runBody.containsKey('reasoning')).isFalse();
+
+      final responseCapture = _CaptureInterceptor(
+        ResponseBody.fromString(
+          'data: [DONE]\n\n',
+          200,
+          headers: {
+            Headers.contentTypeHeader: ['text/event-stream'],
+          },
+        ),
+      );
+      final stream = await _service(responseCapture)
+          .streamResponseWithReasoning(
+            HermesChatInput.text('hello'),
+            reasoningEffort: 'low',
+          );
+      await stream.events.drain<void>();
+      final responseBody = responseCapture.requests.single.data as Map;
+      expect(responseBody['model_options'], {
+        'reasoning': {'effort': 'low'},
+      });
+      check(responseBody.containsKey('reasoning')).isFalse();
+
+      final plainCapture = _CaptureInterceptor({'run_id': 'r2'});
+      await _service(plainCapture).createRunWithReasoning(input: 'hello');
+      check(
+        (plainCapture.requests.single.data as Map).containsKey(
+          'model_options',
+        ),
+      ).isFalse();
+    });
+
     test(
       'createRun accepts only strict non-secret string identifiers',
       () async {
