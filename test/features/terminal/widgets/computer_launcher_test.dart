@@ -3,17 +3,28 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:conduit/features/terminal/widgets/computer_launcher.dart';
+import 'package:conduit/features/terminal/widgets/computer_page.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/l10n/conduit_localizations.dart';
 import 'package:conduit_core/features/terminal/models/computer_models.dart';
 import 'package:conduit_core/features/terminal/providers/computer_providers.dart';
 import 'package:conduit_core/features/terminal/services/computer_service.dart';
+import 'package:conduit_core/features/chat/providers/chat_providers.dart';
+import 'package:conduit_core/models/chat_message.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:mocktail/mocktail.dart';
 
+import 'computer_test_platform.dart';
+
 class _Service extends Mock implements ComputerService {}
+
+class _Messages extends ChatMessagesNotifier {
+  @override
+  List<ChatMessage> build() => [];
+}
 
 void main() {
   registerFallbackValue(ComputerSurface.browser);
@@ -70,6 +81,69 @@ void main() {
     await tester.pumpWidget(harness(_Service(), available: false));
     await tester.pumpAndSettle();
     expect(find.text('Computer'), findsNothing);
+  });
+
+  testWidgets('live Computer covers a split view and returns to the chat', (
+    tester,
+  ) async {
+    final previous = InAppWebViewPlatform.instance;
+    InAppWebViewPlatform.instance = ComputerTestPlatform();
+    addTearDown(() {
+      if (previous != null) InAppWebViewPlatform.instance = previous;
+    });
+    final root = GlobalKey<NavigatorState>();
+    final pane = GlobalKey<NavigatorState>();
+    final service = _Service();
+    when(() => service.open(any())).thenAnswer((_) async => connection);
+    when(() => service.screenshot(connection)).thenAnswer((_) async => png);
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          computerServiceProvider.overrideWith((ref) async => service),
+          computerCapabilitiesProvider.overrideWith(
+            (ref) async => const ComputerCapabilities(browser: true),
+          ),
+          chatMessagesProvider.overrideWith(_Messages.new),
+        ],
+        child: MaterialApp(
+          navigatorKey: root,
+          theme: ThemeData(platform: TargetPlatform.android),
+          localizationsDelegates: conduitLocalizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: Row(
+            children: [
+              const SizedBox(width: 300, child: Text('Synthetic sidebar')),
+              Expanded(
+                child: Navigator(
+                  key: pane,
+                  onGenerateRoute: (_) => MaterialPageRoute<void>(
+                    builder: (_) => const Scaffold(
+                      body: Align(
+                        alignment: Alignment.bottomCenter,
+                        child: ComputerLauncher(),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Computer'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Open live'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(tester.getSize(find.byType(ComputerPage)).width, 800);
+    expect(pane.currentState!.canPop(), isFalse);
+    expect(root.currentState!.canPop(), isTrue);
+    root.currentState!.pop();
+    await tester.pumpAndSettle();
+    expect(find.text('Computer'), findsOneWidget);
+    await tester.pumpWidget(const SizedBox());
   });
 
   testWidgets('both modes are explicit and late pixels cannot cross modes', (

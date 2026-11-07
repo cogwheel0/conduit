@@ -114,7 +114,7 @@ class _ComputerCardState extends State<_ComputerCard>
   }
 
   Future<void> _open() async {
-    await Navigator.of(context).push(
+    await Navigator.of(context, rootNavigator: true).push(
       buildPlatformPageRoute<void>(
         builder: (_) => ComputerPage(
           service: widget.service,

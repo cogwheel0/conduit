@@ -1,5 +1,4 @@
 import 'package:flutter/widgets.dart';
-import 'package:material_ui/material_ui.dart' show Material, MaterialType;
 import 'package:conduit_core/features/terminal/models/computer_models.dart';
 import 'package:conduit_core/features/terminal/services/computer_service.dart';
 
@@ -24,8 +23,8 @@ Future<ComputerTabChoice?> showComputerBrowserTabs(
     constraints: BoxConstraints(
       maxHeight: MediaQuery.sizeOf(context).height * .75,
     ),
-    child: Material(
-      type: MaterialType.transparency,
+    child: DefaultTextStyle(
+      style: Theme.of(context).textTheme.bodyMedium!,
       child: ConduitAdaptiveSheetSurface(
         child: ComputerBrowserTabs(
           service: service,
