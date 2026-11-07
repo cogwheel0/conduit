@@ -318,6 +318,8 @@ int _hermesEventCharacters(
     requestId.length +
         (prompt?.length ?? 0) +
         min(jsonEncode(raw).length, maxCharacters),
+  HermesPromptSettled(:final promptId, :final kind) =>
+    promptId.length + kind.length,
   HermesLifecycle(:final status) => status.length,
   HermesFinalOutput(:final text) => text.length,
   HermesComposerPrefill(:final text) => text.length,
@@ -1824,22 +1826,37 @@ class HermesApiService implements HermesBackendService, HermesTurnService {
   }
 
   /// Resolves a pending approval gate (`POST /v1/runs/{id}/approval`).
+  ///
+  /// Hermes v0.22.1+ accepts only the exact prompt identity it announced:
+  /// `{request_id, execution_generation, choice}` with no other keys, and
+  /// answers `{status: "resolved" | "already_resolved"}`. When the approval
+  /// event carried an [executionGeneration], that body is sent; otherwise the
+  /// older tolerant body is kept for servers that predate it.
   @override
   Future<void> resolveApproval(
     String runId, {
     required String approvalId,
     required bool approved,
+    int? executionGeneration,
+    String? choice,
   }) async {
     final encodedRunId = Uri.encodeComponent(runId);
+    final answer = choice ?? (approved ? 'once' : 'deny');
     await _requestAndConsumeBounded(
       'POST',
       '$_root/v1/runs/$encodedRunId/approval',
-      data: {
-        'choice': approved ? 'once' : 'deny',
-        'approval_id': approvalId,
-        'approved': approved,
-        'decision': approved ? 'approve' : 'deny',
-      },
+      data: executionGeneration != null
+          ? <String, dynamic>{
+              'request_id': approvalId,
+              'execution_generation': executionGeneration,
+              'choice': answer,
+            }
+          : <String, dynamic>{
+              'choice': answer,
+              'approval_id': approvalId,
+              'approved': approved,
+              'decision': approved ? 'approve' : 'deny',
+            },
     );
   }
 

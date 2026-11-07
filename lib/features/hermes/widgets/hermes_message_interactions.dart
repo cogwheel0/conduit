@@ -18,6 +18,7 @@ import 'package:conduit_core/features/chat/providers/chat_providers.dart'
 
 import 'package:conduit_core/features/hermes/models/hermes_run_event.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
+import 'package:conduit_core/features/hermes/services/hermes_api_service.dart';
 import 'package:conduit_core/features/hermes/services/hermes_desktop_api_service.dart';
 import 'package:conduit_core/features/hermes/services/hermes_run_transport.dart';
 
@@ -32,6 +33,7 @@ typedef _HermesApprovalBinding = ({
   String runId,
   String approvalId,
   String? storedSessionId,
+  int? executionGeneration,
 });
 
 String? _nonEmptyString(Object? value) {
@@ -211,6 +213,9 @@ class _HermesComposerPromptOverlayState
       runId: runId,
       approvalId: approvalId,
       storedSessionId: storedSessionId,
+      executionGeneration: approval['executionGeneration'] is int
+          ? approval['executionGeneration'] as int
+          : null,
     );
 
     final capabilities = ref.watch(hermesCapabilitiesProvider).asData?.value;
@@ -536,6 +541,13 @@ class _HermesComposerPromptOverlayState
           runId,
           approvalId: approvalId,
           choice: choice,
+        );
+      } else if (service is HermesApiService) {
+        await service.resolveApproval(
+          runId,
+          approvalId: approvalId,
+          approved: approved,
+          executionGeneration: binding.executionGeneration,
         );
       } else {
         await service.resolveApproval(

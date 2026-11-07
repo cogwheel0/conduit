@@ -80,6 +80,8 @@ class _GatedApprovalService extends HermesApiService {
     String runId, {
     required String approvalId,
     required bool approved,
+    int? executionGeneration,
+    String? choice,
   }) async {
     decisions.add((runId, approvalId, approved));
     await gate.future;

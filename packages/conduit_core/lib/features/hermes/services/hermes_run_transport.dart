@@ -1329,6 +1329,7 @@ void _handleEvent(
       :final approvalId,
       :final summary,
       :final choices,
+      :final executionGeneration,
       :final raw,
     ):
       final safeApprovalId = _validatedHermesOpaqueIdentifier(
@@ -1371,8 +1372,43 @@ void _handleEvent(
           'storedSessionId': ?safeStoredSessionId,
           'summary': ?safeSummary,
           if (safeChoices.isNotEmpty) 'choices': safeChoices,
+          'executionGeneration': ?executionGeneration,
         };
         return m.copyWith(metadata: meta);
+      });
+
+    case HermesPromptSettled(:final promptId):
+      // The prompt was answered (here or elsewhere), timed out, or was
+      // withdrawn. Close its card for good; an answer already recorded as
+      // approved/denied keeps that outcome.
+      updateMessage((m) {
+        final meta = m.metadata;
+        if (meta == null) return m;
+        final approval = meta[kHermesApprovalMeta];
+        final decision = meta[kHermesDecisionMeta];
+        final settlesApproval =
+            approval is Map &&
+            approval['approvalId'] == promptId &&
+            const {null, 'pending', 'resolving'}.contains(approval['state']);
+        final settlesDecision =
+            decision is Map &&
+            decision['requestId'] == promptId &&
+            decision['state'] == 'pending';
+        if (!settlesApproval && !settlesDecision) return m;
+        final next = Map<String, dynamic>.from(meta);
+        if (settlesApproval) {
+          next[kHermesApprovalMeta] = <String, dynamic>{
+            ...approval.cast<String, dynamic>(),
+            'state': 'settled',
+          };
+        }
+        if (settlesDecision) {
+          next[kHermesDecisionMeta] = <String, dynamic>{
+            ...decision.cast<String, dynamic>(),
+            'state': 'resolved',
+          };
+        }
+        return m.copyWith(metadata: next);
       });
 
     case HermesDecisionRequested(

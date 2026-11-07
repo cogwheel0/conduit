@@ -70,18 +70,37 @@ final class HermesApprovalRequested extends HermesRunEvent {
     required this.approvalId,
     this.summary,
     this.choices = const <String>[],
+    this.executionGeneration,
     this.raw = const {},
   });
 
-  /// Identifier passed back to `POST /v1/runs/{id}/approval`.
+  /// Identifier passed back to `POST /v1/runs/{id}/approval`. On Hermes
+  /// v0.22.1+ this is the prompt's `prompt_id`.
   final String approvalId;
 
   /// Human-readable description of what is being approved.
   final String? summary;
   final List<String> choices;
 
+  /// The session execution generation that owns the prompt. Present only on
+  /// servers that require the exact `{request_id, execution_generation,
+  /// choice}` approval body.
+  final int? executionGeneration;
+
   /// The raw approval payload, preserved for forward-compatibility.
   final Map<String, dynamic> raw;
+}
+
+/// An approval or clarify prompt was answered, timed out, or was withdrawn.
+///
+/// The card for [promptId] must close and never come back for this prompt.
+final class HermesPromptSettled extends HermesRunEvent {
+  const HermesPromptSettled({required this.promptId, required this.kind});
+
+  final String promptId;
+
+  /// `approval` or `clarify`.
+  final String kind;
 }
 
 enum HermesDecisionKind { clarification, sudo, secret, mcpSetup }

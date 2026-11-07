@@ -1322,6 +1322,29 @@ void main() {
       });
     });
 
+    test(
+      'resolveApproval sends exactly the v0.23 prompt identity when known',
+      () async {
+        final capture = _CaptureInterceptor({
+          'run_id': 'r1',
+          'status': 'already_resolved',
+          'prompt_id': 'prm_1',
+        });
+        await _service(capture).resolveApproval(
+          'r1',
+          approvalId: 'prm_1',
+          approved: false,
+          executionGeneration: 2,
+        );
+
+        check(capture.requests.single.data as Map<String, dynamic>).deepEquals({
+          'request_id': 'prm_1',
+          'execution_generation': 2,
+          'choice': 'deny',
+        });
+      },
+    );
+
     test('approval identifiers cannot inject URI path or fragments', () async {
       final capture = _CaptureInterceptor({});
       await _service(capture).resolveApproval(

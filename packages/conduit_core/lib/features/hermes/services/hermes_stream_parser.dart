@@ -368,13 +368,49 @@ Iterable<HermesRunEvent> parseHermesRunFrame(SseFrame frame) sync* {
   // An answered or lapsed gate is not a new one. The runs API follows every
   // approval with `approval.responded`, carrying only `run_id`, which would
   // otherwise decode as a fresh request for the same gate and put the
-  // answered card back up until the run ends (issue #769).
-  if (_approvalOutcomeEvents.contains(eventType)) return;
+  // answered card back up until the run ends (issue #769). Hermes v0.22.1+
+  // sends `approval.settled` / `clarify.settled` with the prompt's id, also
+  // when the prompt times out, so the matching card can close.
+  if (_approvalOutcomeEvents.contains(eventType)) {
+    if (eventType == 'approval.settled' || eventType == 'clarify.settled') {
+      final promptId = validateHermesOpaqueIdentifier(data['prompt_id']);
+      if (promptId != null) {
+        yield HermesPromptSettled(
+          promptId: promptId,
+          kind: eventType == 'clarify.settled' ? 'clarify' : 'approval',
+        );
+      }
+    }
+    return;
+  }
+
+  // Clarify prompts have no REST card yet; never mistake them for approvals.
+  if (eventType == 'clarify.request') return;
 
   // Human-approval gate.
   if ((eventType?.contains('approval') ?? false) ||
       data.containsKey('approval_id') ||
       data.containsKey('approvalId')) {
+    // Hermes v0.22.1+ names each prompt and the execution generation that
+    // owns it; the approval answer must echo both exactly.
+    final promptId = data['prompt_id'];
+    final generation = data['execution_generation'];
+    if (promptId is String && generation is int && generation >= 0) {
+      final canonicalId = validateHermesOpaqueIdentifier(promptId);
+      if (canonicalId != null) {
+        yield HermesApprovalRequested(
+          approvalId: canonicalId,
+          summary:
+              _strictString(data['description']) ??
+              _strictString(data['summary']) ??
+              _strictString(data['command']) ??
+              _strictString(data['message']),
+          executionGeneration: generation,
+          raw: data,
+        );
+        return;
+      }
+    }
     // Approval identifiers are protocol control values, not display text.
     // Never call toString() on an arbitrary JSON container before the bounded
     // opaque-id validator gets a chance to reject it.
@@ -815,4 +851,6 @@ const Set<String> _approvalOutcomeEvents = {
   'approval.resolved',
   'approval.expire',
   'approval.expired',
+  'approval.settled',
+  'clarify.settled',
 };

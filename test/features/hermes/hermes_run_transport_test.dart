@@ -1442,6 +1442,58 @@ void main() {
     check(completedUi).isTrue();
   });
 
+  test('a settled approval closes its card and keeps it closed', () async {
+    final fake = _FakeHermesApiService([
+      const HermesApprovalRequested(
+        approvalId: 'prm_aa11',
+        summary: 'remove a cache folder',
+        executionGeneration: 5,
+      ),
+      const HermesPromptSettled(promptId: 'prm_other', kind: 'approval'),
+      const HermesRunDone(),
+    ]);
+    final settledFake = _FakeHermesApiService([
+      const HermesApprovalRequested(
+        approvalId: 'prm_aa11',
+        summary: 'remove a cache folder',
+        executionGeneration: 5,
+      ),
+      const HermesPromptSettled(promptId: 'prm_aa11', kind: 'approval'),
+      const HermesRunDone(),
+    ]);
+
+    Future<Map?> approvalAfter(_FakeHermesApiService service) async {
+      var message = ChatMessage(
+        id: 'm',
+        role: 'assistant',
+        content: '',
+        timestamp: DateTime.fromMillisecondsSinceEpoch(0),
+      );
+      await dispatchHermesRun(
+        service: service,
+        registry: HermesRunRegistry(),
+        assistantMessageId: 'm',
+        input: 'hi',
+        maxRecoveryPolls: 1,
+        recoveryPollInterval: Duration.zero,
+        appendContent: (_) {},
+        appendStatus: (_) {},
+        updateMessage: (updater) => message = updater(message),
+        finishStreaming: () {},
+        completeStreamingUi: () {},
+      );
+      return message.metadata?[kHermesApprovalMeta] as Map?;
+    }
+
+    final unrelated = await approvalAfter(fake);
+    check(unrelated!['state']).equals('pending');
+    check(unrelated['executionGeneration']).equals(5);
+
+    final settled = await approvalAfter(settledFake);
+    check(settled!['state']).equals('settled');
+    check(settled['approvalId']).equals('prm_aa11');
+  });
+
   test(
     'reasoning status text is bounded, redacted, and control-safe',
     () async {

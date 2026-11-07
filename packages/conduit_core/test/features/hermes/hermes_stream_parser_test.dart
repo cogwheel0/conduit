@@ -254,6 +254,52 @@ void main() {
         ).deepEquals(['once', 'session', 'always', 'deny']);
     });
 
+    test('decodes a v0.23 approval prompt with its exact identity', () async {
+      final events = await parseHermesRunStream(
+        _sse([
+          'id: 4\ndata: {"event":"approval.request","run_id":"run_5be1c0de","timestamp":1800000000.5,"kind":"approval","prompt_id":"prm_7f3a91c2","execution_generation":3,"command":"rm -rf /srv/example/cache","description":"remove a cache folder","choices":["once","deny","session","always"],"seq":4}\n\n',
+        ]),
+      ).toList();
+
+      check(events).length.equals(1);
+      check(events.single).isA<HermesApprovalRequested>()
+        ..has((e) => e.approvalId, 'approvalId').equals('prm_7f3a91c2')
+        ..has((e) => e.executionGeneration, 'generation').equals(3)
+        ..has((e) => e.summary, 'summary').equals('remove a cache folder');
+    });
+
+    test(
+      'a prompt without an integer generation keeps the old identity',
+      () async {
+        final events = await parseHermesRunStream(
+          _sse([
+            'data: {"event":"approval.request","run_id":"run_5be1c0de","prompt_id":"prm_7f3a91c2","execution_generation":"3","description":"remove a cache folder"}\n\n',
+          ]),
+        ).toList();
+
+        check(events.single).isA<HermesApprovalRequested>()
+          ..has((e) => e.approvalId, 'approvalId').equals('run_5be1c0de')
+          ..has((e) => e.executionGeneration, 'generation').isNull();
+      },
+    );
+
+    test('settled prompts close their card instead of reopening it', () async {
+      final events = await parseHermesRunStream(
+        _sse([
+          'data: {"event":"approval.request","run_id":"run_5be1c0de","kind":"approval","prompt_id":"prm_7f3a91c2","execution_generation":3,"description":"remove a cache folder","seq":1}\n\n',
+          'data: {"event":"approval.settled","run_id":"run_5be1c0de","timestamp":1800000001.0,"prompt_id":"prm_7f3a91c2","execution_generation":3,"seq":2}\n\n',
+          'data: {"event":"clarify.request","run_id":"run_5be1c0de","kind":"clarify","prompt_id":"prm_c1a2","execution_generation":3,"question":"Which folder?","seq":3}\n\n',
+          'data: {"event":"clarify.settled","run_id":"run_5be1c0de","prompt_id":"prm_c1a2","execution_generation":3,"seq":4}\n\n',
+        ]),
+      ).toList();
+
+      check(events.whereType<HermesApprovalRequested>()).length.equals(1);
+      final settled = events.whereType<HermesPromptSettled>().toList();
+      check(settled.map((e) => e.promptId))
+          .deepEquals(['prm_7f3a91c2', 'prm_c1a2']);
+      check(settled.map((e) => e.kind)).deepEquals(['approval', 'clarify']);
+    });
+
     test('does not decode an answered gate as a new request', () async {
       // Issue #769: the runs API follows an approval with approval.responded
       // (only run_id, choice and resolved), which used to reopen the card.
