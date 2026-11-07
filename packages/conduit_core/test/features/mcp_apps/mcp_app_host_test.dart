@@ -20,6 +20,7 @@ const _app = OpenWebUiMcpApp(
 
 const _resource = OpenWebUiMcpAppResource(
   html: '<p>app</p>',
+  csp: "default-src 'none'",
   ui: {
     'csp': {
       'connectDomains': ['https://tiles.example.com'],
@@ -312,36 +313,30 @@ void main() {
       check(rig.sent).isEmpty();
     });
 
-    test('asks a started app to tear down and waits for its answer', () async {
+    test('tells a started app it is going and stops answering at once', () async {
       final rig = _Rig();
       await rig.notify('ui/notifications/initialized');
 
-      final teardown = rig.host.teardown();
+      rig.host.teardown();
+
       final request = rig.sent.last;
       check(request['method']).equals('ui/resource-teardown');
-      var done = false;
-      unawaited(teardown.then((_) => done = true));
-      await Future<void>.delayed(Duration.zero);
-      check(done).isFalse();
-
+      // Its web view goes with its widget, so nothing waits for its answer.
+      final count = rig.sent.length;
+      await rig.request(9, 'ping');
       await rig.host.receive(
         jsonEncode({'jsonrpc': '2.0', 'id': request['id'], 'result': {}}),
       );
-      await teardown;
-
-      // Closed: nothing more is answered.
-      final count = rig.sent.length;
-      await rig.request(9, 'ping');
       check(rig.sent).length.equals(count);
     });
 
-    test('a teardown the app does not answer ends after the timeout', () async {
+    test('an app that never started is closed without a teardown', () async {
       final rig = _Rig();
-      await rig.notify('ui/notifications/initialized');
 
-      await rig.host.teardown(timeout: const Duration(milliseconds: 10));
+      rig.host.teardown();
+      await rig.request(1, 'ping');
 
-      check(rig.sent.last['method']).equals('ui/resource-teardown');
+      check(rig.sent).isEmpty();
     });
   });
 
@@ -408,6 +403,19 @@ void main() {
         resource.declaredDomains('resourceDomains'),
       ).deepEquals(['https://cdn.example.com']);
       check(resource.declaredDomains('connectDomains')).isEmpty();
+    });
+
+    test('a resource without a security policy is refused', () {
+      // Without one the page could load from anywhere: iOS has no request
+      // hook for its images, scripts and styles.
+      for (final csp in <Object?>[null, '', '  ', 42]) {
+        check(
+          () => OpenWebUiMcpAppResource.fromJson({
+            'html': '<p></p>',
+            'csp': ?csp,
+          }),
+        ).throws<McpAppRpcException>();
+      }
     });
   });
 }

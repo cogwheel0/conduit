@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'dart:convert';
 
 import 'package:conduit_core/features/mcp_apps/openwebui_mcp_app.dart';
@@ -80,7 +79,6 @@ final class McpAppHost {
   bool _askingUser = false;
   int _pendingRequests = 0;
   int _nextRequestId = 0;
-  final Map<Object, Completer<void>> _awaitingApp = {};
 
   /// Whether the app has completed its handshake.
   bool get initialized => _initialized;
@@ -108,11 +106,9 @@ final class McpAppHost {
     final method = message['method'];
     final id = message['id'];
     final hasId = id is String || id is int;
-    if (method is! String) {
-      // The app's answer to a request of the host's.
-      if (hasId) _awaitingApp.remove(id)?.complete();
-      return;
-    }
+    // The app's answer to a request of the host's: only the teardown, which
+    // is not waited for.
+    if (method is! String) return;
     final rawParams = message['params'];
     final params = rawParams is Map
         ? {for (final entry in rawParams.entries) entry.key.toString(): entry.value}
@@ -146,36 +142,25 @@ final class McpAppHost {
     _notify('ui/notifications/host-context-changed', changes);
   }
 
-  /// Asks a started app to save its state before it is removed, waiting at
-  /// most [timeout] for its answer, then closes the host.
-  Future<void> teardown({
-    String reason = 'The app was closed.',
-    Duration timeout = const Duration(seconds: 1),
-  }) async {
+  /// Tells a started app it is being removed, then closes the host at once.
+  ///
+  /// The app's answer is not waited for: its web view goes with its widget,
+  /// whose removal cannot wait, so the app has only until then.
+  void teardown({String reason = 'The app was closed.'}) {
     if (_closed) return;
     if (_initialized) {
-      final id = 'conduit-${_nextRequestId++}';
-      final answered = Completer<void>();
-      _awaitingApp[id] = answered;
       _send({
         'jsonrpc': '2.0',
-        'id': id,
+        'id': 'conduit-${_nextRequestId++}',
         'method': 'ui/resource-teardown',
         'params': {'reason': reason},
       });
-      await answered.future.timeout(timeout, onTimeout: () {});
     }
     close();
   }
 
   /// Stops answering the app.
-  void close() {
-    _closed = true;
-    for (final waiting in _awaitingApp.values) {
-      if (!waiting.isCompleted) waiting.complete();
-    }
-    _awaitingApp.clear();
-  }
+  void close() => _closed = true;
 
   Future<Map<String, dynamic>> _request(
     String method,

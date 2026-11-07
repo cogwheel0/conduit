@@ -80,11 +80,14 @@ final class OpenWebUiMcpApp {
 /// What `ui/resource` answers: the app's HTML, the content security policy
 /// the server built from the app's declared domains (and one more the server
 /// adds for frames), the app's `ui` metadata and the tool that showed it.
+///
+/// The policy is what keeps the page to the domains it declared, so an app
+/// the server sends none for is refused rather than shown without one.
 @immutable
 final class OpenWebUiMcpAppResource {
   const OpenWebUiMcpAppResource({
     required this.html,
-    this.csp = '',
+    required this.csp,
     this.additionalCsp = '',
     this.ui = const <String, dynamic>{},
     this.tool = const <String, dynamic>{},
@@ -118,12 +121,18 @@ final class OpenWebUiMcpAppResource {
     if (html is! String || html.isEmpty) {
       throw const McpAppRpcException('The app sent no page.');
     }
+    final csp = json['csp'];
+    if (csp is! String || csp.trim().isEmpty) {
+      throw const McpAppRpcException(
+        'The server sent no security policy for the app.',
+      );
+    }
     Map<String, dynamic> map(Object? value) => value is Map
         ? {for (final entry in value.entries) entry.key.toString(): entry.value}
         : const <String, dynamic>{};
     return OpenWebUiMcpAppResource(
       html: html,
-      csp: json['csp'] is String ? json['csp'] as String : '',
+      csp: csp,
       additionalCsp: json['additional_csp'] is String
           ? json['additional_csp'] as String
           : '',

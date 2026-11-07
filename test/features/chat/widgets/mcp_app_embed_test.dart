@@ -50,9 +50,10 @@ final class _RefusingApi extends ApiService {
   }
 }
 
-/// Serves the app's page and runs the tools it calls.
+/// Serves the app's page, with [csp] as its policy, and runs the tools it
+/// calls.
 final class _ServingApi extends ApiService {
-  _ServingApi()
+  _ServingApi({this.csp = "default-src 'none'"})
     : super(
         serverConfig: const ServerConfig(
           id: 's',
@@ -62,6 +63,7 @@ final class _ServingApi extends ApiService {
         workerManager: WorkerManager(),
       );
 
+  final String? csp;
   final requests = <({String method, Map<String, dynamic> params})>[];
 
   @override
@@ -75,7 +77,7 @@ final class _ServingApi extends ApiService {
     if (method == 'ui/resource') {
       return {
         'html': '<p>app</p>',
-        'csp': "default-src 'none'",
+        'csp': ?csp,
         'ui': const <String, dynamic>{},
         'tool': const {'name': 'show_map'},
       };
@@ -180,14 +182,20 @@ final class _OpenApp {
   }
 }
 
-/// Opens the app and creates its web view, whose page has not loaded yet.
-Future<_OpenApp> _openApp(WidgetTester tester, ApiService api) async {
+/// Stands in for the web view plugin until the test ends.
+_WebViews _installWebViews() {
   final previous = InAppWebViewPlatform.instance;
   final webViews = _WebViews();
   InAppWebViewPlatform.instance = webViews;
   addTearDown(() {
     if (previous != null) InAppWebViewPlatform.instance = previous;
   });
+  return webViews;
+}
+
+/// Opens the app and creates its web view, whose page has not loaded yet.
+Future<_OpenApp> _openApp(WidgetTester tester, ApiService api) async {
+  final webViews = _installWebViews();
   await tester.pumpWidget(_harness(api));
   await tester.tap(find.text('Open app'));
   await tester.pump();
@@ -233,6 +241,56 @@ void main() {
     expect(script, contains("message.jsonrpc === '2.0'"));
     expect(script, contains('nativePostMessage(message, ...rest)'));
     expect(script, contains('writable: false'));
+  });
+
+  test("a form's submit reaches the app's handlers but loads no page", () {
+    final script = mcpAppBridgeScript(
+      bridgeName: 'bridge',
+      bridgeToken: 'token',
+      deliverName: 'deliver',
+    );
+    // The listener runs first; a cancelled submit stays cancelled.
+    final submit = RegExp(
+      r"addEventListener\('submit', \(event\) => \{([^}]*)\}, true\);",
+    ).firstMatch(script)!.group(1)!;
+    expect(submit.trim(), 'event.preventDefault();');
+  });
+
+  test("the tool prompt's buttons are in the user's language", () {
+    final english = lookupAppLocalizations(const Locale('en'));
+    for (final locale in AppLocalizations.supportedLocales) {
+      if (locale.languageCode == 'en') continue;
+      final l10n = lookupAppLocalizations(locale);
+      expect(
+        l10n.directMcpApprovalDeny,
+        isNot(english.directMcpApprovalDeny),
+        reason: '$locale',
+      );
+      expect(
+        l10n.mcpAppToolCallAllow,
+        isNot(english.mcpAppToolCallAllow),
+        reason: '$locale',
+      );
+    }
+  });
+
+  testWidgets('an app the server sends no security policy for is not shown', (
+    tester,
+  ) async {
+    final webViews = _installWebViews();
+    await tester.pumpWidget(_harness(_ServingApi(csp: null)));
+
+    await tester.tap(find.text('Open app'));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text(
+        'The app could not be loaded: '
+        'The server sent no security policy for the app.',
+      ),
+      findsOneWidget,
+    );
+    expect(webViews.built, isEmpty);
   });
 
   testWidgets('an app loads only when opened', (tester) async {

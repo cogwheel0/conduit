@@ -37,7 +37,8 @@ const Duration _startTimeout = Duration(seconds: 30);
 /// It loads when the user opens it, like other embedded content. The app's
 /// page comes from the server's app RPC and runs in a sealed web view: no
 /// storage, cookies, popups or navigation, and only the network origins the
-/// app declared, which the server's content security policy enforces. It
+/// app declared, which the server's content security policy enforces; an app
+/// the server sends no policy for is not shown. It
 /// talks to Conduit over the MCP Apps bridge ([McpAppHost]); every tool it
 /// calls is confirmed by the user first.
 class McpAppEmbed extends ConsumerStatefulWidget {
@@ -122,7 +123,7 @@ class _McpAppEmbedState extends ConsumerState<McpAppEmbed> {
     _load?.cancel();
     final host = _host;
     _host = null;
-    if (host != null) unawaited(host.teardown(timeout: Duration.zero));
+    host?.teardown();
   }
 
   void _close({bool rebuild = true}) {
@@ -186,7 +187,7 @@ class _McpAppEmbedState extends ConsumerState<McpAppEmbed> {
       _startTimer = Timer(_startTimeout, () {
         if (!mounted || _started) return;
         setState(() => _failure = l10n.mcpAppDidNotStart);
-        unawaited(_host?.teardown(timeout: Duration.zero));
+        _host?.teardown();
         _host = null;
       });
       setState(() {});
@@ -497,7 +498,8 @@ class _McpAppEmbedState extends ConsumerState<McpAppEmbed> {
 /// reaches Conduit through [bridgeName], with [bridgeToken], and Conduit's
 /// messages arrive as `message` events from the page's parent, which is the
 /// page itself in a web view, through [deliverName]. Navigation, popups and
-/// device access are refused, as in a sandboxed frame.
+/// device access are refused, as in a sandboxed frame. A form's submit still
+/// reaches the app's own handlers, but it loads no page.
 @visibleForTesting
 String mcpAppBridgeScript({
   required String bridgeName,
@@ -544,9 +546,9 @@ String mcpAppBridgeScript({
     configurable: false,
   });
   window.open = () => null;
+  // Cancelled first, before any of the app's handlers, which cannot undo it.
   addEventListener('submit', (event) => {
     event.preventDefault();
-    event.stopImmediatePropagation();
   }, true);
   const denied = () => Promise.reject(new DOMException('Denied', 'NotAllowedError'));
   const replace = (object, name, value) => {
