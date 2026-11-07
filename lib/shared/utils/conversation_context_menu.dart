@@ -5,6 +5,8 @@ import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/models/folder.dart';
 import 'package:conduit_core/models/model.dart';
 import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/features/librechat/providers/librechat_providers.dart';
+import 'package:conduit_core/services/connectivity_service.dart' show isOnlineProvider;
 import 'package:conduit_core/sync/chat_locks.dart';
 import 'package:conduit/core/services/native_sheet_bridge.dart';
 import 'package:conduit/l10n/app_localizations.dart';
@@ -25,6 +27,8 @@ import 'package:conduit_core/features/hermes/models/hermes_model.dart';
 import 'package:conduit_core/features/hermes/services/hermes_session_provenance.dart';
 import 'package:conduit/features/chat/widgets/chat_share_sheet.dart';
 import 'package:conduit/features/navigation/widgets/folder_tree_guides.dart';
+import 'package:conduit/features/navigation/providers/conversation_selection_provider.dart';
+import 'package:conduit/shared/services/navigation_service.dart';
 
 /// Defines an action for use in Conduit context menus.
 class ConduitContextMenuAction {
@@ -272,8 +276,20 @@ List<ConduitContextMenuAction> buildConversationActionsWithFolders({
   final bool isPinned = conversation.pinned == true;
   final bool isArchived = conversation.archived == true;
   final bool isOnDevice = isDirectLocalConversation(conversation);
-  // LibreChat has no folders, and its share links arrive separately.
+  // LibreChat has no folders. It shares through its own server when the
+  // server allows links, and copies chats there too.
   final bool isLibreChat = isLibreChatConversation(conversation);
+  // Watched: the actions are built with the menu, and capabilities that load
+  // (or a connection that comes back) afterwards must show in it.
+  final bool canShare =
+      !isOnDevice &&
+      (!isLibreChat ||
+          ref.watch(
+            libreChatCapabilitiesProvider.select(
+              (capabilities) => capabilities.asData?.value.sharedLinks ?? false,
+            ),
+          ));
+  final bool canDuplicate = isLibreChat && ref.watch(isOnlineProvider);
   final selectionId = conversationScopedId(conversation);
   final currentFolderId = _conversationFolderId(conversation);
   final canMove =
@@ -285,11 +301,13 @@ List<ConduitContextMenuAction> buildConversationActionsWithFolders({
   final showMarkUnread =
       canMarkUnread &&
       !isOnDevice &&
+      !isLibreChat &&
       ref.watch(chatMarkUnreadSupportedProvider);
   // The server titles a chat it holds; on-device and temporary chats have
   // nothing there to read.
   final canGenerateTitle =
       !isOnDevice &&
+      !isLibreChat &&
       !isTemporaryChat(conversation.id as String?) &&
       !isNativeHermesConversation(conversation as Conversation?) &&
       ref.watch(apiServiceProvider) != null;
@@ -354,6 +372,23 @@ List<ConduitContextMenuAction> buildConversationActionsWithFolders({
     await showChatShareSheet(context: context, conversation: conversation);
   }
 
+  Future<void> duplicateConversation() async {
+    final failed = l10n.libreChatCopyFailed;
+    try {
+      final copy = await chat.copyLibreChatConversation(ref, selectionId);
+      if (!context.mounted) return;
+      final result = await ref
+          .read(conversationSelectionProvider.notifier)
+          .select(copy);
+      if (result.disposition == ConversationSelectionDisposition.committed) {
+        NavigationService.router.go(Routes.chat);
+      }
+    } catch (_) {
+      if (!context.mounted) return;
+      await _showConversationError(context, failed);
+    }
+  }
+
   Future<void> moveConversation() async {
     await _moveConversation(
       context,
@@ -387,7 +422,7 @@ List<ConduitContextMenuAction> buildConversationActionsWithFolders({
       onBeforeClose: () => ConduitHaptics.lightImpact(),
       onSelected: toggleArchive,
     ),
-    if (!isOnDevice && !isLibreChat)
+    if (canShare)
       ConduitContextMenuAction(
         cupertinoIcon: CupertinoIcons.share,
         sfSymbol: 'square.and.arrow.up',
@@ -421,6 +456,15 @@ List<ConduitContextMenuAction> buildConversationActionsWithFolders({
         label: l10n.markAsUnread,
         onBeforeClose: () => ConduitHaptics.selectionClick(),
         onSelected: markUnread,
+      ),
+    if (canDuplicate)
+      ConduitContextMenuAction(
+        cupertinoIcon: CupertinoIcons.doc_on_doc,
+        sfSymbol: 'plus.square.on.square',
+        materialIcon: Icons.copy_all_rounded,
+        label: l10n.libreChatDuplicateChat,
+        onBeforeClose: () => ConduitHaptics.selectionClick(),
+        onSelected: duplicateConversation,
       ),
     if (canMove)
       ConduitContextMenuAction(

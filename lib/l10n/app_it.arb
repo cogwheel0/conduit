@@ -4341,5 +4341,11 @@
   "libreChatGoogleUnsupported": "Google non consente l'accesso all'interno delle app. Usa un altro metodo di accesso.",
   "libreChatSsoUnfinished": "L'accesso non è stato completato. Riprova.",
   "libreChatChangeServer": "Usa un altro server",
-  "libreChatSessionEnded": "La tua sessione su {server} è scaduta. Accedi di nuovo."
+  "libreChatSessionEnded": "La tua sessione su {server} è scaduta. Accedi di nuovo.",
+  "libreChatDuplicateChat": "Duplica chat",
+  "libreChatCopyFailed": "Impossibile copiare la chat. Controlla la connessione e riprova.",
+  "libreChatMemoryKeyLabel": "Chiave",
+  "libreChatMemoryKeyHint": "es. preferenze",
+  "libreChatMemoryKeyRequired": "Assegna una chiave al ricordo.",
+  "libreChatMemoryUsage": "{used} di {limit} token usati"
 }

@@ -4341,5 +4341,11 @@
   "libreChatGoogleUnsupported": "Google staat inloggen binnen apps niet toe. Log op een andere manier in.",
   "libreChatSsoUnfinished": "Het inloggen is niet voltooid. Probeer het opnieuw.",
   "libreChatChangeServer": "Andere server gebruiken",
-  "libreChatSessionEnded": "Je sessie op {server} is beëindigd. Log opnieuw in."
+  "libreChatSessionEnded": "Je sessie op {server} is beëindigd. Log opnieuw in.",
+  "libreChatDuplicateChat": "Chat dupliceren",
+  "libreChatCopyFailed": "De chat kon niet worden gekopieerd. Controleer je verbinding en probeer het opnieuw.",
+  "libreChatMemoryKeyLabel": "Sleutel",
+  "libreChatMemoryKeyHint": "bijv. voorkeuren",
+  "libreChatMemoryKeyRequired": "Geef de herinnering een sleutel.",
+  "libreChatMemoryUsage": "{used} van {limit} tokens gebruikt"
 }

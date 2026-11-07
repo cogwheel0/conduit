@@ -429,7 +429,11 @@ void main() {
   testWidgets('LibreChat stays out of the list while it is off and unused', (
     tester,
   ) async {
-    await pumpAccounts(tester, const []);
+    await pumpAccounts(
+      tester,
+      const [],
+      overrides: [libreChatBackendEnabledProvider.overrideWithValue(false)],
+    );
     expect(find.byKey(const Key('accounts-librechat')), findsNothing);
   });
 

@@ -6259,5 +6259,11 @@
   "libreChatGoogleUnsupported": "Google nepovoluje přihlášení uvnitř aplikací. Přihlaste se jiným způsobem.",
   "libreChatSsoUnfinished": "Přihlášení nebylo dokončeno. Zkuste to znovu.",
   "libreChatChangeServer": "Použít jiný server",
-  "libreChatSessionEnded": "Vaše relace na {server} skončila. Přihlaste se znovu."
+  "libreChatSessionEnded": "Vaše relace na {server} skončila. Přihlaste se znovu.",
+  "libreChatDuplicateChat": "Duplikovat chat",
+  "libreChatCopyFailed": "Chat se nepodařilo zkopírovat. Zkontrolujte připojení a zkuste to znovu.",
+  "libreChatMemoryKeyLabel": "Klíč",
+  "libreChatMemoryKeyHint": "např. preference",
+  "libreChatMemoryKeyRequired": "Zadejte klíč vzpomínky.",
+  "libreChatMemoryUsage": "Využito {used} z {limit} tokenů"
 }

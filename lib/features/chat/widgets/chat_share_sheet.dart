@@ -7,7 +7,6 @@ import 'package:conduit/core/services/haptic_service.dart';
 import 'package:conduit/core/services/native_sheet_bridge.dart';
 import 'package:conduit_core/features/chat/providers/chat_providers.dart'
     as chat;
-import 'package:conduit_core/features/chat/utils/chat_share_url.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/shared/theme/theme_extensions.dart';
 import 'package:conduit/shared/widgets/conduit_components.dart';
@@ -27,6 +26,9 @@ ResourceAccessController? _openAudience(
   dynamic ref,
   Conversation conversation,
 ) {
+  // A LibreChat link is open to whoever has it; there is no audience to
+  // choose.
+  if (isLibreChatConversation(conversation)) return null;
   return ResourceAccessController.open(
     ref,
     kind: ResourceKind.chat,
@@ -84,17 +86,9 @@ Future<void> _showNativeChatShareSheet({
   }
 
   Future<String> ensureShareUrl() async {
-    final api = container.read(apiServiceProvider);
-    if (api == null) {
-      throw StateError('API service not available');
-    }
-
-    final shareId = await chat.shareConversation(container, conversationId);
-    if (shareId == null || shareId.isEmpty) {
-      throw StateError('Share id missing');
-    }
+    final link = await chat.shareConversationLink(container, conversationId);
     hasExistingShare = true;
-    return buildChatShareUrl(serverUrl: api.baseUrl, shareId: shareId);
+    return link.url;
   }
 
   /// Copies the link; [announce] is false when the sheet comes straight back
@@ -128,11 +122,9 @@ Future<void> _showNativeChatShareSheet({
 
   Future<void> deleteLink() async {
     try {
-      final api = container.read(apiServiceProvider);
-      if (api == null) {
-        throw StateError('API service not available');
-      }
-      await chat.deleteSharedConversation(container, conversationId);
+      // The delete reaches the chat's own server (Open WebUI or LibreChat)
+      // and checks for its client itself.
+      await chat.deleteConversationShareLink(container, conversationId);
       hasExistingShare = false;
       ConduitHaptics.success();
       showMessage(l10n.sharedLinkDeleted, type: AdaptiveSnackBarType.success);
@@ -274,22 +266,16 @@ class _ChatShareSheetState extends ConsumerState<ChatShareSheet> {
   }
 
   Future<String> _ensureShareUrl() async {
-    final api = ref.read(apiServiceProvider);
-    if (api == null) {
-      throw StateError('API service not available');
-    }
-
-    // Open WebUI re-snapshots an existing share each time the user copies the
+    // An existing share is snapshotted again each time the user copies the
     // link, so the URL points at the latest persisted conversation state.
-    var shareId = await chat.shareConversation(ref, _conversationSelectionId);
-    if (shareId == null || shareId.isEmpty) {
-      throw StateError('Server did not return a share ID');
-    }
+    final link = await chat.shareConversationLink(
+      ref,
+      _conversationSelectionId,
+    );
     if (mounted) {
-      setState(() => _shareId = shareId);
+      setState(() => _shareId = link.shareId);
     }
-
-    return buildChatShareUrl(serverUrl: api.baseUrl, shareId: shareId);
+    return link.url;
   }
 
   Future<void> _copyLink() async {
@@ -334,7 +320,7 @@ class _ChatShareSheetState extends ConsumerState<ChatShareSheet> {
     final l10n = AppLocalizations.of(context)!;
     setState(() => _isDeleting = true);
     try {
-      await chat.deleteSharedConversation(ref, _conversationSelectionId);
+      await chat.deleteConversationShareLink(ref, _conversationSelectionId);
       if (mounted) {
         setState(() => _shareId = null);
       }

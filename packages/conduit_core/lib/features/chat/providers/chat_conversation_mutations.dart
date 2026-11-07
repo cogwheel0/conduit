@@ -162,6 +162,150 @@ Future<void> deleteLibreChatConversation(
   _drainLibreChat(ref);
 }
 
+/// Whether [conversationId] names a LibreChat chat: by its scoped id, or by
+/// the listed or open chat it names.
+bool _libreChatSelection(dynamic ref, String conversationId) {
+  if (_isLibreChatSelection(
+    conversationId,
+    _listedConversationForSelection(ref, conversationId),
+  )) {
+    return true;
+  }
+  final active = _readProvider(ref, activeConversationProvider);
+  return _activeConversationMatchesSelection(active, conversationId) &&
+      isLibreChatConversation(active);
+}
+
+/// Writes a share id the LibreChat server reported to its chat's row, and
+/// to the listed and open chat. A server-side fact, so nothing is queued.
+Future<void> _setLibreChatShareId(
+  dynamic ref,
+  String conversationId,
+  String? shareId,
+) async {
+  final rawId = ChatStorageIdentity.parse(conversationId).rawId;
+  final db = _libreChatDatabaseFor(ref);
+  await _readProvider(ref, libreChatChatLocksProvider).runExclusive(
+    rawId,
+    () => (db.update(db.chats)..where((t) => t.id.equals(rawId))).write(
+      ChatsCompanion(shareId: Value(shareId)),
+    ),
+  );
+  _readProvider(ref, conversationsProvider.notifier).updateConversationFromRemote(
+    conversationId,
+    (Conversation conversation) => conversation.copyWith(shareId: shareId),
+  );
+  final active = _readProvider(ref, activeConversationProvider);
+  if (_activeConversationMatchesSelection(active, conversationId)) {
+    _readProvider(
+      ref,
+      activeConversationProvider.notifier,
+    ).set(active!.copyWith(shareId: shareId));
+  }
+}
+
+/// A shared chat's public link and its share id.
+typedef ChatShareLink = ({String shareId, String url});
+
+/// Shares [conversationId] and returns its public link: a new share, or the
+/// existing one re-snapshotted so the link shows the chat as it is now.
+///
+/// Open WebUI chats share at `/s/{id}` on their server; LibreChat chats at
+/// `/share/{id}` under the base their web app is served from.
+Future<ChatShareLink> shareConversationLink(
+  dynamic ref,
+  String conversationId,
+) async {
+  if (_libreChatSelection(ref, conversationId)) {
+    return _shareLibreChatConversation(ref, conversationId);
+  }
+  final api = _readProvider(ref, apiServiceProvider);
+  if (api == null) throw StateError('API service not available');
+  final shareId = await shareConversation(ref, conversationId);
+  if (shareId == null || shareId.isEmpty) {
+    throw StateError('Server did not return a share ID');
+  }
+  return (
+    shareId: shareId,
+    url: buildChatShareUrl(serverUrl: api.baseUrl, shareId: shareId),
+  );
+}
+
+Future<ChatShareLink> _shareLibreChatConversation(
+  dynamic ref,
+  String conversationId,
+) async {
+  final api =
+      _readProvider(ref, libreChatApiServiceProvider) ??
+      (throw StateError('The LibreChat account is not signed in.'));
+  final account =
+      _readProvider(ref, activeLibreChatAccountProvider) ??
+      (throw StateError('The LibreChat account is not signed in.'));
+  final rawId = ChatStorageIdentity.parse(conversationId).rawId;
+  final existing = await api.sharedLinkId(rawId);
+  final shareId = existing == null
+      ? await api.createSharedLink(rawId)
+      : await api.refreshSharedLink(existing);
+  await _setLibreChatShareId(ref, conversationId, shareId);
+  return (
+    shareId: shareId,
+    url: buildLibreChatShareUrl(
+      baseUrl: account.server.baseUrl,
+      shareId: shareId,
+    ),
+  );
+}
+
+/// Deletes [conversationId]'s share link, from Open WebUI or LibreChat.
+Future<void> deleteConversationShareLink(
+  dynamic ref,
+  String conversationId,
+) async {
+  if (!_libreChatSelection(ref, conversationId)) {
+    return deleteSharedConversation(ref, conversationId);
+  }
+  final api =
+      _readProvider(ref, libreChatApiServiceProvider) ??
+      (throw StateError('The LibreChat account is not signed in.'));
+  final rawId = ChatStorageIdentity.parse(conversationId).rawId;
+  final shareId = await api.sharedLinkId(rawId);
+  if (shareId != null) await api.deleteSharedLink(shareId);
+  await _setLibreChatShareId(ref, conversationId, null);
+}
+
+/// Copies LibreChat chat [conversationId] into a new chat on the server --
+/// up to [upToMessageId] (a branch) or whole (a duplicate) -- stores the
+/// copy in the account's database and returns it, ready to open.
+Future<Conversation> copyLibreChatConversation(
+  dynamic ref,
+  String conversationId, {
+  String? upToMessageId,
+}) async {
+  final api =
+      _readProvider(ref, libreChatApiServiceProvider) ??
+      (throw StateError('The LibreChat account is not signed in.'));
+  final engine =
+      _readProvider(ref, libreChatSyncEngineProvider) ??
+      (throw StateError('The LibreChat account is not signed in.'));
+  final rawId = ChatStorageIdentity.parse(conversationId).rawId;
+  final copy = upToMessageId == null
+      ? await api.duplicate(rawId)
+      : await api.fork(rawId, messageId: upToMessageId);
+  await engine.storeFetched(copy.conversation, copy.messages);
+  final now = DateTime.now();
+  return withChatStorageProvenance(
+    stampLibreChatProvenance(
+      Conversation(
+        id: copy.conversation.conversationId,
+        title: copy.conversation.title,
+        createdAt: copy.conversation.createdAt?.toLocal() ?? now,
+        updatedAt: copy.conversation.updatedAt?.toLocal() ?? now,
+      ),
+    ),
+    ChatStorageKind.libreChat,
+  );
+}
+
 String _directLocalSelectionId(ChatStorageIdentity identity) {
   if (identity.storage != null &&
       identity.storage != ChatStorageKind.directLocal) {
