@@ -181,10 +181,15 @@ extension _HermesDesktopCanonical on HermesDesktopApiService {
   /// snapshot's [prompts] no longer list: they were settled while no socket
   /// of this app was attached, across a restart too. A batch question's
   /// card (`request/question`) is a server request, listed elsewhere.
+  ///
+  /// [settledSince] is the settle mark taken before the snapshot was asked
+  /// for (`canonicalSettleMark`): a prompt opened after it is not listed
+  /// yet, and keeps its card.
   Future<void> _settleUnlistedCanonicalDecisions(
     HermesSessionBinding binding,
-    Object? prompts,
-  ) async {
+    Object? prompts, {
+    int? settledSince,
+  }) async {
     if (prompts is! List) return;
     // Every listed prompt, not only the ones a replay shows.
     final listed = {
@@ -203,7 +208,12 @@ extension _HermesDesktopCanonical on HermesDesktopApiService {
           parseHermesClarifyCardId(decision.requestId) == null,
         _ => false,
       };
-      if (!prompt || listed.contains(decision.requestId)) continue;
+      if (!prompt ||
+          listed.contains(decision.requestId) ||
+          (settledSince != null &&
+              _rpc.canonicalOpenedSince(decision.requestId, settledSince))) {
+        continue;
+      }
       await HermesPendingDecisionStore.resolve(
         origin: _origin,
         connectionId: config.connectionId,

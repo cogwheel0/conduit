@@ -783,7 +783,7 @@ final class HermesDesktopRpcClient {
         );
         if (sessionAuthority &&
             (type == 'approval.request' || type == 'clarify.request')) {
-          _openCanonicalPrompt(event);
+          _noteCanonicalOpened(_openCanonicalPrompt(event));
         }
         _events.add(event);
         switch (type) {
@@ -866,15 +866,31 @@ final class HermesDesktopRpcClient {
       ? null
       : _canonicalPrompts[promptId];
 
-  /// How many canonical prompts this client saw settled, and when each of
-  /// the latest was: a snapshot asked for before a settlement must not
-  /// reopen that prompt ([canonicalSettleMark]).
+  /// How many canonical prompts this client saw open live or settle, and
+  /// when each of the latest did: a snapshot asked for before then must
+  /// neither reopen a prompt settled since nor close one opened since
+  /// ([canonicalSettleMark]).
   int _canonicalSettles = 0;
   final Map<String, int> _canonicalSettledAt = {};
+  final Map<String, int> _canonicalOpenedAt = {};
 
   /// Taken before a session snapshot is asked for, and handed to
   /// [replayCanonicalPrompts] with it.
   int get canonicalSettleMark => _canonicalSettles;
+
+  /// Whether canonical prompt [promptId] opened live after [mark].
+  bool canonicalOpenedSince(String promptId, int mark) =>
+      (_canonicalOpenedAt[promptId] ?? 0) > mark;
+
+  void _noteCanonicalOpened(String? promptId) {
+    if (promptId == null) return;
+    _canonicalOpenedAt
+      ..remove(promptId)
+      ..[promptId] = ++_canonicalSettles;
+    if (_canonicalOpenedAt.length > 256) {
+      _canonicalOpenedAt.remove(_canonicalOpenedAt.keys.first);
+    }
+  }
 
   void _noteCanonicalSettled(Object? rawPromptId) {
     final promptId = validateHermesOpaqueIdentifier(rawPromptId);
@@ -893,7 +909,9 @@ final class HermesDesktopRpcClient {
   ///
   /// [settledSince] is the [canonicalSettleMark] taken before the snapshot
   /// was asked for: a prompt settled after it is stale in the snapshot and
-  /// stays closed. Every listed prompt counts as open; at most 32 are shown.
+  /// stays closed, and one opened after it is not in the snapshot yet and
+  /// stays open. Every listed prompt counts as open and can be answered; at
+  /// most 32 are shown.
   void replayCanonicalPrompts(
     String sessionId,
     Object? prompts, {
@@ -915,20 +933,24 @@ final class HermesDesktopRpcClient {
             settledAt > settledSince) {
           continue;
         }
-        if (shown >= 32) continue;
         final event = HermesDesktopEvent(
           type: '$kind.request',
           payload: Map<String, dynamic>.from(raw),
           sessionId: sessionId,
         );
-        if (_openCanonicalPrompt(event) == null) continue;
+        // Recorded (so a saved card's answer reaches Hermes) whether or not
+        // it is one of the cards shown.
+        if (_openCanonicalPrompt(event) == null || shown >= 32) continue;
         shown++;
         _events.add(event);
       }
     }
     final settled = [
       for (final entry in _canonicalPrompts.entries)
-        if (entry.value.sessionId == sessionId && !listed.contains(entry.key))
+        if (entry.value.sessionId == sessionId &&
+            !listed.contains(entry.key) &&
+            (settledSince == null ||
+                !canonicalOpenedSince(entry.key, settledSince)))
           entry.key,
     ];
     for (final promptId in settled) {
@@ -950,7 +972,7 @@ final class HermesDesktopRpcClient {
     payload['request_id'] = promptId;
     _unconfirmedCanonicalPrompts.remove(promptId);
     if (!_canonicalPrompts.containsKey(promptId) &&
-        _canonicalPrompts.length >= 64) {
+        _canonicalPrompts.length >= 256) {
       _unconfirmedCanonicalPrompts.remove(_canonicalPrompts.keys.first);
       _canonicalPrompts.remove(_canonicalPrompts.keys.first);
     }

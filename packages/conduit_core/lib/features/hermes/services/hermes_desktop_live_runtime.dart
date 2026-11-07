@@ -328,7 +328,11 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
     // them once it adopts this runtime id.
     if (_canonical) {
       _adoptCanonicalSnapshot(runtime, result, settledSince: settleMark);
-      await _settleUnlistedCanonicalDecisions(binding, result['prompts']);
+      await _settleUnlistedCanonicalDecisions(
+        binding,
+        result['prompts'],
+        settledSince: settleMark,
+      );
     }
     _rpc.replayOpenRequests(result['open_requests']);
     _rpc.replayPendingConnection(result['pending_connection'], runtime);
@@ -387,7 +391,10 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
       createKey = jsonEncode(identity);
       params = {
         ...identity,
-        'request_id': _canonicalCreateIds[createKey] ?? const Uuid().v4(),
+        // Claimed by one create only: another chat's create with the same
+        // options gets its own id, and so its own session.
+        'request_id':
+            _canonicalCreateIds.remove(createKey) ?? const Uuid().v4(),
       };
     } else {
       params = {

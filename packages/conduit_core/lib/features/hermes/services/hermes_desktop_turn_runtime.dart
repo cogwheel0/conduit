@@ -509,7 +509,8 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
         try {
           // Sent again under the same submission id, the prompt is admitted
           // once: Hermes answers with the admission the lost submit made.
-          binding = (await _resumeSnapshot(storedId, refresh: true)).binding;
+          final reconciled = await _resumeSnapshot(storedId, refresh: true);
+          binding = reconciled.binding;
           final submitted = await submitPrompt();
           adoptAdmission(submitted);
           promptAcknowledged = true;
@@ -517,8 +518,9 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
             await interruptTurn();
             finish();
           } else if (submitted is Map && submitted['status'] == 'terminal') {
-            // It ran while the socket was down: its reply is stored.
-            finish(authoritativeIdle: true);
+            // It ran while the socket was down: its reply is stored. The
+            // session may be running another prompt now.
+            finish(authoritativeIdle: reconciled.running != true);
             _emitTranscriptChange(storedId);
           } else {
             if (hasAuthoritativeState()) {

@@ -456,6 +456,40 @@ void main() {
       check(gateway.calls('session.interrupt')).isEmpty();
     });
 
+    test('a lost submit that ran meanwhile leaves a later turn running',
+        () async {
+      var submits = 0;
+      var dropped = false;
+      gateway.handler = (method, params) {
+        if (method == 'prompt.submit' && submits++ == 0) {
+          dropped = true;
+          scheduleMicrotask(
+            () => gateway.incoming.addError(StateError('dropped')),
+          );
+          return _Authority.silent;
+        }
+        if (method == 'prompt.submit') {
+          // It ran while the socket was down; another prompt runs now.
+          return {
+            'admission_id': 'adm-1',
+            'ref': {'session_id': 'local-1'},
+            'status': 'terminal',
+          };
+        }
+        if (method == 'session.resume' && dropped) {
+          return {...gateway.snapshot('local-1'), 'running': true};
+        }
+        return gateway.defaults(method, params);
+      };
+
+      await stream(() {});
+      await _settle();
+
+      check(
+        service.turnStateFor('local-1'),
+      ).equals(HermesDesktopTurnState.running);
+    });
+
     test('a Stop before the submit is answered cancels only it', () async {
       final cancel = CancelToken();
       gateway.handler = (method, params) {
@@ -739,6 +773,35 @@ void main() {
         (params) => params['operation'] == 'model',
       ),
     ).length.equals(2);
+  });
+
+  test('a create that retries a lost one is that create alone', () async {
+    final gateway = _Authority();
+    var creates = 0;
+    gateway.handler = (method, params) {
+      if (method == 'session.create' && creates++ == 0) {
+        scheduleMicrotask(() => gateway.incoming.addError(StateError('gone')));
+        return _Authority.silent;
+      }
+      return gateway.defaults(method, params);
+    };
+    final service = _service(gateway);
+
+    await check(service.createDesktopSession()).throws<Object>();
+    // Two new chats with the same options start together.
+    await Future.wait([
+      service.createDesktopSession(),
+      service.createDesktopSession(),
+    ]);
+
+    final ids = [
+      for (final create in gateway.calls('session.create'))
+        create['request_id'],
+    ];
+    check(ids).length.equals(3);
+    // One of them retries the lost create; the other is a create of its
+    // own.
+    check(ids.where((id) => id == ids.first)).length.equals(2);
   });
 
   test('deleting a chat detaches from it instead of closing it', () async {
@@ -1074,6 +1137,67 @@ void main() {
 
       check(pending).isEmpty();
       check(shown.where((e) => e.type == 'clarify.request')).isEmpty();
+    });
+
+    test('one opened while its snapshot was read stays open', () async {
+      final gateway = _Authority();
+      gateway.handler = (method, params) {
+        if (method == 'session.resume') {
+          // Asked while the snapshot was read: the snapshot predates it.
+          gateway.event('approval.request', {
+            'kind': 'approval',
+            'prompt_id': 'prompt-new',
+            'execution_generation': 2,
+            'command': 'make release',
+            'choices': ['once', 'deny'],
+          }, seq: 7);
+        }
+        return gateway.defaults(method, params);
+      };
+      final service = _service(gateway);
+      final shown = <HermesDesktopEvent>[];
+      service.rpc.events.listen(shown.add);
+
+      final pending = await service.pendingDecisionsForSession('local-1');
+      await _settle();
+
+      check(shown.where((e) => e.type == 'approval.expire')).isEmpty();
+      check(
+        (await service.pendingDecisionsForSession('local-1')).map(
+          (decision) => decision.requestId,
+        ),
+      ).contains('prompt-new');
+      check(pending).isNotNull();
+    });
+
+    test('one listed past the shown cards can still be answered', () async {
+      final gateway = _Authority()
+        ..prompts = [
+          for (var n = 1; n <= 33; n++)
+            {
+              'kind': 'approval',
+              'prompt_id': 'prompt-$n',
+              'execution_generation': 2,
+              'command': 'make step-$n',
+              'choices': ['once', 'deny'],
+            },
+        ];
+      final service = _service(gateway);
+      final shown = <HermesDesktopEvent>[];
+      service.rpc.events.listen(shown.add);
+
+      await service.pendingDecisionsForSession('local-1');
+      await _settle();
+      check(shown.where((e) => e.type == 'approval.request')).length.equals(32);
+
+      await service.resolveApprovalChoiceForSession(
+        'local-1',
+        approvalId: 'prompt-33',
+        choice: 'once',
+      );
+
+      check(gateway.calls('approval.respond').single['prompt_id'])
+          .equals('prompt-33');
     });
 
     test('a snapshot past the replay bound keeps every listed one', () async {
