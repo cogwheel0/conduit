@@ -4433,5 +4433,8 @@
   "hermesReadOnlySessionNoticeFrom": "此聊天始於 {source}。你可以在這裡閱讀，但 Hermes 只允許 Conduit 在它發起的聊天中回覆。",
   "@hermesReadOnlySessionNoticeFrom": {"placeholders": {"source": {"type": "String"}}},
   "hermesContinueInCopy": "在副本中繼續",
-  "hermesContinueInCopyFailed": "無法複製此聊天。請再試一次。"
+  "hermesContinueInCopyFailed": "無法複製此聊天。請再試一次。",
+  "hermesContinueHere": "在此繼續",
+  "hermesContinueHereFailed": "無法在此繼續此聊天。請再試一次。",
+  "hermesContinueChoiceExplanation": "在此繼續會結束另一個應用程式中的這個聊天，該應用程式會在下一則訊息時開始新聊天。副本會保持那個聊天不變，但先前的訊息只儲存在此裝置上。"
 }

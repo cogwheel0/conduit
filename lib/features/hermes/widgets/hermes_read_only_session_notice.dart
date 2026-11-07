@@ -1,5 +1,8 @@
+import 'dart:async';
+
 import 'package:conduit_core/features/hermes/models/hermes_session.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
+import 'package:conduit_core/features/hermes/services/hermes_backend_service.dart';
 import 'package:conduit_core/features/hermes/services/hermes_session_provenance.dart'
     show isNativeHermesConversation;
 import 'package:conduit_core/models/conversation.dart';
@@ -35,7 +38,9 @@ String? watchHermesReadOnlySessionSource(
 /// Replaces the composer for a Hermes session another Hermes surface owns.
 ///
 /// Hermes v0.22.1+ refuses REST turns into such a session, so the chat stays
-/// readable and offers to continue in a server-side copy that Conduit owns.
+/// readable and offers two ways to continue it in a session Conduit owns:
+/// here, through Hermes' fork, which ends the chat in the other app; or in a
+/// copy, which leaves it alone but keeps its earlier messages on this device.
 class HermesReadOnlySessionNotice extends ConsumerStatefulWidget {
   const HermesReadOnlySessionNotice({super.key, required this.source});
 
@@ -49,29 +54,95 @@ class HermesReadOnlySessionNotice extends ConsumerStatefulWidget {
 
 class _HermesReadOnlySessionNoticeState
     extends ConsumerState<HermesReadOnlySessionNotice> {
-  bool _copying = false;
+  bool _busy = false;
 
-  Future<void> _continueInCopy() async {
-    if (_copying) return;
-    final l10n = AppLocalizations.of(context)!;
+  /// Runs one of the continue actions for the open chat, reporting a failure
+  /// with [failureMessage].
+  Future<void> _continue(
+    String failureMessage,
+    Future<void> Function(
+      HermesBackendService service,
+      Conversation conversation,
+      String sessionId,
+    )
+    action,
+  ) async {
+    if (_busy) return;
     final service = ref.read(hermesApiServiceProvider);
     final conversation = ref.read(activeConversationProvider);
     final sessionId = conversation?.metadata['hermesSessionId'];
     if (service == null || conversation == null || sessionId is! String) {
       return;
     }
-    setState(() => _copying = true);
+    setState(() => _busy = true);
     try {
-      // Not Hermes' fork: it ends the original as "branched", so the other
-      // app's chat would start over on its next message. A fresh session
-      // owned by the API server leaves that chat alone, and every REST turn
-      // replays the visible transcript, so the copy keeps its context. It is
-      // untitled because Hermes refuses a second session with the same title.
+      await action(service, conversation, sessionId);
+    } catch (error) {
+      DebugLogger.error(
+        'continue-read-only-session-failed',
+        scope: 'hermes/sessions',
+        data: {'errorType': error.runtimeType.toString()},
+      );
+      if (mounted) {
+        UiUtils.showMessage(context, failureMessage, isError: true);
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  /// Whether [conversation] is still the open chat on [service].
+  bool _sameChat(HermesBackendService service, Conversation conversation) =>
+      identical(ref.read(hermesApiServiceProvider), service) &&
+      ref.read(activeConversationProvider)?.id == conversation.id;
+
+  /// Hermes' fork copies every message into a session the API server owns,
+  /// on every device, but ends the original as "branched": the other app
+  /// starts a new chat on its next message.
+  Future<void> _continueHere() => _continue(
+    AppLocalizations.of(context)!.hermesContinueHereFailed,
+    (service, conversation, sessionId) async {
+      final sessions = ref.read(hermesSessionsProvider.notifier);
+      final forkId = await sessions.fork(sessionId);
+      if (forkId == null || !mounted || !_sameChat(service, conversation)) {
+        return;
+      }
+      HermesSessionSummary? fork;
+      try {
+        fork = (await ref.read(
+          hermesSessionsProvider.future,
+        )).where((session) => session.id == forkId).firstOrNull;
+      } catch (_) {
+        // The fork exists; open it under the original's title.
+      }
+      if (!mounted || !_sameChat(service, conversation)) return;
+      await openHermesSession(
+        context,
+        ref,
+        fork ??
+            HermesSessionSummary(
+              id: forkId,
+              title: conversation.title,
+              source: kHermesApiOwnedSessionSources.first,
+            ),
+      );
+    },
+  );
+
+  /// A new session the API server owns, which leaves the other app's chat
+  /// alone. Hermes never stores the history a turn replays, so the copied
+  /// messages are saved on this device as the copy's earlier messages (see
+  /// [openHermesSession]). It is untitled because Hermes refuses a second
+  /// session with the same title.
+  Future<void> _continueInCopy() => _continue(
+    AppLocalizations.of(context)!.hermesContinueInCopyFailed,
+    (service, conversation, sessionId) async {
       final transcript = await service.getSessionMessages(sessionId);
       final copyId = await service.createSession();
-      if (!mounted ||
-          !identical(ref.read(hermesApiServiceProvider), service) ||
-          ref.read(activeConversationProvider)?.id != conversation.id) {
+      if (!mounted || !_sameChat(service, conversation)) {
+        // Nothing will open the copy or save its earlier messages, so don't
+        // leave an empty session in the list.
+        unawaited(service.deleteSession(copyId).catchError((Object _) {}));
         return;
       }
       ref.invalidate(hermesSessionsProvider);
@@ -85,23 +156,8 @@ class _HermesReadOnlySessionNoticeState
         ),
         transcript: transcript,
       );
-    } catch (error) {
-      DebugLogger.error(
-        'continue-in-copy-failed',
-        scope: 'hermes/sessions',
-        data: {'errorType': error.runtimeType.toString()},
-      );
-      if (mounted) {
-        UiUtils.showMessage(
-          context,
-          l10n.hermesContinueInCopyFailed,
-          isError: true,
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _copying = false);
-    }
-  }
+    },
+  );
 
   @override
   Widget build(BuildContext context) {
@@ -136,28 +192,53 @@ class _HermesReadOnlySessionNoticeState
               ),
               const SizedBox(width: Spacing.sm),
               Expanded(
-                child: Text(
-                  source.isEmpty
-                      ? l10n.hermesReadOnlySessionNotice
-                      : l10n.hermesReadOnlySessionNoticeFrom(source),
-                  style: AppTypography.bodySmallStyle.copyWith(
-                    color: theme.textSecondary,
-                  ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      source.isEmpty
+                          ? l10n.hermesReadOnlySessionNotice
+                          : l10n.hermesReadOnlySessionNoticeFrom(source),
+                      style: AppTypography.bodySmallStyle.copyWith(
+                        color: theme.textSecondary,
+                      ),
+                    ),
+                    const SizedBox(height: Spacing.xs),
+                    Text(
+                      l10n.hermesContinueChoiceExplanation,
+                      style: AppTypography.captionStyle.copyWith(
+                        color: theme.textTertiary,
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ],
           ),
           const SizedBox(height: Spacing.sm),
-          Align(
-            alignment: AlignmentDirectional.centerEnd,
-            child: AdaptiveButton(
-              key: const ValueKey<String>('hermes-continue-in-copy'),
-              onPressed: _copying ? null : _continueInCopy,
-              enabled: !_copying,
-              label: l10n.hermesContinueInCopy,
-              style: AdaptiveButtonStyle.tinted,
-              size: AdaptiveButtonSize.small,
-            ),
+          Wrap(
+            alignment: WrapAlignment.end,
+            spacing: Spacing.sm,
+            runSpacing: Spacing.xs,
+            children: [
+              AdaptiveButton(
+                key: const ValueKey<String>('hermes-continue-here'),
+                onPressed: _busy ? null : _continueHere,
+                enabled: !_busy,
+                label: l10n.hermesContinueHere,
+                style: AdaptiveButtonStyle.plain,
+                size: AdaptiveButtonSize.small,
+              ),
+              AdaptiveButton(
+                key: const ValueKey<String>('hermes-continue-in-copy'),
+                onPressed: _busy ? null : _continueInCopy,
+                enabled: !_busy,
+                label: l10n.hermesContinueInCopy,
+                style: AdaptiveButtonStyle.tinted,
+                size: AdaptiveButtonSize.small,
+              ),
+            ],
           ),
         ],
       ),

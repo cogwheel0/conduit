@@ -6356,5 +6356,8 @@
   "hermesReadOnlySessionNoticeFrom": "Tento chat sa začal v {source}. Môžete si ho tu prečítať, ale Hermes dovoľuje Conduitu odpovedať iba v chatoch, ktoré Conduit začal.",
   "@hermesReadOnlySessionNoticeFrom": {"placeholders": {"source": {"type": "String"}}},
   "hermesContinueInCopy": "Pokračovať v kópii",
-  "hermesContinueInCopyFailed": "Tento chat sa nepodarilo skopírovať. Skúste to znova."
+  "hermesContinueInCopyFailed": "Tento chat sa nepodarilo skopírovať. Skúste to znova.",
+  "hermesContinueHere": "Pokračovať tu",
+  "hermesContinueHereFailed": "V tomto chate sa nepodarilo pokračovať tu. Skúste to znova.",
+  "hermesContinueChoiceExplanation": "Pokračovaním tu sa tento chat v druhej aplikácii ukončí a tá pri ďalšej správe začne nový. Kópia ten chat ponechá bez zmeny, ale staršie správy uloží iba v tomto zariadení."
 }

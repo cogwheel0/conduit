@@ -6050,5 +6050,8 @@
   "hermesReadOnlySessionNoticeFrom": "このチャットは {source} で始まりました。ここで読むことはできますが、Hermes では Conduit が始めたチャットにしか返信できません。",
   "@hermesReadOnlySessionNoticeFrom": {"placeholders": {"source": {"type": "String"}}},
   "hermesContinueInCopy": "コピーで続ける",
-  "hermesContinueInCopyFailed": "このチャットをコピーできませんでした。もう一度お試しください。"
+  "hermesContinueInCopyFailed": "このチャットをコピーできませんでした。もう一度お試しください。",
+  "hermesContinueHere": "ここで続ける",
+  "hermesContinueHereFailed": "このチャットをここで続けられませんでした。もう一度お試しください。",
+  "hermesContinueChoiceExplanation": "ここで続けると、もう一方のアプリではこのチャットが終了し、次のメッセージで新しいチャットが始まります。コピーではそのチャットはそのまま残りますが、以前のメッセージはこのデバイスにのみ保存されます。"
 }

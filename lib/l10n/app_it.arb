@@ -4433,5 +4433,8 @@
   "hermesReadOnlySessionNoticeFrom": "Questa chat è iniziata in {source}. Puoi leggerla qui, ma Hermes permette a Conduit di rispondere solo nelle chat avviate da Conduit.",
   "@hermesReadOnlySessionNoticeFrom": {"placeholders": {"source": {"type": "String"}}},
   "hermesContinueInCopy": "Continua in una copia",
-  "hermesContinueInCopyFailed": "Impossibile copiare questa chat. Riprova."
+  "hermesContinueInCopyFailed": "Impossibile copiare questa chat. Riprova.",
+  "hermesContinueHere": "Continua qui",
+  "hermesContinueHereFailed": "Impossibile continuare questa chat qui. Riprova.",
+  "hermesContinueChoiceExplanation": "Se continui qui, questa chat termina nell'altra app, che ne inizierà una nuova al prossimo messaggio. Una copia lascia intatta quella chat, ma salva i messaggi precedenti solo su questo dispositivo."
 }

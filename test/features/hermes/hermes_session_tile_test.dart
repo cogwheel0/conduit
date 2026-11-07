@@ -522,6 +522,51 @@ void main() {
       check(saved).isNull();
     });
 
+    testWidgets('continue here forks the session and opens the fork', (
+      tester,
+    ) async {
+      final service = _FakeHermesApiService(messages: harborTranscript)
+        ..sessionList = const [
+          {
+            'id': 'harbor-notes-copy',
+            'title': 'Harbor notes #2',
+            'source': 'api_server',
+          },
+        ];
+      final container = ownershipContainer(service);
+      await openForeignChat(tester, container);
+      check(find.text('Continue here').evaluate()).isNotEmpty();
+      check(
+        find.textContaining('ends this chat in the other app').evaluate(),
+      ).isNotEmpty();
+
+      await tester.tap(find.byKey(const ValueKey('hermes-continue-here')));
+      await pumpUntil(tester, () => showsCopy(container));
+
+      // Hermes' fork copies every message into a session the API server
+      // owns, so nothing is saved on this device.
+      check(service.forkedSessionIds).deepEquals(['harbor-notes']);
+      check(service.createdSessionTitles).isEmpty();
+      final fork = container.read(activeConversationProvider);
+      check(fork?.id).equals('local:hermes_harbor-notes-copy');
+      check(fork?.title).equals('Harbor notes #2');
+      check(fork!.messages.map((message) => message.content).toList())
+          .deepEquals([
+            'Which tide tables cover it?',
+            'The north pier tables.',
+          ]);
+      check(find.text('composer').evaluate()).isNotEmpty();
+      final saved = await pumpDatabaseOperation(
+        tester,
+        () => container
+            .read(hermesCopiedHistoryStoreProvider)
+            .load(
+              connectionIdentity: connectionIdentityOf(container),
+              sessionId: 'harbor-notes-copy',
+            ),
+      );
+      check(saved).isNull();
+    });
   });
 
   testWidgets(

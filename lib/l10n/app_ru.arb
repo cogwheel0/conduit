@@ -4471,5 +4471,8 @@
   "hermesReadOnlySessionNoticeFrom": "Этот чат начат в {source}. Здесь его можно читать, но Hermes разрешает Conduit отвечать только в чатах, которые начал Conduit.",
   "@hermesReadOnlySessionNoticeFrom": {"placeholders": {"source": {"type": "String"}}},
   "hermesContinueInCopy": "Продолжить в копии",
-  "hermesContinueInCopyFailed": "Не удалось скопировать этот чат. Повторите попытку."
+  "hermesContinueInCopyFailed": "Не удалось скопировать этот чат. Повторите попытку.",
+  "hermesContinueHere": "Продолжить здесь",
+  "hermesContinueHereFailed": "Не удалось продолжить этот чат здесь. Повторите попытку.",
+  "hermesContinueChoiceExplanation": "Если продолжить здесь, этот чат в другом приложении завершится, и при следующем сообщении оно начнёт новый. Копия оставит тот чат без изменений, но предыдущие сообщения сохранятся только на этом устройстве."
 }
