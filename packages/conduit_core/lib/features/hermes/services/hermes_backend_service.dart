@@ -116,12 +116,17 @@ abstract interface class HermesDesktopTurnService
   /// [voiceContext] marks the turn as one a realtime call handed over: the
   /// recent spoken conversation, which the model reads and the session's
   /// transcript does not keep.
+  ///
+  /// [truncateBeforeRowId] makes the turn an edit or a regenerate: the
+  /// session's transcript is cut before that user row first, so every
+  /// Hermes surface sees the same history.
   Future<HermesResponseStream> streamDesktopResponse(
     HermesChatInput input, {
     String? sessionId,
     required HermesDesktopSessionOptions options,
     CancelToken? cancelToken,
     String? voiceContext,
+    int? truncateBeforeRowId,
   });
 }
 

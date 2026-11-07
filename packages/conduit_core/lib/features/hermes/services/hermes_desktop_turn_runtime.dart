@@ -7,11 +7,20 @@ const int _kMaxHermesVoiceContext = 6000;
 /// voice-live call handed over carries [voiceContext], the recent spoken
 /// conversation, which only the model reads; the session stores `text`.
 /// Context past the bound keeps its newest part.
+///
+/// [truncateBeforeRowId] cuts the transcript before that user row and
+/// everything after it (an edit or a regenerate on the legacy wire). Hermes
+/// drops history only for a submit that confirms it, a cut to an empty
+/// transcript only with its own consent, and, from v0.23, a cut of more
+/// than one turn only with [confirmDeepTruncate]; earlier versions refuse
+/// that key.
 @visibleForTesting
 Map<String, Object?> hermesPromptSubmitParams({
   required String runtimeId,
   required String text,
   String? voiceContext,
+  int? truncateBeforeRowId,
+  bool confirmDeepTruncate = true,
 }) => {
   'session_id': runtimeId,
   'text': text,
@@ -21,6 +30,12 @@ Map<String, Object?> hermesPromptSubmitParams({
         ? voiceContext.substring(voiceContext.length - _kMaxHermesVoiceContext)
         : voiceContext,
   },
+  if (truncateBeforeRowId != null) ...{
+    'truncate_before_row_id': truncateBeforeRowId,
+    'confirm_truncate': true,
+    'confirm_empty_truncate': true,
+    if (confirmDeepTruncate) 'confirm_deep_truncate': true,
+  },
 };
 
 /// A turn whose admission a restart cut off (receipt `unknown`): Hermes does
@@ -29,6 +44,13 @@ const String _kHermesUnknownAdmissionMessage =
     'Hermes restarted while this message ran and does not know how far it '
     'got. Check the chat for its reply.';
 
+/// Whether Hermes refused a submit only for `confirm_deep_truncate`, which
+/// gateways before v0.23 do not know.
+bool _hermesRefusedDeepTruncateConfirmation(Object error) =>
+    error is HermesDesktopRpcException &&
+    error.code == 4000 &&
+    error.message.contains('confirm_deep_truncate');
+
 extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
   Future<HermesResponseStream> _runtimeStreamDesktopResponse(
     HermesChatInput input, {
@@ -36,6 +58,7 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
     required HermesDesktopSessionOptions options,
     CancelToken? cancelToken,
     String? voiceContext,
+    int? truncateBeforeRowId,
   }) async {
     final storedId =
         sessionId ??
@@ -428,13 +451,18 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
       } catch (_) {}
     }
 
-    Future<Object?> submitPrompt() => _rpc.request<Object?>(
+    // A session authority cuts the transcript as an edit of its own, before
+    // the prompt; the legacy wire cuts it with the submit.
+    var confirmDeepTruncate = true;
+    Future<Object?> sendPrompt() => _rpc.request<Object?>(
       'prompt.submit',
       params: {
         ...hermesPromptSubmitParams(
           runtimeId: binding.runtimeId,
           text: text,
           voiceContext: voiceContext,
+          truncateBeforeRowId: canonical ? null : truncateBeforeRowId,
+          confirmDeepTruncate: confirmDeepTruncate,
         ),
         'submission_id': ?submissionId,
         if (attached.attachments.isNotEmpty)
@@ -442,6 +470,21 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
         ..._sessionScope(binding.storedId),
       },
     );
+    Future<Object?> submitPrompt() async {
+      try {
+        return await sendPrompt();
+      } catch (error) {
+        if (canonical ||
+            truncateBeforeRowId == null ||
+            !confirmDeepTruncate ||
+            !_hermesRefusedDeepTruncateConfirmation(error)) {
+          rethrow;
+        }
+        // The refusal ran no handler: nothing was cut yet.
+        confirmDeepTruncate = false;
+        return sendPrompt();
+      }
+    }
 
     void adoptAdmission(Object? submitted) {
       if (!canonical || submitted is! Map) return;
@@ -471,6 +514,34 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
     });
 
     controller.add(HermesResponseCreated(binding.runtimeId));
+    if (truncateBeforeRowId != null) {
+      // The transcript is about to get shorter, and its rows new ids: the
+      // last one read must not stand in for it.
+      _lastTranscripts
+        ..remove(storedId)
+        ..remove(binding.storedId);
+    }
+    if (canonical && truncateBeforeRowId != null) {
+      // Cut first, apart from the submit's recovery below: a lost answer to
+      // this edit must not be read as a lost prompt and sent again uncut.
+      try {
+        await _canonicalMutate(binding, 'rewind', {
+          'target_message_id': truncateBeforeRowId,
+        });
+      } catch (error) {
+        DebugLogger.error(
+          'rewind-failed',
+          scope: 'hermes/desktop/ws',
+          data: {'errorType': error.runtimeType.toString()},
+        );
+        await _detachStaged(binding.runtimeId, stagedPaths);
+        finish(error: error.toString());
+        return HermesResponseStream(
+          events: controller.stream,
+          sessionId: storedId,
+        );
+      }
+    }
     Set<String> promptBaseline = const {};
     // Set once `prompt.submit` is sent; before it, an error is the slash
     // command's.

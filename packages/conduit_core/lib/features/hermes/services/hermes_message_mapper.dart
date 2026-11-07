@@ -767,6 +767,23 @@ bool hermesMessageContentMatches(dynamic a, dynamic b) {
   return true;
 }
 
+/// What a transcript [row] holds when Conduit shows it as a user message:
+/// its stored text (before local documents are restored) and whether it
+/// carries images. Null when [hermesMessagesToChatMessages] shows no user
+/// message for it.
+({String text, bool hasImages})? hermesTranscriptUserContent(
+  Map<String, dynamic> row,
+) {
+  final role = row['role'] ?? row['author'];
+  if (role is! String || role.length > 32 || role.toLowerCase() != 'user') {
+    return null;
+  }
+  final extracted = _extractContent(row['content'] ?? row['text']);
+  final text = extracted.text.trim();
+  if (text.isEmpty && extracted.images.isEmpty) return null;
+  return (text: text, hasImages: extracted.images.isNotEmpty);
+}
+
 _HermesImageCandidate _coerceImageUrl(
   dynamic candidate, {
   required int maxDecodedBytes,

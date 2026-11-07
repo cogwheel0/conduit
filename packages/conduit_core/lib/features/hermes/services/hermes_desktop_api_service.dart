@@ -644,12 +644,14 @@ final class HermesDesktopApiService
     required HermesDesktopSessionOptions options,
     CancelToken? cancelToken,
     String? voiceContext,
+    int? truncateBeforeRowId,
   }) => _runtimeStreamDesktopResponse(
     input,
     sessionId: sessionId,
     options: options,
     cancelToken: cancelToken,
     voiceContext: voiceContext,
+    truncateBeforeRowId: truncateBeforeRowId,
   );
   Future<void> interrupt(String storedId) => _runtimeInterrupt(storedId);
   Future<bool> steer(String storedId, String text) =>

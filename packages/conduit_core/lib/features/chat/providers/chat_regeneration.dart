@@ -1,5 +1,57 @@
 part of 'chat_providers.dart';
 
+/// A Desktop Gateway session's place to cut before [replayedUserIndex], or
+/// null when the turn goes to a new session instead: the REST transport
+/// replays an explicit history, and a chat with no session has nothing to
+/// cut. [rowId] is null when the replayed turn never reached the session,
+/// which then only gets the prompt again.
+///
+/// [originalText] is the replayed prompt as the session stores it, when an
+/// edit has already changed it on screen.
+@visibleForTesting
+Future<({String sessionId, int? rowId})?> hermesDesktopRewindTarget({
+  required HermesBackendService? service,
+  required Conversation? conversation,
+  required List<ChatMessage> messages,
+  required int replayedUserIndex,
+  String? originalText,
+}) async {
+  if (service is! HermesDesktopTurnService ||
+      replayedUserIndex < 0 ||
+      !isNativeHermesConversation(conversation)) {
+    return null;
+  }
+  final sessionId = validateHermesOpaqueIdentifier(
+    conversation!.metadata['hermesSessionId'],
+  );
+  if (sessionId == null) return null;
+  final transcript = await service.getSessionMessages(sessionId);
+  final row = hermesTranscriptUserRowIndex(
+    transcript: transcript,
+    messages: messages,
+    index: replayedUserIndex,
+    text: originalText,
+  );
+  final rowId = row == null ? null : hermesTranscriptRowId(transcript[row]);
+  if (rowId != null) return (sessionId: sessionId, rowId: rowId);
+  var ordinal = 0;
+  for (var index = 0; index < replayedUserIndex; index++) {
+    if (messages[index].role == 'user') ordinal++;
+  }
+  final storedTurns = transcript
+      .where((row) => hermesTranscriptUserContent(row) != null)
+      .length;
+  if (storedTurns > ordinal) {
+    // The session holds this turn or a later one, and neither can be told
+    // apart for certain: sending again uncut would leave them in place.
+    throw StateError(
+      'This message could not be found in the Hermes chat. Reopen the chat '
+      'and try again.',
+    );
+  }
+  return (sessionId: sessionId, rowId: null);
+}
+
 Future<void> _regenerateHermesMessage(
   dynamic ref, {
   required Model selectedModel,
@@ -7,6 +59,7 @@ Future<void> _regenerateHermesMessage(
   required HermesConfigController configController,
   required int configAdmission,
   required HermesBackendService? serviceGeneration,
+  String? originalUserContent,
 }) async {
   final reasoningEffort = ref.read(configuredReasoningEffortProvider);
   final activeAtStart = ref.read(activeConversationProvider) as Conversation?;
@@ -103,6 +156,21 @@ Future<void> _regenerateHermesMessage(
       !identical(ref.read(hermesApiServiceProvider), serviceGeneration)) {
     return;
   }
+  // A Desktop Gateway session keeps its own transcript: the replayed turn is
+  // cut from it and sent again into that session, so every Hermes surface
+  // sees the same history.
+  final rewind = await hermesDesktopRewindTarget(
+    service: serviceGeneration,
+    conversation: activeAtStart,
+    messages: existingMessages,
+    replayedUserIndex: replayedUserIndex,
+    originalText: originalUserContent,
+  );
+  if (!chatMutationTokenStillActive(ref, mutationOwner)) return;
+  if (!configController.sessionActionAdmissionIsCurrent(configAdmission) ||
+      !identical(ref.read(hermesApiServiceProvider), serviceGeneration)) {
+    return;
+  }
 
   // Historical regeneration leaves the selected assistant at the tail. Reuse
   // that message rather than retaining an archived record plus a second
@@ -115,7 +183,8 @@ Future<void> _regenerateHermesMessage(
     assistantSeed: assistant,
     input: replayedUser?.content ?? input,
     existingMessages: continuityMessages,
-    forceNewSession: true,
+    forceNewSession: rewind == null,
+    truncateBeforeRowId: rewind?.rowId,
     // Regeneration branches from [continuityMessages]. Chaining the response
     // being replaced would restore the wrong tail and the wrong server session.
     previousResponseIdOverride: null,
@@ -563,7 +632,13 @@ Future<void> regenerateEditedHermesUserMessage(
   ]);
   notifier.setMessages(optimisticMessages);
   try {
-    await regenerateMessage(ref, content, null);
+    await regenerateMessage(
+      ref,
+      content,
+      null,
+      // A Desktop session finds the turn to cut by the text it stored.
+      hermesOriginalUserContent: messages[index].content,
+    );
   } catch (_) {
     // Editing is a branch operation, but the original branch must remain
     // intact when the replacement cannot even be started. Restore only while
@@ -633,6 +708,7 @@ Future<void> regenerateMessage(
   List<String>? attachments, {
   bool forceImageGeneration = false,
   bool Function()? ownsPreparationState,
+  String? hermesOriginalUserContent,
 }) async {
   final conversationAtRegenerationStart =
       ref.read(activeConversationProvider) as Conversation?;
@@ -749,6 +825,7 @@ Future<void> regenerateMessage(
       configController: hermesConfigController!,
       configAdmission: hermesConfigAdmission!,
       serviceGeneration: hermesServiceGeneration,
+      originalUserContent: hermesOriginalUserContent,
     );
     return;
   }
