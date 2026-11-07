@@ -4555,5 +4555,12 @@
   "hermesClarifyOtherAnswer": "O escribe tu propia respuesta",
   "hermesClarifySkip": "Omitir",
   "hermesClarifySkipped": "Omitida",
-  "hermesClarifyRecommended": "Recomendada"
+  "hermesClarifyRecommended": "Recomendada",
+  "hermesChangedFiles": "{count, plural, =1{1 archivo modificado} other{{count} archivos modificados}}",
+  "@hermesChangedFiles": {"placeholders": {"count": {"type": "int"}}},
+  "hermesChangedFilesMore": "{count, plural, =1{1 archivo más} other{{count} archivos más}}",
+  "@hermesChangedFilesMore": {"placeholders": {"count": {"type": "int"}}},
+  "hermesDiffUnnamedFile": "Archivo modificado",
+  "hermesDiffLineCounts": "Líneas añadidas: {added}, eliminadas: {removed}",
+  "@hermesDiffLineCounts": {"placeholders": {"added": {"type": "int"}, "removed": {"type": "int"}}}
 }

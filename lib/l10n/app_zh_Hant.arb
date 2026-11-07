@@ -4555,5 +4555,12 @@
   "hermesClarifyOtherAnswer": "或輸入你自己的回答",
   "hermesClarifySkip": "略過",
   "hermesClarifySkipped": "已略過",
-  "hermesClarifyRecommended": "推薦"
+  "hermesClarifyRecommended": "推薦",
+  "hermesChangedFiles": "{count, plural, other{已變更 {count} 個檔案}}",
+  "@hermesChangedFiles": {"placeholders": {"count": {"type": "int"}}},
+  "hermesChangedFilesMore": "{count, plural, other{另外 {count} 個檔案}}",
+  "@hermesChangedFilesMore": {"placeholders": {"count": {"type": "int"}}},
+  "hermesDiffUnnamedFile": "已變更的檔案",
+  "hermesDiffLineCounts": "新增行：{added}，刪除行：{removed}",
+  "@hermesDiffLineCounts": {"placeholders": {"added": {"type": "int"}, "removed": {"type": "int"}}}
 }

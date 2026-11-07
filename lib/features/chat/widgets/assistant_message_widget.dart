@@ -43,6 +43,7 @@ import 'enhanced_attachment.dart';
 import 'package:conduit/shared/widgets/chat_action_button.dart';
 
 import '../../../shared/widgets/model_avatar.dart';
+import '../../hermes/widgets/hermes_diff_card.dart';
 import '../../hermes/widgets/hermes_history_actions.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/middle_ellipsis_text.dart';
@@ -1474,6 +1475,9 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
                   const SizedBox(height: Spacing.md),
                   CodeExecutionListView(executions: activeCodeExecutions),
                 ],
+
+                // Files a Hermes reply's tools edited, as a diff card.
+                HermesChangedFilesCard(statuses: widget.message.statusHistory),
 
                 // Version switcher moved inline with action buttons below
               ],

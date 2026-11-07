@@ -6478,5 +6478,12 @@
   "hermesClarifyOtherAnswer": "Alebo napíšte vlastnú odpoveď",
   "hermesClarifySkip": "Preskočiť",
   "hermesClarifySkipped": "Preskočené",
-  "hermesClarifyRecommended": "Odporúčané"
+  "hermesClarifyRecommended": "Odporúčané",
+  "hermesChangedFiles": "{count, plural, =1{Zmenený 1 súbor} few{Zmenené {count} súbory} other{Zmenených {count} súborov}}",
+  "@hermesChangedFiles": {"placeholders": {"count": {"type": "int"}}},
+  "hermesChangedFilesMore": "{count, plural, =1{Ešte 1 súbor} few{Ešte {count} súbory} other{Ešte {count} súborov}}",
+  "@hermesChangedFilesMore": {"placeholders": {"count": {"type": "int"}}},
+  "hermesDiffUnnamedFile": "Zmenený súbor",
+  "hermesDiffLineCounts": "Pridané riadky: {added}, odstránené: {removed}",
+  "@hermesDiffLineCounts": {"placeholders": {"added": {"type": "int"}, "removed": {"type": "int"}}}
 }

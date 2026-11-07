@@ -4555,5 +4555,12 @@
   "hermesClarifyOtherAnswer": "或输入你自己的回答",
   "hermesClarifySkip": "跳过",
   "hermesClarifySkipped": "已跳过",
-  "hermesClarifyRecommended": "推荐"
+  "hermesClarifyRecommended": "推荐",
+  "hermesChangedFiles": "{count, plural, other{已更改 {count} 个文件}}",
+  "@hermesChangedFiles": {"placeholders": {"count": {"type": "int"}}},
+  "hermesChangedFilesMore": "{count, plural, other{另外 {count} 个文件}}",
+  "@hermesChangedFilesMore": {"placeholders": {"count": {"type": "int"}}},
+  "hermesDiffUnnamedFile": "已更改的文件",
+  "hermesDiffLineCounts": "新增行：{added}，删除行：{removed}",
+  "@hermesDiffLineCounts": {"placeholders": {"added": {"type": "int"}, "removed": {"type": "int"}}}
 }

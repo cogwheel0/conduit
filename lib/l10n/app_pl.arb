@@ -8596,5 +8596,39 @@
   "hermesClarifyRecommended": "Zalecane",
   "@hermesClarifyRecommended": {
     "description": "Badge on the choice Hermes recommends in a question form."
+  },
+  "hermesChangedFiles": "{count, plural, =1{Zmieniono 1 plik} few{Zmieniono {count} pliki} many{Zmieniono {count} plików} other{Zmieniono {count} pliku}}",
+  "@hermesChangedFiles": {
+    "description": "Title of the card under a Hermes reply listing the files its tools edited.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "hermesChangedFilesMore": "{count, plural, =1{Jeszcze 1 plik} few{Jeszcze {count} pliki} many{Jeszcze {count} plików} other{Jeszcze {count} pliku}}",
+  "@hermesChangedFilesMore": {
+    "description": "Last row of the changed-files card under a Hermes reply when it lists only some files; opens the rest.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "hermesDiffUnnamedFile": "Zmieniony plik",
+  "@hermesDiffUnnamedFile": {
+    "description": "Name shown for an edited file when Hermes did not say which file it was."
+  },
+  "hermesDiffLineCounts": "Dodane wiersze: {added}, usunięte: {removed}",
+  "@hermesDiffLineCounts": {
+    "description": "Screen reader text for how many lines an edit added and removed in a file.",
+    "placeholders": {
+      "added": {
+        "type": "int"
+      },
+      "removed": {
+        "type": "int"
+      }
+    }
   }
 }

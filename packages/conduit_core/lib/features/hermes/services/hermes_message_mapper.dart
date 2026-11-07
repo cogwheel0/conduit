@@ -5,6 +5,7 @@ import 'package:uuid/uuid.dart';
 import 'package:conduit_core/models/chat_message.dart';
 
 import 'package:conduit_core/features/hermes/models/hermes_chat_input.dart';
+import 'package:conduit_core/features/hermes/models/hermes_inline_diff.dart';
 import 'package:conduit_core/features/hermes/utils/hermes_time_parsing.dart';
 import 'package:conduit_core/features/hermes/services/hermes_identifier.dart';
 import 'package:conduit_core/features/hermes/services/hermes_local_document_service.dart';
@@ -303,6 +304,23 @@ String? _persistedHermesToolDetail(Object? value) {
   return String.fromCharCodes(safe.runes.take(2048));
 }
 
+/// A stored tool row's `display_metadata.tool_result_metadata`: what Hermes
+/// prepared to show with the result (an edit's `inline_diff`). Stored as
+/// JSON text or an object.
+Map<Object?, Object?> _storedToolResultMetadata(Map<String, dynamic> item) {
+  var display = item['display_metadata'];
+  if (display is String) {
+    if (display.length > kMaxHermesInlineDiffCharacters * 4) return const {};
+    try {
+      display = jsonDecode(display);
+    } on FormatException {
+      return const {};
+    }
+  }
+  final metadata = display is Map ? display['tool_result_metadata'] : null;
+  return metadata is Map ? metadata : const {};
+}
+
 void _completePersistedHermesTool(
   Map<String, dynamic> item, {
   required List<ChatMessage> messages,
@@ -320,12 +338,18 @@ void _completePersistedHermesTool(
   final result = _persistedHermesToolDetail(
     item['error'] ?? item['result_text'] ?? item['result'] ?? item['content'],
   );
-  final inlineDiff = _persistedHermesToolDetail(item['inline_diff']);
+  // Hermes 0.23 stores the diff with the row's display metadata; earlier
+  // rows carried it at the top level.
+  final rawDiff =
+      item['inline_diff'] ?? _storedToolResultMetadata(item)['inline_diff'];
+  final inlineDiff = rawDiff is String
+      ? sanitizeHermesInlineDiff(rawDiff)
+      : null;
   final details = <ChatStatusItem>[
     ...statuses[pending.statusIndex].items,
     if (result != null)
       hermesToolDetailItem(item['error'] != null ? 'Error' : 'Result', result)!,
-    if (inlineDiff != null) hermesToolDetailItem('Inline diff', inlineDiff)!,
+    if (inlineDiff != null) hermesInlineDiffItem(inlineDiff),
   ];
   statuses[pending.statusIndex] = statuses[pending.statusIndex].copyWith(
     done: true,

@@ -13,6 +13,7 @@ import 'package:conduit_markdown/conduit_markdown.dart';
 import 'package:conduit_core/utils/sensitive_value_utils.dart';
 
 import 'package:conduit_core/features/hermes/models/hermes_clarify_form.dart';
+import 'package:conduit_core/features/hermes/models/hermes_inline_diff.dart';
 import 'package:conduit_core/features/hermes/models/hermes_run_event.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 import 'package:conduit_core/features/hermes/services/hermes_api_service.dart';
@@ -1922,15 +1923,15 @@ void _handleEvent(
             maxCharacters: 2048,
           ),
         ),
-        ?hermesToolDetailItem(
-          'Inline diff',
-          inlineDiff,
-          sanitize: (raw) => sanitizeHermesProviderErrorMessage(
-            raw,
-            sensitiveValues: sensitiveValues,
-            maxCharacters: 2048,
-          ),
-        ),
+        // Kept line by line, so the reply can show it as a diff card.
+        if (inlineDiff == null
+            ? null
+            : sanitizeHermesInlineDiff(
+                inlineDiff,
+                sensitiveValues: sensitiveValues,
+              )
+            case final String diff)
+          hermesInlineDiffItem(diff),
       ];
       appendStatus(
         ChatStatusUpdate(

@@ -4593,5 +4593,12 @@
   "hermesClarifyOtherAnswer": "Или введите свой ответ",
   "hermesClarifySkip": "Пропустить",
   "hermesClarifySkipped": "Пропущено",
-  "hermesClarifyRecommended": "Рекомендуется"
+  "hermesClarifyRecommended": "Рекомендуется",
+  "hermesChangedFiles": "{count, plural, one{Изменён {count} файл} few{Изменено {count} файла} many{Изменено {count} файлов} other{Изменено {count} файла}}",
+  "@hermesChangedFiles": {"placeholders": {"count": {"type": "int"}}},
+  "hermesChangedFilesMore": "{count, plural, one{Ещё {count} файл} few{Ещё {count} файла} many{Ещё {count} файлов} other{Ещё {count} файла}}",
+  "@hermesChangedFilesMore": {"placeholders": {"count": {"type": "int"}}},
+  "hermesDiffUnnamedFile": "Изменённый файл",
+  "hermesDiffLineCounts": "Добавлено строк: {added}, удалено: {removed}",
+  "@hermesDiffLineCounts": {"placeholders": {"added": {"type": "int"}, "removed": {"type": "int"}}}
 }

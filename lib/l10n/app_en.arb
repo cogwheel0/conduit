@@ -9908,5 +9908,39 @@
   "hermesClarifyRecommended": "Recommended",
   "@hermesClarifyRecommended": {
     "description": "Badge on the choice Hermes recommends in a question form."
+  },
+  "hermesChangedFiles": "{count, plural, =1{1 file changed} other{{count} files changed}}",
+  "@hermesChangedFiles": {
+    "description": "Title of the card under a Hermes reply listing the files its tools edited.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "hermesChangedFilesMore": "{count, plural, =1{1 more file} other{{count} more files}}",
+  "@hermesChangedFilesMore": {
+    "description": "Last row of the changed-files card under a Hermes reply when it lists only some files; opens the rest.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "hermesDiffUnnamedFile": "Changed file",
+  "@hermesDiffUnnamedFile": {
+    "description": "Name shown for an edited file when Hermes did not say which file it was."
+  },
+  "hermesDiffLineCounts": "Lines added: {added}, removed: {removed}",
+  "@hermesDiffLineCounts": {
+    "description": "Screen reader text for how many lines an edit added and removed in a file.",
+    "placeholders": {
+      "added": {
+        "type": "int"
+      },
+      "removed": {
+        "type": "int"
+      }
+    }
   }
 }

@@ -4555,5 +4555,12 @@
   "hermesClarifyOtherAnswer": "Of typ je eigen antwoord",
   "hermesClarifySkip": "Overslaan",
   "hermesClarifySkipped": "Overgeslagen",
-  "hermesClarifyRecommended": "Aanbevolen"
+  "hermesClarifyRecommended": "Aanbevolen",
+  "hermesChangedFiles": "{count, plural, =1{1 bestand gewijzigd} other{{count} bestanden gewijzigd}}",
+  "@hermesChangedFiles": {"placeholders": {"count": {"type": "int"}}},
+  "hermesChangedFilesMore": "{count, plural, =1{Nog 1 bestand} other{Nog {count} bestanden}}",
+  "@hermesChangedFilesMore": {"placeholders": {"count": {"type": "int"}}},
+  "hermesDiffUnnamedFile": "Gewijzigd bestand",
+  "hermesDiffLineCounts": "Regels toegevoegd: {added}, verwijderd: {removed}",
+  "@hermesDiffLineCounts": {"placeholders": {"added": {"type": "int"}, "removed": {"type": "int"}}}
 }

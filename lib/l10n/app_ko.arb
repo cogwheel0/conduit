@@ -4327,5 +4327,12 @@
   "hermesClarifyOtherAnswer": "또는 직접 답변 입력",
   "hermesClarifySkip": "건너뛰기",
   "hermesClarifySkipped": "건너뜀",
-  "hermesClarifyRecommended": "추천"
+  "hermesClarifyRecommended": "추천",
+  "hermesChangedFiles": "{count, plural, other{파일 {count}개 변경됨}}",
+  "@hermesChangedFiles": {"placeholders": {"count": {"type": "int"}}},
+  "hermesChangedFilesMore": "{count, plural, other{파일 {count}개 더 보기}}",
+  "@hermesChangedFilesMore": {"placeholders": {"count": {"type": "int"}}},
+  "hermesDiffUnnamedFile": "변경된 파일",
+  "hermesDiffLineCounts": "추가된 줄: {added}, 삭제된 줄: {removed}",
+  "@hermesDiffLineCounts": {"placeholders": {"added": {"type": "int"}, "removed": {"type": "int"}}}
 }

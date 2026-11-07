@@ -6172,5 +6172,12 @@
   "hermesClarifyOtherAnswer": "または自分で回答を入力",
   "hermesClarifySkip": "スキップ",
   "hermesClarifySkipped": "スキップ済み",
-  "hermesClarifyRecommended": "おすすめ"
+  "hermesClarifyRecommended": "おすすめ",
+  "hermesChangedFiles": "{count, plural, other{{count} 件のファイルを変更}}",
+  "@hermesChangedFiles": {"placeholders": {"count": {"type": "int"}}},
+  "hermesChangedFilesMore": "{count, plural, other{他 {count} 件のファイル}}",
+  "@hermesChangedFilesMore": {"placeholders": {"count": {"type": "int"}}},
+  "hermesDiffUnnamedFile": "変更されたファイル",
+  "hermesDiffLineCounts": "追加行: {added}、削除行: {removed}",
+  "@hermesDiffLineCounts": {"placeholders": {"added": {"type": "int"}, "removed": {"type": "int"}}}
 }
