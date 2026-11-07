@@ -4065,15 +4065,21 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                       .asData
                       ?.value;
                   // Running subagents and processes; only their counts
-                  // rebuild the composer.
-                  final hermesWork = composerRef.watch(
-                    hermesBackgroundWorkProvider.select(
-                      (work) => (
-                        agents: work?.runningSubagents ?? 0,
-                        processes: work?.runningProcesses ?? 0,
-                      ),
-                    ),
-                  );
+                  // rebuild the composer. Listed only while this chat is
+                  // in sight: the router keeps a hidden destination's page
+                  // mounted with its tickers muted. The work sheet watches
+                  // the list itself.
+                  final hermesWork =
+                      TickerMode.valuesOf(context).enabled
+                      ? composerRef.watch(
+                          hermesBackgroundWorkProvider.select(
+                            (work) => (
+                              agents: work?.runningSubagents ?? 0,
+                              processes: work?.runningProcesses ?? 0,
+                            ),
+                          ),
+                        )
+                      : (agents: 0, processes: 0);
                   final pendingDirectMcpMetadata = composerRef.watch(
                     chatMessagesProvider.select(
                       findPendingDirectMcpComposerPrompt,

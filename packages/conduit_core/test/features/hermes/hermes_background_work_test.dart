@@ -615,6 +615,25 @@ void main() {
       });
     });
 
+    test('events faster than the debounce do not hold the list back', () {
+      fakeAsync((async) {
+        start(async);
+        gateway.subagents = [_child('sa-1')];
+        container.listen(hermesBackgroundWorkProvider, (_, _) {});
+        async.elapse(Duration.zero);
+        final before = lists();
+
+        // A busy subagent reports progress every 100 ms for two seconds.
+        for (var tick = 0; tick < 20; tick++) {
+          gateway.event('subagent.progress', {'subagent_id': 'sa-1'});
+          async.elapse(const Duration(milliseconds: 100));
+        }
+
+        check(lists()).isGreaterThan(before + 2);
+        stop(async);
+      });
+    });
+
     test('pauses in the background and lists again on return', () {
       fakeAsync((async) {
         start(async);
@@ -769,6 +788,34 @@ void main() {
 
         check(reads).equals(1);
         check(container.read(tail).tail!.text).equals('done');
+        sub.close();
+        stop(async);
+      });
+    });
+
+    test('a finished subagent\'s output is read again after a failure', () {
+      fakeAsync((async) {
+        start(async);
+        var reads = 0;
+        gateway
+          ..subagents = [_child('sa-1', status: 'completed')]
+          ..handler = (method, params) {
+            if (method != 'subagent.tail') return null;
+            if (reads++ == 0) throw const _Refusal(5000, 'busy');
+            return {'subagent_id': 'sa-1', 'available': true, 'text': 'done'};
+          };
+        container.listen(hermesBackgroundWorkProvider, (_, _) {});
+        async.elapse(Duration.zero);
+
+        final tail = hermesSubagentTailProvider((
+          storedId: 'local-1',
+          subagentId: 'sa-1',
+        ));
+        final sub = container.listen(tail, (_, _) {});
+        async.elapse(const Duration(minutes: 1));
+
+        check(reads).equals(2);
+        check(container.read(tail).tail?.text).equals('done');
         sub.close();
         stop(async);
       });

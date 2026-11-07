@@ -126,18 +126,30 @@ class HermesBackgroundWorkController extends Notifier<HermesBackgroundWork?> {
   }
 
   /// A subagent or process event: list now, and keep listing for a while.
+  /// A read already due sooner is kept: events arriving faster than the
+  /// debounce must not push every read back, the regular poll's included.
   void _hint() {
     _hintUntil = clock.now().add(kHermesBackgroundWorkHintWindow);
     _failures = 0;
     _unattachedReads = 0;
+    final due = _due;
+    if (_timer != null &&
+        due != null &&
+        !due.isAfter(clock.now().add(_kHintDebounce))) {
+      return;
+    }
     _schedule(_kHintDebounce);
   }
+
+  /// When the read [_timer] waits for is due.
+  DateTime? _due;
 
   void _schedule(Duration delay) {
     _timer?.cancel();
     _timer = null;
     if (_paused || _service == null) return;
     final generation = _generation;
+    _due = clock.now().add(delay);
     _timer = Timer(delay, () {
       _timer = null;
       if (generation == _generation) unawaited(_refresh(generation));
@@ -343,6 +355,10 @@ class HermesSubagentTailController extends Notifier<HermesSubagentTailView> {
         }
         return;
       }
+      // Tried again, a finished child's last read too: otherwise its
+      // output would wait for an answer no read is asking for.
+      _schedule(service, generation, kHermesSubagentTailPollInterval);
+      return;
     }
     if (!finished) {
       _schedule(service, generation, kHermesSubagentTailPollInterval);
