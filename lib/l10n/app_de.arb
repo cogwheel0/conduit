@@ -4428,5 +4428,10 @@
   "libreChatMemoryKeyLabel": "Schlüssel",
   "libreChatMemoryKeyHint": "z. B. vorlieben",
   "libreChatMemoryKeyRequired": "Gib der Erinnerung einen Schlüssel.",
-  "libreChatMemoryUsage": "{used} von {limit} Tokens verwendet"
+  "libreChatMemoryUsage": "{used} von {limit} Tokens verwendet",
+  "hermesReadOnlySessionNotice": "Dieser Chat wurde in einer anderen Hermes-App begonnen. Du kannst ihn hier lesen, aber Hermes lässt Conduit nur in Chats antworten, die Conduit begonnen hat.",
+  "hermesReadOnlySessionNoticeFrom": "Dieser Chat wurde in {source} begonnen. Du kannst ihn hier lesen, aber Hermes lässt Conduit nur in Chats antworten, die Conduit begonnen hat.",
+  "@hermesReadOnlySessionNoticeFrom": {"placeholders": {"source": {"type": "String"}}},
+  "hermesContinueInCopy": "In einer Kopie fortsetzen",
+  "hermesContinueInCopyFailed": "Dieser Chat konnte nicht kopiert werden. Versuche es erneut."
 }

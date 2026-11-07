@@ -8281,5 +8281,26 @@
         "type": "int"
       }
     }
+  },
+  "hermesReadOnlySessionNotice": "Ten czat rozpoczęto w innej aplikacji Hermes. Możesz go tu czytać, ale Hermes pozwala Conduit odpowiadać tylko w czatach, które Conduit rozpoczął.",
+  "@hermesReadOnlySessionNotice": {
+    "description": "Shown instead of the composer for a Hermes chat that another Hermes app owns, so Conduit can read it but not reply."
+  },
+  "hermesReadOnlySessionNoticeFrom": "Ten czat rozpoczęto w {source}. Możesz go tu czytać, ale Hermes pozwala Conduit odpowiadać tylko w czatach, które Conduit rozpoczął.",
+  "@hermesReadOnlySessionNoticeFrom": {
+    "description": "Shown instead of the composer for a Hermes chat that another Hermes app owns. source is the Hermes name of that app, for example telegram or cli.",
+    "placeholders": {
+      "source": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesContinueInCopy": "Kontynuuj w kopii",
+  "@hermesContinueInCopy": {
+    "description": "Button that copies a read-only Hermes chat into a new chat Conduit can continue."
+  },
+  "hermesContinueInCopyFailed": "Nie można skopiować tego czatu. Spróbuj ponownie.",
+  "@hermesContinueInCopyFailed": {
+    "description": "Error shown when copying a read-only Hermes chat fails."
   }
 }

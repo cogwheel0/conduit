@@ -1442,6 +1442,74 @@ void main() {
     check(completedUi).isTrue();
   });
 
+  group('coded Hermes refusals', () {
+    HermesApiException refusal(int status, String code) => HermesApiException(
+      requestOptions: RequestOptions(path: '/v1/runs'),
+      statusCode: status,
+      code: code,
+    );
+
+    Future<(ChatMessage, List<ChatStatusUpdate>, List<String>)> dispatch(
+      HermesApiException error,
+    ) async {
+      final fake = _FakeHermesApiService(const [], createRunError: error);
+      var message = ChatMessage(
+        id: 'm',
+        role: 'assistant',
+        content: '',
+        timestamp: DateTime.fromMillisecondsSinceEpoch(0),
+      );
+      final statuses = <ChatStatusUpdate>[];
+      final refusals = <String>[];
+      await dispatchHermesRun(
+        service: fake,
+        registry: HermesRunRegistry(),
+        assistantMessageId: 'm',
+        input: 'hi',
+        sessionId: 'lighthouse-log',
+        appendContent: (_) {},
+        appendStatus: statuses.add,
+        updateMessage: (updater) => message = updater(message),
+        onSessionRefused: refusals.add,
+        finishStreaming: () {},
+        completeStreamingUi: () {},
+      );
+      return (message, statuses, refusals);
+    }
+
+    test('a session owned elsewhere explains itself and is reported', () async {
+      final (message, _, refusals) = await dispatch(
+        refusal(409, HermesApiErrorCode.permissionDenied),
+      );
+      check(message.error?.content).isNotNull().contains('Continue in a copy');
+      check(refusals).deepEquals(['permission_denied']);
+    });
+
+    test('a deleted session asks for a new chat', () async {
+      final (message, _, refusals) = await dispatch(
+        refusal(409, HermesApiErrorCode.notFound),
+      );
+      check(message.error?.content).isNotNull().contains('was deleted');
+      check(refusals).deepEquals(['not_found']);
+    });
+
+    test('a saved, queued input is not an error', () async {
+      final (message, statuses, refusals) = await dispatch(
+        refusal(503, HermesApiErrorCode.admissionQueued),
+      );
+      check(message.error).isNull();
+      check(statuses.single.action).equals('hermes_run_queued');
+      check(statuses.single.description).isNotNull().contains('Don\'t send');
+      check(refusals).isEmpty();
+    });
+
+    test('draining refusals ask to retry shortly', () async {
+      final (message, _, _) = await dispatch(refusal(503, 'runtime_draining'));
+      check(message.error?.content)
+          .equals('Hermes is restarting or busy. Try again in a moment.');
+    });
+  });
+
   test('a settled approval closes its card and keeps it closed', () async {
     final fake = _FakeHermesApiService([
       const HermesApprovalRequested(

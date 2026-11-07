@@ -35,6 +35,42 @@ class _CaptureInterceptor extends Interceptor {
   }
 }
 
+/// Answers every request with [statusCode] and a streamed [body], as Hermes
+/// does for refusals.
+class _StatusInterceptor extends _CaptureInterceptor {
+  _StatusInterceptor(
+    this.statusCode,
+    this.body, {
+    this.headers = const <String, List<String>>{},
+  }) : super(null);
+
+  final int statusCode;
+  final String body;
+  final Map<String, List<String>> headers;
+
+  @override
+  void onRequest(RequestOptions options, RequestInterceptorHandler handler) {
+    requests.add(options);
+    handler.resolve(
+      Response<dynamic>(
+        requestOptions: options,
+        data: ResponseBody.fromString(body, statusCode, headers: headers),
+        statusCode: statusCode,
+        headers: Headers.fromMap(headers),
+      ),
+    );
+  }
+}
+
+String _hermesError(String code) => jsonEncode({
+  'error': {
+    'message': code,
+    'type': 'invalid_request_error',
+    'param': null,
+    'code': code,
+  },
+});
+
 final class _MutableRecoveryClock {
   Duration elapsed = Duration.zero;
 
@@ -1342,6 +1378,86 @@ void main() {
           'execution_generation': 2,
           'choice': 'deny',
         });
+      },
+    );
+
+    test('refusals keep their error code across run endpoints', () async {
+      final refused = _StatusInterceptor(
+        409,
+        _hermesError('permission_denied'),
+      );
+      final service = _service(refused);
+
+      final createError = await service
+          .createRun(input: 'hello', sessionId: 'lighthouse-log')
+          .then<Object?>((_) => null, onError: (Object error) => error);
+      check(createError).isA<HermesApiException>()
+        ..has((e) => e.statusCode, 'status').equals(409)
+        ..has((e) => e.code, 'code').equals('permission_denied');
+
+      final responseError = await service
+          .streamResponse(HermesChatInput.text('hello'))
+          .then<Object?>((_) => null, onError: (Object error) => error);
+      check(responseError)
+          .isA<HermesApiException>()
+          .has((e) => e.code, 'code')
+          .equals('permission_denied');
+
+      final approval = _service(
+        _StatusInterceptor(409, _hermesError('approval_not_pending')),
+      );
+      final approvalError = await approval
+          .resolveApproval(
+            'r1',
+            approvalId: 'prm_1',
+            approved: true,
+            executionGeneration: 1,
+          )
+          .then<Object?>((_) => null, onError: (Object error) => error);
+      check(approvalError)
+          .isA<HermesApiException>()
+          .has((e) => e.code, 'code')
+          .equals('approval_not_pending');
+    });
+
+    test('a saved, queued input is flagged as not retryable', () async {
+      final service = _service(
+        _StatusInterceptor(
+          503,
+          _hermesError('admission_queued'),
+          headers: {
+            'x-should-retry': ['false'],
+          },
+        ),
+      );
+      final error = await service
+          .createRun(input: 'hello')
+          .then<Object?>((_) => null, onError: (Object error) => error);
+      check(error).isA<HermesApiException>()
+        ..has((e) => e.code, 'code').equals('admission_queued')
+        ..has((e) => e.retryForbidden, 'retryForbidden').isTrue()
+        ..has((e) => e.retryAfter, 'retryAfter').isNull();
+    });
+
+    test(
+      'oversized or malformed error bodies still fail without a code',
+      () async {
+        for (final body in [
+          jsonEncode({
+            'error': {'code': 'permission_denied', 'message': 'x' * 9000},
+          }),
+          'not json',
+          jsonEncode({
+            'error': {'code': 'two words'},
+          }),
+        ]) {
+          final error = await _service(_StatusInterceptor(409, body))
+              .stopRun('r1')
+              .then<Object?>((_) => null, onError: (Object error) => error);
+          check(error).isA<HermesApiException>()
+            ..has((e) => e.statusCode, 'status').equals(409)
+            ..has((e) => e.code, 'code').isNull();
+        }
       },
     );
 

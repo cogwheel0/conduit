@@ -13,6 +13,7 @@ import 'package:conduit_core/persistence/persistence_keys.dart';
 import 'package:conduit_core/persistence/preferences_store.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit/shared/services/navigation_service.dart';
+import 'package:conduit_core/features/hermes/models/hermes_capabilities.dart';
 import 'package:conduit_core/features/hermes/models/hermes_config.dart';
 import 'package:conduit_core/features/hermes/models/hermes_model.dart';
 import 'package:conduit_core/features/hermes/models/hermes_session.dart';
@@ -23,6 +24,7 @@ import 'package:conduit_core/features/hermes/services/hermes_json_guard.dart';
 import 'package:conduit_core/features/hermes/services/hermes_local_document_service.dart';
 import 'package:conduit_core/features/hermes/services/hermes_local_document_trust_store.dart';
 import 'package:conduit_core/features/hermes/services/hermes_session_provenance.dart';
+import 'package:conduit/features/hermes/widgets/hermes_read_only_session_notice.dart';
 import 'package:conduit/features/hermes/widgets/hermes_session_tile.dart';
 import 'package:conduit/features/navigation/providers/chat_back_provider.dart';
 import 'package:conduit/l10n/app_localizations.dart';
@@ -249,6 +251,138 @@ void main() {
     check(container.read(activeConversationProvider)?.id)
         .equals('local:hermes_older');
     check(container.read(chatBackOpensListProvider)).isTrue();
+  });
+
+  group('sessions owned by another Hermes app', () {
+    ProviderContainer ownershipContainer(_FakeHermesApiService service) {
+      final container = ProviderContainer(
+        retry: (retryCount, error) => null,
+        overrides: [
+          secureStorageProvider.overrideWithValue(FlutterSecureKeyValueStore()),
+          hermesApiServiceProvider.overrideWithValue(service),
+          hermesCapabilitiesProvider.overrideWith(
+            (ref) async => const HermesCapabilities(apiOwnsSessions: true),
+          ),
+          modelsProvider.overrideWith(_FailingModels.new),
+          authStateManagerProvider.overrideWith(_SignedOutAuthStateManager.new),
+          reviewerModeProvider.overrideWithValue(false),
+        ],
+      );
+      addTearDown(container.dispose);
+      return container;
+    }
+
+    Future<(BuildContext, WidgetRef)> pumpRouter(
+      WidgetTester tester,
+      ProviderContainer container, {
+      Widget home = const SizedBox.shrink(),
+    }) async {
+      late BuildContext actionContext;
+      late WidgetRef widgetRef;
+      final router = GoRouter(
+        routes: [
+          GoRoute(
+            path: '/',
+            builder: (context, state) => Scaffold(body: home),
+          ),
+          GoRoute(
+            path: Routes.chat,
+            builder: (context, state) => Scaffold(body: home),
+          ),
+        ],
+      );
+      addTearDown(router.dispose);
+      NavigationService.attachRouter(router);
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: Consumer(
+            builder: (context, ref, child) {
+              actionContext = context;
+              widgetRef = ref;
+              return MaterialApp.router(
+                routerConfig: router,
+                localizationsDelegates: AppLocalizations.localizationsDelegates,
+                supportedLocales: AppLocalizations.supportedLocales,
+              );
+            },
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      return (actionContext, widgetRef);
+    }
+
+    testWidgets('opening one marks it read-only; own sessions stay open', (
+      tester,
+    ) async {
+      final container = ownershipContainer(_FakeHermesApiService());
+      final (context, ref) = await pumpRouter(tester, container);
+
+      await openHermesSession(
+        context,
+        ref,
+        const HermesSessionSummary(
+          id: 'harbor-notes',
+          title: 'Harbor notes',
+          source: 'telegram',
+        ),
+      );
+      await openHermesSession(
+        context,
+        ref,
+        const HermesSessionSummary(
+          id: 'garden-plan',
+          title: 'Garden plan',
+          source: 'api_server',
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      check(container.read(hermesReadOnlySessionsProvider))
+          .deepEquals({'harbor-notes': 'telegram'});
+    });
+
+    testWidgets('continue in a copy forks the session and opens the copy', (
+      tester,
+    ) async {
+      final service = _FakeHermesApiService();
+      final container = ownershipContainer(service);
+      final (context, ref) = await pumpRouter(
+        tester,
+        container,
+        home: Consumer(
+          builder: (context, ref, child) {
+            final source = watchHermesReadOnlySessionSource(
+              ref,
+              ref.watch(activeConversationProvider),
+            );
+            return source == null
+                ? const Text('composer')
+                : HermesReadOnlySessionNotice(source: source);
+          },
+        ),
+      );
+      await openHermesSession(
+        context,
+        ref,
+        const HermesSessionSummary(
+          id: 'harbor-notes',
+          title: 'Harbor notes',
+          source: 'cli',
+        ),
+      );
+      await tester.pumpAndSettle();
+      check(find.textContaining('started in cli').evaluate()).isNotEmpty();
+
+      await tester.tap(find.byKey(const ValueKey('hermes-continue-in-copy')));
+      await tester.pumpAndSettle();
+
+      check(service.forkedSessionIds).deepEquals(['harbor-notes']);
+      check(container.read(activeConversationProvider)?.id)
+          .equals('local:hermes_harbor-notes-copy');
+      check(find.text('composer').evaluate()).isNotEmpty();
+    });
   });
 
   testWidgets(
@@ -914,7 +1048,14 @@ class _FakeHermesApiService extends HermesApiService {
   final deleteStarted = Completer<void>();
   final messagesStarted = Completer<void>();
   final List<String> deletedSessionIds = [];
+  final List<String> forkedSessionIds = [];
   final List<String> operationLog = [];
+
+  @override
+  Future<String> forkSession(String id) async {
+    forkedSessionIds.add(id);
+    return '$id-copy';
+  }
 
   int sessionListCalls = 0;
   @override

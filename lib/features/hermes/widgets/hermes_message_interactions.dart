@@ -556,12 +556,21 @@ class _HermesComposerPromptOverlayState
           approved: approved,
         );
       }
-    } catch (_) {
+    } catch (error) {
       DebugLogger.error(
         'approval-resolve-failed',
         scope: 'chat/hermes_approval',
       );
-      setApprovalState('pending', expectedState: 'resolving');
+      // The prompt was answered elsewhere, timed out, or belongs to an older
+      // execution: offering it again could only fail the same way.
+      final settled =
+          error is HermesApiException &&
+          (error.code == HermesApiErrorCode.approvalNotPending ||
+              error.code == HermesApiErrorCode.staleGeneration);
+      setApprovalState(
+        settled ? 'settled' : 'pending',
+        expectedState: 'resolving',
+      );
       return;
     }
     setApprovalState(

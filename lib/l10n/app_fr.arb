@@ -4428,5 +4428,10 @@
   "libreChatMemoryKeyLabel": "Clé",
   "libreChatMemoryKeyHint": "ex. preferences",
   "libreChatMemoryKeyRequired": "Donnez une clé au souvenir.",
-  "libreChatMemoryUsage": "{used} jetons utilisés sur {limit}"
+  "libreChatMemoryUsage": "{used} jetons utilisés sur {limit}",
+  "hermesReadOnlySessionNotice": "Cette conversation a commencé dans une autre app Hermes. Vous pouvez la lire ici, mais Hermes ne laisse Conduit répondre que dans les conversations qu'il a lancées.",
+  "hermesReadOnlySessionNoticeFrom": "Cette conversation a commencé dans {source}. Vous pouvez la lire ici, mais Hermes ne laisse Conduit répondre que dans les conversations qu'il a lancées.",
+  "@hermesReadOnlySessionNoticeFrom": {"placeholders": {"source": {"type": "String"}}},
+  "hermesContinueInCopy": "Continuer dans une copie",
+  "hermesContinueInCopyFailed": "Impossible de copier cette conversation. Réessayez."
 }

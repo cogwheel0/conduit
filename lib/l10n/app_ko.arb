@@ -4200,5 +4200,10 @@
   "libreChatMemoryKeyLabel": "키",
   "libreChatMemoryKeyHint": "예: preferences",
   "libreChatMemoryKeyRequired": "메모리에 키를 지정하세요.",
-  "libreChatMemoryUsage": "{limit}개 토큰 중 {used}개 사용"
+  "libreChatMemoryUsage": "{limit}개 토큰 중 {used}개 사용",
+  "hermesReadOnlySessionNotice": "이 채팅은 다른 Hermes 앱에서 시작되었습니다. 여기에서 읽을 수는 있지만, Hermes에서는 Conduit가 시작한 채팅에만 답장할 수 있습니다.",
+  "hermesReadOnlySessionNoticeFrom": "이 채팅은 {source}에서 시작되었습니다. 여기에서 읽을 수는 있지만, Hermes에서는 Conduit가 시작한 채팅에만 답장할 수 있습니다.",
+  "@hermesReadOnlySessionNoticeFrom": {"placeholders": {"source": {"type": "String"}}},
+  "hermesContinueInCopy": "사본에서 계속하기",
+  "hermesContinueInCopyFailed": "이 채팅을 복사할 수 없습니다. 다시 시도하세요."
 }

@@ -72,6 +72,7 @@ import 'package:conduit_core/features/librechat/models/librechat_model.dart'
 
 import '../../hermes/widgets/hermes_bot_avatar.dart';
 import '../../hermes/widgets/hermes_message_interactions.dart';
+import '../../hermes/widgets/hermes_read_only_session_notice.dart';
 import '../widgets/live_connection_button.dart';
 import '../../librechat/widgets/librechat_prompt_overlay.dart';
 import '../../navigation/providers/chat_back_provider.dart';
@@ -4065,6 +4066,15 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                     ),
                   )) {
                     return _buildReadOnlyNotice(context);
+                  }
+                  final readOnlyHermesSource = watchHermesReadOnlySessionSource(
+                    composerRef,
+                    activeConversation,
+                  );
+                  if (readOnlyHermesSource != null) {
+                    return HermesReadOnlySessionNotice(
+                      source: readOnlyHermesSource,
+                    );
                   }
                   return ModernChatInput(
                     onSendMessage: _handleMessageSend,

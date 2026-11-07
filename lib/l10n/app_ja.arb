@@ -6045,5 +6045,10 @@
   "libreChatMemoryKeyLabel": "キー",
   "libreChatMemoryKeyHint": "例: preferences",
   "libreChatMemoryKeyRequired": "メモリにキーを付けてください。",
-  "libreChatMemoryUsage": "{limit} トークン中 {used} 使用"
+  "libreChatMemoryUsage": "{limit} トークン中 {used} 使用",
+  "hermesReadOnlySessionNotice": "このチャットは別の Hermes アプリで始まりました。ここで読むことはできますが、Hermes では Conduit が始めたチャットにしか返信できません。",
+  "hermesReadOnlySessionNoticeFrom": "このチャットは {source} で始まりました。ここで読むことはできますが、Hermes では Conduit が始めたチャットにしか返信できません。",
+  "@hermesReadOnlySessionNoticeFrom": {"placeholders": {"source": {"type": "String"}}},
+  "hermesContinueInCopy": "コピーで続ける",
+  "hermesContinueInCopyFailed": "このチャットをコピーできませんでした。もう一度お試しください。"
 }

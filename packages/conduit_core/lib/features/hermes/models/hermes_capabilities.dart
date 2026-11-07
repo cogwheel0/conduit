@@ -13,6 +13,7 @@ class HermesCapabilities {
     this.sessions = true,
     this.inputImages = false,
     this.inputFiles = false,
+    this.apiOwnsSessions = false,
   });
 
   final bool runApproval;
@@ -37,6 +38,11 @@ class HermesCapabilities {
 
   /// Whether the server advertises the streaming Responses path used for files.
   final bool inputFiles;
+
+  /// Whether the API server may only add turns to sessions it owns (Hermes
+  /// v0.22.1+, advertised as `features.run_unknown_resolution`). Sessions
+  /// started from another Hermes surface are then read-only over REST.
+  final bool apiOwnsSessions;
 
   /// The compatibility default used while loading or when discovery fails.
   static const HermesCapabilities enabledByDefault = HermesCapabilities();
@@ -70,6 +76,7 @@ class HermesCapabilities {
       ]),
       inputImages: json['desktop_uploads'] == true || responsesInput,
       inputFiles: responsesInput,
+      apiOwnsSessions: _explicitTrue(json, 'run_unknown_resolution'),
     );
   }
 
@@ -89,6 +96,11 @@ class HermesCapabilities {
       if (endpoints is Map && endpoints.containsKey(name)) return true;
     }
     return true;
+  }
+
+  static bool _explicitTrue(Map<String, dynamic> json, String name) {
+    final features = json['features'];
+    return json[name] == true || (features is Map && features[name] == true);
   }
 
   static bool _resolveResponsesInput(Map<String, dynamic> json) {

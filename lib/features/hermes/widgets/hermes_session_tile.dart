@@ -28,6 +28,7 @@ import 'package:conduit_core/features/hermes/models/hermes_model.dart';
 import 'package:conduit_core/features/hermes/models/hermes_session.dart';
 import 'package:conduit_core/features/hermes/models/hermes_bot.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
+import 'package:conduit_core/features/hermes/services/hermes_api_service.dart';
 import 'package:conduit_core/features/hermes/services/hermes_backend_service.dart';
 import 'package:conduit_core/features/hermes/services/hermes_bot_chat.dart';
 import 'package:conduit_core/features/hermes/services/hermes_desktop_api_service.dart';
@@ -362,6 +363,18 @@ Future<void> openHermesSession(
       // Pending presentation is recoverable; the transcript is still useful.
     }
   }
+  // Hermes v0.22.1+ refuses REST turns into sessions another Hermes surface
+  // owns. Open those read-only so the chat offers a copy instead of failing.
+  var readOnly = false;
+  if (service is HermesApiService &&
+      isForeignHermesSessionSource(session.source)) {
+    try {
+      final capabilities = await ref.read(hermesCapabilitiesProvider.future);
+      readOnly = capabilities.apiOwnsSessions;
+    } catch (_) {
+      // Unknown capabilities: a refused send still marks the session.
+    }
+  }
 
   var hermesModel = hermesSyntheticModel(name: service.config.name);
   try {
@@ -418,6 +431,11 @@ Future<void> openHermesSession(
     );
   }
 
+  if (readOnly) {
+    ref
+        .read(hermesReadOnlySessionsProvider.notifier)
+        .mark(session.id, source: session.source);
+  }
   ref.read(hermesActiveSessionProvider.notifier).set(session.id);
   // Mark as a manual selection (same as startNewHermesChat) so the default-
   // model restoration that fires on conversation-open can't race past this

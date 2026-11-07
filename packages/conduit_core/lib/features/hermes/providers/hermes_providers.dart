@@ -2305,6 +2305,37 @@ class HermesActiveSession extends Notifier<String?> {
 final hermesActiveSessionProvider =
     NotifierProvider<HermesActiveSession, String?>(HermesActiveSession.new);
 
+/// Hermes sessions Conduit may read but not continue over REST, mapped to the
+/// surface that owns them (empty when unknown).
+///
+/// Hermes v0.22.1+ refuses API turns into a session started elsewhere
+/// (`409 permission_denied`). Opening such a session, or a send refused that
+/// way, records it here; the chat then offers to continue in a copy.
+class HermesReadOnlySessions extends Notifier<Map<String, String>> {
+  @override
+  Map<String, String> build() {
+    // Session ids belong to one connection.
+    ref.watch(hermesApiServiceProvider);
+    return const <String, String>{};
+  }
+
+  void mark(String sessionId, {String? source}) {
+    final label = source?.trim() ?? '';
+    if (state[sessionId] == label) return;
+    state = <String, String>{...state, sessionId: label};
+  }
+
+  void clear(String sessionId) {
+    if (!state.containsKey(sessionId)) return;
+    state = <String, String>{...state}..remove(sessionId);
+  }
+}
+
+final hermesReadOnlySessionsProvider =
+    NotifierProvider<HermesReadOnlySessions, Map<String, String>>(
+      HermesReadOnlySessions.new,
+    );
+
 /// Invalidates asynchronous Hermes-session opens whenever navigation changes.
 class HermesSessionNavigationEpoch extends Notifier<int> {
   @override

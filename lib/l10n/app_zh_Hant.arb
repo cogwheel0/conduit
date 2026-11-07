@@ -4428,5 +4428,10 @@
   "libreChatMemoryKeyLabel": "鍵",
   "libreChatMemoryKeyHint": "例如 preferences",
   "libreChatMemoryKeyRequired": "請為記憶指定一個鍵。",
-  "libreChatMemoryUsage": "已使用 {used} / {limit} 個 token"
+  "libreChatMemoryUsage": "已使用 {used} / {limit} 個 token",
+  "hermesReadOnlySessionNotice": "此聊天始於另一個 Hermes 應用程式。你可以在這裡閱讀，但 Hermes 只允許 Conduit 在它發起的聊天中回覆。",
+  "hermesReadOnlySessionNoticeFrom": "此聊天始於 {source}。你可以在這裡閱讀，但 Hermes 只允許 Conduit 在它發起的聊天中回覆。",
+  "@hermesReadOnlySessionNoticeFrom": {"placeholders": {"source": {"type": "String"}}},
+  "hermesContinueInCopy": "在副本中繼續",
+  "hermesContinueInCopyFailed": "無法複製此聊天。請再試一次。"
 }

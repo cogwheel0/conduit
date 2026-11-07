@@ -227,6 +227,8 @@ void main() {
       final id = await _service(capture).forkSession('s1');
       check(capture.requests.single.path)
           .equals('http://host:8642/api/sessions/s1/fork');
+      // Hermes parses the fork body as JSON; an empty body is a 400.
+      check(capture.requests.single.data as Map).isEmpty();
       check(id).equals('s2');
     });
 

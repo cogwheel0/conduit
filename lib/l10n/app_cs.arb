@@ -6351,5 +6351,10 @@
   "libreChatMemoryKeyLabel": "Klíč",
   "libreChatMemoryKeyHint": "např. preference",
   "libreChatMemoryKeyRequired": "Zadejte klíč vzpomínky.",
-  "libreChatMemoryUsage": "Využito {used} z {limit} tokenů"
+  "libreChatMemoryUsage": "Využito {used} z {limit} tokenů",
+  "hermesReadOnlySessionNotice": "Tento chat začal v jiné aplikaci Hermes. Můžete si ho tu přečíst, ale Hermes dovoluje Conduitu odpovídat jen v chatech, které Conduit začal.",
+  "hermesReadOnlySessionNoticeFrom": "Tento chat začal v {source}. Můžete si ho tu přečíst, ale Hermes dovoluje Conduitu odpovídat jen v chatech, které Conduit začal.",
+  "@hermesReadOnlySessionNoticeFrom": {"placeholders": {"source": {"type": "String"}}},
+  "hermesContinueInCopy": "Pokračovat v kopii",
+  "hermesContinueInCopyFailed": "Tento chat se nepodařilo zkopírovat. Zkuste to znovu."
 }

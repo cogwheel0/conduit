@@ -87,6 +87,7 @@ Future<bool> dispatchHermesTurn({
   Duration recoveryPollInterval = const Duration(seconds: 1),
   FutureOr<void> Function(String? sessionId)? onSessionEstablished,
   FutureOr<void> Function()? onCompletedSuccessfully,
+  void Function(String code)? onSessionRefused,
   required void Function(String content) appendContent,
   void Function(String content)? replaceContent,
   required void Function(ChatStatusUpdate update) appendStatus,
@@ -143,10 +144,11 @@ Future<bool> dispatchHermesTurn({
         scope: 'hermes/transport',
         data: {'errorType': error.runtimeType.toString()},
       );
-      updateMessage(
-        (message) => message.copyWith(
-          error: ChatMessageError(content: _friendlyError(error)),
-        ),
+      _reportHermesStartFailure(
+        error,
+        appendStatus: appendStatus,
+        updateMessage: updateMessage,
+        onSessionRefused: onSessionRefused,
       );
     }
     finishStreaming();
@@ -433,6 +435,7 @@ Future<void> dispatchHermesRun({
   required void Function(ChatMessage Function(ChatMessage) updater)
   updateMessage,
   void Function(ChatMessageError error)? reportStopError,
+  void Function(String code)? onSessionRefused,
   required void Function() finishStreaming,
   required void Function() completeStreamingUi,
 }) async {
@@ -505,8 +508,11 @@ Future<void> dispatchHermesRun({
       return;
     }
     DebugLogger.error('create-run-failed', scope: 'hermes/transport');
-    updateMessage(
-      (m) => m.copyWith(error: ChatMessageError(content: _friendlyError(e))),
+    _reportHermesStartFailure(
+      e,
+      appendStatus: appendStatus,
+      updateMessage: updateMessage,
+      onSessionRefused: onSessionRefused,
     );
     finishStreaming();
     completeStreamingUi();
@@ -710,6 +716,43 @@ Future<void> dispatchHermesRun({
     if (owned) {
       finishStreaming();
       completeStreamingUi();
+    }
+  }
+}
+
+/// Shows why Hermes refused to start a turn. A saved-and-queued input is not
+/// an error: it runs once Hermes is back and must not be resent.
+void _reportHermesStartFailure(
+  Object error, {
+  required void Function(ChatStatusUpdate update) appendStatus,
+  required void Function(ChatMessage Function(ChatMessage) updater)
+  updateMessage,
+  void Function(String code)? onSessionRefused,
+}) {
+  if (error is HermesApiException &&
+      error.code == HermesApiErrorCode.admissionQueued) {
+    appendStatus(
+      ChatStatusUpdate(
+        action: 'hermes_run_queued',
+        description: hermesApiRefusalMessage(error),
+        done: true,
+      ),
+    );
+    return;
+  }
+  updateMessage(
+    (m) => m.copyWith(error: ChatMessageError(content: _friendlyError(error))),
+  );
+  final code = error is HermesApiException ? error.code : null;
+  if (code == HermesApiErrorCode.permissionDenied ||
+      code == HermesApiErrorCode.notFound) {
+    try {
+      onSessionRefused?.call(code!);
+    } catch (_) {
+      DebugLogger.error(
+        'session-refusal-callback-failed',
+        scope: 'hermes/transport',
+      );
     }
   }
 }
@@ -1621,12 +1664,49 @@ String _friendlyError(Object e) {
   if (e is HermesModelSwitchHeld) return e.message;
   if (e is HermesDesktopGatewayStartingException) return e.message;
   if (e is FormatException) return 'Hermes returned an invalid response.';
+  if (e is HermesApiException) {
+    final refusal = hermesApiRefusalMessage(e);
+    if (refusal != null) return refusal;
+  }
   if (e is DioException) {
     final code = e.response?.statusCode;
     if (code != null) return 'Hermes request failed (HTTP $code).';
     return 'Could not reach the Hermes agent. Check the server URL and that it is reachable.';
   }
   return 'Hermes run failed.';
+}
+
+/// The chat-facing explanation for a coded Hermes refusal, or null when the
+/// code is not one Conduit can explain better than the HTTP status.
+String? hermesApiRefusalMessage(HermesApiException error) {
+  switch (error.code) {
+    case HermesApiErrorCode.permissionDenied:
+      return 'This chat belongs to another Hermes app, so Conduit can only '
+          'read it. Continue in a copy to keep chatting.';
+    case HermesApiErrorCode.notFound:
+      return 'This Hermes session was deleted. Start a new chat to continue.';
+    case HermesApiErrorCode.admissionConflict:
+    case HermesApiErrorCode.idempotencyKeyConflict:
+      return 'Hermes refused this message because it conflicts with another '
+          'request for this chat.';
+    case HermesApiErrorCode.staleGeneration:
+    case HermesApiErrorCode.approvalNotPending:
+      return 'This Hermes request was already answered or has expired.';
+    case HermesApiErrorCode.unknownExecution:
+      return 'Hermes cannot tell whether its last run finished.';
+    case HermesApiErrorCode.admissionQueued:
+      return 'Hermes saved your message and will run it when it is back. '
+          'Don\'t send it again.';
+    case 'runtime_draining':
+    case 'gateway_draining':
+    case 'storage_unavailable':
+    case 'chain_moved':
+      return 'Hermes is restarting or busy. Try again in a moment.';
+  }
+  if (error.statusCode == 429) {
+    return 'Hermes is handling too many requests. Try again in a moment.';
+  }
+  return null;
 }
 
 bool _isHermesProtocolFailure(Object? error) =>

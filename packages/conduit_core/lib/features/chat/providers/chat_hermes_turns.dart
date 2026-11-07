@@ -1905,6 +1905,19 @@ Future<void> _dispatchRegisteredHermesRunFromChat(
     );
   }
 
+  // Hermes v0.22.1+ refuses API turns into a session another Hermes surface
+  // owns. Remember that, so the chat offers to continue in a copy instead.
+  void markSessionRefused(String code) {
+    final refusedSessionId = sessionId;
+    if (code != HermesApiErrorCode.permissionDenied ||
+        refusedSessionId == null ||
+        refusedSessionId.isEmpty ||
+        !owner.backendContextIsCurrent(ref)) {
+      return;
+    }
+    ref.read(hermesReadOnlySessionsProvider.notifier).mark(refusedSessionId);
+  }
+
   // Attachments require Responses. Once a conversation enters that response
   // chain, callers continue supplying [responseInput] for later text turns.
   if (responseInput != null || isDesktop) {
@@ -2031,6 +2044,7 @@ Future<void> _dispatchRegisteredHermesRunFromChat(
           ref.invalidate(hermesSessionsProvider);
         }
       },
+      onSessionRefused: markSessionRefused,
       onCompletedSuccessfully: () async {
         final committedSessionId = sessionId;
         final committedBaselineMessageIds = baselineServerMessageIds;
@@ -2100,6 +2114,7 @@ Future<void> _dispatchRegisteredHermesRunFromChat(
     appendStatus: appendProjectedStatus,
     updateMessage: updateProjectedMessage,
     reportStopError: reportTerminalCleanupError,
+    onSessionRefused: markSessionRefused,
     finishStreaming: finishOwned,
     completeStreamingUi: completeStreamingUiOwned,
   );
