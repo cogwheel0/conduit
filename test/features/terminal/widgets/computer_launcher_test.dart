@@ -86,6 +86,33 @@ void main() {
     verifyNever(() => service.screenshot(connection));
   });
 
+  testWidgets('proxy tab preview does not request pixels or activate it', (
+    tester,
+  ) async {
+    final service = _Service();
+    final proxy = ComputerConnection(
+      surface: ComputerSurface.browser,
+      streamUri: Uri.parse('ws://computer.example/browser/stream'),
+      browserSession: const ComputerBrowserSession(
+        id: 'proxy-tab',
+        token: 'synthetic',
+        chromeAvailable: true,
+      ),
+    );
+    when(() => service.open(any())).thenAnswer((_) async => proxy);
+    await tester.pumpWidget(harness(service));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Computer'));
+    await tester.pumpAndSettle();
+    expect(
+      find.text('Take control to start this tab’s live view.'),
+      findsOneWidget,
+    );
+    verifyNever(() => service.screenshot(any()));
+    verifyNever(() => service.selectBrowserTab('proxy-tab'));
+    await tester.pumpWidget(const SizedBox());
+  });
+
   testWidgets(
     'pending scope lookup immediately discards the previous preview',
     (tester) async {

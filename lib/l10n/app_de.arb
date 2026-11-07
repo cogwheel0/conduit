@@ -43,6 +43,7 @@
   "computerConnecting": "Verbindung zum Computer…",
   "computerReconnecting": "Verbindung wird wiederhergestellt…",
   "computerDisconnected": "Computer getrennt",
+  "computerBrowserStartHint": "Übernimm die Steuerung, um die Live-Ansicht dieses Tabs zu starten.",
   "computerBrowserUnavailable": "Dieses Terminal benötigt Chrome oder Chromium für einen Live-Browser.",
   "computerStopFailed": "Die aktuelle Antwort konnte nicht gestoppt werden. Du kannst weiter zuschauen und es erneut versuchen.",
   "computerStopping": "Antwort wird gestoppt…",

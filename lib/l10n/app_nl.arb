@@ -43,6 +43,7 @@
   "computerConnecting": "Verbinden met computer…",
   "computerReconnecting": "Opnieuw verbinden…",
   "computerDisconnected": "Computer niet verbonden",
+  "computerBrowserStartHint": "Neem de bediening over om de liveweergave van dit tabblad te starten.",
   "computerBrowserUnavailable": "Deze terminal heeft Chrome of Chromium nodig voor een livebrowser.",
   "computerStopFailed": "Het huidige antwoord kon niet worden gestopt. Je kunt blijven kijken en het opnieuw proberen.",
   "computerStopping": "Antwoord stoppen…",

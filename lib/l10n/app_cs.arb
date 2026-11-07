@@ -43,6 +43,7 @@
   "computerConnecting": "Připojování k počítači…",
   "computerReconnecting": "Obnovování připojení…",
   "computerDisconnected": "Počítač odpojen",
+  "computerBrowserStartHint": "Převezměte ovládání a spusťte živý náhled této karty.",
   "computerBrowserUnavailable": "Tento terminál potřebuje Chrome nebo Chromium pro živý prohlížeč.",
   "computerStopFailed": "Aktuální odpověď se nepodařilo zastavit. Můžete dále sledovat a zkusit to znovu.",
   "computerStopping": "Zastavování odpovědi…",

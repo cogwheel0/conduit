@@ -45,6 +45,7 @@ class _ComputerPageState extends ConsumerState<ComputerPage>
   bool _canBack = false, _canForward = false, _stopFailed = false;
   bool _vnc = false, _hasTakenControl = false;
   bool _inputFailed = false;
+  bool _controlWhenLive = false;
   bool _audioAvailable = false, _audioEnabled = false, _audioFailed = false;
   bool _desktopSite = false;
   bool _tabsOpen = false;
@@ -52,8 +53,8 @@ class _ComputerPageState extends ConsumerState<ComputerPage>
   String _quality = 'crisp';
   bool _active = true, _scopeValid = true;
   int _generation = 0;
-  Timer? _heartbeat, _emptyRefresh;
-  bool _refreshingEmpty = false;
+  Timer? _heartbeat, _waitingRefresh;
+  bool _refreshingBrowser = false;
 
   @override
   void initState() {
@@ -65,18 +66,24 @@ class _ComputerPageState extends ConsumerState<ComputerPage>
         widget.capabilities.preferred;
     _connection = widget.initialConnection;
     _vnc = _connection?.transport == 'vnc';
+    if (_connection?.requiresBrowserActivation == true) _status = 'inactive';
     if (_connection == null) unawaited(_open());
     _heartbeat = Timer.periodic(const Duration(seconds: 45), (_) async {
       final connection = _connection;
-      if (!_active || !_scopeValid || connection == null) return;
+      if (!_active ||
+          !_scopeValid ||
+          connection == null ||
+          connection.requiresBrowserActivation) {
+        return;
+      }
       try {
         await widget.service.keepAlive(connection);
       } catch (_) {
         /* Stream reports connectivity. */
       }
     });
-    _emptyRefresh = Timer.periodic(const Duration(seconds: 3), (_) {
-      unawaited(_refreshEmptyBrowser());
+    _waitingRefresh = Timer.periodic(const Duration(seconds: 3), (_) {
+      unawaited(_refreshWaitingBrowser());
     });
     ref.listenManual(computerServiceProvider, (_, next) {
       if (!next.isLoading &&
@@ -85,6 +92,7 @@ class _ComputerPageState extends ConsumerState<ComputerPage>
         return;
       }
       _scopeValid = false;
+      _controlWhenLive = false;
       _generation++;
       unawaited(_surface.visibility(false));
       if (mounted) {
@@ -101,7 +109,7 @@ class _ComputerPageState extends ConsumerState<ComputerPage>
       });
     });
     ref.listenManual(chatMessagesProvider, (_, messages) {
-      if ((_controlling || _hasTakenControl) &&
+      if ((_controlling || _hasTakenControl || _controlWhenLive) &&
           messages.any((message) => message.isStreaming)) {
         _hasTakenControl = false;
         _watch();
@@ -114,17 +122,18 @@ class _ComputerPageState extends ConsumerState<ComputerPage>
     _active = state == AppLifecycleState.resumed;
     if (!_active && _tabsOpen) Navigator.of(context).pop();
     _generation++;
-    final wasEmpty = _status == 'empty';
+    final wasWaiting = _status == 'empty' || _status == 'inactive';
     setState(() {
+      _controlWhenLive = false;
       _controlling = false;
       _stopping = false;
-      if (!wasEmpty) _status = 'connecting';
+      if (!wasWaiting) _status = 'connecting';
     });
     unawaited(_surface.visibility(_active && _scopeValid));
-    if (_active && _scopeValid && _connection == null && !wasEmpty) {
+    if (_active && _scopeValid && _connection == null && !wasWaiting) {
       unawaited(_open());
     }
-    if (_active && wasEmpty) unawaited(_refreshEmptyBrowser());
+    if (_active && wasWaiting) unawaited(_refreshWaitingBrowser());
   }
 
   @override
@@ -132,22 +141,22 @@ class _ComputerPageState extends ConsumerState<ComputerPage>
     WidgetsBinding.instance.removeObserver(this);
     _generation++;
     _heartbeat?.cancel();
-    _emptyRefresh?.cancel();
+    _waitingRefresh?.cancel();
     super.dispose();
   }
 
-  Future<void> _refreshEmptyBrowser() async {
+  Future<void> _refreshWaitingBrowser() async {
     if (!_active ||
         !_scopeValid ||
-        _status != 'empty' ||
+        (_status != 'empty' && _status != 'inactive') ||
         _tabsOpen ||
         _controlling ||
         _stopping ||
-        _refreshingEmpty ||
+        _refreshingBrowser ||
         _selected != ComputerSurface.browser) {
       return;
     }
-    _refreshingEmpty = true;
+    _refreshingBrowser = true;
     final generation = _generation;
     try {
       final connection = await widget.service.open(ComputerSurface.browser);
@@ -155,31 +164,45 @@ class _ComputerPageState extends ConsumerState<ComputerPage>
           generation != _generation ||
           !_active ||
           !_scopeValid ||
-          _tabsOpen ||
-          connection == null) {
+          _tabsOpen) {
+        return;
+      }
+      if (connection == null) {
+        if (_status == 'inactive') {
+          setState(() {
+            _connection = null;
+            _status = 'empty';
+          });
+        }
         return;
       }
       setState(() {
         _connection = connection;
         _vnc = connection.transport == 'vnc';
         _url = connection.browserSession?.url ?? '';
-        _status = 'connecting';
+        _status = connection.requiresBrowserActivation
+            ? 'inactive'
+            : 'connecting';
         _surfaceKey = GlobalKey();
       });
     } catch (_) {
       // An agent may be between closing and creating tabs. Keep watching.
     } finally {
-      _refreshingEmpty = false;
+      _refreshingBrowser = false;
     }
   }
 
-  Future<void> _open({Future<ComputerConnection?> Function()? connect}) async {
+  Future<void> _open({
+    Future<ComputerConnection?> Function()? connect,
+    bool controlWhenLive = false,
+  }) async {
     final generation = ++_generation;
     setState(() {
       _status = 'connecting';
       _connection = null;
       _surfaceKey = GlobalKey();
       _controlling = false;
+      _controlWhenLive = controlWhenLive;
       _zoomed = false;
       _canBack = false;
       _canForward = false;
@@ -203,14 +226,21 @@ class _ComputerPageState extends ConsumerState<ComputerPage>
         _vnc = connection?.transport == 'vnc';
         _url = connection?.browserSession?.url ?? '';
         if (connection == null) _status = 'empty';
+        if (connection?.requiresBrowserActivation == true) _status = 'inactive';
       });
     } on ComputerBrowserUnavailable {
       if (mounted && generation == _generation) {
-        setState(() => _status = 'browserUnavailable');
+        setState(() {
+          _controlWhenLive = false;
+          _status = 'browserUnavailable';
+        });
       }
     } catch (_) {
       if (mounted && generation == _generation) {
-        setState(() => _status = 'unavailable');
+        setState(() {
+          _controlWhenLive = false;
+          _status = 'unavailable';
+        });
       }
     }
   }
@@ -234,9 +264,16 @@ class _ComputerPageState extends ConsumerState<ComputerPage>
         _vnc = message['transport'] == 'vnc';
       } else if (status == 'watching') {
         _controlling = false;
+        _controlWhenLive = false;
       } else if (status is String) {
         _status = status;
+        if (status == 'live' && _controlWhenLive) {
+          _controlWhenLive = false;
+          _controlling = _hasTakenControl = true;
+          unawaited(_surface.control(true));
+        }
         if (status != 'live') {
+          if (status != 'connecting') _controlWhenLive = false;
           _controlling = false;
           _zoomed = false;
           _stopping = false;
@@ -261,6 +298,16 @@ class _ComputerPageState extends ConsumerState<ComputerPage>
     if (!mounted || generation != _generation || !_active || !_scopeValid) {
       return;
     }
+    final connection = _connection;
+    if (accepted && connection?.requiresBrowserActivation == true) {
+      _hasTakenControl = true;
+      await _open(
+        connect: () =>
+            widget.service.selectBrowserTab(connection!.browserSession!.id),
+        controlWhenLive: true,
+      );
+      return;
+    }
     setState(() {
       _stopping = false;
       _controlling = accepted && (_status == 'live' || _status == 'empty');
@@ -274,6 +321,7 @@ class _ComputerPageState extends ConsumerState<ComputerPage>
     _generation++;
     setState(() {
       _controlling = false;
+      _controlWhenLive = false;
       _stopping = false;
       _stopFailed = false;
     });
@@ -311,7 +359,8 @@ class _ComputerPageState extends ConsumerState<ComputerPage>
     if (!mounted || !_controlling) return;
     switch (choice.action) {
       case ComputerTabAction.select:
-        if (choice.id != connection?.browserSession?.id) {
+        if (choice.id != connection?.browserSession?.id ||
+            connection?.requiresBrowserActivation == true) {
           await _open(
             connect: () => widget.service.selectBrowserTab(choice.id!),
           );
@@ -423,11 +472,14 @@ class _ComputerPageState extends ConsumerState<ComputerPage>
     final theme = context.conduitTheme;
     final live = _status == 'live';
     final empty = _status == 'empty';
+    final inactive = _status == 'inactive';
     final failed = _status == 'unavailable' || _status == 'browserUnavailable';
     final statusLabel = live
         ? (_controlling ? l10n.computerYouControl : l10n.computerWatching)
         : empty
         ? l10n.computerNoTabs
+        : inactive
+        ? l10n.computerBrowserStartHint
         : _status == 'reconnecting'
         ? l10n.computerReconnecting
         : failed
@@ -583,7 +635,7 @@ class _ComputerPageState extends ConsumerState<ComputerPage>
                 AdaptiveButton.icon(
                   style: AdaptiveButtonStyle.plain,
                   semanticLabel: l10n.computerTabs,
-                  onPressed: (live || failed || empty) && !_stopping
+                  onPressed: (live || failed || empty || inactive) && !_stopping
                       ? _showTabs
                       : null,
                   icon: Icons.tab_rounded,
@@ -602,7 +654,7 @@ class _ComputerPageState extends ConsumerState<ComputerPage>
           child: Stack(
             fit: StackFit.expand,
             children: [
-              if (connection != null && _scopeValid)
+              if (connection != null && !inactive && _scopeValid)
                 ComputerSurfaceView(
                   key: _surfaceKey,
                   connection: connection,
@@ -621,7 +673,7 @@ class _ComputerPageState extends ConsumerState<ComputerPage>
                         child: Column(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            if (failed || empty)
+                            if (failed || empty || inactive)
                               const Icon(
                                 Icons.desktop_access_disabled_outlined,
                                 size: 34,
@@ -766,7 +818,7 @@ class _ComputerPageState extends ConsumerState<ComputerPage>
                 ),
               Expanded(
                 child: AdaptiveButton(
-                  onPressed: (!live && !empty) || _stopping
+                  onPressed: (!live && !empty && !inactive) || _stopping
                       ? null
                       : _controlling
                       ? _watch

@@ -207,6 +207,17 @@ void main() {
     expect(requests.map((request) => request.method), ['GET']);
   });
 
+  test('watching a proxy tab does not activate or select it', () async {
+    respond = (request) async => request.response.write(
+      request.uri.path.endsWith('/tabs')
+          ? '{"current_session_id":"proxy-tab"}'
+          : '{"id":"proxy-tab","token":"synthetic-ticket","chrome_available":true,"mode":"proxy"}',
+    );
+    final connection = (await service.open(ComputerSurface.browser))!;
+    expect(connection.requiresBrowserActivation, isTrue);
+    expect(requests.map((request) => request.method), ['GET', 'GET']);
+  });
+
   for (final outcome in [
     'empty',
     'replacement',

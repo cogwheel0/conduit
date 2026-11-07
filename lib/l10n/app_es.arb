@@ -43,6 +43,7 @@
   "computerConnecting": "Conectando al ordenador…",
   "computerReconnecting": "Reconectando…",
   "computerDisconnected": "Ordenador desconectado",
+  "computerBrowserStartHint": "Toma el control para iniciar la vista en directo de esta pestaña.",
   "computerBrowserUnavailable": "Este terminal necesita Chrome o Chromium para un navegador en directo.",
   "computerStopFailed": "No se pudo detener la respuesta actual. Puedes seguir observando e intentarlo de nuevo.",
   "computerStopping": "Deteniendo respuesta…",

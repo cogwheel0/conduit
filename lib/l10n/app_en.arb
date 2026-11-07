@@ -88,6 +88,8 @@
   "@computerReconnecting": {"description": "Computer viewer: Reconnecting."},
   "computerDisconnected": "Computer disconnected",
   "@computerDisconnected": {"description": "Computer viewer: Disconnected."},
+  "computerBrowserStartHint": "Take control to start this tab’s live view.",
+  "@computerBrowserStartHint": {"description": "Explains that activating a proxy browser tab for live viewing requires taking control."},
   "computerBrowserUnavailable": "This terminal needs Chrome or Chromium for a live browser.",
   "@computerBrowserUnavailable": {"description": "Computer viewer: BrowserUnavailable."},
   "computerStopFailed": "Could not stop the current response. You can keep watching and try again.",

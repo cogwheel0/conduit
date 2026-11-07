@@ -43,6 +43,7 @@
   "computerConnecting": "Подключение к компьютеру…",
   "computerReconnecting": "Повторное подключение…",
   "computerDisconnected": "Компьютер отключён",
+  "computerBrowserStartHint": "Возьмите управление, чтобы запустить просмотр этой вкладки в реальном времени.",
   "computerBrowserUnavailable": "Для браузера в реальном времени этому терминалу нужен Chrome или Chromium.",
   "computerStopFailed": "Не удалось остановить текущий ответ. Вы можете продолжить наблюдение и повторить попытку.",
   "computerStopping": "Остановка ответа…",

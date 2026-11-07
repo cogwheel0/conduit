@@ -43,6 +43,7 @@
   "computerConnecting": "コンピューターに接続中…",
   "computerReconnecting": "再接続中…",
   "computerDisconnected": "コンピューターとの接続が切れました",
+  "computerBrowserStartHint": "このタブのライブ表示を開始するには、操作を引き継いでください。",
   "computerBrowserUnavailable": "ライブブラウザーには、このターミナルに Chrome または Chromium が必要です。",
   "computerStopFailed": "現在の応答を停止できませんでした。閲覧を続けながら再試行できます。",
   "computerStopping": "応答を停止中…",

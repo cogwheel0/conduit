@@ -72,6 +72,10 @@ Tab mutations require Take control. A newly selected tab opens in Watch, and
 closing the last tab leaves an empty state rather than silently creating another.
 While empty, Watch rechecks every three seconds and on resume for the agent's
 next tab; it pauses these checks in the background or during tab management.
+Existing proxy-mode tabs show a start-live-view hint without fetching pixels or
+changing server mode. Take control first stops the response, then activates
+Chrome and grants input when the stream is live. Watch can also attach if the
+agent activates the tab itself. Backgrounding cancels any pending input grant.
 Leaving the viewer does not close the user's tabs. Display options include three
 quality levels and a desktop website viewport. Mouse input includes right-click,
 double-click and modifiers; the keyboard dialog also supports named combinations

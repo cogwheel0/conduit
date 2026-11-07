@@ -71,6 +71,27 @@ void main() {
         expect(ascii.decode(banner as List<int>), startsWith('RFB '));
         await socket.close();
 
+        final proxyResponse = await terminal.requestComputer(
+          server,
+          'browser/sessions',
+          sessionScopeId: chatId,
+          method: 'POST',
+          data: {'url': ''},
+        );
+        final proxyId = (proxyResponse.data as Map)['id'] as String;
+        ownedTabs.add(proxyId);
+        final pending = (await service.open(ComputerSurface.browser))!;
+        expect(pending.requiresBrowserActivation, isTrue);
+        final unchanged = await terminal.requestComputer(
+          server,
+          'browser/sessions/$proxyId',
+          sessionScopeId: chatId,
+        );
+        expect((unchanged.data as Map)['mode'], 'proxy');
+        final activated = await service.selectBrowserTab(proxyId);
+        expect(activated.requiresBrowserActivation, isFalse);
+        await service.closeBrowserTab(ownedTabs.removeLast());
+
         for (var i = 0; i < 2; i++) {
           final connection = await service.createBrowserTab();
           ownedTabs.add(connection.browserSession!.id);

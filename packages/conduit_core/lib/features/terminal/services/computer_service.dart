@@ -66,8 +66,10 @@ class ComputerService {
     return Map<String, dynamic>.from(response.data as Map);
   }
 
-  /// Attaches to an existing surface; an empty browser returns null.
-  /// Tab creation is explicit through [createBrowserTab].
+  /// Reads an existing surface without activating or selecting tabs.
+  /// An empty browser returns null; proxy connections require explicit
+  /// takeover and [selectBrowserTab] before streaming. Tab creation is
+  /// explicit through [createBrowserTab].
   Future<ComputerConnection?> open(ComputerSurface surface) async {
     if (surface == ComputerSurface.desktop) {
       final info = await _json('desktop');
@@ -98,9 +100,7 @@ class ComputerService {
         final session = ComputerBrowserSession.fromJson(
           await _json('browser/sessions/${Uri.encodeComponent(current)}'),
         );
-        return session.mode == 'chrome'
-            ? _browserConnection(session)
-            : await _connectBrowser(session);
+        return _browserConnection(session);
       } on DioException catch (error) {
         if (error.response?.statusCode != 404 || rechecked) rethrow;
         rechecked = true;

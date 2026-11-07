@@ -120,6 +120,10 @@ class ComputerConnection {
   /// Per-socket native TLS policy; never exposed to the WebView.
   final HttpClient Function()? createHttpClient;
 
+  /// Proxy tabs require explicit takeover before activating their live viewer.
+  bool get requiresBrowserActivation =>
+      browserSession != null && browserSession!.mode != 'chrome';
+
   /// Includes the stream URL and optional token, excluding native proxy
   /// cookies, headers and the HTTP-client factory. Replace the upstream URL
   /// with the scoped relay URL before passing this map to the WebView.

@@ -43,6 +43,7 @@
   "computerConnecting": "Connessione al computer…",
   "computerReconnecting": "Riconnessione…",
   "computerDisconnected": "Computer disconnesso",
+  "computerBrowserStartHint": "Prendi il controllo per avviare la vista dal vivo di questa scheda.",
   "computerBrowserUnavailable": "Questo terminale richiede Chrome o Chromium per un browser in diretta.",
   "computerStopFailed": "Impossibile interrompere la risposta attuale. Puoi continuare a guardare e riprovare.",
   "computerStopping": "Interruzione della risposta…",

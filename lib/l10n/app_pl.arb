@@ -43,6 +43,7 @@
   "computerConnecting": "Łączenie z komputerem…",
   "computerReconnecting": "Ponowne łączenie…",
   "computerDisconnected": "Komputer rozłączony",
+  "computerBrowserStartHint": "Przejmij kontrolę, aby uruchomić podgląd tej karty na żywo.",
   "computerBrowserUnavailable": "Ten terminal wymaga Chrome lub Chromium do przeglądarki na żywo.",
   "computerStopFailed": "Nie udało się zatrzymać bieżącej odpowiedzi. Możesz nadal obserwować i spróbować ponownie.",
   "computerStopping": "Zatrzymywanie odpowiedzi…",

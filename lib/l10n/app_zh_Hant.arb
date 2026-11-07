@@ -43,6 +43,7 @@
   "computerConnecting": "正在連接電腦…",
   "computerReconnecting": "正在重新連線…",
   "computerDisconnected": "電腦已中斷連線",
+  "computerBrowserStartHint": "接管控制以啟動此分頁的即時畫面。",
   "computerBrowserUnavailable": "此終端需要 Chrome 或 Chromium 才能使用即時瀏覽器。",
   "computerStopFailed": "無法停止目前的回覆。你可以繼續觀看並重試。",
   "computerStopping": "正在停止回覆…",

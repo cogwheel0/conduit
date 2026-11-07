@@ -43,6 +43,7 @@
   "computerConnecting": "正在连接电脑…",
   "computerReconnecting": "正在重新连接…",
   "computerDisconnected": "电脑已断开连接",
+  "computerBrowserStartHint": "接管控制以启动此标签页的实时画面。",
   "computerBrowserUnavailable": "此终端需要 Chrome 或 Chromium 才能使用实时浏览器。",
   "computerStopFailed": "无法停止当前回复。你可以继续观看并重试。",
   "computerStopping": "正在停止回复…",

@@ -109,7 +109,7 @@ class _ComputerCardState extends State<_ComputerCard>
       final connection = await widget.service.open(_selected);
       if (!mounted || generation != _generation) return;
       _connection = connection;
-      if (connection == null) return;
+      if (connection == null || connection.requiresBrowserActivation) return;
       final bytes = await widget.service.screenshot(connection);
       if (!mounted || generation != _generation) return;
       setState(() => _preview = bytes);
@@ -263,6 +263,10 @@ class _ComputerCardState extends State<_ComputerCard>
                                     child: Text(
                                       _failed
                                           ? l10n.computerPreviewUnavailable
+                                          : _connection
+                                                    ?.requiresBrowserActivation ==
+                                                true
+                                          ? l10n.computerBrowserStartHint
                                           : _selected ==
                                                     ComputerSurface.browser &&
                                                 _connection == null
