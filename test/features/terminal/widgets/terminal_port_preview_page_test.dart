@@ -538,6 +538,15 @@ void main() {
       );
       params.onLoadStart!(controller, first);
       expect(host.started, [first.uriValue]);
+
+      // From then on the server's root is decided on like any page.
+      await params.shouldOverrideUrlLoading!(
+        controller,
+        NavigationAction(request: URLRequest(url: seedUrl), isForMainFrame: true),
+      );
+      params.onLoadStart!(controller, seedUrl);
+      expect(host.navigated, [seedUrl.uriValue]);
+      expect(host.started, [first.uriValue, seedUrl.uriValue]);
     });
 
     testWidgets('are left alone where the store is shared (Android)', (

@@ -599,7 +599,10 @@ Widget buildTerminalPreviewWebView(
           target: request.uri,
         )
       : null;
-  bool isSeed(WebUri? url) => seed != null && url?.uriValue == seed.url;
+  // Only until the page it goes on to starts: later, the server's root is
+  // one more page the preview's rules decide on.
+  var seeding = seed != null;
+  bool isSeed(WebUri? url) => seeding && url?.uriValue == seed?.url;
   final firstPage = request.uri;
   Future<void> syncHistory(InAppWebViewController controller) async {
     try {
@@ -644,6 +647,7 @@ Widget buildTerminalPreviewWebView(
     // that leaves the preview's pages.
     onLoadStart: (controller, url) {
       if (isSeed(url)) return;
+      seeding = false;
       host.loadStarted(url?.uriValue);
     },
     onLoadStop: (controller, url) async {
@@ -662,6 +666,7 @@ Widget buildTerminalPreviewWebView(
       // Should the app's own first page fail, the real one is tried without
       // the cookies.
       if (isSeed(request.url)) {
+        seeding = false;
         unawaited(
           controller.loadUrl(urlRequest: URLRequest(url: WebUri.uri(firstPage))),
         );
