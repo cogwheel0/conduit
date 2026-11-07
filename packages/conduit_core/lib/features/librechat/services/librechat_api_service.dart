@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:dio/dio.dart';
 
 import 'package:conduit_core/features/librechat/models/librechat_message.dart';
@@ -182,6 +184,289 @@ final class LibreChatApiService {
       after = next;
     }
     return agents;
+  }
+
+  // ---- files ----------------------------------------------------------------
+
+  /// Uploads [bytes] as [filename] for a turn on [endpoint]. [fileId] is the
+  /// UUID the client mints for it (LibreChat requires one). Images go to
+  /// `/api/files/images` with their size, other files to `/api/files`.
+  ///
+  /// Returns LibreChat's file record: `{file_id, filepath, filename, type,
+  /// bytes, width, height, ...}`, which the turn sends back in `files`.
+  Future<Map<String, dynamic>> uploadFile({
+    required Uint8List bytes,
+    required String filename,
+    required String fileId,
+    required String endpoint,
+    String? endpointType,
+    String? mimeType,
+    int? width,
+    int? height,
+    String? conversationId,
+    String? agentId,
+    String? toolResource,
+    void Function(int sent, int total)? onProgress,
+    CancelToken? cancelToken,
+  }) async {
+    final isImage = width != null && height != null;
+    final form = FormData.fromMap({
+      'file_id': fileId,
+      'endpoint': endpoint,
+      'endpointType': ?endpointType,
+      'conversationId': ?conversationId,
+      'agent_id': ?agentId,
+      'tool_resource': ?toolResource,
+      'message_file': 'true',
+      if (isImage) 'width': width,
+      if (isImage) 'height': height,
+      'file': MultipartFile.fromBytes(
+        bytes,
+        filename: filename,
+        contentType: mimeType == null ? null : DioMediaType.parse(mimeType),
+      ),
+    });
+    try {
+      final response = await _dio.post<dynamic>(
+        isImage ? '/api/files/images' : '/api/files',
+        data: form,
+        onSendProgress: onProgress,
+        cancelToken: cancelToken,
+        options: Options(receiveTimeout: const Duration(minutes: 5)),
+      );
+      return _map(response.data);
+    } on DioException catch (error) {
+      throw libreChatErrorOf(error, fallback: 'The upload failed.');
+    }
+  }
+
+  /// The server's upload limits: `{endpoint: {fileLimit, fileSizeLimit,
+  /// supportedMimeTypes}, serverFileSizeLimit, avatarSizeLimit}`.
+  Future<Map<String, dynamic>> fileConfig() async =>
+      _map(await _get('/api/files/config'));
+
+  // ---- MCP --------------------------------------------------------------------
+
+  /// The user's MCP servers and their tools: `{serverName: {name, icon,
+  /// authenticated, authConfig, tools: [{name, pluginKey, description}]}}`.
+  Future<Map<String, dynamic>> mcpServers() async {
+    final data = _map(await _get('/api/mcp/tools'));
+    final servers = data['servers'];
+    return servers is Map ? Map<String, dynamic>.from(servers) : {};
+  }
+
+  /// Each MCP server's connection: `{serverName: {connectionState,
+  /// requiresOAuth}}`.
+  Future<Map<String, dynamic>> mcpConnectionStatus() async {
+    final data = _map(await _get('/api/mcp/connection/status'));
+    final status = data['connectionStatus'];
+    return status is Map ? Map<String, dynamic>.from(status) : {};
+  }
+
+  // ---- prompts --------------------------------------------------------------
+
+  /// Every prompt group the user may use, with its production prompt.
+  Future<List<Map<String, dynamic>>> promptGroups() async {
+    final data = await _get('/api/prompts/all');
+    return [
+      if (data is List)
+        for (final group in data)
+          if (group is Map) Map<String, dynamic>.from(group),
+    ];
+  }
+
+  // ---- memories -------------------------------------------------------------
+
+  /// `{memories: [{key, value, tokenCount, updated_at}], totalTokens,
+  /// tokenLimit, usagePercentage}`.
+  Future<Map<String, dynamic>> memories() async =>
+      _map(await _get('/api/memories'));
+
+  Future<void> createMemory(String key, String value) =>
+      _post('/api/memories', {'key': key, 'value': value});
+
+  /// Changes memory [key]'s value, and its key to [newKey] when given.
+  Future<void> updateMemory(String key, String value, {String? newKey}) async {
+    try {
+      await _dio.patch<dynamic>(
+        '/api/memories/${Uri.encodeComponent(key)}',
+        data: {'value': value, 'key': ?newKey},
+      );
+    } on DioException catch (error) {
+      throw libreChatErrorOf(error);
+    }
+  }
+
+  Future<void> deleteMemory(String key) async {
+    try {
+      await _dio.delete<dynamic>('/api/memories/${Uri.encodeComponent(key)}');
+    } on DioException catch (error) {
+      if (error.response?.statusCode == 404) return;
+      throw libreChatErrorOf(error);
+    }
+  }
+
+  /// Whether the assistant may use and update memories for this user.
+  Future<void> setMemoriesEnabled(bool enabled) async {
+    try {
+      await _dio.patch<dynamic>(
+        '/api/memories/preferences',
+        data: {'memories': enabled},
+      );
+    } on DioException catch (error) {
+      throw libreChatErrorOf(error);
+    }
+  }
+
+  // ---- sharing, forking -----------------------------------------------------
+
+  /// The share id of conversation [id]'s link, or null when it has none.
+  Future<String?> sharedLinkId(String id) async {
+    final data = _map(
+      await _get('/api/share/link/${Uri.encodeComponent(id)}'),
+    );
+    final shareId = data['shareId'];
+    return shareId is String && shareId.isNotEmpty ? shareId : null;
+  }
+
+  /// Shares conversation [id] up to [targetMessageId] (its latest message by
+  /// default) and returns the share id.
+  Future<String> createSharedLink(String id, {String? targetMessageId}) async {
+    try {
+      final response = await _dio.post<dynamic>(
+        '/api/share/${Uri.encodeComponent(id)}',
+        data: {'targetMessageId': ?targetMessageId},
+      );
+      final shareId = _map(response.data)['shareId'];
+      if (shareId is String && shareId.isNotEmpty) return shareId;
+      throw const LibreChatApiException(
+        message: 'The LibreChat server did not create the link.',
+      );
+    } on DioException catch (error) {
+      throw libreChatErrorOf(error, fallback: 'Could not share the chat.');
+    }
+  }
+
+  Future<void> deleteSharedLink(String shareId) async {
+    try {
+      await _dio.delete<dynamic>('/api/share/${Uri.encodeComponent(shareId)}');
+    } on DioException catch (error) {
+      if (error.response?.statusCode == 404) return;
+      throw libreChatErrorOf(error);
+    }
+  }
+
+  /// Copies conversation [id] up to [messageId] into a new conversation.
+  /// [option] is LibreChat's `directPath`, `includeBranches` or
+  /// `targetLevel`. Returns the new conversation and its messages.
+  Future<({LibreChatConversation conversation, List<LibreChatMessage> messages})>
+  fork(
+    String id, {
+    required String messageId,
+    String option = 'directPath',
+  }) => _copy('/api/convos/fork', {
+    'conversationId': id,
+    'messageId': messageId,
+    'option': option,
+    'splitAtTarget': false,
+    'latestMessageId': messageId,
+  });
+
+  /// Copies conversation [id] whole into a new one.
+  Future<({LibreChatConversation conversation, List<LibreChatMessage> messages})>
+  duplicate(String id, {String? title}) => _copy('/api/convos/duplicate', {
+    'conversationId': id,
+    'title': ?title,
+  });
+
+  Future<({LibreChatConversation conversation, List<LibreChatMessage> messages})>
+  _copy(String path, Map<String, dynamic> body) async {
+    try {
+      final data = _map((await _dio.post<dynamic>(path, data: body)).data);
+      final conversation = LibreChatConversation.fromJson(
+        data['conversation'],
+      );
+      if (conversation == null) {
+        throw const LibreChatApiException(
+          message: 'The LibreChat server did not return the new chat.',
+        );
+      }
+      final list = data['messages'];
+      return (
+        conversation: conversation,
+        messages: [
+          if (list is List)
+            for (final item in list) ?LibreChatMessage.fromJson(item),
+        ],
+      );
+    } on DioException catch (error) {
+      throw libreChatErrorOf(error);
+    }
+  }
+
+  // ---- speech ---------------------------------------------------------------
+
+  /// The admin's speech settings for clients (`/api/files/speech/config/get`).
+  Future<Map<String, dynamic>> speechConfig() async =>
+      _map(await _get('/api/files/speech/config/get'));
+
+  /// The voices the server's text-to-speech offers.
+  Future<List<String>> voices() async {
+    final data = await _get('/api/files/speech/tts/voices');
+    return [
+      if (data is List)
+        for (final voice in data)
+          if (voice is String && voice.isNotEmpty) voice,
+    ];
+  }
+
+  /// Transcribes [audio] with the server's speech-to-text.
+  Future<String> transcribe(
+    Uint8List audio, {
+    required String filename,
+    String? mimeType,
+    String? language,
+    CancelToken? cancelToken,
+  }) async {
+    final form = FormData.fromMap({
+      'language': ?language,
+      'audio': MultipartFile.fromBytes(
+        audio,
+        filename: filename,
+        contentType: mimeType == null ? null : DioMediaType.parse(mimeType),
+      ),
+    });
+    try {
+      final response = await _dio.post<dynamic>(
+        '/api/files/speech/stt',
+        data: form,
+        cancelToken: cancelToken,
+      );
+      final text = _map(response.data)['text'];
+      return text is String ? text : '';
+    } on DioException catch (error) {
+      throw libreChatErrorOf(error, fallback: 'Transcription failed.');
+    }
+  }
+
+  /// [text] spoken by the server's text-to-speech in [voice], as audio
+  /// bytes (MP3 unless the server says otherwise).
+  Future<Uint8List> synthesize(
+    String text, {
+    String? voice,
+    CancelToken? cancelToken,
+  }) async {
+    try {
+      final response = await _dio.post<List<int>>(
+        '/api/files/speech/tts/manual',
+        data: FormData.fromMap({'input': text, 'voice': ?voice}),
+        cancelToken: cancelToken,
+        options: Options(responseType: ResponseType.bytes),
+      );
+      return Uint8List.fromList(response.data ?? const <int>[]);
+    } on DioException catch (error) {
+      throw libreChatErrorOf(error, fallback: 'Speech failed.');
+    }
   }
 
   // ---- plumbing -------------------------------------------------------------
