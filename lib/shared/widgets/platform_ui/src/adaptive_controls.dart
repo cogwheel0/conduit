@@ -686,20 +686,25 @@ class AdaptivePopupMenuButton<T> {
         ? _dropdownOptions<T>(items)
         : null;
     if (options != null) {
+      final String? selected;
       try {
-        final selected = await IosNativeDropdownBridge.instance.showFromContext(
+        selected = await IosNativeDropdownBridge.instance.showFromContext(
           context: context,
           options: options,
           cancelLabel: CupertinoLocalizations.of(context).cancelButtonLabel,
           rethrowErrors: true,
         );
-        final index = int.tryParse(selected ?? '');
-        if (index != null) _dispatch<T>(items, index, onSelected);
-        return;
       } catch (_) {
-        // The Flutter menu below takes over.
+        // Only a failed presentation falls back. An error from the chosen
+        // item's handler, below, is the feature's to report.
+        if (context.mounted) {
+          await _showFlutterMenu<T>(context, null, items, onSelected);
+        }
+        return;
       }
-      if (!context.mounted) return;
+      final index = int.tryParse(selected ?? '');
+      if (index != null) _dispatch<T>(items, index, onSelected);
+      return;
     }
     return _showFlutterMenu<T>(context, null, items, onSelected);
   }

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:conduit/l10n/conduit_localizations.dart';
 import 'package:conduit/platform/conduit_platform_apis.g.dart';
 import 'package:conduit/shared/widgets/legacy_design_compatibility.dart';
@@ -303,6 +305,29 @@ void main() {
         await tester.tap(find.text('Preview'));
         await tester.pumpAndSettle();
         expect(selections, [0]);
+      },
+      variant: TargetPlatformVariant.only(TargetPlatform.iOS),
+    );
+
+    testWidgets(
+      "an error from the chosen item's handler is not taken for a failed menu",
+      (tester) async {
+        await tester.pumpWidget(
+          menu(const [
+            AdaptivePopupMenuItem<String>(label: 'Preview'),
+          ], (_, _) => throw StateError('Synthetic handler failure')),
+        );
+        reply = ['0'];
+        // The menu opens from the tap, so its error surfaces in this zone.
+        final errors = <Object>[];
+        await runZonedGuarded(() async {
+          await tester.tap(find.byKey(triggerKey));
+          await tester.pumpAndSettle();
+        }, (error, _) => errors.add(error));
+
+        expect(requests, hasLength(1));
+        expect(errors, [isStateError]);
+        expect(find.byType(CupertinoActionSheet), findsNothing);
       },
       variant: TargetPlatformVariant.only(TargetPlatform.iOS),
     );
