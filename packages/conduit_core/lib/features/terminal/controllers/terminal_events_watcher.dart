@@ -28,16 +28,24 @@ Duration terminalEventsRetryDelay(int attempt) {
 /// limit) does not stop the ports, nor a host without port discovery the
 /// files.
 ///
-/// What a closed socket means follows Open WebUI's own client:
-/// - Closed before it sent anything: the terminal or the server relaying it
-///   cannot report events (an older Open Terminal, Open WebUI before 0.13, a
-///   proxy that drops websockets). The watcher stops for good, and the file
-///   browser keeps refreshing on demand as it always has.
+/// What a closed socket means, close to Open WebUI's own client, which
+/// reconnects after anything but a 4xxx close:
 /// - Closed on purpose (1000, or a 4xxx code such as a refused credential or
-///   a directory that cannot be watched): it stops too.
-/// - Dropped after it worked: it reconnects, waiting longer each time.
-///   Subscribing again reports the directory as ready and sends the current
-///   ports, so nothing that changed meanwhile stays stale.
+///   a directory that cannot be watched): the watcher stops for good, and
+///   the file browser keeps refreshing on demand as it always has.
+/// - Closed with 1011 before it sent anything: Open Terminal's answer when
+///   it cannot watch at all (no filesystem watcher, no port discovery). It
+///   stops too, rather than asking again every half minute as the web
+///   client does.
+/// - A handshake that failed, or a socket that dropped (1006 and the like),
+///   even before the first event: it reconnects, waiting longer each time,
+///   so a moment without network when the terminal opens does not cost its
+///   live updates. Subscribing again reports the directory as ready and
+///   sends the current ports, so nothing that changed meanwhile stays stale.
+/// - A socket that cannot even be made (a malformed address): it stops.
+///
+/// Only a terminal that reports the `events` feature gets a watcher, so a
+/// server without the endpoint is not asked at all.
 final class TerminalEventsWatcher {
   TerminalEventsWatcher({
     required TerminalChannelOpener openChannel,
@@ -115,7 +123,7 @@ final class TerminalEventsWatcher {
     try {
       channel = _openChannel(_uri, kind: _kind);
     } catch (_) {
-      _handleClosed(null);
+      _stopped = true;
       return;
     }
     _channel = channel;
@@ -155,7 +163,8 @@ final class TerminalEventsWatcher {
     final deliberate =
         closeCode != null &&
         (closeCode == 1000 || (closeCode >= 4000 && closeCode < 5000));
-    if (!_received || deliberate) {
+    final cannotWatch = closeCode == 1011 && !_received;
+    if (deliberate || cannotWatch) {
       _stopped = true;
       return;
     }

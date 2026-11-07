@@ -124,11 +124,48 @@ void main() {
     ]);
   });
 
-  test('a socket that closes without data stops for good', () async {
+  test('a socket that drops before its first event reconnects', () async {
+    // A moment without network when the terminal opens.
     final subject = watcher()..start();
     await settle();
 
     channels.single.closeFromServer(1006);
+    await settle(30);
+
+    check(subject.active).isTrue();
+    check(channels).length.equals(2);
+    check(delays).deepEquals([const Duration(milliseconds: 10)]);
+    check(channels.last.decodedSent).deepEquals([
+      auth,
+      {'type': 'subscribe', 'path': '/workspace/'},
+    ]);
+  });
+
+  test('a failed handshake is tried again, waiting longer each time', () async {
+    final subject = watcher()..start();
+    channels.single.failHandshake();
+    await settle(30);
+    check(channels).length.equals(2);
+    // The next try drops too, before answering.
+    channels.last.closeFromServer(1006);
+    await settle(40);
+
+    check(subject.active).isTrue();
+    check(channels).length.equals(3);
+    check(delays).deepEquals([
+      const Duration(milliseconds: 10),
+      const Duration(milliseconds: 20),
+    ]);
+    check(channels.first.sent).isEmpty();
+  });
+
+  test('a terminal that cannot watch at all stops for good', () async {
+    // Open Terminal closes with 1011 when it has no filesystem watcher or no
+    // port discovery.
+    final subject = watcher()..start();
+    await settle();
+
+    channels.single.closeFromServer(1011);
     await settle(50);
 
     check(subject.active).isFalse();
@@ -136,14 +173,24 @@ void main() {
     check(delays).isEmpty();
   });
 
-  test('a failed handshake stops for good', () async {
-    final subject = watcher()..start();
-    channels.single.failHandshake();
-    await settle(50);
+  test('a socket that cannot be made stops for good', () async {
+    final subject = TerminalEventsWatcher(
+      openChannel: (_, {required kind}) => throw ArgumentError('bad address'),
+      uri: uri,
+      kind: TerminalServerKind.system,
+      authPayload: auth,
+      path: '/workspace/',
+      onEvent: events.add,
+      retryDelay: (attempt) {
+        delays.add(Duration.zero);
+        return Duration.zero;
+      },
+    )..start();
+    addTearDown(subject.stop);
+    await settle(10);
 
     check(subject.active).isFalse();
-    check(channels).length.equals(1);
-    check(channels.single.sent).isEmpty();
+    check(delays).isEmpty();
   });
 
   test('a deliberate close after data stops', () async {
