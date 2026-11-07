@@ -32,6 +32,10 @@ Protocol references:
 - https://github.com/open-webui/open-terminal/tree/v0.17.2/open_terminal
 - https://github.com/open-webui/open-webui/tree/v0.13.0/src/lib/apis/terminal
 
+Sign-in proxy cookies are seeded only into the trusted pixel document's private
+cookie store, at the WebSocket server's origin. Open WebUI account cookies are
+excluded, direct terminals receive none, and remote HTML navigation stays blocked.
+
 Credentials exist only in a mounted viewer's in-memory configuration. Never log
 WebSocket URLs: browser viewer URLs contain a scoped access token. Previews are
 explicit, in-memory snapshots and are discarded on collapse or backgrounding.

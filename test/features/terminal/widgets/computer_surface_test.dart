@@ -82,6 +82,69 @@ void main() {
     },
   );
 
+  testWidgets('private viewer seeds proxy cookies only at the socket origin', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      Directionality(
+        textDirection: TextDirection.ltr,
+        child: ComputerSurfaceView(
+          connection: ComputerConnection(
+            surface: ComputerSurface.desktop,
+            streamUri: Uri.parse(
+              'wss://computer.example:9443/nested/desktop/stream',
+            ),
+            proxyCookies: {
+              'CF_Authorization': 'synthetic-proxy',
+              'unsafe': '</script><script>bad()</script>',
+              'bad;name': 'discard',
+              'bad_value': 'discard; path=/other',
+            },
+          ),
+          controller: ComputerSurfaceController(),
+          onState: (_) {},
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final params = tester
+        .widget<InAppWebView>(find.byType(InAppWebView))
+        .platform
+        .params;
+    expect(
+      params.initialData!.baseUrl.toString(),
+      'https://computer.example:9443/index.html',
+    );
+    final document = params.initialData!.data;
+    expect(
+      document,
+      contains(
+        'CF_Authorization=synthetic-proxy; path=/; secure; samesite=none',
+      ),
+    );
+    expect(document, isNot(contains('</script><script>bad()')));
+    expect(document, isNot(contains('discard')));
+    expect(document, contains('-webkit-user-select:none'));
+    expect(document, contains('-webkit-touch-callout:none'));
+    expect(params.initialSettings!.incognito, isTrue);
+    expect(params.initialSettings!.sharedCookiesEnabled, isFalse);
+    expect(params.initialSettings!.javaScriptHandlersOriginAllowList, {
+      'https://computer.example:9443',
+    });
+    expect(document, contains('connect-src wss://computer.example:9443 data:'));
+    final decision = await params.shouldOverrideUrlLoading!(
+      ComputerTestWebController(),
+      NavigationAction(
+        request: URLRequest(
+          url: WebUri('https://computer.example:9443/private'),
+        ),
+        isForMainFrame: true,
+      ),
+    );
+    expect(decision, NavigationActionPolicy.CANCEL);
+    await tester.pumpWidget(const SizedBox());
+  });
+
   testWidgets('retiring viewer cannot dispose or detach its replacement', (
     tester,
   ) async {

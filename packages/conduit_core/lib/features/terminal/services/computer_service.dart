@@ -71,6 +71,7 @@ class ComputerService {
         token: terminal.authTokenForServer(server) ?? '',
         chatId: chatId,
         audioAvailable: info['audio'] == true,
+        proxyCookies: terminal.proxyCookiesForServer(server),
       );
     }
 
@@ -149,6 +150,7 @@ class ComputerService {
         '${Uri.encodeComponent(selected.token)}/stream',
       ),
       browserSession: selected,
+      proxyCookies: terminal.proxyCookiesForServer(server),
       chatId: chatId,
     );
   }

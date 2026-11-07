@@ -52,7 +52,15 @@ void main() {
     http = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
     final url = 'http://127.0.0.1:${http.port}/nested';
     final api = ApiService(
-      serverConfig: ServerConfig(id: 'fixture', name: 'Fixture', url: url),
+      serverConfig: ServerConfig(
+        id: 'fixture',
+        name: 'Fixture',
+        url: url,
+        customHeaders: {
+          'Cookie':
+              'CF_Authorization=synthetic-proxy; token=private-webui-cookie',
+        },
+      ),
       authToken: 'synthetic-webui-token',
       workerManager: WorkerManager(),
     );
@@ -100,6 +108,7 @@ void main() {
       expect(connection.streamUri.query, isEmpty);
       expect(connection.token, 'synthetic-terminal-key');
       expect(connection.chatId, 'chat-fixture');
+      expect(connection.proxyCookies, isEmpty);
     },
   );
 
@@ -145,10 +154,37 @@ void main() {
     expect(requests.single.auth, 'Bearer synthetic-webui-token');
     expect(requests.single.scope, 'chat-fixture');
     expect(connection.token, 'synthetic-webui-token');
+    expect(connection.proxyCookies, {'CF_Authorization': 'synthetic-proxy'});
+    expect(connection.toViewerConfig(), isNot(contains('proxyCookies')));
     expect(connection.streamUri.query, isEmpty);
     expect(
       connection.streamUri.path,
       '/nested/api/v1/terminals/terminal-fixture/desktop/stream',
+    );
+  });
+
+  test('browser stream gets only its own system proxy cookies', () async {
+    final proxy = ComputerService(
+      service.terminal,
+      TerminalServerInfo(
+        kind: TerminalServerKind.system,
+        selectionId: 'terminal-fixture',
+        systemServerId: 'terminal-fixture',
+        baseUrl: Uri.parse('http://127.0.0.1:${http.port}/nested'),
+      ),
+      'chat-fixture',
+    );
+    respond = (request) async => request.response.write(
+      request.uri.path.endsWith('/tabs')
+          ? '{"current_session_id":"tab"}'
+          : '{"id":"tab","token":"ticket","chrome_available":true}',
+    );
+    final connection = await proxy.open(ComputerSurface.browser);
+    expect(connection.proxyCookies, {'CF_Authorization': 'synthetic-proxy'});
+    expect(connection.token, isNull);
+    expect(
+      connection.toViewerConfig().toString(),
+      isNot(contains('synthetic-proxy')),
     );
   });
 

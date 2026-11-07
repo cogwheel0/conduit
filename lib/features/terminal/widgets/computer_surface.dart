@@ -49,9 +49,17 @@ class ComputerSurfaceView extends StatefulWidget {
 }
 
 class _ComputerSurfaceViewState extends State<ComputerSurfaceView> {
-  late final _origin = widget.connection.streamUri.scheme == 'wss'
-      ? 'https://computer.conduit.invalid'
-      : 'http://computer.conduit.invalid';
+  late final _origin = Uri(
+    scheme: widget.connection.streamUri.scheme == 'wss' ? 'https' : 'http',
+    host: widget.connection.proxyCookies.isEmpty
+        ? 'computer.conduit.invalid'
+        : widget.connection.streamUri.host,
+    port:
+        widget.connection.proxyCookies.isNotEmpty &&
+            widget.connection.streamUri.hasPort
+        ? widget.connection.streamUri.port
+        : null,
+  ).origin;
   late final Future<String> _document = _load();
   bool _started = false;
   Size? _lastSize;
@@ -71,17 +79,31 @@ class _ComputerSurfaceViewState extends State<ComputerSurfaceView> {
       host: uri.host,
       port: uri.hasPort ? uri.port : null,
     );
+    // A private WebView starts without the sign-in proxy's cookies. Seed only
+    // this trusted pixel document, at the socket server's origin; no remote
+    // HTML is loaded. The cookies disappear with the nonpersistent viewer.
+    final cookieName = RegExp(r"^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$");
+    final cookieValue = RegExp(
+      r'^[\x21\x23-\x2B\x2D-\x3A\x3C-\x5B\x5D-\x7E]*$',
+    );
+    final suffix = uri.scheme == 'wss' ? '; secure; samesite=none' : '';
+    final cookies = [
+      for (final entry in widget.connection.proxyCookies.entries)
+        if (cookieName.hasMatch(entry.key) && cookieValue.hasMatch(entry.value))
+          'document.cookie = ${jsonEncode('${entry.key}=${entry.value}; path=/$suffix').replaceAll('<', r'\u003c')};',
+    ].join('\n');
     return '''<!doctype html><html><head>
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=3">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src blob: data:; media-src blob:; connect-src $allowed data:; base-uri 'none'; form-action 'none'">
 <style>
-html,body{margin:0;width:100%;height:100%;background:#111318;overflow:auto;overscroll-behavior:none}
+html,body{margin:0;width:100%;height:100%;background:#111318;overflow:auto;overscroll-behavior:none;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
 #surface{width:100%;height:100%;display:flex;align-items:center;justify-content:center;overflow:auto}
 #surface.zoomed{align-items:flex-start;justify-content:flex-start}
 #frame{display:block;max-width:100%;max-height:100%;object-fit:contain;flex-shrink:0}
 #frame.zoomed{max-width:none;max-height:none;width:200%;align-self:flex-start}
 </style></head><body><div id="surface"><canvas id="frame" width="1" height="1"></canvas></div>
-<script>(async () => {${script.replaceAll('</script', '<\\/script')} })();</script></body></html>''';
+<script>$cookies
+(async () => {${script.replaceAll('</script', '<\\/script')} })();</script></body></html>''';
   }
 
   @override

@@ -92,6 +92,7 @@ class ComputerConnection {
     this.chatId = '',
     this.browserSession,
     this.audioAvailable = false,
+    this.proxyCookies = const {},
   });
 
   final ComputerSurface surface;
@@ -101,6 +102,8 @@ class ComputerConnection {
   final String chatId;
   final ComputerBrowserSession? browserSession;
   final bool audioAvailable;
+  // Only the sign-in proxy cookies for this server, never Open WebUI tokens.
+  final Map<String, String> proxyCookies;
 
   Map<String, dynamic> toViewerConfig() => {
     'surface': surface.name,
