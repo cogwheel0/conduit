@@ -3,9 +3,15 @@ import 'dart:collection';
 
 import 'dart:typed_data';
 
+import 'package:riverpod/misc.dart' show ProviderListenable;
 import 'package:riverpod/riverpod.dart';
 import 'package:meta/meta.dart';
 
+import 'package:conduit_core/features/librechat/providers/librechat_composer_providers.dart'
+    show libreChatImageFetcherProvider;
+import 'package:conduit_core/features/librechat/providers/librechat_providers.dart'
+    show libreChatSessionHandleProvider;
+import 'package:conduit_core/features/librechat/services/librechat_session_handle.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit_core/utils/image_attachment_sources.dart';
@@ -36,21 +42,65 @@ final class ImageAttachmentCacheScope {
   const ImageAttachmentCacheScope({
     required this.api,
     required this.authSessionEpoch,
-  });
+  }) : fetchPath = null;
+
+  /// A LibreChat account's server-relative images (`/images/...`), owned by
+  /// its [session] and fetched with [fetchPath].
+  ///
+  /// The session handle outlives token renewals, so a renewal keeps the
+  /// cached images; a sign-in or account switch makes a new one.
+  const ImageAttachmentCacheScope.libreChat({
+    required LibreChatSessionHandle session,
+    required Future<Uint8List> Function(String path) this.fetchPath,
+  }) : api = null,
+       authSessionEpoch = session;
 
   final ApiService? api;
   final Object authSessionEpoch;
+
+  /// Loads a server-relative path with the account's current credentials;
+  /// set for LibreChat scopes only.
+  final Future<Uint8List> Function(String path)? fetchPath;
 
   @override
   bool operator ==(Object other) =>
       other is ImageAttachmentCacheScope &&
       identical(other.api, api) &&
-      identical(other.authSessionEpoch, authSessionEpoch);
+      identical(other.authSessionEpoch, authSessionEpoch) &&
+      identical(other.fetchPath, fetchPath);
 
   @override
   int get hashCode => Object.hash(
     api == null ? null : identityHashCode(api!),
     identityHashCode(authSessionEpoch),
+    fetchPath == null ? null : identityHashCode(fetchPath),
+  );
+}
+
+/// The cache scope of [attachmentId], read with [read] (`ref.watch` in a
+/// build, `ref.read` or a container's `read` elsewhere); null for literal
+/// sources. Server-relative paths belong to LibreChat while it is the
+/// signed-in primary account, everything else to Open WebUI.
+ImageAttachmentCacheScope? imageAttachmentCacheScopeFor(
+  T Function<T>(ProviderListenable<T> provider) read,
+  String attachmentId,
+) {
+  if (!usesAccountScopedImageCache(attachmentId)) return null;
+  if (attachmentId.startsWith('/')) {
+    final fetchPath = read(libreChatImageFetcherProvider);
+    final session = fetchPath == null
+        ? null
+        : read(libreChatSessionHandleProvider);
+    if (fetchPath != null && session != null) {
+      return ImageAttachmentCacheScope.libreChat(
+        session: session,
+        fetchPath: fetchPath,
+      );
+    }
+  }
+  return ImageAttachmentCacheScope(
+    api: read(apiServiceProvider),
+    authSessionEpoch: read(openWebUiAuthSessionEpochProvider),
   );
 }
 
@@ -345,6 +395,12 @@ final class ImageAttachmentCacheStore {
     return future;
   }
 
+  /// Fences [epoch]'s loads still in flight out of the cache, leaving
+  /// other owners' images in place.
+  void invalidateAuthSessionEpoch(Object epoch) {
+    _invalidatedAuthSessionEpochs.add(epoch);
+  }
+
   void clear({Object? invalidatedAuthSessionEpoch}) {
     if (invalidatedAuthSessionEpoch != null) {
       _invalidatedAuthSessionEpochs.add(invalidatedAuthSessionEpoch);
@@ -437,6 +493,16 @@ final imageAttachmentCacheLifecycleProvider = Provider<void>((ref) {
   ref.listen<Object>(openWebUiAuthSessionEpochProvider, (previous, next) {
     if (previous != null && !identical(previous, next)) {
       _imageAttachmentCacheStore.clear(invalidatedAuthSessionEpoch: previous);
+    }
+  });
+  // A LibreChat sign-out or account switch ends its session handle; images
+  // keyed by a new handle never meet the old ones.
+  ref.listen<LibreChatSessionHandle?>(libreChatSessionHandleProvider, (
+    previous,
+    next,
+  ) {
+    if (previous != null && !identical(previous, next)) {
+      _imageAttachmentCacheStore.invalidateAuthSessionEpoch(previous);
     }
   });
 });

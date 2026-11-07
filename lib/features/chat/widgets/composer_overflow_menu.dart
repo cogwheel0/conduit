@@ -20,6 +20,12 @@ import '../../terminal/providers/terminal_providers.dart';
 
 import 'package:conduit_core/features/direct_connections/direct_connections.dart';
 import 'package:conduit_core/features/direct_connections/providers/direct_mcp_providers.dart';
+import 'package:conduit_core/features/librechat/models/librechat_model.dart'
+    show isLibreChatModel;
+import 'package:conduit_core/features/librechat/providers/librechat_composer_providers.dart'
+    show libreChatComposerOptionsProvider;
+import '../../librechat/widgets/librechat_composer_support.dart'
+    show libreChatComposerTools;
 
 import 'package:conduit_core/features/chat/providers/chat_providers.dart';
 import 'package:conduit_core/features/integrations/personal_connection_settings.dart';
@@ -253,7 +259,12 @@ class _ComposerAttachmentKeyboardState
         : ref.watch(directModelRegistryProvider).resolve(selectedModel);
     final directMode = directBinding != null;
     final directToolsAvailable = directBindingSupportsLocalMcp(directBinding);
-    final restrictedMode = directMode || widget.localAttachmentsOnly;
+    // LibreChat takes uploads and its own tools, and none of Open WebUI's
+    // integrations.
+    final libreChatMode =
+        selectedModel != null && isLibreChatModel(selectedModel);
+    final restrictedMode =
+        directMode || libreChatMode || widget.localAttachmentsOnly;
     // Direct and local-only backends have no OpenWebUI integrations to
     // discover. Resolve the request lazily because direct provenance is only
     // available once providers can be read during build.
@@ -273,7 +284,7 @@ class _ComposerAttachmentKeyboardState
             mcpContent: directMode && widget.onMcpContent != null,
           ),
         ).where((item) {
-          if (widget.localAttachmentsOnly) {
+          if (widget.localAttachmentsOnly || libreChatMode) {
             return item.enabled &&
                 (item.id == ComposerOverflowActionIds.file ||
                     item.id == ComposerOverflowActionIds.photo ||
@@ -350,6 +361,10 @@ class _ComposerAttachmentKeyboardState
         ? directToolsAvailable
               ? ref.watch(directMcpToolsProvider)
               : const AsyncData<List<Tool>>([])
+        : libreChatMode
+        ? ref
+              .watch(libreChatComposerOptionsProvider)
+              .whenData((options) => libreChatComposerTools(l10n, options))
         : ref.watch(toolsListProvider);
     final toolsSection = widget.localAttachmentsOnly
         ? const SizedBox.shrink()
