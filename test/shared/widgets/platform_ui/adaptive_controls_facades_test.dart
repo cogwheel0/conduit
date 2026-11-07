@@ -1,7 +1,5 @@
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:cupertino_ui/cupertino_ui.dart' show CupertinoActivityIndicator;
-import 'package:cupertino_native_better/cupertino_native_better.dart'
-    show CNButton;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
 
