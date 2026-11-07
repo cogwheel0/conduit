@@ -14,6 +14,7 @@ import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart
 import 'package:conduit_core/features/chat/providers/attached_files_provider.dart';
 import 'package:conduit_core/features/chat/providers/chat_providers.dart';
 import 'package:conduit_core/features/chat/services/chat_draft_queue.dart';
+import 'package:conduit_core/features/hermes/models/hermes_model.dart';
 import 'package:conduit_core/features/tools/providers/tools_providers.dart';
 import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit_core/models/conversation.dart';
@@ -245,6 +246,7 @@ Future<_Rig> _pump(
   List<ChatMessage>? turn,
   List<Override> overrides = const [],
   VoidCallback? onVoiceCall,
+  Model model = const Model(id: 'model-1', name: 'Model 1'),
 }) async {
   final db = AppDatabase(NativeDatabase.memory());
   _openDatabases.add(db);
@@ -287,9 +289,7 @@ Future<_Rig> _pump(
           ),
         ),
         chatMessagesProvider.overrideWith(_Messages.new),
-        selectedModelProvider.overrideWithValue(
-          const Model(id: 'model-1', name: 'Model 1'),
-        ),
+        selectedModelProvider.overrideWithValue(model),
         reviewerModeProvider.overrideWithValue(false),
         isOnlineProvider.overrideWithValue(true),
         currentUserProvider2.overrideWithValue(
@@ -459,6 +459,48 @@ void main() {
     expect(rig.drafts.map((d) => d.text), ['by keyboard']);
     expect(rig.typed, isEmpty);
   });
+
+  // Hermes and Direct chats take no queued turns, and give up the sent text
+  // as soon as the turn is handed to its run: Enter must not start a second
+  // turn over the one still running.
+  for (final (label, model) in [
+    ('Hermes', hermesSyntheticModel(name: 'Hermes')),
+    ('Direct', const Model(id: 'direct-local', name: 'Direct')),
+  ]) {
+    testQueue('Enter starts no second $label turn while one runs', (
+      tester,
+    ) async {
+      final rig = await _pump(
+        tester,
+        model: model,
+        overrides: [chatDraftQueueOfferProvider.overrideWithValue(false)],
+      );
+
+      await rig.type('follow-up');
+      await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+      await tester.pump();
+
+      expect(rig.sent, isEmpty);
+      expect(rig.typed, 'follow-up');
+    });
+
+    testQueue('Enter sends the next $label turn once one ends', (
+      tester,
+    ) async {
+      final rig = await _pump(
+        tester,
+        streaming: false,
+        model: model,
+        overrides: [chatDraftQueueOfferProvider.overrideWithValue(false)],
+      );
+
+      await rig.type('follow-up');
+      await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+      await tester.pump();
+
+      expect(rig.sent, ['follow-up']);
+    });
+  }
 
   testQueue(
     'without a running response Enter still sends, and no Queue shows',

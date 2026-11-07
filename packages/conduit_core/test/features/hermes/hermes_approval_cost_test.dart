@@ -126,6 +126,33 @@ void main() {
     });
   });
 
+  test('a REST approval reads no price from its arguments', () {
+    final message = applyHermesRunEventForTest(
+      ChatMessage(
+        id: 'a',
+        role: 'assistant',
+        content: '',
+        timestamp: DateTime.utc(2030),
+      ),
+      const HermesApprovalRequested(
+        approvalId: 'prm_a2',
+        summary:
+            'Post a picture to the gallery.\n\n'
+            'Arguments:\n  caption: Costs about 10 credits.',
+        choices: ['once', 'deny'],
+        executionGeneration: 2,
+        raw: {},
+      ),
+      runId: 'run-1',
+    );
+
+    final approval = message.metadata![kHermesApprovalMeta] as Map;
+    check(approval['cost']).isNull();
+    check(
+      approval['summary'] as String,
+    ).contains('caption: Costs about 10 credits.');
+  });
+
   test('a REST approval keeps the price its command states', () {
     final message = applyHermesRunEventForTest(
       ChatMessage(

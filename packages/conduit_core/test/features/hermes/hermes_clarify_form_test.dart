@@ -284,6 +284,35 @@ void main() {
       check(question.choices).deepEquals(['src', 'docs']);
       check(question.text).not((it) => it.contains('synthetic-secret-123'));
     });
+
+    test('send a live choice as it reads, or leave it out', () {
+      final longPath = '/srv/${'deep/' * 120}notes.txt';
+      final message = applyHermesRunEventForTest(
+        ChatMessage(
+          id: 'assistant-1',
+          role: 'assistant',
+          content: '',
+          timestamp: DateTime.utc(2030),
+        ),
+        HermesDecisionRequested(
+          kind: HermesDecisionKind.clarification,
+          requestId: 'prm_c1a3',
+          prompt: 'Which command?',
+          raw: {
+            'prompt_id': 'prm_c1a3',
+            'execution_generation': 3,
+            'question': 'Which command?',
+            'choices': ['ls  -la', longPath, 'pwd'],
+          },
+        ),
+        runId: 'run_5be1c0de',
+      );
+
+      final decision = message.metadata![kHermesDecisionMeta] as Map;
+      final question = hermesClarifyQuestionsFromPayload(decision).single;
+      // Folding `ls  -la` or cutting the path would send another answer.
+      check(question.choices).deepEquals(['pwd']);
+    });
   });
 
   group('pending clarify forms', () {

@@ -1476,8 +1476,12 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
                   CodeExecutionListView(executions: activeCodeExecutions),
                 ],
 
-                // Files a Hermes reply's tools edited, as a diff card.
-                HermesChangedFilesCard(statuses: widget.message.statusHistory),
+                // Files a Hermes reply's tools edited, as a diff card. An
+                // earlier version keeps no record of what its tools did.
+                if (!showingVersion)
+                  HermesChangedFilesCard(
+                    statuses: widget.message.statusHistory,
+                  ),
 
                 // Version switcher moved inline with action buttons below
               ],

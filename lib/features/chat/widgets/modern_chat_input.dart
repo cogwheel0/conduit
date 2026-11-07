@@ -983,6 +983,15 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
   /// all follow it, so none of them starts a second turn mid-response.
   bool get _queuesInsteadOfSending => ref.read(chatDraftQueueOfferProvider);
 
+  /// Whether this composer sends to a Hermes Desktop Gateway.
+  bool get _isDesktopHermesComposer {
+    final model = ref.read(selectedModelProvider);
+    return model != null &&
+        isHermesModel(model) &&
+        ref.read(hermesConfigProvider).mode ==
+            HermesBackendMode.desktopGateway;
+  }
+
   /// Queues what is typed, with the composer's files, and clears the composer.
   /// A draft the queue refuses (the response just ended) leaves it untouched.
   /// Queueing is a send, so it is felt once, as one, whichever way it came.
@@ -1033,6 +1042,13 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     if (text.isEmpty || !widget.enabled) return;
     if (_queuesInsteadOfSending) {
       _queueDraft();
+      return;
+    }
+    // While a reply runs the send button is Stop, and no other way to send
+    // starts a second turn over it either: a Hermes or Direct turn gives up
+    // its text as soon as it is handed to its run, so nothing else holds the
+    // next send back. A Desktop Gateway takes a busy turn's messages itself.
+    if (ref.read(isChatStreamingProvider) && !_isDesktopHermesComposer) {
       return;
     }
     // A project draft that starts with two saved models sends to both, through

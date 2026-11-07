@@ -30,15 +30,18 @@ String redactCredentialLabels(String text, {bool keepLines = false}) {
   );
 
   // Redact common credential labels even when a provider reflects a value
-  // that was not part of the configured credentials.
+  // that was not part of the configured credentials. A quoted key
+  // (`"password": ...`) counts, and a quoted value goes whole, spaces and
+  // all.
   safe = safe.replaceAllMapped(
     RegExp(
       r'\b(api[-_ ]?key|access[-_ ]?token|password|secret|session[-_ ]?key)'
-      '\\b$space*[:=]$space*(?:bearer$space+)?'
-      r'[^\s,;]+',
+      r'''\b(["']?)'''
+      '$space*[:=]$space*(?:bearer$space+)?'
+      r'''(?:"[^"\r\n]*"|'[^'\r\n]*'|[^\s,;]+)''',
       caseSensitive: false,
     ),
-    (match) => '${match.group(1)}: $_redacted',
+    (match) => '${match.group(1)}${match.group(2)}: $_redacted',
   );
   return safe.replaceAllMapped(
     RegExp('\\bbearer$space+' r'[A-Za-z0-9._~+/=-]+', caseSensitive: false),

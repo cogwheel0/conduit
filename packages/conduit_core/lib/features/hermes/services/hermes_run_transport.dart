@@ -2199,13 +2199,26 @@ String? _sanitizeHermesApprovalSummary(
   String raw, {
   required Iterable<String> sensitiveValues,
 }) {
-  final safe = sanitizeHermesProviderErrorMessage(
-    raw,
-    sensitiveValues: sensitiveValues,
-    maxCharacters: kMaxHermesApprovalSummaryCharacters,
-  );
-  if (safe == 'Hermes run failed.' || safe == '[REDACTED]') return null;
-  return safe;
+  String? sanitize(String text, int maxCharacters) {
+    final safe = sanitizeHermesProviderErrorMessage(
+      text,
+      sensitiveValues: sensitiveValues,
+      maxCharacters: maxCharacters,
+    );
+    return safe == 'Hermes run failed.' || safe == '[REDACTED]' ? null : safe;
+  }
+
+  // Sanitizing folds whitespace: the opening paragraph (where Hermes states
+  // a price) stays apart from the tool's input after it, which must never
+  // read as a price.
+  final split = raw.indexOf('\n\n');
+  if (split < 0) return sanitize(raw, kMaxHermesApprovalSummaryCharacters);
+  final head =
+      sanitize(raw.substring(0, split), kMaxHermesApprovalSummaryCharacters) ??
+      '[REDACTED]';
+  final room = kMaxHermesApprovalSummaryCharacters - head.runes.length - 2;
+  final tail = room <= 0 ? null : sanitize(raw.substring(split + 2), room);
+  return tail == null ? head : '$head\n\n$tail';
 }
 
 /// A clarify payload's questions, stored as [HermesClarifyQuestion.toJson]
@@ -2223,7 +2236,12 @@ List<Map<String, Object?>> _safeHermesClarifyQuestions(
         HermesClarifyQuestion(
           id: question.id,
           text: text,
-          choices: [for (final choice in question.choices) ?safe(choice)],
+          // An answer is sent as the choice reads: one the card would cut,
+          // fold or redact is left out rather than sent altered.
+          choices: [
+            for (final choice in question.choices)
+              if (safe(choice) == choice) choice,
+          ],
           multiSelect: question.multiSelect,
           locked: question.locked,
           lockedAnswer: safe(question.lockedAnswer),

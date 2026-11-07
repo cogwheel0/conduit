@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:conduit_core/persistence/persistence_keys.dart';
 import 'package:conduit_core/persistence/preferences_store.dart';
+import 'package:conduit_core/utils/sensitive_value_utils.dart';
 import 'package:conduit_core/utils/unicode_prefix.dart';
 
 import 'package:conduit_core/features/hermes/models/hermes_clarify_form.dart';
@@ -533,27 +534,12 @@ String? _sanitizePrompt(String? value, Iterable<String> sensitiveValues) {
     sensitiveValues: secrets,
     maxVisibleScalars: 512,
   );
-  // A whole Authorization or Cookie value goes, scheme and all, as do
-  // labelled and Bearer credentials.
-  safe = safe
+  // A whole Authorization or Cookie value goes, scheme and all, as do quoted
+  // and Bearer credentials.
+  safe = redactCredentialLabels(safe)
       .replaceAllMapped(
-        RegExp(
-          r'\b(authorization|proxy-authorization|cookie)\b\s*[:=][^\r\n]*',
-          caseSensitive: false,
-        ),
+        RegExp(r'\b(cookie)\b\s*[:=][^\r\n]*', caseSensitive: false),
         (match) => '${match.group(1)}: [REDACTED]',
-      )
-      .replaceAllMapped(
-        RegExp(
-          r'\b(api[-_ ]?key|access[-_ ]?token|password|secret)\b'
-          r'\s*[:=]\s*[^\s,;]+',
-          caseSensitive: false,
-        ),
-        (match) => '${match.group(1)}: [REDACTED]',
-      )
-      .replaceAll(
-        RegExp(r'\bbearer\s+[A-Za-z0-9._~+/=-]+', caseSensitive: false),
-        'Bearer [REDACTED]',
       )
       .replaceAll(RegExp(r'[\u0000-\u001F\u007F-\u009F]'), ' ')
       .replaceAll(RegExp(r'\s+'), ' ')
