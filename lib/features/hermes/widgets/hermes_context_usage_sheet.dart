@@ -75,7 +75,14 @@ class _HermesContextUsageSheetState
     super.dispose();
   }
 
+  /// A compaction Hermes is still finishing in the background: another
+  /// would replace its result, and its completion would no longer refresh
+  /// the report.
+  bool get _compactionPending =>
+      _result?.outcome == HermesCompactOutcome.pending;
+
   Future<void> _compact() async {
+    if (_compactionPending) return;
     final l10n = AppLocalizations.of(context)!;
     final service = ref.read(hermesApiServiceProvider);
     if (service is! HermesDesktopApiService) return;
@@ -433,7 +440,7 @@ class _HermesContextUsageSheetState
         controller: _focus,
         placeholder: l10n.hermesContextCompactFocus,
         maxLength: 200,
-        enabled: !_compacting,
+        enabled: !_compacting && !_compactionPending,
         textCapitalization: TextCapitalization.sentences,
         inputFormatters: [LengthLimitingTextInputFormatter(200)],
       ),
@@ -443,7 +450,7 @@ class _HermesContextUsageSheetState
         text: l10n.hermesContextCompactNow,
         isFullWidth: true,
         isLoading: _compacting,
-        onPressed: _compacting ? null : _compact,
+        onPressed: _compacting || _compactionPending ? null : _compact,
       ),
       if (result != null) ...[
         const SizedBox(height: Spacing.sm),

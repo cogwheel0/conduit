@@ -652,6 +652,17 @@ void main() {
 
       check(await service.keepGoingOnCredits()).isFalse();
     });
+
+    test('a refused request is a no, not a failure', () async {
+      final gateway = _Gateway();
+      gateway.refusals['billing.keep_going_on_credits'] = {
+        'code': 4003,
+        'message': 'billing portal unavailable',
+      };
+      final service = _service(gateway);
+
+      check(await service.keepGoingOnCredits()).isFalse();
+    });
   });
 
   group('a Desktop Gateway turn that fails', () {
@@ -762,12 +773,16 @@ final class _Gateway {
       final params = Map<String, dynamic>.from(
         (frame['params'] as Map?) ?? const {},
       );
+      final refusal = refusals[method];
       scheduleMicrotask(
         () => incoming.add(
           jsonEncode({
             'jsonrpc': '2.0',
             'id': id,
-            'result': _answer(method, params),
+            if (refusal != null)
+              'error': refusal
+            else
+              'result': _answer(method, params),
           }),
         ),
       );
@@ -775,6 +790,9 @@ final class _Gateway {
   }
 
   final bool authority;
+
+  /// JSON-RPC errors answered instead of a result, by method.
+  final refusals = <String, Map<String, Object?>>{};
   final channel = _MockWebSocketChannel();
   final sink = _MockWebSocketSink();
   final incoming = StreamController<dynamic>.broadcast();

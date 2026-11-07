@@ -128,12 +128,20 @@ extension _HermesDesktopContext on HermesDesktopApiService {
   /// could not (no billing access, a portal error).
   Future<bool> _keepGoingOnCredits() async {
     await _ensureConnected();
-    final result = _object(
-      await _rpc.request<Object?>(
-        'billing.keep_going_on_credits',
-        params: const {'enabled': true},
-      ),
-    );
+    final Map<String, dynamic> result;
+    try {
+      result = _object(
+        await _rpc.request<Object?>(
+          'billing.keep_going_on_credits',
+          params: const {'enabled': true},
+        ),
+      );
+    } on HermesDesktopRpcException catch (error) {
+      // A refusal (no billing access, a portal error) is a no, so the card
+      // can offer the billing page instead. A lost answer is not one.
+      if (error.deliveryAmbiguous) rethrow;
+      return false;
+    }
     return result['ok'] != false && result['error'] == null;
   }
 }

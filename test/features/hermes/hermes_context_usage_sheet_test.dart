@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:conduit/shared/widgets/conduit_components.dart';
 import 'package:conduit/features/hermes/widgets/hermes_context_usage_sheet.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/l10n/app_localizations_en.dart';
@@ -294,6 +295,15 @@ void main() {
 
     expect(find.text(_l10n.hermesContextCompactPending), findsOneWidget);
     expect(loads, 1);
+    // Another compaction would replace this one's result before it ends.
+    expect(
+      tester
+          .widget<ConduitButton>(
+            find.byKey(const ValueKey<String>('hermes-context-compact')),
+          )
+          .onPressed,
+      isNull,
+    );
 
     // Hermes reports the session in once its host finishes compacting, and
     // says it is done.
