@@ -73,8 +73,17 @@ Future<List<Conversation>> serverSearch(Ref ref, String query) async {
   if (api == null) {
     // Offline: serve ranked results straight from the local
     // FTS index over synced history (CDT-RFC-001 Phase 4 acceptance).
+    // Watching the repository reruns the search when the account that owns
+    // the Chats tab changes (Open WebUI parked, one LibreChat account for
+    // another), and a search finishing after that change is dropped.
+    final repository = ref.watch(chatDatabaseRepositoryProvider);
     DebugLogger.log('offline-search', scope: 'search');
-    return _offlineSearch(ref, trimmedQuery);
+    final results = await _offlineSearch(ref, trimmedQuery);
+    if (!ref.mounted ||
+        !identical(ref.read(chatDatabaseRepositoryProvider), repository)) {
+      return const [];
+    }
+    return results;
   }
 
   try {

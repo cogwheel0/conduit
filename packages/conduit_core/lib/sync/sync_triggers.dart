@@ -5,7 +5,9 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit_core/database/database_provider.dart';
+import 'package:conduit_core/features/librechat/providers/librechat_sync_providers.dart';
 import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/providers/backend_mode_providers.dart';
 import 'package:conduit_core/providers/host_ports.dart';
 import 'package:conduit_core/services/connectivity_service.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
@@ -57,6 +59,26 @@ class SyncTriggers extends _$SyncTriggers {
     });
     ref.listen(appDatabaseProvider, (_, _) => _queueMaybeFireStart());
     ref.listen(syncApiClientProvider, (_, _) => _queueMaybeFireStart());
+
+    // A LibreChat account that becomes signed in pulls at once, so its Chats
+    // tab fills without waiting for another trigger. The pull reaches it
+    // only while it owns the tab.
+    ref.listen(libreChatSyncEngineProvider, (previous, next) {
+      if (next != null && !identical(previous, next)) {
+        _request('librechat-signed-in');
+      }
+    }, fireImmediately: true);
+
+    // LibreChat taking the Chats tab back pulls too: its engine may have been
+    // signed in all along, so the listener above stays quiet, and a pull made
+    // while Open WebUI owned the tab went to Open WebUI.
+    ref.listen(primaryAccountKindProvider, (previous, next) {
+      if (previous != null &&
+          previous != next &&
+          next == PrimaryAccountKind.libreChat) {
+        _request('librechat-primary');
+      }
+    });
 
     // Connectivity regained: pull AND drain the outbox (the drainer resets
     // backoff on pending ops then drains — A6/A7).

@@ -7,6 +7,7 @@ import 'package:flutter/scheduler.dart';
 import 'package:riverpod/riverpod.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
+import 'package:conduit_core/providers/primary_account_providers.dart';
 import 'package:conduit_core/database/account_storage_isolation.dart';
 // Re-exported because these used to live here and a dozen callers, and the
 // tests, still reach them through this library. An imported symbol is not
@@ -127,6 +128,40 @@ final userScopedProviderCleanupProvider = Provider<void>((ref) {
     }
 
     scheduleCleanup();
+  });
+
+  // The LibreChat account in charge changing (to another LibreChat account,
+  // to Open WebUI, or signed out) ends what it owned on screen: its open
+  // chat, a chat still loading for it, and the composer's attachments.
+  ref.listen<PrimaryAccountRef>(primaryAccountProvider, (previous, next) {
+    if (previous == null ||
+        previous.kind != PrimaryAccountKind.libreChat ||
+        previous.id == null ||
+        previous == next) {
+      return;
+    }
+    ref.read(conversationSelectionProvider.notifier).cancel();
+    final active = ref.read(activeConversationProvider);
+    if (active != null && isLibreChatConversation(active)) {
+      ref.read(activeConversationProvider.notifier).set(null);
+    }
+    ref.read(contextAttachmentsProvider.notifier).clear();
+    final attachmentOwnership = ref
+        .read(mediaUploadControllerProvider)
+        .captureAttachmentOwnership();
+    unawaited(
+      ref
+          .read(mediaUploadControllerProvider)
+          .retireAttachmentOwnership(attachmentOwnership)
+          .catchError((Object error, StackTrace stackTrace) {
+            DebugLogger.error(
+              'librechat-switch-attachment-cleanup-failed',
+              scope: 'startup/auth-cleanup',
+              error: error,
+              stackTrace: stackTrace,
+            );
+          }),
+    );
   });
 
   // Switching Open WebUI accounts goes tokenless only for the moment it takes
