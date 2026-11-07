@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'dart:io' show Platform;
 
 import 'package:intl/intl.dart';
 import 'package:material_ui/material_ui.dart';
@@ -73,7 +72,7 @@ class UsageStatsModal {
       }
     }
 
-    if (Platform.isIOS) {
+    if (PlatformUiCapabilities.isIOS) {
       try {
         await NativeSheetBridge.instance.presentSheet(
           root: NativeSheetDetailConfig(
