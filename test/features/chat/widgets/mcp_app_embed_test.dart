@@ -237,6 +237,48 @@ void main() {
     );
   });
 
+  test("a script request by path is left to the page's security policy", () {
+    const connect = ['https://api.example'];
+    bool allowed(String url) => mcpAppScriptRequestAllowed(
+      Uri.parse(url),
+      connect,
+      pageScheme: 'https',
+    );
+
+    // Resolved by the browser against a base the policy allows, then held
+    // to connect-src there.
+    expect(allowed('/data'), isTrue);
+    expect(allowed('data.json'), isTrue);
+    // Another host by scheme-relative address is still checked here.
+    expect(allowed('//api.example/data'), isTrue);
+    expect(allowed('//evil.example/data'), isFalse);
+    expect(allowed('https://api.example/data'), isTrue);
+    expect(allowed('https://evil.example/data'), isFalse);
+    expect(
+      mcpAppScriptRequestAllowed(null, connect, pageScheme: 'https'),
+      isFalse,
+    );
+  });
+
+  testWidgets('a fetch by path goes on, one to an undeclared host stops', (
+    tester,
+  ) async {
+    final app = await _openApp(tester, _ServingApi());
+    final hook = app.view.shouldInterceptFetchRequest!;
+
+    final byPath = await hook(
+      app.controller,
+      FetchRequest(url: WebUri('/data')),
+    );
+    final elsewhere = await hook(
+      app.controller,
+      FetchRequest(url: WebUri('//evil.example/data')),
+    );
+
+    expect(byPath!.action, isNot(FetchRequestAction.ABORT));
+    expect(elsewhere!.action, FetchRequestAction.ABORT);
+  });
+
   test('the bridge takes only MCP Apps messages from the page', () {
     final script = mcpAppBridgeScript(
       bridgeName: 'bridge',

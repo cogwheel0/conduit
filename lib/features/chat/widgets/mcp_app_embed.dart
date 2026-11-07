@@ -464,14 +464,22 @@ class _McpAppEmbedState extends ConsumerState<McpAppEmbed> {
             : NavigationActionPolicy.CANCEL;
       },
       shouldInterceptAjaxRequest: (_, request) async {
-        if (!directMcpAppNetworkRequestAllowed(request.url?.uriValue, connect)) {
+        if (!mcpAppScriptRequestAllowed(
+          request.url?.uriValue,
+          connect,
+          pageScheme: _documentUrl.scheme,
+        )) {
           request.action = AjaxRequestAction.ABORT;
         }
         request.withCredentials = false;
         return request;
       },
       shouldInterceptFetchRequest: (_, request) async {
-        if (!directMcpAppNetworkRequestAllowed(request.url?.uriValue, connect)) {
+        if (!mcpAppScriptRequestAllowed(
+          request.url?.uriValue,
+          connect,
+          pageScheme: _documentUrl.scheme,
+        )) {
           request.action = FetchRequestAction.ABORT;
         }
         request.credentials = FetchRequestCredentialDefault(value: 'omit');
@@ -515,6 +523,29 @@ class _McpAppEmbedState extends ConsumerState<McpAppEmbed> {
 /// page itself in a web view, through [deliverName]. Navigation, popups and
 /// device access are refused, as in a sandboxed frame. A form's submit still
 /// reaches the app's own handlers, but it loads no page.
+/// Whether an app's page may make a fetch or XHR request to [url], which
+/// the web view's hooks report as the page wrote it.
+///
+/// An absolute address must be one the app declared in [connect]; one
+/// starting `//` takes the page's scheme ([pageScheme]) first. A path is
+/// left to the page: the browser resolves it against the page's base
+/// address, and the app's content security policy, which a page must have
+/// to be shown, holds both that base (`base-uri`) and where the request
+/// then goes (`connect-src`), neither of which the hooks can see.
+@visibleForTesting
+bool mcpAppScriptRequestAllowed(
+  Uri? url,
+  List<String> connect, {
+  required String pageScheme,
+}) {
+  if (url == null) return false;
+  if (!url.hasScheme) {
+    if (!url.hasAuthority) return true;
+    url = url.replace(scheme: pageScheme);
+  }
+  return directMcpAppNetworkRequestAllowed(url, connect);
+}
+
 @visibleForTesting
 String mcpAppBridgeScript({
   required String bridgeName,
