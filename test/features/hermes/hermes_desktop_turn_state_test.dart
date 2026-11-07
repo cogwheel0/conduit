@@ -956,6 +956,74 @@ void main() {
     ).equals('It covers the plan.');
   });
 
+  test('tool and subagent failures are read from result and status', () async {
+    final turn = await _streamTurn((harness) {
+      harness.event('runtime-race', 'message.start');
+      void tool(String name, Object? result) =>
+          harness.event('runtime-race', 'tool.complete', {
+            'tool_id': 'call-$name',
+            'name': name,
+            'result': result,
+          });
+      // A command the user denied.
+      tool('terminal', {
+        'output': '',
+        'exit_code': -1,
+        'error': 'BLOCKED: Command denied. Do NOT retry.',
+        'status': 'blocked',
+        'user_summary': 'You denied this command.',
+      });
+      tool('terminal', {
+        'output': '',
+        'exit_code': 2,
+        'error': 'No such file or directory',
+      });
+      tool('terminal', {'output': 'done', 'exit_code': 0, 'error': null});
+      tool('web_search', {'success': false, 'error': 'Search quota used up'});
+      // The harness refusing a repeated read is not a failed call.
+      tool('read_file', {
+        'error': 'BLOCKED: You have read this exact file region 3 times.',
+        'guardrail_refusal': true,
+      });
+      tool('write_file', {'bytes_written': 12, 'path': 'notes.txt'});
+      tool('custom_tool', 'Error: the service is offline');
+      void subagent(String id, String status) =>
+          harness.event('runtime-race', 'subagent.complete', {
+            'goal': 'Check the plan',
+            'task_count': 1,
+            'task_index': 0,
+            'subagent_id': id,
+            'status': status,
+            'summary': 'Child $status',
+          });
+      subagent('a', 'failed');
+      subagent('b', 'timeout');
+      subagent('c', 'completed');
+      subagent('d', 'interrupted');
+      harness.event('runtime-race', 'message.complete', {'text': 'Done.'});
+      harness.sessionInfo('runtime-race', running: false);
+    });
+
+    final finished = turn.events
+        .whereType<HermesToolProgress>()
+        .where((event) => event.done)
+        .map((event) => (event.toolName, event.failed, event.detail))
+        .toList();
+    check(finished).deepEquals([
+      ('terminal', true, 'You denied this command.'),
+      ('terminal', true, 'No such file or directory'),
+      ('terminal', false, ''),
+      ('web_search', true, 'Search quota used up'),
+      ('read_file', false, ''),
+      ('write_file', false, ''),
+      ('custom_tool', true, 'Error: the service is offline'),
+      ('subagent: a', true, 'Child failed'),
+      ('subagent: b', true, 'Child timeout'),
+      ('subagent: c', false, 'Child completed'),
+      ('subagent: d', false, 'Child interrupted'),
+    ]);
+  });
+
   test('a forwarded prompt ends at message.complete', () async {
     final turn = await _streamTurn(
       submitResult: {
