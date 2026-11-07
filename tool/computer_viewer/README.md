@@ -23,6 +23,11 @@ a side panel, preserving the live surface across rotation. Larger accessibility
 text uses a scrollable layout so every control remains reachable. After taking
 control, Watch explains that a new chat message continues the task.
 
+In a saved Open WebUI chat, select a Computer-enabled terminal with the existing
+composer Terminal picker or the sidebar's Terminal tab. The Computer card appears
+when that terminal advertises Desktop or Browser support. No preview or stream
+is opened until requested.
+
 Protocol references:
 - https://github.com/open-webui/open-terminal/tree/v0.17.2/open_terminal
 - https://github.com/open-webui/open-webui/tree/v0.13.0/src/lib/apis/terminal
@@ -80,6 +85,16 @@ against both isolated browser backends, including creation, selection, shortcuts
 screenshots, last-tab closure, and rejection of access from another chat scope.
 Run it from `packages/conduit_core` with `COMPUTER_REVIEW=true flutter test
 test/features/terminal/computer_tabs_integration_test.dart` after the setup below.
+
+`computer_webui_integration_test.dart` additionally exercises an unmodified,
+disposable Open WebUI 0.13 installation: authenticated terminal discovery,
+saved-chat scope, desktop screenshot and WebSocket authentication, signed browser
+viewer tickets, tab selection, shortcuts, screenshots and cleanup. Supply
+`COMPUTER_WEBUI_REVIEW=true` and `COMPUTER_WEBUI_REVIEW_CONFIG` pointing to a local
+JSON file with `url`, `token` and `server_id`. Use a fresh synthetic account and
+terminal; never commit that configuration. The test creates and deletes its own
+chat and browser tabs. Run it from `packages/conduit_core` with `flutter test
+test/features/terminal/computer_webui_integration_test.dart`.
 
 ## Local review
 

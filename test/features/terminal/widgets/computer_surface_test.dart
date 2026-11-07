@@ -7,6 +7,19 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'computer_test_platform.dart';
 
+class _PointerController extends PlatformViewController {
+  final events = <PointerEvent>[];
+  @override
+  int get viewId => 1;
+  @override
+  Future<void> dispatchPointerEvent(PointerEvent event) async =>
+      events.add(event);
+  @override
+  Future<void> dispose() async {}
+  @override
+  Future<void> clearFocus() async {}
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   late InAppWebViewPlatform? previous;
@@ -25,6 +38,49 @@ void main() {
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMessageHandler('flutter/assets', null);
   });
+
+  testWidgets(
+    'remote swipes stay in the viewer instead of opening the sidebar',
+    (tester) async {
+      final pointer = _PointerController();
+      InAppWebViewPlatform.instance = ComputerTestPlatform(
+        pointerController: pointer,
+      );
+      var sidebarDrags = 0;
+      await tester.pumpWidget(
+        Directionality(
+          textDirection: TextDirection.ltr,
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onHorizontalDragStart: (_) => sidebarDrags++,
+            child: Center(
+              child: SizedBox(
+                width: 300,
+                height: 300,
+                child: ComputerSurfaceView(
+                  connection: ComputerConnection(
+                    surface: ComputerSurface.browser,
+                    streamUri: Uri.parse(
+                      'ws://computer.example/browser/stream',
+                    ),
+                  ),
+                  controller: ComputerSurfaceController(),
+                  onState: (_) {},
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.drag(find.byType(InAppWebView), const Offset(100, 30));
+      expect(sidebarDrags, 0);
+      expect(pointer.events.whereType<PointerMoveEvent>(), isNotEmpty);
+      await tester.dragFrom(const Offset(20, 20), const Offset(100, 0));
+      expect(sidebarDrags, 1);
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
 
   testWidgets('retiring viewer cannot dispose or detach its replacement', (
     tester,

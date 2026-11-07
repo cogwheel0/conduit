@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:conduit_core/features/terminal/models/computer_models.dart';
+import 'package:flutter/foundation.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
@@ -114,6 +116,10 @@ html,body{margin:0;width:100%;height:100%;background:#111318;overflow:auto;overs
         builder: (context, snapshot) {
           if (!snapshot.hasData) return const SizedBox.expand();
           return InAppWebView(
+            // Remote drags must not reach the chat's sidebar swipe recognizer.
+            gestureRecognizers: {
+              Factory<OneSequenceGestureRecognizer>(EagerGestureRecognizer.new),
+            },
             initialData: InAppWebViewInitialData(
               data: snapshot.requireData,
               baseUrl: WebUri('$_origin/index.html'),
