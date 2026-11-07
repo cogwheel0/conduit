@@ -375,6 +375,12 @@ Future<bool> _undoLastHermesTurn(
   }
   // Only the undone turn leaves: anything sent since stays.
   final undone = {for (final message in messages.skip(lastUser)) message.id};
+  if (!shown().any((message) => undone.contains(message.id))) {
+    // The chat was opened again meanwhile, and its messages may be read
+    // from before the undo: it reads the transcript again instead.
+    service.refreshTranscript(sessionId);
+    return true;
+  }
   final kept = List<ChatMessage>.unmodifiable([
     for (final message in shown())
       if (!undone.contains(message.id)) message,

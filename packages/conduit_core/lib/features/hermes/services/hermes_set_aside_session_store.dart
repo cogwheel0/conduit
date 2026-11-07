@@ -5,6 +5,9 @@ import 'package:conduit_core/features/hermes/services/hermes_identifier.dart';
 import 'package:conduit_core/persistence/persistence_keys.dart';
 import 'package:conduit_core/persistence/preferences_store.dart';
 
+/// The longest stored [HermesSetAsideSession] read back.
+const int kMaxHermesSetAsideRecordCharacters = 4096;
+
 /// Why a chat is out of the Hermes session list.
 enum HermesSetAsideKind { hidden, archived }
 
@@ -16,6 +19,7 @@ final class HermesSetAsideSession {
     required this.sessionId,
     required this.title,
     required this.kind,
+    this.archived = false,
   });
 
   /// The saved connection (or, before saved connections, the endpoint).
@@ -24,11 +28,15 @@ final class HermesSetAsideSession {
   final String title;
   final HermesSetAsideKind kind;
 
+  /// A hidden chat that is archived too: shown again, it goes back to the
+  /// archive, also when its flags cannot be read.
+  final bool archived;
+
   HermesSessionSummary toSummary() => HermesSessionSummary(
     id: sessionId,
     title: title,
     hidden: kind == HermesSetAsideKind.hidden,
-    archived: kind == HermesSetAsideKind.archived,
+    archived: kind == HermesSetAsideKind.archived || archived,
   );
 
   String toStorage() => jsonEncode(<String, Object?>{
@@ -36,10 +44,11 @@ final class HermesSetAsideSession {
     'session_id': sessionId,
     'title': title,
     'kind': kind.name,
+    if (archived) 'archived': true,
   });
 
   static HermesSetAsideSession? fromStorage(String source) {
-    if (source.length > 4096) return null;
+    if (source.length > kMaxHermesSetAsideRecordCharacters) return null;
     try {
       final value = jsonDecode(source);
       if (value is! Map) return null;
@@ -65,6 +74,7 @@ final class HermesSetAsideSession {
         sessionId: sessionId,
         title: title,
         kind: kind,
+        archived: value['archived'] == true,
       );
     } catch (_) {
       return null;
@@ -110,10 +120,20 @@ abstract final class HermesSetAsideSessionStore {
       .lastOrNull;
 
   /// Records [record], replacing what was kept for its session. Throws
-  /// [HermesSetAsideStoreFullException] when it would be one too many, and
-  /// whatever the preferences write throws.
+  /// [HermesSetAsideStoreFullException] when it would be one too many, an
+  /// [ArgumentError] for a record too long to read back, and whatever the
+  /// preferences write throws.
   static Future<void> remember(HermesSetAsideSession record) =>
       _serialize(() async {
+        // Saved, it would be dropped on read: the chat would have no way
+        // back.
+        if (record.toStorage().length > kMaxHermesSetAsideRecordCharacters) {
+          throw ArgumentError.value(
+            record.sessionId,
+            'record',
+            'too long to keep',
+          );
+        }
         final records = _read();
         final before = records.length;
         records.removeWhere(
@@ -134,6 +154,34 @@ abstract final class HermesSetAsideSessionStore {
   }) => _remove(
     (record) => record.scope == scope && record.sessionId == sessionId,
   );
+
+  /// Forgets [record] only while it is still what is kept for its chat: a
+  /// lookup that read it must not drop a newer record, such as a hidden one
+  /// that replaced an archived one meanwhile.
+  static Future<void> forgetRecord(HermesSetAsideSession record) => _remove(
+    (kept) =>
+        kept.scope == record.scope &&
+        kept.sessionId == record.sessionId &&
+        kept.toStorage() == record.toStorage(),
+  );
+
+  /// Replaces [record] with [replacement] only while [record] is still what
+  /// is kept for its chat.
+  static Future<void> replaceRecord(
+    HermesSetAsideSession record,
+    HermesSetAsideSession replacement,
+  ) => _serialize(() async {
+    final records = _read();
+    final index = records.indexWhere(
+      (kept) =>
+          kept.scope == record.scope &&
+          kept.sessionId == record.sessionId &&
+          kept.toStorage() == record.toStorage(),
+    );
+    if (index < 0) return;
+    records[index] = replacement;
+    await _write(records);
+  });
 
   /// Drops every record whose scope passes [test], e.g. those of a saved
   /// connection that was deleted.

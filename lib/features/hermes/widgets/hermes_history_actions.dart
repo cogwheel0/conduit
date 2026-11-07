@@ -61,6 +61,9 @@ Future<void> branchHermesChatFromMessage(
   final messages = ref.read(chatMessagesProvider);
   final index = messages.indexWhere((message) => message.id == messageId);
   if (index < 0) return;
+  // A chat chosen while the branch is made wins: the branch waits in the
+  // list.
+  final navigation = ref.read(hermesSessionNavigationEpochProvider);
   try {
     final branch = await ref
         .read(hermesSessionsProvider.notifier)
@@ -70,7 +73,11 @@ Future<void> branchHermesChatFromMessage(
           messages: messages,
           index: index,
         );
-    if (branch == null || !context.mounted) return;
+    if (branch == null ||
+        !context.mounted ||
+        ref.read(hermesSessionNavigationEpochProvider) != navigation) {
+      return;
+    }
     await openHermesSession(
       context,
       ref,

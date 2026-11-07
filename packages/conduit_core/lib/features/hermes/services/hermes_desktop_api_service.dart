@@ -138,6 +138,7 @@ Future<List<Map<String, dynamic>>> loadHermesDesktopTranscriptPages(
   int maximum = 10000,
   int pageSize = kHermesDesktopTranscriptPageSize,
   int minimumPageSize = kHermesDesktopTranscriptMinimumPageSize,
+  bool complete = false,
 }) async {
   assert(pageSize > 0 && minimumPageSize > 0);
   final messages = <Map<String, dynamic>>[];
@@ -162,7 +163,15 @@ Future<List<Map<String, dynamic>>> loadHermesDesktopTranscriptPages(
       continue;
     }
     messages.addAll(page.take(limit));
-    if (page.length < limit) break;
+    if (page.length < limit) return messages;
+  }
+  // A [complete] read is for changing the history (an edit's cut, an undo,
+  // a branch): a row past the bound could be the very turn it targets.
+  if (complete && (await loadPage(messages.length, 1)).isNotEmpty) {
+    throw StateError(
+      'This Hermes chat is too long to change from here: it has more than '
+      '$maximum messages.',
+    );
   }
   return messages;
 }
@@ -375,6 +384,9 @@ final class HermesDesktopApiService
   }
 
   Stream<String> get transcriptChanges => _transcriptChanges.stream;
+
+  /// Asks the open chat of [storedId] to read its transcript again.
+  void refreshTranscript(String storedId) => _emitTranscriptChange(storedId);
   Stream<int> get desktopContractChanges => _desktopContractChanges.stream;
   Stream<int> desktopContracts() => Stream<int>.multi((controller) {
     final subscription = _desktopContractChanges.stream.listen(

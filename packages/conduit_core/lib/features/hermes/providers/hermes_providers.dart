@@ -2621,34 +2621,21 @@ class HermesSessionsController
           sessionId: session.id,
           title: session.title,
           kind: setAside,
+          archived:
+              setAside == HermesSetAsideKind.hidden &&
+              (archived ?? session.archived),
         ),
       );
     }
-    try {
-      await service.setSessionFlags(
-        session.id,
-        pinned: pinned,
-        archived: archived,
-        hidden: hidden,
-      );
-    } catch (_) {
-      if (setAside != null) {
-        try {
-          if (previous == null) {
-            await HermesSetAsideSessionStore.forget(
-              scope: scope,
-              sessionId: session.id,
-            );
-          } else {
-            await HermesSetAsideSessionStore.remember(previous);
-          }
-        } catch (_) {
-          // A leftover record is dropped once its lookup finds the chat
-          // listed again.
-        }
-      }
-      rethrow;
-    }
+    // A failed change keeps the record: Hermes may have applied it before
+    // its answer was lost. Its lookup reads the chat's flags and keeps,
+    // moves or drops the record to match.
+    await service.setSessionFlags(
+      session.id,
+      pinned: pinned,
+      archived: archived,
+      hidden: hidden,
+    );
     if (setAside == null && previous != null) {
       try {
         await HermesSetAsideSessionStore.forget(
@@ -2861,8 +2848,10 @@ class HermesSessionsController
   ///
   /// The Desktop Gateway branches on the server. The API server gets a new
   /// untitled session instead (Hermes' fork ends the original as
-  /// "branched", and copies all of it); its REST turns replay [transcript],
-  /// which is returned for the chat to open with. Null when the connection
+  /// "branched", and copies all of it), whose earlier messages are saved on
+  /// this device here, so a branch left before it opens keeps them; its REST
+  /// turns replay them. [transcript] is returned only when they could not be
+  /// saved for lack of a connection identity. Null when the connection
   /// changed meanwhile.
   Future<
     ({HermesSessionSummary session, List<Map<String, dynamic>>? transcript})?
@@ -2952,6 +2941,49 @@ class HermesSessionsController
       );
     }
     final copyId = await service.createSession();
+    final kept = transcript.sublist(0, cut.end);
+    if (connectionIdentity != null) {
+      try {
+        await ref
+            .read(hermesCopiedHistoryStoreProvider)
+            .save(
+              connectionIdentity: connectionIdentity,
+              sessionId: copyId,
+              messages: kept,
+            );
+      } catch (error) {
+        DebugLogger.warning(
+          'branch-history-save-failed',
+          scope: 'hermes/sessions',
+          data: {'errorType': error.runtimeType.toString()},
+        );
+        // Without them the branch would open empty: it is removed instead.
+        try {
+          await service.deleteSession(copyId);
+        } catch (_) {
+          // Best effort: the copy stays as an empty session.
+        }
+        rethrow;
+      }
+      // The kept rows keep their ids in the branch, and so the cards of
+      // their local documents.
+      try {
+        await HermesLocalDocumentTrustStore.rebindForkedSession(
+          connectionIdentity: connectionIdentity,
+          sourceSessionId: sessionId,
+          targetSessionId: copyId,
+          messageIdMap: {
+            for (final row in kept)
+              if (row['id'] case final Object id) '$id': '$id',
+          },
+        );
+      } catch (_) {
+        DebugLogger.warning(
+          'local-document-trust-branch-rebind-failed',
+          scope: 'hermes/sessions',
+        );
+      }
+    }
     if (!current()) return null;
     ref.invalidateSelf();
     return (
@@ -2960,7 +2992,7 @@ class HermesSessionsController
         title: title,
         source: kHermesApiOwnedSessionSources.first,
       ),
-      transcript: transcript.sublist(0, cut.end),
+      transcript: connectionIdentity == null ? kept : null,
     );
   }
 
@@ -3174,19 +3206,33 @@ Future<List<HermesSessionSummary>> _hermesSetAsideSessions(
       return record.toSummary();
     }
     final session = row == null ? null : HermesSessionSummary.fromJson(row);
-    final stillSetAside = switch (kind) {
-      HermesSetAsideKind.hidden => session?.hidden ?? false,
-      HermesSetAsideKind.archived =>
-        (session?.archived ?? false) && !(session?.hidden ?? false),
-    };
-    if (session == null || !stillSetAside) {
-      await HermesSetAsideSessionStore.forget(
-        scope: scope,
-        sessionId: record.sessionId,
+    // Where the chat's flags put it now: a change whose answer was lost, or
+    // one made from another app, may have moved it.
+    final actual = session == null
+        ? null
+        : session.hidden
+        ? HermesSetAsideKind.hidden
+        : session.archived && service is HermesApiService
+        ? HermesSetAsideKind.archived
+        : null;
+    if (actual == kind) return session;
+    // Changed only while still the record read here: a newer one (the chat
+    // hidden while this lookup ran) stays.
+    if (actual == null) {
+      await HermesSetAsideSessionStore.forgetRecord(record);
+    } else {
+      await HermesSetAsideSessionStore.replaceRecord(
+        record,
+        HermesSetAsideSession(
+          scope: record.scope,
+          sessionId: record.sessionId,
+          title: session!.title,
+          kind: actual,
+          archived: actual == HermesSetAsideKind.hidden && session.archived,
+        ),
       );
-      return null;
     }
-    return session;
+    return null;
   }
 
   final sessions = <HermesSessionSummary>[];

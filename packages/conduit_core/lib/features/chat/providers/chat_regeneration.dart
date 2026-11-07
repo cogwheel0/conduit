@@ -1,5 +1,9 @@
 part of 'chat_providers.dart';
 
+/// Metadata key of an edited Hermes user message: the text its session still
+/// stores for the turn, until the edit's replacement is sent.
+const String kHermesStoredUserContentKey = 'hermesStoredContent';
+
 /// A Desktop Gateway session's place to cut before [replayedUserIndex], or
 /// null when the turn goes to a new session instead: the REST transport
 /// replays an explicit history, and a chat with no session has nothing to
@@ -29,12 +33,22 @@ Future<({String sessionId, int? rowId})?> hermesDesktopRewindTarget({
   // shortened it: a cut at a row that is gone, or a turn that is gone
   // matched, would cut the wrong history.
   final transcript = await service.getCurrentSessionMessages(sessionId);
-  final row = hermesTranscriptUserRowIndex(
-    transcript: transcript,
-    messages: messages,
-    index: replayedUserIndex,
-    text: originalText,
-  );
+  // An edit stores its new text once its replacement is sent: until then
+  // the session holds [originalText], after it what the chat shows.
+  final row =
+      hermesTranscriptUserRowIndex(
+        transcript: transcript,
+        messages: messages,
+        index: replayedUserIndex,
+        text: originalText,
+      ) ??
+      (originalText == null
+          ? null
+          : hermesTranscriptUserRowIndex(
+              transcript: transcript,
+              messages: messages,
+              index: replayedUserIndex,
+            ));
   final rowId = row == null ? null : hermesTranscriptRowId(transcript[row]);
   if (rowId != null) return (sessionId: sessionId, rowId: rowId);
   var ordinal = 0;
@@ -167,7 +181,14 @@ Future<void> _regenerateHermesMessage(
     conversation: activeAtStart,
     messages: existingMessages,
     replayedUserIndex: replayedUserIndex,
-    originalText: originalUserContent,
+    // A retry of an edit whose replacement failed before the cut still
+    // finds the turn by the text the session holds.
+    originalText:
+        originalUserContent ??
+        switch (replayedUser?.metadata?[kHermesStoredUserContentKey]) {
+          final String stored => stored,
+          _ => null,
+        },
   );
   if (!chatMutationTokenStillActive(ref, mutationOwner)) return;
   if (!configController.sessionActionAdmissionIsCurrent(configAdmission) ||
@@ -620,11 +641,22 @@ Future<void> regenerateEditedHermesUserMessage(
   );
   if (index < 0) throw StateError('The Hermes user message was not found.');
 
-  final edited = messages[index].copyWith(
+  final original = messages[index];
+  // The text the session stores for this turn, kept until it is replaced:
+  // a retry after a replacement that failed before its cut finds the turn
+  // by it.
+  final storedContent = switch (original.metadata?[
+    kHermesStoredUserContentKey
+  ]) {
+    final String stored => stored,
+    _ => original.content,
+  };
+  final edited = original.copyWith(
     content: content,
     metadata: <String, dynamic>{
-      ...?messages[index].metadata,
+      ...?original.metadata,
       'childrenIds': const <String>[],
+      kHermesStoredUserContentKey: storedContent,
     },
   );
   final notifier =
@@ -640,7 +672,7 @@ Future<void> regenerateEditedHermesUserMessage(
       content,
       null,
       // A Desktop session finds the turn to cut by the text it stored.
-      hermesOriginalUserContent: messages[index].content,
+      hermesOriginalUserContent: storedContent,
     );
   } catch (_) {
     // Editing is a branch operation, but the original branch must remain

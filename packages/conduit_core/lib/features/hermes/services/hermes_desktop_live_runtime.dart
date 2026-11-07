@@ -550,6 +550,7 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
           ),
           'messages',
         ),
+        complete: current,
       );
     }
 
@@ -718,7 +719,9 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
   /// chats are tidied away, so they can be many more than one page.
   Future<List<Map<String, dynamic>>> _runtimeListArchivedSessions() async {
     const pageSize = 100;
-    const maxPages = 5;
+    // Paged until a short page: every archived chat can be reached. The
+    // bound only stops a server that never ends a listing.
+    const maxPages = 200;
     final sessions = <Map<String, dynamic>>[];
     for (var page = 0; page < maxPages; page++) {
       final List<Map<String, dynamic>> rows;

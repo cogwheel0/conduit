@@ -1,5 +1,8 @@
+import 'dart:async';
+
 import 'package:conduit/features/chat/providers/text_to_speech_provider.dart';
 import 'package:conduit/features/chat/widgets/assistant_message_widget.dart';
+import 'package:conduit/features/hermes/widgets/hermes_history_actions.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/l10n/app_localizations_en.dart';
 import 'package:conduit/l10n/conduit_localizations.dart';
@@ -7,6 +10,7 @@ import 'package:conduit/shared/theme/app_theme.dart';
 import 'package:conduit/shared/theme/tweakcn_themes.dart';
 import 'package:conduit_core/features/chat/providers/chat_providers.dart';
 import 'package:conduit_core/features/hermes/models/hermes_config.dart';
+import 'package:conduit_core/features/hermes/models/hermes_session.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 import 'package:conduit_core/features/hermes/services/hermes_api_service.dart';
 import 'package:conduit_core/features/hermes/services/hermes_backend_service.dart';
@@ -43,6 +47,31 @@ class _Seeded extends ActiveConversationNotifier {
 class _Messages extends ChatMessagesNotifier {
   @override
   List<ChatMessage> build() => _chat;
+}
+
+/// Branches only once [gate] opens.
+class _HeldBranch extends HermesSessionsController {
+  final gate = Completer<void>();
+
+  @override
+  Future<List<HermesSessionSummary>> build() async => const [];
+
+  @override
+  Future<
+    ({HermesSessionSummary session, List<Map<String, dynamic>>? transcript})?
+  >
+  branchFromMessage({
+    required String sessionId,
+    required String title,
+    required List<ChatMessage> messages,
+    required int index,
+  }) async {
+    await gate.future;
+    return (
+      session: const HermesSessionSummary(id: 'branch-1', title: 'Branch'),
+      transcript: null,
+    );
+  }
 }
 
 ChatMessage _message(String id, String role, String content) => ChatMessage(
@@ -221,5 +250,52 @@ void main() {
       ),
       isEmpty,
     );
+  });
+
+  testWidgets('a chat chosen while a branch is made is not left for it', (
+    tester,
+  ) async {
+    final branches = _HeldBranch();
+    final container = ProviderContainer(
+      overrides: [
+        hermesApiServiceProvider.overrideWithValue(_rest()),
+        hermesSessionsProvider.overrideWith(() => branches),
+        activeConversationProvider.overrideWith(
+          () => _Seeded(_conversation()),
+        ),
+        chatMessagesProvider.overrideWith(_Messages.new),
+      ],
+    );
+    addTearDown(container.dispose);
+    late BuildContext context;
+    late WidgetRef widgetRef;
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: MaterialApp(
+          localizationsDelegates: conduitLocalizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: Consumer(
+            builder: (buildContext, ref, _) {
+              context = buildContext;
+              widgetRef = ref;
+              return const SizedBox.shrink();
+            },
+          ),
+        ),
+      ),
+    );
+
+    final branching = branchHermesChatFromMessage(context, widgetRef, 'a1');
+    await tester.pump();
+    // The user opens another chat while Hermes makes the branch.
+    final chosen = container
+        .read(hermesSessionNavigationEpochProvider.notifier)
+        .bump();
+    branches.gate.complete();
+    await branching;
+    await tester.pump();
+
+    expect(container.read(hermesSessionNavigationEpochProvider), chosen);
   });
 }

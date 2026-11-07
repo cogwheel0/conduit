@@ -248,6 +248,28 @@ void main() {
       ).deepEquals(['0', '100']);
     });
 
+    test('archived sessions past five pages are listed too', () async {
+      final routes = _Routes({
+        'GET /api/sessions': (options) {
+          final offset = int.parse(options.uri.queryParameters['offset']!);
+          final count = offset < 600 ? 100 : 7;
+          return (
+            200,
+            {
+              'sessions': [
+                for (var index = 0; index < count; index++)
+                  {'id': 'local-${offset + index}', 'archived': true},
+              ],
+            },
+          );
+        },
+      });
+
+      final rows = await _desktop(routes).listArchivedSessions();
+
+      check(rows).isNotNull().length.equals(607);
+    });
+
     test('lists only archived sessions for the archived row', () async {
       final routes = _Routes({
         'GET /api/sessions': (options) => (
@@ -442,7 +464,7 @@ void main() {
     });
 
     test('the way back is saved before the server sets a chat aside, and '
-        'restored when the server refuses', () async {
+        'kept when its answer fails', () async {
       HermesSetAsideSession? savedAtPatch;
       var refuse = false;
       late final String scope;
@@ -471,9 +493,122 @@ void main() {
         notifier.setHidden(session.copyWith(archived: true), true),
       ).throws<DioException>();
       check(savedAtPatch?.kind).equals(HermesSetAsideKind.hidden);
+      // Hermes may have hidden it before its answer was lost: the record
+      // stays, and its lookup puts it right.
+      check(
+        HermesSetAsideSessionStore.find(scope: scope, sessionId: 'api_1'),
+      ).isNotNull()
+        ..has((r) => r.kind, 'kind').equals(HermesSetAsideKind.hidden)
+        ..has((r) => r.archived, 'archived').isTrue();
+    });
+
+    test('a lookup moves a record to where the chat now is', () async {
+      final routes = _Routes({
+        'GET /api/sessions': (_) => (200, {'data': <Object>[]}),
+        // The hide never landed: the chat is archived, not hidden.
+        'GET /api/sessions/api_1': (_) => (
+          200,
+          {
+            'session': {
+              'id': 'api_1',
+              'title': 'Synthetic plan',
+              'archived': true,
+              'hidden': false,
+            },
+          },
+        ),
+      });
+      final service = _rest(routes);
+      final scope = hermesSetAsideScope(service.config);
+      await HermesSetAsideSessionStore.remember(
+        HermesSetAsideSession(
+          scope: scope,
+          sessionId: 'api_1',
+          title: 'Synthetic plan',
+          kind: HermesSetAsideKind.hidden,
+          archived: true,
+        ),
+      );
+      final container = _container(service);
+
+      check(
+        await container.read(hermesHiddenSessionsProvider.future),
+      ).isEmpty();
       check(
         HermesSetAsideSessionStore.find(scope: scope, sessionId: 'api_1')?.kind,
       ).equals(HermesSetAsideKind.archived);
+      check(
+        (await container.read(
+          hermesArchivedSessionsProvider.future,
+        )).map((session) => session.id),
+      ).deepEquals(['api_1']);
+    });
+
+    test('an unreadable hidden chat keeps its archived flag', () async {
+      final routes = _Routes({
+        'GET /api/sessions': (_) => (200, {'data': <Object>[]}),
+        'GET /api/sessions/api_1': (_) => (503, {'error': 'down'}),
+      });
+      final service = _rest(routes);
+      final scope = hermesSetAsideScope(service.config);
+      await HermesSetAsideSessionStore.remember(
+        HermesSetAsideSession(
+          scope: scope,
+          sessionId: 'api_1',
+          title: 'Synthetic plan',
+          kind: HermesSetAsideKind.hidden,
+          archived: true,
+        ),
+      );
+
+      final hidden = await _container(
+        service,
+      ).read(hermesHiddenSessionsProvider.future);
+
+      check(hidden.single)
+        ..has((s) => s.hidden, 'hidden').isTrue()
+        ..has((s) => s.archived, 'archived').isTrue();
+    });
+
+    test('a lookup does not drop a record that replaced the one it read',
+        () async {
+      final service = _rest(_Routes({}));
+      final scope = hermesSetAsideScope(service.config);
+      final archivedRecord = HermesSetAsideSession(
+        scope: scope,
+        sessionId: 'api_1',
+        title: 'Synthetic plan',
+        kind: HermesSetAsideKind.archived,
+      );
+      await HermesSetAsideSessionStore.remember(archivedRecord);
+      // Hidden meanwhile: the newer record replaced the archived one.
+      final hiddenRecord = HermesSetAsideSession(
+        scope: scope,
+        sessionId: 'api_1',
+        title: 'Synthetic plan',
+        kind: HermesSetAsideKind.hidden,
+        archived: true,
+      );
+      await HermesSetAsideSessionStore.remember(hiddenRecord);
+
+      await HermesSetAsideSessionStore.forgetRecord(archivedRecord);
+
+      check(
+        HermesSetAsideSessionStore.find(scope: scope, sessionId: 'api_1')?.kind,
+      ).equals(HermesSetAsideKind.hidden);
+    });
+
+    test('a record too long to read back is refused', () async {
+      await check(
+        HermesSetAsideSessionStore.remember(
+          HermesSetAsideSession(
+            scope: 'https://hermes.example/${'p' * 4096}',
+            sessionId: 'api_1',
+            title: 'Synthetic plan',
+            kind: HermesSetAsideKind.hidden,
+          ),
+        ),
+      ).throws<ArgumentError>();
     });
 
     test('a full store refuses before the server changes', () async {

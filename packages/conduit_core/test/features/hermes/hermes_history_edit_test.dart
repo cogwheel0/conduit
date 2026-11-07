@@ -15,15 +15,18 @@ import 'package:conduit_core/features/hermes/models/hermes_run_event.dart';
 import 'package:conduit_core/features/hermes/services/hermes_backend_service.dart';
 import 'package:conduit_core/features/hermes/services/hermes_desktop_api_service.dart';
 import 'package:conduit_core/features/hermes/services/hermes_desktop_transport.dart';
+import 'package:conduit_core/features/hermes/services/hermes_copied_history_store.dart';
 import 'package:conduit_core/features/hermes/services/hermes_history_edit.dart';
 import 'package:conduit_core/features/hermes/services/hermes_local_document_trust_store.dart';
 import 'package:conduit_core/features/hermes/services/hermes_session_provenance.dart';
+import 'package:conduit_core/database/app_database.dart';
 import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/persistence/preferences_store.dart';
 import 'package:conduit_core/ports/key_value_store.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:dio/dio.dart';
+import 'package:drift/native.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:riverpod/riverpod.dart';
 import 'package:test/test.dart';
@@ -327,7 +330,13 @@ class _RestTranscript extends HermesApiService {
       );
 
   final created = <String?>[];
+  final deleted = <String>[];
   int forks = 0;
+
+  @override
+  Future<void> deleteSession(String id, {CancelToken? cancelToken}) async {
+    deleted.add(id);
+  }
 
   @override
   Future<List<Map<String, dynamic>>> getSessionMessages(
@@ -380,9 +389,12 @@ ProviderContainer _chatContainer(
   HermesBackendService service,
   List<ChatMessage> messages, {
   NotifierProvider<_Connection, HermesBackendService?>? connection,
+  HermesCopiedHistoryStore? copiedHistory,
 }) {
   final container = ProviderContainer(
     overrides: [
+      if (copiedHistory != null)
+        hermesCopiedHistoryStoreProvider.overrideWithValue(copiedHistory),
       if (connection == null)
         hermesApiServiceProvider.overrideWithValue(service)
       else
@@ -520,7 +532,40 @@ void main() {
       ).equals(2);
     });
 
-    test('of several equal prompts only the newest is certain', () {
+    test('a stored prompt matches only past its references', () {
+      final transcript = [
+        {
+          'id': 1,
+          'role': 'user',
+          'content': '[User attached file: /tmp/notes.txt]\nSummarize',
+        },
+        {'id': 2, 'role': 'assistant', 'content': 'Done.'},
+        // Another app's turn that merely contains the text.
+        {'id': 3, 'role': 'user', 'content': 'Summarize it in French'},
+      ];
+      final chat = [
+        _message('a', 'user', 'Summarize'),
+        _message('b', 'assistant', 'Done.'),
+        _message('c', 'user', 'Summarize'),
+      ];
+
+      check(
+        hermesTranscriptUserRowIndex(
+          transcript: transcript,
+          messages: chat,
+          index: 0,
+        ),
+      ).equals(0);
+      check(
+        hermesTranscriptUserRowIndex(
+          transcript: transcript,
+          messages: chat,
+          index: 2,
+        ),
+      ).isNull();
+    });
+
+    test('of several equal prompts none is certain when places drift', () {
       final repeated = [
         {'id': 1, 'role': 'user', 'content': 'Again'},
         {'id': 2, 'role': 'assistant', 'content': 'One'},
@@ -534,13 +579,14 @@ void main() {
         _message('b', 'user', 'Unsent two'),
         _message('c', 'user', 'Again'),
       ];
+      // Newest in both is no proof: another app may have sent it since.
       check(
         hermesTranscriptUserRowIndex(
           transcript: repeated,
           messages: drifted,
           index: 2,
         ),
-      ).equals(2);
+      ).isNull();
       check(
         hermesTranscriptUserRowIndex(
           transcript: repeated,
@@ -670,6 +716,32 @@ void main() {
       check(gateway.calls('prompt.submit')).isEmpty();
     });
 
+    test('an edit stopped while its command resolves cuts nothing',
+        () async {
+      final gateway = _Gateway(authority: true);
+      final cancel = CancelToken();
+      gateway.handler = (method, params) {
+        if (method != 'slash.exec') return null;
+        // Stopped while Hermes expands the command.
+        cancel.cancel();
+        return {'type': 'send', 'message': 'Expanded prompt'};
+      };
+      final service = _service(gateway, _Rest(_transcript));
+
+      final response = await service.streamDesktopResponse(
+        HermesChatInput.text('/plan'),
+        sessionId: 'stored-1',
+        options: const HermesDesktopSessionOptions(),
+        truncateBeforeRowId: 15,
+        cancelToken: cancel,
+      );
+      await response.events.toList().timeout(const Duration(seconds: 5));
+      await _settle();
+
+      check(gateway.calls('session.mutate')).isEmpty();
+      check(gateway.calls('prompt.submit')).isEmpty();
+    });
+
     test('a refused rewind sends no prompt', () async {
       final gateway = _Gateway(authority: true);
       gateway.handler = (method, params) {
@@ -722,6 +794,26 @@ void main() {
       check(target).isNotNull()
         ..has((t) => t.sessionId, 'sessionId').equals('stored-1')
         ..has((t) => t.rowId, 'rowId').equals(15);
+    });
+
+    test('a retried edit finds a turn whose new text was stored', () async {
+      // The edit's replacement went out: the session stores the new text.
+      final stored = [
+        for (final row in _transcript)
+          row['id'] == 15 ? {...row, 'content': 'Snacks?'} : row,
+      ];
+      final service = _service(_Gateway(), _Rest(stored));
+      final edited = [..._chat.take(2), _message('u2', 'user', 'Snacks?')];
+
+      final target = await hermesDesktopRewindTarget(
+        service: service,
+        conversation: conversation,
+        messages: edited,
+        replayedUserIndex: 2,
+        originalText: 'And drinks?',
+      );
+
+      check(target).isNotNull().has((t) => t.rowId, 'rowId').equals(15);
     });
 
     test('a turn that never reached the session is only sent again', () async {
@@ -1028,7 +1120,14 @@ void main() {
     test('an API server chat opens a new session with the transcript '
         'through the reply, not a fork', () async {
       final service = _RestTranscript();
-      final container = _chatContainer(service, _chat);
+      final database = AppDatabase(NativeDatabase.memory());
+      addTearDown(database.close);
+      final copiedHistory = HermesCopiedHistoryStore(database);
+      final container = _chatContainer(
+        service,
+        _chat,
+        copiedHistory: copiedHistory,
+      );
 
       final branch = await container
           .read(hermesSessionsProvider.notifier)
@@ -1042,12 +1141,52 @@ void main() {
       check(branch).isNotNull()
         ..has((b) => b.session.id, 'id').equals('api_copy')
         ..has((b) => b.session.title, 'title').equals('Synthetic picnic');
+      // Saved here, so a branch left before it opens keeps them.
+      check(branch!.transcript).isNull();
+      final identity = HermesLocalDocumentTrustStore.connectionIdentity(
+        endpointIdentity: HermesConfigController.connectionEndpoint(
+          'https://hermes.example',
+        )!,
+        principalId: container
+            .read(hermesConfigProvider.notifier)
+            .documentTrustPrincipalId(),
+      );
       check(
-        branch!.transcript!.map((row) => row['id']),
-      ).deepEquals([11, 12, 13, 14]);
+        (await copiedHistory.load(
+          connectionIdentity: identity,
+          sessionId: 'api_copy',
+        ))?.map((row) => row['id']).toList(),
+      ).isNotNull().deepEquals([11, 12, 13, 14]);
       // Untitled: Hermes refuses a second session with the same title.
       check(service.created).deepEquals([null]);
       check(service.forks).equals(0);
+      check(service.deleted).isEmpty();
+    });
+
+    test('an API server branch whose history cannot be kept is removed',
+        () async {
+      final service = _RestTranscript();
+      final database = AppDatabase(NativeDatabase.memory());
+      addTearDown(database.close);
+      await database.customSelect('SELECT 1').get();
+      await database.customStatement('PRAGMA query_only = ON');
+      final container = _chatContainer(
+        service,
+        _chat,
+        copiedHistory: HermesCopiedHistoryStore(database),
+      );
+
+      await check(
+        container
+            .read(hermesSessionsProvider.notifier)
+            .branchFromMessage(
+              sessionId: 'stored-1',
+              title: 'Synthetic picnic',
+              messages: _chat,
+              index: 1,
+            ),
+      ).throws<Object>();
+      check(service.deleted).deepEquals(['api_copy']);
     });
   });
 
@@ -1069,6 +1208,30 @@ void main() {
       check(edit['operation']).equals('rewind');
       check(edit['payload'] as Map).deepEquals({'target_message_id': 15});
       check(gateway.calls('session.undo')).isEmpty();
+    });
+
+    test('a chat reopened while it was undone reads its transcript again',
+        () async {
+      final gateway = _Gateway();
+      final service = _service(gateway, _Rest(_transcript));
+      final container = _chatContainer(service, _chat);
+      final reopened = [
+        for (final message in _chat) message.copyWith(id: 'r-${message.id}'),
+      ];
+      gateway.handler = (method, params) {
+        if (method != 'session.undo') return null;
+        // Opened again from the list while Hermes undoes the turn.
+        container.read(chatMessagesProvider.notifier).setMessages(reopened);
+        return null;
+      };
+      final reloads = <String>[];
+      service.transcriptChanges.listen(reloads.add);
+
+      check(await undoLastHermesTurn(container)).isTrue();
+      await _settle();
+
+      check(reloads).contains('stored-1');
+      check(container.read(chatMessagesProvider)).deepEquals(reopened);
     });
 
     test('drops the turn from the chat and the session', () async {

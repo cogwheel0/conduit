@@ -560,6 +560,16 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
       }
     }
     if (canonical && truncateBeforeRowId != null) {
+      // Stopped meanwhile (while a slash command resolved): the edit is
+      // dropped, so the history it would replace stays whole.
+      if (terminal || cancelToken?.isCancelled == true) {
+        await _detachStaged(binding.runtimeId, stagedPaths);
+        finish();
+        return HermesResponseStream(
+          events: controller.stream,
+          sessionId: storedId,
+        );
+      }
       // Cut first, apart from the submit's recovery below: a lost answer to
       // this edit must not be read as a lost prompt and sent again uncut.
       try {

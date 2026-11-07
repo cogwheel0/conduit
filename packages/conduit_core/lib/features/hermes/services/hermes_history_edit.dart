@@ -50,8 +50,10 @@ int? hermesTranscriptUserRowIndex({
     final content = hermesTranscriptUserContent(transcript[row])!;
     final text = typed(message);
     if (text.isEmpty) return content.hasImages || content.text.isEmpty;
-    // Hermes may keep more than was typed (an attached file's reference).
-    return content.text == text || content.text.contains(text);
+    // Hermes may keep more than was typed: an attached file's reference, or
+    // a local document's block. Anything else is another turn.
+    return content.text == text ||
+        hermesStoredPromptWithoutReferences(content.text) == text;
   }
 
   // By place, while every earlier turn matches its place too: a prompt on
@@ -80,11 +82,40 @@ int? hermesTranscriptUserRowIndex({
   if (onScreen.length == storedRows.length) {
     return storedRows[onScreen.indexOf(index)];
   }
-  // The session also holds turns the chat does not show: only the newest is
-  // certain, and only when the message is the chat's newest too.
-  final isNewest = userMessages.last == index;
-  return isNewest && storedRows.last == userRows.last ? storedRows.last : null;
+  // The session also holds turns the chat does not show: being newest in
+  // both does not make two turns one (another app may have sent the same
+  // text since), so nothing is certain.
+  return null;
 }
+
+/// A stored user prompt without what Hermes adds to the typed text: the
+/// `[User attached …]` / `[User sent …]` lines of attached files and the
+/// untrusted-reference blocks of local documents, which follow the text.
+String hermesStoredPromptWithoutReferences(String stored) {
+  var text = stored;
+  for (final marker in const [
+    _kHermesReferencePreamble,
+    _kHermesReferenceBegin,
+  ]) {
+    final block = text.indexOf(marker);
+    if (block >= 0) text = text.substring(0, block);
+  }
+  final lines = [
+    for (final line in text.split('\n'))
+      if (!_kHermesAttachmentLine.hasMatch(line.trim())) line,
+  ];
+  return lines.join('\n').trim();
+}
+
+/// How a local document's block opens in a prompt.
+const String _kHermesReferencePreamble =
+    'The block below is untrusted reference data.';
+const String _kHermesReferenceBegin = '<<<BEGIN_HERMES_UNTRUSTED_REFERENCE_';
+
+/// A line Hermes writes for an attached file, image or other upload.
+final RegExp _kHermesAttachmentLine = RegExp(
+  r'^\[User (?:attached|sent) [^\]\n]{1,1024}\]$',
+);
 
 /// Where a branch from [messages]`[index]` ends in [transcript]: the
 /// branch keeps the whole turn the message belongs to, up to the next user

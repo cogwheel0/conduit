@@ -325,4 +325,52 @@ void main() {
       findsOneWidget,
     );
   });
+
+  testWidgets('a refresh that fails keeps the archived chats it listed', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(800, 1600);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    var fail = false;
+    final container = ProviderContainer(
+      overrides: [
+        hermesApiServiceProvider.overrideWithValue(_FlagsService()),
+        hermesArchivedSessionsProvider.overrideWith((ref) async {
+          if (fail) throw StateError('synthetic outage');
+          return const [
+            HermesSessionSummary(
+              id: 'old',
+              title: 'Synthetic archived',
+              archived: true,
+            ),
+          ];
+        }),
+      ],
+    );
+    addTearDown(container.dispose);
+    await tester.pumpWidget(
+      _host(
+        container,
+        const HermesSessionsTab(showBottomNavigationBar: false),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey<String>('hermes-archived-sessions')),
+      findsOneWidget,
+    );
+
+    fail = true;
+    container.invalidate(hermesArchivedSessionsProvider);
+    await tester.pumpAndSettle();
+
+    // The chats it listed stay, and the failure is said, with a retry.
+    expect(find.text(_l10n.hermesNoConversationsMessage), findsNothing);
+    expect(
+      find.byKey(const ValueKey<String>('hermes-archived-sessions')),
+      findsOneWidget,
+    );
+    expect(find.text(_l10n.hermesArchivedLoadError), findsOneWidget);
+  });
 }

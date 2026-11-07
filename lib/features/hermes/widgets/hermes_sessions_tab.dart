@@ -152,10 +152,11 @@ class _HermesSessionsTabState extends ConsumerState<HermesSessionsTab>
     final theme = context.conduitTheme;
     final l10n = AppLocalizations.of(context)!;
     final archivedAsync = ref.watch(hermesArchivedSessionsProvider);
-    final archived = archivedAsync.asData?.value ?? const [];
+    // A failed refresh keeps the chats it last listed, and says it failed.
+    final archived = archivedAsync.value ?? const [];
     // The archived list has its own loading and failure: neither reads as
     // having no archived chats.
-    final archivedFailed = archivedAsync.hasError && !archivedAsync.hasValue;
+    final archivedFailed = archivedAsync.hasError;
     final archivedLoading = archivedAsync.isLoading && !archivedAsync.hasValue;
     return sessionsAsync.when(
       data: (sessions) {
@@ -211,8 +212,9 @@ class _HermesSessionsTabState extends ConsumerState<HermesSessionsTab>
             ),
             if (_showArchived) _sessionList(archived),
           ],
-          if (archived.isEmpty && archivedFailed) ...[
-            SliverToBoxAdapter(child: _SectionHeader(title: l10n.archived)),
+          if (archivedFailed) ...[
+            if (archived.isEmpty)
+              SliverToBoxAdapter(child: _SectionHeader(title: l10n.archived)),
             SliverToBoxAdapter(
               child: _ArchivedLoadError(
                 onRetry: () => ref.invalidate(hermesArchivedSessionsProvider),
