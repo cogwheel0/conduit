@@ -56,6 +56,7 @@ import 'package:conduit_core/features/hermes/services/hermes_local_document_trus
 import 'package:conduit_core/features/hermes/services/hermes_message_mapper.dart';
 import 'package:conduit_core/features/hermes/services/hermes_pending_decision_store.dart';
 import 'package:conduit_core/features/hermes/services/hermes_session_provenance.dart';
+import 'package:conduit_core/features/hermes/services/hermes_set_aside_session_store.dart';
 
 import 'package:conduit_core/providers/host_ports.dart';
 
@@ -1408,6 +1409,10 @@ class HermesConfigController extends Notifier<HermesConfig> {
             .forgetConnection(identity),
       );
     }
+    await attempt(
+      'deleted-connection-set-aside-cleanup-failed',
+      () => HermesSetAsideSessionStore.clearScope(profile.id),
+    );
     // Records from before saved connections carry no id and match by origin
     // alone, so a connection still on that origin keeps answering them.
     await attempt(
@@ -2501,7 +2506,31 @@ Map<String, String>? alignHermesForkedMessageIds(
   return mapping;
 }
 
+/// Where [config]'s set-aside chats are kept: its saved connection, or its
+/// endpoint for a connection saved before connections had ids.
+String hermesSetAsideScope(HermesConfig config) =>
+    config.connectionId ??
+    HermesConfigController.connectionEndpoint(config.baseUrl) ??
+    config.baseUrl;
+
+/// [raw] session rows as summaries, newest first. Rows without an id go.
+List<HermesSessionSummary> _hermesSessionSummaries(
+  Iterable<Map<String, dynamic>> raw,
+) => _newestFirst([
+  for (final item in raw) ?HermesSessionSummary.fromJson(item),
+]);
+
+List<HermesSessionSummary> _newestFirst(List<HermesSessionSummary> sessions) {
+  final epoch = DateTime.fromMillisecondsSinceEpoch(0);
+  return sessions..sort(
+    (a, b) => (b.updatedAt ?? epoch).compareTo(a.updatedAt ?? epoch),
+  );
+}
+
 /// The user's Hermes sessions (server-side transcripts), newest first.
+///
+/// Archived and hidden sessions are left out: Hermes lists a pinned one
+/// however it is flagged, and archived ones have their own row.
 class HermesSessionsController
     extends AsyncNotifier<List<HermesSessionSummary>> {
   @override
@@ -2509,19 +2538,109 @@ class HermesSessionsController
     final service = ref.watch(hermesApiServiceProvider);
     if (service == null) return const [];
     final raw = await service.listSessions();
-    final sessions = <HermesSessionSummary>[];
-    for (final item in raw) {
-      final summary = HermesSessionSummary.fromJson(item);
-      if (summary != null) sessions.add(summary);
-    }
-    final epoch = DateTime.fromMillisecondsSinceEpoch(0);
-    sessions.sort(
-      (a, b) => (b.updatedAt ?? epoch).compareTo(a.updatedAt ?? epoch),
-    );
-    return sessions;
+    return [
+      for (final session in _hermesSessionSummaries(raw))
+        if (!session.archived && !session.hidden) session,
+    ];
   }
 
   HermesBackendService? get _service => ref.read(hermesApiServiceProvider);
+
+  /// Pins or unpins [session].
+  Future<void> setPinned(HermesSessionSummary session, bool pinned) =>
+      _setFlags(session, pinned: pinned);
+
+  /// Archives [session] (unpinned, or Hermes would keep listing it) or
+  /// brings it back.
+  Future<void> setArchived(HermesSessionSummary session, bool archived) =>
+      _setFlags(
+        session,
+        archived: archived,
+        pinned: archived && session.pinned ? false : null,
+      );
+
+  /// Hides [session] from every list (it stays reachable from Hermes
+  /// settings) or shows it again.
+  Future<void> setHidden(HermesSessionSummary session, bool hidden) =>
+      _setFlags(
+        session,
+        hidden: hidden,
+        pinned: hidden && session.pinned ? false : null,
+      );
+
+  Future<void> _setFlags(
+    HermesSessionSummary session, {
+    bool? pinned,
+    bool? archived,
+    bool? hidden,
+  }) async {
+    final configController = ref.read(hermesConfigProvider.notifier);
+    final admission = configController.captureSessionActionAdmission();
+    if (admission == null) {
+      throw StateError('Hermes connection is changing. Try again.');
+    }
+    final service = _service;
+    if (service == null) return;
+    await service.setSessionFlags(
+      session.id,
+      pinned: pinned,
+      archived: archived,
+      hidden: hidden,
+    );
+    if (!configController.sessionActionAdmissionIsCurrent(admission) ||
+        !identical(ref.read(hermesApiServiceProvider), service)) {
+      return;
+    }
+    final scope = hermesSetAsideScope(service.config);
+    // No Hermes list shows a hidden chat, and the API server lists no
+    // archived ones: this device keeps them so they can be brought back.
+    final setAside = hidden == true
+        ? HermesSetAsideKind.hidden
+        : archived == true && service is HermesApiService
+        ? HermesSetAsideKind.archived
+        : null;
+    try {
+      if (setAside != null) {
+        await HermesSetAsideSessionStore.remember(
+          HermesSetAsideSession(
+            scope: scope,
+            sessionId: session.id,
+            title: session.title,
+            kind: setAside,
+          ),
+        );
+      } else if (hidden == false || archived == false) {
+        await HermesSetAsideSessionStore.forget(
+          scope: scope,
+          sessionId: session.id,
+        );
+      }
+    } catch (error) {
+      DebugLogger.warning(
+        'set-aside-record-failed',
+        scope: 'hermes/sessions',
+        data: {'errorType': error.runtimeType.toString()},
+      );
+    }
+    final current = state.asData?.value;
+    if (current != null) {
+      final updated = session.copyWith(
+        pinned: pinned,
+        archived: archived,
+        hidden: hidden,
+      );
+      state = AsyncData(
+        _newestFirst([
+          for (final candidate in current)
+            if (candidate.id != session.id) candidate,
+          if (!updated.archived && !updated.hidden) updated,
+        ]),
+      );
+    }
+    ref.invalidate(hermesArchivedSessionsProvider);
+    ref.invalidate(hermesHiddenSessionsProvider);
+    ref.invalidateSelf();
+  }
 
   /// Forks a session and returns the new session id (null if Hermes is off).
   Future<String?> fork(String id) async {
@@ -2751,6 +2870,14 @@ class HermesSessionsController
       return false;
     }
     await service.deleteSession(id);
+    try {
+      await HermesSetAsideSessionStore.forget(
+        scope: hermesSetAsideScope(service.config),
+        sessionId: id,
+      );
+    } catch (_) {
+      // A leftover record is dropped once its lookup finds no session.
+    }
     if (connectionIdentity != null) {
       try {
         await draftDatabase!.composerDraftsDao.deleteDraft(
@@ -2781,6 +2908,7 @@ class HermesSessionsController
     }
     if (configController.sessionActionAdmissionIsCurrent(admission) &&
         identical(ref.read(hermesApiServiceProvider), service)) {
+      ref.invalidate(hermesArchivedSessionsProvider);
       ref.invalidateSelf();
     }
     return true;
@@ -2791,6 +2919,74 @@ final hermesSessionsProvider =
     AsyncNotifierProvider<HermesSessionsController, List<HermesSessionSummary>>(
       HermesSessionsController.new,
     );
+
+/// The most set-aside chats looked up one by one on a server that cannot
+/// list them.
+const int _kMaxHermesSetAsideLookups = 50;
+
+/// Set-aside chats of [kind] still flagged so on the server, newest first.
+/// Each is looked up by id: one gone from the server, or brought back from
+/// another app, is forgotten.
+Future<List<HermesSessionSummary>> _hermesSetAsideSessions(
+  HermesBackendService service,
+  HermesSetAsideKind kind,
+) async {
+  final scope = hermesSetAsideScope(service.config);
+  final records = HermesSetAsideSessionStore.forScope(scope, kind: kind);
+  final sessions = <HermesSessionSummary>[];
+  for (final record in records.reversed.take(_kMaxHermesSetAsideLookups)) {
+    final Map<String, dynamic>? row;
+    try {
+      row = await service.getSession(record.sessionId);
+    } catch (_) {
+      // Unreachable now; keep it as last seen.
+      sessions.add(record.toSummary());
+      continue;
+    }
+    final session = row == null ? null : HermesSessionSummary.fromJson(row);
+    final stillSetAside = switch (kind) {
+      HermesSetAsideKind.hidden => session?.hidden ?? false,
+      HermesSetAsideKind.archived =>
+        (session?.archived ?? false) && !(session?.hidden ?? false),
+    };
+    if (session == null || !stillSetAside) {
+      await HermesSetAsideSessionStore.forget(
+        scope: scope,
+        sessionId: record.sessionId,
+      );
+      continue;
+    }
+    sessions.add(session);
+  }
+  return _newestFirst(sessions);
+}
+
+/// Archived Hermes sessions, newest first. Hermes lists them on the
+/// dashboard and a gateway's Webapp listener; on the API server, which
+/// cannot, they are the ones archived from this device.
+final hermesArchivedSessionsProvider =
+    FutureProvider<List<HermesSessionSummary>>((ref) async {
+      final service = ref.watch(hermesApiServiceProvider);
+      if (service == null) return const [];
+      final raw = await service.listArchivedSessions();
+      if (raw == null) {
+        return _hermesSetAsideSessions(service, HermesSetAsideKind.archived);
+      }
+      return [
+        for (final session in _hermesSessionSummaries(raw))
+          if (session.archived && !session.hidden) session,
+      ];
+    });
+
+/// Hermes sessions hidden from this device that are still hidden, newest
+/// first. Hermes lists no hidden sessions (Bot Mode keeps its own chats
+/// hidden), so only those hidden here are offered back.
+final hermesHiddenSessionsProvider =
+    FutureProvider.autoDispose<List<HermesSessionSummary>>((ref) async {
+      final service = ref.watch(hermesApiServiceProvider);
+      if (service == null) return const [];
+      return _hermesSetAsideSessions(service, HermesSetAsideKind.hidden);
+    });
 
 /// Bot Mode roster, newest activity first. Empty on gateways without Bot Mode
 /// and on the Responses backend, which hides the sidebar section entirely.

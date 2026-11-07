@@ -4463,5 +4463,13 @@
   "hermesContinueInCopyFailed": "无法复制此聊天。请重试。",
   "hermesContinueHere": "在此继续",
   "hermesContinueHereFailed": "无法在此继续此聊天。请重试。",
-  "hermesContinueChoiceExplanation": "在此继续会结束另一个应用中的这个聊天，该应用会在下一条消息时开始新聊天。副本会保持那个聊天不变，但之前的消息只保存在此设备上。最多保留最新的 1,000 条消息（1 MB），且仅限最近打开的 32 个副本。"
+  "hermesContinueChoiceExplanation": "在此继续会结束另一个应用中的这个聊天，该应用会在下一条消息时开始新聊天。副本会保持那个聊天不变，但之前的消息只保存在此设备上。最多保留最新的 1,000 条消息（1 MB），且仅限最近打开的 32 个副本。",
+  "hermesSessionHide": "隐藏",
+  "hermesSessionUnhide": "取消隐藏",
+  "hermesSessionUpdateFailed": "无法更新此聊天。请重试。",
+  "hermesSessionHiddenNotice": "聊天已隐藏。可在 Hermes 设置的“已隐藏的聊天”中找到。",
+  "hermesHiddenChatsTitle": "已隐藏的聊天",
+  "hermesHiddenChatsDescription": "在此设备上从 Hermes 列表中隐藏的聊天。轻点可打开，取消隐藏可让它重新出现在列表中。",
+  "hermesHiddenChatsEmpty": "没有已隐藏的聊天。",
+  "hermesHiddenChatsLoadError": "无法加载已隐藏的聊天。"
 }

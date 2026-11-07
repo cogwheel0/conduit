@@ -42,6 +42,9 @@ class _HermesSessionsTabState extends ConsumerState<HermesSessionsTab>
     with SidebarTabScrollRegistration<HermesSessionsTab> {
   final ScrollController _scrollController = ScrollController();
 
+  /// Whether the archived chats are listed below their row.
+  bool _showArchived = false;
+
   @override
   SidebarTabId get sidebarTabId => SidebarTabId.hermes;
 
@@ -93,6 +96,7 @@ class _HermesSessionsTabState extends ConsumerState<HermesSessionsTab>
         ConduitHaptics.lightImpact();
         if (showJobs) ref.invalidate(hermesJobsProvider);
         ref.invalidate(hermesBotsProvider);
+        ref.invalidate(hermesArchivedSessionsProvider);
         ref.invalidate(hermesSessionsProvider);
         await ref.read(hermesSessionsProvider.future);
       },
@@ -147,9 +151,11 @@ class _HermesSessionsTabState extends ConsumerState<HermesSessionsTab>
   ) {
     final theme = context.conduitTheme;
     final l10n = AppLocalizations.of(context)!;
+    final archived =
+        ref.watch(hermesArchivedSessionsProvider).asData?.value ?? const [];
     return sessionsAsync.when(
       data: (sessions) {
-        if (sessions.isEmpty) {
+        if (sessions.isEmpty && archived.isEmpty) {
           return [
             SliverToBoxAdapter(
               child: _message(
@@ -161,24 +167,45 @@ class _HermesSessionsTabState extends ConsumerState<HermesSessionsTab>
             ),
           ];
         }
+        final pinned = [
+          for (final session in sessions)
+            if (session.pinned) session,
+        ];
+        final recent = [
+          for (final session in sessions)
+            if (!session.pinned) session,
+        ];
         return [
-          SliverToBoxAdapter(
-            child: _SectionHeader(
-              title: l10n.hermesConversationsTitle,
-              count: sessions.length,
+          if (pinned.isNotEmpty) ...[
+            SliverToBoxAdapter(
+              child: _SectionHeader(title: l10n.pinned, count: pinned.length),
             ),
-          ),
-          SliverPadding(
-            // The shared conversation tile supplies the 4.0.3 Hermes 8pt row
-            // gutter. Keep list padding vertical to avoid doubling that inset
-            // only in this tab.
-            padding: const EdgeInsets.symmetric(vertical: Spacing.xs),
-            sliver: SliverList.builder(
-              itemCount: sessions.length,
-              itemBuilder: (context, index) =>
-                  HermesSessionTile(session: sessions[index]),
+            _sessionList(pinned),
+          ],
+          if (recent.isNotEmpty) ...[
+            SliverToBoxAdapter(
+              child: _SectionHeader(
+                title: l10n.hermesConversationsTitle,
+                count: recent.length,
+              ),
             ),
-          ),
+            _sessionList(recent),
+          ],
+          if (archived.isNotEmpty) ...[
+            SliverToBoxAdapter(
+              child: _SectionHeader(
+                key: const ValueKey<String>('hermes-archived-sessions'),
+                title: l10n.archived,
+                count: archived.length,
+                expanded: _showArchived,
+                onToggle: () {
+                  ConduitHaptics.selectionClick();
+                  setState(() => _showArchived = !_showArchived);
+                },
+              ),
+            ),
+            if (_showArchived) _sessionList(archived),
+          ],
         ];
       },
       loading: () => const [
@@ -201,6 +228,18 @@ class _HermesSessionsTabState extends ConsumerState<HermesSessionsTab>
       ],
     );
   }
+
+  Widget _sessionList(List<HermesSessionSummary> sessions) => SliverPadding(
+    // The shared conversation tile supplies the 4.0.3 Hermes 8pt row
+    // gutter. Keep list padding vertical to avoid doubling that inset
+    // only in this tab.
+    padding: const EdgeInsets.symmetric(vertical: Spacing.xs),
+    sliver: SliverList.builder(
+      itemCount: sessions.length,
+      itemBuilder: (context, index) =>
+          HermesSessionTile(session: sessions[index]),
+    ),
+  );
 
   Widget _message(
     ConduitThemeExtension theme,
@@ -340,6 +379,7 @@ class _ScheduledAgentsTile extends ConsumerWidget {
 /// Section header with an optional count badge.
 class _SectionHeader extends StatelessWidget {
   const _SectionHeader({
+    super.key,
     required this.title,
     this.count,
     this.expanded,

@@ -8359,5 +8359,37 @@
   "hermesContinueChoiceExplanation": "Kontynuowanie tutaj kończy ten czat w drugiej aplikacji, która przy następnej wiadomości zacznie nowy. Kopia pozostawia ten czat bez zmian, ale wcześniejsze wiadomości zapisuje tylko na tym urządzeniu. Przechowuje do 1000 najnowszych wiadomości (1 MB), dla 32 ostatnio otwieranych kopii.",
   "@hermesContinueChoiceExplanation": {
     "description": "Explains, under the read-only Hermes chat notice, the difference between continuing the chat here and continuing it in a copy."
+  },
+  "hermesSessionHide": "Ukryj",
+  "@hermesSessionHide": {
+    "description": "Session menu action that hides a Hermes chat from the session list."
+  },
+  "hermesSessionUnhide": "Odkryj",
+  "@hermesSessionUnhide": {
+    "description": "Button that puts a hidden Hermes chat back in the session list."
+  },
+  "hermesSessionUpdateFailed": "Nie można zaktualizować tego czatu. Spróbuj ponownie.",
+  "@hermesSessionUpdateFailed": {
+    "description": "Error shown when pinning, archiving or hiding a Hermes chat fails."
+  },
+  "hermesSessionHiddenNotice": "Czat ukryty. Znajdziesz go w ustawieniach Hermes w sekcji Ukryte czaty.",
+  "@hermesSessionHiddenNotice": {
+    "description": "Confirmation shown after a Hermes chat is hidden from the session list."
+  },
+  "hermesHiddenChatsTitle": "Ukryte czaty",
+  "@hermesHiddenChatsTitle": {
+    "description": "Title of the Hermes settings page, and its row, listing chats hidden from the session list."
+  },
+  "hermesHiddenChatsDescription": "Czaty ukryte na liście Hermes na tym urządzeniu. Stuknij czat, aby go otworzyć, lub odkryj go, aby wrócił na listę.",
+  "@hermesHiddenChatsDescription": {
+    "description": "Footer of the hidden Hermes chats list."
+  },
+  "hermesHiddenChatsEmpty": "Brak ukrytych czatów.",
+  "@hermesHiddenChatsEmpty": {
+    "description": "Shown when no Hermes chats are hidden."
+  },
+  "hermesHiddenChatsLoadError": "Nie można wczytać ukrytych czatów.",
+  "@hermesHiddenChatsLoadError": {
+    "description": "Error shown when the hidden Hermes chats cannot be loaded."
   }
 }

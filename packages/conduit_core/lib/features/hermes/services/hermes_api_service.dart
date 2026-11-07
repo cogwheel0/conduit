@@ -1926,6 +1926,44 @@ class HermesApiService implements HermesBackendService, HermesTurnService {
     );
   }
 
+  /// Sets sidebar flags (`PATCH /api/sessions/{id}`).
+  @override
+  Future<void> setSessionFlags(
+    String id, {
+    bool? pinned,
+    bool? archived,
+    bool? hidden,
+  }) async {
+    final encodedId = Uri.encodeComponent(_requireOpaqueIdentifier(id));
+    await _requestAndConsumeBounded(
+      'PATCH',
+      '$_root/api/sessions/$encodedId',
+      data: {'pinned': ?pinned, 'archived': ?archived, 'hidden': ?hidden},
+    );
+  }
+
+  /// The API server lists only sessions that are not archived.
+  @override
+  Future<List<Map<String, dynamic>>?> listArchivedSessions() async => null;
+
+  /// One session (`GET /api/sessions/{id}`), or null once it is gone.
+  @override
+  Future<Map<String, dynamic>?> getSession(String id) async {
+    final encodedId = Uri.encodeComponent(_requireOpaqueIdentifier(id));
+    final Object? data;
+    try {
+      data = await _requestBoundedJson(
+        'GET',
+        '$_root/api/sessions/$encodedId',
+      );
+    } on DioException catch (error) {
+      if (error.response?.statusCode == 404) return null;
+      rethrow;
+    }
+    final session = data is Map ? (data['session'] ?? data) : null;
+    return session is Map ? session.cast<String, dynamic>() : null;
+  }
+
   /// Deletes a session (`DELETE /api/sessions/{id}`).
   @override
   Future<void> deleteSession(String id, {CancelToken? cancelToken}) async {

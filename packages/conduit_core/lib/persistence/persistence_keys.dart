@@ -152,6 +152,10 @@ final class PreferenceKeys {
   static const String hermesPendingDesktopDecisions =
       'hermes_pending_desktop_decisions_v1';
 
+  /// Hermes chats hidden (or, on the API server, archived) from Conduit,
+  /// which no Hermes session list returns.
+  static const String hermesSetAsideSessions = 'hermes_set_aside_sessions_v1';
+
   /// Keyed by origin, not by saved connection: the WebView cookie store is
   /// process-global, so two connections on one origin share dashboard cookies.
   static const String hermesDashboardCookieIdentities =

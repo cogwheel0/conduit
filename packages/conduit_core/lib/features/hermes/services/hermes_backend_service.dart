@@ -42,6 +42,21 @@ abstract interface class HermesBackendService {
     CancelToken? cancelToken,
   });
   Future<void> renameSession(String id, String title);
+
+  /// Sets a session's sidebar flags; a null flag is left as it is.
+  Future<void> setSessionFlags(
+    String id, {
+    bool? pinned,
+    bool? archived,
+    bool? hidden,
+  });
+
+  /// Archived sessions, newest first, or null when the server cannot list
+  /// them (the API server lists only sessions that are not archived).
+  Future<List<Map<String, dynamic>>?> listArchivedSessions();
+
+  /// One session's row, or null when the server no longer has it.
+  Future<Map<String, dynamic>?> getSession(String id);
   Future<void> deleteSession(String id, {CancelToken? cancelToken});
   Future<String> forkSession(String id);
   Future<Map<String, dynamic>> getCapabilities();

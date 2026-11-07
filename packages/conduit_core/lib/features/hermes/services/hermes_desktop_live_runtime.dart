@@ -681,13 +681,80 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
     );
   }
 
-  /// Deletes a stored session over REST. Hermes 0.22.3+ fences session
-  /// edits: the delete must name the revision and generation its
-  /// `mutation-snapshot` reports, under a request id a retry can repeat, or
-  /// it is refused with 409 `client_upgrade_required`. An older dashboard
-  /// has no snapshot route (404) and takes the plain delete.
+  /// Deletes a stored session over REST, fenced (see [_fencedSessionWrite]).
   Future<void> _deleteStoredSession(
     String storedId, {
+    CancelToken? cancelToken,
+  }) => _fencedSessionWrite(storedId, 'DELETE', cancelToken: cancelToken);
+
+  /// Sets a stored session's sidebar flags over REST, fenced like a delete.
+  /// The dashboard reads a PATCH's fences and profile from its body.
+  Future<void> _runtimeSetSessionFlags(
+    String id, {
+    bool? pinned,
+    bool? archived,
+    bool? hidden,
+  }) async {
+    final flags = <String, Object?>{
+      'pinned': ?pinned,
+      'archived': ?archived,
+      'hidden': ?hidden,
+    };
+    if (flags.isEmpty) return;
+    await _fencedSessionWrite(
+      _bindings[id]?.storedId ?? id,
+      'PATCH',
+      body: flags,
+    );
+  }
+
+  Future<List<Map<String, dynamic>>> _runtimeListArchivedSessions() async {
+    try {
+      return _objects(
+        await _requestJson(
+          'GET',
+          '/api/sessions',
+          query: {
+            'limit': 100,
+            'offset': 0,
+            'order': 'recent',
+            'archived': 'only',
+          },
+          readErrorDetail: true,
+        ),
+        'sessions',
+      );
+    } on HermesDesktopHttpException catch (error) {
+      if (_hermesSessionStoreNotInitialized(error)) return const [];
+      rethrow;
+    }
+  }
+
+  Future<Map<String, dynamic>?> _runtimeGetSession(String id) async {
+    final storedId = _bindings[id]?.storedId ?? id;
+    try {
+      final data = await _requestJson(
+        'GET',
+        '/api/sessions/${Uri.encodeComponent(storedId)}',
+        query: _sessionScope(storedId),
+      );
+      return data is Map ? Map<String, dynamic>.from(data) : null;
+    } catch (error) {
+      if (_hermesDesktopHttpStatus(error) == 404) return null;
+      rethrow;
+    }
+  }
+
+  /// A session edit over REST ([method] `DELETE` or `PATCH` with [body]).
+  /// Hermes 0.22.3+ fences session edits: the edit must name the revision
+  /// and generation its `mutation-snapshot` reports, under a request id a
+  /// retry can repeat, or it is refused with 409 `client_upgrade_required`.
+  /// An older dashboard has no snapshot route (404) and takes the plain
+  /// edit. A session that no longer exists has nothing to edit.
+  Future<void> _fencedSessionWrite(
+    String storedId,
+    String method, {
+    Map<String, Object?>? body,
     CancelToken? cancelToken,
   }) async {
     final path = '/api/sessions/${Uri.encodeComponent(storedId)}';
@@ -708,17 +775,27 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
     if (snapshot != null && snapshot['exists'] == false) return;
     final revision = snapshot?['runtime_revision'];
     final generation = snapshot?['runtime_generation'];
-    await _requestJson(
-      'DELETE',
-      path,
-      query: {
-        ...scope,
-        if (snapshot != null) ...{
-          'request_id': const Uuid().v4(),
-          if (revision is int) 'expected_revision': revision,
-          if (generation is int) 'expected_generation': generation,
-        },
+    final fences = <String, Object?>{
+      if (snapshot != null) ...{
+        'request_id': const Uuid().v4(),
+        if (revision is int) 'expected_revision': revision,
+        if (generation is int) 'expected_generation': generation,
       },
+    };
+    if (body == null) {
+      await _requestJson(
+        method,
+        path,
+        query: {...scope, ...fences},
+        cancelToken: cancelToken,
+      );
+      return;
+    }
+    await _requestJson(
+      method,
+      path,
+      query: scope,
+      body: {...body, ...scope, ...fences},
       cancelToken: cancelToken,
     );
   }

@@ -447,6 +447,23 @@ final class HermesDesktopApiService
   Future<void> renameSession(String id, String title) =>
       _runtimeRenameSession(id, title);
   @override
+  Future<void> setSessionFlags(
+    String id, {
+    bool? pinned,
+    bool? archived,
+    bool? hidden,
+  }) => _runtimeSetSessionFlags(
+    id,
+    pinned: pinned,
+    archived: archived,
+    hidden: hidden,
+  );
+  @override
+  Future<List<Map<String, dynamic>>?> listArchivedSessions() =>
+      _runtimeListArchivedSessions();
+  @override
+  Future<Map<String, dynamic>?> getSession(String id) => _runtimeGetSession(id);
+  @override
   Future<void> deleteSession(String id, {CancelToken? cancelToken}) =>
       _runtimeDeleteSession(id, cancelToken: cancelToken);
   bool sessionIdsReferToSameBinding(String left, String right) =>
