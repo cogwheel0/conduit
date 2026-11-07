@@ -837,4 +837,29 @@ void main() {
     check(gateway.calls('skills.reload').single)
         .deepEquals({'profile': 'default', 'session_id': 'local-1'});
   });
+
+  test('installed skills are listed from their categories', () async {
+    final gateway = _Authority();
+    gateway.handler = (method, params) => switch (method) {
+      'skills.manage' => {
+        'skills': {
+          'notes': ['apple-notes', 'obsidian'],
+          'media': ['youtube-content'],
+        },
+      },
+      'commands.catalog' => {
+        'pairs': [
+          ['/obsidian', 'Work with an Obsidian vault'],
+        ],
+      },
+      _ => gateway.defaults(method, params),
+    };
+    final service = _service(gateway);
+
+    final skills = await service.listSkills();
+
+    check(skills.map((skill) => skill['name']))
+        .deepEquals(['apple-notes', 'obsidian', 'youtube-content']);
+    check(skills[1]['description']).equals('Work with an Obsidian vault');
+  });
 }

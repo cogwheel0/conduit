@@ -33,7 +33,15 @@ final class _HermesDesktopAdministration {
       descriptions[command['name']?.toString() ?? ''] =
           command['description']?.toString() ?? '';
     }
-    final rows = installed['skills'];
+    // Hermes lists installed skills by category (`{category: [names]}`);
+    // a plain list is read as well.
+    final listed = installed['skills'];
+    final rows = listed is Map
+        ? [
+            for (final names in listed.values)
+              if (names is List) ...names,
+          ]
+        : listed;
     if (rows is! List) return const [];
     return rows
         .take(256)
