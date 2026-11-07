@@ -358,6 +358,45 @@ void main() {
     );
   });
 
+  testWidgets('another app in the same place gets a page host of its own', (
+    tester,
+  ) async {
+    // On Android one cookie store serves the whole app, so a later page on
+    // the same host could read what the earlier one left.
+    final api = _ServingApi();
+    final first = await _openApp(tester, api);
+    final firstHost = first.documentUrl.host;
+    final firstToken = RegExp(
+      r'const bridgeToken = "([0-9a-f]+)"',
+    ).firstMatch(first.view.initialUserScripts!.first.source)!.group(1);
+
+    await tester.pumpWidget(
+      _harness(
+        api,
+        app: const OpenWebUiMcpApp(
+          serverId: 'maps',
+          toolName: 'show_map',
+          binding: 'other',
+        ),
+      ),
+    );
+    await tester.tap(find.text('Open app'));
+    await tester.pump();
+    await tester.pump();
+
+    final second = first.webViews.built.last;
+    expect(first.webViews.built, hasLength(2));
+    expect(second.initialData!.baseUrl!.uriValue.host, isNot(firstHost));
+    expect(
+      second.initialData!.baseUrl!.uriValue.host,
+      matches(RegExp(r'^mcp-app-[0-9a-f]{36}\.invalid$')),
+    );
+    expect(
+      second.initialUserScripts!.first.source,
+      isNot(contains('const bridgeToken = "$firstToken"')),
+    );
+  });
+
   testWidgets("an app's own doctype stays first", (tester) async {
     // Before the host's tags it would be ignored, and the page laid out in
     // quirks mode.

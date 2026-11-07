@@ -66,15 +66,23 @@ class _McpAppEmbedState extends ConsumerState<McpAppEmbed> {
   /// The page is loaded once; it may not reload or navigate itself away.
   bool _documentLoaded = false;
 
-  // A fresh, unreachable origin per app: the page has none of the server's
-  // or the app's own, and the bridge accepts only this one. The host sits
-  // straight under `.invalid`, with no parent domain shared with other
-  // apps, so a cookie a page sets (Android keeps one store for the whole
-  // app) can reach no other app.
-  late final Uri _documentUrl = mcpAppDocumentUrl(_randomHex(18));
-  late final String _bridgeName = 'conduit_mcp_app_${_randomHex(12)}';
-  late final String _bridgeToken = _randomHex(24);
-  late final String _deliverName = '__conduitMcpDeliver_${_randomHex(12)}';
+  // A fresh, unreachable origin for every page an app opens, a retry or
+  // another app in the same place included: the page has none of the
+  // server's or the app's own, and the bridge accepts only this one. The
+  // host sits straight under `.invalid`, with no parent domain shared with
+  // other pages, so a cookie a page sets (Android keeps one store for the
+  // whole app) reaches no other. Set by [_newPage] when the app opens.
+  late Uri _documentUrl;
+  late String _bridgeName;
+  late String _bridgeToken;
+  late String _deliverName;
+
+  void _newPage() {
+    _documentUrl = mcpAppDocumentUrl(_randomHex(18));
+    _bridgeName = 'conduit_mcp_app_${_randomHex(12)}';
+    _bridgeToken = _randomHex(24);
+    _deliverName = '__conduitMcpDeliver_${_randomHex(12)}';
+  }
 
   final Set<Factory<OneSequenceGestureRecognizer>> _gestures = {
     Factory<OneSequenceGestureRecognizer>(EagerGestureRecognizer.new),
@@ -148,9 +156,11 @@ class _McpAppEmbedState extends ConsumerState<McpAppEmbed> {
     setState(() {
       _opened = true;
       _failure = null;
-      // A retry opens a new web view, which loads the page afresh.
+      // A retry opens a new web view, which loads the page afresh, under a
+      // host of its own like any other page.
       _documentLoaded = false;
       _controller = null;
+      _newPage();
     });
     if (api == null) {
       setState(() => _failure = l10n.mcpAppLoadFailed(l10n.errorMessage));
