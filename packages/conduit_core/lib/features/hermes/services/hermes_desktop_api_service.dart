@@ -20,6 +20,7 @@ import 'package:conduit_core/features/hermes/models/hermes_bot.dart';
 import 'package:conduit_core/features/hermes/models/hermes_chat_input.dart';
 import 'package:conduit_core/features/hermes/models/hermes_clarify_form.dart';
 import 'package:conduit_core/features/hermes/models/hermes_config.dart';
+import 'package:conduit_core/features/hermes/models/hermes_context_usage.dart';
 import 'package:conduit_core/features/hermes/models/hermes_job.dart';
 import 'package:conduit_core/features/hermes/models/hermes_job_delivery.dart';
 import 'package:conduit_core/features/hermes/models/hermes_mcp.dart';
@@ -44,6 +45,7 @@ part 'hermes_desktop_audio.dart';
 part 'hermes_desktop_auth_rest.dart';
 part 'hermes_desktop_bots.dart';
 part 'hermes_desktop_canonical.dart';
+part 'hermes_desktop_context.dart';
 part 'hermes_desktop_event_projection.dart';
 part 'hermes_desktop_live_runtime.dart';
 part 'hermes_desktop_rooms.dart';
@@ -309,6 +311,9 @@ final class HermesDesktopApiService
   final Set<String> _shortenedTranscripts = {};
   final Map<String, String> _appliedSessionOptions = {};
 
+  /// The `usage` of each session's last finished turn, by stored id.
+  final Map<String, Map<String, dynamic>> _lastTurnUsage = {};
+
   /// Connection targets (operation/target card ids) the user approved on
   /// this device, whose authorization link this device then opens.
   final Set<String> _approvedConnectionTargets = {};
@@ -536,6 +541,14 @@ final class HermesDesktopApiService
   /// last, and refuses while a turn runs.
   Future<bool> undoLastTurn(String id, {int? rowId}) =>
       _runtimeUndoLastTurn(id, rowId: rowId);
+
+  /// Session [id]'s context window, token totals and plan allowances.
+  Future<HermesContextReport> contextReport(String id) => _contextReport(id);
+
+  /// Summarizes session [id]'s older messages on the server, optionally
+  /// keeping [focus] in view.
+  Future<HermesCompactResult> compactSession(String id, {String? focus}) =>
+      _compactSession(id, focus: focus);
 
   /// The text the gateway's speech-to-text heard in [audio]; empty when it
   /// heard none.
@@ -860,6 +873,7 @@ final class HermesDesktopApiService
     _freshSessionIds.clear();
     _lastTranscripts.clear();
     _appliedSessionOptions.clear();
+    _lastTurnUsage.clear();
     _sessionTurnStates.clear();
     _canonicalSessions.clear();
     _canonicalCreateIds.clear();

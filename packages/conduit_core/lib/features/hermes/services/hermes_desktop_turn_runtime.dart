@@ -211,6 +211,9 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
               ? value('content')
               : value('text');
           if (content.isNotEmpty) controller.add(HermesFinalOutput(content));
+          if (payload['usage'] case final Map usage) {
+            _rememberTurnUsage(binding.storedId, usage);
+          }
           // A queued prompt Hermes settled before it ran (cancelled from
           // another app, or sent into the running turn as a steer) gets
           // only this completion: no idle follows while the turn ahead of

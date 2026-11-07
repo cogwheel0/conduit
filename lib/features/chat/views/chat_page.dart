@@ -72,6 +72,7 @@ import 'package:conduit_core/features/librechat/models/librechat_model.dart'
     show isLibreChatModel;
 
 import '../../hermes/widgets/hermes_bot_avatar.dart';
+import '../../hermes/widgets/hermes_context_usage_sheet.dart';
 import '../../hermes/widgets/hermes_message_interactions.dart';
 import '../../hermes/widgets/hermes_read_only_session_notice.dart';
 import '../../hermes/widgets/hermes_todo_card.dart';
@@ -5040,6 +5041,31 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         onSelected: () async {
           if (!mounted) return;
           await showOpenWebUiChatSettings(context, ref);
+        },
+      );
+    }
+
+    // A Hermes chat's context window, token totals and plan usage, with
+    // Compact now.
+    final hermesSessionId = isNativeHermesConversation(activeConversation)
+        ? activeConversation?.metadata['hermesSessionId']?.toString()
+        : null;
+    if (hermesSessionId != null &&
+        hermesSessionId.isNotEmpty &&
+        ref.watch(hermesApiServiceProvider) != null) {
+      addItem(
+        label: AppLocalizations.of(context)!.hermesContextUsage,
+        icon: conduitAdaptivePopupMenuIcon(
+          iosSymbol: 'gauge.with.dots.needle.33percent',
+          materialIcon: Icons.data_usage_rounded,
+        ),
+        iosSymbol: 'gauge.with.dots.needle.33percent',
+        onSelected: () async {
+          if (!mounted) return;
+          await showHermesContextUsageSheet(
+            context,
+            sessionId: hermesSessionId,
+          );
         },
       );
     }

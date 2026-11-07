@@ -10013,5 +10013,307 @@
   "hermesPlanHide": "Hide plan",
   "@hermesPlanHide": {
     "description": "Screen reader label of the open task list header: folds the agent's plan to one line."
+  },
+  "hermesContextUsage": "Context & usage",
+  "@hermesContextUsage": {
+    "description": "Hermes chat menu item and sheet title showing how full the chat's context window is, token totals and plan usage."
+  },
+  "hermesContextWindow": "Context window",
+  "@hermesContextWindow": {
+    "description": "Section heading for how much of the model's context window the Hermes chat fills."
+  },
+  "hermesContextUsed": "{used} of {max} tokens",
+  "@hermesContextUsed": {
+    "description": "How many tokens of the context window the Hermes chat uses; both are formatted numbers.",
+    "placeholders": {
+      "used": {
+        "type": "String",
+        "example": "32,768"
+      },
+      "max": {
+        "type": "String",
+        "example": "131,072"
+      }
+    }
+  },
+  "hermesContextPercentFull": "{percent}% full",
+  "@hermesContextPercentFull": {
+    "description": "How full the Hermes chat's context window is.",
+    "placeholders": {
+      "percent": {
+        "type": "int",
+        "example": "25"
+      }
+    }
+  },
+  "hermesContextEstimatedNote": "Estimated",
+  "@hermesContextEstimatedNote": {
+    "description": "Marks a Hermes context figure as Hermes' estimate rather than the provider's count."
+  },
+  "hermesContextRequestEstimate": "About {tokens} tokens per request",
+  "@hermesContextRequestEstimate": {
+    "description": "Hermes' estimate of one request's size when it reports no context window; tokens is a formatted number.",
+    "placeholders": {
+      "tokens": {
+        "type": "String",
+        "example": "13,036"
+      }
+    }
+  },
+  "hermesContextNoWindow": "This connection doesn't report the context window.",
+  "@hermesContextNoWindow": {
+    "description": "Shown in the Context & usage sheet for a Hermes API server connection, which reports token totals but no context window."
+  },
+  "hermesContextBreakdown": "What fills it",
+  "@hermesContextBreakdown": {
+    "description": "Section heading for the categories (system prompt, tools, conversation) that fill the Hermes chat's context."
+  },
+  "hermesContextSystemPrompt": "System prompt",
+  "@hermesContextSystemPrompt": {
+    "description": "Context category: Hermes' system prompt."
+  },
+  "hermesContextToolDefinitions": "Tool definitions",
+  "@hermesContextToolDefinitions": {
+    "description": "Context category: the definitions of the tools Hermes can call."
+  },
+  "hermesContextSubagentDefinitions": "Subagent definitions",
+  "@hermesContextSubagentDefinitions": {
+    "description": "Context category: the definitions of the subagents Hermes can start."
+  },
+  "hermesContextConversation": "Conversation",
+  "@hermesContextConversation": {
+    "description": "Context category: the chat's messages."
+  },
+  "hermesContextTotals": "This chat so far",
+  "@hermesContextTotals": {
+    "description": "Section heading for the Hermes chat's token and cost totals."
+  },
+  "hermesContextInput": "Input tokens",
+  "@hermesContextInput": {
+    "description": "Row label: tokens the model read."
+  },
+  "hermesContextOutput": "Output tokens",
+  "@hermesContextOutput": {
+    "description": "Row label: tokens the model wrote."
+  },
+  "hermesContextReasoning": "Reasoning tokens",
+  "@hermesContextReasoning": {
+    "description": "Row label: tokens the model spent reasoning."
+  },
+  "hermesContextCacheRead": "Read from cache",
+  "@hermesContextCacheRead": {
+    "description": "Row label: prompt tokens the provider read from its cache."
+  },
+  "hermesContextCacheWrite": "Written to cache",
+  "@hermesContextCacheWrite": {
+    "description": "Row label: prompt tokens the provider wrote to its cache."
+  },
+  "hermesContextCacheHits": "Cache hits",
+  "@hermesContextCacheHits": {
+    "description": "Row label: the share of prompt tokens served from the provider's cache."
+  },
+  "hermesContextCalls": "Model calls",
+  "@hermesContextCalls": {
+    "description": "Row label: how many times Hermes called the model."
+  },
+  "hermesContextCompactions": "Compactions",
+  "@hermesContextCompactions": {
+    "description": "Row label: how many times the chat was compacted."
+  },
+  "hermesContextCost": "Cost",
+  "@hermesContextCost": {
+    "description": "Row label: what the chat cost so far, as the provider billed it."
+  },
+  "hermesContextCostEstimated": "Cost (estimated)",
+  "@hermesContextCostEstimated": {
+    "description": "Row label: Hermes' estimate of what the chat cost so far."
+  },
+  "hermesContextPlan": "Plan usage",
+  "@hermesContextPlan": {
+    "description": "Section heading for the account's plan allowances and credits."
+  },
+  "hermesContextGaugeDay": "Today",
+  "@hermesContextGaugeDay": {
+    "description": "Plan allowance that resets every day."
+  },
+  "hermesContextGaugeWeek": "This week",
+  "@hermesContextGaugeWeek": {
+    "description": "Plan allowance that resets every week."
+  },
+  "hermesContextGaugeMonth": "This month",
+  "@hermesContextGaugeMonth": {
+    "description": "Plan allowance that resets every month."
+  },
+  "hermesContextGaugeTopTier": "Top-tier models",
+  "@hermesContextGaugeTopTier": {
+    "description": "Plan allowance for the plan's most capable models."
+  },
+  "hermesContextUsedPercent": "{percent}% used",
+  "@hermesContextUsedPercent": {
+    "description": "How much of a plan allowance is used.",
+    "placeholders": {
+      "percent": {
+        "type": "int",
+        "example": "63"
+      }
+    }
+  },
+  "hermesContextResets": "Resets {time}",
+  "@hermesContextResets": {
+    "description": "When a plan allowance resets; time is a formatted time, with a date when not today.",
+    "placeholders": {
+      "time": {
+        "type": "String",
+        "example": "3:00 PM"
+      }
+    }
+  },
+  "hermesContextLeftOf": "{remaining} left of {total}",
+  "@hermesContextLeftOf": {
+    "description": "Balance left on a plan or top-up bar; both are amounts Hermes formats, like $4.20.",
+    "placeholders": {
+      "remaining": {
+        "type": "String",
+        "example": "$12.00"
+      },
+      "total": {
+        "type": "String",
+        "example": "$20.00"
+      }
+    }
+  },
+  "hermesContextRenews": "Renews {date}",
+  "@hermesContextRenews": {
+    "description": "When the plan renews, as Hermes words the date.",
+    "placeholders": {
+      "date": {
+        "type": "String",
+        "example": "Dec 1"
+      }
+    }
+  },
+  "hermesContextTopUp": "Top-up credits",
+  "@hermesContextTopUp": {
+    "description": "Label of the bar for credits bought on top of the plan."
+  },
+  "hermesContextRateLimited": "Rate limited",
+  "@hermesContextRateLimited": {
+    "description": "The provider is rate limiting the account or the chat's model now."
+  },
+  "hermesContextRateLimitedUntil": "Rate limited until {time}",
+  "@hermesContextRateLimitedUntil": {
+    "description": "The provider rate limits the account or model until this time.",
+    "placeholders": {
+      "time": {
+        "type": "String",
+        "example": "3:00 PM"
+      }
+    }
+  },
+  "hermesContextUsageLevel": "This model's usage: {level}",
+  "@hermesContextUsageLevel": {
+    "description": "How much the chat's model draws on the plan; level is one of the hermesContextLevel words.",
+    "placeholders": {
+      "level": {
+        "type": "String",
+        "example": "medium"
+      }
+    }
+  },
+  "hermesContextLevelFree": "free",
+  "@hermesContextLevelFree": {
+    "description": "Usage level of a model that is free on the plan."
+  },
+  "hermesContextLevelLow": "low",
+  "@hermesContextLevelLow": {
+    "description": "Usage level of a model that draws little on the plan."
+  },
+  "hermesContextLevelMedium": "medium",
+  "@hermesContextLevelMedium": {
+    "description": "Usage level of a model that draws moderately on the plan."
+  },
+  "hermesContextLevelTopTier": "top tier",
+  "@hermesContextLevelTopTier": {
+    "description": "Usage level of the plan's most capable models."
+  },
+  "hermesContextCompactSection": "Compaction",
+  "@hermesContextCompactSection": {
+    "description": "Section heading for compacting the Hermes chat."
+  },
+  "hermesContextCompactHint": "Hermes summarizes older messages to free up context. Recent messages stay as they are.",
+  "@hermesContextCompactHint": {
+    "description": "Explains what compacting a Hermes chat does."
+  },
+  "hermesContextCompactFocus": "Keep in focus (optional)",
+  "@hermesContextCompactFocus": {
+    "description": "Placeholder of the optional topic the compaction summary should keep in view."
+  },
+  "hermesContextCompactNow": "Compact now",
+  "@hermesContextCompactNow": {
+    "description": "Button that compacts the Hermes chat on the server."
+  },
+  "hermesContextCompacted": "Chat compacted.",
+  "@hermesContextCompacted": {
+    "description": "Shown after Hermes compacted the chat."
+  },
+  "hermesContextCompactedTokens": "Tokens: ~{before} → ~{after}",
+  "@hermesContextCompactedTokens": {
+    "description": "Hermes' estimate of a request's size before and after compacting; both are formatted numbers.",
+    "placeholders": {
+      "before": {
+        "type": "String",
+        "example": "12,351"
+      },
+      "after": {
+        "type": "String",
+        "example": "4,020"
+      }
+    }
+  },
+  "hermesContextCompactedMessages": "Messages: {before} → {after}",
+  "@hermesContextCompactedMessages": {
+    "description": "How many messages the Hermes chat had before and after compacting.",
+    "placeholders": {
+      "before": {
+        "type": "int",
+        "example": "24"
+      },
+      "after": {
+        "type": "int",
+        "example": "8"
+      }
+    }
+  },
+  "hermesContextCompactUnchanged": "Nothing to compact yet.",
+  "@hermesContextCompactUnchanged": {
+    "description": "Compaction removed nothing because the chat is short."
+  },
+  "hermesContextCompactRefused": "Kept as it is: a summary would be longer than the messages it replaces.",
+  "@hermesContextCompactRefused": {
+    "description": "Hermes refused to compact because its summary would have grown the chat."
+  },
+  "hermesContextCompactAborted": "Compaction failed. No messages were removed.",
+  "@hermesContextCompactAborted": {
+    "description": "Hermes could not write the summary, so the chat is unchanged."
+  },
+  "hermesContextCompactPending": "Still compacting. The chat refreshes when it's done.",
+  "@hermesContextCompactPending": {
+    "description": "Hermes is still compacting the chat in the background."
+  },
+  "hermesContextCompactBusy": "Another compaction is running. Try again shortly.",
+  "@hermesContextCompactBusy": {
+    "description": "Another compaction already holds the Hermes chat."
+  },
+  "hermesContextCompactWait": "Wait for the reply to finish, then compact.",
+  "@hermesContextCompactWait": {
+    "description": "The Hermes chat cannot be compacted while a reply is running."
+  },
+  "hermesContextCompactFailed": "Couldn't compact this chat. Try again.",
+  "@hermesContextCompactFailed": {
+    "description": "Error shown when compacting a Hermes chat fails."
+  },
+  "hermesContextLoadFailed": "Couldn't load context and usage.",
+  "@hermesContextLoadFailed": {
+    "description": "Error shown when the Context & usage sheet cannot load."
   }
 }
