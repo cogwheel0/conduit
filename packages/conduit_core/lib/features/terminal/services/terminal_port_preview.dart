@@ -41,6 +41,7 @@ final class TerminalPortPreview {
     this.bearerToken,
     this.openSession,
     this.closeSession,
+    this.proxyCookies = const {},
   });
 
   final int port;
@@ -55,6 +56,11 @@ final class TerminalPortPreview {
 
   final Future<TerminalBrowserSession> Function()? openSession;
   final Future<void> Function(TerminalBrowserSession session)? closeSession;
+
+  /// The cookies of a sign-in proxy in front of Open WebUI, by name, which
+  /// its own terminals' pages need to get through it; empty otherwise. A web
+  /// view with a private cookie store has to be given them.
+  final Map<String, String> proxyCookies;
 
   /// The page the preview starts on.
   Uri get startUri => Uri.parse('http://localhost:$port/');
@@ -100,6 +106,18 @@ final class TerminalPreviewOpenExternally extends TerminalPreviewDecision {
 final class TerminalPreviewBlock extends TerminalPreviewDecision {
   const TerminalPreviewBlock();
 }
+
+/// The cookies Open WebUI sets itself: its account token, its OAuth and MFA
+/// state and its session. A sign-in proxy in front of it sets others, which
+/// are the ones a terminal's preview may be given.
+const openWebUiCookieNames = {
+  'token',
+  'oauth_session_id',
+  'oauth_id_token',
+  'oui-session',
+  'owui-session',
+  'mfa_challenge',
+};
 
 const _localHosts = {'localhost', '127.0.0.1', '0.0.0.0', '::1'};
 

@@ -5,7 +5,9 @@ import 'package:conduit/features/terminal/widgets/terminal_port_preview_page.dar
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/l10n/conduit_localizations.dart';
 import 'package:conduit/platform/webview_cookie_helper.dart';
+import 'package:conduit_core/features/terminal/controllers/terminal_port_preview_controller.dart';
 import 'package:conduit_core/features/terminal/services/terminal_port_preview.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
@@ -414,6 +416,155 @@ void main() {
     ]);
   });
 
+  group("a sign-in proxy's cookies", () {
+    final target = Uri.parse(
+      'https://owui.test/api/v1/terminals/t1/browser/view/sid/tok/'
+      'frame/http/localhost%3A5173/',
+    );
+
+    test('are set by a page of the app\'s own before the first one', () {
+      final seed = terminalPreviewCookieSeed(
+        cookies: const {
+          'CF_Authorization': 'a.b-c',
+          'bad name': 'x',
+          'quoted': '"q"',
+          'angle': '</script>',
+        },
+        target: target,
+      )!;
+
+      expect(seed.url, Uri.parse('https://owui.test/'));
+      expect(
+        seed.document,
+        contains(
+          'document.cookie = '
+          '"CF_Authorization=a.b-c; path=/; secure; samesite=none";',
+        ),
+      );
+      expect(seed.document, contains('location.replace("$target");'));
+      // Nothing a Cookie header could not carry.
+      expect(seed.document, isNot(contains('bad name')));
+      expect(seed.document, isNot(contains('quoted')));
+      // A value cannot close the script element.
+      expect(seed.document, contains(r'angle=\u003c/script>'));
+      expect('</script>'.allMatches(seed.document), hasLength(1));
+    });
+
+    test('are sent over plain http without the secure flag', () {
+      final seed = terminalPreviewCookieSeed(
+        cookies: const {'session': 'v'},
+        target: Uri.parse('http://owui.lan/x'),
+      )!;
+
+      expect(seed.document, contains('"session=v; path=/";'));
+    });
+
+    test('that cannot be given leave no page of the app\'s own', () {
+      expect(terminalPreviewCookieSeed(cookies: const {}, target: target), isNull);
+      expect(
+        terminalPreviewCookieSeed(cookies: const {'a b': 'c'}, target: target),
+        isNull,
+      );
+    });
+
+    Future<
+      ({
+        PlatformInAppWebViewWidgetCreationParams params,
+        _SeedHost host,
+      })
+    >
+    buildFor(WidgetTester tester, TargetPlatform platform) async {
+      final webViews = _installWebViews();
+      final preview = TerminalPortPreviewController(
+        TerminalPortPreview(
+          port: 5173,
+          terminalBaseUri: Uri.parse('https://owui.test/api/v1/terminals/t1'),
+          openSession: () async =>
+              const TerminalBrowserSession(id: 'sid', token: 'tok'),
+          proxyCookies: const {'CF_Authorization': 'cf'},
+        ),
+      );
+      addTearDown(preview.dispose);
+      await preview.start();
+      final host = _SeedHost(preview);
+      debugDefaultTargetPlatformOverride = platform;
+      try {
+        await tester.pumpWidget(
+          Directionality(
+            textDirection: TextDirection.ltr,
+            child: Builder(
+              builder: (context) => buildTerminalPreviewWebView(context, host),
+            ),
+          ),
+        );
+      } finally {
+        debugDefaultTargetPlatformOverride = null;
+      }
+      return (params: webViews.built.single, host: host);
+    }
+
+    testWidgets('go into a private store before the first page (iOS)', (
+      tester,
+    ) async {
+      final (:params, :host) = await buildFor(tester, TargetPlatform.iOS);
+      final controller = _MockWebViewController();
+
+      expect(params.initialUrlRequest, isNull);
+      expect(params.initialData!.baseUrl, WebUri('https://owui.test/'));
+      expect(params.initialData!.data, contains('CF_Authorization=cf'));
+      expect(params.initialData!.data, contains('location.replace('));
+
+      // The app's own page is none of the preview's: let through, and not
+      // reported as one of its loads.
+      final seedUrl = WebUri('https://owui.test/');
+      expect(
+        await params.shouldOverrideUrlLoading!(
+          controller,
+          NavigationAction(
+            request: URLRequest(url: seedUrl),
+            isForMainFrame: true,
+          ),
+        ),
+        NavigationActionPolicy.ALLOW,
+      );
+      params.onLoadStart!(controller, seedUrl);
+      expect(host.navigated, isEmpty);
+      expect(host.started, isEmpty);
+
+      // The page it goes on to is the preview's again.
+      final first = WebUri(
+        'https://owui.test/api/v1/terminals/t1/browser/view/sid/tok/'
+        'frame/http/localhost%3A5173/',
+      );
+      params.onLoadStart!(controller, first);
+      expect(host.started, [first.uriValue]);
+
+      // From then on the server's root is decided on like any page.
+      await params.shouldOverrideUrlLoading!(
+        controller,
+        NavigationAction(request: URLRequest(url: seedUrl), isForMainFrame: true),
+      );
+      params.onLoadStart!(controller, seedUrl);
+      expect(host.navigated, [seedUrl.uriValue]);
+      expect(host.started, [first.uriValue, seedUrl.uriValue]);
+    });
+
+    testWidgets('are left alone where the store is shared (Android)', (
+      tester,
+    ) async {
+      final (:params, host: _) = await buildFor(tester, TargetPlatform.android);
+
+      expect(params.initialData, isNull);
+      expect(
+        params.initialUrlRequest!.url,
+        WebUri(
+          'https://owui.test/api/v1/terminals/t1/browser/view/sid/tok/'
+          'frame/http/localhost%3A5173/',
+        ),
+      );
+    });
+  });
+
   test('ports open in the app\'s preview where it has a web view', () async {
     debugIsWebViewSupportedOverride = true;
     addTearDown(() => debugIsWebViewSupportedOverride = null);
@@ -432,6 +583,80 @@ void main() {
 }
 
 class _MockWebViewController extends Mock implements InAppWebViewController {}
+
+/// Plays the web view plugin: records each web view built.
+final class _WebViews extends InAppWebViewPlatform {
+  final built = <PlatformInAppWebViewWidgetCreationParams>[];
+
+  @override
+  PlatformInAppWebViewWidget createPlatformInAppWebViewWidget(
+    PlatformInAppWebViewWidgetCreationParams params,
+  ) {
+    built.add(params);
+    return _WebView(params);
+  }
+}
+
+final class _WebView extends PlatformInAppWebViewWidget {
+  _WebView(super.params) : super.implementation();
+
+  @override
+  Widget build(BuildContext context) => const SizedBox.expand();
+
+  @override
+  T controllerFromPlatform<T>(PlatformInAppWebViewController controller) =>
+      throw UnimplementedError();
+
+  @override
+  void dispose() {}
+}
+
+/// Stands in for the web view plugin until the test ends.
+_WebViews _installWebViews() {
+  final previous = InAppWebViewPlatform.instance;
+  final webViews = _WebViews();
+  InAppWebViewPlatform.instance = webViews;
+  addTearDown(() {
+    if (previous != null) InAppWebViewPlatform.instance = previous;
+  });
+  return webViews;
+}
+
+/// Records what the web view reports of the preview's own pages.
+final class _SeedHost implements TerminalPreviewWebViewHost {
+  _SeedHost(this.preview);
+
+  @override
+  final TerminalPortPreviewController preview;
+  final started = <Uri?>[];
+  final navigated = <Uri>[];
+
+  @override
+  void attach(InAppWebViewController controller) {}
+
+  @override
+  void loadingChanged({required bool loading}) {}
+
+  @override
+  void loadStarted(Uri? page) => started.add(page);
+
+  @override
+  void historyChanged({required bool canGoBack, required bool canGoForward}) {}
+
+  @override
+  void loadFailed() {}
+
+  @override
+  Future<NavigationActionPolicy> navigate(
+    Uri target, {
+    required bool history,
+    bool userActivated = false,
+    bool linkActivated = false,
+  }) async {
+    navigated.add(target);
+    return NavigationActionPolicy.ALLOW;
+  }
+}
 
 final class _RecordingHost implements TerminalPreviewWebViewHost {
   final calls = <({bool history, bool userActivated, bool linkActivated})>[];

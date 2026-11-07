@@ -107,6 +107,42 @@ String terminalPreviewFormScript(String target) =>
 })();
 ''';
 
+/// A page of the app's own, at the root of [target]'s server, that puts
+/// [cookies] in the web view's cookie store and then replaces itself with
+/// [target]: how a private store (iOS) is given a sign-in proxy's cookies
+/// before the first page loads, as the plugin can only write to the shared
+/// store. Null when no cookie can be given. Names and values a Cookie header
+/// could not carry are left out; over https each is sent with every request
+/// to the server, framed pages included (`SameSite=None; Secure`).
+@visibleForTesting
+({Uri url, String document})? terminalPreviewCookieSeed({
+  required Map<String, String> cookies,
+  required Uri target,
+}) {
+  final secure = target.scheme == 'https';
+  final assignments = [
+    for (final entry in cookies.entries)
+      if (_cookieName.hasMatch(entry.key) && _cookieValue.hasMatch(entry.value))
+        '${entry.key}=${entry.value}; path=/'
+            '${secure ? '; secure; samesite=none' : ''}',
+  ];
+  if (assignments.isEmpty) return null;
+  // Inside a script element: `<` is escaped so a value cannot close it.
+  String literal(String value) => jsonEncode(value).replaceAll('<', r'\u003c');
+  final script = [
+    for (final cookie in assignments) 'document.cookie = ${literal(cookie)};',
+    'location.replace(${literal(target.toString())});',
+  ].join('\n');
+  return (
+    url: Uri.parse('${target.scheme}://${target.authority}/'),
+    document:
+        '<!doctype html><meta charset="utf-8"><script>\n$script\n</script>',
+  );
+}
+
+final _cookieName = RegExp(r"^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$");
+final _cookieValue = RegExp(r'^[\x21\x23-\x2B\x2D-\x3A\x3C-\x5B\x5D-\x7E]*$');
+
 /// The scripts a preview's pages get: [terminalPreviewNavigationScript],
 /// and [terminalPreviewFormScript] when [navigator]'s forms need it.
 @visibleForTesting
@@ -554,6 +590,20 @@ Widget buildTerminalPreviewWebView(
   TerminalPreviewWebViewHost host,
 ) {
   final request = host.preview.initialRequest!;
+  final settings = terminalPreviewWebViewSettings();
+  // A private store (iOS) starts without the sign-in proxy's cookies, so the
+  // first page is the app's own, which gives them to it and then goes on.
+  final seed = settings.incognito == true
+      ? terminalPreviewCookieSeed(
+          cookies: host.preview.proxyCookies,
+          target: request.uri,
+        )
+      : null;
+  // Only until the page it goes on to starts: later, the server's root is
+  // one more page the preview's rules decide on.
+  var seeding = seed != null;
+  bool isSeed(WebUri? url) => seeding && url?.uriValue == seed?.url;
+  final firstPage = request.uri;
   Future<void> syncHistory(InAppWebViewController controller) async {
     try {
       host.historyChanged(
@@ -564,11 +614,17 @@ Widget buildTerminalPreviewWebView(
   }
 
   return InAppWebView(
-    initialUrlRequest: URLRequest(
-      url: WebUri.uri(request.uri),
-      headers: request.headers,
-    ),
-    initialSettings: terminalPreviewWebViewSettings(),
+    initialUrlRequest: seed == null
+        ? URLRequest(url: WebUri.uri(request.uri), headers: request.headers)
+        : null,
+    initialData: seed == null
+        ? null
+        : InAppWebViewInitialData(
+            data: seed.document,
+            baseUrl: WebUri.uri(seed.url),
+            historyUrl: WebUri.uri(seed.url),
+          ),
+    initialSettings: settings,
     initialUserScripts: UnmodifiableListView([
       for (final source in terminalPreviewUserScripts(host.preview.navigator))
         UserScript(
@@ -579,25 +635,43 @@ Widget buildTerminalPreviewWebView(
         ),
     ]),
     onWebViewCreated: host.attach,
-    shouldOverrideUrlLoading: (controller, action) =>
-        terminalPreviewOverrideUrlLoading(host, action),
+    // The app's own first page is none of the preview's.
+    shouldOverrideUrlLoading: (controller, action) async =>
+        isSeed(action.request.url)
+        ? NavigationActionPolicy.ALLOW
+        : terminalPreviewOverrideUrlLoading(host, action),
     // A link that asks for a new window loads in this one instead, through
     // the same rules as any other (Android does so without asking).
     onCreateWindow: (controller, action) async => false,
     // Android does not ask the rules about a form post; this catches one
     // that leaves the preview's pages.
-    onLoadStart: (controller, url) => host.loadStarted(url?.uriValue),
+    onLoadStart: (controller, url) {
+      if (isSeed(url)) return;
+      seeding = false;
+      host.loadStarted(url?.uriValue);
+    },
     onLoadStop: (controller, url) async {
+      if (isSeed(url)) return;
       host.loadingChanged(loading: false);
       host.preview.pageLoaded(url?.uriValue);
       await syncHistory(controller);
     },
     onUpdateVisitedHistory: (controller, url, isReload) async {
+      if (isSeed(url)) return;
       host.preview.pageChanged(url?.uriValue);
       await syncHistory(controller);
     },
     onTitleChanged: (controller, title) => host.preview.titleChanged(title),
     onReceivedError: (controller, request, error) {
+      // Should the app's own first page fail, the real one is tried without
+      // the cookies.
+      if (isSeed(request.url)) {
+        seeding = false;
+        unawaited(
+          controller.loadUrl(urlRequest: URLRequest(url: WebUri.uri(firstPage))),
+        );
+        return;
+      }
       if (request.isForMainFrame == false ||
           error.type == WebResourceErrorType.CANCELLED) {
         return;

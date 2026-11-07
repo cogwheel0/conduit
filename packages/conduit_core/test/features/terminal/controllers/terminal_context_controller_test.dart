@@ -811,6 +811,9 @@ void main() {
       when(
         () => service.authTokenForServer(target),
       ).thenReturn(target.isSystem ? 'jwt' : target.apiKey);
+      when(() => service.proxyCookiesForServer(target)).thenReturn(
+        target.isSystem ? const {'CF_Authorization': 'cf'} : const {},
+      );
       when(
         () => service.createBrowserSession(
           target,
@@ -866,6 +869,22 @@ void main() {
       check(preview.sessionNavigator(session).headers).isEmpty();
     });
 
+    test("an Open WebUI terminal's preview carries its sign-in proxy's cookies",
+        () async {
+      final owui = await openPreview(
+        server,
+        features: const TerminalServerFeatures(browser: true),
+        relayed: true,
+      );
+      final elsewhere = await openPreview(
+        direct,
+        features: const TerminalServerFeatures(browser: true),
+      );
+
+      check(owui.proxyCookies).deepEquals({'CF_Authorization': 'cf'});
+      check(elsewhere.proxyCookies).isEmpty();
+    });
+
     test('a terminal without them previews through the proxy', () async {
       final preview = await openPreview(
         direct,
@@ -895,6 +914,7 @@ void main() {
         final service = _MockTerminalService();
         when(() => service.api).thenReturn(api);
         when(() => service.authTokenForServer(server)).thenReturn('jwt');
+        when(() => service.proxyCookiesForServer(server)).thenReturn(const {});
         when(
           () => service.closeBrowserSession(
             server,
