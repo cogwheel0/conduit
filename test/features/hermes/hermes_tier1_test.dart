@@ -99,8 +99,10 @@ void main() {
 
       check(viaFeature.inputImages).isTrue();
       check(viaEndpoint.inputImages).isTrue();
-      check(viaFeature.inputFiles).isTrue();
-      check(viaEndpoint.inputFiles).isTrue();
+      // Hermes's /v1/responses rejects file parts, so Responses streaming
+      // never enables PDF input.
+      check(viaFeature.inputFiles).isFalse();
+      check(viaEndpoint.inputFiles).isFalse();
       check(disabled.inputImages).isFalse();
       check(disabled.inputFiles).isFalse();
       check(conflictingFlags.inputImages).isFalse();

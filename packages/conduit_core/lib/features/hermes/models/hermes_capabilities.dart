@@ -36,7 +36,12 @@ class HermesCapabilities {
   /// remains false when discovery is unavailable or ambiguous.
   final bool inputImages;
 
-  /// Whether the server advertises the streaming Responses path used for files.
+  /// Whether Conduit can send PDFs as Responses `input_file` parts.
+  ///
+  /// Hermes advertises Responses streaming, but its `/v1/responses` accepts
+  /// only text and image parts and answers file parts with 400
+  /// `unsupported_content_type`. No server advertises file input, so
+  /// discovery never sets this.
   final bool inputFiles;
 
   /// Whether the API server may only add turns to sessions it owns (Hermes
@@ -75,7 +80,6 @@ class HermesCapabilities {
         'session_key_header',
       ]),
       inputImages: json['desktop_uploads'] == true || responsesInput,
-      inputFiles: responsesInput,
       apiOwnsSessions: _explicitTrue(json, 'run_unknown_resolution'),
     );
   }

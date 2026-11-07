@@ -39,7 +39,7 @@ void main() {
     check(caps.jobs).isTrue(); // list surface shown
     check(caps.jobsAdmin).isFalse(); // writes disabled
     check(caps.inputImages).isTrue();
-    check(caps.inputFiles).isTrue();
+    check(caps.inputFiles).isFalse(); // /v1/responses rejects file parts
   });
 
   test('toolsets: real payload parses tools', () {
