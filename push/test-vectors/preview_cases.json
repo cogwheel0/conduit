@@ -1,0 +1,55 @@
+{
+  "description": "Preview cleaning: clip(clean_text(input), 200).",
+  "cases": [
+    {
+      "name": "plain",
+      "input": "Hello there",
+      "expected": "Hello there"
+    },
+    {
+      "name": "reasoning_block",
+      "input": "<details type=\"reasoning\" done=\"true\">\n<summary>Thought for 3 seconds</summary>\n> plan\n</details>\nThe answer is 42.",
+      "expected": "The answer is 42."
+    },
+    {
+      "name": "think_tags",
+      "input": "<think>internal</think>Visible answer",
+      "expected": "Visible answer"
+    },
+    {
+      "name": "markdown",
+      "input": "# Title\n\n- **Bold** item\n- [link](https://x.y) and ![pic](https://x.y/p.png)\n> quoted `code`",
+      "expected": "Title Bold item link and pic quoted code"
+    },
+    {
+      "name": "fenced_code",
+      "input": "Run this:\n```bash\nrm -rf /tmp/x\n```\nThen restart.",
+      "expected": "Run this: Then restart."
+    },
+    {
+      "name": "open_fence",
+      "input": "Here you go:\n```python\nprint('unterminated')",
+      "expected": "Here you go:"
+    },
+    {
+      "name": "long",
+      "input": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+      "expected": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word…"
+    },
+    {
+      "name": "emoji_cut",
+      "input": "🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊",
+      "expected": "🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊…"
+    },
+    {
+      "name": "html",
+      "input": "a <b>bold</b> move, and 3 < 4 > 2",
+      "expected": "a bold move, and 3 < 4 > 2"
+    },
+    {
+      "name": "empty",
+      "input": "",
+      "expected": ""
+    }
+  ]
+}
