@@ -43,6 +43,7 @@ import 'package:conduit_core/sync/hive_cache_migrator.dart';
 import 'package:conduit_core/sync/note_sync.dart';
 import 'package:conduit_core/sync/outbox_drainer.dart';
 import 'package:conduit_core/sync/outbox_task_queue_migrator.dart';
+import 'package:conduit_core/sync/primary_sync.dart';
 import 'package:conduit_core/sync/pull_sync.dart';
 import 'package:conduit_core/sync/push_sync.dart';
 import 'package:conduit_core/sync/request_completion_runner_provider.dart';
@@ -100,8 +101,11 @@ Future<void> Function() legacyConversationCachePurger(Ref ref) {
 ///
 /// Inert (requestPull logs and returns null) while unauthenticated or while
 /// no database/client exists (no active server, reviewer mode).
+///
+/// Open WebUI's [PrimarySync]: app-wide triggers reach it through
+/// `primarySyncProvider` while an Open WebUI account owns the Chats tab.
 @Riverpod(keepAlive: true)
-class SyncEngine extends _$SyncEngine {
+class SyncEngine extends _$SyncEngine implements PrimarySync {
   Timer? _debounce;
   bool _running = false;
   bool _rerunRequested = false;
@@ -465,8 +469,15 @@ class SyncEngine extends _$SyncEngine {
   @visibleForTesting
   void Function()? legacyMigrationJoinObserverForTesting;
 
+  @override
+  bool get canSync =>
+      ref.read(appDatabaseProvider) != null &&
+      ref.read(syncApiClientProvider) != null &&
+      ref.read(isAuthenticatedProvider2);
+
   /// Connectivity-regained drain (Wiring, §A6/A7): resets backoff on pending
   /// ops then drains. Called from `sync_triggers` on the false->true edge.
+  @override
   Future<void> drainNow() async {
     if (!_refreshBoundDependencies()) return;
     if (_inert) return;
@@ -512,6 +523,7 @@ class SyncEngine extends _$SyncEngine {
   /// trigger so a completion deferred because a DIFFERENT chat was foregrounded
   /// (request_completion_runner Option B) runs promptly once the user opens its
   /// chat. Single-flight via the shared drainer's `_draining` guard.
+  @override
   Future<void> drainOutbox() async {
     if (!_refreshBoundDependencies()) return;
     if (_inert) return;
@@ -529,6 +541,7 @@ class SyncEngine extends _$SyncEngine {
   /// a call during a running cycle sets a rerun flag (storms collapse to <= 1
   /// queued cycle). The returned future completes when the cycle the caller
   /// joined finishes — pull-to-refresh spinners await it.
+  @override
   Future<PullResult?> requestPull({required String reason}) {
     if (!_refreshBoundDependencies()) {
       return Future.value(null);
@@ -551,6 +564,7 @@ class SyncEngine extends _$SyncEngine {
   }
 
   /// Immediate, not debounced; serialization comes from [ChatLocks].
+  @override
   Future<Conversation?> pullChatNow(String chatId) =>
       _pullChatNow(chatId, reason: 'pullChatNow');
 
@@ -1021,6 +1035,7 @@ class SyncEngine extends _$SyncEngine {
 
   /// Manual pull-to-refresh deletion reconcile (bypasses the 24h throttle) for
   /// both chats and notes. Safe to call ad hoc; no-op until db/client are ready.
+  @override
   Future<void> reconcileNow() async {
     if (!_refreshBoundDependencies()) return;
     if (_inert) return;
