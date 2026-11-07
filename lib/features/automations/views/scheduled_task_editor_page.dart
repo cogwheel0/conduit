@@ -523,6 +523,25 @@ class _EditorState extends ConsumerState<_Editor> {
     _setDate(once, picked);
   }
 
+  /// The day of a one-time run as the system's compact date pill (iOS 26+).
+  Widget _nativeDateRow(OnceAutomationSchedule once, AppLocalizations l10n) {
+    final range = _dateRange(once);
+    return UtilityRow(
+      key: const Key('scheduled-task-date'),
+      title: l10n.scheduledTaskDateLabel,
+      preserveTrailingSemantics: true,
+      trailing: AdaptiveCompactDatePicker(
+        key: const Key('scheduled-task-date-picker'),
+        value: once.wallClock,
+        mode: AdaptiveCompactDatePickerMode.date,
+        minimumDate: range.first,
+        maximumDate: range.last,
+        semanticLabel: l10n.scheduledTaskDateLabel,
+        onChanged: _saving ? null : (picked) => _setDate(once, picked),
+      ),
+    );
+  }
+
   /// Moves a one-time run to the day of [day], at its time.
   void _setDate(OnceAutomationSchedule once, DateTime day) {
     _setSchedule(
@@ -836,22 +855,7 @@ class _EditorState extends ConsumerState<_Editor> {
             ),
           if (schedule is OnceAutomationSchedule)
             if (AdaptiveCompactDatePicker.isSupported)
-              UtilityRow(
-                key: const Key('scheduled-task-date'),
-                title: l10n.scheduledTaskDateLabel,
-                preserveTrailingSemantics: true,
-                trailing: AdaptiveCompactDatePicker(
-                  key: const Key('scheduled-task-date-picker'),
-                  value: schedule.wallClock,
-                  mode: AdaptiveCompactDatePickerMode.date,
-                  minimumDate: _dateRange(schedule).first,
-                  maximumDate: _dateRange(schedule).last,
-                  semanticLabel: l10n.scheduledTaskDateLabel,
-                  onChanged: _saving
-                      ? null
-                      : (picked) => _setDate(schedule, picked),
-                ),
-              )
+              _nativeDateRow(schedule, l10n)
             else
               UtilityRow(
                 key: const Key('scheduled-task-date'),
