@@ -247,6 +247,41 @@
           "icon": "polish"
         }
       ]
+    },
+    {
+      "version": "4.3.0",
+      "title": "What's new",
+      "intro": "Hi! Open WebUI 0.13 and 0.12.5 work: MCP Apps open in chats, terminals update live and preview ports in the app, and notes can have pages. Listening to a response opens a player you can pause and skip, unsent drafts survive a restart, and there's a new sliding sidebar in Appearance settings.",
+      "bullets": [
+        {
+          "text": "Open WebUI 0.13: the app works without a compatibility warning, and temporary chats work and keep replying after a reconnect. An MCP tool's app opens right in the chat and asks you before each tool it runs. Chats waiting for a tool approval show a raised hand in the chat list. Switch workspace tools off and on, and knowledge base uploads follow the server's file limits and say why one was refused; a base's owner can set File limits of its own. Webhooks saved on 0.12 can be edited again.",
+          "icon": "direct"
+        },
+        {
+          "text": "Terminal: on Open WebUI 0.13, files and ports update as they change. A port opens in Conduit's own page with back, forward, reload and Open in browser, and links on it work. On iOS, previews also get through a sign-in proxy in front of Open WebUI.",
+          "icon": "direct"
+        },
+        {
+          "text": "Open WebUI 0.12.5: the app works without a compatibility warning. The model you pick in a chat is saved with it, and switching models keeps the tools and filters you turned on or off. Answers cut off by a server restart no longer show as still being written. Files a model shows and images it makes through the Responses API appear in the reply, and usage counts every step of a reply and says when its figures may be low. Moving a chat to a folder keeps its date, and in a shared chat Stop is offered only for your own reply.",
+          "icon": "direct"
+        },
+        {
+          "text": "Notes: on Open WebUI 0.12.5 a note can have several pages. Tap the page name under the title, or Pages in the menu, to switch; edits save to the page you're on. Attached files show as cards in the text, and a new recording goes in where the cursor is. Pages are added, renamed and moved on the web.",
+          "icon": "direct"
+        },
+        {
+          "text": "Sliding sidebar: turn it on in Appearance settings. The chat slides aside to show your history, with backend tabs at the bottom next to New Chat, and Notes, Terminal and Channels open in place of the chat with a back button. On iOS, menus, switches, alerts, banners, text selection and the magnifier are now the system's own.",
+          "icon": "polish"
+        },
+        {
+          "text": "Listening and drafts: Listen on a response opens a player to pause, stop and jump 15 seconds back or forward, with server and device voices alike, and the voice list filters by language. Unsent text and recordings stay with each chat after a restart, and a recovered recording can be transcribed, exported or discarded. On iOS, the Lock Screen shows a recording in progress with a Stop button.",
+          "icon": "polish"
+        },
+        {
+          "text": "Chats and settings: Generate Title in an Open WebUI chat's menu names it from the conversation. Pick and order the actions under a response with Message actions in Chat settings. Appearance settings can hide the composer's Notes button and the background behind citations. A cloud icon shows when a chat's live updates disconnect, with details and Retry, and long drafts keep the composer's buttons in view.",
+          "icon": "polish"
+        }
+      ]
     }
   ]
 }

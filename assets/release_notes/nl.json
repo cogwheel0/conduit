@@ -247,6 +247,41 @@
           "icon": "polish"
         }
       ]
+    },
+    {
+      "version": "4.3.0",
+      "title": "Nieuw",
+      "intro": "Hoi! Open WebUI 0.13 en 0.12.5 werken: MCP-apps openen in de chat, terminals werken live bij en tonen poorten in de app, en notities kunnen pagina's hebben. Luisteren naar een antwoord opent een speler die je kunt pauzeren en doorspoelen, niet-verstuurde concepten overleven een herstart, en in de weergave-instellingen staat een nieuwe uitschuifbare zijbalk klaar.",
+      "bullets": [
+        {
+          "text": "Open WebUI 0.13: de app werkt zonder compatibiliteitswaarschuwing, en tijdelijke chats werken en blijven antwoorden na een nieuwe verbinding. De app van een MCP-tool opent direct in de chat en vraagt het je voor elke tool die hij uitvoert. Chats die wachten op goedkeuring van een tool tonen een opgestoken hand in de chatlijst. Zet tools in de werkruimte uit en aan, en uploads naar een kennisbank volgen de bestandslimieten van de server en zeggen waarom er een werd geweigerd; de eigenaar van een kennisbank kan eigen Bestandslimieten instellen. Webhooks die op 0.12 zijn opgeslagen, kun je weer bewerken.",
+          "icon": "direct"
+        },
+        {
+          "text": "Terminal: met Open WebUI 0.13 werken bestanden en poorten bij zodra ze veranderen. Een poort opent in een eigen pagina van Conduit met terug, vooruit, herladen en Openen in browser, en de links erop werken. Op iOS komen voorbeelden ook door een inlogproxy vóór Open WebUI.",
+          "icon": "direct"
+        },
+        {
+          "text": "Open WebUI 0.12.5: de app werkt zonder compatibiliteitswaarschuwing. Het model dat je in een chat kiest, wordt met de chat opgeslagen, en bij een ander model blijven de tools en filters die je aan- of uitzette zoals ze waren. Antwoorden die een herstart van de server afbrak, lijken niet meer eindeloos bezig. Bestanden die een model toont en afbeeldingen die het via de Responses API maakt, verschijnen in het antwoord, en het gebruik telt elke stap van een antwoord en meldt wanneer de cijfers te laag kunnen zijn. Een chat naar een map verplaatsen houdt de datum, en in een gedeelde chat zie je Stop alleen bij je eigen antwoord.",
+          "icon": "direct"
+        },
+        {
+          "text": "Notities: met Open WebUI 0.12.5 kan een notitie meerdere pagina's hebben. Tik op de paginanaam onder de titel, of op Pagina's in het menu, om te wisselen; wijzigingen worden opgeslagen op de pagina waar je bent. Bijgevoegde bestanden verschijnen als kaarten in de tekst, en een nieuwe opname komt waar de cursor staat. Pagina's voeg je toe, hernoem je en verplaats je op het web.",
+          "icon": "direct"
+        },
+        {
+          "text": "Uitschuifbare zijbalk: zet hem aan in de weergave-instellingen. De chat schuift opzij en toont je geschiedenis, met backend-tabs onderaan naast Nieuwe chat, en Notities, Terminal en Kanalen openen in plaats van de chat met een terugknop. Op iOS zijn menu's, schakelaars, dialoogvensters, banners, tekstselectie en het vergrootglas nu die van het systeem.",
+          "icon": "polish"
+        },
+        {
+          "text": "Luisteren en concepten: Luisteren bij een antwoord opent een speler om te pauzeren, te stoppen en 15 seconden terug of vooruit te springen, met stemmen van de server én van het apparaat, en de stemmenlijst filtert op taal. Niet-verstuurde tekst en opnames blijven na een herstart bij elke chat, en een herstelde opname kun je transcriberen, exporteren of weggooien. Op iOS toont het toegangsscherm een lopende opname met een stopknop.",
+          "icon": "polish"
+        },
+        {
+          "text": "Chats en instellingen: Titel genereren in het menu van een Open WebUI-chat geeft hem een naam op basis van het gesprek. Kies en orden de acties onder een antwoord met Berichtacties in de chatinstellingen. In de weergave-instellingen kun je de Notities-knop in het invoerveld en de achtergrond achter bronvermeldingen verbergen. Een wolkpictogram verschijnt als de live-updates van een chat wegvallen, met details en Opnieuw proberen, en bij lange concepten blijven de knoppen van het invoerveld in beeld.",
+          "icon": "polish"
+        }
+      ]
     }
   ]
 }

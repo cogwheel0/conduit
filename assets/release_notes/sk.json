@@ -247,6 +247,41 @@
           "icon": "polish"
         }
       ]
+    },
+    {
+      "version": "4.3.0",
+      "title": "Novinky",
+      "intro": "Ahoj! Open WebUI 0.13 a 0.12.5 fungujú: aplikácie MCP sa otvárajú v chate, terminály sa aktualizujú naživo a ukazujú porty priamo v aplikácii a poznámky môžu mať strany. Vypočutie odpovede otvorí prehrávač, ktorý môžeš pozastaviť a pretáčať, neodoslané koncepty prežijú reštart a v nastaveniach Vzhľad čaká nový vysúvací bočný panel.",
+      "bullets": [
+        {
+          "text": "Open WebUI 0.13: aplikácia funguje bez upozornenia na kompatibilitu a dočasné chaty fungujú a odpovedajú aj po opätovnom pripojení. Aplikácia nástroja MCP sa otvorí priamo v chate a pred každým nástrojom, ktorý spustí, sa ťa opýta. Chaty čakajúce na schválenie nástroja ukazujú v zozname chatov zdvihnutú ruku. Nástroje v pracovnom priestore môžeš vypínať a zapínať a nahrávanie do znalostnej bázy dodržiava limity súborov servera a povie, prečo bol súbor odmietnutý; vlastník bázy si môže nastaviť vlastné Limity súborov. Webhooky uložené v 0.12 sa dajú znova upraviť.",
+          "icon": "direct"
+        },
+        {
+          "text": "Terminál: s Open WebUI 0.13 sa súbory a porty aktualizujú hneď, ako sa zmenia. Port sa otvorí na vlastnej stránke Conduitu so späť, dopredu, obnoviť a Otvoriť v prehliadači a odkazy na nej fungujú. Na iOS prejdú náhľady aj cez prihlasovaciu proxy pred Open WebUI.",
+          "icon": "direct"
+        },
+        {
+          "text": "Open WebUI 0.12.5: aplikácia funguje bez upozornenia na kompatibilitu. Model, ktorý v chate vyberieš, sa uloží s ním a zmena modelu zachová nástroje a filtre, ktoré si zapol alebo vypol. Odpovede prerušené reštartom servera už nevyzerajú, že sa stále píšu. Súbory, ktoré model ukáže, a obrázky, ktoré vytvorí cez Responses API, sa objavia v odpovedi a využitie počíta každý krok odpovede a upozorní, keď môžu byť čísla nižšie. Presun chatu do priečinka zachová jeho dátum a v zdieľanom chate je Zastaviť ponúknuté len pri tvojej vlastnej odpovedi.",
+          "icon": "direct"
+        },
+        {
+          "text": "Poznámky: s Open WebUI 0.12.5 môže mať poznámka niekoľko strán. Medzi nimi prepneš ťuknutím na názov strany pod nadpisom alebo na Strany v ponuke; úpravy sa uložia na stranu, kde práve si. Priložené súbory sa v texte ukážu ako karty a nová nahrávka sa vloží tam, kde je kurzor. Strany sa pridávajú, premenúvajú a presúvajú na webe.",
+          "icon": "direct"
+        },
+        {
+          "text": "Vysúvací bočný panel: zapni ho v nastaveniach Vzhľad. Chat sa odsunie nabok a ukáže históriu, so záložkami backendov dole vedľa Nový chat, a Poznámky, Terminál a Kanály sa otvoria namiesto chatu s tlačidlom späť. Na iOS sú ponuky, prepínače, dialógy, bannery, výber textu a lupa teraz systémové.",
+          "icon": "polish"
+        },
+        {
+          "text": "Počúvanie a koncepty: Vypočuť pri odpovedi otvorí prehrávač, ktorý vie pozastaviť, zastaviť a skočiť o 15 sekúnd späť alebo dopredu, s hlasmi servera aj zariadenia, a zoznam hlasov sa dá filtrovať podľa jazyka. Neodoslaný text a nahrávky zostanú po reštarte pri každom chate a obnovenú nahrávku môžeš prepísať na text, exportovať alebo zahodiť. Na iOS ukazuje uzamknutá obrazovka prebiehajúce nahrávanie s tlačidlom Stop.",
+          "icon": "polish"
+        },
+        {
+          "text": "Chaty a nastavenia: Vygenerovať názov v ponuke chatu Open WebUI ho pomenuje podľa konverzácie. Akcie pod odpoveďou vyberieš a zoradíš v Akcie správ v nastaveniach Chat. V nastaveniach Vzhľad môžeš skryť tlačidlo Poznámky v poli správy a pozadie citácií. Ikona obláčika sa ukáže, keď sa odpoja živé aktualizácie chatu, s podrobnosťami a Skúsiť znova, a pri dlhých konceptoch zostanú tlačidlá poľa správy viditeľné.",
+          "icon": "polish"
+        }
+      ]
     }
   ]
 }

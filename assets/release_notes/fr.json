@@ -247,6 +247,41 @@
           "icon": "polish"
         }
       ]
+    },
+    {
+      "version": "4.3.0",
+      "title": "Nouveautés",
+      "intro": "Bonjour ! Open WebUI 0.13 et 0.12.5 fonctionnent : les apps MCP s'ouvrent dans le chat, les terminaux se mettent à jour en direct et affichent les ports dans l'app, et les notes peuvent avoir des pages. Écouter une réponse ouvre un lecteur que vous pouvez mettre en pause et faire avancer, les brouillons non envoyés survivent à un redémarrage, et une nouvelle barre latérale coulissante vous attend dans les réglages Apparence.",
+      "bullets": [
+        {
+          "text": "Open WebUI 0.13 : l'app fonctionne sans avertissement de compatibilité, et les chats temporaires fonctionnent et continuent de répondre après une reconnexion. L'app d'un outil MCP s'ouvre directement dans le chat et vous demande avant chaque outil qu'elle lance. Les chats qui attendent l'approbation d'un outil affichent une main levée dans la liste des chats. Activez ou désactivez les outils de l'espace de travail, et les envois vers une base de connaissances respectent les limites de fichiers du serveur et disent pourquoi l'un a été refusé ; le propriétaire d'une base peut fixer ses propres Limites de fichiers. Les webhooks enregistrés sous 0.12 se modifient de nouveau.",
+          "icon": "direct"
+        },
+        {
+          "text": "Terminal : avec Open WebUI 0.13, les fichiers et les ports se mettent à jour dès qu'ils changent. Un port s'ouvre dans une page de Conduit avec précédent, suivant, actualiser et Ouvrir dans le navigateur, et ses liens fonctionnent. Sur iOS, les aperçus passent aussi un proxy de connexion placé devant Open WebUI.",
+          "icon": "direct"
+        },
+        {
+          "text": "Open WebUI 0.12.5 : l'app fonctionne sans avertissement de compatibilité. Le modèle choisi dans un chat est enregistré avec lui, et changer de modèle garde les outils et filtres que vous avez activés ou désactivés. Les réponses coupées par un redémarrage du serveur ne semblent plus en cours d'écriture. Les fichiers qu'un modèle affiche et les images qu'il crée via la Responses API apparaissent dans la réponse, et l'utilisation compte chaque étape d'une réponse et signale quand les chiffres peuvent être sous-estimés. Déplacer un chat dans un dossier garde sa date, et dans un chat partagé, Arrêter n'est proposé que pour votre propre réponse.",
+          "icon": "direct"
+        },
+        {
+          "text": "Notes : avec Open WebUI 0.12.5, une note peut avoir plusieurs pages. Touchez le nom de la page sous le titre, ou Pages dans le menu, pour en changer ; les modifications sont enregistrées sur la page affichée. Les fichiers joints apparaissent comme des cartes dans le texte, et un nouvel enregistrement s'insère là où se trouve le curseur. Les pages s'ajoutent, se renomment et se déplacent sur le web.",
+          "icon": "direct"
+        },
+        {
+          "text": "Barre latérale coulissante : activez-la dans les réglages Apparence. Le chat glisse sur le côté pour montrer votre historique, avec les onglets des backends en bas à côté de Nouveau chat, et Notes, Terminal et Canaux s'ouvrent à la place du chat avec un bouton Retour. Sur iOS, les menus, interrupteurs, alertes, bannières, la sélection de texte et la loupe sont désormais ceux du système.",
+          "icon": "polish"
+        },
+        {
+          "text": "Écoute et brouillons : Écouter sur une réponse ouvre un lecteur pour mettre en pause, arrêter et sauter de 15 secondes en arrière ou en avant, avec les voix du serveur comme celles de l'appareil, et la liste des voix se filtre par langue. Le texte et les enregistrements non envoyés restent avec chaque chat après un redémarrage, et un enregistrement récupéré peut être transcrit, exporté ou supprimé. Sur iOS, l'écran verrouillé affiche un enregistrement en cours avec un bouton Arrêter.",
+          "icon": "polish"
+        },
+        {
+          "text": "Chats et réglages : Générer un titre dans le menu d'un chat Open WebUI le nomme d'après la conversation. Choisissez et ordonnez les actions sous une réponse avec Actions sur les messages dans les réglages Discussion. Les réglages Apparence peuvent masquer le bouton Notes de la zone de saisie et l'arrière-plan des citations. Une icône de nuage s'affiche quand les mises à jour en direct d'un chat sont coupées, avec les détails et Réessayer, et les longs brouillons gardent les boutons de la zone de saisie visibles.",
+          "icon": "polish"
+        }
+      ]
     }
   ]
 }

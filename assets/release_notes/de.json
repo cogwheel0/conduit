@@ -247,6 +247,41 @@
           "icon": "polish"
         }
       ]
+    },
+    {
+      "version": "4.3.0",
+      "title": "Neuigkeiten",
+      "intro": "Hallo! Open WebUI 0.13 und 0.12.5 funktionieren: MCP-Apps öffnen sich im Chat, Terminals aktualisieren sich live und zeigen Ports in der App, und Notizen können Seiten haben. Zum Anhören einer Antwort gibt es einen Player zum Pausieren und Springen, ungesendete Entwürfe überstehen einen Neustart, und in den Erscheinungsbild-Einstellungen wartet eine neue ausklappbare Seitenleiste.",
+      "bullets": [
+        {
+          "text": "Open WebUI 0.13: Die App funktioniert ohne Kompatibilitätswarnung, und temporäre Chats funktionieren und antworten auch nach einer neuen Verbindung weiter. Die App eines MCP-Tools öffnet sich direkt im Chat und fragt dich vor jedem Tool, das sie ausführt. Chats, die auf die Freigabe eines Tools warten, zeigen in der Chatliste eine erhobene Hand. Schalte Tools im Arbeitsbereich aus und ein, und Uploads in eine Wissensdatenbank halten sich an die Dateilimits des Servers und sagen, warum einer abgelehnt wurde; der Besitzer einer Datenbank kann eigene „Dateilimits“ festlegen. Auf 0.12 gespeicherte Webhooks lassen sich wieder bearbeiten.",
+          "icon": "direct"
+        },
+        {
+          "text": "Terminal: Mit Open WebUI 0.13 aktualisieren sich Dateien und Ports, sobald sie sich ändern. Ein Port öffnet sich in einer eigenen Seite von Conduit mit Zurück, Vor, Neu laden und „Im Browser öffnen“, und Links darauf funktionieren. Unter iOS kommen Vorschauen auch durch einen Anmelde-Proxy vor Open WebUI.",
+          "icon": "direct"
+        },
+        {
+          "text": "Open WebUI 0.12.5: Die App funktioniert ohne Kompatibilitätswarnung. Das Modell, das du in einem Chat wählst, wird mit ihm gespeichert, und ein Modellwechsel behält die Tools und Filter, die du ein- oder ausgeschaltet hast. Antworten, die ein Serverneustart abgebrochen hat, erscheinen nicht mehr als noch in Arbeit. Dateien, die ein Modell zeigt, und Bilder, die es über die Responses API erzeugt, erscheinen in der Antwort, und die Nutzung zählt jeden Schritt einer Antwort und sagt, wenn die Werte zu niedrig sein könnten. Ein Chat, den du in einen Ordner verschiebst, behält sein Datum, und in einem geteilten Chat gibt es Stopp nur für deine eigene Antwort.",
+          "icon": "direct"
+        },
+        {
+          "text": "Notizen: Mit Open WebUI 0.12.5 kann eine Notiz mehrere Seiten haben. Tippe auf den Seitennamen unter dem Titel oder auf „Seiten“ im Menü, um zu wechseln; Änderungen werden auf der Seite gespeichert, auf der du bist. Angehängte Dateien erscheinen als Karten im Text, und eine neue Aufnahme landet dort, wo der Cursor steht. Seiten fügst du im Web hinzu, benennst sie dort um und verschiebst sie.",
+          "icon": "direct"
+        },
+        {
+          "text": "Ausklappbare Seitenleiste: Schalte sie in den Erscheinungsbild-Einstellungen ein. Der Chat gleitet zur Seite und zeigt deinen Verlauf, mit Backend-Tabs unten neben „Neuer Chat“, und Notizen, Terminal und Kanäle öffnen sich anstelle des Chats mit einer Zurück-Taste. Unter iOS sind Menüs, Schalter, Dialoge, Banner, Textauswahl und Lupe jetzt die des Systems.",
+          "icon": "polish"
+        },
+        {
+          "text": "Anhören und Entwürfe: „Anhören“ bei einer Antwort öffnet einen Player zum Pausieren, Stoppen und Springen um 15 Sekunden zurück oder vor, mit Server- wie Gerätestimmen, und die Stimmenliste lässt sich nach Sprache filtern. Ungesendeter Text und Aufnahmen bleiben nach einem Neustart beim jeweiligen Chat, und eine wiederhergestellte Aufnahme kannst du transkribieren, exportieren oder verwerfen. Unter iOS zeigt der Sperrbildschirm eine laufende Aufnahme mit einer Stopp-Taste.",
+          "icon": "polish"
+        },
+        {
+          "text": "Chats und Einstellungen: „Titel generieren“ im Menü eines Open WebUI-Chats benennt ihn nach dem Gespräch. Wähle und ordne die Aktionen unter einer Antwort mit „Aktionen für Nachrichten“ in den Chat-Einstellungen. In den Erscheinungsbild-Einstellungen kannst du die Notizen-Taste im Eingabefeld und den Hintergrund hinter Quellenangaben ausblenden. Ein Wolkensymbol zeigt, wenn die Live-Aktualisierungen eines Chats getrennt sind, mit Details und „Erneut versuchen“, und bei langen Entwürfen bleiben die Tasten des Eingabefelds sichtbar.",
+          "icon": "polish"
+        }
+      ]
     }
   ]
 }

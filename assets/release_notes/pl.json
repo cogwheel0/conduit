@@ -247,6 +247,41 @@
           "icon": "polish"
         }
       ]
+    },
+    {
+      "version": "4.3.0",
+      "title": "Co nowego",
+      "intro": "Cześć! Open WebUI 0.13 i 0.12.5 działają: aplikacje MCP otwierają się w czacie, terminale odświeżają się na żywo i pokazują porty w aplikacji, a notatki mogą mieć strony. Odsłuchanie odpowiedzi otwiera odtwarzacz, który możesz wstrzymać i przewijać, niewysłane wersje robocze przetrwają ponowne uruchomienie, a w ustawieniach Wygląd czeka nowy wysuwany panel boczny.",
+      "bullets": [
+        {
+          "text": "Open WebUI 0.13: aplikacja działa bez ostrzeżenia o zgodności, a czaty tymczasowe działają i odpowiadają dalej po ponownym połączeniu. Aplikacja narzędzia MCP otwiera się prosto w czacie i pyta cię przed każdym narzędziem, które uruchamia. Czaty czekające na zatwierdzenie narzędzia pokazują na liście czatów podniesioną rękę. Włączaj i wyłączaj narzędzia w obszarze roboczym, a przesyłanie do bazy wiedzy trzyma się limitów plików serwera i mówi, dlaczego plik odrzucono; właściciel bazy może ustawić własne Limity plików. Webhooki zapisane w 0.12 znów da się edytować.",
+          "icon": "direct"
+        },
+        {
+          "text": "Terminal: w Open WebUI 0.13 pliki i porty odświeżają się, gdy tylko się zmienią. Port otwiera się na własnej stronie Conduit z przyciskami wstecz, dalej, odśwież i Otwórz w przeglądarce, a linki na niej działają. Na iOS podglądy przechodzą też przez proxy logowania stojące przed Open WebUI.",
+          "icon": "direct"
+        },
+        {
+          "text": "Open WebUI 0.12.5: aplikacja działa bez ostrzeżenia o zgodności. Model wybrany w czacie zapisuje się razem z nim, a zmiana modelu zachowuje narzędzia i filtry, które włączyłeś lub wyłączyłeś. Odpowiedzi przerwane przez restart serwera nie wyglądają już na wciąż pisane. Pliki, które pokazuje model, i obrazy, które tworzy przez Responses API, pojawiają się w odpowiedzi, a zużycie liczy każdy krok odpowiedzi i informuje, gdy liczby mogą być zaniżone. Przeniesienie czatu do folderu zachowuje jego datę, a we wspólnym czacie Stop jest dostępny tylko dla twojej własnej odpowiedzi.",
+          "icon": "direct"
+        },
+        {
+          "text": "Notatki: w Open WebUI 0.12.5 notatka może mieć kilka stron. Dotknij nazwy strony pod tytułem albo Strony w menu, aby przełączyć; zmiany zapisują się na stronie, na której jesteś. Załączone pliki pojawiają się w tekście jako karty, a nowe nagranie trafia tam, gdzie stoi kursor. Strony dodajesz, zmieniasz ich nazwy i przenosisz w przeglądarce.",
+          "icon": "direct"
+        },
+        {
+          "text": "Wysuwany panel boczny: włącz go w ustawieniach Wygląd. Czat odsuwa się na bok i pokazuje historię, z kartami backendów na dole obok Nowy czat, a Notatki, Terminal i Kanały otwierają się zamiast czatu z przyciskiem wstecz. Na iOS menu, przełączniki, alerty, banery, zaznaczanie tekstu i lupa są teraz systemowe.",
+          "icon": "polish"
+        },
+        {
+          "text": "Odsłuchiwanie i wersje robocze: Odsłuchaj przy odpowiedzi otwiera odtwarzacz, który pozwala wstrzymać, zatrzymać i przeskoczyć 15 sekund do tyłu lub do przodu, z głosami serwera i urządzenia, a listę głosów można filtrować według języka. Niewysłany tekst i nagrania zostają przy każdym czacie po ponownym uruchomieniu, a odzyskane nagranie możesz przepisać na tekst, wyeksportować lub odrzucić. Na iOS ekran blokady pokazuje trwające nagranie z przyciskiem Stop.",
+          "icon": "polish"
+        },
+        {
+          "text": "Czaty i ustawienia: Wygeneruj tytuł w menu czatu Open WebUI nadaje mu nazwę na podstawie rozmowy. Wybierz i ułóż działania pod odpowiedzią w Działania wiadomości w ustawieniach Czat. W ustawieniach Wygląd możesz ukryć przycisk notatek w polu wiadomości i tło cytowań. Ikona chmury pojawia się, gdy aktualizacje na żywo czatu się rozłączą, ze szczegółami i Ponów, a przy długich wersjach roboczych przyciski pola wiadomości zostają widoczne.",
+          "icon": "polish"
+        }
+      ]
     }
   ]
 }

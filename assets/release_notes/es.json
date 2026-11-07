@@ -247,6 +247,41 @@
           "icon": "polish"
         }
       ]
+    },
+    {
+      "version": "4.3.0",
+      "title": "Novedades",
+      "intro": "¡Hola! Open WebUI 0.13 y 0.12.5 funcionan: las apps MCP se abren en el chat, los terminales se actualizan en directo y muestran los puertos dentro de la app, y las notas pueden tener páginas. Escuchar una respuesta abre un reproductor que puedes pausar y adelantar, los borradores sin enviar sobreviven a un reinicio y en los ajustes de Apariencia te espera una nueva barra lateral deslizante.",
+      "bullets": [
+        {
+          "text": "Open WebUI 0.13: la app funciona sin aviso de compatibilidad, y los chats temporales funcionan y siguen respondiendo tras una reconexión. La app de una herramienta MCP se abre en el propio chat y te pregunta antes de cada herramienta que ejecuta. Los chats que esperan la aprobación de una herramienta muestran una mano levantada en la lista de chats. Activa y desactiva las herramientas del espacio de trabajo, y las subidas a una base de conocimiento respetan los límites de archivos del servidor y dicen por qué se rechazó una; el propietario de la base puede fijar sus propios Límites de archivos. Los webhooks guardados en 0.12 se pueden volver a editar.",
+          "icon": "direct"
+        },
+        {
+          "text": "Terminal: con Open WebUI 0.13, los archivos y los puertos se actualizan en cuanto cambian. Un puerto se abre en una página propia de Conduit con atrás, adelante, recargar y Abrir en el navegador, y sus enlaces funcionan. En iOS, las vistas previas también pasan por un proxy de inicio de sesión delante de Open WebUI.",
+          "icon": "direct"
+        },
+        {
+          "text": "Open WebUI 0.12.5: la app funciona sin aviso de compatibilidad. El modelo que eliges en un chat se guarda con él, y al cambiar de modelo se mantienen las herramientas y filtros que activaste o desactivaste. Las respuestas cortadas por un reinicio del servidor ya no aparecen como si se siguieran escribiendo. Los archivos que muestra un modelo y las imágenes que crea mediante la Responses API aparecen en la respuesta, y el uso cuenta cada paso de una respuesta e indica cuando las cifras pueden quedarse cortas. Mover un chat a una carpeta conserva su fecha, y en un chat compartido Detener solo aparece para tu propia respuesta.",
+          "icon": "direct"
+        },
+        {
+          "text": "Notas: con Open WebUI 0.12.5 una nota puede tener varias páginas. Toca el nombre de la página bajo el título, o Páginas en el menú, para cambiar; los cambios se guardan en la página en la que estás. Los archivos adjuntos aparecen como tarjetas en el texto, y una grabación nueva se coloca donde está el cursor. Las páginas se añaden, renombran y mueven en la web.",
+          "icon": "direct"
+        },
+        {
+          "text": "Barra lateral deslizante: actívala en los ajustes de Apariencia. El chat se desliza a un lado para mostrar tu historial, con pestañas de backend abajo junto a Nueva conversación, y Notas, Terminal y Canales se abren en lugar del chat con un botón para volver. En iOS, los menús, interruptores, alertas, avisos, la selección de texto y la lupa son ahora los del sistema.",
+          "icon": "polish"
+        },
+        {
+          "text": "Escuchar y borradores: Escuchar en una respuesta abre un reproductor para pausar, detener y saltar 15 segundos atrás o adelante, tanto con voces del servidor como del dispositivo, y la lista de voces se filtra por idioma. El texto y las grabaciones sin enviar se quedan en cada chat tras un reinicio, y una grabación recuperada se puede transcribir, exportar o descartar. En iOS, la pantalla de bloqueo muestra una grabación en curso con un botón para detenerla.",
+          "icon": "polish"
+        },
+        {
+          "text": "Chats y ajustes: Generar título en el menú de un chat de Open WebUI le pone nombre a partir de la conversación. Elige y ordena las acciones bajo una respuesta con Acciones de mensaje en los ajustes de Conversación. En los ajustes de Apariencia puedes ocultar el botón de Notas del cuadro de mensaje y el fondo de las citas. Un icono de nube aparece cuando se desconectan las actualizaciones en directo de un chat, con detalles y Reintentar, y los borradores largos mantienen a la vista los botones del cuadro de mensaje.",
+          "icon": "polish"
+        }
+      ]
     }
   ]
 }

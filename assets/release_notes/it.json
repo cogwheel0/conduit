@@ -247,6 +247,41 @@
           "icon": "polish"
         }
       ]
+    },
+    {
+      "version": "4.3.0",
+      "title": "Novità",
+      "intro": "Ciao! Open WebUI 0.13 e 0.12.5 funzionano: le app MCP si aprono nella chat, i terminali si aggiornano in tempo reale e mostrano le porte nell'app, e le note possono avere più pagine. Ascoltare una risposta apre un lettore che puoi mettere in pausa e far avanzare, le bozze non inviate sopravvivono a un riavvio, e nelle impostazioni Aspetto ti aspetta una nuova barra laterale scorrevole.",
+      "bullets": [
+        {
+          "text": "Open WebUI 0.13: l'app funziona senza avviso di compatibilità, e le chat temporanee funzionano e continuano a rispondere dopo una riconnessione. L'app di uno strumento MCP si apre direttamente nella chat e ti chiede conferma prima di ogni strumento che esegue. Le chat in attesa dell'approvazione di uno strumento mostrano una mano alzata nell'elenco delle chat. Attiva e disattiva gli strumenti dell'area di lavoro, e i caricamenti in una base di conoscenza rispettano i limiti dei file del server e dicono perché uno è stato rifiutato; il proprietario di una base può impostare i propri Limiti dei file. I webhook salvati su 0.12 si possono di nuovo modificare.",
+          "icon": "direct"
+        },
+        {
+          "text": "Terminale: con Open WebUI 0.13, file e porte si aggiornano appena cambiano. Una porta si apre in una pagina di Conduit con indietro, avanti, ricarica e Apri nel browser, e i suoi link funzionano. Su iOS, le anteprime passano anche attraverso un proxy di accesso davanti a Open WebUI.",
+          "icon": "direct"
+        },
+        {
+          "text": "Open WebUI 0.12.5: l'app funziona senza avviso di compatibilità. Il modello che scegli in una chat viene salvato con essa, e cambiando modello restano gli strumenti e i filtri che hai attivato o disattivato. Le risposte interrotte da un riavvio del server non risultano più in corso di scrittura. I file che un modello mostra e le immagini che crea tramite la Responses API compaiono nella risposta, e l'utilizzo conta ogni passaggio di una risposta e segnala quando i valori potrebbero essere bassi. Spostare una chat in una cartella ne mantiene la data, e in una chat condivisa Interrompi compare solo per la tua risposta.",
+          "icon": "direct"
+        },
+        {
+          "text": "Note: con Open WebUI 0.12.5 una nota può avere più pagine. Tocca il nome della pagina sotto il titolo, o Pagine nel menu, per cambiarla; le modifiche si salvano nella pagina in cui sei. I file allegati appaiono come schede nel testo, e una nuova registrazione va dove si trova il cursore. Le pagine si aggiungono, rinominano e spostano sul web.",
+          "icon": "direct"
+        },
+        {
+          "text": "Barra laterale scorrevole: attivala nelle impostazioni Aspetto. La chat scorre di lato per mostrare la cronologia, con le schede dei backend in basso accanto a Nuova chat, e Note, Terminale e Canali si aprono al posto della chat con un pulsante Indietro. Su iOS, menu, interruttori, avvisi, banner, selezione del testo e lente d'ingrandimento sono ora quelli di sistema.",
+          "icon": "polish"
+        },
+        {
+          "text": "Ascolto e bozze: Ascolta su una risposta apre un lettore per mettere in pausa, fermare e saltare di 15 secondi indietro o avanti, sia con le voci del server sia con quelle del dispositivo, e l'elenco delle voci si filtra per lingua. Il testo e le registrazioni non inviati restano con ogni chat dopo un riavvio, e una registrazione recuperata si può trascrivere, esportare o eliminare. Su iOS, la schermata di blocco mostra una registrazione in corso con un pulsante Stop.",
+          "icon": "polish"
+        },
+        {
+          "text": "Chat e impostazioni: Genera titolo nel menu di una chat Open WebUI le dà un nome in base alla conversazione. Scegli e ordina le azioni sotto una risposta con Azioni dei messaggi nelle impostazioni Chat. Nelle impostazioni Aspetto puoi nascondere il pulsante Note del campo di scrittura e lo sfondo delle citazioni. Un'icona a forma di nuvola compare quando gli aggiornamenti in tempo reale di una chat si disconnettono, con dettagli e Riprova, e con bozze lunghe i pulsanti del campo di scrittura restano visibili.",
+          "icon": "polish"
+        }
+      ]
     }
   ]
 }
