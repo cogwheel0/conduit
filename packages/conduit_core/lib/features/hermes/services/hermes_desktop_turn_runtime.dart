@@ -181,7 +181,20 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
               ? value('content')
               : value('text');
           if (content.isNotEmpty) controller.add(HermesFinalOutput(content));
-          if (value('status').toLowerCase() == 'error' ||
+          // A queued prompt Hermes settled before it ran (cancelled from
+          // another app, or sent into the running turn as a steer) gets
+          // only this completion: no idle follows while the turn ahead of
+          // it runs, so it ends here, leaving the session as it is.
+          final outcome = value('outcome').toLowerCase();
+          if (admissionId != null &&
+              event.admissionId == admissionId &&
+              (outcome == 'cancelled' || outcome == 'steered')) {
+            finish(
+              error: outcome == 'cancelled'
+                  ? 'Hermes cancelled this message before running it.'
+                  : null,
+            );
+          } else if (value('status').toLowerCase() == 'error' ||
               value('error').isNotEmpty) {
             finish(
               error: value('error').isEmpty
@@ -336,8 +349,22 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
             }
             _emitTranscriptChange(storedId);
           }
-          if (reconciled.running == true) return;
-          finish(authoritativeIdle: true);
+          final sessionRunning = reconciled.running == true;
+          // The session's running flag may be another prompt's (one queued
+          // behind this one, another device's): a turn that knows its own
+          // admission asks after it, and ends once that one is over.
+          var ended = !sessionRunning;
+          final own = admissionId;
+          if (!ended && canonical && own != null) {
+            final status = await _canonicalAdmissionStatus(
+              reconciled.binding,
+              own,
+            );
+            if (terminal) return;
+            ended = status == 'terminal';
+          }
+          if (!ended) return;
+          finish(authoritativeIdle: !sessionRunning);
           _emitTranscriptChange(storedId);
         } catch (error) {
           if (!terminal) finish(error: error.toString());
@@ -393,7 +420,11 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
 
     cancelToken?.whenCancel.then((_) async {
       if (terminal) return;
-      await interruptTurn();
+      // On a session authority only this prompt's own admission is
+      // cancelled. Until `prompt.submit` answers there is none: an interrupt
+      // by generation would stop whichever turn runs (another device's),
+      // and the code after the submit cancels by admission instead.
+      if (!canonical || promptAcknowledged) await interruptTurn();
       if (!promptAcknowledged) {
         await _detachStaged(binding.runtimeId, stagedPaths);
       }
@@ -717,10 +748,13 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
     if (_canonical && selection.model != null) {
       // A session authority switches a session's model as a fenced edit;
       // it refuses `config.set model`.
-      await _canonicalMutate(binding, 'model', {
-        'model': selection.model,
-        'provider': ?selection.provider,
-      });
+      _refuseHeldModelSwitch(
+        await _canonicalMutate(binding, 'model', {
+          'model': selection.model,
+          'provider': ?selection.provider,
+        }),
+        selection.model!,
+      );
     }
     for (final option in <(String, Object?)>[
       if (!_canonical) ('model', modelSwitch),
@@ -731,7 +765,7 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
       ),
     ]) {
       if (option.$2 == null) continue;
-      await _rpc.request<Object?>(
+      final set = await _rpc.request<Object?>(
         'config.set',
         params: {
           'session_id': binding.runtimeId,
@@ -740,8 +774,32 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
           ...scope,
         },
       );
+      if (option.$1 == 'model') {
+        _refuseHeldModelSwitch(_object(set), selection.model ?? '');
+      }
     }
     _appliedSessionOptions[binding.storedId] = fingerprint;
+  }
+
+  /// Throws when Hermes held the switch to [model] for the user's
+  /// confirmation (`confirm_required`, or a session authority's
+  /// `confirmation_required`): the chat is still on its old model, so the
+  /// options stay unapplied and nothing is sent on the wrong model.
+  void _refuseHeldModelSwitch(Map<String, dynamic> result, String model) {
+    if (result['confirm_required'] != true &&
+        result['status'] != 'confirmation_required') {
+      return;
+    }
+    final reason = validateHermesBoundedString(
+      result['confirm_message'],
+      maxCharacters: 400,
+    );
+    throw HermesModelSwitchHeld(
+      'Hermes asks for a confirmation before switching this chat to '
+      '$model${reason == null || reason.isEmpty ? '.' : ': $reason'} '
+      'Nothing was sent. Pick another model, or confirm the switch in '
+      'Hermes.',
+    );
   }
 
   /// Profile scope for a helper that only carries a runtime id. Resolves the

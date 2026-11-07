@@ -154,8 +154,9 @@ extension _HermesDesktopCanonical on HermesDesktopApiService {
   /// socket's subscription, and the approvals and questions still open.
   void _adoptCanonicalSnapshot(
     String sessionId,
-    Map<String, dynamic> snapshot,
-  ) {
+    Map<String, dynamic> snapshot, {
+    int? settledSince,
+  }) {
     _adoptCanonicalFences(
       sessionId,
       revision: snapshot['revision'],
@@ -169,7 +170,11 @@ extension _HermesDesktopCanonical on HermesDesktopApiService {
         ..subscriptionId = subscription
         ..subscriptionSocket = _rpc.socketGeneration;
     }
-    _rpc.replayCanonicalPrompts(sessionId, snapshot['prompts']);
+    _rpc.replayCanonicalPrompts(
+      sessionId,
+      snapshot['prompts'],
+      settledSince: settledSince,
+    );
   }
 
   /// Removes the saved approvals and questions of [binding] that its
@@ -181,8 +186,9 @@ extension _HermesDesktopCanonical on HermesDesktopApiService {
     Object? prompts,
   ) async {
     if (prompts is! List) return;
+    // Every listed prompt, not only the ones a replay shows.
     final listed = {
-      for (final prompt in prompts.whereType<Map>().take(32))
+      for (final prompt in prompts.whereType<Map>().take(256))
         ?validateHermesOpaqueIdentifier(prompt['prompt_id']),
     };
     final saved = await HermesPendingDecisionStore.forSession(
@@ -379,6 +385,28 @@ extension _HermesDesktopCanonical on HermesDesktopApiService {
       } on HermesDesktopRpcException catch (error) {
         if (attempt > 0 || error.reason != 'stale_generation') rethrow;
       }
+    }
+  }
+
+  /// The status of this client's admission [admissionId] (`queued`,
+  /// `started`, `unknown` or `terminal`), from `prompt.receipt`; null when
+  /// Hermes could not say.
+  Future<String?> _canonicalAdmissionStatus(
+    HermesSessionBinding binding,
+    String admissionId,
+  ) async {
+    try {
+      final receipt = await _rpc.request<Object?>(
+        'prompt.receipt',
+        params: {
+          'session_id': binding.runtimeId,
+          'admission_id': admissionId,
+          ..._sessionScope(binding.storedId),
+        },
+      );
+      return receipt is Map ? receipt['status']?.toString() : null;
+    } on HermesDesktopRpcException {
+      return null;
     }
   }
 

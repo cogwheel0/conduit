@@ -795,6 +795,7 @@ final class HermesDesktopRpcClient {
           case 'approval.settled':
           case 'clarify.settled':
             if (sessionAuthority) {
+              _noteCanonicalSettled(payload['prompt_id']);
               _settleCanonicalPrompt(
                 payload['prompt_id'],
                 sessionId,
@@ -865,24 +866,63 @@ final class HermesDesktopRpcClient {
       ? null
       : _canonicalPrompts[promptId];
 
+  /// How many canonical prompts this client saw settled, and when each of
+  /// the latest was: a snapshot asked for before a settlement must not
+  /// reopen that prompt ([canonicalSettleMark]).
+  int _canonicalSettles = 0;
+  final Map<String, int> _canonicalSettledAt = {};
+
+  /// Taken before a session snapshot is asked for, and handed to
+  /// [replayCanonicalPrompts] with it.
+  int get canonicalSettleMark => _canonicalSettles;
+
+  void _noteCanonicalSettled(Object? rawPromptId) {
+    final promptId = validateHermesOpaqueIdentifier(rawPromptId);
+    if (promptId == null) return;
+    _canonicalSettledAt
+      ..remove(promptId)
+      ..[promptId] = ++_canonicalSettles;
+    if (_canonicalSettledAt.length > 256) {
+      _canonicalSettledAt.remove(_canonicalSettledAt.keys.first);
+    }
+  }
+
   /// Re-shows the approvals and questions a canonical session snapshot
   /// lists as open (`prompts`), and closes the ones of [sessionId] it no
   /// longer lists: they were settled while this socket was not looking.
-  void replayCanonicalPrompts(String sessionId, Object? prompts) {
+  ///
+  /// [settledSince] is the [canonicalSettleMark] taken before the snapshot
+  /// was asked for: a prompt settled after it is stale in the snapshot and
+  /// stays closed. Every listed prompt counts as open; at most 32 are shown.
+  void replayCanonicalPrompts(
+    String sessionId,
+    Object? prompts, {
+    int? settledSince,
+  }) {
     final listed = <String>{};
+    var shown = 0;
     if (prompts is List) {
-      for (final raw in prompts.whereType<Map>().take(32)) {
-        final payload = Map<String, dynamic>.from(raw);
-        final kind = payload['kind'];
-        if (kind != 'approval' && kind != 'clarify') continue;
+      for (final raw in prompts.whereType<Map>().take(256)) {
+        final kind = raw['kind'];
+        final listedId = validateHermesOpaqueIdentifier(raw['prompt_id']);
+        if ((kind != 'approval' && kind != 'clarify') || listedId == null) {
+          continue;
+        }
+        listed.add(listedId);
+        final settledAt = _canonicalSettledAt[listedId];
+        if (settledSince != null &&
+            settledAt != null &&
+            settledAt > settledSince) {
+          continue;
+        }
+        if (shown >= 32) continue;
         final event = HermesDesktopEvent(
           type: '$kind.request',
-          payload: payload,
+          payload: Map<String, dynamic>.from(raw),
           sessionId: sessionId,
         );
-        final promptId = _openCanonicalPrompt(event);
-        if (promptId == null) continue;
-        listed.add(promptId);
+        if (_openCanonicalPrompt(event) == null) continue;
+        shown++;
         _events.add(event);
       }
     }

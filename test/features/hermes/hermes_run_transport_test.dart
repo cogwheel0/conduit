@@ -12,6 +12,7 @@ import 'package:conduit_core/features/hermes/models/hermes_config.dart';
 import 'package:conduit_core/features/hermes/models/hermes_run_event.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 import 'package:conduit_core/features/hermes/services/hermes_api_service.dart';
+import 'package:conduit_core/features/hermes/services/hermes_backend_service.dart';
 import 'package:conduit_core/features/hermes/services/hermes_run_transport.dart';
 import 'package:conduit_core/features/hermes/services/hermes_stream_parser.dart';
 import 'package:dio/dio.dart';
@@ -2693,6 +2694,30 @@ void main() {
     check(message.error?.content).equals(
       'The Hermes recovery response exceeded Conduit\'s transfer limit.',
     );
+  });
+
+  test('a model switch held for a confirmation says why', () async {
+    var message = ChatMessage(
+      id: 'm',
+      role: 'assistant',
+      content: '',
+      timestamp: DateTime.fromMillisecondsSinceEpoch(0),
+    );
+
+    await dispatchHermesTurn(
+      startTurn: (_) async =>
+          throw const HermesModelSwitchHeld('Synthetic held switch.'),
+      sensitiveValues: const [],
+      registry: HermesRunRegistry(),
+      assistantMessageId: message.id,
+      appendContent: (_) {},
+      appendStatus: (_) {},
+      updateMessage: (updater) => message = updater(message),
+      finishStreaming: () {},
+      completeStreamingUi: () {},
+    );
+
+    check(message.error?.content).equals('Synthetic held switch.');
   });
 
   test(

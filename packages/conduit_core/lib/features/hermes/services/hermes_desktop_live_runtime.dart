@@ -276,6 +276,8 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
     }
     await _ensureConnected();
     _emitTurnState(HermesDesktopTurnState.synchronizing);
+    // A prompt settled from here on is stale in the snapshot asked for now.
+    final settleMark = _rpc.canonicalSettleMark;
     final result = _object(
       await _rpc.request<Object?>(
         'session.resume',
@@ -325,7 +327,7 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
     // events: the events listener persists them, and an open turn shows
     // them once it adopts this runtime id.
     if (_canonical) {
-      _adoptCanonicalSnapshot(runtime, result);
+      _adoptCanonicalSnapshot(runtime, result, settledSince: settleMark);
       await _settleUnlistedCanonicalDecisions(binding, result['prompts']);
     }
     _rpc.replayOpenRequests(result['open_requests']);
@@ -633,12 +635,6 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
             },
           );
         }
-        // This socket left the session: should the delete below fail, the
-        // chat's next use resumes (and attaches) it again.
-        final closed = binding;
-        _bindingSocketGenerations.removeWhere(
-          (alias, _) => identical(_bindings[alias], closed),
-        );
       } catch (error) {
         DebugLogger.warning(
           'session-close-before-delete-failed',
@@ -646,6 +642,13 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
           data: {'errorType': error.runtimeType.toString()},
         );
       }
+      // This socket left the session, or may have (a detach whose answer was
+      // lost): should the delete below fail, the chat's next use resumes
+      // (and attaches) it again.
+      final closed = binding;
+      _bindingSocketGenerations.removeWhere(
+        (alias, _) => identical(_bindings[alias], closed),
+      );
     }
     await _deleteStoredSession(
       binding?.storedId ?? id,

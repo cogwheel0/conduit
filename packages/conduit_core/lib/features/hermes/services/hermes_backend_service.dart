@@ -113,3 +113,15 @@ abstract interface class HermesDesktopTurnService
 typedef HermesTurnStarter = Future<HermesResponseStream> Function(
   CancelToken cancelToken,
 );
+
+/// A model switch Hermes held for the user's confirmation (a pricier,
+/// data-sharing or smaller-context model): the chat is still on its old
+/// model, so the message was not sent. [message] says why, for the chat.
+final class HermesModelSwitchHeld implements Exception {
+  const HermesModelSwitchHeld(this.message);
+
+  final String message;
+
+  @override
+  String toString() => message;
+}

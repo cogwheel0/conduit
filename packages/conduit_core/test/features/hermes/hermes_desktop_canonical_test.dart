@@ -456,6 +456,64 @@ void main() {
       check(gateway.calls('session.interrupt')).isEmpty();
     });
 
+    test('a Stop before the submit is answered cancels only it', () async {
+      final cancel = CancelToken();
+      gateway.handler = (method, params) {
+        // Stop lands while `prompt.submit` is on its way: no admission yet,
+        // and another device's turn may be the one running.
+        if (method == 'prompt.submit') cancel.cancel();
+        return gateway.defaults(method, params);
+      };
+      await stream(() {}, cancelToken: cancel);
+      await _settle();
+
+      check(gateway.calls('session.interrupt')).isEmpty();
+      check(gateway.calls('prompt.cancel').single['admission_id'])
+          .equals('adm-1');
+    });
+
+    test('a queued prompt cancelled elsewhere ends its reply', () async {
+      final events = await stream(() {
+        // Hermes settles a queued admission with only this completion: no
+        // idle follows while the turn ahead of it runs.
+        gateway.event('message.complete', {
+          'outcome': 'cancelled',
+        }, admission: 'adm-1');
+      });
+
+      check(events.whereType<HermesRunError>().single.message)
+          .contains('cancelled');
+      check(events.last).isA<HermesRunDone>();
+    });
+
+    test('a reply finished while the socket was down ends on reconnect, '
+        'though a later prompt runs', () async {
+      var dropped = false;
+      gateway.handler = (method, params) {
+        if (method == 'session.resume' && dropped) {
+          // The prompt queued behind this one runs now.
+          return {...gateway.snapshot('local-1'), 'running': true};
+        }
+        if (method == 'prompt.receipt') {
+          return {'admission_id': params['admission_id'], 'status': 'terminal'};
+        }
+        return gateway.defaults(method, params);
+      };
+      final events = await stream(() {
+        gateway.event('message.start', {}, admission: 'adm-1');
+        dropped = true;
+        gateway.incoming.addError(StateError('gone'));
+      });
+
+      check(gateway.calls('prompt.receipt').single).deepEquals({
+        'profile': 'default',
+        'session_id': 'local-1',
+        'admission_id': 'adm-1',
+      });
+      check(events.whereType<HermesRunError>()).isEmpty();
+      check(events.last).isA<HermesRunDone>();
+    });
+
     test('images are named on the submit and PDFs staged as files', () async {
       gateway.handler = (method, params) => switch (method) {
         'image.attach_bytes' => {
@@ -642,6 +700,47 @@ void main() {
     check(gateway.calls('session.title')).isEmpty();
   });
 
+  test('a model switch held for a confirmation sends nothing', () async {
+    final gateway = _Authority();
+    gateway.handler = (method, params) {
+      if (method == 'session.mutate' && params['operation'] == 'model') {
+        // The owner wrote nothing: the chat is still on its old model.
+        return {
+          'session_id': params['session_id'],
+          'operation': 'model',
+          'status': 'confirmation_required',
+          'confirm': 'confirm-token-1',
+          'confirm_message': 'This model costs more per message.',
+          'revision': gateway.revision,
+          'execution_generation': gateway.generation,
+        };
+      }
+      return gateway.defaults(method, params);
+    };
+    final service = _service(gateway);
+    await service.createDesktopSession();
+    Future<HermesResponseStream> send() => service.streamDesktopResponse(
+      HermesChatInput.text('hello'),
+      sessionId: 'local-1',
+      options: const HermesDesktopSessionOptions(model: 'pricier-model'),
+    );
+
+    await check(send()).throws<HermesModelSwitchHeld>(
+      (it) => it.has((error) => error.message, 'message')
+        ..contains('pricier-model')
+        ..contains('This model costs more per message.'),
+    );
+    // Not taken as applied: the next send asks again.
+    await check(send()).throws<HermesModelSwitchHeld>();
+
+    check(gateway.calls('prompt.submit')).isEmpty();
+    check(
+      gateway.calls('session.mutate').where(
+        (params) => params['operation'] == 'model',
+      ),
+    ).length.equals(2);
+  });
+
   test('deleting a chat detaches from it instead of closing it', () async {
     final gateway = _Authority();
     final rest = _Rest({
@@ -720,6 +819,38 @@ void main() {
 
     await check(service.deleteSession('local-1')).throws<Object>();
     check(gateway.calls('session.detach')).length.equals(1);
+    final resumes = gateway.calls('session.resume').length;
+    await service.renameSession('local-1', 'Kept');
+
+    check(gateway.calls('session.resume')).length.equals(resumes + 1);
+  });
+
+  test('a chat whose detach failed is attached again after a failed delete',
+      () async {
+    final gateway = _Authority();
+    gateway.handler = (method, params) {
+      // Hermes may have dropped the subscription before this answer.
+      if (method == 'session.detach') {
+        throw const _Refusal(5000, 'timeout');
+      }
+      return gateway.defaults(method, params);
+    };
+    final rest = _Rest({
+      'GET /api/sessions/local-1/mutation-snapshot': (_) => (
+        200,
+        {
+          'session_id': 'local-1',
+          'exists': true,
+          'runtime_revision': 3,
+          'runtime_generation': 2,
+        },
+      ),
+      'DELETE /api/sessions/local-1': (_) => (500, {'detail': 'busy'}),
+    });
+    final service = _service(gateway, rest: rest);
+    await service.createDesktopSession();
+
+    await check(service.deleteSession('local-1')).throws<Object>();
     final resumes = gateway.calls('session.resume').length;
     await service.renameSession('local-1', 'Kept');
 
@@ -912,6 +1043,70 @@ void main() {
       final after = _service(_Authority());
 
       check(await after.pendingDecisionsForSession('local-1')).isEmpty();
+    });
+
+    test('one settled while its snapshot was read is not shown', () async {
+      final gateway = _Authority()
+        ..prompts = [
+          {
+            'kind': 'clarify',
+            'prompt_id': 'prompt-s',
+            'execution_generation': 2,
+            'question': 'Which colour?',
+            'choices': ['Teal', 'Amber'],
+            'multi_select': false,
+          },
+        ];
+      gateway.handler = (method, params) {
+        if (method == 'session.resume') {
+          // Answered on another device while the snapshot was read: the
+          // snapshot still lists it.
+          gateway.event('clarify.settled', {'prompt_id': 'prompt-s'});
+        }
+        return gateway.defaults(method, params);
+      };
+      final service = _service(gateway);
+      final shown = <HermesDesktopEvent>[];
+      service.rpc.events.listen(shown.add);
+
+      final pending = await service.pendingDecisionsForSession('local-1');
+      await _settle();
+
+      check(pending).isEmpty();
+      check(shown.where((e) => e.type == 'clarify.request')).isEmpty();
+    });
+
+    test('a snapshot past the replay bound keeps every listed one', () async {
+      final gateway = _Authority();
+      final service = _service(gateway);
+      final shown = <HermesDesktopEvent>[];
+      service.rpc.events.listen(shown.add);
+      await service.createDesktopSession();
+      Map<String, Object?> approval(int n) => {
+        'kind': 'approval',
+        'prompt_id': 'prompt-$n',
+        'execution_generation': 2,
+        'command': 'make step-$n',
+        'choices': ['once', 'deny'],
+      };
+      gateway.event('approval.request', approval(33), seq: 4);
+      await _settle();
+      // Thirty-three open: the one asked live is listed last.
+      gateway.prompts = [for (var n = 1; n <= 33; n++) approval(n)];
+
+      gateway.incoming.addError(StateError('gone'));
+      await _settle();
+      final pending = await service.pendingDecisionsForSession('local-1');
+      await _settle();
+
+      check(
+        shown.where((e) => e.type == 'approval.expire').map(
+          (e) => e.payload['request_id'],
+        ),
+      ).isEmpty();
+      check(pending.map((decision) => decision.requestId)).contains(
+        'prompt-33',
+      );
     });
   });
 

@@ -795,6 +795,68 @@ void main() {
     check(adapter.requested.where((uri) => uri.path.endsWith('/messages')))
         .isEmpty();
   });
+
+  test('a model switch held for a confirmation sends nothing', () async {
+    SharedPreferences.setMockInitialValues({});
+    PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
+    final harness = _GatewayHarness();
+    final service = HermesDesktopApiService(
+      config: HermesConfig(
+        enabled: true,
+        baseUrl: 'https://hermes.example',
+        mode: HermesBackendMode.desktopGateway,
+        desktopCredentials: HermesDesktopCredentials(
+          legacyToken: 'session-token',
+        ),
+      ),
+      dio: _statusDio(),
+      rpc: HermesDesktopRpcClient(
+        channelFactory: (_, _, {httpClient}) => harness.channel,
+      ),
+    );
+    addTearDown(() async {
+      service.close();
+      await harness.dispose();
+    });
+    harness.responder = (method) => switch (method) {
+      'session.resume' => {
+        'session_id': 'runtime-held',
+        'stored_session_id': 'stored-held',
+        'running': false,
+      },
+      'config.get' => {'value': 'medium'},
+      // Hermes left the model as it was and waits for a confirmed resend.
+      'config.set' => {
+        'confirm_required': true,
+        'confirm_message': 'This model costs more per message.',
+      },
+      _ => const {},
+    };
+    Future<HermesResponseStream> send() => service.streamDesktopResponse(
+      HermesChatInput.text('hello'),
+      sessionId: 'stored-held',
+      options: const HermesDesktopSessionOptions(model: 'pricier-model'),
+    );
+
+    await check(send()).throws<HermesModelSwitchHeld>(
+      (it) => it
+          .has((error) => error.message, 'message')
+          .contains('This model costs more per message.'),
+    );
+    // Not taken as applied: the next send asks again.
+    await check(send()).throws<HermesModelSwitchHeld>();
+
+    check(
+      harness.sent.where((frame) => frame['method'] == 'prompt.submit'),
+    ).isEmpty();
+    check(
+      harness.sent.where(
+        (frame) =>
+            frame['method'] == 'config.set' &&
+            (frame['params'] as Map)['key'] == 'model',
+      ),
+    ).length.equals(2);
+  });
   // the gateway reports `session.info` asynchronously after a session is
   // created or resumed. An idle one that lands while `prompt.submit` is in
   // flight was replayed after the acknowledgement and ended the turn before
