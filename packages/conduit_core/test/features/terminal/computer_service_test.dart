@@ -207,6 +207,66 @@ void main() {
     expect(requests.map((request) => request.method), ['GET']);
   });
 
+  for (final outcome in [
+    'empty',
+    'replacement',
+    'removed',
+    'unauthorized',
+    'missing',
+  ]) {
+    test('a tab closed during attachment handles $outcome', () async {
+      var lists = 0;
+      respond = (request) async {
+        if (request.uri.path.endsWith('/tabs')) {
+          lists++;
+          if (lists > 1 && outcome == 'removed') {
+            request.response.statusCode = 404;
+          } else {
+            request.response.write(
+              jsonEncode({
+                'current_session_id': lists == 1
+                    ? 'closed'
+                    : (outcome == 'empty' ? null : 'next'),
+              }),
+            );
+          }
+        } else if (request.uri.path.endsWith('/next') &&
+            outcome == 'replacement') {
+          request.response.write(
+            jsonEncode({
+              'id': 'next',
+              'token': 'synthetic-ticket',
+              'chrome_available': true,
+              'mode': 'chrome',
+            }),
+          );
+        } else {
+          request.response.statusCode = outcome == 'unauthorized' ? 401 : 404;
+        }
+      };
+      if (outcome == 'empty') {
+        expect(await service.open(ComputerSurface.browser), isNull);
+      } else if (outcome == 'replacement') {
+        final connection = await service.open(ComputerSurface.browser);
+        expect(connection?.browserSession?.id, 'next');
+      } else {
+        await expectLater(
+          service.open(ComputerSurface.browser),
+          throwsA(
+            isA<DioException>().having(
+              (error) => error.response?.statusCode,
+              'status',
+              outcome == 'unauthorized' ? 401 : 404,
+            ),
+          ),
+        );
+      }
+      expect(lists, outcome == 'unauthorized' ? 1 : 2);
+      expect(requests.every((request) => request.method == 'GET'), isTrue);
+      expect(requests.length, lessThanOrEqualTo(4));
+    });
+  }
+
   test(
     'reattaches the selected browser without spawning or closing a tab',
     () async {

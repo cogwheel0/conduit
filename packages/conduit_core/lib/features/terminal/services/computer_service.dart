@@ -88,15 +88,26 @@ class ComputerService {
     }
 
     // Viewing or refreshing an empty browser must never create a tab.
-    final tabs = await _json('browser/tabs');
-    final current = tabs['current_session_id'];
-    if (current is! String || current.isEmpty) return null;
-    final session = ComputerBrowserSession.fromJson(
-      await _json('browser/sessions/${Uri.encodeComponent(current)}'),
-    );
-    return session.mode == 'chrome'
-        ? _browserConnection(session)
-        : _connectBrowser(session);
+    var tabs = await _json('browser/tabs');
+    var rechecked = false;
+    while (true) {
+      final current = tabs['current_session_id'];
+      if (current is! String || current.isEmpty) return null;
+      try {
+        final session = ComputerBrowserSession.fromJson(
+          await _json('browser/sessions/${Uri.encodeComponent(current)}'),
+        );
+        return session.mode == 'chrome'
+            ? _browserConnection(session)
+            : await _connectBrowser(session);
+      } on DioException catch (error) {
+        if (error.response?.statusCode != 404 || rechecked) rethrow;
+        rechecked = true;
+        // The agent may have closed this tab. A removed server still fails
+        // the fresh listing; do not misrepresent it as an empty browser.
+        tabs = await _json('browser/tabs');
+      }
+    }
   }
 
   Future<List<ComputerBrowserTab>> browserTabs() async {
