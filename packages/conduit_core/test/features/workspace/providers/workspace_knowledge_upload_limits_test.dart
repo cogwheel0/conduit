@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
@@ -6,6 +7,7 @@ import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart
 import 'package:conduit_core/features/workspace/providers/workspace_knowledge_files.dart';
 import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/models/user.dart';
+import 'package:conduit_core/network/upload_timeout.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit_core/services/worker_manager.dart';
@@ -24,6 +26,8 @@ class _KnowledgeServer implements HttpClientAdapter {
     this.attachStatus = 200,
     this.failUpload,
     this.batchProcessed,
+    this.processing = const {},
+    this.statusFailure,
   });
 
   final int validateStatus;
@@ -35,12 +39,23 @@ class _KnowledgeServer implements HttpClientAdapter {
   /// When set, a batch add reports only these uploads as added, with a
   /// warning for the rest, as Open WebUI does for files it fails to process.
   final Set<String>? batchProcessed;
+
+  /// The statuses `/process/status` reports for an upload, in turn, before
+  /// `completed`.
+  final Map<String, List<String>> processing;
+
+  /// When set, `/process/status` answers with this HTTP status.
+  final int? statusFailure;
   final requests = <String>[];
   final validations = <Map<String, dynamic>>[];
 
   /// The query of every upload.
   final uploadQueries = <Map<String, dynamic>>[];
+
+  /// The receive timeout of every upload.
+  final uploadTimeouts = <Duration?>[];
   var _uploads = 0;
+  final _polls = <String, int>{};
 
   Iterable<String> get uploads =>
       requests.where((r) => r == 'POST /api/v1/files/');
@@ -68,6 +83,7 @@ class _KnowledgeServer implements HttpClientAdapter {
     }
     if (path == '/api/v1/files/' && options.method == 'POST') {
       uploadQueries.add(Map<String, dynamic>.of(options.queryParameters));
+      uploadTimeouts.add(options.receiveTimeout);
       if (++_uploads == failUpload) {
         return _json({'detail': 'Upload failed'}, status: 500);
       }
@@ -94,6 +110,21 @@ class _KnowledgeServer implements HttpClientAdapter {
           : _json({
               'detail': 'Knowledge base file limit exceeded (2 files maximum).',
             }, status: attachStatus);
+    }
+    final polled = RegExp(
+      r'^/api/v1/files/([^/]+)/process/status$',
+    ).firstMatch(path);
+    if (polled != null) {
+      final failure = statusFailure;
+      if (failure != null) {
+        return _json({'detail': 'Status unavailable'}, status: failure);
+      }
+      final id = polled.group(1)!;
+      final poll = _polls[id] = (_polls[id] ?? 0) + 1;
+      final statuses = processing[id] ?? const <String>[];
+      return _json({
+        'status': poll <= statuses.length ? statuses[poll - 1] : 'completed',
+      });
     }
     if (options.method == 'DELETE') return _json({'ok': true});
     if (path.endsWith('/files/pending')) return _json(<Object>[]);
@@ -163,9 +194,13 @@ void main() {
       );
     });
 
-    test('uploads are processed before they are linked', () async {
-      // Linked while still extracting, a file is refused as empty.
-      final server = _KnowledgeServer();
+    test('an upload is linked only once the server has processed it', () async {
+      // Linked while still extracting, a file is refused as not processed.
+      final server = _KnowledgeServer(
+        processing: {
+          'upload-1': ['pending'],
+        },
+      );
       final container = await _container(server);
       addTearDown(container.dispose);
 
@@ -173,9 +208,76 @@ void main() {
           .read(workspaceKnowledgeFilesProvider('kb-1').notifier)
           .uploadBytes('a.txt', const [1, 2, 3]);
 
-      check(server.uploadQueries.single).deepEquals({
-        'process_in_background': false,
+      // Processed in the background, so the upload answers at once however
+      // long extraction takes; the status is asked until it is done.
+      check(server.uploadQueries.single).isEmpty();
+      check(server.uploadTimeouts.single).equals(uploadTimeoutForBytes(3));
+      check(server.requests.skipWhile((r) => r != 'POST /api/v1/files/'))
+          .deepEquals([
+            'POST /api/v1/files/',
+            'GET /api/v1/files/upload-1/process/status',
+            'GET /api/v1/files/upload-1/process/status',
+            'POST /api/v1/knowledge/kb-1/file/add',
+            'GET /api/v1/knowledge/kb-1/files',
+            'GET /api/v1/knowledge/kb-1/files/pending',
+          ]);
+    });
+
+    test('a batch is linked once every upload is processed', () async {
+      final server = _KnowledgeServer();
+      final container = await _container(server);
+      addTearDown(container.dispose);
+
+      await container
+          .read(workspaceKnowledgeFilesProvider('kb-1').notifier)
+          .uploadMany([_file('a.txt', 3), _file('b.txt', 7)]);
+
+      final linkAt = server.requests.indexOf(
+        'POST /api/v1/knowledge/kb-1/files/batch/add',
+      );
+      for (final id in ['upload-1', 'upload-2']) {
+        check(
+          server.requests.indexOf('GET /api/v1/files/$id/process/status'),
+        )
+          ..isGreaterOrEqual(0)
+          ..isLessThan(linkAt);
+      }
+    });
+
+    test('uploads are deleted again when their processing cannot be read', () async {
+      final server = _KnowledgeServer(statusFailure: 500);
+      final container = await _container(server);
+      addTearDown(container.dispose);
+
+      await check(
+        container
+            .read(workspaceKnowledgeFilesProvider('kb-1').notifier)
+            .uploadMany([_file('a.txt', 3), _file('b.txt', 7)]),
+      ).throws<DioException>();
+      check(server.deletions.toList()).deepEquals([
+        'DELETE /api/v1/files/upload-1',
+        'DELETE /api/v1/files/upload-2',
+      ]);
+      check(server.requests.where((r) => r.contains('/add'))).isEmpty();
+    });
+
+    test('a file of unknown size is checked by count only', () async {
+      final server = _KnowledgeServer();
+      final container = await _container(server);
+      addTearDown(container.dispose);
+
+      await container
+          .read(workspaceKnowledgeFilesProvider('kb-1').notifier)
+          .uploadMany([
+            _file('a.txt', 3),
+            (name: 'b.txt', size: -1, read: () async => [1, 2, 3, 4, 5]),
+          ]);
+
+      check(server.validations.single).deepEquals({
+        'count': 2,
+        'removed_file_ids': <String>[],
       });
+      check(server.uploads).length.equals(2);
     });
 
     test('an empty file does not count against the limit', () async {
@@ -315,6 +417,65 @@ void main() {
             .attachExisting('mine'),
       ).throws<KnowledgeUploadRefused>();
       check(server.deletions).isEmpty();
+    });
+  });
+
+  group('waiting for an upload to be processed', () {
+    test('a server without the status route is not waited on', () async {
+      final server = _KnowledgeServer(statusFailure: 404);
+      final container = await _container(server);
+      addTearDown(container.dispose);
+
+      await container
+          .read(apiServiceProvider)!
+          .waitForFileProcessing('upload-1', interval: Duration.zero);
+
+      check(
+        server.requests.where((r) => r.endsWith('/process/status')),
+      ).length.equals(1);
+    });
+
+    test('a file still processing after the longest wait fails', () async {
+      final server = _KnowledgeServer(
+        processing: {
+          'upload-1': ['pending', 'pending', 'pending'],
+        },
+      );
+      final container = await _container(server);
+      addTearDown(container.dispose);
+
+      await check(
+        container
+            .read(apiServiceProvider)!
+            .waitForFileProcessing(
+              'upload-1',
+              interval: Duration.zero,
+              maxWait: Duration.zero,
+            ),
+      ).throws<TimeoutException>();
+    });
+
+    test('a wait no longer wanted stops asking', () async {
+      final server = _KnowledgeServer(
+        processing: {
+          'upload-1': ['pending', 'pending', 'pending'],
+        },
+      );
+      final container = await _container(server);
+      addTearDown(container.dispose);
+      var asked = 0;
+
+      await container
+          .read(apiServiceProvider)!
+          .waitForFileProcessing(
+            'upload-1',
+            interval: Duration.zero,
+            keepWaiting: () => ++asked <= 2,
+          );
+
+      check(
+        server.requests.where((r) => r.endsWith('/process/status')),
+      ).length.equals(2);
     });
   });
 }

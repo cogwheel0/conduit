@@ -321,12 +321,7 @@ List<ConduitContextMenuAction> buildConversationActionsWithFolders({
   }
 
   Future<void> generateTitle() async {
-    await _generateConversationTitle(
-      context,
-      ref,
-      selectionId,
-      conversation.title ?? '',
-    );
+    await _generateConversationTitle(context, ref, selectionId);
   }
 
   Future<void> rename() async {
@@ -767,16 +762,10 @@ Future<void> _generateConversationTitle(
   BuildContext context,
   WidgetRef ref,
   String conversationId,
-  String currentTitle,
 ) async {
   if (!_titlesBeingGenerated.add(conversationId)) return;
   try {
-    await _generateConversationTitleOnce(
-      context,
-      ref,
-      conversationId,
-      currentTitle,
-    );
+    await _generateConversationTitleOnce(context, ref, conversationId);
   } finally {
     _titlesBeingGenerated.remove(conversationId);
   }
@@ -786,7 +775,6 @@ Future<void> _generateConversationTitleOnce(
   BuildContext context,
   WidgetRef ref,
   String conversationId,
-  String currentTitle,
 ) async {
   final l10n = AppLocalizations.of(context)!;
   // The menu can close while the title is written; the app's container
@@ -843,7 +831,9 @@ Future<void> _generateConversationTitleOnce(
           ))?.trim();
     if (title == null || title.isEmpty) {
       message = l10n.generateTitleNone;
-    } else if (title != currentTitle) {
+    } else if (title != titleAsked) {
+      // Told apart from the title the server stored, not the chat list's
+      // copy, which can lag it or show an empty title as "Chat".
       var saved = false;
       await container.read(chatTitleLocksProvider).runExclusive(
         rawConversationId,

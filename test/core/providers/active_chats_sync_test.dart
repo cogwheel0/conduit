@@ -316,6 +316,35 @@ void main() {
       check(container.read(pendingApprovalChatIdsProvider)).deepEquals({'c1'});
     });
 
+    test('a refresh read before an approval does not bring the marker back', () async {
+      final socket = _MockSocketService();
+      addTearDown(socket.disposeController);
+      final api = _FakeApiService()
+        ..nextActive = {'c1'}
+        ..nextPendingApproval = {'c1'}
+        ..hold = Completer<void>();
+      final container = _makeContainer(
+        socket: socket,
+        api: api,
+        conversations: [_conv('c1'), _conv('c2')],
+      );
+      container.read(activeChatsSyncProvider);
+      await container.read(conversationsProvider.future);
+      await Future<void>.delayed(Duration.zero);
+      check(api.checkActiveChatsCalls).equals(1);
+
+      // The list was read while the chat waited; it is approved before the
+      // refresh lands.
+      socket.registrations.single.handler(
+        _activeEnvelope(chatId: 'c1', active: true, pendingApproval: false),
+        null,
+      );
+      api.hold!.complete();
+      await Future<void>.delayed(Duration.zero);
+
+      check(container.read(pendingApprovalChatIdsProvider)).isEmpty();
+    });
+
     test('a refresh replaces the set from the chat list', () async {
       final socket = _MockSocketService();
       addTearDown(socket.disposeController);

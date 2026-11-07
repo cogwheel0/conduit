@@ -192,6 +192,33 @@ void main() {
     expect(api.savedTitles.single, (id: 'server', title: 'Quines explained'));
   });
 
+  testWidgets('a title the list already shows is saved when the server has another', (
+    tester,
+  ) async {
+    // The chat list's copy can lag the server's title.
+    final server = chat('server');
+    final api = _TitlingApi(title: 'Chat server')
+      ..serverTitle = 'Older title';
+
+    await tester.pumpWidget(
+      sidebarTestBuildHarness(
+        controllers: SidebarTestSidebarHarnessControllers(),
+        conversations: [server],
+        apiService: api,
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final generate = menuOf(
+      tester,
+      server,
+    ).actions.singleWhere((action) => action.label == l10n.generateTitle);
+    await generate.onSelected();
+    await tester.pumpAndSettle();
+
+    expect(api.savedTitles.single, (id: 'server', title: 'Chat server'));
+  });
+
   testWidgets('a rename made while the title was written is kept', (
     tester,
   ) async {

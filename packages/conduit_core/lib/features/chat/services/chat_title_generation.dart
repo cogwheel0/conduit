@@ -90,5 +90,17 @@ String _messageText(Map<dynamic, dynamic> message) {
     if (text.isNotEmpty) return text;
   }
   final content = message['content'];
-  return content is String ? content : '';
+  if (content is String) return content;
+  // A turn saved with images keeps its content as parts; its text parts are
+  // what the chat reader shows.
+  if (content is List) {
+    final text = StringBuffer();
+    for (final part in content) {
+      if (part is Map && part['type'] == 'text' && part['text'] is String) {
+        text.write(part['text']);
+      }
+    }
+    return text.toString();
+  }
+  return '';
 }

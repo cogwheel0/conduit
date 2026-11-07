@@ -135,6 +135,31 @@ void main() {
       ]);
     });
 
+    test('a turn saved as parts is read from its text parts', () {
+      final request = chatTitleRequest(
+        _chat({
+          'messages': [
+            {
+              'role': 'user',
+              'content': [
+                {'type': 'text', 'text': 'What is in '},
+                {
+                  'type': 'image_url',
+                  'image_url': {'url': 'data:image/png;base64,AA=='},
+                },
+                {'type': 'text', 'text': 'this photo?'},
+              ],
+            },
+          ],
+          'models': ['m'],
+        }),
+      );
+
+      check(request!.messages).deepEquals([
+        {'role': 'user', 'content': 'What is in this photo?'},
+      ]);
+    });
+
     test('a cycle in the history does not loop', () {
       final request = chatTitleRequest(
         _chat({

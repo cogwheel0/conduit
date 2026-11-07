@@ -369,14 +369,26 @@ class _WorkspaceToolFormState extends ConsumerState<_WorkspaceToolForm> {
       _showSnack(l10n.workspaceToolToggleSaveFirst, isError: true);
       return;
     }
-    await WorkspaceEditorOperationRunner.stay<void>(
+    // The switch reloads the tool, and the reloaded tool rebuilds this form,
+    // possibly before the switch answers; its message goes through the app's
+    // overlay, which outlives the form.
+    final messages = Navigator.of(context, rootNavigator: true).context;
+    await WorkspaceEditorOperationRunner.capturedRoute<void>(
       session: _session,
       scope: 'workspace/tools',
       operationLabel: 'tool toggle',
       editorMounted: () => mounted,
       operation: () =>
           ref.read(workspaceToolsProvider.notifier).toggle(summary.id),
-      onSuccess: (_) => _showSnack(l10n.workspaceToolSaved),
+      onSuccess: (_) {
+        if (mounted) _session.endOperation();
+        if (!messages.mounted) return;
+        AdaptiveSnackBar.show(
+          messages,
+          message: l10n.workspaceToolSaved,
+          type: AdaptiveSnackBarType.success,
+        );
+      },
       onFailure: (_) => _showSnack(l10n.workspaceToolSaveFailed, isError: true),
     );
   }

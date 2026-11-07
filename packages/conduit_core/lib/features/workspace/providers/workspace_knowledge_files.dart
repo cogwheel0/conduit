@@ -279,6 +279,7 @@ class WorkspaceKnowledgeFiles extends _$WorkspaceKnowledgeFiles {
         },
       );
       session.ensureCurrent(ref);
+      await _waitForProcessing(session, [fileId]);
       await _attachUploaded(session.api, [fileId]);
       session.ensureCurrent(ref);
     });
@@ -300,6 +301,7 @@ class WorkspaceKnowledgeFiles extends _$WorkspaceKnowledgeFiles {
       session.ensureCurrent(ref);
       final fileId = await session.api.uploadFileBytes(name, bytes);
       session.ensureCurrent(ref);
+      await _waitForProcessing(session, [fileId]);
       await _attachUploaded(session.api, [fileId]);
       session.ensureCurrent(ref);
     });
@@ -326,9 +328,11 @@ class WorkspaceKnowledgeFiles extends _$WorkspaceKnowledgeFiles {
   ///
   /// Open WebUI 0.13 is asked first whether they fit the knowledge base's
   /// limits, by their count and the largest [WorkspaceUploadSource.size], so
-  /// a refused upload sends nothing. Files uploaded before a later failure,
-  /// or that the server still refuses to link, are deleted again rather than
-  /// left among the user's files.
+  /// a refused upload sends nothing. When a size is unknown (-1), only the
+  /// count is asked about; the server still checks each file's size when it
+  /// is linked. Files uploaded before a later failure, or that the server
+  /// still refuses to link, are deleted again rather than left among the
+  /// user's files.
   Future<void> uploadMany(List<WorkspaceUploadSource> picked) async {
     // An empty file is not uploaded, so it does not count against a limit.
     final files = [
@@ -336,15 +340,18 @@ class WorkspaceKnowledgeFiles extends _$WorkspaceKnowledgeFiles {
         if (file.size != 0) file,
     ];
     if (files.isEmpty) return;
+    final sizeUnknown = files.any((file) => file.size < 0);
     await _run(() async {
       final session = WorkspaceSessionIdentity.read(ref);
       await session.api.validateWorkspaceKnowledgeUpload(
         knowledgeId,
         count: files.length,
-        largestFileSize: files.fold<int>(
-          0,
-          (largest, file) => file.size > largest ? file.size : largest,
-        ),
+        largestFileSize: sizeUnknown
+            ? null
+            : files.fold<int>(
+                0,
+                (largest, file) => file.size > largest ? file.size : largest,
+              ),
       );
       session.ensureCurrent(ref);
       final uploaded = <String>[];
@@ -360,9 +367,32 @@ class WorkspaceKnowledgeFiles extends _$WorkspaceKnowledgeFiles {
         rethrow;
       }
       if (uploaded.isEmpty) return;
+      await _waitForProcessing(session, uploaded);
       await _attachUploaded(session.api, uploaded);
       session.ensureCurrent(ref);
     });
+  }
+
+  /// Waits until the server has processed [fileIds], which it does in the
+  /// background after each upload, so they can be linked; see
+  /// [ApiService.waitForFileProcessing]. The uploads are deleted again if
+  /// the wait fails or the session changes meanwhile.
+  Future<void> _waitForProcessing(
+    WorkspaceSessionIdentity session,
+    List<String> fileIds,
+  ) async {
+    try {
+      for (final id in fileIds) {
+        await session.api.waitForFileProcessing(
+          id,
+          keepWaiting: () => session.isCurrent(ref),
+        );
+        session.ensureCurrent(ref);
+      }
+    } catch (_) {
+      await _discardUploads(session.api, fileIds);
+      rethrow;
+    }
   }
 
   /// Links freshly uploaded [fileIds] into the current directory. When the
