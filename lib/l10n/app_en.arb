@@ -10315,5 +10315,143 @@
   "hermesContextLoadFailed": "Couldn't load context and usage.",
   "@hermesContextLoadFailed": {
     "description": "Error shown when the Context & usage sheet cannot load."
+  },
+  "hermesErrorProvider": "The model provider couldn't answer",
+  "@hermesErrorProvider": {
+    "description": "Title of a Hermes error card: the model provider failed the request."
+  },
+  "hermesErrorEndpoint": "Couldn't reach the model server",
+  "@hermesErrorEndpoint": {
+    "description": "Title of a Hermes error card: Hermes could not reach a model server the user runs."
+  },
+  "hermesErrorConnection": "The reply stream dropped",
+  "@hermesErrorConnection": {
+    "description": "Title of a Hermes error card: the provider's stream broke off mid-reply."
+  },
+  "hermesErrorAuth": "The provider rejected Hermes' credentials",
+  "@hermesErrorAuth": {
+    "description": "Title of a Hermes error card: the provider refused Hermes' API key or sign-in."
+  },
+  "hermesErrorBilling": "Out of credits",
+  "@hermesErrorBilling": {
+    "description": "Title of a Hermes error card: the provider account has no credits left."
+  },
+  "hermesErrorUsageLimit": "Plan limit reached",
+  "@hermesErrorUsageLimit": {
+    "description": "Title of a Hermes error card: a usage allowance of the user's plan ran out."
+  },
+  "hermesErrorFreeTier": "The free tier can't run this",
+  "@hermesErrorFreeTier": {
+    "description": "Title of a Hermes error card: the provider's free tier refused or could not serve the turn."
+  },
+  "hermesErrorRateLimit": "Rate limit reached",
+  "@hermesErrorRateLimit": {
+    "description": "Title of a Hermes error card: too many requests in a short time."
+  },
+  "hermesErrorContextOverflow": "This chat is too long for the model",
+  "@hermesErrorContextOverflow": {
+    "description": "Title of a Hermes error card: the chat no longer fits the model's context window."
+  },
+  "hermesErrorModel": "The model isn't available",
+  "@hermesErrorModel": {
+    "description": "Title of a Hermes error card: the provider does not know the chat's model."
+  },
+  "hermesErrorPolicy": "Blocked by a policy",
+  "@hermesErrorPolicy": {
+    "description": "Title of a Hermes error card: a content, privacy or network policy blocked the request."
+  },
+  "hermesErrorTruncated": "The reply was cut off",
+  "@hermesErrorTruncated": {
+    "description": "Title of a Hermes error card: the model stopped before finishing its reply."
+  },
+  "hermesErrorBadReply": "The model sent an unusable reply",
+  "@hermesErrorBadReply": {
+    "description": "Title of a Hermes error card: the model's reply was empty or malformed."
+  },
+  "hermesErrorWorkspace": "The chat's working folder is missing",
+  "@hermesErrorWorkspace": {
+    "description": "Title of a Hermes error card: the folder the chat works in was moved or deleted on the server."
+  },
+  "hermesErrorSession": "This chat can't continue here",
+  "@hermesErrorSession": {
+    "description": "Title of a Hermes error card: the chat is read-only, deleted, or owned by another gateway."
+  },
+  "hermesErrorBusy": "Hermes is busy with this chat",
+  "@hermesErrorBusy": {
+    "description": "Title of a Hermes error card: Hermes is restarting or still handling another request for the chat."
+  },
+  "hermesErrorGateway": "Hermes ran into a problem",
+  "@hermesErrorGateway": {
+    "description": "Title of a Hermes error card: Hermes itself failed, not the model provider."
+  },
+  "hermesErrorDisk": "Hermes is out of disk space",
+  "@hermesErrorDisk": {
+    "description": "Title of a Hermes error card: the Hermes server's disk is full."
+  },
+  "hermesErrorUnknown": "Hermes couldn't finish this reply",
+  "@hermesErrorUnknown": {
+    "description": "Title of a Hermes error card for a failure Hermes did not classify."
+  },
+  "hermesErrorBlocking": "Blocked until this is fixed",
+  "@hermesErrorBlocking": {
+    "description": "Shown on a Hermes error card when the chat cannot go on until the cause is fixed."
+  },
+  "hermesErrorDegraded": "You can keep chatting",
+  "@hermesErrorDegraded": {
+    "description": "Shown on a Hermes error card when a retry or the next message can still succeed."
+  },
+  "hermesErrorResetsAt": "Resets at {time}",
+  "@hermesErrorResetsAt": {
+    "description": "When the provider's limit lifts; time is a formatted time, with a date when not today.",
+    "placeholders": {
+      "time": {
+        "type": "String",
+        "example": "3:00 PM"
+      }
+    }
+  },
+  "hermesErrorPartialKept": "The reply so far is kept above.",
+  "@hermesErrorPartialKept": {
+    "description": "Shown on a Hermes error card when the part of the reply that arrived before the failure is kept."
+  },
+  "hermesErrorContinue": "Continue",
+  "@hermesErrorContinue": {
+    "description": "Hermes error card button that asks the model to continue a reply that was cut off."
+  },
+  "hermesErrorCompact": "Compact chat",
+  "@hermesErrorCompact": {
+    "description": "Hermes error card button that opens Context & usage to compact a chat that is too long."
+  },
+  "hermesErrorSwitchModel": "Switch to {model}",
+  "@hermesErrorSwitchModel": {
+    "description": "Hermes error card button that switches the chat to a model the plan still serves and retries; model is its name.",
+    "placeholders": {
+      "model": {
+        "type": "String",
+        "example": "Hermes 4 70B"
+      }
+    }
+  },
+  "hermesErrorOpenProviderSettings": "Open {provider} settings",
+  "@hermesErrorOpenProviderSettings": {
+    "description": "Hermes error card button that opens the provider's own settings page; provider is its name.",
+    "placeholders": {
+      "provider": {
+        "type": "String",
+        "example": "OpenRouter"
+      }
+    }
+  },
+  "hermesErrorOpenBilling": "Open billing",
+  "@hermesErrorOpenBilling": {
+    "description": "Hermes error card button that opens the provider's billing page."
+  },
+  "hermesErrorUseCredits": "Use credits",
+  "@hermesErrorUseCredits": {
+    "description": "Hermes error card button that lets the plan keep going on credits past its limit, then retries."
+  },
+  "hermesErrorActionFailed": "Couldn't do that. Try again.",
+  "@hermesErrorActionFailed": {
+    "description": "Shown when a Hermes error card's action fails."
   }
 }

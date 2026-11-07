@@ -9,6 +9,7 @@ import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/features/chat/providers/chat_providers.dart';
 import 'package:conduit_core/features/hermes/models/hermes_chat_input.dart';
 import 'package:conduit_core/features/hermes/models/hermes_config.dart';
+import 'package:conduit_core/features/hermes/models/hermes_error_surface.dart';
 import 'package:conduit_core/features/hermes/models/hermes_run_event.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 import 'package:conduit_core/features/hermes/services/hermes_api_service.dart';
@@ -2183,6 +2184,42 @@ void main() {
     check(error).not((value) => value.contains('\u0000'));
     check(error).not((value) => value.contains('\n'));
     check(error.runes.length).isLessOrEqual(kMaxHermesProviderErrorCharacters);
+  });
+
+  test('a classified run error leaves its card on the message', () async {
+    final fake = _FakeHermesApiService(const [
+      HermesRunError(
+        'Synthetic overflow',
+        surface: HermesErrorSurface(
+          layer: HermesErrorLayer.provider,
+          code: 'context_overflow',
+          retryable: false,
+        ),
+      ),
+    ]);
+    var message = ChatMessage(
+      id: 'm',
+      role: 'assistant',
+      content: '',
+      timestamp: DateTime.fromMillisecondsSinceEpoch(0),
+    );
+
+    await dispatchHermesRun(
+      service: fake,
+      registry: HermesRunRegistry(),
+      assistantMessageId: message.id,
+      input: 'hi',
+      appendContent: (_) {},
+      appendStatus: (_) {},
+      updateMessage: (updater) => message = updater(message),
+      finishStreaming: () {},
+      completeStreamingUi: () {},
+    );
+
+    check(message.error?.content).equals('Synthetic overflow');
+    check(
+      hermesErrorSurfaceOf(message)?.kind,
+    ).equals(HermesErrorKind.contextOverflow);
   });
 
   test('appends final output when no deltas streamed', () async {

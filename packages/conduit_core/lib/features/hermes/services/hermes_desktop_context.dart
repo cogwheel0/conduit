@@ -89,4 +89,17 @@ extension _HermesDesktopContext on HermesDesktopApiService {
     }
     return compacted;
   }
+
+  /// Turns on a window plan's "Keep going on credits"; false when Hermes
+  /// could not (no billing access, a portal error).
+  Future<bool> _keepGoingOnCredits() async {
+    await _ensureConnected();
+    final result = _object(
+      await _rpc.request<Object?>(
+        'billing.keep_going_on_credits',
+        params: const {'enabled': true},
+      ),
+    );
+    return result['ok'] != false && result['error'] == null;
+  }
 }

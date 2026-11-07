@@ -122,7 +122,11 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
           state != HermesDesktopTurnState.unsupportedGateway;
     }
 
-    void finish({String? error, bool authoritativeIdle = false}) {
+    void finish({
+      String? error,
+      HermesErrorSurface? surface,
+      bool authoritativeIdle = false,
+    }) {
       if (terminal) return;
       terminal = true;
       _eventBuffer.deactivate(activeRuntimeId);
@@ -133,7 +137,9 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
           runtimeId: binding.runtimeId,
         );
       }
-      if (error != null) controller.add(HermesRunError(error));
+      if (error != null) {
+        controller.add(HermesRunError(error, surface: surface));
+      }
       controller.add(const HermesRunDone());
       unawaited(subscription.cancel());
       unawaited(disconnectSubscription.cancel());
@@ -210,9 +216,23 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
           final content = value('content').isNotEmpty
               ? value('content')
               : value('text');
-          if (content.isNotEmpty) controller.add(HermesFinalOutput(content));
           if (payload['usage'] case final Map usage) {
             _rememberTurnUsage(binding.storedId, usage);
+          }
+          final failed =
+              value('status').toLowerCase() == 'error' ||
+              value('error').isNotEmpty;
+          final surface = failed
+              ? HermesErrorSurface.fromCompletion(
+                  payload,
+                  sensitiveValues: config.sensitiveValues,
+                )
+              : null;
+          // A classified failure's text is its error copy, not an answer,
+          // unless Hermes marks it as the partial reply so far.
+          final errorCopy = surface != null && !surface.partial;
+          if (content.isNotEmpty && !errorCopy) {
+            controller.add(HermesFinalOutput(content));
           }
           // A queued prompt Hermes settled before it ran (cancelled from
           // another app, or sent into the running turn as a steer) gets
@@ -231,12 +251,14 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
                   ? 'Hermes cancelled this message before running it.'
                   : null,
             );
-          } else if (value('status').toLowerCase() == 'error' ||
-              value('error').isNotEmpty) {
+          } else if (failed) {
             finish(
-              error: value('error').isEmpty
-                  ? 'Hermes failed to complete the response.'
-                  : value('error'),
+              error: value('error').isNotEmpty
+                  ? value('error')
+                  : errorCopy && content.isNotEmpty
+                  ? content
+                  : 'Hermes failed to complete the response.',
+              surface: surface,
             );
           } else if (forwarded) {
             // The owner wrote the reply to the stored transcript; read it.
@@ -377,6 +399,10 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
               error: value('message').isEmpty
                   ? 'Hermes failed.'
                   : value('message'),
+              surface: HermesErrorSurface.fromCompletion(
+                payload,
+                sensitiveValues: config.sensitiveValues,
+              ),
             );
           }
       }

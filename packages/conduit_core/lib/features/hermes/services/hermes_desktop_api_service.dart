@@ -21,6 +21,7 @@ import 'package:conduit_core/features/hermes/models/hermes_chat_input.dart';
 import 'package:conduit_core/features/hermes/models/hermes_clarify_form.dart';
 import 'package:conduit_core/features/hermes/models/hermes_config.dart';
 import 'package:conduit_core/features/hermes/models/hermes_context_usage.dart';
+import 'package:conduit_core/features/hermes/models/hermes_error_surface.dart';
 import 'package:conduit_core/features/hermes/models/hermes_job.dart';
 import 'package:conduit_core/features/hermes/models/hermes_job_delivery.dart';
 import 'package:conduit_core/features/hermes/models/hermes_mcp.dart';
@@ -549,6 +550,10 @@ final class HermesDesktopApiService
   /// keeping [focus] in view.
   Future<HermesCompactResult> compactSession(String id, {String? focus}) =>
       _compactSession(id, focus: focus);
+
+  /// Lets a window plan keep going on credits past its limit. False when
+  /// Hermes could not turn it on.
+  Future<bool> keepGoingOnCredits() => _keepGoingOnCredits();
 
   /// The text the gateway's speech-to-text heard in [audio]; empty when it
   /// heard none.

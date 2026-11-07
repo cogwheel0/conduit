@@ -1,3 +1,5 @@
+import 'package:conduit_core/features/hermes/models/hermes_error_surface.dart';
+
 /// Typed events emitted by the Hermes Agent runs stream
 /// (`GET /v1/runs/{id}/events`) and the chat-completions
 /// `hermes.tool.progress` custom event.
@@ -157,9 +159,12 @@ final class HermesComposerPrefill extends HermesRunEvent {
 
 /// A terminal error reported by the run.
 final class HermesRunError extends HermesRunEvent {
-  const HermesRunError(this.message);
+  const HermesRunError(this.message, {this.surface});
 
   final String message;
+
+  /// What broke, when Hermes classified the failure.
+  final HermesErrorSurface? surface;
 }
 
 /// The stream is finished (`[DONE]`, `event: done`, or a terminal lifecycle).
