@@ -609,31 +609,38 @@ class _JobCardState extends ConsumerState<_JobCard> {
           if (writable)
             Row(
               children: [
-                ConduitButton(
-                  key: ValueKey<String>('hermes-job-run-${job.id}'),
-                  text: l10n.hermesJobRunNow,
-                  isSecondary: true,
-                  isCompact: true,
-                  isLoading: _mutation == _JobMutation.run,
-                  onPressed: _busy || job.runInFlight ? null : _runNow,
-                ),
-                // Not gated on [_busy]: this card's own Run now holds it
-                // for as long as the run lasts.
-                if (widget.canStop && (_runLive || widget.stopping)) ...[
-                  const SizedBox(width: Spacing.sm),
-                  ConduitButton(
-                    key: ValueKey<String>('hermes-job-stop-${job.id}'),
-                    text: widget.stopping
-                        ? l10n.hermesJobStopping
-                        : l10n.hermesJobStop,
-                    isSecondary: true,
-                    isDestructive: true,
-                    isCompact: true,
-                    isLoading: widget.stopping,
-                    onPressed: widget.stopping ? null : _stop,
+                // Run now and Stop wrap onto a second line when their labels
+                // (long in some languages) do not fit beside the icons.
+                Expanded(
+                  child: Wrap(
+                    spacing: Spacing.sm,
+                    runSpacing: Spacing.xs,
+                    children: [
+                      ConduitButton(
+                        key: ValueKey<String>('hermes-job-run-${job.id}'),
+                        text: l10n.hermesJobRunNow,
+                        isSecondary: true,
+                        isCompact: true,
+                        isLoading: _mutation == _JobMutation.run,
+                        onPressed: _busy || job.runInFlight ? null : _runNow,
+                      ),
+                      // Not gated on [_busy]: this card's own Run now holds
+                      // it for as long as the run lasts.
+                      if (widget.canStop && (_runLive || widget.stopping))
+                        ConduitButton(
+                          key: ValueKey<String>('hermes-job-stop-${job.id}'),
+                          text: widget.stopping
+                              ? l10n.hermesJobStopping
+                              : l10n.hermesJobStop,
+                          isSecondary: true,
+                          isDestructive: true,
+                          isCompact: true,
+                          isLoading: widget.stopping,
+                          onPressed: widget.stopping ? null : _stop,
+                        ),
+                    ],
                   ),
-                ],
-                const Spacer(),
+                ),
                 ConduitIconButton(
                   icon: Icons.edit_outlined,
                   iconColor: theme.iconSecondary,

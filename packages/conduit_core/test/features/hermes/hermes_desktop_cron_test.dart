@@ -315,6 +315,28 @@ void main() {
     });
   });
 
+  test('a token sign-in\'s Run now is sent at once, and a failed Stop '
+      'says so', () async {
+    final adapter = _RoutesAdapter({
+      'POST /api/cron/jobs/job-1/trigger': (200, {'ok': true}),
+      _cancel: (500, {'detail': 'busy'}),
+    });
+    final service = _service(adapter);
+    await service.listJobs();
+
+    // The trigger is on its way (sent, not yet answered) when Stop fails.
+    final held = adapter.hold = Completer<void>();
+    final run = service.runJob('job-1');
+    await pumpEventQueue();
+    check(
+      adapter.requests.map((r) => r.path),
+    ).contains('/api/cron/jobs/job-1/trigger');
+
+    await check(service.stopJobRun('job-1')).throws<Object>();
+    held.complete();
+    await run;
+  });
+
   test('stop reads the attempt Hermes cancelled', () async {
     final adapter = _RoutesAdapter({
       _cancel: (
@@ -336,6 +358,31 @@ void main() {
       ..has((r) => r.method, 'method').equals('POST')
       ..has((r) => r.path, 'path').equals('/api/cron/jobs/job-1/cancel')
       ..has((r) => r.query, 'query').deepEquals({'profile': 'ops'});
+  });
+
+  test('a live job list skips the queue a Run now holds', () async {
+    final bridge = _UrgencyBridge();
+    final service = HermesDesktopApiService(
+      config: HermesConfig(
+        enabled: true,
+        baseUrl: 'https://hermes.example',
+        mode: HermesBackendMode.desktopGateway,
+        desktopAuthKind: HermesDesktopAuthKind.dashboardCookie,
+      ),
+      dashboardBridgeFactory: ({required root, required accessHeaders}) =>
+          bridge,
+    );
+    addTearDown(service.close);
+    final container = ProviderContainer(
+      overrides: [hermesApiServiceProvider.overrideWithValue(service)],
+    );
+    addTearDown(container.dispose);
+    container.listen(hermesJobsProvider, (_, _) {});
+
+    await container.read(hermesJobsProvider.future);
+    check(bridge.urgent['GET /api/cron/jobs']).equals(false);
+    await container.read(hermesJobsProvider.notifier).refreshQuietly();
+    check(bridge.urgent['GET /api/cron/jobs']).equals(true);
   });
 
   test('a dashboard sign-in sends Stop ahead of a waiting Run now', () async {
@@ -441,6 +488,37 @@ void main() {
     check(stop)
       ..has((r) => r.cancelled, 'cancelled').isFalse()
       ..has((r) => r.beforeStart, 'beforeStart').isFalse();
+  });
+
+  test('a Stop makes a poll read before it stale', () async {
+    Map<String, Object?> job(String status) => {
+      'id': 'job-1',
+      'prompt': 'Summarize the notes',
+      'schedule': '0 7 * * *',
+      'latest_execution': {'id': 'exec-1', 'status': status},
+    };
+    final adapter = _RoutesAdapter({
+      'GET /api/cron/jobs': (200, [job('running')]),
+      _cancel: (200, {'cancelled': true, 'execution_id': 'exec-1'}),
+    });
+    final container = ProviderContainer(
+      overrides: [
+        hermesApiServiceProvider.overrideWithValue(_service(adapter)),
+      ],
+    );
+    addTearDown(container.dispose);
+    container.listen(hermesJobsProvider, (_, _) {});
+    await container.read(hermesJobsProvider.future);
+    final jobs = container.read(hermesJobsProvider.notifier);
+
+    // A poll reads the running job; the Stop is answered before it.
+    final held = adapter.hold = Completer<void>();
+    final stale = jobs.refreshQuietly();
+    await pumpEventQueue();
+    await jobs.stopRun('job-1');
+    held.complete();
+
+    check(await stale).isNull();
   });
 
   test('stop with nothing in flight says so', () async {

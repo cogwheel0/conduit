@@ -2891,8 +2891,14 @@ class HermesJobsController extends AsyncNotifier<List<HermesJob>> {
     }
   }
 
-  static Future<List<HermesJob>> _load(HermesBackendService service) async {
-    final raw = await service.listJobs();
+  /// A [live] read is the quiet poll of a page watching runs.
+  static Future<List<HermesJob>> _load(
+    HermesBackendService service, {
+    bool live = false,
+  }) async {
+    final raw = service is HermesDesktopApiService
+        ? await service.listJobs(live: live)
+        : await service.listJobs();
     final jobs = <HermesJob>[];
     for (final item in raw) {
       final job = HermesJob.fromJson(item);
@@ -2930,7 +2936,7 @@ class HermesJobsController extends AsyncNotifier<List<HermesJob>> {
         : _refreshing = (
             service: service,
             generation: _generation,
-            jobs: _load(service),
+            jobs: _load(service, live: true),
           );
     final pending = refresh.jobs;
     try {
@@ -3018,7 +3024,9 @@ class HermesJobsController extends AsyncNotifier<List<HermesJob>> {
     if (service is! HermesDesktopApiService) {
       throw const HermesJobStopUnsupportedException();
     }
-    final result = await service.stopJobRun(id);
+    // A poll read before the cancel must not settle the Stop with a list
+    // from before it.
+    final result = await _changing(() => service.stopJobRun(id));
     ref.invalidate(hermesJobRunsProvider(id));
     return result;
   }

@@ -242,6 +242,9 @@ final class HermesDashboardRestSession implements HermesDashboardBridge {
       _page = null;
       _ready = null;
     }
+    // The next request opens a fresh page at once; an urgent request (a
+    // Stop) still answering on this one keeps it until it has its answer.
+    await Future.wait([..._urgent]);
     await page.dispose();
   }
 

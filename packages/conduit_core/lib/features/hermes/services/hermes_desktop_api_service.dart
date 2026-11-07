@@ -552,7 +552,8 @@ final class HermesDesktopApiService
   Future<Map<String, dynamic>> healthDetailed() => _authDetailedStatus();
 
   @override
-  Future<List<Map<String, dynamic>>> listJobs() => _administration.listJobs();
+  Future<List<Map<String, dynamic>>> listJobs({bool live = false}) =>
+      _administration.listJobs(live: live);
 
   @override
   Future<Map<String, dynamic>> createJob({

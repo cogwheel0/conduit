@@ -272,6 +272,35 @@ void main() {
     );
   });
 
+  test('a timed-out trigger leaves Stop its page until it answers', () async {
+    final bridge = session(requestTimeout: const Duration(milliseconds: 800));
+    await bridge.request('GET', Uri.parse('https://hermes.example/warm'));
+    final page = pages.single;
+    final held = page.hold = Completer<void>();
+    // Run now holds the queue; Stop goes out beside it, just before Run
+    // now's deadline.
+    final trigger = bridge.request(
+      'POST',
+      Uri.parse('https://hermes.example/trigger'),
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 300));
+    final stop = bridge.request(
+      'POST',
+      Uri.parse('https://hermes.example/cancel'),
+      urgent: true,
+    );
+
+    // Past the trigger's deadline: its page is left, not yet closed.
+    final triggerFailed = check(trigger).throws<TimeoutException>();
+    await Future<void>.delayed(const Duration(milliseconds: 650));
+    check(page.disposed).isFalse();
+
+    held.complete();
+    check((await stop).status).equals(200);
+    await triggerFailed;
+    check(page.disposed).isTrue();
+  });
+
   test('close waits for an urgent request still answering', () async {
     final bridge = session();
     await bridge.request('GET', Uri.parse('https://hermes.example/warm'));

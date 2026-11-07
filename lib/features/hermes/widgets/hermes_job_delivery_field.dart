@@ -1,6 +1,7 @@
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:flutter/widgets.dart';
 
+import 'package:conduit_core/features/hermes/models/hermes_job.dart';
 import 'package:conduit_core/features/hermes/models/hermes_job_delivery.dart';
 
 import '../../../l10n/app_localizations.dart';
@@ -146,8 +147,9 @@ class HermesJobDeliveryField extends StatelessWidget {
     );
   }
 
-  /// Null when the row cannot change: the only selected target, or a
-  /// platform Hermes cannot send to yet.
+  /// Null when the row cannot change: the only selected target, a
+  /// platform Hermes cannot send to yet, or one more target than a job's
+  /// delivery list can hold (Conduit reads no longer list back).
   ValueChanged<bool>? _onChangedFor(
     HermesDeliveryOption option,
     List<String> selected,
@@ -156,6 +158,12 @@ class HermesJobDeliveryField extends StatelessWidget {
     if (callback == null) return null;
     final checked = selected.contains(option.target);
     if (checked ? selected.length <= 1 : !option.available) return null;
+    if (!checked &&
+        toggleHermesDeliveryTarget(value, option.target, selected: true)
+                .length >
+            kMaxHermesJobDeliverCharacters) {
+      return null;
+    }
     return (next) => callback(
       toggleHermesDeliveryTarget(value, option.target, selected: next),
     );

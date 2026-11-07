@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:checks/checks.dart';
 import 'package:conduit/features/hermes/views/hermes_jobs_page.dart';
+import 'package:conduit/features/hermes/widgets/hermes_job_delivery_field.dart';
 import 'package:conduit/features/hermes/widgets/hermes_job_editor.dart';
 import 'package:conduit/shared/theme/theme_extensions.dart';
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
@@ -341,6 +342,30 @@ void main() {
       await _unmount(tester);
     });
 
+    testWidgets('Run now and Stopping… fit a narrow phone with large text', (
+      tester,
+    ) async {
+      tester.view.physicalSize = const Size(320, 900);
+      tester.view.devicePixelRatio = 1;
+      tester.platformDispatcher.textScaleFactorTestValue = 1.4;
+      addTearDown(tester.view.reset);
+      addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+      final jobs = _CronJobs([_job(status: 'running')]);
+      final cancel = Completer<HermesJobStopResult>();
+      jobs.onStop = () => cancel.future;
+      await _pumpPage(tester, jobs);
+
+      await tester.tap(find.byKey(_stopKey));
+      await tester.pump();
+
+      expect(tester.takeException(), isNull);
+      expect(find.byKey(_stopKey), findsOneWidget);
+      cancel.complete(
+        const HermesJobStopResult(cancelled: true, executionId: 'exec-1'),
+      );
+      await _unmount(tester);
+    });
+
     testWidgets('reads Stopping… with one ellipsis while it waits', (
       tester,
     ) async {
@@ -515,6 +540,38 @@ void main() {
       check(await editor.result).isNotNull()
         ..has((r) => r.deliver, 'deliver').equals('local,telegram')
         ..has((r) => r.catchUp, 'catchUp').equals(HermesJobCatchUp.runOnce);
+    });
+
+    testWidgets('no target is added past what a job can hold', (
+      tester,
+    ) async {
+      // Room targets filling the delivery list nearly to its limit.
+      final rooms = <String>[];
+      while (['local', ...rooms].join(',').length < 2040) {
+        rooms.add('room:${'r' * 30}${rooms.length}@ops');
+      }
+      final value = ['local', ...rooms].join(',');
+      final changes = <String>[];
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: SingleChildScrollView(
+              child: HermesJobDeliveryField(
+                value: value,
+                options: _options,
+                onChanged: changes.add,
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      await tester.ensureVisible(target('telegram'));
+      await tester.tap(target('telegram'));
+      await tester.pump();
+
+      check(changes).isEmpty();
     });
 
     testWidgets('the last target cannot be cleared', (tester) async {

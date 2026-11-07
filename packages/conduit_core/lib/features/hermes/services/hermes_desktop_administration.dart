@@ -407,8 +407,17 @@ final class _HermesDesktopAdministration {
     };
   }
 
-  Future<List<Map<String, dynamic>>> listJobs() async =>
-      _owner._objects(await _owner._requestJson('GET', '/api/cron/jobs'));
+  /// A [live] read (the page watching runs) skips a dashboard sign-in's
+  /// request queue, where a Run now waits until its run ends: a read's
+  /// order does not matter, and a job started elsewhere shows its Stop.
+  Future<List<Map<String, dynamic>>> listJobs({bool live = false}) async =>
+      _owner._objects(
+        await _owner._requestJson(
+          'GET',
+          '/api/cron/jobs',
+          dashboardUrgent: live,
+        ),
+      );
 
   /// [catchUp] is sent only for an explicit choice: a dashboard older than
   /// Hermes 0.22.6 knows no `catch_up`.
@@ -545,12 +554,20 @@ final class _HermesDesktopAdministration {
   /// Starts the job now (`POST /api/cron/jobs/{id}/trigger`). Hermes answers
   /// once the run ends.
   Future<void> runJob(String id) async {
+    final path = '/api/cron/jobs/${Uri.encodeComponent(id)}/trigger';
+    // Only a dashboard sign-in queues requests; elsewhere the trigger goes
+    // out at once, and a Stop cannot withdraw it.
+    if (_owner.config.desktopAuthKind !=
+        HermesDesktopAuthKind.dashboardCookie) {
+      await _owner._requestJson('POST', path);
+      return;
+    }
     final trigger = _QueuedJobTrigger();
     _owner._jobTriggers[id] = trigger;
     try {
       await _owner._requestJson(
         'POST',
-        '/api/cron/jobs/${Uri.encodeComponent(id)}/trigger',
+        path,
         dashboardBeforeSend: trigger.send,
       );
     } finally {
