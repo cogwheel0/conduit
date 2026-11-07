@@ -9548,5 +9548,25 @@
   "hermesHiddenChatsLoadError": "Couldn't load hidden chats.",
   "@hermesHiddenChatsLoadError": {
     "description": "Error shown when the hidden Hermes chats cannot be loaded."
+  },
+  "hermesBranchFromHere": "Branch from here",
+  "@hermesBranchFromHere": {
+    "description": "Hermes reply menu action that opens a new chat continuing the conversation up to this reply."
+  },
+  "hermesBranchFailed": "Couldn't branch this chat. Try again.",
+  "@hermesBranchFailed": {
+    "description": "Error shown when branching a Hermes chat from a reply fails."
+  },
+  "hermesUndoLastTurn": "Undo last turn",
+  "@hermesUndoLastTurn": {
+    "description": "Hermes reply menu action that removes the last message and its reply from the chat and from the Hermes server."
+  },
+  "hermesUndoLastTurnDone": "Last turn undone.",
+  "@hermesUndoLastTurnDone": {
+    "description": "Confirmation shown after the last turn of a Hermes chat is undone."
+  },
+  "hermesUndoLastTurnFailed": "Couldn't undo the last turn. Try again.",
+  "@hermesUndoLastTurnFailed": {
+    "description": "Error shown when undoing the last turn of a Hermes chat fails."
   }
 }

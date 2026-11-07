@@ -11,6 +11,7 @@ import 'package:uuid/uuid.dart';
 import 'package:conduit_core/auth/auth_state_manager.dart';
 import 'package:conduit_core/database/database_provider.dart';
 
+import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit_core/models/model.dart';
 import 'package:conduit_core/models/prompt.dart';
 
@@ -51,6 +52,7 @@ import 'package:conduit_core/features/hermes/services/hermes_desktop_api_service
 import 'package:conduit_core/features/hermes/services/hermes_desktop_transport.dart'
     show HermesDesktopRpcException;
 import 'package:conduit_core/features/hermes/services/hermes_desktop_connection_coordinator.dart';
+import 'package:conduit_core/features/hermes/services/hermes_history_edit.dart';
 import 'package:conduit_core/features/hermes/services/hermes_identifier.dart';
 import 'package:conduit_core/features/hermes/services/hermes_local_document_trust_store.dart';
 import 'package:conduit_core/features/hermes/services/hermes_message_mapper.dart';
@@ -2808,6 +2810,78 @@ class HermesSessionsController
     }
     ref.invalidateSelf();
     return newId;
+  }
+
+  /// Branches session [sessionId] into a new session that keeps the chat up
+  /// to the end of the turn [messages]`[index]` belongs to.
+  ///
+  /// The Desktop Gateway branches on the server. The API server gets a new
+  /// untitled session instead (Hermes' fork ends the original as
+  /// "branched", and copies all of it); its REST turns replay [transcript],
+  /// which is returned for the chat to open with. Null when the connection
+  /// changed meanwhile.
+  Future<
+    ({HermesSessionSummary session, List<Map<String, dynamic>>? transcript})?
+  >
+  branchFromMessage({
+    required String sessionId,
+    required String title,
+    required List<ChatMessage> messages,
+    required int index,
+  }) async {
+    final configController = ref.read(hermesConfigProvider.notifier);
+    final admission = configController.captureSessionActionAdmission();
+    if (admission == null) {
+      throw StateError('Hermes connection is changing. Try again.');
+    }
+    final service = _service;
+    if (service == null) return null;
+    bool current() =>
+        configController.sessionActionAdmissionIsCurrent(admission) &&
+        identical(ref.read(hermesApiServiceProvider), service);
+
+    final transcript = await service.getSessionMessages(sessionId);
+    final cut = hermesBranchCut(
+      transcript: transcript,
+      messages: messages,
+      index: index,
+    );
+    if (cut == null) {
+      throw StateError('This reply could not be found in the Hermes chat.');
+    }
+    if (!current()) return null;
+    if (service is HermesDesktopApiService) {
+      final branchId = await service.branchSession(
+        sessionId,
+        count: cut.visibleCount,
+        throughRowId: cut.throughRowId,
+      );
+      if (!current()) return null;
+      Map<String, dynamic>? row;
+      try {
+        row = await service.getSession(branchId);
+      } catch (_) {
+        // The branch is made; Hermes names it after its parent.
+      }
+      ref.invalidateSelf();
+      return (
+        session:
+            (row == null ? null : HermesSessionSummary.fromJson(row)) ??
+            HermesSessionSummary(id: branchId, title: title),
+        transcript: null,
+      );
+    }
+    final copyId = await service.createSession();
+    if (!current()) return null;
+    ref.invalidateSelf();
+    return (
+      session: HermesSessionSummary(
+        id: copyId,
+        title: title,
+        source: kHermesApiOwnedSessionSources.first,
+      ),
+      transcript: transcript.sublist(0, cut.end),
+    );
   }
 
   Future<void> rename(String id, String title) async {

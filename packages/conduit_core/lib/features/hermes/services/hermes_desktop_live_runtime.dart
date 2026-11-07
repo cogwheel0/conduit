@@ -804,13 +804,22 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
       left == right ||
       (_bindings[left] != null && identical(_bindings[left], _bindings[right]));
 
-  Future<String> _runtimeForkSession(String id) async {
+  /// Branches session [id]: all of it, or, from a message, the legacy
+  /// wire's first [count] user and assistant rows with text, or a session
+  /// authority's rows through [throughRowId].
+  Future<String> _runtimeForkSession(
+    String id, {
+    int? count,
+    int? throughRowId,
+  }) async {
     final binding = await _resume(id);
     final Map<String, dynamic> result;
     if (_canonical) {
       // A session authority branches as an edit of the parent, and attaches
       // the branch to this socket; its id names it on both sides.
-      final receipt = await _canonicalMutate(binding, 'branch', const {});
+      final receipt = await _canonicalMutate(binding, 'branch', {
+        'through_message_id': ?throughRowId,
+      });
       final branch = receipt['branched_session_id'];
       result = {'session_id': branch, 'stored_session_id': branch};
     } else {
@@ -819,6 +828,7 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
           'session.branch',
           params: {
             'session_id': binding.runtimeId,
+            'count': ?count,
             ..._sessionScope(binding.storedId),
           },
         ),
@@ -842,5 +852,46 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
     // socket's subscription come from its own snapshot.
     if (_canonical) await _resumeSnapshot(stored, refresh: true);
     return stored;
+  }
+
+  /// Drops session [id]'s last user turn and everything after it. False
+  /// when there was no turn to drop.
+  Future<bool> _runtimeUndoLastTurn(String id) async {
+    final binding = await _resume(id);
+    _lastTranscripts
+      ..remove(id)
+      ..remove(binding.storedId);
+    if (!_canonical) {
+      final result = _object(
+        await _rpc.request<Object?>(
+          'session.undo',
+          params: {
+            'session_id': binding.runtimeId,
+            ..._sessionScope(binding.storedId),
+          },
+        ),
+      );
+      final removed = result['removed'];
+      return removed is int && removed > 0;
+    }
+    // A session authority has no undo: it rewinds to the last turn a user
+    // started, a row of their own (not a marker Hermes added).
+    final transcript = await _runtimeGetSessionMessages(binding.storedId);
+    _lastTranscripts.remove(binding.storedId);
+    int? target;
+    for (final row in transcript.reversed) {
+      final kind = row['display_kind'];
+      if ((kind == null || kind == '' || kind == 'steer') &&
+          hermesTranscriptUserContent(row) != null) {
+        target = hermesTranscriptRowId(row);
+        if (target != null) break;
+      }
+    }
+    if (target == null) return false;
+    final receipt = await _canonicalMutate(binding, 'rewind', {
+      'target_message_id': target,
+    });
+    final rewound = receipt['rewound_count'];
+    return rewound is! int || rewound > 0;
   }
 }

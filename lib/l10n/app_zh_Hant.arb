@@ -4471,5 +4471,10 @@
   "hermesHiddenChatsTitle": "已隱藏的聊天",
   "hermesHiddenChatsDescription": "在此裝置上從 Hermes 列表中隱藏的聊天。輕點即可開啟，取消隱藏即可讓它重新出現在列表中。",
   "hermesHiddenChatsEmpty": "沒有已隱藏的聊天。",
-  "hermesHiddenChatsLoadError": "無法載入已隱藏的聊天。"
+  "hermesHiddenChatsLoadError": "無法載入已隱藏的聊天。",
+  "hermesBranchFromHere": "從此處分支",
+  "hermesBranchFailed": "無法為此聊天建立分支。請再試一次。",
+  "hermesUndoLastTurn": "復原上一輪對話",
+  "hermesUndoLastTurnDone": "已復原上一輪對話。",
+  "hermesUndoLastTurnFailed": "無法復原上一輪對話。請再試一次。"
 }

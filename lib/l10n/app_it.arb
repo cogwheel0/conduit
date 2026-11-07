@@ -4471,5 +4471,10 @@
   "hermesHiddenChatsTitle": "Chat nascoste",
   "hermesHiddenChatsDescription": "Chat nascoste dall’elenco di Hermes su questo dispositivo. Toccane una per aprirla, oppure mostrala di nuovo per rivederla nell’elenco.",
   "hermesHiddenChatsEmpty": "Nessuna chat nascosta.",
-  "hermesHiddenChatsLoadError": "Impossibile caricare le chat nascoste."
+  "hermesHiddenChatsLoadError": "Impossibile caricare le chat nascoste.",
+  "hermesBranchFromHere": "Dirama da qui",
+  "hermesBranchFailed": "Impossibile diramare questa chat. Riprova.",
+  "hermesUndoLastTurn": "Annulla l’ultimo scambio",
+  "hermesUndoLastTurnDone": "Ultimo scambio annullato.",
+  "hermesUndoLastTurnFailed": "Impossibile annullare l’ultimo scambio. Riprova."
 }

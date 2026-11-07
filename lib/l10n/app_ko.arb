@@ -4243,5 +4243,10 @@
   "hermesHiddenChatsTitle": "숨긴 채팅",
   "hermesHiddenChatsDescription": "이 기기에서 Hermes 목록에서 숨긴 채팅입니다. 탭하여 열거나 숨기기를 해제해 목록에 다시 표시하세요.",
   "hermesHiddenChatsEmpty": "숨긴 채팅이 없습니다.",
-  "hermesHiddenChatsLoadError": "숨긴 채팅을 불러올 수 없습니다."
+  "hermesHiddenChatsLoadError": "숨긴 채팅을 불러올 수 없습니다.",
+  "hermesBranchFromHere": "여기서 분기",
+  "hermesBranchFailed": "이 채팅을 분기할 수 없습니다. 다시 시도하세요.",
+  "hermesUndoLastTurn": "마지막 대화 취소",
+  "hermesUndoLastTurnDone": "마지막 대화를 취소했습니다.",
+  "hermesUndoLastTurnFailed": "마지막 대화를 취소할 수 없습니다. 다시 시도하세요."
 }

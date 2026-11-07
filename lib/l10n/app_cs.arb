@@ -6394,5 +6394,10 @@
   "hermesHiddenChatsTitle": "Skryté chaty",
   "hermesHiddenChatsDescription": "Chaty skryté v seznamu Hermes na tomto zařízení. Klepnutím chat otevřete, nebo ho zobrazte, aby se v seznamu znovu objevil.",
   "hermesHiddenChatsEmpty": "Žádné skryté chaty.",
-  "hermesHiddenChatsLoadError": "Skryté chaty se nepodařilo načíst."
+  "hermesHiddenChatsLoadError": "Skryté chaty se nepodařilo načíst.",
+  "hermesBranchFromHere": "Větvit odsud",
+  "hermesBranchFailed": "Z tohoto chatu se nepodařilo vytvořit větev. Zkuste to znovu.",
+  "hermesUndoLastTurn": "Vrátit poslední výměnu",
+  "hermesUndoLastTurnDone": "Poslední výměna byla vrácena.",
+  "hermesUndoLastTurnFailed": "Poslední výměnu se nepodařilo vrátit. Zkuste to znovu."
 }

@@ -31,6 +31,8 @@ import 'package:conduit_core/features/hermes/services/hermes_dashboard_bridge.da
 import 'package:conduit_core/features/hermes/services/hermes_dashboard_access.dart';
 import 'package:conduit_core/features/hermes/services/hermes_desktop_transport.dart';
 import 'package:conduit_core/features/hermes/services/hermes_identifier.dart';
+import 'package:conduit_core/features/hermes/services/hermes_history_edit.dart';
+import 'package:conduit_core/features/hermes/services/hermes_message_mapper.dart';
 import 'package:conduit_core/features/hermes/services/hermes_json_guard.dart';
 import 'package:conduit_core/features/hermes/services/hermes_pending_decision_store.dart';
 
@@ -470,6 +472,16 @@ final class HermesDesktopApiService
       _runtimeSessionIdsReferToSameBinding(left, right);
   @override
   Future<String> forkSession(String id) => _runtimeForkSession(id);
+
+  /// Branches session [id] from a message: the legacy wire keeps its first
+  /// [count] user and assistant rows with text, a session authority the
+  /// rows through [throughRowId]. Returns the branch's stored id.
+  Future<String> branchSession(String id, {int? count, int? throughRowId}) =>
+      _runtimeForkSession(id, count: count, throughRowId: throughRowId);
+
+  /// Drops session [id]'s last user turn and everything after it, on the
+  /// server. False when there was no turn to drop.
+  Future<bool> undoLastTurn(String id) => _runtimeUndoLastTurn(id);
 
   /// The text the gateway's speech-to-text heard in [audio]; empty when it
   /// heard none.

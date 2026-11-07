@@ -4471,5 +4471,10 @@
   "hermesHiddenChatsTitle": "Conversations masquées",
   "hermesHiddenChatsDescription": "Conversations masquées de la liste Hermes sur cet appareil. Touchez-en une pour l’ouvrir, ou affichez-la pour qu’elle revienne dans la liste.",
   "hermesHiddenChatsEmpty": "Aucune conversation masquée.",
-  "hermesHiddenChatsLoadError": "Impossible de charger les conversations masquées."
+  "hermesHiddenChatsLoadError": "Impossible de charger les conversations masquées.",
+  "hermesBranchFromHere": "Créer une branche ici",
+  "hermesBranchFailed": "Impossible de créer une branche de cette conversation. Réessayez.",
+  "hermesUndoLastTurn": "Annuler le dernier échange",
+  "hermesUndoLastTurnDone": "Dernier échange annulé.",
+  "hermesUndoLastTurnFailed": "Impossible d’annuler le dernier échange. Réessayez."
 }

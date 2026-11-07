@@ -1,5 +1,5 @@
-/// Chat page message actions: deleting a message group and re-sending an
-/// edited user message.
+/// Chat page message actions: deleting a message group, re-sending an
+/// edited user message, and undoing a Hermes chat's last turn.
 ///
 /// The page owns only the presentation (the confirmation dialog, the edit
 /// field and the error toast); the transcript, conversation and server
@@ -10,6 +10,11 @@ import 'package:conduit_core/features/chat/providers/chat_providers.dart';
 import 'package:conduit_core/features/chat/services/chat_transport_dispatch.dart';
 import 'package:conduit_core/features/chat/utils/file_utils.dart';
 import 'package:conduit_core/features/chat/utils/message_targeting.dart';
+import 'package:conduit_core/features/hermes/providers/hermes_providers.dart'
+    show hermesApiServiceProvider;
+import 'package:conduit_core/features/hermes/services/hermes_desktop_api_service.dart';
+import 'package:conduit_core/features/hermes/services/hermes_history_edit.dart';
+import 'package:conduit_core/features/hermes/services/hermes_message_mapper.dart';
 import 'package:conduit_core/features/hermes/services/hermes_session_provenance.dart';
 import 'package:conduit_core/features/tools/providers/tools_providers.dart';
 import 'package:conduit_core/models/chat_message.dart';
@@ -265,4 +270,68 @@ Future<bool> resendEditedUserMessage(
     recoverFailedChatSend(ref, error, pendingSend);
     rethrow;
   }
+}
+
+/// Undoes the last turn of the active Hermes Desktop Gateway chat: its last
+/// user message and everything after it leave the chat and the session's
+/// stored transcript, so other Hermes apps see the same history.
+///
+/// A last turn that never reached the session leaves only the chat. One the
+/// session holds but cannot be matched for certain, or one followed by turns
+/// the chat does not show, is refused rather than dropping the wrong turn.
+/// Returns false when there is nothing to undo here.
+Future<bool> undoLastHermesTurn(dynamic ref) async {
+  final active = ref.read(activeConversationProvider) as Conversation?;
+  final service = ref.read(hermesApiServiceProvider);
+  final sessionId = active?.metadata['hermesSessionId'];
+  if (!isNativeHermesConversation(active) ||
+      service is! HermesDesktopApiService ||
+      sessionId is! String) {
+    return false;
+  }
+  final scopedId = conversationScopedId(active!);
+  final messages = List<ChatMessage>.of(
+    ref.read(chatMessagesProvider) as List<ChatMessage>,
+  );
+  final lastUser = messages.lastIndexWhere(
+    (message) => message.role == 'user',
+  );
+  if (lastUser < 0) return false;
+
+  final transcript = await service.getSessionMessages(sessionId);
+  final userRows = <int>[
+    for (var row = 0; row < transcript.length; row++)
+      if (hermesTranscriptUserContent(transcript[row]) != null) row,
+  ];
+  final row = hermesTranscriptUserRowIndex(
+    transcript: transcript,
+    messages: messages,
+    index: lastUser,
+  );
+  final ordinal = messages
+      .take(lastUser)
+      .where((message) => message.role == 'user')
+      .length;
+  if (row != null && userRows.isNotEmpty && row == userRows.last) {
+    await service.undoLastTurn(sessionId);
+  } else if (row != null || userRows.length > ordinal) {
+    throw StateError(
+      'The last turn could not be found in the Hermes chat. Reopen the chat '
+      'and try again.',
+    );
+  }
+
+  final current = ref.read(activeConversationProvider) as Conversation?;
+  if (current == null || !conversationMatchesScopedId(current, scopedId)) {
+    return true;
+  }
+  final kept = List<ChatMessage>.unmodifiable(messages.sublist(0, lastUser));
+  (ref.read(chatMessagesProvider.notifier) as ChatMessagesNotifier)
+      .setMessages(kept);
+  final updated = inheritNativeHermesConversationProvenance(
+    current,
+    current.copyWith(messages: kept, updatedAt: DateTime.now()),
+  );
+  ref.read(activeConversationProvider.notifier).set(updated);
+  return true;
 }

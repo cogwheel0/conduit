@@ -4,7 +4,11 @@ import 'dart:typed_data';
 
 import 'package:checks/checks.dart';
 import 'package:conduit_core/features/chat/providers/chat_providers.dart'
-    show hermesDesktopRewindTarget;
+    show ChatMessagesNotifier, chatMessagesProvider, hermesDesktopRewindTarget;
+import 'package:conduit_core/features/chat/services/chat_message_actions.dart'
+    show undoLastHermesTurn;
+import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
+import 'package:conduit_core/features/hermes/services/hermes_api_service.dart';
 import 'package:conduit_core/features/hermes/models/hermes_chat_input.dart';
 import 'package:conduit_core/features/hermes/models/hermes_config.dart';
 import 'package:conduit_core/features/hermes/models/hermes_run_event.dart';
@@ -17,8 +21,10 @@ import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/persistence/preferences_store.dart';
 import 'package:conduit_core/ports/key_value_store.dart';
+import 'package:conduit_core/providers/app_providers.dart';
 import 'package:dio/dio.dart';
 import 'package:mocktail/mocktail.dart';
+import 'package:riverpod/riverpod.dart';
 import 'package:test/test.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
@@ -101,9 +107,10 @@ final class _Gateway {
   Object? _answer(String method, Map<String, dynamic> params) {
     switch (method) {
       case 'session.resume':
+        final stored = params['session_id'] ?? 'stored-1';
         return {
-          'session_id': 'rt-1',
-          'stored_session_id': 'stored-1',
+          'session_id': stored == 'stored-1' ? 'rt-1' : 'rt-$stored',
+          'stored_session_id': stored,
           'running': false,
           if (authority) ...{
             'revision': 5,
@@ -115,7 +122,20 @@ final class _Gateway {
       case 'prompt.submit':
         return authority ? {'admission_id': 'adm-1'} : {'status': 'streaming'};
       case 'session.mutate':
-        return {'revision': 6, 'rewound_count': 2};
+        return {
+          'revision': 6,
+          'rewound_count': 2,
+          if (params['operation'] == 'branch')
+            'branched_session_id': 'stored-2',
+        };
+      case 'session.branch':
+        return {
+          'session_id': 'rt-2',
+          'stored_session_id': 'stored-2',
+          'title': 'Synthetic picnic (branch)',
+        };
+      case 'session.undo':
+        return {'removed': 2};
       case 'config.get':
         return {'value': 'medium'};
     }
@@ -254,6 +274,95 @@ final _chat = [
   _message('u2', 'user', 'And drinks?'),
   _message('a2', 'assistant', 'Lemonade.'),
 ];
+
+class _SeededConversation extends ActiveConversationNotifier {
+  _SeededConversation(this.initial);
+
+  final Conversation initial;
+
+  @override
+  Conversation? build() => initial;
+}
+
+class _SeededMessages extends ChatMessagesNotifier {
+  _SeededMessages(this.initial);
+
+  final List<ChatMessage> initial;
+
+  @override
+  List<ChatMessage> build() => initial;
+
+  @override
+  void setMessages(List<ChatMessage> messages) {
+    state = List<ChatMessage>.from(messages);
+  }
+}
+
+/// An API server holding [_transcript] that records the sessions it makes.
+class _RestTranscript extends HermesApiService {
+  _RestTranscript()
+    : super(
+        config: const HermesConfig(
+          enabled: true,
+          baseUrl: 'https://hermes.example',
+          apiKey: 'synthetic-key',
+        ),
+      );
+
+  final created = <String?>[];
+  int forks = 0;
+
+  @override
+  Future<List<Map<String, dynamic>>> getSessionMessages(
+    String id, {
+    CancelToken? cancelToken,
+  }) async => [for (final row in _transcript) Map<String, dynamic>.from(row)];
+
+  @override
+  Future<String> createSession({
+    String? title,
+    CancelToken? cancelToken,
+  }) async {
+    created.add(title);
+    return 'api_copy';
+  }
+
+  @override
+  Future<String> forkSession(String id) async {
+    forks++;
+    return 'api_fork';
+  }
+
+  @override
+  Future<List<Map<String, dynamic>>> listSessions() async => const [];
+}
+
+final _picnic = markNativeHermesConversation(
+  Conversation(
+    id: 'local:hermes_stored-1',
+    title: 'Synthetic picnic',
+    createdAt: DateTime(2026, 11, 7),
+    updatedAt: DateTime(2026, 11, 7),
+    metadata: const {'backend': 'hermes', 'hermesSessionId': 'stored-1'},
+  ),
+);
+
+ProviderContainer _chatContainer(
+  HermesBackendService service,
+  List<ChatMessage> messages,
+) {
+  final container = ProviderContainer(
+    overrides: [
+      hermesApiServiceProvider.overrideWithValue(service),
+      activeConversationProvider.overrideWith(
+        () => _SeededConversation(_picnic),
+      ),
+      chatMessagesProvider.overrideWith(() => _SeededMessages(messages)),
+    ],
+  );
+  addTearDown(container.dispose);
+  return container;
+}
 
 void main() {
   setUp(() => PreferencesStore.debugOverride(InMemoryKeyValueStore()));
@@ -526,6 +635,182 @@ void main() {
           replayedUserIndex: 2,
         ),
       ).isNull();
+    });
+  });
+
+  group('a branch from a reply', () {
+    final transcript = [
+      for (final row in _transcript) Map<String, dynamic>.from(row),
+    ];
+
+    test('keeps the whole turn the reply belongs to', () {
+      final first = hermesBranchCut(
+        transcript: transcript,
+        messages: _chat,
+        index: 1,
+      );
+      // Rows 11-14: the prompt, the tool call and its result, the answer.
+      check(first).isNotNull()
+        ..has((cut) => cut.end, 'end').equals(4)
+        ..has((cut) => cut.throughRowId, 'throughRowId').equals(14)
+        // A legacy branch counts only user and assistant rows with text.
+        ..has((cut) => cut.visibleCount, 'visibleCount').equals(2);
+      final last = hermesBranchCut(
+        transcript: transcript,
+        messages: _chat,
+        index: 3,
+      );
+      check(last).isNotNull()
+        ..has((cut) => cut.end, 'end').equals(6)
+        ..has((cut) => cut.throughRowId, 'throughRowId').equals(16)
+        ..has((cut) => cut.visibleCount, 'visibleCount').equals(4);
+    });
+
+    test('is counted on the legacy wire', () async {
+      final gateway = _Gateway();
+      final service = _service(gateway, _Rest(_transcript));
+
+      final branch = await service.branchSession(
+        'stored-1',
+        count: 2,
+        throughRowId: 14,
+      );
+
+      check(branch).equals('stored-2');
+      final params = gateway.calls('session.branch').single;
+      check(params['count']).equals(2);
+      // The legacy contract refuses keys it does not know.
+      check(params.containsKey('through_message_id')).isFalse();
+    });
+
+    test('ends at a row on the canonical wire', () async {
+      final gateway = _Gateway(authority: true);
+      final service = _service(gateway, _Rest(_transcript));
+
+      final branch = await service.branchSession(
+        'stored-1',
+        count: 2,
+        throughRowId: 14,
+      );
+
+      check(branch).equals('stored-2');
+      final edit = gateway.calls('session.mutate').single;
+      check(edit['operation']).equals('branch');
+      check(edit['payload'] as Map).deepEquals({'through_message_id': 14});
+    });
+
+    test('a Desktop chat branches on its server', () async {
+      final gateway = _Gateway();
+      final service = _service(gateway, _Rest(_transcript));
+      final container = _chatContainer(service, _chat);
+
+      final branch = await container
+          .read(hermesSessionsProvider.notifier)
+          .branchFromMessage(
+            sessionId: 'stored-1',
+            title: 'Synthetic picnic',
+            messages: _chat,
+            index: 1,
+          );
+
+      check(branch).isNotNull()
+        ..has((b) => b.session.id, 'id').equals('stored-2')
+        ..has((b) => b.transcript, 'transcript').isNull();
+      check(gateway.calls('session.branch').single['count']).equals(2);
+    });
+
+    test('an API server chat opens a new session with the transcript '
+        'through the reply, not a fork', () async {
+      final service = _RestTranscript();
+      final container = _chatContainer(service, _chat);
+
+      final branch = await container
+          .read(hermesSessionsProvider.notifier)
+          .branchFromMessage(
+            sessionId: 'stored-1',
+            title: 'Synthetic picnic',
+            messages: _chat,
+            index: 1,
+          );
+
+      check(branch).isNotNull()
+        ..has((b) => b.session.id, 'id').equals('api_copy')
+        ..has((b) => b.session.title, 'title').equals('Synthetic picnic');
+      check(
+        branch!.transcript!.map((row) => row['id']),
+      ).deepEquals([11, 12, 13, 14]);
+      // Untitled: Hermes refuses a second session with the same title.
+      check(service.created).deepEquals([null]);
+      check(service.forks).equals(0);
+    });
+  });
+
+  group('undoing the last turn', () {
+    test('is a session undo on the legacy wire', () async {
+      final gateway = _Gateway();
+      final service = _service(gateway, _Rest(_transcript));
+
+      check(await service.undoLastTurn('stored-1')).isTrue();
+      check(gateway.calls('session.undo').single['session_id']).equals('rt-1');
+    });
+
+    test('rewinds to the last prompt on the canonical wire', () async {
+      final gateway = _Gateway(authority: true);
+      final service = _service(gateway, _Rest(_transcript));
+
+      check(await service.undoLastTurn('stored-1')).isTrue();
+      final edit = gateway.calls('session.mutate').single;
+      check(edit['operation']).equals('rewind');
+      check(edit['payload'] as Map).deepEquals({'target_message_id': 15});
+      check(gateway.calls('session.undo')).isEmpty();
+    });
+
+    test('drops the turn from the chat and the session', () async {
+      final gateway = _Gateway();
+      final service = _service(gateway, _Rest(_transcript));
+      final container = _chatContainer(service, _chat);
+
+      check(await undoLastHermesTurn(container)).isTrue();
+
+      check(gateway.calls('session.undo')).length.equals(1);
+      check(
+        container.read(chatMessagesProvider).map((message) => message.id),
+      ).deepEquals(['u1', 'a1']);
+      check(
+        container.read(activeConversationProvider)!.messages.length,
+      ).equals(2);
+    });
+
+    test('a last turn that never reached the session leaves only the '
+        'chat', () async {
+      final gateway = _Gateway();
+      final service = _service(gateway, _Rest(_transcript));
+      final container = _chatContainer(service, [
+        ..._chat,
+        _message('u3', 'user', 'Lost on the way'),
+        _message('a3', 'assistant', ''),
+      ]);
+
+      check(await undoLastHermesTurn(container)).isTrue();
+
+      check(gateway.calls('session.undo')).isEmpty();
+      check(
+        container.read(chatMessagesProvider).map((message) => message.id),
+      ).deepEquals(['u1', 'a1', 'u2', 'a2']);
+    });
+
+    test('a last turn the chat cannot match is not undone', () async {
+      final gateway = _Gateway();
+      final service = _service(gateway, _Rest(_transcript));
+      final container = _chatContainer(service, [
+        ..._chat.take(2),
+        _message('u2', 'user', 'Not what the session holds'),
+        _message('a2', 'assistant', 'Lemonade.'),
+      ]);
+
+      await check(undoLastHermesTurn(container)).throws<StateError>();
+      check(gateway.calls('session.undo')).isEmpty();
+      check(container.read(chatMessagesProvider)).length.equals(4);
     });
   });
 }

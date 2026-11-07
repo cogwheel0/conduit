@@ -8391,5 +8391,25 @@
   "hermesHiddenChatsLoadError": "Nie można wczytać ukrytych czatów.",
   "@hermesHiddenChatsLoadError": {
     "description": "Error shown when the hidden Hermes chats cannot be loaded."
+  },
+  "hermesBranchFromHere": "Rozgałęź od tego miejsca",
+  "@hermesBranchFromHere": {
+    "description": "Hermes reply menu action that opens a new chat continuing the conversation up to this reply."
+  },
+  "hermesBranchFailed": "Nie można rozgałęzić tego czatu. Spróbuj ponownie.",
+  "@hermesBranchFailed": {
+    "description": "Error shown when branching a Hermes chat from a reply fails."
+  },
+  "hermesUndoLastTurn": "Cofnij ostatnią wymianę",
+  "@hermesUndoLastTurn": {
+    "description": "Hermes reply menu action that removes the last message and its reply from the chat and from the Hermes server."
+  },
+  "hermesUndoLastTurnDone": "Cofnięto ostatnią wymianę.",
+  "@hermesUndoLastTurnDone": {
+    "description": "Confirmation shown after the last turn of a Hermes chat is undone."
+  },
+  "hermesUndoLastTurnFailed": "Nie można cofnąć ostatniej wymiany. Spróbuj ponownie.",
+  "@hermesUndoLastTurnFailed": {
+    "description": "Error shown when undoing the last turn of a Hermes chat fails."
   }
 }
