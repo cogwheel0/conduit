@@ -10,6 +10,10 @@
     <string name="widget_photos">Photos</string>
     <string name="widget_clipboard">Clipboard</string>
     <string name="widget_mic">Voice</string>
+
+    <!-- Quick Settings tiles -->
+    <string name="tile_ask">Ask Conduit</string>
+    <string name="tile_voice">Voice</string>
 </resources>
 
 
