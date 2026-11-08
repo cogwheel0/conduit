@@ -118,7 +118,7 @@ class NoteBottomToolbar extends StatelessWidget {
             AdaptivePopupMenuItem<NoteToolbarAction>(
               value: NoteToolbarAction.copy,
               label: l10n.copy,
-              icon: 'doc.on.clipboard',
+              icon: 'square.on.square',
             ),
             AdaptivePopupMenuItem<NoteToolbarAction>(
               value: NoteToolbarAction.togglePin,

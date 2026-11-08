@@ -1973,7 +1973,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
         value: 'copy',
         label: l10n.copy,
         icon: conduitAdaptivePopupMenuIcon(
-          iosSymbol: 'doc.on.doc',
+          iosSymbol: 'square.on.square',
           materialIcon: Icons.copy_outlined,
         ),
       ),

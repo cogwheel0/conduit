@@ -433,7 +433,7 @@ class _OpenWebUiTwoStepFormState extends ConsumerState<OpenWebUiTwoStepForm> {
             ),
             ConduitIconButton(
               icon: context.usesCupertinoChrome
-                  ? CupertinoIcons.doc_on_doc
+                  ? CupertinoIcons.square_on_square
                   : Icons.copy_rounded,
               iconColor: theme.iconSecondary,
               tooltip: l10n.twoStepCopySetupKey,

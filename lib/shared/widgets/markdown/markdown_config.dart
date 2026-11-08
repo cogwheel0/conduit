@@ -18,6 +18,7 @@ import 'package:mermaid_flutter/mermaid_flutter.dart' as mermaid_flutter;
 
 import 'package:conduit/l10n/app_localizations.dart';
 
+import '../chat_action_button.dart' show NativeSymbolGlyph;
 import '../web_content_embed.dart';
 import '../webview_content_height.dart';
 import '../horizontal_gesture_ownership.dart';
@@ -1813,6 +1814,16 @@ class CodeBlockHeader extends StatefulWidget {
   /// Header height, matching a compact iOS toolbar row.
   static const double height = 36;
 
+  /// Copy's glyph: the same two squares as the reply actions' Copy, so the
+  /// action reads the same wherever it appears.
+  static const String copySymbol = 'square.on.square';
+
+  /// Point size of the native copy and copied glyphs: the squares ink about
+  /// 14 pt across, no taller than the glyph they replace and in step with
+  /// the 13 pt label and the wrap glyph. The reply row draws the same symbol
+  /// at 16 pt, in proportion to its larger glyphs.
+  static const double copyGlyphSize = 14;
+
   final String language;
   final Color backgroundColor;
   final Color borderColor;
@@ -1880,7 +1891,25 @@ class _CodeBlockHeaderState extends State<CodeBlockHeader> {
 
     final copyIcon = _isCopied
         ? (cupertino ? CupertinoIcons.checkmark_alt : Icons.check_rounded)
-        : (cupertino ? CupertinoIcons.doc_on_doc : Icons.content_copy_rounded);
+        : (cupertino
+              ? CupertinoIcons.square_on_square
+              : Icons.content_copy_rounded);
+    // On iOS the glyph is UIKit's own SF Symbol, drawn as the reply actions
+    // draw theirs.
+    final Widget copyGlyph = cupertino && NativeSymbolGlyph.isAvailable
+        ? NativeSymbolGlyph(
+            key: ValueKey(_isCopied),
+            symbol: _isCopied ? 'checkmark' : CodeBlockHeader.copySymbol,
+            fallbackIcon: copyIcon,
+            pointSize: CodeBlockHeader.copyGlyphSize,
+            color: secondary,
+          )
+        : Icon(
+            copyIcon,
+            key: ValueKey(_isCopied),
+            size: IconSize.sm,
+            color: secondary,
+          );
 
     return Container(
       height: CodeBlockHeader.height,
@@ -1975,12 +2004,7 @@ class _CodeBlockHeaderState extends State<CodeBlockHeader> {
                             child: child,
                           ),
                         ),
-                        child: Icon(
-                          copyIcon,
-                          key: ValueKey(_isCopied),
-                          size: IconSize.sm,
-                          color: secondary,
-                        ),
+                        child: copyGlyph,
                       ),
                     ],
                   ),

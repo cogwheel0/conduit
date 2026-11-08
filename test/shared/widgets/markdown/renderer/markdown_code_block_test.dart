@@ -56,7 +56,8 @@ void main() {
     final copiedLabel = AppLocalizations.of(context)!.codeCopied;
 
     // The fenced block's trailing newline is not part of the copied code.
-    await tester.tap(find.byIcon(CupertinoIcons.doc_on_doc));
+    // The same two squares as the reply actions' Copy.
+    await tester.tap(find.byIcon(CupertinoIcons.square_on_square));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 300));
     expect(copied.single, sample);
@@ -68,7 +69,7 @@ void main() {
     await tester.pump(CodeBlockHeader.copiedConfirmationDuration);
     await tester.pumpAndSettle();
     expect(find.text(copiedLabel), findsNothing);
-    expect(find.byIcon(CupertinoIcons.doc_on_doc), findsOneWidget);
+    expect(find.byIcon(CupertinoIcons.square_on_square), findsOneWidget);
     await tester.pumpWidget(const SizedBox());
   }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
 

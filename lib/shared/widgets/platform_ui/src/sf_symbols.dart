@@ -56,7 +56,9 @@ final Map<IconData, String> _symbols = {
   CupertinoIcons.share: 'square.and.arrow.up',
   Icons.share: 'square.and.arrow.up',
   CupertinoIcons.doc_on_doc: 'document.on.document',
-  Icons.copy: 'document.on.document',
+  // Copy is the same two squares everywhere, as in the reply actions.
+  CupertinoIcons.square_on_square: 'square.on.square',
+  Icons.copy: 'square.on.square',
   CupertinoIcons.ellipsis: 'ellipsis',
   Icons.more_horiz: 'ellipsis',
   Icons.more_vert: 'ellipsis',
