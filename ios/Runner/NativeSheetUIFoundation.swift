@@ -229,16 +229,19 @@ func nativeWhenModalChainIdle(
     }
 }
 
+/// The system segmented control: a raised pill in the surface colour on a
+/// recessed track, as everywhere else in iOS. Only the titles take the
+/// palette's ink, so a custom palette still reads.
 func applyNativeSheetSegmentedControlTheme(_ control: UISegmentedControl) {
     let theme = NativeSheetTheme.shared
-    control.backgroundColor = theme.elevatedSurface
-    control.selectedSegmentTintColor = theme.accent
+    control.backgroundColor = nil
+    control.selectedSegmentTintColor = nil
     control.setTitleTextAttributes(
         [.foregroundColor: theme.foreground],
         for: .normal
     )
     control.setTitleTextAttributes(
-        [.foregroundColor: theme.onAccent],
+        [.foregroundColor: theme.foreground],
         for: .selected
     )
     control.setTitleTextAttributes(
@@ -255,6 +258,12 @@ func applyNativeSheetSegmentedControlTheme(_ control: UISegmentedControl) {
 enum NativeSheetSettingsStyle {
     static let defaultCellHeight: CGFloat = 48
     static let iconSize: CGFloat = 24
+    /// The column every settings row's symbol is centred in, as wide as the
+    /// icon tiles of the Settings app, so titles start on one line however
+    /// wide or narrow a symbol is.
+    static let iconColumnWidth: CGFloat = 29
+    /// One size and weight for every settings symbol.
+    static let symbolPointSize: CGFloat = 19
     static let iconSpacing: CGFloat = 12
     static var secondaryForeground: UIColor {
         NativeSheetTheme.shared.secondaryForeground
@@ -282,7 +291,7 @@ enum NativeSheetSettingsStyle {
             trailing: horizontalMargin
         )
         if #available(iOS 15.0, *) {
-            tableView.sectionHeaderTopPadding = 12
+            tableView.sectionHeaderTopPadding = 0
         }
     }
 
@@ -294,8 +303,21 @@ enum NativeSheetSettingsStyle {
         content.secondaryTextProperties.color = secondaryForeground
         content.secondaryTextProperties.numberOfLines = 2
         content.imageProperties.preferredSymbolConfiguration = UIImage.SymbolConfiguration(
-            pointSize: iconSize,
-            weight: .regular
+            pointSize: symbolPointSize,
+            weight: .regular,
+            scale: .medium
+        )
+        // Only the width is reserved, so rows keep the height their text
+        // gives them.
+        content.imageProperties.reservedLayoutSize = CGSize(
+            width: iconColumnWidth,
+            height: 0
+        )
+        // A symbol wider than the column shrinks into it instead of pushing
+        // its title out of line.
+        content.imageProperties.maximumSize = CGSize(
+            width: iconColumnWidth,
+            height: iconColumnWidth
         )
         content.imageProperties.tintColor = iconForeground
         content.imageToTextPadding = iconSpacing

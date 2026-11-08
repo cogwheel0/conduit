@@ -2517,6 +2517,52 @@ private func nativeInitialsAvatarUIImage(name: String, diameter: CGFloat = 250) 
     }
 }
 
+/// [initials] on a neutral grey disc, as iOS draws a contact without a
+/// photo and as the sidebar's profile button does: grey in both appearances,
+/// never a hue. For display only; an avatar saved to the server is drawn by
+/// `nativeInitialsAvatarUIImage`, which Open WebUI's own clients match.
+func nativeMonogramUIImage(initials: String, diameter: CGFloat) -> UIImage {
+    let isDark = NativeSheetTheme.shared.isDark
+    let top = isDark
+        ? UIColor(red: 0x85 / 255, green: 0x85 / 255, blue: 0x8B / 255, alpha: 1)
+        : UIColor(red: 0xAD / 255, green: 0xAD / 255, blue: 0xB3 / 255, alpha: 1)
+    let bottom = isDark
+        ? UIColor(red: 0x63 / 255, green: 0x63 / 255, blue: 0x68 / 255, alpha: 1)
+        : UIColor(red: 0x8E / 255, green: 0x8E / 255, blue: 0x93 / 255, alpha: 1)
+    let size = CGSize(width: diameter, height: diameter)
+    return UIGraphicsImageRenderer(size: size).image { ctx in
+        let rect = CGRect(origin: .zero, size: size)
+        ctx.cgContext.addEllipse(in: rect)
+        ctx.cgContext.clip()
+        if let gradient = CGGradient(
+            colorsSpace: CGColorSpaceCreateDeviceRGB(),
+            colors: [top.cgColor, bottom.cgColor] as CFArray,
+            locations: [0, 1]
+        ) {
+            ctx.cgContext.drawLinearGradient(
+                gradient,
+                start: CGPoint(x: rect.midX, y: rect.minY),
+                end: CGPoint(x: rect.midX, y: rect.maxY),
+                options: []
+            )
+        }
+        let attrs: [NSAttributedString.Key: Any] = [
+            .font: UIFont.systemFont(ofSize: diameter * 0.4, weight: .semibold),
+            .foregroundColor: UIColor.white,
+            .kern: diameter * 0.01,
+        ]
+        let text = NSString(string: initials)
+        let bounds = text.size(withAttributes: attrs)
+        text.draw(
+            at: CGPoint(
+                x: (diameter - bounds.width) / 2,
+                y: (diameter - bounds.height) / 2
+            ),
+            withAttributes: attrs
+        )
+    }
+}
+
 private func nativeInitialsAvatarDataUrl(name: String, diameter: CGFloat = 250) -> String? {
     guard let image = nativeInitialsAvatarUIImage(name: name, diameter: diameter) else { return nil }
     guard let data = image.pngData() else { return nil }
@@ -3699,8 +3745,8 @@ private final class NativeSheetDropdownTableViewCell: UITableViewCell {
             rootStack.trailingAnchor.constraint(equalTo: contentView.layoutMarginsGuide.trailingAnchor),
             rootStack.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 11),
             rootStack.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -11),
-            iconView.widthAnchor.constraint(equalToConstant: NativeSheetSettingsStyle.iconSize),
-            iconView.heightAnchor.constraint(equalToConstant: NativeSheetSettingsStyle.iconSize),
+            iconView.widthAnchor.constraint(equalToConstant: NativeSheetSettingsStyle.iconColumnWidth),
+            iconView.heightAnchor.constraint(equalToConstant: NativeSheetSettingsStyle.iconColumnWidth),
             button.heightAnchor.constraint(greaterThanOrEqualToConstant: 36),
         ])
     }
@@ -3720,10 +3766,12 @@ private final class NativeSheetDropdownTableViewCell: UITableViewCell {
         titleLabel.text = item.title
         subtitleLabel.text = item.subtitle
         subtitleLabel.isHidden = item.subtitle?.isEmpty ?? true
+        iconView.contentMode = .center
         iconView.image = UIImage(systemName: item.sfSymbol)?.withConfiguration(
             UIImage.SymbolConfiguration(
-                pointSize: NativeSheetSettingsStyle.iconSize,
-                weight: .regular
+                pointSize: NativeSheetSettingsStyle.symbolPointSize,
+                weight: .regular,
+                scale: .medium
             )
         )
 
@@ -4567,6 +4615,7 @@ private final class NativeDetailTableViewController: UITableViewController {
     }
 
     func applyUpdatedDetail(_ newDetail: NativeSheetDetail) {
+        let previousSectionCount = tableSections.count
         detail = newDetail
         pendingTextValues.removeAll()
         committedTextValues.removeAll()
@@ -4574,7 +4623,22 @@ private final class NativeDetailTableViewController: UITableViewController {
         navigationItem.title = newDetail.title
         refreshNavigationAction()
         tableView.setEditing(tableSections.contains { $0.reorderActionId != nil }, animated: false)
-        tableView.reloadData()
+        // Groups that come or go with a switch (Notifications' options, say)
+        // fade in and out rather than popping. A cross-fade moves nothing,
+        // so it suits Reduce Motion as well.
+        guard isViewLoaded,
+              view.window != nil,
+              previousSectionCount != tableSections.count
+        else {
+            tableView.reloadData()
+            return
+        }
+        UIView.transition(
+            with: tableView,
+            duration: 0.25,
+            options: [.transitionCrossDissolve, .allowUserInteraction],
+            animations: { self.tableView.reloadData() }
+        )
     }
 
     override func viewWillAppear(_ animated: Bool) {
@@ -4690,6 +4754,14 @@ private final class NativeDetailTableViewController: UITableViewController {
     override func tableView(
         _ tableView: UITableView,
         willDisplayFooterView view: UIView,
+        forSection section: Int
+    ) {
+        NativeSheetSettingsStyle.applyHeaderFooterStyle(view)
+    }
+
+    override func tableView(
+        _ tableView: UITableView,
+        willDisplayHeaderView view: UIView,
         forSection section: Int
     ) {
         NativeSheetSettingsStyle.applyHeaderFooterStyle(view)
@@ -7149,9 +7221,20 @@ private func configureNavigationCell(
     item: NativeSheetItem,
     showsDisclosure: Bool = true
 ) {
-    var content = cell.defaultContentConfiguration()
+    // A picker shows what is chosen on the right, as Settings does
+    // ("Language   English >"), and drops below the title only when the two
+    // do not fit side by side.
+    // A read-only fact ("Version   4.3.0") reads the same way. A person or
+    // a checked choice keeps its detail under its name.
+    let isFact = item.kind == "info" && !showsDisclosure && !item.checked
+        && item.avatarName == nil && item.avatarData == nil
+    let showsValue = item.kind == "searchablePicker"
+        || (isFact && nativeRowValueFits(item.subtitle))
+    var content = showsValue
+        ? UIListContentConfiguration.valueCell()
+        : cell.defaultContentConfiguration()
     content.text = item.title
-    content.secondaryText = item.kind == "searchablePicker"
+    content.secondaryText = showsValue
         ? (item.selectedOptionLabel ?? item.subtitle)
         : item.subtitle
     let avatar = nativeRowAvatarImage(for: item)
@@ -7191,7 +7274,16 @@ private func configureNavigationCell(
         content.imageProperties.tintColor = NativeSheetTheme.shared.accent
     }
     content.textProperties.font = .preferredFont(forTextStyle: .body)
-    if item.kind == "info" && !showsDisclosure {
+    if showsValue {
+        content.secondaryTextProperties.font = .preferredFont(forTextStyle: .body)
+        content.secondaryTextProperties.numberOfLines = 1
+        content.prefersSideBySideTextAndSecondaryText = true
+    }
+    if item.kind == "toggle" {
+        // A switch's explanation is never cut short.
+        content.secondaryTextProperties.numberOfLines = 0
+    }
+    if item.kind == "info" && !showsDisclosure && !showsValue {
         content.textProperties.numberOfLines = 0
         content.textProperties.lineBreakMode = .byWordWrapping
         content.secondaryTextProperties.numberOfLines = 0
@@ -7210,7 +7302,16 @@ private func configureNavigationCell(
     NativeSheetSettingsStyle.applyCellStyle(cell)
 }
 
-private let nativeRowAvatarDiameter: CGFloat = 32
+/// Whether [value] is short enough to sit on the right of its row, as a
+/// value does in Settings, rather than under the title.
+private func nativeRowValueFits(_ value: String?) -> Bool {
+    guard let value, !value.isEmpty else { return false }
+    return value.count <= 32 && !value.contains("\n")
+}
+
+/// A row's round picture fills the symbol column exactly, so its title lines
+/// up with the titles of the symbol rows around it.
+private let nativeRowAvatarDiameter: CGFloat = NativeSheetSettingsStyle.iconColumnWidth
 
 /// A row's round picture: its bytes, cut to a circle, else its name's
 /// initials; nil for a row that has neither.
@@ -7234,8 +7335,11 @@ private func nativeRowAvatarImage(for item: NativeSheetItem) -> UIImage? {
         }.withRenderingMode(.alwaysOriginal)
     }
     guard let name = item.avatarName else { return nil }
-    return nativeInitialsAvatarUIImage(name: name, diameter: nativeRowAvatarDiameter)?
-        .withRenderingMode(.alwaysOriginal)
+    let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+    return nativeMonogramUIImage(
+        initials: nativeExtractInitials(from: trimmed.isEmpty ? "User" : trimmed),
+        diameter: nativeRowAvatarDiameter
+    ).withRenderingMode(.alwaysOriginal)
 }
 
 /// VoiceOver otherwise leads with the SF Symbol's generated description
@@ -7276,7 +7380,14 @@ private final class NativeAvatarView: UIView {
 
         imageView.contentMode = .scaleAspectFill
         imageView.translatesAutoresizingMaskIntoConstraints = false
-        imageView.isHidden = true
+        // Until (unless) a photo loads, the initials sit on a grey disc, as
+        // a contact without a photo does; the card's own colour would leave
+        // them floating with no disc at all.
+        imageView.image = nativeMonogramUIImage(
+            initials: profile.initials,
+            diameter: diameter
+        )
+        initialsLabel.isHidden = true
         addSubview(imageView)
 
         NSLayoutConstraint.activate([
