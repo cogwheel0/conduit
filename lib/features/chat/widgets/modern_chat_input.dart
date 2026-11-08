@@ -4163,16 +4163,55 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     );
     return _wrapWithComposerLineMeasurement(
       compactControls: compactControls,
-      child: _wrapWithFallbackAttachmentPanel(
-        composer: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [const SpeechPlaybackBar(), composer],
+      child: _wrapWithNativePanelGapFill(
+        _wrapWithFallbackAttachmentPanel(
+          composer: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [const SpeechPlaybackBar(), composer],
+          ),
+          localAttachmentsOnly: isHermesComposer,
+          attachmentAvailability: attachmentAvailability,
         ),
-        localAttachmentsOnly: isHermesComposer,
-        attachmentAvailability: attachmentAvailability,
       ),
     );
   }
+
+  /// While the native attachment panel stands in for the keyboard, the page
+  /// behind the strip between the composer and the panel (and behind the
+  /// panel's rounded top corners) is filled, so the thread no longer peeks
+  /// through between the two and they read as one surface. The strip lies
+  /// outside the composer's bounds; the panel's own window covers the rest.
+  Widget _wrapWithNativePanelGapFill(Widget child) {
+    final visible =
+        !kIsWeb && Platform.isIOS && _isNativeAttachmentPanelVisible;
+    // The Stack stays in the tree either way: inserting it only while the
+    // panel shows would re-parent the composer and drop its field's state.
+    return Stack(
+      clipBehavior: Clip.none,
+      // The composer keeps exactly the constraints it had without the Stack.
+      fit: StackFit.passthrough,
+      children: [
+        Positioned(
+          left: 0,
+          right: 0,
+          bottom: -_nativePanelGapFillHeight,
+          height: _nativePanelGapFillHeight,
+          child: IgnorePointer(
+            child: visible
+                ? ColoredBox(
+                    key: const ValueKey('composer-native-panel-gap-fill'),
+                    color: Theme.of(context).scaffoldBackgroundColor,
+                  )
+                : const SizedBox.shrink(),
+          ),
+        ),
+        child,
+      ],
+    );
+  }
+
+  /// The composer's gap above the keyboard plus the panel's corner radius.
+  static const double _nativePanelGapFillHeight = Spacing.sm + 32;
 
   Widget _wrapWithComposerLineMeasurement({
     required Widget child,

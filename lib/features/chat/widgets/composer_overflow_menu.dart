@@ -7,9 +7,7 @@ import 'dart:io' show Platform;
 
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/conduit_components.dart';
-import '../../../shared/widgets/horizontal_gesture_ownership.dart';
 import '../../../shared/widgets/model_avatar.dart';
-import '../../../shared/widgets/horizontal_overflow_fade.dart';
 
 import 'package:conduit_core/models/toggle_filter.dart';
 import 'package:conduit_core/models/tool.dart';
@@ -494,27 +492,51 @@ class _ComposerAttachmentKeyboardState
           );
 
     final listItems = <Widget>[
-      SizedBox(
-        height: MediaQuery.textScalerOf(context).scale(_attachmentTileHeight),
-        child: HorizontalOverflowFade(
-          child: HorizontalScrollGestureBoundary(
-            child: ListView.separated(
-              key: const ValueKey('composer-attachment-action-strip'),
-              scrollDirection: Axis.horizontal,
-              physics: const BouncingScrollPhysics(),
-              padding: const EdgeInsets.symmetric(horizontal: Spacing.md),
-              itemCount: attachments.length,
-              separatorBuilder: (_, _) => const SizedBox(width: Spacing.sm),
-              // Tiles widen to fit longer localized labels.
-              itemBuilder: (_, index) => ConstrainedBox(
-                constraints: const BoxConstraints(
-                  minWidth: _attachmentTileWidth,
-                  maxWidth: _attachmentTileMaxWidth,
+      Padding(
+        padding: const EdgeInsets.symmetric(horizontal: Spacing.md),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            // The same grid as the native iOS panel: equal columns that all
+            // fit, balanced rows (3 + 2 rather than 4 + 1).
+            final rows = composerAttachmentGridRows(
+              count: attachments.length,
+              availableWidth: constraints.maxWidth,
+            );
+            final columns = rows.isEmpty ? 0 : rows.first;
+            final tileHeight = MediaQuery.textScalerOf(context)
+                .scale(_attachmentTileHeight);
+            var index = 0;
+            final rowWidgets = <Widget>[];
+            for (final count in rows) {
+              final tiles = attachments.sublist(index, index + count);
+              index += count;
+              rowWidgets.add(
+                IntrinsicHeight(
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(minHeight: tileHeight),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        for (var column = 0; column < columns; column++) ...[
+                          if (column > 0)
+                            const SizedBox(width: _attachmentTileSpacing),
+                          Expanded(
+                            child: column < tiles.length
+                                ? tiles[column]
+                                : const SizedBox.shrink(),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
                 ),
-                child: IntrinsicWidth(child: attachments[index]),
-              ),
-            ),
-          ),
+              );
+            }
+            return Column(
+              key: const ValueKey('composer-attachment-action-grid'),
+              children: withVerticalSpacing(rowWidgets, _attachmentTileSpacing),
+            );
+          },
         ),
       ),
       if (featureTiles.isNotEmpty) ...[
@@ -775,9 +797,8 @@ class _ComposerAttachmentKeyboardState
     }
   }
 
-  static const double _attachmentTileWidth = 78;
-  static const double _attachmentTileMaxWidth = 160;
-  static const double _attachmentTileHeight = 58;
+  static const double _attachmentTileHeight = 64;
+  static const double _attachmentTileSpacing = Spacing.sm;
 
   /// Attach tile: a filled rounded square holding its icon and
   /// label, so a row of them reads as one control group.
@@ -812,7 +833,10 @@ class _ComposerAttachmentKeyboardState
           child: InkWell(
             onTap: handleTap,
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: Spacing.sm),
+              padding: const EdgeInsets.symmetric(
+                horizontal: Spacing.xs,
+                vertical: Spacing.sm,
+              ),
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
@@ -822,9 +846,11 @@ class _ComposerAttachmentKeyboardState
                     size: IconSize.message,
                   ),
                   const SizedBox(height: Spacing.xxs),
+                  // A long localized name wraps instead of truncating, so
+                  // every tile can share one column width.
                   Text(
                     item.label,
-                    maxLines: 1,
+                    maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                     textAlign: TextAlign.center,
                     style: AppTypography.labelSmallStyle.copyWith(
@@ -926,4 +952,31 @@ class _ComposerAttachmentKeyboardState
       size: IconSize.message,
     );
   }
+}
+
+/// How many attachment tiles each row of the attach panel holds: every tile
+/// at least [minimumTileWidth] wide so none is cut off, and the rows balanced
+/// so five tiles that cannot share one row split three and two. Mirrors
+/// `attachmentGridRows` in the native iOS panel.
+@visibleForTesting
+List<int> composerAttachmentGridRows({
+  required int count,
+  required double availableWidth,
+  double spacing = Spacing.sm,
+  double minimumTileWidth = 62,
+}) {
+  if (count <= 0) return const <int>[];
+  final fitting = ((availableWidth + spacing) / (minimumTileWidth + spacing))
+      .floor();
+  final maxColumns = fitting < 1 ? 1 : fitting;
+  final rowCount = (count / maxColumns).ceil();
+  final columns = (count / rowCount).ceil();
+  final rows = <int>[];
+  var remaining = count;
+  while (remaining > 0) {
+    final take = remaining < columns ? remaining : columns;
+    rows.add(take);
+    remaining -= take;
+  }
+  return rows;
 }
