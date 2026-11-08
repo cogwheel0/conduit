@@ -812,17 +812,21 @@ double conduitToolbarClusterWidth(BuildContext context, int count) {
       conduitSystemControlScaleOf(context);
 }
 
+/// Clear space a centred bar title keeps from the controls beside it, so a
+/// title capsule never crowds the glass next to it.
+const double kConduitCenteredTitleClearance = 12;
+
 /// The widest a bar title may be while it stays centred on the screen.
 ///
 /// The title keeps the same gap to the screen's centre line on both sides,
 /// so it reserves the wider of the leading and trailing controls on each
-/// side, plus the standard gap between a title and a control.
+/// side, plus [gap] of clear space next to them.
 double resolveConduitCenteredTitleMaxWidth(
   BuildContext context, {
   required double leadingWidth,
   required double trailingWidth,
   required double maxWidth,
-  double gap = kConduitAdaptiveToolbarLeadingGap,
+  double gap = kConduitCenteredTitleClearance,
 }) {
   final side = math.max(leadingWidth, trailingWidth);
   final available =
@@ -1769,12 +1773,114 @@ final SpringDescription _kConduitTitleSpring =
 const double _kConduitTitledPillInset = 14;
 const double _kConduitTitledPillDrift = 7;
 const double _kConduitTitledPillTitleSize = 15;
+
+/// The smallest the title is set to fit a long name before it truncates.
+const double _kConduitTitledPillMinTitleSize = 13;
+const double _kConduitTitledPillTitleSizeStep = 0.5;
 const double _kConduitTitledPillSubtitleSize = 12;
 const double _kConduitTitledPillSubtitleChevron = 9;
 
+/// Apple's tracking for SF Pro Text at [fontSize] points: open below 12 pt,
+/// tightening as the text grows (the values iOS's text styles use).
+@visibleForTesting
+double conduitSystemTextTracking(double fontSize) {
+  const table = <(double, double)>[
+    (11, 0.06),
+    (12, 0),
+    (13, -0.08),
+    (14, -0.15),
+    (15, -0.23),
+    (16, -0.31),
+    (17, -0.43),
+    (20, -0.45),
+  ];
+  if (fontSize <= table.first.$1) return table.first.$2;
+  for (var i = 1; i < table.length; i++) {
+    final (size, tracking) = table[i];
+    if (fontSize <= size) {
+      final (previousSize, previousTracking) = table[i - 1];
+      final t = (fontSize - previousSize) / (size - previousSize);
+      return lerpDouble(previousTracking, tracking, t)!;
+    }
+  }
+  return table.last.$2;
+}
+
+/// Characters a title should not end on before an ellipsis.
+const String _kConduitTruncationTrailingMarks = ',;:-\u2013\u2014(/&\u00b7';
+
+/// [text] shortened to fit [maxWidth], as [measure] lays it out, with an
+/// ellipsis after the last whole word that fits ("Sourdough starter…"
+/// rather than "Sourdough starter s…").
+///
+/// Falls back to cutting between characters when there is no word break
+/// (a long single word, or a script written without spaces), or when the
+/// whole words would leave much less than a character cut keeps.
+@visibleForTesting
+String conduitTruncateAtWordBoundary(
+  String text, {
+  required double maxWidth,
+  required double Function(String text) measure,
+}) {
+  if (text.isEmpty || measure(text) <= maxWidth) return text;
+  const ellipsis = '\u2026';
+  final chars = text.characters.toList();
+  bool isSpace(String c) => c.trim().isEmpty;
+  String cut(int count) {
+    var prefix = chars.take(count).join().trimRight();
+    while (prefix.isNotEmpty &&
+        _kConduitTruncationTrailingMarks.contains(prefix.characters.last)) {
+      prefix = prefix.characters.skipLast(1).toString().trimRight();
+    }
+    return prefix.isEmpty ? '' : '$prefix$ellipsis';
+  }
+
+  // The longest of [ends] (ascending prefix lengths) whose cut fits.
+  String? longestFitting(List<int> ends) {
+    String? best;
+    var lo = 0;
+    var hi = ends.length - 1;
+    while (lo <= hi) {
+      final mid = (lo + hi) >> 1;
+      final candidate = cut(ends[mid]);
+      if (candidate.isNotEmpty && measure(candidate) <= maxWidth) {
+        best = candidate;
+        lo = mid + 1;
+      } else {
+        hi = mid - 1;
+      }
+    }
+    return best;
+  }
+
+  final wordEnds = <int>[
+    for (var i = 1; i < chars.length; i++)
+      if (isSpace(chars[i]) && !isSpace(chars[i - 1])) i,
+  ];
+  final byWord = longestFitting(wordEnds);
+  final byCharacter = longestFitting([
+    for (var i = 1; i < chars.length; i++) i,
+  ]);
+  if (byWord != null &&
+      (byCharacter == null || measure(byWord) >= 0.5 * measure(byCharacter))) {
+    return byWord;
+  }
+  return byCharacter ?? ellipsis;
+}
+
+/// The titled pill's title line at [size] points: semibold, with the system
+/// tracking for that size.
+TextStyle _titledPillTitleStyle(TextStyle base, double size) => base.copyWith(
+  fontSize: size,
+  fontWeight: FontWeight.w600,
+  letterSpacing: conduitSystemTextTracking(size),
+  height: 1.2,
+);
+
 /// Bar titles stop growing with Dynamic Type well before body text does, as
-/// UIKit's inline navigation titles do, so two lines still fit the pill.
-const double _kConduitTitledPillMaxTextScale = 1.3;
+/// UIKit's inline navigation titles do, so two lines still fit the pill and
+/// a centred pill at large sizes still has room for whole words.
+const double _kConduitTitledPillMaxTextScale = 1.2;
 
 class _ConduitTitledModelSelectorState
     extends State<_ConduitTitledModelSelector>
@@ -1852,6 +1958,81 @@ class _ConduitTitledModelSelectorState
     return width;
   }
 
+  ({String text, double size, double width})? _fittedTitle;
+  Object? _fittedTitleKey;
+
+  /// The title as the pill sets it within [available]: at 15 pt when it
+  /// fits; else as large as lets the whole title fit, down to 13 pt; and
+  /// when no size does, cut after its last whole word that fits, at the
+  /// size that keeps the most of it (the larger on a tie).
+  ({String text, double size, double width}) _fitTitle(
+    String title,
+    TextStyle baseStyle,
+    TextScaler scaler,
+    bool boldText,
+    double available,
+  ) {
+    final key = (title, baseStyle, scaler, boldText, available);
+    if (_fittedTitle case final fitted? when _fittedTitleKey == key) {
+      return fitted;
+    }
+    TextStyle styleAt(double size) {
+      final style = _titledPillTitleStyle(baseStyle, size);
+      return boldText ? style.copyWith(fontWeight: FontWeight.w700) : style;
+    }
+
+    final sizes = <double>[
+      for (
+        var size = _kConduitTitledPillTitleSize;
+        size >= _kConduitTitledPillMinTitleSize - 1e-6;
+        size -= _kConduitTitledPillTitleSizeStep
+      )
+        size,
+    ];
+    ({String text, double size, double width})? fitted;
+    for (final size in sizes) {
+      final width = _textWidth(title, styleAt(size), scaler);
+      if (width <= available) {
+        fitted = (text: title, size: size, width: width);
+        break;
+      }
+    }
+    if (fitted == null) {
+      var bestScore = (-1, -1);
+      for (final size in sizes) {
+        final style = styleAt(size);
+        // A point of guard: the cut must not meet Text's own ellipsis.
+        final text = conduitTruncateAtWordBoundary(
+          title,
+          maxWidth: math.max(0.0, available - 1),
+          measure: (candidate) => _textWidth(candidate, style, scaler),
+        );
+        final kept = text.endsWith('\u2026')
+            ? text.substring(0, text.length - 1)
+            : text;
+        final rest = title.startsWith(kept) ? title.substring(kept.length) : '';
+        final atWord =
+            rest.isEmpty ||
+            rest.trimLeft().length != rest.length ||
+            _kConduitTruncationTrailingMarks.contains(rest[0]);
+        final score = (atWord ? 1 : 0, kept.length);
+        if (score.$1 > bestScore.$1 ||
+            (score.$1 == bestScore.$1 && score.$2 > bestScore.$2)) {
+          bestScore = score;
+          fitted = (
+            text: text,
+            size: size,
+            width: _textWidth(text, style, scaler),
+          );
+        }
+      }
+    }
+    final result = fitted!;
+    _fittedTitle = result;
+    _fittedTitleKey = key;
+    return result;
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = context.conduitTheme;
@@ -1863,20 +2044,20 @@ class _ConduitTitledModelSelectorState
     final labelStyle = widget.labelStyle.copyWith(
       fontSize: _kConduitNativeModelTitleStyle.fontSize,
     );
-    final titleStyle = widget.labelStyle.copyWith(
-      fontSize: _kConduitTitledPillTitleSize,
-      fontWeight: FontWeight.w600,
-      height: 1.2,
-    );
+    // Bold Text sets every Text bold; measure what will be drawn.
+    final boldText = MediaQuery.boldTextOf(context);
+    TextStyle drawn(TextStyle style) =>
+        boldText ? style.copyWith(fontWeight: FontWeight.w700) : style;
     final subtitleStyle = widget.labelStyle.copyWith(
       fontSize: _kConduitTitledPillSubtitleSize,
+      letterSpacing: conduitSystemTextTracking(_kConduitTitledPillSubtitleSize),
       color: theme.textSecondary,
       height: 1.2,
     );
     final chevronIcon = PlatformInfo.isIOS
         ? CupertinoIcons.chevron_down
         : Icons.keyboard_arrow_down;
-    final title = widget.title?.trim() ?? '';
+    final rawTitle = widget.title?.trim() ?? '';
     final showChevron = widget.showChevron;
 
     double clampWidth(double width) =>
@@ -1888,12 +2069,26 @@ class _ConduitTitledModelSelectorState
                 (showChevron ? kConduitModelSelectorChevronExtent + 6 : 0) +
                 _kConduitTitledPillInset * 2,
           );
-    final titledWidth = title.isEmpty
+    final fittedTitle = rawTitle.isEmpty
+        ? null
+        : _fitTitle(
+            rawTitle,
+            widget.labelStyle,
+            titleScaler,
+            boldText,
+            math.max(0.0, widget.maxWidth - _kConduitTitledPillInset * 2),
+          );
+    final title = fittedTitle?.text ?? '';
+    final titleStyle = _titledPillTitleStyle(
+      widget.labelStyle,
+      fittedTitle?.size ?? _kConduitTitledPillTitleSize,
+    );
+    final titledWidth = fittedTitle == null
         ? modelWidth
         : clampWidth(
             math.max(
-                  _textWidth(title, titleStyle, titleScaler),
-                  _textWidth(widget.label, subtitleStyle, titleScaler) +
+                  fittedTitle.width,
+                  _textWidth(widget.label, drawn(subtitleStyle), titleScaler) +
                       (showChevron
                           ? _kConduitTitledPillSubtitleChevron + 3
                           : 0),
@@ -1994,7 +2189,7 @@ class _ConduitTitledModelSelectorState
       builder: (context, _) {
         final t = _progress.value.clamp(0.0, 1.0);
         final semanticLabel = _target == 1 && titledContent != null
-            ? '$title, ${widget.semanticsLabel}'
+            ? '$rawTitle, ${widget.semanticsLabel}'
             : widget.semanticsLabel;
         final drift = context.reduceMotion ? 0.0 : _kConduitTitledPillDrift;
         final width = lerpDouble(modelWidth, titledWidth, t)!;

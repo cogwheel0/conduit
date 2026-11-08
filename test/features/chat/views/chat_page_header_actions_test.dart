@@ -328,11 +328,21 @@ void main() {
     expect(_barActions(tester), ['new-chat', 'more']);
     expect(tester.getCenter(pill).dx, closeTo(201, 0.5));
     // It may grow to the same distance from either side of the centre
-    // line: 402 - 2 * (16 + 80 + 8).
-    expect(
-      tester.widget<ConduitAdaptiveAppBarModelSelector>(pill).maxWidth,
-      194,
+    // line, 12 pt clear of the wider side: 402 - 2 * (16 + 80 + 12).
+    final maxWidth = tester
+        .widget<ConduitAdaptiveAppBarModelSelector>(pill)
+        .maxWidth;
+    expect(maxWidth, 186);
+    // At its widest it still keeps 12 pt from New Chat and More, and more
+    // from the sidebar button.
+    final actions = tester.getRect(
+      find.byKey(const ValueKey('chat-toolbar-actions')),
     );
+    final sidebar = tester.getRect(
+      find.byKey(const ValueKey('chat-sidebar-toggle')),
+    );
+    expect(actions.left - (201 + maxWidth / 2), greaterThanOrEqualTo(12));
+    expect((201 - maxWidth / 2) - sidebar.right, greaterThanOrEqualTo(12));
     await _tearDown(tester);
   });
 }

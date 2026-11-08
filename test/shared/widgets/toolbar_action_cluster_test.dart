@@ -104,7 +104,8 @@ void main() {
         ),
       ),
     );
-    // 402 - 2 * (16 + 80 + 8): equal room either side of the centre line.
+    // 402 - 2 * (16 + 80 + 12): equal room either side of the centre line,
+    // with 12 pt clear of the controls.
     expect(
       resolveConduitCenteredTitleMaxWidth(
         context,
@@ -112,7 +113,7 @@ void main() {
         trailingWidth: 80,
         maxWidth: 320,
       ),
-      194,
+      186,
     );
   });
 

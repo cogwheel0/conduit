@@ -19,6 +19,8 @@ void main() {
     String? title = 'Sourdough plan',
     bool disableAnimations = false,
     VoidCallback? onPressed,
+    double maxWidth = 260,
+    double textScale = 1,
   }) async {
     final showsTitle = ValueNotifier<bool>(false);
     addTearDown(showsTitle.dispose);
@@ -27,14 +29,17 @@ void main() {
         theme: AppTheme.light(TweakcnThemes.t3Chat)
             .copyWith(platform: TargetPlatform.iOS),
         home: MediaQuery(
-          data: MediaQueryData(disableAnimations: disableAnimations),
+          data: MediaQueryData(
+            disableAnimations: disableAnimations,
+            textScaler: TextScaler.linear(textScale),
+          ),
           child: Scaffold(
             body: Center(
               child: ConduitAdaptiveAppBarModelSelector(
                 label: 'GPT-5 Mini',
                 title: title,
                 showsTitle: showsTitle,
-                maxWidth: 260,
+                maxWidth: maxWidth,
                 onPressed: onPressed ?? () {},
               ),
             ),
@@ -149,5 +154,167 @@ void main() {
 
     check(taps).equals(2);
     semantics.dispose();
+  });
+
+  group('a title too long for the pill', () {
+    Text titleText(WidgetTester tester) => tester.widget<Text>(
+      find.byWidgetPredicate(
+        (widget) =>
+            widget is Text &&
+            widget.style?.fontWeight == FontWeight.w600 &&
+            widget.data != null,
+      ),
+    );
+
+    Future<void> showTitle(
+      WidgetTester tester,
+      String title, {
+      double maxWidth = 280,
+    }) async {
+      final showsTitle = await pumpPill(
+        tester,
+        title: title,
+        maxWidth: maxWidth,
+      );
+      showsTitle.value = true;
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('a title that fits stays at 15 pt', (tester) async {
+      await showTitle(tester, 'Herb care tips');
+      final text = titleText(tester);
+      check(text.data).equals('Herb care tips');
+      check(text.style!.fontSize).equals(15);
+    });
+
+    testWidgets('is set a little smaller before anything is cut', (
+      tester,
+    ) async {
+      // 18 glyphs: too wide for 252 pt of text at 15 pt, whole at 14 pt.
+      await showTitle(tester, 'Basil on the sills');
+      final text = titleText(tester);
+      check(text.data).equals('Basil on the sills');
+      check(text.style!.fontSize!).isLessThan(15);
+      check(text.style!.fontSize!).isGreaterOrEqual(13);
+    });
+
+    testWidgets('then ends after its last whole word, never mid-word', (
+      tester,
+    ) async {
+      const title = 'Sourdough starter schedule for a cool kitchen';
+      await showTitle(tester, title);
+      final text = titleText(tester);
+      // At 15 pt only "Sourdough…" fits; a size smaller keeps a word more.
+      check(text.data).equals('Sourdough starter\u2026');
+      check(text.style!.fontSize!).isLessThan(15);
+      check(text.style!.fontSize!).isGreaterOrEqual(13);
+      // The pill stays within its room, and VoiceOver hears the whole title.
+      check(
+        tester.getSize(find.byType(ConduitAdaptiveAppBarModelSelector)).width,
+      ).isLessOrEqual(280);
+      final semantics = tester.ensureSemantics();
+      expect(find.bySemanticsLabel('$title, GPT-5 Mini'), findsOneWidget);
+      semantics.dispose();
+    });
+  });
+
+  testWidgets('stays at 15 pt when smaller would show no more of it', (
+    tester,
+  ) async {
+    final showsTitle = await pumpPill(
+      tester,
+      title: 'Sourdough starter schedule for a cool kitchen',
+      maxWidth: 300,
+    );
+    showsTitle.value = true;
+    await tester.pumpAndSettle();
+    final text = tester.widget<Text>(find.textContaining('Sourdough starter'));
+    check(text.data).equals('Sourdough starter\u2026');
+    check(text.style!.fontSize).equals(15);
+  });
+
+  testWidgets('at large text sizes the title grows only so far', (
+    tester,
+  ) async {
+    final showsTitle = await pumpPill(
+      tester,
+      title: 'Sourdough starter schedule',
+      maxWidth: 220,
+      textScale: 2,
+    );
+    showsTitle.value = true;
+    await tester.pumpAndSettle();
+    // Still whole words, and set at no more than 1.2 times 15 pt.
+    final title = find.text('Sourdough\u2026');
+    expect(title, findsOneWidget);
+    check(tester.getSize(title).height).isCloseTo(15 * 1.2 * 1.2, 0.5);
+  });
+
+  group('conduitTruncateAtWordBoundary', () {
+    // One unit per character, so widths are lengths.
+    double measure(String text) => text.characters.length.toDouble();
+
+    test('leaves a title that fits alone', () {
+      check(
+        conduitTruncateAtWordBoundary(
+          'Quick Sleep Tips',
+          maxWidth: 16,
+          measure: measure,
+        ),
+      ).equals('Quick Sleep Tips');
+    });
+
+    test('cuts after the last whole word that fits', () {
+      check(
+        conduitTruncateAtWordBoundary(
+          'Sourdough starter schedule',
+          maxWidth: 22,
+          measure: measure,
+        ),
+      ).equals('Sourdough starter\u2026');
+    });
+
+    test('drops a dangling comma or dash before the ellipsis', () {
+      check(
+        conduitTruncateAtWordBoundary(
+          'Porto, Lisbon and Sintra in a week',
+          maxWidth: 16,
+          measure: measure,
+        ),
+      ).equals('Porto, Lisbon\u2026');
+      check(
+        conduitTruncateAtWordBoundary(
+          'Herbs \u2014 what grows indoors',
+          maxWidth: 10,
+          measure: measure,
+        ),
+      ).equals('Herbs\u2026');
+    });
+
+    test('cuts between characters when words would waste the room', () {
+      // One long word: whole words would keep only "A…".
+      check(
+        conduitTruncateAtWordBoundary(
+          'A counterproductiveness study',
+          maxWidth: 12,
+          measure: measure,
+        ),
+      ).equals('A counterpr\u2026');
+      // Scripts written without spaces.
+      check(
+        conduitTruncateAtWordBoundary(
+          '\u9178\u7a2e\u306e\u80b2\u3066\u65b9\u3068\u7ba1\u7406',
+          maxWidth: 5,
+          measure: measure,
+        ),
+      ).equals('\u9178\u7a2e\u306e\u80b2\u2026');
+    });
+  });
+
+  test('tracking follows the system text styles', () {
+    check(conduitSystemTextTracking(17)).equals(-0.43);
+    check(conduitSystemTextTracking(15)).equals(-0.23);
+    check(conduitSystemTextTracking(12)).equals(0);
+    check(conduitSystemTextTracking(14.5)).isCloseTo(-0.19, 1e-9);
   });
 }
