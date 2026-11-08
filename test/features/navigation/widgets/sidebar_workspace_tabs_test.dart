@@ -230,7 +230,7 @@ void main() {
       findsOneWidget,
     );
     final label = tester.getSemantics(mutedRow).label;
-    expect(label, contains('Mentions only'));
+    expect(label, contains('Mentions Only'));
     expect(label, isNot(contains('unread')));
 
     final actions = tester
@@ -242,8 +242,8 @@ void main() {
         )
         .actions;
     expect(actions.take(2).map((action) => action.label), [
-      'All messages',
-      'Mentions only',
+      'All Messages',
+      'Mentions Only',
     ]);
     // The current choice carries the check.
     expect(actions[1].materialIcon, Icons.check_rounded);
@@ -616,7 +616,7 @@ void main() {
         // dismisses the sheet and reports the id the app handles.
         expect(items, hasLength(2));
         for (final item in items) {
-          expect(item.title, 'Personal connections');
+          expect(item.title, 'Personal Connections');
           expect(item.dismissOnSelect, isTrue);
           expect(item.actionId, NativeSheetRoutes.personalConnections);
         }
@@ -684,7 +684,7 @@ void main() {
         // dismisses the sheet and reports the id the app handles.
         expect(items, hasLength(2));
         for (final item in items) {
-          expect(item.title, 'Scheduled tasks');
+          expect(item.title, 'Scheduled Tasks');
           expect(item.dismissOnSelect, isTrue);
           expect(item.actionId, NativeSheetRoutes.scheduledTasks);
         }
@@ -818,7 +818,7 @@ void main() {
         }
         expect(items, hasLength(2));
         for (final item in items) {
-          expect(item.title, 'Data controls');
+          expect(item.title, 'Data Controls');
           expect(item.dismissOnSelect, isTrue);
           expect(item.actionId, NativeSheetRoutes.chatDataControls);
         }

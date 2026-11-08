@@ -195,7 +195,7 @@ void main() {
 
       final menu = menus.single;
       final entries = menu['menu']! as Map<Object?, Object?>;
-      expect(entries['labels'], ['Lantern', 'Kite Small', '', 'All models…']);
+      expect(entries['labels'], ['Lantern', 'Kite Small', '', 'All Models…']);
       expect(entries['checked'], [false, true, false, false]);
       expect(entries['isDivider'], [false, false, true, false]);
       expect((menu['x']! as num).toDouble(), anchor.dx);

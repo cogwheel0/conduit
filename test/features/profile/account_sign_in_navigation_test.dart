@@ -174,7 +174,7 @@ void main() {
 
     await tester.tap(find.text('switch'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Switch anyway'));
+    await tester.tap(find.text('Switch Anyway'));
     await tester.pumpAndSettle();
 
     check(location()).equals(Routes.authentication);

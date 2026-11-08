@@ -662,15 +662,15 @@ void main() {
       ),
     );
     expect(find.text('Home server · Lookup'), findsOneWidget);
-    expect(find.text('Allow once'), findsOneWidget);
-    expect(find.text('Allow for session'), findsOneWidget);
-    expect(find.text('Always allow'), findsOneWidget);
+    expect(find.text('Allow Once'), findsOneWidget);
+    expect(find.text('Allow for Session'), findsOneWidget);
+    expect(find.text('Always Allow'), findsOneWidget);
     expect(find.text('Deny'), findsOneWidget);
     expect(
       find.byKey(const ValueKey('direct-mcp-approval-overlay')),
       findsOneWidget,
     );
-    await tester.tap(find.text('Always allow'));
+    await tester.tap(find.text('Always Allow'));
     await tester.pumpAndSettle();
     expect(find.text('Always allow this tool?'), findsOneWidget);
     expect(find.textContaining('Home server'), findsWidgets);
@@ -684,7 +684,7 @@ void main() {
       find.byKey(const ValueKey('direct-mcp-approval-overlay')),
       findsNothing,
     );
-    expect(find.text('Allow once'), findsNothing);
+    expect(find.text('Allow Once'), findsNothing);
 
     await tester.pumpWidget(
       ProviderScope(
@@ -703,7 +703,7 @@ void main() {
       find.byKey(const ValueKey('direct-mcp-approval-overlay')),
       findsNothing,
     );
-    expect(find.text('Allow once'), findsNothing);
+    expect(find.text('Allow Once'), findsNothing);
   });
 
   testWidgets('failed always write stays pending with a safe error', (
@@ -750,12 +750,12 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Always allow'));
+    await tester.tap(find.text('Always Allow'));
     await tester.pumpAndSettle();
     await tester.tap(
       find.descendant(
         of: find.byType(material_ui.AlertDialog),
-        matching: find.text('Always allow'),
+        matching: find.text('Always Allow'),
       ),
     );
     await tester.pumpAndSettle();
@@ -767,7 +767,7 @@ void main() {
       findsOneWidget,
     );
     expect(registry.hasLiveMcpApproval(handle.request.id), isTrue);
-    expect(find.text('Allow once'), findsOneWidget);
+    expect(find.text('Allow Once'), findsOneWidget);
   });
 
   testWidgets('cancellation removes a mounted composer approval', (

@@ -2315,7 +2315,7 @@ void main() {
     );
     await tester.pump();
 
-    expect(find.text('Queued offline'), findsOneWidget);
+    expect(find.text('Queued Offline'), findsOneWidget);
     expect(
       find.text('This response will start when the server is reachable.'),
       findsOneWidget,
@@ -2380,7 +2380,7 @@ void main() {
     await tester.pump();
 
     expect(find.text('Partial answer'), findsOneWidget);
-    expect(find.text('Send failed'), findsOneWidget);
+    expect(find.text('Send Failed'), findsOneWidget);
     expect(find.text('Retry'), findsOneWidget);
     expect(find.text('Cancel'), findsOneWidget);
     expect(find.byIcon(Icons.content_copy_outlined), findsNothing);
@@ -2441,7 +2441,7 @@ void main() {
     await tester.pump();
 
     expect(find.text('Partial pending answer'), findsOneWidget);
-    expect(find.text('Queued offline'), findsOneWidget);
+    expect(find.text('Queued Offline'), findsOneWidget);
     expect(find.text('Retry'), findsOneWidget);
     expect(find.text('Cancel'), findsOneWidget);
     expect(find.byIcon(Icons.content_copy_outlined), findsNothing);
@@ -2515,7 +2515,7 @@ void main() {
       lastError: 'Upstream rejected reasoning_effort',
       frozenReasoningEffort: 'high',
     );
-    expect(find.text('Retry without reasoning effort'), findsOneWidget);
+    expect(find.text('Retry Without Reasoning Effort'), findsOneWidget);
   });
 
   testWidgets('an error merely naming the parameter does not offer recovery', (
@@ -2525,7 +2525,7 @@ void main() {
       tester,
       lastError: 'Upstream rejected reasoning_effort',
     );
-    expect(find.text('Retry without reasoning effort'), findsNothing);
+    expect(find.text('Retry Without Reasoning Effort'), findsNothing);
   });
 
   testWidgets('an explicitly refusing model hides queued recovery even with '
@@ -2538,7 +2538,7 @@ void main() {
         selectedModelProvider.overrideWith(_RefusingSelectedModel.new),
       ],
     );
-    expect(find.text('Retry without reasoning effort'), findsNothing);
+    expect(find.text('Retry Without Reasoning Effort'), findsNothing);
   });
 
   testWidgets('a non-refusing selected model still offers recovery from the '
@@ -2551,7 +2551,7 @@ void main() {
         selectedModelProvider.overrideWith(_AdvertisingSelectedModel.new),
       ],
     );
-    expect(find.text('Retry without reasoning effort'), findsOneWidget);
+    expect(find.text('Retry Without Reasoning Effort'), findsOneWidget);
   });
 
   // A model that does not advertise reasoning effort was sent only the
@@ -2574,7 +2574,7 @@ void main() {
         ],
       );
       expect(
-        find.text('Retry without reasoning effort'),
+        find.text('Retry Without Reasoning Effort'),
         offered ? findsOneWidget : findsNothing,
       );
     });

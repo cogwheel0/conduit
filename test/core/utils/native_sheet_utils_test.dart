@@ -36,7 +36,7 @@ void main() {
     final rows = parts.mainSections.expand((section) => section.items);
     expect(rows.where((item) => item.id == 'tts-voice-language'), isEmpty);
     final picker = rows.singleWhere((item) => item.id == 'tts-voice-picker');
-    expect(picker.filterAllLabel, 'All languages');
+    expect(picker.filterAllLabel, 'All Languages');
     expect(picker.options.map((option) => option.label), [
       l10n.ttsSystemDefault,
       'Maple',

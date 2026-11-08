@@ -582,7 +582,7 @@ class _MarkdownDetailsBlockState extends State<MarkdownDetailsBlock> {
                     alignment: Alignment.centerLeft,
                   ),
                   child: Text(
-                    'Show all (${resultText.length} characters)',
+                    'Show All (${resultText.length} characters)',
                     style: markdownStyle.detailAction,
                   ),
                 ),

@@ -61,7 +61,7 @@ void main() {
     // A large title, a section header, and a footer saying what comes next;
     // no web-form label above the field and no required-field asterisk.
     expect(find.text('Open WebUI'), findsWidgets);
-    expect(find.text('Server address'), findsOneWidget);
+    expect(find.text('Server Address'), findsOneWidget);
     expect(
       find.text(
         "Use the address you open in a web browser. You'll sign in next.",

@@ -2681,13 +2681,13 @@ class _MermaidSheetCanvasState extends State<_MermaidSheetCanvas> {
                         const SizedBox.square(dimension: _controlSize),
                         const SizedBox(width: _controlGap),
                         _MermaidCanvasControlButton(
-                          label: 'Pan up',
+                          label: 'Pan Up',
                           icon: Icons.arrow_upward_rounded,
                           onPressed: () => _pan(const Offset(0, -64)),
                         ),
                         const SizedBox(width: _controlGap),
                         _MermaidCanvasControlButton(
-                          label: 'Zoom in',
+                          label: 'Zoom In',
                           icon: Icons.add_rounded,
                           onPressed: () => _zoom(1.25),
                         ),
@@ -2698,19 +2698,19 @@ class _MermaidSheetCanvasState extends State<_MermaidSheetCanvas> {
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         _MermaidCanvasControlButton(
-                          label: 'Pan left',
+                          label: 'Pan Left',
                           icon: Icons.arrow_back_rounded,
                           onPressed: () => _pan(const Offset(-64, 0)),
                         ),
                         const SizedBox(width: _controlGap),
                         _MermaidCanvasControlButton(
-                          label: 'Reset diagram position',
+                          label: 'Reset Diagram Position',
                           icon: Icons.center_focus_strong_rounded,
                           onPressed: _reset,
                         ),
                         const SizedBox(width: _controlGap),
                         _MermaidCanvasControlButton(
-                          label: 'Pan right',
+                          label: 'Pan Right',
                           icon: Icons.arrow_forward_rounded,
                           onPressed: () => _pan(const Offset(64, 0)),
                         ),
@@ -2723,13 +2723,13 @@ class _MermaidSheetCanvasState extends State<_MermaidSheetCanvas> {
                         const SizedBox.square(dimension: _controlSize),
                         const SizedBox(width: _controlGap),
                         _MermaidCanvasControlButton(
-                          label: 'Pan down',
+                          label: 'Pan Down',
                           icon: Icons.arrow_downward_rounded,
                           onPressed: () => _pan(const Offset(0, 64)),
                         ),
                         const SizedBox(width: _controlGap),
                         _MermaidCanvasControlButton(
-                          label: 'Zoom out',
+                          label: 'Zoom Out',
                           icon: Icons.remove_rounded,
                           onPressed: () => _zoom(0.8),
                         ),

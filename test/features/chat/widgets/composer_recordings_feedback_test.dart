@@ -151,7 +151,7 @@ void main() {
             ),
           );
           await settle();
-          await choose('Transcribe on device');
+          await choose('Transcribe on Device');
           expect(find.text('Error'), findsOneWidget);
           expect(
             find.text('Transcription failed. Recording saved.'),
@@ -165,29 +165,29 @@ void main() {
             findsOneWidget,
           );
           failTranscription = false;
-          await tester.ensureVisible(find.text('Transcribe on device').last);
+          await tester.ensureVisible(find.text('Transcribe on Device').last);
           await tester.pumpAndSettle();
-          await tester.tap(find.text('Transcribe on device').last);
+          await tester.tap(find.text('Transcribe on Device').last);
           await settle();
           expect(inserted, ['Add a blue paper star.']);
           expect(find.text('Error'), findsNothing);
-          expect(find.textContaining('Saved recording'), findsOneWidget);
+          expect(find.textContaining('Saved Recording'), findsOneWidget);
           expect(find.byIcon(Icons.play_arrow), findsNothing);
-          await choose('Export recording');
+          await choose('Export Recording');
           expect(exports, hasLength(1));
           expect(exports.single.take(4), [82, 73, 70, 70]);
-          expect(find.textContaining('Saved recording'), findsOneWidget);
-          await choose('Discard recording');
+          expect(find.textContaining('Saved Recording'), findsOneWidget);
+          await choose('Discard Recording');
           expect(
             find.text('Are you sure you want to discard this recording?'),
             findsOneWidget,
           );
           await tester.tap(find.text('Cancel').last);
           await settle();
-          expect(find.textContaining('Saved recording'), findsOneWidget);
+          expect(find.textContaining('Saved Recording'), findsOneWidget);
           store.recordings.failDiscard = true;
-          await choose('Discard recording');
-          await tester.tap(find.text('Discard recording').last);
+          await choose('Discard Recording');
+          await tester.tap(find.text('Discard Recording').last);
           await settle();
           expect(find.text('Error'), findsOneWidget);
           await tester.tap(find.byKey(const ValueKey('recording-error')));
@@ -196,19 +196,19 @@ void main() {
             find.text('Could not discard this recording. Try again.'),
             findsOneWidget,
           );
-          expect(find.text('Transcribe on device'), findsNothing);
+          expect(find.text('Transcribe on Device'), findsNothing);
           store.recordings.failDiscard = false;
-          await tester.ensureVisible(find.text('Discard recording').last);
+          await tester.ensureVisible(find.text('Discard Recording').last);
           await tester.pumpAndSettle();
-          await tester.tap(find.text('Discard recording').last);
+          await tester.tap(find.text('Discard Recording').last);
           await settle();
           expect(
             find.text('Are you sure you want to discard this recording?'),
             findsOneWidget,
           );
-          await tester.tap(find.text('Discard recording').last);
+          await tester.tap(find.text('Discard Recording').last);
           await settle();
-          expect(find.textContaining('Saved recording'), findsNothing);
+          expect(find.textContaining('Saved Recording'), findsNothing);
           expect(tester.takeException(), isNull);
         } finally {
           await tester.pumpWidget(const SizedBox.shrink());

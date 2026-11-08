@@ -865,7 +865,7 @@ void main() {
             expect(rect.height, greaterThanOrEqualTo(44), reason: code);
             expect(rect.right, lessThanOrEqualTo(390), reason: code);
           }
-          for (final target in ['New chat', 'Channel']) {
+          for (final target in ['New Chat', 'Channel']) {
             final segment = _segment('scheduled-task-target', target);
             await _reveal(tester, segment);
             expect(segment.hitTestable(), findsOneWidget, reason: target);
@@ -1077,7 +1077,7 @@ void main() {
       );
       final hold = await chooseWithWriteCheckPending(tester, session);
 
-      await tester.tap(_segment('scheduled-task-target', 'New chat'));
+      await tester.tap(_segment('scheduled-task-target', 'New Chat'));
       await tester.enterText(
         find.byKey(const Key('scheduled-task-name')),
         'Renamed',
@@ -1131,7 +1131,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('Discard changes?'), findsOneWidget);
 
-      await tester.tap(find.text('Keep editing'));
+      await tester.tap(find.text('Keep Editing'));
       await tester.pumpAndSettle();
       expect(session.router.state.uri.path, _editA);
       expect(find.text('Renamed'), findsOneWidget);

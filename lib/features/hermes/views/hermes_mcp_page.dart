@@ -77,7 +77,7 @@ final class _HermesMcpPageState extends ConsumerState<HermesMcpPage> {
     final accepted = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Add MCP server'),
+        title: const Text('Add MCP Server'),
         content: SingleChildScrollView(
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -111,7 +111,7 @@ final class _HermesMcpPageState extends ConsumerState<HermesMcpPage> {
                 enableSuggestions: false,
                 autocorrect: false,
                 decoration: const InputDecoration(
-                  labelText: 'API key (optional)',
+                  labelText: 'API Key (Optional)',
                 ),
               ),
             ],
@@ -172,7 +172,7 @@ final class _HermesMcpPageState extends ConsumerState<HermesMcpPage> {
     final selected = await showDialog<HermesMcpCatalogEntry>(
       context: context,
       builder: (context) => SimpleDialog(
-        title: const Text('Add catalog server'),
+        title: const Text('Add Catalog Server'),
         children: [
           for (final entry in entries)
             SimpleDialogOption(
@@ -197,14 +197,14 @@ final class _HermesMcpPageState extends ConsumerState<HermesMcpPage> {
     final accepted = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: Text('Set API key for $name'),
+        title: Text('Set API Key for $name'),
         content: TextField(
           magnifierConfiguration: nativeIosTextMagnifierConfiguration,
           controller: value,
           obscureText: true,
           enableSuggestions: false,
           autocorrect: false,
-          decoration: const InputDecoration(labelText: 'API key'),
+          decoration: const InputDecoration(labelText: 'API Key'),
         ),
         actions: [
           TextButton(
@@ -296,10 +296,10 @@ final class _HermesMcpPageState extends ConsumerState<HermesMcpPage> {
         title: const Text('Hermes MCP'),
         actions: [
           AdaptiveTooltip(
-            message: 'Add from catalog',
+            message: 'Add from Catalog',
             excludeFromSemantics: true,
             child: ConduitAdaptiveAppBarIconButton(
-              semanticLabel: 'Add from catalog',
+              semanticLabel: 'Add from Catalog',
               iosSymbol: 'sparkles',
               onPressed: () => unawaited(_run(_addPreset)),
               icon: Icons.auto_awesome_outlined,
@@ -373,15 +373,15 @@ final class _HermesMcpPageState extends ConsumerState<HermesMcpPage> {
                             if (supportsCredentialUpdate)
                               const AdaptivePopupMenuItem<String>(
                                 value: 'key',
-                                label: 'Set API key',
+                                label: 'Set API Key',
                               ),
                             const AdaptivePopupMenuItem<String>(
                               value: 'enable',
-                              label: 'Enable tools',
+                              label: 'Enable Tools',
                             ),
                             const AdaptivePopupMenuItem<String>(
                               value: 'disable',
-                              label: 'Disable tools',
+                              label: 'Disable Tools',
                             ),
                             const AdaptivePopupMenuItem<String>(
                               value: 'remove',
@@ -402,7 +402,7 @@ final class _HermesMcpPageState extends ConsumerState<HermesMcpPage> {
                 onPressed: () => unawaited(_run(_add)),
                 sfSymbol: const SFSymbol('plus'),
                 style: AdaptiveButtonStyle.prominentGlass,
-                semanticLabel: 'Add MCP server',
+                semanticLabel: 'Add MCP Server',
                 minSize: const Size.square(56),
                 padding: EdgeInsets.zero,
               ),

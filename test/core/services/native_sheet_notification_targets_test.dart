@@ -284,7 +284,7 @@ void main() {
     final row = native
         .items(_detail)
         .singleWhere((item) => item.id == 'notification-targets');
-    expect(row.title, 'Webhook destinations');
+    expect(row.title, 'Webhook Destinations');
     expect(row.dismissOnSelect, isTrue);
     expect(row.actionId, 'notification-targets');
     expect(row.sfSymbol, 'bell.and.waves.left.and.right');

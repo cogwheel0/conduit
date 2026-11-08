@@ -318,7 +318,7 @@ void main() {
       );
       expect(
         buttons
-            .singleWhere((button) => button.text == 'Test connection')
+            .singleWhere((button) => button.text == 'Test Connection')
             .onPressed,
         isNull,
       );
@@ -370,7 +370,7 @@ void main() {
       );
       await tester.pumpAndSettle();
       await tester.scrollUntilVisible(
-        find.text('No authentication'),
+        find.text('No Authentication'),
         500,
         scrollable: find.byType(Scrollable).first,
       );

@@ -229,7 +229,7 @@ void main() {
     // The native panel renders rows by section and sends this id back, which
     // the composer routes to the same handler as the Flutter panel's tile.
     expect(action.section, 'tools');
-    expect(action.label, 'Tool settings');
+    expect(action.label, 'Tool Settings');
     expect(action.selected, isFalse);
     expect(action.dismissesKeyboard, isTrue);
   });
@@ -332,7 +332,7 @@ void main() {
     for (final MapEntry(:key, :value) in states.entries) {
       test('is one features row, $key, in both menus', () {
         final item = flutterItems(value.offer).single;
-        expect(item.label, 'Code interpreter');
+        expect(item.label, 'Code Interpreter');
         expect(item.section, ComposerOverflowSection.features);
         expect(item.subtitle, value.subtitle);
         expect(item.selected, value.selected);
@@ -340,7 +340,7 @@ void main() {
 
         final action = nativeActions(value.offer).single;
         expect(action.id, 'codeInterpreter');
-        expect(action.label, 'Code interpreter');
+        expect(action.label, 'Code Interpreter');
         expect(action.section, 'features');
         expect(action.sfSymbol, 'curlybraces');
         expect(action.kind, IosKeyboardAttachmentActionKind.toggle);
@@ -510,8 +510,8 @@ void main() {
           final container = await pump(tester, block: null, advanced: false);
           await openPanel(tester);
 
-          expect(find.text('Code interpreter'), findsOneWidget);
-          await tester.tap(find.text('Code interpreter'));
+          expect(find.text('Code Interpreter'), findsOneWidget);
+          await tester.tap(find.text('Code Interpreter'));
           await tester.pumpAndSettle();
           expect(container.read(codeInterpreterEnabledProvider), isTrue);
 
@@ -520,7 +520,7 @@ void main() {
             tester
                 .widget<AdaptiveSwitch>(
                   find.descendant(
-                    of: find.widgetWithText(ToggleTile, 'Code interpreter'),
+                    of: find.widgetWithText(ToggleTile, 'Code Interpreter'),
                     matching: find.byType(AdaptiveSwitch),
                   ),
                 )
@@ -538,13 +538,13 @@ void main() {
         container.read(codeInterpreterEnabledProvider.notifier).set(true);
         await tester.pump();
 
-        final pill = find.widgetWithText(GestureDetector, 'Code interpreter');
+        final pill = find.widgetWithText(GestureDetector, 'Code Interpreter');
         expect(pill, findsWidgets);
-        await tester.tap(find.text('Code interpreter').first);
+        await tester.tap(find.text('Code Interpreter').first);
         await tester.pump();
 
         expect(container.read(codeInterpreterEnabledProvider), isFalse);
-        expect(find.text('Code interpreter'), findsNothing);
+        expect(find.text('Code Interpreter'), findsNothing);
       });
 
       testWidgets('a chosen interpreter that can no longer run says why, and '
@@ -575,7 +575,7 @@ void main() {
             hasEnabledState: true,
             isEnabled: true,
             hasTapAction: true,
-            label: 'Code interpreter',
+            label: 'Code Interpreter',
             hint: l10n.codeInterpreterUnavailable,
           ),
         );
@@ -607,7 +607,7 @@ void main() {
           ),
           findsOneWidget,
         );
-        await tester.tap(find.text('Code interpreter'));
+        await tester.tap(find.text('Code Interpreter'));
         await tester.pumpAndSettle();
 
         expect(container.read(codeInterpreterEnabledProvider), isFalse);
@@ -623,7 +623,7 @@ void main() {
           );
           await openPanel(tester);
 
-          expect(find.text('Code interpreter'), findsNothing);
+          expect(find.text('Code Interpreter'), findsNothing);
         },
       );
 
@@ -636,7 +636,7 @@ void main() {
         container.read(codeInterpreterEnabledProvider.notifier).set(true);
         await tester.pump();
 
-        expect(find.text('Code interpreter'), findsNothing);
+        expect(find.text('Code Interpreter'), findsNothing);
       });
     });
   });

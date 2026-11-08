@@ -494,7 +494,7 @@ void main() {
     );
 
     expect(find.byKey(const Key('account-sheet-kind')), findsNothing);
-    expect(find.text('Edit connection'), findsOne);
+    expect(find.text('Edit Connection'), findsOne);
     expect(find.byKey(const Key('account-sheet-direct')), findsOne);
     // The form's own Save; the sheet adds one only for iOS's toolbar Save.
     expect(
