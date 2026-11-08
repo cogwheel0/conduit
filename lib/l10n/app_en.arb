@@ -2809,6 +2809,10 @@
   "@temporaryChatByDefaultDescription": {
     "description": "Description for the temporary chat by default setting."
   },
+  "libreChatTemporaryChatOff": "LibreChat saves every chat. Turn off Temporary Chat to send.",
+  "@libreChatTemporaryChatOff": {
+    "description": "Shown when a new LibreChat chat is not sent because temporary chat is on: LibreChat saves every chat."
+  },
   "advancedFeatures": "Advanced",
   "@advancedFeatures": {
     "description": "Label for the setting that reveals additional chat tools and settings."

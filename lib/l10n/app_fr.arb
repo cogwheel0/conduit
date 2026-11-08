@@ -1088,6 +1088,7 @@
   "saveChat": "Enregistrer le chat",
   "temporaryChatByDefault": "Chat temporaire par défaut",
   "temporaryChatByDefaultDescription": "Les nouveaux chats ne seront pas enregistrés dans l'historique sauf si vous choisissez de les enregistrer",
+  "libreChatTemporaryChatOff": "LibreChat enregistre tous les chats. Désactivez le chat temporaire pour envoyer.",
   "advancedFeatures": "Avancé",
   "advancedFeaturesDescription": "Afficher les outils et réglages pour utilisateurs avancés.",
   "chatSettingsTitle": "Réglages du chat",

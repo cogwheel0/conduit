@@ -148,7 +148,8 @@ class AssistantMessageWidget extends ConsumerStatefulWidget {
   final bool suppressStreamingHaptics;
   final VoidCallback? onCopy;
   final VoidCallback? onRegenerate;
-  final VoidCallback onDelete;
+  /// Deletes the response; null where messages cannot be deleted.
+  final VoidCallback? onDelete;
   final VoidCallback? onLike;
   final VoidCallback? onDislike;
   final FutureOr<void> Function(String suggestion)? onFollowUpSelected;
@@ -176,7 +177,7 @@ class AssistantMessageWidget extends ConsumerStatefulWidget {
     this.suppressStreamingHaptics = false,
     this.onCopy,
     this.onRegenerate,
-    required this.onDelete,
+    this.onDelete,
     this.onLike,
     this.onDislike,
     this.onFollowUpSelected,
@@ -2865,7 +2866,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
           onTap: _responseCompleted ? () => unawaited(_shareResponse()) : null,
           sfSymbol: 'square.and.arrow.up',
         ),
-      if (!widget.readOnly)
+      if (!widget.readOnly && widget.onDelete != null)
         _AssistantFooterAction(
           id: 'delete',
           icon: Platform.isIOS ? CupertinoIcons.delete : Icons.delete_outline,

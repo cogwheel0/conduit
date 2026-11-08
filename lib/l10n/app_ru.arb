@@ -1094,6 +1094,7 @@
   "saveChat": "Сохранить чат",
   "temporaryChatByDefault": "Временный чат по умолчанию",
   "temporaryChatByDefaultDescription": "Новые чаты не будут сохраняться в историю, если вы не сохраните их вручную",
+  "libreChatTemporaryChatOff": "LibreChat сохраняет все чаты. Чтобы отправить сообщение, выключите временный чат.",
   "advancedFeatures": "Расширенные",
   "advancedFeaturesDescription": "Показывать инструменты и настройки для опытных пользователей.",
   "chatSettingsTitle": "Настройки чата",

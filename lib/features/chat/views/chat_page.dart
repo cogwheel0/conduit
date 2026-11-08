@@ -65,6 +65,8 @@ import 'package:conduit_core/features/hermes/services/hermes_local_document_trus
 import 'package:conduit_core/features/hermes/services/hermes_message_mapper.dart';
 import 'package:conduit_core/features/hermes/services/hermes_pending_decision_store.dart';
 import 'package:conduit_core/features/hermes/services/hermes_session_provenance.dart';
+import 'package:conduit_core/features/librechat/models/librechat_model.dart'
+    show isLibreChatModel;
 
 import '../../hermes/widgets/hermes_bot_avatar.dart';
 import '../../hermes/widgets/hermes_message_interactions.dart';
@@ -238,11 +240,18 @@ bool shouldShowTemporaryChatAction({
   required bool isHermes,
   required Conversation? activeConversation,
   bool temporaryChatEnforced = false,
-}) =>
-    !isHermes &&
-    // The server keeps the chat temporary, and would refuse to save it.
-    !temporaryChatEnforced &&
-    (activeConversation == null || isTemporaryChat(activeConversation.id));
+  bool isLibreChat = false,
+  bool isTemporary = false,
+}) {
+  if (isHermes) return false;
+  // Temporary chats are Open WebUI's; a LibreChat chat is always saved. A
+  // new chat still set to temporary offers the switch only to turn it off,
+  // since LibreChat will not send it as it is.
+  if (isLibreChat) return isTemporary && activeConversation == null;
+  // The server keeps the chat temporary, and would refuse to save it.
+  return !temporaryChatEnforced &&
+      (activeConversation == null || isTemporaryChat(activeConversation.id));
+}
 
 @visibleForTesting
 String? chatHermesBotTitle(Conversation? conversation) {
@@ -551,7 +560,17 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   bool get _wantsPinToTop => _pinToTopState.isActive;
   bool get _shouldAutoFollowPinnedTurn =>
       _pinToTopState.isActive && _pinToTopState.isAutoFollowing;
-  String? get _pinnedUserMessageId => _pinToTopState.userMessageId;
+  String? get _pinnedUserMessageId =>
+      _currentMessageId(_pinToTopState.userMessageId);
+
+  /// The pinned reply, by the id it has now: a LibreChat turn swaps the ids
+  /// minted here for the server's while it runs.
+  String? get _pinnedStreamingMessageId =>
+      _currentMessageId(_pinToTopState.streamingMessageId);
+
+  String? _currentMessageId(String? id) => id == null
+      ? null
+      : ref.read(chatMessagesProvider.notifier).currentMessageId(id);
 
   bool get _isUserInteractingWithScroll =>
       _bottomAnchorController.isUserInteractingWithScroll;
@@ -1312,24 +1331,28 @@ class _ChatPageState extends ConsumerState<ChatPage> {
 
     // Resolve model on-demand if none selected yet
     if (selectedModel == null) {
+      Model? fallback;
+      var failed = false;
       try {
-        // Prefer already-loaded models
-        List<Model> models;
-        final modelsAsync = ref.read(modelsProvider);
-        if (modelsAsync.hasValue) {
-          models = modelsAsync.value!;
-        } else {
-          models = await ref.read(modelsProvider.future);
-        }
-        if (models.isNotEmpty) {
-          selectedModel = models.first;
-          ref.read(selectedModelProvider.notifier).set(selectedModel);
-        }
+        fallback = await modelForUnpickedSend(ref.read);
       } catch (_) {
-        // If models cannot be resolved, bail out without sending
+        failed = true;
+      }
+      if (!mounted) return false;
+      // A model picked while that waited is the user's choice; the fallback
+      // only stands in for none.
+      selectedModel = ref.read(selectedModelProvider) ?? fallback;
+      if (selectedModel == null) {
+        // The draft stays in the composer: say why it was not sent.
+        final l10n = AppLocalizations.of(context)!;
+        AdaptiveSnackBar.show(
+          context,
+          message: failed ? l10n.failedToLoadModels : l10n.noModelsAvailable,
+          type: AdaptiveSnackBarType.error,
+        );
         return false;
       }
-      if (selectedModel == null) return false;
+      ref.read(selectedModelProvider.notifier).set(selectedModel);
     }
 
     ChatSendPlaceholderHandle? pendingSend;
@@ -1458,6 +1481,30 @@ class _ChatPageState extends ConsumerState<ChatPage> {
             error,
             models: ref.read(modelsProvider).asData?.value,
           ),
+          type: AdaptiveSnackBarType.error,
+        );
+      }
+      return false;
+    } on LibreChatTemporaryChatException {
+      // Refused before anything was sent; the draft stays for once temporary
+      // chat is off.
+      if (mounted) {
+        AdaptiveSnackBar.show(
+          context,
+          message: AppLocalizations.of(context)!.libreChatTemporaryChatOff,
+          type: AdaptiveSnackBarType.error,
+        );
+      }
+      return false;
+    } on LibreChatReplyRunningException {
+      // Refused before anything was written; the draft stays for once the
+      // reply is done or stopped.
+      if (mounted) {
+        AdaptiveSnackBar.show(
+          context,
+          message: AppLocalizations.of(
+            context,
+          )!.chatDataControlsResponseRunning,
           type: AdaptiveSnackBarType.error,
         );
       }
@@ -2521,7 +2568,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     ChatTurnPhase? assistantPhase,
   ) {
     if (!_shouldAutoFollowPinnedTurn) return;
-    final assistantMessageId = _pinToTopState.streamingMessageId;
+    final assistantMessageId = _pinnedStreamingMessageId;
     if (assistantMessageId == null) return;
     if (!debugShouldSettlePinnedTurnForLifecycleForTesting(
       pinActive: true,
@@ -2539,7 +2586,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       }
       if (!mounted ||
           scheduledGeneration != _pinPositionGeneration ||
-          _pinToTopState.streamingMessageId != assistantMessageId) {
+          _pinnedStreamingMessageId != assistantMessageId) {
         return;
       }
       ChatMessage? currentAssistant;
@@ -2800,7 +2847,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     final paging = watchRef.watch(chatTranscriptPagingProvider);
     final requestedCount = _renderedTranscriptCount(completeMessages, paging);
     final messages = _renderedTranscriptWindow(completeMessages, paging);
-    final pinnedAssistantId = _pinToTopState.streamingMessageId;
+    final pinnedAssistantId = _pinnedStreamingMessageId;
     final pinnedAssistantPhase = pinnedAssistantId == null
         ? null
         : watchRef.watch(
@@ -3383,7 +3430,12 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                 Clipboard.setData(ClipboardData(text: currentMessage.content));
               }
             },
-            onDelete: () => _deleteMessageGroup(<String>[messageId]),
+            // LibreChat keeps its messages on its server, which a delete
+            // here would not reach: the next sync would bring them back,
+            // and a reply still running would put its turn back at once.
+            onDelete: _messagesDeletable(rowRef)
+                ? () => _deleteMessageGroup(<String>[messageId])
+                : null,
             onRegenerate: () => _regenerateMessage(messageId),
           );
           // An edited message keeps each version as a sibling in the stored
@@ -3492,11 +3544,19 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       // replacement.
       onRegenerate: () =>
           _regenerateMessage(groupIds.isEmpty ? messageId : groupIds.first),
-      onDelete: () => _deleteMessageGroup(
-        groupIds.isEmpty ? <String>[messageId] : groupIds,
-      ),
+      onDelete: _messagesDeletable(rowRef)
+          ? () => _deleteMessageGroup(
+              groupIds.isEmpty ? <String>[messageId] : groupIds,
+            )
+          : null,
     );
   }
+
+  /// Whether the open chat's messages can be deleted here: not a LibreChat
+  /// chat's, which a delete here would not take off its server.
+  bool _messagesDeletable(WidgetRef rowRef) => !rowRef.watch(
+    activeConversationProvider.select(isLibreChatConversation),
+  );
 
   ChatMessage _messageWithGroupedHermesToolStatuses(
     WidgetRef rowRef,
@@ -4298,10 +4358,29 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     }
     setState(() => _isOpeningModelSelector = true);
     try {
-      final models = await ref
+      final loaded = await ref
           .read(nativeSheetHydrationServiceProvider)
           .loadModels();
       if (!mounted || !context.mounted) return;
+      // A saved chat goes on only with its own backend: a LibreChat chat
+      // takes only LibreChat's models, and no other chat takes them.
+      final active = ref.read(activeConversationProvider);
+      final models = active == null
+          ? loaded
+          : [
+              for (final model in loaded)
+                if (isLibreChatModel(model) == isLibreChatConversation(active))
+                  model,
+            ];
+      if (models.isEmpty) {
+        // The native picker opens on nothing: say why there is no list.
+        AdaptiveSnackBar.show(
+          context,
+          message: AppLocalizations.of(context)!.noModelsAvailable,
+          type: AdaptiveSnackBarType.warning,
+        );
+        return;
+      }
       if (menuAnchor != null && menuAnchor.mounted) {
         final openFullList = await _showPinnedModelMenu(menuAnchor, models);
         if (!openFullList || !mounted || !context.mounted) return;
@@ -4616,10 +4695,15 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     required bool hasMessages,
     required Color tintColor,
   }) {
+    final selectedModel = ref.watch(selectedModelProvider);
     final showTemporaryAction = shouldShowTemporaryChatAction(
       isHermes: isHermes,
       activeConversation: activeConversation,
       temporaryChatEnforced: ref.watch(temporaryChatEnforcedProvider),
+      isLibreChat:
+          (selectedModel != null && isLibreChatModel(selectedModel)) ||
+          isLibreChatConversation(activeConversation),
+      isTemporary: isTemporary,
     );
     if (!showTemporaryAction) {
       return null;

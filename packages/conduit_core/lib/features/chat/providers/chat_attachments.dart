@@ -204,7 +204,9 @@ bool isSendBlocked({
     return !hasTrustedDirectBinding;
   }
   if (api != null) return false;
-  return !isHermesModel(selectedModel) && !hasTrustedDirectBinding;
+  return !isHermesModel(selectedModel) &&
+      !isLibreChatModel(selectedModel) &&
+      !hasTrustedDirectBinding;
 }
 
 @visibleForTesting

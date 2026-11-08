@@ -1088,6 +1088,7 @@
   "saveChat": "Guardar chat",
   "temporaryChatByDefault": "Chat temporal por defecto",
   "temporaryChatByDefaultDescription": "Los nuevos chats no se guardarán en el historial a menos que elijas guardarlos",
+  "libreChatTemporaryChatOff": "LibreChat guarda todos los chats. Desactiva el chat temporal para enviar.",
   "advancedFeatures": "Avanzado",
   "advancedFeaturesDescription": "Mostrar herramientas y ajustes para usuarios avanzados.",
   "chatSettingsTitle": "Ajustes del chat",

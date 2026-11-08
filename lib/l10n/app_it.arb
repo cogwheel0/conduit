@@ -1088,6 +1088,7 @@
   "saveChat": "Salva chat",
   "temporaryChatByDefault": "Chat temporanea per impostazione predefinita",
   "temporaryChatByDefaultDescription": "Le nuove chat non verranno salvate nella cronologia a meno che tu non scelga di salvarle",
+  "libreChatTemporaryChatOff": "LibreChat salva ogni chat. Disattiva la chat temporanea per inviare.",
   "advancedFeatures": "Avanzate",
   "advancedFeaturesDescription": "Mostra strumenti e impostazioni per utenti esperti.",
   "chatSettingsTitle": "Impostazioni chat",

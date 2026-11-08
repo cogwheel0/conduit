@@ -19,6 +19,7 @@ import 'package:conduit_core/features/chat/providers/chat_providers.dart'
     show
         isChatStreamingProvider,
         localChatGenerationActiveProvider,
+        stopAllLibreChatRunsProvider,
         stopGenerationProvider,
         stopOpenWebUiMainResponse;
 import 'package:conduit_core/features/direct_connections/providers/direct_connection_providers.dart';
@@ -84,7 +85,11 @@ final addressChangeStopRepliesProvider = Provider<void Function()>((ref) {
 /// Stops the replies [accountChangeReplyGuardProvider] reported, once the
 /// user has agreed to leave the account anyway.
 final accountChangeStopRepliesProvider = Provider<void Function()>((ref) {
-  return () => ref.read(stopGenerationProvider)();
+  return () {
+    ref.read(stopGenerationProvider)();
+    // LibreChat replies run on in chats not open, which the guard counts.
+    ref.read(stopAllLibreChatRunsProvider)();
+  };
 });
 
 /// Called after the active Open WebUI account changed, with the new one (or
