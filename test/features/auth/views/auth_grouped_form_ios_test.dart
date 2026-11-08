@@ -167,7 +167,7 @@ void main() {
     );
     expect(find.text('https://open-webui.example'), findsNothing);
 
-    final username = groupedField(tester, 'Email or username');
+    final username = groupedField(tester, 'Email or Username');
     final password = groupedField(tester, 'Password');
     check(username.textInputAction).equals(TextInputAction.next);
     check(password.textInputAction).equals(TextInputAction.go);

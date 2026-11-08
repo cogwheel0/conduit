@@ -1517,7 +1517,7 @@
   "@noConversationsYet": {
     "description": "Empty state when the user has no chats."
   },
-  "usernameOrEmailHint": "Email or username",
+  "usernameOrEmailHint": "Email or Username",
   "@usernameOrEmailHint": {
     "description": "Hint text for username/email input."
   },

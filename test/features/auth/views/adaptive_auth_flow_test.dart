@@ -164,7 +164,7 @@ void main() {
         // iOS fields are rows of an inset-grouped card: no outline of
         // their own, and the placeholder names the field.
         check(renderedField.cupertinoDecoration!.border).isNull();
-        check(renderedField.placeholder).equals('Email or username');
+        check(renderedField.placeholder).equals('Email or Username');
       } else {
         // Material fields use a hairline outline.
         check(renderedField.cupertinoDecoration!.border).isNotNull();
