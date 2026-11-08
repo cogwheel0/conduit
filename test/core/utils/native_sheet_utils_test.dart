@@ -13,48 +13,42 @@ import 'package:flutter_test/flutter_test.dart';
 void main() {
   final l10n = AppLocalizationsEn();
 
-  test(
-    'voice picker contains an All languages filter without a separate language row',
-    () {
-      const voices = <Map<String, dynamic>>[
-        {
-          'id': 'maple',
-          'name': 'Maple',
-          'locale': 'en-US',
-          'languageName': 'English (US)',
-        },
-        {
-          'id': 'iris',
-          'name': 'Iris',
-          'locale': 'fr-FR',
-          'languageName': 'French',
-        },
-      ];
-      final parts = buildNativeAudioSheetParts(
-        l10n,
-        const AppSettings(
-          ttsEngine: TtsEngine.server,
-          ttsServerVoiceId: 'maple',
-        ),
-        ttsVoices: voices,
-      );
-      final rows = parts.mainSections.expand((section) => section.items);
-      expect(rows.where((item) => item.id == 'tts-voice-language'), isEmpty);
-      final picker = rows.singleWhere((item) => item.id == 'tts-voice-picker');
-      expect(picker.filterAllLabel, 'All languages');
-      expect(picker.options.map((option) => option.label), [
-        l10n.ttsSystemDefault,
-        'Maple',
-        'Iris',
-      ]);
-      expect(picker.options.map((option) => option.filterGroup), [
-        '',
-        'English (US)',
-        'French',
-      ]);
-      expect(picker.value, 'maple');
-    },
-  );
+  test('voice picker contains an All languages filter without a separate language row', () {
+    const voices = <Map<String, dynamic>>[
+      {
+        'id': 'maple',
+        'name': 'Maple',
+        'locale': 'en-US',
+        'languageName': 'English (US)',
+      },
+      {
+        'id': 'iris',
+        'name': 'Iris',
+        'locale': 'fr-FR',
+        'languageName': 'French',
+      },
+    ];
+    final parts = buildNativeAudioSheetParts(
+      l10n,
+      const AppSettings(ttsEngine: TtsEngine.server, ttsServerVoiceId: 'maple'),
+      ttsVoices: voices,
+    );
+    final rows = parts.mainSections.expand((section) => section.items);
+    expect(rows.where((item) => item.id == 'tts-voice-language'), isEmpty);
+    final picker = rows.singleWhere((item) => item.id == 'tts-voice-picker');
+    expect(picker.filterAllLabel, 'All languages');
+    expect(picker.options.map((option) => option.label), [
+      l10n.ttsSystemDefault,
+      'Maple',
+      'Iris',
+    ]);
+    expect(picker.options.map((option) => option.filterGroup), [
+      '',
+      'English (US)',
+      'French',
+    ]);
+    expect(picker.value, 'maple');
+  });
 
   test('the native About page links the open source licenses', () {
     final items = buildNativeAboutItems(
@@ -242,12 +236,20 @@ void main() {
     });
   });
 
-  test('native speech-rate slider shows its value only once', () {
-    final parts = buildNativeAudioSheetParts(l10n, const AppSettings());
-    final speechRate = parts.mainSections
-        .expand((section) => section.items)
-        .singleWhere((item) => item.id == 'tts-speech-rate');
+  test('cloud and device voices share one speed, offered in its steps', () {
+    for (final engine in TtsEngine.values) {
+      final parts = buildNativeAudioSheetParts(
+        l10n,
+        AppSettings(ttsEngine: engine, ttsSpeed: 1.25),
+      );
+      final speed = parts.mainSections
+          .expand((section) => section.items)
+          .singleWhere((item) => item.id == 'tts-speed');
 
-    check(speechRate.subtitle).isNull();
+      check(speed.value).equals('1.25');
+      check(speed.options.map((option) => option.label))
+          .deepEquals(['0.75×', '1×', '1.25×', '1.5×', '2×']);
+      check(speed.subtitle).isNull();
+    }
   });
 }
