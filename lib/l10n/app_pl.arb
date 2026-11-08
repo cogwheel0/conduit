@@ -8286,7 +8286,7 @@
   "@hermesReadOnlySessionNotice": {
     "description": "Shown instead of the composer for a Hermes chat that another Hermes app owns, so Conduit can read it but not reply."
   },
-  "hermesReadOnlySessionNoticeFrom": "Ten czat rozpoczęto w {source}. Możesz go tu czytać, ale Hermes pozwala Conduit odpowiadać tylko w czatach, które Conduit rozpoczął.",
+  "hermesReadOnlySessionNoticeFrom": "Ten czat rozpoczęto w aplikacji: {source}. Możesz go tu czytać, ale Hermes pozwala Conduit odpowiadać tylko w czatach, które Conduit rozpoczął.",
   "@hermesReadOnlySessionNoticeFrom": {
     "description": "Shown instead of the composer for a Hermes chat that another Hermes app owns. source is the name of that app, for example Telegram or Hermes CLI.",
     "placeholders": {

@@ -37,6 +37,7 @@ import 'package:conduit_core/features/hermes/services/hermes_local_document_serv
 import 'package:conduit_core/features/hermes/services/hermes_local_document_trust_store.dart';
 import 'package:conduit_core/features/hermes/services/hermes_message_mapper.dart';
 import 'package:conduit_core/features/hermes/services/hermes_run_transport.dart';
+import 'package:conduit_core/features/hermes/services/hermes_stream_parser.dart';
 import 'package:conduit_core/features/hermes/services/hermes_session_provenance.dart';
 import 'package:dio/dio.dart';
 import 'package:drift/native.dart';
@@ -6224,6 +6225,63 @@ void main() {
         final recovered = container.read(chatMessagesProvider).single;
         check(recovered.content).equals('Here is what I found so far.');
         check(recovered.error).isNull();
+        // Shown with its note, as the live recovery shows it.
+        check(
+          recovered.statusHistory.map((status) => status.description),
+        ).contains(kHermesBudgetExhaustedNotice);
+      },
+    );
+
+    // A restart that interrupted the run showed "Hermes run failed." here,
+    // not the restart explanation the live path gives.
+    test(
+      'a cold-restored Hermes run interrupted by a restart says so',
+      () async {
+        final service = _RecoveredHermesApi(const <String, dynamic>{
+          'status': 'interrupted',
+          'output': '',
+        });
+        final container = _testContainer(
+          overrides: [
+            activeConversationProvider.overrideWith(
+              () => _TestActiveConversationNotifier(),
+            ),
+            apiServiceProvider.overrideWithValue(null),
+            socketServiceProvider.overrideWithValue(null),
+            hermesApiServiceProvider.overrideWithValue(service),
+          ],
+        );
+        addTearDown(container.dispose);
+        final assistant = _assistantMessage(
+          id: 'cold-hermes-interrupted',
+          content: 'Retained Hermes partial',
+          isStreaming: true,
+          metadata: const <String, dynamic>{
+            'transport': kHermesTransport,
+            'hermesRunId': 'run-cold',
+            'hermesSessionId': 'session-cold',
+          },
+        );
+        container
+            .read(activeConversationProvider.notifier)
+            .set(
+              markNativeHermesConversation(
+                withChatStorageProvenance(
+                  _conversation('local:hermes_session-cold', <ChatMessage>[
+                    assistant,
+                  ]),
+                  ChatStorageKind.directLocal,
+                ),
+              ),
+            );
+        await _waitForCondition(
+          () =>
+              container.read(chatMessagesProvider).singleOrNull?.isStreaming ==
+              false,
+        );
+
+        final recovered = container.read(chatMessagesProvider).single;
+        check(recovered.error?.content).equals(kHermesRunInterruptedMessage);
       },
     );
 

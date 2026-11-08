@@ -1808,8 +1808,10 @@ Future<void> _dispatchRegisteredHermesRunFromChat(
         );
   final responseStartsNewChain =
       !isDesktop && responseInput != null && responsePreviousResponseId == null;
-  // The session a new chain leaves: a copy's earlier messages follow it.
-  final chainSourceSessionId = responseStartsNewChain ? sessionId : null;
+  // The session the turn starts from. A copy's earlier messages follow the
+  // turn to the session it lands in: a new chain's, or one Hermes moved a
+  // chain to.
+  final turnSourceSessionId = isDesktop ? null : sessionId;
   if (responseStartsNewChain) {
     // The official Responses endpoint owns the session id for a new chain; it
     // does not bind to a pre-created /api/sessions row via request headers.
@@ -2034,15 +2036,19 @@ Future<void> _dispatchRegisteredHermesRunFromChat(
             // recorded after the turn without trusting an older lookalike.
             baselineServerMessageIds = <String>{};
           }
-          if (service is HermesApiService && chainSourceSessionId != null) {
-            await _carryHermesCopiedHistory(
-              ref,
-              service,
-              connectionIdentity: documentTrustConnectionIdentity,
-              fromSessionId: chainSourceSessionId,
-              toSessionId: establishedSessionId,
-            );
-          }
+        }
+        if (service is HermesApiService &&
+            documentTrustConnectionIdentity != null &&
+            turnSourceSessionId != null &&
+            turnSourceSessionId.isNotEmpty &&
+            establishedSessionId != turnSourceSessionId) {
+          await _carryHermesCopiedHistory(
+            ref,
+            service,
+            connectionIdentity: documentTrustConnectionIdentity,
+            fromSessionId: turnSourceSessionId,
+            toSessionId: establishedSessionId,
+          );
         }
         sessionId = establishedSessionId;
         _bindHermesSessionToConversation(
@@ -2554,9 +2560,10 @@ void _retryHermesProjectionPersistenceAfterAdoption(
 }
 
 /// A REST copy's earlier messages live only on this device (see
-/// [HermesCopiedHistoryStore]). When the copy moves to the session a new
-/// Responses chain starts, they follow it with the turns the copy stored:
-/// Hermes gives the new session neither, so reopening it would drop them.
+/// [HermesCopiedHistoryStore]). When the copy moves to another session (a
+/// new Responses chain's, or one Hermes moved its chain to), they follow it
+/// with the turns the copy stored: Hermes gives the new session neither, so
+/// reopening it would drop them.
 Future<void> _carryHermesCopiedHistory(
   dynamic ref,
   HermesApiService service, {

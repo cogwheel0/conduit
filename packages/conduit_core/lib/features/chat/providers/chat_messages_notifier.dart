@@ -1659,16 +1659,12 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     }
   }
 
+  /// What a recovered checkpoint with [status] ends with, as the live
+  /// recovery shows it: an error, or a note beside a wrap-up or a
+  /// stopped-short answer, which is still the answer.
   ChatMessageError? _coldHermesTerminalError(String status) {
-    return switch (status) {
-      // A wrap-up or a stopped-short answer is still the answer.
-      'completed' || kHermesWrappedUpStatus || 'incomplete' => null,
-      'cancelled' || 'canceled' => const ChatMessageError(
-        content: 'Hermes run was cancelled.',
-      ),
-      'stopped' => const ChatMessageError(content: 'Hermes run was stopped.'),
-      _ => const ChatMessageError(content: 'Hermes run failed.'),
-    };
+    final message = hermesRecoveredRunError(status);
+    return message == null ? null : ChatMessageError(content: message);
   }
 
   void _settleColdHermesCheckpoint(
@@ -1676,15 +1672,34 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     ChatMessage checkpoint, {
     String? authoritativeContent,
     ChatMessageError? error,
+    String? notice,
   }) {
     if (!owner.isActive(ref)) return;
     updateMessageById(checkpoint.id, (current) {
       if (current.metadata?['transport'] != kHermesTransport) return current;
+      final noted =
+          notice == null ||
+              current.statusHistory.any(
+                (status) =>
+                    status.action == kHermesRunNoticeAction &&
+                    status.description == notice,
+              )
+          ? current.statusHistory
+          : [
+              ...current.statusHistory,
+              ChatStatusUpdate(
+                action: kHermesRunNoticeAction,
+                description: notice,
+                done: true,
+                occurredAt: DateTime.now(),
+              ),
+            ];
       return current.copyWith(
         content: authoritativeContent != null && authoritativeContent.isNotEmpty
             ? authoritativeContent
             : current.content,
         error: error,
+        statusHistory: noted,
       );
     });
     finishStreamingMessage(
@@ -1838,6 +1853,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
         checkpoint,
         authoritativeContent: recovered.text,
         error: _coldHermesTerminalError(recovered.status),
+        notice: hermesRecoveredRunNotice(recovered.status),
       );
     } catch (_) {
       if (!cancelToken.isCancelled &&

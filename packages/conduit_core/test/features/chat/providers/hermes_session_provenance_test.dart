@@ -96,6 +96,8 @@ final class _RecordingHermesApi extends HermesApiService {
 /// A REST copy whose first attachment starts a Responses chain: Hermes
 /// answers it in a new session holding only that turn.
 final class _ChainingHermesApi extends HermesApiService {
+  final List<String?> previousResponseIds = [];
+
   _ChainingHermesApi()
     : super(
         config: const HermesConfig(
@@ -116,10 +118,13 @@ final class _ChainingHermesApi extends HermesApiService {
     List<Map<String, dynamic>>? conversationHistory,
     String? reasoningEffort,
     CancelToken? cancelToken,
-  }) async => HermesResponseStream(
-    events: Stream<HermesRunEvent>.value(const HermesRunDone()),
-    sessionId: 'chain-2',
-  );
+  }) async {
+    previousResponseIds.add(previousResponseId);
+    return HermesResponseStream(
+      events: Stream<HermesRunEvent>.value(const HermesRunDone()),
+      sessionId: 'chain-2',
+    );
+  }
 
   @override
   Future<List<Map<String, dynamic>>> getSessionMessages(
@@ -290,6 +295,97 @@ void main() {
       responseHistory: const <Map<String, dynamic>>[],
     );
 
+    final carried = await copiedHistory.load(
+      connectionIdentity: connection,
+      sessionId: 'chain-2',
+    );
+    check(
+      carried?.map((message) => message['content']).toList(),
+    ).isNotNull().deepEquals([
+      'Sort the books.',
+      'Which shelf?',
+      'The top one.',
+    ]);
+  });
+
+  // A chained turn Hermes moved to another session (its own was deleted, or
+  // compressed) left the copy's earlier messages under the old session.
+  test('a copy whose chain Hermes moved keeps earlier messages', () async {
+    final service = _ChainingHermesApi();
+    final database = AppDatabase(NativeDatabase.memory());
+    addTearDown(database.close);
+    final copiedHistory = HermesCopiedHistoryStore(database);
+    final container = ProviderContainer(
+      overrides: [
+        openWebUiDatabaseAccessProvider.overrideWith(_OpenDatabaseAccess.new),
+        appDatabaseProvider.overrideWith((ref) {
+          final database = AppDatabase(NativeDatabase.memory());
+          ref.onDispose(() => unawaited(database.close()));
+          return database;
+        }),
+        apiServiceProvider.overrideWithValue(null),
+        socketServiceProvider.overrideWithValue(null),
+        hermesConfigProvider.overrideWith(_FixedHermesConfig.new),
+        hermesApiServiceProvider.overrideWithValue(service),
+        hermesCopiedHistoryStoreProvider.overrideWithValue(copiedHistory),
+      ],
+    );
+    addTearDown(container.dispose);
+    final connection = _connectionIdentity(container);
+    await copiedHistory.save(
+      connectionIdentity: connection,
+      sessionId: 'copy-1',
+      messages: const [
+        {'id': 'earlier-1', 'role': 'user', 'content': 'Sort the books.'},
+      ],
+    );
+    final earlier = _assistant(
+      'earlier-assistant',
+      content: 'The top one.',
+      metadata: const <String, dynamic>{
+        'transport': kHermesTransport,
+        'hermesTransportMode': kHermesResponsesMode,
+        'hermesResponseId': 'resp-earlier',
+        'hermesSessionId': 'copy-1',
+      },
+    );
+    final placeholder = _assistant(
+      'placeholder',
+      streaming: true,
+      metadata: const <String, dynamic>{'transport': kHermesTransport},
+    );
+    container
+        .read(activeConversationProvider.notifier)
+        .set(
+          markNativeHermesConversation(
+            Conversation(
+              id: 'local:hermes_copy-1',
+              title: 'Copy',
+              createdAt: DateTime.utc(2026, 7, 14),
+              updatedAt: DateTime.utc(2026, 7, 14),
+              messages: <ChatMessage>[earlier, placeholder],
+              metadata: const <String, dynamic>{
+                'backend': 'hermes',
+                'hermesSessionId': 'copy-1',
+              },
+            ),
+          ),
+        );
+    container.read(chatMessagesProvider.notifier).setMessages(<ChatMessage>[
+      earlier,
+      placeholder,
+    ]);
+
+    await dispatchHermesRunFromChatForTest(
+      container,
+      assistantMessageId: placeholder.id,
+      assistantSeed: placeholder,
+      input: 'And the bottom one?',
+      existingMessages: <ChatMessage>[earlier],
+      responseInput: HermesChatInput.text('And the bottom one?'),
+    );
+
+    check(service.previousResponseIds).deepEquals(<String?>['resp-earlier']);
     final carried = await copiedHistory.load(
       connectionIdentity: connection,
       sessionId: 'chain-2',

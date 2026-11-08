@@ -3097,6 +3097,40 @@ void main() {
     ).contains(kHermesBudgetExhaustedNotice);
   });
 
+  // The stream reads `False`, `None`, `0` and `{}` as no error; recovery
+  // read them as a failure.
+  test('a budget stop reads a falsy error as no error, like the stream', () {
+    for (final error in <Object>['False', 'None', 'null', '0', 0, {}]) {
+      check(
+        hermesRunEndedOnBudget({
+          'status': 'failed',
+          'error': error,
+          'turn_exit_reason': 'budget_exhausted',
+        }),
+        because: '$error',
+      ).isTrue();
+    }
+    check(
+      hermesRunEndedOnBudget({
+        'error': 'provider down',
+        'turn_exit_reason': 'budget_exhausted',
+      }),
+    ).isFalse();
+  });
+
+  test('a recovered run status maps to the same note or error everywhere', () {
+    check(hermesRecoveredRunNotice(kHermesWrappedUpStatus))
+        .equals(kHermesBudgetExhaustedNotice);
+    check(hermesRecoveredRunNotice('incomplete'))
+        .equals(kHermesIncompleteNotice);
+    check(hermesRecoveredRunError('incomplete')).isNull();
+    check(hermesRecoveredRunError(kHermesWrappedUpStatus)).isNull();
+    check(hermesRecoveredRunError('completed')).isNull();
+    check(hermesRecoveredRunError('interrupted'))
+        .equals(kHermesRunInterruptedMessage);
+    check(hermesRecoveredRunError('failed')).equals('Hermes run failed.');
+  });
+
   test('a recovered run that failed with an error still fails', () async {
     final fake = _FakeHermesApiService(
       const [],
@@ -3522,6 +3556,55 @@ void main() {
           .map((s) => s.description);
       check(reasoning.last).equals('Thinking… Weigh the parcels.');
       check(reasoning.where((d) => d!.contains('parcels.Weigh'))).isEmpty();
+    });
+
+    // Only a prefix streamed: the rest of the terminal copy was dropped.
+    test('terminal reasoning adds what the deltas did not show', () async {
+      final statuses = <ChatStatusUpdate>[];
+      final fake = _FakeHermesApiService(
+        const [],
+        responseEvents: const [
+          HermesResponseCreated('resp-1'),
+          HermesReasoningDelta('Weigh the parcels.'),
+          HermesTokenDelta('Two kilos.'),
+          HermesReasoningDelta(
+            'Weigh the parcels.\nRead the scale.',
+            terminal: true,
+          ),
+          HermesFinalOutput('Two kilos.'),
+          HermesRunDone(),
+        ],
+      );
+      await _dispatchFakeHermesResponse(
+        service: fake,
+        registry: HermesRunRegistry(),
+        assistantMessageId: 'm',
+        input: HermesChatInput.text('hi'),
+        appendContent: (_) {},
+        appendStatus: statuses.add,
+        updateMessage: (_) {},
+        finishStreaming: () {},
+        completeStreamingUi: () {},
+      );
+
+      final reasoning = statuses
+          .where((s) => s.action == 'reasoning')
+          .map((s) => s.description)
+          .toList();
+      check(reasoning.last).isNotNull()
+        ..contains('Read the scale.')
+        ..not((it) => it.contains('parcels.Weigh'));
+      check(
+        RegExp('Weigh').allMatches(reasoning.last!).length,
+      ).equals(1);
+    });
+
+    test('a terminal copy the deltas do not begin adds nothing', () {
+      check(hermesUnstreamedReasoning('Weigh', 'Count the boxes.')).isNull();
+      check(
+        hermesUnstreamedReasoning('First.Second.', 'First.\nSecond.\nThird.'),
+      ).equals('\nThird.');
+      check(hermesUnstreamedReasoning('Same.', 'Same.')).equals('');
     });
 
     test('terminal reasoning shows when nothing was streamed', () async {

@@ -493,6 +493,34 @@ void main() {
       ).isNotEmpty();
     });
 
+    // Nothing fits when the newest message alone is over the limit: the copy
+    // opened blank, its earlier messages gone and never replayed.
+    testWidgets('a copy none of whose earlier messages fit is removed', (
+      tester,
+    ) async {
+      final service = _FakeHermesApiService(messages: harborTranscript);
+      final container = ownershipContainer(service);
+      await openForeignChat(tester, container);
+      // Read again by the copy: its newest message alone is over the limit.
+      service.messagesById['harbor-notes'] = [
+        ...harborTranscript,
+        {
+          'id': 13,
+          'role': 'assistant',
+          'content': 'w' * HermesCopiedHistoryStore.maxCopyBytes,
+        },
+      ];
+
+      await tester.tap(find.byKey(const ValueKey('hermes-continue-in-copy')));
+      await pumpUntil(tester, () => service.deletedSessionIds.isNotEmpty);
+
+      check(service.deletedSessionIds).deepEquals(['harbor-notes-copy']);
+      check(showsCopy(container)).isFalse();
+      check(
+        find.text(AppLocalizationsEn().hermesContinueInCopyFailed).evaluate(),
+      ).isNotEmpty();
+    });
+
     testWidgets('reopening a copy shows its earlier messages first and '
         'replays them', (tester) async {
       final service = _FakeHermesApiService(messages: harborTranscript);

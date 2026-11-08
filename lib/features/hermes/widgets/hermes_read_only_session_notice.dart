@@ -35,12 +35,6 @@ String? watchHermesReadOnlySessionSource(
   );
 }
 
-/// Replaces the composer for a Hermes session another Hermes surface owns.
-///
-/// Hermes v0.22.1+ refuses REST turns into such a session, so the chat stays
-/// readable and offers two ways to continue it in a session Conduit owns:
-/// here, through Hermes' fork, which ends the chat in the other app; or in a
-/// copy, which leaves it alone but keeps its earlier messages on this device.
 /// The product name of the Hermes app a session [source] names ("cli" →
 /// "Hermes CLI", "telegram" → "Telegram"), or [source] as Hermes sent it.
 String hermesSessionSourceName(String source) =>
@@ -78,6 +72,12 @@ const Map<String, String> _hermesSessionSourceNames = {
   'webhook': 'Webhook',
 };
 
+/// Replaces the composer for a Hermes session another Hermes surface owns.
+///
+/// Hermes v0.22.1+ refuses REST turns into such a session, so the chat stays
+/// readable and offers two ways to continue it in a session Conduit owns:
+/// here, through Hermes' fork, which ends the chat in the other app; or in a
+/// copy, which leaves it alone but keeps its earlier messages on this device.
 class HermesReadOnlySessionNotice extends ConsumerStatefulWidget {
   const HermesReadOnlySessionNotice({super.key, required this.source});
 

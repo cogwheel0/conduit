@@ -78,14 +78,67 @@ const String kHermesWrappedUpStatus = 'wrapped_up';
 /// Whether a `failed` run [record] (`GET /v1/runs/{id}`) is a turn that ran
 /// out of steps and wrote its wrap-up answer, with no error.
 bool hermesRunEndedOnBudget(Map<String, dynamic> record) {
-  final error = record['error'];
-  if (error != null && error != false && '$error'.trim().isNotEmpty) {
-    return false;
-  }
+  // The stream's rule: `False`, `None`, `0` and `{}` are no error.
+  if (hermesErrorIsTruthy(record['error'])) return false;
   final reason = record['turn_exit_reason'];
   return reason is String &&
       (reason.startsWith('budget_exhausted') ||
           reason.startsWith('max_iterations_reached('));
+}
+
+/// The status action of a note shown with an answer (a wrap-up, a response
+/// that stopped short).
+const String kHermesRunNoticeAction = 'hermes_run_notice';
+
+/// The note a recovered answer with [status] is shown with: a wrap-up or a
+/// stopped-short answer is still the answer. Null for any other status.
+String? hermesRecoveredRunNotice(String status) => switch (status) {
+  kHermesWrappedUpStatus => kHermesBudgetExhaustedNotice,
+  'incomplete' => kHermesIncompleteNotice,
+  _ => null,
+};
+
+/// The error a recovered run with [status] ended with; null for an answer,
+/// including one shown with a note ([hermesRecoveredRunNotice]).
+String? hermesRecoveredRunError(String status) =>
+    status == 'completed' || hermesRecoveredRunNotice(status) != null
+    ? null
+    : switch (status) {
+        'cancelled' || 'canceled' => 'Hermes run was cancelled.',
+        'stopped' => 'Hermes run was stopped.',
+        'interrupted' => kHermesRunInterruptedMessage,
+        _ => 'Hermes run failed.',
+      };
+
+/// How much streamed reasoning a turn keeps to compare with the terminal
+/// copy; past it, the terminal copy is not shown.
+const int _kMaxReconciledHermesReasoning = 65536;
+
+/// What a terminal response's [terminal] reasoning adds to the [streamed]
+/// deltas: the part after them. Items are joined by a newline in the
+/// terminal copy and not in the stream, so whitespace is not compared.
+/// Null when the stream is not a prefix of it (another projection, such as
+/// a summary): nothing is added, rather than repeating what was shown.
+@visibleForTesting
+String? hermesUnstreamedReasoning(String streamed, String terminal) {
+  bool blank(int unit) =>
+      unit == 0x20 || unit == 0x0A || unit == 0x0D || unit == 0x09;
+  var i = 0;
+  var j = 0;
+  while (j < streamed.length) {
+    final s = streamed.codeUnitAt(j);
+    if (i < terminal.length && terminal.codeUnitAt(i) == s) {
+      i++;
+      j++;
+    } else if (blank(s)) {
+      j++;
+    } else if (i < terminal.length && blank(terminal.codeUnitAt(i))) {
+      i++;
+    } else {
+      return null;
+    }
+  }
+  return terminal.substring(i);
 }
 
 HermesResponseRecoverer hermesResponseRecoverer(HermesApiService service) =>
@@ -237,7 +290,9 @@ Future<bool> dispatchHermesTurn({
   var sawTerminal = false;
   var completedSuccessfully = false;
   var gotContent = false;
-  var streamedReasoning = false;
+  // Reasoning streamed as deltas, bounded: a terminal response repeats it.
+  final streamedReasoning = StringBuffer();
+  var streamedReasoningOverflowed = false;
   final streamedText = StringBuffer();
   String? finalOutput;
   String? responseId;
@@ -250,11 +305,26 @@ Future<bool> dispatchHermesTurn({
       // the owner has cancelled this token, transport teardown is silent and
       // no later provider event may turn that user action into a message error.
       if (sawTerminal || responseCancelToken.isCancelled) return;
-      // A terminal response repeats its reasoning items; show them only when
-      // nothing was streamed as deltas.
+      // A terminal response repeats its reasoning items: only what the
+      // deltas did not already show is added.
       if (event is HermesReasoningDelta) {
-        if (event.terminal && streamedReasoning) return;
-        if (!event.terminal) streamedReasoning = true;
+        if (!event.terminal) {
+          if (streamedReasoning.length + event.content.length >
+              _kMaxReconciledHermesReasoning) {
+            streamedReasoningOverflowed = true;
+          } else {
+            streamedReasoning.write(event.content);
+          }
+        } else if (streamedReasoningOverflowed) {
+          return;
+        } else if (streamedReasoning.isNotEmpty) {
+          final rest = hermesUnstreamedReasoning(
+            streamedReasoning.toString(),
+            event.content,
+          );
+          if (rest == null || rest.trim().isEmpty) return;
+          event = HermesReasoningDelta(rest);
+        }
       }
       switch (event) {
         case HermesTokenDelta(:final content):
@@ -395,7 +465,7 @@ Future<bool> dispatchHermesTurn({
         if (incomplete) {
           statusAccumulator.appendStatus(
             const ChatStatusUpdate(
-              action: 'hermes_run_notice',
+              action: kHermesRunNoticeAction,
               description: kHermesIncompleteNotice,
               done: true,
             ),
@@ -814,27 +884,17 @@ Future<void> dispatchHermesRun({
         }
         // A wrap-up or a stopped-short answer is still the answer: shown with
         // a note, as its stream would have.
-        final notice = switch (recovered.status) {
-          kHermesWrappedUpStatus => kHermesBudgetExhaustedNotice,
-          'incomplete' => kHermesIncompleteNotice,
-          _ => null,
-        };
+        final notice = hermesRecoveredRunNotice(recovered.status);
+        final errorMessage = hermesRecoveredRunError(recovered.status);
         if (notice != null) {
           statusAccumulator.appendStatus(
             ChatStatusUpdate(
-              action: 'hermes_run_notice',
+              action: kHermesRunNoticeAction,
               description: notice,
               done: true,
             ),
           );
-        } else if (recovered.status != 'completed') {
-          final errorMessage = switch (recovered.status) {
-            'cancelled' || 'canceled' => 'Hermes run was cancelled.',
-            'stopped' => 'Hermes run was stopped.',
-            'interrupted' => kHermesRunInterruptedMessage,
-            'incomplete' => 'Hermes stopped this response before it completed.',
-            _ => 'Hermes run failed.',
-          };
+        } else if (errorMessage != null) {
           updateMessage(
             (m) => m.copyWith(error: ChatMessageError(content: errorMessage)),
           );
@@ -1991,7 +2051,7 @@ void _handleEvent(
     case HermesRunNotice(:final message):
       appendStatus(
         ChatStatusUpdate(
-          action: 'hermes_run_notice',
+          action: kHermesRunNoticeAction,
           description: sanitizeHermesProviderErrorMessage(
             message,
             sensitiveValues: sensitiveValues,

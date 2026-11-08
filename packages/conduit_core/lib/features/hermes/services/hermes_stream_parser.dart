@@ -905,6 +905,10 @@ bool _isTerminal(String status) =>
 
 /// Whether an `error` field represents a real failure (vs. a falsy marker like
 /// `false` / `"False"` / `"None"` that some events include).
+/// Whether a Hermes `error` field is a real error: Python servers send
+/// `False`, `None`, `0` or `{}` on events that did not fail.
+bool hermesErrorIsTruthy(Object? error) => _isTruthyError(error);
+
 bool _isTruthyError(dynamic error) {
   if (error == null) return false;
   if (error is bool) return error;

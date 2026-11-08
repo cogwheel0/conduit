@@ -1030,12 +1030,30 @@ void main() {
     });
 
     test('is removed when they cannot be kept', () async {
-      await database.customStatement('PRAGMA query_only = ON');
+      // Saving the fork's earlier messages is the step that fails: a new
+      // record is refused, while reading (which touches one) still works.
+      await database.customStatement(
+        'CREATE TRIGGER refuse_new_copy BEFORE INSERT ON app_cache '
+        "BEGIN SELECT RAISE(ABORT, 'disk full'); END",
+      );
 
       await check(
         container.read(hermesSessionsProvider.notifier).fork('fork-source'),
-      ).throws<Object>();
+      ).throws<SqliteException>();
       check(service.deleteCalls).equals(1);
+      check(
+        await copiedHistory.load(
+          connectionIdentity: connectionIdentity,
+          sessionId: 'fork-target',
+        ),
+      ).isNull();
+      // The copy's own record is untouched.
+      check(
+        await copiedHistory.load(
+          connectionIdentity: connectionIdentity,
+          sessionId: 'fork-source',
+        ),
+      ).isNotNull();
     });
   });
 

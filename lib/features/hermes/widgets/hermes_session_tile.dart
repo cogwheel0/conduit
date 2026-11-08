@@ -414,6 +414,11 @@ Future<void> openHermesSession(
         sessionId: session.id,
         messages: transcript,
       );
+      // Nothing fit (the newest message alone is over the limit): the copy
+      // would open blank and replay nothing, so it is a failed save too.
+      if (raw.isEmpty && transcript.isNotEmpty) {
+        throw StateError('No earlier message fits in the copy.');
+      }
     } catch (error) {
       DebugLogger.warning(
         'copied-history-save-failed',
