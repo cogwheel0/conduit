@@ -1214,6 +1214,28 @@
   "@usageTotalTokens": {
     "description": "Label for total token count"
   },
+  "usageContextWindow": "Kontextové okno",
+  "@usageContextWindow": {
+    "description": "Label for how full the model's context window was at the end of a response: the tokens of its prompt and answer against the model's context length"
+  },
+  "usageContextWindowValue": "{percent} · {used} z {total}",
+  "@usageContextWindowValue": {
+    "description": "How full the model's context window was at the end of a response: the share used, then the tokens used and the context length as compact numbers",
+    "placeholders": {
+      "percent": {
+        "type": "String",
+        "example": "62%"
+      },
+      "used": {
+        "type": "String",
+        "example": "79K"
+      },
+      "total": {
+        "type": "String",
+        "example": "128K"
+      }
+    }
+  },
   "edit": "Upravit",
   "@edit": {
     "description": "Action to edit an item/message."
@@ -1707,9 +1729,20 @@
   "@ttsVoice": {
     "description": "Title for voice selection tile."
   },
-  "ttsSpeechRate": "Rychlost řeči",
-  "@ttsSpeechRate": {
-    "description": "Title for speech rate slider."
+  "ttsPlaybackSpeed": "Rychlost přehrávání",
+  "@ttsPlaybackSpeed": {
+    "description": "Title of the control that sets how fast read-aloud and spoken replies play, cloud and device voices alike."
+  },
+  "ttsSpeedValue": "{speed}×",
+  "@ttsSpeedValue": {
+    "description": "A playback speed as a multiple of the voice's own pace, such as 1.25×.",
+    "placeholders": {
+      "speed": {
+        "type": "double",
+        "format": "decimalPattern",
+        "example": "1.25"
+      }
+    }
   },
   "ttsPitch": "Výška hlasu",
   "@ttsPitch": {
@@ -5289,6 +5322,7 @@
   "hermesTurnSendNext": "Odeslat další",
   "hermesTurnControlsUnsupported": "Aktualizujte Hermes, abyste povolili bezpečné ovládání tahů.",
   "sidebarHermesTab": "Hermes",
+  "sidebarBackendSwitcher": "Backend",
   "markdownShowMoreLines": "{count, plural, one{Zobrazit další řádek} few{Zobrazit další {count} řádky} other{Zobrazit dalších {count} řádků}}",
   "@markdownShowMoreLines": {"placeholders":{"count":{"type":"int"}}},
   "markdownShowLess": "Zobrazit méně",
@@ -6241,5 +6275,7 @@
   "mcpAppOpenLinkConfirm": "Otevřít",
   "terminalPortPreviewForward": "Vpřed",
   "terminalPortPreviewReload": "Načíst znovu",
-  "terminalPortPreviewLoadFailed": "Tuto stránku se nepodařilo načíst."
+  "terminalPortPreviewLoadFailed": "Tuto stránku se nepodařilo načíst.",
+  "modelMenuAllModels": "Všechny modely…",
+  "citationPreviewOpen": "Otevřít"
 }
