@@ -2,7 +2,7 @@ import 'package:collection/collection.dart';
 import 'package:riverpod/riverpod.dart';
 
 import 'package:conduit_core/features/chat/providers/chat_providers.dart'
-    show chatMessagesProvider;
+    show chatMessagesProvider, hermesTrustedMixedSessionProvider;
 
 import 'package:conduit_core/features/hermes/models/hermes_todo.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
@@ -20,11 +20,10 @@ final _activeHermesSessionProvider = Provider.autoDispose<String?>((ref) {
   );
   if (id is String && id.isNotEmpty) return id;
   // A Hermes turn inside an OpenWebUI chat keeps its session on its reply,
-  // and the chat itself names none. Only the session this app bound for
-  // the chat's latest turn counts: a reply's metadata alone may come from
-  // the server.
+  // and the chat itself names none. Only a session this app bound for the
+  // chat's latest turn counts: a reply's metadata alone may come from the
+  // server. Reopened, the chat has its stored binding instead.
   final bound = ref.watch(hermesActiveSessionProvider);
-  if (bound == null) return null;
   final latest = ref.watch(
     chatMessagesProvider.select(
       (messages) => messages
@@ -32,7 +31,8 @@ final _activeHermesSessionProvider = Provider.autoDispose<String?>((ref) {
           ?.metadata?['hermesSessionId'],
     ),
   );
-  return latest == bound ? bound : null;
+  if (bound != null && latest == bound) return bound;
+  return ref.watch(hermesTrustedMixedSessionProvider);
 });
 
 /// The agent's task list for the open chat, live: only a Desktop Gateway

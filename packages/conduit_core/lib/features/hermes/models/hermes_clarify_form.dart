@@ -20,6 +20,9 @@ const int kMaxHermesClarifyAnswerCharacters = 4000;
 /// from answers itself; Conduit sends the bare choice like its own UIs do.
 const String _recommendedLabel = '(Recommended)';
 
+/// Marks a stored multi-select question whose choices were all left out.
+const String _kMultiSelectWithoutChoices = 'multi_select_without_choices';
+
 /// One question of a Hermes clarify form.
 final class HermesClarifyQuestion {
   const HermesClarifyQuestion({
@@ -49,6 +52,9 @@ final class HermesClarifyQuestion {
     'question': text,
     if (choices.isNotEmpty) 'choices': choices,
     if (multiSelect) 'multi_select': true,
+    // Hermes sends a multi-select question with choices only; one stored
+    // without them lost them to redaction, and still answers with a list.
+    if (multiSelect && choices.isEmpty) _kMultiSelectWithoutChoices: true,
     if (locked) 'locked': true,
     'answer': ?lockedAnswer,
   };
@@ -77,7 +83,9 @@ final class HermesClarifyQuestion {
       id: id,
       text: text,
       choices: List.unmodifiable(choices),
-      multiSelect: raw['multi_select'] == true && choices.isNotEmpty,
+      multiSelect:
+          raw['multi_select'] == true &&
+          (choices.isNotEmpty || raw[_kMultiSelectWithoutChoices] == true),
       locked: locked,
       lockedAnswer: locked
           ? _bounded(answer, kMaxHermesClarifyAnswerCharacters)

@@ -16,8 +16,20 @@ const String _redacted = '[REDACTED]';
 /// Bearer tokens. With [keepLines]
 /// a label and its value must share a line, and line breaks are left alone,
 /// so a diff keeps its lines.
-String redactCredentialLabels(String text, {bool keepLines = false}) {
+String redactCredentialLabels(
+  String text, {
+  bool keepLines = false,
+  bool keepParagraphs = false,
+}) {
   final space = keepLines ? r'[ \t]' : r'\s';
+  // A label and its value may sit on either side of a blank line. With
+  // [keepParagraphs] the blank line stays where it was, ahead of the marker,
+  // so the paragraphs around it stay apart.
+  String gap(String? before, String? after) =>
+      keepParagraphs &&
+          RegExp(r'\n[ \t\r]*\n').hasMatch('${before ?? ''}${after ?? ''}')
+      ? '\n\n'
+      : ' ';
   // Authorization values can contain a scheme followed by whitespace-rich
   // credentials (for example Digest parameters), and a Cookie header holds
   // several. Redact the complete header value before applying the narrower
@@ -25,11 +37,12 @@ String redactCredentialLabels(String text, {bool keepLines = false}) {
   var safe = text.replaceAllMapped(
     RegExp(
       '\\b(authorization|proxy-authorization|cookie|set-cookie)\\b'
-      '$space*[:=]$space*'
+      '($space*)[:=]($space*)'
       r'[^\r\n]*',
       caseSensitive: false,
     ),
-    (match) => '${match.group(1)}: $_redacted',
+    (match) =>
+        '${match.group(1)}:${gap(match.group(2), match.group(3))}$_redacted',
   );
 
   // Redact common credential labels even when a provider reflects a value
@@ -40,16 +53,18 @@ String redactCredentialLabels(String text, {bool keepLines = false}) {
     RegExp(
       r'\b(api[-_ ]?key|access[-_ ]?token|password|secret|session[-_ ]?key)'
       r'''\b(["']?)'''
-      '$space*[:=]$space*(?:bearer$space+)?'
+      '($space*)[:=]($space*(?:bearer$space+)?)'
       // A quoted value ends at its closing quote, not an escaped one.
       r'''(?:"(?:\\.|[^"\\\r\n])*"|'(?:\\.|[^'\\\r\n])*'|[^\s,;]+)''',
       caseSensitive: false,
     ),
-    (match) => '${match.group(1)}${match.group(2)}: $_redacted',
+    (match) =>
+        '${match.group(1)}${match.group(2)}:'
+        '${gap(match.group(3), match.group(4))}$_redacted',
   );
   return safe.replaceAllMapped(
-    RegExp('\\bbearer$space+' r'[A-Za-z0-9._~+/=-]+', caseSensitive: false),
-    (_) => 'Bearer $_redacted',
+    RegExp('\\bbearer($space+)' r'[A-Za-z0-9._~+/=-]+', caseSensitive: false),
+    (match) => 'Bearer${gap(match.group(1), null)}$_redacted',
   );
 }
 

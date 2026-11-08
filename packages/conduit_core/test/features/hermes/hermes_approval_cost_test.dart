@@ -179,6 +179,36 @@ void main() {
     ).not((it) => it.contains('dG9rLWxhbWJkYQ'));
   });
 
+  // Redacting the credential took the blank line with it: the tool's input
+  // after it joined the opening paragraph, which is read for a price.
+  test('a credential past a blank line keeps the paragraphs apart', () {
+    final message = applyHermesRunEventForTest(
+      ChatMessage(
+        id: 'a',
+        role: 'assistant',
+        content: '',
+        timestamp: DateTime.utc(2030),
+      ),
+      const HermesApprovalRequested(
+        approvalId: 'prm_a4',
+        summary:
+            'Post a picture with Authorization:\n\n'
+            'Basic dG9rLW51\n'
+            'caption: Costs about 10 credits.',
+        choices: ['once', 'deny'],
+        executionGeneration: 2,
+        raw: {},
+      ),
+      runId: 'run-1',
+    );
+
+    final approval = message.metadata![kHermesApprovalMeta] as Map;
+    check(approval['cost']).isNull();
+    check(approval['summary'] as String)
+      ..not((it) => it.contains('dG9rLW51'))
+      ..contains('\n\n');
+  });
+
   test('a REST approval keeps the price its command states', () {
     final message = applyHermesRunEventForTest(
       ChatMessage(

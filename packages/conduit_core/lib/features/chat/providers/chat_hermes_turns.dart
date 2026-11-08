@@ -586,6 +586,66 @@ Future<void> forgetMixedHermesConversationProvenance(
   );
 }
 
+/// The Hermes session the open OpenWebUI chat's latest reply ran in, when
+/// this app bound the chat there (its stored binding, not the reply's
+/// server-held metadata alone) on the connection in use; null otherwise.
+/// A reopened mixed chat has no runtime binding, and still has its plan.
+final hermesTrustedMixedSessionProvider = Provider.autoDispose<String?>((ref) {
+  final conversation = ref.watch(activeConversationProvider);
+  if (conversation == null || isNativeHermesConversation(conversation)) {
+    return null;
+  }
+  final latest = ref.watch(
+    chatMessagesProvider.select((messages) {
+      ChatMessage? reply;
+      for (final message in messages.reversed) {
+        if (message.role == 'assistant') {
+          reply = message;
+          break;
+        }
+      }
+      return reply;
+    }),
+  );
+  final sessionId = validateHermesOpaqueIdentifier(
+    latest?.metadata?['hermesSessionId'],
+  );
+  final identity = latest?.metadata?[kHermesConnectionIdentityMetadataKey];
+  // Checked before the account-owner providers below are read at all.
+  if (latest == null ||
+      sessionId == null ||
+      identity is! String ||
+      identity.isEmpty) {
+    return null;
+  }
+  final config = ref.watch(hermesConfigProvider);
+  final controller = ref.read(hermesConfigProvider.notifier);
+  final endpoint = HermesConfigController.connectionEndpoint(config.baseUrl);
+  if (endpoint == null ||
+      identity !=
+          HermesLocalDocumentTrustStore.connectionIdentity(
+            endpointIdentity: endpoint,
+            principalId: controller.documentTrustPrincipalId(),
+          )) {
+    return null;
+  }
+  try {
+    final owner = _HermesConversationOwner.capture(ref, conversation);
+    if (!owner.usesOpenWebUiBackend) return null;
+    final provenance = _captureHermesMixedSessionProvenance(
+      ref,
+      owner: owner,
+      databaseManager: ref.read(databaseManagerProvider),
+    );
+    return provenance != null &&
+            _mixedHermesMessageHasLocalProvenance(latest, provenance)
+        ? sessionId
+        : null;
+  } catch (_) {
+    return null;
+  }
+});
+
 /// The inactive saved connection that owns the active mixed chat's last
 /// trusted Hermes session, or null.
 ///

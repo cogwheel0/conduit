@@ -470,6 +470,74 @@ void main() {
       }
     });
 
+    // The parser shortened the question first, so a secret cut at its end
+    // could no longer be matched, and its first part was shown.
+    test('a secret cut by the question limit is not shown in part', () {
+      // Shown from character 505, past the card's limit, and cut by the
+      // parser's limit at 600.
+      final secret = 'synthetic-secret-${'0123456789' * 9}';
+      final message = applyHermesRunEventForTest(
+        ChatMessage(
+          id: 'assistant-1',
+          role: 'assistant',
+          content: '',
+          timestamp: DateTime.utc(2030),
+        ),
+        HermesDecisionRequested(
+          kind: HermesDecisionKind.clarification,
+          requestId: 'prm_c1a5',
+          prompt: 'Which one?',
+          raw: {
+            'questions': [
+              {
+                'qid': 'q0',
+                'question': '${'w' * 504} $secret?',
+              },
+            ],
+          },
+        ),
+        runId: 'run_5be1c0de',
+        sensitiveValues: [secret],
+      );
+
+      final decision = message.metadata![kHermesDecisionMeta] as Map;
+      final question = hermesClarifyQuestionsFromPayload(decision).single;
+      check(question.text).not((it) => it.contains('synth'));
+    });
+
+    // Every choice was left out, and the restored question was answered
+    // with a bare value instead of the list Hermes expects.
+    test('a multi-select question whose choices were left out stays one',
+        () async {
+      await HermesPendingDecisionStore.upsert(
+        origin: 'https://hermes.example',
+        storedSessionId: 'stored-1',
+        runtimeId: 'runtime-1',
+        requestId: 'srq-ms',
+        kind: HermesPendingDesktopDecisionKind.clarification,
+        prompt: 'Which keys?',
+        questions: hermesClarifyQuestions([
+          {
+            'qid': 'q0',
+            'question': 'Which keys?',
+            'choices': ['password=tok-mu-12'],
+            'multi_select': true,
+          },
+        ]),
+      );
+
+      final record = (await HermesPendingDecisionStore.forSession(
+        origin: 'https://hermes.example',
+        storedSessionId: 'stored-1',
+      )).single;
+      final question = record.questions.single;
+      check(question.choices).isEmpty();
+      check(question.multiSelect).isTrue();
+      check(
+        const HermesClarifyDraft(text: 'foo').answerFor(question),
+      ).equals('["foo"]');
+    });
+
     test('a lone surrogate is kept within the field budget', () async {
       await HermesPendingDecisionStore.upsert(
         origin: 'https://hermes.example',

@@ -13,7 +13,10 @@ import 'package:conduit_core/features/hermes/services/hermes_desktop_transport.d
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_todo_providers.dart';
 import 'package:conduit_core/features/chat/providers/chat_providers.dart'
-    show ChatMessagesNotifier, chatMessagesProvider;
+    show
+        ChatMessagesNotifier,
+        chatMessagesProvider,
+        hermesTrustedMixedSessionProvider;
 import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/persistence/preferences_store.dart';
@@ -1777,6 +1780,35 @@ void main() {
       await _settle();
 
       check(revisions.whereType<int>()).deepEquals([3]);
+    });
+
+    // Reopened, the chat has no runtime binding (a new chat cleared it), so
+    // its plan was gone though this app ran its turn in that session.
+    test('a reopened OpenWebUI chat shows the plan of its bound session',
+        () async {
+      final gateway = _Authority()..todoState = plan(7, ['in_progress']);
+      final service = _service(gateway);
+      await service.pendingDecisionsForSession('local-1');
+      final container = ProviderContainer(
+        overrides: [
+          hermesApiServiceProvider.overrideWithValue(service),
+          activeConversationProvider.overrideWith(_MixedChat.new),
+          chatMessagesProvider.overrideWith(_MixedMessages.new),
+          // The binding this app stored when it ran the chat's turn.
+          hermesTrustedMixedSessionProvider.overrideWith((ref) => 'local-1'),
+        ],
+      );
+      addTearDown(container.dispose);
+      final revisions = <int?>[];
+      container.listen(
+        hermesActiveTodoProvider,
+        (_, next) => revisions.add(next.asData?.value?.revision),
+        fireImmediately: true,
+      );
+      await _settle();
+
+      check(container.read(hermesActiveSessionProvider)).isNull();
+      check(revisions.whereType<int>()).deepEquals([7]);
     });
 
     // A resume can move a chat to a new stored id. The chat still asks by

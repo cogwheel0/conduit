@@ -2209,8 +2209,8 @@ String? _sanitizeHermesApprovalSummary(
   }
 
   // Credentials go first, across the whole text: a label and its value
-  // can sit on either side of the blank line split below.
-  raw = redactCredentialLabels(raw);
+  // can sit on either side of the blank line split below, which stays.
+  raw = redactCredentialLabels(raw, keepParagraphs: true);
   // Sanitizing folds whitespace: the opening paragraph (where Hermes states
   // a price) stays apart from the tool's input after it, which must never
   // read as a price.
@@ -2233,8 +2233,32 @@ List<Map<String, Object?>> _safeHermesClarifyQuestions(
   String? safe(String? text) => text == null
       ? null
       : _sanitizeHermesApprovalSummary(text, sensitiveValues: sensitiveValues);
+  // Redacted whole before the form is parsed: the parser shortens long
+  // text, and a secret cut in two could no longer be matched.
+  Object? whole(Object? text) => text is String ? safe(text) : text;
+  final questions = raw['questions'];
+  final answers = raw['answers'];
+  final redacted = <Object?, Object?>{
+    ...raw,
+    'question': whole(raw['question']),
+    'prompt': whole(raw['prompt']),
+    if (questions is List)
+      'questions': [
+        for (final question in questions.take(kMaxHermesClarifyQuestions))
+          question is Map
+              ? {...question, 'question': whole(question['question'])}
+              : question,
+      ],
+    if (answers is Map)
+      'answers': {
+        for (final MapEntry(:key, :value) in answers.entries.take(
+          kMaxHermesClarifyQuestions * 4,
+        ))
+          key: whole(value),
+      },
+  };
   return [
-    for (final question in hermesClarifyQuestionsFromPayload(raw))
+    for (final question in hermesClarifyQuestionsFromPayload(redacted))
       if (safe(question.text) case final String text)
         HermesClarifyQuestion(
           id: question.id,
