@@ -452,7 +452,7 @@ class InlineRenderer {
       textLength: code.length,
       alignment: PlaceholderAlignment.baseline,
       baseline: TextBaseline.alphabetic,
-      child: _InlineCodeWidget(code: code, style: style),
+      child: InlineCodeChip(code: code, style: style),
     );
   }
 
@@ -853,18 +853,16 @@ class FadableRichText extends StatelessWidget {
 /// Inline code chip with tap-to-copy behavior.
 ///
 /// Monospace text in the label colour on a quiet rounded chip. The chip's
-/// fill is painted a little past the text's layout box (see
-/// [_InlineCodeChipPainter]) so it eats into the neighbouring spaces instead
-/// of adding width: the gap between the code and the next word stays close
-/// to a single space.
-class _InlineCodeWidget extends StatelessWidget {
-  const _InlineCodeWidget({required this.code, required this.style});
+/// padding is part of its place in the line and the fill never reaches past
+/// it, so a chip that starts or ends a line keeps the text margins like a
+/// code block does, and the gap between the fill and the next word is a
+/// single space.
+@visibleForTesting
+class InlineCodeChip extends StatelessWidget {
+  const InlineCodeChip({super.key, required this.code, required this.style});
 
-  /// Horizontal space the chip adds inside the text flow on each side.
-  static const double _layoutInset = 2;
-
-  /// How far the fill reaches past the layout box on each side.
-  static const double _paintOutset = 2;
+  /// Fill on each side of the code, inside the chip's place in the line.
+  static const double horizontalPadding = 4;
 
   final String code;
   final ConduitMarkdownStyle style;
@@ -877,10 +875,9 @@ class _InlineCodeWidget extends StatelessWidget {
         painter: _InlineCodeChipPainter(
           color: style.codeSpanBackgroundColor,
           radius: style.codeSpanRadius,
-          horizontalOutset: _paintOutset,
         ),
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: _layoutInset),
+          padding: const EdgeInsets.symmetric(horizontal: horizontalPadding),
           child: Text(
             code,
             style: style.codeSpan.copyWith(color: style.codeSpanTextColor),
@@ -902,27 +899,17 @@ class _InlineCodeWidget extends StatelessWidget {
   }
 }
 
-/// Paints the inline-code chip's rounded fill, reaching [horizontalOutset]
-/// past the layout box on each side and 1pt above and below the text.
+/// Paints the inline-code chip's rounded fill across its layout box, and 1pt
+/// above and below the text.
 class _InlineCodeChipPainter extends CustomPainter {
-  const _InlineCodeChipPainter({
-    required this.color,
-    required this.radius,
-    required this.horizontalOutset,
-  });
+  const _InlineCodeChipPainter({required this.color, required this.radius});
 
   final Color color;
   final double radius;
-  final double horizontalOutset;
 
   @override
   void paint(Canvas canvas, Size size) {
-    final rect = Rect.fromLTRB(
-      -horizontalOutset,
-      -1,
-      size.width + horizontalOutset,
-      size.height + 1,
-    );
+    final rect = Rect.fromLTRB(0, -1, size.width, size.height + 1);
     canvas.drawRRect(
       RRect.fromRectAndRadius(rect, Radius.circular(radius)),
       Paint()..color = color,
@@ -931,7 +918,5 @@ class _InlineCodeChipPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(_InlineCodeChipPainter oldDelegate) =>
-      oldDelegate.color != color ||
-      oldDelegate.radius != radius ||
-      oldDelegate.horizontalOutset != horizontalOutset;
+      oldDelegate.color != color || oldDelegate.radius != radius;
 }
