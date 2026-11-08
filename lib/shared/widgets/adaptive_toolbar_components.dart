@@ -176,9 +176,10 @@ class ConduitAdaptiveCupertinoNavigationBar extends StatelessWidget
           textScaler: textScaler,
           child: NavigationToolbar(
             centerMiddle: centerMiddle,
-            // A title too wide to stay centred (large text) moves aside but
-            // keeps the same clear space from the controls.
-            middleSpacing: kConduitCenteredTitleClearance,
+            // The title carries its clear space with it, so one that would
+            // come within 12 pt of a control (large text) moves aside rather
+            // than only once it would overlap it.
+            middleSpacing: 0,
             leading: Align(
               alignment: AlignmentDirectional.centerStart,
               widthFactor: 1,
@@ -186,7 +187,12 @@ class ConduitAdaptiveCupertinoNavigationBar extends StatelessWidget
             ),
             middle: middle == null
                 ? null
-                : Align(widthFactor: 1, child: middle),
+                : Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: kConduitCenteredTitleClearance,
+                    ),
+                    child: Align(widthFactor: 1, child: middle),
+                  ),
             trailing: trailing == null
                 ? null
                 : Align(

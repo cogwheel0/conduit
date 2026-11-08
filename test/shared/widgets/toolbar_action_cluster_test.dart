@@ -117,36 +117,68 @@ void main() {
     );
   });
 
-  testWidgets('a title too wide to centre moves aside, 12 pt clear', (
-    tester,
-  ) async {
+  for (final width in [150.0, 120.0]) {
+    testWidgets('a $width pt title too wide to centre moves aside, 12 pt '
+        'clear', (tester) async {
+      tester.view.physicalSize = const Size(402, 874);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      // Accessibility text sizes: a 66 pt sidebar button, a 120 pt group
+      // and a pill that cannot keep its clear space on the centre line
+      // (the narrower one would fit there, 5 pt from the group).
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            appBar: ConduitAdaptiveCupertinoNavigationBar(
+              textScaler: TextScaler.noScaling,
+              leading: const SizedBox(
+                key: ValueKey('leading'),
+                width: 66,
+                height: 44,
+              ),
+              middle: SizedBox(
+                key: const ValueKey('middle'),
+                width: width,
+                height: 44,
+              ),
+              trailing: const SizedBox(
+                key: ValueKey('trailing'),
+                width: 120,
+                height: 44,
+              ),
+            ),
+          ),
+        ),
+      );
+      final middle = tester.getRect(find.byKey(const ValueKey('middle')));
+      final trailing = tester.getRect(find.byKey(const ValueKey('trailing')));
+      final leading = tester.getRect(find.byKey(const ValueKey('leading')));
+      expect(middle.center.dx, lessThan(201));
+      expect(trailing.left - middle.right, closeTo(12, 0.01));
+      expect(middle.left - leading.right, greaterThanOrEqualTo(12));
+    });
+  }
+
+  testWidgets('a title with room keeps the centre line', (tester) async {
     tester.view.physicalSize = const Size(402, 874);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
-    // Accessibility text sizes: a 66 pt sidebar button, a 120 pt group and
-    // a pill that cannot stay on the centre line.
     await tester.pumpWidget(
       const MaterialApp(
         home: Scaffold(
           appBar: ConduitAdaptiveCupertinoNavigationBar(
             textScaler: TextScaler.noScaling,
-            leading: SizedBox(key: ValueKey('leading'), width: 66, height: 44),
-            middle: SizedBox(key: ValueKey('middle'), width: 150, height: 44),
-            trailing: SizedBox(
-              key: ValueKey('trailing'),
-              width: 120,
-              height: 44,
-            ),
+            leading: SizedBox(width: 44, height: 44),
+            middle: SizedBox(key: ValueKey('middle'), width: 186, height: 44),
+            trailing: SizedBox(width: 80, height: 44),
           ),
         ),
       ),
     );
-    final middle = tester.getRect(find.byKey(const ValueKey('middle')));
-    final trailing = tester.getRect(find.byKey(const ValueKey('trailing')));
-    final leading = tester.getRect(find.byKey(const ValueKey('leading')));
-    expect(middle.center.dx, lessThan(201));
-    expect(trailing.left - middle.right, closeTo(12, 0.01));
-    expect(middle.left - leading.right, greaterThanOrEqualTo(12));
+    expect(
+      tester.getRect(find.byKey(const ValueKey('middle'))).center.dx,
+      closeTo(201, 0.01),
+    );
   });
 
   testWidgets(
