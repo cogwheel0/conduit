@@ -98,3 +98,10 @@ class SidebarChatsTitleCollapsed extends Notifier<bool> {
     if (state != collapsed) state = collapsed;
   }
 }
+
+/// Whether the notes list has scrolled its large "Notes" title under the
+/// toolbar, which then shows the title small.
+final sidebarNotesTitleCollapsedProvider =
+    NotifierProvider<SidebarChatsTitleCollapsed, bool>(
+      SidebarChatsTitleCollapsed.new,
+    );

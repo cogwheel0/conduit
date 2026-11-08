@@ -358,9 +358,9 @@ class SidebarListTileContent extends StatelessWidget {
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: AppTypography.sidebarTitleStyle.copyWith(
-                      color: titleIsPrimary
-                          ? theme.textPrimary
-                          : theme.textSecondary,
+                      // Titles read in the label colour, as chat rows do;
+                      // selection shows through the row highlight and weight.
+                      color: theme.textPrimary,
                       fontWeight:
                           titleFontWeight ??
                           (titleIsPrimary ? FontWeight.w600 : FontWeight.w400),

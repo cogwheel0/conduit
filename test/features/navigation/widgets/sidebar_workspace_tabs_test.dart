@@ -295,14 +295,11 @@ void main() {
 
     expect(title.style?.fontWeight, FontWeight.w400);
     expect(tileContent.titleFontWeight, FontWeight.w400);
-    expect(title.style?.color, theme.textSecondary);
+    expect(title.style?.color, theme.textPrimary);
     expect(lastEdited.data, 'Jan 1');
     expect(lastEdited.style?.fontSize, AppTypography.bodySmallStyle.fontSize);
     expect(lastEdited.style?.fontSize, lessThan(title.style!.fontSize!));
-    expect(
-      lastEdited.style?.color,
-      theme.textSecondary.withValues(alpha: Alpha.secondary),
-    );
+    expect(lastEdited.style?.color, theme.textSecondary);
     expect(
       tester.getCenter(lastEditedFinder).dx,
       greaterThan(

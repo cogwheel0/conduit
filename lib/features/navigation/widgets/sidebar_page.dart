@@ -191,13 +191,20 @@ class _SidebarAssetTabImage extends StatelessWidget {
 /// The chat list's title, small in the toolbar, fading in once the large
 /// title scrolls under the bar and out when it comes back.
 class _SidebarCollapsedTitle extends ConsumerWidget {
-  const _SidebarCollapsedTitle({required this.title});
+  const _SidebarCollapsedTitle({
+    required this.title,
+    required this.collapsedProvider,
+  });
 
   final String title;
 
+  /// The list's own collapse state: each tab scrolls its large title away
+  /// on its own.
+  final NotifierProvider<SidebarChatsTitleCollapsed, bool> collapsedProvider;
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final collapsed = ref.watch(sidebarChatsTitleCollapsedProvider);
+    final collapsed = ref.watch(collapsedProvider);
     return ExcludeSemantics(
       // The large title in the list is the heading VoiceOver reads.
       child: AnimatedOpacity(
@@ -728,11 +735,19 @@ class _SidebarPageState extends ConsumerState<SidebarPage>
             return SidebarIos26Scaffold(
               bottomNavigationBar: bottomNavigationBar,
               leading: adaptiveAppBarLeading,
-              middle: activeTab.id == SidebarTabId.chats && !isSearchExpanded
-                  ? _SidebarCollapsedTitle(
-                      title: activeTab.label(localizations),
-                    )
-                  : null,
+              middle: isSearchExpanded
+                  ? null
+                  : switch (activeTab.id) {
+                      SidebarTabId.chats => _SidebarCollapsedTitle(
+                        title: activeTab.label(localizations),
+                        collapsedProvider: sidebarChatsTitleCollapsedProvider,
+                      ),
+                      SidebarTabId.notes => _SidebarCollapsedTitle(
+                        title: activeTab.label(localizations),
+                        collapsedProvider: sidebarNotesTitleCollapsedProvider,
+                      ),
+                      _ => null,
+                    },
               actions: appBarActions,
               showNativeView: composeNativeIos26Chrome,
               body: sidebarBody,
