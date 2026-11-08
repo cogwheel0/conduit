@@ -4,46 +4,23 @@ import 'dart:convert';
 import 'package:conduit_markdown/conduit_markdown.dart';
 import 'package:meta/meta.dart';
 
+/// The mobile renderer's display preparation; the definition lives in
+/// `conduit_markdown` so the desktop block segmenter prepares content the
+/// same way.
 String prepareMarkdownContentCanonical(
   String content, {
   required bool streaming,
-}) {
-  final normalized = ConduitMarkdownPreprocessor.normalize(content);
-  return streaming
-      ? stripTrailingIncompleteToolCallDetailsCanonical(normalized)
-      : normalized;
-}
+}) => prepareAssistantMarkdown(content, streaming: streaming);
 
 final _detailsOpenPattern = RegExp(r'<details\b', caseSensitive: false);
 // Exactly the close the details parser recognizes; a looser match would
 // let the checkpoint think it left a details block the parser is still
 // inside, splitting prepared content mid-block.
 final _detailsClosePattern = RegExp(r'</details>', caseSensitive: false);
-final _toolCallDetailsOpenPattern = RegExp(
-  r'<details\b[^>]*type="tool_calls"[^>]*>',
-  caseSensitive: false,
-);
 
-String stripTrailingIncompleteToolCallDetailsCanonical(String input) {
-  if (input.isEmpty || !_detailsOpenPattern.hasMatch(input)) {
-    return input;
-  }
-
-  final matches = _toolCallDetailsOpenPattern
-      .allMatches(input)
-      .toList(growable: false);
-  if (matches.isEmpty) {
-    return input;
-  }
-
-  final lastOpen = matches.last;
-  final trailing = input.substring(lastOpen.start).toLowerCase();
-  if (trailing.contains('</details>')) {
-    return input;
-  }
-
-  return input.substring(0, lastOpen.start).trimRight();
-}
+/// See `stripTrailingIncompleteToolCallDetails` in `conduit_markdown`.
+String stripTrailingIncompleteToolCallDetailsCanonical(String input) =>
+    stripTrailingIncompleteToolCallDetails(input);
 
 enum MarkdownPreparationMode {
   full,

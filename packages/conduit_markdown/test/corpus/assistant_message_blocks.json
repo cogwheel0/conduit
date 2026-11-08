@@ -1,0 +1,1041 @@
+[
+  {
+    "name": "empty",
+    "streaming": false,
+    "content": "",
+    "blocks": []
+  },
+  {
+    "name": "whitespace only",
+    "streaming": false,
+    "content": "  \n\n \t",
+    "blocks": []
+  },
+  {
+    "name": "plain answer",
+    "streaming": false,
+    "content": "Kelp forests grow fastest in **cold, clear** water.\n\n- They need light\n- and nutrients",
+    "blocks": [
+      {
+        "kind": "text",
+        "markdown": "Kelp forests grow fastest in **cold, clear** water.\n\n- They need light\n- and nutrients"
+      }
+    ]
+  },
+  {
+    "name": "reasoning with duration",
+    "streaming": false,
+    "content": "<details type=\"reasoning\" done=\"true\" duration=\"4\">\n<summary>Thought for 4 seconds</summary>\n&gt; The reader wants a short poem about tides.\n&gt; Five, seven, five syllables.\n</details>\n\nGrey water climbs the stones,\nthen slips back to the moon.",
+    "blocks": [
+      {
+        "kind": "reasoning",
+        "summary": "Thought for 4 seconds",
+        "durationSeconds": 4,
+        "done": true,
+        "pending": false,
+        "body": "> The reader wants a short poem about tides.\n> Five, seven, five syllables."
+      },
+      {
+        "kind": "text",
+        "markdown": "Grey water climbs the stones,\nthen slips back to the moon."
+      }
+    ]
+  },
+  {
+    "name": "reasoning without duration, finished",
+    "streaming": false,
+    "content": "<details type=\"reasoning\" done=\"true\">\n<summary>Thoughts</summary>\n&gt; Compare the two routes by distance.\n</details>\n\nThe coastal route is shorter.",
+    "blocks": [
+      {
+        "kind": "reasoning",
+        "summary": "Thoughts",
+        "durationSeconds": null,
+        "done": true,
+        "pending": false,
+        "body": "> Compare the two routes by distance."
+      },
+      {
+        "kind": "text",
+        "markdown": "The coastal route is shorter."
+      }
+    ]
+  },
+  {
+    "name": "reasoning still thinking",
+    "streaming": true,
+    "content": "<details type=\"reasoning\" done=\"false\">\n<summary>Thinking…</summary>\n&gt; Listing the lighthouse keepers in order\n</details>",
+    "blocks": [
+      {
+        "kind": "reasoning",
+        "summary": "Thinking…",
+        "durationSeconds": null,
+        "done": false,
+        "pending": true,
+        "body": "> Listing the lighthouse keepers in order"
+      }
+    ]
+  },
+  {
+    "name": "reasoning with legacy summary timing",
+    "streaming": false,
+    "content": "<details type=\"reasoning\" done=\"true\">\n<summary>Thought for 12 seconds</summary>\nPlain body lines\n\nwithout quote markers\n</details>\n\nDone.",
+    "blocks": [
+      {
+        "kind": "reasoning",
+        "summary": "Thought for 12 seconds",
+        "durationSeconds": null,
+        "done": true,
+        "pending": false,
+        "body": "Plain body lines\n\nwithout quote markers"
+      },
+      {
+        "kind": "text",
+        "markdown": "Done."
+      }
+    ]
+  },
+  {
+    "name": "reasoning with a custom summary and no done flag",
+    "streaming": false,
+    "content": "<details type=\"reasoning\">\n<summary>Weighing the ferry times</summary>\nBody line one\nBody line two\n</details>\n\nTake the 9:40 ferry.",
+    "blocks": [
+      {
+        "kind": "reasoning",
+        "summary": "Weighing the ferry times",
+        "durationSeconds": null,
+        "done": false,
+        "pending": false,
+        "body": "Body line one\n\nBody line two"
+      },
+      {
+        "kind": "text",
+        "markdown": "Take the 9:40 ferry."
+      }
+    ]
+  },
+  {
+    "name": "reasoning body with math",
+    "streaming": false,
+    "content": "<details type=\"reasoning\" done=\"true\" duration=\"2\">\n<summary>Thought for 2 seconds</summary>\n&gt; The area is \\[ \\pi r^2 \\] so with $r = 3$ it is about 28.\n</details>\n\nAbout 28 square metres.",
+    "blocks": [
+      {
+        "kind": "reasoning",
+        "summary": "Thought for 2 seconds",
+        "durationSeconds": 2,
+        "done": true,
+        "pending": false,
+        "body": "> The area is \\[ \\pi r^2 \\] so with $r = 3$ it is about 28."
+      },
+      {
+        "kind": "text",
+        "markdown": "About 28 square metres."
+      }
+    ]
+  },
+  {
+    "name": "raw think tags stay text (#728)",
+    "streaming": false,
+    "content": "<think>Draft the answer first.</think>The kettle holds 1.7 litres.",
+    "blocks": [
+      {
+        "kind": "text",
+        "markdown": "<think>Draft the answer first.</think>The kettle holds 1.7 litres."
+      }
+    ]
+  },
+  {
+    "name": "escaped think tags stay text (#728)",
+    "streaming": false,
+    "content": "&lt;think&gt;Draft the answer first.&lt;/think&gt;\n\nThe kettle holds 1.7 litres.",
+    "blocks": [
+      {
+        "kind": "text",
+        "markdown": "&lt;think&gt;Draft the answer first.&lt;/think&gt;\n\nThe kettle holds 1.7 litres."
+      }
+    ]
+  },
+  {
+    "name": "one tool call",
+    "streaming": false,
+    "content": "<details type=\"tool_calls\" done=\"true\" id=\"call_a1\" name=\"harbour_weather\" arguments=\"{&quot;harbour&quot;:&quot;Port Wren&quot;}\" result=\"{&quot;wind_knots&quot;:12,&quot;sky&quot;:&quot;clear&quot;}\">\n<summary>Tool Executed</summary>\n</details>\n\nWinds are light.",
+    "blocks": [
+      {
+        "kind": "toolCalls",
+        "calls": [
+          {
+            "id": "call_a1",
+            "name": "harbour_weather",
+            "arguments": "{\"harbour\":\"Port Wren\"}",
+            "result": "{\"wind_knots\":12,\"sky\":\"clear\"}",
+            "done": true,
+            "pending": false,
+            "status": null,
+            "isError": false,
+            "files": null,
+            "embeds": null
+          }
+        ]
+      },
+      {
+        "kind": "text",
+        "markdown": "Winds are light."
+      }
+    ]
+  },
+  {
+    "name": "adjacent tool calls group",
+    "streaming": false,
+    "content": "<details type=\"tool_calls\" done=\"true\" id=\"call_a1\" name=\"harbour_weather\" arguments=\"{&quot;harbour&quot;:&quot;Port Wren&quot;}\" result=\"{&quot;wind_knots&quot;:12,&quot;sky&quot;:&quot;clear&quot;}\">\n<summary>Tool Executed</summary>\n</details>\n<details type=\"tool_calls\" done=\"true\" id=\"call_a2\" name=\"tide_table\" arguments=\"{&quot;harbour&quot;:&quot;Port Wren&quot;,&quot;day&quot;:2}\" result=\"&quot;High water 06:12, low water 12:40&quot;\">\n<summary>Tool Executed</summary>\n</details>\n\nGood sailing on Tuesday.",
+    "blocks": [
+      {
+        "kind": "toolCalls",
+        "calls": [
+          {
+            "id": "call_a1",
+            "name": "harbour_weather",
+            "arguments": "{\"harbour\":\"Port Wren\"}",
+            "result": "{\"wind_knots\":12,\"sky\":\"clear\"}",
+            "done": true,
+            "pending": false,
+            "status": null,
+            "isError": false,
+            "files": null,
+            "embeds": null
+          },
+          {
+            "id": "call_a2",
+            "name": "tide_table",
+            "arguments": "{\"harbour\":\"Port Wren\",\"day\":2}",
+            "result": "\"High water 06:12, low water 12:40\"",
+            "done": true,
+            "pending": false,
+            "status": null,
+            "isError": false,
+            "files": null,
+            "embeds": null
+          }
+        ]
+      },
+      {
+        "kind": "text",
+        "markdown": "Good sailing on Tuesday."
+      }
+    ]
+  },
+  {
+    "name": "tool calls separated by text do not group",
+    "streaming": false,
+    "content": "<details type=\"tool_calls\" done=\"true\" id=\"call_a1\" name=\"harbour_weather\" arguments=\"{&quot;harbour&quot;:&quot;Port Wren&quot;}\" result=\"{&quot;wind_knots&quot;:12,&quot;sky&quot;:&quot;clear&quot;}\">\n<summary>Tool Executed</summary>\n</details>\n\nChecking tides next.\n\n<details type=\"tool_calls\" done=\"true\" id=\"call_a2\" name=\"tide_table\" arguments=\"{&quot;harbour&quot;:&quot;Port Wren&quot;,&quot;day&quot;:2}\" result=\"&quot;High water 06:12, low water 12:40&quot;\">\n<summary>Tool Executed</summary>\n</details>",
+    "blocks": [
+      {
+        "kind": "toolCalls",
+        "calls": [
+          {
+            "id": "call_a1",
+            "name": "harbour_weather",
+            "arguments": "{\"harbour\":\"Port Wren\"}",
+            "result": "{\"wind_knots\":12,\"sky\":\"clear\"}",
+            "done": true,
+            "pending": false,
+            "status": null,
+            "isError": false,
+            "files": null,
+            "embeds": null
+          }
+        ]
+      },
+      {
+        "kind": "text",
+        "markdown": "Checking tides next."
+      },
+      {
+        "kind": "toolCalls",
+        "calls": [
+          {
+            "id": "call_a2",
+            "name": "tide_table",
+            "arguments": "{\"harbour\":\"Port Wren\",\"day\":2}",
+            "result": "\"High water 06:12, low water 12:40\"",
+            "done": true,
+            "pending": false,
+            "status": null,
+            "isError": false,
+            "files": null,
+            "embeds": null
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "pipe tool call with its result in the body (#677)",
+    "streaming": false,
+    "content": "Looking that up.\n\n<details type=\"tool_calls\" done=\"true\" id=\"call_p1\" name=\"lookup_berth\" arguments=\"{&quot;vessel&quot;: &quot;Gull&quot;}\">\n<summary>Tool Executed</summary>\n{&quot;berth&quot;: &quot;C4&quot;, &quot;until&quot;: &quot;18:00&quot;}\n</details>\n\nThe Gull is at berth C4.",
+    "blocks": [
+      {
+        "kind": "text",
+        "markdown": "Looking that up."
+      },
+      {
+        "kind": "toolCalls",
+        "calls": [
+          {
+            "id": "call_p1",
+            "name": "lookup_berth",
+            "arguments": "{\"vessel\": \"Gull\"}",
+            "result": "{\"berth\": \"C4\", \"until\": \"18:00\"}",
+            "done": true,
+            "pending": false,
+            "status": null,
+            "isError": false,
+            "files": null,
+            "embeds": null
+          }
+        ]
+      },
+      {
+        "kind": "text",
+        "markdown": "The Gull is at berth C4."
+      }
+    ]
+  },
+  {
+    "name": "pipe tool call attached to answer text (#677)",
+    "streaming": false,
+    "content": "Looking that up.<details type=\"tool_calls\" done=\"true\" id=\"call_p2\" name=\"lookup_berth\" arguments=\"{}\" result=\"&quot;C5&quot;\">\n<summary>Tool Executed</summary>\n</details>\n\nBerth C5.",
+    "blocks": [
+      {
+        "kind": "text",
+        "markdown": "Looking that up."
+      },
+      {
+        "kind": "toolCalls",
+        "calls": [
+          {
+            "id": "call_p2",
+            "name": "lookup_berth",
+            "arguments": "{}",
+            "result": "\"C5\"",
+            "done": true,
+            "pending": false,
+            "status": null,
+            "isError": false,
+            "files": null,
+            "embeds": null
+          }
+        ]
+      },
+      {
+        "kind": "text",
+        "markdown": "Berth C5."
+      }
+    ]
+  },
+  {
+    "name": "tool attributes that look like LaTeX stay data (#677)",
+    "streaming": false,
+    "content": "<details type=\"tool_calls\" done=\"true\" id=\"call_x\" name=\"render_formula\" arguments=\"{&quot;tex&quot;: &quot;\\\\[ a^2 + b^2 \\\\] and $$c$$&quot;}\" result=\"&quot;\\\\( x \\\\) costs $5 and $10&quot;\">\n<summary>Tool Executed</summary>\n</details>\n\nRendered.",
+    "blocks": [
+      {
+        "kind": "toolCalls",
+        "calls": [
+          {
+            "id": "call_x",
+            "name": "render_formula",
+            "arguments": "{\"tex\": \"\\\\[ a^2 + b^2 \\\\] and $$c$$\"}",
+            "result": "\"\\\\( x \\\\) costs $5 and $10\"",
+            "done": true,
+            "pending": false,
+            "status": null,
+            "isError": false,
+            "files": null,
+            "embeds": null
+          }
+        ]
+      },
+      {
+        "kind": "text",
+        "markdown": "Rendered."
+      }
+    ]
+  },
+  {
+    "name": "failed tool call",
+    "streaming": false,
+    "content": "<details type=\"tool_calls\" done=\"true\" id=\"call_f\" name=\"fetch_chart\" status=\"failed\" arguments=\"{}\" result=\"{&quot;error&quot;: &quot;chart server offline&quot;}\">\n<summary>Tool Failed</summary>\n</details>\n\nThe chart is unavailable.",
+    "blocks": [
+      {
+        "kind": "toolCalls",
+        "calls": [
+          {
+            "id": "call_f",
+            "name": "fetch_chart",
+            "arguments": "{}",
+            "result": "{\"error\": \"chart server offline\"}",
+            "done": true,
+            "pending": false,
+            "status": "failed",
+            "isError": true,
+            "files": null,
+            "embeds": null
+          }
+        ]
+      },
+      {
+        "kind": "text",
+        "markdown": "The chart is unavailable."
+      }
+    ]
+  },
+  {
+    "name": "tool call result reads as an error",
+    "streaming": false,
+    "content": "<details type=\"tool_calls\" done=\"true\" id=\"call_e\" name=\"convert_units\" arguments=\"{&quot;from&quot;: &quot;fathom&quot;}\" result=\"&quot;Error: unknown unit fathom&quot;\">\n<summary>Tool Executed</summary>\n</details>",
+    "blocks": [
+      {
+        "kind": "toolCalls",
+        "calls": [
+          {
+            "id": "call_e",
+            "name": "convert_units",
+            "arguments": "{\"from\": \"fathom\"}",
+            "result": "\"Error: unknown unit fathom\"",
+            "done": true,
+            "pending": false,
+            "status": null,
+            "isError": true,
+            "files": null,
+            "embeds": null
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "tool call awaiting approval (Open WebUI 0.13)",
+    "streaming": false,
+    "content": "<details type=\"tool_calls\" done=\"false\" id=\"call_q\" name=\"delete_draft\" status=\"pending\" arguments=\"{&quot;draft&quot;: 7}\">\n<summary>Tool Approval Needed</summary>\n</details>",
+    "blocks": [
+      {
+        "kind": "toolCalls",
+        "calls": [
+          {
+            "id": "call_q",
+            "name": "delete_draft",
+            "arguments": "{\"draft\": 7}",
+            "result": "",
+            "done": false,
+            "pending": true,
+            "status": "pending",
+            "isError": false,
+            "files": null,
+            "embeds": null
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "running tool call",
+    "streaming": true,
+    "content": "Fetching.\n\n<details type=\"tool_calls\" done=\"false\" id=\"call_r\" name=\"slow_search\" arguments=\"{&quot;q&quot;: &quot;reef maps&quot;}\">\n<summary>Executing...</summary>\n</details>",
+    "blocks": [
+      {
+        "kind": "text",
+        "markdown": "Fetching."
+      },
+      {
+        "kind": "toolCalls",
+        "calls": [
+          {
+            "id": "call_r",
+            "name": "slow_search",
+            "arguments": "{\"q\": \"reef maps\"}",
+            "result": "",
+            "done": false,
+            "pending": true,
+            "status": null,
+            "isError": false,
+            "files": null,
+            "embeds": null
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "tool call with an image file and embeds",
+    "streaming": false,
+    "content": "<details type=\"tool_calls\" done=\"true\" id=\"call_i\" name=\"draw_map\" arguments=\"{}\" result=\"&quot;ok&quot;\" files=\"[{&quot;type&quot;:&quot;image&quot;,&quot;url&quot;:&quot;https://example.invalid/map.png&quot;}]\" embeds=\"[&quot;https://example.invalid/embed/1&quot;]\">\n<summary>Tool Executed</summary>\n</details>\n\nHere is the map.",
+    "blocks": [
+      {
+        "kind": "toolCalls",
+        "calls": [
+          {
+            "id": "call_i",
+            "name": "draw_map",
+            "arguments": "{}",
+            "result": "\"ok\"",
+            "done": true,
+            "pending": false,
+            "status": null,
+            "isError": false,
+            "files": "[{\"type\":\"image\",\"url\":\"https://example.invalid/map.png\"}]",
+            "embeds": "[\"https://example.invalid/embed/1\"]"
+          }
+        ]
+      },
+      {
+        "kind": "text",
+        "markdown": "Here is the map."
+      }
+    ]
+  },
+  {
+    "name": "tool result as content parts",
+    "streaming": false,
+    "content": "<details type=\"tool_calls\" done=\"true\" id=\"call_c\" name=\"read_note\" status=\"completed\" arguments=\"{}\" result=\"[{&quot;type&quot;:&quot;output_text&quot;,&quot;text&quot;:&quot;Buy rope.&quot;}]\">\n<summary>Tool Executed</summary>\n</details>",
+    "blocks": [
+      {
+        "kind": "toolCalls",
+        "calls": [
+          {
+            "id": "call_c",
+            "name": "read_note",
+            "arguments": "{}",
+            "result": "[{\"type\":\"output_text\",\"text\":\"Buy rope.\"}]",
+            "done": true,
+            "pending": false,
+            "status": "completed",
+            "isError": false,
+            "files": null,
+            "embeds": null
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "code interpreter",
+    "streaming": false,
+    "content": "Let me compute that.\n\n<details type=\"code_interpreter\" done=\"true\" duration=\"0\">\n<summary>Analyzed</summary>\n```python\nknots = [12, 15, 9]\nprint(sum(knots) / len(knots))\n```\n\n12.0\n</details>\n\nThe average is 12 knots.",
+    "blocks": [
+      {
+        "kind": "text",
+        "markdown": "Let me compute that."
+      },
+      {
+        "kind": "codeInterpreter",
+        "code": "knots = [12, 15, 9]\nprint(sum(knots) / len(knots))",
+        "language": "python",
+        "output": "12.0",
+        "done": true,
+        "pending": false
+      },
+      {
+        "kind": "text",
+        "markdown": "The average is 12 knots."
+      }
+    ]
+  },
+  {
+    "name": "code interpreter still running",
+    "streaming": true,
+    "content": "<details type=\"code_interpreter\" done=\"false\">\n<summary>Analyzing...</summary>\n```python\nprint(&quot;tide&quot; * 3)\n```\n</details>",
+    "blocks": [
+      {
+        "kind": "codeInterpreter",
+        "code": "print(\"tide\" * 3)",
+        "language": "python",
+        "output": "",
+        "done": false,
+        "pending": true
+      }
+    ]
+  },
+  {
+    "name": "code interpreter without a fence",
+    "streaming": false,
+    "content": "<details type=\"code_interpreter\" done=\"true\">\n<summary>Analyzed</summary>\nonly output here\nsecond line\n</details>",
+    "blocks": [
+      {
+        "kind": "codeInterpreter",
+        "code": "",
+        "language": "",
+        "output": "only output here  \nsecond line",
+        "done": true,
+        "pending": false
+      }
+    ]
+  },
+  {
+    "name": "escaped reasoning spoof stays text (#549)",
+    "streaming": false,
+    "content": "Here is a trick:\n\n&lt;details type=&quot;reasoning&quot; done=&quot;true&quot;&gt;\n&lt;summary&gt;Thought for 1 seconds&lt;/summary&gt;\nfake thoughts\n&lt;/details&gt;\n\nNothing hidden.",
+    "blocks": [
+      {
+        "kind": "text",
+        "markdown": "Here is a trick:\n\n&lt;details type=&quot;reasoning&quot; done=&quot;true&quot;&gt;\n&lt;summary&gt;Thought for 1 seconds&lt;/summary&gt;\nfake thoughts\n&lt;/details&gt;\n\nNothing hidden."
+      }
+    ]
+  },
+  {
+    "name": "escaped tool spoof stays text (#549)",
+    "streaming": false,
+    "content": "&lt;details type=\"tool_calls\" done=\"true\" name=\"transfer_funds\" result=\"sent\"&gt;\n&lt;/details&gt;",
+    "blocks": [
+      {
+        "kind": "text",
+        "markdown": "&lt;details type=\"tool_calls\" done=\"true\" name=\"transfer_funds\" result=\"sent\"&gt;\n&lt;/details&gt;"
+      }
+    ]
+  },
+  {
+    "name": "details in an inline code span stay text",
+    "streaming": false,
+    "content": "Write `<details type=\"reasoning\" done=\"true\">` to fold a section.",
+    "blocks": [
+      {
+        "kind": "text",
+        "markdown": "Write `<details type=\"reasoning\" done=\"true\">` to fold a section."
+      }
+    ]
+  },
+  {
+    "name": "details in a code span at line start stay text",
+    "streaming": false,
+    "content": "`<details type=\"tool_calls\" done=\"true\" name=\"x\">`\n\nThat was code.",
+    "blocks": [
+      {
+        "kind": "text",
+        "markdown": "`<details type=\"tool_calls\" done=\"true\" name=\"x\">`\n\nThat was code."
+      }
+    ]
+  },
+  {
+    "name": "details in a backtick fence stay text",
+    "streaming": false,
+    "content": "Example:\n\n```html\n<details type=\"reasoning\" done=\"true\">\n<summary>Thought</summary>\nhidden\n</details>\n```\n\nEnd.",
+    "blocks": [
+      {
+        "kind": "text",
+        "markdown": "Example:\n\n```html\n<details type=\"reasoning\" done=\"true\">\n<summary>Thought</summary>\nhidden\n</details>\n```\n\nEnd."
+      }
+    ]
+  },
+  {
+    "name": "details in a tilde fence stay text",
+    "streaming": false,
+    "content": "~~~\n<details type=\"tool_calls\" done=\"true\" name=\"x\" result=\"y\">\n</details>\n~~~",
+    "blocks": [
+      {
+        "kind": "text",
+        "markdown": "~~~\n<details type=\"tool_calls\" done=\"true\" name=\"x\" result=\"y\">\n</details>\n~~~"
+      }
+    ]
+  },
+  {
+    "name": "details in indented code stay text",
+    "streaming": false,
+    "content": "Indented:\n\n    <details type=\"reasoning\" done=\"true\">\n    <summary>Thought</summary>\n    </details>\n\nAfter.",
+    "blocks": [
+      {
+        "kind": "text",
+        "markdown": "Indented:\n\n    <details type=\"reasoning\" done=\"true\">\n    <summary>Thought</summary>\n    </details>\n\nAfter."
+      }
+    ]
+  },
+  {
+    "name": "details example in a fence next to a real block",
+    "streaming": false,
+    "content": "```\n<details type=\"reasoning\">\n```\n\n<details type=\"reasoning\" done=\"true\" duration=\"4\">\n<summary>Thought for 4 seconds</summary>\n&gt; The reader wants a short poem about tides.\n&gt; Five, seven, five syllables.\n</details>\n\nAnswer.",
+    "blocks": [
+      {
+        "kind": "text",
+        "markdown": "```\n<details type=\"reasoning\">\n```"
+      },
+      {
+        "kind": "reasoning",
+        "summary": "Thought for 4 seconds",
+        "durationSeconds": 4,
+        "done": true,
+        "pending": false,
+        "body": "> The reader wants a short poem about tides.\n> Five, seven, five syllables."
+      },
+      {
+        "kind": "text",
+        "markdown": "Answer."
+      }
+    ]
+  },
+  {
+    "name": "tool call nested in reasoning",
+    "streaming": false,
+    "content": "<details type=\"reasoning\" done=\"true\" duration=\"3\">\n<summary>Thought for 3 seconds</summary>\nChecking the weather first.\n<details type=\"tool_calls\" done=\"true\" id=\"call_a1\" name=\"harbour_weather\" arguments=\"{&quot;harbour&quot;:&quot;Port Wren&quot;}\" result=\"{&quot;wind_knots&quot;:12,&quot;sky&quot;:&quot;clear&quot;}\">\n<summary>Tool Executed</summary>\n</details>\nThen deciding.\n</details>\n\nGo sailing.",
+    "blocks": [
+      {
+        "kind": "reasoning",
+        "summary": "Thought for 3 seconds",
+        "durationSeconds": 3,
+        "done": true,
+        "pending": false,
+        "body": "Checking the weather first.\n<details type=\"tool_calls\" done=\"true\" id=\"call_a1\" name=\"harbour_weather\" arguments=\"{\"harbour\":\"Port Wren\"}\" result=\"{\"wind_knots\":12,\"sky\":\"clear\"}\">\n<summary>Tool Executed</summary>\n</details>\nThen deciding."
+      },
+      {
+        "kind": "text",
+        "markdown": "Go sailing."
+      }
+    ]
+  },
+  {
+    "name": "generic details with a summary",
+    "streaming": false,
+    "content": "<details>\n<summary>Packing list</summary>\n\n- rope\n- flask\n</details>\n\nPack light.",
+    "blocks": [
+      {
+        "kind": "details",
+        "type": "",
+        "summary": "Packing list",
+        "body": "- rope\n- flask",
+        "done": false,
+        "pending": false
+      },
+      {
+        "kind": "text",
+        "markdown": "Pack light."
+      }
+    ]
+  },
+  {
+    "name": "generic details wrapping a reasoning block",
+    "streaming": false,
+    "content": "<details>\n<summary>Notes</summary>\n<details type=\"reasoning\" done=\"true\" duration=\"4\">\n<summary>Thought for 4 seconds</summary>\n&gt; The reader wants a short poem about tides.\n&gt; Five, seven, five syllables.\n</details>\n</details>",
+    "blocks": [
+      {
+        "kind": "details",
+        "type": "",
+        "summary": "Notes",
+        "body": "<details type=\"reasoning\" done=\"true\" duration=\"4\">\n<summary>Thought for 4 seconds</summary>\n> The reader wants a short poem about tides.\n> Five, seven, five syllables.\n</details>",
+        "done": false,
+        "pending": false
+      }
+    ]
+  },
+  {
+    "name": "openai builtin tool shows as a plain section",
+    "streaming": false,
+    "content": "<details type=\"openai_builtin_tool\" done=\"true\">\n<summary>Searched the web</summary>\nthree results\n</details>\n\nDone.",
+    "blocks": [
+      {
+        "kind": "details",
+        "type": "openai_builtin_tool",
+        "summary": "Searched the web",
+        "body": "three results",
+        "done": true,
+        "pending": false
+      },
+      {
+        "kind": "text",
+        "markdown": "Done."
+      }
+    ]
+  },
+  {
+    "name": "closing tag followed by text on the same line",
+    "streaming": false,
+    "content": "<details type=\"reasoning\" done=\"true\" duration=\"1\">\n<summary>Thought for 1 second</summary>\nshort\n</details>The answer is &lt;b&gt;yes&lt;/b&gt;.",
+    "blocks": [
+      {
+        "kind": "reasoning",
+        "summary": "Thought for 1 second",
+        "durationSeconds": 1,
+        "done": true,
+        "pending": false,
+        "body": "short"
+      },
+      {
+        "kind": "text",
+        "markdown": "The answer is <b>yes</b>."
+      }
+    ]
+  },
+  {
+    "name": "closing tag with trailing text between tool calls",
+    "streaming": false,
+    "content": "<details type=\"tool_calls\" done=\"true\" id=\"call_a1\" name=\"harbour_weather\" arguments=\"{&quot;harbour&quot;:&quot;Port Wren&quot;}\" result=\"{&quot;wind_knots&quot;:12,&quot;sky&quot;:&quot;clear&quot;}\">\n<summary>Tool Executed</summary>\n</details>\n<details type=\"tool_calls\" done=\"true\" id=\"call_t\" name=\"tide_table\" arguments=\"{}\" result=\"&quot;06:12&quot;\">\n<summary>Tool Executed</summary>\n</details>and then\n<details type=\"tool_calls\" done=\"true\" id=\"call_a2\" name=\"tide_table\" arguments=\"{&quot;harbour&quot;:&quot;Port Wren&quot;,&quot;day&quot;:2}\" result=\"&quot;High water 06:12, low water 12:40&quot;\">\n<summary>Tool Executed</summary>\n</details>",
+    "blocks": [
+      {
+        "kind": "toolCalls",
+        "calls": [
+          {
+            "id": "call_a1",
+            "name": "harbour_weather",
+            "arguments": "{\"harbour\":\"Port Wren\"}",
+            "result": "{\"wind_knots\":12,\"sky\":\"clear\"}",
+            "done": true,
+            "pending": false,
+            "status": null,
+            "isError": false,
+            "files": null,
+            "embeds": null
+          }
+        ]
+      },
+      {
+        "kind": "toolCalls",
+        "calls": [
+          {
+            "id": "call_t",
+            "name": "tide_table",
+            "arguments": "{}",
+            "result": "\"06:12\"",
+            "done": true,
+            "pending": false,
+            "status": null,
+            "isError": false,
+            "files": null,
+            "embeds": null
+          }
+        ]
+      },
+      {
+        "kind": "text",
+        "markdown": "and then"
+      },
+      {
+        "kind": "toolCalls",
+        "calls": [
+          {
+            "id": "call_a2",
+            "name": "tide_table",
+            "arguments": "{\"harbour\":\"Port Wren\",\"day\":2}",
+            "result": "\"High water 06:12, low water 12:40\"",
+            "done": true,
+            "pending": false,
+            "status": null,
+            "isError": false,
+            "files": null,
+            "embeds": null
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "uppercase tag with lowercase attributes",
+    "streaming": false,
+    "content": "<DETAILS type=\"reasoning\" done=\"true\" duration=\"5\">\n<SUMMARY>Thought for 5 seconds</SUMMARY>\nloud\n</DETAILS>\n\nQuiet now.",
+    "blocks": [
+      {
+        "kind": "reasoning",
+        "summary": "Thought for 5 seconds",
+        "durationSeconds": 5,
+        "done": true,
+        "pending": false,
+        "body": "loud"
+      },
+      {
+        "kind": "text",
+        "markdown": "Quiet now."
+      }
+    ]
+  },
+  {
+    "name": "multi-line opening tag",
+    "streaming": false,
+    "content": "<details type=\"tool_calls\" done=\"true\" id=\"call_m\" name=\"note\"\narguments=\"{}\" result=\"&quot;line&quot;\">\n<summary>Tool Executed</summary>\n</details>\n\nNoted.",
+    "blocks": [
+      {
+        "kind": "toolCalls",
+        "calls": [
+          {
+            "id": "call_m",
+            "name": "note",
+            "arguments": "{}",
+            "result": "\"line\"",
+            "done": true,
+            "pending": false,
+            "status": null,
+            "isError": false,
+            "files": null,
+            "embeds": null
+          }
+        ]
+      },
+      {
+        "kind": "text",
+        "markdown": "Noted."
+      }
+    ]
+  },
+  {
+    "name": "display math moves an attached opener to its own line",
+    "streaming": false,
+    "content": "Energy: $$E = mc^2$$<details type=\"reasoning\" done=\"true\">\n<summary>Thoughts</summary>\nbody\n</details>\n\nDone.",
+    "blocks": [
+      {
+        "kind": "text",
+        "markdown": "Energy: \n\n$$E = mc^2$$"
+      },
+      {
+        "kind": "reasoning",
+        "summary": "Thoughts",
+        "durationSeconds": null,
+        "done": true,
+        "pending": false,
+        "body": "body"
+      },
+      {
+        "kind": "text",
+        "markdown": "Done."
+      }
+    ]
+  },
+  {
+    "name": "CRLF line endings",
+    "streaming": false,
+    "content": "<details type=\"reasoning\" done=\"true\" duration=\"2\">\r\n<summary>Thought for 2 seconds</summary>\r\n&gt; windows lines\r\n</details>\r\n\r\nAnswer.",
+    "blocks": [
+      {
+        "kind": "reasoning",
+        "summary": "Thought for 2 seconds",
+        "durationSeconds": 2,
+        "done": true,
+        "pending": false,
+        "body": "> windows lines"
+      },
+      {
+        "kind": "text",
+        "markdown": "Answer."
+      }
+    ]
+  },
+  {
+    "name": "math and prices in text",
+    "streaming": false,
+    "content": "Plain currency like $65 and ~$42.6 stays prose; $x^2$ and \\(y\\) are math.\n\n$$\\int_0^1 x\\,dx$$\n\nSee [1] and [2,3].",
+    "blocks": [
+      {
+        "kind": "text",
+        "markdown": "Plain currency like $65 and ~$42.6 stays prose; $x^2$ and \\(y\\) are math.\n\n$$\\int_0^1 x\\,dx$$\n\nSee [1] and [2,3]."
+      }
+    ]
+  },
+  {
+    "name": "unterminated reasoning while streaming",
+    "streaming": true,
+    "content": "Intro line.\n\n<details type=\"reasoning\" done=\"false\">\n<summary>Thinking…</summary>\n&gt; still writing this though",
+    "blocks": [
+      {
+        "kind": "text",
+        "markdown": "Intro line."
+      }
+    ]
+  },
+  {
+    "name": "unterminated reasoning once settled",
+    "streaming": false,
+    "content": "Intro line.\n\n<details type=\"reasoning\" done=\"false\">\n<summary>Thinking…</summary>\n&gt; the stream stopped here",
+    "blocks": [
+      {
+        "kind": "text",
+        "markdown": "Intro line.\n\n<details type=\"reasoning\" done=\"false\">\n<summary>Thinking…</summary>\n&gt; the stream stopped here"
+      }
+    ]
+  },
+  {
+    "name": "unterminated tool call while streaming",
+    "streaming": true,
+    "content": "<details type=\"reasoning\" done=\"true\" duration=\"4\">\n<summary>Thought for 4 seconds</summary>\n&gt; The reader wants a short poem about tides.\n&gt; Five, seven, five syllables.\n</details>\n\n<details type=\"tool_calls\" done=\"false\" id=\"call_s\" name=\"slow\" arguments=\"{}\">\n<summary>Executing...</summary>\n",
+    "blocks": [
+      {
+        "kind": "reasoning",
+        "summary": "Thought for 4 seconds",
+        "durationSeconds": 4,
+        "done": true,
+        "pending": false,
+        "body": "> The reader wants a short poem about tides.\n> Five, seven, five syllables."
+      }
+    ]
+  },
+  {
+    "name": "truncated opening tag while streaming",
+    "streaming": true,
+    "content": "Answer so far.\n\n<details type=\"tool_calls\" done=\"false\" name=\"sl",
+    "blocks": [
+      {
+        "kind": "text",
+        "markdown": "Answer so far."
+      }
+    ]
+  },
+  {
+    "name": "truncated opening tag once settled",
+    "streaming": false,
+    "content": "Answer so far.\n\n<details type=\"reasoning\" done=\"tr",
+    "blocks": [
+      {
+        "kind": "text",
+        "markdown": "Answer so far."
+      }
+    ]
+  },
+  {
+    "name": "complete tool call inside an unterminated reasoning while streaming",
+    "streaming": true,
+    "content": "Start.\n\n<details type=\"reasoning\" done=\"false\">\n<summary>Thinking…</summary>\n<details type=\"tool_calls\" done=\"true\" id=\"call_a1\" name=\"harbour_weather\" arguments=\"{&quot;harbour&quot;:&quot;Port Wren&quot;}\" result=\"{&quot;wind_knots&quot;:12,&quot;sky&quot;:&quot;clear&quot;}\">\n<summary>Tool Executed</summary>\n</details>\nmore thinking",
+    "blocks": [
+      {
+        "kind": "text",
+        "markdown": "Start."
+      }
+    ]
+  },
+  {
+    "name": "finished sections then a partial answer while streaming",
+    "streaming": true,
+    "content": "<details type=\"reasoning\" done=\"true\" duration=\"4\">\n<summary>Thought for 4 seconds</summary>\n&gt; The reader wants a short poem about tides.\n&gt; Five, seven, five syllables.\n</details>\n<details type=\"tool_calls\" done=\"true\" id=\"call_a1\" name=\"harbour_weather\" arguments=\"{&quot;harbour&quot;:&quot;Port Wren&quot;}\" result=\"{&quot;wind_knots&quot;:12,&quot;sky&quot;:&quot;clear&quot;}\">\n<summary>Tool Executed</summary>\n</details>\n\nThe wind is twel",
+    "blocks": [
+      {
+        "kind": "reasoning",
+        "summary": "Thought for 4 seconds",
+        "durationSeconds": 4,
+        "done": true,
+        "pending": false,
+        "body": "> The reader wants a short poem about tides.\n> Five, seven, five syllables."
+      },
+      {
+        "kind": "toolCalls",
+        "calls": [
+          {
+            "id": "call_a1",
+            "name": "harbour_weather",
+            "arguments": "{\"harbour\":\"Port Wren\"}",
+            "result": "{\"wind_knots\":12,\"sky\":\"clear\"}",
+            "done": true,
+            "pending": false,
+            "status": null,
+            "isError": false,
+            "files": null,
+            "embeds": null
+          }
+        ]
+      },
+      {
+        "kind": "text",
+        "markdown": "The wind is twel"
+      }
+    ]
+  },
+  {
+    "name": "unterminated generic details while streaming stays text",
+    "streaming": true,
+    "content": "Look:\n\n<details>\n<summary>Open me</summary>\nstill going",
+    "blocks": [
+      {
+        "kind": "text",
+        "markdown": "Look:\n\n<details>\n<summary>Open me</summary>\nstill going"
+      }
+    ]
+  }
+]
