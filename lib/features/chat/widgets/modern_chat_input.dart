@@ -751,8 +751,22 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     }
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      Timer(_keyboardHandOffLag, hideKeyboard);
+      if (!mounted || _isDeactivated) return;
+      _startHandOffTimer(_keyboardHandOffLag, hideKeyboard);
     });
+  }
+
+  /// Timers a send hand-off started that have not fired yet; [dispose]
+  /// cancels them so none outlives the composer.
+  final Set<Timer> _handOffTimers = <Timer>{};
+
+  void _startHandOffTimer(Duration delay, VoidCallback callback) {
+    late final Timer timer;
+    timer = Timer(delay, () {
+      _handOffTimers.remove(timer);
+      callback();
+    });
+    _handOffTimers.add(timer);
   }
 
   /// How long after the hand-off frame is built the keyboard starts down:
@@ -771,7 +785,8 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     final binding = WidgetsBinding.instance;
     binding.addPostFrameCallback((_) {
       binding.addPostFrameCallback((_) {
-        Timer(const Duration(milliseconds: 150), () {
+        if (!mounted || _isDeactivated) return;
+        _startHandOffTimer(const Duration(milliseconds: 150), () {
           if (ChatSendOrigin.isWaiting(departure)) {
             ChatSendOrigin.takeFollowing();
             departure.depart();
@@ -780,7 +795,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       });
       binding.scheduleFrame();
     });
-    Timer(ModernChatInput.sentWordsHoldLimit, departure.depart);
+    _startHandOffTimer(ModernChatInput.sentWordsHoldLimit, departure.depart);
   }
 
   /// The sent words have left the composer (or will never fly): it closes up
@@ -998,6 +1013,16 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     // The focus state will be naturally cleared when the widget is disposed
 
     unawaited(_draftBinding?.dispose());
+    for (final timer in _handOffTimers) {
+      timer.cancel();
+    }
+    _handOffTimers.clear();
+    // Words still waiting for a bubble have nowhere to return to: drop the
+    // recorded origin so a later bubble does not rise from this composer.
+    final departure = _sendDeparture;
+    if (departure != null && ChatSendOrigin.isWaiting(departure)) {
+      ChatSendOrigin.takeFollowing();
+    }
     _placeholderReveal.dispose();
     WidgetsBinding.instance.removeObserver(this);
     _draftSubscription?.close();
