@@ -119,176 +119,117 @@ class ConduitChromeGradientFade extends StatelessWidget {
 
 /// How far past floating chrome the soft scroll edge reaches before the
 /// content under it is clear and sharp.
-const double kConduitScrollEdgeSoftExtent = 16.0;
+const double kConduitScrollEdgeSoftExtent = 28.0;
 
 /// The heaviest blur of the soft scroll edge, in logical pixels, reached
-/// from the middle of the chrome outward.
+/// where the strip meets the covered band.
 const double kConduitScrollEdgeMaxSigma = 9.0;
 
-/// Exponent of the blur's ease in from its clear end.
+/// Exponent of the blur's ease in from its clear end (mirrors
+/// shaders/scroll_edge_blur.frag).
 const double _kScrollEdgeSigmaEase = 1.6;
 
-/// iOS 26's "soft" scroll edge for custom chrome that floats over scrolling
-/// text: the content blurs progressively and dissolves into the page
-/// background toward the screen edge, instead of being cut by a line.
+/// iOS 26's scroll edge for custom chrome that floats over scrolling text:
+/// the content reaches the page background before it reaches the glass.
 ///
 /// Measured from the screen edge ([edge] says which), the effect is:
 ///
-/// * fully covered across [solidExtent] (the status bar, the home
-///   indicator), so the clock never sits over text;
-/// * heavily blurred and mostly washed out behind the chrome, from
-///   [chromeExtent] - [chromeThickness] to [chromeExtent], so Liquid Glass
-///   there refracts a soft haze, never crisp text;
-/// * easing to clear and sharp over [softExtent] beyond the chrome, so a
-///   line of text passing under it dissolves rather than being cut in half.
+/// * fully covered in the page background across [coverExtent]: the status
+///   bar and the chrome's full height (the header's buttons, the composer),
+///   so Liquid Glass never sits over text, legible or blurred;
+/// * a strip of [softExtent] beyond it where the content blurs and fades
+///   into the background on an eased curve, so a line passing under the
+///   chrome dissolves rather than being cut by it.
 ///
-/// The blur is one backdrop filter: a Gaussian whose strength follows the
-/// distance from the edge (shaders/scroll_edge_blur.frag, run horizontally
-/// then vertically), so it has no bands or seams. A tint of the page
-/// background, eased with a monotone curve, lies over it. Where shader
-/// filters are unavailable (no Impeller) only the tint is drawn.
+/// [engagement] says how much content lies under the edge, from 0 (none: the
+/// list rests at that end) to 1. The strip grows with it, so content resting
+/// at the end of the list is never washed out, and a scroll toward the edge
+/// meets the strip at its clear end, without a step.
+///
+/// The blur is one backdrop filter over the strip alone: a Gaussian whose
+/// strength follows the distance from the edge
+/// (shaders/scroll_edge_blur.frag, run horizontally then vertically), so it
+/// has no bands or seams. The tint lies over it. Where shader filters are
+/// unavailable (no Impeller) only the tint is drawn.
 class ConduitScrollEdgeEffect extends StatefulWidget {
   const ConduitScrollEdgeEffect({
     super.key,
     required this.edge,
-    required this.chromeExtent,
-    required this.chromeThickness,
-    required this.solidExtent,
+    required this.coverExtent,
     this.softExtent = kConduitScrollEdgeSoftExtent,
-    this.chromeEdgeOpacity = 0.7,
-    this.chromeMiddleOpacity = 0.85,
+    this.engagement = 1,
     this.maxSigma = kConduitScrollEdgeMaxSigma,
     this.backgroundColor,
   });
 
   const ConduitScrollEdgeEffect.top({
     super.key,
-    required this.chromeExtent,
-    required this.chromeThickness,
-    required this.solidExtent,
+    required this.coverExtent,
     this.softExtent = kConduitScrollEdgeSoftExtent,
-    this.chromeEdgeOpacity = 0.7,
-    this.chromeMiddleOpacity = 0.85,
+    this.engagement = 1,
     this.maxSigma = kConduitScrollEdgeMaxSigma,
     this.backgroundColor,
   }) : edge = ConduitChromeFadeEdge.top;
 
   const ConduitScrollEdgeEffect.bottom({
     super.key,
-    required this.chromeExtent,
-    required this.chromeThickness,
-    required this.solidExtent,
+    required this.coverExtent,
     this.softExtent = kConduitScrollEdgeSoftExtent,
-    this.chromeEdgeOpacity = 0.7,
-    this.chromeMiddleOpacity = 0.85,
+    this.engagement = 1,
     this.maxSigma = kConduitScrollEdgeMaxSigma,
     this.backgroundColor,
   }) : edge = ConduitChromeFadeEdge.bottom;
 
   final ConduitChromeFadeEdge edge;
 
-  /// Distance from the screen edge to the chrome's inner edge (the bottom of
-  /// the header's buttons, the top of the composer).
-  final double chromeExtent;
+  /// Distance from the screen edge that is fully covered: to the far side of
+  /// the chrome (the bottom of the header's buttons, the top of the
+  /// composer).
+  final double coverExtent;
 
-  /// How thick the chrome is, measured inward from [chromeExtent].
-  final double chromeThickness;
-
-  /// Distance from the screen edge that stays fully covered.
-  final double solidExtent;
-
-  /// How far beyond [chromeExtent] the effect reaches.
+  /// Length of the eased strip beyond [coverExtent] when fully engaged.
   final double softExtent;
 
-  /// Tint at the chrome's inner edge.
-  final double chromeEdgeOpacity;
+  /// How much content lies under the edge, 0 to 1; scales the strip.
+  final double engagement;
 
-  /// Tint at the chrome's middle.
-  final double chromeMiddleOpacity;
-
-  /// Blur from the chrome's middle outward.
+  /// Blur where the strip meets the cover.
   final double maxSigma;
   final Color? backgroundColor;
 
-  /// Total depth of the effect from the screen edge.
-  double get extent => math.max(0, chromeExtent + softExtent);
+  double get _cover => math.max(0.0, coverExtent);
 
-  /// Distance from the screen edge where the blur is at full strength.
-  double get fullBlurExtent => math.max(0, chromeExtent - chromeThickness / 2);
+  /// The strip's length now.
+  double get stripExtent =>
+      math.max(0.0, softExtent) * engagement.clamp(0.0, 1.0).toDouble();
+
+  /// Total depth of the effect from the screen edge.
+  double get extent => _cover + stripExtent;
 
   /// The tint's opacity at [distance] from the screen edge: 1 across the
-  /// solid run, then a monotone ease through the chrome to 0 at [extent].
+  /// cover, then easing (smoothstep, flat at both ends) to 0 at [extent].
   @visibleForTesting
-  double tintOpacityAt(double distance) =>
-      _monotoneCubic(_tintPoints(), distance).clamp(0.0, 1.0);
+  double tintOpacityAt(double distance) {
+    if (distance <= _cover) return 1;
+    final strip = stripExtent;
+    if (strip <= 0 || distance >= extent) return 0;
+    final u = (extent - distance) / strip;
+    return u * u * (3 - 2 * u);
+  }
 
-  /// The blur at [distance] from the screen edge: [maxSigma] out to the
-  /// chrome's middle, then easing to none at [extent]. Mirrors the shader.
+  /// The blur at [distance] from the screen edge: [maxSigma] up to the
+  /// cover's edge, easing to none at [extent]. Mirrors the shader.
   ///
-  /// It eases in from the clear end: just past the chrome text mostly
+  /// It eases in from the clear end: text just inside the strip mostly
   /// fades, and only blurs hard where the tint already hides most of it, so
-  /// it dissolves instead of smearing into a dark smudge.
+  /// it dissolves instead of smearing into a grey smudge.
   @visibleForTesting
   double sigmaAt(double distance) {
-    final end = extent;
-    final full = fullBlurExtent;
-    if (distance >= end) return 0;
-    if (distance <= full || end <= full) return maxSigma;
-    final u = (end - distance) / (end - full);
+    if (distance <= _cover) return maxSigma;
+    final strip = stripExtent;
+    if (strip <= 0 || distance >= extent) return 0;
+    final u = (extent - distance) / strip;
     return maxSigma * math.pow(u, _kScrollEdgeSigmaEase).toDouble();
-  }
-
-  List<Offset> _tintPoints() {
-    final end = extent;
-    final chromeInner = chromeExtent;
-    final chromeMiddle = chromeExtent - chromeThickness / 2;
-    final solid = math.min(solidExtent, chromeMiddle - 1);
-    final points = <Offset>[
-      const Offset(0, 1),
-      if (solid > 0) Offset(solid, 1),
-      if (chromeMiddle > solid) Offset(chromeMiddle, chromeMiddleOpacity),
-      if (chromeInner > chromeMiddle) Offset(chromeInner, chromeEdgeOpacity),
-      Offset(end, 0),
-    ];
-    final cleaned = <Offset>[];
-    for (final point in points) {
-      if (cleaned.isEmpty || point.dx > cleaned.last.dx + 0.001) {
-        cleaned.add(point);
-      }
-    }
-    return cleaned;
-  }
-
-  /// Fritsch–Carlson monotone cubic through [points], flat at both ends, so
-  /// the tint never overshoots and meets the solid run and the clear end
-  /// without a crease.
-  static double _monotoneCubic(List<Offset> points, double x) {
-    if (points.isEmpty) return 0;
-    if (x <= points.first.dx) return points.first.dy;
-    if (x >= points.last.dx) return points.last.dy;
-    final n = points.length;
-    final slopes = <double>[
-      for (var i = 0; i < n - 1; i++)
-        (points[i + 1].dy - points[i].dy) / (points[i + 1].dx - points[i].dx),
-    ];
-    final tangents = List<double>.filled(n, 0);
-    for (var i = 1; i < n - 1; i++) {
-      final a = slopes[i - 1];
-      final b = slopes[i];
-      tangents[i] = a * b <= 0 ? 0 : 2 / (1 / a + 1 / b);
-    }
-    var i = 0;
-    while (x > points[i + 1].dx) {
-      i++;
-    }
-    final h = points[i + 1].dx - points[i].dx;
-    final t = (x - points[i].dx) / h;
-    final t2 = t * t;
-    final t3 = t2 * t;
-    return (2 * t3 - 3 * t2 + 1) * points[i].dy +
-        (t3 - 2 * t2 + t) * h * tangents[i] +
-        (-2 * t3 + 3 * t2) * points[i + 1].dy +
-        (t3 - t2) * h * tangents[i + 1];
   }
 
   @override
@@ -332,12 +273,19 @@ class _ConduitScrollEdgeEffectState extends State<ConduitScrollEdgeEffect> {
     super.dispose();
   }
 
-  static const int _tintStops = 28;
+  /// Stops across the strip; enough for the eased ramp to read as a curve.
+  static const int _stripStops = 16;
+
+  /// A strip shorter than this has nothing to blur.
+  static const double _minBlurStrip = 0.5;
 
   ImageFilter? _blurFilter(BuildContext context) {
     final horizontal = _horizontal;
     final vertical = _vertical;
-    if (horizontal == null || vertical == null || widget.maxSigma <= 0) {
+    if (horizontal == null ||
+        vertical == null ||
+        widget.maxSigma <= 0 ||
+        widget.stripExtent < _minBlurStrip) {
       return null;
     }
     final ratio = MediaQuery.devicePixelRatioOf(context);
@@ -349,7 +297,7 @@ class _ConduitScrollEdgeEffectState extends State<ConduitScrollEdgeEffect> {
         ..setFloat(2, vertical ? 1 : 0)
         ..setFloat(3, topDown ? 1 : 0)
         ..setFloat(4, widget.extent * ratio)
-        ..setFloat(5, widget.fullBlurExtent * ratio)
+        ..setFloat(5, widget._cover * ratio)
         ..setFloat(6, widget.maxSigma * ratio)
         ..setFloat(7, screenHeight);
     }
@@ -369,17 +317,21 @@ class _ConduitScrollEdgeEffectState extends State<ConduitScrollEdgeEffect> {
     final baseColor =
         widget.backgroundColor ?? context.conduitTheme.surfaceBackground;
     final topDown = widget.edge == ConduitChromeFadeEdge.top;
+    final cover = widget._cover;
+    final strip = widget.stripExtent;
 
-    final colors = <Color>[];
-    final stops = <double>[];
-    for (var i = 0; i <= _tintStops; i++) {
-      final t = i / _tintStops;
-      colors.add(
-        baseColor.withValues(
-          alpha: baseColor.a * widget.tintOpacityAt(t * height),
-        ),
-      );
-      stops.add(t);
+    final colors = <Color>[baseColor, baseColor];
+    final stops = <double>[0, cover / height];
+    if (strip > 0) {
+      for (var i = 1; i <= _stripStops; i++) {
+        final distance = cover + strip * i / _stripStops;
+        colors.add(
+          baseColor.withValues(
+            alpha: baseColor.a * widget.tintOpacityAt(distance),
+          ),
+        );
+        stops.add(distance / height);
+      }
     }
     final tint = DecoratedBox(
       decoration: BoxDecoration(
@@ -392,11 +344,7 @@ class _ConduitScrollEdgeEffectState extends State<ConduitScrollEdgeEffect> {
       ),
     );
 
-    // Across the solid run the tint hides everything; blur only past it.
-    final solid = math.max(
-      0.0,
-      math.min(widget.solidExtent, widget.fullBlurExtent),
-    );
+    // The cover hides everything under it; only the strip needs the blur.
     final blur = _blurFilter(context);
     return IgnorePointer(
       child: SizedBox(
@@ -405,12 +353,12 @@ class _ConduitScrollEdgeEffectState extends State<ConduitScrollEdgeEffect> {
         child: Stack(
           fit: StackFit.expand,
           children: [
-            if (blur != null && height > solid)
+            if (blur != null)
               Positioned(
                 left: 0,
                 right: 0,
-                top: topDown ? solid : 0,
-                bottom: topDown ? 0 : solid,
+                top: topDown ? cover : 0,
+                bottom: topDown ? 0 : cover,
                 child: ClipRect(
                   child: BackdropFilter(
                     filter: blur,

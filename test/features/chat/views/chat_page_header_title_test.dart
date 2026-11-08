@@ -1,4 +1,5 @@
 import 'package:conduit/features/chat/views/chat_page.dart';
+import 'package:conduit/shared/widgets/chrome_gradient_fade.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -96,5 +97,33 @@ void main() {
       temporaryChatToolbarSymbol(isTemporary: true),
       'circle.dashed.inset.filled',
     );
+  });
+
+  group('chatScrollEdgeEngagement', () {
+    test('a transcript resting at an end leaves that edge clear', () {
+      expect(chatScrollEdgeEngagement(distanceUnderEdge: 0), 0);
+      // Pulled past the end (overscroll) is no different.
+      expect(chatScrollEdgeEngagement(distanceUnderEdge: -30), 0);
+    });
+
+    test('the strip grows with the text scrolled under the edge', () {
+      final half = chatScrollEdgeEngagement(
+        distanceUnderEdge: kConduitScrollEdgeSoftExtent / 2,
+      );
+      expect(half, closeTo(0.5, 1e-9));
+      expect(
+        chatScrollEdgeEngagement(
+          distanceUnderEdge: kConduitScrollEdgeSoftExtent * 3,
+        ),
+        1,
+      );
+    });
+
+    test('older messages waiting above keep the edge engaged', () {
+      expect(
+        chatScrollEdgeEngagement(distanceUnderEdge: 0, moreBeyondEdge: true),
+        1,
+      );
+    });
   });
 }
