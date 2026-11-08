@@ -5,7 +5,9 @@ import 'package:conduit/shared/services/navigation_service.dart';
 import 'package:conduit/shared/widgets/adaptive_toolbar_components.dart';
 import 'package:conduit/shared/widgets/conduit_components.dart';
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
+import 'package:conduit/shared/theme/app_theme.dart';
 import 'package:conduit/shared/theme/theme_extensions.dart';
+import 'package:conduit/shared/theme/tweakcn_themes.dart';
 import 'package:conduit/shared/widgets/utility_components.dart';
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit_core/models/backend_config.dart';
@@ -23,7 +25,7 @@ const _server = ServerConfig(
 );
 
 /// The iOS sign-in flow reads like account setup in a first-party app:
-/// large titles, inset-grouped rows named by their placeholders, footers that
+/// large titles, inset-grouped rows named by leading labels, footers that
 /// guide and carry errors, and a keyboard that walks the fields.
 void main() {
   setUp(() {
@@ -39,10 +41,13 @@ void main() {
   AuthPrimaryButton primaryButton(WidgetTester tester) =>
       tester.widget<AuthPrimaryButton>(find.byType(AuthPrimaryButton));
 
-  AuthGroupedTextField groupedField(WidgetTester tester, String placeholder) =>
+  AuthGroupedTextField labelledField(WidgetTester tester, String label) =>
       tester
           .widgetList<AuthGroupedTextField>(find.byType(AuthGroupedTextField))
-          .singleWhere((field) => field.placeholder == placeholder);
+          .singleWhere((field) => field.label == label);
+
+  Finder fieldLabel(String label) =>
+      find.byKey(ValueKey<String>('auth-field-label:$label'));
 
   testWidgets('server address step is an inset-grouped form', (tester) async {
     usePhoneViewport(tester);
@@ -58,10 +63,12 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    // A large title, a section header, and a footer saying what comes next;
-    // no web-form label above the field and no required-field asterisk.
+    // A large title, the field named by a leading label in its row, and a
+    // footer saying what comes next; no web-form label above the field and
+    // no required-field asterisk.
     expect(find.text('Open WebUI'), findsWidgets);
-    expect(find.text('Server Address'), findsOneWidget);
+    expect(find.text('Server Address'), findsNothing);
+    expect(fieldLabel('Server'), findsOneWidget);
     expect(
       find.text(
         "Use the address you open in a web browser. You'll sign in next.",
@@ -74,6 +81,7 @@ void main() {
     final url = tester.widget<AuthGroupedTextField>(
       find.byKey(const ValueKey<String>('server-url-field')),
     );
+    check(url.label).equals('Server');
     check(url.placeholder).equals('https://openwebui.example.com');
     check(url.autofocus).isTrue();
     check(url.textInputAction).equals(TextInputAction.go);
@@ -167,8 +175,10 @@ void main() {
     );
     expect(find.text('https://open-webui.example'), findsNothing);
 
-    final username = groupedField(tester, 'Email or Username');
-    final password = groupedField(tester, 'Password');
+    final username = labelledField(tester, 'Email');
+    final password = labelledField(tester, 'Password');
+    check(username.placeholder).equals('name@example.com');
+    check(password.placeholder).equals('Required');
     check(username.textInputAction).equals(TextInputAction.next);
     check(password.textInputAction).equals(TextInputAction.go);
     check(password.obscureText).isTrue();
@@ -190,8 +200,10 @@ void main() {
 
     // The row reads as one element and Change stays its own button.
     final semantics = tester.ensureSemantics();
-    expect(find.bySemanticsLabel('Open WebUI. https://open-webui.example'),
-        findsOneWidget);
+    expect(
+      find.bySemanticsLabel('Open WebUI. https://open-webui.example'),
+      findsOneWidget,
+    );
     expect(find.bySemanticsLabel('Change'), findsOneWidget);
     semantics.dispose();
 
@@ -223,7 +235,10 @@ void main() {
     expect(find.byKey(const ValueKey('auth-footer-error')), findsNothing);
 
     final form = find.byKey(const ValueKey('credentials_form'));
-    final fields = find.descendant(of: form, matching: find.byType(EditableText));
+    final fields = find.descendant(
+      of: form,
+      matching: find.byType(EditableText),
+    );
     await tester.enterText(fields.at(0), 'robin@example.com');
     await tester.enterText(fields.at(1), 'not-the-password');
     await tester.pump();
@@ -246,6 +261,161 @@ void main() {
       ),
       findsOneWidget,
     );
+
+    await harness.unmount(tester);
+  });
+
+  testWidgets('a filled sign-in still names each field, in one column', (
+    tester,
+  ) async {
+    usePhoneViewport(tester);
+    final harness = AdaptiveAuthHarness(
+      server: _server,
+      platform: TargetPlatform.iOS,
+      backendConfig: const BackendConfig(),
+    );
+    addTearDown(harness.dispose);
+
+    await tester.pumpWidget(
+      harness.build(initialLocation: Routes.authentication),
+    );
+    await tester.pumpAndSettle();
+
+    final form = find.byKey(const ValueKey('credentials_form'));
+    final fields = find.descendant(
+      of: form,
+      matching: find.byType(EditableText),
+    );
+    await tester.enterText(fields.at(0), 'robin@example.com');
+    await tester.enterText(fields.at(1), 'synthetic-secret');
+    await tester.pump();
+
+    // The placeholders are gone, the labels are not.
+    expect(find.text('name@example.com'), findsNothing);
+    expect(fieldLabel('Email'), findsOneWidget);
+    expect(fieldLabel('Password'), findsOneWidget);
+    // Both values start on one line, past the wider label.
+    check(tester.getTopLeft(fields.at(0)).dx)
+        .equals(tester.getTopLeft(fields.at(1)).dx);
+    check(tester.getTopLeft(fields.at(0)).dx)
+        .isGreaterThan(tester.getTopRight(fieldLabel('Password')).dx);
+    // The label is not read a second time; the field carries its name.
+    final semantics = tester.ensureSemantics();
+    expect(find.bySemanticsLabel('Email or Username'), findsOneWidget);
+    semantics.dispose();
+
+    // Tapping a label puts the cursor in its field, as an iOS form row does.
+    final password = labelledField(tester, 'Password');
+    await tester.tap(fieldLabel('Password'));
+    await tester.pump();
+    check(password.focusNode!.hasFocus).isTrue();
+
+    await harness.unmount(tester);
+  });
+
+  testWidgets('grouped cards take the inset-grouped list corners of iOS 26', (
+    tester,
+  ) async {
+    // iOS 26 draws a softer one-point separator that stops at the row's
+    // trailing margin; earlier systems a hairline to the section's edge.
+    Future<Padding> separatorPadding() async {
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: AppTheme.light(TweakcnThemes.conduit),
+          // A fresh key per pump: the platform overrides are not inherited
+          // state, so the separator has to be built anew to read them.
+          home: Scaffold(body: InsetGroupedSeparator(key: UniqueKey())),
+        ),
+      );
+      return tester.widget<Padding>(
+        find
+            .descendant(
+              of: find.byType(InsetGroupedSeparator),
+              matching: find.byType(Padding),
+            )
+            .first,
+      );
+    }
+
+    PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.iOS;
+    PlatformUiCapabilities.debugIOSMajorVersionOverride = 26;
+    PlatformUiCapabilities.debugNativeIOS26Override = true;
+    check(insetGroupedCornerRadius()).equals(kIOS26InsetGroupedRadius);
+    check(
+      (await separatorPadding()).padding,
+    ).equals(const EdgeInsetsDirectional.only(start: 16, end: 16));
+    check(tester.getSize(find.byType(ColoredBox).last).height).equals(1);
+    PlatformUiCapabilities.debugIOSMajorVersionOverride = 18;
+    PlatformUiCapabilities.debugNativeIOS26Override = null;
+    check(insetGroupedCornerRadius()).equals(kLegacyInsetGroupedRadius);
+    check(
+      (await separatorPadding()).padding,
+    ).equals(const EdgeInsetsDirectional.only(start: 16));
+    PlatformUiCapabilities.debugPlatformOverride = null;
+
+    usePhoneViewport(tester);
+    final harness = AdaptiveAuthHarness(
+      server: _server,
+      platform: TargetPlatform.iOS,
+    );
+    addTearDown(harness.dispose);
+    await tester.pumpWidget(
+      harness.build(initialLocation: Routes.backendChooser),
+    );
+    await tester.pumpAndSettle();
+
+    // The welcome cards and the shared grouped sections draw one shape: the
+    // continuous-corner inset-grouped section.
+    final card = tester.widget<DecoratedBox>(
+      find
+          .descendant(
+            of: find.byType(AuthGroupedCard).first,
+            matching: find.byType(DecoratedBox),
+          )
+          .first,
+    );
+    final decoration = card.decoration as ShapeDecoration;
+    check(decoration.shape).isA<RoundedSuperellipseBorder>();
+    check((decoration.shape as RoundedSuperellipseBorder).borderRadius)
+        .equals(BorderRadius.circular(insetGroupedCornerRadius()));
+
+    await harness.unmount(tester);
+  });
+
+  testWidgets('the welcome list fades out above the home indicator', (
+    tester,
+  ) async {
+    usePhoneViewport(tester);
+    final harness = AdaptiveAuthHarness(
+      server: _server,
+      platform: TargetPlatform.iOS,
+    );
+    addTearDown(harness.dispose);
+    await tester.pumpWidget(
+      harness.build(initialLocation: Routes.backendChooser),
+    );
+    await tester.pumpAndSettle();
+
+    double bottomEdgeOpacity() => tester
+        .widget<AnimatedOpacity>(
+          find.byKey(const ValueKey<String>('utility-bottom-scroll-edge')),
+        )
+        .opacity;
+
+    // The last option continues under the home indicator: the edge fades.
+    check(bottomEdgeOpacity()).equals(1);
+    await tester.drag(
+      find
+          .descendant(
+            of: find.byType(UtilityPageScaffold),
+            matching: find.byType(Scrollable),
+          )
+          .first,
+      const Offset(0, -2000),
+    );
+    await tester.pumpAndSettle();
+    // At the end of the list nothing is under it, so nothing is washed out.
+    check(bottomEdgeOpacity()).equals(0);
 
     await harness.unmount(tester);
   });

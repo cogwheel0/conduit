@@ -653,7 +653,9 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
 
   /// The iOS sign-in: the server as a grouped row with Change, the methods
   /// as a segmented control, and the fields as one grouped section whose
-  /// footer guides or, after a failed attempt, says why.
+  /// footer guides or, after a failed attempt, says why. Each field names
+  /// itself with a leading label, as the server step's address field does,
+  /// so a filled form still says what each value is.
   Widget _buildCupertinoBody(
     AppLocalizations l10n, {
     required OpenWebUiTwoStepChallenge? twoStep,
@@ -729,7 +731,8 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
               AuthGroupedTextField(
                 controller: _usernameController,
                 focusNode: _usernameFocus,
-                placeholder: l10n.usernameOrEmailHint,
+                label: l10n.authFieldEmail,
+                placeholder: l10n.authEmailPlaceholder,
                 semanticLabel: l10n.usernameOrEmail,
                 keyboardType: TextInputType.emailAddress,
                 textInputAction: TextInputAction.next,
@@ -746,7 +749,8 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
               AuthGroupedTextField(
                 controller: _passwordController,
                 focusNode: _passwordFocus,
-                placeholder: l10n.passwordHint,
+                label: l10n.password,
+                placeholder: l10n.authFieldRequired,
                 semanticLabel: l10n.password,
                 obscureText: _obscurePassword,
                 textInputAction: TextInputAction.go,
@@ -769,7 +773,8 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
               AuthGroupedTextField(
                 controller: _ldapUsernameController,
                 focusNode: _ldapUsernameFocus,
-                placeholder: l10n.ldapUsername,
+                label: l10n.ldapUsername,
+                placeholder: l10n.authFieldRequired,
                 semanticLabel: l10n.ldapUsername,
                 textInputAction: TextInputAction.next,
                 autofillHints: const [AutofillHints.username],
@@ -779,7 +784,8 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
               AuthGroupedTextField(
                 controller: _ldapPasswordController,
                 focusNode: _ldapPasswordFocus,
-                placeholder: l10n.passwordHint,
+                label: l10n.password,
+                placeholder: l10n.authFieldRequired,
                 semanticLabel: l10n.password,
                 obscureText: _obscurePassword,
                 textInputAction: TextInputAction.go,
@@ -800,7 +806,8 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
             AuthGroupedTextField(
               controller: _apiKeyController,
               focusNode: _tokenFocus,
-              placeholder: l10n.token,
+              label: l10n.authTokenFieldLabel,
+              placeholder: l10n.authFieldRequired,
               semanticLabel: l10n.token,
               obscureText: _obscurePassword,
               textInputAction: TextInputAction.go,

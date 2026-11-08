@@ -4,14 +4,19 @@ import 'package:material_ui/material_ui.dart';
 import '../../../core/services/haptic_service.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/platform_ui/platform_ui.dart';
+import '../../../shared/widgets/utility_components.dart';
 
 /// Inset-grouped form pieces for the iOS sign-in flow: the server address and
 /// sign-in steps read like setting up an account in a first-party app.
 ///
-/// Rows, headers and footers share one leading inset so their text lines up,
-/// separators are hairlines that run to the card's trailing edge, and errors
-/// take the footer's place under the group they belong to. Android keeps its
-/// Material forms; these are built only where `usesCupertinoChrome` is true.
+/// Cards take the corners of UIKit's inset-grouped lists, so these forms match
+/// the native settings sheets. Rows, headers and footers share one leading
+/// inset so their text lines up, separators are the system hairline from the
+/// row text to the card's trailing edge, and errors take the footer's place
+/// under the group they belong to. A text field names itself with a leading
+/// label in its row, as iOS account forms do, so its name stays in view once
+/// it is filled. Android keeps its Material forms; these are built only where
+/// `usesCupertinoChrome` is true.
 
 /// Leading inset of row text inside a grouped card. Headers and footers use
 /// it too, so they line up with the rows.
@@ -20,26 +25,26 @@ const double authGroupedInset = Spacing.md;
 /// Minimum height of one grouped row.
 const double authGroupedRowHeight = 52;
 
-/// Corner radius of a grouped card; the one the app's settings lists use.
-const double authGroupedRadius = AppBorderRadius.md;
+/// Space between a field's leading label and its text.
+const double authGroupedLabelGap = Spacing.md;
+
+/// The widest share of a row a leading label may take; a longer label wraps.
+const double authGroupedLabelMaxShare = 0.42;
 
 /// Section header style: footnote, secondary.
-TextStyle authGroupedHeaderStyle(BuildContext context) =>
-    AppTypography.bodySmallStyle.copyWith(
-      color: context.conduitTheme.textSecondary,
-    );
+TextStyle authGroupedHeaderStyle(BuildContext context) => AppTypography
+    .bodySmallStyle
+    .copyWith(color: context.conduitTheme.textSecondary);
 
 /// Section footer style: footnote, secondary.
-TextStyle authGroupedFooterStyle(BuildContext context) =>
-    AppTypography.bodySmallStyle.copyWith(
-      color: context.conduitTheme.textSecondary,
-    );
+TextStyle authGroupedFooterStyle(BuildContext context) => AppTypography
+    .bodySmallStyle
+    .copyWith(color: context.conduitTheme.textSecondary);
 
 /// Row title style: body, primary.
-TextStyle authGroupedRowStyle(BuildContext context) =>
-    AppTypography.bodyLargeStyle.copyWith(
-      color: context.conduitTheme.textPrimary,
-    );
+TextStyle authGroupedRowStyle(BuildContext context) => AppTypography
+    .bodyLargeStyle
+    .copyWith(color: context.conduitTheme.textPrimary);
 
 /// One inset-grouped section: an optional header, a card of rows with
 /// hairline separators, and a footer, which [error] replaces while set.
@@ -84,10 +89,7 @@ class AuthGroupedSection extends StatelessWidget {
             ),
           ),
         if (children.isNotEmpty)
-          AuthGroupedCard(
-            separatorInset: separatorInset,
-            children: children,
-          ),
+          AuthGroupedCard(separatorInset: separatorInset, children: children),
         AuthGroupedFooter(footer: footer, error: error),
       ],
     );
@@ -109,50 +111,98 @@ class AuthGroupedCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = context.conduitTheme;
+    final shape = insetGroupedShape();
+    final labels = [
+      for (final child in children)
+        if (child is AuthGroupedTextField && child.label != null) child.label!,
+    ];
+    Widget rows = Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        for (var index = 0; index < children.length; index++) ...[
+          children[index],
+          if (index != children.length - 1)
+            AuthGroupedSeparator(inset: separatorInset),
+        ],
+      ],
+    );
+    if (labels.isNotEmpty) {
+      // Every labelled field in the card starts its text on one line: the
+      // widest label's, up to a share of the card, past which labels wrap.
+      final measured = measureAuthGroupedLabels(context, labels);
+      final column = rows;
+      rows = LayoutBuilder(
+        builder: (context, constraints) {
+          final available = constraints.maxWidth - authGroupedInset * 2;
+          final cap = available.isFinite
+              ? available * authGroupedLabelMaxShare
+              : measured;
+          return AuthGroupedLabelColumn(
+            width: measured < cap ? measured : cap,
+            child: column,
+          );
+        },
+      );
+    }
     return DecoratedBox(
-      decoration: BoxDecoration(
-        color: theme.groupedSurface,
-        borderRadius: BorderRadius.circular(authGroupedRadius),
-      ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(authGroupedRadius),
-        child: Material(
-          type: MaterialType.transparency,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              for (var index = 0; index < children.length; index++) ...[
-                children[index],
-                if (index != children.length - 1)
-                  AuthGroupedSeparator(inset: separatorInset),
-              ],
-            ],
-          ),
-        ),
+      decoration: ShapeDecoration(color: theme.groupedSurface, shape: shape),
+      child: ClipRSuperellipse(
+        borderRadius: shape.borderRadius.resolve(Directionality.of(context)),
+        child: Material(type: MaterialType.transparency, child: rows),
       ),
     );
   }
 }
 
-/// A one-pixel separator that starts at [inset] and runs to the trailing
-/// edge.
+/// The width of the widest of [labels] in the row title style, at the
+/// current text size.
+double measureAuthGroupedLabels(BuildContext context, List<String> labels) {
+  final style = authGroupedRowStyle(context);
+  final scaler = MediaQuery.textScalerOf(context);
+  var widest = 0.0;
+  for (final label in labels) {
+    final painter = TextPainter(
+      text: TextSpan(text: label, style: style),
+      textDirection: Directionality.of(context),
+      textScaler: scaler,
+      maxLines: 1,
+    )..layout();
+    if (painter.width > widest) widest = painter.width;
+    painter.dispose();
+  }
+  return widest.ceilToDouble();
+}
+
+/// The shared width of the leading labels in one grouped card, so the
+/// fields' text lines up under one another, as in an iOS account form.
+class AuthGroupedLabelColumn extends InheritedWidget {
+  const AuthGroupedLabelColumn({
+    super.key,
+    required this.width,
+    required super.child,
+  });
+
+  final double width;
+
+  static double? maybeOf(BuildContext context) => context
+      .dependOnInheritedWidgetOfExactType<AuthGroupedLabelColumn>()
+      ?.width;
+
+  @override
+  bool updateShouldNotify(AuthGroupedLabelColumn oldWidget) =>
+      oldWidget.width != width;
+}
+
+/// The system list separator between grouped rows, starting at [inset],
+/// as [InsetGroupedSeparator] draws it.
 class AuthGroupedSeparator extends StatelessWidget {
   const AuthGroupedSeparator({super.key, this.inset = authGroupedInset});
 
   final double inset;
 
   @override
-  Widget build(BuildContext context) {
-    final pixel = 1 / MediaQuery.devicePixelRatioOf(context);
-    return Padding(
-      padding: EdgeInsetsDirectional.only(start: inset),
-      child: SizedBox(
-        height: pixel,
-        child: ColoredBox(color: context.conduitTheme.dividerColor),
-      ),
-    );
-  }
+  Widget build(BuildContext context) => InsetGroupedSeparator(indent: inset);
 }
 
 /// The footer under a grouped card: guidance, or an error in its place.
@@ -169,9 +219,8 @@ class AuthGroupedFooter extends StatelessWidget {
     final footer = this.footer;
     final Widget content;
     if (error != null && error.isNotEmpty) {
-      final style = authGroupedFooterStyle(context).copyWith(
-        color: theme.error,
-      );
+      final style = authGroupedFooterStyle(context)
+          .copyWith(color: theme.error);
       content = Semantics(
         key: const ValueKey<String>('auth-footer-error'),
         liveRegion: true,
@@ -230,14 +279,20 @@ class AuthGroupedFooter extends StatelessWidget {
   }
 }
 
-/// A borderless text field filling one grouped row. The placeholder names
-/// the field; there is no label above it.
-class AuthGroupedTextField extends StatelessWidget {
+/// A borderless text field filling one grouped row.
+///
+/// With a [label], the row reads as an iOS account form's does: the field's
+/// name at the leading edge, in the row title style, and the field after it,
+/// so the name stays in view once the field is filled. Labels in one card
+/// share a column. At accessibility text sizes the label moves above the
+/// field. Without a label the placeholder names the field.
+class AuthGroupedTextField extends StatefulWidget {
   const AuthGroupedTextField({
     super.key,
     required this.controller,
     required this.placeholder,
     required this.semanticLabel,
+    this.label,
     this.focusNode,
     this.keyboardType,
     this.textInputAction,
@@ -256,6 +311,9 @@ class AuthGroupedTextField extends StatelessWidget {
   final TextEditingController controller;
   final String placeholder;
   final String semanticLabel;
+
+  /// The field's visible name at the row's leading edge.
+  final String? label;
   final FocusNode? focusNode;
   final TextInputType? keyboardType;
   final TextInputAction? textInputAction;
@@ -273,8 +331,123 @@ class AuthGroupedTextField extends StatelessWidget {
   final Widget? trailing;
 
   @override
+  State<AuthGroupedTextField> createState() => _AuthGroupedTextFieldState();
+}
+
+class _AuthGroupedTextFieldState extends State<AuthGroupedTextField> {
+  FocusNode? _ownFocusNode;
+
+  FocusNode get _focusNode =>
+      widget.focusNode ?? (_ownFocusNode ??= FocusNode());
+
+  @override
+  void dispose() {
+    _ownFocusNode?.dispose();
+    super.dispose();
+  }
+
+  Widget _buildField(BuildContext context) {
+    final validator = widget.validator;
+    return Semantics(
+      label: widget.semanticLabel,
+      textField: true,
+      child: AdaptiveTextFormField(
+        controller: widget.controller,
+        focusNode: _focusNode,
+        placeholder: widget.placeholder,
+        keyboardType: widget.keyboardType,
+        textInputAction: widget.textInputAction,
+        onSubmitted: widget.onSubmitted,
+        onChanged: widget.onChanged,
+        validator: validator == null
+            ? null
+            : (value) => validator(value ?? widget.controller.text),
+        obscureText: widget.obscureText,
+        autocorrect: widget.autocorrect,
+        autofocus: widget.autofocus,
+        readOnly: widget.readOnly,
+        enabled: widget.enabled,
+        autofillHints: widget.autofillHints,
+        style: authGroupedRowStyle(context),
+        padding: const EdgeInsets.symmetric(vertical: 15),
+        cupertinoDecoration: const BoxDecoration(color: Colors.transparent),
+        decoration: const InputDecoration(
+          border: InputBorder.none,
+          enabledBorder: InputBorder.none,
+          focusedBorder: InputBorder.none,
+          contentPadding: EdgeInsets.zero,
+        ),
+      ),
+    );
+  }
+
+  /// The label, which focuses its field when tapped, as tapping anywhere in
+  /// an iOS form row does. Assistive tech hears the field's own label.
+  Widget _buildLabel(BuildContext context, String label) {
+    return ExcludeSemantics(
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: widget.enabled ? _focusNode.requestFocus : null,
+        child: Text(
+          label,
+          key: ValueKey<String>('auth-field-label:$label'),
+          maxLines: 2,
+          style: authGroupedRowStyle(context),
+        ),
+      ),
+    );
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final trailing = this.trailing;
+    final trailing = widget.trailing;
+    final label = widget.label;
+    final field = _buildField(context);
+    final Widget content;
+    if (label == null || label.isEmpty) {
+      content = field;
+    } else if (MediaQuery.textScalerOf(context).scale(1) > 1.3) {
+      content = Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Padding(
+            padding: const EdgeInsets.only(top: Spacing.sm),
+            child: _buildLabel(context, label),
+          ),
+          field,
+        ],
+      );
+    } else {
+      final shared = AuthGroupedLabelColumn.maybeOf(context);
+      final labelWidth = shared ?? measureAuthGroupedLabels(context, [label]);
+      final row = Row(
+        children: [
+          SizedBox(width: labelWidth, child: _buildLabel(context, label)),
+          const SizedBox(width: authGroupedLabelGap),
+          Expanded(child: field),
+        ],
+      );
+      // Inside a card the column is already capped; a lone field caps its
+      // own label so a long one wraps rather than squeezing the field.
+      content = shared != null
+          ? row
+          : LayoutBuilder(
+              builder: (context, constraints) {
+                final cap = constraints.maxWidth * authGroupedLabelMaxShare;
+                if (!constraints.maxWidth.isFinite || labelWidth <= cap) {
+                  return row;
+                }
+                return Row(
+                  children: [
+                    SizedBox(width: cap, child: _buildLabel(context, label)),
+                    const SizedBox(width: authGroupedLabelGap),
+                    Expanded(child: field),
+                  ],
+                );
+              },
+            );
+    }
     return ConstrainedBox(
       constraints: const BoxConstraints(minHeight: authGroupedRowHeight),
       child: Padding(
@@ -284,41 +457,7 @@ class AuthGroupedTextField extends StatelessWidget {
         ),
         child: Row(
           children: [
-            Expanded(
-              child: Semantics(
-                label: semanticLabel,
-                textField: true,
-                child: AdaptiveTextFormField(
-                  controller: controller,
-                  focusNode: focusNode,
-                  placeholder: placeholder,
-                  keyboardType: keyboardType,
-                  textInputAction: textInputAction,
-                  onSubmitted: onSubmitted,
-                  onChanged: onChanged,
-                  validator: validator == null
-                      ? null
-                      : (value) => validator!(value ?? controller.text),
-                  obscureText: obscureText,
-                  autocorrect: autocorrect,
-                  autofocus: autofocus,
-                  readOnly: readOnly,
-                  enabled: enabled,
-                  autofillHints: autofillHints,
-                  style: authGroupedRowStyle(context),
-                  padding: const EdgeInsets.symmetric(vertical: 15),
-                  cupertinoDecoration: const BoxDecoration(
-                    color: Colors.transparent,
-                  ),
-                  decoration: const InputDecoration(
-                    border: InputBorder.none,
-                    enabledBorder: InputBorder.none,
-                    focusedBorder: InputBorder.none,
-                    contentPadding: EdgeInsets.zero,
-                  ),
-                ),
-              ),
-            ),
+            Expanded(child: content),
             ?trailing,
           ],
         ),
@@ -441,7 +580,9 @@ class _AuthGroupedRowState extends State<AuthGroupedRow> {
           children: [
             ...lead,
             ConstrainedBox(
-              constraints: BoxConstraints(maxWidth: constraints.maxWidth * 0.55),
+              constraints: BoxConstraints(
+                maxWidth: constraints.maxWidth * 0.55,
+              ),
               child: texts,
             ),
             const SizedBox(width: Spacing.sm),
@@ -464,10 +605,7 @@ class _AuthGroupedRowState extends State<AuthGroupedRow> {
       children: [
         ...lead,
         Expanded(child: texts),
-        if (trailing != null) ...[
-          const SizedBox(width: Spacing.sm),
-          trailing,
-        ],
+        if (trailing != null) ...[const SizedBox(width: Spacing.sm), trailing],
         ...end,
       ],
     );
@@ -534,9 +672,8 @@ class _AuthGroupedRowState extends State<AuthGroupedRow> {
                   overflow: usesLargeText
                       ? TextOverflow.visible
                       : TextOverflow.ellipsis,
-                  style: authGroupedRowStyle(context).copyWith(
-                    color: widget.titleColor,
-                  ),
+                  style: authGroupedRowStyle(context)
+                      .copyWith(color: widget.titleColor),
                 ),
                 if (subtitle != null && subtitle.isNotEmpty) ...[
                   const SizedBox(height: Spacing.xxs),
@@ -561,12 +698,9 @@ class _AuthGroupedRowState extends State<AuthGroupedRow> {
                     overflow: usesLargeText
                         ? TextOverflow.visible
                         : TextOverflow.ellipsis,
-                    textAlign: usesLargeText
-                        ? TextAlign.start
-                        : TextAlign.end,
-                    style: authGroupedRowStyle(context).copyWith(
-                      color: theme.textSecondary,
-                    ),
+                    textAlign: usesLargeText ? TextAlign.start : TextAlign.end,
+                    style: authGroupedRowStyle(context)
+                        .copyWith(color: theme.textSecondary),
                   ),
             trailing: trailing,
             chevron: widget.showChevron || expanded != null
@@ -608,9 +742,7 @@ class AuthGroupedSwitchRow extends StatelessWidget {
           ),
           child: Row(
             children: [
-              Expanded(
-                child: Text(title, style: authGroupedRowStyle(context)),
-              ),
+              Expanded(child: Text(title, style: authGroupedRowStyle(context))),
               const SizedBox(width: Spacing.sm),
               AdaptiveSwitch(
                 value: value,
@@ -739,7 +871,9 @@ class AuthIconTile extends StatelessWidget {
         height: size,
         alignment: Alignment.center,
         decoration: ShapeDecoration(
-          color: theme.textPrimary.withValues(alpha: theme.isDark ? 0.12 : 0.06),
+          color: theme.textPrimary.withValues(
+            alpha: theme.isDark ? 0.12 : 0.06,
+          ),
           shape: RoundedSuperellipseBorder(
             borderRadius: BorderRadius.circular(size * 0.24),
           ),

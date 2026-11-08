@@ -162,9 +162,14 @@ void main() {
       check(renderedField.cupertinoDecoration).isNotNull();
       if (platform == TargetPlatform.iOS) {
         // iOS fields are rows of an inset-grouped card: no outline of
-        // their own, and the placeholder names the field.
+        // their own, a leading label naming the field and an example in
+        // the placeholder.
         check(renderedField.cupertinoDecoration!.border).isNull();
-        check(renderedField.placeholder).equals('Email or Username');
+        check(renderedField.placeholder).equals('name@example.com');
+        expect(
+          find.byKey(const ValueKey<String>('auth-field-label:Email')),
+          findsOneWidget,
+        );
       } else {
         // Material fields use a hairline outline.
         check(renderedField.cupertinoDecoration!.border).isNotNull();

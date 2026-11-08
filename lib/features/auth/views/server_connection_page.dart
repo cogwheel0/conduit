@@ -2051,7 +2051,8 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
 
   /// The iOS form: an inset-grouped address section whose footer says what
   /// happens next (or why connecting failed), then Advanced Settings as a
-  /// disclosure row that opens grouped sections of its own.
+  /// disclosure row that opens grouped sections of its own. Fields name
+  /// themselves with leading labels, as the sign-in step's do.
   Widget _buildCupertinoServerForm() {
     final l10n = AppLocalizations.of(context)!;
     return Column(
@@ -2059,7 +2060,6 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
       children: [
         AuthGroupedSection(
           key: const ValueKey<String>('server-address-section'),
-          header: l10n.serverUrl,
           footer: _editingRoutes ? null : l10n.serverAddressFooter,
           error: _isConnecting ? null : _connectionError,
           children: [
@@ -2067,7 +2067,8 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
               AuthGroupedTextField(
                 key: const ValueKey<String>('server-route-label-field'),
                 controller: _routeLabelController,
-                placeholder: l10n.accountsAddressName,
+                label: l10n.authFieldName,
+                placeholder: l10n.authFieldOptional,
                 semanticLabel: l10n.accountsAddressName,
                 textInputAction: TextInputAction.next,
                 autocorrect: true,
@@ -2078,6 +2079,7 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
               key: const ValueKey<String>('server-url-field'),
               controller: _urlController,
               focusNode: _urlFocusNode,
+              label: l10n.authFieldServer,
               placeholder: l10n.serverUrlHint,
               semanticLabel: l10n.enterServerUrlSemantic,
               keyboardType: TextInputType.url,
@@ -2177,7 +2179,8 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
               if (_hasAnyMutualTlsInput) ...[
                 AuthGroupedTextField(
                   controller: _mtlsPrivateKeyPasswordController,
-                  placeholder: l10n.mutualTlsPrivateKeyPasswordHint,
+                  label: l10n.password,
+                  placeholder: l10n.authFieldOptional,
                   semanticLabel: l10n.mutualTlsPrivateKeyPasswordHint,
                   obscureText: true,
                   keyboardType: TextInputType.visiblePassword,
@@ -2206,7 +2209,9 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
             AuthGroupedTextField(
               key: const ValueKey<String>('custom-header-name-field'),
               controller: _headerKeyController,
-              placeholder: l10n.headerName,
+              label: l10n.headerName,
+              // Both fields are needed for Add Header, this group's action.
+              placeholder: l10n.authFieldRequired,
               semanticLabel: l10n.headerName,
               validator: (value) =>
                   _validateHeaderKey(value ?? _headerKeyController.text),
@@ -2218,7 +2223,8 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
               key: const ValueKey<String>('custom-header-value-field'),
               controller: _headerValueController,
               focusNode: _headerValueFocusNode,
-              placeholder: l10n.headerValue,
+              label: l10n.headerValue,
+              placeholder: l10n.authFieldRequired,
               semanticLabel: l10n.headerValue,
               validator: (value) =>
                   _validateHeaderValue(value ?? _headerValueController.text),
