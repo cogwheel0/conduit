@@ -1680,6 +1680,9 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     String? notice,
   }) {
     if (!owner.isActive(ref)) return;
+    final streaming = state.any(
+      (message) => message.id == checkpoint.id && message.isStreaming,
+    );
     updateMessageById(checkpoint.id, (current) {
       if (current.metadata?['transport'] != kHermesTransport) return current;
       // Settled: no longer waiting for its answer.
@@ -1715,10 +1718,20 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
         metadata: metadata,
       );
     });
-    finishStreamingMessage(
-      checkpoint.id,
-      ownerConversationId: owner.scopedConversationId,
-      requireConversationOwner: true,
+    if (streaming) {
+      finishStreamingMessage(
+        checkpoint.id,
+        ownerConversationId: owner.scopedConversationId,
+        requireConversationOwner: true,
+      );
+      return;
+    }
+    // A reply waiting for its saved run had stopped streaming, so finishing
+    // it does nothing: its answer is put in the chat and saved here, or a
+    // reload would bring back the empty reply and ask again.
+    _syncConversationStateAfterStreamingUpdate();
+    _persistCompletedTurnForMessage(
+      state.indexWhere((message) => message.id == checkpoint.id),
     );
   }
 

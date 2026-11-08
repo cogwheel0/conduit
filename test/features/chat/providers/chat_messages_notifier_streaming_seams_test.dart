@@ -6288,6 +6288,13 @@ void main() {
         final recovered = container.read(chatMessagesProvider).single;
         check(service.getRunCalls).equals(1);
         check(recovered.metadata?[kHermesRunAwaitingAnswerKey]).isNull();
+        // In the chat itself too, not only on screen: a reload restores it.
+        final saved = container
+            .read(activeConversationProvider)!
+            .messages
+            .single;
+        check(saved.content).equals('Authoritative recovered answer');
+        check(saved.metadata?[kHermesRunAwaitingAnswerKey]).isNull();
         check(
           recovered.statusHistory.map((status) => status.action),
         ).not((it) => it.contains(kHermesRunAwaitingAction));
