@@ -210,6 +210,19 @@ void main() {
         'Fact [1](conduit-cite:1).',
       );
     });
+
+    test('with a source count, a number past it stays text, as on mobile', () {
+      String counted(String text) => normalizeTextForPlainMarkdown(
+        text,
+        hasSources: true,
+        sourceCount: 2,
+      );
+      expect(counted('In range [2].'), 'In range [2](conduit-cite:2).');
+      expect(counted('Past it [3].'), 'Past it [3].');
+      // The chip needs every number it names.
+      expect(counted('Mixed [1,3].'), 'Mixed [1,3].');
+      expect(counted('Both[1][2].'), 'Both[1,2](conduit-cite:1,2).');
+    });
   });
 
   group('normalizeBlocksForPlainMarkdown', () {

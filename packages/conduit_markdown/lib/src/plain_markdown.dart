@@ -36,12 +36,15 @@ final _newlineRun = RegExp(r'[ \t]*\n[ \t]*');
 /// * **Citations.** With [hasSources], `[1]`, `[1,2]` and adjacent `[1][2]`
 ///   become links such as `[1,2](conduit-cite:1,2)`, following
 ///   [CitationParser]: not footnotes (`[^1]`, `^[1]`), not a link's own text
-///   (`[1](…)`), not a reference definition (`[1]: …`).
+///   (`[1](…)`), not a reference definition (`[1]: …`). With [sourceCount],
+///   a marker naming a source past it stays text, as the mobile renderer
+///   draws a chip only when every number it names has a source.
 ///
 /// The result is meant only for display; keep the original for copying.
 String normalizeTextForPlainMarkdown(
   String markdown, {
   required bool hasSources,
+  int? sourceCount,
 }) {
   if (markdown.isEmpty) return markdown;
   final text = markdown.replaceAll('\r\n', '\n');
@@ -50,7 +53,7 @@ String normalizeTextForPlainMarkdown(
   final tokenized = tokenizeMathOutsideDetailsTags(tokenizer, mask.masked);
 
   var prose = _escapeProse(tokenized);
-  if (hasSources) prose = _linkCitations(prose);
+  if (hasSources) prose = _linkCitations(prose, sourceCount);
 
   final withMath = tokenizer.replaceTokens(prose, (
     _,
@@ -71,16 +74,21 @@ String normalizeTextForPlainMarkdown(
 }
 
 /// [blocks] with every markdown field run through
-/// [normalizeTextForPlainMarkdown]: text blocks (with [hasSources]),
-/// reasoning bodies, code-interpreter output and other sections' bodies.
-/// Tool-call arguments and results are data, not markdown, and code is code;
-/// both are left as they are.
+/// [normalizeTextForPlainMarkdown]: text blocks (with [hasSources] and
+/// [sourceCount]), reasoning bodies, code-interpreter output and other
+/// sections' bodies. Tool-call arguments and results are data, not markdown,
+/// and code is code; both are left as they are.
 List<MessageBlock> normalizeBlocksForPlainMarkdown(
   List<MessageBlock> blocks, {
   required bool hasSources,
+  int? sourceCount,
 }) {
   String plain(String markdown, {bool sources = false}) =>
-      normalizeTextForPlainMarkdown(markdown, hasSources: sources);
+      normalizeTextForPlainMarkdown(
+        markdown,
+        hasSources: sources,
+        sourceCount: sources ? sourceCount : null,
+      );
   return List<MessageBlock>.unmodifiable([
     for (final block in blocks)
       switch (block) {
@@ -140,7 +148,7 @@ String _escapeProse(String prose) {
   return out.toString();
 }
 
-String _linkCitations(String prose) {
+String _linkCitations(String prose, int? sourceCount) {
   if (!prose.contains('[')) return prose;
   final out = StringBuffer();
   var cursor = 0;
@@ -162,6 +170,7 @@ String _linkCitations(String prose) {
           ?int.tryParse(_citationId.firstMatch(part.trim())?.group(1) ?? ''),
     ].where((id) => id > 0).toList(growable: false);
     if (ids.isEmpty) continue;
+    if (sourceCount != null && ids.any((id) => id > sourceCount)) continue;
     // `\[1]` reads `[1]` once markdown drops the escape, and the mobile
     // renderer finds citations in that text; drop the escape here too.
     if (_escapedAt(prose, start)) start -= 1;
