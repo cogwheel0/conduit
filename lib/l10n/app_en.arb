@@ -1794,13 +1794,13 @@
   "@analyzed": {
     "description": "Label shown after code interpreter has finished."
   },
-  "showComposerNotesButton": "Show Notes Button",
+  "showComposerNotesButton": "Save Drafts as Notes",
   "@showComposerNotesButton": {
-    "description": "Appearance setting for showing the Create note shortcut in the chat composer."
+    "description": "Chats setting: whether the composer's + panel offers Save as Note while a message is typed."
   },
-  "showComposerNotesButtonDescription": "While you type, show a button that saves your message as a note instead of sending it.",
+  "showComposerNotesButtonDescription": "While you type, the + menu offers Save as Note, which keeps your message as a note instead of sending it.",
   "@showComposerNotesButtonDescription": {
-    "description": "Subtitle of the Show Notes Button toggle in Chats settings: while typing, the message field offers a button that saves the draft as a note instead of sending it."
+    "description": "Footer/subtitle of the Save Drafts as Notes setting: while typing, the + menu offers Save as Note, which keeps the message as a note instead of sending it."
   },
   "appCustomization": "Customization",
   "@appCustomization": {
@@ -9223,5 +9223,13 @@
   "workspacePromptHistoryDiffTooLarge": "These versions are too long to compare.",
   "@workspacePromptHistoryDiffTooLarge": {
     "description": "Shown when the server refuses to compare two prompt versions because either is too long."
+  },
+  "composerSaveDraftAsNote": "Save as Note",
+  "@composerSaveDraftAsNote": {
+    "description": "Command row in the composer's + (attach) panel, shown while a message is typed: saves the typed message as a new note and opens it, instead of sending it. Title Case, short."
+  },
+  "composerSaveDraftAsNoteDescription": "Keep this message as a new note instead of sending it.",
+  "@composerSaveDraftAsNoteDescription": {
+    "description": "Subtitle under the Save as Note row in the composer's + panel."
   }
 }

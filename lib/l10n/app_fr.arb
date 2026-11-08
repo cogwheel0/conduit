@@ -386,8 +386,8 @@
   },
   "analyzing": "Analyse…",
   "analyzed": "Analysé",
-  "showComposerNotesButton": "Show Notes button",
-  "showComposerNotesButtonDescription": "Pendant la saisie, affiche un bouton qui enregistre votre message comme note au lieu de l’envoyer.",
+  "showComposerNotesButton": "Enregistrer les brouillons comme notes",
+  "showComposerNotesButtonDescription": "Pendant la saisie, le menu + propose Enregistrer comme note, qui conserve votre message comme note au lieu de l’envoyer.",
   "appCustomization": "Personnalisation",
   "appCustomizationSubtitle": "Thème, langue, voix et quick actions",
   "quickActionsDescription": "Raccourcis dans le chat",
@@ -4391,5 +4391,7 @@
   "followUpSuggestionsHeading": "Suggestions",
   "codeBlockPlainText": "Texte brut",
   "codeBlockWrapLines": "Renvoyer à la ligne",
-  "workspacePromptHistoryDiffTooLarge": "Ces versions sont trop longues pour être comparées."
+  "workspacePromptHistoryDiffTooLarge": "Ces versions sont trop longues pour être comparées.",
+  "composerSaveDraftAsNote": "Enregistrer comme note",
+  "composerSaveDraftAsNoteDescription": "Conserver ce message comme nouvelle note au lieu de l’envoyer."
 }

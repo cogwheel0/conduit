@@ -314,6 +314,7 @@ List<IosKeyboardAttachmentActionConfig> buildIosKeyboardAttachmentActions({
   bool toolSettingsAvailable = false,
   bool compareModelsAvailable = false,
   bool hasMessage = true,
+  bool draftNoteAvailable = false,
   CodeInterpreterOffer? codeInterpreter,
 }) {
   final items = buildComposerOverflowItems(
@@ -341,11 +342,14 @@ List<IosKeyboardAttachmentActionConfig> buildIosKeyboardAttachmentActions({
     compareModelsAvailable:
         !hermesMode && !directMode && compareModelsAvailable,
     hasMessage: hasMessage,
+    // Notes are the app's own, so every backend can keep a draft as one.
+    draftNoteAvailable: draftNoteAvailable,
     codeInterpreter: codeInterpreter,
   );
 
   return items
       .where((item) {
+        if (item.id == ComposerOverflowActionIds.saveDraftAsNote) return true;
         if (hermesMode) {
           return item.enabled &&
               (item.id == ComposerOverflowActionIds.file ||
@@ -485,16 +489,11 @@ TextStyle _composerInputTextStyle(bool isRecording) =>
 const double _maxCompactComposerControlScale = 1.25;
 const double _cupertinoComposerOverflowIconExtent = IconSize.large;
 
-/// Point size of an SF Symbol that sits beside the composer's 24 pt
-/// Cupertino glyphs (plus, mic) at the same optical size.
-const double _composerSecondarySymbolPointSize = 19;
-
 /// Glyphs for the composer's SF Symbols where the system lacks one.
 const Map<String, IconData> _composerSymbolFallbacks = <String, IconData>{
   'arrow.up': CupertinoIcons.arrow_up,
   'stop.fill': CupertinoIcons.stop_fill,
   'waveform': CupertinoIcons.waveform,
-  'note.text.badge.plus': CupertinoIcons.doc_text,
 };
 const double _materialComposerOverflowIconExtent = 28;
 
@@ -1132,6 +1131,9 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       case ComposerOverflowActionIds.compareModels:
         // The same command the Flutter menu runs: one controller for both.
         unawaited(_openCompareModels());
+        return;
+      case ComposerOverflowActionIds.saveDraftAsNote:
+        unawaited(_createNoteFromDraft());
         return;
       default:
         if (isComposerConnectionAction(id)) {
@@ -3104,6 +3106,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     required bool toolSettingsAvailable,
     required bool compareModelsAvailable,
     required bool hasMessage,
+    required bool draftNoteAvailable,
     required CodeInterpreterOffer? codeInterpreter,
   }) {
     if (kIsWeb || !Platform.isIOS) {
@@ -3133,9 +3136,25 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       toolSettingsAvailable: toolSettingsAvailable,
       compareModelsAvailable: compareModelsAvailable,
       hasMessage: hasMessage,
+      draftNoteAvailable: draftNoteAvailable,
       codeInterpreter: codeInterpreter,
     );
   }
+
+  /// Whether the + panel offers "Save as Note": notes are on, the Chats
+  /// setting allows it, and a typed message is there that is not already
+  /// being sent or saved.
+  bool _draftNoteActionAvailable(ComposerRead read) =>
+      read(notesFeatureEnabledProvider) &&
+      read(
+        appSettingsProvider.select(
+          (settings) => settings.showComposerNotesButton,
+        ),
+      ) &&
+      !read(noteCreatorProvider.select((state) => state.isLoading)) &&
+      _controller.text.trim().isNotEmpty &&
+      !_draftHandedOff &&
+      !_isRecording;
 
   /// Personal connections for the native panel; none for the model families
   /// that have no Open WebUI account behind them.
@@ -3187,6 +3206,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       toolSettingsAvailable: ref.read(personalValvesCommandAvailableProvider),
       compareModelsAvailable: _comparisonCommandAvailable(ref.read),
       hasMessage: _controller.text.trim().isNotEmpty,
+      draftNoteAvailable: _draftNoteActionAvailable(ref.read),
       codeInterpreter: ref.read(codeInterpreterOfferProvider),
     );
   }
@@ -3512,6 +3532,15 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     final isCreatingDraftNote = ref.watch(
       noteCreatorProvider.select((state) => state.isLoading),
     );
+    // "Save as Note" lives in the + panel, where a typed message can be kept
+    // as a note instead of sent; the trailing slot beside Send stays Send's.
+    final bool draftNoteAvailable =
+        notesEnabled &&
+        showNotesButton &&
+        !isCreatingDraftNote &&
+        _hasText &&
+        !_draftHandedOff &&
+        !_isRecording;
     final selectedQuickPills = ref.watch(
       appSettingsProvider.select((s) => s.quickPills),
     );
@@ -3663,6 +3692,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       toolSettingsAvailable: ref.watch(personalValvesCommandAvailableProvider),
       compareModelsAvailable: _comparisonCommandAvailable(ref.watch),
       hasMessage: _hasText,
+      draftNoteAvailable: draftNoteAvailable,
       codeInterpreter: codeInterpreterOffer,
     );
 
@@ -3868,13 +3898,6 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
         !_isMultiline &&
         !showQueueAction &&
         !(isDesktopHermesComposer && isGenerating && _hasText);
-    final bool showCreateDraftNoteAction =
-        !showCompactComposer &&
-        notesEnabled &&
-        showNotesButton &&
-        _hasText &&
-        !isGenerating &&
-        !_isRecording;
     final bool showInlineMicAction =
         !_isRecording && !_hasText && voiceAvailable && !isGenerating;
 
@@ -4023,16 +4046,11 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                 ),
                 const SizedBox(width: Spacing.xs),
               ],
-              if (showCreateDraftNoteAction) ...[
-                const SizedBox(width: Spacing.xs),
-                _buildCreateDraftNoteButton(isLoading: isCreatingDraftNote),
-              ],
               if (showInlineMicAction) ...[
                 const SizedBox(width: Spacing.xs),
                 _buildInlineMicAction(voiceAvailable),
               ],
-              if (!showCreateDraftNoteAction && !showInlineMicAction)
-                const SizedBox(width: Spacing.xs),
+              if (!showInlineMicAction) const SizedBox(width: Spacing.xs),
               _buildPrimaryButton(
                 _hasText,
                 isGenerating,
@@ -4210,6 +4228,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
           ),
           localAttachmentsOnly: isHermesComposer,
           attachmentAvailability: attachmentAvailability,
+          draftNoteAvailable: draftNoteAvailable,
         ),
       ),
     );
@@ -4284,6 +4303,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     required Widget composer,
     required bool localAttachmentsOnly,
     required ComposerOverflowAttachmentAvailability attachmentAvailability,
+    required bool draftNoteAvailable,
   }) {
     final fallbackPanel = ComposerAttachmentKeyboard(
       height: _fallbackAttachmentPanelHeight,
@@ -4314,6 +4334,12 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
           ? () => unawaited(_openCompareModels())
           : null,
       compareModelsHasMessage: _hasText,
+      onSaveDraftAsNote: draftNoteAvailable
+          ? () {
+              _dismissFallbackAttachmentPanel();
+              unawaited(_createNoteFromDraft());
+            }
+          : null,
     );
 
     return PopScope(
@@ -4919,71 +4945,8 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     );
   }
 
-  /// "Create Note" from the draft, in the slot the mic holds while the
-  /// composer is empty: the same 44 pt target, the glyph centred in it at the
-  /// mic's size and tone, so typing swaps one quiet glyph for another and
-  /// Send keeps its own room.
-  Widget _buildCreateDraftNoteButton({required bool isLoading}) {
-    final l10n = AppLocalizations.of(context)!;
-    final bool enabled = widget.enabled && !isLoading && !_isRecording;
-    final buttonSize = conduitScaledControlExtent(
-      context,
-      baseExtent: _composerControlSize,
-    );
-    final iconSize = conduitScaledIconExtent(context, IconSize.large);
-    final iconColor = _composerSecondaryGlyphColor(enabled: enabled);
-    final Widget glyph;
-    if (isLoading) {
-      glyph = SizedBox(
-        width: iconSize,
-        height: iconSize,
-        child: AdaptiveProgressIndicator(
-          strokeWidth: 2.5,
-          color: context.conduitTheme.textSecondary,
-        ),
-      );
-    } else if (NativeSymbolGlyph.isAvailable) {
-      glyph = NativeSymbolGlyph(
-        symbol: 'note.text.badge.plus',
-        fallbackIcon: CupertinoIcons.doc_text,
-        pointSize: conduitScaledIconExtent(
-          context,
-          _composerSecondarySymbolPointSize,
-        ),
-        color: iconColor,
-      );
-    } else {
-      glyph = ConduitSystemAdaptiveIcon(
-        Platform.isIOS ? CupertinoIcons.doc_text : Icons.note_add_outlined,
-        size: iconSize,
-        color: iconColor,
-      );
-    }
-
-    return AdaptiveTooltip(
-      message: l10n.createNote,
-      excludeFromSemantics: true,
-      child: Semantics(
-        key: const ValueKey('create-draft-note-button'),
-        button: true,
-        enabled: enabled,
-        label: l10n.createNote,
-        onTap: enabled ? _createNoteFromDraft : null,
-        excludeSemantics: true,
-        child: GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onTap: enabled ? _createNoteFromDraft : null,
-          child: SizedBox.square(
-            dimension: buttonSize,
-            child: Center(child: glyph),
-          ),
-        ),
-      ),
-    );
-  }
-
-  /// The tone of the composer's quiet trailing glyphs (dictation, Create
-  /// Note): secondary text, dimmed when unavailable.
+  /// The tone of the composer's quiet trailing glyphs (dictation):
+  /// secondary text, dimmed when unavailable.
   Color _composerSecondaryGlyphColor({required bool enabled}) {
     final secondary = context.conduitTheme.textSecondary;
     return enabled ? secondary : secondary.withValues(alpha: Alpha.disabled);

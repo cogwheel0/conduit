@@ -1764,8 +1764,8 @@
   "@analyzed": {
     "description": "Label shown after code interpreter has finished."
   },
-  "showComposerNotesButton": "Pokaż przycisk notatek",
-  "showComposerNotesButtonDescription": "Podczas pisania pokazuje przycisk, który zapisuje wiadomość jako notatkę zamiast ją wysyłać.",
+  "showComposerNotesButton": "Zapisuj szkice jako notatki",
+  "showComposerNotesButtonDescription": "Podczas pisania menu + oferuje opcję Zapisz jako notatkę, która zachowuje wiadomość jako notatkę zamiast ją wysyłać.",
   "appCustomization": "Personalizacja",
   "@appCustomization": {
     "description": "Title of the customization settings page."
@@ -8196,5 +8196,7 @@
   "workspacePromptHistoryDiffTooLarge": "Te wersje są zbyt długie, aby je porównać.",
   "@workspacePromptHistoryDiffTooLarge": {
     "description": "Shown when the server refuses to compare two prompt versions because either is too long."
-  }
+  },
+  "composerSaveDraftAsNote": "Zapisz jako notatkę",
+  "composerSaveDraftAsNoteDescription": "Zachowaj tę wiadomość jako nową notatkę zamiast ją wysyłać."
 }

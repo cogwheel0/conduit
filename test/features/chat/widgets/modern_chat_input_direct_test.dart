@@ -1722,9 +1722,8 @@ void main() {
     );
   });
 
-  testWidgets('hiding the Notes shortcut preserves the composer draft', (
-    tester,
-  ) async {
+  testWidgets('Save as Note lives in the + panel while there is a draft, '
+      'as the Chats setting allows', (tester) async {
     Widget input(bool showNotes) => ProviderScope(
       overrides: [
         apiServiceProvider.overrideWithValue(null),
@@ -1743,18 +1742,77 @@ void main() {
         ),
       ),
     );
+    final row = find.byKey(const ValueKey('composer-save-draft-as-note'));
+
     await tester.pumpWidget(input(true));
     await tester.enterText(find.byType(TextField), 'Paper\nlantern');
     await tester.pump();
     await tester.pump();
-    final note = find.byKey(const ValueKey('create-draft-note-button'));
-    expect(note, findsOneWidget);
+    // Send keeps the trailing slot to itself: no glyph beside it.
+    expect(find.byKey(const ValueKey('create-draft-note-button')), findsNothing);
+    expect(find.byIcon(Icons.note_add_outlined), findsNothing);
+
+    await tester.tap(find.byIcon(Icons.add));
+    await tester.pumpAndSettle();
+    expect(row, findsOneWidget);
+    expect(
+      find.descendant(of: row, matching: find.text('Save as Note')),
+      findsOneWidget,
+    );
+
+    // The setting turns the command off and leaves the draft alone.
     await tester.pumpWidget(input(false));
-    expect(note, findsNothing);
+    await tester.pump();
+    expect(row, findsNothing);
     expect(find.text('Paper\nlantern'), findsOneWidget);
     expect(find.byKey(const ValueKey('primary-btn-send')), findsOneWidget);
+
     await tester.pumpWidget(input(true));
-    expect(note, findsOneWidget);
+    await tester.pump();
+    expect(row, findsOneWidget);
+  });
+
+  test('the native panel offers Save as Note on every backend, only with a '
+      'draft', () {
+    final l10n = AppLocalizationsEn();
+    List<String> ids({
+      required bool hermes,
+      required bool direct,
+      required bool draftNote,
+    }) => buildIosKeyboardAttachmentActions(
+      l10n: l10n,
+      attachmentAvailability: const ComposerOverflowAttachmentAvailability(
+        file: true,
+        photo: true,
+        camera: true,
+      ),
+      hermesMode: hermes,
+      directMode: direct,
+      webSearchAvailable: false,
+      webSearchEnabled: false,
+      imageGenerationAvailable: false,
+      imageGenerationEnabled: false,
+      availableTools: const [],
+      selectedToolIds: const [],
+      availableFilters: const [],
+      selectedFilterIds: const [],
+      draftNoteAvailable: draftNote,
+    ).map((action) => action.id).toList();
+
+    for (final (hermes, direct) in [
+      (false, false),
+      (true, false),
+      (false, true),
+    ]) {
+      expect(
+        ids(hermes: hermes, direct: direct, draftNote: true),
+        contains(ComposerOverflowActionIds.saveDraftAsNote),
+      );
+      expect(
+        ids(hermes: hermes, direct: direct, draftNote: false),
+        isNot(contains(ComposerOverflowActionIds.saveDraftAsNote)),
+      );
+    }
   });
 
   testWidgets('secondary composer actions use plain icon buttons', (
@@ -1797,23 +1855,17 @@ void main() {
     await tester.pump();
     await tester.pump();
 
-    // Create Note takes the mic's slot: a full 44 pt target with its glyph
-    // centred at the mic's size, so it is not squeezed against Send.
-    final noteTarget = tester.getRect(
+    // While drafting, Send stands alone at the trailing edge; Save as Note
+    // is in the + panel.
+    expect(
       find.byKey(const ValueKey('create-draft-note-button')),
+      findsNothing,
     );
-    final noteGlyph = find.byIcon(Icons.note_add_outlined);
-    final noteGlyphRect = tester.getRect(noteGlyph);
-    final sendVisualRect = tester.getRect(
-      find.descendant(
-        of: find.byKey(const ValueKey('primary-btn-send')),
-        matching: find.byType(AdaptiveButton),
-      ),
+    expect(
+      actionButton(find.byKey(const ValueKey('composer-overflow-button')))
+          .style,
+      AdaptiveButtonStyle.plain,
     );
-    expect(noteTarget.size, const Size.square(TouchTarget.minimum));
-    expect(tester.widget<Icon>(noteGlyph).size, IconSize.large);
-    expect(noteGlyphRect.center, noteTarget.center);
-    expect(sendVisualRect.left - noteGlyphRect.right, greaterThanOrEqualTo(16));
   });
 
   testWidgets('composer controls use the standard icon extent', (tester) async {
