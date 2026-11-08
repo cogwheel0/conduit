@@ -217,6 +217,14 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
   /// in More, inside a 44 pt target.
   static const double _footerActionTarget = 44;
   static const double _footerActionGlyph = 17;
+
+  /// Copy's two overlapping squares fill more of their box than a speaker or
+  /// an arrow; a point smaller, they match the row's ink height and weight.
+  static const String _copySymbol = 'square.on.square';
+  static const Map<String, double> _footerGlyphOpticalSizes = {_copySymbol: 16};
+
+  static double _footerGlyphSizeFor(String? sfSymbol) =>
+      _footerGlyphOpticalSizes[sfSymbol] ?? _footerActionGlyph;
   final _inlineUsageButtonKey = GlobalKey();
   late AnimationController _fadeController;
   late AnimationController _streamingContentFadeController;
@@ -2886,13 +2894,13 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
         icon: _showCopied
             ? (Platform.isIOS ? CupertinoIcons.checkmark : Icons.check)
             : Platform.isIOS
-            ? CupertinoIcons.doc_on_doc
+            ? CupertinoIcons.square_on_square
             : Icons.content_copy_outlined,
         label: _showCopied ? l10n.copied : l10n.copy,
         onTap: _responseCompleted && widget.onCopy != null
             ? () => unawaited(_copyResponse())
             : null,
-        sfSymbol: _showCopied ? 'checkmark' : 'doc.on.doc',
+        sfSymbol: _showCopied ? 'checkmark' : _copySymbol,
         playsOwnFeedback: true,
       ),
       if (shouldShowTtsButton)
@@ -3093,7 +3101,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
       onTap: onTap,
       sfSymbol: sfSymbol,
       size: _footerActionTarget,
-      iconSize: _footerActionGlyph,
+      iconSize: _footerGlyphSizeFor(sfSymbol),
       color: _footerActionColor,
       hapticFeedback: !playsOwnFeedback,
     );
