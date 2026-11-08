@@ -413,6 +413,8 @@ class _MarkdownDetailsBlockState extends State<MarkdownDetailsBlock> {
       if (_toolCallData.hasEmbeds) {
         return safeName;
       }
+      final label = _toolCallLabel;
+      if (label != null) return label;
       final status = _detailsData.status;
       if (status == 'pending') return 'Tool Approval Needed: $safeName';
       if (status == 'rejected') return 'Denied $safeName';
@@ -428,6 +430,24 @@ class _MarkdownDetailsBlockState extends State<MarkdownDetailsBlock> {
 
     final summary = _detailsData.summaryText.trim();
     return summary.isEmpty ? 'Details' : summary;
+  }
+
+  /// Mirrors ToolCallDisplay.svelte's `displayLabel`: the model's label for
+  /// what the call is doing or did, only while it runs or once it succeeded.
+  String? get _toolCallLabel {
+    final data = _toolCallData;
+    if (data.isError ||
+        const {
+          'pending',
+          'queued',
+          'requires_approval',
+          'incomplete',
+          'rejected',
+        }.contains(_detailsData.status)) {
+      return null;
+    }
+    final label = _isPending ? data.runningLabel : data.completedLabel;
+    return label.isEmpty ? null : label;
   }
 
   String _modalTitle(BuildContext context) {

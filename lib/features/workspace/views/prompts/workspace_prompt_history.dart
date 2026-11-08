@@ -217,6 +217,10 @@ class _WorkspacePromptHistorySectionState
           .historyDiff(widget.promptId, fromId: entry.id, toId: production);
       if (!mounted) return;
       await WorkspacePromptDiffSheet.show(context, diff);
+    } on WorkspacePromptDiffTooLargeException {
+      if (mounted) {
+        _showSnack(l10n.workspacePromptHistoryDiffTooLarge, isError: true);
+      }
     } catch (error, stackTrace) {
       DebugLogger.error(
         'prompt history diff failed',

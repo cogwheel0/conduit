@@ -4795,8 +4795,17 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
         state.indexWhere((message) => message.id == messageId) == -1) {
       return;
     }
+    // A coding agent (Open WebUI 0.13.1) waits on its request inside the
+    // turn that is still running: the server hands that turn the answer and
+    // starts nothing, so no task comes back, yet the reply goes on.
+    final agentRequest =
+        taskIds.isEmpty &&
+        isOpenWebUiAgentRequest(
+          state.firstWhere((message) => message.id == messageId).output,
+          callId,
+        );
     final resumeTailOwnsTask =
-        taskIds.isNotEmpty &&
+        (taskIds.isNotEmpty || agentRequest) &&
         state.isNotEmpty &&
         state.last.id == messageId &&
         state.last.role == 'assistant';
@@ -4837,7 +4846,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
       return;
     }
 
-    if (taskIds.isEmpty) {
+    if (taskIds.isEmpty && !resumeTailOwnsTask) {
       try {
         final pulled = await ref
             .read(syncEngineProvider.notifier)
@@ -4858,7 +4867,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     await _attachResumeSocketStream(
       conversation,
       state.last,
-      taskId: taskIds.first,
+      taskId: taskIds.firstOrNull,
     );
     if (!_disposed &&
         ref.read(activeConversationProvider)?.id == conversation.id &&

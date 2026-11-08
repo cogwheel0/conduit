@@ -4354,5 +4354,6 @@
   "terminalPortPreviewReload": "Opnieuw laden",
   "terminalPortPreviewLoadFailed": "Deze pagina kan niet worden geladen.",
   "modelMenuAllModels": "Alle modellen…",
-  "citationPreviewOpen": "Openen"
+  "citationPreviewOpen": "Openen",
+  "workspacePromptHistoryDiffTooLarge": "Deze versies zijn te lang om te vergelijken."
 }

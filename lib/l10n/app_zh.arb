@@ -4354,5 +4354,6 @@
   "terminalPortPreviewReload": "重新加载",
   "terminalPortPreviewLoadFailed": "无法加载此页面。",
   "modelMenuAllModels": "所有模型…",
-  "citationPreviewOpen": "打开"
+  "citationPreviewOpen": "打开",
+  "workspacePromptHistoryDiffTooLarge": "这些版本过长，无法比较。"
 }

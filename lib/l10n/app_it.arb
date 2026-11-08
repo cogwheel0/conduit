@@ -4354,5 +4354,6 @@
   "terminalPortPreviewReload": "Ricarica",
   "terminalPortPreviewLoadFailed": "Impossibile caricare questa pagina.",
   "modelMenuAllModels": "Tutti i modelli…",
-  "citationPreviewOpen": "Apri"
+  "citationPreviewOpen": "Apri",
+  "workspacePromptHistoryDiffTooLarge": "Queste versioni sono troppo lunghe per essere confrontate."
 }

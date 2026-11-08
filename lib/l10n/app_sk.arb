@@ -6277,5 +6277,6 @@
   "terminalPortPreviewReload": "Znova načítať",
   "terminalPortPreviewLoadFailed": "Túto stránku sa nepodarilo načítať.",
   "modelMenuAllModels": "Všetky modely…",
-  "citationPreviewOpen": "Otvoriť"
+  "citationPreviewOpen": "Otvoriť",
+  "workspacePromptHistoryDiffTooLarge": "Tieto verzie sú príliš dlhé na porovnanie."
 }

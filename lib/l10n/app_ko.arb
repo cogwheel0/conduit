@@ -4126,5 +4126,6 @@
   "terminalPortPreviewReload": "새로고침",
   "terminalPortPreviewLoadFailed": "이 페이지를 불러올 수 없습니다.",
   "modelMenuAllModels": "모든 모델…",
-  "citationPreviewOpen": "열기"
+  "citationPreviewOpen": "열기",
+  "workspacePromptHistoryDiffTooLarge": "이 버전들은 너무 길어서 비교할 수 없습니다."
 }

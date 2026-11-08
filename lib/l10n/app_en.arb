@@ -9130,5 +9130,9 @@
   "citationPreviewOpen": "Open",
   "@citationPreviewOpen": {
     "description": "Button in a citation's preview popover that opens the cited page in the browser."
+  },
+  "workspacePromptHistoryDiffTooLarge": "These versions are too long to compare.",
+  "@workspacePromptHistoryDiffTooLarge": {
+    "description": "Shown when the server refuses to compare two prompt versions because either is too long."
   }
 }

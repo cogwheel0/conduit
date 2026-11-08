@@ -5971,5 +5971,6 @@
   "terminalPortPreviewReload": "再読み込み",
   "terminalPortPreviewLoadFailed": "このページを読み込めませんでした。",
   "modelMenuAllModels": "すべてのモデル…",
-  "citationPreviewOpen": "開く"
+  "citationPreviewOpen": "開く",
+  "workspacePromptHistoryDiffTooLarge": "これらのバージョンは長すぎるため比較できません。"
 }

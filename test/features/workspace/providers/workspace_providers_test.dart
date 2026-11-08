@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:checks/checks.dart';
+import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -208,6 +209,19 @@ void main() {
         .deepEquals(['prompt-1', 'prompt-2', 'prompt-3']);
     // The export paged past the first page rather than stopping at it.
     check(api.pagesRequested).deepEquals([1, 2]);
+  });
+
+  test('a prompt diff the server finds too long reports that', () async {
+    // Open WebUI 0.13.1 refuses versions over 5,000 lines with 413.
+    final api = _WorkspacePromptsApi()..diffStatus = 413;
+    final container = _container(api);
+    addTearDown(container.dispose);
+
+    await check(
+      container
+          .read(workspacePromptsProvider.notifier)
+          .historyDiff('prompt-1', fromId: 'h1', toId: 'h2'),
+    ).throws<WorkspacePromptDiffTooLargeException>();
   });
 
   test('changing the tool query keeps direct_server selections', () async {
@@ -669,6 +683,22 @@ class _WorkspacePromptsApi extends ApiService {
       );
 
   final pagesRequested = <int>[];
+
+  /// The status `history/diff` fails with.
+  int? diffStatus;
+
+  @override
+  Future<Map<String, dynamic>> getWorkspacePromptHistoryDiff(
+    String id, {
+    required String fromId,
+    required String toId,
+  }) async {
+    final options = RequestOptions(path: '/api/v1/prompts/id/$id/history/diff');
+    throw DioException(
+      requestOptions: options,
+      response: Response(requestOptions: options, statusCode: diffStatus),
+    );
+  }
 
   @override
   Future<WorkspacePagedResponse<WorkspacePromptSummary>> getWorkspacePrompts({
