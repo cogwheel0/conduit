@@ -4340,5 +4340,7 @@
   "mcpAppOpenLinkConfirm": "開啟",
   "terminalPortPreviewForward": "前進",
   "terminalPortPreviewReload": "重新載入",
-  "terminalPortPreviewLoadFailed": "無法載入此頁面。"
+  "terminalPortPreviewLoadFailed": "無法載入此頁面。",
+  "modelMenuAllModels": "所有模型…",
+  "citationPreviewOpen": "開啟"
 }

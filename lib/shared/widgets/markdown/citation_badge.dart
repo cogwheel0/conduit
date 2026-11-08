@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:material_ui/material_ui.dart';
 
@@ -7,12 +9,95 @@ import '../../../core/services/haptic_service.dart';
 
 import 'package:conduit_core/services/settings_service.dart';
 
+import 'package:conduit/l10n/app_localizations.dart';
+
 import '../../theme/theme_extensions.dart';
 import '../adaptive_dropdown_field.dart';
 import '../platform_ui/platform_ui.dart';
 import '../../utils/external_link_launcher.dart';
 
+import 'package:conduit_core/utils/source_presentation.dart';
 import 'package:conduit_core/utils/source_reference_helper.dart';
+
+/// The longest excerpt a citation's preview shows, in characters.
+const int _kCitationPreviewSnippetLength = 240;
+
+/// What a tap on a citation does when its caller gives no callback.
+///
+/// On iOS 26 it opens a native popover pointing at [anchor], previewing the
+/// source: its title, its site and a short excerpt, with Open for a source
+/// that has a link. Elsewhere, or for a source with neither link nor excerpt,
+/// it opens the link in the browser as it always did.
+Future<void> _openCitationSource(
+  BuildContext anchor,
+  ChatSourceReference source,
+  int index,
+) async {
+  final url = SourceReferenceHelper.getSourceUrl(source);
+  final snippet = sourceSnippet(source);
+  if ((url == null && snippet == null) ||
+      !AdaptivePreviewPopover.canShow(anchor)) {
+    if (url != null) launchExternalLink(url, scope: 'markdown/citation');
+    return;
+  }
+
+  final preview = citationPreview(source, index);
+  final l10n = AppLocalizations.of(anchor)!;
+  const openId = 'open';
+  final choice = await AdaptivePreviewPopover.show(
+    anchorContext: anchor,
+    title: preview.title,
+    message: preview.message,
+    actions: [
+      if (url != null)
+        AdaptivePreviewPopoverAction(
+          id: openId,
+          label: l10n.citationPreviewOpen,
+          isDefault: true,
+        ),
+    ],
+    closeLabel: l10n.close,
+  );
+  if (choice == openId && url != null) {
+    launchExternalLink(url, scope: 'markdown/citation');
+  }
+}
+
+/// The title and text of a citation's preview: the source's name (its site
+/// when it has none), then its site and a short excerpt.
+@visibleForTesting
+({String title, String? message}) citationPreview(
+  ChatSourceReference source,
+  int index,
+) {
+  final url = SourceReferenceHelper.getSourceUrl(source);
+  final host = url == null ? null : SourceReferenceHelper.extractDomain(url);
+  final label = SourceReferenceHelper.getSourceLabel(source, index).trim();
+  final labelIsLink = SourceReferenceHelper.looksLikeUrl(label);
+  final title = labelIsLink && host != null && host.isNotEmpty ? host : label;
+  final excerpt = _shortExcerpt(sourceSnippet(source));
+  final lines = [
+    if (host != null && host.isNotEmpty && host != title) host,
+    ?excerpt,
+  ];
+  return (title: title, message: lines.isEmpty ? null : lines.join('\n\n'));
+}
+
+String? _shortExcerpt(String? text) {
+  // Counted and cut in user-perceived characters, so an emoji or an accented
+  // letter is never split.
+  final characters = text?.characters;
+  if (characters == null ||
+      characters.length <= _kCitationPreviewSnippetLength) {
+    return text;
+  }
+  final cut = characters.take(_kCitationPreviewSnippetLength).toString();
+  final space = cut.lastIndexOf(' ');
+  // Ends on a word when one ends reasonably close to the limit. A space is a
+  // character of its own, so cutting there keeps every character whole.
+  final end = space > cut.length * 0.6 ? space : cut.length;
+  return '${cut.substring(0, end).trimRight()}…';
+}
 
 TextStyle _badgeLabelTextStyle(BuildContext context, Color color) {
   final textTheme = Theme.of(context).textTheme;
@@ -77,7 +162,6 @@ class CitationBadge extends ConsumerWidget {
     }
 
     final source = sources[sourceIndex];
-    final url = SourceReferenceHelper.getSourceUrl(source);
     final title = SourceReferenceHelper.getSourceLabel(source, sourceIndex);
     final inlineTitle = SourceReferenceHelper.getInlineSourceLabel(
       source,
@@ -94,8 +178,8 @@ class CitationBadge extends ConsumerWidget {
         onTap: () {
           if (onTap != null) {
             onTap!();
-          } else if (url != null) {
-            launchExternalLink(url, scope: 'markdown/citation');
+          } else {
+            unawaited(_openCitationSource(context, source, sourceIndex));
           }
         },
         child: Container(
@@ -191,11 +275,8 @@ class CitationBadgeGroup extends ConsumerWidget {
         return;
       }
 
-      if (index >= 0 && index < sources.length) {
-        final url = SourceReferenceHelper.getSourceUrl(sources[index]);
-        if (url != null) {
-          launchExternalLink(url, scope: 'markdown/citation');
-        }
+      if (index >= 0 && index < sources.length && context.mounted) {
+        unawaited(_openCitationSource(context, sources[index], index));
       }
     }
 

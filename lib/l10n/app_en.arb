@@ -9103,5 +9103,13 @@
   "terminalPortPreviewLoadFailed": "Could not load this page.",
   "@terminalPortPreviewLoadFailed": {
     "description": "Shown in a terminal port preview when the page could not be reached."
+  },
+  "modelMenuAllModels": "All models…",
+  "@modelMenuAllModels": {
+    "description": "Last item of the chat's model menu, under the pinned models; opens the complete, searchable model list."
+  },
+  "citationPreviewOpen": "Open",
+  "@citationPreviewOpen": {
+    "description": "Button in a citation's preview popover that opens the cited page in the browser."
   }
 }

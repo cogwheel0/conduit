@@ -9,6 +9,20 @@ class ModelSelectorLayout {
   final List<Model> more;
 }
 
+/// The pinned models that are in [models], in pin order and each once. A pin
+/// whose model is no longer offered is left out.
+List<Model> availablePinnedModels({
+  required Iterable<Model> models,
+  required Iterable<String> pinnedModelIds,
+}) {
+  final byId = <String, Model>{for (final model in models) model.id: model};
+  final seen = <String>{};
+  return List.unmodifiable([
+    for (final id in pinnedModelIds)
+      if (byId[id] case final model? when seen.add(id)) model,
+  ]);
+}
+
 ModelSelectorLayout buildModelSelectorLayout({
   required Iterable<Model> models,
   required Iterable<String> pinnedModelIds,
@@ -17,16 +31,12 @@ ModelSelectorLayout buildModelSelectorLayout({
 }) {
   final all = List<Model>.unmodifiable(models);
   final byId = <String, Model>{for (final model in all) model.id: model};
-  final pins = pinnedModelIds.toList(growable: false);
-  final featured = <Model>[];
-  final featuredIds = <String>{};
+  final featured = availablePinnedModels(
+    models: all,
+    pinnedModelIds: pinnedModelIds,
+  ).toList();
+  final featuredIds = <String>{for (final model in featured) model.id};
 
-  if (pins.isNotEmpty) {
-    for (final id in pins) {
-      final model = byId[id];
-      if (model != null && featuredIds.add(id)) featured.add(model);
-    }
-  }
   if (featured.isEmpty) {
     for (final model in all.take(kModelSelectorFallbackCount)) {
       if (featuredIds.add(model.id)) featured.add(model);

@@ -6262,5 +6262,7 @@
   "mcpAppOpenLinkConfirm": "Otevřít",
   "terminalPortPreviewForward": "Vpřed",
   "terminalPortPreviewReload": "Načíst znovu",
-  "terminalPortPreviewLoadFailed": "Tuto stránku se nepodařilo načíst."
+  "terminalPortPreviewLoadFailed": "Tuto stránku se nepodařilo načíst.",
+  "modelMenuAllModels": "Všechny modely…",
+  "citationPreviewOpen": "Otevřít"
 }
