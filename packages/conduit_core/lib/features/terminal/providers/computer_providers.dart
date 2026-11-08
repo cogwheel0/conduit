@@ -96,7 +96,10 @@ class ComputerOpenedNotifier extends Notifier<bool> {
 /// No desktop discovery here: GET /desktop starts a VM on Open Terminal.
 /// The latest assistant turn or an explicit open establishes chat activity.
 final computerActiveProvider = Provider<bool>((ref) {
-  if (!ref.watch(computerEnabledProvider)) return false;
+  if (!ref.watch(computerEnabledProvider) ||
+      ref.watch(selectedTerminalIdProvider) == null) {
+    return false;
+  }
   if (ref.watch(computerOpenedProvider)) return true;
   final messages = ref.watch(chatMessagesProvider);
   for (final message in messages.reversed) {

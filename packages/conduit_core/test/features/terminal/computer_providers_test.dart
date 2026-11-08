@@ -24,6 +24,18 @@ class _Messages extends ChatMessagesNotifier {
 }
 
 void main() {
+  test('without a selected terminal activity leaves chat state alone', () {
+    final container = ProviderContainer.test(
+      overrides: [
+        computerEnabledProvider.overrideWithValue(true),
+        chatMessagesProvider.overrideWith(() {
+          fail('Idle Computer must not initialize chat state');
+        }),
+      ],
+    );
+    expect(container.read(computerActiveProvider), isFalse);
+  });
+
   test(
     'manual entry disappears while its connection scope refreshes',
     () async {
@@ -65,6 +77,7 @@ void main() {
         chatMessagesProvider.overrideWith(_Messages.new),
       ],
     );
+    container.read(selectedTerminalIdProvider.notifier).set('terminal');
     container.listen(computerActiveProvider, (_, _) {});
     final messages = container.read(chatMessagesProvider.notifier) as _Messages;
     final computerTurn = ChatMessage(
