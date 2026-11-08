@@ -59,6 +59,7 @@ class ConduitMarkdownWidget extends ConsumerStatefulWidget {
     this.enableStreamingTextFade = false,
     this.heavyBlockPolicy = MarkdownHeavyBlockPolicy.eager,
     this.trimLastBlockBottomPadding = true,
+    this.trimFirstBlockTopPadding = true,
     this.debugTreatAsWidgetTest,
     this.debugOnCompiledViewMounted,
     this.debugOnCompiledViewDisposed,
@@ -103,6 +104,11 @@ class ConduitMarkdownWidget extends ConsumerStatefulWidget {
   /// Whether the final rendered root block should drop trailing paragraph
   /// spacing. Multi-part streaming renders keep spacing on non-final parts.
   final bool trimLastBlockBottomPadding;
+
+  /// Whether a leading heading should drop its extra top space. Multi-part
+  /// renders keep it on every part but the first, so a heading that starts a
+  /// later part still gets room above it.
+  final bool trimFirstBlockTopPadding;
 
   @visibleForTesting
   final bool? debugTreatAsWidgetTest;
@@ -173,6 +179,7 @@ class _ConduitMarkdownWidgetState extends ConsumerState<ConduitMarkdownWidget> {
       enableStreamingTextFade: widget.enableStreamingTextFade,
       heavyBlockPolicy: widget.heavyBlockPolicy,
       trimLastBlockBottomPadding: widget.trimLastBlockBottomPadding,
+      trimFirstBlockTopPadding: widget.trimFirstBlockTopPadding,
       debugOnMounted: widget.debugOnCompiledViewMounted,
       debugOnDisposed: widget.debugOnCompiledViewDisposed,
       debugOnBaseRender: widget.debugOnBaseRender,
@@ -224,6 +231,7 @@ class _CompiledMarkdownView extends StatefulWidget {
     this.enableStreamingTextFade = false,
     this.heavyBlockPolicy = MarkdownHeavyBlockPolicy.eager,
     this.trimLastBlockBottomPadding = true,
+    this.trimFirstBlockTopPadding = true,
     this.debugOnMounted,
     this.debugOnDisposed,
     this.debugOnBaseRender,
@@ -238,6 +246,7 @@ class _CompiledMarkdownView extends StatefulWidget {
   final bool enableStreamingTextFade;
   final MarkdownHeavyBlockPolicy heavyBlockPolicy;
   final bool trimLastBlockBottomPadding;
+  final bool trimFirstBlockTopPadding;
   final VoidCallback? debugOnMounted;
   final VoidCallback? debugOnDisposed;
   final VoidCallback? debugOnBaseRender;
@@ -276,6 +285,7 @@ class _CompiledMarkdownViewState extends State<_CompiledMarkdownView>
   MarkdownHeavyBlockPolicy? _renderedHeavyBlockPolicy;
   bool? _renderedEnableStreamingTextFade;
   bool? _renderedTrimLastBlockBottomPadding;
+  bool? _renderedTrimFirstBlockTopPadding;
   LinkTapCallback? _renderedOnLinkTap;
   List<ChatSourceReference>? _renderedSources;
   void Function(int sourceIndex)? _renderedOnSourceTap;
@@ -418,6 +428,7 @@ class _CompiledMarkdownViewState extends State<_CompiledMarkdownView>
         _renderedEnableStreamingTextFade == widget.enableStreamingTextFade &&
         _renderedTrimLastBlockBottomPadding ==
             widget.trimLastBlockBottomPadding &&
+        _renderedTrimFirstBlockTopPadding == widget.trimFirstBlockTopPadding &&
         identical(_renderedOnLinkTap, widget.onLinkTap) &&
         identical(_renderedSources, widget.sources) &&
         identical(_renderedOnSourceTap, widget.onSourceTap) &&
@@ -467,6 +478,7 @@ class _CompiledMarkdownViewState extends State<_CompiledMarkdownView>
     _renderedHeavyBlockPolicy = widget.heavyBlockPolicy;
     _renderedEnableStreamingTextFade = widget.enableStreamingTextFade;
     _renderedTrimLastBlockBottomPadding = widget.trimLastBlockBottomPadding;
+    _renderedTrimFirstBlockTopPadding = widget.trimFirstBlockTopPadding;
     _renderedOnLinkTap = widget.onLinkTap;
     _renderedSources = widget.sources;
     _renderedOnSourceTap = widget.onSourceTap;
@@ -484,6 +496,7 @@ class _CompiledMarkdownViewState extends State<_CompiledMarkdownView>
     _renderedHeavyBlockPolicy = null;
     _renderedEnableStreamingTextFade = null;
     _renderedTrimLastBlockBottomPadding = null;
+    _renderedTrimFirstBlockTopPadding = null;
     _renderedOnLinkTap = null;
     _renderedSources = null;
     _renderedOnSourceTap = null;
@@ -695,6 +708,7 @@ class _CompiledMarkdownViewState extends State<_CompiledMarkdownView>
       return renderer.renderCompiledBlocks(
         blocks,
         trimLastBlockBottomPadding: widget.trimLastBlockBottomPadding,
+        trimFirstBlockTopPadding: widget.trimFirstBlockTopPadding,
       );
     }
     // Over-threshold documents keep the chunked column across BOTH policy
@@ -709,6 +723,7 @@ class _CompiledMarkdownViewState extends State<_CompiledMarkdownView>
       children: renderer.renderCompiledBlockWidgets(
         blocks,
         trimLastBlockBottomPadding: widget.trimLastBlockBottomPadding,
+        trimFirstBlockTopPadding: widget.trimFirstBlockTopPadding,
       ),
     );
   }

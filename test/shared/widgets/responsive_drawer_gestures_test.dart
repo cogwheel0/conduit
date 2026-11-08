@@ -471,7 +471,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    final table = find.byType(DataTable);
+    final table = find.byType(Table);
     expect(table, findsOneWidget);
     final horizontalScrollable = find.ancestor(
       of: table,
@@ -523,7 +523,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    final table = find.byType(DataTable);
+    final table = find.byType(Table);
     expect(table, findsOneWidget);
     final horizontalScrollable = find.ancestor(
       of: table,
@@ -533,9 +533,8 @@ void main() {
     final scrollableState = tester.state<ScrollableState>(horizontalScrollable);
     expect(scrollableState.position.maxScrollExtent, greaterThan(0));
 
-    // With one header and one body row, DataTable's vertical center is still
-    // in the header's opaque InkWell. Exercise the non-interactive padding at
-    // the bottom of a body cell instead, matching a fresh drag on table chrome.
+    // Exercise the non-interactive padding at the bottom of a body cell,
+    // matching a fresh drag on table chrome rather than on cell text.
     final tableRect = tester.getRect(table);
     final bodyCellPaddingPoint = Offset(190, tableRect.bottom - 8);
     expect(tableRect.contains(bodyCellPaddingPoint), isTrue);

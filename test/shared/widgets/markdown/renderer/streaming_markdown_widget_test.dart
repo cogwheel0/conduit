@@ -1084,20 +1084,22 @@ void main() {
     await tester.pumpWidget(buildHarness(content));
     await tester.pumpAndSettle();
 
-    DataTable table() => tester.widget<DataTable>(find.byType(DataTable));
-    check(table().rows).length.equals(20);
+    // Header row plus the visible body rows.
+    int bodyRows() =>
+        tester.widget<Table>(find.byType(Table)).children.length - 1;
+    check(bodyRows()).equals(20);
 
     final showMore = find.text('Show 15 more lines');
     await tester.ensureVisible(showMore);
     await tester.tap(showMore);
     await tester.pump();
-    check(table().rows).length.equals(35);
+    check(bodyRows()).equals(35);
 
     final showLess = find.text('Show less');
     await tester.ensureVisible(showLess);
     await tester.tap(showLess);
     await tester.pump();
-    check(table().rows).length.equals(20);
+    check(bodyRows()).equals(20);
   });
 
   testWidgets('renders correctly when a streaming display part is dropped', (

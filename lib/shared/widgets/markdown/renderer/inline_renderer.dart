@@ -446,9 +446,12 @@ class InlineRenderer {
   }
 
   WidgetSpan _buildInlineCode(String code) {
+    // Sit the code on the sentence's baseline, like a run of text, rather
+    // than centring the chip in the line box.
     return _buildFadableWidgetSpan(
       textLength: code.length,
-      alignment: PlaceholderAlignment.middle,
+      alignment: PlaceholderAlignment.baseline,
+      baseline: TextBaseline.alphabetic,
       child: _InlineCodeWidget(code: code, style: style),
     );
   }
@@ -600,8 +603,13 @@ class InlineRenderer {
     required Widget child,
     required int textLength,
     PlaceholderAlignment alignment = PlaceholderAlignment.middle,
+    TextBaseline? baseline,
   }) {
-    final span = WidgetSpan(alignment: alignment, child: child);
+    final span = WidgetSpan(
+      alignment: alignment,
+      baseline: baseline,
+      child: child,
+    );
     _recordFadableWidgetRange(span, textLength);
     return span;
   }
@@ -838,11 +846,19 @@ class FadableRichText extends StatelessWidget {
 
 /// Inline code chip with tap-to-copy behavior.
 ///
-/// Displays code in a monospace font with a colored
-/// background, styled to match common chat-UI conventions
-/// (e.g., OpenWebUI's red-on-gray inline code).
+/// Monospace text in the label colour on a quiet rounded chip. The chip's
+/// fill is painted a little past the text's layout box (see
+/// [_InlineCodeChipPainter]) so it eats into the neighbouring spaces instead
+/// of adding width: the gap between the code and the next word stays close
+/// to a single space.
 class _InlineCodeWidget extends StatelessWidget {
   const _InlineCodeWidget({required this.code, required this.style});
+
+  /// Horizontal space the chip adds inside the text flow on each side.
+  static const double _layoutInset = 2;
+
+  /// How far the fill reaches past the layout box on each side.
+  static const double _paintOutset = 2;
 
   final String code;
   final ConduitMarkdownStyle style;
@@ -851,15 +867,18 @@ class _InlineCodeWidget extends StatelessWidget {
   Widget build(BuildContext context) {
     return GestureDetector(
       onTap: () => _copyToClipboard(context),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
-        decoration: BoxDecoration(
+      child: CustomPaint(
+        painter: _InlineCodeChipPainter(
           color: style.codeSpanBackgroundColor,
-          borderRadius: BorderRadius.circular(style.codeSpanRadius),
+          radius: style.codeSpanRadius,
+          horizontalOutset: _paintOutset,
         ),
-        child: Text(
-          code,
-          style: style.codeSpan.copyWith(color: style.codeSpanTextColor),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: _layoutInset),
+          child: Text(
+            code,
+            style: style.codeSpan.copyWith(color: style.codeSpanTextColor),
+          ),
         ),
       ),
     );
@@ -875,4 +894,38 @@ class _InlineCodeWidget extends StatelessWidget {
       duration: const Duration(seconds: 2),
     );
   }
+}
+
+/// Paints the inline-code chip's rounded fill, reaching [horizontalOutset]
+/// past the layout box on each side and 1pt above and below the text.
+class _InlineCodeChipPainter extends CustomPainter {
+  const _InlineCodeChipPainter({
+    required this.color,
+    required this.radius,
+    required this.horizontalOutset,
+  });
+
+  final Color color;
+  final double radius;
+  final double horizontalOutset;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final rect = Rect.fromLTRB(
+      -horizontalOutset,
+      -1,
+      size.width + horizontalOutset,
+      size.height + 1,
+    );
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(rect, Radius.circular(radius)),
+      Paint()..color = color,
+    );
+  }
+
+  @override
+  bool shouldRepaint(_InlineCodeChipPainter oldDelegate) =>
+      oldDelegate.color != color ||
+      oldDelegate.radius != radius ||
+      oldDelegate.horizontalOutset != horizontalOutset;
 }
