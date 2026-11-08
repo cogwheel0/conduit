@@ -467,7 +467,17 @@
     }
   },
   "ttsVoice": "Stimme",
-  "ttsSpeechRate": "Sprechgeschwindigkeit",
+  "ttsPlaybackSpeed": "Wiedergabegeschwindigkeit",
+  "ttsSpeedValue": "{speed}×",
+  "@ttsSpeedValue": {
+    "placeholders": {
+      "speed": {
+        "type": "double",
+        "format": "decimalPattern",
+        "example": "1.25"
+      }
+    }
+  },
   "ttsPitch": "Tonhöhe",
   "ttsVolume": "Lautstärke",
   "ttsPreview": "Stimme vorschau",

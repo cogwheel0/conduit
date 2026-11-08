@@ -471,7 +471,17 @@
     }
   },
   "ttsVoice": "Голос",
-  "ttsSpeechRate": "Скорость речи",
+  "ttsPlaybackSpeed": "Скорость воспроизведения",
+  "ttsSpeedValue": "{speed}×",
+  "@ttsSpeedValue": {
+    "placeholders": {
+      "speed": {
+        "type": "double",
+        "format": "decimalPattern",
+        "example": "1.25"
+      }
+    }
+  },
   "ttsPitch": "Высота тона",
   "ttsVolume": "Громкость",
   "ttsPreview": "Предпросмотр голоса",

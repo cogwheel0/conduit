@@ -3,15 +3,21 @@ import 'package:conduit/features/chat/voice_mode/chat_voice_mode_controller.dart
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/l10n/conduit_localizations.dart';
 import 'package:conduit/shared/theme/app_theme.dart';
+import 'package:conduit/shared/theme/theme_extensions.dart';
 import 'package:conduit/shared/theme/tweakcn_themes.dart';
 import 'package:conduit/shared/widgets/legacy_design_compatibility.dart';
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:cupertino_native_better/cupertino_native_better.dart'
-    show CNIcon, CNSymbolEffectType, CNSymbolReplaceTransition;
+    show
+        CNFloatingIsland,
+        CNIcon,
+        CNSymbolEffectType,
+        CNSymbolReplaceTransition;
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import '../../../support/floating_island.dart';
 import '../../../support/native_platform_views.dart';
 
 void main() {
@@ -263,11 +269,167 @@ void main() {
     },
     variant: TargetPlatformVariant.only(TargetPlatform.iOS),
   );
+
+  group('iOS 26 island', () {
+    // A transcript, a reply and an error past the lines they may take.
+    const transcript =
+        'Please remind me to water the fern on the balcony tomorrow morning, '
+        'then check whether the tomato seedlings need a bigger pot, and add '
+        'potting soil, twine and a small watering can to the shopping list.';
+    const reply =
+        'The fern gets a reminder at eight tomorrow, and potting soil, twine '
+        'and a small watering can are on the shopping list for Saturday.';
+    const error =
+        'The garden planner could not save the reminder because the shared '
+        'list is read-only for this account; ask its owner for edit access.';
+    const quiet = ChatVoiceModeSnapshot(phase: ChatVoiceModePhase.listening);
+    const listening = ChatVoiceModeSnapshot(
+      phase: ChatVoiceModePhase.listening,
+      transcript: transcript,
+      errorMessage: error,
+      errorKind: ChatVoiceModeError.message,
+    );
+    const speaking = ChatVoiceModeSnapshot(
+      phase: ChatVoiceModePhase.speaking,
+      spokenResponse: reply,
+      spokenWordStart: 4,
+      spokenWordEnd: 8,
+      errorMessage: error,
+      errorKind: ChatVoiceModeError.message,
+    );
+
+    Finder action(String tooltip) => find.descendant(
+      of: find.byWidgetPredicate(
+        (widget) => widget is AdaptiveTooltip && widget.message == tooltip,
+      ),
+      matching: find.byType(AdaptiveButton),
+    );
+
+    /// Expects the panel to leave the transcript and the reply to the chat
+    /// and to fit the error on the glass between the header and the
+    /// controls.
+    void expectErrorFitsWithoutCallText(
+      WidgetTester tester,
+      AppLocalizations l10n,
+    ) {
+      expect(find.text(transcript), findsNothing);
+      expect(find.text(reply, findRichText: true), findsNothing);
+      final controlsTop = tester.getRect(action(l10n.voiceCallEnd)).top;
+      expectOnFloatingIslandGlass(tester, find.text(error));
+      expect(
+        tester.getRect(find.text(error)).bottom,
+        lessThanOrEqualTo(controlsTop),
+      );
+      expectOnFloatingIslandGlass(tester, action(l10n.voiceCallEnd));
+    }
+
+    testWidgets(
+      'morphs between the pill and a panel that keeps room for an error but '
+      'leaves the call text to the chat',
+      (tester) async {
+        useNativeIOS26();
+        final container = ProviderContainer(
+          overrides: [
+            chatVoiceModeControllerProvider.overrideWith(
+              () => _TestVoiceModeController(quiet),
+            ),
+          ],
+        );
+        addTearDown(container.dispose);
+        await tester.pumpWidget(_buildActiveHarness(container));
+        await tester.pumpAndSettle();
+        final l10n = AppLocalizations.of(
+          tester.element(find.byType(ChatVoiceModeOverlay)),
+        )!;
+        final controller = container.read(
+          chatVoiceModeControllerProvider.notifier,
+        ) as _TestVoiceModeController;
+
+        // The panel spans the composer's width with room to spare while the
+        // call is quiet.
+        final island = tester.state(find.byType(CNFloatingIsland));
+        final panel = floatingIslandGlass(tester);
+        expect(floatingIsland(tester).isExpanded, isTrue);
+        expect(panel.width, 402 - 2 * Spacing.inputPadding);
+
+        // Heard and spoken text never shows, and an error fits without
+        // resizing the island, whose native view keeps the size it was
+        // created with.
+        for (final snapshot in [listening, speaking]) {
+          controller.update(snapshot);
+          await tester.pumpAndSettle();
+          expect(tester.state(find.byType(CNFloatingIsland)), same(island));
+          expect(floatingIslandGlass(tester), panel);
+          expectErrorFitsWithoutCallText(tester, l10n);
+        }
+
+        tester
+            .widget<AdaptiveButton>(action(l10n.voiceCallMinimize))
+            .onPressed!();
+        await tester.pumpAndSettle();
+
+        // The pill: status, expand and end, on a narrower glass.
+        expect(floatingIsland(tester).isExpanded, isFalse);
+        expect(floatingIslandGlass(tester).width, lessThan(panel.width));
+        expectOnFloatingIslandGlass(tester, find.text(l10n.voiceCallSpeaking));
+        expectOnFloatingIslandGlass(tester, action(l10n.voiceCallExpand));
+        expectOnFloatingIslandGlass(tester, action(l10n.voiceCallEnd));
+        expect(tester.state(find.byType(CNFloatingIsland)), same(island));
+
+        tester
+            .widget<AdaptiveButton>(action(l10n.voiceCallExpand))
+            .onPressed!();
+        await tester.pumpAndSettle();
+
+        expect(floatingIsland(tester).isExpanded, isTrue);
+        expect(tester.takeException(), isNull);
+      },
+      variant: TargetPlatformVariant.only(TargetPlatform.iOS),
+    );
+
+    testWidgets(
+      'a text size change mid-call creates the island again with room for '
+      'the larger error',
+      (tester) async {
+        useNativeIOS26();
+        final container = ProviderContainer(
+          overrides: [
+            chatVoiceModeControllerProvider.overrideWith(
+              () => _TestVoiceModeController(listening),
+            ),
+          ],
+        );
+        addTearDown(container.dispose);
+        await tester.pumpWidget(_buildActiveHarness(container));
+        await tester.pumpAndSettle();
+        final l10n = AppLocalizations.of(
+          tester.element(find.byType(ChatVoiceModeOverlay)),
+        )!;
+        final island = tester.state(find.byType(CNFloatingIsland));
+        final height = floatingIsland(tester).expandedHeight!;
+
+        await tester.pumpWidget(
+          _buildActiveHarness(
+            container,
+            textScaler: const TextScaler.linear(1.6),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(tester.state(find.byType(CNFloatingIsland)), isNot(island));
+        expect(floatingIsland(tester).expandedHeight, greaterThan(height));
+        expectErrorFitsWithoutCallText(tester, l10n);
+        expect(tester.takeException(), isNull);
+      },
+      variant: TargetPlatformVariant.only(TargetPlatform.iOS),
+    );
+  });
 }
 
 Widget _buildActiveHarness(
   ProviderContainer container, {
   bool disableAnimations = false,
+  TextScaler textScaler = TextScaler.noScaling,
 }) {
   return UncontrolledProviderScope(
     container: container,
@@ -278,7 +440,10 @@ Widget _buildActiveHarness(
       builder: (context, child) => LegacyDesignCompatibility(child: child!),
       home: Scaffold(
         body: MediaQuery(
-          data: MediaQueryData(disableAnimations: disableAnimations),
+          data: MediaQueryData(
+            disableAnimations: disableAnimations,
+            textScaler: textScaler,
+          ),
           child: const SizedBox(
             width: 402,
             height: 874,
