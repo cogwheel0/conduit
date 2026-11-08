@@ -34,14 +34,18 @@ enum _NativeTabBarLayout {
 const _NativeTabBarMetrics _kStackedTabBar = (platter: 62, below: 21);
 
 /// A stacked tab bar given [_kCompactTabBarHeight], from iOS 27: its icons
-/// need no room for a label.
-const _NativeTabBarMetrics _kCompactTabBar = (platter: 54, below: 21);
+/// need no room for a label, and it is as tall as the window's other glass
+/// buttons.
+const _NativeTabBarMetrics _kCompactTabBar = (platter: 44, below: 21);
 
-/// An inline tab bar, which is already smaller than [_kCompactTabBar].
+/// An inline tab bar, which is already no taller than [_kCompactTabBar].
 const _NativeTabBarMetrics _kInlineTabBar = (platter: 44, below: 20);
 
 /// Point size of a tab's mark.
 const double _kTabIconSize = 22;
+
+/// Point size of a tab's mark on [_kCompactTabBar].
+const double _kCompactTabIconSize = 20;
 
 /// How UIKit lays the platter out across the tab bar, for tabs that show
 /// only their icons: the least room it leaves on each side of the platter,
@@ -116,8 +120,8 @@ class AdaptiveFloatingBarAction {
 ///
 /// On iOS 26 the tabs are the system tab bar, showing their icons only, and
 /// the action a Liquid Glass button as tall as the tab bar's platter, lined
-/// up with it. The platter is 54 points on a phone from iOS 27, the size
-/// UIKit gives it on iOS 26, and UIKit's smaller inline one on an iPad; it
+/// up with it. The platter is 44 points on a phone from iOS 27, the size
+/// UIKit gives it on iOS 26, and UIKit's inline one, as tall, on an iPad; it
 /// keeps that size at every text size. Screen readers find the tabs as one
 /// adjustable control, named [tabsSemanticLabel], whose value is the
 /// selected tab's label. The action is a button of its own, so it never
@@ -518,7 +522,9 @@ extension on _NativeFloatingTabBarState {
                       onTap: bar.onTap,
                       tint: bar.selectedItemColor,
                       shrinkCentered: false,
-                      iconSize: _kTabIconSize,
+                      iconSize: height == null
+                          ? _kTabIconSize
+                          : _kCompactTabIconSize,
                       height: height,
                     ),
                   ),

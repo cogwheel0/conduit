@@ -194,7 +194,7 @@ void main() {
     tearDown(PlatformUiCapabilities.resetDebugOverrides);
 
     testWidgets(
-      'the tabs are a 54 point tab bar of icons beside a glass New Chat',
+      'the tabs are a 44 point tab bar of icons beside a glass New Chat',
       (tester) async {
         _phoneWindow(tester);
         const tint = Color(0xFF3366FF);
@@ -217,20 +217,20 @@ void main() {
           [for (final item in tabBar.items) item.imageAsset?.assetPath],
           ['assets/icons/open_webui_tab.png', 'assets/icons/hermes_agent.png'],
         );
-        expect(tabBar.iconSize, 22);
+        expect(tabBar.iconSize, 20);
         expect(tabBar.currentIndex, 1);
         expect(tabBar.tint, tint);
         // One capsule of tabs: New Chat is not one of them.
         expect(tabBar.split, isFalse);
-        // 14 points for the selection pill, the 54 point platter, and the
+        // 14 points for the selection pill, the 44 point platter, and the
         // 21 points UIKit leaves below it.
-        expect(tabBar.height, 14 + 54 + 21);
+        expect(tabBar.height, 14 + 44 + 21);
 
         final action = _action(tester);
         expect(action.symbol.name, 'square.and.pencil');
         expect(action.symbol.color, glyph);
-        expect(action.dimension, 54);
-        expect(action.symbol.size, 18 * 54 / 44);
+        expect(action.dimension, 44);
+        expect(action.symbol.size, 18);
         await _unmount(tester);
       },
       variant: TargetPlatformVariant.only(TargetPlatform.iOS),
@@ -318,7 +318,7 @@ void main() {
       _phoneWindow(tester);
       await tester.pumpWidget(_bar(const [_openWebUi]));
       expect(find.byType(CNTabBar), findsNothing);
-      expect(_action(tester).dimension, 54);
+      expect(_action(tester).dimension, 44);
 
       // A second backend brings the tab bar in beside it.
       await tester.pumpWidget(_bar(const [_openWebUi, _hermes]));
@@ -326,7 +326,7 @@ void main() {
       await _unmount(tester);
     }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
 
-    testWidgets('on a phone New Chat sits on the 54 point platter', (
+    testWidgets('on a phone New Chat sits on the 44 point platter', (
       tester,
     ) async {
       _phoneWindow(tester);
@@ -339,14 +339,14 @@ void main() {
       // and in landscape.
       expect(tester.getBottomRight(action).dy, window.height - 21);
       expect(tester.getBottomRight(action).dx, window.width - 16);
-      expect(tester.getSize(action), const Size.square(54));
+      expect(tester.getSize(action), const Size.square(44));
       expect(
         AdaptiveFloatingTabBar.extentOf(
           tester.element(action),
           controlExtent: 66,
           minimumBottomInset: 8,
         ),
-        54 + 21,
+        44 + 21,
       );
       await _unmount(tester);
     }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
@@ -429,8 +429,8 @@ void main() {
       // Let the tab bar report the size it was given.
       await tester.pump();
       await tester.pump();
-      expect(_tabBar(tester).height, 14 + 54 + 21);
-      expect(_action(tester).dimension, 54);
+      expect(_tabBar(tester).height, 14 + 44 + 21);
+      expect(_action(tester).dimension, 44);
       final phoneTabBar = tester.state(find.byType(CNTabBar));
 
       // An iPad window, where UIKit lays the tab bar out inline. The size
@@ -456,8 +456,8 @@ void main() {
       _phoneWindow(tester);
       await tester.pump();
       await tester.pump();
-      expect(_tabBar(tester).height, 14 + 54 + 21);
-      expect(_action(tester).dimension, 54);
+      expect(_tabBar(tester).height, 14 + 44 + 21);
+      expect(_action(tester).dimension, 44);
       await _unmount(tester);
     }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
   });
