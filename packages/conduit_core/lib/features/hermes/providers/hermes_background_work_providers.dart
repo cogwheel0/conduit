@@ -23,8 +23,23 @@ const Duration kHermesSubagentTailPollInterval = Duration(seconds: 2);
 /// Events arriving together are listed once.
 const Duration _kHintDebounce = Duration(milliseconds: 300);
 
-/// Failed reads in a row after which polling waits for the next event.
+/// Failed reads in a row after which retries back off, each wait twice the
+/// last, up to [kHermesBackgroundWorkMaxRetryInterval].
 const int _kMaxFailures = 3;
+
+/// The longest wait between reads that keep failing: a service that
+/// recovers is read again within it, though no event says so.
+const Duration kHermesBackgroundWorkMaxRetryInterval = Duration(minutes: 1);
+
+/// The wait before the read after [failures] failed ones in a row: every
+/// [interval] at first, then doubling up to the cap.
+Duration _retryDelay(Duration interval, int failures) {
+  if (failures < _kMaxFailures) return interval;
+  final delay = interval * (1 << (failures - _kMaxFailures + 1).clamp(1, 8));
+  return delay < kHermesBackgroundWorkMaxRetryInterval
+      ? delay
+      : kHermesBackgroundWorkMaxRetryInterval;
+}
 
 /// Reads made while the chat is not attached yet, before giving up.
 const int _kMaxUnattachedReads = 5;
@@ -43,6 +58,8 @@ final _openHermesSessionProvider = Provider.autoDispose<String?>(
 /// Lists once when the chat opens and whenever a subagent or process event
 /// arrives, then again every [kHermesBackgroundWorkPollInterval] while
 /// anything runs (or shortly after such an event). Never in the background.
+/// Reads that fail are tried again while the chat is open, less often the
+/// longer they keep failing.
 final hermesBackgroundWorkProvider =
     NotifierProvider.autoDispose<
       HermesBackgroundWorkController,
@@ -107,9 +124,11 @@ class HermesBackgroundWorkController extends Notifier<HermesBackgroundWork?> {
     });
     // The chat attaching (a send or a resume reattaches it) or its turn
     // starting or ending: list again if polling had stopped, as it does
-    // after reads that found the chat not attached yet.
+    // after reads that found the chat not attached yet, or slowed down
+    // after reads that failed.
     final turns = service.turnStatesFor(storedId).listen((_) {
-      if (generation != _generation || _timer != null || _refreshing) return;
+      if (generation != _generation || _refreshing) return;
+      if (_timer != null && _failures < _kMaxFailures) return;
       _failures = 0;
       _unattachedReads = 0;
       _schedule(_kHintDebounce);
@@ -184,10 +203,9 @@ class HermesBackgroundWorkController extends Notifier<HermesBackgroundWork?> {
       }
     } catch (_) {
       if (stale()) return;
-      // Keeps the last list; a later event or reopening tries again.
-      if (++_failures < _kMaxFailures) {
-        _schedule(kHermesBackgroundWorkPollInterval);
-      }
+      // Keeps the last list and tries again while the chat is open, less
+      // often the longer reads keep failing; an event tries sooner.
+      _schedule(_retryDelay(kHermesBackgroundWorkPollInterval, ++_failures));
     } finally {
       if (!stale()) {
         _refreshing = false;
@@ -349,11 +367,18 @@ class HermesSubagentTailController extends Notifier<HermesSubagentTailView> {
         if (state.tail == null) {
           state = const HermesSubagentTailView(failed: true);
         }
-        return;
+        // A finished child's last read has had its tries.
+        if (_finished) return;
       }
-      // Tried again, a finished child's last read too: otherwise its
-      // output would wait for an answer no read is asking for.
-      _schedule(service, generation, kHermesSubagentTailPollInterval);
+      // Tried again, less often the longer reads keep failing: a running
+      // child's output would otherwise stay stale once the service
+      // recovers, and a finished child's would wait for an answer no read
+      // is asking for.
+      _schedule(
+        service,
+        generation,
+        _retryDelay(kHermesSubagentTailPollInterval, _failures),
+      );
       return;
     }
     if (!finished) {

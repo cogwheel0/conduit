@@ -883,6 +883,146 @@ void main() {
       });
     });
 
+    // Three failed reads on a live socket stopped polling: once Hermes
+    // recovered, with no event to say so, the list stayed stale.
+    test('keeps listing after failed reads, less often, until one answers',
+        () {
+      fakeAsync((async) {
+        start(async);
+        gateway.processes = [_process('proc_a')];
+        container.listen(hermesBackgroundWorkProvider, (_, _) {});
+        async.elapse(Duration.zero);
+        check(lists()).equals(1);
+
+        var failing = true;
+        gateway.handler = (method, params) =>
+            failing && method == 'process.list'
+            ? throw const _Refusal(5000, 'busy')
+            : null;
+        // Three tries at the usual interval, then 8, 16 and 32 seconds,
+        // then every minute.
+        async.elapse(kHermesBackgroundWorkPollInterval * 3);
+        check(lists()).equals(4);
+        for (final wait in const [8, 16, 32, 60, 60]) {
+          final before = lists();
+          async.elapse(Duration(seconds: wait - 1));
+          check(lists()).equals(before);
+          async.elapse(const Duration(seconds: 1));
+          check(lists()).equals(before + 1);
+        }
+        // The last list stays meanwhile.
+        check(
+          container.read(hermesBackgroundWorkProvider)!.runningProcesses,
+        ).equals(1);
+
+        failing = false;
+        gateway.processes = const [];
+        async.elapse(kHermesBackgroundWorkMaxRetryInterval);
+        check(container.read(hermesBackgroundWorkProvider)!.active).isFalse();
+        // Nothing runs any more: polling stops.
+        final settled = lists();
+        async.elapse(const Duration(minutes: 5));
+        check(lists()).equals(settled);
+        stop(async);
+      });
+    });
+
+    test('a turn lists a failing chat again without waiting out the retry',
+        () {
+      fakeAsync((async) {
+        start(async);
+        gateway
+          ..processes = [_process('proc_a')]
+          ..handler = (method, params) => method == 'process.list'
+              ? throw const _Refusal(5000, 'busy')
+              : null;
+        container.listen(hermesBackgroundWorkProvider, (_, _) {});
+        // Failed reads at 0, 4, 8 and 16 seconds; the next waits until 32.
+        async.elapse(const Duration(seconds: 30));
+        final before = lists();
+
+        // A turn starts.
+        gateway.event('session.info', {'running': true});
+        async.elapse(const Duration(seconds: 1));
+        check(lists()).equals(before + 1);
+        stop(async);
+      });
+    });
+
+    // Three failed reads stopped a running subagent's output for good:
+    // what it showed stayed stale, with no error, once Hermes recovered.
+    test('keeps reading a running subagent\'s output after failed reads', () {
+      fakeAsync((async) {
+        start(async);
+        var failing = false;
+        var reads = 0;
+        gateway
+          ..subagents = [_child('sa-1')]
+          ..handler = (method, params) {
+            if (method != 'subagent.tail') return null;
+            reads++;
+            if (failing) throw const _Refusal(5000, 'busy');
+            return {
+              'subagent_id': 'sa-1',
+              'available': true,
+              'text': 'step $reads',
+            };
+          };
+        container.listen(hermesBackgroundWorkProvider, (_, _) {});
+        final tail = hermesSubagentTailProvider((
+          storedId: 'local-1',
+          subagentId: 'sa-1',
+        ));
+        final sub = container.listen(tail, (_, _) {});
+        async.elapse(Duration.zero);
+        check(container.read(tail).tail!.text).equals('step 1');
+
+        // Failing reads at 2, 4 and 6 seconds, then after 4, 8, 16, 32
+        // and 60 more: by two minutes, seven of them.
+        failing = true;
+        async.elapse(const Duration(minutes: 2));
+        check(reads).equals(8);
+        check(container.read(tail).tail!.text).equals('step 1');
+        check(container.read(tail).failed).isFalse();
+
+        failing = false;
+        async.elapse(kHermesBackgroundWorkMaxRetryInterval);
+        check(reads).isGreaterThan(8);
+        check(container.read(tail).tail!.text).equals('step $reads');
+        sub.close();
+        stop(async);
+      });
+    });
+
+    test('a finished subagent\'s output is not read again after its tries',
+        () {
+      fakeAsync((async) {
+        start(async);
+        var reads = 0;
+        gateway
+          ..subagents = [_child('sa-1', status: 'completed')]
+          ..handler = (method, params) {
+            if (method != 'subagent.tail') return null;
+            reads++;
+            throw const _Refusal(5000, 'busy');
+          };
+        container.listen(hermesBackgroundWorkProvider, (_, _) {});
+        async.elapse(Duration.zero);
+
+        final tail = hermesSubagentTailProvider((
+          storedId: 'local-1',
+          subagentId: 'sa-1',
+        ));
+        final sub = container.listen(tail, (_, _) {});
+        async.elapse(const Duration(minutes: 5));
+
+        check(reads).equals(3);
+        check(container.read(tail).failed).isTrue();
+        sub.close();
+        stop(async);
+      });
+    });
+
     test('keeps the newest output when an older read answers last', () {
       fakeAsync((async) {
         start(async);
