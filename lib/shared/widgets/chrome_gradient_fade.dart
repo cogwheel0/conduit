@@ -130,6 +130,11 @@ const double kConduitScrollEdgeMaxSigma = 9.0;
 /// shaders/scroll_edge_blur.frag).
 const double _kScrollEdgeSigmaEase = 1.6;
 
+/// The share of the strip, next to the cover, where the content has already
+/// settled into the background (fully tinted and blurred), so text right
+/// beside the glass is gone rather than half-legible. The rest eases out.
+const double _kScrollEdgeSettledShare = 0.3;
+
 /// iOS 26's scroll edge for custom chrome that floats over scrolling text:
 /// the content reaches the page background before it reaches the glass.
 ///
@@ -139,8 +144,10 @@ const double _kScrollEdgeSigmaEase = 1.6;
 ///   bar and the chrome's full height (the header's buttons, the composer),
 ///   so Liquid Glass never sits over text, legible or blurred;
 /// * a strip of [softExtent] beyond it where the content blurs and fades
-///   into the background on an eased curve, so a line passing under the
-///   chrome dissolves rather than being cut by it.
+///   into the background, so a line passing under the chrome dissolves
+///   rather than being cut by it: settled into the background across the
+///   strip's first 30%, then easing out (smoothstep, flat at both ends) to
+///   clear and sharp.
 ///
 /// [engagement] says how much content lies under the edge, from 0 (none: the
 /// list rests at that end) to 1. The strip grows with it, so content resting
@@ -207,29 +214,39 @@ class ConduitScrollEdgeEffect extends StatefulWidget {
   /// Total depth of the effect from the screen edge.
   double get extent => _cover + stripExtent;
 
+  /// Distance from the screen edge out to which the content has settled
+  /// into the background: fully tinted, fully blurred.
+  double get settledExtent => _cover + stripExtent * _kScrollEdgeSettledShare;
+
+  /// How far [distance] is into the easing part of the strip, from 0 at its
+  /// clear end to 1 where the content has settled; null past the strip.
+  double? _easeAt(double distance) {
+    if (distance <= settledExtent) return 1;
+    final span = extent - settledExtent;
+    if (span <= 0 || distance >= extent) return null;
+    return (extent - distance) / span;
+  }
+
   /// The tint's opacity at [distance] from the screen edge: 1 across the
-  /// cover, then easing (smoothstep, flat at both ends) to 0 at [extent].
+  /// cover and the settled part of the strip, then easing (smoothstep, flat
+  /// at both ends) to 0 at [extent].
   @visibleForTesting
   double tintOpacityAt(double distance) {
-    if (distance <= _cover) return 1;
-    final strip = stripExtent;
-    if (strip <= 0 || distance >= extent) return 0;
-    final u = (extent - distance) / strip;
+    final u = _easeAt(distance);
+    if (u == null) return 0;
     return u * u * (3 - 2 * u);
   }
 
-  /// The blur at [distance] from the screen edge: [maxSigma] up to the
-  /// cover's edge, easing to none at [extent]. Mirrors the shader.
+  /// The blur at [distance] from the screen edge: [maxSigma] out to
+  /// [settledExtent], easing to none at [extent]. Mirrors the shader.
   ///
   /// It eases in from the clear end: text just inside the strip mostly
   /// fades, and only blurs hard where the tint already hides most of it, so
   /// it dissolves instead of smearing into a grey smudge.
   @visibleForTesting
   double sigmaAt(double distance) {
-    if (distance <= _cover) return maxSigma;
-    final strip = stripExtent;
-    if (strip <= 0 || distance >= extent) return 0;
-    final u = (extent - distance) / strip;
+    final u = _easeAt(distance);
+    if (u == null) return 0;
     return maxSigma * math.pow(u, _kScrollEdgeSigmaEase).toDouble();
   }
 
@@ -298,7 +315,7 @@ class _ConduitScrollEdgeEffectState extends State<ConduitScrollEdgeEffect> {
         ..setFloat(2, vertical ? 1 : 0)
         ..setFloat(3, topDown ? 1 : 0)
         ..setFloat(4, widget.extent * ratio)
-        ..setFloat(5, widget._cover * ratio)
+        ..setFloat(5, widget.settledExtent * ratio)
         ..setFloat(6, widget.maxSigma * ratio)
         ..setFloat(7, screenHeight);
     }
@@ -318,14 +335,16 @@ class _ConduitScrollEdgeEffectState extends State<ConduitScrollEdgeEffect> {
     final baseColor =
         widget.backgroundColor ?? context.conduitTheme.surfaceBackground;
     final topDown = widget.edge == ConduitChromeFadeEdge.top;
-    final cover = widget._cover;
-    final strip = widget.stripExtent;
+    // Opaque across the cover and the strip's settled part; only the rest
+    // eases out, and only it needs the blur.
+    final settled = math.min(widget.settledExtent, height);
+    final easing = height - settled;
 
     final colors = <Color>[baseColor, baseColor];
-    final stops = <double>[0, cover / height];
-    if (strip > 0) {
+    final stops = <double>[0, settled / height];
+    if (easing > 0) {
       for (var i = 1; i <= _stripStops; i++) {
-        final distance = cover + strip * i / _stripStops;
+        final distance = settled + easing * i / _stripStops;
         colors.add(
           baseColor.withValues(
             alpha: baseColor.a * widget.tintOpacityAt(distance),
@@ -345,7 +364,6 @@ class _ConduitScrollEdgeEffectState extends State<ConduitScrollEdgeEffect> {
       ),
     );
 
-    // The cover hides everything under it; only the strip needs the blur.
     final blur = _blurFilter(context);
     return IgnorePointer(
       child: SizedBox(
@@ -358,8 +376,8 @@ class _ConduitScrollEdgeEffectState extends State<ConduitScrollEdgeEffect> {
               Positioned(
                 left: 0,
                 right: 0,
-                top: topDown ? cover : 0,
-                bottom: topDown ? 0 : cover,
+                top: topDown ? settled : 0,
+                bottom: topDown ? 0 : settled,
                 child: ClipRect(
                   child: BackdropFilter(
                     filter: blur,

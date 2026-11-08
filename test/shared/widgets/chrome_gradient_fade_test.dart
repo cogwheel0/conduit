@@ -99,9 +99,19 @@ void main() {
       for (final d in [0.0, 30.0, 62.0, 86.0, 108.0]) {
         expect(top.tintOpacityAt(d), 1);
       }
-      // Clear at the end, with no step anywhere on the way.
+      // Text right beside the glass has already settled into the
+      // background, blurred out, rather than half-legible.
+      expect(top.settledExtent, greaterThan(108 + 6));
+      for (final d in [110.0, 114.0]) {
+        expect(top.tintOpacityAt(d), 1);
+        expect(top.sigmaAt(d), kConduitScrollEdgeMaxSigma);
+      }
+      // Then it eases out: clear at the end, with no step on the way.
       expect(top.tintOpacityAt(top.extent), 0);
-      expect(top.tintOpacityAt(108 + kConduitScrollEdgeSoftExtent / 2), 0.5);
+      expect(
+        top.tintOpacityAt((top.settledExtent + top.extent) / 2),
+        closeTo(0.5, 1e-9),
+      );
       var previous = 1.0;
       for (var d = 0.0; d <= top.extent; d += 0.5) {
         final alpha = top.tintOpacityAt(d);
@@ -119,7 +129,7 @@ void main() {
       expect(top.sigmaAt(108), kConduitScrollEdgeMaxSigma);
       expect(top.sigmaAt(top.extent), 0);
       // Text just inside the strip is soft but not smeared.
-      expect(top.sigmaAt(top.extent - 6), lessThan(1.5));
+      expect(top.sigmaAt(top.extent - 4), lessThan(1.5));
       var previous = top.sigmaAt(108);
       for (var d = 108.0; d <= top.extent; d += 0.5) {
         final sigma = top.sigmaAt(d);
@@ -138,8 +148,9 @@ void main() {
       // A first message resting 22 pt under the buttons is untouched.
       expect(resting.tintOpacityAt(130), 0);
       expect(resting.sigmaAt(130), 0);
-      // Fully engaged, it would be all but untouched too.
-      expect(top.tintOpacityAt(130), lessThan(0.03));
+      // Fully engaged (a message pinned there after a send), it is all but
+      // untouched too.
+      expect(top.tintOpacityAt(130), lessThan(0.05));
       // The cover itself never moves.
       expect(resting.tintOpacityAt(108), 1);
     });
@@ -153,7 +164,10 @@ void main() {
       );
       expect(engaged.stripExtent, closeTo(10, 1e-9));
       expect(engaged.tintOpacityAt(120), 0);
-      expect(engaged.tintOpacityAt(113), closeTo(0.5, 1e-9));
+      expect(
+        engaged.tintOpacityAt((engaged.settledExtent + engaged.extent) / 2),
+        closeTo(0.5, 1e-9),
+      );
     });
 
     testWidgets('lays its tint from the screen edge, ignoring touches', (
@@ -189,11 +203,11 @@ void main() {
       final gradient =
           (box.decoration as BoxDecoration).gradient! as LinearGradient;
       expect(gradient.begin, Alignment.bottomCenter);
-      // Opaque from the screen's bottom to the composer's top.
+      // Opaque from the screen's bottom past the composer's top.
       expect(gradient.colors[1].a, 1);
       expect(
         gradient.stops![1],
-        closeTo(90 / (90 + kConduitScrollEdgeSoftExtent), 1e-9),
+        greaterThan(90 / (90 + kConduitScrollEdgeSoftExtent)),
       );
       expect(gradient.colors.last.a, 0);
     });
