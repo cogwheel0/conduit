@@ -4000,7 +4000,7 @@
   "settingsCategorySupport": "Podpora",
   "settingsDataAndConnection": "Data a připojení",
   "slidingSidebar": "Vysouvací postranní panel",
-  "slidingSidebarDescription": "Když je zapnuto, Poznámky, Terminál a Kanály se otevírají vedle postranního panelu, který dál zobrazuje vaše chaty. Když je vypnuto, otevírají se v něm.",
+  "slidingSidebarDescription": "Poznámky, Terminál a Kanály se otevírají vedle vašich chatů.",
   "settingsAppearance": "Vzhled",
   "settingsAppearanceSubtitle": "Motiv, paleta barev a jazyk",
   "settingsChatSubtitle": "Chování chatu, rychlé akce a pokročilé prompty",

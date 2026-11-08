@@ -2077,7 +2077,7 @@
   "settingsCategorySupport": "Soporte",
   "settingsDataAndConnection": "Datos y conexión",
   "slidingSidebar": "Barra lateral deslizante",
-  "slidingSidebarDescription": "Si está activado, Notas, Terminal y Canales se abren junto a la barra lateral, que sigue mostrando tus chats. Si está desactivado, se abren dentro de ella.",
+  "slidingSidebarDescription": "Notas, Terminal y Canales se abren junto a tus chats.",
   "settingsAppearance": "Apariencia",
   "settingsAppearanceSubtitle": "Tema, paleta de colores e idioma",
   "settingsChatSubtitle": "Comportamiento del chat, acciones rápidas y prompts avanzados",

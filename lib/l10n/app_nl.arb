@@ -2077,7 +2077,7 @@
   "settingsCategorySupport": "Ondersteuning",
   "settingsDataAndConnection": "Gegevens en verbinding",
   "slidingSidebar": "Uitschuifbare zijbalk",
-  "slidingSidebarDescription": "Als dit aan staat, openen Notities, Terminal en Kanalen naast de zijbalk, die je chats blijft tonen. Als het uit staat, openen ze in de zijbalk.",
+  "slidingSidebarDescription": "Notities, Terminal en Kanalen openen naast je chats.",
   "settingsAppearance": "Weergave",
   "settingsAppearanceSubtitle": "Thema, kleurenpalet en taal",
   "settingsChatSubtitle": "Chatgedrag, snelle acties en geavanceerde prompts",

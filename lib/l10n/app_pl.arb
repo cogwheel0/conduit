@@ -111,7 +111,7 @@
     "description": "Settings destination for transport, connectivity, and related server data options."
   },
   "slidingSidebar": "Wysuwany panel boczny",
-  "slidingSidebarDescription": "Gdy włączone, Notatki, Terminal i Kanały otwierają się obok paska bocznego, który nadal pokazuje czaty. Gdy wyłączone, otwierają się w pasku bocznym.",
+  "slidingSidebarDescription": "Notatki, Terminal i Kanały otwierają się obok czatów.",
   "settingsAppearance": "Wygląd",
   "@settingsAppearance": {
     "description": "Settings destination for app appearance options."

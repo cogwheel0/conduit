@@ -2077,7 +2077,7 @@
   "settingsCategorySupport": "Supporto",
   "settingsDataAndConnection": "Dati e connessione",
   "slidingSidebar": "Barra laterale scorrevole",
-  "slidingSidebarDescription": "Se attivo, Note, Terminale e Canali si aprono accanto alla barra laterale, che continua a mostrare le tue chat. Se disattivo, si aprono al suo interno.",
+  "slidingSidebarDescription": "Note, Terminale e Canali si aprono accanto alle tue chat.",
   "settingsAppearance": "Aspetto",
   "settingsAppearanceSubtitle": "Tema, tavolozza colori e lingua",
   "settingsChatSubtitle": "Comportamento chat, azioni rapide e prompt avanzati",

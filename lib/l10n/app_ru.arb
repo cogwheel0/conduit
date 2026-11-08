@@ -2091,7 +2091,7 @@
   "settingsCategorySupport": "Поддержка",
   "settingsDataAndConnection": "Данные и подключение",
   "slidingSidebar": "Выдвижная боковая панель",
-  "slidingSidebarDescription": "Если включено, заметки, терминал и каналы открываются рядом с боковой панелью, где по-прежнему видны ваши чаты. Если выключено — внутри боковой панели.",
+  "slidingSidebarDescription": "Заметки, терминал и каналы открываются рядом с вашими чатами.",
   "settingsAppearance": "Оформление",
   "settingsAppearanceSubtitle": "Тема, цветовая палитра и язык",
   "settingsChatSubtitle": "Поведение чата, быстрые действия и расширенные промпты",
