@@ -499,5 +499,33 @@ void main() {
       expect(AdaptiveFloatingTabBar.extentOf(tester.element(action)), 34 + 62);
       await _unmount(tester);
     }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
+
+    testWidgets('resizing the window creates the tab bar again to measure', (
+      tester,
+    ) async {
+      // An iOS 26 tab bar is never given a height, so only a new one
+      // measures itself for a window that lays it out another way.
+      _phoneWindow(tester);
+      await tester.pumpWidget(_bar(const [_openWebUi, _hermes]));
+      await tester.pump();
+      final action = find.byType(NativeGlassIconButton);
+      expect(tester.getSize(action), const Size.square(62));
+      final phoneTabBar = tester.state(find.byType(CNTabBar));
+
+      _tabletWindow(tester);
+      await tester.pump();
+      await tester.pump();
+      expect(_tabBar(tester).height, isNull);
+      expect(tester.getSize(action), const Size.square(44));
+      expect(tester.state(find.byType(CNTabBar)), isNot(same(phoneTabBar)));
+      final tabletTabBar = tester.state(find.byType(CNTabBar));
+
+      _phoneWindow(tester);
+      await tester.pump();
+      await tester.pump();
+      expect(tester.getSize(action), const Size.square(62));
+      expect(tester.state(find.byType(CNTabBar)), isNot(same(tabletTabBar)));
+      await _unmount(tester);
+    }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
   });
 }

@@ -519,9 +519,14 @@ extension on _NativeFloatingTabBarState {
                     // A tab bar given its height reports only that height.
                     onSize: height == null ? _onTabBarSize : null,
                     // A tab bar measures itself only when it is created: one
-                    // that stops being given a height is created again.
+                    // that stops being given a height, or whose window lays
+                    // it out anew (an iOS 26 tab bar is never given one), is
+                    // created again.
                     child: KeyedSubtree(
-                      key: ValueKey<double?>(height),
+                      key: ValueKey<(double?, _NativeTabBarLayout)>((
+                        height,
+                        layout,
+                      )),
                       child: CNTabBar(
                         key: bar.tabsKey,
                         items: [
