@@ -10,12 +10,12 @@ import 'chat_send_motion.dart';
 /// Suggested next prompts under a finished reply.
 ///
 /// A small "Suggestions" heading leads a short stack of full-width rounded
-/// rows on a quiet fill, 8 pt apart, each led by a follow-up arrow. Their
-/// 15 pt secondary text, the fill and the glyph keep them clearly below the
-/// 17 pt answer, so they read as choices rather than more of the reply, and
-/// one shared width keeps their edges even. A long suggestion shows its
-/// first two lines, ending on a whole word and an ellipsis; VoiceOver reads,
-/// and a tap sends, all of it.
+/// rows on a quiet fill, 8 pt apart, each led by a secondary follow-up
+/// arrow. Their text is in the label colour, like a system gray button's, so
+/// they read as live choices; the 15 pt size, the fill and the arrow keep
+/// them apart from the 17 pt answer, and one shared width keeps their edges
+/// even. A long suggestion shows its first two lines, ending on a whole word
+/// and an ellipsis; VoiceOver reads, and a tap sends, all of it.
 class FollowUpSuggestionBar extends StatelessWidget {
   const FollowUpSuggestionBar({
     super.key,
@@ -173,11 +173,15 @@ class _FollowUpSuggestionRowState extends State<FollowUpSuggestionRow> {
     final pressedFill = theme.textPrimary.withValues(
       alpha: isDark ? 0.22 : 0.12,
     );
-    // Secondary text: a step below the answer, still clearly legible.
+    // Label-colour text on the quiet fill, so the row reads as a button
+    // rather than as disabled; the arrow stays secondary. Busy (a reply is
+    // running), both dim together.
     final foreground = _enabled
+        ? theme.textPrimary
+        : theme.textPrimary.withValues(alpha: 0.3);
+    final glyphColor = _enabled
         ? theme.textSecondary
         : theme.textSecondary.withValues(alpha: 0.38);
-    final glyphColor = foreground;
     final textStyle = AppTypography.titleMediumStyle.copyWith(
       color: foreground,
     );
