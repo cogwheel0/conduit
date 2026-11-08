@@ -1883,7 +1883,8 @@ final class NativeSheetBridge: ConduitBridge, NativeSheetHostApi {
     private func present(
         _ controller: UIViewController,
         initialDetent: UISheetPresentationController.Detent.Identifier? = nil,
-        maxHeightFraction: CGFloat? = nil
+        maxHeightFraction: CGFloat? = nil,
+        configureSheet: ((UISheetPresentationController) -> Void)? = nil
     ) -> Bool {
         guard let presenter = topViewController() else { return false }
         activeController = controller
@@ -1936,6 +1937,9 @@ final class NativeSheetBridge: ConduitBridge, NativeSheetHostApi {
             initialDetent: initialDetent,
             maxHeightFraction: maxHeightFraction
         )
+        if let configureSheet, let sheet = controller.sheetPresentationController {
+            configureSheet(sheet)
+        }
         presenter.present(controller, animated: true)
         return true
     }
@@ -1980,8 +1984,31 @@ final class NativeSheetBridge: ConduitBridge, NativeSheetHostApi {
         activeModelSelectorController = controller
         activeModelSelectorPresentationId = configuration.presentationId
         let navigation = NativeSheetNavigationController(rootViewController: controller)
+        // A short list opens in a sheet sized to it, still expandable; a
+        // long one opens tall, with search.
+        let fittedDetent = UISheetPresentationController.Detent.Identifier(
+            "conduit.modelSelectorFitted"
+        )
+        let configureSheet: ((UISheetPresentationController) -> Void)? =
+            controller.listsAllModelsInline
+            ? { [weak controller] sheet in
+                sheet.detents = [
+                    .custom(identifier: fittedDetent) { context in
+                        let fitted = controller?.fittedSheetHeight
+                            ?? context.maximumDetentValue * 0.5
+                        return min(fitted, context.maximumDetentValue)
+                    },
+                    .large(),
+                ]
+                sheet.selectedDetentIdentifier = fittedDetent
+            }
+            : nil
 
-        if !present(navigation, initialDetent: .large) {
+        if !present(
+            navigation,
+            initialDetent: .large,
+            configureSheet: configureSheet
+        ) {
             pendingModelSelectorResult = nil
             activeModelSelectorController = nil
             activeModelSelectorPresentationId = nil
@@ -4961,7 +4988,17 @@ private final class NativeDetailTableViewController: UITableViewController {
     }
 }
 
-private final class NativeModelSelectorTableViewController: UITableViewController {
+private final class NativeModelSelectorTableViewController: UITableViewController, UISearchResultsUpdating {
+    /// Lists this short show every model inline, in a sheet sized to fit,
+    /// rather than behind a "More models" page.
+    static let inlineModelLimit = 8
+
+    private enum Section {
+        case models
+        case effort
+        case more
+    }
+
     private let configuration: NativeModelSelectorConfiguration
     private let onSelect: (String) -> Void
     private let onTogglePin: (String) -> Void
@@ -4976,6 +5013,35 @@ private final class NativeModelSelectorTableViewController: UITableViewControlle
     private var reasoningEffortOptions: [String]
     private var allowsCustomReasoningEffort: Bool
     private weak var moreModelsController: NativeMoreModelsTableViewController?
+    /// Only the sections that have rows, so an empty one (no effort to
+    /// pick) leaves no gap between the models and "More models".
+    private var sections: [Section] = []
+    private var searchQuery = ""
+    private var searchResults: [NativeModelSelectorOption] = []
+    private var lastFittedHeight: CGFloat = 0
+
+    /// Whether every model shows inline.
+    var listsAllModelsInline: Bool { models.count <= Self.inlineModelLimit }
+
+    private var isSearching: Bool { !searchQuery.isEmpty }
+
+    /// The models the first section shows: search matches while searching.
+    private var visibleModels: [NativeModelSelectorOption] {
+        isSearching ? searchResults : featuredModels
+    }
+
+    /// Height that shows the whole short list: the navigation bar plus the
+    /// table's content. Before the first layout, an estimate from the rows.
+    var fittedSheetHeight: CGFloat {
+        let barHeight = navigationController?.navigationBar.frame.height ?? 0
+        let chrome = max(barHeight, 56)
+        guard isViewLoaded, tableView.contentSize.height > 0 else {
+            let rows = CGFloat(featuredModels.count + (effortSelectionEnabled ? 1 : 0))
+            let groups = CGFloat(sections.count)
+            return chrome + rows * 64 + groups * 36
+        }
+        return chrome + tableView.contentSize.height
+    }
 
     init(
         configuration: NativeModelSelectorConfiguration,
@@ -5012,19 +5078,38 @@ private final class NativeModelSelectorTableViewController: UITableViewControlle
             forCellReuseIdentifier: "modelCell"
         )
         NativeSheetSettingsStyle.apply(to: tableView)
+        if !listsAllModelsInline {
+            // A long list is searched from the top, across every model.
+            let search = UISearchController(searchResultsController: nil)
+            search.searchResultsUpdater = self
+            search.searchBar.placeholder = configuration.searchModelsTitle
+            search.obscuresBackgroundDuringPresentation = false
+            navigationItem.searchController = search
+            navigationItem.hidesSearchBarWhenScrolling = false
+            definesPresentationContext = true
+        }
     }
 
-    override func numberOfSections(in tableView: UITableView) -> Int { 3 }
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        // The fitted detent was estimated before the rows were measured.
+        guard listsAllModelsInline,
+              let sheet = navigationController?.sheetPresentationController
+        else { return }
+        let height = fittedSheetHeight
+        guard abs(height - lastFittedHeight) > 1 else { return }
+        lastFittedHeight = height
+        if #available(iOS 16.0, *) {
+            sheet.animateChanges { sheet.invalidateDetents() }
+        }
+    }
+
+    override func numberOfSections(in tableView: UITableView) -> Int { sections.count }
 
     override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-        switch section {
-        case 0: featuredModels.count
-        // Like the Flutter sheet, offer the row only when the selected model
-        // has an effort to choose; a disabled row looks tappable but does
-        // nothing. A late hydration update reloads this section.
-        case 1: effortSelectionEnabled ? 1 : 0
-        case 2: moreModels.isEmpty ? 0 : 1
-        default: 0
+        switch sections[section] {
+        case .models: visibleModels.count
+        case .effort, .more: 1
         }
     }
 
@@ -5032,8 +5117,9 @@ private final class NativeModelSelectorTableViewController: UITableViewControlle
         _ tableView: UITableView,
         cellForRowAt indexPath: IndexPath
     ) -> UITableViewCell {
-        if indexPath.section == 0 {
-            let model = featuredModels[indexPath.row]
+        let section = sections[indexPath.section]
+        if section == .models {
+            let model = visibleModels[indexPath.row]
             let cell = tableView.dequeueReusableCell(
                 withIdentifier: "modelCell",
                 for: indexPath
@@ -5049,7 +5135,7 @@ private final class NativeModelSelectorTableViewController: UITableViewControlle
 
         let cell = UITableViewCell(style: .subtitle, reuseIdentifier: nil)
         var content = cell.defaultContentConfiguration()
-        if indexPath.section == 1 {
+        if section == .effort {
             content.image = UIImage(systemName: "clock")
             content.text = configuration.reasoningEffortTitle
             content.secondaryText = effortLabel(reasoningEffortValue)
@@ -5067,14 +5153,14 @@ private final class NativeModelSelectorTableViewController: UITableViewControlle
 
     override func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: true)
-        switch indexPath.section {
-        case 0:
+        switch sections[indexPath.section] {
+        case .models:
             NativeSheetHaptics.selection()
-            onSelect(featuredModels[indexPath.row].id)
-        case 1:
+            onSelect(visibleModels[indexPath.row].id)
+        case .effort:
             guard effortSelectionEnabled else { return }
             presentEffortSelector(sourceView: tableView.cellForRow(at: indexPath))
-        case 2:
+        case .more:
             let controller = NativeMoreModelsTableViewController(
                 title: configuration.moreModelsTitle,
                 searchPlaceholder: configuration.searchModelsTitle,
@@ -5093,8 +5179,6 @@ private final class NativeModelSelectorTableViewController: UITableViewControlle
             )
             moreModelsController = controller
             navigationController?.pushViewController(controller, animated: true)
-        default:
-            break
         }
     }
 
@@ -5104,8 +5188,8 @@ private final class NativeModelSelectorTableViewController: UITableViewControlle
         point: CGPoint
     ) -> UIContextMenuConfiguration? {
         guard configuration.allowsPinning else { return nil }
-        guard indexPath.section == 0 else { return nil }
-        let model = featuredModels[indexPath.row]
+        guard sections[indexPath.section] == .models else { return nil }
+        let model = visibleModels[indexPath.row]
         let isPinned = pinnedModelIdSet.contains(model.id)
         let title = isPinned ? configuration.unpinTitle : configuration.pinTitle
         let image = UIImage(systemName: isPinned ? "pin.slash" : "pin")
@@ -5161,9 +5245,49 @@ private final class NativeModelSelectorTableViewController: UITableViewControlle
         reasoningEffortValue = normalized
         reasoningEffortOptions = options
         allowsCustomReasoningEffort = allowsCustom
-        if isViewLoaded {
-            tableView.reloadSections(IndexSet(integer: 1), with: .none)
+        // The effort row may have just become available.
+        rebuildSections()
+        if isViewLoaded { tableView.reloadData() }
+    }
+
+    func updateSearchResults(for searchController: UISearchController) {
+        searchQuery = searchController.searchBar.text?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        applySearch()
+        rebuildSections()
+        if isViewLoaded { tableView.reloadData() }
+    }
+
+    private func applySearch() {
+        guard isSearching else {
+            searchResults = []
+            return
         }
+        func matches(_ text: String?) -> Bool {
+            guard let text else { return false }
+            return text.range(
+                of: searchQuery,
+                options: [.caseInsensitive, .diacriticInsensitive]
+            ) != nil
+        }
+        searchResults = models.filter { model in
+            matches(model.name) || matches(model.id) || matches(model.subtitle)
+                || model.tags.contains(where: matches)
+        }
+    }
+
+    private func rebuildSections() {
+        if isSearching {
+            sections = [.models]
+            return
+        }
+        var next: [Section] = [.models]
+        // Like the Flutter sheet, offer the row only when the selected model
+        // has an effort to choose; a disabled row looks tappable but does
+        // nothing.
+        if effortSelectionEnabled { next.append(.effort) }
+        if !moreModels.isEmpty { next.append(.more) }
+        sections = next
     }
 
     private func refreshModelPartitions() {
@@ -5178,7 +5302,16 @@ private final class NativeModelSelectorTableViewController: UITableViewControlle
         )
         featuredModels = ids.compactMap { byId[$0] }
         let featuredIds = Set(featuredModels.map(\.id))
-        moreModels = models.filter { !featuredIds.contains($0.id) }
+        let others = models.filter { !featuredIds.contains($0.id) }
+        if listsAllModelsInline {
+            // Pinned and featured first, then the rest, in one group.
+            featuredModels += others
+            moreModels = []
+        } else {
+            moreModels = others
+        }
+        applySearch()
+        rebuildSections()
     }
 
     private func effortLabel(_ value: String) -> String {
@@ -5255,7 +5388,9 @@ private final class NativeModelSelectorTableViewController: UITableViewControlle
         guard let normalized = normalizedEffort(value) else { return }
         NativeSheetHaptics.selection()
         reasoningEffortValue = normalized
-        tableView.reloadSections(IndexSet(integer: 1), with: .none)
+        if let effortSection = sections.firstIndex(of: .effort) {
+            tableView.reloadSections(IndexSet(integer: effortSection), with: .none)
+        }
         onEffortChanged(normalized)
     }
 
@@ -6839,13 +6974,18 @@ private final class NativeModelAvatarView: UIView {
         imageView.contentMode = .scaleAspectFill
         imageView.isHidden = true
 
-        let accentColor = nativeAvatarAccentColor(seed: name)
-        backgroundColor = accentColor.withAlphaComponent(0.12)
-        layer.borderColor = accentColor.withAlphaComponent(0.24).cgColor
+        // One neutral plate for every model, like Settings' icon tiles: the
+        // logo tells models apart, not an arbitrary colour per name.
+        let ink = NativeSheetTheme.shared.secondaryForeground
+        backgroundColor = NativeSheetTheme.shared.input
+        layer.borderColor = NativeSheetTheme.shared.border
+            .resolvedColor(with: traitCollection)
+            .withAlphaComponent(0.35)
+            .cgColor
 
         if let sfSymbol, !sfSymbol.isEmpty {
             symbolView.image = UIImage(systemName: sfSymbol)
-            symbolView.tintColor = accentColor
+            symbolView.tintColor = ink
             symbolView.isHidden = false
             initialsLabel.isHidden = true
         } else {
@@ -6854,7 +6994,7 @@ private final class NativeModelAvatarView: UIView {
                 .trimmingCharacters(in: .whitespacesAndNewlines)
                 .prefix(1)
                 .uppercased()
-            initialsLabel.textColor = accentColor
+            initialsLabel.textColor = ink
             initialsLabel.isHidden = false
         }
 

@@ -15,6 +15,9 @@ import '../../../shared/widgets/markdown/renderer/markdown_style.dart';
 import 'package:conduit_core/services/structured_output.dart'
     show displayedChatFiles;
 import 'package:conduit_core/utils/usage_summary.dart';
+import 'package:conduit_core/utils/model_display_name.dart';
+import 'package:conduit_core/features/direct_connections/services/model_logo_catalog.dart'
+    show installedModelLogoCatalog;
 import 'package:conduit_core/models/chat_comparison.dart';
 import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit_core/models/message_voice.dart';
@@ -44,7 +47,6 @@ import 'package:conduit/shared/widgets/chat_action_button.dart';
 
 import '../../../shared/widgets/model_avatar.dart';
 import '../../../shared/widgets/conduit_components.dart';
-import '../../../shared/widgets/middle_ellipsis_text.dart';
 import '../../../shared/widgets/web_content_embed.dart';
 
 import 'package:conduit_core/features/chat/providers/chat_providers.dart'
@@ -1064,9 +1066,16 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     // that identity was never shown above — so only stay silent while the
     // active identity still matches the one the group header announced.
     final isVoiceReply = _isVoiceReply;
+    // A raw id from an older version or the message itself reads as its
+    // models.dev name, as in the header and the model picker.
+    final displayName = modelDisplayName(
+      name: modelName,
+      id: modelName,
+      catalog: installedModelLogoCatalog,
+    );
     final label = isVoiceReply
-        ? AppLocalizations.of(context)!.voiceReplySpokenLabel(modelName)
-        : modelName;
+        ? AppLocalizations.of(context)!.voiceReplySpokenLabel(displayName)
+        : displayName;
     if (!widget.showModelHeader &&
         !isVoiceReply &&
         modelName == widget.modelName?.trim() &&
@@ -1088,7 +1097,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     // A quiet speaker label, like a group-chat sender name: it names a model
     // change without competing with the answer below it.
     final Widget leading = hasIcon && !isVoiceReply
-        ? ModelAvatar(size: 16, imageUrl: iconUrl, label: modelName)
+        ? ModelAvatar(size: 16, imageUrl: iconUrl, label: displayName)
         : Icon(
             isVoiceReply
                 ? (Platform.isIOS ? CupertinoIcons.waveform : Icons.graphic_eq)
@@ -1104,8 +1113,11 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
           leading,
           const SizedBox(width: Spacing.xs + Spacing.xxs),
           Flexible(
-            child: MiddleEllipsisText(
+            child: Text(
               label,
+              maxLines: 1,
+              softWrap: false,
+              overflow: TextOverflow.ellipsis,
               style: AppTypography.bodySmallStyle.copyWith(
                 color: theme.textTertiary,
                 fontWeight: FontWeight.w400,
