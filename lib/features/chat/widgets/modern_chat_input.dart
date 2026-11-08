@@ -3823,8 +3823,14 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     // every control keeps its full touch target.
     // A message typed during a response can be queued, which needs room for the
     // Queue action beside Stop, as Hermes's turn actions do.
+    // While the typed message is itself being sent, the turn it starts is
+    // already generating but the draft has not cleared yet; that text is not
+    // a new message to queue, so Queue must not flash in for those frames.
     final bool showQueueAction =
-        _hasText && isGenerating && ref.watch(chatDraftQueueOfferProvider);
+        _hasText &&
+        isGenerating &&
+        !_sendingDraft &&
+        ref.watch(chatDraftQueueOfferProvider);
     final bool showCompactComposer =
         conduitSystemControlScaleOf(context) <=
             _maxCompactComposerControlScale &&
