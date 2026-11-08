@@ -137,6 +137,16 @@ void main() {
       expect(plain('A `two\nline \$x\$` span'), 'A `two\nline \$x\$` span');
     });
 
+    test(
+      'a triple-backtick span mid-line is a span; at line start, a fence',
+      () {
+        const span = 'Use ```a \$x\$\nb <i>``` inline, then \$5';
+        expect(plain(span), 'Use ```a \$x\$\nb <i>``` inline, then \\\$5');
+        const fence = '```\n`a \$x\$\nb` <i>\n```\nthen \$5';
+        expect(plain(fence), '```\n`a \$x\$\nb` <i>\n```\nthen \\\$5');
+      },
+    );
+
     test('autolinks keep their dollars', () {
       expect(
         plain(r'See <https://example.invalid/a$b> or mail <a@example.invalid>'),

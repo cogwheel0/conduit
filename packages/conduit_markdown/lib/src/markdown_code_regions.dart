@@ -311,12 +311,33 @@ Set<int> _parserConfirmedIndentedCodeLines(String value) {
   return recorder.matchedLines;
 }
 
+/// Whether the backtick run at [start] opens a fenced code block: the fence
+/// walk already treats such a line as code, and it is never a code span, so
+/// the (whole-document) parser confirmation can skip it.
+bool _opensFence(String value, int start) {
+  final lineStart = value.lastIndexOf('\n', start == 0 ? 0 : start - 1) + 1;
+  final lineEnd = value.indexOf('\n', start);
+  final line = value.substring(
+    lineStart,
+    lineEnd == -1 ? value.length : lineEnd,
+  );
+  final indent = start - lineStart;
+  return indent <= 3 &&
+      line.substring(0, indent).trim().isEmpty &&
+      _openingBacktickFence.hasMatch(
+        line.endsWith('\r') ? line.substring(0, line.length - 1) : line,
+      );
+}
+
 /// Code spans that cross a line break, where the parser confirms the exact
 /// occurrence stays inside one inline-capable block.
 List<SourceRange> _parserConfirmedMultilineCodeSpans(String value) {
   final candidates = _multilineCodeSpanCandidate
       .allMatches(value)
-      .where((match) => match.group(0)!.contains('\n'))
+      .where(
+        (match) =>
+            match.group(0)!.contains('\n') && !_opensFence(value, match.start),
+      )
       .toList(growable: false);
   if (candidates.isEmpty ||
       candidates.length > _maxMultilineCodeSpanCandidates) {
