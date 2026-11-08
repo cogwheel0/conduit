@@ -597,7 +597,9 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   // the viewport's sliver delegate skip rebuilding every mounted row, and lets
   // the stable-layout cache hit its identity fast path.
   List<ChatMessage>? _transcriptWindowSource;
-  int _transcriptWindowCount = -1;
+  int _transcriptWindowRequestedCount = -1;
+  int _transcriptWindowPagingGeneration = -1;
+  int _transcriptWindowOwnerGeneration = -1;
   List<ChatMessage> _transcriptWindowMemo = const <ChatMessage>[];
   List<ChatMessage>? _timelineModelSource;
   int _timelineModelGeneration = -1;
@@ -2276,14 +2278,53 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     List<ChatMessage> completeMessages,
     ChatTranscriptPagingState paging,
   ) {
-    final count = _renderedTranscriptCount(completeMessages, paging);
-    if (!identical(_transcriptWindowSource, completeMessages) ||
-        count != _transcriptWindowCount) {
-      _transcriptWindowSource = completeMessages;
-      _transcriptWindowCount = count;
-      _transcriptWindowMemo = latestTranscriptWindow(completeMessages, count);
+    final requested = _renderedTranscriptCount(completeMessages, paging);
+    final sameWindow =
+        paging.generation == _transcriptWindowPagingGeneration &&
+        _conversationOwnerGeneration == _transcriptWindowOwnerGeneration;
+    if (sameWindow &&
+        identical(_transcriptWindowSource, completeMessages) &&
+        requested == _transcriptWindowRequestedCount) {
+      return _transcriptWindowMemo;
     }
+    // A send appends its turn before paging hears of the new total; keep the
+    // rows already on screen rather than sliding the window past them.
+    final count = transcriptCountKeepingOldestRow(
+      total: completeMessages.length,
+      requestedCount: requested,
+      previousOldestIndex: sameWindow
+          ? _indexOfWindowStart(completeMessages, _transcriptWindowMemo)
+          : null,
+    );
+    _transcriptWindowSource = completeMessages;
+    _transcriptWindowRequestedCount = requested;
+    _transcriptWindowPagingGeneration = paging.generation;
+    _transcriptWindowOwnerGeneration = _conversationOwnerGeneration;
+    _transcriptWindowMemo = latestTranscriptWindow(completeMessages, count);
     return _transcriptWindowMemo;
+  }
+
+  /// Where [window]'s oldest message now sits in [completeMessages], or null.
+  /// Appends leave it where it was, so that index is checked first.
+  static int? _indexOfWindowStart(
+    List<ChatMessage> completeMessages,
+    List<ChatMessage> window,
+  ) {
+    if (window.isEmpty) return null;
+    final oldestId = window.first.id;
+    // Where it would be if nothing before it changed.
+    final likely = completeMessages.length - window.length;
+    for (final index in [likely, likely - 1, likely - 2]) {
+      if (index >= 0 &&
+          index < completeMessages.length &&
+          completeMessages[index].id == oldestId) {
+        return index;
+      }
+    }
+    final index = completeMessages.indexWhere(
+      (message) => message.id == oldestId,
+    );
+    return index < 0 ? null : index;
   }
 
   bool _hasScrollableTranscriptContent() {
@@ -2990,8 +3031,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     final isStreaming = watchRef.watch(isChatStreamingProvider);
     final completeMessages = watchRef.read(chatMessagesProvider);
     final paging = watchRef.watch(chatTranscriptPagingProvider);
-    final requestedCount = _renderedTranscriptCount(completeMessages, paging);
     final messages = _renderedTranscriptWindow(completeMessages, paging);
+    final requestedCount = messages.length;
     final pinnedAssistantId = _pinToTopState.streamingMessageId;
     final pinnedAssistantPhase = pinnedAssistantId == null
         ? null
@@ -3026,7 +3067,10 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         final currentMessageCount = ref.read(chatMessagesProvider).length;
         ref
             .read(chatTranscriptPagingProvider.notifier)
-            .ensureTotal(currentMessageCount);
+            .ensureTotal(
+              currentMessageCount,
+              minimumLoaded: _transcriptWindowMemo.length,
+            );
       });
     }
     final isLoadingConversation = watchRef.watch(isLoadingConversationProvider);
