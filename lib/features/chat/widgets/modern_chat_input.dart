@@ -4580,7 +4580,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                 return CupertinoTextField(
                   controller: _controller,
                   focusNode: _focusNode,
-                  placeholder: inputPlaceholder,
+                  placeholder: placeholderClearOfCaret(inputPlaceholder),
                   placeholderStyle: baseChatStyle.copyWith(
                     color: animatedPlaceholder,
                   ),

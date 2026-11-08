@@ -1,6 +1,7 @@
 import 'package:material_ui/material_ui.dart';
 
 import 'theme_extensions.dart';
+import '../widgets/platform_ui/src/placeholder_caret_gap.dart';
 
 /// Provides named [InputDecoration] presets derived from
 /// [ConduitThemeExtension] tokens.
@@ -37,7 +38,7 @@ class ConduitInputStyles {
 
   /// Filled input with outline border. Default for forms.
   InputDecoration standard({String? hint, String? error}) => InputDecoration(
-    hintText: hint,
+    hintText: maybePlaceholderClearOfCaret(hint),
     hintStyle: _hintStyle,
     filled: true,
     fillColor: theme.inputBackground,
@@ -77,7 +78,7 @@ class ConduitInputStyles {
   /// No borders or fill. For chat input, note editor, inline
   /// edit.
   InputDecoration borderless({String? hint}) => InputDecoration(
-    hintText: hint,
+    hintText: maybePlaceholderClearOfCaret(hint),
     hintStyle: _hintStyle,
     filled: false,
     border: InputBorder.none,
@@ -93,7 +94,7 @@ class ConduitInputStyles {
 
   /// Underline border, no fill. For dialog text inputs.
   InputDecoration underline({String? hint}) => InputDecoration(
-    hintText: hint,
+    hintText: maybePlaceholderClearOfCaret(hint),
     hintStyle: _hintStyle.copyWith(
       color: theme.textSecondary.withValues(alpha: 0.6),
     ),
