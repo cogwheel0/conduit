@@ -51,6 +51,11 @@ class _HermesRoomComposerState extends State<HermesRoomComposer> {
   final _focus = FocusNode();
   HermesRoomMentionQuery? _mention;
 
+  /// Sends this field started, and how many of them the last widget update
+  /// had seen: an update after one started is that send's outcome.
+  int _sends = 0;
+  int _sendsSeen = 0;
+
   @override
   void initState() {
     super.initState();
@@ -63,10 +68,14 @@ class _HermesRoomComposerState extends State<HermesRoomComposer> {
     // The room log showed an unclearly answered message (it settled with no
     // send under way): the field gives up those words, so Send cannot post
     // them a second time. A refused send settles during its send, and its
-    // words stay for editing.
+    // words stay for editing: its updates may all land in one frame, so a
+    // send started since the last update is what settled it.
+    final sentSince = _sends != _sendsSeen;
+    _sendsSeen = _sends;
     final settled = oldWidget.unsentText;
     if (settled != null &&
         widget.unsentText == null &&
+        !sentSince &&
         !oldWidget.sending &&
         !widget.sending &&
         _controller.text.trim() == settled) {
@@ -109,6 +118,7 @@ class _HermesRoomComposerState extends State<HermesRoomComposer> {
     final typed = _controller.text;
     final text = typed.trim();
     if (text.isEmpty || widget.sending || !widget.enabled) return;
+    _sends++;
     // The field stays editable while Hermes answers: words typed since
     // the send are the next message, so they stay.
     if (await widget.onSend(text) && mounted && _controller.text == typed) {

@@ -710,6 +710,33 @@ void main() {
       await unmount(tester);
     });
 
+    // The refusal's updates landed in one frame: the field saw only the
+    // unclear message settle, with no send under way, and cleared it.
+    testWidgets('a retry refused at once keeps its words', (tester) async {
+      await pumpRoom(tester, liveView());
+      room.sendOutcome = (text) async {
+        room.show(room.view.copyWith(sending: false, unsentText: text));
+        throw StateError('answer lost');
+      };
+      final field = find.byKey(const ValueKey('hermes-room-composer'));
+      await tester.enterText(field, 'Ship it');
+      await tester.pump();
+      await tester.tap(find.byKey(const ValueKey('hermes-room-send')));
+      await tester.pump();
+
+      room.sendOutcome = (text) async {
+        room.show(room.view.copyWith(sending: true, unsentText: text));
+        room.show(room.view.copyWith(sending: false, unsentText: null));
+        throw StateError('refused');
+      };
+      await tester.tap(find.byKey(const ValueKey('hermes-room-send')));
+      await tester.pump();
+      await tester.pump();
+
+      expect(find.text('Ship it'), findsOneWidget);
+      await unmount(tester);
+    });
+
     testWidgets('refused words stay for editing', (tester) async {
       await pumpRoom(tester, liveView());
       final refusal = Completer<void>();
