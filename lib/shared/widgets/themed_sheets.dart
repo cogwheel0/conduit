@@ -153,9 +153,11 @@ class ThemedSheets {
 
   /// Presents the iOS 26 glass sheet on iOS and the package's plain sheet
   /// route elsewhere, with a static fallback for reduced motion.
+  /// [canPresent] can cancel presentation after the native-chrome handoff.
   static Future<T?> showAdaptive<T>({
     required BuildContext context,
     required WidgetBuilder builder,
+    bool Function()? canPresent,
   }) {
     FocusManager.instance.primaryFocus?.unfocus();
     final theme = context.conduitTheme;
@@ -180,6 +182,7 @@ class ThemedSheets {
       return _showTracked<T>(
         context: context,
         useRootNavigator: true,
+        canPresent: canPresent,
         present: (coverage) => showModalBottomSheet<T>(
           context: context,
           useRootNavigator: true,
@@ -206,6 +209,7 @@ class ThemedSheets {
     return _showTracked<T>(
       context: context,
       useRootNavigator: true,
+      canPresent: canPresent,
       present: (coverage) {
         Widget child = _SheetCoverageBoundary(
           coverage: coverage,
@@ -378,6 +382,7 @@ class ThemedSheets {
     required BuildContext context,
     required bool useRootNavigator,
     required Future<T?> Function(_SheetCoverageToken coverage) present,
+    bool Function()? canPresent,
   }) async {
     // Coverage follows the order the sheets were opened in, not where the
     // presenting context sits: the route goes onto the root navigator, beside
@@ -403,7 +408,7 @@ class ThemedSheets {
       // Let UIKit-backed chrome leave the compositor before presenting the
       // Flutter route. Hiding it after the route is pushed is one frame late.
       await WidgetsBinding.instance.endOfFrame;
-      if (!context.mounted) return null;
+      if (!context.mounted || canPresent?.call() == false) return null;
       return await present(coverage);
     } finally {
       coverage.close();

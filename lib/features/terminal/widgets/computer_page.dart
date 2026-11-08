@@ -49,6 +49,7 @@ class _ComputerPageState extends ConsumerState<ComputerPage>
   bool _audioAvailable = false, _audioEnabled = false, _audioFailed = false;
   bool _desktopSite = false;
   bool _tabsOpen = false;
+  ModalRoute<dynamic>? _tabsRoute;
   bool _trackpad = false, _dragging = false;
   String _quality = 'crisp';
   bool _active = true, _scopeValid = true;
@@ -103,7 +104,7 @@ class _ComputerPageState extends ConsumerState<ComputerPage>
       }
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
-        if (_tabsOpen) Navigator.of(context).pop();
+        _dismissTabs();
         final route = ModalRoute.of(context);
         if (route != null) Navigator.of(context).removeRoute(route);
       });
@@ -114,7 +115,7 @@ class _ComputerPageState extends ConsumerState<ComputerPage>
         final activating = _controlWhenLive && _connection == null;
         _hasTakenControl = false;
         _watch();
-        if (_tabsOpen) Navigator.of(context).pop();
+        _dismissTabs();
         // The pending activation is stale; rediscover its surface in Watch.
         if (activating) unawaited(_open());
       }
@@ -124,7 +125,7 @@ class _ComputerPageState extends ConsumerState<ComputerPage>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     _active = state == AppLifecycleState.resumed;
-    if (!_active && _tabsOpen) Navigator.of(context).pop();
+    if (!_active) _dismissTabs();
     _generation++;
     final wasWaiting = _status == 'empty' || _status == 'inactive';
     setState(() {
@@ -332,19 +333,39 @@ class _ComputerPageState extends ConsumerState<ComputerPage>
     unawaited(_surface.control(false));
   }
 
+  void _dismissTabs() {
+    final route = _tabsRoute;
+    if (route != null && route.isActive) route.navigator?.removeRoute(route);
+  }
+
   Future<void> _showTabs() async {
     if (_tabsOpen) return;
     final generation = _generation;
     final connection = _connection;
     final hadControl = _controlling;
+    bool canPresent() =>
+        mounted && generation == _generation && _active && _scopeValid;
+    var awaitingChoice = true;
     _tabsOpen = true;
     final choice = await showComputerBrowserTabs(
       context,
       service: widget.service,
       currentId: connection?.browserSession?.id,
       controlling: hadControl,
+      canPresent: canPresent,
+      onPresented: (route) {
+        if (!awaitingChoice) return;
+        _tabsRoute = route;
+        if (!canPresent()) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (identical(_tabsRoute, route)) _dismissTabs();
+          });
+        }
+      },
     );
+    awaitingChoice = false;
     _tabsOpen = false;
+    _tabsRoute = null;
     if (!mounted ||
         generation != _generation ||
         !_active ||

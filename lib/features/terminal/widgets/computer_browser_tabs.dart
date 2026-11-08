@@ -17,23 +17,30 @@ Future<ComputerTabChoice?> showComputerBrowserTabs(
   required ComputerService service,
   required String? currentId,
   required bool controlling,
+  bool Function()? canPresent,
+  ValueChanged<ModalRoute<dynamic>>? onPresented,
 }) => ThemedSheets.showAdaptive<ComputerTabChoice>(
   context: context,
-  builder: (_) => ConstrainedBox(
-    constraints: BoxConstraints(
-      maxHeight: MediaQuery.sizeOf(context).height * .75,
-    ),
-    child: DefaultTextStyle(
-      style: Theme.of(context).textTheme.bodyMedium!,
-      child: ConduitAdaptiveSheetSurface(
-        child: ComputerBrowserTabs(
-          service: service,
-          currentId: currentId,
-          controlling: controlling,
+  canPresent: canPresent,
+  builder: (sheetContext) {
+    onPresented?.call(ModalRoute.of(sheetContext)!);
+    if (canPresent?.call() == false) return const SizedBox.shrink();
+    return ConstrainedBox(
+      constraints: BoxConstraints(
+        maxHeight: MediaQuery.sizeOf(sheetContext).height * .75,
+      ),
+      child: DefaultTextStyle(
+        style: Theme.of(sheetContext).textTheme.bodyMedium!,
+        child: ConduitAdaptiveSheetSurface(
+          child: ComputerBrowserTabs(
+            service: service,
+            currentId: currentId,
+            controlling: controlling,
+          ),
         ),
       ),
-    ),
-  ),
+    );
+  },
 );
 
 class ComputerBrowserTabs extends StatefulWidget {

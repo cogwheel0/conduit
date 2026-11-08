@@ -698,6 +698,77 @@ void main() {
     );
   }
 
+  for (final timing in ['pending', 'pushed', 'covered']) {
+    testWidgets('a response dismisses only its tab sheet ($timing)', (
+      tester,
+    ) async {
+      final service = _Service();
+      when(
+        () => service.open(any()),
+      ).thenAnswer((call) async => _connection(call.positionalArguments.first));
+      when(service.browserTabs).thenAnswer((_) async => []);
+      await tester.pumpWidget(_harness(service, takeControl: () async => true));
+      await tester.pump();
+      await tester.pump();
+      final context = tester.element(find.byType(ComputerPage));
+      unawaited(
+        Navigator.of(context).push(
+          MaterialPageRoute<void>(
+            builder: (_) => ComputerPage(
+              service: service,
+              capabilities: const ComputerCapabilities(browser: true),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 1));
+      final view = tester.widget<ComputerSurfaceView>(
+        find.byType(ComputerSurfaceView),
+      );
+      view.onState({'status': 'live'});
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Take control'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.bySemanticsLabel('Browser tabs'));
+      if (timing == 'pushed') await tester.pump();
+      if (timing == 'covered') {
+        await tester.pumpAndSettle();
+        unawaited(
+          showDialog<void>(
+            context: context,
+            builder: (_) => const AlertDialog(title: Text('Another dialog')),
+          ),
+        );
+        await tester.pumpAndSettle();
+      }
+      // Without pumping, interruption lands before the native-chrome handoff.
+      ProviderScope.containerOf(context)
+          .read(chatMessagesProvider.notifier)
+          .setMessages([
+            ChatMessage(
+              id: 'new-response',
+              role: 'assistant',
+              content: '',
+              timestamp: DateTime.utc(2026),
+              isStreaming: true,
+            ),
+          ]);
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 1));
+      expect(
+        find.byType(ComputerBrowserTabs, skipOffstage: false),
+        findsNothing,
+      );
+      if (timing == 'covered') {
+        expect(find.text('Another dialog'), findsOneWidget);
+      }
+      expect(find.byType(ComputerPage, skipOffstage: false), findsNWidgets(2));
+      expect(find.text('Watching live'), findsOneWidget);
+      await tester.pumpWidget(const SizedBox());
+    });
+  }
+
   for (final size in [const Size(320, 568), const Size(568, 320)]) {
     testWidgets('connection failure stays usable at large text in $size', (
       tester,
