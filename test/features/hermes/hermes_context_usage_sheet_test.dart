@@ -357,6 +357,56 @@ void main() {
     await tester.pumpAndSettle();
     expect(compact().onPressed, isNotNull);
   });
+
+  // A reconnect gave the session a new runtime id, and the next change to
+  // its chat brought Compact back while the first compaction still ran.
+  testWidgets('Compact stays off across a reconnect while one runs', (
+    tester,
+  ) async {
+    _tall(tester);
+    final gateway = _Gateway()
+      ..answers['session.compress'] = {
+        'status': 'pending',
+        'turn_isolation': true,
+      };
+    final service = _service(gateway);
+    ConduitButton compact() => tester.widget<ConduitButton>(
+      find.byKey(const ValueKey<String>('hermes-context-compact')),
+    );
+    await tester.pumpWidget(
+      _sheet(_withReport(() async => _desktopReport, service: service)),
+    );
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text(_l10n.hermesContextCompactNow));
+    await tester.tap(find.text(_l10n.hermesContextCompactNow));
+    for (var i = 0; i < 20; i++) {
+      await tester.pump(const Duration(milliseconds: 20));
+    }
+    await tester.pumpAndSettle();
+
+    gateway
+      ..answers['session.resume'] = {
+        'session_id': 'rt-2',
+        'stored_session_id': 'stored-1',
+        'running': false,
+      }
+      ..incoming.addError(StateError('gone'));
+    await tester.pump();
+    // The report read resumes the session on a new socket.
+    await tester.runAsync(() => service.contextReport('stored-1'));
+    service.refreshTranscript('stored-1');
+    await tester.pumpAndSettle();
+    expect(gateway.calls('session.resume'), hasLength(2));
+    expect(compact().onPressed, isNull);
+
+    // The new socket hears the end.
+    await tester.runAsync(() async {
+      gateway.emit('status.update', {'kind': 'compacted'}, sessionId: 'rt-2');
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+    });
+    await tester.pumpAndSettle();
+    expect(compact().onPressed, isNotNull);
+  });
 }
 
 final class _MockWebSocketChannel extends Mock implements WebSocketChannel {}
@@ -407,11 +457,15 @@ final class _Gateway {
   final sent = <Map<String, dynamic>>[];
   final answers = <String, Object?>{};
 
-  void emit(String type, Map<String, dynamic> payload) => incoming.add(
+  void emit(
+    String type,
+    Map<String, dynamic> payload, {
+    String sessionId = 'rt-1',
+  }) => incoming.add(
     jsonEncode({
       'jsonrpc': '2.0',
       'method': 'event',
-      'params': {'type': type, 'session_id': 'rt-1', 'payload': payload},
+      'params': {'type': type, 'session_id': sessionId, 'payload': payload},
     }),
   );
 

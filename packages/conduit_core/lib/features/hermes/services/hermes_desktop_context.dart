@@ -105,17 +105,19 @@ extension _HermesDesktopContext on HermesDesktopApiService {
   /// or with its own error ("compression failed: …"). Compacted, its chat
   /// and report are read again; failed, or not heard from by the deadline,
   /// only its report is, and a shorter read of the chat is not taken. Other
-  /// session info, and an ordinary turn's error, say nothing about it.
+  /// session info, and an ordinary turn's error, say nothing about it. The
+  /// watch is the session's: a reconnect that gives it a new runtime id
+  /// moves the watch there.
   void _watchPendingCompaction(
     HermesSessionBinding binding,
     String storedId,
   ) {
-    final runtimeId = binding.runtimeId;
-    unawaited(_pendingCompactions.remove(runtimeId)?.cancel());
+    final session = binding.storedId;
+    unawaited(_pendingCompactions.remove(session)?.cancel());
     late final _PendingCompaction watch;
     void end() {
-      if (identical(_pendingCompactions[runtimeId], watch)) {
-        _pendingCompactions.remove(runtimeId);
+      if (identical(_pendingCompactions[session], watch)) {
+        _pendingCompactions.remove(session);
       }
       unawaited(watch.cancel());
     }
@@ -123,7 +125,8 @@ extension _HermesDesktopContext on HermesDesktopApiService {
     final subscription = _rpc.events
         .where(
           (event) =>
-              event.sessionId == runtimeId &&
+              event.sessionId ==
+                  (_bindings[session]?.runtimeId ?? binding.runtimeId) &&
               ((event.type == 'error' &&
                       '${event.payload['message']}'.startsWith(
                         'compression failed',
@@ -146,7 +149,7 @@ extension _HermesDesktopContext on HermesDesktopApiService {
         _emitTranscriptChange(storedId);
       }),
     );
-    _pendingCompactions[runtimeId] = watch;
+    _pendingCompactions[session] = watch;
   }
 
   /// Turns on a window plan's "Keep going on credits"; false when Hermes

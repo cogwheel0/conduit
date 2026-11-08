@@ -557,6 +557,44 @@ void main() {
       check(service.takeCompactedTranscript('stored-1')).isFalse();
     });
 
+    // A reconnect that gave the session a new runtime id left the watch on
+    // the old one: nothing was pending any more, and its end went unseen.
+    test('a background compaction is followed across a reconnect', () async {
+      final gateway = _Gateway()
+        ..answers['session.compress'] = {
+          'status': 'pending',
+          'turn_isolation': true,
+        };
+      final service = _service(gateway);
+      final changes = <String>[];
+      final subscription = service.transcriptChanges.listen(changes.add);
+      addTearDown(subscription.cancel);
+      await service.compactSession('stored-1');
+      await _settle();
+
+      gateway
+        ..answers['session.resume'] = {
+          'session_id': 'rt-2',
+          'stored_session_id': 'stored-1',
+          'running': false,
+        }
+        ..incoming.addError(StateError('gone'));
+      await _settle();
+      await service.contextReport('stored-1');
+      await _settle();
+
+      check(gateway.calls('session.resume')).length.equals(2);
+      check(service.compactionPending('stored-1')).isTrue();
+      check(changes).isEmpty();
+
+      gateway.emit('status.update', {'kind': 'compacted'}, sessionId: 'rt-2');
+      await _settle();
+
+      check(service.compactionPending('stored-1')).isFalse();
+      check(service.takeCompactedTranscript('stored-1')).isTrue();
+      check(changes).deepEquals(['stored-1']);
+    });
+
     test('leaves the chat alone when nothing was compacted', () async {
       final gateway = _Gateway()
         ..answers['session.compress'] = {
@@ -758,13 +796,17 @@ final class _Gateway {
     _ => const <String, Object?>{},
   };
 
-  void emit(String type, Map<String, dynamic> payload) => incoming.add(
+  void emit(
+    String type,
+    Map<String, dynamic> payload, {
+    String sessionId = 'rt-1',
+  }) => incoming.add(
     jsonEncode({
       'jsonrpc': '2.0',
       'method': 'event',
       'params': {
         'type': type,
-        if (type != 'gateway.ready') 'session_id': 'rt-1',
+        if (type != 'gateway.ready') 'session_id': sessionId,
         'payload': payload,
       },
     }),

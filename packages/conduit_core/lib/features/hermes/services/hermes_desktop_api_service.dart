@@ -327,8 +327,9 @@ final class HermesDesktopApiService
   /// compacted rows out) and still replaces what the chat shows.
   final Set<String> _compactedTranscripts = {};
 
-  /// Compactions still running on the server, by runtime id, until their
-  /// session reports in or [pendingCompactionDeadline] passes.
+  /// Compactions still running on the server, by stored session id (a
+  /// reconnect can change the runtime id), until the session reports in or
+  /// [pendingCompactionDeadline] passes.
   final Map<String, _PendingCompaction> _pendingCompactions = {};
 
   /// Connection targets (operation/target card ids) the user approved on
@@ -568,10 +569,9 @@ final class HermesDesktopApiService
       _compactSession(id, focus: focus);
 
   /// Whether a compaction of [storedId] is still running on the server.
-  bool compactionPending(String storedId) {
-    final runtimeId = _bindings[storedId]?.runtimeId;
-    return runtimeId != null && _pendingCompactions.containsKey(runtimeId);
-  }
+  bool compactionPending(String storedId) => _pendingCompactions.containsKey(
+    _bindings[storedId]?.storedId ?? storedId,
+  );
 
   /// Whether a compaction rewrote session [id]'s transcript since the chat
   /// last took it; true once, so that read may replace a longer one.
