@@ -352,11 +352,31 @@ Widget buildSidebarProfileButton({
 }
 
 /// Profile button used as the sidebar adaptive app bar leading widget.
-class SidebarProfileAppBarLeading extends ConsumerWidget {
+class SidebarProfileAppBarLeading extends ConsumerStatefulWidget {
   const SidebarProfileAppBarLeading({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<SidebarProfileAppBarLeading> createState() =>
+      _SidebarProfileAppBarLeadingState();
+}
+
+class _SidebarProfileAppBarLeadingState
+    extends ConsumerState<SidebarProfileAppBarLeading> {
+  bool _openingProfile = false;
+
+  Future<void> _openProfile(Future<void> Function() present) async {
+    // Claim the opening before navigation or account loading can yield.
+    if (_openingProfile) return;
+    _openingProfile = true;
+    try {
+      await present();
+    } finally {
+      _openingProfile = false;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final user = resolveSidebarUser(ref);
     final nativeProfilePresenter = ref.watch(
       sidebarNativeProfilePresenterProvider,
@@ -429,7 +449,7 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
               .asData
               ?.value;
 
-    Future<void> openProfile() async {
+    Future<void> presentProfile() async {
       await Navigator.of(context).maybePop();
       if (!context.mounted) return;
 
@@ -524,7 +544,7 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
       }
 
       if (context.mounted) {
-        context.pushNamed(
+        await context.pushNamed(
           sidebarProfileFallbackRouteName(
             directPrimary: directPrimary,
             hasOpenWebUiUser: user != null,
@@ -539,10 +559,10 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
       label: l10n.manage,
       button: true,
       excludeSemantics: true,
-      onTap: openProfile,
+      onTap: () => _openProfile(presentProfile),
       child: buildSidebarProfileButton(
         supportsNativeGlass: supportsNativeGlass,
-        onPressed: openProfile,
+        onPressed: () => _openProfile(presentProfile),
         fallbackStyle: style,
         fallbackColor: useOpaqueFallback ? iconColor : null,
         nativeSymbolColor: iconColor,

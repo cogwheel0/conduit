@@ -1309,6 +1309,10 @@ final class NativeSheetBridge: ConduitBridge, NativeSheetHostApi {
     ) {
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
+            if self.activeProfileMenuController != nil {
+                completion(.success(true))
+                return
+            }
             guard let configuration = NativeSheetConfiguration(config.asPayload())
             else {
                 completion(.failure(PigeonError(
