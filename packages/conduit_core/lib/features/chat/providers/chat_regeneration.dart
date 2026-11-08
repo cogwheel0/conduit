@@ -11,14 +11,18 @@ const String kHermesStoredUserContentKey = 'hermesStoredContent';
 /// which then only gets the prompt again.
 ///
 /// [originalText] is the replayed prompt as the session stores it, when an
-/// edit has already changed it on screen.
+/// edit has already changed it on screen. [previousText] is the text shown
+/// before that edit: a turn edited before is stored with that one once the
+/// earlier edit went through, and with [originalText] when it did not.
 @visibleForTesting
-Future<({String sessionId, int? rowId})?> hermesDesktopRewindTarget({
+Future<({String sessionId, int? rowId, int? lastRowId})?>
+hermesDesktopRewindTarget({
   required HermesBackendService? service,
   required Conversation? conversation,
   required List<ChatMessage> messages,
   required int replayedUserIndex,
   String? originalText,
+  String? previousText,
 }) async {
   if (service is! HermesDesktopTurnService ||
       replayedUserIndex < 0 ||
@@ -35,22 +39,27 @@ Future<({String sessionId, int? rowId})?> hermesDesktopRewindTarget({
   final transcript = await service.getCurrentSessionMessages(sessionId);
   // An edit stores its new text once its replacement is sent: until then
   // the session holds [originalText], after it what the chat shows.
-  final row =
-      hermesTranscriptUserRowIndex(
-        transcript: transcript,
-        messages: messages,
-        index: replayedUserIndex,
-        text: originalText,
-      ) ??
-      (originalText == null
-          ? null
-          : hermesTranscriptUserRowIndex(
-              transcript: transcript,
-              messages: messages,
-              index: replayedUserIndex,
-            ));
+  int? row;
+  for (final text in {?originalText, ?previousText, null}) {
+    row = hermesTranscriptUserRowIndex(
+      transcript: transcript,
+      messages: messages,
+      index: replayedUserIndex,
+      text: text,
+    );
+    if (row != null) break;
+  }
+  // The last row the session held when the cut was chosen: a turn stored
+  // after it refuses the cut rather than being cut too.
+  int? lastRowId;
+  for (final stored in transcript.reversed) {
+    lastRowId = hermesTranscriptRowId(stored);
+    if (lastRowId != null) break;
+  }
   final rowId = row == null ? null : hermesTranscriptRowId(transcript[row]);
-  if (rowId != null) return (sessionId: sessionId, rowId: rowId);
+  if (rowId != null) {
+    return (sessionId: sessionId, rowId: rowId, lastRowId: lastRowId);
+  }
   var ordinal = 0;
   for (var index = 0; index < replayedUserIndex; index++) {
     if (messages[index].role == 'user') ordinal++;
@@ -66,7 +75,7 @@ Future<({String sessionId, int? rowId})?> hermesDesktopRewindTarget({
       'and try again.',
     );
   }
-  return (sessionId: sessionId, rowId: null);
+  return (sessionId: sessionId, rowId: null, lastRowId: lastRowId);
 }
 
 Future<void> _regenerateHermesMessage(
@@ -77,6 +86,7 @@ Future<void> _regenerateHermesMessage(
   required int configAdmission,
   required HermesBackendService? serviceGeneration,
   String? originalUserContent,
+  String? previousUserContent,
 }) async {
   final reasoningEffort = ref.read(configuredReasoningEffortProvider);
   final activeAtStart = ref.read(activeConversationProvider) as Conversation?;
@@ -189,6 +199,7 @@ Future<void> _regenerateHermesMessage(
           final String stored => stored,
           _ => null,
         },
+    previousText: previousUserContent,
   );
   if (!chatMutationTokenStillActive(ref, mutationOwner)) return;
   if (!configController.sessionActionAdmissionIsCurrent(configAdmission) ||
@@ -209,6 +220,7 @@ Future<void> _regenerateHermesMessage(
     existingMessages: continuityMessages,
     forceNewSession: rewind == null,
     truncateBeforeRowId: rewind?.rowId,
+    truncateSeenThroughRowId: rewind?.lastRowId,
     // Regeneration branches from [continuityMessages]. Chaining the response
     // being replaced would restore the wrong tail and the wrong server session.
     previousResponseIdOverride: null,
@@ -671,8 +683,10 @@ Future<void> regenerateEditedHermesUserMessage(
       ref,
       content,
       null,
-      // A Desktop session finds the turn to cut by the text it stored.
+      // A Desktop session finds the turn to cut by the text it stored: the
+      // one before any edit, or the one shown now once an edit went through.
       hermesOriginalUserContent: storedContent,
+      hermesPreviousUserContent: original.content,
     );
   } catch (_) {
     // Editing is a branch operation, but the original branch must remain
@@ -744,6 +758,7 @@ Future<void> regenerateMessage(
   bool forceImageGeneration = false,
   bool Function()? ownsPreparationState,
   String? hermesOriginalUserContent,
+  String? hermesPreviousUserContent,
 }) async {
   final conversationAtRegenerationStart =
       ref.read(activeConversationProvider) as Conversation?;
@@ -861,6 +876,7 @@ Future<void> regenerateMessage(
       configAdmission: hermesConfigAdmission!,
       serviceGeneration: hermesServiceGeneration,
       originalUserContent: hermesOriginalUserContent,
+      previousUserContent: hermesPreviousUserContent,
     );
     return;
   }

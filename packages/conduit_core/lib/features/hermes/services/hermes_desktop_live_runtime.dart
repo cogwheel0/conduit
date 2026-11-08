@@ -883,6 +883,38 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
 
   /// Drops session [id]'s last user turn and everything after it. False
   /// when there was no turn to drop.
+  /// [binding]'s fences as the session is now. With [lastRowId], the
+  /// transcript is read after them and must still end at that row: a turn
+  /// stored since then throws, and one stored after the read moves the
+  /// fences, which refuses an edit sent at them.
+  Future<({int revision, int generation})> _canonicalFencesThrough(
+    HermesSessionBinding binding, {
+    int? lastRowId,
+  }) async {
+    final fences = await _canonicalFences(binding, refresh: true);
+    final revision = fences.revision;
+    final generation = fences.generation;
+    if (revision == null || generation == null) {
+      throw StateError('Hermes did not report the chat\'s state.');
+    }
+    if (lastRowId != null) {
+      final transcript = await _runtimeGetSessionMessages(
+        binding.storedId,
+        current: true,
+      );
+      _lastTranscripts.remove(binding.storedId);
+      int? last;
+      for (final row in transcript.reversed) {
+        last = hermesTranscriptRowId(row);
+        if (last != null) break;
+      }
+      if (last != lastRowId) {
+        throw StateError('The Hermes chat changed. Try again.');
+      }
+    }
+    return (revision: revision, generation: generation);
+  }
+
   Future<bool> _runtimeUndoLastTurn(String id, {int? rowId}) async {
     final binding = await _resume(id);
     _lastTranscripts
@@ -903,25 +935,41 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
     }
     // A session authority has no undo: it rewinds to [rowId], else to the
     // last turn a user started, a row of their own (not a marker Hermes
-    // added). The rewind is fenced at the session as it is now: a turn
-    // added before it lands refuses it rather than being rewound too.
+    // added). The rewind is fenced at the session as it is now, and the
+    // transcript is read after the fences: a turn added since refuses it
+    // rather than being rewound too.
     final fences = await _canonicalFences(binding, refresh: true);
     final revision = fences.revision;
     final generation = fences.generation;
     if (revision == null || generation == null) {
       throw StateError('Hermes did not report the chat\'s state.');
     }
-    int? target = rowId;
-    final transcript = target != null
-        ? const <Map<String, dynamic>>[]
-        : await _runtimeGetSessionMessages(binding.storedId, current: true);
+    final transcript = await _runtimeGetSessionMessages(
+      binding.storedId,
+      current: true,
+    );
     _lastTranscripts.remove(binding.storedId);
-    for (final row in transcript.reversed) {
-      final kind = row['display_kind'];
-      if ((kind == null || kind == '' || kind == 'steer') &&
-          hermesTranscriptUserContent(row) != null) {
-        target = hermesTranscriptRowId(row);
-        if (target != null) break;
+    int? target = rowId;
+    if (target != null) {
+      // [rowId] was chosen from an earlier read: gone since, or followed by
+      // a user turn stored since, it is no longer the turn to undo.
+      final index = transcript.indexWhere(
+        (row) => hermesTranscriptRowId(row) == target,
+      );
+      if (index < 0 ||
+          transcript
+              .skip(index + 1)
+              .any((row) => hermesTranscriptUserContent(row) != null)) {
+        throw StateError('The Hermes chat changed. Try again.');
+      }
+    } else {
+      for (final row in transcript.reversed) {
+        final kind = row['display_kind'];
+        if ((kind == null || kind == '' || kind == 'steer') &&
+            hermesTranscriptUserContent(row) != null) {
+          target = hermesTranscriptRowId(row);
+          if (target != null) break;
+        }
       }
     }
     if (target == null) return false;

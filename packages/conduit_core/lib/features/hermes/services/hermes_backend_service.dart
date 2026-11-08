@@ -125,7 +125,9 @@ abstract interface class HermesDesktopTurnService
   ///
   /// [truncateBeforeRowId] makes the turn an edit or a regenerate: the
   /// session's transcript is cut before that user row first, so every
-  /// Hermes surface sees the same history.
+  /// Hermes surface sees the same history. [truncateSeenThroughRowId] is the
+  /// last row the session held when the cut was chosen: a turn stored after
+  /// it refuses the cut rather than being cut too.
   Future<HermesResponseStream> streamDesktopResponse(
     HermesChatInput input, {
     String? sessionId,
@@ -133,6 +135,7 @@ abstract interface class HermesDesktopTurnService
     CancelToken? cancelToken,
     String? voiceContext,
     int? truncateBeforeRowId,
+    int? truncateSeenThroughRowId,
   });
 }
 

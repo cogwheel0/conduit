@@ -59,6 +59,7 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
     CancelToken? cancelToken,
     String? voiceContext,
     int? truncateBeforeRowId,
+    int? truncateSeenThroughRowId,
   }) async {
     final storedId =
         sessionId ??
@@ -572,10 +573,20 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
       }
       // Cut first, apart from the submit's recovery below: a lost answer to
       // this edit must not be read as a lost prompt and sent again uncut.
+      // Fenced at the session as it is now, and only if it still ends where
+      // it did when the cut was chosen: a turn stored since then refuses the
+      // cut rather than being cut too.
       try {
-        await _canonicalMutate(binding, 'rewind', {
-          'target_message_id': truncateBeforeRowId,
-        });
+        final fences = await _canonicalFencesThrough(
+          binding,
+          lastRowId: truncateSeenThroughRowId,
+        );
+        await _canonicalMutate(
+          binding,
+          'rewind',
+          {'target_message_id': truncateBeforeRowId},
+          pinned: fences,
+        );
       } catch (error) {
         DebugLogger.error(
           'rewind-failed',
@@ -583,7 +594,7 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
           data: {'errorType': error.runtimeType.toString()},
         );
         await _detachStaged(binding.runtimeId, stagedPaths);
-        finish(error: error.toString());
+        finish(error: error is StateError ? error.message : error.toString());
         return HermesResponseStream(
           events: controller.stream,
           sessionId: storedId,

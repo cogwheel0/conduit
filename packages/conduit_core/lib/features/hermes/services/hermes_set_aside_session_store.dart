@@ -188,7 +188,10 @@ abstract final class HermesSetAsideSessionStore {
     await _write(records);
   });
 
-  static final Set<String> _changing = {};
+  /// Changes under way, per chat; and a mark per chat that moves whenever
+  /// one starts or ends.
+  static final Map<String, int> _changing = {};
+  static final Map<String, int> _changeMarks = {};
 
   /// Marks [sessionId]'s flags as being changed in [scope] while [change]
   /// runs: a lookup then leaves its record alone, since the server's flags
@@ -199,17 +202,30 @@ abstract final class HermesSetAsideSessionStore {
     required Future<T> Function() change,
   }) async {
     final key = jsonEncode([scope, sessionId]);
-    _changing.add(key);
+    _changing[key] = (_changing[key] ?? 0) + 1;
+    _changeMarks[key] = (_changeMarks[key] ?? 0) + 1;
     try {
       return await change();
     } finally {
-      _changing.remove(key);
+      final left = _changing[key]! - 1;
+      if (left == 0) {
+        _changing.remove(key);
+      } else {
+        _changing[key] = left;
+      }
+      _changeMarks[key] = _changeMarks[key]! + 1;
     }
   }
 
   /// Whether [sessionId]'s flags are being changed in [scope].
   static bool isChanging({required String scope, required String sessionId}) =>
-      _changing.contains(jsonEncode([scope, sessionId]));
+      _changing.containsKey(jsonEncode([scope, sessionId]));
+
+  /// A mark that moves whenever a change of [sessionId]'s flags in [scope]
+  /// starts or ends: a lookup that saw it move while it read the flags may
+  /// have read them from before a change that is over by now.
+  static int changeMark({required String scope, required String sessionId}) =>
+      _changeMarks[jsonEncode([scope, sessionId])] ?? 0;
 
   /// Drops every record whose scope passes [test], e.g. those of a saved
   /// connection that was deleted.

@@ -1516,7 +1516,20 @@ void main() {
       }
       return gateway.defaults(method, params);
     };
-    final service = _service(gateway);
+    final service = _service(
+      gateway,
+      rest: _Rest({
+        'GET /api/sessions/local-1/messages': (_) => (
+          200,
+          {
+            'messages': [
+              {'id': 7, 'role': 'user', 'content': 'Plan the trip'},
+              {'id': 8, 'role': 'assistant', 'content': 'Done.'},
+            ],
+          },
+        ),
+      }),
+    );
     await service.createDesktopSession();
 
     await check(

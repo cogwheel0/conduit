@@ -3219,6 +3219,10 @@ Future<List<HermesSessionSummary>> _hermesSetAsideSessions(
   final scope = hermesSetAsideScope(service.config);
   final records = HermesSetAsideSessionStore.forScope(scope, kind: kind);
   Future<HermesSessionSummary?> lookUp(HermesSetAsideSession record) async {
+    final mark = HermesSetAsideSessionStore.changeMark(
+      scope: record.scope,
+      sessionId: record.sessionId,
+    );
     final Map<String, dynamic>? row;
     try {
       row = await service.getSession(record.sessionId);
@@ -3237,12 +3241,17 @@ Future<List<HermesSessionSummary>> _hermesSetAsideSessions(
         ? HermesSetAsideKind.archived
         : null;
     if (actual == kind) return session;
-    // A change under way may not show in the flags read yet: its record
-    // stays as it is.
+    // A change under way, or one made while the flags were read, may not
+    // show in them: its record stays as it is.
     if (HermesSetAsideSessionStore.isChanging(
-      scope: record.scope,
-      sessionId: record.sessionId,
-    )) {
+          scope: record.scope,
+          sessionId: record.sessionId,
+        ) ||
+        HermesSetAsideSessionStore.changeMark(
+              scope: record.scope,
+              sessionId: record.sessionId,
+            ) !=
+            mark) {
       return session?.copyWith(
         hidden: kind == HermesSetAsideKind.hidden,
         archived: kind == HermesSetAsideKind.archived || session.archived,

@@ -659,6 +659,51 @@ void main() {
       ).isNotNull();
     });
 
+    // The change ended before the stale flags arrived, so nothing marked it
+    // as under way, and the record it saved was forgotten.
+    test('a change made while a lookup read the flags keeps its record',
+        () async {
+      late final String scope;
+      final routes = _Routes({
+        'GET /api/sessions': (_) => (200, {'data': <Object>[]}),
+        'GET /api/sessions/api_1': (_) {
+          // Hidden, and answered, while this read is on its way back.
+          unawaited(
+            HermesSetAsideSessionStore.whileChanging(
+              scope: scope,
+              sessionId: 'api_1',
+              change: () async {},
+            ),
+          );
+          return (
+            200,
+            {
+              'session': {'id': 'api_1', 'title': 'Synthetic plan'},
+            },
+          );
+        },
+      });
+      final service = _rest(routes);
+      scope = hermesSetAsideScope(service.config);
+      await HermesSetAsideSessionStore.remember(
+        HermesSetAsideSession(
+          scope: scope,
+          sessionId: 'api_1',
+          title: 'Synthetic plan',
+          kind: HermesSetAsideKind.hidden,
+        ),
+      );
+
+      await _container(service).read(hermesHiddenSessionsProvider.future);
+
+      check(
+        HermesSetAsideSessionStore.isChanging(scope: scope, sessionId: 'api_1'),
+      ).isFalse();
+      check(
+        HermesSetAsideSessionStore.find(scope: scope, sessionId: 'api_1'),
+      ).isNotNull();
+    });
+
     test('a change saves its record again once Hermes answers', () async {
       late final String scope;
       final routes = _Routes({

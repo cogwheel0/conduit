@@ -1090,8 +1090,10 @@ Future<void> _dispatchHermesRunFromChat(
   String? voiceContext,
 
   /// Cuts a Desktop session's transcript before this user row first (an
-  /// edit or a regenerate sent into the session it replaces).
+  /// edit or a regenerate sent into the session it replaces), if the session
+  /// still ends at [truncateSeenThroughRowId], as it did when it was chosen.
   int? truncateBeforeRowId,
+  int? truncateSeenThroughRowId,
 }) async {
   final releaseGeneration = holdLocalChatGeneration(ref);
   try {
@@ -1145,6 +1147,7 @@ Future<void> _dispatchHermesRunFromChat(
         lateSessionCleanupDeadline: lateSessionCleanupDeadline,
         voiceContext: voiceContext,
         truncateBeforeRowId: truncateBeforeRowId,
+        truncateSeenThroughRowId: truncateSeenThroughRowId,
       );
     } finally {
       await ownedDatabaseLease?.release();
@@ -1175,6 +1178,7 @@ Future<void> _dispatchOwnedHermesRunFromChat(
   required Duration lateSessionCleanupDeadline,
   required String? voiceContext,
   required int? truncateBeforeRowId,
+  required int? truncateSeenThroughRowId,
 }) async {
   final ChatMessagesNotifier notifier =
       ref.read(chatMessagesProvider.notifier) as ChatMessagesNotifier;
@@ -1403,6 +1407,7 @@ Future<void> _dispatchOwnedHermesRunFromChat(
       lateSessionCleanupDeadline: lateSessionCleanupDeadline,
       voiceContext: voiceContext,
       truncateBeforeRowId: truncateBeforeRowId,
+      truncateSeenThroughRowId: truncateSeenThroughRowId,
     );
   } finally {
     var primaryProjectionPersisted = !owner.usesOpenWebUiBackend;
@@ -1583,6 +1588,7 @@ Future<void> _dispatchRegisteredHermesRunFromChat(
   required Duration lateSessionCleanupDeadline,
   required String? voiceContext,
   required int? truncateBeforeRowId,
+  required int? truncateSeenThroughRowId,
 }) async {
   final configController =
       ref.read(hermesConfigProvider.notifier) as HermesConfigController;
@@ -1976,6 +1982,7 @@ Future<void> _dispatchRegisteredHermesRunFromChat(
           cancelToken: turnCancelToken,
           voiceContext: voiceContext,
           truncateBeforeRowId: truncateBeforeRowId,
+          truncateSeenThroughRowId: truncateSeenThroughRowId,
         ),
         HermesResponsesTurnService() => service.streamResponseWithReasoning(
           responseInput ?? HermesChatInput.text(input),

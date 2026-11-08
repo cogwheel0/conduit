@@ -694,6 +694,7 @@ final class HermesDesktopApiService
     CancelToken? cancelToken,
     String? voiceContext,
     int? truncateBeforeRowId,
+    int? truncateSeenThroughRowId,
   }) => _runtimeStreamDesktopResponse(
     input,
     sessionId: sessionId,
@@ -701,6 +702,7 @@ final class HermesDesktopApiService
     cancelToken: cancelToken,
     voiceContext: voiceContext,
     truncateBeforeRowId: truncateBeforeRowId,
+    truncateSeenThroughRowId: truncateSeenThroughRowId,
   );
   Future<void> interrupt(String storedId) => _runtimeInterrupt(storedId);
   Future<bool> steer(String storedId, String text) =>

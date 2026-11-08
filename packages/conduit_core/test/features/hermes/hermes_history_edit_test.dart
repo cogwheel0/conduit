@@ -37,10 +37,11 @@ final class _MockWebSocketChannel extends Mock implements WebSocketChannel {}
 final class _MockWebSocketSink extends Mock implements WebSocketSink {}
 
 final class _Refusal implements Exception {
-  const _Refusal(this.code, this.message);
+  const _Refusal(this.code, this.message, [this.data]);
 
   final int code;
   final String message;
+  final Map<String, Object?>? data;
 }
 
 /// A gateway socket: the legacy wire, or a session authority's canonical
@@ -85,7 +86,11 @@ final class _Gateway {
             jsonEncode({
               'jsonrpc': '2.0',
               'id': id,
-              'error': {'code': refusal.code, 'message': refusal.message},
+              'error': {
+                'code': refusal.code,
+                'message': refusal.message,
+                'data': ?refusal.data,
+              },
             }),
           ),
         );
@@ -735,6 +740,65 @@ void main() {
       check(submit.containsKey('truncate_before_row_id')).isFalse();
     });
 
+    // Chosen from an earlier read: a turn another app stored since then
+    // was cut along with the edited one.
+    test('a turn stored after the cut was chosen refuses it', () async {
+      final gateway = _Gateway(authority: true);
+      final rest = _Rest([
+        ..._transcript,
+        {'id': 17, 'role': 'user', 'content': 'And games?'},
+        {'id': 18, 'role': 'assistant', 'content': 'Frisbee.'},
+      ]);
+      final service = _service(gateway, rest);
+
+      final response = await service.streamDesktopResponse(
+        HermesChatInput.text('And snacks?'),
+        sessionId: 'stored-1',
+        options: const HermesDesktopSessionOptions(),
+        truncateBeforeRowId: 15,
+        truncateSeenThroughRowId: 16,
+      );
+      final events = await response.events.toList().timeout(
+        const Duration(seconds: 5),
+      );
+
+      check(events.whereType<HermesRunError>().single.message)
+          .equals('The Hermes chat changed. Try again.');
+      check(gateway.calls('session.mutate')).isEmpty();
+      check(gateway.calls('prompt.submit')).isEmpty();
+    });
+
+    // Retried at fresh fences, the cut reached a turn stored meanwhile.
+    test('a cut refused for changed fences is not sent again', () async {
+      final gateway = _Gateway(authority: true);
+      gateway.handler = (method, params) {
+        if (method == 'session.mutate') {
+          throw const _Refusal(4001, 'revision_conflict', {
+            'reason': 'revision_conflict',
+            'revision': 6,
+          });
+        }
+        return null;
+      };
+      final service = _service(gateway, _Rest(_transcript));
+
+      final response = await service.streamDesktopResponse(
+        HermesChatInput.text('And snacks?'),
+        sessionId: 'stored-1',
+        options: const HermesDesktopSessionOptions(),
+        truncateBeforeRowId: 15,
+        truncateSeenThroughRowId: 16,
+      );
+      final events = await response.events.toList().timeout(
+        const Duration(seconds: 5),
+      );
+
+      check(events.whereType<HermesRunError>().single.message)
+          .equals('The Hermes chat changed. Try again.');
+      check(gateway.calls('session.mutate')).length.equals(1);
+      check(gateway.calls('prompt.submit')).isEmpty();
+    });
+
     test('an edit into a command that sends nothing cuts nothing', () async {
       final gateway = _Gateway(authority: true);
       gateway.handler = (method, params) =>
@@ -855,6 +919,31 @@ void main() {
       );
 
       check(target).isNotNull().has((t) => t.rowId, 'rowId').equals(15);
+    });
+
+    // After an edit went through, the turn's metadata still named the text
+    // before it: a second edit looked for that text, or the new one, and
+    // found neither.
+    test('a second edit finds the text the first one stored', () async {
+      final stored = [
+        for (final row in _transcript)
+          row['id'] == 15 ? {...row, 'content': 'Snacks?'} : row,
+      ];
+      final service = _service(_Gateway(), _Rest(stored));
+      final edited = [..._chat.take(2), _message('u2', 'user', 'Games?')];
+
+      final target = await hermesDesktopRewindTarget(
+        service: service,
+        conversation: conversation,
+        messages: edited,
+        replayedUserIndex: 2,
+        originalText: 'And drinks?',
+        previousText: 'Snacks?',
+      );
+
+      check(target).isNotNull()
+        ..has((t) => t.rowId, 'rowId').equals(15)
+        ..has((t) => t.lastRowId, 'lastRowId').equals(16);
     });
 
     test('a turn that never reached the session is only sent again', () async {
@@ -1348,10 +1437,22 @@ void main() {
       final gateway = _Gateway(authority: true);
       final service = _service(gateway, _Rest(_transcript));
 
-      check(await service.undoLastTurn('stored-1', rowId: 11)).isTrue();
-      check(
-        gateway.calls('session.mutate').single['payload'] as Map,
-      ).deepEquals({'target_message_id': 11});
+      check(await service.undoLastTurn('stored-1', rowId: 15)).isTrue();
+      final rewind = gateway.calls('session.mutate').single;
+      check(rewind['payload'] as Map).deepEquals({'target_message_id': 15});
+      check(rewind['expected_revision']).equals(5);
+    });
+
+    // The row was checked before the fences were read: a turn stored in
+    // between was rewound along with it.
+    test('a turn stored after the row it checked refuses the undo', () async {
+      final gateway = _Gateway(authority: true);
+      final service = _service(gateway, _Rest(_transcript));
+
+      await check(
+        service.undoLastTurn('stored-1', rowId: 11),
+      ).throws<StateError>();
+      check(gateway.calls('session.mutate')).isEmpty();
     });
 
     test('a second undo while one runs does nothing', () async {
