@@ -4611,9 +4611,10 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                 decoration: context.conduitInputStyles
                     .borderless(hint: inputPlaceholder)
                     .copyWith(
+                      // Placeholder keeps the text's own weight; its colour
+                      // alone marks it as a hint, as native fields do.
                       hintStyle: baseChatStyle.copyWith(
                         color: animatedPlaceholder,
-                        fontWeight: FontWeight.w300,
                       ),
                       contentPadding: contentPadding,
                       isDense: true,
