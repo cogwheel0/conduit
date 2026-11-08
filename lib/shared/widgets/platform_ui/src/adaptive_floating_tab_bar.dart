@@ -43,6 +43,19 @@ const _NativeTabBarMetrics _kInlineTabBar = (platter: 44, below: 20);
 /// Point size of a tab's mark.
 const double _kTabIconSize = 22;
 
+/// How UIKit lays the platter out across the tab bar, for tabs that show
+/// only their icons: the least room it leaves on each side of the platter,
+/// and the platter's width, [ends] plus [pitch] for each tab. A wider bar
+/// centres the platter; a narrower one shrinks it to the bar less that
+/// room. Measured on iOS 27.2 from the tab frames of a two-tab bar.
+typedef _NativeTabBarSpan = ({double margin, double ends, double pitch});
+
+/// Tabs 94 points wide, overlapping by 8, with 4 points at each end.
+const _NativeTabBarSpan _kStackedTabBarSpan = (margin: 21, ends: 16, pitch: 86);
+
+/// Tabs 66 points wide, 4 points apart and from each end.
+const _NativeTabBarSpan _kInlineTabBarSpan = (margin: 38, ends: 4, pitch: 70);
+
 /// Room `CNTabBar` keeps above its bar for the selection pill, which its
 /// box includes.
 const double _kTabBarPillRoom = 14;
@@ -231,6 +244,12 @@ class AdaptiveFloatingTabBar extends StatelessWidget {
           _sizesStackedTabBar ? _kCompactTabBar : _kStackedTabBar,
       };
 
+  static _NativeTabBarSpan _nativeSpan(_NativeTabBarLayout layout) =>
+      switch (layout) {
+        _NativeTabBarLayout.inline => _kInlineTabBarSpan,
+        _NativeTabBarLayout.stacked => _kStackedTabBarSpan,
+      };
+
   @override
   Widget build(BuildContext context) {
     if (PlatformUiCapabilities.usesNativeIOS26) {
@@ -373,8 +392,13 @@ class _NativeFloatingTabBar extends StatefulWidget {
 }
 
 class _NativeFloatingTabBarState extends State<_NativeFloatingTabBar> {
-  /// The tab bar's layout, once it has measured itself.
+  /// The tab bar's layout, once it has measured itself. Only a tab bar left
+  /// to its own height measures itself: given one, it reports that height.
   _NativeTabBarLayout? _measured;
+
+  /// The layout guessed from the window when [_measured] was taken. A window
+  /// of another class lays the tab bar out again.
+  _NativeTabBarLayout? _guessed;
 
   /// The tab bar's box before it has measured itself is at most this tall.
   static const double _unmeasuredTabBarExtent = 50;
@@ -393,43 +417,24 @@ class _NativeFloatingTabBarState extends State<_NativeFloatingTabBar> {
   @override
   Widget build(BuildContext context) {
     final bar = widget.bar;
+    final guessed = AdaptiveFloatingTabBar._guessNativeLayout(context);
+    if (guessed != _guessed) {
+      // A measurement from a window of another class no longer holds.
+      _guessed = guessed;
+      _measured = null;
+    }
     // Only a mounted tab bar reports its layout, so without one a window
     // resize would otherwise leave the action sized for the old layout.
-    final guessed = AdaptiveFloatingTabBar._guessNativeLayout(context);
     final layout = bar.tabs.length >= 2 ? (_measured ?? guessed) : guessed;
     final metrics = AdaptiveFloatingTabBar._nativeMetrics(layout);
     final action = bar.action;
     return Row(
       crossAxisAlignment: CrossAxisAlignment.end,
       children: [
-        // UIKit centres the tab bar's platter in the room it is given.
         Expanded(
           child: bar.tabs.length < 2
               ? const SizedBox.shrink()
-              : _semantics(
-                  _SizeObserver(
-                    onSize: _onTabBarSize,
-                    child: CNTabBar(
-                      key: bar.tabsKey,
-                      items: [
-                        for (final tab in bar.tabs)
-                          CNTabBarItem(
-                            imageAsset: CNImageAsset(tab.nativeAsset),
-                          ),
-                      ],
-                      currentIndex: bar.selectedIndex,
-                      onTap: bar.onTap,
-                      tint: bar.selectedItemColor,
-                      shrinkCentered: false,
-                      iconSize: _kTabIconSize,
-                      height:
-                          layout == _NativeTabBarLayout.stacked &&
-                              AdaptiveFloatingTabBar._sizesStackedTabBar
-                          ? _kCompactTabBarHeight
-                          : null,
-                    ),
-                  ),
-                ),
+              : _tabBar(layout),
         ),
         Padding(
           padding: EdgeInsetsDirectional.only(
@@ -463,6 +468,69 @@ class _NativeFloatingTabBarState extends State<_NativeFloatingTabBar> {
 }
 
 extension on _NativeFloatingTabBarState {
+  /// The tab bar, its platter's leading edge [AdaptiveFloatingTabBar.edgeInset]
+  /// from the start of the window, as the header's leading button is, and any
+  /// room left over between it and the action.
+  ///
+  /// UIKit centres the platter in the bar, so the bar is made as wide as the
+  /// platter and the room UIKit keeps on each side of it, and starts that
+  /// room before the edge inset.
+  Widget _tabBar(_NativeTabBarLayout layout) {
+    final bar = widget.bar;
+    final span = AdaptiveFloatingTabBar._nativeSpan(layout);
+    final height =
+        layout == _NativeTabBarLayout.stacked &&
+            AdaptiveFloatingTabBar._sizesStackedTabBar
+        ? _kCompactTabBarHeight
+        : null;
+    final start = bar.edgeInset - span.margin;
+    final rtl = Directionality.of(context) == TextDirection.rtl;
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final width = math.min(
+          span.ends + span.pitch * bar.tabs.length + 2 * span.margin,
+          // A narrower room shrinks the platter, which keeps its edge.
+          constraints.maxWidth - start,
+        );
+        return Align(
+          alignment: AlignmentDirectional.bottomStart,
+          child: Transform.translate(
+            offset: Offset(rtl ? -start : start, 0),
+            child: SizedBox(
+              width: width,
+              child: _semantics(
+                _SizeObserver(
+                  // A tab bar given its height reports only that height.
+                  onSize: height == null ? _onTabBarSize : null,
+                  // A tab bar measures itself only when it is created: one
+                  // that stops being given a height is created again.
+                  child: KeyedSubtree(
+                    key: ValueKey<double?>(height),
+                    child: CNTabBar(
+                      key: bar.tabsKey,
+                      items: [
+                        for (final tab in bar.tabs)
+                          CNTabBarItem(
+                            imageAsset: CNImageAsset(tab.nativeAsset),
+                          ),
+                      ],
+                      currentIndex: bar.selectedIndex,
+                      onTap: bar.onTap,
+                      tint: bar.selectedItemColor,
+                      shrinkCentered: false,
+                      iconSize: _kTabIconSize,
+                      height: height,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   /// The tabs as one adjustable control: the native tabs, which show only
   /// their icons, have no names for screen readers. Adjusting it chooses a
   /// tab as a tap does.
@@ -489,7 +557,8 @@ extension on _NativeFloatingTabBarState {
 class _SizeObserver extends SingleChildRenderObjectWidget {
   const _SizeObserver({required this.onSize, required super.child});
 
-  final ValueChanged<Size> onSize;
+  /// Null reports nothing.
+  final ValueChanged<Size>? onSize;
 
   @override
   RenderObject createRenderObject(BuildContext context) =>
@@ -505,20 +574,29 @@ class _SizeObserver extends SingleChildRenderObjectWidget {
 }
 
 class _RenderSizeObserver extends RenderProxyBox {
-  _RenderSizeObserver(this.onSize);
+  _RenderSizeObserver(this._onSize);
 
-  ValueChanged<Size> onSize;
+  ValueChanged<Size>? _onSize;
   Size? _reported;
+
+  set onSize(ValueChanged<Size>? value) {
+    if (value != null && _onSize == null) {
+      // Report again to a listener that has missed the size so far.
+      _reported = null;
+      markNeedsLayout();
+    }
+    _onSize = value;
+  }
 
   @override
   void performLayout() {
     super.performLayout();
-    if (size == _reported) return;
+    if (_onSize == null || size == _reported) return;
     _reported = size;
     final reported = size;
     // Tell after this frame: layout cannot rebuild the tree.
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (attached) onSize(reported);
+      if (attached) _onSize?.call(reported);
     });
   }
 }

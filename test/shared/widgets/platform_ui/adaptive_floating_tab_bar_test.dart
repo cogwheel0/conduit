@@ -27,29 +27,33 @@ Widget _bar(
   double controlExtent = kAdaptiveFloatingBarDefaultExtent,
   double edgeInset = 16,
   double minimumBottomInset = 16,
+  TextDirection textDirection = TextDirection.ltr,
 }) => MaterialApp(
   builder: (context, child) => LegacyDesignCompatibility(child: child!),
   home: Scaffold(
     body: Align(
       alignment: Alignment.bottomCenter,
-      child: AdaptiveFloatingTabBar(
-        tabs: tabs,
-        selectedIndex: selectedIndex,
-        selectedItemColor: tint,
-        tabsSemanticLabel: 'Backend',
-        actionForegroundColor: actionForeground,
-        actionBackgroundColor: actionBackground,
-        onTap: onTap ?? (_) {},
-        action: AdaptiveFloatingBarAction(
-          label: 'New Chat',
-          icon: Icons.edit,
-          sfSymbol: 'square.and.pencil',
-          onPressed: onAction ?? () {},
+      child: Directionality(
+        textDirection: textDirection,
+        child: AdaptiveFloatingTabBar(
+          tabs: tabs,
+          selectedIndex: selectedIndex,
+          selectedItemColor: tint,
+          tabsSemanticLabel: 'Backend',
+          actionForegroundColor: actionForeground,
+          actionBackgroundColor: actionBackground,
+          onTap: onTap ?? (_) {},
+          action: AdaptiveFloatingBarAction(
+            label: 'New Chat',
+            icon: Icons.edit,
+            sfSymbol: 'square.and.pencil',
+            onPressed: onAction ?? () {},
+          ),
+          itemWidth: 72,
+          controlExtent: controlExtent,
+          edgeInset: edgeInset,
+          minimumBottomInset: minimumBottomInset,
         ),
-        itemWidth: 72,
-        controlExtent: controlExtent,
-        edgeInset: edgeInset,
-        minimumBottomInset: minimumBottomInset,
       ),
     ),
   ),
@@ -366,6 +370,96 @@ void main() {
       },
       variant: TargetPlatformVariant.only(TargetPlatform.iOS),
     );
+    testWidgets('the platter starts where the header\'s leading button does', (
+      tester,
+    ) async {
+      _phoneWindow(tester);
+      await tester.pumpWidget(_bar(const [_openWebUi, _hermes]));
+      final window = tester.getSize(find.byType(Scaffold));
+      final tabBar = find.byType(CNTabBar);
+      // UIKit keeps 21 points on each side of a stacked platter, which is
+      // 16 points plus 86 for each tab wide: the bar starts 21 points
+      // before the edge inset and is exactly that wide, so the platter
+      // starts at the inset.
+      expect(tester.getTopLeft(tabBar).dx, 16 - 21);
+      expect(tester.getSize(tabBar).width, 16 + 86 * 2 + 2 * 21);
+      // New Chat ends where the header's trailing button does, and the
+      // room left over is between them.
+      expect(
+        tester.getTopRight(find.byType(NativeGlassIconButton)).dx,
+        window.width - 16,
+      );
+      await _unmount(tester);
+    }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
+
+    testWidgets('a right-to-left window mirrors the platter and New Chat', (
+      tester,
+    ) async {
+      _phoneWindow(tester);
+      await tester.pumpWidget(
+        _bar(const [_openWebUi, _hermes], textDirection: TextDirection.rtl),
+      );
+      final window = tester.getSize(find.byType(Scaffold));
+      expect(
+        tester.getTopRight(find.byType(CNTabBar)).dx,
+        window.width - (16 - 21),
+      );
+      expect(tester.getTopLeft(find.byType(NativeGlassIconButton)).dx, 16);
+      await _unmount(tester);
+    }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
+
+    testWidgets('an iPad window starts the inline platter at the inset too', (
+      tester,
+    ) async {
+      _tabletWindow(tester);
+      await tester.pumpWidget(_bar(const [_openWebUi, _hermes]));
+      final tabBar = find.byType(CNTabBar);
+      // UIKit keeps 38 points beside an inline platter, 4 points plus 70
+      // for each tab wide.
+      expect(tester.getTopLeft(tabBar).dx, 16 - 38);
+      expect(tester.getSize(tabBar).width, 4 + 70 * 2 + 2 * 38);
+      await _unmount(tester);
+    }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
+
+    testWidgets('widening the window lays the tab bar out for the new window', (
+      tester,
+    ) async {
+      _phoneWindow(tester);
+      await tester.pumpWidget(_bar(const [_openWebUi, _hermes]));
+      // Let the tab bar report the size it was given.
+      await tester.pump();
+      await tester.pump();
+      expect(_tabBar(tester).height, 14 + 54 + 21);
+      expect(_action(tester).dimension, 54);
+      final phoneTabBar = tester.state(find.byType(CNTabBar));
+
+      // An iPad window, where UIKit lays the tab bar out inline. The size
+      // the phone's tab bar reported was only the height it was given, so
+      // it must not keep the bar stacked.
+      _tabletWindow(tester);
+      await tester.pump();
+      await tester.pump();
+      await tester.pump();
+      expect(_tabBar(tester).height, isNull);
+      expect(_action(tester).dimension, 44);
+      expect(
+        AdaptiveFloatingTabBar.extentOf(
+          tester.element(find.byType(NativeGlassIconButton)),
+        ),
+        44 + 20,
+      );
+      // A new tab bar, which measures itself instead of keeping the box of
+      // one given a height.
+      expect(tester.state(find.byType(CNTabBar)), isNot(same(phoneTabBar)));
+
+      // And back.
+      _phoneWindow(tester);
+      await tester.pump();
+      await tester.pump();
+      expect(_tabBar(tester).height, 14 + 54 + 21);
+      expect(_action(tester).dimension, 54);
+      await _unmount(tester);
+    }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
   });
 
   group('iOS 26', () {
