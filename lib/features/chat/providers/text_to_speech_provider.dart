@@ -150,7 +150,7 @@ class TextToSpeechController extends Notifier<TextToSpeechState> {
         _service.updateSettings(
           voice: next.ttsVoice,
           serverVoice: next.ttsServerVoiceId,
-          speechRate: next.ttsSpeechRate,
+          speed: next.ttsSpeed,
           pitch: next.ttsPitch,
           volume: next.ttsVolume,
           engine: next.ttsEngine,
@@ -177,7 +177,7 @@ class TextToSpeechController extends Notifier<TextToSpeechState> {
         .initialize(
           deviceVoice: settings.ttsVoice,
           serverVoice: settings.ttsServerVoiceId,
-          speechRate: settings.ttsSpeechRate,
+          speed: settings.ttsSpeed,
           pitch: settings.ttsPitch,
           volume: settings.ttsVolume,
           engine: settings.ttsEngine,

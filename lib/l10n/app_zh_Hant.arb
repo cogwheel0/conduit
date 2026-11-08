@@ -465,7 +465,17 @@
     }
   },
   "ttsVoice": "語音",
-  "ttsSpeechRate": "語速",
+  "ttsPlaybackSpeed": "播放速度",
+  "ttsSpeedValue": "{speed}×",
+  "@ttsSpeedValue": {
+    "placeholders": {
+      "speed": {
+        "type": "double",
+        "format": "decimalPattern",
+        "example": "1.25"
+      }
+    }
+  },
   "ttsPitch": "音調",
   "ttsVolume": "音量",
   "ttsPreview": "預覽語音",

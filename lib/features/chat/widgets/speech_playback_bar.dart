@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:math' as math;
 
+import 'package:conduit_core/services/settings_service.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/widgets.dart';
 
@@ -30,9 +31,9 @@ const double _barScrubberHeight = 28;
 /// Extent of the leading waveform glyph.
 const double _glyphExtent = 20;
 
-/// The most controls the expanded island's row shows: back, play/pause,
-/// forward and stop.
-const int _maxPanelActions = 4;
+/// The most controls the expanded island's row shows: speed, back,
+/// play/pause, forward and stop.
+const int _maxPanelActions = 5;
 
 /// How long a scrub rests before the reading seeks there. The native slider
 /// reports each move but not the release.
@@ -181,6 +182,33 @@ class _SpeechPlaybackBarState extends ConsumerState<SpeechPlaybackBar> {
       if (canSeek) forward,
       stop,
     ];
+    final speed = ref.watch(appSettingsProvider.select((s) => s.ttsSpeed));
+    // The setting changes the reading under way, cloud and device voices
+    // alike, and is the one Voice settings shows. The menu takes only the
+    // room the fixed controls leave, so large text cannot overflow the row.
+    Widget speedMenu({required double height, Color? tint}) => Flexible(
+      child: Semantics(
+        label: l10n.ttsPlaybackSpeed,
+        child: AdaptivePopupMenuButton.text<double>(
+          key: const ValueKey('speech-playback-speed'),
+          label: l10n.ttsSpeedValue(speed),
+          items: [
+            for (final preset in ttsSpeedPresets)
+              AdaptivePopupMenuItem<double>(
+                label: l10n.ttsSpeedValue(preset),
+                value: preset,
+                checked: preset == nearestTtsSpeed(speed),
+              ),
+          ],
+          onSelected: (_, entry) => ref
+              .read(appSettingsProvider.notifier)
+              .setTtsSpeed(entry.value ?? speed),
+          tint: tint,
+          height: height,
+          shrinkWrap: true,
+        ),
+      ),
+    );
 
     if (!PlatformUiCapabilities.usesNativeIOS26) {
       return _bar(
@@ -189,6 +217,7 @@ class _SpeechPlaybackBarState extends ConsumerState<SpeechPlaybackBar> {
         track: scrubbable
             ? SizedBox(height: _barScrubberHeight, child: track)
             : track,
+        speed: speedMenu(height: conduitScaledControlExtent(context)),
         actions: actions,
       );
     }
@@ -329,6 +358,10 @@ class _SpeechPlaybackBarState extends ConsumerState<SpeechPlaybackBar> {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                   children: [
+                    speedMenu(
+                      height: panelControlExtent,
+                      tint: theme.textPrimary,
+                    ),
                     for (final action in actions)
                       _IslandButton(action: action, extent: panelControlExtent),
                   ],
@@ -374,6 +407,7 @@ class _SpeechPlaybackBarState extends ConsumerState<SpeechPlaybackBar> {
     required ConduitThemeExtension theme,
     required Widget elapsed,
     required Widget track,
+    required Widget speed,
     required List<_PlaybackAction> actions,
   }) {
     return Padding(
@@ -409,6 +443,7 @@ class _SpeechPlaybackBarState extends ConsumerState<SpeechPlaybackBar> {
               ),
             ),
             const SizedBox(width: Spacing.sm),
+            speed,
             for (final action in actions)
               ConduitAdaptiveAppBarIconButton(
                 key: action.key,

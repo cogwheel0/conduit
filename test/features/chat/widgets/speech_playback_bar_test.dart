@@ -8,8 +8,9 @@ import 'package:conduit/shared/theme/theme_extensions.dart';
 import 'package:conduit/shared/widgets/legacy_design_compatibility.dart';
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:conduit/shared/widgets/themed_sheets.dart';
+import 'package:conduit_core/services/settings_service.dart';
 import 'package:cupertino_native_better/cupertino_native_better.dart'
-    show CNFloatingIsland;
+    show CNFloatingIsland, CNPopupMenuButton;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
@@ -21,7 +22,10 @@ Widget _harness(
   bool nativeIOS26 = false,
   double textScale = 2,
 }) => ProviderScope(
-  overrides: [textToSpeechControllerProvider.overrideWith(() => playback)],
+  overrides: [
+    textToSpeechControllerProvider.overrideWith(() => playback),
+    appSettingsProvider.overrideWith(_Settings.new),
+  ],
   child: MaterialApp(
     localizationsDelegates: conduitLocalizationsDelegates,
     supportedLocales: AppLocalizations.supportedLocales,
@@ -138,6 +142,48 @@ void main() {
           : const DefaultTestVariant(),
     );
   }
+
+  testWidgets('the bar\'s speed menu sets the speed it shows', (tester) async {
+    await tester.pumpWidget(_harness(_Playback((_) {}), textScale: 1));
+    await tester.pumpAndSettle();
+    final settings = ProviderScope.containerOf(
+      tester.element(find.byType(SpeechPlaybackBar)),
+    );
+    await tester.tap(find.text('1×'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('1.5×').last);
+    await tester.pumpAndSettle();
+    expect(settings.read(appSettingsProvider).ttsSpeed, 1.5);
+    expect(find.text('1.5×'), findsOneWidget);
+  });
+
+  testWidgets('the iOS 26 island\'s speed menu sets the speed it shows', (
+    tester,
+  ) async {
+    useNativeIOS26();
+    await tester.pumpWidget(
+      _harness(_Playback((_) {}), nativeIOS26: true, textScale: 1),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('speech-playback-expand')));
+    await tester.pumpAndSettle();
+    final settings = ProviderScope.containerOf(
+      tester.element(find.byType(SpeechPlaybackBar)),
+    );
+    CNPopupMenuButton menu() => tester.widget<CNPopupMenuButton>(
+      find.byKey(const ValueKey('speech-playback-speed')),
+    );
+    expectOnFloatingIslandGlass(
+      tester,
+      find.byKey(const ValueKey('speech-playback-speed')),
+    );
+    expect(menu().buttonLabel, '1×');
+    // 0.75×, 1×, 1.25×, 1.5×, 2×.
+    menu().onSelected!(4);
+    await tester.pumpAndSettle();
+    expect(settings.read(appSettingsProvider).ttsSpeed, 2.0);
+    expect(menu().buttonLabel, '2×');
+  }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
 
   testWidgets('a reading without a known length shows its progress, '
       'not a scrubber', (tester) async {
@@ -346,6 +392,15 @@ void main() {
     },
     variant: TargetPlatformVariant.only(TargetPlatform.iOS),
   );
+}
+
+class _Settings extends AppSettingsNotifier {
+  @override
+  AppSettings build() => const AppSettings();
+
+  @override
+  Future<void> setTtsSpeed(double speed) async =>
+      state = state.copyWith(ttsSpeed: speed);
 }
 
 class _Playback extends TextToSpeechController {

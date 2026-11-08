@@ -114,6 +114,19 @@ void main() {
   });
 
   test(
+    'a speed chosen during a reading reaches the voice playing it',
+    () async {
+      await play();
+      container.updateOverrides([
+        appSettingsProvider.overrideWithValue(const AppSettings(ttsSpeed: 1.5)),
+        textToSpeechServiceProvider.overrideWithValue(speech),
+      ]);
+      container.read(textToSpeechControllerProvider);
+      expect(speech.speeds, [1.5]);
+    },
+  );
+
+  test(
     'scrubbing during a seek follows it with only the latest position',
     () async {
       speech.seekable = true;
@@ -411,6 +424,17 @@ class _Speech extends Fake implements TextToSpeechService {
   @override
   bool get isInitialized => true;
 
+  final speeds = <double?>[];
+  @override
+  Future<void> updateSettings({
+    Object? voice,
+    Object? serverVoice,
+    double? speed,
+    double? pitch,
+    double? volume,
+    TtsEngine? engine,
+  }) async => speeds.add(speed);
+
   @override
   bool get isAvailable => true;
 
@@ -437,7 +461,7 @@ class _Speech extends Fake implements TextToSpeechService {
   Future<bool> initialize({
     String? deviceVoice,
     String? serverVoice,
-    double speechRate = 0.5,
+    double speed = 1.0,
     double pitch = 1,
     double volume = 1,
     TtsEngine engine = TtsEngine.device,

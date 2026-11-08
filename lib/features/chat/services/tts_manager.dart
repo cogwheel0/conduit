@@ -120,7 +120,7 @@ class TtsConfig {
     this.voice,
     this.serverVoice,
     this.splitOn = TtsManager.splitOnPunctuation,
-    this.speechRate = 0.5,
+    this.speed = 1.0,
     this.pitch = 1.0,
     this.volume = 1.0,
     this.preferServer = false,
@@ -129,7 +129,9 @@ class TtsConfig {
   final String? voice;
   final String? serverVoice;
   final String splitOn;
-  final double speechRate;
+
+  /// How fast speech plays, as a multiple of the voice's own pace.
+  final double speed;
   final double pitch;
   final double volume;
   final bool preferServer;
@@ -138,7 +140,7 @@ class TtsConfig {
     String? voice,
     String? serverVoice,
     String? splitOn,
-    double? speechRate,
+    double? speed,
     double? pitch,
     double? volume,
     bool? preferServer,
@@ -147,7 +149,7 @@ class TtsConfig {
       voice: voice ?? this.voice,
       serverVoice: serverVoice ?? this.serverVoice,
       splitOn: splitOn ?? this.splitOn,
-      speechRate: speechRate ?? this.speechRate,
+      speed: speed ?? this.speed,
       pitch: pitch ?? this.pitch,
       volume: volume ?? this.volume,
       preferServer: preferServer ?? this.preferServer,
@@ -172,7 +174,10 @@ class TtsManager {
   static const String splitOnPunctuation = speechSplitOnPunctuation;
   static const String splitOnParagraphs = speechSplitOnParagraphs;
   static const String splitOnNone = speechSplitOnNone;
-  static const double _serverPlaybackRate = 1.0;
+
+  /// The device engines' own pace: iOS's default utterance rate, and the
+  /// rate Android has always been given.
+  static const double _deviceBaseRate = 0.5;
 
   TtsManager._();
   static final instance = TtsManager._();
@@ -309,8 +314,10 @@ class TtsManager {
       _voiceConfigured = false;
     }
 
+    // Audio clips, from the server or rendered by the device, take the
+    // speed as they play, so a change reaches the reading under way.
     if (_playerConfigured) {
-      await _player.setSpeed(_serverPlaybackRate);
+      await _player.setSpeed(_config.speed);
     }
   }
 
@@ -373,7 +380,7 @@ class TtsManager {
         _serverCurrentIndex = index;
         _emitEvent(TtsChunkStarted(index));
       });
-      await _player.setSpeed(_serverPlaybackRate);
+      await _player.setSpeed(_config.speed);
       _playerConfigured = true;
     }
 
@@ -743,7 +750,8 @@ class TtsManager {
     final audio = await _nativeTts.synthesize(
       text: session.chunks[index],
       voiceIdentifier: _config.voice,
-      rate: _config.speechRate,
+      // Rendered at the voice's own pace; the player applies the speed.
+      rate: _deviceBaseRate,
       pitch: _config.pitch,
       volume: _config.volume,
     );
@@ -1248,7 +1256,7 @@ class TtsManager {
     final started = await _nativeTts.speak(
       text: chunk,
       voiceIdentifier: _config.voice,
-      rate: _config.speechRate,
+      rate: _deviceBaseRate * _config.speed,
       pitch: _config.pitch,
       volume: _config.volume,
       voiceCall: _voiceCallActive,

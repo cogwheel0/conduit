@@ -465,7 +465,17 @@
     }
   },
   "ttsVoice": "Stem",
-  "ttsSpeechRate": "Spraaksnelheid",
+  "ttsPlaybackSpeed": "Afspeelsnelheid",
+  "ttsSpeedValue": "{speed}×",
+  "@ttsSpeedValue": {
+    "placeholders": {
+      "speed": {
+        "type": "double",
+        "format": "decimalPattern",
+        "example": "1.25"
+      }
+    }
+  },
   "ttsPitch": "Toonhoogte",
   "ttsVolume": "Volume",
   "ttsPreview": "Stemvoorbeeld",
