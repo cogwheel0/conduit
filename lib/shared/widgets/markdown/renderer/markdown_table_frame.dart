@@ -55,6 +55,10 @@ class MarkdownTableFrame extends StatefulWidget {
     vertical: Spacing.sm + 1,
   );
 
+  /// Width of the fade at an edge that hides cell text, inside the cell
+  /// margin.
+  static const double edgeFadeExtent = 12;
+
   final List<Widget> header;
   final List<List<Widget>> rows;
   final ConduitMarkdownStyle style;
@@ -218,9 +222,11 @@ class _MarkdownTableFrameState extends State<MarkdownTableFrame> {
               ruleColor: style.tableBorderColor,
               ruleWidth: BorderWidth.thin,
               child: HorizontalOverflowFade(
-                scrollIndicatorColor: style.textPrimary.withValues(
-                  alpha: style.isDark ? 0.34 : 0.26,
-                ),
+                // Text fades out inside the cell margin instead of running
+                // into the border mid-glyph.
+                fadeExtent: MarkdownTableFrame.edgeFadeExtent,
+                edgeInset: MarkdownTableFrame.cellPadding.left,
+                scrollIndicatorColor: style.scrollIndicatorColor,
                 // Clear of the rounded corners.
                 scrollIndicatorInset: style.tableRadius,
                 builder: (context, controller) =>

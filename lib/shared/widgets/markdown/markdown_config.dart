@@ -1016,8 +1016,9 @@ class ConduitMarkdown {
 /// A fenced code block: a quiet rounded card with a header (the language,
 /// a soft-wrap toggle once a line is too long, and Copy) above the code.
 ///
-/// Long lines scroll sideways by default, with a slim indicator and a fade at
-/// the edge that hides more; the toggle wraps them inside the card instead.
+/// Long lines scroll sideways by default, fading out at the edge that hides
+/// more, with a thin indicator while they move; the toggle wraps them inside
+/// the card instead.
 class CodeBlockCard extends StatefulWidget {
   const CodeBlockCard({
     super.key,
@@ -1093,7 +1094,7 @@ class _CodeBlockCardState extends State<CodeBlockCard> {
             isDark: isDark,
             dividerColor: borderColor,
             softWrap: _softWrap,
-            scrollIndicatorColor: ink.withValues(alpha: isDark ? 0.34 : 0.26),
+            scrollIndicatorColor: markdownStyle.scrollIndicatorColor,
             scrollIndicatorInset: markdownStyle.codeBlockRadius,
             onOverflowChanged: _handleOverflowChanged,
           ),
@@ -1612,6 +1613,10 @@ class _CodeBlockBody extends StatefulWidget {
   /// Even inner padding around the code on every side.
   static const double padding = Spacing.md - Spacing.xs;
 
+  /// Width of the fade at an edge that hides part of a long line, inside the
+  /// [padding] margin.
+  static const double edgeFadeExtent = 12;
+
   /// Lines above this count trigger collapse behavior.
   static const collapseThreshold = 15;
 
@@ -1681,11 +1686,13 @@ class _CodeBlockBodyState extends State<_CodeBlockBody> {
             child: highlighted,
           )
         else
-          // Long lines scroll sideways; the edge that hides more of a line
-          // fades and a slim indicator shows where the view is, so the cut
-          // reads as "scroll for more".
+          // Long lines scroll sideways. At an edge that hides more of a line
+          // the code fades out before the padding, so no glyph is cut at the
+          // card's edge, and a thin indicator shows where the view is while
+          // it moves.
           HorizontalOverflowFade(
-            fadeExtent: _CodeBlockBody.padding * 2,
+            fadeExtent: _CodeBlockBody.edgeFadeExtent,
+            edgeInset: _CodeBlockBody.padding,
             scrollIndicatorColor: widget.scrollIndicatorColor,
             scrollIndicatorInset: widget.scrollIndicatorInset,
             onOverflowChanged: widget.onOverflowChanged,

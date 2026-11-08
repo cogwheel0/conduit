@@ -320,10 +320,9 @@ void main() {
     );
     Finder indicator() => find.descendant(
       of: find.byType(MarkdownTableFrame),
-      matching: find.byType(RawScrollbar),
+      matching: find.byType(HorizontalOverflowFade),
     );
-    Color indicatorColor() =>
-        style.textPrimary.withValues(alpha: style.isDark ? 0.34 : 0.26);
+    Color indicatorColor() => style.scrollIndicatorColor;
 
     testWidgets('a long column takes the room its narrow neighbour leaves', (
       tester,
@@ -454,8 +453,9 @@ void main() {
         chrome(),
         paints..rect(rect: headerBand, color: style.tableHeaderBackground),
       );
-      expect(indicator(), paints..rrect(color: indicatorColor()));
-      // The indicator runs in its own track below the last row.
+      // The indicator flashed when the table appeared and has faded since;
+      // it runs in its own track below the last row.
+      expect(indicator(), isNot(paints..rrect(color: indicatorColor())));
       final lastRowBottom = renderTable.getRowBox(renderTable.rows - 1).bottom;
       expect(
         frame.height - lastRowBottom,
@@ -470,7 +470,19 @@ void main() {
       expect((fade.edges as HorizontalFadeEdges).right, 1);
       expect((fade.edges as HorizontalFadeEdges).left, 0);
 
-      await tester.dragFrom(frame.center, const Offset(-1000, 0));
+      // Cell text fades out inside the cell margin.
+      final fadeWidget = tester.widget<HorizontalOverflowFade>(indicator());
+      expect(fadeWidget.edgeInset, MarkdownTableFrame.cellPadding.left);
+      expect(fadeWidget.fadeExtent, inInclusiveRange(8, 12));
+
+      final gesture = await tester.startGesture(frame.center);
+      await gesture.moveBy(const Offset(-500, 0));
+      await tester.pump();
+      await gesture.moveBy(const Offset(-500, 0));
+      await tester.pump(const Duration(milliseconds: 200));
+      // Shown while the table moves.
+      expect(indicator(), paints..rrect(color: indicatorColor()));
+      await gesture.up();
       await tester.pumpAndSettle();
       expect((fade.edges as HorizontalFadeEdges).right, 0);
       expect((fade.edges as HorizontalFadeEdges).left, 1);
@@ -479,7 +491,7 @@ void main() {
         chrome(),
         paints..rect(rect: headerBand, color: style.tableHeaderBackground),
       );
-      expect(indicator(), paints..rrect(color: indicatorColor()));
+      expect(indicator(), isNot(paints..rrect(color: indicatorColor())));
     });
   });
 

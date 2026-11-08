@@ -5,6 +5,8 @@ import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:conduit/shared/widgets/markdown/markdown_config.dart';
 import 'package:conduit/shared/widgets/markdown/renderer/block_renderer.dart';
 import 'package:conduit/shared/widgets/markdown/renderer/conduit_markdown_widget.dart';
+import 'package:conduit/shared/widgets/markdown/renderer/horizontal_overflow_fade.dart';
+import 'package:conduit/shared/widgets/markdown/renderer/markdown_style.dart';
 import 'package:conduit/shared/widgets/web_content_embed.dart';
 import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:flutter/rendering.dart' show RenderParagraph;
@@ -252,6 +254,16 @@ void main() {
       );
     });
 
+    Finder overflowFade() => find.descendant(
+      of: find.byType(CodeBlockCard),
+      matching: find.byType(HorizontalOverflowFade),
+    );
+    // The fade's state exposes its edges and indicator opacity for tests.
+    dynamic fadeState(WidgetTester tester) => tester.state(overflowFade());
+    Color indicatorColor(WidgetTester tester) => ConduitMarkdownStyle.fromTheme(
+      tester.element(find.byType(CodeBlockCard)),
+    ).scrollIndicatorColor;
+
     testWidgets('short lines show no wrap toggle or scroll indicator', (
       tester,
     ) async {
@@ -259,17 +271,114 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(wrapToggle(), findsNothing);
-      expect(find.byType(RawScrollbar), isNot(paints..rrect()));
+      expect(overflowFade(), isNot(paints..rrect()));
+      expect((fadeState(tester).edges as HorizontalFadeEdges).isFading, false);
     });
 
-    testWidgets('a long line shows an indicator and can wrap', (tester) async {
+    testWidgets('a long line fades out inside the padding, not at the edge', (
+      tester,
+    ) async {
+      await tester.pumpWidget(buildHarness('```python\n$longLine\n```'));
+      await tester.pumpAndSettle();
+
+      final fade = tester.widget<HorizontalOverflowFade>(overflowFade());
+      // Clear of the card's edge by the code's own padding, then a short
+      // fade, so no glyph is cut at the border.
+      final code = codeParagraph(tester, 'print(');
+      final card = tester.getRect(find.byType(CodeBlockCard));
+      final padding = code.localToGlobal(Offset.zero).dx - card.left;
+      expect(fade.edgeInset, closeTo(padding, 1));
+      expect(fade.fadeExtent, inInclusiveRange(8, 12));
+      final edges = fadeState(tester).edges as HorizontalFadeEdges;
+      expect(edges.right, 1);
+      expect(edges.left, 0);
+
+      // Scrolled to the end, the fade moves to the leading edge.
+      await tester.dragFrom(card.center, const Offset(-2000, 0));
+      await tester.pumpAndSettle();
+      final scrolled = fadeState(tester).edges as HorizontalFadeEdges;
+      expect(scrolled.right, 0);
+      expect(scrolled.left, 1);
+
+      // The last line keeps its bottom padding above the card's edge.
+      final text = codeParagraph(tester, 'print(');
+      final textBottom = text.localToGlobal(Offset(0, text.size.height)).dy;
+      expect(card.bottom - textBottom, inInclusiveRange(11, 13));
+    });
+
+    testWidgets(
+      'the indicator shows on appear and while scrolling, then hides',
+      (tester) async {
+        await tester.pumpWidget(buildHarness('```python\n$longLine\n```'));
+        // It flashes once when the long line first overflows.
+        var flashed = false;
+        for (var i = 0; i < 40 && !flashed; i++) {
+          await tester.pump(const Duration(milliseconds: 50));
+          if (overflowFade().evaluate().isNotEmpty &&
+              (fadeState(tester).scrollIndicatorOpacity as double) >= 1) {
+            flashed = true;
+            expect(
+              overflowFade(),
+              paints..rrect(color: indicatorColor(tester)),
+            );
+          }
+        }
+        expect(flashed, isTrue);
+        await tester.pumpAndSettle();
+        expect(fadeState(tester).scrollIndicatorOpacity, 0);
+        expect(overflowFade(), isNot(paints..rrect()));
+
+        // Held visible for as long as a drag lasts.
+        final card = tester.getRect(find.byType(CodeBlockCard));
+        final gesture = await tester.startGesture(card.center);
+        await gesture.moveBy(const Offset(-40, 0));
+        await tester.pump();
+        await gesture.moveBy(const Offset(-40, 0));
+        await tester.pump(const Duration(milliseconds: 200));
+        expect(fadeState(tester).scrollIndicatorOpacity, 1);
+        await tester.pump(const Duration(seconds: 3));
+        expect(fadeState(tester).scrollIndicatorOpacity, 1);
+        final thumb = overflowFade();
+        expect(thumb, paints..rrect(color: indicatorColor(tester)));
+
+        // Lingers briefly after the content settles, then fades away.
+        await gesture.up();
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 300));
+        expect(fadeState(tester).scrollIndicatorOpacity, 1);
+        await tester.pumpAndSettle();
+        expect(fadeState(tester).scrollIndicatorOpacity, 0);
+        expect(overflowFade(), isNot(paints..rrect()));
+      },
+    );
+
+    testWidgets('the indicator is thin and clear of the last line', (
+      tester,
+    ) async {
+      await tester.pumpWidget(buildHarness('```python\n$longLine\n```'));
+      await tester.pumpAndSettle();
+
+      final box = tester.renderObject<RenderBox>(overflowFade());
+      final code = codeParagraph(tester, 'print(');
+      final textBottom = code
+          .localToGlobal(Offset(0, code.size.height), ancestor: box)
+          .dy;
+      const thickness = HorizontalOverflowFade.scrollIndicatorThickness;
+      expect(thickness, lessThanOrEqualTo(3));
+      final thumbTop =
+          box.size.height -
+          HorizontalOverflowFade.scrollIndicatorBottomGap -
+          thickness;
+      expect(thumbTop - textBottom, greaterThanOrEqualTo(6));
+    });
+
+    testWidgets('a long line can wrap', (tester) async {
       await tester.pumpWidget(buildHarness('```python\n$longLine\n```'));
       await tester.pumpAndSettle();
 
       final card = tester.getRect(find.byType(CodeBlockCard));
       final unwrapped = codeParagraph(tester, 'print(');
       expect(unwrapped.size.width, greaterThan(card.width));
-      expect(find.byType(RawScrollbar), paints..rrect());
       expect(wrapToggle(), findsOneWidget);
       expect(
         tester.getSemantics(wrapToggle()),
