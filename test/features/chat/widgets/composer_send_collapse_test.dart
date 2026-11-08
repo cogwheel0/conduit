@@ -9,6 +9,7 @@ Widget _harness({
   required int token,
   required double contentHeight,
   bool disableAnimations = false,
+  bool holding = false,
   VoidCallback? onDone,
 }) {
   return MediaQuery(
@@ -20,6 +21,7 @@ Widget _harness({
         child: ComposerSendCollapse(
           key: _box,
           token: token,
+          holding: holding,
           onDone: onDone,
           child: SizedBox(key: _content, width: 300, height: contentHeight),
         ),
@@ -64,6 +66,32 @@ void main() {
     await tester.pumpAndSettle();
     expect(tester.getSize(find.byKey(_box)).height, 44);
     expect(done, 1);
+  });
+
+  testWidgets('while the sent words are still in it, it keeps its height '
+      'even as its field clears, then closes from there', (tester) async {
+    await tester.pumpWidget(_harness(token: 0, contentHeight: 96));
+    await tester.pumpWidget(
+      _harness(token: 0, contentHeight: 96, holding: true),
+    );
+    // The field clears under the flying words: the composer holds.
+    await tester.pumpWidget(
+      _harness(token: 0, contentHeight: 44, holding: true),
+    );
+    await tester.pump(const Duration(milliseconds: 200));
+    expect(tester.getSize(find.byKey(_box)).height, 96);
+    expect(
+      tester.getBottomLeft(find.byKey(_content)).dy,
+      tester.getBottomLeft(find.byKey(_box)).dy,
+    );
+
+    // The words have left: it closes on the spring from the held height.
+    await tester.pumpWidget(_harness(token: 1, contentHeight: 44));
+    expect(tester.getSize(find.byKey(_box)).height, 96);
+    await tester.pump(const Duration(milliseconds: 80));
+    expect(tester.getSize(find.byKey(_box)).height, inExclusiveRange(44, 96));
+    await tester.pumpAndSettle();
+    expect(tester.getSize(find.byKey(_box)).height, 44);
   });
 
   testWidgets('typing changes the height directly', (tester) async {

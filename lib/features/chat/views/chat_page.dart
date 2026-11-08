@@ -533,6 +533,12 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       );
   bool _showScrollToBottom = false;
 
+  /// A send is on its way: the scroll-to-latest button stays hidden until
+  /// the new turn takes over the transcript (or the send does not go
+  /// through), and leaves quickly.
+  bool _sendHidesScrollToLatest = false;
+  Timer? _sendScrollToLatestHideTimer;
+
   /// Whether the transcript has scrolled under the header, so the header
   /// names the chat above its model.
   final ValueNotifier<bool> _headerShowsTitle = ValueNotifier<bool>(false);
@@ -1059,6 +1065,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     _timelineViewportController.dispose();
     _headerShowsTitle.dispose();
     _newChatActionsHoldTimer?.cancel();
+    _sendScrollToLatestHideTimer?.cancel();
     _scrollToLatestPresence.dispose();
     _topEdgeEngagement.dispose();
     _bottomEdgeEngagement.dispose();
@@ -1341,6 +1348,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     _pinPrepositionAttempted = false;
     _pinLifecycleReconciliationGeneration = null;
     _timelineScrollMode = _ChatTimelineScrollMode.anchoringNewTurn;
+    // The pinned turn keeps the button hidden from here until it is placed.
+    _sendHidesScrollToLatest = false;
     setState(() {
       // A new chat's first message: the greeting leaves as it arrives.
       if (settleImmediately) _greetingExiting = true;
@@ -1388,6 +1397,9 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     }
     final sendOwner = _messageSendAdmission.tryAcquire();
     if (sendOwner == null) return (admitted: false, dispatched: false);
+    // The transcript is about to bring the new turn up, so the way down to
+    // the latest goes at once, before the message rises past it.
+    _hideScrollToLatestForSend();
     if (mounted) setState(() {});
     late final bool dispatched;
     try {
@@ -1402,8 +1414,34 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       );
     } finally {
       _releaseMessageSendAdmission(sendOwner);
+      _endSendScrollToLatestHide();
     }
     return (admitted: true, dispatched: dispatched);
+  }
+
+  /// Hides the scroll-to-latest button from the tap on Send until the new
+  /// turn takes over the transcript (it keeps the button hidden while it
+  /// comes up), with a quick fade rather than its usual spring.
+  void _hideScrollToLatestForSend() {
+    if (!mounted) return;
+    _sendHidesScrollToLatest = true;
+    if (_showScrollToBottom) setState(() => _showScrollToBottom = false);
+    // A send the composer gives up on before it reaches the page must not
+    // keep the button away for good.
+    _sendScrollToLatestHideTimer?.cancel();
+    _sendScrollToLatestHideTimer = Timer(const Duration(seconds: 2), () {
+      if (!_messageSendAdmission.isHeld) _endSendScrollToLatestHide();
+    });
+  }
+
+  /// The send has taken over the transcript or did not go through: the
+  /// button follows the transcript again.
+  void _endSendScrollToLatestHide() {
+    _sendScrollToLatestHideTimer?.cancel();
+    _sendScrollToLatestHideTimer = null;
+    if (!_sendHidesScrollToLatest) return;
+    _sendHidesScrollToLatest = false;
+    if (mounted) _scheduleScrollToBottomVisibilitySync();
   }
 
   Future<bool> _sendMessageAfterAdmission(
@@ -2238,6 +2276,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     required double distanceFromLatest,
   }) {
     if (!_timelineViewportController.hasClients) return false;
+    if (_sendHidesScrollToLatest) return false;
     return debugShouldExposeScrollToLatestForTesting(
       hasScrollableContent: hasScrollableContent,
       pinAutoFollowing: _shouldAutoFollowPinnedTurn,
@@ -4327,6 +4366,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                   return ModernChatInput(
                     onSendMessage: _handleMessageSend,
                     onSendDraft: _handleDraftSend,
+                    onSendStarted: _hideScrollToLatestForSend,
                     onCompareSend: _handleCompareSend,
                     enabled: debugCanSubmitChatMessageForTesting(
                       isLoadingConversation: isLoadingConversation,
@@ -4550,6 +4590,11 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                       return ChatScrollToLatestButton(
                         key: const ValueKey('scroll_to_bottom'),
                         visible: visible,
+                        // Sending: gone in a blink, before the message
+                        // rises past it.
+                        quickExit:
+                            _sendHidesScrollToLatest ||
+                            (_wantsPinToTop && !_pinnedTurnPlaced),
                         dimension: _kScrollToLatestButtonSize,
                         // iOS raises its soft scroll edge to hold the button.
                         presence: PlatformInfo.isIOS

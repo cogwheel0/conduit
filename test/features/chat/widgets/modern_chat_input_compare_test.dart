@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:conduit/features/chat/widgets/chat_send_motion.dart';
 import 'package:conduit/features/chat/widgets/composer_overflow_menu.dart';
 import 'package:conduit/features/chat/widgets/modern_chat_input.dart';
 import 'package:conduit/features/chat/providers/composer_draft_provider.dart';
@@ -381,8 +382,11 @@ void main() {
     await settle(tester);
 
     // Handed off but not yet admitted: the draft is still the composer's
-    // (a refusal would show it again), yet the composer already lays out
-    // as empty, one line high, and the keyboard has gone.
+    // (a refusal would show it again), yet once its words have gone (here
+    // no bubble takes them, so it stops waiting) the composer lays out as
+    // empty, one line high, and the keyboard has gone.
+    await tester.pump(ModernChatInput.sentWordsHoldLimit);
+    await settle(tester);
     expect(composerText(tester), typed);
     expect(
       find.byKey(const ValueKey('compact-composer-shell')),
@@ -394,6 +398,78 @@ void main() {
     admission.complete();
     await settle(tester);
     expect(composerText(tester), isEmpty);
+  });
+
+  composerTest('while the sent words fly out, the composer keeps its shape '
+      'and shows no placeholder; once they have left it closes up and the '
+      'placeholder fades in', (tester) async {
+    ChatSendTakenOrigin? taken;
+    late ProviderContainer container;
+    container = await pump(
+      tester,
+      draftHost: (text, onPrepared) async {
+        ChatSendPlaceholderHandle? committed;
+        await durableSend(
+          container,
+          text,
+          null,
+          onAssistantPlaceholderCreated: (handle) {
+            onPrepared(handle);
+            // The new row's flying bubble takes the words.
+            taken = ChatSendOrigin.takeFollowing();
+            committed = handle;
+          },
+        );
+        return committed;
+      },
+    );
+    const typed = 'First line\nSecond line\nThird line';
+    await tester.tap(find.byType(TextField));
+    await tester.enterText(find.byType(TextField), typed);
+    await tester.pump();
+    await tester.pump();
+    final shell = find.byKey(const ValueKey('composer-native-shell'));
+    final draftHeight = tester.getSize(shell).height;
+
+    await tester.tap(find.byKey(const ValueKey('primary-btn-send')));
+    for (
+      var i = 0;
+      i < 20 && (taken == null || composerText(tester) != '');
+      i++
+    ) {
+      await tester.pump(const Duration(milliseconds: 16));
+      await tester.runAsync(() => Future<void>.delayed(Duration.zero));
+    }
+    await tester.pump(const Duration(milliseconds: 200));
+
+    // The turn is admitted and the field has cleared, but the words are
+    // still on their way out: same rows, same height, no placeholder.
+    expect(taken, isNotNull);
+    expect(taken!.line?.last, isTrue);
+    expect(taken!.clearanceTop, isNotNull);
+    expect(composerText(tester), isEmpty);
+    expect(
+      find.byKey(const ValueKey('expanded-composer-shell')),
+      findsOneWidget,
+    );
+    expect(tester.getSize(shell).height, draftHeight);
+    final field = tester.widget<TextField>(find.byType(TextField));
+    expect(field.decoration!.hintStyle!.color!.a, 0);
+
+    // They have left: it closes on the spring and the placeholder fades in.
+    taken!.departure!.depart();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 60));
+    expect(
+      find.byKey(const ValueKey('compact-composer-shell')),
+      findsOneWidget,
+    );
+    expect(tester.getSize(shell).height, lessThan(draftHeight));
+    final fading = tester.widget<TextField>(find.byType(TextField));
+    expect(fading.decoration!.hintStyle!.color!.a, inExclusiveRange(0, 1));
+    await settle(tester);
+    final settled = tester.widget<TextField>(find.byType(TextField));
+    expect(settled.decoration!.hintStyle!.color!.a, greaterThan(0.3));
   });
 
   composerTest('a screen that cannot admit a comparison offers no Compare '

@@ -12,6 +12,7 @@ void main() {
     WidgetTester tester, {
     required bool visible,
     bool disableAnimations = false,
+    bool quickExit = false,
   }) {
     return tester.pumpWidget(
       MaterialApp(
@@ -22,6 +23,7 @@ void main() {
             body: Center(
               child: ChatScrollToLatestButton(
                 visible: visible,
+                quickExit: quickExit,
                 dimension: 40,
                 child: const SizedBox.square(key: buttonKey, dimension: 40),
               ),
@@ -101,6 +103,19 @@ void main() {
     );
     check(ignore.ignoring).isTrue();
     await tester.pumpAndSettle();
+    expect(find.byKey(buttonKey), findsNothing);
+  });
+
+  testWidgets('a send takes it away within a tenth of a second', (
+    tester,
+  ) async {
+    await pumpButton(tester, visible: true);
+    await pumpButton(tester, visible: false, quickExit: true);
+    await tester.pump(const Duration(milliseconds: 50));
+    // Mostly gone by mid-fade, before a rising message could reach it.
+    check(opacity(tester)).isLessThan(0.5);
+    await tester.pump(ChatScrollToLatestButton.quickExitDuration);
+    await tester.pump();
     expect(find.byKey(buttonKey), findsNothing);
   });
 
