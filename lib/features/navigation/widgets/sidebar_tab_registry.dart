@@ -62,6 +62,9 @@ final class SidebarTabDescriptor {
   final SidebarTabBodyBuilder bodyBuilder;
   final IconData materialIcon;
   final IconData selectedMaterialIcon;
+
+  /// SF Symbols for the iOS tab bar. Tab bars use the filled variant in both
+  /// states, as iOS apps do; the tint and selection pill mark the current tab.
   final String sfSymbol;
   final String selectedSfSymbol;
   final SidebarTabVisibilityPredicate isVisible;
@@ -157,7 +160,7 @@ const sidebarTabRegistry = <SidebarTabDescriptor>[
     bodyBuilder: _chatsBody,
     materialIcon: Icons.chat_bubble_outline,
     selectedMaterialIcon: Icons.chat_bubble,
-    sfSymbol: 'bubble.left',
+    sfSymbol: 'bubble.left.fill',
     selectedSfSymbol: 'bubble.left.fill',
     isVisible: _chatsVisible,
     createAction: chatSidebarCreateAction,
@@ -185,7 +188,7 @@ const sidebarTabRegistry = <SidebarTabDescriptor>[
     bodyBuilder: _notesBody,
     materialIcon: Icons.note_outlined,
     selectedMaterialIcon: Icons.note,
-    sfSymbol: 'doc.text',
+    sfSymbol: 'doc.text.fill',
     selectedSfSymbol: 'doc.text.fill',
     isVisible: _notesVisible,
     createAction: noteSidebarCreateAction,
@@ -197,8 +200,8 @@ const sidebarTabRegistry = <SidebarTabDescriptor>[
     bodyBuilder: _terminalBody,
     materialIcon: Icons.terminal_rounded,
     selectedMaterialIcon: Icons.terminal,
-    sfSymbol: 'terminal',
-    selectedSfSymbol: 'terminal',
+    sfSymbol: 'terminal.fill',
+    selectedSfSymbol: 'terminal.fill',
     isVisible: _terminalVisible,
     behavior: terminalSidebarTabBehavior,
   ),

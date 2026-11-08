@@ -14,6 +14,7 @@ class SidebarIos26Scaffold extends StatelessWidget {
     this.bottomNavigationBar,
     required this.body,
     this.leading,
+    this.middle,
     this.actions,
     this.showNativeView = true,
   });
@@ -21,6 +22,9 @@ class SidebarIos26Scaffold extends StatelessWidget {
   final AdaptiveBottomNavigationBar? bottomNavigationBar;
   final Widget body;
   final Widget? leading;
+
+  /// A centred title, such as the list title once it scrolls under the bar.
+  final Widget? middle;
   final List<AdaptiveAppBarAction>? actions;
   final bool showNativeView;
 
@@ -65,6 +69,7 @@ class SidebarIos26Scaffold extends StatelessWidget {
           ? ConduitAdaptiveCupertinoNavigationBar(
               textScaler: MediaQuery.textScalerOf(context),
               leading: leading ?? const SizedBox.shrink(),
+              middle: middle,
               trailing: toolbarActions.isEmpty
                   ? null
                   : SizedBox(
@@ -87,9 +92,12 @@ class SidebarIos26Scaffold extends StatelessWidget {
               left: 0,
               right: 0,
               top: 0,
+              // Rows pass under the status bar and the glass toolbar, so the
+              // edge holds the surface behind them and only softens below.
               child: ConduitChromeGradientFade.top(
                 contentHeight:
                     safePadding.top + conduitAdaptiveToolbarHeightOf(context),
+                solidBehindChrome: true,
               ),
             ),
           if (renderedBottomNavigation != null)
