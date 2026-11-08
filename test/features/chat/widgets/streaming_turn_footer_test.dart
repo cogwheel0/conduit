@@ -174,6 +174,10 @@ void main() {
       tester.getSize(find.byType(ReplyFirstLineThinking)).height,
       greaterThanOrEqualTo(tester.getSize(find.byKey(lineKey)).height),
     );
+    // The label is gone well before the first words finish fading in, so the
+    // two lines never read through each other.
+    await tester.pump(ReplyFirstLineThinking.exitDuration);
+    expect(label, findsNothing);
     await tester.pumpAndSettle();
     expect(label, findsNothing);
   });

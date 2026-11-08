@@ -297,6 +297,11 @@ class ReplyFirstLineThinking extends StatelessWidget {
   final Widget child;
 
   static const Duration fadeDuration = Duration(milliseconds: 150);
+
+  /// The label leaves almost at once when the first words arrive: they fade
+  /// in at the same place, and two lines of text fading through each other
+  /// read as garbled for those frames.
+  static const Duration exitDuration = Duration(milliseconds: 60);
   static const Key labelKey = ValueKey('reply-first-line-thinking');
 
   @override
@@ -308,6 +313,7 @@ class ReplyFirstLineThinking extends StatelessWidget {
         child,
         AnimatedSwitcher(
           duration: reduceMotion ? Duration.zero : fadeDuration,
+          reverseDuration: reduceMotion ? Duration.zero : exitDuration,
           switchInCurve: Curves.easeOut,
           switchOutCurve: Curves.easeIn,
           layoutBuilder: (currentChild, previousChildren) => Stack(
