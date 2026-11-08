@@ -11,6 +11,7 @@ import 'package:conduit/shared/widgets/themed_sheets.dart';
 import 'package:conduit_core/services/settings_service.dart';
 import 'package:cupertino_native_better/cupertino_native_better.dart'
     show CNFloatingIsland, CNPopupMenuButton;
+import 'package:cupertino_ui/cupertino_ui.dart' show CupertinoSlider;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
@@ -154,6 +155,44 @@ void main() {
           : const DefaultTestVariant(),
     );
   }
+
+  testWidgets(
+    'a tap anywhere on the track seeks there before iOS 26, where the '
+    'Cupertino slider answers only near its thumb',
+    (tester) async {
+      PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.iOS;
+      PlatformUiCapabilities.debugIOSMajorVersionOverride = 18;
+      PlatformUiCapabilities.debugNativeIOS26Override = false;
+      addTearDown(PlatformUiCapabilities.resetDebugOverrides);
+      final actions = <String>[];
+      await tester.pumpWidget(
+        _harness(
+          _Playback(
+            actions.add,
+            elapsed: const Duration(seconds: 30),
+            duration: const Duration(minutes: 1),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final track = tester.getRect(
+        find.descendant(
+          of: find.byKey(const ValueKey('speech-playback-scrubber')),
+          matching: find.byType(AdaptiveSlider),
+        ),
+      );
+      expect(find.byType(CupertinoSlider), findsOneWidget);
+
+      // Well away from the thumb, which sits halfway along.
+      await tester.tapAt(
+        Offset(track.left + track.width * .75, track.center.dy),
+      );
+      await tester.pump(const Duration(milliseconds: 250));
+      expect(actions, ['seek:45']);
+      await tester.pumpAndSettle();
+    },
+    variant: TargetPlatformVariant.only(TargetPlatform.iOS),
+  );
 
   testWidgets('the bar\'s speed menu sets the speed it shows', (tester) async {
     await tester.pumpWidget(_harness(_Playback((_) {}), textScale: 1));
