@@ -331,6 +331,11 @@ void main() {
         find.textContaining('python3 -m http.server 8000'),
         findsNWidgets(2),
       );
+      // Hermes cannot promise that every child stops.
+      expect(
+        find.textContaining('Some processes may keep running.'),
+        findsOneWidget,
+      );
       await tester.tap(find.text('Cancel'));
       await tester.pumpAndSettle();
       check(work.killed).isEmpty();
@@ -392,7 +397,7 @@ void main() {
       await tester.pumpAndSettle();
       check(work.steered).deepEquals([('sa-1', 'Only check May')]);
       expect(
-        find.text('Sent. The agent reads it at its next step.'),
+        find.text('Queued. The agent reads it only if it takes another step.'),
         findsOneWidget,
       );
       check(tester.widget<EditableText>(steerField()).controller.text)

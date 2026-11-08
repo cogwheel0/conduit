@@ -10535,9 +10535,9 @@
   "@hermesSubagentSteer": {
     "description": "Button that sends the typed message to a running subagent, to change its course."
   },
-  "hermesSubagentSteerQueued": "Sent. The agent reads it at its next step.",
+  "hermesSubagentSteerQueued": "Queued. The agent reads it only if it takes another step.",
   "@hermesSubagentSteerQueued": {
-    "description": "Shown after a message to a subagent was accepted: it is read at the subagent's next step."
+    "description": "Shown after a message to a subagent was queued: the subagent reads it only if it takes another step."
   },
   "hermesSubagentSteerRejected": "This agent no longer takes instructions.",
   "@hermesSubagentSteerRejected": {
@@ -10567,9 +10567,9 @@
   "@hermesProcessKillTitle": {
     "description": "Title of the dialog confirming that a background process should be killed."
   },
-  "hermesProcessKillMessage": "Hermes stops this command and anything it started:\n{command}",
+  "hermesProcessKillMessage": "Hermes will try to stop this command and anything it started:\n{command}\nSome processes may keep running.",
   "@hermesProcessKillMessage": {
-    "description": "Body of the dialog confirming that a background process should be killed, followed by its command.",
+    "description": "Body of the dialog confirming that a background process should be killed: its command, then a note that some processes may keep running.",
     "placeholders": {
       "command": {
         "type": "String"
