@@ -3405,6 +3405,7 @@
   "hermesTurnSendNext": "Отправить следующее",
   "hermesTurnControlsUnsupported": "Обновите Hermes, чтобы включить безопасное управление ходами.",
   "sidebarHermesTab": "Hermes",
+  "sidebarBackendSwitcher": "Бэкенд",
   "markdownShowMoreLines": "Показать ещё {count, plural, one{{count} строку} few{{count} строки} many{{count} строк} other{{count} строк}}",
   "@markdownShowMoreLines": {
     "placeholders": {

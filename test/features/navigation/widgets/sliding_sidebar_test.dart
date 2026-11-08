@@ -583,6 +583,7 @@ void main() {
   // checked either way.
   testWidgets('iOS 26 draws the backends as the system tab bar beside a '
       'glass New Chat', (tester) async {
+    final semantics = tester.ensureSemantics();
     stubNativePlatformViews();
     PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.iOS;
     PlatformUiCapabilities.debugIOSMajorVersionOverride = 26;
@@ -629,10 +630,8 @@ void main() {
     );
     final theme = tester.element(bar).conduitTheme;
 
-    expect(
-      [for (final item in tabBar().items) item.label],
-      ['Open WebUI', 'Hermes'],
-    );
+    // Icons only; screen readers get the names from one adjustable control.
+    expect([for (final item in tabBar().items) item.label], [null, null]);
     expect(
       [for (final item in tabBar().items) item.imageAsset?.assetPath],
       ['assets/icons/open_webui_tab.png', 'assets/icons/hermes_agent.png'],
@@ -649,8 +648,8 @@ void main() {
     expect(action.symbol.name, 'square.and.pencil');
     expect(action.symbol.color, theme.textPrimary);
 
-    // The test window is as wide as a tablet's, where UIKit puts each tab's
-    // icon beside its label on a 44 point platter, 20 points up. New Chat
+    // The test window is as wide as a tablet's, where UIKit lays the tab bar
+    // out inline, on a 44 point platter, 20 points up. New Chat
     // takes the platter's size and place, under the header's search button,
     // and the history keeps their room clear.
     final surface = find.byKey(const ValueKey<String>('sidebar-page-surface'));
@@ -678,6 +677,21 @@ void main() {
     await tester.pump();
     expect(container.read(sidebarHistoryTabProvider), SidebarTabId.hermes);
     expect(haptics, hasLength(1));
+    // Screen readers adjust the backend, which switches as a tap does.
+    expect(
+      tester.getSemantics(find.bySemanticsLabel('Backend')),
+      matchesSemantics(
+        label: 'Backend',
+        value: 'Hermes',
+        decreasedValue: 'Open WebUI',
+        hasDecreaseAction: true,
+      ),
+    );
+    tester.semantics.decrease(find.semantics.byLabel('Backend'));
+    await tester.pump();
+    expect(container.read(sidebarHistoryTabProvider), SidebarTabId.chats);
+    expect(tabBar().currentIndex, 0);
+    expect(haptics, hasLength(2));
     // New Chat stays the action of the Hermes history, outside the tabs.
     expect(tabBar().items, hasLength(2));
     expect(
@@ -685,6 +699,7 @@ void main() {
       'square.and.pencil',
     );
     expect(tester.takeException(), isNull);
+    semantics.dispose();
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pumpAndSettle();
   });

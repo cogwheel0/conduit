@@ -424,8 +424,8 @@ void main() {
         find.descendant(of: bar, matching: find.byType(CNTabBar)),
       );
       expect(
-        [for (final item in tabs.items) item.label],
-        ['Open WebUI', 'Hermes'],
+        [for (final item in tabs.items) item.imageAsset?.assetPath],
+        ['assets/icons/open_webui_tab.png', 'assets/icons/hermes_agent.png'],
       );
       expect(tabs.currentIndex, 0);
       await tester.pumpWidget(const SizedBox.shrink());

@@ -36,6 +36,7 @@ Widget _bar(
         tabs: tabs,
         selectedIndex: selectedIndex,
         selectedItemColor: tint,
+        tabsSemanticLabel: 'Backend',
         actionForegroundColor: actionForeground,
         actionBackgroundColor: actionBackground,
         onTap: onTap ?? (_) {},
@@ -54,13 +55,13 @@ Widget _bar(
   ),
 );
 
-/// Draws the bar as on iOS 26. The package itself picks its native tab bar
-/// or its Flutter one from the real platform, so tests read the tab bar's
-/// configuration rather than the view it creates.
-void _simulateIOS26() {
+/// Draws the bar as on iOS [major], 26 or later. The package itself picks
+/// its native tab bar or its Flutter one from the real platform, so tests
+/// read the tab bar's configuration rather than the view it creates.
+void _simulateIOS(int major) {
   stubNativePlatformViews();
   PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.iOS;
-  PlatformUiCapabilities.debugIOSMajorVersionOverride = 26;
+  PlatformUiCapabilities.debugIOSMajorVersionOverride = major;
   PlatformUiCapabilities.debugNativeIOS26Override = true;
 }
 
@@ -184,49 +185,91 @@ void main() {
     });
   });
 
-  group('iOS 26', () {
-    setUp(_simulateIOS26);
+  group('iOS 27', () {
+    setUp(() => _simulateIOS(27));
     tearDown(PlatformUiCapabilities.resetDebugOverrides);
 
-    testWidgets('the tabs are the system tab bar and New Chat a glass button', (
+    testWidgets(
+      'the tabs are a 54 point tab bar of icons beside a glass New Chat',
+      (tester) async {
+        _phoneWindow(tester);
+        const tint = Color(0xFF3366FF);
+        const glyph = Color(0xFF202020);
+        await tester.pumpWidget(
+          _bar(
+            const [_openWebUi, _hermes],
+            selectedIndex: 1,
+            tint: tint,
+            actionForeground: glyph,
+          ),
+        );
+        expect(find.byType(NavigationBar), findsNothing);
+        expect(find.byType(FloatingActionButton), findsNothing);
+
+        final tabBar = _tabBar(tester);
+        // Icons only: the brand marks, so each backend keeps its own.
+        expect([for (final item in tabBar.items) item.label], [null, null]);
+        expect(
+          [for (final item in tabBar.items) item.imageAsset?.assetPath],
+          ['assets/icons/open_webui_tab.png', 'assets/icons/hermes_agent.png'],
+        );
+        expect(tabBar.iconSize, 22);
+        expect(tabBar.currentIndex, 1);
+        expect(tabBar.tint, tint);
+        // One capsule of tabs: New Chat is not one of them.
+        expect(tabBar.split, isFalse);
+        // 14 points for the selection pill, the 54 point platter, and the
+        // 21 points UIKit leaves below it.
+        expect(tabBar.height, 14 + 54 + 21);
+
+        final action = _action(tester);
+        expect(action.symbol.name, 'square.and.pencil');
+        expect(action.symbol.color, glyph);
+        expect(action.dimension, 54);
+        expect(action.symbol.size, 18 * 54 / 44);
+        await _unmount(tester);
+      },
+      variant: TargetPlatformVariant.only(TargetPlatform.iOS),
+    );
+
+    testWidgets('screen readers find the tabs as one adjustable control', (
       tester,
     ) async {
       _phoneWindow(tester);
-      const tint = Color(0xFF3366FF);
-      const glyph = Color(0xFF202020);
+      final semantics = tester.ensureSemantics();
+      final taps = <int>[];
       await tester.pumpWidget(
-        _bar(
-          const [_openWebUi, _hermes],
-          selectedIndex: 1,
-          tint: tint,
-          actionForeground: glyph,
+        _bar(const [_openWebUi, _hermes], onTap: taps.add),
+      );
+      final backend = find.semantics.byLabel('Backend');
+      expect(
+        tester.getSemantics(find.bySemanticsLabel('Backend')),
+        matchesSemantics(
+          label: 'Backend',
+          value: 'Open WebUI',
+          increasedValue: 'Hermes',
+          hasIncreaseAction: true,
         ),
       );
-      expect(find.byType(NavigationBar), findsNothing);
-      expect(find.byType(FloatingActionButton), findsNothing);
+      // Adjusting it chooses the next tab, as a tap does.
+      tester.semantics.increase(backend);
+      expect(taps, [1]);
 
-      final tabBar = _tabBar(tester);
-      expect(
-        [for (final item in tabBar.items) item.label],
-        ['Open WebUI', 'Hermes'],
+      await tester.pumpWidget(
+        _bar(const [_openWebUi, _hermes], selectedIndex: 1, onTap: taps.add),
       );
-      // The brand marks, not symbols, so each backend keeps its own.
       expect(
-        [for (final item in tabBar.items) item.imageAsset?.assetPath],
-        ['assets/icons/open_webui_tab.png', 'assets/icons/hermes_agent.png'],
+        tester.getSemantics(find.bySemanticsLabel('Backend')),
+        matchesSemantics(
+          label: 'Backend',
+          value: 'Hermes',
+          decreasedValue: 'Open WebUI',
+          hasDecreaseAction: true,
+        ),
       );
-      expect(tabBar.currentIndex, 1);
-      expect(tabBar.tint, tint);
-      // One capsule of tabs: New Chat is not one of them.
-      expect(tabBar.split, isFalse);
-      expect(tabBar.iconSize, isNull);
-
-      final action = _action(tester);
-      expect(action.symbol.name, 'square.and.pencil');
-      expect(action.symbol.color, glyph);
-      // As tall as the tab bar's platter, with a symbol scaled to match.
-      expect(action.dimension, 62);
-      expect(action.symbol.size, 18 * 62 / 44);
+      tester.semantics.decrease(backend);
+      expect(taps, [1, 0]);
+      semantics.dispose();
       await _unmount(tester);
     }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
 
@@ -254,9 +297,7 @@ void main() {
         expect(_tabBar(tester).currentIndex, 0);
         // A button of its own, read as one control.
         expect(
-          tester.getSemantics(
-            find.byWidget(_action(tester)).hitTestable().first,
-          ),
+          tester.getSemantics(find.bySemanticsLabel('New Chat')),
           matchesSemantics(
             label: 'New Chat',
             isButton: true,
@@ -273,7 +314,7 @@ void main() {
       _phoneWindow(tester);
       await tester.pumpWidget(_bar(const [_openWebUi]));
       expect(find.byType(CNTabBar), findsNothing);
-      expect(_action(tester).dimension, 62);
+      expect(_action(tester).dimension, 54);
 
       // A second backend brings the tab bar in beside it.
       await tester.pumpWidget(_bar(const [_openWebUi, _hermes]));
@@ -281,7 +322,7 @@ void main() {
       await _unmount(tester);
     }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
 
-    testWidgets('on a phone New Chat sits on the platter UIKit lays out', (
+    testWidgets('on a phone New Chat sits on the 54 point platter', (
       tester,
     ) async {
       _phoneWindow(tester);
@@ -290,33 +331,33 @@ void main() {
       );
       final window = tester.getSize(find.byType(Scaffold));
       final action = find.byType(NativeGlassIconButton);
-      // UIKit leaves 21 points under a phone's 62 point platter, at every
-      // text size and in landscape.
+      // UIKit leaves 21 points under a phone's platter, at every text size
+      // and in landscape.
       expect(tester.getBottomRight(action).dy, window.height - 21);
       expect(tester.getBottomRight(action).dx, window.width - 16);
-      expect(tester.getSize(action), const Size.square(62));
+      expect(tester.getSize(action), const Size.square(54));
       expect(
         AdaptiveFloatingTabBar.extentOf(
           tester.element(action),
           controlExtent: 66,
           minimumBottomInset: 8,
         ),
-        62 + 21,
+        54 + 21,
       );
       await _unmount(tester);
     }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
 
     testWidgets(
-      'in an iPad window the platter is shorter and the marks smaller',
+      'in an iPad window the tab bar keeps UIKit\'s smaller inline platter',
       (tester) async {
         _tabletWindow(tester);
         await tester.pumpWidget(_bar(const [_openWebUi, _hermes]));
         final window = tester.getSize(find.byType(Scaffold));
         final action = find.byType(NativeGlassIconButton);
+        expect(_tabBar(tester).height, isNull);
         expect(tester.getBottomRight(action).dy, window.height - 20);
         expect(tester.getSize(action), const Size.square(44));
         expect(_action(tester).symbol.size, 18);
-        expect(_tabBar(tester).iconSize, 20);
         expect(
           AdaptiveFloatingTabBar.extentOf(tester.element(action)),
           44 + 20,
@@ -325,5 +366,26 @@ void main() {
       },
       variant: TargetPlatformVariant.only(TargetPlatform.iOS),
     );
+  });
+
+  group('iOS 26', () {
+    setUp(() => _simulateIOS(26));
+    tearDown(PlatformUiCapabilities.resetDebugOverrides);
+
+    testWidgets('a phone keeps the 62 point platter UIKit gives the tab bar', (
+      tester,
+    ) async {
+      // The package keeps an iOS 26 tab bar at its own height.
+      _phoneWindow(tester);
+      await tester.pumpWidget(_bar(const [_openWebUi, _hermes]));
+      final window = tester.getSize(find.byType(Scaffold));
+      final action = find.byType(NativeGlassIconButton);
+      expect(_tabBar(tester).height, isNull);
+      expect(_tabBar(tester).iconSize, 22);
+      expect(tester.getSize(action), const Size.square(62));
+      expect(tester.getBottomRight(action).dy, window.height - 21);
+      expect(AdaptiveFloatingTabBar.extentOf(tester.element(action)), 62 + 21);
+      await _unmount(tester);
+    }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
   });
 }
