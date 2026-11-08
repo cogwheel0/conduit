@@ -510,6 +510,16 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
       if (canonical) _retireCanonicalMutations(binding.runtimeId);
       submitting = true;
       final submitted = await submitPrompt();
+      // A typed stop phrase ended the session's voice chat: nothing was
+      // admitted, so no turn runs and none is waited for.
+      if (submitted is Map && submitted['voice_stopped'] == true) {
+        await _detachStaged(binding.runtimeId, stagedPaths);
+        finish();
+        return HermesResponseStream(
+          events: controller.stream,
+          sessionId: storedId,
+        );
+      }
       forwarded = submitted is Map && submitted['forwarded'] == true;
       adoptAdmission(submitted);
       if (cancelToken?.isCancelled == true) {

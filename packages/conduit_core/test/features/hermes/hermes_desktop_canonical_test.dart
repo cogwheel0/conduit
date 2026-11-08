@@ -507,6 +507,20 @@ void main() {
           .equals('adm-1');
     });
 
+    // Nothing was admitted, yet the reply stayed open as if generating.
+    test('a prompt that only ended a voice chat ends its reply', () async {
+      gateway.handler = (method, params) => method == 'prompt.submit'
+          ? {'voice_stopped': true}
+          : gateway.defaults(method, params);
+      final events = await stream(() {});
+
+      check(events.whereType<HermesRunError>()).isEmpty();
+      check(events.last).isA<HermesRunDone>();
+      check(
+        service.turnStateFor('local-1'),
+      ).not((it) => it.equals(HermesDesktopTurnState.running));
+    });
+
     test('a queued prompt cancelled elsewhere ends its reply', () async {
       final events = await stream(() {
         // Hermes settles a queued admission with only this completion: no
