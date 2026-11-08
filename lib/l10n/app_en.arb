@@ -9130,5 +9130,9 @@
   "chatUnreadState": "Unread",
   "@chatUnreadState": {
     "description": "VoiceOver value of a chat in the sidebar list whose newest reply the user has not read yet."
+  },
+  "codeCopied": "Copied",
+  "@codeCopied": {
+    "description": "Shown briefly beside a code block's copy button, with a checkmark, right after its code was copied."
   }
 }

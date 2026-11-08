@@ -4126,5 +4126,6 @@
   "terminalPortPreviewLoadFailed": "이 페이지를 불러올 수 없습니다.",
   "modelMenuAllModels": "모든 모델…",
   "citationPreviewOpen": "열기",
-  "chatUnreadState": "읽지 않음"
+  "chatUnreadState": "읽지 않음",
+  "codeCopied": "복사됨"
 }

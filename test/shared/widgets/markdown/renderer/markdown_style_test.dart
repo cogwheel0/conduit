@@ -24,13 +24,17 @@ void main() {
         ),
       );
 
+      // Every block shares one 16pt gap below it; headings add space above
+      // and keep a tighter gap below so they group with their content.
       check(style.paragraphSpacing).equals(Spacing.md);
-      check(style.headingTopSpacing).equals(Spacing.md);
+      check(style.codeBlockSpacing).equals(style.paragraphSpacing);
+      check(style.blockquoteSpacing).equals(style.paragraphSpacing);
+      check(style.tableSpacing).equals(style.paragraphSpacing);
+      check(style.headingTopSpacing).isGreaterThan(style.headingBottomSpacing);
       check(style.headingBottomSpacing).equals(Spacing.sm);
-      check(style.listItemSpacing).equals(Spacing.sm);
-      check(style.codeBlockSpacing).equals(Spacing.md);
-      check(style.blockquoteSpacing).equals(Spacing.md);
-      check(style.tableSpacing).equals(Spacing.md);
+      check(style.listItemSpacing).isGreaterOrEqual(6);
+      check(style.listItemSpacing).isLessOrEqual(8);
+      check(style.looseListItemSpacing).isGreaterThan(style.listItemSpacing);
     });
 
     testWidgets('uses system font families', (tester) async {
@@ -88,12 +92,17 @@ void main() {
       expect(android.codeBlock.fontSize, ios.codeBlock.fontSize);
       expect(android.h1.fontSize, 24);
       expect(android.h2.fontSize, 22);
+      // Reply prose reads at 17/24.
       expect(android.body.fontSize, 17);
-      expect(android.body.height, 1.29);
+      expect(android.body.fontSize! * android.body.height!, closeTo(24, 1e-9));
       expect(ios.h1.fontSize, 24);
       expect(ios.h2.fontSize, 22);
       expect(ios.body.fontSize, 17);
-      expect(ios.body.height, 1.29);
+      expect(ios.body.fontSize! * ios.body.height!, closeTo(24, 1e-9));
+      // Inline code is monospace at ~0.9em in the label colour.
+      expect(ios.codeSpan.fontFamily, 'Menlo');
+      expect(ios.codeSpan.fontSize, closeTo(17 * 0.88, 0.01));
+      expect(ios.codeSpanTextColor, ios.textPrimary);
     });
   });
 }

@@ -40,6 +40,7 @@ class ConduitMarkdownStyle {
     required this.headingTopSpacing,
     required this.headingBottomSpacing,
     required this.listItemSpacing,
+    required this.looseListItemSpacing,
     required this.codeBlockSpacing,
     required this.blockquoteSpacing,
     required this.tableSpacing,
@@ -69,7 +70,6 @@ class ConduitMarkdownStyle {
   factory ConduitMarkdownStyle.fromTheme(BuildContext context) {
     final theme = context.conduitTheme;
     final textTheme = Theme.of(context).textTheme;
-    final tokens = theme.tokens;
     final dark = theme.isDark;
     TextStyle resolveHeadingStyle(
       TextStyle? themedStyle,
@@ -80,10 +80,14 @@ class ConduitMarkdownStyle {
           fallback.copyWith(color: color);
     }
 
-    // Base body style used as the foundation for all
-    // text styles.
-    final bodyStyle = AppTypography.chatMessageStyle.copyWith(
+    // Base body style used as the foundation for all text styles. Replies
+    // are long-form reading, so prose gets 17/24 leading instead of the 17/22
+    // UI body leading; the extra air keeps multi-line paragraphs scannable.
+    final chatBody = AppTypography.chatMessageStyle;
+    final bodyFontSize = chatBody.fontSize ?? 17;
+    final bodyStyle = chatBody.copyWith(
       color: theme.textPrimary,
+      height: readingLineHeight / bodyFontSize,
     );
 
     // Monospace base for code elements.
@@ -91,11 +95,19 @@ class ConduitMarkdownStyle {
         theme.code?.copyWith(color: theme.codeText) ??
         AppTypography.codeStyle.copyWith(color: theme.codeText);
 
-    // Inline code highlight color that matches common
-    // chat-UI conventions (#eb5757 light / #E06C75 dark).
-    final codeSpanText = dark
-        ? const Color(0xFFE06C75)
-        : const Color(0xFFEB5757);
+    // Inline code reads as part of the sentence: label colour, monospace at
+    // ~0.9em, on a quiet neutral chip (no web-style red).
+    final codeSpanText = theme.textPrimary;
+    final codeSpanChip = theme.textPrimary.withValues(
+      alpha: dark ? 0.14 : 0.07,
+    );
+
+    // Tables are dense reference data: subheadline (15/20) keeps 36-40pt
+    // rows and fits more columns before scrolling.
+    final tableBase = bodyStyle.copyWith(
+      fontSize: tableFontSize,
+      height: tableLineHeight / tableFontSize,
+    );
 
     return ConduitMarkdownStyle(
       isDark: dark,
@@ -132,42 +144,65 @@ class ConduitMarkdownStyle {
         AppTypography.titleMediumStyle,
         color: theme.textSecondary,
       ),
-      codeSpan: monoBase.copyWith(color: codeSpanText),
+      codeSpan: monoBase.copyWith(
+        color: codeSpanText,
+        fontSize: bodyFontSize * inlineCodeScale,
+        height: 1.2,
+      ),
       codeBlock: monoBase.copyWith(color: theme.codeText),
       blockquoteText: bodyStyle.copyWith(color: theme.textSecondary),
-      tableHeader: bodyStyle.copyWith(
+      tableHeader: tableBase.copyWith(
         color: theme.textPrimary,
         fontWeight: FontWeight.w600,
       ),
-      tableCell: bodyStyle.copyWith(color: theme.textPrimary),
+      tableCell: tableBase.copyWith(color: theme.textPrimary),
 
+      // One rhythm: every block owns only the space below it, so the gap
+      // between any two blocks is the same 16pt whichever way round they
+      // are. Headings add extra space above (and keep a tight gap below) so
+      // they group with the content they introduce.
       paragraphSpacing: Spacing.md,
-      headingTopSpacing: Spacing.md,
+      headingTopSpacing: Spacing.md - Spacing.xs,
       headingBottomSpacing: Spacing.sm,
-      listItemSpacing: Spacing.sm,
+      listItemSpacing: Spacing.xs + Spacing.xxs,
+      looseListItemSpacing: Spacing.sm + Spacing.xxs,
       codeBlockSpacing: Spacing.md,
       blockquoteSpacing: Spacing.md,
       tableSpacing: Spacing.md,
 
       // -- Colors --
       codeSpanTextColor: codeSpanText,
-      codeSpanBackgroundColor: tokens.codeBackground,
+      codeSpanBackgroundColor: codeSpanChip,
       codeBlockBackground: theme.codeBackground,
       codeBlockBorder: theme.codeBorder,
-      blockquoteBorderColor: theme.dividerColor,
+      blockquoteBorderColor: theme.textPrimary.withValues(
+        alpha: dark ? 0.28 : 0.18,
+      ),
       tableBorderColor: theme.dividerColor,
-      tableHeaderBackground: tokens.codeBackground,
+      tableHeaderBackground: theme.textPrimary.withValues(
+        alpha: dark ? 0.08 : 0.04,
+      ),
       linkColor: theme.variant.primary,
       dividerColor: theme.dividerColor,
       textPrimary: theme.textPrimary,
       textSecondary: theme.textSecondary,
 
       // -- Shapes --
-      codeBlockRadius: AppBorderRadius.lg,
-      codeSpanRadius: AppBorderRadius.xs,
-      tableRadius: AppBorderRadius.sm,
+      codeBlockRadius: AppBorderRadius.md,
+      codeSpanRadius: AppBorderRadius.xs + 1,
+      tableRadius: AppBorderRadius.md,
     );
   }
+
+  /// Line height for reply prose (17/24).
+  static const double readingLineHeight = 24;
+
+  /// Inline code size relative to the surrounding text.
+  static const double inlineCodeScale = 0.88;
+
+  /// Table text size (subheadline) and its line height.
+  static const double tableFontSize = 15;
+  static const double tableLineHeight = 20;
 
   // ----- Properties -----
 
@@ -214,25 +249,29 @@ class ConduitMarkdownStyle {
 
   // -- Spacing --
 
-  /// Vertical space between consecutive paragraphs.
+  /// Vertical space below a paragraph or list: the base gap between blocks.
   final double paragraphSpacing;
 
-  /// Space above a heading element.
+  /// Extra space above a heading, on top of the previous block's gap.
   final double headingTopSpacing;
 
   /// Space below a heading element.
   final double headingBottomSpacing;
 
-  /// Space between list items.
+  /// Space between items of a tight list, and between a list item's text
+  /// and a list nested under it.
   final double listItemSpacing;
 
-  /// Space around a code block.
+  /// Space between items of a loose list (items separated by blank lines).
+  final double looseListItemSpacing;
+
+  /// Space below a code block.
   final double codeBlockSpacing;
 
-  /// Space around a blockquote.
+  /// Space below a blockquote.
   final double blockquoteSpacing;
 
-  /// Space around a table.
+  /// Space below a table.
   final double tableSpacing;
 
   // -- Colors --
@@ -272,13 +311,13 @@ class ConduitMarkdownStyle {
 
   // -- Shapes --
 
-  /// Corner radius for fenced code blocks (16 px).
+  /// Corner radius for fenced code blocks and other content cards.
   final double codeBlockRadius;
 
-  /// Corner radius for inline code spans (4 px).
+  /// Corner radius for inline code spans.
   final double codeSpanRadius;
 
-  /// Corner radius for tables (8 px).
+  /// Corner radius for the table container.
   final double tableRadius;
 
   // ----- Helpers -----
@@ -305,7 +344,7 @@ class ConduitMarkdownStyle {
   );
 
   /// Body style used for plain-text values inside tool call details.
-  TextStyle get detailValue => tableCell.copyWith(color: textPrimary);
+  TextStyle get detailValue => body.copyWith(color: textPrimary);
 
   /// Monospace body style used for code-like values inside tool call details.
   TextStyle get detailCode => _detailCodeBase.copyWith(color: textPrimary);

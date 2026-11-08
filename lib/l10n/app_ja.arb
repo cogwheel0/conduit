@@ -5971,5 +5971,6 @@
   "terminalPortPreviewLoadFailed": "このページを読み込めませんでした。",
   "modelMenuAllModels": "すべてのモデル…",
   "citationPreviewOpen": "開く",
-  "chatUnreadState": "未読"
+  "chatUnreadState": "未読",
+  "codeCopied": "コピーしました"
 }

@@ -6277,5 +6277,6 @@
   "terminalPortPreviewLoadFailed": "Túto stránku sa nepodarilo načítať.",
   "modelMenuAllModels": "Všetky modely…",
   "citationPreviewOpen": "Otvoriť",
-  "chatUnreadState": "Neprečítaný"
+  "chatUnreadState": "Neprečítaný",
+  "codeCopied": "Skopírované"
 }

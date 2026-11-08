@@ -4354,5 +4354,6 @@
   "terminalPortPreviewLoadFailed": "無法載入此頁面。",
   "modelMenuAllModels": "所有模型…",
   "citationPreviewOpen": "開啟",
-  "chatUnreadState": "未讀"
+  "chatUnreadState": "未讀",
+  "codeCopied": "已複製"
 }

@@ -4354,5 +4354,6 @@
   "terminalPortPreviewLoadFailed": "Impossibile caricare questa pagina.",
   "modelMenuAllModels": "Tutti i modelli…",
   "citationPreviewOpen": "Apri",
-  "chatUnreadState": "Non letta"
+  "chatUnreadState": "Non letta",
+  "codeCopied": "Copiato"
 }

@@ -4392,5 +4392,6 @@
   "terminalPortPreviewLoadFailed": "Не удалось загрузить эту страницу.",
   "modelMenuAllModels": "Все модели…",
   "citationPreviewOpen": "Открыть",
-  "chatUnreadState": "Непрочитанный"
+  "chatUnreadState": "Непрочитанный",
+  "codeCopied": "Скопировано"
 }
