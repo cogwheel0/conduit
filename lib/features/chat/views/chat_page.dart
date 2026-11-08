@@ -3639,6 +3639,33 @@ class _ChatPageState extends ConsumerState<ChatPage> {
 
   // Inline editing handled by UserMessageBubble. Dialog flow removed.
 
+  /// How much of the empty state's height the composer is taken to cover.
+  ///
+  /// The greeting centres above a single-line composer however long the
+  /// draft grows, so typing never nudges it; only the keyboard moves it,
+  /// which it does continuously because the area shrinks with the keyboard
+  /// frame by frame (and the safe-area gap below the composer shrinks with
+  /// it). The measured composer height arrives a frame late and in steps,
+  /// so it is used only once a long draft would otherwise reach the
+  /// greeting.
+  double _emptyStateBottomReserve(BuildContext context) {
+    final measured = _messageListBottomPadding();
+    if (ref.read(chatVoiceModeControllerProvider).isActive) return measured;
+    final singleLine =
+        math.max(MediaQuery.paddingOf(context).bottom, Spacing.sm) +
+        MediaQuery.textScalerOf(
+          context,
+        ).scale(_emptyStateSingleLineComposerHeight);
+    return math.max(singleLine, measured - _emptyStateComposerGrowthAllowance);
+  }
+
+  /// A one-line composer pill, unscaled.
+  static const double _emptyStateSingleLineComposerHeight = 48;
+
+  /// How far the composer may grow past one line before the greeting makes
+  /// room for it.
+  static const double _emptyStateComposerGrowthAllowance = 120;
+
   Widget _buildEmptyState(ThemeData theme) {
     final l10n = AppLocalizations.of(context)!;
     final authUser = ref.watch(currentUserProvider2);
@@ -3696,7 +3723,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         MediaQuery.paddingOf(context).top +
         conduitAdaptiveToolbarHeightOf(context) +
         Spacing.md;
-    final bottomPadding = _messageListBottomPadding();
+    final bottomPadding = _emptyStateBottomReserve(context);
     return LayoutBuilder(
       builder: (context, constraints) {
         final greetingDisplay = greetingText;
