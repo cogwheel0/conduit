@@ -500,20 +500,15 @@ void main() {
         ],
       );
 
-      check(result.map((message) => message.role).toList()).deepEquals([
-        'user',
-        'assistant',
-        'user',
-        'assistant',
-        'assistant',
-      ]);
+      check(result.map((message) => message.role).toList())
+          .deepEquals(['user', 'assistant', 'user', 'assistant', 'assistant']);
       check(
         _textParts(result[1]),
       ).deepEquals(['${kHistoricalVoiceTranscriptPrefix}Hi! How can I help?']);
       check(_textParts(result[3])).deepEquals(['Sunny, 21 °C.']);
-      check(
-        _textParts(result[4]),
-      ).deepEquals(["$kHistoricalVoiceTranscriptPrefix${"It's sunny in Oslo."}"]);
+      check(_textParts(result[4])).deepEquals([
+        "$kHistoricalVoiceTranscriptPrefix${"It's sunny in Oslo."}",
+      ]);
     });
 
     test('preserves supported history and resolves protected images', () async {
@@ -707,6 +702,96 @@ void main() {
       check(
         parseConduitDirectReplayOutput(incomplete)?.isIncompleteAnswerSentinel,
       ).equals(true);
+    });
+
+    test('trusts the mirror beside any direct adapter\'s own tool calls', () {
+      // OpenAI-compatible, Responses and Apple adapters keep the provider's
+      // call id; only Ollama Cloud mints `ollama-` ids.
+      final accumulator = DirectStreamingAccumulator()
+        ..apply(
+          DirectToolCallStarted(
+            id: 'call_tide_1',
+            name: 'tide_lookup',
+            arguments: const <String, dynamic>{'harbour': 'Northcove'},
+          ),
+        )
+        ..apply(
+          DirectToolCallCompleted(
+            id: 'call_tide_1',
+            name: 'tide_lookup',
+            arguments: const <String, dynamic>{'harbour': 'Northcove'},
+            result: 'unavailable',
+            isError: true,
+          ),
+        )
+        ..apply(
+          DirectToolCallStarted(
+            id: 'fc_tide_2',
+            name: 'tide_lookup',
+            arguments: const <String, dynamic>{'harbour': 'Eastmere'},
+          ),
+        );
+      final output = <Map<String, dynamic>>[
+        ...accumulator.toolOutput,
+        ...directProviderReplayOutput(
+          assistantMessageId: 'assistant-tools',
+          rawContent: 'High tide is at 14:05.',
+        )!,
+      ];
+
+      check(parseConduitDirectReplayOutput(output)?.text)
+          .equals('High tide is at 14:05.');
+    });
+
+    test('distrusts the mirror beside Open WebUI-shaped tool items', () {
+      final mirror = directProviderReplayOutput(
+        assistantMessageId: 'assistant-mixed',
+        rawContent: 'Conduit answer',
+      )!;
+      final openWebUiCall = <String, dynamic>{
+        'type': 'function_call',
+        'id': 'call_server_1',
+        'call_id': 'call_server_1',
+        'name': 'tide_lookup',
+        'arguments': '{"harbour":"Northcove"}',
+        'status': 'completed',
+      };
+      final openWebUiResult = <String, dynamic>{
+        'type': 'function_call_output',
+        'id': 'fco_server_1',
+        'call_id': 'call_server_1',
+        'output': <Map<String, dynamic>>[
+          <String, dynamic>{'type': 'input_text', 'text': '14:05'},
+        ],
+        'status': 'completed',
+      };
+
+      check(
+        parseConduitDirectReplayOutput(<Map<String, dynamic>>[
+          openWebUiCall,
+          ...mirror,
+        ]),
+      ).isNull();
+      check(
+        parseConduitDirectReplayOutput(<Map<String, dynamic>>[
+          <String, dynamic>{
+            ...openWebUiCall,
+            'arguments': <String, dynamic>{'harbour': 'Northcove'},
+          },
+          openWebUiResult,
+          ...mirror,
+        ]),
+      ).isNull();
+      check(
+        parseConduitDirectReplayOutput(<Map<String, dynamic>>[
+          <String, dynamic>{
+            ...openWebUiCall,
+            'id': 'fc_server_1',
+            'arguments': <String, dynamic>{'harbour': 'Northcove'},
+          },
+          ...mirror,
+        ]),
+      ).isNull();
     });
 
     test('reasoning-only replay uses safe provider context', () {

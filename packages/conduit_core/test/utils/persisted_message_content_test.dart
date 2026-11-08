@@ -161,5 +161,48 @@ void main() {
 
       check(persistedMessageContent(message)).equals(rendered);
     });
+
+    test('keeps rendered content for a direct mirror beside provider tool '
+        'calls', () {
+      final message = assistant(
+        rendered,
+        output: [
+          <String, dynamic>{
+            'type': 'function_call',
+            'id': 'c1',
+            'call_id': 'c1',
+            'name': 'lookup',
+            'arguments': <String, dynamic>{},
+            'status': 'completed',
+          },
+          <String, dynamic>{
+            'type': 'function_call_output',
+            'call_id': 'c1',
+            'output': '42',
+          },
+          ...buildConduitDirectReplayOutput(
+            assistantMessageId: 'a',
+            rawContent: 'The answer is 42.',
+          )!,
+        ],
+      );
+
+      check(persistedMessageContent(message)).equals(rendered);
+    });
+
+    test('strips content when Open WebUI tool items sit beside a mirror', () {
+      final message = assistant(
+        rendered,
+        output: [
+          ...toolItems,
+          ...buildConduitDirectReplayOutput(
+            assistantMessageId: 'a',
+            rawContent: 'The answer is 42.',
+          )!,
+        ],
+      );
+
+      check(persistedMessageContent(message)).equals('The answer is 42.');
+    });
   });
 }
