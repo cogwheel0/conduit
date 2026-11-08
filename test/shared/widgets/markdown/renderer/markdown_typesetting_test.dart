@@ -3,9 +3,9 @@ import 'package:conduit/l10n/conduit_localizations.dart';
 import 'package:conduit/shared/theme/app_theme.dart';
 import 'package:conduit/shared/theme/tweakcn_themes.dart';
 import 'package:conduit/shared/widgets/markdown/markdown_config.dart';
-import 'package:conduit/shared/widgets/markdown/renderer/block_renderer.dart';
 import 'package:conduit/shared/widgets/markdown/renderer/horizontal_overflow_fade.dart';
 import 'package:conduit/shared/widgets/markdown/renderer/markdown_style.dart';
+import 'package:conduit/shared/widgets/markdown/renderer/markdown_table_frame.dart';
 import 'package:conduit/shared/widgets/markdown/streaming_markdown_widget.dart';
 import 'package:flutter/rendering.dart' show RenderParagraph, RenderTable;
 import 'package:flutter/services.dart';
@@ -381,13 +381,14 @@ void main() {
           0.5,
         ),
       );
-      // Neither long column crowds out the other.
-      for (final width in widths.skip(1)) {
-        expect(
-          width,
-          lessThanOrEqualTo(frame.width * MarkdownTableFrame.maxColumnFraction),
-        );
-      }
+      // The long header gets the room to wrap onto two lines, not four,
+      // and the rows stay as short as the header allows.
+      final oneLine = paragraphStartingWith(tester, 'Day').size.height;
+      expect(
+        paragraphStartingWith(tester, 'Feed ratio').size.height,
+        lessThanOrEqualTo(oneLine * 2 + 0.5),
+      );
+      expect(widths[1], greaterThan(widths[2]));
       // Nothing is clipped: every cell's text fits inside its column.
       for (final paragraph in tester.renderObjectList<RenderParagraph>(
         find.descendant(
@@ -549,6 +550,150 @@ void main() {
     test('a column is never narrower than its longest word', () {
       final widths = solve([240, 60], [300, 400]);
       expect(widths[0], greaterThanOrEqualTo(240));
+    });
+
+    group('fitted to the fewest lines', () {
+      // A phone-width table from a real reply, set in a stand-in font where
+      // every character is 7.5pt wide (8pt bold), in 20pt lines.
+      const columns = [
+        ['Day', '1', '2–3', '4–6', '7+'],
+        [
+          'Feed ratio (starter : flour : water)',
+          '0 : 50 g : 50 g',
+          '25 : 50 : 50',
+          '25 : 50 : 50, twice a day',
+          '20 : 100 : 100',
+        ],
+        [
+          'What to look for',
+          'Just mix and cover loosely',
+          'A few bubbles, smells sharp',
+          'Rises and falls predictably',
+          'Doubles within 4–6 hours',
+        ],
+      ];
+      const padding = 24.0;
+      const lineHeight = 20.0;
+      double charWidth(int row) => row == 0 ? 8 : 7.5;
+      int lines(String text, double width, int row) {
+        final room = width - padding;
+        final space = charWidth(row);
+        var count = 1;
+        var line = 0.0;
+        for (final word in text.split(' ')) {
+          final w = word.length * charWidth(row);
+          if (line == 0) {
+            line = w;
+          } else if (line + space + w <= room + 0.001) {
+            line += space + w;
+          } else {
+            count++;
+            line = w;
+          }
+        }
+        return count;
+      }
+
+      List<double> heights(int column, double width) => [
+        for (var row = 0; row < columns[column].length; row++)
+          lines(columns[column][row], width, row) * lineHeight,
+      ];
+      double extent(String text, int row, {required bool longestWord}) {
+        final parts = longestWord ? text.split(' ') : [text];
+        return parts
+                .map((part) => part.length * charWidth(row))
+                .reduce((a, b) => a > b ? a : b) +
+            padding;
+      }
+
+      List<double> extents({required bool longestWord}) => [
+        for (final column in columns)
+          [
+            for (var row = 0; row < column.length; row++)
+              extent(column[row], row, longestWord: longestWord),
+          ].reduce((a, b) => a > b ? a : b),
+      ];
+      int rowLines(List<double> widths, int row) => [
+        for (var x = 0; x < columns.length; x++)
+          lines(columns[x][row], widths[x], row),
+      ].reduce((a, b) => a > b ? a : b);
+      int tableLines(List<double> widths) => [
+        for (var row = 0; row < columns.first.length; row++)
+          rowLines(widths, row),
+      ].reduce((a, b) => a + b);
+
+      List<double> fit({double available = 362, TableCellHeights? measure}) =>
+          MarkdownTableFrame.solveColumnWidths(
+            minWidths: extents(longestWord: true),
+            maxWidths: extents(longestWord: false),
+            availableWidth: available,
+            cellHeights: measure ?? heights,
+          );
+
+      test('a long header gets room before it wraps to a third line', () {
+        final capped = solve(
+          extents(longestWord: true),
+          extents(longestWord: false),
+          available: 362,
+        );
+        // Sharing by want alone leaves the header on three lines.
+        expect(lines(columns[1][0], capped[1], 0), 3);
+
+        final widths = fit();
+        expect(sum(widths), closeTo(362, 0.01));
+        expect(lines(columns[1][0], widths[1], 0), lessThanOrEqualTo(2));
+        expect(rowLines(widths, 0), 2);
+        // The table is no taller for it.
+        expect(tableLines(widths), lessThan(tableLines(capped)));
+      });
+
+      test('a short label column keeps its natural width', () {
+        final widths = fit();
+        expect(widths[0], extents(longestWord: false)[0]);
+      });
+
+      test('no column grows past its natural width', () {
+        final natural = extents(longestWord: false);
+        final widths = fit(available: 500);
+        for (var i = 0; i < widths.length; i++) {
+          expect(widths[i], lessThanOrEqualTo(natural[i] + 0.01));
+        }
+        expect(sum(widths), closeTo(500, 0.01));
+      });
+
+      test('measures no more cells than its budget', () {
+        var cells = 0;
+        fit(
+          measure: (column, width) {
+            final measured = heights(column, width);
+            cells += measured.length;
+            return measured;
+          },
+        );
+        final rows = columns.first.length;
+        expect(
+          cells,
+          lessThanOrEqualTo(
+            MarkdownTableFrame.maxHeightMeasurements + columns.length * rows,
+          ),
+        );
+      });
+
+      test('cells that cannot be measured row by row share by want', () {
+        final widths = fit(
+          measure: (column, width) => [
+            for (var row = 0; row < column + 1; row++) lineHeight,
+          ],
+        );
+        expect(
+          widths,
+          solve(
+            extents(longestWord: true),
+            extents(longestWord: false),
+            available: 362,
+          ),
+        );
+      });
     });
   });
 

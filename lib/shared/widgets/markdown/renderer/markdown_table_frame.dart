@@ -9,21 +9,26 @@ import '../../horizontal_gesture_ownership.dart';
 import 'horizontal_overflow_fade.dart';
 import 'markdown_style.dart';
 
+/// Heights of a table column's cells, row by row (header first), when the
+/// column is [width] wide, cell padding included.
+typedef TableCellHeights = List<double> Function(int column, double width);
+
 /// A markdown table set inside the text column: a rounded, hairline-bordered
 /// card that keeps the page margins.
 ///
 /// Columns are sized from their content. A table whose cells all fit on one
-/// line fills the column in proportion to its content; otherwise narrow
-/// columns keep their natural width, no column takes more than
-/// [maxColumnFraction] of the frame while others compete for space, and long
-/// cells wrap. The table scrolls sideways only when its columns cannot fit
-/// even at a comfortable reading width ([minComfortableColumnWidth]); then
-/// columns may grow to [maxScrollingColumnFraction] so rows stay short.
+/// line fills the column in proportion to its content. Otherwise short
+/// columns keep their natural width and the rest of the frame goes where it
+/// saves the most wrapped lines, so a long header gets room before it wraps
+/// to a third line and no column sits half empty. The table scrolls sideways
+/// only when its columns cannot fit even at a comfortable reading width
+/// ([minComfortableColumnWidth]); then columns may grow to
+/// [maxScrollingColumnFraction] so rows stay short.
 ///
 /// The frame stays whole while the table scrolls: the border, header band and
 /// row rules span the frame and never move or fade; only the cell text
-/// scrolls, fading at an edge that hides more of it, above a slim scroll
-/// indicator.
+/// scrolls, fading out inside the cell margin at an edge that hides more of
+/// it, above a thin scroll indicator that shows while it moves.
 class MarkdownTableFrame extends StatefulWidget {
   const MarkdownTableFrame({
     required this.header,
@@ -33,8 +38,23 @@ class MarkdownTableFrame extends StatefulWidget {
   });
 
   /// Largest share of the frame one column takes while other columns compete
-  /// for the space; past it the column's cells wrap.
+  /// for the space, when the cells' heights cannot be measured; past it the
+  /// column's cells wrap.
   static const double maxColumnFraction = 0.45;
+
+  /// Width steps tried when sharing spare room between wrapping columns, in
+  /// points; coarser for very wide spare room or very long tables.
+  static const double widthSearchStep = 4;
+
+  /// Most cell measurements (one text layout each) a table spends on sharing
+  /// out spare room, so its first layout stays within a frame; past it the
+  /// steps get coarser.
+  static const int maxHeightMeasurements = 600;
+
+  /// How much a line of the header row counts against a line of the body
+  /// when sharing out room: a tall header band reads heavy above short
+  /// rows, so long heads get room before they wrap to a third line.
+  static const double headerLineWeight = 1.5;
 
   /// Largest share of the frame one column takes once the table scrolls
   /// anyway: wider columns keep rows to fewer lines, and the next column
@@ -67,6 +87,11 @@ class MarkdownTableFrame extends StatefulWidget {
   /// least [minWidths] (longest word) and at most [maxWidths] (every cell on
   /// one line) wide, shared across [availableWidth].
   ///
+  /// With [cellHeights], room beyond each column's floor goes, step by step,
+  /// to the column whose growth saves the most table height per point, so
+  /// the table wraps into as few lines as it can; without it, columns are
+  /// capped at [maxFraction] and share what is left by how much they want.
+  ///
   /// When the result sums to more than [availableWidth] the table scrolls.
   @visibleForTesting
   static List<double> solveColumnWidths({
@@ -76,6 +101,7 @@ class MarkdownTableFrame extends StatefulWidget {
     double comfortableWidth = minComfortableColumnWidth,
     double maxFraction = maxColumnFraction,
     double maxScrollingFraction = maxScrollingColumnFraction,
+    TableCellHeights? cellHeights,
   }) {
     assert(minWidths.length == maxWidths.length);
     final count = maxWidths.length;
@@ -110,6 +136,25 @@ class MarkdownTableFrame extends StatefulWidget {
       for (var i = 0; i < count; i++)
         math.max(minWidths[i], math.min(natural[i], comfortableWidth)),
     ];
+    if (sum(floor) > availableWidth) {
+      // Too many columns to fit at a readable width: the table scrolls, so
+      // let long columns run wider and wrap less.
+      final scrollingCap = availableWidth * maxScrollingFraction;
+      return [
+        for (var i = 0; i < count; i++)
+          math.max(floor[i], math.min(natural[i], scrollingCap)),
+      ];
+    }
+    if (cellHeights != null) {
+      final fitted = _fitToFewestLines(
+        floor: floor,
+        natural: natural,
+        availableWidth: availableWidth,
+        cellHeights: cellHeights,
+      );
+      if (fitted != null) return fitted;
+    }
+
     // Natural width, capped so one long column cannot crowd out the rest.
     final cap = availableWidth * maxFraction;
     final preferred = [
@@ -131,25 +176,169 @@ class MarkdownTableFrame extends StatefulWidget {
       ];
     }
 
-    if (sum(floor) <= availableWidth) {
-      // Slightly too wide: take the excess from the columns with the most room
-      // above their floor, so no column drops under it.
-      final excess = preferredTotal - availableWidth;
-      final slack = [for (var i = 0; i < count; i++) preferred[i] - floor[i]];
-      final totalSlack = sum(slack);
-      return [
-        for (var i = 0; i < count; i++)
-          preferred[i] - excess * slack[i] / totalSlack,
-      ];
-    }
-
-    // Too many columns to fit at a readable width: the table scrolls, so let
-    // long columns run wider and wrap less.
-    final scrollingCap = availableWidth * maxScrollingFraction;
+    // Slightly too wide: take the excess from the columns with the most room
+    // above their floor, so no column drops under it.
+    final excess = preferredTotal - availableWidth;
+    final slack = [for (var i = 0; i < count; i++) preferred[i] - floor[i]];
+    final totalSlack = sum(slack);
     return [
       for (var i = 0; i < count; i++)
-        math.max(floor[i], math.min(natural[i], scrollingCap)),
+        preferred[i] - excess * slack[i] / totalSlack,
     ];
+  }
+
+  /// Shares the room above [floor] so the table is as short as it can be,
+  /// its header row counting [headerLineWeight] times.
+  ///
+  /// Widths move in steps of [widthSearchStep]. First each step widens the
+  /// column whose next saved line costs the fewest points, until no step
+  /// saves a line; then room moves from one column to another wherever that
+  /// saves more lines than it costs. What is left goes to the columns in
+  /// proportion to how much more they want. Null when the cells cannot be
+  /// measured row by row.
+  static List<double>? _fitToFewestLines({
+    required List<double> floor,
+    required List<double> natural,
+    required double availableWidth,
+    required TableCellHeights cellHeights,
+  }) {
+    final count = floor.length;
+    double sum(Iterable<double> values) => values.fold(0.0, (a, b) => a + b);
+    final spare = availableWidth - sum(floor);
+    if (spare <= 0) return List<double>.of(floor);
+    final flexible = [
+      for (var i = 0; i < count; i++)
+        if (natural[i] > floor[i]) i,
+    ];
+
+    final measured = <int, Map<int, List<double>>>{};
+    // Fine steps, unless that would measure too many cells.
+    late final double step;
+    double widthAt(int column, int steps) =>
+        math.min(natural[column], floor[column] + steps * step);
+    List<double> heightsAt(int column, int steps) =>
+        (measured[column] ??= <int, List<double>>{})[steps] ??= cellHeights(
+          column,
+          steps == 0 ? floor[column] : widthAt(column, steps),
+        );
+
+    final rows = heightsAt(0, 0).length;
+    if (rows == 0) return null;
+    for (var i = 1; i < count; i++) {
+      if (heightsAt(i, 0).length != rows) return null;
+    }
+    final stepsWithinBudget = math.max(
+      1,
+      maxHeightMeasurements ~/ math.max(1, rows * flexible.length),
+    );
+    step = math.max(widthSearchStep, spare / stepsWithinBudget);
+    // No column needs to grow past its natural width, nor can it take more
+    // than all the spare room.
+    final maxSteps = [
+      for (var i = 0; i < count; i++)
+        math.min(
+          ((natural[i] - floor[i]) / step).ceil(),
+          (spare / step + 1e-9).floor(),
+        ),
+    ];
+
+    // Each row is as tall as its tallest cell; the header row counts more.
+    double heightOf(List<int> taken) {
+      var total = 0.0;
+      for (var row = 0; row < rows; row++) {
+        var tallest = 0.0;
+        for (var i = 0; i < count; i++) {
+          final height = heightsAt(i, taken[i])[row];
+          if (height > tallest) tallest = height;
+        }
+        total += row == 0 ? tallest * headerLineWeight : tallest;
+      }
+      return total;
+    }
+
+    double usedBy(List<int> taken) =>
+        sum([for (var i = 0; i < count; i++) widthAt(i, taken[i])]);
+    bool measurable(int column, int steps) =>
+        heightsAt(column, steps).length == rows;
+
+    final taken = List<int>.filled(count, 0);
+    // Widen, a step at a time, wherever a saved line costs the least.
+    while (true) {
+      final room = availableWidth - usedBy(taken);
+      final height = heightOf(taken);
+      List<int>? best;
+      var bestSaving = 0.0;
+      for (final column in flexible) {
+        for (var s = taken[column] + 1; s <= maxSteps[column]; s++) {
+          final growth = widthAt(column, s) - widthAt(column, taken[column]);
+          if (growth > room + 0.01) break;
+          if (!measurable(column, s)) return null;
+          final trial = List<int>.of(taken)..[column] = s;
+          final saved = height - heightOf(trial);
+          if (saved > 0.5) {
+            if (saved / growth > bestSaving) {
+              best = trial;
+              bestSaving = saved / growth;
+            }
+            break;
+          }
+        }
+      }
+      if (best == null) break;
+      taken.setAll(0, best);
+    }
+
+    // Then let one column give room to another where that saves lines: the
+    // steps above never take room back, so they can stop short of a better
+    // split (a long header that needs a little more than one step's worth).
+    for (var pass = 0; pass < count * 8; pass++) {
+      final room = availableWidth - usedBy(taken);
+      final height = heightOf(taken);
+      List<int>? best;
+      var bestSaved = 0.5;
+      for (final gain in flexible) {
+        for (final give in flexible) {
+          if (give == gain || taken[give] == 0) continue;
+          for (var s = taken[gain] + 1; s <= maxSteps[gain]; s++) {
+            final needed =
+                widthAt(gain, s) - widthAt(gain, taken[gain]) - room - 0.01;
+            var g = taken[give];
+            while (g > 0 &&
+                widthAt(give, taken[give]) - widthAt(give, g) < needed) {
+              g--;
+            }
+            if (widthAt(give, taken[give]) - widthAt(give, g) < needed) break;
+            if (!measurable(gain, s) || !measurable(give, g)) return null;
+            final trial = List<int>.of(taken)
+              ..[gain] = s
+              ..[give] = g;
+            final saved = height - heightOf(trial);
+            if (saved > bestSaved) {
+              best = trial;
+              bestSaved = saved;
+            }
+          }
+        }
+      }
+      if (best == null) break;
+      taken.setAll(0, best);
+    }
+
+    // No further line to save: fill the frame by how much more each column
+    // wants. The columns want more than is left (the natural widths do not
+    // fit), so none grows past its natural width.
+    final widths = [for (var i = 0; i < count; i++) widthAt(i, taken[i])];
+    final room = availableWidth - sum(widths);
+    if (room > 0) {
+      final wants = [for (var i = 0; i < count; i++) natural[i] - widths[i]];
+      final totalWant = sum(wants);
+      if (totalWant > 0) {
+        for (var i = 0; i < count; i++) {
+          widths[i] += room * wants[i] / totalWant;
+        }
+      }
+    }
+    return widths;
   }
 
   @override
@@ -269,6 +458,12 @@ class _ColumnWidthSolver {
   final double availableWidth;
   final double comfortableWidth;
 
+  /// The last plan and the content extents it was made for: the table asks
+  /// once per column, several times per layout.
+  List<double>? _plan;
+  List<double>? _planMinWidths;
+  List<double>? _planMaxWidths;
+
   double widthOf(int column, Iterable<RenderBox> cells) {
     if (cells.isEmpty) return 0;
     final table = cells.first.parent;
@@ -282,12 +477,25 @@ class _ColumnWidthSolver {
       minWidths.add(min);
       maxWidths.add(max);
     }
-    return MarkdownTableFrame.solveColumnWidths(
+    final plan = _plan;
+    if (plan != null &&
+        listEquals(minWidths, _planMinWidths) &&
+        listEquals(maxWidths, _planMaxWidths)) {
+      return plan[column];
+    }
+    final widths = MarkdownTableFrame.solveColumnWidths(
       minWidths: minWidths,
       maxWidths: maxWidths,
       availableWidth: availableWidth,
       comfortableWidth: comfortableWidth,
-    )[column];
+      cellHeights: (x, width) => [
+        for (final cell in table.column(x)) cell.getMinIntrinsicHeight(width),
+      ],
+    );
+    _plan = widths;
+    _planMinWidths = minWidths;
+    _planMaxWidths = maxWidths;
+    return widths[column];
   }
 
   static (double, double) _columnExtents(Iterable<RenderBox> cells) {
