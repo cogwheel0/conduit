@@ -110,13 +110,13 @@
   "@settingsDataAndConnection": {
     "description": "Settings destination for transport, connectivity, and related server data options."
   },
-  "slidingSidebar": "Sliding Sidebar",
+  "slidingSidebar": "Open Panels Beside Chats",
   "@slidingSidebar": {
-    "description": "Appearance setting that opts into the sliding sidebar layout."
+    "description": "Title Case label of the Appearance toggle that, when on, opens Notes, Terminal and Channels as panels beside the chat list instead of replacing the chat list inside the sidebar. Say what the switch does in plain words, not the layout's name."
   },
-  "slidingSidebarDescription": "When on, Notes, Terminal, and Channels open beside your chats instead of replacing them.",
+  "slidingSidebarDescription": "Notes, Terminal, and Channels open as panels next to your chats instead of replacing them.",
   "@slidingSidebarDescription": {
-    "description": "One-sentence footer under the Sliding Sidebar toggle in Appearance (and subtitle on Android) saying what On does compared with Off: with it on, Notes, Terminal and Channels open beside the chat list; with it off, they replace the chat list inside the sidebar. Keep the feature names as the sidebar tabs write them."
+    "description": "One-sentence footer under the Open Panels Beside Chats toggle in Appearance (and subtitle on Android) that finishes the label's thought: with it on, Notes, Terminal and Channels open as panels beside the chat list instead of replacing it inside the sidebar. Keep the feature names as the sidebar tabs write them."
   },
   "settingsAppearance": "Appearance",
   "@settingsAppearance": {
@@ -1860,13 +1860,13 @@
   "@disableHapticsWhileStreamingDescription": {
     "description": "Subtitle for the setting that suppresses assistant response streaming haptics."
   },
-  "citationBackground": "Citation Background",
+  "citationBackground": "Shade Citations",
   "@citationBackground": {
-    "description": "Toggle title for filled backgrounds on inline citation badges."
+    "description": "Title Case label of the Appearance toggle that gives the citation badges in replies a shaded background. Plain words, no jargon."
   },
-  "citationBackgroundDescription": "Puts a shaded background behind citations in replies.",
+  "citationBackgroundDescription": "Gives citations in replies a shaded background, so they stand out from the text.",
   "@citationBackgroundDescription": {
-    "description": "Footer under the Appearance group with the Citation Background toggle (and subtitle on Android): what the shaded citation background is. One sentence."
+    "description": "One-sentence footer under the Appearance group with the Shade Citations toggle (and subtitle on Android): what the shading does for citations in replies."
   },
   "citationShowTitles": "Show Citation Page Titles",
   "@citationShowTitles": {
@@ -9143,9 +9143,9 @@
   "@backendChooserFooter": {
     "description": "Footer under the last group of backends on the first-run screen."
   },
-  "serverAddressFooter": "Use the address you open in a web browser. You'll sign in next.",
+  "serverAddressFooter": "Use the address you open in a web browser.",
   "@serverAddressFooter": {
-    "description": "Footer under the Open WebUI server address field: which address to enter and what happens after connecting."
+    "description": "Footer under the Open WebUI server address field: which address to enter. One short sentence that fits on one line on a phone."
   },
   "signInChangeServer": "Change",
   "@signInChangeServer": {
