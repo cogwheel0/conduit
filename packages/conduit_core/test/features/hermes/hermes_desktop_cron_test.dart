@@ -425,16 +425,20 @@ void main() {
 
     // Job A's run holds the queue; job B's Run now waits behind it.
     final runA = service.runJob('job-a');
-    final runB = service.runJob('job-b');
+    // Ended at once, not once job A's run lets the queue move: until then
+    // its card stayed busy.
+    final runB = check(
+      service.runJob('job-b').timeout(const Duration(seconds: 2)),
+    ).throws<HermesDashboardRequestWithdrawn>();
     await pumpEventQueue();
     final stop = await service.stopJobRun('job-b');
-    bridge.release();
-    await runA;
 
     check(stop)
       ..has((r) => r.cancelled, 'cancelled').isTrue()
       ..has((r) => r.beforeStart, 'beforeStart').isTrue();
-    await check(runB).throws<HermesDashboardRequestWithdrawn>();
+    await runB;
+    bridge.release();
+    await runA;
     check(bridge.sent).deepEquals([
       'POST /api/cron/jobs/job-a/trigger',
       'POST /api/cron/jobs/job-b/cancel',

@@ -142,7 +142,7 @@ final class HermesDashboardRestSession implements HermesDashboardBridge {
     final completer = Completer<bool>();
     _tail = _tail.then((_) async {
       try {
-        final page = await _onDashboard(_ensureReady());
+        final page = await _onDashboard(_ensureReady(), queued: true);
         final Object? value;
         try {
           value = await page
@@ -172,7 +172,7 @@ final class HermesDashboardRestSession implements HermesDashboardBridge {
     required bool queued,
     bool Function()? beforeSend,
   }) async {
-    final page = await _onDashboard(ready);
+    final page = await _onDashboard(ready, queued: queued);
     // Asked with nothing awaited before the send, so a withdrawal is
     // either seen here or comes after the request went out.
     if (beforeSend?.call() == false) {
@@ -206,14 +206,23 @@ final class HermesDashboardRestSession implements HermesDashboardBridge {
 
   /// [ready]'s page, once it is on the dashboard's exact origin. The page
   /// refuses main-frame navigations off the dashboard; this also catches one
-  /// that got through, before anything runs there.
+  /// that got through, before anything runs there. Off it, the page is
+  /// discarded; a [queued] caller waits for that.
   Future<HermesDashboardPage> _onDashboard(
-    Future<HermesDashboardPage> ready,
-  ) async {
+    Future<HermesDashboardPage> ready, {
+    required bool queued,
+  }) async {
     final page = await ready;
     final current = await page.currentUrl();
     if (current == null || !hermesDashboardIsExactOrigin(current, _root)) {
-      await _discard(page);
+      // An urgent request is among those the discard waits for, so it
+      // settles first and the page closes after it.
+      final discarded = _discard(page);
+      if (queued) {
+        await discarded;
+      } else {
+        unawaited(discarded);
+      }
       throw StateError('Hermes dashboard page left the dashboard.');
     }
     return page;

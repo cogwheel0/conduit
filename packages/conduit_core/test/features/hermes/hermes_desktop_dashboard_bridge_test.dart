@@ -38,6 +38,8 @@ final class _RoutesBridge implements HermesDashboardBridge {
     String method,
     Uri url, {
     String? body,
+    bool urgent = false,
+    bool Function()? beforeSend,
   }) async {
     requests.add('$method $url');
     return routes['$method ${url.path}'] ??

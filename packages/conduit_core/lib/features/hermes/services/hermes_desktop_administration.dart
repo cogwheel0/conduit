@@ -565,11 +565,14 @@ final class _HermesDesktopAdministration {
     final trigger = _QueuedJobTrigger();
     _owner._jobTriggers[id] = trigger;
     try {
-      await _owner._requestJson(
-        'POST',
-        path,
-        dashboardBeforeSend: trigger.send,
-      );
+      // A Stop that withdraws it ends this at once: the request still waits
+      // its turn in the queue, only to be dropped there unsent.
+      await Future.any([
+        _owner._requestJson('POST', path, dashboardBeforeSend: trigger.send),
+        trigger.withdrawal.then<Object?>(
+          (_) => throw const HermesDashboardRequestWithdrawn(),
+        ),
+      ]);
     } finally {
       if (identical(_owner._jobTriggers[id], trigger)) {
         _owner._jobTriggers.remove(id);
@@ -693,11 +696,14 @@ final class _HermesDesktopAdministration {
 /// happen in one isolate turn each, so exactly one of them wins.
 final class _QueuedJobTrigger {
   bool _sent = false;
-  bool _withdrawn = false;
+  final Completer<void> _withdrawal = Completer<void>();
+
+  /// Completes when the trigger is withdrawn.
+  Future<void> get withdrawal => _withdrawal.future;
 
   /// Whether the trigger may go out now; false once withdrawn.
   bool send() {
-    if (_withdrawn) return false;
+    if (_withdrawal.isCompleted) return false;
     _sent = true;
     return true;
   }
@@ -705,7 +711,7 @@ final class _QueuedJobTrigger {
   /// Withdraws a trigger not sent yet; false when it already went out.
   bool withdraw() {
     if (_sent) return false;
-    _withdrawn = true;
+    if (!_withdrawal.isCompleted) _withdrawal.complete();
     return true;
   }
 }

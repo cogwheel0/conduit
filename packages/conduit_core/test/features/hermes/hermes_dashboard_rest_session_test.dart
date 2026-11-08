@@ -199,6 +199,28 @@ void main() {
     check(page.disposed).isTrue();
   });
 
+  // The discard waited for the urgent requests, this one among them: it
+  // never settled, and close waited on it for good.
+  test('an urgent request that finds the page gone settles', () async {
+    final bridge = session();
+    await bridge.request('GET', Uri.parse('https://hermes.example/api/a'));
+    final first = pages.single;
+    first.current = Uri.parse('https://identity.example/login');
+
+    await check(
+      bridge
+          .request(
+            'POST',
+            Uri.parse('https://hermes.example/api/stop'),
+            urgent: true,
+          )
+          .timeout(const Duration(seconds: 2)),
+    ).throws<StateError>();
+    await bridge.close().timeout(const Duration(seconds: 2));
+    check(first.calls).length.equals(1);
+    check(first.disposed).isTrue();
+  });
+
   test('runs requests one at a time, in order', () async {
     final bridge = session();
     final results = await Future.wait([
