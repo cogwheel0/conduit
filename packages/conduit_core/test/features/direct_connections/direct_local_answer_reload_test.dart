@@ -192,7 +192,7 @@ void main() {
     // Those rows still hold the reasoning in their metadata and the tool calls
     // in their output; loading them must put both back.
     test('recovers reasoning and tool sections on load', () async {
-      final reloaded = await _reloadStoredRow(
+      final stored = await _reloadStoredRow(
         events: <DirectStreamEvent>[
           const DirectReasoningDelta('Check both buoys.'),
           DirectToolCallStarted(
@@ -206,19 +206,36 @@ void main() {
             arguments: const <String, dynamic>{'buoy': 'north'},
             result: const <String, dynamic>{'swell_m': 1.2},
           ),
+          DirectToolCallStarted(
+            id: 'call_buoy_3',
+            name: 'buoy_reading',
+            arguments: const <String, dynamic>{'buoy': 'west'},
+          ),
+          DirectToolCallCompleted(
+            id: 'call_buoy_3',
+            name: 'buoy_reading',
+            arguments: const <String, dynamic>{'buoy': 'west'},
+            result: 'The west buoy is offline.',
+            isError: true,
+          ),
           const DirectContentDelta('Swell is 1.2 m at the north buoy.'),
           const DirectStreamDone(),
         ],
       );
+      final content = stored.reloaded.content;
 
-      expect(_detailsTypes(reloaded.content), <String>[
+      expect(_detailsTypes(content), <String>[
         'reasoning',
         'tool_calls',
+        'tool_calls',
       ]);
-      expect(reloaded.content, contains('&gt; Check both buoys.'));
-      expect(reloaded.content, contains('name="buoy_reading"'));
+      expect(content, contains('&gt; Check both buoys.'));
+      // The tool sections and the answer come back exactly as the chat drew
+      // them, failed call included.
+      expect(_fromFirstTool(content), _fromFirstTool(stored.live));
+      expect(content, contains('Tool Failed'));
       expect(
-        reloaded.content.trimRight(),
+        content.trimRight(),
         endsWith('Swell is 1.2 m at the north buoy.'),
       );
     });
@@ -226,7 +243,7 @@ void main() {
     test(
       'recovers a no-final-answer turn without the replay sentinel',
       () async {
-        final reloaded = await _reloadStoredRow(
+        final stored = await _reloadStoredRow(
           events: <DirectStreamEvent>[
             const DirectReasoningDelta('One reading is enough.'),
             DirectToolCallStarted(
@@ -244,14 +261,14 @@ void main() {
           ],
         );
 
-        expect(_detailsTypes(reloaded.content), <String>[
-          'reasoning',
-          'tool_calls',
-        ]);
+        final content = stored.reloaded.content;
+
+        expect(_detailsTypes(content), <String>['reasoning', 'tool_calls']);
         expect(
-          reloaded.content,
+          content,
           isNot(contains(kConduitDirectIncompleteAnswerReplayText)),
         );
+        expect(_fromFirstTool(content), _fromFirstTool(stored.live));
       },
     );
   });
@@ -366,8 +383,9 @@ Future<_Turn> _sendAndReload({
 /// Stores a finished direct answer the way builds before this fix did for
 /// a turn with provider tool calls: the row's `content` held only the
 /// output's message text, while `output` and `metadata` kept everything
-/// else. Returns the message as the load path rebuilds it.
-Future<ChatMessage> _reloadStoredRow({
+/// else. Returns the message as the load path rebuilds it, with the content
+/// the chat showed live.
+Future<({ChatMessage reloaded, String live})> _reloadStoredRow({
   required List<DirectStreamEvent> events,
 }) async {
   final db = AppDatabase(NativeDatabase.memory());
@@ -459,9 +477,10 @@ Future<ChatMessage> _reloadStoredRow({
     _chatId,
     preferred: ChatStorageKind.directLocal,
   );
-  return located!.conversation.messages.singleWhere(
+  final reloaded = located!.conversation.messages.singleWhere(
     (message) => message.id == assistant.id,
   );
+  return (reloaded: reloaded, live: assistant.content);
 }
 
 /// The joined text of the output's `message` items, as Open WebUI's
@@ -476,6 +495,9 @@ List<String> _detailsTypes(String content) => RegExp(
   r'^<details type="([a-z_]+)"',
   multiLine: true,
 ).allMatches(content).map((match) => match.group(1)!).toList();
+
+String _fromFirstTool(String content) =>
+    content.substring(content.indexOf('<details type="tool_calls"'));
 
 const _scriptedAdapterKey = 'scripted-test-adapter';
 
