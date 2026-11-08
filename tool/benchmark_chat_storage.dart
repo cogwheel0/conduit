@@ -99,6 +99,9 @@ Future<void> main() async {
 }
 
 Map<String, Object> describe(List<double> samples) {
+  if (samples.isEmpty) {
+    throw StateError('No measured samples; check warmup and iteration counts.');
+  }
   samples.sort();
   double p(double q) => samples[(samples.length * q).ceil() - 1];
   return {
