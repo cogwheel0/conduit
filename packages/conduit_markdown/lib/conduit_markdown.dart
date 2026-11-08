@@ -7,6 +7,7 @@
 library;
 
 export 'src/citation_parser.dart';
+export 'src/code_language.dart';
 export 'src/details_block_syntax.dart';
 export 'src/embed_utils.dart';
 export 'src/linear_inline_syntaxes.dart';
