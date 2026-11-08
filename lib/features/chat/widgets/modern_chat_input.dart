@@ -1130,8 +1130,9 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
 
   Future<void> _openComputer() async {
     await _hideAttachmentPanels();
+    if (!mounted) return;
     _focusNode.unfocus();
-    if (mounted) await openComputerWorkspace(context, ref);
+    await openComputerWorkspace(context, ref);
   }
 
   Future<void> _toggleNativeConnection(String id) async {
