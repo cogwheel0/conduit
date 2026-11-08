@@ -12,6 +12,7 @@ export 'src/adaptive_feedback.dart';
 export 'src/adaptive_document_selection_menu.dart';
 export 'src/adaptive_info_popover.dart';
 export 'src/adaptive_inputs.dart';
+export 'src/adaptive_search_bar.dart';
 export 'src/ios_text_magnifier.dart';
 export 'src/adaptive_layout.dart';
 export 'src/platform_ui_capabilities.dart';
