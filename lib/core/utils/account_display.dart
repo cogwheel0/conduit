@@ -118,6 +118,9 @@ enum AccountCardKind { openWebUi, hermes, direct }
 /// account is in Settings; the server it is on, which may be no more than an
 /// address, stands in only when there is no email.
 ///
+/// A card that opens its own profile rather than the list of accounts leaves
+/// the others out ([countsOthers] false): a row of its own leads to them.
+///
 /// [hermesInUseId] is null while Hermes is off.
 ({AccountCardKind kind, String title, String? subtitle}) accountCardSummary(
   AppLocalizations l10n, {
@@ -126,6 +129,7 @@ enum AccountCardKind { openWebUi, hermes, direct }
   required List<OpenWebUiAccountEntry> accounts,
   required List<HermesConnectionProfile> hermesConnections,
   required String? hermesInUseId,
+  bool countsOthers = true,
 }) {
   final hermes = hermesConnections
       .where((connection) => connection.id == hermesInUseId)
@@ -164,7 +168,10 @@ enum AccountCardKind { openWebUi, hermes, direct }
                 kind != AccountCardKind.hermes || connection.id != hermes!.id,
           )
           .length;
-  final subtitle = [?place, if (others > 0) '+$others'].join(' ');
+  final subtitle = [
+    ?place,
+    if (countsOthers && others > 0) '+$others',
+  ].join(' ');
   return (
     kind: kind,
     title: title,

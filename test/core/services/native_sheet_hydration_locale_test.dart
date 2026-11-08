@@ -157,6 +157,65 @@ void main() {
     check(citationBackground.value).equals(true);
   });
 
+  testWidgets('a language picked on the Settings root rebuilds the root in '
+      'that language', (tester) async {
+    NativeSheetBridge.instance.debugIsIOSOverride = true;
+    final patches = <PlatformNativeSheetApplyDetailPatchRequest>[];
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockDecodedMessageHandler<Object?>(_applyDetailPatchChannel, (
+          message,
+        ) async {
+          patches.add(
+            (message! as List<Object?>).single!
+                as PlatformNativeSheetApplyDetailPatchRequest,
+          );
+          return <Object?>[true];
+        });
+
+    final storage = _MockOptimizedStorageService();
+    when(storage.getThemeMode).thenReturn(null);
+    when(storage.getThemePaletteId).thenReturn(null);
+    when(storage.getLocaleCode).thenReturn(null);
+    when(storage.getReviewerMode).thenAnswer((_) async => false);
+    when(() => storage.setLocaleCode(any())).thenAnswer((_) async {});
+    final container = ProviderContainer(
+      overrides: [
+        optimizedStorageServiceProvider.overrideWithValue(storage),
+        modelsProvider.overrideWith(_NoModels.new),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const _LocalizedRoot(),
+      ),
+    );
+    await tester.pump();
+
+    // The root is up, and Appearance was never opened.
+    final service = container.read(nativeSheetHydrationServiceProvider);
+    service.rememberProfileRoot(null);
+
+    await container
+        .read(appLocaleProvider.notifier)
+        .setLocale(const Locale('es'));
+    await tester.pump();
+    await tester.pump();
+
+    final spanish = AppLocalizations.of(NavigationService.context!)!;
+    check(patches.where((p) => p.detailId == 'appearance')).isEmpty();
+    final root = patches.lastWhere(
+      (p) => p.detailId == NativeSheetRoutes.profileMenu,
+    );
+    final language = root.sections
+        .expand((section) => section.items)
+        .singleWhere((row) => row.id == 'language');
+    check(language.title).equals(spanish.appLanguage);
+    check(language.value).equals('es');
+  });
+
   testWidgets('the Voice provider page is patched alone, without the voices', (
     tester,
   ) async {
@@ -259,13 +318,13 @@ void main() {
         for (final item in section.items) item.id,
     ];
     // Color scheme, palette and citation shading in one group, the sidebar
-    // in the next, the language last. The Notes button lives in Chats now.
+    // in the next. The Notes button lives in Chats, and the language is a
+    // row of the Settings root.
     check(ids).deepEquals([
       'theme-light',
       'theme-palette',
       'citation-background',
       'sliding-sidebar',
-      'language',
     ]);
     final sidebarGroup = appearance.single.sections.singleWhere(
       (section) => section.items.any((item) => item.id == 'sliding-sidebar'),

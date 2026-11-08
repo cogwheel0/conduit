@@ -93,11 +93,13 @@ List<NativeSheetSectionConfig> _root({
   NativeProfileRootAccount? account = _account,
   NativeProfileRootVisibility visibility = const NativeProfileRootVisibility(),
   int? otherAccountCount = 0,
+  String appLanguageTag = 'system',
 }) => buildNativeProfileRootSections(
   _l10n,
   account: account,
   visibility: visibility,
   card: _card,
+  appLanguageTag: appLanguageTag,
   otherAccountCount: otherAccountCount,
 );
 
@@ -107,15 +109,19 @@ void main() {
       final sections = _root(visibility: _everything);
 
       expect(_ids(sections), [
-        [nativeAccountsDetailId, nativeAccountAddActionId],
         [
           NativeSheetRoutes.profile,
+          nativeAccountsDetailId,
+          nativeAccountAddActionId,
+        ],
+        [
           NativeSheetRoutes.notificationSettings,
           NativeSheetRoutes.aiMemory,
           NativeSheetRoutes.dataConnection,
         ],
         [
           NativeSheetRoutes.appearance,
+          nativeAppLanguageId,
           NativeSheetRoutes.chats,
           NativeSheetRoutes.voice,
         ],
@@ -136,26 +142,38 @@ void main() {
       expect(sections[5].footer, _l10n.supportConduitFooter);
     });
 
-    test('every row symbol is an outline, Profile included', () {
+    test('every row symbol is an outline', () {
       final sections = _root(visibility: _everything);
 
-      expect(_item(sections, NativeSheetRoutes.profile).sfSymbol, 'person');
       final symbols = [
         for (final section in sections)
           for (final item in section.items) item.sfSymbol,
       ];
       expect(symbols.where((symbol) => symbol.endsWith('.fill')), isEmpty);
+      // One symbol per row, so no two rows read as the same place.
+      expect(symbols.toSet(), hasLength(symbols.length));
     });
 
-    test('the account card leads to Accounts, with Add account under it', () {
+    // The card and a Profile row both showed the account and read as two
+    // ways to one page. The card is the profile now, as the Settings app's
+    // card is its account, and Accounts has a row of its own.
+    test('the account card opens its profile, with Accounts and Add account '
+        'under it', () {
       final sections = _root();
 
-      final card = _item(sections, nativeAccountsDetailId);
+      final card = sections.first.items.first;
+      expect(card.id, NativeSheetRoutes.profile);
       expect(card.title, 'Ada');
       expect(card.subtitle, 'Home Lab +1');
       expect(card.usesProfileAvatar, isTrue);
       // Pushed inside the sheet, not a page behind it.
       expect(card.dismissOnSelect, isFalse);
+      final ids = _ids(sections).expand((ids) => ids).toList();
+      expect(ids.where((id) => id == NativeSheetRoutes.profile), hasLength(1));
+      final accounts = _item(sections, nativeAccountsDetailId);
+      expect(accounts.title, _l10n.accountsTitle);
+      expect(accounts.usesProfileAvatar, isFalse);
+      expect(accounts.dismissOnSelect, isFalse);
       final add = _item(sections, nativeAccountAddActionId);
       expect(add.title, _l10n.accountsAddAccount);
       expect(add.accent, isTrue);
@@ -226,6 +244,16 @@ void main() {
       final ids = _ids(sections).expand((ids) => ids).toList();
       expect(ids, isNot(contains(nativeAccountSignOutActionId)));
       expect(_item(sections, nativeSignOutActionId).title, _l10n.signOut);
+    });
+
+    test('the app language is picked on the root, beside Appearance', () {
+      final sections = _root(appLanguageTag: 'de');
+
+      final language = _item(sections, nativeAppLanguageId);
+      expect(language.title, _l10n.appLanguage);
+      expect(language.kind, NativeSheetItemKind.searchablePicker);
+      expect(language.value, 'de');
+      expect(language.options.map((option) => option.id), contains('system'));
     });
 
     // Next to a usable Hermes or Direct backend Settings stays open with no
