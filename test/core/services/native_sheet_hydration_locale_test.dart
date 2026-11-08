@@ -317,30 +317,52 @@ void main() {
       for (final section in appearance.single.sections)
         for (final item in section.items) item.id,
     ];
-    // Color scheme, palette and citation shading in one group, the sidebar
-    // in the next. The Notes button lives in Chats, and the language is a
-    // row of the Settings root.
+    // The color scheme as tiles on its own, palette and citation shading in
+    // the next group, the sidebar in the last. The Notes button lives in
+    // Chats, and the language is a row of the Settings root.
     check(ids).deepEquals([
       'theme-light',
       'theme-palette',
       'citation-background',
       'sliding-sidebar',
     ]);
+    check([
+      for (final section in appearance.single.sections) section.items.length,
+    ]).deepEquals([1, 2, 1]);
+    // Each scheme previews itself in the palette in use -- background, ink,
+    // fill and border -- and System shows the light and the dark screen.
+    final scheme = appearance.single.sections.first.items.single;
+    check(scheme.kind).equals(PlatformNativeSheetItemKind.appearanceTiles);
+    check([for (final o in scheme.options) o.id])
+        .deepEquals(['system', 'light', 'dark']);
+    for (final option in scheme.options) {
+      check(option.swatchesArgb).isNotNull().length.equals(4);
+    }
+    final [system, light, dark] = scheme.options;
+    check(system.darkSwatchesArgb).isNotNull().length.equals(4);
+    check(light.darkSwatchesArgb).isNull();
+    check(dark.darkSwatchesArgb).isNull();
+    check(light.swatchesArgb).isNotNull().deepEquals(system.swatchesArgb!);
+    check(dark.swatchesArgb).isNotNull().deepEquals(system.darkSwatchesArgb!);
+    // Conduit's light screen is white with black ink; its dark one the
+    // reverse.
+    check(Color(light.swatchesArgb!.first)).equals(const Color(0xFFFFFFFF));
+    check(Color(dark.swatchesArgb!.first)).equals(const Color(0xFF000000));
     final sidebarGroup = appearance.single.sections.singleWhere(
       (section) => section.items.any((item) => item.id == 'sliding-sidebar'),
     );
     check(sidebarGroup.items.single.value).equals(false);
     check(sidebarGroup.items.single.subtitle).isNull();
     check(sidebarGroup.footer).isNotNull();
-    // Every palette previews itself as swatches in both appearances, and
-    // Conduit's read as the monochrome palette it is.
+    // Every palette previews itself as one swatch, its primary, in both
+    // appearances, and Conduit's reads as the monochrome palette it is.
     final palette = appearance.single.sections
         .expand((section) => section.items)
         .singleWhere((item) => item.id == 'theme-palette');
     check(palette.options).isNotEmpty();
     for (final option in palette.options) {
-      check(option.swatchesArgb).isNotNull().length.equals(3);
-      check(option.darkSwatchesArgb).isNotNull().length.equals(3);
+      check(option.swatchesArgb).isNotNull().length.equals(1);
+      check(option.darkSwatchesArgb).isNotNull().length.equals(1);
     }
     final conduit = palette.options.singleWhere(
       (option) => option.id == 'conduit',

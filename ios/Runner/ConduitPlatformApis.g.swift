@@ -239,6 +239,11 @@ enum PlatformNativeSheetItemKind: Int, CaseIterable {
   case readOnlyText = 10
   case source = 11
   case statusUpdate = 12
+  /// A choice among a few looks, drawn as preview tiles with a label and a
+  /// selection mark under each, as Display & Brightness draws Light and Dark.
+  /// Each option's swatches paint its preview; one with dark swatches too
+  /// previews both halves.
+  case appearanceTiles = 13
 }
 
 /// Whether a keyboard attachment row turns an option on and off, or runs a

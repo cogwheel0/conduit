@@ -388,44 +388,28 @@ enum NativeSheetSettingsStyle {
     }
 }
 
-/// A palette's colours as small overlapping discs, the way a palette picker
-/// previews one: each disc is ringed in the row's surface so the overlaps
-/// read, and outlined in the separator tone so a disc the colour of the
-/// surface (a white page on a white row) still shows. The first colour sits
-/// on top.
+/// A palette's colour as one filled disc with a hairline edge, the way
+/// Calendar marks a calendar beside its name: plainly a swatch, never a
+/// control. (Overlapping discs read as a switch's knob and track.) The edge
+/// is a little stronger than a separator, so a disc the colour of the row
+/// still shows. Only the first colour is drawn.
 func nativePaletteSwatchImage(
     _ colors: [UIColor],
-    discDiameter: CGFloat = 14
+    discDiameter: CGFloat = 12
 ) -> UIImage? {
-    guard !colors.isEmpty else { return nil }
+    guard let color = colors.first else { return nil }
     let theme = NativeSheetTheme.shared
-    // A little stronger than a separator, so a disc the colour of the row
-    // keeps its edge.
-    let outline = theme.foreground.withAlphaComponent(theme.isDark ? 0.28 : 0.16)
-    let ring: CGFloat = 1.5
-    let step = discDiameter * 0.62
-    let size = CGSize(
-        width: discDiameter + step * CGFloat(colors.count - 1) + ring * 2,
-        height: discDiameter + ring * 2
-    )
+    let outline = theme.foreground.withAlphaComponent(theme.isDark ? 0.3 : 0.16)
+    let size = CGSize(width: discDiameter, height: discDiameter)
     let image = UIGraphicsImageRenderer(size: size).image { context in
         let cg = context.cgContext
-        for (index, color) in colors.enumerated().reversed() {
-            let disc = CGRect(
-                x: ring + step * CGFloat(index),
-                y: ring,
-                width: discDiameter,
-                height: discDiameter
-            )
-            cg.setFillColor(theme.surface.cgColor)
-            cg.fillEllipse(in: disc.insetBy(dx: -ring, dy: -ring))
-            cg.setFillColor(color.cgColor)
-            cg.fillEllipse(in: disc)
-            let hairline = 1 / max(UIScreen.main.scale, 1)
-            cg.setStrokeColor(outline.cgColor)
-            cg.setLineWidth(hairline)
-            cg.strokeEllipse(in: disc.insetBy(dx: hairline / 2, dy: hairline / 2))
-        }
+        let disc = CGRect(origin: .zero, size: size)
+        cg.setFillColor(color.cgColor)
+        cg.fillEllipse(in: disc)
+        let hairline = 1 / max(UIScreen.main.scale, 1)
+        cg.setStrokeColor(outline.cgColor)
+        cg.setLineWidth(hairline)
+        cg.strokeEllipse(in: disc.insetBy(dx: hairline / 2, dy: hairline / 2))
     }
     return image.withRenderingMode(.alwaysOriginal)
 }

@@ -1192,6 +1192,7 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
             case 'dark':
               ref.read(appThemeModeProvider.notifier).setTheme(ThemeMode.dark);
           }
+          await _refreshNativeAppearanceDetail();
         case 'language':
           if (value == 'system') {
             await ref.read(appLocaleProvider.notifier).setLocale(null);
@@ -1204,6 +1205,7 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
         case 'theme-palette':
           if (value is String && value.isNotEmpty) {
             await ref.read(appThemePaletteProvider.notifier).setPalette(value);
+            await _refreshNativeAppearanceDetail();
           }
         case 'quick-pills-clear':
           await ref.read(appSettingsProvider.notifier).setQuickPills(const []);
@@ -1381,6 +1383,15 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
               current: ref.read(appSettingsProvider).directVoiceProvider,
             ),
     );
+  }
+
+  /// Redraws Appearance after its scheme or palette changed, so its rows show
+  /// the choice -- the palette's name and swatch, the scheme tiles painted in
+  /// the new palette -- rather than the rows the sheet was opened with.
+  Future<void> _refreshNativeAppearanceDetail() {
+    return ref
+        .read(nativeSheetHydrationServiceProvider)
+        .hydrateDetail(NativeSheetRoutes.appearance);
   }
 
   /// Redraws the Voice pages from [detailId], the one the change came from.

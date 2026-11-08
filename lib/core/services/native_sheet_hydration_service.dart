@@ -1300,33 +1300,55 @@ class NativeSheetHydrationService {
       final themeMode = _ref.read(appThemeModeProvider);
       final activePalette = _ref.read(appThemePaletteProvider);
       final appSettings = _ref.read(appSettingsProvider);
-      // How the app looks, in two groups; its language is a row of the
-      // Settings root. A toggle that needs explaining is explained in its
-      // group's footer, as Settings does, rather than in a second line under
-      // its title.
+      // How the app looks. The colour scheme leads as preview tiles, as
+      // Display & Brightness shows Light and Dark, each painted in the
+      // palette in use; the palette and citation shading follow, then the
+      // sidebar. Its language is a row of the Settings root. A toggle that
+      // needs explaining is explained in its group's footer, as Settings
+      // does, rather than in a second line under its title.
       await _applyNativeDetail(
         NativeSheetDetailConfig(
           id: NativeSheetRoutes.appearance,
           title: nativeAppearanceTitle(l10n),
           sections: [
             NativeSheetSectionConfig(
-              footer: l10n.citationBackgroundDescription,
               items: [
                 NativeSheetItemConfig(
                   id: 'theme-light',
                   title: l10n.colorScheme,
                   sfSymbol: 'circle.lefthalf.filled',
-                  kind: NativeSheetItemKind.segment,
+                  kind: NativeSheetItemKind.appearanceTiles,
                   value: themeMode.name,
                   options: [
-                    NativeSheetOptionConfig(id: 'system', label: l10n.system),
+                    NativeSheetOptionConfig(
+                      id: 'system',
+                      label: l10n.system,
+                      swatches: nativeSchemePreviewSwatches(
+                        activePalette.light,
+                      ),
+                      darkSwatches: nativeSchemePreviewSwatches(
+                        activePalette.dark,
+                      ),
+                    ),
                     NativeSheetOptionConfig(
                       id: 'light',
                       label: l10n.themeLight,
+                      swatches: nativeSchemePreviewSwatches(
+                        activePalette.light,
+                      ),
                     ),
-                    NativeSheetOptionConfig(id: 'dark', label: l10n.themeDark),
+                    NativeSheetOptionConfig(
+                      id: 'dark',
+                      label: l10n.themeDark,
+                      swatches: nativeSchemePreviewSwatches(activePalette.dark),
+                    ),
                   ],
                 ),
+              ],
+            ),
+            NativeSheetSectionConfig(
+              footer: l10n.citationBackgroundDescription,
+              items: [
                 NativeSheetItemConfig(
                   id: 'theme-palette',
                   title: l10n.themePalette,
@@ -2143,12 +2165,19 @@ class NativeSheetHydrationService {
   }
 }
 
-/// The colours a palette row previews in Appearance, as ARGB: the palette's
-/// primary (its ink and buttons), accent (its fills) and background, so
-/// Conduit reads as the monochrome it is and a coloured palette shows its
-/// hue.
+/// The colour a palette row previews in Appearance, as ARGB: the palette's
+/// primary, its ink and buttons, drawn as one disc beside the palette's
+/// name (as Calendar marks a calendar), so Conduit reads as the monochrome
+/// it is and a coloured palette shows its hue.
 List<int> nativePaletteSwatches(TweakcnThemeVariant variant) => [
   variant.primary.toARGB32(),
-  variant.accent.toARGB32(),
+];
+
+/// The colours a Color Scheme tile paints its miniature screen with, as
+/// ARGB: the palette's background, ink, fill and border in one appearance.
+List<int> nativeSchemePreviewSwatches(TweakcnThemeVariant variant) => [
   variant.background.toARGB32(),
+  variant.foreground.toARGB32(),
+  variant.card.toARGB32(),
+  variant.border.toARGB32(),
 ];
