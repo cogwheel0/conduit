@@ -61,10 +61,19 @@ class _StreamingTurnFooterState extends ConsumerState<StreamingTurnFooter>
             .accessibilityFeatures
             .disableAnimations ||
         !isFreshChatContent(message.timestamp) ||
-        !claimChatEntrance('footer:${message.id}')) {
+        !isChatEntranceAvailable(_entranceKey)) {
       return;
     }
     _entrance.value = 0;
+  }
+
+  String get _entranceKey => 'footer:${widget.message.id}';
+
+  /// The pause and fade start once the footer is first on screen, not while
+  /// the timeline hides a settling turn.
+  void _startEntranceOnScreen() {
+    if (_entranceTimer != null || _entrance.value >= 1) return;
+    markChatEntranceShown(_entranceKey);
     _entranceTimer = Timer(chatReplyEntranceDelay, () {
       if (mounted) _entrance.forward();
     });
@@ -154,103 +163,106 @@ class _StreamingTurnFooterState extends ConsumerState<StreamingTurnFooter>
           hasStreamedContent: hasStreamedContent,
         );
 
-    return FadeTransition(
-      opacity: CurvedAnimation(parent: _entrance, curve: Curves.easeOut),
-      child: AnimatedSwitcher(
-        duration: _disableAnimations ? Duration.zero : _switchDuration,
-        reverseDuration: _disableAnimations ? Duration.zero : _switchDuration,
-        switchInCurve: Curves.easeOutCubic,
-        switchOutCurve: Curves.easeInCubic,
-        layoutBuilder: (currentChild, previousChildren) {
-          final children = <Widget>[...previousChildren, ?currentChild];
-          if (children.isEmpty) {
-            return const SizedBox.shrink();
-          }
-          return Stack(
-            alignment: AlignmentDirectional.topStart,
-            children: children,
-          );
-        },
-        child: shouldShow
-            ? KeyedSubtree(
-                key: const ValueKey('typing'),
-                child: SizedBox(
-                  width: double.infinity,
-                  child: Align(
-                    alignment: AlignmentDirectional.centerStart,
-                    child: Padding(
-                      padding: EdgeInsets.only(
-                        top: ConduitMarkdownStyle.fromTheme(context)
-                            .paragraphSpacing,
-                      ),
-                      // As tall as the reply's action row (44 pt targets) that
-                      // replaces it at settle, with the orbit centred where those
-                      // glyphs will sit, so the swap moves nothing.
-                      child: SizedBox(
-                        height: kStreamingTurnFooterRowHeight,
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            RepaintBoundary(
-                              child: ConduitStreamingOrbit(
-                                size: 28,
-                                color: context.conduitTheme.textSecondary
-                                    .withValues(alpha: 0.75),
-                                animate: !_disableAnimations,
+    return ChatFirstPaintListener(
+      onFirstPaint: _startEntranceOnScreen,
+      child: FadeTransition(
+        opacity: CurvedAnimation(parent: _entrance, curve: Curves.easeOut),
+        child: AnimatedSwitcher(
+          duration: _disableAnimations ? Duration.zero : _switchDuration,
+          reverseDuration: _disableAnimations ? Duration.zero : _switchDuration,
+          switchInCurve: Curves.easeOutCubic,
+          switchOutCurve: Curves.easeInCubic,
+          layoutBuilder: (currentChild, previousChildren) {
+            final children = <Widget>[...previousChildren, ?currentChild];
+            if (children.isEmpty) {
+              return const SizedBox.shrink();
+            }
+            return Stack(
+              alignment: AlignmentDirectional.topStart,
+              children: children,
+            );
+          },
+          child: shouldShow
+              ? KeyedSubtree(
+                  key: const ValueKey('typing'),
+                  child: SizedBox(
+                    width: double.infinity,
+                    child: Align(
+                      alignment: AlignmentDirectional.centerStart,
+                      child: Padding(
+                        padding: EdgeInsets.only(
+                          top: ConduitMarkdownStyle.fromTheme(context)
+                              .paragraphSpacing,
+                        ),
+                        // As tall as the reply's action row (44 pt targets) that
+                        // replaces it at settle, with the orbit centred where those
+                        // glyphs will sit, so the swap moves nothing.
+                        child: SizedBox(
+                          height: kStreamingTurnFooterRowHeight,
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              RepaintBoundary(
+                                child: ConduitStreamingOrbit(
+                                  size: 28,
+                                  color: context.conduitTheme.textSecondary
+                                      .withValues(alpha: 0.75),
+                                  animate: !_disableAnimations,
+                                ),
                               ),
-                            ),
-                            // Until the reply shows anything, the orbit alone is
-                            // too quiet for a wait of several seconds. The label
-                            // leaves as soon as text, a status, or a streamed
-                            // reasoning block (with its own "Thinking…") appears;
-                            // the orbit stays put, so nothing shifts.
-                            Flexible(
-                              child: AnimatedSwitcher(
-                                duration: _disableAnimations
-                                    ? Duration.zero
-                                    : _labelSwitchDuration,
-                                switchInCurve: Curves.easeOut,
-                                switchOutCurve: Curves.easeIn,
-                                layoutBuilder:
-                                    (currentChild, previousChildren) => Stack(
-                                      alignment:
-                                          AlignmentDirectional.centerStart,
-                                      children: [
-                                        ...previousChildren,
-                                        ?currentChild,
-                                      ],
-                                    ),
-                                child: showThinkingLabel
-                                    ? Padding(
-                                        key: const ValueKey(
-                                          'streaming-turn-thinking-label',
-                                        ),
-                                        padding:
-                                            const EdgeInsetsDirectional.only(
-                                              start: Spacing.xs,
-                                            ),
-                                        child: ThinkingStatusLabel(
-                                          startedAt: widget.message.timestamp,
-                                          animate: !_disableAnimations,
-                                        ),
-                                      )
-                                    : const SizedBox.shrink(
-                                        key: ValueKey(
-                                          'streaming-turn-thinking-label-empty',
-                                        ),
+                              // Until the reply shows anything, the orbit alone is
+                              // too quiet for a wait of several seconds. The label
+                              // leaves as soon as text, a status, or a streamed
+                              // reasoning block (with its own "Thinking…") appears;
+                              // the orbit stays put, so nothing shifts.
+                              Flexible(
+                                child: AnimatedSwitcher(
+                                  duration: _disableAnimations
+                                      ? Duration.zero
+                                      : _labelSwitchDuration,
+                                  switchInCurve: Curves.easeOut,
+                                  switchOutCurve: Curves.easeIn,
+                                  layoutBuilder:
+                                      (currentChild, previousChildren) => Stack(
+                                        alignment:
+                                            AlignmentDirectional.centerStart,
+                                        children: [
+                                          ...previousChildren,
+                                          ?currentChild,
+                                        ],
                                       ),
+                                  child: showThinkingLabel
+                                      ? Padding(
+                                          key: const ValueKey(
+                                            'streaming-turn-thinking-label',
+                                          ),
+                                          padding:
+                                              const EdgeInsetsDirectional.only(
+                                                start: Spacing.xs,
+                                              ),
+                                          child: ThinkingStatusLabel(
+                                            startedAt: widget.message.timestamp,
+                                            animate: !_disableAnimations,
+                                          ),
+                                        )
+                                      : const SizedBox.shrink(
+                                          key: ValueKey(
+                                            'streaming-turn-thinking-label-empty',
+                                          ),
+                                        ),
+                                ),
                               ),
-                            ),
-                          ],
+                            ],
+                          ),
                         ),
                       ),
                     ),
                   ),
+                )
+              : const SizedBox.shrink(
+                  key: ValueKey('streaming-turn-footer-empty'),
                 ),
-              )
-            : const SizedBox.shrink(
-                key: ValueKey('streaming-turn-footer-empty'),
-              ),
+        ),
       ),
     );
   }

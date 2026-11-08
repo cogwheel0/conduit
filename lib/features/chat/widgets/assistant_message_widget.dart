@@ -267,8 +267,21 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     final message = _chatMessage;
     if (message == null) return true;
     return isFreshChatContent(message.timestamp) &&
-        claimChatEntrance('row:${message.id}');
+        isChatEntranceAvailable(_rowEntranceKey);
   }();
+
+  String get _rowEntranceKey => 'row:${_chatMessage?.id ?? ''}';
+
+  /// Starts the row's fade once it is first on screen (not while the
+  /// timeline hides a settling turn), after the sent message has had a
+  /// moment to rise above it.
+  void _startMountFadeOnScreen() {
+    if (_mountFadeTimer != null || _fadeController.value >= 1) return;
+    markChatEntranceShown(_rowEntranceKey);
+    _mountFadeTimer = Timer(chatReplyEntranceDelay, () {
+      if (mounted) _fadeController.forward();
+    });
+  }
 
   /// The first text of a reply fades in once per message, not again when the
   /// row remounts mid-stream.
@@ -1573,14 +1586,14 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     // Animate on first appearance only, not on every streaming rebuild
     if (!_hasAnimated) {
       _hasAnimated = true;
-      // A new reply waits for the sent message to rise into place above it,
-      // so the two arrive in order rather than on top of each other.
-      _mountFadeTimer = Timer(chatReplyEntranceDelay, () {
-        if (mounted) _fadeController.forward();
-      });
     }
 
-    return FadeTransition(opacity: _fadeController, child: content);
+    // A new reply waits for the sent message to rise into place above it,
+    // so the two arrive in order rather than on top of each other.
+    return ChatFirstPaintListener(
+      onFirstPaint: _startMountFadeOnScreen,
+      child: FadeTransition(opacity: _fadeController, child: content),
+    );
   }
 
   /// Builds the keyed child for the footer [AnimatedSwitcher]: the action row

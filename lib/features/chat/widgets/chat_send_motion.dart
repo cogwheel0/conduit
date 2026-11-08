@@ -73,16 +73,69 @@ bool isFreshChatContent(DateTime timestamp, {DateTime? now}) {
   return age.abs() <= chatEntranceFreshness;
 }
 
-/// Claims the one entrance a message may ever play. Returns false when the
-/// message already entered (or was decided not to), so remounts stay still.
-bool claimChatEntrance(String messageId) {
-  if (messageId.isEmpty) return false;
-  if (_enteredMessageIds.contains(messageId)) return false;
-  _enteredMessageIds.add(messageId);
+/// Whether [key]'s one entrance is still to be shown. A row can mount and be
+/// replaced before it is ever painted (the timeline stays hidden while a new
+/// turn's position settles), so this only asks; [markChatEntranceShown]
+/// spends the entrance once it is actually on screen.
+bool isChatEntranceAvailable(String key) =>
+    key.isNotEmpty && !_enteredMessageIds.contains(key);
+
+/// Records that [key]'s entrance was shown, so remounts stay still.
+void markChatEntranceShown(String key) {
+  if (key.isEmpty) return;
+  _enteredMessageIds.add(key);
   while (_enteredMessageIds.length > _enteredMessageIdCapacity) {
     _enteredMessageIds.remove(_enteredMessageIds.first);
   }
+}
+
+/// Claims the one entrance [key] may ever play, at once. Returns false when
+/// it already played, so a remount stays still.
+bool claimChatEntrance(String key) {
+  if (!isChatEntranceAvailable(key)) return false;
+  markChatEntranceShown(key);
   return true;
+}
+
+/// Calls [onFirstPaint] after the first frame in which [child] is actually
+/// painted: not while an ancestor hides it (the timeline's settle cover, a
+/// zero opacity), and only once per element.
+class ChatFirstPaintListener extends SingleChildRenderObjectWidget {
+  const ChatFirstPaintListener({
+    super.key,
+    required this.onFirstPaint,
+    required super.child,
+  });
+
+  final VoidCallback onFirstPaint;
+
+  @override
+  RenderObject createRenderObject(BuildContext context) =>
+      _RenderFirstPaintListener(onFirstPaint);
+
+  @override
+  void updateRenderObject(BuildContext context, RenderObject renderObject) {
+    (renderObject as _RenderFirstPaintListener).onFirstPaint = onFirstPaint;
+  }
+}
+
+class _RenderFirstPaintListener extends RenderProxyBox {
+  _RenderFirstPaintListener(this.onFirstPaint);
+
+  VoidCallback onFirstPaint;
+  bool _painted = false;
+
+  @override
+  void paint(PaintingContext context, Offset offset) {
+    if (!_painted) {
+      _painted = true;
+      // Never change state from inside paint.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (attached) onFirstPaint();
+      });
+    }
+    super.paint(context, offset);
+  }
 }
 
 /// A just-sent message rising into place from where it was written.
@@ -143,17 +196,22 @@ class _ChatSendEntranceState extends State<ChatSendEntrance>
     super.didChangeDependencies();
     if (_decided) return;
     _decided = true;
-    final claimed = claimChatEntrance(widget.messageId);
-    if (!claimed ||
+    if (!isChatEntranceAvailable(widget.messageId) ||
         context.reduceMotion ||
         !isFreshChatContent(widget.timestamp)) {
       return;
     }
-    _origin = widget.useSendOrigin ? ChatSendOrigin.take() : null;
     _controller = AnimationController(
       vsync: this,
       duration: ChatSendEntrance.settleDuration,
     );
+  }
+
+  /// The first frame that shows the bubble spends its entrance and takes the
+  /// send origin; a mount replaced before it was ever seen leaves both.
+  Rect? _beginOnScreen() {
+    markChatEntranceShown(widget.messageId);
+    return _origin ??= widget.useSendOrigin ? ChatSendOrigin.take() : null;
   }
 
   @override
@@ -168,7 +226,7 @@ class _ChatSendEntranceState extends State<ChatSendEntrance>
     if (controller == null) return widget.child;
     return _SendEntranceMotion(
       controller: controller,
-      origin: _origin,
+      beginOnScreen: _beginOnScreen,
       child: widget.child,
     );
   }
@@ -177,16 +235,18 @@ class _ChatSendEntranceState extends State<ChatSendEntrance>
 class _SendEntranceMotion extends SingleChildRenderObjectWidget {
   const _SendEntranceMotion({
     required this.controller,
-    required this.origin,
+    required this.beginOnScreen,
     required super.child,
   });
 
   final AnimationController controller;
-  final Rect? origin;
+
+  /// Called at the first paint; returns the send origin, if any.
+  final Rect? Function() beginOnScreen;
 
   @override
   _RenderSendEntrance createRenderObject(BuildContext context) =>
-      _RenderSendEntrance(controller: controller, origin: origin);
+      _RenderSendEntrance(controller: controller, beginOnScreen: beginOnScreen);
 
   @override
   void updateRenderObject(
@@ -195,7 +255,7 @@ class _SendEntranceMotion extends SingleChildRenderObjectWidget {
   ) {
     renderObject
       ..controller = controller
-      ..origin = origin;
+      ..beginOnScreen = beginOnScreen;
   }
 }
 
@@ -206,9 +266,10 @@ class _SendEntranceMotion extends SingleChildRenderObjectWidget {
 class _RenderSendEntrance extends RenderProxyBox {
   _RenderSendEntrance({
     required AnimationController controller,
-    required Rect? origin,
-  }) : _controller = controller,
-       _origin = origin;
+    required this.beginOnScreen,
+  }) : _controller = controller;
+
+  Rect? Function() beginOnScreen;
 
   AnimationController _controller;
   set controller(AnimationController value) {
@@ -219,11 +280,6 @@ class _RenderSendEntrance extends RenderProxyBox {
   }
 
   Rect? _origin;
-  set origin(Rect? value) {
-    if (value == _origin) return;
-    _origin = value;
-    markNeedsPaint();
-  }
 
   /// Global top the child starts from, fixed at the first paint.
   double? _startTop;
@@ -275,6 +331,7 @@ class _RenderSendEntrance extends RenderProxyBox {
     if (child == null) return;
     if (!_started) {
       _started = true;
+      _origin = beginOnScreen();
       // The clock starts with the first frame that shows the row.
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (attached && !_controller.isAnimating) _controller.forward();

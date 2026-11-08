@@ -120,6 +120,48 @@ void main() {
     expect(_paintedTop(tester), 0);
   });
 
+  testWidgets(
+    'a bubble first mounted under the settle cover still enters when shown',
+    (tester) async {
+      final timestamp = DateTime.now();
+      ChatSendOrigin.record(const Rect.fromLTWH(20, 700, 360, 44));
+      // The timeline hides a new turn while its position settles, and may
+      // replace the row before it is ever painted.
+      await tester.pumpWidget(
+        _harness(
+          Opacity(
+            opacity: 0,
+            child: ChatSendEntrance(
+              key: const ValueKey('hidden'),
+              messageId: 'settling',
+              timestamp: timestamp,
+              child: _bubble(),
+            ),
+          ),
+        ),
+      );
+      await tester.pump(const Duration(milliseconds: 200));
+
+      await tester.pumpWidget(
+        _harness(
+          Opacity(
+            opacity: 1,
+            child: ChatSendEntrance(
+              key: const ValueKey('shown'),
+              messageId: 'settling',
+              timestamp: timestamp,
+              child: _bubble(),
+            ),
+          ),
+        ),
+      );
+      // Starts at the composer, not in place.
+      expect(_paintedTop(tester), closeTo(704, 1));
+      await tester.pumpAndSettle();
+      expect(_paintedTop(tester), closeTo(0, 0.01));
+    },
+  );
+
   testWidgets('history and Reduce Motion appear in place', (tester) async {
     ChatSendOrigin.record(const Rect.fromLTWH(20, 700, 360, 44));
     await tester.pumpWidget(
