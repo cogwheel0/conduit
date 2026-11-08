@@ -45,8 +45,24 @@ String modelDisplayName({
   if (!isRawModelIdName(source, ids: [id, ...alternateIds])) return source;
 
   final bare = _lastSegment(source);
-  return catalog?.modelNameFor(bare) ?? bare;
+  final catalogName = catalog?.modelNameFor(bare);
+  return catalogName == null ? bare : _capitalizeLowercaseWords(catalogName);
 }
+
+/// models.dev writes some names with lowercase trailing words ("GPT-4.1
+/// mini") and others in title case ("GPT-5 Mini"); side by side in one list
+/// the mix reads as a typo. Capitalise words made only of lowercase letters,
+/// and leave anything with digits or capitals ("o3", "4o", "GPT") as it is.
+String _capitalizeLowercaseWords(String name) => name
+    .split(' ')
+    .map(
+      (word) => _lowercaseWord.hasMatch(word)
+          ? '${word[0].toUpperCase()}${word.substring(1)}'
+          : word,
+    )
+    .join(' ');
+
+final RegExp _lowercaseWord = RegExp(r'^[a-z]+$');
 
 /// [modelDisplayName] for [model], using the models.dev catalog the app
 /// installed at startup unless [catalog] is given.

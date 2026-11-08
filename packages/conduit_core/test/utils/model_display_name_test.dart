@@ -8,11 +8,35 @@ import 'package:test/test.dart';
 
 final _catalog = ModelLogoCatalog(
   logos: const {'openai': 'OpenAI'},
-  names: const {'gpt-5-mini': 'GPT-5 Mini', 'qwen3.7-flash': 'Qwen3.7 Flash'},
+  names: const {
+    'gpt-5-mini': 'GPT-5 Mini',
+    'qwen3.7-flash': 'Qwen3.7 Flash',
+    'gpt-4.1-mini': 'GPT-4.1 mini',
+    'o3-mini': 'o3-mini',
+    'gpt-4o-mini': 'GPT-4o mini',
+  },
 );
 
 void main() {
   group('modelDisplayName', () {
+    test('catalog names read in one case beside each other', () {
+      String nameFor(String id) =>
+          modelDisplayName(name: id, id: id, catalog: _catalog);
+      expect(nameFor('openai/gpt-4.1-mini'), 'GPT-4.1 Mini');
+      expect(nameFor('openai/gpt-4o-mini'), 'GPT-4o Mini');
+      // Words with digits or capitals keep the maker's casing.
+      expect(nameFor('openai/o3-mini'), 'o3-mini');
+      // A name someone chose is never re-cased.
+      expect(
+        modelDisplayName(
+          name: 'GPT-4.1 mini (team)',
+          id: 'openai/gpt-4.1-mini',
+          catalog: _catalog,
+        ),
+        'GPT-4.1 mini (team)',
+      );
+    });
+
     test('a raw id takes its models.dev name', () {
       expect(
         modelDisplayName(
@@ -208,7 +232,7 @@ void main() {
     String name(String id) =>
         modelDisplayName(name: id, id: id, catalog: bundled);
     expect(name('openai/gpt-5-mini'), 'GPT-5 Mini');
-    expect(name('openai/gpt-4.1-mini'), 'GPT-4.1 mini');
+    expect(name('openai/gpt-4.1-mini'), 'GPT-4.1 Mini');
     expect(name('alibaba/qwen3.7-flash'), 'Qwen3.7 Flash');
     // Listed only as `mistral-small-latest`, minus its "(latest)".
     expect(name('mistral/mistral-small'), 'Mistral Small');
