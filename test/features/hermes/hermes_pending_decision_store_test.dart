@@ -81,6 +81,25 @@ void main() {
     check(records.single.prompt).isNotNull();
   });
 
+  // Redaction lengthens this choice past the saved bound: it was saved, then
+  // dropped on read, so every replay counted as a change.
+  test('a choice redaction lengthens reads back as saved', () async {
+    final choice = 'password=x ${'w' * 60}';
+    Future<bool> save() => HermesPendingDecisionStore.upsert(
+      origin: 'https://hermes.example:443',
+      storedSessionId: 'stored-1',
+      runtimeId: 'runtime-1',
+      requestId: 'request-5',
+      kind: HermesPendingDesktopDecisionKind.clarification,
+      prompt: 'Which one?',
+      choices: [choice, 'Teal'],
+      sensitiveValues: const <String>[],
+    );
+
+    check(await save()).isTrue();
+    check(await save()).isFalse();
+  });
+
   test('resolution and origin cleanup remove only matching records', () async {
     for (final request in const <String>['request-1', 'request-2']) {
       await HermesPendingDecisionStore.upsert(

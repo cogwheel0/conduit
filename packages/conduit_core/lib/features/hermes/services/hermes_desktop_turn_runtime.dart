@@ -506,7 +506,11 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
     if (explicit != null) return '${event.type}:$explicit';
     if (event.type.endsWith('.request')) {
       final request = payload['request_id'] ?? payload['id'];
-      if (request != null) return '${event.type}:$request';
+      // A connection card offered again is a new offer of the same card.
+      final offer = payload['offer'];
+      if (request != null) {
+        return '${event.type}:$request${offer is int ? '#$offer' : ''}';
+      }
     }
     if (event.type == 'message.complete') {
       final message = payload['message_id'] ?? payload['id'];

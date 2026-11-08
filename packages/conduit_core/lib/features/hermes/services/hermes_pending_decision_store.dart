@@ -227,10 +227,12 @@ final class HermesPendingDecisionStore {
       if (candidate.identity == legacyIdentity) legacy = candidate;
     }
     previous ??= legacy;
-    final sanitizedChoices = _sanitizeChoices(choices)
-        .map((choice) => _sanitizePrompt(choice, sensitiveValues))
-        .whereType<String>()
-        .toList(growable: false);
+    // Bounded again after redaction, which can lengthen a choice: what is
+    // saved is what reads back, so a replay compares equal.
+    final sanitizedChoices = _sanitizeChoices([
+      for (final choice in _sanitizeChoices(choices))
+        ?_sanitizePrompt(choice, sensitiveValues),
+    ]);
     final record = HermesPendingDesktopDecision(
       origin: origin,
       storedSessionId: stored,

@@ -1084,6 +1084,153 @@ void main() {
       ).deepEquals(['op-5/docs', 'op-5/docs']);
     });
 
+    // Approving an install whose credentials Hermes lacks leaves it waiting
+    // (`required_env`); its card had been answered, so nothing could set it
+    // up or skip it any more.
+    test('an approved install Hermes holds for credentials comes back',
+        () async {
+      final chat = await _restoredChat(const {});
+      Map<String, Object?> target(String name, {bool held = false}) => {
+        'name': name,
+        'kind': 'mcp',
+        'action': 'install',
+        'state': 'pending',
+        if (held) 'detail': 'waiting for DOCS_TOKEN',
+        'required_env': [
+          {
+            'name': 'DOCS_TOKEN',
+            'required': true,
+            'secret': true,
+            'default': '',
+          },
+        ],
+      };
+      chat.harness.event('runtime-1', 'connection.request', {
+        'op_id': 'op-6',
+        'targets': [target('docs'), target('notes')],
+      });
+      await pumpEventQueue();
+      await chat.service.respondToDecision(
+        storedSessionId: 'stored-1',
+        runtimeId: 'runtime-1',
+        requestId: 'op-6/docs',
+        kind: HermesDecisionKind.mcpSetup,
+        value: 'approve',
+      );
+      // Another target's frame says nothing about this one.
+      chat.harness.event('runtime-1', 'connection.update', {
+        'op_id': 'op-6',
+        'target': 'notes',
+        'from': 'pending',
+        'to': 'pending',
+        'targets': [target('docs'), target('notes')],
+      });
+      await pumpEventQueue();
+      check(
+        chat.events.where((event) => event.type == 'mcp.setup.request'),
+      ).length.equals(1);
+
+      chat.harness.event('runtime-1', 'connection.update', {
+        'op_id': 'op-6',
+        'target': 'docs',
+        'from': 'pending',
+        'to': 'pending',
+        'targets': [target('docs', held: true), target('notes')],
+      });
+      await pumpEventQueue();
+
+      final cards = chat.events
+          .where((event) => event.type == 'mcp.setup.request')
+          .toList();
+      check(
+        cards.map((event) => event.payload['request_id']),
+      ).deepEquals(['op-6/docs', 'op-6/docs']);
+      check(cards.last.payload['offer']).equals(1);
+      check(cards.last.payload['reason']).equals('waiting for DOCS_TOKEN');
+      check(
+        (await chat.service.pendingDecisionsForSession(
+          'stored-1',
+        )).map((decision) => decision.requestId),
+      ).contains('op-6/docs');
+    });
+
+    // A turn drops an event it has seen, and the card offered again has the
+    // same id: the user could not retry while the reply was running.
+    test('a card offered again reaches the running turn', () async {
+      SharedPreferences.setMockInitialValues({});
+      PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
+      final harness = _GatewayHarness();
+      final rpc = HermesDesktopRpcClient(
+        channelFactory: (_, _, {httpClient}) => harness.channel,
+      );
+      final service = HermesDesktopApiService(
+        config: HermesConfig(
+          enabled: true,
+          baseUrl: 'https://hermes.example',
+          mode: HermesBackendMode.desktopGateway,
+          desktopCredentials: HermesDesktopCredentials(
+            legacyToken: 'session-token',
+          ),
+        ),
+        dio: _statusDio(),
+        rpc: rpc,
+        openExternalUrl: _RecordingUrlOpener(opens: false),
+      );
+      addTearDown(() async {
+        service.close();
+        await harness.dispose();
+      });
+      harness.responder = (method) => switch (method) {
+        'prompt.submit' => const {'status': 'streaming'},
+        'session.resume' => {
+          'session_id': 'runtime-race',
+          'stored_session_id': 'stored-race',
+          'running': false,
+        },
+        'config.get' => {'value': 'medium'},
+        _ => const {},
+      };
+      final response = await service.streamDesktopResponse(
+        HermesChatInput.text('hello'),
+        sessionId: 'stored-race',
+        options: const HermesDesktopSessionOptions(),
+      );
+      final events = response.events.toList();
+      await pumpEventQueue();
+      Map<String, Object?> docs(String state, {String? url}) => {
+        'name': 'docs',
+        'kind': 'mcp',
+        'action': 'install',
+        'state': state,
+        'connect_url': ?url,
+      };
+      harness.event('runtime-race', 'message.start');
+      harness.event('runtime-race', 'connection.request', {
+        'op_id': 'op-7',
+        'targets': [docs('pending')],
+      });
+      await pumpEventQueue();
+      await service.respondToDecision(
+        runtimeId: 'runtime-race',
+        requestId: 'op-7/docs',
+        kind: HermesDecisionKind.mcpSetup,
+        value: 'approve',
+      );
+      harness.event('runtime-race', 'connection.update', {
+        'op_id': 'op-7',
+        'targets': [docs('initiated', url: 'https://auth.example/docs')],
+      });
+      await pumpEventQueue();
+      harness.event('runtime-race', 'message.complete', {'text': 'Done.'});
+      harness.sessionInfo('runtime-race', running: false);
+
+      check(
+        (await events.timeout(const Duration(seconds: 5)))
+            .whereType<HermesDecisionRequested>()
+            .map((event) => event.requestId),
+      ).deepEquals(['op-7/docs', 'op-7/docs']);
+    });
+
     // Reading a restored chat resumes it, which replays its open requests;
     // each replay re-saved the request and asked for another read.
     test(

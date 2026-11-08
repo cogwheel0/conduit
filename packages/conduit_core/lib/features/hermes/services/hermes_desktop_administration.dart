@@ -482,12 +482,26 @@ final class _HermesDesktopAdministration {
 
   /// Opens the authorization link of a target the user approved here, once:
   /// a connection update carries it when the target's sign-in starts.
+  ///
+  /// An approved install Hermes keeps waiting instead names the credentials
+  /// it still lacks (`required_env`), which only the Hermes host can supply:
+  /// its card comes back, so the user can set them there and approve again,
+  /// or skip it. That update is the target's own refresh, still `pending`.
   void openApprovedConnectionLink(Map<String, dynamic> update) {
     final operationId = update['op_id']?.toString();
     final targets = update['targets'];
     if (operationId == null || targets is! List) return;
     for (final target in targets.whereType<Map>()) {
       final cardId = hermesConnectionCardId(operationId, '${target['name']}');
+      if (target['state'] == 'pending' &&
+          update['target'] == target['name'] &&
+          update['from'] == 'pending' &&
+          update['to'] == 'pending' &&
+          _needsCredentials(target['required_env']) &&
+          _owner._approvedConnectionTargets.remove(cardId)) {
+        _owner._rpc.offerConnectionTargetAgain(cardId, update);
+        continue;
+      }
       final link = parseHermesOAuthUrl(target['connect_url']);
       if (link == null ||
           target['state'] != 'initiated' ||
@@ -497,6 +511,12 @@ final class _HermesDesktopAdministration {
       unawaited(_openApprovedLink(cardId, link, update));
     }
   }
+
+  /// Whether a target's `required_env` names a credential the install
+  /// cannot run without.
+  bool _needsCredentials(Object? fields) =>
+      fields is List &&
+      fields.whereType<Map>().any((field) => field['required'] != false);
 
   /// Opens [link]; when the device refuses it, [cardId]'s card comes back,
   /// and approving it again opens the link from there.

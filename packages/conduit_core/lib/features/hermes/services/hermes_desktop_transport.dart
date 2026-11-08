@@ -237,13 +237,16 @@ String hermesConnectionCardId(String operationId, String target) {
 /// the user opening the link.
 ///
 /// The target named [shown] keeps the card while it waits. Targets named in
-/// [passed] had theirs and are not asked about again.
+/// [passed] had theirs and are not asked about again. A card offered again
+/// carries its count from [offers] as `offer`, so a turn that saw the first
+/// offer does not drop it as a repeat.
 HermesDesktopEvent? hermesDesktopConnectionTargetEvent({
   required String operationId,
   required String? sessionId,
   required Object? targets,
   String? shown,
   Set<String> passed = const {},
+  Map<String, int> offers = const {},
 }) {
   final raw = _waitingConnectionTarget(targets, shown: shown, passed: passed);
   final name = validateHermesOpaqueIdentifier(raw?['name']?.toString());
@@ -258,11 +261,13 @@ HermesDesktopEvent? hermesDesktopConnectionTargetEvent({
     (value) => value.isNotEmpty,
     orElse: () => '',
   );
+  final cardId = hermesConnectionCardId(operationId, name);
   return HermesDesktopEvent(
     type: 'mcp.setup.request',
     sessionId: sessionId,
     payload: {
-      'request_id': hermesConnectionCardId(operationId, name),
+      'request_id': cardId,
+      'offer': ?offers[cardId],
       'server': raw['display']?.toString().trim().isNotEmpty == true
           ? raw['display']
           : name,
@@ -337,6 +342,9 @@ final class _OpenConnection {
 
   /// The target name each card shown for this operation stands for.
   final Map<String, String> cardTargets = {};
+
+  /// How many times each card was offered again after it was answered.
+  final Map<String, int> offers = {};
 }
 
 /// A clarify request being answered one question at a time.
@@ -900,6 +908,7 @@ final class HermesDesktopRpcClient {
             targets: payload['targets'],
             shown: shownTarget,
             passed: open.passed,
+            offers: open.offers,
           );
     final nextCardId = next?.payload['request_id']?.toString();
     final nextTarget = next?.payload['connection_target']?.toString();
@@ -947,15 +956,21 @@ final class HermesDesktopRpcClient {
         : null;
   }
 
-  /// Offers connection target [cardId] again with [update] (the frame that
-  /// carried its sign-in link): its link could not be opened, so approving
-  /// it again retries. No other card of its operation is displaced.
+  /// Offers connection target [cardId] again with [update]: the frame that
+  /// carried a sign-in link the device could not open, or the one that kept
+  /// an approved install waiting on credentials. Approving it again retries.
+  /// No other card of its operation is displaced.
   void offerConnectionTargetAgain(String cardId, Map<String, dynamic> update) {
     final card = parseHermesConnectionCardId(cardId);
     final open = card == null ? null : _connections[card.operationId];
     if (card == null || open == null) return;
-    // Its card was answered; one still counted as shown is shown anew.
+    // Its card was answered; one still counted as shown is shown anew, as
+    // a new offer: the turn that saw the first one drops a repeat.
     open.passed.remove(open.cardTargets[cardId] ?? card.target);
+    if (open.offers.length >= 32 && !open.offers.containsKey(cardId)) {
+      open.offers.remove(open.offers.keys.first);
+    }
+    open.offers[cardId] = (open.offers[cardId] ?? 0) + 1;
     if (open.shownCardId == cardId) open.shownCardId = null;
     _showConnection(update, open.sessionId);
   }
