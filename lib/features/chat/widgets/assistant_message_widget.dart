@@ -1651,12 +1651,26 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
           ),
         );
       }
-      if (hasFollowUps) {
-        // The action row's 44 pt targets and each suggestion's own 44 pt row
-        // already leave air; a wider gap detached the suggestions.
-        children.add(const SizedBox(height: Spacing.xs));
-        children.add(_buildFollowUpSuggestions(activeFollowUps));
-      }
+      // A send makes the suggestions obsolete; they dissolve under the rising
+      // message instead of vanishing, and give up their room at once.
+      children.add(
+        ChatLeavingContent(
+          key: const ValueKey('follow-ups-slot'),
+          child: hasFollowUps
+              ? Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    // The action row's 44 pt targets and each suggestion's
+                    // own 44 pt row already leave air; a wider gap detached
+                    // the suggestions.
+                    const SizedBox(height: Spacing.xs),
+                    _buildFollowUpSuggestions(activeFollowUps),
+                  ],
+                )
+              : null,
+        ),
+      );
       if (children.isNotEmpty) {
         return KeyedSubtree(
           key: const ValueKey('actions'),

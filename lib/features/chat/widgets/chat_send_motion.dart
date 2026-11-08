@@ -266,6 +266,141 @@ class _ChatGreetingExitState extends State<ChatGreetingExit>
   }
 }
 
+/// Content that a send makes obsolete (the last reply's follow-up
+/// suggestions) dissolving instead of vanishing. When [child] becomes null,
+/// its last appearance stays drawn where it was and fades out over
+/// [duration], opacity only, while taking no room: layout moves on at once,
+/// so the new turn takes its place and the transcript's scroll is unchanged,
+/// but nothing pops out of view. The fade is front-loaded, as the leaving
+/// greeting's is, so it is all but gone before the rising message crosses
+/// its lines. Reduce Motion keeps the same fade, as a cross-fade. A leaving
+/// child never takes touches or VoiceOver focus.
+class ChatLeavingContent extends StatefulWidget {
+  const ChatLeavingContent({super.key, required this.child});
+
+  /// What shows now, or null once it has gone.
+  final Widget? child;
+
+  static const Duration duration = Duration(milliseconds: 150);
+
+  @override
+  State<ChatLeavingContent> createState() => _ChatLeavingContentState();
+}
+
+class _ChatLeavingContentState extends State<ChatLeavingContent>
+    with SingleTickerProviderStateMixin {
+  /// How far the leaving child has gone: 0 while it shows, 1 once gone.
+  late final AnimationController _exit = AnimationController(
+    vsync: this,
+    duration: ChatLeavingContent.duration,
+  );
+  late final Animation<double> _opacity = ReverseAnimation(
+    CurvedAnimation(parent: _exit, curve: Curves.easeOutCubic),
+  );
+
+  /// The child that is leaving, kept to draw it fading.
+  Widget? _leaving;
+
+  @override
+  void didUpdateWidget(covariant ChatLeavingContent oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final previous = oldWidget.child;
+    if (widget.child != null) {
+      _leaving = null;
+      _exit.value = 0;
+    } else if (previous != null) {
+      _leaving = previous;
+      _exit.forward(from: 0).whenCompleteOrCancel(() {
+        if (mounted && widget.child == null && _leaving != null) {
+          setState(() => _leaving = null);
+        }
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _exit.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final child = widget.child ?? _leaving;
+    if (child == null) return const SizedBox.shrink();
+    final leaving = widget.child == null;
+    // One shape whether it shows or leaves, so the child is not rebuilt
+    // from scratch the moment it starts to go.
+    return _LeavingLayout(
+      leaving: leaving,
+      child: IgnorePointer(
+        ignoring: leaving,
+        child: ExcludeSemantics(
+          excluding: leaving,
+          child: FadeTransition(opacity: _opacity, child: child),
+        ),
+      ),
+    );
+  }
+}
+
+/// Lays its child out as usual and takes its size, or no height at all while
+/// [leaving], still painting it where it was.
+class _LeavingLayout extends SingleChildRenderObjectWidget {
+  const _LeavingLayout({required this.leaving, required super.child});
+
+  final bool leaving;
+
+  @override
+  _RenderLeavingLayout createRenderObject(BuildContext context) =>
+      _RenderLeavingLayout(leaving);
+
+  @override
+  void updateRenderObject(
+    BuildContext context,
+    _RenderLeavingLayout renderObject,
+  ) {
+    renderObject.leaving = leaving;
+  }
+}
+
+class _RenderLeavingLayout extends RenderProxyBox {
+  _RenderLeavingLayout(this._leaving);
+
+  bool _leaving;
+  set leaving(bool value) {
+    if (value == _leaving) return;
+    _leaving = value;
+    markNeedsLayout();
+  }
+
+  @override
+  void performLayout() {
+    final child = this.child;
+    if (child == null) {
+      size = constraints.smallest;
+      return;
+    }
+    child.layout(constraints.copyWith(minHeight: 0), parentUsesSize: true);
+    size = constraints.constrain(
+      Size(child.size.width, _leaving ? 0 : child.size.height),
+    );
+  }
+
+  @override
+  Size computeDryLayout(BoxConstraints constraints) {
+    final childSize =
+        child?.getDryLayout(constraints.copyWith(minHeight: 0)) ?? Size.zero;
+    return constraints.constrain(
+      Size(childSize.width, _leaving ? 0 : childSize.height),
+    );
+  }
+
+  @override
+  bool hitTest(BoxHitTestResult result, {required Offset position}) =>
+      !_leaving && super.hitTest(result, position: position);
+}
+
 /// Builds the stand-in that flies up from where a message was written. It
 /// lays out exactly like the message's row and draws the words alone at
 /// [morph] 0 and the finished bubble at 1.

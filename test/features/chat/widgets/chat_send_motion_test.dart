@@ -694,4 +694,63 @@ void main() {
     expect(_paintedTop(tester), closeTo(32, 0.5));
     await timeline.dispose();
   });
+
+  testWidgets('obsolete content gives up its room at once and fades out', (
+    tester,
+  ) async {
+    const leaving = ValueKey('leaving');
+    var taps = 0;
+    Widget page({required bool show}) => MaterialApp(
+      home: Scaffold(
+        body: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            ChatLeavingContent(
+              child: show
+                  ? GestureDetector(
+                      onTap: () => taps++,
+                      child: const SizedBox(
+                        key: leaving,
+                        width: 200,
+                        height: 120,
+                      ),
+                    )
+                  : null,
+            ),
+            const SizedBox(key: ValueKey('below'), height: 40, width: 40),
+          ],
+        ),
+      ),
+    );
+    double opacity() => tester
+        .widget<FadeTransition>(
+          find
+              .ancestor(
+                of: find.byKey(leaving),
+                matching: find.byType(FadeTransition),
+              )
+              .first,
+        )
+        .opacity
+        .value;
+
+    await tester.pumpWidget(page(show: true));
+    expect(tester.getTopLeft(find.byKey(const ValueKey('below'))).dy, 120);
+    expect(opacity(), 1);
+
+    await tester.pumpWidget(page(show: false));
+    // Layout moves on in the same frame; the content is still drawn.
+    expect(tester.getTopLeft(find.byKey(const ValueKey('below'))).dy, 0);
+    expect(find.byKey(leaving), findsOneWidget);
+    // Front-loaded: mostly gone within the first two frames, before a
+    // message rising from the composer can reach its lines.
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+    expect(opacity(), inExclusiveRange(0, 0.5));
+    // A leaving suggestion is not a target any more.
+    await tester.tapAt(const Offset(100, 100));
+    expect(taps, 0);
+    await tester.pumpAndSettle();
+    expect(find.byKey(leaving), findsNothing);
+  });
 }
