@@ -618,12 +618,17 @@ class TtsManager {
   }
 
   Future<Duration?> seekRelative(Duration offset) async {
-    final session = _activeSession;
     final current = playbackPosition;
-    if (session == null || current == null) return null;
-    final target = current + offset < Duration.zero
-        ? Duration.zero
-        : current + offset;
+    if (_activeSession == null || current == null) return null;
+    return seekTo(current + offset);
+  }
+
+  /// Moves playback to [position] in the whole reading, waiting for the
+  /// audio to get there if it is still being prepared.
+  Future<Duration?> seekTo(Duration position) async {
+    final session = _activeSession;
+    if (session == null || playbackPosition == null) return null;
+    final target = position < Duration.zero ? Duration.zero : position;
     try {
       await _player.pause();
       // Wake as soon as the queue reaches the target, not after later clips.

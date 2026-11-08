@@ -113,6 +113,31 @@ void main() {
     expect(state.errorMessage, 'Synthetic pause failure');
   });
 
+  test(
+    'scrubbing during a seek follows it with only the latest position',
+    () async {
+      speech.seekable = true;
+      await play();
+      final pending = Completer<Duration?>();
+      speech.seekResult = pending.future;
+      final first = controller.seekTo(const Duration(seconds: 10));
+      await controller.seekTo(const Duration(seconds: 20));
+      await controller.seekTo(const Duration(seconds: 30));
+      expect(speech.seeks, [const Duration(seconds: 10)]);
+      speech.seekResult = Future.value(const Duration(seconds: 30));
+      pending.complete(const Duration(seconds: 10));
+      await first;
+      expect(speech.seeks, [
+        const Duration(seconds: 10),
+        const Duration(seconds: 30),
+      ]);
+      expect(
+        container.read(textToSpeechControllerProvider).elapsed,
+        const Duration(seconds: 30),
+      );
+    },
+  );
+
   test('initialization errors keep the message available for retry', () async {
     final errors = <TextToSpeechState>[];
     final sub = container.listen(textToSpeechControllerProvider, (_, next) {
@@ -352,6 +377,13 @@ class _Speech extends Fake implements TextToSpeechService {
   Future<Duration?>? seekResult;
   @override
   Future<Duration?> seekRelative(Duration offset) async => await seekResult;
+  final seeks = <Duration>[];
+  @override
+  Future<Duration?> seekTo(Duration position) async {
+    seeks.add(position);
+    return await seekResult;
+  }
+
   @override
   Duration? get playbackPosition => null;
   @override

@@ -76,6 +76,13 @@ void main() {
       );
       expect(player.currentIndex, 0);
       expect(player.position, const Duration(seconds: 12));
+      // A scrub lands anywhere in the whole reading.
+      expect(
+        await manager.seekTo(const Duration(seconds: 33)),
+        const Duration(seconds: 33),
+      );
+      expect(player.currentIndex, 1);
+      expect(player.position, const Duration(seconds: 13));
       // Rendered clips carry no word timings; the clip's position stands in.
       expect(manager.reportsSpokenWords, isFalse);
       player.at(1, const Duration(seconds: 3));

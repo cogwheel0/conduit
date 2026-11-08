@@ -182,6 +182,8 @@ class TextToSpeechService implements VoiceModeSpeech {
   bool get reportsSpokenWords => TtsManager.instance.reportsSpokenWords;
   Future<Duration?> seekRelative(Duration offset) =>
       TtsManager.instance.seekRelative(offset);
+  Future<Duration?> seekTo(Duration position) =>
+      TtsManager.instance.seekTo(position);
 
   /// Starts an incremental TTS session for streaming assistant responses.
   @override

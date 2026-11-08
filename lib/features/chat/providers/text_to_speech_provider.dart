@@ -115,6 +115,7 @@ class TextToSpeechController extends Notifier<TextToSpeechState> {
   Future<bool>? _initializationFuture;
   int _requestEpoch = 0;
   ({String messageId, String text})? _lastRequest;
+  Duration? _pendingSeek;
 
   @override
   TextToSpeechState build() {
@@ -244,6 +245,7 @@ class TextToSpeechController extends Notifier<TextToSpeechState> {
 
     final epoch = ++_requestEpoch;
     _lastRequest = (messageId: messageId, text: text);
+    _pendingSeek = null;
     state = state.copyWith(activeMessageId: messageId);
     final available = await _ensureInitialized();
     if (!ref.mounted || epoch != _requestEpoch) return;
@@ -378,6 +380,7 @@ class TextToSpeechController extends Notifier<TextToSpeechState> {
 
   Future<void> stop() async {
     final epoch = ++_requestEpoch;
+    _pendingSeek = null;
     if (!await _stopPlayback(epoch)) return;
     _lastRequest = null;
     _playbackClock.reset();
@@ -409,13 +412,29 @@ class TextToSpeechController extends Notifier<TextToSpeechState> {
     return ref.mounted && epoch == _requestEpoch;
   }
 
-  Future<void> skip(Duration offset) async {
+  Future<void> skip(Duration offset) =>
+      _seek(() => _service.seekRelative(offset));
+
+  /// Moves the reading to [position], as when scrubbing. A position asked
+  /// for while a seek runs replaces any earlier one and follows it.
+  Future<void> seekTo(Duration position) async {
+    if (state.seeking) {
+      _pendingSeek = position;
+      return;
+    }
+    await _seek(() => _service.seekTo(position));
+    final pending = _pendingSeek;
+    _pendingSeek = null;
+    if (pending != null && ref.mounted) await seekTo(pending);
+  }
+
+  Future<void> _seek(Future<Duration?> Function() seek) async {
     if (!state.canSeek || state.seeking || state.isBusy) return;
     final epoch = _requestEpoch;
     final message = state.activeMessageId;
     state = state.copyWith(seeking: true);
     try {
-      final position = await _service.seekRelative(offset);
+      final position = await seek();
       if (ref.mounted &&
           epoch == _requestEpoch &&
           state.activeMessageId == message &&

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -12,29 +13,37 @@ import '../../../shared/widgets/adaptive_toolbar_components.dart';
 import '../../../shared/widgets/native_chrome_visibility.dart';
 import '../providers/text_to_speech_provider.dart';
 
-/// Width of the island's compact progress track, or of its error label.
-const double _compactTrackWidth = 96;
+/// Room the compact island keeps for its progress, or for its error label.
+const double _compactTrackWidth = 88;
+
+/// The least room the compact island's progress may keep. A pill too narrow
+/// for it beside the 15-second skips keeps only the main action.
+const double _compactTrackMinWidth = 48;
 
 /// Height of the progress track: the native `UIProgressView`'s, which is the
 /// taller one.
 const double _trackHeight = 4;
 
+/// Height of the bar's scrubber, which needs room for a finger.
+const double _barScrubberHeight = 28;
+
 /// Extent of the leading waveform glyph.
 const double _glyphExtent = 20;
 
-/// The most controls the expanded island shows: back, play/pause, forward
-/// and stop.
+/// The most controls the expanded island's row shows: back, play/pause,
+/// forward and stop.
 const int _maxPanelActions = 4;
 
-/// The narrowest time-and-progress area that may share a row with the
-/// controls. It is also the target that minimises the island.
-const double _minInfoWidth = 64;
+/// How long a scrub rests before the reading seeks there. The native slider
+/// reports each move but not the release.
+const Duration _scrubCommitDelay = Duration(milliseconds: 200);
 
 /// Controls the active read-aloud request without covering the transcript.
 ///
 /// On iOS 26 and later it is a Liquid Glass island above the composer: a
-/// compact pill with the progress and the main action that expands to every
-/// control. Elsewhere it is a bar with every control.
+/// compact pill with the progress and the main actions that expands to every
+/// control. Elsewhere it is a bar with every control. Seekable readings scrub
+/// by dragging or tapping their progress.
 class SpeechPlaybackBar extends ConsumerStatefulWidget {
   const SpeechPlaybackBar({super.key});
 
@@ -47,9 +56,9 @@ class _SpeechPlaybackBarState extends ConsumerState<SpeechPlaybackBar> {
   /// starts compact.
   String? _expandedMessageId;
 
-  /// The height of the time over the progress track, for the text style and
-  /// scale it was measured with.
-  (TextStyle?, TextScaler, double)? _infoHeight;
+  /// The height of a line of the time, for the text style and scale it was
+  /// measured with.
+  (TextStyle?, TextScaler, double)? _lineHeight;
 
   String _timestamp(Duration elapsed) {
     final seconds = elapsed.inSeconds;
@@ -75,6 +84,8 @@ class _SpeechPlaybackBarState extends ConsumerState<SpeechPlaybackBar> {
     final failed = playback.status == TtsPlaybackStatus.error;
     final paused = playback.status == TtsPlaybackStatus.paused;
     final canSeek = playback.canSeek && !failed && !playback.isBusy;
+    // Scrubbing needs the reading's length to turn a point into a time.
+    final scrubbable = canSeek && playback.duration > Duration.zero;
     final index = playback.activeSentenceIndex;
     final sentences = playback.sentences;
     final wordProgress =
@@ -100,15 +111,30 @@ class _SpeechPlaybackBarState extends ConsumerState<SpeechPlaybackBar> {
       overflow: TextOverflow.ellipsis,
       style: elapsedStyle,
     );
-    final track = Semantics(
-      label: l10n.ttsListen,
-      value: '${(progress * 100).round()}%',
-      child: AdaptiveProgressIndicator.linear(
-        value: playback.isBusy ? null : progress,
-        color: failed ? theme.error : theme.buttonPrimary,
-        minHeight: 2,
-      ),
-    );
+    final trackColor = failed ? theme.error : theme.buttonPrimary;
+    final Widget track = scrubbable
+        ? _ReadAloudScrubber(
+            key: const ValueKey('speech-playback-scrubber'),
+            progress: progress,
+            duration: playback.duration,
+            color: trackColor,
+            label: l10n.ttsListen,
+            onSeek: controller.seekTo,
+          )
+        : SizedBox(
+            height: _trackHeight,
+            child: Center(
+              child: Semantics(
+                label: l10n.ttsListen,
+                value: '${(progress * 100).round()}%',
+                child: AdaptiveProgressIndicator.linear(
+                  value: playback.isBusy ? null : progress,
+                  color: trackColor,
+                  minHeight: 2,
+                ),
+              ),
+            ),
+          );
 
     final backward = _PlaybackAction(
       key: const ValueKey('speech-playback-backward'),
@@ -160,7 +186,9 @@ class _SpeechPlaybackBarState extends ConsumerState<SpeechPlaybackBar> {
       return _bar(
         theme: theme,
         elapsed: elapsed,
-        track: track,
+        track: scrubbable
+            ? SizedBox(height: _barScrubberHeight, child: track)
+            : track,
         actions: actions,
       );
     }
@@ -168,7 +196,7 @@ class _SpeechPlaybackBarState extends ConsumerState<SpeechPlaybackBar> {
     final expanded = _expandedMessageId == messageId;
     void setExpanded(bool value) =>
         setState(() => _expandedMessageId = value ? messageId : null);
-    // The compact pill keeps the one action the moment calls for.
+    // The compact pill keeps the action the moment calls for.
     final compactAction = failed
         ? retry
         : playback.isBusy
@@ -185,40 +213,50 @@ class _SpeechPlaybackBarState extends ConsumerState<SpeechPlaybackBar> {
       child: LayoutBuilder(
         builder: (context, constraints) {
           final controlExtent = conduitScaledControlExtent(context);
-          final infoHeight = _measureInfoHeight(context, elapsedStyle);
-          final contentHeight = math.max(controlExtent, infoHeight);
+          final rowHeight = math.max(
+            controlExtent,
+            _measureLineHeight(context, elapsedStyle),
+          );
+
+          // The pill keeps its width through the reading: room for the
+          // 15-second skips whenever they fit, and the progress takes what
+          // the actions shown leave.
+          final pillChrome =
+              AdaptiveFloatingIsland.collapsedPadding.horizontal +
+              controlExtent +
+              2 * Spacing.sm;
+          final pillWithSkips = math.min(
+            constraints.maxWidth,
+            pillChrome + _compactTrackWidth + 3 * controlExtent,
+          );
+          final compactSkips =
+              pillWithSkips - pillChrome - 3 * controlExtent >=
+              _compactTrackMinWidth;
+          final collapsedSize = Size(
+            compactSkips
+                ? pillWithSkips
+                : math.min(
+                    constraints.maxWidth,
+                    pillChrome + _compactTrackWidth + controlExtent,
+                  ),
+            rowHeight,
+          );
+
+          // The panel: the time and the progress on one row, every control
+          // on the next.
           final panelWidth = AdaptiveFloatingIsland.expandedPadding
               .deflateSize(Size(constraints.maxWidth, 0))
               .width;
-          // A narrow panel, such as at large text sizes, gives the controls
-          // a row of their own, so that the time stays readable and the
-          // island can still be minimised.
-          final stacked =
-              panelWidth - Spacing.sm - _maxPanelActions * controlExtent <
-              _minInfoWidth;
-          final panelControlExtent = stacked
-              ? math.min(controlExtent, panelWidth / _maxPanelActions)
-              : controlExtent;
-          final panelHeight = stacked
-              ? math.max(TouchTarget.minimum, infoHeight) +
-                    Spacing.sm +
-                    panelControlExtent
-              : contentHeight;
-          final collapsedSize = Size(
-            math.min(
-              constraints.maxWidth,
-              AdaptiveFloatingIsland.collapsedPadding.horizontal +
-                  _glyphExtent +
-                  Spacing.sm +
-                  _compactTrackWidth +
-                  Spacing.sm +
-                  controlExtent,
-            ),
-            contentHeight,
+          final panelControlExtent = math.min(
+            controlExtent,
+            panelWidth / _maxPanelActions,
           );
           final expandedSize = Size(
             constraints.maxWidth,
-            panelHeight + AdaptiveFloatingIsland.expandedPadding.vertical,
+            rowHeight +
+                Spacing.sm +
+                panelControlExtent +
+                AdaptiveFloatingIsland.expandedPadding.vertical,
           );
           final glyph = AdaptiveSymbolIcon(
             symbol: 'waveform',
@@ -230,37 +268,6 @@ class _SpeechPlaybackBarState extends ConsumerState<SpeechPlaybackBar> {
                 : null,
           );
 
-          final panelInfo = _IslandToggle(
-            key: const ValueKey('speech-playback-collapse'),
-            label: l10n.voiceCallMinimize,
-            onTap: () => setExpanded(false),
-            child: LayoutBuilder(
-              builder: (context, constraints) => Row(
-                children: [
-                  // A narrow area keeps its room for the time.
-                  if (constraints.maxWidth >= _compactTrackWidth) ...[
-                    glyph,
-                    const SizedBox(width: Spacing.sm),
-                  ],
-                  Expanded(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        elapsed,
-                        const SizedBox(height: Spacing.xs),
-                        SizedBox(
-                          height: _trackHeight,
-                          child: Center(child: track),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          );
-
           final island = AdaptiveFloatingIsland(
             key: const ValueKey('speech-playback-bar'),
             isExpanded: expanded,
@@ -269,56 +276,65 @@ class _SpeechPlaybackBarState extends ConsumerState<SpeechPlaybackBar> {
             onTap: expanded ? null : () => setExpanded(true),
             collapsed: Row(
               children: [
-                Expanded(
-                  child: _IslandToggle(
-                    key: const ValueKey('speech-playback-expand'),
-                    label: l10n.voiceCallExpand,
-                    onTap: () => setExpanded(true),
-                    child: Row(
-                      children: [
-                        glyph,
-                        const SizedBox(width: Spacing.sm),
-                        Expanded(
-                          child: failed
-                              ? elapsed
-                              : SizedBox(
-                                  height: _trackHeight,
-                                  child: Center(child: track),
-                                ),
-                        ),
-                      ],
-                    ),
+                _IslandToggle(
+                  key: const ValueKey('speech-playback-expand'),
+                  label: l10n.voiceCallExpand,
+                  onTap: () => setExpanded(true),
+                  child: SizedBox.square(
+                    dimension: controlExtent,
+                    child: Center(child: glyph),
                   ),
                 ),
                 const SizedBox(width: Spacing.sm),
+                Expanded(child: failed ? elapsed : track),
+                const SizedBox(width: Spacing.sm),
+                if (compactSkips && canSeek)
+                  _IslandButton(action: backward, extent: controlExtent),
                 _IslandButton(action: compactAction, extent: controlExtent),
+                if (compactSkips && canSeek)
+                  _IslandButton(action: forward, extent: controlExtent),
               ],
             ),
-            expanded: stacked
-                ? Column(
+            expanded: Column(
+              children: [
+                SizedBox(
+                  height: rowHeight,
+                  child: Row(
                     children: [
-                      Expanded(child: panelInfo),
-                      const SizedBox(height: Spacing.sm),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                        children: [
-                          for (final action in actions)
-                            _IslandButton(
-                              action: action,
-                              extent: panelControlExtent,
-                            ),
-                        ],
+                      _IslandToggle(
+                        key: const ValueKey('speech-playback-collapse'),
+                        label: l10n.voiceCallMinimize,
+                        onTap: () => setExpanded(false),
+                        child: ConstrainedBox(
+                          constraints: BoxConstraints(
+                            minWidth: controlExtent,
+                            minHeight: rowHeight,
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              glyph,
+                              const SizedBox(width: Spacing.sm),
+                              elapsed,
+                            ],
+                          ),
+                        ),
                       ),
-                    ],
-                  )
-                : Row(
-                    children: [
-                      Expanded(child: panelInfo),
                       const SizedBox(width: Spacing.sm),
-                      for (final action in actions)
-                        _IslandButton(action: action, extent: controlExtent),
+                      Expanded(child: track),
                     ],
                   ),
+                ),
+                const SizedBox(height: Spacing.sm),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                  children: [
+                    for (final action in actions)
+                      _IslandButton(action: action, extent: panelControlExtent),
+                  ],
+                ),
+              ],
+            ),
           );
 
           // Like the composer's native chrome, the glass leaves while a
@@ -335,10 +351,10 @@ class _SpeechPlaybackBarState extends ConsumerState<SpeechPlaybackBar> {
     );
   }
 
-  /// The height of the time over the progress track.
-  double _measureInfoHeight(BuildContext context, TextStyle? style) {
+  /// The height of a line of the time.
+  double _measureLineHeight(BuildContext context, TextStyle? style) {
     final scaler = MediaQuery.textScalerOf(context);
-    final cached = _infoHeight;
+    final cached = _lineHeight;
     if (cached != null && cached.$1 == style && cached.$2 == scaler) {
       return cached.$3;
     }
@@ -348,9 +364,9 @@ class _SpeechPlaybackBarState extends ConsumerState<SpeechPlaybackBar> {
       textScaler: scaler,
       maxLines: 1,
     )..layout();
-    final height = painter.height + Spacing.xs + _trackHeight;
+    final height = painter.height;
     painter.dispose();
-    _infoHeight = (style, scaler, height);
+    _lineHeight = (style, scaler, height);
     return height;
   }
 
@@ -404,6 +420,64 @@ class _SpeechPlaybackBarState extends ConsumerState<SpeechPlaybackBar> {
           ],
         ),
       ),
+    );
+  }
+}
+
+/// The reading's progress as a scrubber: dragging or tapping it moves the
+/// reading there.
+///
+/// The reader's position is held while they scrub and until the seek lands,
+/// so playback updates neither fight their finger nor jump back.
+class _ReadAloudScrubber extends StatefulWidget {
+  const _ReadAloudScrubber({
+    super.key,
+    required this.progress,
+    required this.duration,
+    required this.color,
+    required this.label,
+    required this.onSeek,
+  });
+
+  final double progress;
+  final Duration duration;
+  final Color color;
+  final String label;
+  final Future<void> Function(Duration position) onSeek;
+
+  @override
+  State<_ReadAloudScrubber> createState() => _ReadAloudScrubberState();
+}
+
+class _ReadAloudScrubberState extends State<_ReadAloudScrubber> {
+  double? _held;
+  Timer? _commit;
+
+  void _scrub(double value) {
+    setState(() => _held = value);
+    _commit?.cancel();
+    _commit = Timer(_scrubCommitDelay, () async {
+      await widget.onSeek(widget.duration * value);
+      if (mounted && _held == value) setState(() => _held = null);
+    });
+  }
+
+  @override
+  void dispose() {
+    _commit?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final value = _held ?? widget.progress;
+    return AdaptiveSlider(
+      value: value,
+      onChanged: _scrub,
+      thumbless: true,
+      activeColor: widget.color,
+      semanticLabel: widget.label,
+      semanticValue: '${(value * 100).round()}%',
     );
   }
 }
