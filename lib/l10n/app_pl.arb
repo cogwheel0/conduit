@@ -2508,7 +2508,7 @@
   "@signInWithSso": {
     "description": "Button text for SSO sign-in."
   },
-  "ssoAuthenticating": "Uwierzytelnianie…",
+  "ssoAuthenticating": "Logowanie…",
   "@ssoAuthenticating": {
     "description": "Loading message during SSO authentication."
   },
@@ -2560,7 +2560,7 @@
   "@proxyAuthPlatformNotSupported": {
     "description": "Error message when proxy auth is attempted on an unsupported platform."
   },
-  "proxyAuthLoading": "Wczytywanie strony uwierzytelniania…",
+  "proxyAuthLoading": "Wczytywanie strony logowania…",
   "@proxyAuthLoading": {
     "description": "Loading message while the proxy login page loads."
   },
@@ -2581,7 +2581,7 @@
   "@proxyAuthHelpText": {
     "description": "Help text explaining how to complete proxy authentication."
   },
-  "proxyAuthHelpTextSimple": "Zaloguj się przez swoje proxy. Po uwierzytelnieniu dotknij Kontynuuj, aby przejść do logowania.",
+  "proxyAuthHelpTextSimple": "Zaloguj się na tej stronie do swojego proxy, a potem dotknij Kontynuuj, aby zalogować się do Open WebUI.",
   "@proxyAuthHelpTextSimple": {
     "description": "Simplified help text for proxy-only authentication flow."
   },
@@ -6523,14 +6523,6 @@
   "@directAttachmentUnsupported": {
     "description": "Error shown when a direct model cannot accept an attached file."
   },
-  "backendChooserWelcome": "Wybierz sposób połączenia",
-  "@backendChooserWelcome": {
-    "description": "Welcome heading on the first-run backend chooser."
-  },
-  "backendChooserPrompt": "Wybierz jedną opcję na początek. Kolejne możesz dodać później.",
-  "@backendChooserPrompt": {
-    "description": "Prompt on the first-run backend chooser."
-  },
   "backendChooserOpenWebUITitle": "Open WebUI",
   "@backendChooserOpenWebUITitle": {
     "description": "Short Open WebUI title used on the backend chooser and server setup page."
@@ -8163,5 +8155,12 @@
     "description": "Button in a citation's preview popover that opens the cited page in the browser."
   },
   "chatUnreadState": "Nieprzeczytany",
-  "codeCopied": "Skopiowano"
+  "codeCopied": "Skopiowano",
+  "onboardingWelcomeTitle": "Witamy w Conduit",
+  "onboardingWelcomeSubtitle": "Rozmawiaj z AI na własnym serwerze, na tym urządzeniu lub przez API.",
+  "backendChooserFooter": "Więcej połączeń możesz dodać później w Ustawieniach.",
+  "serverAddressFooter": "Użyj adresu, który otwierasz w przeglądarce. Następnie się zalogujesz.",
+  "signInChangeServer": "Zmień",
+  "signInContinueWithSso": "Kontynuuj przez SSO",
+  "mutualTlsChooseFile": "Wybierz…"
 }

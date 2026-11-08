@@ -160,8 +160,15 @@ void main() {
         find.byType(AdaptiveTextFormField).first,
       );
       check(renderedField.cupertinoDecoration).isNotNull();
-      // Fields use a hairline outline.
-      check(renderedField.cupertinoDecoration!.border).isNotNull();
+      if (platform == TargetPlatform.iOS) {
+        // iOS fields are rows of an inset-grouped card: no outline of
+        // their own, and the placeholder names the field.
+        check(renderedField.cupertinoDecoration!.border).isNull();
+        check(renderedField.placeholder).equals('Email or username');
+      } else {
+        // Material fields use a hairline outline.
+        check(renderedField.cupertinoDecoration!.border).isNotNull();
+      }
 
       await tester.tap(
         find.descendant(of: selectorFinder, matching: find.text('Token')),

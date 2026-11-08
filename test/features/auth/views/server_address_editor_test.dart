@@ -192,7 +192,7 @@ void main() {
       ),
       origin,
     );
-    await tester.tap(find.text('Save address'));
+    await tester.tap(find.text('Save Address'));
     for (var i = 0; i < 100 && storage.activeReads < 2; i++) {
       await tester.runAsync(
         () => Future<void>.delayed(const Duration(milliseconds: 20)),
@@ -285,7 +285,7 @@ void main() {
       ),
       origin,
     );
-    await tester.tap(find.text('Save address'));
+    await tester.tap(find.text('Save Address'));
     final asked = find.text('A reply is still being written');
     for (var i = 0; i < 100 && asked.evaluate().isEmpty; i++) {
       await tester.runAsync(
@@ -360,7 +360,7 @@ void main() {
       matching: find.byType(EditableText),
     );
     await tester.enterText(urlField, origin);
-    await tester.tap(find.text('Save address'));
+    await tester.tap(find.text('Save Address'));
     for (var i = 0; i < 100 && storage.activeReads < 2; i++) {
       await tester.runAsync(
         () => Future<void>.delayed(const Duration(milliseconds: 20)),

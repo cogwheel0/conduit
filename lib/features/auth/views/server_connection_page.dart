@@ -55,6 +55,7 @@ import 'proxy_auth_page.dart';
 import '../../../shared/widgets/connection_components.dart';
 import '../../../shared/widgets/themed_dialogs.dart';
 import '../../../shared/widgets/utility_components.dart';
+import '../widgets/auth_grouped_form.dart';
 import '../../profile/widgets/account_actions.dart'
     show
         abandonAddedAccount,
@@ -434,6 +435,7 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
   final TextEditingController _mtlsPrivateKeyPasswordController =
       TextEditingController();
   final FocusNode _headerValueFocusNode = FocusNode();
+  final FocusNode _urlFocusNode = FocusNode();
 
   String? _connectionError;
   String? _mtlsCertificateChainPem;
@@ -840,6 +842,7 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
     }
     _urlController.removeListener(_resetTransientAttempt);
     _urlController.dispose();
+    _urlFocusNode.dispose();
     _routeLabelController.dispose();
     _headerKeyController.dispose();
     _headerValueController.dispose();
@@ -1808,6 +1811,7 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
     }
     // Kept current for Back, which waits for it.
     if (widget.addingAccount) ref.watch(pendingSignInAbandonableProvider);
+    final cupertino = context.usesCupertinoChrome;
 
     // Adding an account is the router's location, with nothing beneath it to
     // pop to, so the system back does what Back does rather than leave the app.
@@ -1822,13 +1826,16 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
             : widget.endpointId == null
             ? l10n.accountsAddAddress
             : l10n.accountsEditAddress,
+        largeTitle: true,
         onTitleLongPress: _editingRoutes ? null : _toggleReviewerMode,
         backNavigation: UtilityBackNavigation(
           label: l10n.back,
           buttonKey: const ValueKey<String>('server-connection-back-button'),
           onPressed: _goBack,
         ),
-        bottomAction: _buildConnectButton(),
+        bottomAction: cupertino
+            ? _buildCupertinoConnectButton()
+            : _buildConnectButton(),
         body: Form(
           key: _formKey,
           child: Column(
@@ -1844,7 +1851,9 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
                 ignoring: _editingRoutes && _isConnecting,
                 child: ExcludeFocus(
                   excluding: _editingRoutes && _isConnecting,
-                  child: _buildServerForm(),
+                  child: cupertino
+                      ? _buildCupertinoServerForm()
+                      : _buildServerForm(),
                 ),
               ),
             ],
@@ -2037,6 +2046,234 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
         // Advanced settings
         _buildAdvancedSettings(),
       ],
+    );
+  }
+
+  /// The iOS form: an inset-grouped address section whose footer says what
+  /// happens next (or why connecting failed), then Advanced Settings as a
+  /// disclosure row that opens grouped sections of its own.
+  Widget _buildCupertinoServerForm() {
+    final l10n = AppLocalizations.of(context)!;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        AuthGroupedSection(
+          key: const ValueKey<String>('server-address-section'),
+          header: l10n.serverUrl,
+          footer: _editingRoutes ? null : l10n.serverAddressFooter,
+          error: _isConnecting ? null : _connectionError,
+          children: [
+            if (_editingRoutes)
+              AuthGroupedTextField(
+                key: const ValueKey<String>('server-route-label-field'),
+                controller: _routeLabelController,
+                placeholder: l10n.accountsAddressName,
+                semanticLabel: l10n.accountsAddressName,
+                textInputAction: TextInputAction.next,
+                autocorrect: true,
+                autofocus: widget.endpointId == null,
+                onSubmitted: (_) => _urlFocusNode.requestFocus(),
+              ),
+            AuthGroupedTextField(
+              key: const ValueKey<String>('server-url-field'),
+              controller: _urlController,
+              focusNode: _urlFocusNode,
+              placeholder: l10n.serverUrlHint,
+              semanticLabel: l10n.enterServerUrlSemantic,
+              keyboardType: TextInputType.url,
+              textInputAction: TextInputAction.go,
+              autofocus: !_editingRoutes,
+              autofillHints: const [AutofillHints.url],
+              validator: (value) {
+                final v = value ?? _urlController.text;
+                return InputValidationService.combine([
+                  InputValidationService.validateRequired,
+                  (val) =>
+                      InputValidationService.validateUrl(val, required: true),
+                ])(v);
+              },
+              onSubmitted: (_) => _connectToServer(),
+            ),
+          ],
+        ),
+        const SizedBox(height: Spacing.lg + Spacing.xs),
+        AuthGroupedCard(
+          children: [
+            AuthGroupedRow(
+              key: const ValueKey<String>('advanced-settings-toggle'),
+              title: l10n.advancedSettings,
+              expanded: _showAdvancedSettings,
+              onTap: () => setState(
+                () => _showAdvancedSettings = !_showAdvancedSettings,
+              ),
+            ),
+          ],
+        ),
+        _buildCupertinoAdvancedReveal(),
+      ],
+    );
+  }
+
+  /// Opens the advanced sections under their row the way a native
+  /// disclosure does: the space grows from the top, eased out, and appears
+  /// at once with Reduce Motion.
+  Widget _buildCupertinoAdvancedReveal() {
+    final content = _showAdvancedSettings
+        ? _buildCupertinoAdvancedContent()
+        : const SizedBox(width: double.infinity);
+    if (context.reduceMotion) return content;
+    return ClipRect(
+      child: AnimatedSize(
+        duration: AnimationDuration.medium,
+        curve: Curves.easeOutCubic,
+        alignment: Alignment.topCenter,
+        child: content,
+      ),
+    );
+  }
+
+  Widget _buildCupertinoAdvancedContent() {
+    final l10n = AppLocalizations.of(context)!;
+    final theme = context.conduitTheme;
+    const gap = SizedBox(height: Spacing.lg + Spacing.xs);
+    return Column(
+      key: const ValueKey<String>('server-advanced-content'),
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        gap,
+        AuthGroupedSection(
+          footer: l10n.allowSelfSignedCertificatesDescription,
+          children: [
+            AuthGroupedSwitchRow(
+              title: l10n.allowSelfSignedCertificates,
+              value: _allowSelfSignedCertificates,
+              onChanged: (value) => setState(() {
+                _allowSelfSignedCertificates = value;
+                _connectionError = null;
+              }),
+            ),
+          ],
+        ),
+        if (!kIsWeb) ...[
+          gap,
+          AuthGroupedSection(
+            header: l10n.mutualTlsSectionTitle,
+            footer: l10n.mutualTlsSectionDescription,
+            children: [
+              AuthGroupedRow(
+                key: const ValueKey<String>('mtls-certificate-row'),
+                title: l10n.mutualTlsSelectCertificate,
+                value: _mtlsCertificateLabel ?? l10n.mutualTlsChooseFile,
+                showChevron: true,
+                onTap: _pickMtlsCertificateChain,
+              ),
+              AuthGroupedRow(
+                key: const ValueKey<String>('mtls-private-key-row'),
+                title: l10n.mutualTlsSelectPrivateKey,
+                value: _mtlsPrivateKeyLabel ?? l10n.mutualTlsChooseFile,
+                showChevron: true,
+                onTap: _pickMtlsPrivateKey,
+              ),
+              if (_hasAnyMutualTlsInput) ...[
+                AuthGroupedTextField(
+                  controller: _mtlsPrivateKeyPasswordController,
+                  placeholder: l10n.mutualTlsPrivateKeyPasswordHint,
+                  semanticLabel: l10n.mutualTlsPrivateKeyPasswordHint,
+                  obscureText: true,
+                  keyboardType: TextInputType.visiblePassword,
+                  textInputAction: TextInputAction.done,
+                ),
+                AuthGroupedRow(
+                  title: l10n.mutualTlsClearCredentials,
+                  titleColor: theme.error,
+                  onTap: _clearMutualTlsCredentials,
+                ),
+              ],
+            ],
+          ),
+        ],
+        gap,
+        AuthGroupedSection(
+          header: l10n.customHeaders,
+          footer: l10n.customHeadersDescription,
+          children: [
+            for (final entry in _customHeaders.entries)
+              AuthGroupedRow(
+                title: entry.key,
+                value: entry.value,
+                trailing: _buildRemoveHeaderButton(entry.key),
+              ),
+            AuthGroupedTextField(
+              key: const ValueKey<String>('custom-header-name-field'),
+              controller: _headerKeyController,
+              placeholder: l10n.headerName,
+              semanticLabel: l10n.headerName,
+              validator: (value) =>
+                  _validateHeaderKey(value ?? _headerKeyController.text),
+              textInputAction: TextInputAction.next,
+              onChanged: (_) => setState(() => _connectionError = null),
+              onSubmitted: (_) => _headerValueFocusNode.requestFocus(),
+            ),
+            AuthGroupedTextField(
+              key: const ValueKey<String>('custom-header-value-field'),
+              controller: _headerValueController,
+              focusNode: _headerValueFocusNode,
+              placeholder: l10n.headerValue,
+              semanticLabel: l10n.headerValue,
+              validator: (value) =>
+                  _validateHeaderValue(value ?? _headerValueController.text),
+              textInputAction: TextInputAction.done,
+              onChanged: (_) => setState(() => _connectionError = null),
+              onSubmitted: (_) {
+                if (_canAddCustomHeader) _addCustomHeader();
+              },
+            ),
+            AuthGroupedRow(
+              key: const ValueKey<String>('add-custom-header-button'),
+              title: l10n.addHeader,
+              titleColor: _canAddCustomHeader
+                  ? theme.buttonPrimary
+                  : theme.textTertiary,
+              onTap: _canAddCustomHeader ? _addCustomHeader : null,
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildRemoveHeaderButton(String key) {
+    final l10n = AppLocalizations.of(context)!;
+    return AdaptiveTooltip(
+      message: l10n.removeHeader,
+      child: Semantics(
+        button: true,
+        label: '${l10n.removeHeader}: $key',
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: () => _removeCustomHeader(key),
+          child: SizedBox.square(
+            dimension: TouchTarget.minimum,
+            child: Icon(
+              CupertinoIcons.xmark_circle_fill,
+              size: IconSize.md,
+              color: context.conduitTheme.textTertiary,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCupertinoConnectButton() {
+    final l10n = AppLocalizations.of(context)!;
+    return AuthPrimaryButton(
+      label: _editingRoutes
+          ? l10n.accountsSaveAddress
+          : l10n.connectToServerButton,
+      busyLabel: l10n.connecting,
+      busy: _isConnecting,
+      onPressed: _urlController.text.trim().isEmpty ? null : _connectToServer,
     );
   }
 

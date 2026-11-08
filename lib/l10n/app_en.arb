@@ -29,7 +29,7 @@
     "description": "Error shown when account profile data cannot be loaded."
   },
   "pleaseCheckConnection": "Please check your connection and try again",
-  "connectionIssueTitle": "Can't reach your server",
+  "connectionIssueTitle": "Can't Reach Your Server",
   "@connectionIssueTitle": {
     "description": "Title shown when the configured server is unreachable"
   },
@@ -429,7 +429,7 @@
   "@serverAddressUnavailable": {
     "description": "Privacy-safe fallback when a saved server address cannot be displayed."
   },
-  "signIn": "Sign in",
+  "signIn": "Sign In",
   "@signIn": {
     "description": "Button/heading for sign-in flows."
   },
@@ -501,7 +501,7 @@
   "@headerValueHint": {
     "description": "Hint text with an example custom header value."
   },
-  "addHeader": "Add header",
+  "addHeader": "Add Header",
   "@addHeader": {
     "description": "Button to add a new custom header row."
   },
@@ -1545,11 +1545,11 @@
   "@tokenTooShort": {
     "description": "Error message when token is too short."
   },
-  "signingIn": "Signing in...",
+  "signingIn": "Signing In…",
   "@signingIn": {
     "description": "Status message shown while signing in."
   },
-  "advancedSettings": "Advanced settings",
+  "advancedSettings": "Advanced Settings",
   "@advancedSettings": {
     "description": "Section that contains additional/optional configuration."
   },
@@ -1561,7 +1561,7 @@
   "@customHeadersDescription": {
     "description": "Helper text explaining use-cases for custom headers."
   },
-  "allowSelfSignedCertificates": "Allow an unverified certificate",
+  "allowSelfSignedCertificates": "Allow Unverified Certificate",
   "@allowSelfSignedCertificates": {
     "description": "Toggle label that allows trusting self-signed TLS certificates for the configured server."
   },
@@ -1581,7 +1581,7 @@
   "@mutualTlsSelectCertificate": {
     "description": "Button label for picking a PEM client certificate chain file. The surrounding section title and description supply the 'choose' verb, so the label names the file only."
   },
-  "mutualTlsSelectPrivateKey": "Private key",
+  "mutualTlsSelectPrivateKey": "Private Key",
   "@mutualTlsSelectPrivateKey": {
     "description": "Button label for picking a PEM private key file. The surrounding section title and description supply the 'choose' verb, so the label names the file only."
   },
@@ -1597,7 +1597,7 @@
   "@mutualTlsPrivateKeyPasswordHint": {
     "description": "Placeholder for the optional password used to decrypt an mTLS private key."
   },
-  "mutualTlsClearCredentials": "Remove certificate and key",
+  "mutualTlsClearCredentials": "Remove Certificate and Key",
   "@mutualTlsClearCredentials": {
     "description": "Button label that removes selected mTLS certificate material from the form."
   },
@@ -2643,7 +2643,7 @@
   "@signInWithSso": {
     "description": "Button text for SSO sign-in."
   },
-  "ssoAuthenticating": "Authenticating...",
+  "ssoAuthenticating": "Signing in…",
   "@ssoAuthenticating": {
     "description": "Loading message during SSO authentication."
   },
@@ -2651,7 +2651,7 @@
   "@ssoAuthFailed": {
     "description": "Error message when SSO authentication fails."
   },
-  "ssoLoadingLogin": "Loading login page...",
+  "ssoLoadingLogin": "Loading sign-in page…",
   "@ssoLoadingLogin": {
     "description": "Loading message while SSO login page loads."
   },
@@ -2695,11 +2695,11 @@
   "@proxyAuthPlatformNotSupported": {
     "description": "Error message when proxy auth is attempted on an unsupported platform."
   },
-  "proxyAuthLoading": "Loading authentication page...",
+  "proxyAuthLoading": "Loading sign-in page…",
   "@proxyAuthLoading": {
     "description": "Loading message while the proxy login page loads."
   },
-  "proxyAuthSignInAgain": "Sign in through proxy again",
+  "proxyAuthSignInAgain": "Sign In to Proxy Again",
   "@proxyAuthSignInAgain": {
     "description": "Button on the connection issue page that reopens the reverse-proxy sign-in without signing out of Conduit."
   },
@@ -2719,7 +2719,7 @@
   "@proxyAuthHelpText": {
     "description": "Help text explaining how to complete proxy authentication."
   },
-  "proxyAuthHelpTextSimple": "Sign in through your proxy. Once authenticated, tap Continue to proceed to sign in.",
+  "proxyAuthHelpTextSimple": "Sign in to your proxy on this page, then tap Continue to sign in to Open WebUI.",
   "@proxyAuthHelpTextSimple": {
     "description": "Simplified help text for proxy-only authentication flow."
   },
@@ -6002,7 +6002,7 @@
   "@backendChooserModelApisSectionTitle": {
     "description": "Section title for direct model API choices on the first-run backend chooser."
   },
-  "backendChooserDirectTitle": "Connect directly",
+  "backendChooserDirectTitle": "Connect Directly",
   "@backendChooserDirectTitle": {
     "description": "Title of the direct provider option on the first-run backend chooser."
   },
@@ -6138,14 +6138,6 @@
   "directAttachmentUnsupported": "This direct model does not support this attachment.",
   "@directAttachmentUnsupported": {
     "description": "Error shown when a direct model cannot accept an attached file."
-  },
-  "backendChooserWelcome": "Choose how to connect",
-  "@backendChooserWelcome": {
-    "description": "Welcome heading on the first-run backend chooser."
-  },
-  "backendChooserPrompt": "Choose one to start. You can add more later.",
-  "@backendChooserPrompt": {
-    "description": "Prompt on the first-run backend chooser."
   },
   "backendChooserOpenWebUITitle": "Open WebUI",
   "@backendChooserOpenWebUITitle": {
@@ -8919,15 +8911,15 @@
   "@accountsServerAddressesHelp": {
     "description": "Explanation under the list of addresses of one Open WebUI server."
   },
-  "accountsAddAddress": "Add address",
+  "accountsAddAddress": "Add Address",
   "@accountsAddAddress": {
     "description": "Row and page title for adding another address (URL) at which the same Open WebUI server can be reached."
   },
-  "accountsEditAddress": "Edit address",
+  "accountsEditAddress": "Edit Address",
   "@accountsEditAddress": {
     "description": "Title of the page that edits one saved address (URL) of an Open WebUI server."
   },
-  "accountsSaveAddress": "Save address",
+  "accountsSaveAddress": "Save Address",
   "@accountsSaveAddress": {
     "description": "Button that checks an address of an Open WebUI server and saves it."
   },
@@ -9134,5 +9126,33 @@
   "codeCopied": "Copied",
   "@codeCopied": {
     "description": "Shown briefly beside a code block's copy button, with a checkmark, right after its code was copied."
+  },
+  "onboardingWelcomeTitle": "Welcome to Conduit",
+  "@onboardingWelcomeTitle": {
+    "description": "Large title at the top of the first-run screen, under the app icon."
+  },
+  "onboardingWelcomeSubtitle": "Chat with AI on your own server, on this device, or through an API.",
+  "@onboardingWelcomeSubtitle": {
+    "description": "One line under the first-run welcome title saying what the app is for."
+  },
+  "backendChooserFooter": "You can add more connections later in Settings.",
+  "@backendChooserFooter": {
+    "description": "Footer under the last group of backends on the first-run screen."
+  },
+  "serverAddressFooter": "Use the address you open in a web browser. You'll sign in next.",
+  "@serverAddressFooter": {
+    "description": "Footer under the Open WebUI server address field: which address to enter and what happens after connecting."
+  },
+  "signInChangeServer": "Change",
+  "@signInChangeServer": {
+    "description": "Button on the sign-in screen's server row that goes back to change the server address."
+  },
+  "signInContinueWithSso": "Continue with SSO",
+  "@signInContinueWithSso": {
+    "description": "Sign-in button when single sign-on is selected; it opens the identity provider's page."
+  },
+  "mutualTlsChooseFile": "Choose…",
+  "@mutualTlsChooseFile": {
+    "description": "Value shown on the Certificate and Private Key rows before a file is chosen; tapping the row opens the file picker."
   }
 }

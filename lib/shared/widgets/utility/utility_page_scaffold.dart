@@ -40,6 +40,8 @@ class UtilityPageScaffold extends StatefulWidget {
     this.bottomActionPadding,
     this.onTitleLongPress,
     this.trailing,
+    this.largeTitle = false,
+    this.largeTitleHeader,
   }) : content = List<Widget>.unmodifiable(content);
 
   factory UtilityPageScaffold.auth({
@@ -50,6 +52,8 @@ class UtilityPageScaffold extends StatefulWidget {
     Widget? bottomAction,
     Color? backgroundColor,
     VoidCallback? onTitleLongPress,
+    bool largeTitle = false,
+    Widget? largeTitleHeader,
   }) => UtilityPageScaffold._(
     key: key,
     title: title,
@@ -75,6 +79,8 @@ class UtilityPageScaffold extends StatefulWidget {
       Spacing.md,
     ),
     onTitleLongPress: onTitleLongPress,
+    largeTitle: largeTitle,
+    largeTitleHeader: largeTitleHeader,
   );
 
   factory UtilityPageScaffold.settings({
@@ -108,23 +114,100 @@ class UtilityPageScaffold extends StatefulWidget {
   final VoidCallback? onTitleLongPress;
   final Widget? trailing;
 
+  /// On iOS, shows [title] as a large title at the top of the content, and
+  /// in the bar, semibold, only once the large title has scrolled under it.
+  /// Material keeps its regular app bar title.
+  final bool largeTitle;
+
+  /// A header of the page's own in the large title's place, such as a
+  /// welcome hero, on every platform; the bar shows [title] only once it has
+  /// scrolled away.
+  final Widget? largeTitleHeader;
+
   @override
   State<UtilityPageScaffold> createState() => _UtilityPageScaffoldState();
 }
 
 class _UtilityPageScaffoldState extends State<UtilityPageScaffold> {
   final ScrollController _controller = ScrollController();
+  final GlobalKey _largeTitleKey = GlobalKey();
+
+  /// Content inset above the large title, from the last build.
+  double _largeTitleTop = 0;
+  bool _inlineTitleShown = false;
+
+  /// Whether content has scrolled under the bar. A large-title page shows
+  /// its scroll-edge fade only then, as iOS does, so the fade never washes
+  /// over the large title at rest.
+  bool _scrolledUnderBar = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller.addListener(_syncInlineTitle);
+  }
 
   @override
   void dispose() {
+    _controller.removeListener(_syncInlineTitle);
     _controller.dispose();
     super.dispose();
+  }
+
+  /// The bar's title appears once half the large title has scrolled
+  /// under the bar, as a native large title collapses into it.
+  void _syncInlineTitle() {
+    if (!_largeTitleActive(context) || !_controller.hasClients) return;
+    final box = _largeTitleKey.currentContext?.findRenderObject();
+    final height = box is RenderBox && box.hasSize ? box.size.height : 0.0;
+    final shown = _controller.offset > _largeTitleTop + height * 0.5;
+    final scrolled = _controller.offset > 0.5;
+    if (shown != _inlineTitleShown || scrolled != _scrolledUnderBar) {
+      setState(() {
+        _inlineTitleShown = shown;
+        _scrolledUnderBar = scrolled;
+      });
+    }
+  }
+
+  bool _largeTitleActive(BuildContext context) =>
+      widget.largeTitleHeader != null ||
+      (widget.largeTitle && context.usesCupertinoChrome);
+
+  Widget _buildLargeTitle(BuildContext context) {
+    final header =
+        widget.largeTitleHeader ??
+        Padding(
+          padding: const EdgeInsets.only(bottom: Spacing.md),
+          child: Semantics(
+            header: true,
+            child: Text(
+              widget.title,
+              style:
+                  AppTypography.displayLargeStyle.copyWith(
+                    color: context.conduitTheme.textPrimary,
+                  ),
+            ),
+          ),
+        );
+    final onLongPress = widget.onTitleLongPress;
+    return KeyedSubtree(
+      key: _largeTitleKey,
+      child: onLongPress == null
+          ? header
+          : GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onLongPress: onLongPress,
+              child: header,
+            ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     final mediaQuery = MediaQuery.of(context);
-    final basePadding =
+    final largeTitleActive = _largeTitleActive(context);
+    var basePadding =
         (widget.contentPadding ??
                 (context.usesCupertinoChrome
                     ? const EdgeInsets.fromLTRB(
@@ -140,6 +223,10 @@ class _UtilityPageScaffoldState extends State<UtilityPageScaffold> {
                         Spacing.pagePadding,
                       )))
             .resolve(Directionality.of(context));
+    if (largeTitleActive) {
+      // A large title sits right under the bar, as on iOS.
+      basePadding = basePadding.copyWith(top: Spacing.xs);
+    }
     final contentPadding = basePadding.copyWith(
       top: context.usesCupertinoChrome
           ? basePadding.top +
@@ -148,6 +235,11 @@ class _UtilityPageScaffoldState extends State<UtilityPageScaffold> {
           : basePadding.top,
       bottom: basePadding.bottom + mediaQuery.viewPadding.bottom,
     );
+    _largeTitleTop = basePadding.top;
+    final content = [
+      if (largeTitleActive) _buildLargeTitle(context),
+      ...widget.content,
+    ];
     final list = ListView(
       controller: _controller,
       primary: false,
@@ -157,7 +249,7 @@ class _UtilityPageScaffoldState extends State<UtilityPageScaffold> {
           const BouncingScrollPhysics(parent: AlwaysScrollableScrollPhysics()),
       padding: contentPadding,
       children: [
-        for (final child in widget.content)
+        for (final child in content)
           Center(
             child: ConstrainedBox(
               constraints: BoxConstraints(maxWidth: widget.maxWidth),
@@ -211,12 +303,18 @@ class _UtilityPageScaffoldState extends State<UtilityPageScaffold> {
               child: backButton,
             ),
           );
+    final titleText = largeTitleActive
+        ? _InlineTitle(
+            title: widget.title,
+            shown: _inlineTitleShown,
+          )
+        : Text(widget.title);
     final title = widget.onTitleLongPress == null
-        ? Text(widget.title)
+        ? titleText
         : GestureDetector(
             behavior: HitTestBehavior.opaque,
             onLongPress: widget.onTitleLongPress,
-            child: Text(widget.title),
+            child: titleText,
           );
     final appBar = context.usesCupertinoChrome
         ? AdaptiveAppBar(
@@ -234,7 +332,9 @@ class _UtilityPageScaffoldState extends State<UtilityPageScaffold> {
           )
         : AdaptiveAppBar(
             title: widget.title,
-            titleWidget: widget.onTitleLongPress == null ? null : title,
+            titleWidget: widget.onTitleLongPress == null && !largeTitleActive
+                ? null
+                : title,
             tintColor: context.conduitTheme.textPrimary,
             leading: leading,
             appBar: AppBar(
@@ -285,15 +385,53 @@ class _UtilityPageScaffoldState extends State<UtilityPageScaffold> {
               left: 0,
               right: 0,
               top: 0,
-              child: ConduitChromeGradientFade.top(
-                contentHeight:
-                    mediaQuery.viewPadding.top +
-                    conduitAdaptiveToolbarHeightOf(context),
-                // Settings titles sit over scrolling rows; keep them legible.
-                solidBehindChrome: true,
+              child: AnimatedOpacity(
+                opacity: !largeTitleActive || _scrolledUnderBar ? 1 : 0,
+                duration: context.motionDuration(AnimationDuration.fast),
+                curve: Curves.easeOut,
+                child: ConduitChromeGradientFade.top(
+                  contentHeight:
+                      mediaQuery.viewPadding.top +
+                      conduitAdaptiveToolbarHeightOf(context),
+                  // Settings titles sit over scrolling rows; keep them
+                  // legible.
+                  solidBehindChrome: true,
+                ),
               ),
             ),
         ],
+      ),
+    );
+  }
+}
+
+/// The bar title of a large-title page: semibold, shown only once the large
+/// title has scrolled under the bar, and silent to assistive tech until then
+/// so the title is not read twice.
+class _InlineTitle extends StatelessWidget {
+  const _InlineTitle({required this.title, required this.shown});
+
+  final String title;
+  final bool shown;
+
+  @override
+  Widget build(BuildContext context) {
+    return ExcludeSemantics(
+      excluding: !shown,
+      child: AnimatedOpacity(
+        opacity: shown ? 1 : 0,
+        duration: context.motionDuration(AnimationDuration.fast),
+        curve: Curves.easeOutCubic,
+        child: Text(
+          title,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: context.usesCupertinoChrome
+              ? AppTypography.headlineSmallStyle.copyWith(
+                  color: context.conduitTheme.textPrimary,
+                )
+              : null,
+        ),
       ),
     );
   }
