@@ -1,5 +1,7 @@
 import 'dart:async';
 
+import 'package:conduit/features/search/views/library_search_page.dart';
+
 import 'package:conduit_core/services/settings_service.dart';
 import 'package:conduit_core/features/navigation/models/sidebar_navigation_model.dart';
 
@@ -906,6 +908,9 @@ void main() {
       of: find.byType(SidebarDestinationPage),
       matching: find.byType(TextField),
     );
+    final mainSearchController = tester
+        .widget<TextField>(mainSearch)
+        .controller!;
     await tester.enterText(mainSearch, 'unmatched');
     await tester.pumpAndSettle();
     expect(find.text('Workshop supplies'), findsNothing);
@@ -917,17 +922,19 @@ void main() {
     await tester.pumpAndSettle();
     await tester.enterText(
       find.descendant(
-        of: find.byType(SidebarPage),
+        of: find.byType(LibrarySearchPage),
         matching: find.byType(TextField),
       ),
       'Paper',
     );
     await tester.pump(const Duration(milliseconds: 300));
     await tester.pumpAndSettle();
-    expect(tester.widget<TextField>(mainSearch).controller!.text, 'unmatched');
+    expect(mainSearchController.text, 'unmatched');
+    await tester.tap(find.byKey(const ValueKey('library-search-close')));
+    await tester.pumpAndSettle();
     await tester.tapAt(const Offset(380, 420));
     await tester.pumpAndSettle();
-    expect(tester.widget<TextField>(mainSearch).controller!.text, 'unmatched');
+    expect(mainSearchController.text, 'unmatched');
     await tester.tap(
       find.byKey(const ValueKey<String>('destination-search-button')),
     );

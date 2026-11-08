@@ -4208,5 +4208,12 @@
   "hermesContinueInCopyFailed": "이 채팅을 복사할 수 없습니다. 다시 시도하세요.",
   "hermesContinueHere": "여기서 계속하기",
   "hermesContinueHereFailed": "이 채팅을 여기서 계속할 수 없습니다. 다시 시도하세요.",
-  "hermesContinueChoiceExplanation": "여기서 계속하면 다른 앱의 이 채팅이 종료되고, 그 앱은 다음 메시지에서 새 채팅을 시작합니다. 사본은 그 채팅을 그대로 두지만 이전 메시지는 이 기기에만 저장됩니다. 최근 메시지를 최대 1,000개(1MB)까지 보관하며, 최근에 연 사본 32개에만 해당됩니다."
+  "hermesContinueChoiceExplanation": "여기서 계속하면 다른 앱의 이 채팅이 종료되고, 그 앱은 다음 메시지에서 새 채팅을 시작합니다. 사본은 그 채팅을 그대로 두지만 이전 메시지는 이 기기에만 저장됩니다. 최근 메시지를 최대 1,000개(1MB)까지 보관하며, 최근에 연 사본 32개에만 해당됩니다.",
+  "librarySearchTitle": "라이브러리 검색",
+  "librarySearchHint": "채팅, 폴더, 메시지와 노트의 텍스트를 찾아보세요.",
+  "librarySearchAll": "전체",
+  "librarySearchOnDevice": "기기의 채팅",
+  "librarySearchMore": "더 보기",
+  "librarySearching": "검색 중…",
+  "librarySearchFailed": "검색하지 못했습니다"
 }

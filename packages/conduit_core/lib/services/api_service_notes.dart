@@ -60,6 +60,7 @@ mixin _NotesApi on _ApiServiceBase {
   Future<List<Map<String, dynamic>>> searchNotes({
     String? query,
     int? page,
+    CancelToken? cancelToken,
   }) async {
     _traceApi('Searching notes: $query');
     final queryParams = <String, dynamic>{};
@@ -73,6 +74,8 @@ mixin _NotesApi on _ApiServiceBase {
     final response = await _dio.get(
       '/api/v1/notes/search',
       queryParameters: queryParams.isEmpty ? null : queryParams,
+      options: _withAuthSnapshot(Options(), captureAuthSnapshot()),
+      cancelToken: cancelToken,
     );
     final data = response.data;
     if (data is Map<String, dynamic>) {

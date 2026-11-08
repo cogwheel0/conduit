@@ -1,6 +1,54 @@
 part of 'api_service.dart';
 
 mixin _ChatListsApi on _ApiServiceBase {
+  /// Server-wide title and message-content search. This endpoint uses pages
+  /// of 60; it does not honor the limit/offset arguments of [searchChats].
+  Future<List<Conversation>> searchChatPage({
+    required String query,
+    required int page,
+    CancelToken? cancelToken,
+  }) async {
+    final response = await _dio.get(
+      '/api/v1/chats/search',
+      queryParameters: {'text': query, 'page': page},
+      options: _withAuthSnapshot(
+        Options(responseType: ResponseType.bytes),
+        captureAuthSnapshot(),
+      ),
+      cancelToken: cancelToken,
+    );
+    return _parseConversationSummaryPayload(
+      regular: response.data,
+      debugLabel: 'parse_chat_search_page',
+    );
+  }
+
+  /// Excerpts are fetched only for visible results. Older servers can search
+  /// message bodies without exposing this optional endpoint.
+  Future<String?> getChatSearchSnippet({
+    required String chatId,
+    required String query,
+    CancelToken? cancelToken,
+  }) async {
+    final response = await _dio.get(
+      '/api/v1/chats/${Uri.encodeComponent(chatId)}/search/snippet',
+      queryParameters: {'text': query},
+      options: _withAuthSnapshot(
+        Options(
+          validateStatus: (status) =>
+              status != null &&
+              ((status >= 200 && status < 300) ||
+                  status == 404 ||
+                  status == 405),
+        ),
+        captureAuthSnapshot(),
+      ),
+      cancelToken: cancelToken,
+    );
+    if (response.statusCode == 404 || response.statusCode == 405) return null;
+    return response.data is String ? response.data as String : null;
+  }
+
   // Search conversations
   Future<List<Conversation>> searchConversations(String query) async {
     final response = await _dio.get(

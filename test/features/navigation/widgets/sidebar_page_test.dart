@@ -646,33 +646,35 @@ void main() {
     expect(find.byType(TerminalTab), findsNothing);
   });
 
-  testWidgets(
-    'sidebar search stays scoped to chats when another destination is selected',
-    (tester) async {
-      final controllers = SidebarTestSidebarHarnessControllers(
-        initialTab: SidebarTabId.channels,
-      );
-      await tester.pumpWidget(
-        sidebarTestBuildHarness(
-          controllers: controllers,
-          initialLocation: Routes.chat,
-          terminalServers: const <TerminalServerInfo>[],
-        ),
-      );
-      await tester.pumpAndSettle();
+  testWidgets('sliding sidebar opens library search from another destination', (
+    tester,
+  ) async {
+    final controllers = SidebarTestSidebarHarnessControllers(
+      initialTab: SidebarTabId.channels,
+    );
+    await tester.pumpWidget(
+      sidebarTestBuildHarness(
+        controllers: controllers,
+        initialLocation: Routes.chat,
+        terminalServers: const <TerminalServerInfo>[],
+      ),
+    );
+    await tester.pumpAndSettle();
 
-      expect(sidebarTestDestinationLabel('Terminal'), findsNothing);
-      expect(sidebarTestDestinationLabel('Channels'), findsOneWidget);
+    expect(sidebarTestDestinationLabel('Terminal'), findsNothing);
+    expect(sidebarTestDestinationLabel('Channels'), findsOneWidget);
 
-      await tester.tap(find.byIcon(Icons.search));
-      await tester.pump();
+    await tester.tap(find.byIcon(Icons.search));
+    await tester.pumpAndSettle();
 
-      final context = tester.element(find.byType(SidebarPage));
-      final l10n = AppLocalizations.of(context)!;
-      expect(find.text(l10n.searchConversations), findsOneWidget);
-      expect(find.text(l10n.searchFiles), findsNothing);
-    },
-  );
+    final context = tester.element(
+      find.byKey(const ValueKey('library-search-page')),
+    );
+    final l10n = AppLocalizations.of(context)!;
+    expect(find.byKey(const ValueKey('library-search-page')), findsOneWidget);
+    expect(find.text(l10n.librarySearchTitle), findsNWidgets(2));
+    expect(find.text(l10n.searchFiles), findsNothing);
+  });
 
   testWidgets('channel destination opens the main page', (tester) async {
     await tester.pumpWidget(

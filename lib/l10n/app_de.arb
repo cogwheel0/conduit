@@ -4436,5 +4436,12 @@
   "hermesContinueInCopyFailed": "Dieser Chat konnte nicht kopiert werden. Versuche es erneut.",
   "hermesContinueHere": "Hier fortsetzen",
   "hermesContinueHereFailed": "Dieser Chat konnte hier nicht fortgesetzt werden. Versuche es erneut.",
-  "hermesContinueChoiceExplanation": "Wenn du hier fortsetzt, endet dieser Chat in der anderen App, und sie beginnt bei der nächsten Nachricht einen neuen. Eine Kopie lässt den Chat unverändert, speichert die früheren Nachrichten aber nur auf diesem Gerät. Sie behält bis zu 1.000 der neuesten Nachrichten (1 MB), für die 32 zuletzt geöffneten Kopien."
+  "hermesContinueChoiceExplanation": "Wenn du hier fortsetzt, endet dieser Chat in der anderen App, und sie beginnt bei der nächsten Nachricht einen neuen. Eine Kopie lässt den Chat unverändert, speichert die früheren Nachrichten aber nur auf diesem Gerät. Sie behält bis zu 1.000 der neuesten Nachrichten (1 MB), für die 32 zuletzt geöffneten Kopien.",
+  "librarySearchTitle": "Bibliothek durchsuchen",
+  "librarySearchHint": "Chats, Ordner und Text in Nachrichten und Notizen finden.",
+  "librarySearchAll": "Alle",
+  "librarySearchOnDevice": "Chats auf diesem Gerät",
+  "librarySearchMore": "Mehr anzeigen",
+  "librarySearching": "Suche läuft…",
+  "librarySearchFailed": "Suche fehlgeschlagen"
 }
