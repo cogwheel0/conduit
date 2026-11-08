@@ -2402,8 +2402,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
 
   /// The scroll edge under the header: on iOS the page background covers
   /// the status bar and the header's buttons to their bottom edge, then the
-  /// transcript blurs and fades into it over a short strip, so no text,
-  /// sharp or blurred, ever sits behind or beside the glass. Elsewhere the
+  /// transcript fades into it over a short eased strip, so no text ever
+  /// sits behind the glass and no line is cut by its edge. Elsewhere the
   /// opaque band with a short fade below it.
   Widget _buildHeaderScrollEdge(BuildContext context) {
     final topInset = MediaQuery.viewPaddingOf(context).top;
@@ -4558,18 +4558,17 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                 left: 0,
                 right: 0,
                 top: 0,
-                // Covered behind the status bar; behind the glass buttons
-                // the transcript blurs into a haze, so neither the clock nor
-                // Liquid Glass sits over crisp text; just past them it
-                // dissolves to sharp instead of being cut by a line.
+                // Covered behind the status bar and the glass buttons, so
+                // neither the clock nor Liquid Glass sits over text; just
+                // past them it fades in instead of being cut by a line.
                 child: _buildHeaderScrollEdge(context),
               ),
               Positioned(
                 left: 0,
                 right: 0,
                 bottom: 0,
-                // The same edge above the composer: covered under it, a haze
-                // behind its glass, sharp a line above it.
+                // The same edge above the composer: covered under its glass,
+                // clear a line above it.
                 child: _buildComposerScrollEdge(context),
               ),
               Positioned(
@@ -4766,20 +4765,22 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       return actionsWidth + connectionWidth;
     }
 
-    // iOS keeps the pill on the screen's centre line whatever it says, so it
-    // may use the same width on both sides. A bar too crowded for that
-    // (large text on a narrow phone) falls back to the room the buttons
-    // leave, off centre, rather than lose the picker; Material titles sit at
-    // the leading edge and always take that room.
+    // On iOS the pill may take all the room between the buttons, 12 pt clear
+    // of each: the bar keeps it on the screen's centre line while it fits
+    // there and moves it toward the side with room once it is longer, as
+    // UINavigationBar does, so a long title shortens only when it must. A
+    // bar too crowded even for that (large text on a narrow phone) falls
+    // back to the room the buttons leave rather than lose the picker;
+    // Material titles sit at the leading edge and always take that room.
     double modelWidth() {
       if (PlatformInfo.isIOS) {
-        final centered = resolveConduitCenteredTitleMaxWidth(
+        final room = resolveConduitBarTitleMaxWidth(
           context,
           leadingWidth: controlExtent,
           trailingWidth: trailingWidth(),
           maxWidth: kConduitAdaptiveToolbarMaxModelSelectorWidth,
         );
-        if (centered >= 2 * controlExtent) return centered;
+        if (room >= 2 * controlExtent) return room;
       }
       return resolveConduitAdaptiveLeadingPillWidth(
         context,

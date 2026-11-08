@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:conduit/shared/theme/app_theme.dart';
 import 'package:conduit/shared/theme/tweakcn_themes.dart';
 import 'package:conduit/shared/widgets/adaptive_toolbar_components.dart';
@@ -87,7 +89,7 @@ void main() {
     expect(conduitToolbarClusterWidth(context, 3), 120);
   });
 
-  testWidgets('a centred title reserves the wider side on both sides', (
+  testWidgets('a bar title may take the room between the controls', (
     tester,
   ) async {
     tester.view.physicalSize = const Size(402, 874);
@@ -104,17 +106,58 @@ void main() {
         ),
       ),
     );
-    // 402 - 2 * (16 + 80 + 12): equal room either side of the centre line,
-    // with 12 pt clear of the controls.
+    // 402 - 2 * 16 - 44 - 80 - 2 * 12: everything between the sidebar
+    // button and the group, 12 pt clear of each, not only what would keep
+    // it on the centre line (186).
     expect(
-      resolveConduitCenteredTitleMaxWidth(
+      resolveConduitBarTitleMaxWidth(
         context,
         leadingWidth: 44,
         trailingWidth: 80,
         maxWidth: 320,
       ),
-      186,
+      222,
     );
+    expect(
+      resolveConduitBarTitleMaxWidth(
+        context,
+        leadingWidth: 44,
+        trailingWidth: 80,
+        maxWidth: 200,
+      ),
+      200,
+    );
+  });
+
+  testWidgets('a title that needs all the room sits 12 pt from both sides', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(402, 874);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: Scaffold(
+          appBar: ConduitAdaptiveCupertinoNavigationBar(
+            textScaler: TextScaler.noScaling,
+            leading: SizedBox(key: ValueKey('leading'), width: 44, height: 44),
+            middle: SizedBox(key: ValueKey('middle'), width: 222, height: 44),
+            trailing: SizedBox(
+              key: ValueKey('trailing'),
+              width: 80,
+              height: 44,
+            ),
+          ),
+        ),
+      ),
+    );
+    final middle = tester.getRect(find.byKey(const ValueKey('middle')));
+    final leading = tester.getRect(find.byKey(const ValueKey('leading')));
+    final trailing = tester.getRect(find.byKey(const ValueKey('trailing')));
+    // Off the centre line, toward the narrower sidebar button.
+    expect(middle.center.dx, lessThan(201));
+    expect(middle.left - leading.right, closeTo(12, 0.01));
+    expect(trailing.left - middle.right, closeTo(12, 0.01));
   });
 
   for (final width in [150.0, 120.0]) {
@@ -262,6 +305,73 @@ void main() {
     },
   );
 
+  testWidgets('the circle morphs into the capsule with one glyph set at a '
+      'time, never outside the glass', (tester) async {
+    await tester.pumpWidget(_host([_item('temporary-chat')]));
+    final cluster = find.byKey(const ValueKey('cluster'));
+    await tester.pumpWidget(_host([_item('new-chat'), _menu('more')]));
+
+    var oldGoneAt = -1;
+    var newShownAt = -1;
+    for (var frame = 1; frame <= 40; frame++) {
+      await tester.pump(const Duration(milliseconds: 16));
+      final outgoing = _opacityOf(tester, 'temporary-chat');
+      final incoming = math.max(
+        _opacityOf(tester, 'new-chat'),
+        _opacityOf(tester, 'more'),
+      );
+      // No double exposure: the dashed circle and the capsule's glyphs
+      // (one of them on the circle's very spot) never show together.
+      expect(
+        outgoing == 0 || incoming == 0,
+        isTrue,
+        reason: 'frame $frame: old $outgoing, new $incoming',
+      );
+      if (outgoing == 0 && oldGoneAt < 0) oldGoneAt = frame;
+      if (incoming > 0 && newShownAt < 0) newShownAt = frame;
+
+      // An arriving glyph shows only once the growing glass has passed
+      // all of it.
+      final glass = tester.getRect(cluster);
+      for (final id in ['new-chat', 'more']) {
+        final slot = find.byKey(ValueKey<Object>(id));
+        if (_opacityOf(tester, id) > 0) {
+          final glyphLeft =
+              tester.getCenter(slot).dx -
+              kConduitNativeSingleActionSymbolExtent / 2;
+          expect(
+            glyphLeft,
+            greaterThanOrEqualTo(glass.left),
+            reason: 'frame $frame: $id outside the glass',
+          );
+        }
+      }
+    }
+    // The old glyph clears quickly (about 100 ms), the new ones follow at
+    // once (the one by the circle's spot first) rather than after the
+    // reshape.
+    expect(oldGoneAt * 16, lessThanOrEqualTo(150));
+    expect(newShownAt, oldGoneAt + 1);
+    expect(_opacityOf(tester, 'new-chat'), 1);
+    expect(_opacityOf(tester, 'more'), 1);
+  });
+
+  testWidgets('with nothing leaving, an added glyph fades in after a beat', (
+    tester,
+  ) async {
+    await tester.pumpWidget(_host([_item('new-chat'), _menu('more')]));
+    await tester.pumpWidget(
+      _host([_item('save-chat'), _item('new-chat'), _menu('more')]),
+    );
+    // Hidden while its native control is made, then fading in as the glass
+    // grows to reach it.
+    await tester.pump(const Duration(milliseconds: 16));
+    expect(_opacityOf(tester, 'save-chat'), 0);
+    await tester.pumpAndSettle();
+    expect(_opacityOf(tester, 'save-chat'), 1);
+    expect(_opacityOf(tester, 'new-chat'), 1);
+  });
+
   testWidgets('a change mid-way reverses from where it is', (tester) async {
     await tester.pumpWidget(_host([_item('temporary-chat')]));
     final cluster = find.byKey(const ValueKey('cluster'));
@@ -297,10 +407,18 @@ void main() {
     await tester.pump(const Duration(milliseconds: 16));
     await tester.pump(const Duration(milliseconds: 16));
     expect(tester.getSize(cluster).width, 80);
-    for (var i = 0; i < 6; i++) {
+    // Still a dissolve, the old glyph out before the new ones in.
+    var sawFadeIn = false;
+    for (var i = 0; i < 20; i++) {
       await tester.pump(const Duration(milliseconds: 16));
+      final incoming = _opacityOf(tester, 'more');
+      expect(
+        _opacityOf(tester, 'temporary-chat') == 0 || incoming == 0,
+        isTrue,
+      );
+      if (incoming > 0 && incoming < 1) sawFadeIn = true;
     }
-    expect(_opacityOf(tester, 'more'), inExclusiveRange(0, 1));
+    expect(sawFadeIn, isTrue);
     await tester.pumpAndSettle();
     expect(_opacityOf(tester, 'more'), 1);
   });

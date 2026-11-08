@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:conduit/shared/theme/app_theme.dart';
 import 'package:conduit/shared/theme/tweakcn_themes.dart';
 import 'package:conduit/shared/widgets/chrome_gradient_fade.dart';
@@ -95,48 +97,40 @@ void main() {
     test('covers the status bar and the buttons, then eases out', () {
       expect(top.extent, 108 + kConduitScrollEdgeSoftExtent);
       // The page background, fully, down to the buttons' bottom edge: no
-      // text, sharp or blurred, behind or beside the glass.
+      // text behind or beside the glass.
       for (final d in [0.0, 30.0, 62.0, 86.0, 108.0]) {
         expect(top.tintOpacityAt(d), 1);
       }
-      // Text right beside the glass has already settled into the
-      // background, blurred out, rather than half-legible.
-      expect(top.settledExtent, greaterThan(108 + 6));
-      for (final d in [110.0, 114.0]) {
-        expect(top.tintOpacityAt(d), 1);
-        expect(top.sigmaAt(d), kConduitScrollEdgeMaxSigma);
-      }
-      // Then it eases out: clear at the end, with no step on the way.
+      // Then it eases out: clear at the end, half way at the middle.
       expect(top.tintOpacityAt(top.extent), 0);
       expect(
-        top.tintOpacityAt((top.settledExtent + top.extent) / 2),
+        top.tintOpacityAt(108 + kConduitScrollEdgeSoftExtent / 2),
         closeTo(0.5, 1e-9),
       );
+    });
+
+    test('the fade has no step or crease, even across one line of text', () {
+      // Flat where it meets the cover and where it clears, and never
+      // steeper than a smoothstep across the strip: a 17 pt line under it
+      // fades from the top of its letters to their foot, without a seam.
       var previous = 1.0;
-      for (var d = 0.0; d <= top.extent; d += 0.5) {
+      var steepest = 0.0;
+      for (var d = 108.0; d <= top.extent + 1; d += 0.25) {
         final alpha = top.tintOpacityAt(d);
         expect(alpha, lessThanOrEqualTo(previous + 1e-9));
-        expect(previous - alpha, lessThan(0.05));
+        steepest = math.max(steepest, (previous - alpha) / 0.25);
         previous = alpha;
       }
+      expect(
+        steepest,
+        lessThanOrEqualTo(1.5 / kConduitScrollEdgeSoftExtent + 1e-9),
+      );
+      expect(1 - top.tintOpacityAt(108.5), lessThan(0.01));
+      expect(top.tintOpacityAt(top.extent - 0.5), lessThan(0.01));
     });
 
     test('the strip spans 24 to 32 pt below the chrome', () {
       expect(kConduitScrollEdgeSoftExtent, inInclusiveRange(24, 32));
-    });
-
-    test('blurs hardest at the cover and eases out to sharp', () {
-      expect(top.sigmaAt(108), kConduitScrollEdgeMaxSigma);
-      expect(top.sigmaAt(top.extent), 0);
-      // Text just inside the strip is soft but not smeared.
-      expect(top.sigmaAt(top.extent - 4), lessThan(1.5));
-      var previous = top.sigmaAt(108);
-      for (var d = 108.0; d <= top.extent; d += 0.5) {
-        final sigma = top.sigmaAt(d);
-        expect(sigma, lessThanOrEqualTo(previous + 1e-9));
-        expect(previous - sigma, lessThan(0.5), reason: 'no visible band');
-        previous = sigma;
-      }
     });
 
     test('with nothing under the edge the strip is gone', () {
@@ -147,10 +141,9 @@ void main() {
       expect(resting.extent, 108);
       // A first message resting 22 pt under the buttons is untouched.
       expect(resting.tintOpacityAt(130), 0);
-      expect(resting.sigmaAt(130), 0);
-      // Fully engaged (a message pinned there after a send), it is all but
-      // untouched too.
-      expect(top.tintOpacityAt(130), lessThan(0.05));
+      // Fully engaged (a message pinned there after a send), its bubble's
+      // top edge is all but untouched too.
+      expect(top.tintOpacityAt(130), lessThan(0.15));
       // The cover itself never moves.
       expect(resting.tintOpacityAt(108), 1);
     });
@@ -164,9 +157,32 @@ void main() {
       );
       expect(engaged.stripExtent, closeTo(10, 1e-9));
       expect(engaged.tintOpacityAt(120), 0);
+      expect(engaged.tintOpacityAt(113), closeTo(0.5, 1e-9));
+    });
+
+    testWidgets('draws no backdrop filter', (tester) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: AppTheme.light(TweakcnThemes.t3Chat),
+          home: const Scaffold(
+            body: Stack(
+              children: [
+                Text('Scrolling content'),
+                Positioned(
+                  left: 0,
+                  right: 0,
+                  top: 0,
+                  child: ConduitScrollEdgeEffect.top(coverExtent: 108),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+      final edge = find.byType(ConduitScrollEdgeEffect);
       expect(
-        engaged.tintOpacityAt((engaged.settledExtent + engaged.extent) / 2),
-        closeTo(0.5, 1e-9),
+        find.descendant(of: edge, matching: find.byType(BackdropFilter)),
+        findsNothing,
       );
     });
 
@@ -203,12 +219,14 @@ void main() {
       final gradient =
           (box.decoration as BoxDecoration).gradient! as LinearGradient;
       expect(gradient.begin, Alignment.bottomCenter);
-      // Opaque from the screen's bottom past the composer's top.
+      // Opaque from the screen's bottom to the composer's top, then easing
+      // out from there without a crease.
       expect(gradient.colors[1].a, 1);
       expect(
         gradient.stops![1],
-        greaterThan(90 / (90 + kConduitScrollEdgeSoftExtent)),
+        closeTo(90 / (90 + kConduitScrollEdgeSoftExtent), 1e-9),
       );
+      expect(gradient.colors[2].a, greaterThan(0.98));
       expect(gradient.colors.last.a, 0);
     });
   });

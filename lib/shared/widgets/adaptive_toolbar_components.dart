@@ -920,22 +920,27 @@ double conduitToolbarClusterWidth(BuildContext context, int count) {
 /// title capsule never crowds the glass next to it.
 const double kConduitCenteredTitleClearance = 12;
 
-/// The widest a bar title may be while it stays centred on the screen.
+/// The widest a centred bar title may be: all the room between the leading
+/// and trailing controls, less [gap] of clear space beside each.
 ///
-/// The title keeps the same gap to the screen's centre line on both sides,
-/// so it reserves the wider of the leading and trailing controls on each
-/// side, plus [gap] of clear space next to them.
-double resolveConduitCenteredTitleMaxWidth(
+/// As UINavigationBar places a title, the bar keeps it on the screen's
+/// centre line while it fits there with [gap] to spare; a longer one moves
+/// toward the side with room, off centre, until it has [gap] on both sides
+/// (see [ConduitAdaptiveCupertinoNavigationBar]). Only past that does it
+/// need to shorten.
+double resolveConduitBarTitleMaxWidth(
   BuildContext context, {
   required double leadingWidth,
   required double trailingWidth,
   required double maxWidth,
   double gap = kConduitCenteredTitleClearance,
 }) {
-  final side = math.max(leadingWidth, trailingWidth);
   final available =
       MediaQuery.sizeOf(context).width -
-      2 * (Spacing.inputPadding + side + gap);
+      2 * Spacing.inputPadding -
+      leadingWidth -
+      trailingWidth -
+      2 * gap;
   return available.clamp(0.0, math.max(0.0, maxWidth)).toDouble();
 }
 
@@ -1010,9 +1015,21 @@ class ConduitToolbarClusterItem {
 /// The most one frame may advance the cluster's springs, in seconds.
 const double _kClusterMaxStep = 1 / 30;
 
-/// Where an arriving action's presence starts: below zero, so its fade
-/// begins about 60 ms after the change.
+/// Where an arriving action's presence starts when nothing has to clear
+/// first: below zero, so its fade begins about 60 ms after the change, once
+/// its native control exists.
 const double _kClusterArrivalLead = -0.35;
+
+/// How much faster than the reshape a leaving glyph fades: it is gone about
+/// 100 ms after the change, well before the capsule settles.
+const double _kClusterDepartureSpeed = 2.5;
+
+/// How much faster than the reshape an arriving glyph fades in.
+const double _kClusterArrivalSpeed = 1.3;
+
+/// Below this a leaving glyph counts as gone (it no longer shows on
+/// screen), and the arriving ones start.
+const double _kClusterGoneOpacity = 0.05;
 
 /// Critically damped spring stepped by hand, so several values can share one
 /// ticker and each can be retargeted from its current value and velocity.
@@ -1067,10 +1084,14 @@ class _ClusterEntry {
 /// which pinches into a "dumbbell" between buttons on device (#686).
 ///
 /// When the set of actions changes (a new chat becoming a real one), the
-/// capsule reshapes once: its width and each glyph's place ride one
-/// critically damped spring, actions that leave fade out where they were and
-/// actions that arrive fade in where they will rest. A change mid-way
-/// retargets from the current values. Reduce Motion keeps only the fades.
+/// glass morphs once: its width and each glyph's place ride one critically
+/// damped spring. The glyphs never cross-fade: those that leave fade out
+/// quickly where they were, and only once they are gone do the arriving ones
+/// fade in where they will rest, so no frame shows both (the circle's glyph
+/// and the capsule's sharing one spot). A glyph shows only inside the glass:
+/// it fades in once the growing edge has passed it, and out as a shrinking
+/// one reaches it. A change mid-way retargets from the current values. Reduce Motion
+/// keeps only the fades.
 ///
 /// The capsule is anchored at its trailing edge, so it grows and shrinks
 /// toward the title.
@@ -1125,31 +1146,39 @@ class _ConduitToolbarActionClusterState
     return (count - index - 0.5) * slot;
   }
 
+  /// Whether a leaving glyph still shows, so arriving ones wait.
+  bool get _isClearing => _entries.values.any(
+    (entry) =>
+        entry.isLeaving && entry.presence.value > _kClusterGoneOpacity,
+  );
+
   void _sync({required bool animate}) {
     final items = widget.items;
-    final ids = <Object>{};
+    final ids = {for (final item in items) item.id};
+    for (final entry in _entries.values) {
+      if (!ids.contains(entry.item.id)) entry.presence.target = 0;
+    }
+    // While a leaving glyph fades (about 100 ms) the arriving ones' native
+    // controls are created, so they can start at once after it; with
+    // nothing to clear they start a little below zero instead, so they show
+    // only once those controls exist rather than popping in part-way.
+    final arrival = _isClearing ? 0.0 : _kClusterArrivalLead;
     for (var index = 0; index < items.length; index++) {
       final item = items[index];
-      ids.add(item.id);
       final center = _centerFromTrailing(index, items.length);
       final entry = _entries[item.id];
       if (entry == null) {
-        // Arrives where it will rest; only its opacity moves. It starts a
-        // little below zero, so it shows only once its native control has
-        // been created (a few frames) rather than popping in part-way.
+        // Arrives where it will rest; only its opacity moves.
         _entries[item.id] = _ClusterEntry(
           item,
           centerFromTrailing: center,
-          presence: animate ? _kClusterArrivalLead : 1,
+          presence: animate ? arrival : 1,
         )..presence.target = 1;
       } else {
         entry.item = item;
         entry.centerFromTrailing.target = center;
         entry.presence.target = 1;
       }
-    }
-    for (final entry in _entries.values) {
-      if (!ids.contains(entry.item.id)) entry.presence.target = 0;
     }
     _width.target = conduitToolbarClusterWidth(context, items.length);
 
@@ -1196,15 +1225,40 @@ class _ConduitToolbarActionClusterState
     );
     final omega = ConduitToolbarActionCluster.springOmega;
     _width.step(seconds, omega);
+    // Decided before this frame's fades, so an arriving glyph starts on the
+    // frame after the last leaving one is gone, never alongside it.
+    final clearing = _isClearing;
     for (final entry in _entries.values) {
       entry.centerFromTrailing.step(seconds, omega);
-      entry.presence.step(seconds, omega);
+      if (entry.isLeaving) {
+        entry.presence.step(seconds, omega * _kClusterDepartureSpeed);
+      } else if (!clearing || entry.presence.value > 0) {
+        // One that was already showing (a change reversed mid-way) carries
+        // on; a new one waits for the glyphs it replaces to be gone.
+        entry.presence.step(seconds, omega * _kClusterArrivalSpeed);
+      }
     }
     _entries.removeWhere(
-      (_, entry) => entry.isLeaving && entry.presence.isSettled,
+      (_, entry) =>
+          entry.isLeaving &&
+          (entry.presence.isSettled ||
+              entry.presence.value <= _kClusterGoneOpacity),
     );
     if (_isSettled) _ticker.stop();
     setState(() {});
+  }
+
+  /// How far the glyph centred [centerFromTrailing] from the trailing edge
+  /// sits inside glass [width] wide: 0 until the edge has passed the whole
+  /// glyph, 1 once it is half a glyph beyond (clear of the capsule's rounded
+  /// end), so no part of a glyph shows outside the glass while it grows or
+  /// shrinks.
+  double _containment(double centerFromTrailing, double width) {
+    final half =
+        kConduitNativeSingleActionSymbolExtent /
+        2 *
+        conduitSystemControlScaleOf(context);
+    return ((width - centerFromTrailing - half) / half).clamp(0.0, 1.0);
   }
 
   @override
@@ -1233,7 +1287,9 @@ class _ConduitToolbarActionClusterState
 
     final children = <Widget>[Positioned.fill(child: background)];
     for (final entry in _entries.values) {
-      final opacity = entry.presence.value.clamp(0.0, 1.0);
+      final center = entry.centerFromTrailing.value;
+      final opacity =
+          entry.presence.value.clamp(0.0, 1.0) * _containment(center, width);
       if (opacity <= 0 && entry.isLeaving) continue;
       // The same wrappers whether or not there is a long press or anchor,
       // so a change of either never rebuilds the native control (a blank
@@ -1248,7 +1304,7 @@ class _ConduitToolbarActionClusterState
       children.add(
         Positioned(
           key: ValueKey<Object>(entry.item.id),
-          right: entry.centerFromTrailing.value - height / 2,
+          right: center - height / 2,
           top: 0,
           width: height,
           height: height,

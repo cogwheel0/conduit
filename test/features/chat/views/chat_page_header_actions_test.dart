@@ -312,7 +312,7 @@ void main() {
     await _tearDown(tester);
   });
 
-  testWidgets('the model pill stays on the screen\'s centre line', (
+  testWidgets('the model pill keeps the centre line while it fits there', (
     tester,
   ) async {
     final container = await _pumpChatPage(tester);
@@ -327,22 +327,14 @@ void main() {
     await tester.pump(const Duration(milliseconds: 500));
     expect(_barActions(tester), ['new-chat', 'more']);
     expect(tester.getCenter(pill).dx, closeTo(201, 0.5));
-    // It may grow to the same distance from either side of the centre
-    // line, 12 pt clear of the wider side: 402 - 2 * (16 + 80 + 12).
+    // A longer title may take all the room between the buttons, 12 pt
+    // clear of each (402 - 2 * 16 - 44 - 80 - 2 * 12), moving off the
+    // centre line toward the sidebar button as UINavigationBar's does,
+    // rather than shortening while room is left.
     final maxWidth = tester
         .widget<ConduitAdaptiveAppBarModelSelector>(pill)
         .maxWidth;
-    expect(maxWidth, 186);
-    // At its widest it still keeps 12 pt from New Chat and More, and more
-    // from the sidebar button.
-    final actions = tester.getRect(
-      find.byKey(const ValueKey('chat-toolbar-actions')),
-    );
-    final sidebar = tester.getRect(
-      find.byKey(const ValueKey('chat-sidebar-toggle')),
-    );
-    expect(actions.left - (201 + maxWidth / 2), greaterThanOrEqualTo(12));
-    expect((201 - maxWidth / 2) - sidebar.right, greaterThanOrEqualTo(12));
+    expect(maxWidth, 222);
     await _tearDown(tester);
   });
 
