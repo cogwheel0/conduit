@@ -1094,8 +1094,10 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
         ),
       );
     } on HermesDesktopRpcException catch (error) {
-      // Only a refusal from Hermes itself; a lost connection fails the turn.
-      if (error.timedOut || error.disconnected || error.notReady) rethrow;
+      // Only Hermes' render failure (5028: no `pdftoppm`, a timeout, no
+      // pages). Any other refusal (a bad session, a busy owner, a PDF it
+      // rejects) and a lost connection fail the turn as they are.
+      if (error.code != 5028) rethrow;
       DebugLogger.warning(
         'pdf-pages-unavailable',
         scope: 'hermes/desktop',

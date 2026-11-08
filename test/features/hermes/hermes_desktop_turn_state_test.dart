@@ -956,6 +956,38 @@ void main() {
     ).equals('It covers the plan.');
   });
 
+  // Every refusal was taken for a render failure, so a PDF Hermes rejected
+  // (or a busy session) went out by another path.
+  test('a PDF Hermes refuses for another reason is not sent as a file',
+      () async {
+    await check(
+      _streamTurn(
+        input: HermesChatInput.multimodal([
+          HermesInputTextPart('Summarize this.'),
+          HermesInputFilePart(
+            filename: 'report.pdf',
+            mediaType: 'application/pdf',
+            base64Data: 'JVBERi0=',
+          ),
+        ]),
+        desktopContract: 2,
+        errors: {
+          'pdf.attach': {
+            'code': 4017,
+            'message': 'payload is not a PDF (missing %PDF- magic bytes)',
+          },
+        },
+        responses: {
+          'file.attach': {
+            'attached': true,
+            'ref_text': '@file:/staged/report.pdf',
+          },
+        },
+        (harness) {},
+      ),
+    ).throws<HermesDesktopRpcException>();
+  });
+
   test('tool and subagent failures are read from result and status', () async {
     final turn = await _streamTurn((harness) {
       harness.event('runtime-race', 'message.start');
