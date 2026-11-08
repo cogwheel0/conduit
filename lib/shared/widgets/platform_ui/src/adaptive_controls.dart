@@ -727,8 +727,9 @@ class AdaptivePopupMenuButton<T> {
     List<AdaptivePopupMenuEntry> items,
     void Function(int index, AdaptivePopupMenuItem<T> entry) onSelected,
   ) async {
+    final flat = _flatEntries<T>(items);
     final options = PlatformUiCapabilities.usesNativeIOS26
-        ? _dropdownOptions<T>(items)
+        ? _dropdownOptions<T>(flat)
         : null;
     if (options != null) {
       final String? selected;
@@ -747,33 +748,29 @@ class AdaptivePopupMenuButton<T> {
         }
         return;
       }
-      final index = int.tryParse(selected ?? '');
-      if (index != null) _dispatch<T>(items, index, onSelected);
+      final position = int.tryParse(selected ?? '');
+      if (position != null) _dispatch<T>(flat, position, onSelected);
       return;
     }
     return _showFlutterMenu<T>(context, null, items, onSelected);
   }
 
-  /// [items] as system menu options identified by their index in [items],
+  /// [flat] as system menu options identified by their position in [flat],
   /// or null when one cannot be shown there. A checked item sends the check
   /// mark in place of its icon. The bridge's sheet draws the label, the check
   /// mark, the destructive red and the disabled state; a `UIAlertAction` has
   /// no image or subtitle, so it leaves out icons and subtitles.
   static List<IosNativeDropdownOption>? _dropdownOptions<T>(
-    List<AdaptivePopupMenuEntry> items,
+    List<({int index, AdaptivePopupMenuItem<T>? item})> flat,
   ) {
     final options = <IosNativeDropdownOption>[];
-    for (final (index, entry) in items.indexed) {
-      if (entry is AdaptivePopupMenuDivider) continue;
-      if (entry is! AdaptivePopupMenuItem<T> ||
-          entry.imageBytes != null ||
-          entry.label.isEmpty) {
-        return null;
-      }
+    for (final (position, (index: _, item: entry)) in flat.indexed) {
+      if (entry == null) continue;
+      if (entry.imageBytes != null || entry.label.isEmpty) return null;
       final subtitle = entry.subtitle;
       options.add(
         IosNativeDropdownOption(
-          id: '$index',
+          id: '$position',
           label: entry.label,
           subtitle: subtitle == null || subtitle.isEmpty ? null : subtitle,
           sfSymbol: entry.checked
