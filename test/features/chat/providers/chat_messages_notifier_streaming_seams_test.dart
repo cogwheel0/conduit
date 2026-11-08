@@ -6430,6 +6430,46 @@ void main() {
       },
     );
 
+    // Opened before the Hermes service existed (its credentials still
+    // loading), the reply lost its marker, and the service that came later
+    // could not ask for the answer.
+    test(
+      'a reply waiting for its saved run keeps waiting without a service',
+      () async {
+        final container = _buildContainer();
+        addTearDown(container.dispose);
+        final assistant = _assistantMessage(
+          id: 'cold-hermes-awaiting-no-service',
+          content: '',
+          metadata: const <String, dynamic>{
+            'transport': kHermesTransport,
+            'hermesRunId': 'run-no-service',
+            'hermesSessionId': 'session-no-service',
+            kHermesRunAwaitingAnswerKey: true,
+          },
+        );
+        container
+            .read(activeConversationProvider.notifier)
+            .set(
+              markNativeHermesConversation(
+                withChatStorageProvenance(
+                  _conversation('local:hermes_no-service', <ChatMessage>[
+                    assistant,
+                  ]),
+                  ChatStorageKind.directLocal,
+                ),
+              ),
+            );
+        // The notifier builds on first read and asks after the reply then.
+        container.read(chatMessagesProvider);
+        await Future<void>.delayed(const Duration(milliseconds: 100));
+
+        final kept = container.read(chatMessagesProvider).single;
+        check(kept.metadata?[kHermesRunAwaitingAnswerKey]).equals(true);
+        check(kept.error).isNull();
+      },
+    );
+
     test(
       'switching into an unrecoverable Hermes checkpoint settles it',
       () async {

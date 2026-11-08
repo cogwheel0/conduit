@@ -1758,7 +1758,9 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     final owner = _HermesConversationOwner.capture(ref, conversation);
     final service = ref.read(hermesApiServiceProvider);
     if (service == null) {
-      if (settleUnrecoverable) {
+      // No service yet (its credentials may still be loading): a reply
+      // waiting for its saved run keeps waiting, so a later one can ask.
+      if (settleUnrecoverable && !awaiting) {
         _settleColdHermesCheckpoint(
           owner,
           checkpoint,
