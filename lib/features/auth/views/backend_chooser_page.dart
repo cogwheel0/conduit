@@ -217,13 +217,20 @@ class _WelcomeHero extends StatelessWidget {
       padding: const EdgeInsets.only(top: Spacing.md, bottom: Spacing.xl),
       child: Column(
         children: [
-          Image.asset(
-            'assets/icons/icon.png',
-            key: const ValueKey<String>('welcome-app-icon'),
-            width: _heroIconSize,
-            height: _heroIconSize,
-            filterQuality: FilterQuality.medium,
-            excludeFromSemantics: true,
+          // The full-bleed icon clipped to the home screen's continuous
+          // corners, so the mark matches the icon people tapped to get here.
+          ClipRSuperellipse(
+            borderRadius: BorderRadius.circular(
+              _heroIconSize * _homeScreenIconCornerRatio,
+            ),
+            child: Image.asset(
+              'assets/icons/app_icon_square.png',
+              key: const ValueKey<String>('welcome-app-icon'),
+              width: _heroIconSize,
+              height: _heroIconSize,
+              filterQuality: FilterQuality.medium,
+              excludeFromSemantics: true,
+            ),
           ),
           const SizedBox(height: Spacing.md),
           Semantics(
@@ -251,6 +258,9 @@ class _WelcomeHero extends StatelessWidget {
 }
 
 const double _heroIconSize = 64;
+
+/// Corner radius of a home screen icon as a share of its side.
+const double _homeScreenIconCornerRatio = 0.2237;
 
 @visibleForTesting
 bool debugShowAllAppleBackends = kDebugMode;
