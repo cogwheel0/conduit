@@ -429,25 +429,36 @@ void main() {
       // The long header wraps instead of stretching its column.
       final header = paragraphStartingWith(tester, 'Days to harvest');
       expect(header.size.height, greaterThan(style.tableHeader.fontSize! * 2));
-      // Short heads sit on the same last line as the wrapped one.
+      // Short heads start on the wrapped one's first line, as body cells do.
       expect(
-        paragraphRect(tester, 'Crop').bottom,
-        closeTo(globalRect(header).bottom, 0.5),
+        paragraphRect(tester, 'Crop').top,
+        closeTo(globalRect(header).top, 0.5),
+      );
+      expect(
+        paragraphRect(tester, 'Radish').top,
+        closeTo(paragraphRect(tester, 'Full sun').top, 0.5),
       );
 
-      // The border is drawn over the scrolling content, outside the fade.
-      expect(
-        find.ancestor(
-          of: find.byType(HorizontalOverflowFade),
-          matching: find.byWidgetPredicate(
-            (widget) =>
-                widget is DecoratedBox &&
-                widget.position == DecorationPosition.foreground &&
-                (widget.decoration as BoxDecoration).border != null,
-          ),
+      // The border is drawn over the scrolling content, outside the fade:
+      // a one-device-pixel line in the table's rule colour.
+      final border = find.ancestor(
+        of: find.byType(HorizontalOverflowFade),
+        matching: find.byWidgetPredicate(
+          (widget) =>
+              widget is DecoratedBox &&
+              widget.position == DecorationPosition.foreground &&
+              (widget.decoration as BoxDecoration).border != null,
         ),
-        findsOneWidget,
       );
+      expect(border, findsOneWidget);
+      final outline =
+          ((tester.widget<DecoratedBox>(border).decoration as BoxDecoration)
+                      .border!
+                  as Border)
+              .top;
+      final dpr = tester.view.devicePixelRatio;
+      expect(outline.width, closeTo(1 / dpr, 0.001));
+      expect(outline.color, style.tableBorderColor);
       final headerBand = Rect.fromLTWH(
         0,
         0,

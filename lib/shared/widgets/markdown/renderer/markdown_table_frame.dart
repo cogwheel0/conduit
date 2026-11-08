@@ -362,23 +362,20 @@ class _MarkdownTableFrameState extends State<MarkdownTableFrame> {
     final textScale =
         MediaQuery.textScalerOf(context).scale(fontSize) / fontSize;
 
+    // Every cell, header included, starts on its row's first line, so a
+    // short head reads level with the first line of one that wraps, as the
+    // body cells below it do.
     Widget cell(Widget child) =>
         Padding(padding: MarkdownTableFrame.cellPadding, child: child);
-    // Column heads sit on the rule above their data, so a short head next to
-    // one that wraps lines up with the head's last line, not its first.
-    Widget headerCell(Widget child) => TableCell(
-      verticalAlignment: TableCellVerticalAlignment.bottom,
-      child: cell(child),
-    );
+    // One device pixel, like the system's separators: the outline and the
+    // rules read as fine lines rather than as a box drawn around the data.
+    final hairline = 1 / MediaQuery.devicePixelRatioOf(context);
 
     return DecoratedBox(
       position: DecorationPosition.foreground,
       decoration: BoxDecoration(
         borderRadius: radius,
-        border: Border.all(
-          color: style.tableBorderColor,
-          width: BorderWidth.regular,
-        ),
+        border: Border.all(color: style.tableBorderColor, width: hairline),
       ),
       child: ClipRRect(
         borderRadius: radius,
@@ -397,9 +394,7 @@ class _MarkdownTableFrameState extends State<MarkdownTableFrame> {
               defaultVerticalAlignment: TableCellVerticalAlignment.top,
               children: [
                 TableRow(
-                  children: widget.header
-                      .map(headerCell)
-                      .toList(growable: false),
+                  children: widget.header.map(cell).toList(growable: false),
                 ),
                 for (final row in widget.rows)
                   TableRow(children: row.map(cell).toList(growable: false)),
@@ -409,7 +404,7 @@ class _MarkdownTableFrameState extends State<MarkdownTableFrame> {
               geometry: _geometry,
               headerColor: style.tableHeaderBackground,
               ruleColor: style.tableBorderColor,
-              ruleWidth: BorderWidth.thin,
+              ruleWidth: hairline,
               child: HorizontalOverflowFade(
                 // Text fades out inside the cell margin instead of running
                 // into the border mid-glyph.
@@ -714,13 +709,15 @@ class _RenderTableChrome extends RenderProxyBox {
       for (var row = 0; row < bottoms.length - 1; row++) {
         final y = bottoms[row];
         if (y >= size.height) break;
+        // A hairline centred on a row edge straddles two device pixels and
+        // smears to half its strength; snapped to whole rule widths from the
+        // frame's top, it lands on one pixel row wherever the frame's own
+        // outline does.
+        final top = _ruleWidth > 0
+            ? ((y - _ruleWidth / 2) / _ruleWidth).round() * _ruleWidth
+            : y;
         canvas.drawRect(
-          Rect.fromLTWH(
-            offset.dx,
-            offset.dy + y - _ruleWidth / 2,
-            size.width,
-            _ruleWidth,
-          ),
+          Rect.fromLTWH(offset.dx, offset.dy + top, size.width, _ruleWidth),
           rulePaint,
         );
       }

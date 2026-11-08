@@ -188,7 +188,11 @@ class ConduitMarkdownStyle {
       blockquoteBorderColor: theme.textPrimary.withValues(
         alpha: dark ? 0.28 : 0.18,
       ),
-      tableBorderColor: theme.dividerColor,
+      // A quiet but visible hairline (about #E3E3E3 on white): the theme's
+      // divider tone vanished against the page and the header band.
+      tableBorderColor: theme.textPrimary.withValues(
+        alpha: dark ? tableRuleAlphaDark : tableRuleAlphaLight,
+      ),
       tableHeaderBackground: theme.textPrimary.withValues(
         alpha: dark ? 0.08 : 0.04,
       ),
@@ -213,6 +217,11 @@ class ConduitMarkdownStyle {
   /// Table text size (subheadline) and its line height.
   static const double tableFontSize = 15;
   static const double tableLineHeight = 20;
+
+  /// Strength of a table's outline and row rules: the label colour at this
+  /// opacity, a little stronger in dark mode where hairlines read weaker.
+  static const double tableRuleAlphaLight = 0.11;
+  static const double tableRuleAlphaDark = 0.2;
 
   // ----- Properties -----
 

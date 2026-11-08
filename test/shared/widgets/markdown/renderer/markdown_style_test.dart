@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:checks/checks.dart';
 import 'package:conduit/shared/theme/app_theme.dart';
 import 'package:conduit/shared/theme/theme_extensions.dart';
@@ -108,5 +110,43 @@ void main() {
       expect(ios.codeSpan.fontSize, closeTo(17 * 0.88, 0.01));
       expect(ios.codeSpanTextColor, ios.textPrimary);
     });
+
+    for (final dark in [false, true]) {
+      testWidgets('table rules are quiet but visible on the page and the '
+          'header band (${dark ? 'dark' : 'light'})', (tester) async {
+        late ConduitMarkdownStyle style;
+        late Color page;
+        await tester.pumpWidget(
+          MaterialApp(
+            theme: dark
+                ? AppTheme.dark(TweakcnThemes.conduit)
+                : AppTheme.light(TweakcnThemes.conduit),
+            home: Builder(
+              builder: (context) {
+                style = ConduitMarkdownStyle.fromTheme(context);
+                page = Theme.of(context).scaffoldBackgroundColor;
+                return const SizedBox.shrink();
+              },
+            ),
+          ),
+        );
+
+        double contrast(Color a, Color b) {
+          final la = a.computeLuminance();
+          final lb = b.computeLuminance();
+          return (math.max(la, lb) + 0.05) / (math.min(la, lb) + 0.05);
+        }
+
+        final rule = Color.alphaBlend(style.tableBorderColor, page);
+        final band = Color.alphaBlend(style.tableHeaderBackground, page);
+        final ruleOnBand = Color.alphaBlend(style.tableBorderColor, band);
+        // Visible against the page (the old divider tone was ~1.1:1)...
+        expect(contrast(rule, page), greaterThan(1.2));
+        // ...and against the header band it outlines...
+        expect(contrast(ruleOnBand, band), greaterThan(1.15));
+        // ...but far quieter than text.
+        expect(contrast(rule, page), lessThan(1.8));
+      });
+    }
   });
 }
