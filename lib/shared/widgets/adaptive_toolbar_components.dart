@@ -1024,6 +1024,16 @@ const double _kClusterArrivalLead = -0.35;
 /// 100 ms after the change, well before the capsule settles.
 const double _kClusterDepartureSpeed = 2.5;
 
+/// How fast a leaving glyph fades while an arriving one takes over in
+/// another spot (the circle's glyph as the capsule's leading glyph comes
+/// in): slower than the reshape, so it still shows, at about half, when the
+/// growing edge reaches the newcomer, and the glass never shows empty.
+const double _kClusterHandOffDepartureSpeed = 0.6;
+
+/// How much of the arriving glyph must show before a leaving one beside it
+/// clears at its usual pace.
+const double _kClusterHandOffShown = 0.6;
+
 /// How much faster than the reshape an arriving glyph fades in.
 const double _kClusterArrivalSpeed = 1.3;
 
@@ -1085,13 +1095,14 @@ class _ClusterEntry {
 ///
 /// When the set of actions changes (a new chat becoming a real one), the
 /// glass morphs once: its width and each glyph's place ride one critically
-/// damped spring. The glyphs never cross-fade: those that leave fade out
-/// quickly where they were, and only once they are gone do the arriving ones
-/// fade in where they will rest, so no frame shows both (the circle's glyph
-/// and the capsule's sharing one spot). A glyph shows only inside the glass:
-/// it fades in once the growing edge has passed it, and out as a shrinking
-/// one reaches it. A change mid-way retargets from the current values. Reduce Motion
-/// keeps only the fades.
+/// damped spring. Two glyphs never show in one spot: one arriving where a
+/// leaving glyph sits (the circle's glyph and the capsule's trailing one)
+/// fades in only once that glyph is gone. One arriving elsewhere does not
+/// wait, and the leaving glyph then fades slowly, so the glass hands over
+/// from one to the other and never shows empty. A glyph shows only inside
+/// the glass: it fades in once the growing edge has passed it, and out as a
+/// shrinking one reaches it. A change mid-way retargets from the current
+/// values. Reduce Motion keeps only the fades.
 ///
 /// The capsule is anchored at its trailing edge, so it grows and shrinks
 /// toward the title.
@@ -1146,11 +1157,36 @@ class _ConduitToolbarActionClusterState
     return (count - index - 0.5) * slot;
   }
 
-  /// Whether a leaving glyph still shows, so arriving ones wait.
-  bool get _isClearing => _entries.values.any(
-    (entry) =>
-        entry.isLeaving && entry.presence.value > _kClusterGoneOpacity,
-  );
+  /// Whether [entry] would show in the spot of a leaving glyph that still
+  /// shows, so it waits for that glyph to be gone.
+  bool _waitsForClearing(_ClusterEntry entry) {
+    final apart =
+        (kConduitNativeSingleActionSymbolExtent + 8) *
+        conduitSystemControlScaleOf(context);
+    return _entries.values.any(
+      (other) =>
+          other.isLeaving &&
+          other.presence.value > _kClusterGoneOpacity &&
+          (other.centerFromTrailing.value - entry.centerFromTrailing.target)
+                  .abs() <
+              apart,
+    );
+  }
+
+  /// Whether an arriving glyph is taking over in a spot of its own but does
+  /// not show much yet, so the leaving ones fade slowly beside it.
+  bool get _handsOver {
+    final width = math.max(0.0, _width.value);
+    return _entries.values.any(
+      (entry) =>
+          !entry.isLeaving &&
+          entry.presence.target == 1 &&
+          !_waitsForClearing(entry) &&
+          entry.presence.value.clamp(0.0, 1.0) *
+                  _containment(entry.centerFromTrailing.value, width) <
+              _kClusterHandOffShown,
+    );
+  }
 
   void _sync({required bool animate}) {
     final items = widget.items;
@@ -1158,27 +1194,32 @@ class _ConduitToolbarActionClusterState
     for (final entry in _entries.values) {
       if (!ids.contains(entry.item.id)) entry.presence.target = 0;
     }
-    // While a leaving glyph fades (about 100 ms) the arriving ones' native
-    // controls are created, so they can start at once after it; with
-    // nothing to clear they start a little below zero instead, so they show
-    // only once those controls exist rather than popping in part-way.
-    final arrival = _isClearing ? 0.0 : _kClusterArrivalLead;
+    final arrived = <_ClusterEntry>[];
     for (var index = 0; index < items.length; index++) {
       final item = items[index];
       final center = _centerFromTrailing(index, items.length);
       final entry = _entries[item.id];
       if (entry == null) {
         // Arrives where it will rest; only its opacity moves.
-        _entries[item.id] = _ClusterEntry(
+        final arrival = _ClusterEntry(
           item,
           centerFromTrailing: center,
-          presence: animate ? arrival : 1,
+          presence: animate ? _kClusterArrivalLead : 1,
         )..presence.target = 1;
+        _entries[item.id] = arrival;
+        if (animate) arrived.add(arrival);
       } else {
         entry.item = item;
         entry.centerFromTrailing.target = center;
         entry.presence.target = 1;
       }
+    }
+    // An arriving glyph starts a little below zero, so it shows only once
+    // its native control exists rather than popping in part-way. One that
+    // waits for a leaving glyph in its spot starts at zero instead: the
+    // control is created while that glyph fades (about 100 ms).
+    for (final arrival in arrived) {
+      if (_waitsForClearing(arrival)) arrival.presence.value = 0;
     }
     _width.target = conduitToolbarClusterWidth(context, items.length);
 
@@ -1226,15 +1267,22 @@ class _ConduitToolbarActionClusterState
     final omega = ConduitToolbarActionCluster.springOmega;
     _width.step(seconds, omega);
     // Decided before this frame's fades, so an arriving glyph starts on the
-    // frame after the last leaving one is gone, never alongside it.
-    final clearing = _isClearing;
+    // frame after the last leaving one in its spot is gone, never alongside
+    // it.
+    final waiting = {
+      for (final entry in _entries.values)
+        if (!entry.isLeaving && _waitsForClearing(entry)) entry,
+    };
+    final departureSpeed = _handsOver
+        ? _kClusterHandOffDepartureSpeed
+        : _kClusterDepartureSpeed;
     for (final entry in _entries.values) {
       entry.centerFromTrailing.step(seconds, omega);
       if (entry.isLeaving) {
-        entry.presence.step(seconds, omega * _kClusterDepartureSpeed);
-      } else if (!clearing || entry.presence.value > 0) {
+        entry.presence.step(seconds, omega * departureSpeed);
+      } else if (!waiting.contains(entry) || entry.presence.value > 0) {
         // One that was already showing (a change reversed mid-way) carries
-        // on; a new one waits for the glyphs it replaces to be gone.
+        // on; a new one waits for the glyph in its spot to be gone.
         entry.presence.step(seconds, omega * _kClusterArrivalSpeed);
       }
     }
