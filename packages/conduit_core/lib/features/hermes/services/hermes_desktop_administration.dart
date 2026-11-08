@@ -503,6 +503,13 @@ final class _HermesDesktopAdministration {
         throw const HermesJobStopUnsupportedException();
       }
       rethrow;
+    } catch (_) {
+      // Withdrawn before it went out, the job will not run, however the
+      // cancel itself failed (a timeout, an expired sign-in).
+      if (withdrew) {
+        return const HermesJobStopResult(cancelled: true, beforeStart: true);
+      }
+      rethrow;
     }
   }
 

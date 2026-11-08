@@ -198,6 +198,30 @@ void main() {
     await tester.pump(const Duration(seconds: 1));
   }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
 
+  // In a Material dialog the field falls back to its own button, which
+  // dropped the name a field gives only through `semanticLabel`.
+  testWidgets('a field in a dialog keeps its accessible name', (tester) async {
+    await tester.pumpWidget(
+      host(
+        AlertDialog(
+          content: AdaptiveDropdownField<String>(
+            value: 'kite',
+            options: const [
+              AdaptiveDropdownOption(value: 'kite', label: 'Kite'),
+            ],
+            onChanged: (_) {},
+            decoration: const InputDecoration(),
+            semanticLabel: 'Request shape',
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byType(CNPopupMenuButton), findsNothing);
+    expect(find.bySemanticsLabel(RegExp('Request shape')), findsOneWidget);
+  }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
+
   testWidgets('choices with descriptions retain the existing presentation', (
     tester,
   ) async {

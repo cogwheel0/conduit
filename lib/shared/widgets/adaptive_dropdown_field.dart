@@ -174,6 +174,8 @@ class AdaptiveDropdownField<T> extends StatelessWidget {
           builder: (anchorContext) => Semantics(
             button: true,
             enabled: onChanged != null,
+            // The field's name, as the native control is given it.
+            label: semanticLabel,
             child: InkWell(
               borderRadius: BorderRadius.circular(AppBorderRadius.standard),
               onTap: onChanged == null

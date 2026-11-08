@@ -111,6 +111,9 @@ final class _QueueBridge implements HermesDashboardBridge {
 
   /// What a cancel answers; null: whether its job's trigger was sent.
   bool? cancels;
+
+  /// When set, a cancel fails with it instead.
+  Object? cancelError;
   Future<void> _tail = Future<void>.value();
 
   void release() => _gate.complete();
@@ -128,6 +131,9 @@ final class _QueueBridge implements HermesDashboardBridge {
         throw const HermesDashboardRequestWithdrawn();
       }
       sent.add('$method ${url.path}');
+      if (url.path.endsWith('/cancel') && cancelError != null) {
+        throw cancelError!;
+      }
       if (url.path.endsWith('/cancel')) {
         // Only a run Hermes was sent is live.
         final live =
@@ -443,6 +449,39 @@ void main() {
       'POST /api/cron/jobs/job-a/trigger',
       'POST /api/cron/jobs/job-b/cancel',
     ]);
+  });
+
+  // Withdrawn already, the job could not run, but a cancel that failed
+  // without an HTTP status reported the Stop as failed.
+  test('a withdrawn Run now reads stopped however its cancel fails',
+      () async {
+    final bridge = _QueueBridge()
+      ..cancelError = StateError('Hermes dashboard sign-in expired.');
+    final service = HermesDesktopApiService(
+      config: HermesConfig(
+        enabled: true,
+        baseUrl: 'https://hermes.example',
+        mode: HermesBackendMode.desktopGateway,
+        desktopAuthKind: HermesDesktopAuthKind.dashboardCookie,
+      ),
+      dashboardBridgeFactory: ({required root, required accessHeaders}) =>
+          bridge,
+    );
+    addTearDown(service.close);
+
+    final runA = service.runJob('job-a');
+    final runB = check(
+      service.runJob('job-b'),
+    ).throws<HermesDashboardRequestWithdrawn>();
+    await pumpEventQueue();
+    final stop = await service.stopJobRun('job-b');
+    await runB;
+    bridge.release();
+    await runA;
+
+    check(stop)
+      ..has((r) => r.cancelled, 'cancelled').isTrue()
+      ..has((r) => r.beforeStart, 'beforeStart').isTrue();
   });
 
   test('a Stop of a Run now already sent cancels it on Hermes', () async {
