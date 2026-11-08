@@ -23,6 +23,7 @@ import '../../shared/theme/theme_extensions.dart';
 import '../../shared/theme/tweakcn_themes.dart';
 
 import 'package:conduit_core/models/model.dart';
+import 'package:conduit_core/utils/model_display_name.dart';
 import 'package:conduit_core/models/tool.dart';
 
 import '../network/image_header_utils.dart';
@@ -438,11 +439,15 @@ class NativeSheetHydrationService {
           // A system symbol is UIKit's to draw, so hand the native sheet the
           // symbol name instead of an image reference it cannot fetch.
           final symbolName = nativeSymbolNameFromUrl(avatarUrl);
+          // Friendly names, with the full id underneath whenever the name
+          // was derived from it.
+          final name = displayNameForModel(model);
+          final subtitle = modelPickerSubtitle(model);
           if (symbolName != null) {
             return NativeSheetModelOption(
               id: model.id,
-              name: model.name,
-              subtitle: model.description,
+              name: name,
+              subtitle: subtitle,
               sfSymbol: symbolName,
               tags: model.modelTags,
             );
@@ -451,8 +456,8 @@ class NativeSheetHydrationService {
           if (logoId != null) {
             return NativeSheetModelOption(
               id: model.id,
-              name: model.name,
-              subtitle: model.description,
+              name: name,
+              subtitle: subtitle,
               avatarBytes: logoBytes[logoId],
               tags: model.modelTags,
             );
@@ -463,8 +468,8 @@ class NativeSheetHydrationService {
                     const <String, String>{};
           return NativeSheetModelOption(
             id: model.id,
-            name: model.name,
-            subtitle: model.description,
+            name: name,
+            subtitle: subtitle,
             avatarUrl: avatarUrl,
             avatarHeaders: avatarHeaders,
             tags: model.modelTags,
