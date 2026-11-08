@@ -161,6 +161,11 @@ final class PreferenceKeys {
   /// Read synchronously by the router for boot-deterministic routing.
   static const String preferredBackend = 'preferred_backend_v1';
 
+  /// Set while Open WebUI is parked: its accounts and their sessions kept,
+  /// none active, because another account backend owns the Chats tab. No
+  /// account is then active by storage's single-account fallback either.
+  static const String openWebUiParked = 'openwebui_parked_v1';
+
   /// Non-secret boot hint only. Direct profile contents and credentials live
   /// exclusively in SecureCredentialStorage.
   static const String directConnectionsConfigured =

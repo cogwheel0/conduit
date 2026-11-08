@@ -182,6 +182,7 @@ Future<PreferredBackend> _signOutOfLastAccount(
   Future<List<DirectConnectionProfile>> Function() direct, {
   _LastAccountStorage? storage,
   bool hermesUsable = false,
+  PreferredBackend? preferred,
 }) async {
   final accountStorage = storage ?? _LastAccountStorage();
   final container = ProviderContainer(
@@ -205,6 +206,9 @@ Future<PreferredBackend> _signOutOfLastAccount(
   );
   addTearDown(container.dispose);
 
+  if (preferred != null) {
+    await container.read(preferredBackendProvider.notifier).set(preferred);
+  }
   await container.read(openWebUiAccountsControllerProvider).signOut('a');
   return container.read(preferredBackendProvider);
 }
@@ -599,6 +603,21 @@ void main() {
       check(
         await _signOutOfLastAccount(() async => [disabled], hermesUsable: true),
       ).equals(PreferredBackend.hermes);
+    });
+
+    test('with LibreChat in use, Open WebUI was parked, not left', () async {
+      final profile = DirectConnectionProfile(
+        id: 'profile',
+        name: 'Provider',
+        adapterKey: kOpenAiCompatibleAdapterKey,
+        baseUrl: 'https://provider.example/v1',
+      );
+      check(
+        await _signOutOfLastAccount(
+          () async => [profile],
+          preferred: PreferredBackend.libreChat,
+        ),
+      ).equals(PreferredBackend.libreChat);
     });
 
     test('Direct profiles that fail to load count as no Direct', () async {
