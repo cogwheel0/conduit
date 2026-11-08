@@ -3398,6 +3398,7 @@
   "hermesTurnSendNext": "发送下一条",
   "hermesTurnControlsUnsupported": "请升级 Hermes 以启用安全的轮次控制。",
   "sidebarHermesTab": "Hermes",
+  "sidebarBackendSwitcher": "后端",
   "markdownShowMoreLines": "再显示 {count} 行",
   "@markdownShowMoreLines": {"placeholders":{"count":{"type":"int"}}},
   "markdownShowLess": "收起",

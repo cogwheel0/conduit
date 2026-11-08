@@ -6923,6 +6923,7 @@
   "hermesTurnSendNext": "Wyślij następne",
   "hermesTurnControlsUnsupported": "Zaktualizuj Hermes, aby włączyć bezpieczne sterowanie turą.",
   "sidebarHermesTab": "Hermes",
+  "sidebarBackendSwitcher": "Backend",
   "@sidebarHermesTab": {
     "description": "Compact label for the Hermes sidebar tab."
   },

@@ -5015,6 +5015,7 @@
   "hermesTurnSendNext": "次を送信",
   "hermesTurnControlsUnsupported": "安全なターン制御を有効にするには Hermes をアップグレードしてください。",
   "sidebarHermesTab": "Hermes",
+  "sidebarBackendSwitcher": "バックエンド",
   "markdownShowMoreLines": "あと{count}行を表示",
   "@markdownShowMoreLines": {"placeholders":{"count":{"type":"int"}}},
   "markdownShowLess": "表示を減らす",
