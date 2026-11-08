@@ -4383,5 +4383,5 @@
   "copied": "Copié",
   "composerAddAttachment": "Ajouter une pièce jointe",
   "composerShowKeyboard": "Afficher le clavier",
-  "composerAttachUploads": "Importés"
+  "composerAttachServerFiles": "Fichiers du serveur"
 }

@@ -218,25 +218,26 @@ List<ComposerOverflowItem> buildComposerOverflowAttachmentItems({
 }) {
   return <ComposerOverflowItem>[
     // "Files" opens the system file picker, named and drawn like the Files
-    // app it shows; "Uploads" lists files already on the server.
+    // app it shows; "Server Files" lists files already on the server. The
+    // tiles share one glyph family, all filled, so no one tile looks heavier.
     ComposerOverflowItem(
       id: ComposerOverflowActionIds.file,
       kind: ComposerOverflowItemKind.attachment,
       section: ComposerOverflowSection.attachments,
       label: l10n.files,
-      cupertinoIcon: CupertinoIcons.folder,
-      materialIcon: Icons.attach_file,
-      sfSymbol: 'folder',
+      cupertinoIcon: CupertinoIcons.folder_fill,
+      materialIcon: Icons.folder,
+      sfSymbol: 'folder.fill',
       enabled: attachmentAvailability.file,
     ),
     ComposerOverflowItem(
       id: ComposerOverflowActionIds.serverFile,
       kind: ComposerOverflowItemKind.attachment,
       section: ComposerOverflowSection.attachments,
-      label: l10n.composerAttachUploads,
-      cupertinoIcon: CupertinoIcons.arrow_up_doc,
-      materialIcon: Icons.cloud_upload_outlined,
-      sfSymbol: 'arrow.up.doc',
+      label: l10n.composerAttachServerFiles,
+      cupertinoIcon: CupertinoIcons.tray_full_fill,
+      materialIcon: Icons.inventory_2,
+      sfSymbol: 'tray.full.fill',
       enabled: attachmentAvailability.serverFile,
     ),
     ComposerOverflowItem(
@@ -244,9 +245,9 @@ List<ComposerOverflowItem> buildComposerOverflowAttachmentItems({
       kind: ComposerOverflowItemKind.attachment,
       section: ComposerOverflowSection.attachments,
       label: l10n.photo,
-      cupertinoIcon: CupertinoIcons.photo,
+      cupertinoIcon: CupertinoIcons.photo_fill,
       materialIcon: Icons.image,
-      sfSymbol: 'photo',
+      sfSymbol: 'photo.fill',
       enabled: attachmentAvailability.photo,
     ),
     ComposerOverflowItem(
@@ -254,9 +255,9 @@ List<ComposerOverflowItem> buildComposerOverflowAttachmentItems({
       kind: ComposerOverflowItemKind.attachment,
       section: ComposerOverflowSection.attachments,
       label: l10n.camera,
-      cupertinoIcon: CupertinoIcons.camera,
+      cupertinoIcon: CupertinoIcons.camera_fill,
       materialIcon: Icons.camera_alt,
-      sfSymbol: 'camera',
+      sfSymbol: 'camera.fill',
       enabled: attachmentAvailability.camera,
     ),
     ComposerOverflowItem(
@@ -266,7 +267,8 @@ List<ComposerOverflowItem> buildComposerOverflowAttachmentItems({
       label: l10n.webPage,
       cupertinoIcon: CupertinoIcons.globe,
       materialIcon: Icons.public,
-      sfSymbol: 'globe',
+      // Cupertino icons have no filled globe; the native panel draws this one.
+      sfSymbol: 'globe.americas.fill',
       enabled: attachmentAvailability.web,
     ),
     if (attachmentAvailability.mcpContent)
@@ -275,9 +277,9 @@ List<ComposerOverflowItem> buildComposerOverflowAttachmentItems({
         kind: ComposerOverflowItemKind.attachment,
         section: ComposerOverflowSection.attachments,
         label: l10n.directMcpContentAction,
-        cupertinoIcon: CupertinoIcons.text_quote,
-        materialIcon: Icons.text_snippet_outlined,
-        sfSymbol: 'text.quote',
+        cupertinoIcon: CupertinoIcons.quote_bubble_fill,
+        materialIcon: Icons.text_snippet,
+        sfSymbol: 'quote.bubble.fill',
       ),
   ];
 }

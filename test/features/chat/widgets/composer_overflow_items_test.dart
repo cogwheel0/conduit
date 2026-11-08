@@ -6,8 +6,10 @@ import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart
 import 'package:conduit_core/features/chat/providers/chat_providers.dart';
 import 'package:conduit/features/chat/services/ios_keyboard_attachment_bridge.dart';
 import 'package:conduit/features/chat/widgets/composer_overflow_items.dart';
+import 'package:conduit/features/chat/widgets/composer_overflow_menu.dart';
 import 'package:conduit/features/chat/widgets/modern_chat_input.dart';
 import 'package:conduit/platform/conduit_platform_apis.g.dart';
+import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:conduit_core/features/hermes/models/hermes_model.dart';
 import 'package:conduit_core/features/integrations/providers/personal_connections_providers.dart';
 import 'package:conduit_core/features/terminal/models/terminal_models.dart';
@@ -513,8 +515,18 @@ void main() {
           await tester.pumpAndSettle();
           expect(container.read(codeInterpreterEnabledProvider), isTrue);
 
-          // The panel's check mark and the composer's own indicator both show it.
-          expect(find.byIcon(Icons.check_rounded), findsOneWidget);
+          // The panel's switch and the composer's own indicator both show it.
+          expect(
+            tester
+                .widget<AdaptiveSwitch>(
+                  find.descendant(
+                    of: find.widgetWithText(ToggleTile, 'Code interpreter'),
+                    matching: find.byType(AdaptiveSwitch),
+                  ),
+                )
+                .value,
+            isTrue,
+          );
           expect(find.byIcon(Icons.code), findsWidgets);
         },
       );
@@ -540,7 +552,8 @@ void main() {
         final container = await pump(tester, block: null);
         container.read(codeInterpreterEnabledProvider.notifier).set(true);
         // The account loses the interpreter after it was chosen.
-        container.read(_block.notifier).block = CodeInterpreterBlock.noPermission;
+        container.read(_block.notifier).block =
+            CodeInterpreterBlock.noPermission;
         await tester.pump();
 
         final pill = find.byKey(
@@ -600,18 +613,19 @@ void main() {
         expect(container.read(codeInterpreterEnabledProvider), isFalse);
       });
 
-      testWidgets('a browser-engine server is explained only with Advanced on', (
-        tester,
-      ) async {
-        await pump(
-          tester,
-          block: CodeInterpreterBlock.unsupportedEngine,
-          advanced: false,
-        );
-        await openPanel(tester);
+      testWidgets(
+        'a browser-engine server is explained only with Advanced on',
+        (tester) async {
+          await pump(
+            tester,
+            block: CodeInterpreterBlock.unsupportedEngine,
+            advanced: false,
+          );
+          await openPanel(tester);
 
-        expect(find.text('Code interpreter'), findsNothing);
-      });
+          expect(find.text('Code interpreter'), findsNothing);
+        },
+      );
 
       testWidgets('Hermes never shows it', (tester) async {
         final container = await pump(
@@ -773,14 +787,13 @@ void main() {
 
     test('is an action row only when the command is available', () {
       expect(
-        items(
-          available: false,
-        ).any((item) => item.id == ComposerOverflowActionIds.compareModels),
+        items(available: false)
+            .any((item) => item.id == ComposerOverflowActionIds.compareModels),
         isFalse,
       );
-      final item = items(
-        available: true,
-      ).singleWhere((item) => item.id == ComposerOverflowActionIds.compareModels);
+      final item = items(available: true).singleWhere(
+        (item) => item.id == ComposerOverflowActionIds.compareModels,
+      );
       expect(item.kind, ComposerOverflowItemKind.action);
       expect(item.section, ComposerOverflowSection.features);
       expect(item.selected, isFalse);
@@ -788,9 +801,9 @@ void main() {
     });
 
     test('reaches the native iOS panel under the id the composer handles', () {
-      final action = nativeActions(
-        available: true,
-      ).singleWhere((action) => action.id == ComposerOverflowActionIds.compareModels);
+      final action = nativeActions(available: true).singleWhere(
+        (action) => action.id == ComposerOverflowActionIds.compareModels,
+      );
       expect(action.section, 'features');
       expect(action.selected, isFalse);
       expect(action.label, l10n.chatCompareModelsAction);

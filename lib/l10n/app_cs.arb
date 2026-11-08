@@ -6306,5 +6306,5 @@
   "copied": "Zkopírováno",
   "composerAddAttachment": "Přidat přílohu",
   "composerShowKeyboard": "Zobrazit klávesnici",
-  "composerAttachUploads": "Nahrané"
+  "composerAttachServerFiles": "Soubory na serveru"
 }

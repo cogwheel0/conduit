@@ -4383,5 +4383,5 @@
   "copied": "Copiato",
   "composerAddAttachment": "Aggiungi allegato",
   "composerShowKeyboard": "Mostra tastiera",
-  "composerAttachUploads": "Caricati"
+  "composerAttachServerFiles": "File sul server"
 }

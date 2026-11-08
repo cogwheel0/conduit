@@ -101,7 +101,7 @@ class _ServerFilePickerSheetState extends ConsumerState<ServerFilePickerSheet> {
                   alignment: Alignment.centerLeft,
                   child: Text(
                     // Named like the attach tile that opens it.
-                    l10n.composerAttachUploads,
+                    l10n.composerAttachServerFiles,
                     style: AppTypography.bodyLargeStyle.copyWith(
                       color: theme.textPrimary,
                       fontWeight: FontWeight.w700,

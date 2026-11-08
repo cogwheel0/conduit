@@ -4155,5 +4155,5 @@
   "copied": "복사됨",
   "composerAddAttachment": "첨부 파일 추가",
   "composerShowKeyboard": "키보드 보기",
-  "composerAttachUploads": "업로드한 파일"
+  "composerAttachServerFiles": "서버 파일"
 }

@@ -4383,5 +4383,5 @@
   "copied": "已複製",
   "composerAddAttachment": "加入附件",
   "composerShowKeyboard": "顯示鍵盤",
-  "composerAttachUploads": "已上傳"
+  "composerAttachServerFiles": "伺服器檔案"
 }

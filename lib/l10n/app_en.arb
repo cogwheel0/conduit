@@ -9188,8 +9188,8 @@
   "@composerShowKeyboard": {
     "description": "Accessibility label and tooltip of the composer button that closes the attachment panel and brings the keyboard back."
   },
-  "composerAttachUploads": "Uploads",
-  "@composerAttachUploads": {
-    "description": "Attachment panel tile and sheet title for files already uploaded to the server, as opposed to \"Files\", which picks a file from the device. Keep it to one short word if possible."
+  "composerAttachServerFiles": "Server Files",
+  "@composerAttachServerFiles": {
+    "description": "Attachment panel tile, and the title of the sheet it opens, for files already stored on the server, as opposed to \"Files\", which picks a file from the device. Keep it short; it sits under an icon."
   }
 }

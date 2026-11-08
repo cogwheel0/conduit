@@ -4383,5 +4383,5 @@
   "copied": "已复制",
   "composerAddAttachment": "添加附件",
   "composerShowKeyboard": "显示键盘",
-  "composerAttachUploads": "已上传"
+  "composerAttachServerFiles": "服务器文件"
 }

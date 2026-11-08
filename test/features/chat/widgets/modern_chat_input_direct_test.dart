@@ -709,7 +709,7 @@ void main() {
       expect(find.text('Files'), findsOneWidget);
       expect(find.text('Photo'), findsOneWidget);
       expect(find.text('Camera'), findsOneWidget);
-      expect(find.text('Uploads'), findsNothing);
+      expect(find.text('Server Files'), findsNothing);
       expect(find.text('Web Page'), findsNothing);
       await tester.pumpWidget(const SizedBox.shrink());
       await tester.pump(const Duration(milliseconds: 1));
@@ -830,7 +830,13 @@ void main() {
     // Every tile fits the 320 pt width at large text: none is cut off.
     final grid = find.byKey(const ValueKey('composer-attachment-action-grid'));
     expect(grid, findsOneWidget);
-    for (final label in ['Files', 'Uploads', 'Photo', 'Camera', 'Web Page']) {
+    for (final label in [
+      'Files',
+      'Server Files',
+      'Photo',
+      'Camera',
+      'Web Page',
+    ]) {
       final tile = find.descendant(of: grid, matching: find.text(label));
       expect(tile, findsOneWidget, reason: label);
       expect(tester.getRect(tile).right, lessThanOrEqualTo(320), reason: label);
@@ -976,8 +982,16 @@ void main() {
       expect(find.text('Photo'), findsNothing);
       expect(find.text('Camera'), findsNothing);
       expect(find.text('Web Search'), findsOneWidget);
-      // Toggle rows mark the enabled state with a trailing checkmark.
-      expect(find.byIcon(Icons.check_rounded), findsNothing);
+      // Toggle rows show their state with a trailing switch.
+      bool webSearchSwitchOn() => tester
+          .widget<AdaptiveSwitch>(
+            find.descendant(
+              of: find.widgetWithText(ToggleTile, 'Web Search'),
+              matching: find.byType(AdaptiveSwitch),
+            ),
+          )
+          .value;
+      expect(webSearchSwitchOn(), isFalse);
       expect(
         tester.widget<TextField>(find.byType(TextField)).focusNode?.hasFocus,
         isTrue,
@@ -985,7 +999,7 @@ void main() {
 
       await tester.tap(find.text('Web Search'));
       await tester.pump();
-      expect(find.byIcon(Icons.check_rounded), findsOneWidget);
+      expect(webSearchSwitchOn(), isTrue);
 
       await tester.tap(find.byIcon(Icons.close));
       await tester.pumpAndSettle();
