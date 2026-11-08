@@ -4,6 +4,7 @@ import 'package:conduit_core/utils/model_icon_utils.dart';
 import 'package:conduit_core/features/direct_connections/models/direct_connection_profile.dart';
 import 'package:conduit_core/features/direct_connections/models/direct_remote_model.dart';
 import 'package:conduit_core/features/direct_connections/services/direct_model_registry.dart';
+import 'package:conduit_core/features/direct_connections/services/model_logo_catalog.dart';
 import 'package:test/test.dart';
 
 final _appleModels = <DirectRemoteModel>[
@@ -164,6 +165,60 @@ void main() {
           .equals('https://cdn.invalid/a.png');
       check(resolveModelIconUrl(null, 'a.png')).equals('/a.png');
       check(resolveModelIconUrl(null, '  ')).isNull();
+    });
+
+    group('an Open WebUI model nobody customized', () {
+      setUp(() {
+        installedModelLogoCatalog = ModelLogoCatalog(
+          logos: const {'openai': 'OpenAI', 'mistral': 'Mistral'},
+          families: const [('gpt-', 'openai')],
+        );
+      });
+      tearDown(() => installedModelLogoCatalog = null);
+
+      test('shows its maker\'s bundled logo', () {
+        check(
+          resolveModelIconUrlForModel(
+            null,
+            const Model(id: 'openai/gpt-5-mini', name: 'openai/gpt-5-mini'),
+          ),
+        ).equals('${kModelLogoUrlScheme}openai');
+        check(
+          resolveModelIconUrlForModel(
+            null,
+            const Model(id: 'gpt-5-mini', name: 'gpt-5-mini'),
+          ),
+        ).equals('${kModelLogoUrlScheme}openai');
+      });
+
+      test('keeps the server avatar once an admin may have set one', () {
+        for (final metadata in <Map<String, dynamic>>[
+          {'info': <String, dynamic>{}},
+          {'meta': <String, dynamic>{}},
+          {'pipe': <String, dynamic>{}},
+          {'profile_image_url': '/static/custom.png'},
+        ]) {
+          check(
+            resolveModelIconUrlForModel(
+              null,
+              Model(
+                id: 'openai/gpt-5-mini',
+                name: 'Custom',
+                metadata: metadata,
+              ),
+            ),
+          ).isNull();
+        }
+      });
+
+      test('an unknown maker keeps the server avatar', () {
+        check(
+          resolveModelIconUrlForModel(
+            null,
+            const Model(id: 'acme/house-model', name: 'acme/house-model'),
+          ),
+        ).isNull();
+      });
     });
 
     test('nativeSymbolNameFromUrl reads only the symbol scheme', () {

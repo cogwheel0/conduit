@@ -198,8 +198,30 @@ String? resolveModelIconUrlForModel(ApiService? api, Model? model) {
         trimmed.startsWith('https://')) {
       return trimmed;
     }
+  } else if (_uncustomizedModelLogoUrl(model) case final logoUrl?) {
+    return logoUrl;
   }
 
   // Use the new dedicated endpoint for model avatars
   return buildModelAvatarUrl(api, model.id);
+}
+
+/// The maker's bundled models.dev logo for an Open WebUI model nobody has
+/// customized, or `null`.
+///
+/// Open WebUI serves its own favicon for every model without a workspace
+/// entry, which tells one model from another not at all. A model with a
+/// workspace entry (`info`/`meta`), a pipe, or any profile image keeps the
+/// server's avatar, since an admin may have chosen it.
+String? _uncustomizedModelLogoUrl(Model model) {
+  final catalog = installedModelLogoCatalog;
+  if (catalog == null) return null;
+  final metadata = model.metadata ?? const <String, dynamic>{};
+  if (metadata['info'] != null ||
+      metadata['meta'] != null ||
+      metadata['pipe'] != null) {
+    return null;
+  }
+  final logo = catalog.logoFor(remoteModelId: model.id);
+  return logo == null ? null : '$kModelLogoUrlScheme$logo';
 }
