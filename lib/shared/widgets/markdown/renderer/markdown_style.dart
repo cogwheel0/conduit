@@ -332,6 +332,11 @@ class ConduitMarkdownStyle {
 
   // ----- Helpers -----
 
+  /// The thin scroll indicator of a code block or table that scrolls
+  /// sideways: the label colour at about the strength of the system's.
+  Color get scrollIndicatorColor =>
+      textPrimary.withValues(alpha: isDark ? 0.42 : 0.34);
+
   /// Title style used by markdown-owned sheets and dialogs.
   TextStyle get sheetTitle =>
       h5.copyWith(color: textPrimary, fontWeight: FontWeight.w600);

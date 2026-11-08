@@ -18,3 +18,4 @@ export 'src/reasoning_parser.dart';
 export 'src/semantic_details.dart';
 export 'src/speech_text.dart';
 export 'src/tool_calls_parser.dart';
+export 'src/typesetting.dart';
