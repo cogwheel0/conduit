@@ -519,38 +519,39 @@ class _ReadAloudScrubberState extends State<_ReadAloudScrubber> {
   @override
   Widget build(BuildContext context) {
     final value = _shown = _held ?? widget.progress;
-    return LayoutBuilder(
-      builder: (context, constraints) => Listener(
-        // Raw pointer events reach this listener even though the native
-        // slider claims the gesture.
-        onPointerDown: (event) => _pressedAt = event.localPosition,
-        onPointerCancel: (_) => _pressedAt = null,
-        onPointerUp: (event) {
-          final pressedAt = _pressedAt;
-          _pressedAt = null;
-          if (pressedAt == null ||
-              (event.localPosition - pressedAt).distance > kTouchSlop ||
-              constraints.maxWidth <= 0) {
-            return;
-          }
-          final along = (event.localPosition.dx / constraints.maxWidth).clamp(
-            0.0,
-            1.0,
-          );
-          _scrub(
-            Directionality.of(context) == TextDirection.rtl ? 1 - along : along,
-          );
+    return Listener(
+      // Raw pointer events reach this listener even though the native
+      // slider claims the gesture. It takes them across the whole track:
+      // a Cupertino slider (before iOS 26, and the package's fallback)
+      // answers only near its thumb.
+      behavior: HitTestBehavior.translucent,
+      onPointerDown: (event) => _pressedAt = event.localPosition,
+      onPointerCancel: (_) => _pressedAt = null,
+      onPointerUp: (event) {
+        final pressedAt = _pressedAt;
+        _pressedAt = null;
+        // The slider's own width, which can be less than the room it is
+        // offered.
+        final width = context.size?.width ?? 0;
+        if (pressedAt == null ||
+            (event.localPosition - pressedAt).distance > kTouchSlop ||
+            width <= 0) {
+          return;
+        }
+        final along = (event.localPosition.dx / width).clamp(0.0, 1.0);
+        _scrub(
+          Directionality.of(context) == TextDirection.rtl ? 1 - along : along,
+        );
+      },
+      child: AdaptiveSlider(
+        value: value,
+        onChanged: (reported) {
+          if ((reported - _shown).abs() > 1e-6) _scrub(reported);
         },
-        child: AdaptiveSlider(
-          value: value,
-          onChanged: (reported) {
-            if ((reported - _shown).abs() > 1e-6) _scrub(reported);
-          },
-          thumbless: true,
-          activeColor: widget.color,
-          semanticLabel: widget.label,
-          semanticValue: '${(value * 100).round()}%',
-        ),
+        thumbless: true,
+        activeColor: widget.color,
+        semanticLabel: widget.label,
+        semanticValue: '${(value * 100).round()}%',
       ),
     );
   }
