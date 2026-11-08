@@ -37,6 +37,55 @@ void main() {
       );
     }
 
+    test('page and watch traversal stop after the requested window', () async {
+      await db.close();
+      var visitedParents = 0;
+      db = AppDatabase(
+        NativeDatabase.memory(
+          setup: (connection) {
+            // Count cycle checks without a machine-dependent wall-clock budget.
+            connection.createFunction(
+              functionName: 'instr',
+              function: (arguments) {
+                visitedParents++;
+                return (arguments[0] as String).indexOf(
+                      arguments[1] as String,
+                    ) +
+                    1;
+              },
+            );
+          },
+        ),
+      );
+      await seedChain(chatId: 'bounded-window', count: 1500);
+
+      for (final limit in [1, 50, 500]) {
+        visitedParents = 0;
+        final page = await db.messagesDao.getActiveBranchPage(
+          'bounded-window',
+          limit: limit,
+        );
+        check(page.primaryRows.length).equals(limit);
+        check(page.primaryRows.last.id).equals('m1499');
+        check(page.hasOlder).isTrue();
+        check(visitedParents).isGreaterThan(0);
+        check(visitedParents).isLessOrEqual(limit);
+
+        visitedParents = 0;
+        final watched = await db.messagesDao
+            .watchActiveBranchWindow('bounded-window', limit: limit)
+            .first;
+        check(watched.primaryRows.map((row) => row.id).toList())
+            .deepEquals(page.primaryRows.map((row) => row.id).toList());
+        check(visitedParents).isLessOrEqual(limit);
+      }
+      final complete = await db.messagesDao.getCompleteActiveBranchRows(
+        'bounded-window',
+      );
+      check(complete.length).equals(1500);
+      check(complete.first.id).equals('m0');
+    });
+
     test('loads chronological pages without gaps or duplicates', () async {
       await seedChain(chatId: 'window-120', count: 120);
 
@@ -105,6 +154,31 @@ void main() {
         check(page.rows.map((row) => row.id)).contains('m58-alt');
       },
     );
+
+    test('root siblings keep their role and chat ownership', () async {
+      for (final owner in ['root-window', 'other-window']) {
+        await seedChain(
+          chatId: owner,
+          count: 2,
+          extras: [
+            for (final role in ['user', 'assistant'])
+              MessageRowData(
+                id: '$owner-$role',
+                chatId: owner,
+                role: role,
+                content: 'Synthetic root alternative',
+                createdAt: 100,
+                orderIndex: 10,
+              ),
+          ],
+        );
+      }
+      final page = await db.messagesDao.getActiveBranchPage('root-window');
+      check(page.primaryRows.map((row) => row.id).toList())
+          .deepEquals(['m0', 'm1']);
+      check(page.rows.map((row) => row.id).toSet())
+          .deepEquals({'m0', 'm1', 'root-window-user'});
+    });
 
     test('pathological sibling groups are bounded and reported', () async {
       await seedChain(
