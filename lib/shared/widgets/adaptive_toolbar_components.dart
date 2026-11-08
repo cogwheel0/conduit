@@ -1896,8 +1896,11 @@ class ConduitAdaptiveAppBarModelSelector extends StatelessWidget {
 ///
 /// The change rides one critically damped spring, started from the current
 /// value and velocity, so a scroll that flips back mid-way reverses it
-/// without a jump. The outgoing line drifts up as it fades, the incoming one
-/// rises into place; Reduce Motion keeps only the cross-fade.
+/// without a jump. The model line never leaves: it shrinks into the
+/// subtitle's place as the capsule grows, and the title fades in above it
+/// only once the capsule can hold it (see [ConduitTitledPillMotion]), so no
+/// frame shows a clipped glyph, two lines over each other or an empty pill.
+/// Reduce Motion resizes the capsule and dissolves between the two states.
 class _ConduitTitledModelSelector extends StatefulWidget {
   const _ConduitTitledModelSelector({
     required this.label,
@@ -1931,7 +1934,127 @@ final SpringDescription _kConduitTitleSpring =
     SpringDescription.withDampingRatio(mass: 1, stiffness: 300, ratio: 1);
 
 const double _kConduitTitledPillInset = 14;
-const double _kConduitTitledPillDrift = 7;
+
+double _smoothstep(double from, double to, double x) {
+  if (x <= from) return 0;
+  if (x >= to) return 1;
+  final u = (x - from) / (to - from);
+  return u * u * (3 - 2 * u);
+}
+
+/// Where the titled pill's parts are at value `t` of its spring, from 0 (the
+/// model alone) to 1 (the title over the model); a pure function of `t`, so
+/// a change reversed mid-way retraces the same frames.
+///
+/// The capsule's width rides the spring. The title shows only once the
+/// capsule holds it with [roundedEndClearance] to spare at each end, at
+/// [minTitleScale] or more, and once the model line, dropping into the
+/// subtitle's place, has cleared the title's line ([linesClearAt]). It then
+/// fades and grows the last few percent to its size. Going back, the same
+/// rule fades it out before the capsule can cut into it.
+@visibleForTesting
+@immutable
+class ConduitTitledPillMotion {
+  const ConduitTitledPillMotion({
+    required this.modelWidth,
+    required this.titledWidth,
+    required this.titleWidth,
+    this.linesClearAt = 0.5,
+    this.reduceMotion = false,
+  });
+
+  /// The title is never drawn smaller than this; it grows to full size as
+  /// the capsule makes room.
+  static const double minTitleScale = 0.96;
+
+  /// Room kept between the title and each end of the capsule, past the
+  /// curve of its rounded ends at the title's line.
+  static const double roundedEndClearance = 10;
+
+  /// Width of the capsule with the model alone.
+  final double modelWidth;
+
+  /// Width of the capsule with the title over the model.
+  final double titledWidth;
+
+  /// Width of the title's text at full size.
+  final double titleWidth;
+
+  /// Spring value from which the dropping model line no longer reaches the
+  /// title's line.
+  final double linesClearAt;
+
+  /// Whether to dissolve between the two states instead of morphing.
+  final bool reduceMotion;
+
+  /// Under Reduce Motion the capsule resizes while the model fades out,
+  /// before the title and subtitle fade in.
+  static const double _reducedResizeEnd = 0.45;
+  static const double _reducedRevealStart = 0.55;
+
+  double _widthProgress(double t) => reduceMotion
+      ? _smoothstep(0, _reducedResizeEnd, t)
+      : t.clamp(0.0, 1.0).toDouble();
+
+  /// The capsule's width at [t].
+  double widthAt(double t) =>
+      lerpDouble(modelWidth, titledWidth, _widthProgress(t))!;
+
+  double get _fitInset => math.max(
+    0.0,
+    math.min(roundedEndClearance, (titledWidth - titleWidth) / 2),
+  );
+
+  /// The largest scale at which the title fits the capsule at [t].
+  double fitScaleAt(double t) =>
+      titleWidth <= 0 ? 1 : (widthAt(t) - 2 * _fitInset) / titleWidth;
+
+  /// The spring value at which the title starts to show.
+  double get revealStart {
+    if (reduceMotion) return _reducedRevealStart;
+    final growth = titledWidth - modelWidth;
+    final needed = minTitleScale * titleWidth + 2 * _fitInset;
+    final fitsFrom = growth <= 0
+        ? 0.0
+        : ((needed - modelWidth) / growth).clamp(0.0, 1.0).toDouble();
+    return math.max(0.5, math.max(fitsFrom, linesClearAt.clamp(0.0, 1.0)));
+  }
+
+  /// The spring value at which the title is fully shown.
+  double get revealEnd {
+    if (reduceMotion) return 1;
+    final start = revealStart;
+    return start + 0.75 * (1 - start);
+  }
+
+  /// The title's opacity at [t].
+  double titleOpacityAt(double t) {
+    final start = revealStart;
+    final end = revealEnd;
+    if (end <= start) return t >= end ? 1 : 0;
+    return _smoothstep(start, end, t);
+  }
+
+  /// The title's scale at [t]: as large as the capsule allows, up to full
+  /// size.
+  double titleScaleAt(double t) =>
+      reduceMotion ? 1 : fitScaleAt(t).clamp(minTitleScale, 1.0).toDouble();
+
+  /// How far the model line has turned into the subtitle at [t]; under
+  /// Reduce Motion it does not move, but dissolves (see [modelOpacityAt]).
+  double modelMorphAt(double t) => reduceMotion ? 0 : t.clamp(0.0, 1.0);
+
+  /// The centred model line's opacity at [t]. Without Reduce Motion it is
+  /// the subtitle itself and never fades.
+  double modelOpacityAt(double t) =>
+      reduceMotion ? 1 - _smoothstep(0, _reducedResizeEnd, t) : 1;
+
+  /// Under Reduce Motion, the subtitle's opacity at [t]; it fades in with
+  /// the title.
+  double subtitleOpacityAt(double t) =>
+      reduceMotion ? _smoothstep(_reducedRevealStart, 1, t) : 0;
+}
+
 const double _kConduitTitledPillTitleSize = 15;
 
 /// The smallest the title is set to fit a long name before it truncates.
@@ -2118,6 +2241,24 @@ class _ConduitTitledModelSelectorState
     return width;
   }
 
+  double _textHeight(
+    String text,
+    TextStyle style,
+    TextScaler scaler, {
+    TextHeightBehavior? textHeightBehavior,
+  }) {
+    final painter = TextPainter(
+      text: TextSpan(text: text, style: style),
+      maxLines: 1,
+      textScaler: scaler,
+      textHeightBehavior: textHeightBehavior,
+      textDirection: Directionality.of(context),
+    )..layout();
+    final height = painter.height;
+    painter.dispose();
+    return height;
+  }
+
   ({String text, double size, double width})? _fittedTitle;
   Object? _fittedTitleKey;
 
@@ -2256,13 +2397,21 @@ class _ConduitTitledModelSelectorState
                 _kConduitTitledPillInset * 2,
           );
 
-    Widget line(String text, TextStyle style, double chevronSize) => Row(
+    double chevronGapAt(double size) => size < 12 ? 3.0 : 6.0;
+    Widget line(
+      String text,
+      TextStyle style,
+      double chevronSize, {
+      TextScaler? textScaler,
+      double? chevronGap,
+    }) => Row(
       mainAxisSize: MainAxisSize.min,
       children: [
         Flexible(
           child: Text(
             text,
             style: style,
+            textScaler: textScaler,
             maxLines: 1,
             softWrap: false,
             overflow: TextOverflow.ellipsis,
@@ -2273,7 +2422,7 @@ class _ConduitTitledModelSelectorState
           ),
         ),
         if (showChevron) ...[
-          SizedBox(width: chevronSize < 12 ? 3 : 6),
+          SizedBox(width: chevronGap ?? chevronGapAt(chevronSize)),
           ConduitSystemAdaptiveIcon(
             chevronIcon,
             size: chevronSize,
@@ -2292,52 +2441,97 @@ class _ConduitTitledModelSelectorState
       return math.max(0.0, pillWidth - inset * 2);
     }
 
-    final modelContent = SizedBox(
-      width: contentWidth(
+    // Vertical places. The titled pill stacks the title over the subtitle,
+    // centred as one block; the model alone sits on the centre line.
+    const noLeading = TextHeightBehavior(
+      applyHeightToFirstAscent: false,
+      applyHeightToLastDescent: false,
+    );
+    final modelFontSize = scaler.scale(labelStyle.fontSize!);
+    final subtitleFontSize = titleScaler.scale(_kConduitTitledPillSubtitleSize);
+    final modelLineHeight = _textHeight(
+      widget.label,
+      labelStyle,
+      scaler,
+      textHeightBehavior: noLeading,
+    );
+    final subtitleLineHeight = _textHeight(
+      widget.label,
+      subtitleStyle,
+      titleScaler,
+      textHeightBehavior: noLeading,
+    );
+    final titleLineHeight = title.isEmpty
+        ? 0.0
+        : _textHeight(title, titleStyle, titleScaler);
+    final blockTop =
+        (controlExtent - (titleLineHeight + 1 + subtitleLineHeight)) / 2;
+    final centreY = controlExtent / 2;
+    final titleCentreY = blockTop + titleLineHeight / 2;
+    final subtitleCentreY =
+        blockTop + titleLineHeight + 1 + subtitleLineHeight / 2;
+
+    // The spring value from which the dropping model line's cap height is
+    // below the title line's descenders.
+    double linesClearAt() {
+      final titleBottom = blockTop + titleLineHeight;
+      const steps = 50;
+      for (var step = 0; step <= steps; step++) {
+        final t = step / steps;
+        final fontSize = lerpDouble(modelFontSize, subtitleFontSize, t)!;
+        final height = lerpDouble(modelLineHeight, subtitleLineHeight, t)!;
+        final centre = lerpDouble(centreY, subtitleCentreY, t)!;
+        // SF Pro's cap height sits about a quarter em below its ascent.
+        final capTop = centre - height / 2 + 0.22 * fontSize;
+        if (capTop >= titleBottom) return t;
+      }
+      return 1;
+    }
+
+    final motion = ConduitTitledPillMotion(
+      modelWidth: modelWidth,
+      titledWidth: titledWidth,
+      titleWidth: fittedTitle?.width ?? 0,
+      linesClearAt: title.isEmpty ? 0.5 : linesClearAt(),
+      reduceMotion: context.reduceMotion,
+    );
+
+    final titleContentWidth = contentWidth(
+      titledWidth,
+      showChevron ? _kConduitTitledPillSubtitleChevron + 3 : 0,
+    );
+    final stackWidth = math.max(
+      titleContentWidth,
+      contentWidth(
         modelWidth,
         showChevron ? kConduitModelSelectorChevronExtent + 6 : 0,
       ),
-      child: Center(
-        child: widget.isLoading
-            ? ConduitLoading.skeleton(
-                width: 80,
-                height: 14,
-                borderRadius: BorderRadius.circular(AppBorderRadius.sm),
-              )
-            : line(
-                widget.label,
-                labelStyle,
-                kConduitModelSelectorChevronExtent,
-              ),
-      ),
     );
-    final titledContent = title.isEmpty
+    final morphFrom = labelStyle.copyWith(fontSize: modelFontSize);
+    final morphTo = subtitleStyle.copyWith(fontSize: subtitleFontSize);
+
+    // A line of [child] centred on [centre], measured from the pill's top.
+    Widget placed(double centre, Widget child) => Positioned(
+      left: 0,
+      right: 0,
+      top: centre - controlExtent,
+      height: controlExtent * 2,
+      child: Center(child: child),
+    );
+
+    final titleText = title.isEmpty
         ? null
         : MediaQuery.withClampedTextScaling(
             maxScaleFactor: _kConduitTitledPillMaxTextScale,
             child: SizedBox(
-              width: contentWidth(
-                titledWidth,
-                showChevron ? _kConduitTitledPillSubtitleChevron + 3 : 0,
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    title,
-                    style: titleStyle,
-                    maxLines: 1,
-                    softWrap: false,
-                    overflow: TextOverflow.ellipsis,
-                    textAlign: TextAlign.center,
-                  ),
-                  const SizedBox(height: 1),
-                  line(
-                    widget.label,
-                    subtitleStyle,
-                    _kConduitTitledPillSubtitleChevron,
-                  ),
-                ],
+              width: titleContentWidth,
+              child: Text(
+                title,
+                style: titleStyle,
+                maxLines: 1,
+                softWrap: false,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.center,
               ),
             ),
           );
@@ -2347,47 +2541,129 @@ class _ConduitTitledModelSelectorState
     return AnimatedBuilder(
       animation: _progress,
       builder: (context, _) {
-        final t = _progress.value.clamp(0.0, 1.0);
-        final semanticLabel = _target == 1 && titledContent != null
+        final t = _progress.value.clamp(0.0, 1.0).toDouble();
+        final semanticLabel = _target == 1 && titleText != null
             ? '$rawTitle, ${widget.semanticsLabel}'
             : widget.semanticsLabel;
-        final drift = context.reduceMotion ? 0.0 : _kConduitTitledPillDrift;
-        final width = lerpDouble(modelWidth, titledWidth, t)!;
-        // One curve for both directions, a pure function of the spring's
-        // value, so a reversal mid-way never pops: each line holds its
-        // own half and they overlap only faintly around the middle, never
-        // smudging together nor leaving the pill empty for long.
-        double smoothstep(double from, double to, double x) {
-          final u = ((x - from) / (to - from)).clamp(0.0, 1.0);
-          return u * u * (3 - 2 * u);
+        final width = motion.widthAt(t);
+        final children = <Widget>[];
+
+        if (widget.isLoading) {
+          children.add(
+            placed(
+              centreY,
+              Opacity(
+                opacity: 1 - _smoothstep(0.15, 0.55, t),
+                child: ConduitLoading.skeleton(
+                  width: 80,
+                  height: 14,
+                  borderRadius: BorderRadius.circular(AppBorderRadius.sm),
+                ),
+              ),
+            ),
+          );
+        } else if (motion.reduceMotion) {
+          final modelOpacity = motion.modelOpacityAt(t);
+          if (modelOpacity > 0) {
+            children.add(
+              placed(
+                centreY,
+                Opacity(
+                  opacity: modelOpacity,
+                  child: SizedBox(
+                    width: contentWidth(
+                      width,
+                      showChevron ? kConduitModelSelectorChevronExtent + 6 : 0,
+                    ),
+                    child: Center(
+                      child: line(
+                        widget.label,
+                        labelStyle,
+                        kConduitModelSelectorChevronExtent,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            );
+          }
+          final subtitleOpacity = titleText == null
+              ? 0.0
+              : motion.subtitleOpacityAt(t);
+          if (subtitleOpacity > 0) {
+            children.add(
+              placed(
+                subtitleCentreY,
+                Opacity(
+                  opacity: subtitleOpacity,
+                  child: SizedBox(
+                    width: titleContentWidth,
+                    child: Center(
+                      child: line(
+                        widget.label,
+                        morphTo,
+                        _kConduitTitledPillSubtitleChevron,
+                        textScaler: TextScaler.noScaling,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            );
+          }
+        } else {
+          // One model line throughout: it shrinks into the subtitle's place
+          // as the capsule grows, so the pill is never empty.
+          final morph = titleText == null ? 0.0 : motion.modelMorphAt(t);
+          final style = TextStyle.lerp(morphFrom, morphTo, morph)!;
+          final chevron = lerpDouble(
+            kConduitModelSelectorChevronExtent,
+            _kConduitTitledPillSubtitleChevron,
+            morph,
+          )!;
+          children.add(
+            placed(
+              lerpDouble(centreY, subtitleCentreY, morph)!,
+              SizedBox(
+                width: contentWidth(width, showChevron ? chevron + 6 : 0),
+                child: Center(
+                  child: line(
+                    widget.label,
+                    style,
+                    chevron,
+                    textScaler: TextScaler.noScaling,
+                    chevronGap: lerpDouble(6, 3, morph),
+                  ),
+                ),
+              ),
+            ),
+          );
         }
 
-        final modelOpacity = 1 - smoothstep(0.15, 0.55, t);
-        final titleOpacity = smoothstep(0.45, 0.85, t);
+        final titleOpacity = titleText == null ? 0.0 : motion.titleOpacityAt(t);
+        if (titleText != null && titleOpacity > 0) {
+          children.add(
+            placed(
+              titleCentreY,
+              Opacity(
+                opacity: titleOpacity,
+                child: Transform.scale(
+                  scale: motion.titleScaleAt(t),
+                  child: titleText,
+                ),
+              ),
+            ),
+          );
+        }
+
         final content = ClipRect(
           child: OverflowBox(
             minWidth: 0,
-            maxWidth: math.max(modelWidth, titledWidth),
-            child: Stack(
-              alignment: Alignment.center,
-              children: [
-                if (modelOpacity > 0)
-                  Opacity(
-                    opacity: modelOpacity,
-                    child: Transform.translate(
-                      offset: Offset(0, -drift * t),
-                      child: modelContent,
-                    ),
-                  ),
-                if (titledContent != null && titleOpacity > 0)
-                  Opacity(
-                    opacity: titleOpacity,
-                    child: Transform.translate(
-                      offset: Offset(0, drift * (1 - t)),
-                      child: titledContent,
-                    ),
-                  ),
-              ],
+            maxWidth: math.max(width, stackWidth),
+            child: SizedBox(
+              width: math.max(width, stackWidth),
+              height: controlExtent,
+              child: Stack(clipBehavior: Clip.none, children: children),
             ),
           ),
         );
