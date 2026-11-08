@@ -4,6 +4,7 @@ import 'package:conduit/features/chat/widgets/follow_up_suggestions.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/shared/theme/app_theme.dart';
 import 'package:conduit/shared/theme/tweakcn_themes.dart';
+import 'package:flutter/rendering.dart' show RenderParagraph;
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -183,10 +184,8 @@ void main() {
     semantics.dispose();
   });
 
-  testWidgets('rows are at least 44 pt tall, smaller than the reply text, and '
-      'stop after two lines while the full prompt stays readable', (
-    tester,
-  ) async {
+  testWidgets('rows are at least 44 pt tall, smaller than the reply text, '
+      'and show the whole prompt a tap would send', (tester) async {
     const long =
         'Give me a 30-minute wind-down routine I can follow nightly, with '
         'step-by-step timings, what to skip on busy evenings, and how to '
@@ -209,21 +208,70 @@ void main() {
     expect(tester.getSize(shortRow).height, greaterThanOrEqualTo(44));
 
     final longText = tester.widget<Text>(find.text(long));
-    expect(longText.maxLines, 2);
-    expect(longText.overflow, TextOverflow.ellipsis);
+    // Never cut short: no line limit, no ellipsis.
+    expect(longText.maxLines, isNull);
+    expect(longText.overflow, isNot(TextOverflow.ellipsis));
     // Secondary to the 17 pt answer above it.
     expect(longText.style!.fontSize, lessThan(17));
     final lineHeight = longText.style!.fontSize! * (longText.style!.height!);
     expect(
       tester.getSize(find.text(long)).height,
-      lessThanOrEqualTo(lineHeight * 2 + 1),
+      greaterThan(lineHeight * 2 + 1),
     );
+    final paragraph = tester.renderObject<RenderParagraph>(find.text(long));
+    expect(paragraph.didExceedMaxLines, isFalse);
 
     // VoiceOver hears, and a tap sends, the whole suggestion.
     expect(find.bySemanticsLabel(long), findsOneWidget);
     await tester.tap(find.text(long));
     await tester.pump();
     expect(selected, long);
+  });
+
+  testWidgets('a suggestion is a button as wide as its words, led by a '
+      'follow-up arrow', (tester) async {
+    await tester.pumpWidget(
+      _buildHarness(
+        SizedBox(
+          width: 360,
+          child: FollowUpSuggestionBar(
+            suggestions: const ['Short'],
+            onSelected: (_) {},
+            isBusy: false,
+          ),
+        ),
+      ),
+    );
+
+    final row = find.byKey(const ValueKey<String>('follow-up-row:Short'));
+    // It hugs its text rather than spanning the column like a quote block.
+    expect(tester.getSize(row).width, lessThan(200));
+    expect(
+      tester.getTopLeft(row).dx,
+      tester.getTopLeft(find.byType(FollowUpSuggestionBar)).dx,
+    );
+    // A one-line suggestion is a capsule.
+    final decoration =
+        tester
+                .widget<AnimatedContainer>(
+                  find.byKey(
+                    const ValueKey<String>('follow-up-highlight:Short'),
+                  ),
+                )
+                .decoration!
+            as ShapeDecoration;
+    final shape = decoration.shape as RoundedSuperellipseBorder;
+    expect(
+      (shape.borderRadius as BorderRadius).topLeft.x,
+      tester.getSize(row).height / 2,
+    );
+    // The glyph leads the words.
+    final glyph = find.descendant(of: row, matching: find.byType(Icon));
+    expect(glyph, findsOneWidget);
+    expect(
+      tester.getCenter(glyph).dx,
+      lessThan(tester.getTopLeft(find.text('Short')).dx),
+    );
   });
 
   testWidgets('suggestions keep an even gap between them', (tester) async {
