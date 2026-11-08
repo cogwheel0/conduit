@@ -4551,6 +4551,7 @@
   "hermesClarifyProgress": "已完成 {answered}/{total}",
   "@hermesClarifyProgress": {"placeholders": {"answered": {"type": "int"}, "total": {"type": "int"}}},
   "hermesClarifySendFailed": "無法傳送你的回答。請再試一次。",
+  "hermesClarifyAlreadySettled": "此問題已在別處回答或已過期，因此你的回答未傳送。",
   "hermesClarifyAnswerOrSkip": "請回答或略過每個問題。",
   "hermesClarifyOtherAnswer": "或輸入你自己的回答",
   "hermesClarifySkip": "略過",

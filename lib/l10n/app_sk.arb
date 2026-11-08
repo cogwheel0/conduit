@@ -6474,6 +6474,7 @@
   "hermesClarifyProgress": "Vybavené {answered} z {total}",
   "@hermesClarifyProgress": {"placeholders": {"answered": {"type": "int"}, "total": {"type": "int"}}},
   "hermesClarifySendFailed": "Odpovede sa nepodarilo odoslať. Skúste to znova.",
+  "hermesClarifyAlreadySettled": "Na túto otázku už bolo odpovedané inde alebo jej platnosť vypršala, takže vaša odpoveď nebola odoslaná.",
   "hermesClarifyAnswerOrSkip": "Odpovedzte na každú otázku alebo ju preskočte.",
   "hermesClarifyOtherAnswer": "Alebo napíšte vlastnú odpoveď",
   "hermesClarifySkip": "Preskočiť",

@@ -20,9 +20,12 @@ import 'package:conduit_core/features/hermes/models/hermes_clarify_form.dart';
 import 'package:conduit_core/features/hermes/models/hermes_run_event.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 import 'package:conduit_core/features/hermes/services/hermes_api_service.dart';
+import 'package:conduit_core/features/hermes/services/hermes_backend_service.dart';
 import 'package:conduit_core/features/hermes/services/hermes_desktop_api_service.dart';
 import 'package:conduit_core/features/hermes/services/hermes_run_transport.dart';
 
+import '../../../shared/utils/ui_utils.dart';
+import '../../../l10n/app_localizations.dart';
 import 'hermes_approval_card.dart';
 import 'hermes_approval_cost_chip.dart';
 import 'hermes_clarify_form_card.dart';
@@ -428,6 +431,17 @@ class _HermesComposerPromptOverlayState
             default:
               return false;
           }
+        } on HermesDecisionAlreadySettled {
+          // Answered elsewhere or expired: the card closes, and says the
+          // answer was not sent.
+          if (mounted && owns()) {
+            _closeDecision(message.id, requestId);
+            UiUtils.showMessage(
+              context,
+              AppLocalizations.of(context)!.hermesClarifyAlreadySettled,
+            );
+          }
+          return false;
         } catch (_) {
           DebugLogger.warning(
             'clarify-answer-failed',
@@ -439,25 +453,28 @@ class _HermesComposerPromptOverlayState
             !owns()) {
           return false;
         }
-        ref.read(chatMessagesProvider.notifier).updateMessageById(
-          message.id,
-          (message) {
-            final metadata = Map<String, dynamic>.from(
-              message.metadata ?? const {},
-            );
-            final current = metadata[kHermesDecisionMeta];
-            if (current is Map && current['requestId'] == requestId) {
-              metadata[kHermesDecisionMeta] = {
-                ...current.cast<String, dynamic>(),
-                'state': 'resolved',
-              };
-            }
-            return message.copyWith(metadata: metadata);
-          },
-        );
+        _closeDecision(message.id, requestId);
         return true;
       },
     );
+  }
+
+  /// Marks the decision card [requestId] on message [messageId] resolved,
+  /// which closes it.
+  void _closeDecision(String messageId, String requestId) {
+    ref.read(chatMessagesProvider.notifier).updateMessageById(messageId, (
+      message,
+    ) {
+      final metadata = Map<String, dynamic>.from(message.metadata ?? const {});
+      final current = metadata[kHermesDecisionMeta];
+      if (current is Map && current['requestId'] == requestId) {
+        metadata[kHermesDecisionMeta] = {
+          ...current.cast<String, dynamic>(),
+          'state': 'resolved',
+        };
+      }
+      return message.copyWith(metadata: metadata);
+    });
   }
 
   bool _ownsRestDecision({

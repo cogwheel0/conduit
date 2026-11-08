@@ -4551,6 +4551,7 @@
   "hermesClarifyProgress": "{answered} von {total} erledigt",
   "@hermesClarifyProgress": {"placeholders": {"answered": {"type": "int"}, "total": {"type": "int"}}},
   "hermesClarifySendFailed": "Deine Antworten konnten nicht gesendet werden. Versuche es erneut.",
+  "hermesClarifyAlreadySettled": "Diese Frage wurde bereits anderswo beantwortet oder ist abgelaufen, daher wurde deine Antwort nicht gesendet.",
   "hermesClarifyAnswerOrSkip": "Beantworte oder überspringe jede Frage.",
   "hermesClarifyOtherAnswer": "Oder eigene Antwort eingeben",
   "hermesClarifySkip": "Überspringen",

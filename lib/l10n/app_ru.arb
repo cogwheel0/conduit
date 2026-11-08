@@ -4589,6 +4589,7 @@
   "hermesClarifyProgress": "Готово: {answered} из {total}",
   "@hermesClarifyProgress": {"placeholders": {"answered": {"type": "int"}, "total": {"type": "int"}}},
   "hermesClarifySendFailed": "Не удалось отправить ответы. Попробуйте ещё раз.",
+  "hermesClarifyAlreadySettled": "На этот вопрос уже ответили в другом месте, или его срок истёк, поэтому ваш ответ не отправлен.",
   "hermesClarifyAnswerOrSkip": "Ответьте на каждый вопрос или пропустите его.",
   "hermesClarifyOtherAnswer": "Или введите свой ответ",
   "hermesClarifySkip": "Пропустить",

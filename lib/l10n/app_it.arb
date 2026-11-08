@@ -4551,6 +4551,7 @@
   "hermesClarifyProgress": "{answered} di {total} completate",
   "@hermesClarifyProgress": {"placeholders": {"answered": {"type": "int"}, "total": {"type": "int"}}},
   "hermesClarifySendFailed": "Impossibile inviare le risposte. Riprova.",
+  "hermesClarifyAlreadySettled": "A questa domanda è già stata data risposta altrove oppure è scaduta, quindi la tua risposta non è stata inviata.",
   "hermesClarifyAnswerOrSkip": "Rispondi o salta ogni domanda.",
   "hermesClarifyOtherAnswer": "Oppure scrivi la tua risposta",
   "hermesClarifySkip": "Salta",

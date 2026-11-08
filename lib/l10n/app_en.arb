@@ -9889,6 +9889,10 @@
   "@hermesClarifySendFailed": {
     "description": "Error on a Hermes question form when its answers could not be sent."
   },
+  "hermesClarifyAlreadySettled": "This question was already answered elsewhere or has expired, so your answer wasn't sent.",
+  "@hermesClarifyAlreadySettled": {
+    "description": "Shown when a Hermes question form is answered after Hermes stopped listing it (answered on another surface, or expired); the form closes and the answer was not sent."
+  },
   "hermesClarifyAnswerOrSkip": "Answer or skip each question.",
   "@hermesClarifyAnswerOrSkip": {
     "description": "Hint next to the disabled send button of a Hermes question form until every question has an answer or is skipped."

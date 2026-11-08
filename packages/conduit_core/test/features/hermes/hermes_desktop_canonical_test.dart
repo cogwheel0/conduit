@@ -1384,6 +1384,43 @@ void main() {
       check(gateway.calls('clarify.respond').single['answer']).equals('');
     });
 
+    // Settled elsewhere before the answer: nothing was sent, yet the form
+    // reported success and closed without a word.
+    test('a lone question Hermes no longer lists says the answer went '
+        'nowhere', () async {
+      final gateway = _Authority()
+        ..prompts = [
+          {
+            'kind': 'clarify',
+            'prompt_id': 'prompt-g',
+            'execution_generation': 2,
+            'question': 'Any notes?',
+          },
+        ];
+      final service = _service(gateway);
+      await service.pendingDecisionsForSession('local-1');
+      await _settle();
+      // Answered on another device while the socket was down: the next
+      // snapshot no longer lists it.
+      gateway.prompts = const [];
+      gateway.incoming.addError(StateError('gone'));
+      await _settle();
+
+      await check(
+        service.respondToClarifyForm(
+          runtimeId: 'local-1',
+          storedSessionId: 'local-1',
+          requestId: 'prompt-g',
+          answers: const {'q0': 'none'},
+        ),
+      ).throws<HermesDecisionAlreadySettled>();
+      check(gateway.calls('clarify.respond')).isEmpty();
+      final pending = await service.pendingDecisionsForSession('local-1');
+      check(
+        pending.map((d) => d.requestId),
+      ).not((it) => it.contains('prompt-g'));
+    });
+
     test('answers a password request with its response frame', () async {
       final gateway = _Authority();
       final service = _service(gateway);

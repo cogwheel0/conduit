@@ -6168,6 +6168,7 @@
   "hermesClarifyProgress": "{total} 件中 {answered} 件完了",
   "@hermesClarifyProgress": {"placeholders": {"answered": {"type": "int"}, "total": {"type": "int"}}},
   "hermesClarifySendFailed": "回答を送信できませんでした。もう一度お試しください。",
+  "hermesClarifyAlreadySettled": "この質問は別の場所で回答済みか期限切れのため、回答は送信されませんでした。",
   "hermesClarifyAnswerOrSkip": "各質問に回答するか、スキップしてください。",
   "hermesClarifyOtherAnswer": "または自分で回答を入力",
   "hermesClarifySkip": "スキップ",

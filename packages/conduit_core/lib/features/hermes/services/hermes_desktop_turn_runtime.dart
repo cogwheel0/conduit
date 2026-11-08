@@ -1628,6 +1628,8 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
       runtimeId = (await _resume(storedSessionId)).runtimeId;
     }
     await _ensureConnected();
+    // A form Hermes no longer lists throws HermesDecisionAlreadySettled; the
+    // snapshot that found it gone has already dropped its saved card.
     await _answerClarify(runtimeId, requestId, answers: answers);
     await HermesPendingDecisionStore.resolve(
       origin: _origin,
@@ -1658,11 +1660,13 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
     }
     if (_rpc.canonicalPrompt(requestId) != null ||
         !requestId.startsWith(kHermesServerRequestIdPrefix)) {
-      await _answerCanonicalPrompt(
+      final sent = await _answerCanonicalPrompt(
         runtimeId,
         requestId,
         value: answers.values.firstOrNull ?? '',
       );
+      // Hermes lists it no more: answered elsewhere, or expired.
+      if (!sent) throw const HermesDecisionAlreadySettled();
       return;
     }
     await _resume(_storedIdForRuntime(runtimeId) ?? runtimeId);

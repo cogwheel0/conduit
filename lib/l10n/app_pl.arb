@@ -8574,6 +8574,7 @@
     }
   },
   "hermesClarifySendFailed": "Nie udało się wysłać odpowiedzi. Spróbuj ponownie.",
+  "hermesClarifyAlreadySettled": "Na to pytanie już odpowiedziano gdzie indziej lub wygasło, więc Twoja odpowiedź nie została wysłana.",
   "@hermesClarifySendFailed": {
     "description": "Error on a Hermes question form when its answers could not be sent."
   },

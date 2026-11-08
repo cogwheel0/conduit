@@ -4551,6 +4551,7 @@
   "hermesClarifyProgress": "{answered} sur {total} traitées",
   "@hermesClarifyProgress": {"placeholders": {"answered": {"type": "int"}, "total": {"type": "int"}}},
   "hermesClarifySendFailed": "Impossible d'envoyer vos réponses. Réessayez.",
+  "hermesClarifyAlreadySettled": "Cette question a déjà reçu une réponse ailleurs ou a expiré : votre réponse n'a pas été envoyée.",
   "hermesClarifyAnswerOrSkip": "Répondez à chaque question ou passez-la.",
   "hermesClarifyOtherAnswer": "Ou saisissez votre propre réponse",
   "hermesClarifySkip": "Passer",

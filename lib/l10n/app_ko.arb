@@ -4323,6 +4323,7 @@
   "hermesClarifyProgress": "{total}개 중 {answered}개 완료",
   "@hermesClarifyProgress": {"placeholders": {"answered": {"type": "int"}, "total": {"type": "int"}}},
   "hermesClarifySendFailed": "답변을 보내지 못했습니다. 다시 시도하세요.",
+  "hermesClarifyAlreadySettled": "이 질문은 이미 다른 곳에서 답변되었거나 만료되어 답변을 보내지 않았습니다.",
   "hermesClarifyAnswerOrSkip": "각 질문에 답하거나 건너뛰세요.",
   "hermesClarifyOtherAnswer": "또는 직접 답변 입력",
   "hermesClarifySkip": "건너뛰기",

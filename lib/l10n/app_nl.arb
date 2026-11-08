@@ -4551,6 +4551,7 @@
   "hermesClarifyProgress": "{answered} van {total} afgehandeld",
   "@hermesClarifyProgress": {"placeholders": {"answered": {"type": "int"}, "total": {"type": "int"}}},
   "hermesClarifySendFailed": "Je antwoorden konden niet worden verzonden. Probeer het opnieuw.",
+  "hermesClarifyAlreadySettled": "Deze vraag is elders al beantwoord of verlopen, dus je antwoord is niet verzonden.",
   "hermesClarifyAnswerOrSkip": "Beantwoord of sla elke vraag over.",
   "hermesClarifyOtherAnswer": "Of typ je eigen antwoord",
   "hermesClarifySkip": "Overslaan",
