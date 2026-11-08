@@ -11,6 +11,7 @@ import 'package:flutter/foundation.dart' show listEquals, visibleForTesting;
 import 'package:conduit/core/services/haptic_service.dart';
 import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:flutter/rendering.dart' show ScrollCacheExtent;
+import 'package:flutter/semantics.dart' show SemanticsService;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'dart:io' show Platform;
@@ -72,6 +73,9 @@ import '../../navigation/providers/chat_back_provider.dart';
 import '../../navigation/utils/chat_list_back.dart';
 
 import 'package:conduit_core/utils/debug_logger.dart';
+import 'package:conduit_core/features/direct_connections/services/model_logo_catalog.dart'
+    show installedModelLogoCatalog;
+import 'package:conduit_core/utils/model_display_name.dart';
 
 import 'package:conduit_core/utils/user_display_name.dart';
 
@@ -134,6 +138,7 @@ import '../widgets/streaming_turn_footer.dart';
 import '../widgets/openwebui_prompt_overlay.dart';
 import '../widgets/openwebui_task_list.dart';
 import '../widgets/chat_timeline_viewport.dart';
+import '../widgets/chat_scroll_to_latest_button.dart';
 import '../../../platform/frame_profiler.dart';
 
 @visibleForTesting
@@ -222,6 +227,15 @@ class _ScrollableCenteredEmptyState extends StatelessWidget {
 // anything seen this session), a larger extent inflates rows further
 // off-screen instead of inside the visible fling.
 const double _chatMessageScrollCachePixels = 1200.0;
+
+/// Soft strip below the opaque band behind the status bar and header.
+const double _kChatChromeFadeHeight = 28.0;
+
+/// Soft strip above the opaque band behind the composer. Short enough that
+/// the last reply, resting a line above the composer, stays fully legible.
+const double _kChatComposerFadeHeight = 24.0;
+
+const double _kScrollToLatestButtonSize = 40.0;
 
 @visibleForTesting
 bool shouldShowChatModelDropdown({
@@ -468,6 +482,10 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         hideThreshold: _scrollButtonHideThreshold,
       );
   bool _showScrollToBottom = false;
+
+  /// Whether the transcript has scrolled under the header, so the header
+  /// names the chat above its model.
+  final ValueNotifier<bool> _headerShowsTitle = ValueNotifier<bool>(false);
   bool _scrollToBottomVisibilitySyncScheduled = false;
   bool _scrollToBottomPrewarmPending = false;
   bool _hasUserScrolled = false;
@@ -564,10 +582,6 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     _syncLayoutBottomAnchor();
   }
 
-  String _formatModelDisplayName(String name) {
-    return _formatChatModelDisplayName(name);
-  }
-
   void _invalidateChatListStableLayoutMetadata() {
     _stableLayoutCache.invalidate();
   }
@@ -610,6 +624,11 @@ class _ChatPageState extends ConsumerState<ChatPage> {
 
   void _handleViewportMetricsChanged(ChatTimelineViewportMetrics metrics) {
     if (!mounted || _isDeactivated) return;
+    _headerShowsTitle.value = chatHeaderShowsTitle(
+      scrolledFromTop: metrics.pixels - metrics.minScrollExtent,
+      hasOlderMessages: ref.read(chatTranscriptPagingProvider).hasOlder,
+      currentlyShowing: _headerShowsTitle.value,
+    );
     if (_isUserInteractingWithScroll &&
         metrics.distanceFromLatest > _scrollButtonHideThreshold) {
       _bottomAnchorController.detachByUser();
@@ -952,6 +971,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       InteractionActivity.instance.endInteraction();
     }
     _timelineViewportController.dispose();
+    _headerShowsTitle.dispose();
     super.dispose();
   }
 
@@ -2177,9 +2197,18 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         : math.max(0, _inputHeight - Spacing.xl);
   }
 
+  /// Distance from the bottom of the page body to the composer's top edge.
+  ///
+  /// The measured composer section includes [Spacing.xl] of transparent
+  /// headroom above the composer itself. Before it is measured, assume a
+  /// one-line composer above the home indicator.
+  double _composerTopInset(BuildContext context) => _inputHeight > 0
+      ? math.max(0, _inputHeight - Spacing.xl)
+      : MediaQuery.viewPaddingOf(context).bottom + Spacing.xxl;
+
   /// User-initiated scroll to bottom (e.g. button tap).
   void _userScrollToBottom() {
-    ConduitHaptics.lightImpact();
+    ConduitHaptics.selectionClick();
     if (debugShouldReleasePinnedTurnForManualNavigationForTesting(
       pinActive: _wantsPinToTop,
       userDragStarted: false,
@@ -2754,7 +2783,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     final icon = Platform.isIOS
         ? CupertinoIcons.chevron_down
         : Icons.keyboard_arrow_down;
-    const buttonSize = 40.0;
+    const buttonSize = _kScrollToLatestButtonSize;
     const iconSize = IconSize.medium;
     final theme = context.conduitTheme;
     final usesOpaqueFallback = conduitUsesOpaqueGlassFallback();
@@ -4079,7 +4108,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     final activeConversation = ref.watch(activeConversationProvider);
     final hermesBot = chatHermesBotPresentation(activeConversation);
     final formattedModelName = selectedModel != null
-        ? _formatModelDisplayName(selectedModel.name)
+        ? displayNameForModel(selectedModel)
         : null;
     final modelLabel =
         hermesBot?.title ?? formattedModelName ?? l10n.chooseModel;
@@ -4161,77 +4190,60 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                 left: 0,
                 right: 0,
                 top: 0,
+                // Opaque behind the status bar and the glass buttons, so
+                // neither the clock nor Liquid Glass sits over crisp text.
                 child: ConduitChromeGradientFade.top(
                   contentHeight:
                       MediaQuery.viewPaddingOf(context).top +
                       conduitAdaptiveToolbarHeightOf(context),
+                  fadeHeight: _kChatChromeFadeHeight,
+                  solidBehindChrome: true,
                 ),
               ),
               Positioned(
                 left: 0,
                 right: 0,
                 bottom: 0,
+                // Opaque up to the composer's top edge, around its rounded
+                // ends included, then a soft fade above it.
                 child: ConduitChromeGradientFade.bottom(
-                  contentHeight: math.max(
-                    0,
-                    math.max(
-                      _inputHeight - Spacing.xl,
-                      MediaQuery.viewPaddingOf(context).bottom + Spacing.xxl,
-                    ),
-                  ),
-                  fadeHeight: Spacing.md,
+                  contentHeight: _composerTopInset(context),
+                  fadeHeight: _kChatComposerFadeHeight,
+                  solidBehindChrome: true,
                 ),
               ),
               Positioned(
-                bottom: (_inputHeight > 0)
-                    ? math.max(0, _inputHeight - Spacing.xl + Spacing.md)
-                    : (Spacing.xxl + Spacing.xxxl),
+                bottom: math.max(
+                  0,
+                  _composerTopInset(context) +
+                      kChatScrollToLatestComposerGap -
+                      kChatScrollToLatestHaloInset,
+                ),
                 left: 0,
                 right: 0,
-                child: AnimatedSwitcher(
-                  duration: context.motionDuration(
-                    AnimationDuration.microInteraction,
-                  ),
-                  switchInCurve: AnimationCurves.microInteraction,
-                  switchOutCurve: AnimationCurves.microInteraction,
-                  transitionBuilder: (child, animation) {
-                    final slideAnimation = Tween<Offset>(
-                      begin: context.reduceMotion
-                          ? Offset.zero
-                          : const Offset(0, 0.15),
-                      end: Offset.zero,
-                    ).animate(animation);
-                    return FadeTransition(
-                      opacity: animation,
-                      child: SlideTransition(
-                        position: slideAnimation,
-                        child: child,
-                      ),
-                    );
-                  },
-                  child: ThemedSheets.hideNativeChromeWhileCovered(
-                    child: Consumer(
-                      builder: (context, scrollButtonRef, _) {
-                        final hasMessages = scrollButtonRef.watch(
-                          hasChatMessagesProvider,
-                        );
-                        return debugShouldRenderScrollToLatestForTesting(
-                              requested: _showScrollToBottom,
-                              hasScrollableContent: canScroll,
-                              hasMessages: hasMessages,
-                            )
-                            ? Center(
-                                key: const ValueKey('scroll_to_bottom_visible'),
-                                child: AdaptiveTooltip(
-                                  message: l10n.scrollToBottom,
-                                  child: _buildScrollToBottomButton(context),
-                                ),
-                              )
-                            : const SizedBox.shrink(
-                                key: ValueKey('scroll_to_bottom_hidden'),
-                              );
-                      },
-                    ),
+                child: ThemedSheets.hideNativeChromeWhileCovered(
+                  child: Consumer(
+                    builder: (context, scrollButtonRef, _) {
+                      final hasMessages = scrollButtonRef.watch(
+                        hasChatMessagesProvider,
+                      );
+                      final visible = debugShouldRenderScrollToLatestForTesting(
+                        requested: _showScrollToBottom,
+                        hasScrollableContent: canScroll,
+                        hasMessages: hasMessages,
+                      );
+                      return Center(
+                        child: ChatScrollToLatestButton(
+                          key: const ValueKey('scroll_to_bottom'),
+                          visible: visible,
+                          dimension: _kScrollToLatestButtonSize,
+                          child: AdaptiveTooltip(
+                            message: l10n.scrollToBottom,
+                            child: _buildScrollToBottomButton(context),
+                          ),
+                        ),
+                      );
+                    },
                   ),
                 ),
               ),
@@ -4428,7 +4440,9 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       title: title,
       actions: actionWidgets,
       cupertinoTrailing: cupertinoTrailing,
-      centerTitle: false,
+      // iOS centres the bar's identity between its buttons; it shifts
+      // toward the leading edge only when a long title needs the room.
+      centerTitle: Platform.isIOS,
     );
   }
 
@@ -4454,6 +4468,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         maxWidth: maxModelWidth,
         isLoading: isLoadingConversation || _isOpeningModelSelector,
         showChevron: showModelDropdown,
+        title: chatHeaderTitle(ref.watch(activeConversationProvider)?.title),
+        showsTitle: _headerShowsTitle,
         onPressed: () => _openModelSelector(context, menuAnchor: pillContext),
       ),
     );
@@ -4480,7 +4496,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     final pickTarget = captureChatModelPickTarget(ref);
     final allModelsLabel = AppLocalizations.of(context)!.modelMenuAllModels;
     String labelOf(Model model) {
-      final name = _formatModelDisplayName(model.name);
+      final name = displayNameForModel(model);
       return name.isEmpty ? model.id : name;
     }
 
@@ -4584,8 +4600,9 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     required String accessibilityLabel,
     required Color tintColor,
     required VoidCallback? onPressed,
+    String? iosSymbol,
   }) {
-    final iosSymbol = conduitToolbarSfSymbolForIcon(icon);
+    iosSymbol = conduitToolbarSfSymbolForIcon(icon, iosSymbol: iosSymbol);
     assert(iosSymbol != null);
     return _ChatToolbarActionDescriptor(
       icon: icon,
@@ -4631,16 +4648,31 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       );
     }
 
+    final l10n = AppLocalizations.of(context)!;
     return _buildChatToolbarIconAction(
       icon: isTemporary
           ? (Platform.isIOS ? CupertinoIcons.eye_slash : Icons.visibility_off)
           : (Platform.isIOS ? CupertinoIcons.eye : Icons.visibility_outlined),
-      accessibilityLabel: AppLocalizations.of(context)!.temporaryChat,
-      tintColor: isTemporary ? context.conduitTheme.info : tintColor,
+      // A dashed circle reads as "not kept", and fills while it is on. It
+      // matches the regular weight of the other bar glyphs, where the eye
+      // was heavier and read as "show/hide".
+      iosSymbol: temporaryChatToolbarSymbol(isTemporary: isTemporary),
+      accessibilityLabel: isTemporary
+          ? '${l10n.temporaryChat}, ${l10n.enabled}'
+          : l10n.temporaryChat,
+      tintColor: tintColor,
       onPressed: () {
         ConduitHaptics.selectionClick();
         final current = ref.read(temporaryChatEnabledProvider);
         ref.read(temporaryChatEnabledProvider.notifier).set(!current);
+        if (!current) {
+          // The empty state explains it on screen; say it aloud too.
+          SemanticsService.sendAnnouncement(
+            View.of(context),
+            l10n.temporaryChatTooltip,
+            Directionality.of(context),
+          );
+        }
       },
     );
   }
@@ -4898,8 +4930,38 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   }
 }
 
-String _formatChatModelDisplayName(String name) {
-  return name.trim();
+/// A model name as shown above replies: a name someone chose as written, a
+/// raw id as its models.dev name or without its provider prefix.
+String _formatChatModelDisplayName(String name) =>
+    modelDisplayName(name: name, id: name, catalog: installedModelLogoCatalog);
+
+/// The SF Symbol for the Temporary Chat toggle in the chat header.
+@visibleForTesting
+String temporaryChatToolbarSymbol({required bool isTemporary}) =>
+    isTemporary ? 'circle.dashed.inset.filled' : 'circle.dashed';
+
+/// The chat title the header shows once the transcript scrolls under it,
+/// or `null` while the chat has no real title yet.
+@visibleForTesting
+String? chatHeaderTitle(String? title) {
+  final trimmed = title?.trim();
+  if (trimmed == null || trimmed.isEmpty) return null;
+  // The placeholder a chat carries until the server names it.
+  if (trimmed.toLowerCase() == 'new chat') return null;
+  return trimmed;
+}
+
+/// Whether the header should name the chat: once the first message has
+/// slipped under the bar, or older messages wait above. Hysteresis keeps a
+/// resting scroll from flickering the title in and out.
+@visibleForTesting
+bool chatHeaderShowsTitle({
+  required double scrolledFromTop,
+  required bool hasOlderMessages,
+  required bool currentlyShowing,
+}) {
+  if (hasOlderMessages) return true;
+  return scrolledFromTop > (currentlyShowing ? 8.0 : 20.0);
 }
 
 ({String? displayName, Model? matchedModel}) _resolveChatModelPresentation({
@@ -4924,19 +4986,13 @@ String _formatChatModelDisplayName(String name) {
 
   final matched = modelLookup?[trimmedModel];
   if (matched != null) {
-    return (
-      displayName: _formatChatModelDisplayName(matched.name),
-      matchedModel: matched,
-    );
+    return (displayName: displayNameForModel(matched), matchedModel: matched);
   }
 
   if (models != null && modelLookup == null) {
     for (final model in models) {
       if (model.id == trimmedModel || model.name == trimmedModel) {
-        return (
-          displayName: _formatChatModelDisplayName(model.name),
-          matchedModel: model,
-        );
+        return (displayName: displayNameForModel(model), matchedModel: model);
       }
     }
   }

@@ -1,15 +1,18 @@
 import 'dart:io' show Platform;
+import 'dart:math' as math;
+import 'dart:ui' show lerpDouble;
 
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:material_ui/material_ui.dart';
+import 'package:flutter/foundation.dart' show ValueListenable;
+import 'package:flutter/physics.dart';
 import 'package:flutter/services.dart';
 
 import '../theme/theme_extensions.dart';
 import '../utils/adaptive_glass.dart';
 import 'conduit_components.dart';
 import 'conduit_loading.dart';
-import 'middle_ellipsis_text.dart';
 import 'themed_sheets.dart';
 
 const double kConduitAdaptiveToolbarLeadingGap = Spacing.sm;
@@ -847,7 +850,10 @@ double _measureConduitNativeModelTitle(
   return width;
 }
 
-String _middleEllipsizeConduitNativeModelTitle({
+/// Truncates [value] at its end, the way iOS truncates titles: a model name
+/// reads from its start ("GPT-5 Mi…"), and a cut through its middle made
+/// raw ids look garbled ("openai/…-5-mini").
+String _endEllipsizeConduitNativeModelTitle({
   required String value,
   required double maxWidth,
   required TextDirection textDirection,
@@ -871,13 +877,8 @@ String _middleEllipsizeConduitNativeModelTitle({
   var best = ellipsis;
   while (low <= high) {
     final visibleCount = (low + high) >> 1;
-    final leadingCount = (visibleCount + 1) >> 1;
-    final trailingCount = visibleCount - leadingCount;
-    final leading = graphemes.take(leadingCount).toString();
-    final trailing = trailingCount == 0
-        ? ''
-        : graphemes.takeLast(trailingCount).toString();
-    final candidate = '$leading$ellipsis$trailing';
+    final candidate =
+        '${graphemes.take(visibleCount).toString().trimRight()}$ellipsis';
     if (_measureConduitNativeModelTitle(
           candidate,
           textDirection,
@@ -934,8 +935,8 @@ double resolveConduitNativeModelSelectorWidth({
   return desiredWidth.clamp(safeMinWidth, safeMaxWidth).toDouble();
 }
 
-/// Produces a single-line native button title while retaining both ends of a
-/// long model name and reserving the trailing disclosure chevron.
+/// Produces a single-line native button title, truncated at its end, while
+/// reserving the trailing disclosure chevron.
 String resolveConduitNativeModelSelectorLabel({
   required String label,
   required bool isLoading,
@@ -963,7 +964,7 @@ String resolveConduitNativeModelSelectorLabel({
       guardedContentWidth) {
     return normalizedLabel;
   }
-  return _middleEllipsizeConduitNativeModelTitle(
+  return _endEllipsizeConduitNativeModelTitle(
     value: normalizedLabel,
     maxWidth: guardedContentWidth,
     textDirection: textDirection,
@@ -1032,10 +1033,21 @@ class ConduitAdaptiveAppBarModelSelector extends StatelessWidget {
     this.isLoading = false,
     this.textStyle,
     this.showChevron = true,
+    this.title,
+    this.showsTitle,
   });
 
   /// Text shown inside the selector.
   final String label;
+
+  /// The page's title (a chat's title), shown above a smaller [label] while
+  /// [showsTitle] is true, like an iOS navigation title with a subtitle.
+  final String? title;
+
+  /// Whether the content has scrolled under the bar, so the bar should name
+  /// the page. When given, the selector cross-fades between the model alone
+  /// and [title] over the model, instead of drawing a native button label.
+  final ValueListenable<bool>? showsTitle;
 
   /// Maximum width available for the selector.
   ///
@@ -1064,6 +1076,19 @@ class ConduitAdaptiveAppBarModelSelector extends StatelessWidget {
     final safeMaxWidth = maxWidth.clamp(0.0, double.infinity).toDouble();
     if (safeMaxWidth == 0) {
       return const SizedBox.shrink();
+    }
+    if (showsTitle case final showsTitle?) {
+      return _ConduitTitledModelSelector(
+        label: boundConduitNativeModelLabel(label),
+        semanticsLabel: label,
+        title: title == null ? null : boundConduitNativeModelLabel(title!),
+        showsTitle: showsTitle,
+        maxWidth: safeMaxWidth,
+        isLoading: isLoading,
+        showChevron: showChevron,
+        labelStyle: effectiveTextStyle,
+        onPressed: onPressed,
+      );
     }
     final controlExtent = conduitScaledControlExtent(context);
     final chevronSize = PlatformInfo.isIOS
@@ -1116,11 +1141,14 @@ class ConduitAdaptiveAppBarModelSelector extends StatelessWidget {
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       Flexible(
-                        child: MiddleEllipsisText(
+                        child: Text(
                           boundedLabel,
                           style: effectiveTextStyle,
                           textAlign: TextAlign.center,
                           semanticsLabel: label,
+                          maxLines: 1,
+                          softWrap: false,
+                          overflow: TextOverflow.ellipsis,
                           textHeightBehavior: const TextHeightBehavior(
                             applyHeightToFirstAscent: false,
                             applyHeightToLastDescent: false,
@@ -1207,6 +1235,332 @@ class ConduitAdaptiveAppBarModelSelector extends StatelessWidget {
               useSmoothRectangleBorder: false,
               child: buildFallbackChild(),
             ),
+    );
+  }
+}
+
+/// The model pill of a page whose title cross-fades into the bar.
+///
+/// At rest it shows the model alone. Once [showsTitle] turns true it shows
+/// the page [title] (semibold) over a smaller model line, the shape of an iOS
+/// 26 navigation title with a subtitle, and stays one tap from the model
+/// picker. The pill's width follows its content.
+///
+/// The change rides one critically damped spring, started from the current
+/// value and velocity, so a scroll that flips back mid-way reverses it
+/// without a jump. The outgoing line drifts up as it fades, the incoming one
+/// rises into place; Reduce Motion keeps only the cross-fade.
+class _ConduitTitledModelSelector extends StatefulWidget {
+  const _ConduitTitledModelSelector({
+    required this.label,
+    required this.semanticsLabel,
+    required this.title,
+    required this.showsTitle,
+    required this.maxWidth,
+    required this.isLoading,
+    required this.showChevron,
+    required this.labelStyle,
+    required this.onPressed,
+  });
+
+  final String label;
+  final String semanticsLabel;
+  final String? title;
+  final ValueListenable<bool> showsTitle;
+  final double maxWidth;
+  final bool isLoading;
+  final bool showChevron;
+  final TextStyle labelStyle;
+  final VoidCallback onPressed;
+
+  @override
+  State<_ConduitTitledModelSelector> createState() =>
+      _ConduitTitledModelSelectorState();
+}
+
+/// Critically damped; settles in about a third of a second.
+final SpringDescription _kConduitTitleSpring =
+    SpringDescription.withDampingRatio(mass: 1, stiffness: 300, ratio: 1);
+
+const double _kConduitTitledPillInset = 16;
+const double _kConduitTitledPillDrift = 7;
+const double _kConduitTitledPillTitleSize = 15;
+const double _kConduitTitledPillSubtitleSize = 12;
+const double _kConduitTitledPillSubtitleChevron = 9;
+
+/// Bar titles stop growing with Dynamic Type well before body text does, as
+/// UIKit's inline navigation titles do, so two lines still fit the pill.
+const double _kConduitTitledPillMaxTextScale = 1.3;
+
+class _ConduitTitledModelSelectorState
+    extends State<_ConduitTitledModelSelector>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _progress = AnimationController.unbounded(
+    vsync: this,
+    value: _wantsTitle ? 1 : 0,
+  );
+  late double _target = _progress.value;
+
+  bool get _hasTitle => widget.title?.trim().isNotEmpty ?? false;
+  bool get _wantsTitle =>
+      _hasTitle && !widget.isLoading && widget.showsTitle.value;
+
+  @override
+  void initState() {
+    super.initState();
+    widget.showsTitle.addListener(_syncTarget);
+  }
+
+  @override
+  void didUpdateWidget(covariant _ConduitTitledModelSelector oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!identical(oldWidget.showsTitle, widget.showsTitle)) {
+      oldWidget.showsTitle.removeListener(_syncTarget);
+      widget.showsTitle.addListener(_syncTarget);
+    }
+    _syncTarget();
+  }
+
+  @override
+  void dispose() {
+    widget.showsTitle.removeListener(_syncTarget);
+    _progress.dispose();
+    super.dispose();
+  }
+
+  void _syncTarget() {
+    if (!mounted) return;
+    final target = _wantsTitle ? 1.0 : 0.0;
+    if (target == _target) return;
+    _target = target;
+    if (context.reduceMotion) {
+      _progress.animateTo(
+        target,
+        duration: const Duration(milliseconds: 200),
+        curve: Curves.easeInOut,
+      );
+      return;
+    }
+    _progress
+        .animateWith(
+          SpringSimulation(
+            _kConduitTitleSpring,
+            _progress.value,
+            target,
+            _progress.velocity,
+          ),
+        )
+        // A spring stops within its tolerance; land exactly on the target.
+        .then((_) {
+          if (mounted && _target == target) _progress.value = target;
+        });
+  }
+
+  double _textWidth(String text, TextStyle style, TextScaler scaler) {
+    final painter = TextPainter(
+      text: TextSpan(text: text, style: style),
+      maxLines: 1,
+      textScaler: scaler,
+      textDirection: Directionality.of(context),
+    )..layout();
+    final width = painter.width;
+    painter.dispose();
+    return width;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = context.conduitTheme;
+    final controlExtent = conduitScaledControlExtent(context);
+    final scaler = MediaQuery.textScalerOf(context);
+    final titleScaler = scaler.clamp(
+      maxScaleFactor: _kConduitTitledPillMaxTextScale,
+    );
+    final labelStyle = widget.labelStyle.copyWith(
+      fontSize: _kConduitNativeModelTitleStyle.fontSize,
+    );
+    final titleStyle = widget.labelStyle.copyWith(
+      fontSize: _kConduitTitledPillTitleSize,
+      fontWeight: FontWeight.w600,
+      height: 1.2,
+    );
+    final subtitleStyle = widget.labelStyle.copyWith(
+      fontSize: _kConduitTitledPillSubtitleSize,
+      color: theme.textSecondary,
+      height: 1.2,
+    );
+    final chevronIcon = PlatformInfo.isIOS
+        ? CupertinoIcons.chevron_down
+        : Icons.keyboard_arrow_down;
+    final title = widget.title?.trim() ?? '';
+    final showChevron = widget.showChevron;
+
+    double clampWidth(double width) =>
+        width.clamp(math.min(96.0, widget.maxWidth), widget.maxWidth);
+    final modelWidth = widget.isLoading
+        ? math.min(104.0, widget.maxWidth)
+        : clampWidth(
+            _textWidth(widget.label, labelStyle, scaler) +
+                (showChevron ? kConduitModelSelectorChevronExtent + 6 : 0) +
+                _kConduitTitledPillInset * 2,
+          );
+    final titledWidth = title.isEmpty
+        ? modelWidth
+        : clampWidth(
+            math.max(
+                  _textWidth(title, titleStyle, titleScaler),
+                  _textWidth(widget.label, subtitleStyle, titleScaler) +
+                      (showChevron
+                          ? _kConduitTitledPillSubtitleChevron + 3
+                          : 0),
+                ) +
+                _kConduitTitledPillInset * 2,
+          );
+
+    Widget line(String text, TextStyle style, double chevronSize) => Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Flexible(
+          child: Text(
+            text,
+            style: style,
+            maxLines: 1,
+            softWrap: false,
+            overflow: TextOverflow.ellipsis,
+            textHeightBehavior: const TextHeightBehavior(
+              applyHeightToFirstAscent: false,
+              applyHeightToLastDescent: false,
+            ),
+          ),
+        ),
+        if (showChevron) ...[
+          SizedBox(width: chevronSize < 12 ? 3 : 6),
+          ConduitSystemAdaptiveIcon(
+            chevronIcon,
+            size: chevronSize,
+            color: style.color ?? theme.textPrimary,
+          ),
+        ],
+      ],
+    );
+
+    // Narrow bars (large text on a small phone) trade inset before glyphs.
+    double contentWidth(double pillWidth, double chevronRoom) {
+      final inset = ((pillWidth - chevronRoom) / 2).clamp(
+        2.0,
+        _kConduitTitledPillInset,
+      );
+      return math.max(0.0, pillWidth - inset * 2);
+    }
+
+    final modelContent = SizedBox(
+      width: contentWidth(
+        modelWidth,
+        showChevron ? kConduitModelSelectorChevronExtent + 6 : 0,
+      ),
+      child: Center(
+        child: widget.isLoading
+            ? ConduitLoading.skeleton(
+                width: 80,
+                height: 14,
+                borderRadius: BorderRadius.circular(AppBorderRadius.sm),
+              )
+            : line(
+                widget.label,
+                labelStyle,
+                kConduitModelSelectorChevronExtent,
+              ),
+      ),
+    );
+    final titledContent = title.isEmpty
+        ? null
+        : MediaQuery.withClampedTextScaling(
+            maxScaleFactor: _kConduitTitledPillMaxTextScale,
+            child: SizedBox(
+              width: contentWidth(
+                titledWidth,
+                showChevron ? _kConduitTitledPillSubtitleChevron + 3 : 0,
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    title,
+                    style: titleStyle,
+                    maxLines: 1,
+                    softWrap: false,
+                    overflow: TextOverflow.ellipsis,
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 1),
+                  line(
+                    widget.label,
+                    subtitleStyle,
+                    _kConduitTitledPillSubtitleChevron,
+                  ),
+                ],
+              ),
+            ),
+          );
+
+    final enabled = !widget.isLoading && showChevron;
+
+    return AnimatedBuilder(
+      animation: _progress,
+      builder: (context, _) {
+        final t = _progress.value.clamp(0.0, 1.0);
+        final semanticLabel = _target == 1 && titledContent != null
+            ? '$title, ${widget.semanticsLabel}'
+            : widget.semanticsLabel;
+        final drift = context.reduceMotion ? 0.0 : _kConduitTitledPillDrift;
+        final width = lerpDouble(modelWidth, titledWidth, t)!;
+        // Out first, then in, so the two never read as one smudge.
+        final modelOpacity =
+            1 - Curves.easeOut.transform((t / 0.6).clamp(0.0, 1.0));
+        final titleOpacity = Curves.easeIn.transform(
+          ((t - 0.4) / 0.6).clamp(0.0, 1.0),
+        );
+        final content = ClipRect(
+          child: OverflowBox(
+            minWidth: 0,
+            maxWidth: math.max(modelWidth, titledWidth),
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                if (modelOpacity > 0)
+                  Opacity(
+                    opacity: modelOpacity,
+                    child: Transform.translate(
+                      offset: Offset(0, -drift * t),
+                      child: modelContent,
+                    ),
+                  ),
+                if (titledContent != null && titleOpacity > 0)
+                  Opacity(
+                    opacity: titleOpacity,
+                    child: Transform.translate(
+                      offset: Offset(0, drift * (1 - t)),
+                      child: titledContent,
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        );
+        return Semantics(
+          label: semanticLabel,
+          button: true,
+          enabled: enabled,
+          onTap: enabled ? widget.onPressed : null,
+          excludeSemantics: true,
+          child: buildConduitAdaptiveToolbarPillSurface(
+            width: width,
+            height: controlExtent,
+            onPressed: enabled ? widget.onPressed : null,
+            child: content,
+          ),
+        );
+      },
     );
   }
 }
