@@ -9,7 +9,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  testWidgets('unread conversations show only the dot; titles stay regular', (
+  testWidgets('unread conversations show the dot and a semibold title', (
     tester,
   ) async {
     await tester.pumpWidget(
@@ -29,10 +29,9 @@ void main() {
       find.byKey(const ValueKey<String>('conversation-unread-indicator')),
       findsOneWidget,
     );
-    // With many unread chats, bold would stop meaning anything: the dot
-    // alone marks them.
+    // In one ink the dot alone is easy to miss, so weight marks unread too.
     final title = tester.widget<Text>(find.text('Unread chat'));
-    expect(title.style?.fontWeight, FontWeight.w400);
+    expect(title.style?.fontWeight, FontWeight.w600);
     expect(title.semanticsLabel, 'Unread chat\nUnread');
   });
 
@@ -56,7 +55,7 @@ void main() {
       find.byKey(const ValueKey<String>('conversation-unread-indicator')),
       findsNothing,
     );
-    // Selection is carried by the row fill.
+    // Selection is carried by the row fill; read titles stay regular.
     final title = tester.widget<Text>(find.text('Read chat'));
     expect(title.style?.fontWeight, FontWeight.w400);
   });
