@@ -954,7 +954,7 @@ class _ComposerAttachmentKeyState extends State<ComposerAttachmentKey> {
     // The same quiet monochrome fill as the suggestion buttons, a step
     // stronger while pressed.
     final fill = theme.textPrimary.withValues(
-      alpha: _pressed ? (isDark ? 0.18 : 0.11) : (isDark ? 0.10 : 0.05),
+      alpha: _pressed ? (isDark ? 0.20 : 0.11) : (isDark ? 0.12 : 0.05),
     );
 
     // The labelled node replaces the gesture's, so it must carry the tap.
