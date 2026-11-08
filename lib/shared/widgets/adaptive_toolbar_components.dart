@@ -176,7 +176,9 @@ class ConduitAdaptiveCupertinoNavigationBar extends StatelessWidget
           textScaler: textScaler,
           child: NavigationToolbar(
             centerMiddle: centerMiddle,
-            middleSpacing: Spacing.sm,
+            // A title too wide to stay centred (large text) moves aside but
+            // keeps the same clear space from the controls.
+            middleSpacing: kConduitCenteredTitleClearance,
             leading: Align(
               alignment: AlignmentDirectional.centerStart,
               widthFactor: 1,

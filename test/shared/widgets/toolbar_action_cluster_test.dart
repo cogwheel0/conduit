@@ -117,6 +117,38 @@ void main() {
     );
   });
 
+  testWidgets('a title too wide to centre moves aside, 12 pt clear', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(402, 874);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    // Accessibility text sizes: a 66 pt sidebar button, a 120 pt group and
+    // a pill that cannot stay on the centre line.
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: Scaffold(
+          appBar: ConduitAdaptiveCupertinoNavigationBar(
+            textScaler: TextScaler.noScaling,
+            leading: SizedBox(key: ValueKey('leading'), width: 66, height: 44),
+            middle: SizedBox(key: ValueKey('middle'), width: 150, height: 44),
+            trailing: SizedBox(
+              key: ValueKey('trailing'),
+              width: 120,
+              height: 44,
+            ),
+          ),
+        ),
+      ),
+    );
+    final middle = tester.getRect(find.byKey(const ValueKey('middle')));
+    final trailing = tester.getRect(find.byKey(const ValueKey('trailing')));
+    final leading = tester.getRect(find.byKey(const ValueKey('leading')));
+    expect(middle.center.dx, lessThan(201));
+    expect(trailing.left - middle.right, closeTo(12, 0.01));
+    expect(middle.left - leading.right, greaterThanOrEqualTo(12));
+  });
+
   testWidgets(
     'on iOS 26 the actions sit on one glass surface as plain glyphs',
     (tester) async {
