@@ -1061,12 +1061,15 @@ void main() {
         home: Scaffold(
           body: MediaQuery(
             data: MediaQueryData(disableAnimations: disableAnimations),
-            child: AssistantMessageWidget(
-              message: message,
-              isStreaming: isStreaming,
-              showFollowUps: false,
-              suppressStreamingHaptics: suppressStreamingHaptics,
-              onDelete: () {},
+            // Rows live in a scrolling timeline, never in a fixed-height box.
+            child: SingleChildScrollView(
+              child: AssistantMessageWidget(
+                message: message,
+                isStreaming: isStreaming,
+                showFollowUps: false,
+                suppressStreamingHaptics: suppressStreamingHaptics,
+                onDelete: () {},
+              ),
             ),
           ),
         ),
@@ -2874,7 +2877,17 @@ Tail keeps growing
         );
         await tester.pump();
 
-        expect(_mediumImpactCalls(platformCalls), hasLength(2));
+        // A selection tick when the reply starts, a medium impact when it
+        // completes.
+        expect(_mediumImpactCalls(platformCalls), hasLength(1));
+        expect(
+          platformCalls.where(
+            (call) =>
+                call.method == 'HapticFeedback.vibrate' &&
+                call.arguments == 'HapticFeedbackType.selectionClick',
+          ),
+          hasLength(1),
+        );
       } finally {
         messenger.setMockMethodCallHandler(SystemChannels.platform, null);
         container.dispose();
