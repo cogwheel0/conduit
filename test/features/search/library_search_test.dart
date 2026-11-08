@@ -402,6 +402,10 @@ void main() {
     await tester.pump(const Duration(milliseconds: 300));
     await tester.pumpAndSettle();
     expect(find.text('Color study'), findsOneWidget);
+    expect(
+      tester.getSemantics(find.byType(EditableText)).rect.height,
+      lessThan(100),
+    );
     await tester.sendKeyEvent(LogicalKeyboardKey.escape);
     await tester.pumpAndSettle();
     expect(find.byType(LibrarySearchPage), findsNothing);
@@ -416,6 +420,10 @@ void main() {
     await tester.enterText(find.byType(TextField), 'cobalt');
     await tester.pump(const Duration(milliseconds: 300));
     await tester.pumpAndSettle();
+    expect(
+      tester.getSemantics(find.byType(EditableText)).rect.height,
+      lessThan(100),
+    );
     expect(find.text('Color study'), findsOneWidget);
     expect(
       find.textContaining('A cobalt kite', findRichText: true),

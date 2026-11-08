@@ -149,10 +149,16 @@ class _LibrarySearchPageState extends ConsumerState<LibrarySearchPage> {
               page.asData?.value.items.isEmpty == true;
         });
 
-    return CallbackShortcuts(
-      bindings: {
-        const SingleActivator(LogicalKeyboardKey.escape): () =>
-            Navigator.of(context).maybePop(),
+    return Focus(
+      canRequestFocus: false,
+      includeSemantics: false,
+      onKeyEvent: (_, event) {
+        if (event is KeyDownEvent &&
+            event.logicalKey == LogicalKeyboardKey.escape) {
+          unawaited(Navigator.of(context).maybePop());
+          return KeyEventResult.handled;
+        }
+        return KeyEventResult.ignored;
       },
       child: AdaptiveScaffold(
         key: const ValueKey('library-search-page'),
