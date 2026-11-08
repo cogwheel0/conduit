@@ -30,7 +30,7 @@ void main() {
     expect(find.text('Appearance'), findsOneWidget);
     expect(find.text('Display'), findsNothing);
     expect(find.text('App Language'), findsWidgets);
-    expect(find.text('Show Notes Button'), findsNothing);
+    expect(find.text('Save Drafts as Notes'), findsNothing);
     expect(find.text('Quick Actions'), findsNothing);
     expect(find.text('Send with Enter'), findsNothing);
     expect(find.text('Transport Mode'), findsNothing);
@@ -44,7 +44,7 @@ void main() {
 
     expect(find.text('Chat'), findsWidgets);
     expect(find.text('Send with Enter'), findsOneWidget);
-    expect(find.text('Show Notes Button'), findsOneWidget);
+    expect(find.text('Save Drafts as Notes'), findsOneWidget);
     expect(find.text('Start Temporary Chats'), findsOneWidget);
     expect(
       find.text('Mute Streaming Haptics', skipOffstage: false),
