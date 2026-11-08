@@ -18,6 +18,48 @@ Use profile mode for timings. Debug simulator builds are useful for visual
 verification only. This measures the production scrolling components, not
 network latency or every part of the chat page.
 
+## Reproduce the comparison
+
+The baseline predates this harness. The measurements used the same harness and
+dependencies for both builds, restoring the two upstream chat files for the
+baseline and then restoring the candidate files. Use a disposable worktree:
+
+```sh
+git fetch https://github.com/cogwheel0/conduit.git pull/993/head
+git worktree add --detach ../conduit-scroll-benchmark 66994833
+cd ../conduit-scroll-benchmark
+git submodule update --init --recursive third_party/katex third_party/mermaid
+flutter pub get
+(cd packages/conduit_core && dart run build_runner build)
+dart run build_runner build
+flutter gen-l10n
+
+git restore --source=0e2e000b -- \
+  lib/features/chat/views/chat_page.dart \
+  lib/features/chat/widgets/chat_timeline_viewport.dart
+flutter build apk --profile --target-platform android-arm64 --no-pub \
+  -t tool/benchmarks/chat_scroll.dart
+cp build/app/outputs/flutter-apk/app-profile.apk ../conduit-scroll-baseline.apk
+
+git restore --source=66994833 -- \
+  lib/features/chat/views/chat_page.dart \
+  lib/features/chat/widgets/chat_timeline_viewport.dart
+flutter build apk --profile --target-platform android-arm64 --no-pub \
+  -t tool/benchmarks/chat_scroll.dart
+cp build/app/outputs/flutter-apk/app-profile.apk ../conduit-scroll-candidate.apk
+```
+
+Install each APK with `adb install -r`, then force-stop and relaunch
+`app.cogwheel.conduit/.MainActivity` for each run. Capture the four
+`CHAT_SCROLL_RESULT` records from `adb logcat` through `CHAT_SCROLL_DONE`.
+Use baseline/candidate/candidate/baseline order on the same device, with no
+recording, builds, or tests running alongside the measurements. The presentation
+sampling procedure below runs separately from the FrameTiming comparison.
+
+The checked-in JSON contains per-run summaries. Historical raw frame timings
+and presentation timestamps were not retained, so its percentiles cannot be
+recomputed from that file; rerun the harness to collect a new comparison.
+
 ## Results
 
 [Full measurements](chat_scroll_results.json) compare upstream `0e2e000b`
