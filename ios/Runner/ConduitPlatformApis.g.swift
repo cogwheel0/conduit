@@ -1248,6 +1248,10 @@ struct PlatformNativeSheetOption: Hashable, CustomStringConvertible {
   var showBranch: Bool
   var hasMoreSiblings: Bool
   var filterGroup: String? = nil
+  /// Colours (ARGB) that preview the option, such as a palette's, in light
+  /// and dark appearance. Null for an ordinary option.
+  var swatchesArgb: [Int64]? = nil
+  var darkSwatchesArgb: [Int64]? = nil
 
 
   // swift-format-ignore: AlwaysUseLowerCamelCase
@@ -1262,6 +1266,8 @@ struct PlatformNativeSheetOption: Hashable, CustomStringConvertible {
     let showBranch = pigeonVar_list[7] as! Bool
     let hasMoreSiblings = pigeonVar_list[8] as! Bool
     let filterGroup: String? = nilOrValue(pigeonVar_list[9])
+    let swatchesArgb: [Int64]? = nilOrValue(pigeonVar_list[10])
+    let darkSwatchesArgb: [Int64]? = nilOrValue(pigeonVar_list[11])
 
     return PlatformNativeSheetOption(
       id: id,
@@ -1273,7 +1279,9 @@ struct PlatformNativeSheetOption: Hashable, CustomStringConvertible {
       ancestorHasMoreSiblings: ancestorHasMoreSiblings,
       showBranch: showBranch,
       hasMoreSiblings: hasMoreSiblings,
-      filterGroup: filterGroup
+      filterGroup: filterGroup,
+      swatchesArgb: swatchesArgb,
+      darkSwatchesArgb: darkSwatchesArgb
     )
   }
   func toList() -> [Any?] {
@@ -1288,13 +1296,15 @@ struct PlatformNativeSheetOption: Hashable, CustomStringConvertible {
       showBranch,
       hasMoreSiblings,
       filterGroup,
+      swatchesArgb,
+      darkSwatchesArgb,
     ]
   }
   static func == (lhs: PlatformNativeSheetOption, rhs: PlatformNativeSheetOption) -> Bool {
     if Swift.type(of: lhs) != Swift.type(of: rhs) {
       return false
     }
-    return ConduitPlatformApisPigeonInternal.deepEquals(lhs.id, rhs.id) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.label, rhs.label) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.subtitle, rhs.subtitle) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.sfSymbol, rhs.sfSymbol) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.enabled, rhs.enabled) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.destructive, rhs.destructive) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.ancestorHasMoreSiblings, rhs.ancestorHasMoreSiblings) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.showBranch, rhs.showBranch) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.hasMoreSiblings, rhs.hasMoreSiblings) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.filterGroup, rhs.filterGroup)
+    return ConduitPlatformApisPigeonInternal.deepEquals(lhs.id, rhs.id) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.label, rhs.label) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.subtitle, rhs.subtitle) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.sfSymbol, rhs.sfSymbol) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.enabled, rhs.enabled) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.destructive, rhs.destructive) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.ancestorHasMoreSiblings, rhs.ancestorHasMoreSiblings) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.showBranch, rhs.showBranch) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.hasMoreSiblings, rhs.hasMoreSiblings) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.filterGroup, rhs.filterGroup) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.swatchesArgb, rhs.swatchesArgb) && ConduitPlatformApisPigeonInternal.deepEquals(lhs.darkSwatchesArgb, rhs.darkSwatchesArgb)
   }
 
   func hash(into hasher: inout Hasher) {
@@ -1309,10 +1319,12 @@ struct PlatformNativeSheetOption: Hashable, CustomStringConvertible {
     ConduitPlatformApisPigeonInternal.deepHash(value: showBranch, hasher: &hasher)
     ConduitPlatformApisPigeonInternal.deepHash(value: hasMoreSiblings, hasher: &hasher)
     ConduitPlatformApisPigeonInternal.deepHash(value: filterGroup, hasher: &hasher)
+    ConduitPlatformApisPigeonInternal.deepHash(value: swatchesArgb, hasher: &hasher)
+    ConduitPlatformApisPigeonInternal.deepHash(value: darkSwatchesArgb, hasher: &hasher)
   }
 
   public var description: String {
-    return "PlatformNativeSheetOption(id: \(String(describing: id)), label: \(String(describing: label)), subtitle: \(String(describing: subtitle)), sfSymbol: \(String(describing: sfSymbol)), enabled: \(String(describing: enabled)), destructive: \(String(describing: destructive)), ancestorHasMoreSiblings: \(String(describing: ancestorHasMoreSiblings)), showBranch: \(String(describing: showBranch)), hasMoreSiblings: \(String(describing: hasMoreSiblings)), filterGroup: \(String(describing: filterGroup)))"
+    return "PlatformNativeSheetOption(id: \(String(describing: id)), label: \(String(describing: label)), subtitle: \(String(describing: subtitle)), sfSymbol: \(String(describing: sfSymbol)), enabled: \(String(describing: enabled)), destructive: \(String(describing: destructive)), ancestorHasMoreSiblings: \(String(describing: ancestorHasMoreSiblings)), showBranch: \(String(describing: showBranch)), hasMoreSiblings: \(String(describing: hasMoreSiblings)), filterGroup: \(String(describing: filterGroup)), swatchesArgb: \(String(describing: swatchesArgb)), darkSwatchesArgb: \(String(describing: darkSwatchesArgb)))"
   }
 }
 

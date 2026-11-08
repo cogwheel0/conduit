@@ -1158,12 +1158,20 @@ class NativeSheetOptionConfig {
     this.showBranch = false,
     this.hasMoreSiblings = false,
     this.filterGroup,
+    this.swatches,
+    this.darkSwatches,
   });
 
   final String id;
   final String label;
   final String? subtitle;
   final String? sfSymbol;
+
+  /// Colours (ARGB) that preview the option, such as a palette's, shown as
+  /// small discs beside its label in light appearance; [darkSwatches] in
+  /// dark. Null for an ordinary option.
+  final List<int>? swatches;
+  final List<int>? darkSwatches;
   final bool enabled;
   final bool destructive;
   final List<bool> ancestorHasMoreSiblings;
@@ -1185,6 +1193,8 @@ class NativeSheetOptionConfig {
       'ancestorHasMoreSiblings': ancestorHasMoreSiblings,
       'showBranch': showBranch,
       'hasMoreSiblings': hasMoreSiblings,
+      if (swatches != null) 'swatches': swatches,
+      if (darkSwatches != null) 'darkSwatches': darkSwatches,
     };
   }
 }
@@ -1498,6 +1508,8 @@ extension on NativeSheetOptionConfig {
       showBranch: showBranch,
       hasMoreSiblings: hasMoreSiblings,
       filterGroup: filterGroup,
+      swatchesArgb: swatches,
+      darkSwatchesArgb: darkSwatches,
     );
   }
 }

@@ -159,6 +159,15 @@ private struct NativeSheetOption {
     let ancestorHasMoreSiblings: [Bool]
     let showBranch: Bool
     let hasMoreSiblings: Bool
+    /// The option's colours in light and in dark appearance, for a palette
+    /// that previews itself as swatches; empty for any other option.
+    let swatches: [UIColor]
+    let darkSwatches: [UIColor]
+
+    /// The swatches for the appearance the sheet shows.
+    var currentSwatches: [UIColor] {
+        NativeSheetTheme.shared.isDark && !darkSwatches.isEmpty ? darkSwatches : swatches
+    }
 
     init?(_ payload: [String: Any]) {
         guard
@@ -179,6 +188,13 @@ private struct NativeSheetOption {
         ancestorHasMoreSiblings = (payload["ancestorHasMoreSiblings"] as? [Bool]) ?? []
         showBranch = payload["showBranch"] as? Bool ?? false
         hasMoreSiblings = payload["hasMoreSiblings"] as? Bool ?? false
+        swatches = Self.colors(payload["swatches"])
+        darkSwatches = Self.colors(payload["darkSwatches"])
+    }
+
+    private static func colors(_ raw: Any?) -> [UIColor] {
+        guard let values = raw as? [NSNumber] else { return [] }
+        return values.map { nativeSheetColor($0.int64Value) }
     }
 }
 
@@ -326,8 +342,12 @@ private extension NativeSheetItem {
     }
 
     var selectedOptionLabel: String? {
+        selectedOption?.label
+    }
+
+    var selectedOption: NativeSheetOption? {
         guard let selectedOptionId else { return nil }
-        return options.first(where: { $0.id == selectedOptionId })?.label
+        return options.first(where: { $0.id == selectedOptionId })
     }
 
     var sourceDisplayUrl: String? {
@@ -1015,6 +1035,8 @@ private extension PlatformNativeSheetOption {
         payload["subtitle"] = subtitle
         payload["sfSymbol"] = sfSymbol
         payload["filterGroup"] = filterGroup
+        payload["swatches"] = swatchesArgb?.map { NSNumber(value: $0) }
+        payload["darkSwatches"] = darkSwatchesArgb?.map { NSNumber(value: $0) }
         return payload
     }
 }
@@ -2546,16 +2568,18 @@ private func nativeInitialsAvatarUIImage(name: String, diameter: CGFloat = 250) 
 
 /// [initials] on a neutral grey disc, as iOS draws a contact without a
 /// photo and as the sidebar's profile button does: grey in both appearances,
-/// never a hue. For display only; an avatar saved to the server is drawn by
+/// never a hue. The greys are dark enough that the white initials reach
+/// 4.5:1 across the whole gradient (SidebarMonogramColors in Dart matches).
+/// For display only; an avatar saved to the server is drawn by
 /// `nativeInitialsAvatarUIImage`, which Open WebUI's own clients match.
 func nativeMonogramUIImage(initials: String, diameter: CGFloat) -> UIImage {
     let isDark = NativeSheetTheme.shared.isDark
     let top = isDark
-        ? UIColor(red: 0x85 / 255, green: 0x85 / 255, blue: 0x8B / 255, alpha: 1)
-        : UIColor(red: 0xAD / 255, green: 0xAD / 255, blue: 0xB3 / 255, alpha: 1)
+        ? UIColor(red: 0x6A / 255, green: 0x6A / 255, blue: 0x6F / 255, alpha: 1)
+        : UIColor(red: 0x73 / 255, green: 0x73 / 255, blue: 0x78 / 255, alpha: 1)
     let bottom = isDark
-        ? UIColor(red: 0x63 / 255, green: 0x63 / 255, blue: 0x68 / 255, alpha: 1)
-        : UIColor(red: 0x8E / 255, green: 0x8E / 255, blue: 0x93 / 255, alpha: 1)
+        ? UIColor(red: 0x4E / 255, green: 0x4E / 255, blue: 0x53 / 255, alpha: 1)
+        : UIColor(red: 0x5A / 255, green: 0x5A / 255, blue: 0x5F / 255, alpha: 1)
     let size = CGSize(width: diameter, height: diameter)
     return UIGraphicsImageRenderer(size: size).image { ctx in
         let rect = CGRect(origin: .zero, size: size)
@@ -3577,7 +3601,10 @@ private final class NativeProfileMenuTableViewController: UITableViewController 
         cell.selectionStyle = .default
         NativeSheetSettingsStyle.applyCellStyle(cell)
 
-        let avatar = NativeAvatarView(profile: configuration.profile, diameter: 56)
+        let avatar = NativeAvatarView(
+            profile: configuration.profile,
+            diameter: profileAvatarDiameter
+        )
 
         let titleLabel = UILabel()
         titleLabel.text = item.title
@@ -3613,6 +3640,15 @@ private final class NativeProfileMenuTableViewController: UITableViewController 
             row.topAnchor.constraint(equalTo: cell.contentView.topAnchor, constant: 11),
             row.bottomAnchor.constraint(equalTo: cell.contentView.bottomAnchor, constant: -11),
         ])
+        // The line under the card starts at the name, past the picture, and
+        // ends at the trailing margin, as the rows under it do.
+        cell.separatorInset = UIEdgeInsets(
+            top: 0,
+            left: NativeSheetSettingsStyle.horizontalMargin + profileAvatarDiameter
+                + NativeSheetSettingsStyle.iconSpacing,
+            bottom: 0,
+            right: NativeSheetSettingsStyle.horizontalMargin
+        )
     }
 
     private func closeButton() -> UIBarButtonItem {
@@ -3623,11 +3659,19 @@ private final class NativeProfileMenuTableViewController: UITableViewController 
     }
 }
 
+/// The Settings card's picture.
+private let profileAvatarDiameter: CGFloat = 56
+
 /// A row whose choice is a segmented control: its symbol and title on one
 /// line, as every other settings row has them, and the control under the
 /// title, so the title and the control share the titles' leading edge.
 private final class NativeSheetSegmentTableViewCell: UITableViewCell {
     static let reuseId = "NativeSheetSegmentTableViewCell"
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        NativeSheetSettingsStyle.alignSeparator(of: self, toLeadingOf: textStack)
+    }
 
     private let headerStack = UIStackView()
     private let iconView = UIImageView()
@@ -3735,6 +3779,11 @@ private final class NativeSheetSegmentTableViewCell: UITableViewCell {
 
 private final class NativeSheetDropdownTableViewCell: UITableViewCell {
     static let reuseId = "NativeSheetDropdownTableViewCell"
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        NativeSheetSettingsStyle.alignSeparator(of: self, toLeadingOf: textStack)
+    }
 
     private let rootStack = UIStackView()
     private let headerStack = UIStackView()
@@ -4385,6 +4434,11 @@ private final class NativeSheetLinkChipButton: UIButton {
 private final class NativeSheetSourceTableViewCell: UITableViewCell {
     static let reuseId = "NativeSheetSourceTableViewCell"
 
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        NativeSheetSettingsStyle.alignSeparator(of: self, toLeadingOf: textStack)
+    }
+
     private let rootStack = UIStackView()
     private let headerStack = UIStackView()
     private let indexLabel = UILabel()
@@ -4486,6 +4540,11 @@ private final class NativeSheetSourceTableViewCell: UITableViewCell {
 
 private final class NativeSheetStatusTableViewCell: UITableViewCell {
     static let reuseId = "NativeSheetStatusTableViewCell"
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        NativeSheetSettingsStyle.alignSeparator(of: self, toLeadingOf: contentStack)
+    }
 
     private let rootStack = UIStackView()
     private let headerStack = UIStackView()
@@ -5938,6 +5997,11 @@ extension NativeOptionsSelectorTableViewController: UISearchResultsUpdating {
 }
 
 private final class NativeModelSelectorTableViewCell: UITableViewCell {
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        NativeSheetSettingsStyle.alignSeparator(of: self, toLeadingOf: textStack)
+    }
     private let avatarView = NativeModelAvatarView(side: 32)
     private let titleLabel = UILabel()
     private let subtitleLabel = UILabel()
@@ -6086,12 +6150,18 @@ private final class NativeModelSelectorTableViewCell: UITableViewCell {
 }
 
 private final class NativeSheetOptionTableViewCell: UITableViewCell {
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        NativeSheetSettingsStyle.alignSeparator(of: self, toLeadingOf: textStack)
+    }
     private let hierarchyGuideView = NativeFolderHierarchyGuideView()
     private let iconView = UIImageView()
     private let titleLabel = UILabel()
     private let subtitleLabel = UILabel()
     private let textStack = UIStackView()
     private var hierarchyWidthConstraint: NSLayoutConstraint?
+    private var iconWidthConstraint: NSLayoutConstraint?
 
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
         super.init(style: style, reuseIdentifier: reuseIdentifier)
@@ -6116,11 +6186,18 @@ private final class NativeSheetOptionTableViewCell: UITableViewCell {
         subtitleLabel.numberOfLines = 2
         subtitleLabel.isHidden = option.subtitle == nil || option.subtitle?.isEmpty == true
 
-        if let sfSymbol = option.sfSymbol, !sfSymbol.isEmpty {
+        let swatch = nativePaletteSwatchImage(option.currentSwatches)
+        if let swatch {
+            iconView.image = swatch
+        } else if let sfSymbol = option.sfSymbol, !sfSymbol.isEmpty {
             iconView.image = UIImage(systemName: sfSymbol)
         } else {
             iconView.image = nil
         }
+        // Swatches take their own width; a symbol keeps the symbol column.
+        iconWidthConstraint?.constant = swatch.map { max($0.size.width, NativeSheetSettingsStyle.iconSize) }
+            ?? NativeSheetSettingsStyle.iconSize
+        iconView.contentMode = swatch == nil ? .scaleAspectFit : .center
         iconView.tintColor = tintColor
 
         hierarchyGuideView.configure(
@@ -6175,6 +6252,10 @@ private final class NativeSheetOptionTableViewCell: UITableViewCell {
 
         hierarchyWidthConstraint = hierarchyGuideView.widthAnchor.constraint(equalToConstant: 0)
         hierarchyWidthConstraint?.isActive = true
+        iconWidthConstraint = iconView.widthAnchor.constraint(
+            equalToConstant: NativeSheetSettingsStyle.iconSize
+        )
+        iconWidthConstraint?.isActive = true
 
         NSLayoutConstraint.activate([
             hierarchyGuideView.leadingAnchor.constraint(
@@ -6185,7 +6266,6 @@ private final class NativeSheetOptionTableViewCell: UITableViewCell {
 
             iconView.leadingAnchor.constraint(equalTo: hierarchyGuideView.trailingAnchor),
             iconView.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
-            iconView.widthAnchor.constraint(equalToConstant: NativeSheetSettingsStyle.iconSize),
             iconView.heightAnchor.constraint(equalToConstant: NativeSheetSettingsStyle.iconSize),
 
             textStack.leadingAnchor.constraint(
@@ -7432,14 +7512,16 @@ private func configureNavigationCell(
             height: assetSize
         )
     }
+    content.textProperties.font = .preferredFont(forTextStyle: .body)
     if item.destructive {
         content.textProperties.color = NativeSheetTheme.shared.destructive
         content.imageProperties.tintColor = NativeSheetTheme.shared.destructive
     } else if item.accent {
+        // An action row (Add Account) reads as one by its label's weight;
+        // its symbol keeps the tint and size every row's symbol has.
         content.textProperties.color = NativeSheetTheme.shared.accent
-        content.imageProperties.tintColor = NativeSheetTheme.shared.accent
+        content.textProperties.font = NativeSheetSettingsStyle.actionTitleFont
     }
-    content.textProperties.font = .preferredFont(forTextStyle: .body)
     if showsValue {
         content.secondaryTextProperties.font = .preferredFont(forTextStyle: .body)
         content.secondaryTextProperties.numberOfLines = 1
@@ -7455,8 +7537,25 @@ private func configureNavigationCell(
         content.secondaryTextProperties.numberOfLines = 0
         content.secondaryTextProperties.lineBreakMode = .byWordWrapping
     }
+    // A palette shows its colours beside its name, so the row says what the
+    // palette looks like, not only what it is called.
+    var swatchedValue: String?
+    if showsValue,
+       let selected = item.selectedOption,
+       let swatch = nativePaletteSwatchImage(selected.currentSwatches) {
+        swatchedValue = selected.label
+        content.secondaryAttributedText = nativeSwatchedText(
+            swatch,
+            selected.label,
+            font: content.secondaryTextProperties.font,
+            color: content.secondaryTextProperties.color
+        )
+    }
     cell.contentConfiguration = content
     applyTextAccessibilityLabel(to: cell, from: content)
+    if let swatchedValue {
+        cell.accessibilityLabel = [item.title, swatchedValue].joined(separator: ", ")
+    }
     if item.checked {
         // The check takes the accent the sheet tints its views with.
         cell.accessoryType = .checkmark

@@ -313,6 +313,8 @@ class PlatformNativeSheetOption {
     required this.showBranch,
     required this.hasMoreSiblings,
     this.filterGroup,
+    this.swatchesArgb,
+    this.darkSwatchesArgb,
   });
 
   String id;
@@ -326,6 +328,11 @@ class PlatformNativeSheetOption {
   bool hasMoreSiblings;
 
   String? filterGroup;
+
+  /// Colours (ARGB) that preview the option, such as a palette's, in light
+  /// and dark appearance. Null for an ordinary option.
+  List<int>? swatchesArgb;
+  List<int>? darkSwatchesArgb;
 }
 
 class PlatformNativeSheetTheme {

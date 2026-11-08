@@ -1,6 +1,6 @@
 import UIKit
 
-private func nativeSheetColor(_ argb: Int64) -> UIColor {
+func nativeSheetColor(_ argb: Int64) -> UIColor {
     let value = UInt64(bitPattern: argb)
     return UIColor(
         red: CGFloat((value >> 16) & 0xff) / 255,
@@ -279,7 +279,13 @@ enum NativeSheetSettingsStyle {
     static func apply(to tableView: UITableView) {
         tableView.keyboardDismissMode = .interactive
         tableView.backgroundColor = NativeSheetTheme.shared.background
-        tableView.separatorStyle = .none
+        // The system hairline between rows, starting at the row text: list
+        // content rows align it themselves, custom rows through
+        // `alignSeparator(of:toLeadingOf:)`. Inset-grouped sections draw
+        // none under their last row, so a single-row group has no line.
+        tableView.separatorStyle = .singleLine
+        tableView.separatorColor = .separator
+        tableView.separatorInsetReference = .fromCellEdges
         tableView.estimatedRowHeight = defaultCellHeight
         tableView.rowHeight = UITableView.automaticDimension
         tableView.estimatedSectionHeaderHeight = 20
@@ -338,10 +344,111 @@ enum NativeSheetSettingsStyle {
         cell.selectedBackgroundView = selectedBackground
     }
 
+    /// Starts [cell]'s separator where [text] starts, as a list content
+    /// configuration's separator does, so a custom row's hairline meets its
+    /// title rather than its symbol or picture. Call from `layoutSubviews`,
+    /// after `super`.
+    static func alignSeparator(of cell: UITableViewCell, toLeadingOf text: UIView) {
+        guard text.isDescendant(of: cell), !text.isHidden else { return }
+        let frame = text.convert(text.bounds, to: cell)
+        let leading = cell.effectiveUserInterfaceLayoutDirection == .rightToLeft
+            ? cell.bounds.width - frame.maxX
+            : frame.minX
+        guard leading.isFinite, leading >= 0 else { return }
+        // The line ends at the row's trailing margin, as a list content
+        // row's does on iOS 26.
+        let trailing = horizontalMargin
+        if abs(cell.separatorInset.left - leading) > 0.5
+            || abs(cell.separatorInset.right - trailing) > 0.5 {
+            cell.separatorInset = UIEdgeInsets(
+                top: 0,
+                left: leading,
+                bottom: 0,
+                right: trailing
+            )
+        }
+    }
+
+    /// The body font at a medium weight, scaled with Dynamic Type: the label
+    /// of an action row (Add Account), which reads as an action by weight
+    /// while its symbol keeps every row's tint.
+    static var actionTitleFont: UIFont {
+        // 17 pt is the body size at the default text size; the metrics
+        // scale it with Dynamic Type as the body style scales.
+        UIFontMetrics(forTextStyle: .body).scaledFont(
+            for: .systemFont(ofSize: 17, weight: .medium)
+        )
+    }
+
     static func applyHeaderFooterStyle(_ view: UIView) {
         guard let headerFooter = view as? UITableViewHeaderFooterView else { return }
         headerFooter.textLabel?.font = .preferredFont(forTextStyle: .footnote)
         headerFooter.textLabel?.textColor = secondaryForeground
         headerFooter.textLabel?.numberOfLines = 0
     }
+}
+
+/// A palette's colours as small overlapping discs, the way a palette picker
+/// previews one: each disc is ringed in the row's surface so the overlaps
+/// read, and outlined in the separator tone so a disc the colour of the
+/// surface (a white page on a white row) still shows. The first colour sits
+/// on top.
+func nativePaletteSwatchImage(
+    _ colors: [UIColor],
+    discDiameter: CGFloat = 14
+) -> UIImage? {
+    guard !colors.isEmpty else { return nil }
+    let theme = NativeSheetTheme.shared
+    // A little stronger than a separator, so a disc the colour of the row
+    // keeps its edge.
+    let outline = theme.foreground.withAlphaComponent(theme.isDark ? 0.28 : 0.16)
+    let ring: CGFloat = 1.5
+    let step = discDiameter * 0.62
+    let size = CGSize(
+        width: discDiameter + step * CGFloat(colors.count - 1) + ring * 2,
+        height: discDiameter + ring * 2
+    )
+    let image = UIGraphicsImageRenderer(size: size).image { context in
+        let cg = context.cgContext
+        for (index, color) in colors.enumerated().reversed() {
+            let disc = CGRect(
+                x: ring + step * CGFloat(index),
+                y: ring,
+                width: discDiameter,
+                height: discDiameter
+            )
+            cg.setFillColor(theme.surface.cgColor)
+            cg.fillEllipse(in: disc.insetBy(dx: -ring, dy: -ring))
+            cg.setFillColor(color.cgColor)
+            cg.fillEllipse(in: disc)
+            let hairline = 1 / max(UIScreen.main.scale, 1)
+            cg.setStrokeColor(outline.cgColor)
+            cg.setLineWidth(hairline)
+            cg.strokeEllipse(in: disc.insetBy(dx: hairline / 2, dy: hairline / 2))
+        }
+    }
+    return image.withRenderingMode(.alwaysOriginal)
+}
+
+/// [text] led by [swatch], centred on the text's cap height, for a value
+/// cell that shows a palette by its colours and its name.
+func nativeSwatchedText(
+    _ swatch: UIImage,
+    _ text: String,
+    font: UIFont,
+    color: UIColor
+) -> NSAttributedString {
+    let attachment = NSTextAttachment(image: swatch)
+    attachment.bounds = CGRect(
+        x: 0,
+        y: (font.capHeight - swatch.size.height) / 2,
+        width: swatch.size.width,
+        height: swatch.size.height
+    )
+    let result = NSMutableAttributedString(attachment: attachment)
+    result.append(NSAttributedString(
+        string: "\u{2002}" + text,
+        attributes: [.font: font, .foregroundColor: color]
+    ))
+    return result
 }
