@@ -3,6 +3,9 @@ import 'dart:typed_data';
 
 import 'package:uuid/uuid.dart';
 
+import 'package:conduit_core/database/chat_database_repository.dart'
+    show kChatStorageKindMetadataKey;
+import 'package:conduit_core/features/librechat/models/librechat_transport.dart';
 import 'package:conduit_core/models/chat_comparison.dart';
 import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/models/message_voice.dart';
@@ -66,7 +69,7 @@ Map<String, dynamic> parseConversationSummary(Map<String, dynamic> chatData) {
     'chatParams': _chatParams(chatObject),
     'messages': const <Map<String, dynamic>>[],
     'metadata': {
-      ..._coerceJsonMap(chatData['metadata']),
+      ..._withoutLibreChatProvenance(_coerceJsonMap(chatData['metadata'])),
       if (chatData['tasks'] is List) 'openwebui_tasks': chatData['tasks'],
     },
     'pinned': pinned,
@@ -211,7 +214,7 @@ Map<String, dynamic> parseFullConversation(Map<String, dynamic> chatData) {
     'chatParams': _chatParams(chatObject),
     'messages': messages,
     'metadata': {
-      ..._coerceJsonMap(chatData['metadata']),
+      ..._withoutLibreChatProvenance(_coerceJsonMap(chatData['metadata'])),
       if (chatData['tasks'] is List) 'openwebui_tasks': chatData['tasks'],
       // The full saved `chat.models` list; `model` above projects only its
       // first entry. A multi-model chat keeps one id per slot, in order.
@@ -531,6 +534,26 @@ Map<String, dynamic>? _extractErrorData(
   return null;
 }
 
+/// [metadata] without LibreChat-owned keys or a LibreChat backend marker,
+/// which only a LibreChat sync may write, and without a claim on the store
+/// the chat lives in, which only the app's own loads may stamp.
+Map<String, dynamic> _withoutLibreChatProvenance(
+  Map<String, dynamic> metadata,
+) {
+  if (metadata['backend'] != kLibreChatTransport &&
+      !metadata.keys.any(isLibreChatMetadataKey) &&
+      !metadata.containsKey(kChatStorageKindMetadataKey)) {
+    return metadata;
+  }
+  return <String, dynamic>{
+    for (final entry in metadata.entries)
+      if (!isLibreChatMetadataKey(entry.key) &&
+          entry.key != kChatStorageKindMetadataKey &&
+          !(entry.key == 'backend' && entry.value == kLibreChatTransport))
+        entry.key: entry.value,
+  };
+}
+
 Map<String, dynamic>? _extractOpenWebUiMessageMetadata(
   Map<String, dynamic> msgData, {
   Map<String, dynamic>? historyMsg,
@@ -547,6 +570,12 @@ Map<String, dynamic>? _extractOpenWebUiMessageMetadata(
     (key, _) => key.toString().toLowerCase().startsWith('hermes'),
   );
   if (metadata['transport'] == 'hermesRun') {
+    metadata.remove('transport');
+  }
+  // Nor LibreChat ones: its stop, regenerate and approval routes follow the
+  // same markers.
+  metadata.removeWhere((key, _) => isLibreChatMetadataKey(key));
+  if (metadata['transport'] == kLibreChatTransport) {
     metadata.remove('transport');
   }
 

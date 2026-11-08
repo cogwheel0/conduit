@@ -306,15 +306,14 @@ class Conversations extends _$Conversations {
       _folderConversationRefreshTickProvider.notifier,
     );
     // Local-only direct chats are already live through Drift. Refresh the
-    // optional Open WebUI side when it is available.
-    if (ref.read(appDatabaseProvider) != null &&
-        ref.read(isAuthenticatedProvider2)) {
-      final syncEngine = ref.read(syncEngineProvider.notifier);
-      await syncEngine.requestPull(reason: 'refresh');
+    // account side when it is available.
+    final sync = ref.read(primarySyncProvider);
+    if (sync.canSync) {
+      await sync.requestPull(reason: 'refresh');
       // A normal pull uses the 24-hour background deletion throttle. A user
       // initiated refresh must also run the unthrottled reconcile so chats
-      // deleted from another Open WebUI client disappear immediately.
-      await syncEngine.reconcileNow();
+      // deleted from another client disappear immediately.
+      await sync.reconcileNow();
     }
     folderConversationRefresh.bumpIfMounted();
   }
@@ -373,12 +372,15 @@ class Conversations extends _$Conversations {
     // The caller already confirmed any required remote deletion. Drop the row
     // from the database that owns it. Local-only direct chats never touch the
     // active Open WebUI database or its outbox.
+    final storage = chatStorageKindOf(removedConversation) ?? identity.storage;
     final directLocal =
         isDirectLocalConversation(removedConversation) ||
         (removedConversation == null &&
             identity.storage == ChatStorageKind.directLocal);
     final db = directLocal
         ? ref.read(directLocalDatabaseProvider)
+        : storage == ChatStorageKind.libreChat
+        ? ref.read(chatDatabaseRepositoryProvider).libreChatLocation?.database
         : ref.read(appDatabaseProvider);
     final rawId = identity.rawId;
     if (db == null || isTemporaryChat(rawId)) return;
@@ -512,8 +514,13 @@ class Conversations extends _$Conversations {
     final directLocal =
         isDirectLocalConversation(target) ||
         (target == null && identity.storage == ChatStorageKind.directLocal);
+    final libreChat =
+        isLibreChatConversation(target) ||
+        (target == null && identity.storage == ChatStorageKind.libreChat);
     final db = directLocal
         ? ref.read(directLocalDatabaseProvider)
+        : libreChat
+        ? ref.read(chatDatabaseRepositoryProvider).libreChatLocation?.database
         : ref.read(appDatabaseProvider);
     final rawId = identity.rawId;
     if (db == null || isTemporaryChat(rawId)) return;
@@ -572,7 +579,8 @@ class Conversations extends _$Conversations {
   void applyServerTasks(String serverId, List<Map<String, dynamic>> tasks) {
     final identity = ChatStorageIdentity.parse(serverId);
     if (identity.rawId.isEmpty ||
-        identity.storage == ChatStorageKind.directLocal) {
+        identity.storage == ChatStorageKind.directLocal ||
+        identity.storage == ChatStorageKind.libreChat) {
       return;
     }
     final scopedId = ChatStorageIdentity(
@@ -621,6 +629,7 @@ class Conversations extends _$Conversations {
     if (rawId.isEmpty ||
         normalizedTitle.isEmpty ||
         identity.storage == ChatStorageKind.directLocal ||
+        identity.storage == ChatStorageKind.libreChat ||
         isTemporaryChat(rawId)) {
       return;
     }
@@ -1021,7 +1030,9 @@ void markConversationRead(
   } catch (_) {}
 
   if (isDirectLocalConversation(targetConversation) ||
+      isLibreChatConversation(targetConversation) ||
       identity.storage == ChatStorageKind.directLocal ||
+      identity.storage == ChatStorageKind.libreChat ||
       (identity.storage == null && id.startsWith('direct-local:'))) {
     return;
   }

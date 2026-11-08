@@ -13,6 +13,8 @@ import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/providers/host_ports.dart';
 import 'package:conduit_core/services/connectivity_service.dart';
+import 'package:conduit_core/sync/primary_sync.dart';
+import 'package:conduit_core/sync/primary_sync_provider.dart';
 import 'package:conduit_core/sync/pull_sync.dart';
 import 'package:conduit_core/sync/sync_api_client.dart';
 import 'package:conduit_core/sync/sync_engine.dart';
@@ -78,6 +80,35 @@ class _RecordingSyncEngine extends SyncEngine {
   Future<void> drainOutbox() async {
     drains.add('outbox');
   }
+}
+
+/// Another account's sync standing in as the primary one.
+final class _RecordingPrimarySync implements PrimarySync {
+  _RecordingPrimarySync(this.pulls, this.drains);
+
+  final List<String> pulls;
+  final List<String> drains;
+
+  @override
+  bool get canSync => true;
+
+  @override
+  Future<PullResult?> requestPull({required String reason}) {
+    pulls.add('primary:$reason');
+    return Future.value(null);
+  }
+
+  @override
+  Future<void> drainNow() async => drains.add('primary:now');
+
+  @override
+  Future<void> drainOutbox() async => drains.add('primary:outbox');
+
+  @override
+  Future<void> reconcileNow() async {}
+
+  @override
+  Future<Conversation?> pullChatNow(String chatId) async => null;
 }
 
 void main() {
@@ -445,6 +476,70 @@ void main() {
 
         container.dispose();
       });
+    });
+  });
+
+  group('primary sync', () {
+    test('the triggers reach whichever sync owns the Chats tab', () async {
+      final primaryPulls = <String>[];
+      final primaryDrains = <String>[];
+      final container = ProviderContainer(
+        overrides: [
+          appLifecycleProvider.overrideWithValue(lifecycle),
+          isAuthenticatedProvider2.overrideWith(
+            (ref) => ref.watch(_authProvider),
+          ),
+          isOnlineProvider.overrideWith((ref) => ref.watch(_onlineProvider)),
+          appDatabaseProvider.overrideWith((ref) => ref.watch(_dbProvider)),
+          syncApiClientProvider.overrideWith(
+            (ref) => ref.watch(_clientProvider),
+          ),
+          syncEngineProvider.overrideWith(
+            () => _RecordingSyncEngine(pulls, drains),
+          ),
+          primarySyncProvider.overrideWithValue(
+            _RecordingPrimarySync(primaryPulls, primaryDrains),
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+      materializeReadiness(container);
+
+      container.read(syncTriggersProvider);
+      container.read(_dbProvider.notifier).set(db);
+      container.read(_clientProvider.notifier).set(client);
+      container.read(_authProvider.notifier).set(true);
+      await flushMicrotasks();
+      container.read(_onlineProvider.notifier).set(false);
+      await flushMicrotasks();
+      container.read(_onlineProvider.notifier).set(true);
+      await flushMicrotasks();
+
+      check(primaryPulls).contains('primary:start');
+      check(primaryPulls).contains('primary:online');
+      check(primaryDrains).deepEquals(['primary:now']);
+      // Open WebUI's engine is not the primary here, so it hears nothing.
+      check(pulls).isEmpty();
+      check(drains).isEmpty();
+    });
+
+    test('is Open WebUI\'s engine by default', () {
+      final container = makeContainer();
+      check(
+        container.read(primarySyncProvider),
+      ).identicalTo(container.read(syncEngineProvider.notifier));
+    });
+
+    test('cannot sync without a client to sync through', () async {
+      final container = makeContainer();
+      container.read(_dbProvider.notifier).set(db);
+      container.read(_authProvider.notifier).set(true);
+      await flushMicrotasks();
+      check(container.read(primarySyncProvider).canSync).isFalse();
+
+      container.read(_clientProvider.notifier).set(client);
+      await flushMicrotasks();
+      check(container.read(primarySyncProvider).canSync).isTrue();
     });
   });
 }
