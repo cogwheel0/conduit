@@ -2248,7 +2248,7 @@
   "@signInWithSso": {
     "description": "Button text for SSO sign-in."
   },
-  "ssoAuthenticating": "Ověřování...",
+  "ssoAuthenticating": "Přihlašování…",
   "@ssoAuthenticating": {
     "description": "Loading message during SSO authentication."
   },
@@ -2256,7 +2256,7 @@
   "@ssoAuthFailed": {
     "description": "Error message when SSO authentication fails."
   },
-  "ssoLoadingLogin": "Načítání přihlašovací stránky...",
+  "ssoLoadingLogin": "Načítání přihlašovací stránky…",
   "@ssoLoadingLogin": {
     "description": "Loading message while SSO login page loads."
   },
@@ -2300,7 +2300,7 @@
   "@proxyAuthPlatformNotSupported": {
     "description": "Error message when proxy auth is attempted on an unsupported platform."
   },
-  "proxyAuthLoading": "Načítání ověřovací stránky...",
+  "proxyAuthLoading": "Načítání přihlašovací stránky…",
   "@proxyAuthLoading": {
     "description": "Loading message while the proxy login page loads."
   },
@@ -2312,7 +2312,7 @@
   "@proxyAuthHelpText": {
     "description": "Help text explaining how to complete proxy authentication."
   },
-  "proxyAuthHelpTextSimple": "Přihlaste se přes proxy. Po ověření pokračujte klepnutím na Pokračovat.",
+  "proxyAuthHelpTextSimple": "Na této stránce se přihlaste ke své proxy a pak se klepnutím na Pokračovat přihlaste k Open WebUI.",
   "@proxyAuthHelpTextSimple": {
     "description": "Simplified help text for proxy-only authentication flow."
   },
@@ -5056,8 +5056,6 @@
   "hermesAgentSettingsSubtitle": "Connect a self-hosted Hermes agent",
   "connectOpenWebUITitle": "Connect to Open WebUI",
   "connectOpenWebUISubtitle": "Add a self-hosted Open WebUI server",
-  "backendChooserWelcome": "Welcome to Conduit",
-  "backendChooserPrompt": "Choose how you want to connect.",
   "backendChooserOpenWebUISubtitle": "Use your self-hosted Open WebUI server with full chat, notes, and more.",
   "backendChooserHermesTitle": "Use a Hermes Agent",
   "backendChooserHermesSubtitle": "Connect directly to a self-hosted Hermes agent — no Open WebUI server needed.",
@@ -6276,5 +6274,12 @@
   "terminalPortPreviewReload": "Načíst znovu",
   "terminalPortPreviewLoadFailed": "Tuto stránku se nepodařilo načíst.",
   "modelMenuAllModels": "Všechny modely…",
-  "citationPreviewOpen": "Otevřít"
+  "citationPreviewOpen": "Otevřít",
+  "onboardingWelcomeTitle": "Vítejte v aplikaci Conduit",
+  "onboardingWelcomeSubtitle": "Chatujte s AI na vlastním serveru, v tomto zařízení nebo přes API.",
+  "backendChooserFooter": "Další připojení můžete přidat později v Nastavení.",
+  "serverAddressFooter": "Použijte adresu, kterou otevíráte ve webovém prohlížeči. Potom se přihlásíte.",
+  "signInChangeServer": "Změnit",
+  "signInContinueWithSso": "Pokračovat přes SSO",
+  "mutualTlsChooseFile": "Vybrat…"
 }
