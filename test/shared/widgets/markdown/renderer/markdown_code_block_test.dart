@@ -2,6 +2,7 @@ import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/l10n/conduit_localizations.dart';
 import 'package:conduit/shared/widgets/legacy_design_compatibility.dart';
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
+import 'package:conduit/shared/widgets/markdown/markdown_config.dart';
 import 'package:conduit/shared/widgets/markdown/renderer/block_renderer.dart';
 import 'package:conduit/shared/widgets/markdown/renderer/conduit_markdown_widget.dart';
 import 'package:conduit/shared/widgets/web_content_embed.dart';
@@ -12,7 +13,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  testWidgets('iOS code copy shows feedback without a ScaffoldMessenger', (
+  testWidgets('iOS code copy confirms in place with a light haptic', (
     tester,
   ) async {
     PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.iOS;
@@ -20,10 +21,13 @@ void main() {
     PlatformUiCapabilities.debugNativeIOS26Override = false;
     addTearDown(PlatformUiCapabilities.resetDebugOverrides);
     final copied = <String>[];
+    final haptics = <Object?>[];
     final messenger = tester.binding.defaultBinaryMessenger;
     messenger.setMockMethodCallHandler(SystemChannels.platform, (call) async {
       if (call.method == 'Clipboard.setData') {
         copied.add((call.arguments as Map)['text'] as String);
+      } else if (call.method == 'HapticFeedback.vibrate') {
+        haptics.add(call.arguments);
       }
       return null;
     });
@@ -46,13 +50,22 @@ void main() {
     await tester.pumpAndSettle();
     final context = tester.element(find.byType(ConduitMarkdownWidget));
     expect(ScaffoldMessenger.maybeOf(context), isNull);
-    final message = AppLocalizations.of(context)!.codeCopiedToClipboard;
-    await tester.tap(find.byIcon(Icons.content_copy_rounded));
-    await tester.pumpAndSettle();
-    expect(copied.single.trim(), sample);
+    final copiedLabel = AppLocalizations.of(context)!.codeCopied;
+
+    // The fenced block's trailing newline is not part of the copied code.
+    await tester.tap(find.byIcon(CupertinoIcons.doc_on_doc));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(copied.single, sample);
+    expect(haptics, ['HapticFeedbackType.lightImpact']);
     expect(tester.takeException(), isNull);
-    expect(find.text(message), findsOneWidget);
-    await tester.pump(const Duration(seconds: 2));
+    expect(find.text(copiedLabel), findsOneWidget);
+    expect(find.byIcon(CupertinoIcons.checkmark_alt), findsOneWidget);
+
+    await tester.pump(CodeBlockHeader.copiedConfirmationDuration);
+    await tester.pumpAndSettle();
+    expect(find.text(copiedLabel), findsNothing);
+    expect(find.byIcon(CupertinoIcons.doc_on_doc), findsOneWidget);
     await tester.pumpWidget(const SizedBox());
   }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
 

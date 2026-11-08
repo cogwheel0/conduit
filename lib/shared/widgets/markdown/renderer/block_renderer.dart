@@ -679,12 +679,17 @@ class BlockRenderer {
   Widget _renderCodeBlock(CompiledMarkdownElement element) {
     final codeElement = _extractCodeChild(element);
     final language = element.language;
-    final code = (codeElement ?? element).textContent;
+    final rawCode = (codeElement ?? element).textContent;
     // The code body is rendered outside the inline renderer, but it is still
     // part of the document-wide textContent that the streaming-fade offset is
     // measured against. Advance the offset so a streaming tail after this code
     // block fades the correct character range.
-    inlineRenderer.advanceVisibleTextOffset(code.length);
+    inlineRenderer.advanceVisibleTextOffset(rawCode.length);
+    // A fenced block's text ends with the newline before the closing fence;
+    // drawing it would add an empty last line below the code.
+    final code = rawCode.endsWith('\n')
+        ? rawCode.substring(0, rawCode.length - 1)
+        : rawCode;
     final blockKind = element.blockKind;
     final previewable = blockKind == CompiledMarkdownBlockKind.previewableCode;
     final inlinePreview =

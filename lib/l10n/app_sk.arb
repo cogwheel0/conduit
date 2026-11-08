@@ -6276,5 +6276,6 @@
   "terminalPortPreviewReload": "Znova načítať",
   "terminalPortPreviewLoadFailed": "Túto stránku sa nepodarilo načítať.",
   "modelMenuAllModels": "Všetky modely…",
-  "citationPreviewOpen": "Otvoriť"
+  "citationPreviewOpen": "Otvoriť",
+  "codeCopied": "Skopírované"
 }

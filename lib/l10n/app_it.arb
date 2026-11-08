@@ -4353,5 +4353,6 @@
   "terminalPortPreviewReload": "Ricarica",
   "terminalPortPreviewLoadFailed": "Impossibile caricare questa pagina.",
   "modelMenuAllModels": "Tutti i modelli…",
-  "citationPreviewOpen": "Apri"
+  "citationPreviewOpen": "Apri",
+  "codeCopied": "Copiato"
 }

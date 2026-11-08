@@ -8161,5 +8161,6 @@
   "citationPreviewOpen": "Otwórz",
   "@citationPreviewOpen": {
     "description": "Button in a citation's preview popover that opens the cited page in the browser."
-  }
+  },
+  "codeCopied": "Skopiowano"
 }
