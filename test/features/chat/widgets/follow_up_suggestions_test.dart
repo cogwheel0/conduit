@@ -1,6 +1,7 @@
 import 'dart:ui' show Tristate;
 
 import 'package:conduit/features/chat/widgets/follow_up_suggestions.dart';
+import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/shared/theme/app_theme.dart';
 import 'package:conduit/shared/theme/tweakcn_themes.dart';
 import 'package:material_ui/material_ui.dart';
@@ -9,6 +10,8 @@ import 'package:flutter_test/flutter_test.dart';
 Widget _buildHarness(Widget child, {bool disableAnimations = false}) {
   return MaterialApp(
     theme: AppTheme.light(TweakcnThemes.t3Chat),
+    localizationsDelegates: AppLocalizations.localizationsDelegates,
+    supportedLocales: AppLocalizations.supportedLocales,
     home: Scaffold(
       body: MediaQuery(
         data: MediaQueryData(disableAnimations: disableAnimations),
@@ -101,9 +104,7 @@ void main() {
     );
   });
 
-  testWidgets('highlights on press-down and clears on release', (
-    tester,
-  ) async {
+  testWidgets('highlights on press-down and clears on release', (tester) async {
     await tester.pumpWidget(
       _buildHarness(
         FollowUpSuggestionBar(
@@ -117,18 +118,20 @@ void main() {
     final highlightFinder = find.byKey(
       const ValueKey<String>('follow-up-highlight:First'),
     );
-    double highlightAlpha() =>
+    double fillAlpha() =>
         ((tester.widget<AnimatedContainer>(highlightFinder).decoration!
-                    as BoxDecoration)
+                    as ShapeDecoration)
                 .color!)
             .a;
-    expect(highlightAlpha(), 0);
+    final restAlpha = fillAlpha();
+    // At rest the row already sits on a fill, so it reads as a button.
+    expect(restAlpha, greaterThan(0));
 
     final gesture = await tester.startGesture(
       tester.getCenter(find.text('First')),
     );
     await tester.pump();
-    expect(highlightAlpha(), greaterThan(0));
+    expect(fillAlpha(), greaterThan(restAlpha));
     // Feedback lands with the finger, not after an animation.
     expect(
       tester.widget<AnimatedContainer>(highlightFinder).duration,
@@ -137,22 +140,65 @@ void main() {
 
     await gesture.up();
     await tester.pump();
-    expect(highlightAlpha(), 0);
+    expect(fillAlpha(), restAlpha);
   });
 
-  testWidgets('rows are at least 44 pt tall and show the whole suggestion', (
+  testWidgets('a heading names the group and reads as a heading', (
+    tester,
+  ) async {
+    final semantics = tester.ensureSemantics();
+    await tester.pumpWidget(
+      _buildHarness(
+        // Inside a reply's own node, as in the chat, the heading still
+        // stands alone instead of joining the reply's text.
+        Semantics(
+          container: true,
+          label: 'The reply',
+          child: FollowUpSuggestionBar(
+            suggestions: const ['First'],
+            onSelected: (_) {},
+            isBusy: false,
+          ),
+        ),
+      ),
+    );
+
+    expect(find.text('Suggestions'), findsOneWidget);
+    final data = tester
+        .getSemantics(find.text('Suggestions'))
+        .getSemanticsData();
+    expect(data.label, 'Suggestions');
+    expect(data.flagsCollection.isHeader, isTrue);
+    // The heading sits above the first suggestion, not beside it.
+    expect(
+      tester.getBottomLeft(find.text('Suggestions')).dy,
+      lessThanOrEqualTo(
+        tester
+            .getTopLeft(
+              find.byKey(const ValueKey<String>('follow-up-row:First')),
+            )
+            .dy,
+      ),
+    );
+    semantics.dispose();
+  });
+
+  testWidgets('rows are at least 44 pt tall, smaller than the reply text, and '
+      'stop after two lines while the full prompt stays readable', (
     tester,
   ) async {
     const long =
         'Give me a 30-minute wind-down routine I can follow nightly, with '
-        'step-by-step timings and what to skip on busy evenings';
+        'step-by-step timings, what to skip on busy evenings, and how to '
+        'adjust it when travelling across time zones for work';
+    String? selected;
     await tester.pumpWidget(
       _buildHarness(
         SizedBox(
           width: 320,
           child: FollowUpSuggestionBar(
             suggestions: const ['Short', long],
-            onSelected: (_) {},
+            onSelected: (value) => selected = value,
             isBusy: false,
           ),
         ),
@@ -163,39 +209,39 @@ void main() {
     expect(tester.getSize(shortRow).height, greaterThanOrEqualTo(44));
 
     final longText = tester.widget<Text>(find.text(long));
-    expect(longText.maxLines, isNull);
-    expect(longText.overflow, isNot(TextOverflow.ellipsis));
-    // Wrapped, not cut: several lines tall.
-    expect(tester.getSize(find.text(long)).height, greaterThan(50));
+    expect(longText.maxLines, 2);
+    expect(longText.overflow, TextOverflow.ellipsis);
+    // Secondary to the 17 pt answer above it.
+    expect(longText.style!.fontSize, lessThan(17));
+    final lineHeight = longText.style!.fontSize! * (longText.style!.height!);
+    expect(
+      tester.getSize(find.text(long)).height,
+      lessThanOrEqualTo(lineHeight * 2 + 1),
+    );
+
+    // VoiceOver hears, and a tap sends, the whole suggestion.
+    expect(find.bySemanticsLabel(long), findsOneWidget);
+    await tester.tap(find.text(long));
+    await tester.pump();
+    expect(selected, long);
   });
 
-  testWidgets('the reply glyph sits on the first line of a wrapped row', (
-    tester,
-  ) async {
-    const long =
-        'Suggest a simple seven-day schedule for someone aiming for an '
-        'earlier bedtime, including weekends and a nap plan';
+  testWidgets('suggestions keep an even gap between them', (tester) async {
     await tester.pumpWidget(
       _buildHarness(
-        SizedBox(
-          width: 300,
-          child: FollowUpSuggestionBar(
-            suggestions: const [long],
-            onSelected: (_) {},
-            isBusy: false,
-          ),
+        FollowUpSuggestionBar(
+          suggestions: const ['First', 'Second', 'Third'],
+          onSelected: (_) {},
+          isBusy: false,
         ),
       ),
     );
 
-    final row = find.byKey(const ValueKey<String>('follow-up-row:$long'));
-    final glyph = find.descendant(of: row, matching: find.byType(Icon));
-    final text = find.text(long);
-    final glyphCenter = tester.getCenter(glyph).dy;
-    final textTop = tester.getTopLeft(text).dy;
-    final textHeight = tester.getSize(text).height;
-    expect(textHeight, greaterThan(40));
-    // Within the first line, well above the text block's centre.
-    expect(glyphCenter, lessThan(textTop + 24));
+    Rect rowRect(String label) =>
+        tester.getRect(find.byKey(ValueKey<String>('follow-up-row:$label')));
+    final gap1 = rowRect('Second').top - rowRect('First').bottom;
+    final gap2 = rowRect('Third').top - rowRect('Second').bottom;
+    expect(gap1, FollowUpSuggestionBar.rowGap);
+    expect(gap2, FollowUpSuggestionBar.rowGap);
   });
 }

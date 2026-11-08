@@ -8187,5 +8187,7 @@
   "composerShowKeyboard": "Pokaż klawiaturę",
   "composerAttachUploads": "Przesłane",
   "supportConduitFooter": "Conduit jest darmowy i open source. Twoje wsparcie pomaga, by tak zostało.",
-  "aiMemoryFooter": "Twój prompt systemowy kieruje każdym czatem. Pamięć pozwala asystentowi zapamiętywać informacje z rozmów."
+  "aiMemoryFooter": "Twój prompt systemowy kieruje każdym czatem. Pamięć pozwala asystentowi zapamiętywać informacje z rozmów.",
+  "composerAttachServerFiles": "Pliki na serwerze",
+  "followUpSuggestionsHeading": "Sugestie"
 }

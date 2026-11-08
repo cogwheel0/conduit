@@ -4385,5 +4385,7 @@
   "composerShowKeyboard": "Afficher le clavier",
   "composerAttachUploads": "Importés",
   "supportConduitFooter": "Conduit est gratuit et open source. Votre soutien l’aide à le rester.",
-  "aiMemoryFooter": "Votre prompt système guide chaque discussion. La mémoire permet à l’assistant de se souvenir de ce que vous lui avez dit."
+  "aiMemoryFooter": "Votre prompt système guide chaque discussion. La mémoire permet à l’assistant de se souvenir de ce que vous lui avez dit.",
+  "composerAttachServerFiles": "Fichiers du serveur",
+  "followUpSuggestionsHeading": "Suggestions"
 }

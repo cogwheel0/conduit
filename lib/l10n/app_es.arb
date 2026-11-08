@@ -4385,5 +4385,7 @@
   "composerShowKeyboard": "Mostrar teclado",
   "composerAttachUploads": "Subidos",
   "supportConduitFooter": "Conduit es gratuito y de código abierto. Tu apoyo ayuda a que siga así.",
-  "aiMemoryFooter": "Tu prompt del sistema guía cada chat. La memoria permite al asistente recordar lo que le has contado."
+  "aiMemoryFooter": "Tu prompt del sistema guía cada chat. La memoria permite al asistente recordar lo que le has contado.",
+  "composerAttachServerFiles": "Archivos del servidor",
+  "followUpSuggestionsHeading": "Sugerencias"
 }

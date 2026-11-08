@@ -4385,5 +4385,7 @@
   "composerShowKeyboard": "顯示鍵盤",
   "composerAttachUploads": "已上傳",
   "supportConduitFooter": "Conduit 免費且開源。您的支持讓它得以延續。",
-  "aiMemoryFooter": "您的系統提示詞會作用於每個聊天。記憶讓助手記住您告訴過它的內容。"
+  "aiMemoryFooter": "您的系統提示詞會作用於每個聊天。記憶讓助手記住您告訴過它的內容。",
+  "composerAttachServerFiles": "伺服器檔案",
+  "followUpSuggestionsHeading": "建議"
 }

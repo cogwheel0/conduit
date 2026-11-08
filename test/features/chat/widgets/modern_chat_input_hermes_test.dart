@@ -65,7 +65,7 @@ void main() {
     expect(find.text('Files'), findsOneWidget);
     expect(find.text('Photo'), findsOneWidget);
     expect(find.text('Camera'), findsOneWidget);
-    expect(find.text('Uploads'), findsNothing);
+    expect(find.text('Server Files'), findsNothing);
     expect(find.text('Web Page'), findsNothing);
     expect(find.text('Tools'), findsNothing);
 

@@ -9199,5 +9199,13 @@
   "aiMemoryFooter": "Your system prompt guides every chat. Memory lets the assistant remember things you've told it.",
   "@aiMemoryFooter": {
     "description": "Footer under the System Prompt and Memory rows of the AI and Memory settings page, explaining both in plain words."
+  },
+  "composerAttachServerFiles": "Server Files",
+  "@composerAttachServerFiles": {
+    "description": "Attachment panel tile, and the title of the sheet it opens, for files already stored on the server, as opposed to \"Files\", which picks a file from the device. Keep it short; it sits under an icon."
+  },
+  "followUpSuggestionsHeading": "Suggestions",
+  "@followUpSuggestionsHeading": {
+    "description": "Small heading above the suggested follow-up prompts shown under a finished reply; tapping one sends it."
   }
 }
