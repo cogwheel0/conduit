@@ -69,9 +69,10 @@ class _AdaptiveNativeSearchBarState extends State<AdaptiveNativeSearchBar> {
   /// Text the app set that the native field has not reported yet.
   String? _pendingText;
 
-  /// Every text the app has set that the field has not reported back yet,
-  /// oldest first. The field reports each one, in order, as it takes it;
-  /// those reports are the app's own writes, not edits.
+  /// Every text sent to the field that it has not reported back yet, oldest
+  /// first. The field reports each one, in order, as it takes it; those
+  /// reports are the app's own writes, not edits. Text the app replaced
+  /// before it could be sent never reaches the field, so it is not here.
   final List<String> _sent = [];
 
   /// Whether the app asked for the keyboard and focus requests are still
@@ -127,9 +128,7 @@ class _AdaptiveNativeSearchBarState extends State<AdaptiveNativeSearchBar> {
       _nativeText = '';
       final text = widget.controller.text;
       _pendingText = text.isEmpty ? null : text;
-      _sent
-        ..clear()
-        ..addAll([if (text.isNotEmpty) text]);
+      _sent.clear();
       _pendingFocus = _focusNode.hasFocus;
       _focusSends = 0;
       _retriesLeft = _maxRetries;
@@ -154,7 +153,6 @@ class _AdaptiveNativeSearchBarState extends State<AdaptiveNativeSearchBar> {
 
   void _setText(String text) {
     _pendingText = text;
-    _sent.add(text);
     _retriesLeft = _maxRetries;
     _send();
   }
@@ -176,6 +174,7 @@ class _AdaptiveNativeSearchBarState extends State<AdaptiveNativeSearchBar> {
     var delay = _retryInterval;
     if (_focusNode.descendants.isNotEmpty) {
       if (_pendingText case final text?) {
+        if (_sent.isEmpty || _sent.last != text) _sent.add(text);
         unawaited(_native.setText(text).catchError((Object _) {}));
       }
       if (_pendingFocus) {
@@ -204,9 +203,9 @@ class _AdaptiveNativeSearchBarState extends State<AdaptiveNativeSearchBar> {
     if (text == _nativeText && text == widget.controller.text) return;
     _nativeText = text;
     final echoed = _sent.indexOf(text);
-    if (echoed >= 0) {
+    if (echoed >= 0 || text == _pendingText) {
       // The field took text the app set, and every write before it.
-      _sent.removeRange(0, echoed + 1);
+      if (echoed >= 0) _sent.removeRange(0, echoed + 1);
       if (text == _pendingText) _pendingText = null;
       return;
     }

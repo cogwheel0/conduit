@@ -208,6 +208,25 @@ void main() {
     variant: ios,
   );
 
+  testWidgets(
+    'text replaced before the field could take it does not hide an edit',
+    (tester) async {
+      final query = TextEditingController(text: 'draft');
+      addTearDown(query.dispose);
+      final changes = <String>[];
+      // The first text is set before the field exists, then replaced.
+      await tester.pumpWidget(host(_field(query, onChanged: changes.add)));
+      query.clear();
+      await tester.pump(const Duration(milliseconds: 500));
+
+      // Typing that same text later is the person's edit.
+      bar(tester).onChanged!('draft');
+      expect(changes, ['draft']);
+      expect(query.text, 'draft');
+    },
+    variant: ios,
+  );
+
   testWidgets('a new placeholder replaces the field and keeps the query', (
     tester,
   ) async {
