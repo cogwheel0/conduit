@@ -61,7 +61,10 @@ class AssistantTileServiceTest {
         tile.onClick()
 
         // unlockAndRun is what carries the launch past the keyguard; without it
-        // a tap on the lock screen collapses the shade onto nothing.
+        // a tap on the lock screen collapses the shade onto nothing. Robolectric
+        // runs its callback at once and clears the lock, so the lock state is
+        // what tells it apart from a launch that skipped the unlock.
+        assertEquals(false, tile.isLocked)
         assertNotNull(startedActivity())
     }
 
