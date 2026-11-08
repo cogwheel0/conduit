@@ -901,7 +901,7 @@
   "@messageHintText": {
     "description": "Short placeholder text in the message input."
   },
-  "stopGenerating": "Stop generating",
+  "stopGenerating": "Stop Generating",
   "@stopGenerating": {
     "description": "Action to stop the assistant's response generation."
   },
@@ -913,7 +913,7 @@
   "@codeCopiedToClipboard": {
     "description": "Snack bar message confirming code was copied."
   },
-  "sendMessage": "Send message",
+  "sendMessage": "Send Message",
   "@sendMessage": {
     "description": "Semantic label for sending a message."
   },
@@ -2471,11 +2471,11 @@
   "@enhanceNote": {
     "description": "Menu item to enhance note content."
   },
-  "startDictation": "Start dictation",
+  "startDictation": "Start Dictation",
   "@startDictation": {
     "description": "Tooltip for dictation button."
   },
-  "stopRecording": "Stop recording",
+  "stopRecording": "Stop Recording",
   "@stopRecording": {
     "description": "Tooltip for stop recording button."
   },

@@ -706,10 +706,10 @@ void main() {
       expect(sheet.onWebAttachment, isNull);
       expect(sheet.onImageAttachment, isNotNull);
       expect(sheet.onCameraCapture, isNotNull);
-      expect(find.text('File'), findsOneWidget);
+      expect(find.text('Files'), findsOneWidget);
       expect(find.text('Photo'), findsOneWidget);
       expect(find.text('Camera'), findsOneWidget);
-      expect(find.text('Files'), findsNothing);
+      expect(find.text('Uploads'), findsNothing);
       expect(find.text('Web Page'), findsNothing);
       await tester.pumpWidget(const SizedBox.shrink());
       await tester.pump(const Duration(milliseconds: 1));
@@ -768,12 +768,76 @@ void main() {
 
       expect(tester.takeException(), isNull);
       expect(
-        find.byKey(const ValueKey('composer-attachment-action-strip')),
+        find.byKey(const ValueKey('composer-attachment-action-grid')),
         findsOneWidget,
       );
       expect(find.byType(BottomSheet), findsNothing);
     },
   );
+
+  testWidgets('the + button is named for attaching, then for the keyboard', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(320, 700);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    const serverModel = Model(id: 'server-model', name: 'Server model');
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          directModelRegistryProvider.overrideWithValue(DirectModelRegistry()),
+          directModelDiscoveryProvider.overrideWith(
+            _FixedDiscoveryController.new,
+          ),
+          selectedModelProvider.overrideWithValue(serverModel),
+          apiServiceProvider.overrideWithValue(null),
+          webSearchAvailableProvider.overrideWithValue(false),
+          imageGenerationAvailableProvider.overrideWithValue(false),
+        ],
+        child: MaterialApp(
+          localizationsDelegates: conduitLocalizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          builder: (context, child) => MediaQuery(
+            data: MediaQuery.of(context)
+                .copyWith(textScaler: const TextScaler.linear(1.4)),
+            child: child!,
+          ),
+          home: Scaffold(
+            body: ModernChatInput(
+              onSendMessage: (_) {},
+              onFileAttachment: () {},
+              onServerFileAttachment: () {},
+              onImageAttachment: () {},
+              onCameraCapture: () {},
+              onWebAttachment: () {},
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    final handle = tester.ensureSemantics();
+    expect(find.bySemanticsLabel('Add Attachment'), findsOneWidget);
+    expect(find.bySemanticsLabel('More'), findsNothing);
+
+    await tester.tap(find.byIcon(Icons.add));
+    await tester.pumpAndSettle();
+
+    // Every tile fits the 320 pt width at large text: none is cut off.
+    final grid = find.byKey(const ValueKey('composer-attachment-action-grid'));
+    expect(grid, findsOneWidget);
+    for (final label in ['Files', 'Uploads', 'Photo', 'Camera', 'Web Page']) {
+      final tile = find.descendant(of: grid, matching: find.text(label));
+      expect(tile, findsOneWidget, reason: label);
+      expect(tester.getRect(tile).right, lessThanOrEqualTo(320), reason: label);
+    }
+    expect(find.bySemanticsLabel('Show Keyboard'), findsOneWidget);
+    handle.dispose();
+  });
 
   testWidgets('text-only direct models expose files but hide image actions', (
     tester,
@@ -843,7 +907,7 @@ void main() {
     expect(sheet.onServerFileAttachment, isNull);
     expect(sheet.onImageAttachment, isNull);
     expect(sheet.onCameraCapture, isNull);
-    expect(find.text('File'), findsOneWidget);
+    expect(find.text('Files'), findsOneWidget);
     expect(find.text('Photo'), findsNothing);
     expect(find.text('Camera'), findsNothing);
     await tester.pumpWidget(const SizedBox.shrink());
@@ -908,7 +972,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.byType(ComposerAttachmentKeyboard), findsOneWidget);
-      expect(find.text('File'), findsOneWidget);
+      expect(find.text('Files'), findsOneWidget);
       expect(find.text('Photo'), findsNothing);
       expect(find.text('Camera'), findsNothing);
       expect(find.text('Web Search'), findsOneWidget);
