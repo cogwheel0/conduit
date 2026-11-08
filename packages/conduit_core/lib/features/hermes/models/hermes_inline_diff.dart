@@ -26,6 +26,9 @@ final RegExp _ansiEscape = RegExp(
 final RegExp _otherControls = RegExp(
   r'[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F]',
 );
+/// The longest connection secret a diff is searched for.
+const int _kMaxRedactedSecretLength = 8192;
+
 final RegExp _hunkHeader = RegExp(
   r'^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@',
 );
@@ -33,18 +36,19 @@ final RegExp _hunkHeader = RegExp(
 /// An edit's diff as Conduit keeps it: terminal colours removed, connection
 /// secrets and credential values (`password=`, `api_key:`, `Authorization:`,
 /// Bearer tokens) redacted, line breaks kept, bounded. Null when nothing is
-/// left.
+/// left, or when a connection secret is too long to look for: the diff could
+/// hold it, unredacted.
 String? sanitizeHermesInlineDiff(
   String raw, {
   Iterable<String> sensitiveValues = const <String>[],
   int maxCharacters = kMaxHermesInlineDiffCharacters,
 }) {
-  final secrets =
-      sensitiveValues
-          .where((secret) => secret.isNotEmpty && secret.length <= 8192)
-          .toSet()
-          .toList(growable: false)
-        ..sort((a, b) => b.length.compareTo(a.length));
+  final given = sensitiveValues.where((secret) => secret.isNotEmpty);
+  if (given.any((secret) => secret.length > _kMaxRedactedSecretLength)) {
+    return null;
+  }
+  final secrets = given.toSet().toList(growable: false)
+    ..sort((a, b) => b.length.compareTo(a.length));
   final redacted = redactSensitiveValuesInUnicodePrefix(
     raw,
     sensitiveValues: secrets,

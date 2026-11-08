@@ -257,6 +257,21 @@ void main() {
       );
     });
 
+    // Too long to search for, the secret was left out of the search, and
+    // the diff kept it as written.
+    test('a secret too long to search for refuses the diff', () {
+      final secret = 'k' * 9000;
+      check(
+        sanitizeHermesInlineDiff(
+          '--- a/env\n+++ b/env\n@@ -0,0 +1 @@\n+TOKEN=$secret',
+          sensitiveValues: [secret],
+        ),
+      ).isNull();
+      check(
+        sanitizeHermesInlineDiff('+x', sensitiveValues: ['short-secret']),
+      ).isNotNull();
+    });
+
     test('rows stored before the marker are still diffs', () {
       const old = ChatStatusItem(
         title: kHermesInlineDiffTitle,
