@@ -117,8 +117,6 @@ class ResponsiveDrawerLayoutState extends State<ResponsiveDrawerLayout>
   /// edge of a pane of glass.
   static const double _kPushedContentEdgeOpacity = 0.12;
   static const double _kPushedContentEdgeWidth = 1.0;
-  static const double _kEdgeOpenTouchSlop = kTouchSlop;
-  static const double _kHorizontalScrollableOpenThreshold = 45.0;
   static const double _kEdgeOpenAxisBias = 1.0;
 
   /// How near, in points, the settling drawer comes to an endpoint before it
@@ -138,11 +136,6 @@ class ResponsiveDrawerLayoutState extends State<ResponsiveDrawerLayout>
   bool _composeMobileDrawerChrome = false;
   bool _isDragging = false;
   _DrawerSettleEndpoint? _dragTerminalEndpoint;
-  int? _edgePointer;
-  Offset? _edgePointerOrigin;
-  VelocityTracker? _edgeVelocityTracker;
-  bool _edgePointerSuppressedByHorizontalScrollable = false;
-  double _edgePointerActivationThreshold = _kEdgeOpenTouchSlop;
 
   /// Spring description matching iOS navigation drawer physics.
   static final SpringDescription _spring = SpringDescription(
@@ -459,14 +452,6 @@ class ResponsiveDrawerLayoutState extends State<ResponsiveDrawerLayout>
     _dragTerminalEndpoint = null;
   }
 
-  void _resetEdgePointerState() {
-    _edgePointer = null;
-    _edgePointerOrigin = null;
-    _edgeVelocityTracker = null;
-    _edgePointerSuppressedByHorizontalScrollable = false;
-    _edgePointerActivationThreshold = _kEdgeOpenTouchSlop;
-  }
-
   void _beginDrawerDrag() {
     _resetDragState();
     _isDragging = true;
@@ -535,95 +520,9 @@ class ResponsiveDrawerLayoutState extends State<ResponsiveDrawerLayout>
     return null;
   }
 
-  void _onEdgePointerDown(PointerDownEvent event) {
-    if (_isTablet(context) || _controller.value > 0.001) return;
-
-    _resetEdgePointerState();
-    _edgePointer = event.pointer;
-    _edgePointerOrigin = event.position;
-    _edgeVelocityTracker = VelocityTracker.withKind(event.kind)
-      ..addPosition(event.timeStamp, event.position);
-
-    final horizontalLeadingEdge = _horizontalScrollableLeadingEdge(
-      event.position,
-      event.viewId,
-    );
-    if (horizontalLeadingEdge == null) {
-      return;
-    }
-
-    if (horizontalLeadingEdge &&
-        event.localPosition.dx <= _drawerEdgeDragWidth) {
-      _edgePointerActivationThreshold = _kHorizontalScrollableOpenThreshold;
-    } else {
-      _edgePointerSuppressedByHorizontalScrollable = true;
-    }
-  }
-
-  void _onEdgePointerMove(PointerMoveEvent event) {
-    if (_isTablet(context) ||
-        _edgePointer != event.pointer ||
-        _edgePointerOrigin == null) {
-      return;
-    }
-
-    _edgeVelocityTracker?.addPosition(event.timeStamp, event.position);
-    if (_edgePointerSuppressedByHorizontalScrollable) {
-      return;
-    }
-
-    final delta = event.position - _edgePointerOrigin!;
-    final dx = delta.dx;
-    final dyAbs = delta.dy.abs();
-
-    if (!_isDragging) {
-      if (dyAbs > _kEdgeOpenTouchSlop && dyAbs > dx.abs()) {
-        _resetEdgePointerState();
-        return;
-      }
-      if (dx <= 0.0) {
-        if (dx.abs() > _kEdgeOpenTouchSlop && dx.abs() > dyAbs) {
-          _resetEdgePointerState();
-        }
-        return;
-      }
-      if (dx <= _edgePointerActivationThreshold ||
-          dx <= dyAbs * _kEdgeOpenAxisBias) {
-        return;
-      }
-
-      _beginDrawerDrag();
-    }
-
-    final effectiveDx = (dx - _edgePointerActivationThreshold).clamp(
-      0.0,
-      double.infinity,
-    );
-    _updateDrawerDragFromTotalDelta(effectiveDx);
-  }
-
-  void _onEdgePointerUp(PointerUpEvent event) {
-    if (_edgePointer != event.pointer) return;
-
-    _edgeVelocityTracker?.addPosition(event.timeStamp, event.position);
-    if (_isDragging) {
-      final estimate = _edgeVelocityTracker?.getVelocity();
-      _endDrawerDragWithVelocity(estimate?.pixelsPerSecond.dx ?? 0.0);
-    }
-    _resetEdgePointerState();
-  }
-
-  void _onEdgePointerCancel(PointerCancelEvent event) {
-    if (_edgePointer != event.pointer) return;
-
-    if (_isDragging) {
-      _resetDragState();
-      if (_controller.isDismissed) {
-        _setComposeMobileDrawerChrome(false);
-      }
-    }
-    _resetEdgePointerState();
-  }
+  bool _edgeDrawerGestureCanStart(PointerEvent event) =>
+      _controller.value <= 0.001 &&
+      _horizontalScrollableLeadingEdge(event.position, event.viewId) != false;
 
   void _onDragStart(DragStartDetails d) {
     if (_isTablet(context)) return;
@@ -650,7 +549,10 @@ class ResponsiveDrawerLayoutState extends State<ResponsiveDrawerLayout>
     }
   }
 
-  Widget _buildMobileContentGestureArena(Widget child) {
+  Widget _buildMobileContentGestureArena(
+    Widget child, {
+    bool fromEdge = false,
+  }) {
     return RawGestureDetector(
       behavior: HitTestBehavior.translucent,
       excludeFromSemantics: true,
@@ -662,10 +564,12 @@ class ResponsiveDrawerLayoutState extends State<ResponsiveDrawerLayout>
               recognizer,
             ) {
               recognizer
-                ..minimumLocalX = _rawDrawerEdgeWidth
-                ..maximumLocalX = _edgeWidth
+                ..minimumLocalX = fromEdge ? 0 : _rawDrawerEdgeWidth
+                ..maximumLocalX = fromEdge ? _rawDrawerEdgeWidth : _edgeWidth
                 ..axisBias = _kEdgeOpenAxisBias
-                ..isPositionAllowed = _contentDrawerGestureCanStart
+                ..isPositionAllowed = fromEdge
+                    ? _edgeDrawerGestureCanStart
+                    : _contentDrawerGestureCanStart
                 ..onlyAcceptDragOnThreshold = true
                 ..dragStartBehavior = DragStartBehavior.down
                 ..gestureSettings = MediaQuery.maybeGestureSettingsOf(context)
@@ -913,21 +817,17 @@ class ResponsiveDrawerLayoutState extends State<ResponsiveDrawerLayout>
           ),
         ),
 
-        // The true screen edge intentionally overrides a horizontal scroller
-        // only at its opening edge. Everywhere else, the ancestor recognizer
-        // above participates in the gesture arena so descendant interactions
-        // such as selection, editing, and platform views retain ownership.
+        // The edge must win the gesture arena too, so a diagonal opening
+        // swipe cannot also drag the chat's vertical scrollable. Horizontal
+        // scrollers keep ownership when they are away from their leading edge.
         Positioned(
           left: 0,
           top: 0,
           bottom: 0,
           width: _rawDrawerEdgeWidth,
-          child: Listener(
-            behavior: HitTestBehavior.translucent,
-            onPointerDown: _onEdgePointerDown,
-            onPointerMove: _onEdgePointerMove,
-            onPointerUp: _onEdgePointerUp,
-            onPointerCancel: _onEdgePointerCancel,
+          child: _buildMobileContentGestureArena(
+            const SizedBox.expand(),
+            fromEdge: true,
           ),
         ),
 
