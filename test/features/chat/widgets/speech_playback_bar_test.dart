@@ -1,24 +1,52 @@
+import 'dart:async';
+
 import 'package:conduit/features/chat/providers/text_to_speech_provider.dart';
 import 'package:conduit/features/chat/widgets/speech_playback_bar.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/l10n/conduit_localizations.dart';
+import 'package:conduit/shared/theme/theme_extensions.dart';
+import 'package:conduit/shared/widgets/legacy_design_compatibility.dart';
+import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
+import 'package:conduit/shared/widgets/themed_sheets.dart';
+import 'package:conduit_core/services/settings_service.dart';
+import 'package:cupertino_native_better/cupertino_native_better.dart'
+    show CNFloatingIsland, CNPopupMenuButton;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
 
-Widget _harness(_Playback playback) => ProviderScope(
-  overrides: [textToSpeechControllerProvider.overrideWith(() => playback)],
+import '../../../support/floating_island.dart';
+
+Widget _harness(
+  _Playback playback, {
+  bool nativeIOS26 = false,
+  double textScale = 2,
+}) => ProviderScope(
+  overrides: [
+    textToSpeechControllerProvider.overrideWith(() => playback),
+    appSettingsProvider.overrideWith(_Settings.new),
+  ],
   child: MaterialApp(
     localizationsDelegates: conduitLocalizationsDelegates,
     supportedLocales: AppLocalizations.supportedLocales,
-    home: const Scaffold(body: SpeechPlaybackBar()),
-    builder: (context, child) => MediaQuery(
-      data: MediaQuery.of(context)
-          .copyWith(textScaler: const TextScaler.linear(2)),
-      child: child!,
+    // Like the composer's, the column gives the bar an unbounded height.
+    home: const Scaffold(
+      body: Column(children: [Spacer(), SpeechPlaybackBar()]),
     ),
+    builder: (context, child) {
+      final scaled = MediaQuery(
+        data: MediaQuery.of(context)
+            .copyWith(textScaler: TextScaler.linear(textScale)),
+        child: child!,
+      );
+      return nativeIOS26 ? LegacyDesignCompatibility(child: scaled) : scaled;
+    },
   ),
 );
+
+/// Presses a control the way its native button would.
+void _press(WidgetTester tester, String key) =>
+    tester.widget<AdaptiveButton>(find.byKey(ValueKey(key))).onPressed!();
 
 void main() {
   testWidgets('read-aloud shows elapsed time instead of Listen', (
@@ -73,24 +101,115 @@ void main() {
     });
   }
 
-  testWidgets('audio duration drives progress after a timed seek', (
+  for (final nativeIOS26 in [false, true]) {
+    testWidgets(
+      'a timed reading scrubs: its progress drives the scrubber and a drag '
+      'that rests seeks there${nativeIOS26 ? ' on the iOS 26 island' : ''}',
+      (tester) async {
+        if (nativeIOS26) useNativeIOS26();
+        final actions = <String>[];
+        await tester.pumpWidget(
+          _harness(
+            _Playback(
+              actions.add,
+              elapsed: const Duration(seconds: 15),
+              duration: const Duration(minutes: 1),
+            ),
+            nativeIOS26: nativeIOS26,
+          ),
+        );
+        await tester.pumpAndSettle();
+        final scrubber = find.descendant(
+          of: find.byKey(const ValueKey('speech-playback-scrubber')),
+          matching: find.byType(AdaptiveSlider),
+        );
+        expect(find.byType(LinearProgressIndicator), findsNothing);
+        expect(tester.widget<AdaptiveSlider>(scrubber).value, .25);
+
+        // The drag holds its place under the finger and seeks once it rests.
+        tester.widget<AdaptiveSlider>(scrubber).onChanged!(.6);
+        await tester.pump(const Duration(milliseconds: 100));
+        tester.widget<AdaptiveSlider>(scrubber).onChanged!(.5);
+        await tester.pump(const Duration(milliseconds: 100));
+        expect(actions, isEmpty);
+        expect(tester.widget<AdaptiveSlider>(scrubber).value, .5);
+        await tester.pump(const Duration(milliseconds: 150));
+        expect(actions, ['seek:30']);
+        await tester.pumpAndSettle();
+
+        // A tap seeks to its point, which UIKit's slider would ignore; the
+        // slider then reports the position it was showing, unmoved.
+        final track = tester.getRect(scrubber);
+        final shown = tester.widget<AdaptiveSlider>(scrubber).value;
+        await tester.tapAt(
+          Offset(track.left + track.width * .75, track.center.dy),
+        );
+        tester.widget<AdaptiveSlider>(scrubber).onChanged!(shown);
+        await tester.pump(const Duration(milliseconds: 250));
+        expect(actions, ['seek:30', 'seek:45']);
+        await tester.pumpAndSettle();
+      },
+      variant: nativeIOS26
+          ? TargetPlatformVariant.only(TargetPlatform.iOS)
+          : const DefaultTestVariant(),
+    );
+  }
+
+  testWidgets('the bar\'s speed menu sets the speed it shows', (tester) async {
+    await tester.pumpWidget(_harness(_Playback((_) {}), textScale: 1));
+    await tester.pumpAndSettle();
+    final settings = ProviderScope.containerOf(
+      tester.element(find.byType(SpeechPlaybackBar)),
+    );
+    await tester.tap(find.text('1×'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('1.5×').last);
+    await tester.pumpAndSettle();
+    expect(settings.read(appSettingsProvider).ttsSpeed, 1.5);
+    expect(find.text('1.5×'), findsOneWidget);
+  });
+
+  testWidgets('the iOS 26 island\'s speed menu sets the speed it shows', (
     tester,
   ) async {
+    useNativeIOS26();
     await tester.pumpWidget(
-      _harness(
-        _Playback(
-          (_) {},
-          elapsed: const Duration(seconds: 15),
-          duration: const Duration(minutes: 1),
-        ),
-      ),
+      _harness(_Playback((_) {}), nativeIOS26: true, textScale: 1),
     );
     await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('speech-playback-expand')));
+    await tester.pumpAndSettle();
+    final settings = ProviderScope.containerOf(
+      tester.element(find.byType(SpeechPlaybackBar)),
+    );
+    CNPopupMenuButton menu() => tester.widget<CNPopupMenuButton>(
+      find.byKey(const ValueKey('speech-playback-speed')),
+    );
+    expectOnFloatingIslandGlass(
+      tester,
+      find.byKey(const ValueKey('speech-playback-speed')),
+    );
+    expect(menu().buttonLabel, '1×');
+    // 0.75×, 1×, 1.25×, 1.5×, 2×.
+    menu().onSelected!(4);
+    await tester.pumpAndSettle();
+    expect(settings.read(appSettingsProvider).ttsSpeed, 2.0);
+    expect(menu().buttonLabel, '2×');
+  }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
+
+  testWidgets('a reading without a known length shows its progress, '
+      'not a scrubber', (tester) async {
+    await tester.pumpWidget(_harness(_Playback((_) {})));
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('speech-playback-scrubber')),
+      findsNothing,
+    );
     expect(
       tester
           .widget<LinearProgressIndicator>(find.byType(LinearProgressIndicator))
           .value,
-      .25,
+      .5,
     );
   });
 
@@ -132,6 +251,169 @@ void main() {
     );
     expect(tester.takeException(), isNull);
   });
+
+  // At regular text the pill keeps the 15-second skips; a phone at 2x text
+  // leaves the pill room for its main action only.
+  for (final (size, textScale, compactSkips) in [
+    (const Size(402, 874), 1.0, true),
+    (const Size(320, 568), 2.0, false),
+    (const Size(390, 844), 2.0, false),
+    (const Size(1024, 768), 2.0, true),
+  ]) {
+    testWidgets(
+      'iOS 26 island expands from a compact pill with every control on its '
+      'glass at ${textScale}x text in $size',
+      (tester) async {
+        tester.view.physicalSize = size;
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.reset);
+        useNativeIOS26();
+        final actions = <String>[];
+        await tester.pumpWidget(
+          _harness(
+            _Playback(actions.add),
+            nativeIOS26: true,
+            textScale: textScale,
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        // Compact: the progress and play/pause, between the skips when they
+        // fit, but not stop.
+        expect(floatingIsland(tester).isExpanded, isFalse);
+        final compactWidth = floatingIslandGlass(tester).width;
+        expect(
+          find.byKey(const ValueKey('speech-playback-stop')),
+          findsNothing,
+        );
+        final compactControls = [
+          'speech-playback-expand',
+          if (compactSkips) 'speech-playback-backward',
+          'speech-playback-toggle',
+          if (compactSkips) 'speech-playback-forward',
+        ];
+        for (final key in compactControls) {
+          expectOnFloatingIslandGlass(tester, find.byKey(ValueKey(key)));
+        }
+        if (!compactSkips) {
+          expect(
+            find.byKey(const ValueKey('speech-playback-backward')),
+            findsNothing,
+          );
+        }
+        _press(tester, 'speech-playback-toggle');
+        expect(actions, ['pause']);
+
+        await tester.tap(find.byKey(const ValueKey('speech-playback-expand')));
+        await tester.pumpAndSettle();
+
+        // Expanded: every control, across the composer's width.
+        expect(floatingIsland(tester).isExpanded, isTrue);
+        expect(
+          floatingIslandGlass(tester).width,
+          size.width - 2 * Spacing.inputPadding,
+        );
+        expect(compactWidth, lessThan(floatingIslandGlass(tester).width));
+        for (final key in [
+          'speech-playback-collapse',
+          'speech-playback-speed',
+          'speech-playback-backward',
+          'speech-playback-toggle',
+          'speech-playback-forward',
+          'speech-playback-stop',
+        ]) {
+          expectOnFloatingIslandGlass(tester, find.byKey(ValueKey(key)));
+        }
+        // However narrow the panel, the time keeps a target that minimises.
+        expect(
+          tester
+              .getSize(find.byKey(const ValueKey('speech-playback-collapse')))
+              .width,
+          greaterThanOrEqualTo(TouchTarget.minimum),
+        );
+        _press(tester, 'speech-playback-forward');
+        expect(actions, ['pause', 'skip:15']);
+
+        await tester.tap(
+          find.byKey(const ValueKey('speech-playback-collapse')),
+        );
+        await tester.pumpAndSettle();
+
+        expect(floatingIsland(tester).isExpanded, isFalse);
+        expect(
+          find.byKey(const ValueKey('speech-playback-stop')),
+          findsNothing,
+        );
+        expect(tester.takeException(), isNull);
+      },
+      variant: TargetPlatformVariant.only(TargetPlatform.iOS),
+    );
+  }
+
+  testWidgets(
+    'iOS 26 compact island keeps an error readable beside its retry',
+    (tester) async {
+      useNativeIOS26();
+      final actions = <String>[];
+      await tester.pumpWidget(
+        _harness(_Playback(actions.add, failed: true), nativeIOS26: true),
+      );
+      await tester.pumpAndSettle();
+      final l10n = AppLocalizations.of(
+        tester.element(find.byType(SpeechPlaybackBar)),
+      )!;
+
+      expect(floatingIsland(tester).isExpanded, isFalse);
+      expect(find.textContaining('Synthetic engine details'), findsNothing);
+      expectOnFloatingIslandGlass(tester, find.text(l10n.error));
+      _press(tester, 'speech-playback-retry');
+      expect(actions, ['retry']);
+    },
+    variant: TargetPlatformVariant.only(TargetPlatform.iOS),
+  );
+
+  testWidgets(
+    'iOS 26 island leaves a covering sheet clear and keeps its room',
+    (tester) async {
+      useNativeIOS26();
+      await tester.pumpWidget(_harness(_Playback((_) {}), nativeIOS26: true));
+      await tester.pumpAndSettle();
+      final bar = find.byType(SpeechPlaybackBar);
+      final height = tester.getSize(bar).height;
+      await tester.tap(find.byKey(const ValueKey('speech-playback-expand')));
+      await tester.pumpAndSettle();
+      final expandedHeight = tester.getSize(bar).height;
+      expect(expandedHeight, greaterThan(height));
+
+      // UIKit would draw the glass above the sheet.
+      unawaited(
+        ThemedSheets.showRoundedPage<void>(
+          context: tester.element(bar),
+          builder: (_) => const SizedBox.expand(),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byType(CNFloatingIsland), findsNothing);
+      expect(tester.getSize(bar).height, expandedHeight);
+
+      Navigator.of(tester.element(find.byType(SizedBox).last)).pop();
+      await tester.pumpAndSettle();
+
+      expect(floatingIsland(tester).isExpanded, isTrue);
+      expect(ThemedSheets.hasActiveSheet, isFalse);
+    },
+    variant: TargetPlatformVariant.only(TargetPlatform.iOS),
+  );
+}
+
+class _Settings extends AppSettingsNotifier {
+  @override
+  AppSettings build() => const AppSettings();
+
+  @override
+  Future<void> setTtsSpeed(double speed) async =>
+      state = state.copyWith(ttsSpeed: speed);
 }
 
 class _Playback extends TextToSpeechController {
@@ -164,6 +446,11 @@ class _Playback extends TextToSpeechController {
   @override
   Future<void> skip(Duration offset) async {
     _onAction('skip:${offset.inSeconds}');
+  }
+
+  @override
+  Future<void> seekTo(Duration position) async {
+    _onAction('seek:${position.inSeconds}');
   }
 
   @override

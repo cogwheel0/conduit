@@ -885,15 +885,17 @@ NativeAudioSheetParts buildNativeAudioSheetParts(
     ],
   );
 
-  final speechRateSlider = NativeSheetItemConfig(
-    id: 'tts-speech-rate',
-    title: l10n.ttsSpeechRate,
+  // One speed for cloud and device voices, the one read-aloud's menu sets.
+  final speedSegment = NativeSheetItemConfig(
+    id: 'tts-speed',
+    title: l10n.ttsPlaybackSpeed,
     sfSymbol: 'gauge.with.dots.needle.67percent',
-    kind: NativeSheetItemKind.slider,
-    value: appSettings.ttsSpeechRate,
-    min: 0.25,
-    max: 2.0,
-    divisions: 35,
+    kind: NativeSheetItemKind.segment,
+    value: '${nearestTtsSpeed(appSettings.ttsSpeed)}',
+    options: [
+      for (final speed in ttsSpeedPresets)
+        NativeSheetOptionConfig(id: '$speed', label: l10n.ttsSpeedValue(speed)),
+    ],
   );
 
   final previewNav = NativeSheetItemConfig(
@@ -924,7 +926,7 @@ NativeAudioSheetParts buildNativeAudioSheetParts(
     ttsSegment,
     if (appSettings.ttsEngine == TtsEngine.device || serverOffersVoiceChoice)
       voicePickerNav,
-    if (appSettings.ttsEngine == TtsEngine.device) speechRateSlider,
+    speedSegment,
     previewNav,
   ];
 

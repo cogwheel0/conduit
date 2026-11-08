@@ -204,6 +204,7 @@
   "folderName": "文件夹名称",
   "newChat": "新对话",
   "more": "更多",
+  "done": "完成",
   "clear": "清除",
   "searchConversations": "搜索对话...",
   "create": "创建",
@@ -465,7 +466,17 @@
     }
   },
   "ttsVoice": "语音",
-  "ttsSpeechRate": "语速",
+  "ttsPlaybackSpeed": "播放速度",
+  "ttsSpeedValue": "{speed}×",
+  "@ttsSpeedValue": {
+    "placeholders": {
+      "speed": {
+        "type": "double",
+        "format": "decimalPattern",
+        "example": "1.25"
+      }
+    }
+  },
   "ttsPitch": "音调",
   "ttsVolume": "音量",
   "ttsPreview": "预览语音",
@@ -1019,6 +1030,24 @@
   "usageQueueTime": "排队时间",
   "usageReasoningTokens": "推理 token",
   "usageTotalTokens": "总 token",
+  "usageContextWindow": "上下文窗口",
+  "usageContextWindowValue": "{percent} · {used} / {total}",
+  "@usageContextWindowValue": {
+    "placeholders": {
+      "percent": {
+        "type": "String",
+        "example": "62%"
+      },
+      "used": {
+        "type": "String",
+        "example": "79K"
+      },
+      "total": {
+        "type": "String",
+        "example": "128K"
+      }
+    }
+  },
   "proxyAuthentication": "代理认证",
   "proxyAuthPlatformNotSupported": "代理认证需要移动设备。请先通过浏览器进行认证。",
   "proxyAuthLoading": "正在加载认证页面...",
@@ -3370,6 +3399,7 @@
   "hermesTurnSendNext": "发送下一条",
   "hermesTurnControlsUnsupported": "请升级 Hermes 以启用安全的轮次控制。",
   "sidebarHermesTab": "Hermes",
+  "sidebarBackendSwitcher": "后端",
   "markdownShowMoreLines": "再显示 {count} 行",
   "@markdownShowMoreLines": {"placeholders":{"count":{"type":"int"}}},
   "markdownShowLess": "收起",
@@ -4322,5 +4352,7 @@
   "mcpAppOpenLinkConfirm": "打开",
   "terminalPortPreviewForward": "前进",
   "terminalPortPreviewReload": "重新加载",
-  "terminalPortPreviewLoadFailed": "无法加载此页面。"
+  "terminalPortPreviewLoadFailed": "无法加载此页面。",
+  "modelMenuAllModels": "所有模型…",
+  "citationPreviewOpen": "打开"
 }

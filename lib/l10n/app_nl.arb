@@ -204,6 +204,7 @@
   "folderName": "Mapnaam",
   "newChat": "Nieuwe chat",
   "more": "Meer",
+  "done": "Gereed",
   "clear": "Wissen",
   "searchConversations": "Gesprekken zoeken...",
   "create": "Aanmaken",
@@ -465,7 +466,17 @@
     }
   },
   "ttsVoice": "Stem",
-  "ttsSpeechRate": "Spraaksnelheid",
+  "ttsPlaybackSpeed": "Afspeelsnelheid",
+  "ttsSpeedValue": "{speed}×",
+  "@ttsSpeedValue": {
+    "placeholders": {
+      "speed": {
+        "type": "double",
+        "format": "decimalPattern",
+        "example": "1.25"
+      }
+    }
+  },
   "ttsPitch": "Toonhoogte",
   "ttsVolume": "Volume",
   "ttsPreview": "Stemvoorbeeld",
@@ -1019,6 +1030,24 @@
   "usageQueueTime": "Wachttijd",
   "usageReasoningTokens": "Redeneertokens",
   "usageTotalTokens": "Totaal tokens",
+  "usageContextWindow": "Contextvenster",
+  "usageContextWindowValue": "{percent} · {used} van {total}",
+  "@usageContextWindowValue": {
+    "placeholders": {
+      "percent": {
+        "type": "String",
+        "example": "62%"
+      },
+      "used": {
+        "type": "String",
+        "example": "79K"
+      },
+      "total": {
+        "type": "String",
+        "example": "128K"
+      }
+    }
+  },
   "proxyAuthentication": "Proxy-authenticatie",
   "proxyAuthPlatformNotSupported": "Proxy-authenticatie vereist een mobiel apparaat. Authenticeer eerst via een browser.",
   "proxyAuthLoading": "Authenticatiepagina laden...",
@@ -3370,6 +3399,7 @@
   "hermesTurnSendNext": "Volgende verzenden",
   "hermesTurnControlsUnsupported": "Werk Hermes bij om veilige beurtbediening in te schakelen.",
   "sidebarHermesTab": "Hermes",
+  "sidebarBackendSwitcher": "Backend",
   "markdownShowMoreLines": "{count, plural, =1{Toon nog 1 regel} other{Toon nog {count} regels}}",
   "@markdownShowMoreLines": {"placeholders":{"count":{"type":"int"}}},
   "markdownShowLess": "Toon minder",
@@ -4322,5 +4352,7 @@
   "mcpAppOpenLinkConfirm": "Openen",
   "terminalPortPreviewForward": "Vooruit",
   "terminalPortPreviewReload": "Opnieuw laden",
-  "terminalPortPreviewLoadFailed": "Deze pagina kan niet worden geladen."
+  "terminalPortPreviewLoadFailed": "Deze pagina kan niet worden geladen.",
+  "modelMenuAllModels": "Alle modellen…",
+  "citationPreviewOpen": "Openen"
 }

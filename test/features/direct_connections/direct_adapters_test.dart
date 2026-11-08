@@ -13,6 +13,7 @@ import 'package:conduit_core/features/direct_connections/services/direct_http_cl
 import 'package:conduit_core/features/direct_connections/services/ollama_adapter.dart';
 import 'package:conduit_core/features/direct_connections/services/ollama_cloud_tools.dart';
 import 'package:conduit_core/features/direct_connections/services/openai_compatible_adapter.dart';
+import 'package:conduit_core/utils/usage_summary.dart';
 import 'package:dio/dio.dart';
 import 'package:dio/io.dart';
 import 'package:flutter/foundation.dart' show debugPrint;
@@ -4854,11 +4855,17 @@ void main() {
         DirectToolApprovalDecision.allowAlways,
       );
       expect(events.whereType<DirectStreamDone>(), hasLength(1));
-      expect(events.whereType<DirectUsageUpdate>().single.usage, {
+      final usage = events.whereType<DirectUsageUpdate>().single.usage;
+      expect(usage, {
         'input_tokens': 6,
         'output_tokens': 8,
         'total_tokens': 14,
+        'prompt_tokens': 4,
+        'completion_tokens': 5,
       });
+      final summary = UsageSummary.fromUsage(usage);
+      expect((summary.promptTokens, summary.generationTokens), (6, 8));
+      expect(summary.contextTokens, 9);
 
       final replay =
           (http.requests.last.data as Map<String, dynamic>)['input'] as List;
@@ -5930,10 +5937,21 @@ void main() {
       'I should check.',
     );
     expect(events.whereType<DirectContentDelta>().single.content, 'Sunny.');
-    expect(events.whereType<DirectUsageUpdate>().single.usage, {
-      'prompt_tokens': 7,
-      'completion_tokens': 7,
+    // As Open WebUI merges them: the reply's counts add up, the last call's
+    // stay in prompt_tokens/completion_tokens.
+    final usage = events.whereType<DirectUsageUpdate>().single.usage;
+    expect(usage, {
+      'prompt_tokens': 3,
+      'completion_tokens': 5,
+      'input_tokens': 7,
+      'output_tokens': 7,
+      'total_tokens': 14,
     });
+    final summary = UsageSummary.fromUsage(usage);
+    expect((summary.promptTokens, summary.generationTokens), (7, 7));
+    // The second call resent the first's prompt: the window held 3 + 5, not
+    // the 14 the two calls add up to.
+    expect(summary.contextTokens, 8);
     final replay = http.requests.last.data as Map<String, dynamic>;
     expect(
       ((replay['messages'] as List)[1] as Map)['reasoning_content'],

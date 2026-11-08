@@ -702,6 +702,9 @@ class _WorkspaceGlassSearchFieldState
       query: _query,
       onChanged: _onChanged,
       onClear: _onClear,
+      // The field starts with the collection's saved query, which the system
+      // search bar cannot show.
+      nativeOnIOS26: false,
     );
   }
 }

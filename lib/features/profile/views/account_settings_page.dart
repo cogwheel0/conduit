@@ -23,8 +23,10 @@ import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/ui_utils.dart';
 import '../../../shared/widgets/adaptive_selection_sheet.dart';
 import '../../../shared/widgets/conduit_components.dart';
+import '../../../shared/widgets/platform_ui/platform_ui.dart';
 import '../../../shared/widgets/user_avatar.dart';
 import '../../chat/services/file_attachment_service.dart';
+import '../widgets/profile_birth_date_pill.dart';
 import '../widgets/settings_page_scaffold.dart';
 import '../../../shared/widgets/utility_components.dart';
 
@@ -321,6 +323,9 @@ class _AccountSettingsPageState extends ConsumerState<AccountSettingsPage> {
     final l10n = AppLocalizations.of(context)!;
     final theme = context.conduitTheme;
     final selectedDate = _parseBirthDate(_birthDateController.text);
+    if (selectedDate != null && AdaptiveCompactDatePicker.isSupported) {
+      return _buildNativeBirthDateField(context, selectedDate);
+    }
     final dateLabel = selectedDate == null
         ? l10n.selectBirthDate
         : MaterialLocalizations.of(context).formatMediumDate(selectedDate);
@@ -384,6 +389,31 @@ class _AccountSettingsPageState extends ConsumerState<AccountSettingsPage> {
               ],
             ],
           ),
+        ),
+      ],
+    );
+  }
+
+  /// A set birth date on iOS 26: the system's compact date pill, edited in
+  /// place. An empty one keeps the row that opens the picker, as the pill
+  /// always shows a date and a stored date has to be one that was chosen.
+  Widget _buildNativeBirthDateField(BuildContext context, DateTime date) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          AppLocalizations.of(context)!.birthDateLabel,
+          style: _fieldLabelStyle(context),
+        ),
+        const SizedBox(height: Spacing.sm),
+        ProfileBirthDatePill(
+          date: date,
+          onChanged: _savingProfile
+              ? null
+              : (stored) => setState(() => _birthDateController.text = stored),
+          onClear: _savingProfile
+              ? null
+              : () => setState(_birthDateController.clear),
         ),
       ],
     );

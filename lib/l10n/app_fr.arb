@@ -204,6 +204,7 @@
   "folderName": "Nom du dossier",
   "newChat": "Nouveau chat",
   "more": "Plus",
+  "done": "Terminé",
   "clear": "Effacer",
   "searchConversations": "Rechercher des conversations...",
   "create": "Créer",
@@ -465,7 +466,17 @@
     }
   },
   "ttsVoice": "Voix",
-  "ttsSpeechRate": "Vitesse de parole",
+  "ttsPlaybackSpeed": "Vitesse de lecture",
+  "ttsSpeedValue": "{speed}×",
+  "@ttsSpeedValue": {
+    "placeholders": {
+      "speed": {
+        "type": "double",
+        "format": "decimalPattern",
+        "example": "1.25"
+      }
+    }
+  },
   "ttsPitch": "Hauteur",
   "ttsVolume": "Volume",
   "ttsPreview": "Aperçu de la voix",
@@ -1019,6 +1030,24 @@
   "usageQueueTime": "Temps d'attente",
   "usageReasoningTokens": "Tokens de raisonnement",
   "usageTotalTokens": "Tokens totaux",
+  "usageContextWindow": "Fenêtre de contexte",
+  "usageContextWindowValue": "{percent} · {used} sur {total}",
+  "@usageContextWindowValue": {
+    "placeholders": {
+      "percent": {
+        "type": "String",
+        "example": "62%"
+      },
+      "used": {
+        "type": "String",
+        "example": "79K"
+      },
+      "total": {
+        "type": "String",
+        "example": "128K"
+      }
+    }
+  },
   "proxyAuthentication": "Authentification Proxy",
   "proxyAuthPlatformNotSupported": "L'authentification proxy nécessite un appareil mobile. Veuillez d'abord vous authentifier via un navigateur.",
   "proxyAuthLoading": "Chargement de la page d'authentification...",
@@ -3370,6 +3399,7 @@
   "hermesTurnSendNext": "Envoyer le suivant",
   "hermesTurnControlsUnsupported": "Mettez Hermes à jour pour activer les contrôles de tour sécurisés.",
   "sidebarHermesTab": "Hermes",
+  "sidebarBackendSwitcher": "Back-end",
   "markdownShowMoreLines": "{count, plural, =1{Afficher 1 ligne de plus} other{Afficher {count} lignes de plus}}",
   "@markdownShowMoreLines": {"placeholders":{"count":{"type":"int"}}},
   "markdownShowLess": "Afficher moins",
@@ -4322,5 +4352,7 @@
   "mcpAppOpenLinkConfirm": "Ouvrir",
   "terminalPortPreviewForward": "Avancer",
   "terminalPortPreviewReload": "Actualiser",
-  "terminalPortPreviewLoadFailed": "Impossible de charger cette page."
+  "terminalPortPreviewLoadFailed": "Impossible de charger cette page.",
+  "modelMenuAllModels": "Tous les modèles…",
+  "citationPreviewOpen": "Ouvrir"
 }

@@ -1121,6 +1121,10 @@
   "@more": {
     "description": "Opens additional actions or content."
   },
+  "done": "Done",
+  "@done": {
+    "description": "Ends editing, such as typing in a note, and hides the keyboard."
+  },
   "clear": "Clear",
   "@clear": {
     "description": "Action to clear input or selection."
@@ -1478,6 +1482,28 @@
   "usageTotalTokens": "Total Tokens",
   "@usageTotalTokens": {
     "description": "Label for total token count"
+  },
+  "usageContextWindow": "Context Window",
+  "@usageContextWindow": {
+    "description": "Label for how full the model's context window was at the end of a response: the tokens of its prompt and answer against the model's context length"
+  },
+  "usageContextWindowValue": "{percent} · {used} of {total}",
+  "@usageContextWindowValue": {
+    "description": "How full the model's context window was at the end of a response: the share used, then the tokens used and the context length as compact numbers",
+    "placeholders": {
+      "percent": {
+        "type": "String",
+        "example": "62%"
+      },
+      "used": {
+        "type": "String",
+        "example": "79K"
+      },
+      "total": {
+        "type": "String",
+        "example": "128K"
+      }
+    }
   },
   "edit": "Edit",
   "@edit": {
@@ -2084,9 +2110,20 @@
   "@ttsVoice": {
     "description": "Title for voice selection tile."
   },
-  "ttsSpeechRate": "Speech rate",
-  "@ttsSpeechRate": {
-    "description": "Title for speech rate slider."
+  "ttsPlaybackSpeed": "Playback speed",
+  "@ttsPlaybackSpeed": {
+    "description": "Title of the control that sets how fast read-aloud and spoken replies play, cloud and device voices alike."
+  },
+  "ttsSpeedValue": "{speed}×",
+  "@ttsSpeedValue": {
+    "description": "A playback speed as a multiple of the voice's own pace, such as 1.25×.",
+    "placeholders": {
+      "speed": {
+        "type": "double",
+        "format": "decimalPattern",
+        "example": "1.25"
+      }
+    }
   },
   "ttsPitch": "Pitch",
   "@ttsPitch": {
@@ -6761,6 +6798,10 @@
   "@sidebarHermesTab": {
     "description": "Compact label for the Hermes sidebar tab."
   },
+  "sidebarBackendSwitcher": "Backend",
+  "@sidebarBackendSwitcher": {
+    "description": "Screen reader name of the sliding sidebar's switch between chat backends (Open WebUI, Hermes). Its value is the selected backend's name, so this names only the control."
+  },
   "markdownShowMoreLines": "{count, plural, =1{Show 1 more line} other{Show {count} more lines}}",
   "@markdownShowMoreLines": {"description":"Action that expands a collapsed Markdown code block.","placeholders":{"count":{"type":"int","example":"12"}}},
   "markdownShowLess": "Show less",
@@ -9081,5 +9122,13 @@
   "terminalPortPreviewLoadFailed": "Could not load this page.",
   "@terminalPortPreviewLoadFailed": {
     "description": "Shown in a terminal port preview when the page could not be reached."
+  },
+  "modelMenuAllModels": "All models…",
+  "@modelMenuAllModels": {
+    "description": "Last item of the chat's model menu, under the pinned models; opens the complete, searchable model list."
+  },
+  "citationPreviewOpen": "Open",
+  "@citationPreviewOpen": {
+    "description": "Button in a citation's preview popover that opens the cited page in the browser."
   }
 }
