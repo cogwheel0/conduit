@@ -3440,7 +3440,7 @@
   "hermesFastTierOff": "Aus",
   "hermesTurnSteer": "Steuern",
   "hermesTurnSendNext": "Nächste senden",
-  "hermesSteerUncertain": "Hermes hat deine Steuerung nicht bestätigt. Prüfe die Antwort, bevor du sie erneut sendest.",
+  "hermesSteerUncertain": "Hermes hat deine Steuerung nicht bestätigt. Prüfe die Antwort, bevor du die Steuerung erneut sendest.",
   "hermesTurnControlsUnsupported": "Aktualisiere Hermes, um sichere Zugsteuerung zu aktivieren.",
   "sidebarHermesTab": "Hermes",
   "sidebarBackendSwitcher": "Backend",

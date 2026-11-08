@@ -3440,7 +3440,7 @@
   "hermesFastTierOff": "Désactivé",
   "hermesTurnSteer": "Orienter",
   "hermesTurnSendNext": "Envoyer le suivant",
-  "hermesSteerUncertain": "Hermes n'a pas confirmé votre orientation. Vérifiez la réponse avant de la renvoyer.",
+  "hermesSteerUncertain": "Hermes n'a pas confirmé votre orientation. Vérifiez la réponse avant de renvoyer votre instruction.",
   "hermesTurnControlsUnsupported": "Mettez Hermes à jour pour activer les contrôles de tour sécurisés.",
   "sidebarHermesTab": "Hermes",
   "sidebarBackendSwitcher": "Back-end",

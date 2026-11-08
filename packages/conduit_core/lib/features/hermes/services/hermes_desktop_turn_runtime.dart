@@ -355,11 +355,12 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
           }
           final sessionRunning = reconciled.running == true;
           // The session's running flag may be another prompt's (one queued
-          // behind this one, another device's): a turn that knows its own
-          // admission asks after it, and ends once that one is over.
+          // behind this one, another device's), and an idle session may not
+          // have started this one yet: a turn that knows its own admission
+          // asks after it, and ends once that one is over.
           var ended = !sessionRunning;
           final own = admissionId;
-          if (!ended && canonical && own != null) {
+          if (canonical && own != null) {
             // Asked again while Hermes cannot answer: a completion missed
             // while the socket was down would otherwise leave this turn
             // open, since an idle of the session ahead cannot end it.
@@ -382,6 +383,17 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
                 error:
                     'Hermes could not say whether this message ran. '
                     'Check the chat for its reply.',
+              );
+              _emitTranscriptChange(storedId);
+              return;
+            }
+            // `unknown`: a restart cut the run off, and Hermes does not know
+            // how far it got.
+            if (status == 'unknown') {
+              finish(
+                error:
+                    'Hermes restarted while this message ran and does not '
+                    'know how far it got. Check the chat for its reply.',
               );
               _emitTranscriptChange(storedId);
               return;
@@ -971,8 +983,16 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
           final path = result['path']?.toString();
           if (path?.isNotEmpty == true) paths.add(path!);
           final mime = result['mime']?.toString();
-          if (_canonical && path?.isNotEmpty == true && mime != null) {
-            attachments.add({'path': path!, 'mime': mime});
+          if (_canonical) {
+            // A session authority attaches only what `prompt.submit` lists:
+            // an image staged without a path and type would go unsent.
+            if (path == null ||
+                path.isEmpty ||
+                mime == null ||
+                !mime.startsWith('image/')) {
+              throw StateError('Hermes did not accept the image.');
+            }
+            attachments.add({'path': path, 'mime': mime});
           }
         } else if (part is HermesInputFilePart) {
           _requireDesktopUploadContract();
@@ -1088,6 +1108,10 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
     final binding = await _resume(storedId);
     final canonical = _canonical;
     final baseline = await _matchingPromptMarkers(storedId, text);
+    // Read before the steer goes out: a failure here sent nothing.
+    final generation = canonical
+        ? (await _canonicalFences(binding)).generation
+        : null;
     late final Map<String, dynamic> result;
     try {
       result = _object(
@@ -1096,18 +1120,25 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
           params: {
             'session_id': binding.runtimeId,
             'text': text,
-            if (canonical)
-              'execution_generation': (await _canonicalFences(
-                binding,
-              )).generation,
+            if (canonical) 'execution_generation': generation,
             ..._sessionScope(binding.storedId),
           },
         ),
       );
     } on HermesDesktopRpcException catch (error) {
-      if (error.deliveryAmbiguous &&
-          await _ambiguousPromptWasAccepted(storedId, text, baseline)) {
-        return true;
+      if (error.deliveryAmbiguous) {
+        // Sent, with no answer back: the turn may have it, so it is not
+        // sent again unless the transcript shows it never arrived.
+        var accepted = false;
+        try {
+          accepted = await _ambiguousPromptWasAccepted(
+            storedId,
+            text,
+            baseline,
+          );
+        } catch (_) {}
+        if (accepted) return true;
+        throw const HermesSteerUncertain();
       }
       // Refusals that say the steer never reached the turn (no turn ready
       // for it, a turn already over, an agent that cannot be steered).

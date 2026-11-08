@@ -3440,7 +3440,7 @@
   "hermesFastTierOff": "Uit",
   "hermesTurnSteer": "Bijsturen",
   "hermesTurnSendNext": "Volgende verzenden",
-  "hermesSteerUncertain": "Hermes heeft je bijsturing niet bevestigd. Controleer het antwoord voordat je het opnieuw verzendt.",
+  "hermesSteerUncertain": "Hermes heeft je bijsturing niet bevestigd. Controleer het antwoord voordat je je bijsturing opnieuw verzendt.",
   "hermesTurnControlsUnsupported": "Werk Hermes bij om veilige beurtbediening in te schakelen.",
   "sidebarHermesTab": "Hermes",
   "sidebarBackendSwitcher": "Backend",

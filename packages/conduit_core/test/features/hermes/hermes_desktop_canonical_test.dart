@@ -595,6 +595,43 @@ void main() {
       check(events.last).isA<HermesRunDone>();
     });
 
+    // An idle session said nothing about a prompt queued or cut off by a
+    // restart: the turn ended as if it had run.
+    test('an idle session after a reconnect ends the turn only by its '
+        'receipt', () async {
+      var dropped = false;
+      var status = 'queued';
+      gateway.handler = (method, params) {
+        if (method == 'session.resume' && dropped) {
+          return {...gateway.snapshot('local-1'), 'running': false};
+        }
+        if (method == 'prompt.receipt') {
+          return {'admission_id': params['admission_id'], 'status': status};
+        }
+        return gateway.defaults(method, params);
+      };
+      final response = await service.streamDesktopResponse(
+        HermesChatInput.text('hello'),
+        sessionId: 'local-1',
+        options: const HermesDesktopSessionOptions(),
+      );
+      final events = <HermesRunEvent>[];
+      final done = Completer<void>();
+      response.events.listen(events.add, onDone: done.complete);
+      await _settle();
+      dropped = true;
+      gateway.incoming.addError(StateError('gone'));
+      await _settle();
+      // Still queued: the turn waits for it.
+      check(done.isCompleted).isFalse();
+
+      status = 'unknown';
+      gateway.incoming.addError(StateError('gone again'));
+      await done.future.timeout(const Duration(seconds: 5));
+      check(events.whereType<HermesRunError>().single.message)
+          .contains('does not know how far it got');
+    });
+
     test('a receipt given on a second try settles the turn', () async {
       var dropped = false;
       var receipts = 0;
@@ -658,6 +695,29 @@ void main() {
       ]);
       check(submit['text'] as String).contains('@file:/staged/notes.pdf');
       check(gateway.calls('image.detach')).isEmpty();
+    });
+
+    // Staged without a type, the image was left off the submit's
+    // attachments and the prompt went out without it, unannounced.
+    test('an image staged without a type is not sent without it', () async {
+      gateway.handler = (method, params) => switch (method) {
+        'image.attach_bytes' => {
+          'attached': true,
+          'path': '/staged/upload.png',
+        },
+        _ => gateway.defaults(method, params),
+      };
+      await check(
+        stream(
+          () {},
+          input: HermesChatInput.multimodal([
+            HermesInputTextPart('look'),
+            HermesInputImagePart('data:image/png;base64,AAAA'),
+          ]),
+        ),
+      ).throws<StateError>();
+
+      check(gateway.calls('prompt.submit')).isEmpty();
     });
 
     test('a slash /model is a session edit', () async {
@@ -776,6 +836,32 @@ void main() {
     delivered = {'delivered': false};
     check(await service.steer('local-1', 'be brief')).isFalse();
     check(gateway.calls('prompt.submit').single['queued']).equals(true);
+  });
+
+  // The answer was lost and the transcript did not show the steer: the
+  // draft stayed with no warning, inviting a second send of the same text.
+  test('a steer whose answer was lost is reported, not resent', () async {
+    final gateway = _Authority();
+    gateway.handler = (method, params) {
+      if (method == 'session.steer') {
+        scheduleMicrotask(() => gateway.incoming.addError(StateError('gone')));
+        return _Authority.silent;
+      }
+      return gateway.defaults(method, params);
+    };
+    final service = _service(
+      gateway,
+      rest: _Rest({
+        'GET /api/sessions/local-1/messages': (_) => (200, {'messages': []}),
+      }),
+    );
+    await service.createDesktopSession();
+
+    await check(
+      service.steer('local-1', 'be brief'),
+    ).throws<HermesSteerUncertain>();
+    check(gateway.calls('session.steer')).length.equals(1);
+    check(gateway.calls('prompt.submit')).isEmpty();
   });
 
   test('renames, branches and switches models as fenced edits', () async {
