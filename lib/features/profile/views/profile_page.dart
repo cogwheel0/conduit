@@ -533,17 +533,24 @@ class ProfilePage extends ConsumerWidget {
     OpenWebUiAccountEntry entry,
   ) {
     final l10n = AppLocalizations.of(context)!;
-    return _buildAccountOption(
-      context,
-      key: const Key('settings-sign-out-account'),
-      icon: UiUtils.platformIcon(
-        ios: CupertinoIcons.square_arrow_left,
-        android: Icons.logout,
+    return Builder(
+      builder: (rowContext) => _buildAccountOption(
+        rowContext,
+        key: const Key('settings-sign-out-account'),
+        icon: UiUtils.platformIcon(
+          ios: CupertinoIcons.square_arrow_left,
+          android: Icons.logout,
+        ),
+        title: l10n.signOut,
+        onTap: () => signOutOfSavedAccount(
+          context,
+          ref,
+          entry,
+          anchorContext: rowContext,
+        ),
+        showChevron: false,
+        destructive: true,
       ),
-      title: l10n.signOut,
-      onTap: () => signOutOfSavedAccount(context, ref, entry),
-      showChevron: false,
-      destructive: true,
     );
   }
 
