@@ -335,9 +335,8 @@ void main() {
       );
       final window = tester.getSize(find.byType(Scaffold));
       final action = find.byType(NativeGlassIconButton);
-      // UIKit leaves 21 points under a phone's platter, at every text size
-      // and in landscape.
-      expect(tester.getBottomRight(action).dy, window.height - 21);
+      // New Chat sits on the 34 point safe area, as the composer does.
+      expect(tester.getBottomRight(action).dy, window.height - 34);
       expect(tester.getBottomRight(action).dx, window.width - 16);
       expect(tester.getSize(action), const Size.square(44));
       expect(
@@ -346,7 +345,23 @@ void main() {
           controlExtent: 66,
           minimumBottomInset: 8,
         ),
-        44 + 21,
+        34 + 44,
+      );
+
+      // With two backends the platter's bottom lands on New Chat's: UIKit
+      // keeps 21 points below it inside the tab bar, so the bar ends 21
+      // points lower.
+      await tester.pumpWidget(
+        _bar(
+          const [_openWebUi, _hermes],
+          controlExtent: 66,
+          minimumBottomInset: 8,
+        ),
+      );
+      expect(tester.getBottomRight(action).dy, window.height - 34);
+      expect(
+        tester.getBottomLeft(find.byType(CNTabBar)).dy,
+        window.height - 34 + 21,
       );
       await _unmount(tester);
     }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
@@ -359,7 +374,10 @@ void main() {
         final window = tester.getSize(find.byType(Scaffold));
         final action = find.byType(NativeGlassIconButton);
         expect(_tabBar(tester).height, isNull);
+        // The window's 20 point safe area, which is also the strip UIKit
+        // keeps below an inline platter, so the tab bar ends at the bottom.
         expect(tester.getBottomRight(action).dy, window.height - 20);
+        expect(tester.getBottomLeft(find.byType(CNTabBar)).dy, window.height);
         expect(tester.getSize(action), const Size.square(44));
         expect(_action(tester).symbol.size, 18);
         expect(
@@ -477,8 +495,8 @@ void main() {
       expect(_tabBar(tester).height, isNull);
       expect(_tabBar(tester).iconSize, 22);
       expect(tester.getSize(action), const Size.square(62));
-      expect(tester.getBottomRight(action).dy, window.height - 21);
-      expect(AdaptiveFloatingTabBar.extentOf(tester.element(action)), 62 + 21);
+      expect(tester.getBottomRight(action).dy, window.height - 34);
+      expect(AdaptiveFloatingTabBar.extentOf(tester.element(action)), 34 + 62);
       await _unmount(tester);
     }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
   });

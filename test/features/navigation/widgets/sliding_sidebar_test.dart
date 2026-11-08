@@ -649,20 +649,21 @@ void main() {
     expect(action.symbol.color, theme.textPrimary);
 
     // The test window is as wide as a tablet's, where UIKit lays the tab bar
-    // out inline, on a 44 point platter, 20 points up. New Chat
-    // takes the platter's size and place, under the header's search button,
-    // and the history keeps their room clear.
+    // out inline, on a 44 point platter. The window has no safe area, so
+    // New Chat sits the chat composer's least gap of 8 points up, takes the
+    // platter's size, ends under the header's search button, and the
+    // history keeps their room clear.
     final surface = find.byKey(const ValueKey<String>('sidebar-page-surface'));
     expect(tester.getSize(button), const Size.square(44));
     expect(
       tester.getBottomRight(button).dy,
-      tester.getBottomLeft(surface).dy - 20,
+      tester.getBottomLeft(surface).dy - Spacing.sm,
     );
     expect(tester.getTopRight(button).dx, tester.getTopRight(searchButton).dx);
     final layout = tester.widget<SidebarTabLayoutScope>(
       find.byType(SidebarTabLayoutScope).first,
     );
-    expect(layout.floatingChromeInsets?.bottom, 44 + 20);
+    expect(layout.floatingChromeInsets?.bottom, Spacing.sm + 44);
 
     // Choosing the other backend switches the history and taps once.
     tabBar().onTap(1);

@@ -14,9 +14,9 @@ import 'platform_ui_capabilities.dart';
 const double kAdaptiveFloatingBarDefaultExtent = 44;
 
 /// How UIKit lays out the iOS 26 tab bar: the height of the glass platter
-/// holding the tabs, and of the strip it leaves below the platter, down to
-/// the bottom of the window. Measured on iOS 26 and 27; the bar keeps them
-/// at every text size.
+/// holding the tabs, and of the strip it leaves below the platter inside
+/// the bar. Measured on iOS 26 and 27; the bar keeps them at every text
+/// size.
 typedef _NativeTabBarMetrics = ({double platter, double below});
 
 /// The layouts UIKit gives the tab bar.
@@ -122,7 +122,9 @@ class AdaptiveFloatingBarAction {
 /// the action a Liquid Glass button as tall as the tab bar's platter, lined
 /// up with it. The platter is 44 points on a phone from iOS 27, the size
 /// UIKit gives it on iOS 26, and UIKit's inline one, as tall, on an iPad; it
-/// keeps that size at every text size. Screen readers find the tabs as one
+/// keeps that size at every text size. Like the Flutter-drawn bar, both sit
+/// on the bottom safe area, or [minimumBottomInset] above the bottom of the
+/// window when that is less. Screen readers find the tabs as one
 /// adjustable control, named [tabsSemanticLabel], whose value is the
 /// selected tab's label. The action is a button of its own, so it never
 /// takes the selection. Elsewhere the tabs are a Material navigation bar in
@@ -197,9 +199,8 @@ class AdaptiveFloatingTabBar extends StatelessWidget {
   /// bar centres its platter in the room beside the action.
   final double edgeInset;
 
-  /// Least gap below the Flutter-drawn bar, on a window whose bottom safe
-  /// area is smaller. The bar otherwise sits on the safe area. The iOS 26
-  /// tab bar keeps the gap UIKit gives it.
+  /// Least gap below the bar, on a window whose bottom safe area is smaller.
+  /// The bar otherwise sits on the safe area.
   final double minimumBottomInset;
 
   /// Point size of the glass action's SF Symbol beside a 44 point bar, as
@@ -209,22 +210,21 @@ class AdaptiveFloatingTabBar extends StatelessWidget {
 
   /// Room the bar takes from the bottom of the window.
   ///
-  /// For the Flutter-drawn bar: [controlExtent] with at least
-  /// [minimumBottomInset] below it. For the iOS 26 tab bar: its platter and
-  /// the strip below it, as UIKit lays them out in a window of this size.
+  /// The bar is [controlExtent] tall, or the iOS 26 tab bar's platter as
+  /// UIKit lays it out in a window of this size, with at least
+  /// [minimumBottomInset] below it.
   static double extentOf(
     BuildContext context, {
     double controlExtent = kAdaptiveFloatingBarDefaultExtent,
     double minimumBottomInset = 16,
   }) {
-    if (PlatformUiCapabilities.usesNativeIOS26) {
-      final metrics = _nativeMetrics(_guessNativeLayout(context));
-      return metrics.platter + metrics.below;
-    }
-    return _bottomInset(context, minimumBottomInset) + controlExtent;
+    final height = PlatformUiCapabilities.usesNativeIOS26
+        ? _nativeMetrics(_guessNativeLayout(context)).platter
+        : controlExtent;
+    return _bottomInset(context, minimumBottomInset) + height;
   }
 
-  /// Gap between the Flutter-drawn bar and the bottom of the window.
+  /// Gap between the bar and the bottom of the window.
   static double _bottomInset(BuildContext context, double minimum) =>
       math.max(MediaQuery.viewPaddingOf(context).bottom, minimum);
 
@@ -432,18 +432,24 @@ class _NativeFloatingTabBarState extends State<_NativeFloatingTabBar> {
     final layout = bar.tabs.length >= 2 ? (_measured ?? guessed) : guessed;
     final metrics = AdaptiveFloatingTabBar._nativeMetrics(layout);
     final action = bar.action;
+    final bottomInset = AdaptiveFloatingTabBar._bottomInset(
+      context,
+      bar.minimumBottomInset,
+    );
     return Row(
       crossAxisAlignment: CrossAxisAlignment.end,
       children: [
         Expanded(
           child: bar.tabs.length < 2
               ? const SizedBox.shrink()
-              : _tabBar(layout),
+              // UIKit keeps its strip below the platter inside the tab bar,
+              // so the bar is moved by the rest of the inset.
+              : _tabBar(layout, lift: bottomInset - metrics.below),
         ),
         Padding(
           padding: EdgeInsetsDirectional.only(
             end: bar.edgeInset,
-            bottom: metrics.below,
+            bottom: bottomInset,
           ),
           // The glass button has no label of its own; announce one control.
           child: Semantics(
@@ -474,12 +480,14 @@ class _NativeFloatingTabBarState extends State<_NativeFloatingTabBar> {
 extension on _NativeFloatingTabBarState {
   /// The tab bar, its platter's leading edge [AdaptiveFloatingTabBar.edgeInset]
   /// from the start of the window, as the header's leading button is, and any
-  /// room left over between it and the action.
+  /// room left over between it and the action. The bar is raised by [lift],
+  /// or lowered when it is negative, so the platter's bottom lands where the
+  /// action's does.
   ///
   /// UIKit centres the platter in the bar, so the bar is made as wide as the
   /// platter and the room UIKit keeps on each side of it, and starts that
   /// room before the edge inset.
-  Widget _tabBar(_NativeTabBarLayout layout) {
+  Widget _tabBar(_NativeTabBarLayout layout, {required double lift}) {
     final bar = widget.bar;
     final span = AdaptiveFloatingTabBar._nativeSpan(layout);
     final height =
@@ -496,36 +504,39 @@ extension on _NativeFloatingTabBarState {
           // A narrower room shrinks the platter, which keeps its edge.
           constraints.maxWidth - start,
         );
-        return Align(
-          alignment: AlignmentDirectional.bottomStart,
-          child: Transform.translate(
-            offset: Offset(rtl ? -start : start, 0),
-            child: SizedBox(
-              width: width,
-              child: _semantics(
-                _SizeObserver(
-                  // A tab bar given its height reports only that height.
-                  onSize: height == null ? _onTabBarSize : null,
-                  // A tab bar measures itself only when it is created: one
-                  // that stops being given a height is created again.
-                  child: KeyedSubtree(
-                    key: ValueKey<double?>(height),
-                    child: CNTabBar(
-                      key: bar.tabsKey,
-                      items: [
-                        for (final tab in bar.tabs)
-                          CNTabBarItem(
-                            imageAsset: CNImageAsset(tab.nativeAsset),
-                          ),
-                      ],
-                      currentIndex: bar.selectedIndex,
-                      onTap: bar.onTap,
-                      tint: bar.selectedItemColor,
-                      shrinkCentered: false,
-                      iconSize: height == null
-                          ? _kTabIconSize
-                          : _kCompactTabIconSize,
-                      height: height,
+        return Padding(
+          padding: EdgeInsets.only(bottom: math.max(0, lift)),
+          child: Align(
+            alignment: AlignmentDirectional.bottomStart,
+            child: Transform.translate(
+              offset: Offset(rtl ? -start : start, math.max(0, -lift)),
+              child: SizedBox(
+                width: width,
+                child: _semantics(
+                  _SizeObserver(
+                    // A tab bar given its height reports only that height.
+                    onSize: height == null ? _onTabBarSize : null,
+                    // A tab bar measures itself only when it is created: one
+                    // that stops being given a height is created again.
+                    child: KeyedSubtree(
+                      key: ValueKey<double?>(height),
+                      child: CNTabBar(
+                        key: bar.tabsKey,
+                        items: [
+                          for (final tab in bar.tabs)
+                            CNTabBarItem(
+                              imageAsset: CNImageAsset(tab.nativeAsset),
+                            ),
+                        ],
+                        currentIndex: bar.selectedIndex,
+                        onTap: bar.onTap,
+                        tint: bar.selectedItemColor,
+                        shrinkCentered: false,
+                        iconSize: height == null
+                            ? _kTabIconSize
+                            : _kCompactTabIconSize,
+                        height: height,
+                      ),
                     ),
                   ),
                 ),
