@@ -880,6 +880,7 @@
     "description": "Action to start a new chat."
   },
   "more": "Viac",
+  "done": "Hotovo",
   "@more": {
     "description": "Opens additional actions or content."
   },
