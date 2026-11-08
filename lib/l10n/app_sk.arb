@@ -6240,5 +6240,6 @@
   "mcpAppOpenLinkConfirm": "Otvoriť",
   "terminalPortPreviewForward": "Dopredu",
   "terminalPortPreviewReload": "Znova načítať",
-  "terminalPortPreviewLoadFailed": "Túto stránku sa nepodarilo načítať."
+  "terminalPortPreviewLoadFailed": "Túto stránku sa nepodarilo načítať.",
+  "workspacePromptHistoryDiffTooLarge": "Tieto verzie sú príliš dlhé na porovnanie."
 }

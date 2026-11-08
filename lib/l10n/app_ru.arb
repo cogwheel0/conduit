@@ -4360,5 +4360,6 @@
   "mcpAppOpenLinkConfirm": "Открыть",
   "terminalPortPreviewForward": "Вперёд",
   "terminalPortPreviewReload": "Обновить",
-  "terminalPortPreviewLoadFailed": "Не удалось загрузить эту страницу."
+  "terminalPortPreviewLoadFailed": "Не удалось загрузить эту страницу.",
+  "workspacePromptHistoryDiffTooLarge": "Эти версии слишком длинные для сравнения."
 }

@@ -8119,5 +8119,9 @@
   "terminalPortPreviewLoadFailed": "Nie udało się wczytać tej strony.",
   "@terminalPortPreviewLoadFailed": {
     "description": "Shown in a terminal port preview when the page could not be reached."
+  },
+  "workspacePromptHistoryDiffTooLarge": "Te wersje są zbyt długie, aby je porównać.",
+  "@workspacePromptHistoryDiffTooLarge": {
+    "description": "Shown when the server refuses to compare two prompt versions because either is too long."
   }
 }

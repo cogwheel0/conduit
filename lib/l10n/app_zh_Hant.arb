@@ -4322,5 +4322,6 @@
   "mcpAppOpenLinkConfirm": "開啟",
   "terminalPortPreviewForward": "前進",
   "terminalPortPreviewReload": "重新載入",
-  "terminalPortPreviewLoadFailed": "無法載入此頁面。"
+  "terminalPortPreviewLoadFailed": "無法載入此頁面。",
+  "workspacePromptHistoryDiffTooLarge": "這些版本過長，無法比較。"
 }

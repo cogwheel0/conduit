@@ -4322,5 +4322,6 @@
   "mcpAppOpenLinkConfirm": "Abrir",
   "terminalPortPreviewForward": "Adelante",
   "terminalPortPreviewReload": "Recargar",
-  "terminalPortPreviewLoadFailed": "No se pudo cargar esta página."
+  "terminalPortPreviewLoadFailed": "No se pudo cargar esta página.",
+  "workspacePromptHistoryDiffTooLarge": "Estas versiones son demasiado largas para compararlas."
 }

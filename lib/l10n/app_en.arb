@@ -9081,5 +9081,9 @@
   "terminalPortPreviewLoadFailed": "Could not load this page.",
   "@terminalPortPreviewLoadFailed": {
     "description": "Shown in a terminal port preview when the page could not be reached."
+  },
+  "workspacePromptHistoryDiffTooLarge": "These versions are too long to compare.",
+  "@workspacePromptHistoryDiffTooLarge": {
+    "description": "Shown when the server refuses to compare two prompt versions because either is too long."
   }
 }
