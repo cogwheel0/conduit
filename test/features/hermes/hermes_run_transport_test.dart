@@ -2720,6 +2720,32 @@ void main() {
     check(message.error?.content).equals('Synthetic held switch.');
   });
 
+  test('a gateway that keeps restarting says so', () async {
+    var message = ChatMessage(
+      id: 'm',
+      role: 'assistant',
+      content: '',
+      timestamp: DateTime.fromMillisecondsSinceEpoch(0),
+    );
+
+    await dispatchHermesTurn(
+      startTurn: (_) async =>
+          throw const HermesDesktopGatewayStartingException(),
+      sensitiveValues: const [],
+      registry: HermesRunRegistry(),
+      assistantMessageId: message.id,
+      appendContent: (_) {},
+      appendStatus: (_) {},
+      updateMessage: (updater) => message = updater(message),
+      finishStreaming: () {},
+      completeStreamingUi: () {},
+    );
+
+    check(message.error?.content).equals(
+      'Hermes is starting or restarting. Try again in a moment.',
+    );
+  });
+
   test(
     'recovery discards a getRun result that arrives after cancellation',
     () async {

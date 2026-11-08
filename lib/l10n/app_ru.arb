@@ -3475,6 +3475,7 @@
   "hermesFastTierOff": "Выкл.",
   "hermesTurnSteer": "Направить",
   "hermesTurnSendNext": "Отправить следующее",
+  "hermesSteerUncertain": "Hermes не подтвердил ваше указание. Проверьте ответ, прежде чем отправлять его снова.",
   "hermesTurnControlsUnsupported": "Обновите Hermes, чтобы включить безопасное управление ходами.",
   "sidebarHermesTab": "Hermes",
   "sidebarBackendSwitcher": "Бэкенд",

@@ -48,6 +48,7 @@ import 'package:conduit_core/features/hermes/controllers/hermes_busy_turn_contro
 import 'package:conduit_core/features/hermes/models/hermes_model.dart';
 import 'package:conduit_core/features/hermes/models/hermes_config.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
+import 'package:conduit_core/features/hermes/services/hermes_backend_service.dart';
 import 'package:conduit_core/features/hermes/services/hermes_local_document_service.dart';
 import 'package:conduit_core/features/librechat/models/librechat_model.dart'
     show isLibreChatModel;
@@ -1083,6 +1084,14 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       _controller.clearMentions();
       _controller.clear();
       _focusNode.requestFocus();
+    } on HermesSteerUncertain {
+      // The turn may have it already: the text stays, and is not resent.
+      if (!mounted) return;
+      AdaptiveSnackBar.show(
+        context,
+        message: AppLocalizations.of(context)!.hermesSteerUncertain,
+        type: AdaptiveSnackBarType.warning,
+      );
     } finally {
       if (mounted) setState(() => _desktopQueueActionBusy = false);
     }

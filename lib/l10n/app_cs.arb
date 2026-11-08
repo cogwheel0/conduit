@@ -5363,6 +5363,7 @@
   "hermesFastTierOff": "Vypnuto",
   "hermesTurnSteer": "Nasměrovat",
   "hermesTurnSendNext": "Odeslat další",
+  "hermesSteerUncertain": "Hermes nepotvrdil vaše nasměrování. Než ho odešlete znovu, zkontrolujte odpověď.",
   "hermesTurnControlsUnsupported": "Aktualizujte Hermes, abyste povolili bezpečné ovládání tahů.",
   "sidebarHermesTab": "Hermes",
   "sidebarBackendSwitcher": "Backend",

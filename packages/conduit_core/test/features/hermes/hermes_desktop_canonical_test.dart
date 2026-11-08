@@ -260,6 +260,7 @@ HermesDesktopApiService _service(
       channelFactory: (_, _, {httpClient}) => gateway.channel,
     ),
     gatewayStartRetryDelays: retryDelays,
+    receiptRetryDelays: const [Duration.zero, Duration.zero],
   );
   addTearDown(() async {
     service.close();
@@ -520,6 +521,26 @@ void main() {
       check(events.last).isA<HermesRunDone>();
     });
 
+    // Hermes reports a run stopped part way as `cancelled` too, with status
+    // `interrupted`; it was not a prompt cancelled before it ran.
+    test('a run stopped part way is not reported as never run', () async {
+      final events = await stream(() {
+        gateway.event('message.start', {}, admission: 'adm-1');
+        gateway.event('message.complete', {
+          'text': 'Partial answer',
+          'outcome': 'cancelled',
+          'status': 'interrupted',
+        }, admission: 'adm-1');
+        gateway.event('session.info', {'running': false}, admission: 'adm-1');
+      });
+
+      check(events.whereType<HermesRunError>()).isEmpty();
+      check(
+        events.whereType<HermesFinalOutput>().single.text,
+      ).equals('Partial answer');
+      check(events.last).isA<HermesRunDone>();
+    });
+
     test('a reply finished while the socket was down ends on reconnect, '
         'though a later prompt runs', () async {
       var dropped = false;
@@ -544,6 +565,58 @@ void main() {
         'session_id': 'local-1',
         'admission_id': 'adm-1',
       });
+      check(events.whereType<HermesRunError>()).isEmpty();
+      check(events.last).isA<HermesRunDone>();
+    });
+
+    // A receipt Hermes cannot give left the turn open for good: the idle of
+    // the prompt running ahead cannot end it.
+    test('a receipt Hermes cannot give is asked again, then reported',
+        () async {
+      var dropped = false;
+      gateway.handler = (method, params) {
+        if (method == 'session.resume' && dropped) {
+          return {...gateway.snapshot('local-1'), 'running': true};
+        }
+        if (method == 'prompt.receipt') {
+          throw const _Refusal(-32000, 'storage_unavailable');
+        }
+        return gateway.defaults(method, params);
+      };
+      final events = await stream(() {
+        gateway.event('message.start', {}, admission: 'adm-1');
+        dropped = true;
+        gateway.incoming.addError(StateError('gone'));
+      });
+
+      check(gateway.calls('prompt.receipt')).length.equals(3);
+      check(events.whereType<HermesRunError>().single.message)
+          .contains('could not say whether this message ran');
+      check(events.last).isA<HermesRunDone>();
+    });
+
+    test('a receipt given on a second try settles the turn', () async {
+      var dropped = false;
+      var receipts = 0;
+      gateway.handler = (method, params) {
+        if (method == 'session.resume' && dropped) {
+          return {...gateway.snapshot('local-1'), 'running': true};
+        }
+        if (method == 'prompt.receipt') {
+          if (++receipts == 1) {
+            throw const _Refusal(-32000, 'storage_unavailable');
+          }
+          return {'admission_id': params['admission_id'], 'status': 'terminal'};
+        }
+        return gateway.defaults(method, params);
+      };
+      final events = await stream(() {
+        gateway.event('message.start', {}, admission: 'adm-1');
+        dropped = true;
+        gateway.incoming.addError(StateError('gone'));
+      });
+
+      check(receipts).equals(2);
       check(events.whereType<HermesRunError>()).isEmpty();
       check(events.last).isA<HermesRunDone>();
     });
@@ -676,6 +749,34 @@ void main() {
       check(queued['submission_id'] as String?).isNotNull().isNotEmpty();
     },
   );
+
+  // A plain rejection may come after delivery (an acknowledgement that timed
+  // out): it was reported as queued, though nothing was sent again.
+  test('a steer Hermes neither confirms nor denies is reported, not resent',
+      () async {
+    final gateway = _Authority();
+    var delivered = <String, Object?>{};
+    gateway.handler = (method, params) => switch (method) {
+      'session.steer' => {'status': 'rejected', ...delivered},
+      _ => gateway.defaults(method, params),
+    };
+    final service = _service(
+      gateway,
+      rest: _Rest({
+        'GET /api/sessions/local-1/messages': (_) => (200, {'messages': []}),
+      }),
+    );
+    await service.createDesktopSession();
+
+    await check(
+      service.steer('local-1', 'be brief'),
+    ).throws<HermesSteerUncertain>();
+    check(gateway.calls('prompt.submit')).isEmpty();
+
+    delivered = {'delivered': false};
+    check(await service.steer('local-1', 'be brief')).isFalse();
+    check(gateway.calls('prompt.submit').single['queued']).equals(true);
+  });
 
   test('renames, branches and switches models as fenced edits', () async {
     final gateway = _Authority();

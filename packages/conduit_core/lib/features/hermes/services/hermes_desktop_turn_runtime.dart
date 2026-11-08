@@ -184,11 +184,15 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
           // A queued prompt Hermes settled before it ran (cancelled from
           // another app, or sent into the running turn as a steer) gets
           // only this completion: no idle follows while the turn ahead of
-          // it runs, so it ends here, leaving the session as it is.
+          // it runs, so it ends here, leaving the session as it is. A run
+          // that was stopped part way reports `cancelled` too, with status
+          // `interrupted`: it did run, and its idle settles the turn.
           final outcome = value('outcome').toLowerCase();
+          final interrupted = value('status').toLowerCase() == 'interrupted';
           if (admissionId != null &&
               event.admissionId == admissionId &&
-              (outcome == 'cancelled' || outcome == 'steered')) {
+              ((outcome == 'cancelled' && !interrupted) ||
+                  outcome == 'steered')) {
             finish(
               error: outcome == 'cancelled'
                   ? 'Hermes cancelled this message before running it.'
@@ -356,11 +360,32 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
           var ended = !sessionRunning;
           final own = admissionId;
           if (!ended && canonical && own != null) {
-            final status = await _canonicalAdmissionStatus(
+            // Asked again while Hermes cannot answer: a completion missed
+            // while the socket was down would otherwise leave this turn
+            // open, since an idle of the session ahead cannot end it.
+            var status = await _canonicalAdmissionStatus(
               reconciled.binding,
               own,
             );
+            for (final delay in receiptRetryDelays) {
+              if (status != null || terminal) break;
+              await Future<void>.delayed(delay);
+              if (terminal) return;
+              status = await _canonicalAdmissionStatus(
+                reconciled.binding,
+                own,
+              );
+            }
             if (terminal) return;
+            if (status == null) {
+              finish(
+                error:
+                    'Hermes could not say whether this message ran. '
+                    'Check the chat for its reply.',
+              );
+              _emitTranscriptChange(storedId);
+              return;
+            }
             ended = status == 'terminal';
           }
           if (!ended) return;
@@ -1101,7 +1126,7 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
       if (status == 'redirected') return true;
       // A plain rejection may follow delivery (an acknowledgement that
       // timed out), so only one Hermes says no agent saw is sent again.
-      if (result['delivered'] != false) return false;
+      if (result['delivered'] != false) throw const HermesSteerUncertain();
     }
     await queue(storedId, text);
     return false;

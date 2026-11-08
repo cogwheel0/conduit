@@ -6878,6 +6878,10 @@
   "@hermesTurnSendNext": {
     "description": "Chat-input action that sends the next Hermes turn."
   },
+  "hermesSteerUncertain": "Hermes didn't confirm your steer. Check the reply before sending it again.",
+  "@hermesSteerUncertain": {
+    "description": "Warning when Hermes rejected a steer without saying whether the running turn already received it; the draft is kept."
+  },
   "hermesTurnControlsUnsupported": "Upgrade Hermes to enable safe turn controls.",
   "@hermesTurnControlsUnsupported": {
     "description": "Notice that the connected Hermes server cannot use turn controls."

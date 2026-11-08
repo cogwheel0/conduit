@@ -125,3 +125,25 @@ final class HermesModelSwitchHeld implements Exception {
   @override
   String toString() => message;
 }
+
+/// Hermes rejected a steer without saying whether the running turn already
+/// saw it (an acknowledgement that timed out after delivery). It is not
+/// sent again, since the agent may have it: the user decides.
+final class HermesSteerUncertain implements Exception {
+  const HermesSteerUncertain();
+
+  @override
+  String toString() => 'Hermes did not confirm the steer.';
+}
+
+/// Hermes kept answering that its gateway is not ready (it is starting,
+/// restarting or draining), which is not a sign-in problem.
+final class HermesDesktopGatewayStartingException implements Exception {
+  const HermesDesktopGatewayStartingException();
+
+  String get message =>
+      'Hermes is starting or restarting. Try again in a moment.';
+
+  @override
+  String toString() => message;
+}

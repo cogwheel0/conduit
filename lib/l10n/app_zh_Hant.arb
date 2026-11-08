@@ -3440,6 +3440,7 @@
   "hermesFastTierOff": "關閉",
   "hermesTurnSteer": "引導",
   "hermesTurnSendNext": "傳送下一則",
+  "hermesSteerUncertain": "Hermes 未確認你的引導。再次傳送前請先查看回覆。",
   "hermesTurnControlsUnsupported": "請升級 Hermes 以啟用安全的回合控制。",
   "sidebarHermesTab": "Hermes",
   "sidebarBackendSwitcher": "後端",

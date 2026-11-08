@@ -3218,6 +3218,7 @@
   "hermesFastTierOff": "끄기",
   "hermesTurnSteer": "조정",
   "hermesTurnSendNext": "다음 보내기",
+  "hermesSteerUncertain": "Hermes가 조정을 확인하지 않았습니다. 다시 보내기 전에 응답을 확인하세요.",
   "hermesTurnControlsUnsupported": "안전한 턴 제어를 사용하려면 Hermes를 업그레이드하세요.",
   "sidebarHermesTab": "Hermes",
   "sidebarBackendSwitcher": "백엔드",

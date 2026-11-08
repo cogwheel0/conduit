@@ -218,6 +218,11 @@ final class HermesDesktopApiService
       Duration(seconds: 2),
       Duration(seconds: 4),
     ],
+    @visibleForTesting
+    this.receiptRetryDelays = const [
+      Duration(seconds: 1),
+      Duration(seconds: 3),
+    ],
   }) : _openExternalUrl = openExternalUrl ?? const NullOpenExternalUrlPort(),
        _dashboardBridgeFactory = dashboardBridgeFactory,
        _nativeTokens = config.desktopCredentials?.nativeTokens,
@@ -252,6 +257,10 @@ final class HermesDesktopApiService
   /// How long to wait before each new attempt to reach a gateway that said
   /// it is not ready (starting, restarting or draining).
   final List<Duration> gatewayStartRetryDelays;
+
+  /// How long to wait before asking again for the receipt of a turn's own
+  /// prompt, after a reconnect, when Hermes could not give it.
+  final List<Duration> receiptRetryDelays;
 
   /// Supplies the WebView-backed dashboard bridge, when the host has one.
   final HermesDashboardBridgeFactory? _dashboardBridgeFactory;

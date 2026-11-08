@@ -5057,6 +5057,7 @@
   "hermesFastTierOff": "オフ",
   "hermesTurnSteer": "誘導",
   "hermesTurnSendNext": "次を送信",
+  "hermesSteerUncertain": "Hermes は誘導を確認できませんでした。再送信する前に返信を確認してください。",
   "hermesTurnControlsUnsupported": "安全なターン制御を有効にするには Hermes をアップグレードしてください。",
   "sidebarHermesTab": "Hermes",
   "sidebarBackendSwitcher": "バックエンド",
