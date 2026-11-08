@@ -11,10 +11,12 @@ import 'package:conduit/shared/widgets/sidebar_layout_contract.dart';
 const drawerTestMobileSize = Size(390, 844);
 const drawerTestTabletSize = Size(1024, 1366);
 const drawerTestVibrateChannel = MethodChannel('vibrate');
+// Six columns of long cells: wider than an 800pt surface even with every
+// column squeezed to a readable width, so the table scrolls sideways.
 const drawerTestWideMarkdownTable = '''
-| Provider | Management experience | Deployment options | Access control |
-| --- | --- | --- | --- |
-| Example Identity Provider | Polished administrative interface | Docker Compose, Helm, and Kubernetes | OAuth, OIDC, SAML, and role-based access control |
+| Provider | Management experience | Deployment options | Access control | Audit logging | Support |
+| --- | --- | --- | --- | --- | --- |
+| Example Identity Provider | Polished administrative interface | Docker Compose, Helm, and Kubernetes | OAuth, OIDC, SAML, and role-based access control | Searchable audit trail with export to object storage | Community forum and commercial support contracts |
 ''';
 
 class DrawerTestRecordedPlatformCall {
