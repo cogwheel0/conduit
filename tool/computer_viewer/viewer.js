@@ -3,6 +3,7 @@ import {patchHeader, remotePoint, canSendInput} from './protocol.js';
 import {createPointer} from './pointer.js';
 import {createAudio} from './audio.js';
 import {createTrackpad} from './trackpad.js';
+import {typeRfbText} from './text.js';
 
 // This document only renders pixels. Remote pages never execute in this WebView.
 const surface = document.getElementById('surface');
@@ -10,6 +11,7 @@ const canvas = document.getElementById('frame');
 const context = canvas.getContext('2d', {alpha: false});
 let config, socket, vncSocket, rfb, retryTimer, connectTimer;
 let generation = 0, retries = 0, controlling = false, connected = false;
+let textGeneration = 0;
 let visible = true, disposed = false, frameQueue = Promise.resolve();
 let lastPoint = {x: 0, y: 0}, buttons = 0, touch = null;
 let touchTimer, mouseButton = 'left';
@@ -43,6 +45,7 @@ function live() {
   }
 }
 function release() {
+  textGeneration++;
   trackpad?.cancel();
   clearTimeout(touchTimer);
   if (!controlling && !buttons && !heldKeys.size) {
@@ -398,10 +401,12 @@ window.computer = {
       else trackpad.click(value.type === 'rightClick' ? 2 : 0, value.type === 'doubleClick' ? 2 : 1);
     } else if (value.type === 'paste') {
       if (rfb) {
-        rfb.clipboardPasteFrom(value.text);
-        rfb.sendKey(0xffe3, 'ControlLeft', true);
-        rfb.sendKey(0x76, 'KeyV');
-        rfb.sendKey(0xffe3, 'ControlLeft', false);
+        const client = rfb, ticket = ++textGeneration;
+        void typeRfbText(client, value.text, () =>
+          ticket === textGeneration && client === rfb &&
+          canSendInput(controlling, connected, visible)).catch(() => {
+          if (ticket === textGeneration && client === rfb) lost();
+        });
       }
       else input(value);
     } else if (value.type === 'shortcut') {
