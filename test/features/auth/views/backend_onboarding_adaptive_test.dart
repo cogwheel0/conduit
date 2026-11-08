@@ -76,7 +76,7 @@ void main() {
         findsOneWidget,
       );
       expect(find.textContaining('Choose'), findsNothing);
-      expect(find.text('Self-hosted services'), findsOneWidget);
+      expect(find.text('Self-Hosted Services'), findsOneWidget);
       expect(find.text('Apple Intelligence'), findsOneWidget);
       expect(find.text('Model APIs'), findsOneWidget);
       expect(find.text('Open WebUI'), findsOneWidget);
@@ -272,7 +272,7 @@ void main() {
       await tester.pumpAndSettle();
       check(tester.widget<UtilityDisclosureSection>(accessHeaders).expanded)
           .isTrue();
-      expect(find.text('Header name'), findsOneWidget);
+      expect(find.text('Header Name'), findsOneWidget);
 
       final container = ProviderScope.containerOf(
         tester.element(find.byType(HermesSettingsPage)),
@@ -330,7 +330,7 @@ void main() {
         find.byKey(const ValueKey<String>('direct-onboarding-back-button')),
         findsOneWidget,
       );
-      expect(find.text('No direct connections yet'), findsOneWidget);
+      expect(find.text('No Direct Connections Yet'), findsOneWidget);
       expect(find.text('Apple On-Device'), findsOneWidget);
       expect(find.text('Apple Private Cloud Compute'), findsOneWidget);
       expect(find.text('Direct Connections'), findsNothing);
@@ -393,7 +393,7 @@ void main() {
       check(route.path).equals(Routes.directConnections);
       check(route.queryParameters['onboarding']).equals('true');
       expect(find.text('Retained Direct'), findsOneWidget);
-      expect(find.text('Connect a provider'), findsNothing);
+      expect(find.text('Connect a Provider'), findsNothing);
       await harness.unmount(tester);
     },
   );

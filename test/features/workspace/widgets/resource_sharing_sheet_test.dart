@@ -354,7 +354,7 @@ void main() {
     await tester.pumpAndSettle();
     final everyone = tester.widget<PopupMenuItem<int>>(
       find.ancestor(
-        of: find.text('Everyone on this server').last,
+        of: find.text('Everyone on This Server').last,
         matching: find.byType(PopupMenuItem<int>),
       ),
     );
@@ -425,7 +425,7 @@ void main() {
     expect(find.text('Trip plan'), findsOneWidget);
     expect(find.text('Bob Builder'), findsOneWidget);
     expect(find.text('bob@example.com'), findsOneWidget);
-    expect(find.text('Unknown person'), findsOneWidget);
+    expect(find.text('Unknown Person'), findsOneWidget);
     expect(find.textContaining('ghost'), findsNothing);
     final lookups = [
       for (final r in server.requests)
@@ -719,9 +719,9 @@ void main() {
     }
 
     const labels = {
-      ResourceAudience.private: 'Only people added',
-      ResourceAudience.public: 'Everyone on this server',
-      ResourceAudience.open: 'Anyone with the link',
+      ResourceAudience.private: 'Only People Added',
+      ResourceAudience.public: 'Everyone on This Server',
+      ResourceAudience.open: 'Anyone with the Link',
     };
 
     ResourceAudience shown(WidgetTester tester) => labels.entries
@@ -973,8 +973,8 @@ void main() {
 
       await tester.tap(find.byKey(const Key('workspace-access-general')));
       await tester.pumpAndSettle();
-      expect(find.text('Everyone on this server'), findsOneWidget);
-      expect(find.text('Anyone with the link'), findsNothing);
+      expect(find.text('Everyone on This Server'), findsOneWidget);
+      expect(find.text('Anyone with the Link'), findsNothing);
     });
   });
 

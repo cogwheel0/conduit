@@ -271,7 +271,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.text('Test connection'));
+    await tester.tap(find.text('Test Connection'));
     await tester.pumpAndSettle();
     check(
       gateway.probed.single.desktopCredentials?.nativeTokens?.refreshToken,

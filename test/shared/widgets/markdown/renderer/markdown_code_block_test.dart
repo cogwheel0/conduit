@@ -151,7 +151,7 @@ void main() {
     await tester.tap(find.textContaining('Show '));
     await tester.pumpAndSettle();
 
-    expect(find.text('Show less'), findsOneWidget);
+    expect(find.text('Show Less'), findsOneWidget);
     expect(find.textContaining('"key60"', findRichText: true), findsOneWidget);
   });
 

@@ -56,12 +56,12 @@ void main() {
 
       await tester.pumpAndSettle();
 
-      expect(find.text("What's new"), findsOneWidget);
+      expect(find.text("What's New"), findsOneWidget);
       expect(
-        tester.widget<Text>(find.text("What's new")).style?.fontSize,
+        tester.widget<Text>(find.text("What's New")).style?.fontSize,
         AppTypography.headlineMedium,
       );
-      expect(find.text("What's new in 3.3.2"), findsNothing);
+      expect(find.text("What's New in 3.3.2"), findsNothing);
       expect(find.text('Enjoying Conduit?'), findsOneWidget);
       expect(
         find.text(
@@ -307,7 +307,7 @@ void main() {
     );
     await tester.pump();
 
-    expect(find.text("What's new"), findsOneWidget);
+    expect(find.text("What's New"), findsOneWidget);
     expect(find.text('Local models'), findsOneWidget);
     expect(find.text('Polished details'), findsOneWidget);
     await tester.ensureVisible(find.text('Review Conduit'));

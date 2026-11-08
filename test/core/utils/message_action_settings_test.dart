@@ -10,7 +10,7 @@ void main() {
     final detail = buildNativeMessageActionsDetail(l10n, const AppSettings());
     final rows = detail.sections.expand((section) => section.items);
     expect(rows.where((row) => row.id.startsWith('message-action:')), isEmpty);
-    expect(rows.first.title, 'Automatic actions');
+    expect(rows.first.title, 'Automatic Actions');
     expect(rows.first.value, isTrue);
   });
 

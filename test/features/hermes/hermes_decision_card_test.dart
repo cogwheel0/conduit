@@ -212,7 +212,7 @@ void main() {
       ),
     );
 
-    expect(find.text('Hermes needs clarification'), findsOneWidget);
+    expect(find.text('Hermes Needs Clarification'), findsOneWidget);
     expect(find.text('Approve'), findsNothing);
   });
 
@@ -378,7 +378,7 @@ void main() {
 
     expect(find.byType(TextField), findsNothing);
     expect(find.text('authorize github'), findsOneWidget);
-    await tester.tap(find.text('Set up'));
+    await tester.tap(find.text('Set Up'));
     await tester.pump();
     expect(answers, ['approve']);
   });
@@ -399,7 +399,7 @@ void main() {
     );
 
     await tester.enterText(find.byType(TextField), 'keep this');
-    await tester.tap(find.text('Send response'));
+    await tester.tap(find.text('Send Response'));
     await tester.pump();
     expect(find.text('keep this'), findsOneWidget);
   });
@@ -429,7 +429,7 @@ void main() {
     await tester.pump();
     await tester.tap(find.text('beta'));
     await tester.pump();
-    await tester.tap(find.text('Send response'));
+    await tester.tap(find.text('Send Response'));
     await tester.pump();
     expect(answer, '["alpha","beta"]');
   });

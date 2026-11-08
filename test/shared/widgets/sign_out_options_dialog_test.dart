@@ -39,7 +39,7 @@ void main() {
       find.byKey(const Key('sign-out-keep-server-details')),
     );
     expect(checkbox.value, isFalse);
-    expect(find.text('Keep server details'), findsOneWidget);
+    expect(find.text('Keep Server Details'), findsOneWidget);
     expect(
       find.textContaining("data on your server aren't affected"),
       findsOneWidget,

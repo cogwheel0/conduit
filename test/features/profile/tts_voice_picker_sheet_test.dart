@@ -89,7 +89,7 @@ void main() {
             }
 
             expectLanguageSemantics();
-            expect(find.text('All languages'), findsOneWidget);
+            expect(find.text('All Languages'), findsOneWidget);
             expect(find.text('Maple'), findsOneWidget);
             expect(find.text('Iris'), findsOneWidget);
             expect(
@@ -129,7 +129,7 @@ void main() {
             );
             expect(find.text('Unselected cloud voice'), findsNothing);
             expectLanguageSemantics();
-            expect(find.text('System default'), findsOneWidget);
+            expect(find.text('System Default'), findsOneWidget);
             await tester.enterText(
               find.descendant(of: search, matching: find.byType(EditableText)),
               'IRIS',
@@ -137,11 +137,11 @@ void main() {
             await tester.pumpAndSettle();
             expect(find.text('Iris'), findsOneWidget);
             expect(find.text('Reed'), findsNothing);
-            expect(find.text('System default'), findsNothing);
+            expect(find.text('System Default'), findsNothing);
             expect(find.text('Cloud voice'), findsNothing);
             await tester.tap(pill);
             await tester.pumpAndSettle();
-            await tester.tap(find.text('All languages').last);
+            await tester.tap(find.text('All Languages').last);
             await tester.pumpAndSettle();
             expect(find.text('Iris'), findsOneWidget);
             expect(
@@ -159,7 +159,7 @@ void main() {
             expect(result, 'iris');
             await tester.tap(find.text('Choose voice'));
             await tester.pumpAndSettle();
-            expect(find.text('All languages'), findsOneWidget);
+            expect(find.text('All Languages'), findsOneWidget);
             expect(find.text('Maple'), findsOneWidget);
           } finally {
             semantics.dispose();

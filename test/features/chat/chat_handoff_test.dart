@@ -40,8 +40,8 @@ void main() {
     );
 
     for (final (button, answer) in [
-      ('Stay here', false),
-      ('Start new chat', true),
+      ('Stay Here', false),
+      ('Start New Chat', true),
     ]) {
       final asked = confirmChatHandoff(
         const FlutterUiRequests(),
@@ -85,7 +85,7 @@ void main() {
         );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.text('Start new chat'));
+    await tester.tap(find.text('Start New Chat'));
     await tester.pumpAndSettle();
 
     expect(await reply, {'handled': true});
@@ -114,7 +114,7 @@ void main() {
         );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.text('Stay here'));
+    await tester.tap(find.text('Stay Here'));
     await tester.pumpAndSettle();
 
     expect(await reply, {'handled': false, 'reason': 'declined'});

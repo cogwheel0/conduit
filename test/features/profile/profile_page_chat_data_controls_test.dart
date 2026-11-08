@@ -60,7 +60,7 @@ void main() {
     final opened = await pumpProfile(tester, visible: true);
     await tester.scrollUntilVisible(entry, 300);
 
-    expect(find.text('Data controls'), findsOneWidget);
+    expect(find.text('Data Controls'), findsOneWidget);
     await tester.tap(entry);
     await tester.pumpAndSettle();
 

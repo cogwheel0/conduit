@@ -58,7 +58,7 @@ void main() {
       ),
     );
 
-    await tester.tap(find.text('Allow for session'));
+    await tester.tap(find.text('Allow for Session'));
     expect(choice, 'session');
   });
 
@@ -80,7 +80,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('Approval required'), findsOneWidget);
+    expect(find.text('Approval Required'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 }

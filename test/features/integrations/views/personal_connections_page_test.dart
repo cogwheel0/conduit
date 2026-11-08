@@ -436,7 +436,7 @@ void main() {
       expect(
         tester.widget<UtilityRow>(find.byKey(const Key('personal-tool-add')))
             .semanticLabel,
-        startsWith('Add tool server. '),
+        startsWith('Add Tool Server. '),
       );
     });
   });
@@ -722,10 +722,10 @@ void main() {
 
       expect(keyField().obscureText, isTrue);
       expect(keyField().keyboardType, TextInputType.visiblePassword);
-      await tester.tap(find.byTooltip('Show password'));
+      await tester.tap(find.byTooltip('Show Password'));
       await tester.pump();
       expect(keyField().obscureText, isFalse);
-      expect(find.byTooltip('Hide password'), findsOneWidget);
+      expect(find.byTooltip('Hide Password'), findsOneWidget);
     });
 
     testWidgets('a test result shows under Test and clears on the next edit', (
@@ -797,7 +797,7 @@ void main() {
       unawaited(navigator.maybePop());
       await tester.pumpAndSettle();
       expect(find.text('Discard changes?'), findsOneWidget);
-      await tester.tap(find.text('Keep editing'));
+      await tester.tap(find.text('Keep Editing'));
       await tester.pumpAndSettle();
       expect(find.text('Alpha renamed'), findsOneWidget);
 

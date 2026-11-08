@@ -77,12 +77,12 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.text('Message Actions'));
       await tester.pumpAndSettle();
-      expect(find.text('Automatic actions'), findsOneWidget);
+      expect(find.text('Automatic Actions'), findsOneWidget);
       expect(
         find.byKey(const ValueKey('message-action-drag-copy')),
         findsNothing,
       );
-      await tester.tap(find.widgetWithText(UtilityRow, 'Automatic actions'));
+      await tester.tap(find.widgetWithText(UtilityRow, 'Automatic Actions'));
       await tester.pumpAndSettle();
       final handle = find.byKey(
         const ValueKey('message-action-drag-regenerate'),
@@ -151,12 +151,12 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.text('Message Actions'));
       await tester.pumpAndSettle();
-      expect(find.text('Automatic actions'), findsOneWidget);
+      expect(find.text('Automatic Actions'), findsOneWidget);
       expect(
         find.byKey(const ValueKey('message-action-drag-copy')),
         findsNothing,
       );
-      await tester.tap(find.widgetWithText(UtilityRow, 'Automatic actions'));
+      await tester.tap(find.widgetWithText(UtilityRow, 'Automatic Actions'));
       await tester.pumpAndSettle();
       final copy = find.widgetWithText(UtilityRow, 'Copy');
       await tester.tap(copy);
@@ -166,12 +166,12 @@ void main() {
         ['tts', 'regenerate'],
       );
       await tester.scrollUntilVisible(
-        find.text('Reset to defaults'),
+        find.text('Reset to Defaults'),
         200,
         scrollable: find.byType(Scrollable).first,
       );
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Reset to defaults'));
+      await tester.tap(find.text('Reset to Defaults'));
       await tester.pumpAndSettle();
       expect(
         PreferencesStore.containsKey(PreferenceKeys.inlineMessageActions),

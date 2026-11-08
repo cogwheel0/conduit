@@ -181,7 +181,7 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      await tester.tap(find.text('No direct connections yet'));
+      await tester.tap(find.text('No Direct Connections Yet'));
       await tester.pumpAndSettle();
 
       expect(editorExtra, isA<NativeSheetNavigationOrigin>());
@@ -318,7 +318,7 @@ void main() {
     );
     final testConnection = tester.widget<ConduitButton>(
       find.byWidgetPredicate(
-        (widget) => widget is ConduitButton && widget.text == 'Test connection',
+        (widget) => widget is ConduitButton && widget.text == 'Test Connection',
       ),
     );
     final delete = tester.widget<ConduitButton>(

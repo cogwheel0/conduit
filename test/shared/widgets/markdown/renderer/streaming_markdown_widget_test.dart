@@ -1092,13 +1092,13 @@ void main() {
         tester.widget<Table>(find.byType(Table)).children.length - 1;
     check(bodyRows()).equals(20);
 
-    final showMore = find.text('Show 15 more lines');
+    final showMore = find.text('Show 15 More Lines');
     await tester.ensureVisible(showMore);
     await tester.tap(showMore);
     await tester.pump();
     check(bodyRows()).equals(35);
 
-    final showLess = find.text('Show less');
+    final showLess = find.text('Show Less');
     await tester.ensureVisible(showLess);
     await tester.tap(showLess);
     await tester.pump();
@@ -1165,7 +1165,7 @@ graph TD
 
       expect(find.byType(MermaidDiagram), findsOneWidget);
       expect(find.text('Preview deferred for large content.'), findsNothing);
-      expect(find.text('Open preview'), findsNothing);
+      expect(find.text('Open Preview'), findsNothing);
     },
   );
 
@@ -1199,14 +1199,14 @@ graph TD
       ),
     );
     expect(sheet.clipBehavior, Clip.antiAlias);
-    expect(find.bySemanticsLabel('Pan up'), findsOneWidget);
-    expect(find.bySemanticsLabel('Zoom in'), findsOneWidget);
-    expect(find.bySemanticsLabel('Reset diagram position'), findsOneWidget);
+    expect(find.bySemanticsLabel('Pan Up'), findsOneWidget);
+    expect(find.bySemanticsLabel('Zoom In'), findsOneWidget);
+    expect(find.bySemanticsLabel('Reset Diagram Position'), findsOneWidget);
     expect(find.bySemanticsLabel('Lock pan and zoom'), findsOneWidget);
     expect(find.byTooltip('Close Mermaid preview'), findsOneWidget);
     expect(
       tester
-          .getSemantics(find.bySemanticsLabel('Zoom in'))
+          .getSemantics(find.bySemanticsLabel('Zoom In'))
           .getSemanticsData()
           .hasAction(ui.SemanticsAction.tap),
       isTrue,
@@ -1218,14 +1218,14 @@ graph TD
     final controller = viewer.transformationController!;
     final initialTransform = Matrix4.copy(controller.value);
 
-    await tester.tap(find.bySemanticsLabel('Zoom in'));
+    await tester.tap(find.bySemanticsLabel('Zoom In'));
     await tester.pump();
     expect(
       controller.value.getMaxScaleOnAxis(),
       greaterThan(initialTransform.getMaxScaleOnAxis()),
     );
 
-    await tester.tap(find.bySemanticsLabel('Reset diagram position'));
+    await tester.tap(find.bySemanticsLabel('Reset Diagram Position'));
     await tester.pump();
     expect(controller.value.storage, orderedEquals(initialTransform.storage));
 
@@ -1312,7 +1312,7 @@ graph TD
       await tester.pumpWidget(buildHarness(content, isStreaming: true));
 
       expect(find.text('Preview deferred for large content.'), findsOneWidget);
-      expect(find.text('Open preview'), findsNothing);
+      expect(find.text('Open Preview'), findsNothing);
       expect(find.byType(MermaidDiagram), findsNothing);
 
       await tester.pumpWidget(buildHarness(content, isStreaming: false));
@@ -1320,7 +1320,7 @@ graph TD
 
       expect(find.byType(MermaidDiagram), findsOneWidget);
       expect(find.text('Preview deferred for large content.'), findsNothing);
-      expect(find.text('Open preview'), findsNothing);
+      expect(find.text('Open Preview'), findsNothing);
     },
   );
 
@@ -1418,7 +1418,7 @@ graph TD
 
       expect(find.byType(MermaidDiagram), findsNWidgets(2));
       expect(find.text('Preview deferred for large content.'), findsNothing);
-      expect(find.text('Open preview'), findsNothing);
+      expect(find.text('Open Preview'), findsNothing);
     },
   );
 
@@ -2377,7 +2377,7 @@ After
     await tester.pumpAndSettle();
 
     expect(find.byKey(const ValueKey('mcp-app-card')), findsOneWidget);
-    expect(find.text('Open app'), findsOneWidget);
+    expect(find.text('Open App'), findsOneWidget);
     expect(find.textContaining('An interactive app from maps'), findsOneWidget);
   });
 
@@ -4161,7 +4161,7 @@ $circles
         find.text('Embedded content preview is unavailable in widget tests.'),
         findsNothing,
       );
-      expect(find.text('Open preview'), findsNothing);
+      expect(find.text('Open Preview'), findsNothing);
       expect(find.text('Preview deferred for large content.'), findsNothing);
 
       await tester.tap(find.text('Load SVG preview'));

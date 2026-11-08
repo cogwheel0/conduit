@@ -22,9 +22,9 @@ void main() {
     await _pumpBanner(tester, size: const Size(320, 568));
 
     expect(find.text('How can I help?'), findsOneWidget);
-    expect(find.text("What's new in 4.0.1"), findsOneWidget);
+    expect(find.text("What's New in 4.0.1"), findsOneWidget);
     expect(find.text('Tap to learn more'), findsOneWidget);
-    expect(find.text("What's new"), findsNothing);
+    expect(find.text("What's New"), findsNothing);
     final greetingBottom = tester
         .getBottomLeft(find.text('How can I help?'))
         .dy;

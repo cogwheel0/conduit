@@ -329,7 +329,7 @@ void main() {
     await tester.enterText(fields.at(0), 'ldapuser');
     await tester.enterText(fields.at(1), 'wrong-password');
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Sign in with LDAP'));
+    await tester.tap(find.text('Sign In with LDAP'));
     // The attempt waits on timers (server selection) that pumpAndSettle does
     // not advance.
     for (var i = 0; i < 10; i++) {
@@ -379,7 +379,7 @@ void main() {
       await tester.enterText(fields.at(0), 'ldapuser');
       await tester.enterText(fields.at(1), 'password');
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Sign in with LDAP'));
+      await tester.tap(find.text('Sign In with LDAP'));
       for (var i = 0; i < 10; i++) {
         await tester.pump(const Duration(milliseconds: 500));
       }
@@ -405,9 +405,9 @@ void main() {
       final actions = _TwoStepAuthActions(verify);
       final harness = await reachSecondStep(tester, actions);
 
-      expect(find.text('Verify your sign-in'), findsOneWidget);
+      expect(find.text('Verify Your Sign-In'), findsOneWidget);
       expect(find.byKey(const ValueKey('ldap_form')), findsNothing);
-      expect(find.text('Sign in with LDAP'), findsNothing);
+      expect(find.text('Sign In with LDAP'), findsNothing);
 
       await enterCode(tester, '123456');
 
@@ -445,7 +445,7 @@ void main() {
         find.text("That code didn't work. Check it and try again."),
         findsOneWidget,
       );
-      expect(find.text('Verify your sign-in'), findsOneWidget);
+      expect(find.text('Verify Your Sign-In'), findsOneWidget);
       check(actions.finished).isEmpty();
       await harness.unmount(tester);
     });
@@ -465,13 +465,13 @@ void main() {
       );
       final harness = await reachSecondStep(tester, actions);
 
-      expect(find.text('Set up your authenticator'), findsOneWidget);
+      expect(find.text('Set Up Your Authenticator'), findsOneWidget);
       check(actions.setups).equals(1);
       expect(find.text('JBSW Y3DP EHPK 3PXP'), findsOneWidget);
 
       await enterCode(tester, '123456');
 
-      expect(find.text('Save your recovery codes'), findsOneWidget);
+      expect(find.text('Save Your Recovery Codes'), findsOneWidget);
       expect(find.text('code-one\ncode-two'), findsOneWidget);
       check(actions.finished).isEmpty();
 
@@ -510,7 +510,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.byKey(const ValueKey('ldap_form')), findsOneWidget);
-      expect(find.text('Sign in with LDAP'), findsOneWidget);
+      expect(find.text('Sign In with LDAP'), findsOneWidget);
       check(actions.submitted).isEmpty();
       await harness.unmount(tester);
     });
@@ -542,7 +542,7 @@ void main() {
       await tester.enterText(fields.at(0), 'ldapuser');
       await tester.enterText(fields.at(1), 'wrong-password');
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Sign in with LDAP'));
+      await tester.tap(find.text('Sign In with LDAP'));
       for (var i = 0; i < 10; i++) {
         await tester.pump(const Duration(milliseconds: 500));
       }
@@ -744,7 +744,7 @@ void main() {
     await tester.enterText(fields.at(1), 'password');
     await tester.pumpAndSettle();
 
-    await tester.tap(find.text('Sign in with LDAP'));
+    await tester.tap(find.text('Sign In with LDAP'));
     await tester.pumpAndSettle();
     expect(find.text('A reply is still being written'), findsOneWidget);
     await tester.tap(find.text('Cancel'));
@@ -761,9 +761,9 @@ void main() {
       ),
     );
 
-    await tester.tap(find.text('Sign in with LDAP'));
+    await tester.tap(find.text('Sign In with LDAP'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Switch anyway'));
+    await tester.tap(find.text('Switch Anyway'));
     // The attempt waits on timers (server selection) that pumpAndSettle does
     // not advance.
     for (var i = 0; i < 10; i++) {
@@ -830,7 +830,7 @@ void main() {
     await tester.enterText(fields.at(0), 'grace');
     await tester.enterText(fields.at(1), 'password');
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Sign in with LDAP'));
+    await tester.tap(find.text('Sign In with LDAP'));
     // The attempt shows progress until the save finishes.
     await tester.pump(const Duration(milliseconds: 100));
 
@@ -904,7 +904,7 @@ void main() {
     await tester.enterText(fields.at(1), 'password');
     await tester.pumpAndSettle();
 
-    await tester.tap(find.text('Sign in with LDAP'));
+    await tester.tap(find.text('Sign In with LDAP'));
     for (var i = 0; i < 10; i++) {
       await tester.pump(const Duration(milliseconds: 500));
     }
