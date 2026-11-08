@@ -8,11 +8,12 @@ CompiledMarkdownDetailsData _reasoning({
   required int duration,
   required bool hasDuration,
   String summary = '',
+  bool hasBody = true,
 }) => CompiledMarkdownDetailsData(
   summaryText: summary,
-  bodyMarkdown: 'why',
+  bodyMarkdown: hasBody ? 'why' : '',
   bodyStartIndex: 0,
-  hasBody: true,
+  hasBody: hasBody,
   kind: CompiledMarkdownDetailsKind.reasoning,
   type: 'reasoning',
   name: '',
@@ -45,15 +46,24 @@ void main() {
       ).isA<ReasoningHeaderThoughts>();
     });
 
-    test('done block with duration zero reads less than a second', () {
+    test('done block timed under a second reads thoughts, not a time', () {
+      // The server times reasoning from its first chunk to its last, so a
+      // block delivered in one burst after a long wait reports zero.
       check(
-            resolveReasoningHeader(
-              _reasoning(isDone: true, duration: 0, hasDuration: true),
-            ),
-          )
-          .isA<ReasoningHeaderThoughtFor>()
-          .has((h) => h.seconds, 'seconds')
-          .equals(0);
+        resolveReasoningHeader(
+          _reasoning(isDone: true, duration: 0, hasDuration: true),
+        ),
+      ).isA<ReasoningHeaderThoughts>();
+      check(
+        resolveReasoningHeader(
+          _reasoning(
+            isDone: true,
+            duration: 0,
+            hasDuration: true,
+            summary: 'Thought for 0 seconds',
+          ),
+        ),
+      ).isA<ReasoningHeaderThoughts>();
     });
 
     test('done block with a real duration reports it', () {
@@ -112,6 +122,39 @@ void main() {
           .isA<ReasoningHeaderSummary>()
           .has((h) => h.summary, 'summary')
           .equals('Planning the route');
+    });
+  });
+
+  group('isEmptyFinishedReasoning', () {
+    test('hides a finished block with nothing to open', () {
+      check(
+        isEmptyFinishedReasoning(
+          _reasoning(
+            isDone: true,
+            duration: 0,
+            hasDuration: true,
+            hasBody: false,
+          ),
+        ),
+      ).isTrue();
+    });
+
+    test('keeps a finished block with text, and any pending block', () {
+      check(
+        isEmptyFinishedReasoning(
+          _reasoning(isDone: true, duration: 4, hasDuration: true),
+        ),
+      ).isFalse();
+      check(
+        isEmptyFinishedReasoning(
+          _reasoning(
+            isDone: false,
+            duration: 0,
+            hasDuration: false,
+            hasBody: false,
+          ),
+        ),
+      ).isFalse();
     });
   });
 }

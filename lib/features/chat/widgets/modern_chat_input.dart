@@ -109,6 +109,7 @@ import 'chat_draft_queue_sheet.dart';
 import 'chat_input_intents.dart';
 import 'expanded_text_editor.dart';
 import 'chat_comparison_widgets.dart';
+import 'chat_send_motion.dart';
 import 'composer_overflow_items.dart';
 import 'composer_overflow_menu.dart';
 import 'mention_text_controller.dart';
@@ -1011,6 +1012,8 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       _queueDraft();
       return;
     }
+    // The bubble for this message rises from where its text is now.
+    ChatSendOrigin.recordFrom(_focusNode.context);
     // A project draft that starts with two saved models sends to both, through
     // the same committed-turn path as the Compare command. A host that cannot
     // admit a comparison sends the message the ordinary way.
@@ -3913,7 +3916,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                 const SizedBox(width: Spacing.xs),
               ] else if (showOverflowButton) ...[
                 _buildOverflowButton(
-                  tooltip: l10n.more,
+                  tooltip: l10n.composerAddAttachment,
                   dense: true,
                   nativeActions: nativeAttachmentActions,
                 ),
@@ -4055,7 +4058,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                   const SizedBox(width: Spacing.xs),
                 ] else if (compactControls.showLeading) ...[
                   _buildOverflowButton(
-                    tooltip: l10n.more,
+                    tooltip: l10n.composerAddAttachment,
                     dense: true,
                     nativeActions: nativeAttachmentActions,
                   ),
@@ -4163,16 +4166,55 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     );
     return _wrapWithComposerLineMeasurement(
       compactControls: compactControls,
-      child: _wrapWithFallbackAttachmentPanel(
-        composer: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [const SpeechPlaybackBar(), composer],
+      child: _wrapWithNativePanelGapFill(
+        _wrapWithFallbackAttachmentPanel(
+          composer: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [const SpeechPlaybackBar(), composer],
+          ),
+          localAttachmentsOnly: isHermesComposer,
+          attachmentAvailability: attachmentAvailability,
         ),
-        localAttachmentsOnly: isHermesComposer,
-        attachmentAvailability: attachmentAvailability,
       ),
     );
   }
+
+  /// While the native attachment panel stands in for the keyboard, the page
+  /// behind the strip between the composer and the panel (and behind the
+  /// panel's rounded top corners) is filled, so the thread no longer peeks
+  /// through between the two and they read as one surface. The strip lies
+  /// outside the composer's bounds; the panel's own window covers the rest.
+  Widget _wrapWithNativePanelGapFill(Widget child) {
+    final visible =
+        !kIsWeb && Platform.isIOS && _isNativeAttachmentPanelVisible;
+    // The Stack stays in the tree either way: inserting it only while the
+    // panel shows would re-parent the composer and drop its field's state.
+    return Stack(
+      clipBehavior: Clip.none,
+      // The composer keeps exactly the constraints it had without the Stack.
+      fit: StackFit.passthrough,
+      children: [
+        Positioned(
+          left: 0,
+          right: 0,
+          bottom: -_nativePanelGapFillHeight,
+          height: _nativePanelGapFillHeight,
+          child: IgnorePointer(
+            child: visible
+                ? ColoredBox(
+                    key: const ValueKey('composer-native-panel-gap-fill'),
+                    color: Theme.of(context).scaffoldBackgroundColor,
+                  )
+                : const SizedBox.shrink(),
+          ),
+        ),
+        child,
+      ],
+    );
+  }
+
+  /// The composer's gap above the keyboard plus the panel's corner radius.
+  static const double _nativePanelGapFillHeight = Spacing.sm + 32;
 
   Widget _wrapWithComposerLineMeasurement({
     required Widget child,
@@ -4651,13 +4693,20 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
           : _materialComposerOverflowIconExtent,
     );
 
+    // Named for what it does now: open the attachment panel, or, while the
+    // panel stands in for the keyboard, bring the keyboard back.
+    final label = attachmentPanelVisible
+        ? AppLocalizations.of(context)!.composerShowKeyboard
+        : tooltip;
+
     return Focus(
       key: const ValueKey('composer-overflow-button'),
       canRequestFocus: false,
       skipTraversal: true,
       descendantsAreFocusable: false,
       child: AdaptiveTooltip(
-        message: tooltip,
+        message: label,
+        excludeFromSemantics: true,
         child: _buildComposerIconButton(
           onPressed: enabled
               ? () {
@@ -4665,6 +4714,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                 }
               : null,
           size: buttonSize,
+          semanticLabel: label,
           forcePlain: true,
           iosSymbol: attachmentPanelVisible ? 'xmark' : 'plus',
           iosSymbolSize: iconSize,
@@ -4794,25 +4844,35 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
           }
         : null;
 
+    final dictationLabel = active
+        ? AppLocalizations.of(context)!.stopRecording
+        : AppLocalizations.of(context)!.startDictation;
     return AdaptiveTooltip(
-      message: active
-          ? AppLocalizations.of(context)!.stopRecording
-          : AppLocalizations.of(context)!.startDictation,
-      child: GestureDetector(
-        key: ValueKey<String>(
-          active ? 'composer-dictation-stop' : 'composer-dictation-start',
-        ),
-        behavior: HitTestBehavior.opaque,
+      message: dictationLabel,
+      excludeFromSemantics: true,
+      // A button to VoiceOver, not a stray text label.
+      child: Semantics(
+        button: true,
+        enabled: onPressed != null,
+        label: dictationLabel,
         onTap: onPressed,
-        child: SizedBox.square(
-          dimension: buttonSize,
-          child: Align(
-            alignment: AlignmentDirectional.centerEnd,
-            child: Padding(
-              padding: const EdgeInsetsDirectional.only(
-                end: _composerTrailingAccessoryInset,
+        excludeSemantics: true,
+        child: GestureDetector(
+          key: ValueKey<String>(
+            active ? 'composer-dictation-stop' : 'composer-dictation-start',
+          ),
+          behavior: HitTestBehavior.opaque,
+          onTap: onPressed,
+          child: SizedBox.square(
+            dimension: buttonSize,
+            child: Align(
+              alignment: AlignmentDirectional.centerEnd,
+              child: Padding(
+                padding: const EdgeInsetsDirectional.only(
+                  end: _composerTrailingAccessoryInset,
+                ),
+                child: icon,
               ),
-              child: icon,
             ),
           ),
         ),
@@ -4903,6 +4963,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       final stopLabel = AppLocalizations.of(context)!.stopGenerating;
       return AdaptiveTooltip(
         message: stopLabel,
+        excludeFromSemantics: true,
         child: _buildComposerIconButton(
           key: const ValueKey('primary-btn-stop'),
           onPressed: () {
@@ -4957,6 +5018,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
         message: enabled
             ? AppLocalizations.of(context)!.sendMessage
             : AppLocalizations.of(context)!.send,
+        excludeFromSemantics: true,
         child: _buildComposerIconButton(
           key: const ValueKey('primary-btn-send'),
           onPressed: onPressed,
@@ -4987,6 +5049,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
           widget.enabled && !_isRecording && !isGenerating;
       return AdaptiveTooltip(
         message: AppLocalizations.of(context)!.voiceCallTitle,
+        excludeFromSemantics: true,
         child: _buildComposerIconButton(
           key: const ValueKey('primary-btn-voice-call'),
           onPressed: enabledVoiceCall
@@ -5285,7 +5348,20 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     required AlignmentGeometry visualAlignment,
     required Widget control,
   }) {
-    if (visualSize >= targetSize) return control;
+    if (visualSize >= targetSize) {
+      if (semanticLabel == null) return control;
+      // The label must reach VoiceOver here too, not only when the visual is
+      // smaller than its target; otherwise only the tooltip names the button.
+      return Semantics(
+        key: key,
+        button: true,
+        enabled: onPressed != null,
+        label: semanticLabel,
+        onTap: onPressed,
+        excludeSemantics: true,
+        child: control,
+      );
+    }
 
     return Semantics(
       key: key,

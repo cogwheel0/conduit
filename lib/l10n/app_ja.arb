@@ -5977,5 +5977,28 @@
   "serverAddressFooter": "Webブラウザで開いているアドレスを入力してください。次にサインインします。",
   "signInChangeServer": "変更",
   "signInContinueWithSso": "SSOで続ける",
-  "mutualTlsChooseFile": "選択…"
+  "mutualTlsChooseFile": "選択…",
+  "thinkingElapsedSeconds": "{seconds}秒",
+  "@thinkingElapsedSeconds": {
+    "placeholders": {
+      "seconds": {
+        "type": "int"
+      }
+    }
+  },
+  "thinkingElapsedMinutes": "{minutes}分{seconds}秒",
+  "@thinkingElapsedMinutes": {
+    "placeholders": {
+      "minutes": {
+        "type": "int"
+      },
+      "seconds": {
+        "type": "String"
+      }
+    }
+  },
+  "copied": "コピーしました",
+  "composerAddAttachment": "添付ファイルを追加",
+  "composerShowKeyboard": "キーボードを表示",
+  "composerAttachUploads": "アップロード済み"
 }

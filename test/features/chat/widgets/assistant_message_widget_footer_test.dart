@@ -463,6 +463,77 @@ void main() {
     });
   });
 
+  testWidgets(
+    'Copy confirms with a checkmark read as Copied, then restores itself',
+    (tester) async {
+      final haptics = <Object?>[];
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      messenger.setMockMethodCallHandler(SystemChannels.platform, (call) async {
+        if (call.method == 'HapticFeedback.vibrate') {
+          haptics.add(call.arguments);
+        }
+        return null;
+      });
+      addTearDown(
+        () => messenger.setMockMethodCallHandler(SystemChannels.platform, null),
+      );
+      final handle = tester.ensureSemantics();
+      var copies = 0;
+      await tester.pumpWidget(
+        _buildAssistantHarness(
+          ChatMessage(
+            id: 'copy-confirm',
+            role: 'assistant',
+            content: 'Water the beds early in the morning.',
+            timestamp: DateTime.utc(2026, 1, 1),
+          ),
+          onCopy: () => copies++,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byIcon(Icons.content_copy_outlined));
+      await tester.pump();
+      check(copies).equals(1);
+      expect(find.byIcon(Icons.check), findsOneWidget);
+      expect(find.bySemanticsLabel('Copied'), findsOneWidget);
+      // One light tap for the copy, not the generic selection click as well.
+      check(haptics).deepEquals(['HapticFeedbackType.lightImpact']);
+
+      await tester.pump(const Duration(milliseconds: 1250));
+      await tester.pumpAndSettle();
+      expect(find.byIcon(Icons.check), findsNothing);
+      expect(find.byIcon(Icons.content_copy_outlined), findsOneWidget);
+      expect(find.bySemanticsLabel('Copy'), findsOneWidget);
+      handle.dispose();
+    },
+  );
+
+  testWidgets('reply actions offer 44 pt targets', (tester) async {
+    await tester.pumpWidget(
+      _buildAssistantHarness(
+        ChatMessage(
+          id: 'targets',
+          role: 'assistant',
+          content: 'Mulch keeps the soil moist.',
+          timestamp: DateTime.utc(2026, 1, 1),
+        ),
+        onCopy: () {},
+        onRegenerate: () {},
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final buttons = find.byType(ChatActionButton);
+    expect(buttons, findsWidgets);
+    for (final element in buttons.evaluate()) {
+      final size = tester.getSize(find.byWidget(element.widget));
+      expect(size.width, greaterThanOrEqualTo(44));
+      expect(size.height, greaterThanOrEqualTo(44));
+    }
+  });
+
   group('copying a previewed version', () {
     final copied = <Object?>[];
     var failCopy = false;
@@ -1189,7 +1260,8 @@ void main() {
           find.byType(CNPopupMenuButton),
         );
         expect(menu.buttonStyle, CNButtonStyle.plain);
-        expect(menu.width, 32);
+        // A full 44 pt target, like the inline actions beside it.
+        expect(menu.width, 44);
         expect(_menuLayout(menu), layout.sections);
         final delete = (menu.items.last as CNPopupMenuSubmenu).items.single;
         expect((delete as CNPopupMenuItem).isDestructive, isTrue);

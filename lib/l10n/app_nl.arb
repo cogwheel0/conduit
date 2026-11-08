@@ -4360,5 +4360,28 @@
   "serverAddressFooter": "Gebruik het adres dat je in een webbrowser opent. Daarna log je in.",
   "signInChangeServer": "Wijzig",
   "signInContinueWithSso": "Ga door met SSO",
-  "mutualTlsChooseFile": "Kies…"
+  "mutualTlsChooseFile": "Kies…",
+  "thinkingElapsedSeconds": "{seconds} s",
+  "@thinkingElapsedSeconds": {
+    "placeholders": {
+      "seconds": {
+        "type": "int"
+      }
+    }
+  },
+  "thinkingElapsedMinutes": "{minutes} min {seconds} s",
+  "@thinkingElapsedMinutes": {
+    "placeholders": {
+      "minutes": {
+        "type": "int"
+      },
+      "seconds": {
+        "type": "String"
+      }
+    }
+  },
+  "copied": "Gekopieerd",
+  "composerAddAttachment": "Bijlage toevoegen",
+  "composerShowKeyboard": "Toetsenbord tonen",
+  "composerAttachUploads": "Uploads"
 }

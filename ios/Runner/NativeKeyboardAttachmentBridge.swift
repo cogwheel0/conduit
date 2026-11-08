@@ -427,8 +427,12 @@ private final class NativeKeyboardAttachmentInputView: UIInputView {
     static let defaultHeight: CGFloat = 300
     static let minimumHeight: CGFloat = 170
     private static let panelCornerRadius: CGFloat = 26
+    private static let bottomContentInset: CGFloat = 16
 
     private let onSelect: (NativeKeyboardAttachmentAction) -> Void
+    private var currentActions: [NativeKeyboardAttachmentAction] = []
+    /// The width the tile grid's columns were chosen for.
+    private var gridWidth: CGFloat = 0
     private let scrollView = UIScrollView()
     private let stackView = UIStackView()
     private var preferredHeight = defaultHeight
@@ -509,7 +513,7 @@ private final class NativeKeyboardAttachmentInputView: UIInputView {
             stackTopConstraint,
             stackView.bottomAnchor.constraint(
                 equalTo: scrollView.contentLayoutGuide.bottomAnchor,
-                constant: -24
+                constant: -Self.bottomContentInset
             ),
             stackView.widthAnchor.constraint(
                 equalTo: scrollView.frameLayoutGuide.widthAnchor,
@@ -523,17 +527,42 @@ private final class NativeKeyboardAttachmentInputView: UIInputView {
         nil
     }
 
-    /// Keeps space for the composer when rotation or window resizing reduces
-    /// the available height, then restores the preferred height as space grows.
+    /// Sizes the panel to its content, never taller than the keyboard it
+    /// replaces nor half the window (so the composer keeps its space on
+    /// rotation), and never shorter than `minimumHeight`. A panel with a single
+    /// tool row no longer leaves most of a keyboard's height empty.
     override func layoutSubviews() {
+        // Rotation or a resized window changes how many tiles fit a row.
+        if !currentActions.isEmpty, abs(currentPanelWidth - gridWidth) > 1 {
+            update(actions: currentActions)
+        }
         if let window = sizingWindow ?? self.window, window.bounds.height > 0 {
-            let height = min(preferredHeight, window.bounds.height / 2)
+            let bottomInset = window.safeAreaInsets.bottom
+            if scrollView.contentInset.bottom != bottomInset {
+                scrollView.contentInset.bottom = bottomInset
+            }
+            let width = bounds.width > 0 ? bounds.width : window.bounds.width
+            let ceiling = min(preferredHeight, window.bounds.height / 2)
+            let fitted = fittedHeight(forWidth: width, bottomInset: bottomInset)
+            let height = min(ceiling, max(fitted, Self.minimumHeight))
             if heightConstraint.constant != height {
                 heightConstraint.constant = height
                 invalidateIntrinsicContentSize()
             }
+            scrollView.alwaysBounceVertical = fitted > height + 0.5
         }
         super.layoutSubviews()
+    }
+
+    /// The height that shows every section without scrolling.
+    private func fittedHeight(forWidth width: CGFloat, bottomInset: CGFloat) -> CGFloat {
+        let contentWidth = max(0, width - 2 * horizontalContentInset)
+        let stackHeight = stackView.systemLayoutSizeFitting(
+            CGSize(width: contentWidth, height: UIView.layoutFittingCompressedSize.height),
+            withHorizontalFittingPriority: .required,
+            verticalFittingPriority: .fittingSizeLevel
+        ).height
+        return ceil(topContentInset + stackHeight + Self.bottomContentInset + bottomInset)
     }
 
     /// Adjusts content padding when the vertical layout becomes compact or regular.
@@ -550,12 +579,14 @@ private final class NativeKeyboardAttachmentInputView: UIInputView {
     /// Rebuilds the ordered attachment, feature, and tool sections from the
     /// latest Flutter configuration.
     func update(actions: [NativeKeyboardAttachmentAction]) {
+        currentActions = actions
+        gridWidth = currentPanelWidth
         stackView.arrangedSubviews.forEach { view in
             stackView.removeArrangedSubview(view)
             view.removeFromSuperview()
         }
 
-        var attachmentStrip: UIScrollView?
+        var attachmentGrid: UIView?
 
         let grouped = Dictionary(grouping: actions, by: \.section)
         let preferredOrder = ["attachments", "features", "tools"]
@@ -573,15 +604,16 @@ private final class NativeKeyboardAttachmentInputView: UIInputView {
                 addSectionTitle(title)
             }
             if key == "attachments" {
-                attachmentStrip = addAttachmentRow(sectionActions)
+                attachmentGrid = addAttachmentGrid(sectionActions)
             } else {
                 addListSection(sectionActions)
             }
         }
 
-        if let strip = attachmentStrip {
-            stackView.setCustomSpacing(8, after: strip)
+        if let grid = attachmentGrid {
+            stackView.setCustomSpacing(10, after: grid)
         }
+        setNeedsLayout()
     }
 
     /// Preserves the measured keyboard height independently of the panel's
@@ -611,62 +643,95 @@ private final class NativeKeyboardAttachmentInputView: UIInputView {
         stackView.setCustomSpacing(2, after: label)
     }
 
-    /// Attach tiles: a filled rounded square holding icon and label.
-    private var attachmentRowScrollHeight: CGFloat {
-        traitCollection.verticalSizeClass == .compact ? 52 : 58
+    /// The panel's width, or its window's before the first layout.
+    private var currentPanelWidth: CGFloat {
+        if bounds.width > 0 { return bounds.width }
+        let window = sizingWindow ?? self.window
+        return window?.bounds.width ?? UIScreen.main.bounds.width
     }
 
-    /// Adds the horizontally scrolling strip of attachment tiles.
+    /// Attach tiles: a filled rounded rectangle holding icon and label.
+    private var attachmentTileHeight: CGFloat {
+        traitCollection.verticalSizeClass == .compact ? 56 : 64
+    }
+
+    private static let attachmentTileSpacing: CGFloat = 8
+    private static let attachmentTileMinimumWidth: CGFloat = 62
+
+    /// How many tiles each row holds: every tile fits the width (no tile cut
+    /// off at the edge), and rows are balanced, so five tiles that cannot sit
+    /// in one row split three and two rather than four and one.
+    static func attachmentGridRows(
+        count: Int,
+        availableWidth: CGFloat,
+        spacing: CGFloat = attachmentTileSpacing,
+        minimumTileWidth: CGFloat = attachmentTileMinimumWidth
+    ) -> [Int] {
+        guard count > 0 else { return [] }
+        let fitting = Int((availableWidth + spacing) / (minimumTileWidth + spacing))
+        let maxColumns = max(1, fitting)
+        let rowCount = Int(ceil(Double(count) / Double(maxColumns)))
+        let columns = Int(ceil(Double(count) / Double(rowCount)))
+        var rows: [Int] = []
+        var remaining = count
+        while remaining > 0 {
+            let take = min(columns, remaining)
+            rows.append(take)
+            remaining -= take
+        }
+        return rows
+    }
+
+    /// Adds the attachment tiles as a grid of equal-width columns.
     @discardableResult
-    private func addAttachmentRow(_ actions: [NativeKeyboardAttachmentAction]) -> UIScrollView {
-        let scroll = UIScrollView()
-        scroll.showsHorizontalScrollIndicator = false
-        scroll.alwaysBounceHorizontal = true
-        scroll.translatesAutoresizingMaskIntoConstraints = false
-        scroll.clipsToBounds = false
+    private func addAttachmentGrid(_ actions: [NativeKeyboardAttachmentAction]) -> UIView {
+        let grid = UIStackView()
+        grid.axis = .vertical
+        grid.spacing = Self.attachmentTileSpacing
+        grid.alignment = .fill
 
-        let row = UIStackView()
-        row.axis = .horizontal
-        row.alignment = .fill
-        row.spacing = 8
-        row.translatesAutoresizingMaskIntoConstraints = false
+        let rows = Self.attachmentGridRows(
+            count: actions.count,
+            availableWidth: currentPanelWidth - 2 * horizontalContentInset
+        )
+        let columns = rows.first ?? 0
 
-        let rowHeight = attachmentRowScrollHeight
-        scroll.addSubview(row)
-        NSLayoutConstraint.activate([
-            row.leadingAnchor.constraint(equalTo: scroll.contentLayoutGuide.leadingAnchor),
-            row.trailingAnchor.constraint(equalTo: scroll.contentLayoutGuide.trailingAnchor),
-            row.topAnchor.constraint(equalTo: scroll.contentLayoutGuide.topAnchor),
-            row.bottomAnchor.constraint(equalTo: scroll.contentLayoutGuide.bottomAnchor),
-            // The strip is as tall as its tiles, which grow with Dynamic Type.
-            scroll.frameLayoutGuide.heightAnchor.constraint(
-                equalTo: scroll.contentLayoutGuide.heightAnchor
-            ),
-        ])
-
-        actions.forEach { action in
-            let button = NativeKeyboardAttachmentTile(action: action, style: .grid)
-            button.addAction(UIAction { [weak self] _ in
-                self?.onSelect(action)
-            }, for: .touchUpInside)
-            row.addArrangedSubview(button)
-            // Compact by default; wider for long localized labels ("Appareil
-            // photo") and taller for larger text, within these bounds.
-            let preferredWidth = button.widthAnchor.constraint(equalToConstant: 78)
-            preferredWidth.priority = .defaultLow - 1
-            let preferredHeight = button.heightAnchor.constraint(equalToConstant: rowHeight)
-            preferredHeight.priority = .defaultLow - 1
-            NSLayoutConstraint.activate([
-                preferredWidth,
-                preferredHeight,
-                button.widthAnchor.constraint(greaterThanOrEqualToConstant: 78),
-                button.widthAnchor.constraint(lessThanOrEqualToConstant: 160),
-                button.heightAnchor.constraint(greaterThanOrEqualToConstant: rowHeight),
-            ])
+        var index = 0
+        for rowCount in rows {
+            let row = UIStackView()
+            row.axis = .horizontal
+            row.spacing = Self.attachmentTileSpacing
+            row.distribution = .fillEqually
+            row.alignment = .fill
+            for action in actions[index..<(index + rowCount)] {
+                let button = NativeKeyboardAttachmentTile(action: action, style: .grid)
+                button.addAction(UIAction { [weak self] _ in
+                    self?.onSelect(action)
+                }, for: .touchUpInside)
+                let preferredHeight = button.heightAnchor.constraint(
+                    equalToConstant: attachmentTileHeight
+                )
+                preferredHeight.priority = .defaultLow - 1
+                NSLayoutConstraint.activate([
+                    preferredHeight,
+                    button.heightAnchor.constraint(
+                        greaterThanOrEqualToConstant: attachmentTileHeight
+                    ),
+                ])
+                row.addArrangedSubview(button)
+            }
+            // A shorter last row keeps the columns of the rows above it.
+            for _ in rowCount..<columns {
+                let spacer = UIView()
+                spacer.isAccessibilityElement = false
+                row.addArrangedSubview(spacer)
+            }
+            index += rowCount
+            grid.addArrangedSubview(row)
         }
 
-        stackView.addArrangedSubview(scroll)
-        return scroll
+        stackView.addArrangedSubview(grid)
+        return grid
     }
 
     /// Adds the feature and tool rows with their current selection state.
@@ -784,8 +849,11 @@ private final class NativeKeyboardAttachmentTile: UIControl {
         label.adjustsFontForContentSizeCategory = true
         label.textColor = foreground
         label.textAlignment = .center
-        label.numberOfLines = 1
-        label.lineBreakMode = .byTruncatingTail
+        // A long localized name ("Appareil photo") wraps rather than
+        // truncates, so every tile can share one column width.
+        label.numberOfLines = 2
+        label.lineBreakMode = .byWordWrapping
+        label.allowsDefaultTighteningForTruncation = true
 
         isAccessibilityElement = true
         accessibilityLabel = action.label
@@ -794,7 +862,7 @@ private final class NativeKeyboardAttachmentTile: UIControl {
         let stack = UIStackView(arrangedSubviews: [icon, label])
         stack.axis = .vertical
         stack.alignment = .center
-        stack.spacing = 3
+        stack.spacing = 4
         stack.isUserInteractionEnabled = false
         stack.translatesAutoresizingMaskIntoConstraints = false
         addSubview(stack)
@@ -806,10 +874,10 @@ private final class NativeKeyboardAttachmentTile: UIControl {
             background.bottomAnchor.constraint(equalTo: bottomAnchor),
             stack.centerXAnchor.constraint(equalTo: centerXAnchor),
             stack.centerYAnchor.constraint(equalTo: centerYAnchor),
-            stack.leadingAnchor.constraint(greaterThanOrEqualTo: leadingAnchor, constant: 8),
-            stack.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -8),
-            stack.topAnchor.constraint(greaterThanOrEqualTo: topAnchor, constant: 6),
-            stack.bottomAnchor.constraint(lessThanOrEqualTo: bottomAnchor, constant: -6),
+            stack.leadingAnchor.constraint(greaterThanOrEqualTo: leadingAnchor, constant: 4),
+            stack.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -4),
+            stack.topAnchor.constraint(greaterThanOrEqualTo: topAnchor, constant: 8),
+            stack.bottomAnchor.constraint(lessThanOrEqualTo: bottomAnchor, constant: -8),
         ])
     }
 

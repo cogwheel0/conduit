@@ -62,10 +62,10 @@ void main() {
       find.byType(ComposerAttachmentKeyboard),
     );
     expect(sheet.localAttachmentsOnly, isTrue);
-    expect(find.text('File'), findsOneWidget);
+    expect(find.text('Files'), findsOneWidget);
     expect(find.text('Photo'), findsOneWidget);
     expect(find.text('Camera'), findsOneWidget);
-    expect(find.text('Files'), findsNothing);
+    expect(find.text('Uploads'), findsNothing);
     expect(find.text('Web Page'), findsNothing);
     expect(find.text('Tools'), findsNothing);
 
@@ -109,7 +109,7 @@ void main() {
       await tester.tap(find.byIcon(Icons.add));
       await tester.pumpAndSettle();
 
-      expect(find.text('File'), findsOneWidget);
+      expect(find.text('Files'), findsOneWidget);
       expect(find.text('Photo'), findsNothing);
       expect(find.text('Camera'), findsNothing);
 

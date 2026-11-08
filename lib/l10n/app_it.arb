@@ -4360,5 +4360,28 @@
   "serverAddressFooter": "Usa l’indirizzo che apri nel browser web. Subito dopo accederai.",
   "signInChangeServer": "Cambia",
   "signInContinueWithSso": "Continua con SSO",
-  "mutualTlsChooseFile": "Scegli…"
+  "mutualTlsChooseFile": "Scegli…",
+  "thinkingElapsedSeconds": "{seconds} s",
+  "@thinkingElapsedSeconds": {
+    "placeholders": {
+      "seconds": {
+        "type": "int"
+      }
+    }
+  },
+  "thinkingElapsedMinutes": "{minutes} min {seconds} s",
+  "@thinkingElapsedMinutes": {
+    "placeholders": {
+      "minutes": {
+        "type": "int"
+      },
+      "seconds": {
+        "type": "String"
+      }
+    }
+  },
+  "copied": "Copiato",
+  "composerAddAttachment": "Aggiungi allegato",
+  "composerShowKeyboard": "Mostra tastiera",
+  "composerAttachUploads": "Caricati"
 }

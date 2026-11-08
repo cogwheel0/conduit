@@ -1,17 +1,44 @@
+import 'dart:typed_data';
+
 import 'package:material_ui/material_ui.dart';
 import 'package:conduit/shared/theme/theme_extensions.dart';
 import 'package:conduit/core/services/haptic_service.dart';
+import 'package:conduit/core/services/native_symbol_image_service.dart';
+import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 
 class ChatActionButton extends StatelessWidget {
   final IconData icon;
   final String label;
   final VoidCallback? onTap;
 
+  /// The SF Symbol drawn in place of [icon] on iOS, rasterized by UIKit so a
+  /// row of buttons shares Apple's own weight and optical size, and matches
+  /// native buttons beside it. [icon] stays the fallback elsewhere.
+  final String? sfSymbol;
+
+  /// The square hit target.
+  final double size;
+
+  /// The glyph's point size.
+  final double iconSize;
+
+  /// The glyph's colour; defaults to the label colour at 80%.
+  final Color? color;
+
+  /// Whether a tap plays the selection haptic. Turn it off when the action
+  /// plays a feedback of its own, such as Copy's confirmation.
+  final bool hapticFeedback;
+
   const ChatActionButton({
     super.key,
     required this.icon,
     required this.label,
     this.onTap,
+    this.sfSymbol,
+    this.size = 32,
+    this.iconSize = IconSize.sm + 2,
+    this.color,
+    this.hapticFeedback = true,
   });
 
   @override
@@ -20,17 +47,29 @@ class ChatActionButton extends StatelessWidget {
     final handleTap = onTap == null
         ? null
         : () {
-            ConduitHaptics.selectionClick();
+            if (hapticFeedback) ConduitHaptics.selectionClick();
             onTap!();
           };
 
-    final foreground = theme.textPrimary.withValues(
-      alpha: handleTap == null ? 0.36 : 0.8,
-    );
+    final base = color ?? theme.textPrimary.withValues(alpha: 0.8);
+    final foreground = handleTap == null
+        ? base.withValues(alpha: base.a * 0.45)
+        : base;
+    final symbol = sfSymbol;
+    final glyph = symbol != null && NativeSymbolGlyph.isAvailable
+        ? NativeSymbolGlyph(
+            symbol: symbol,
+            fallbackIcon: icon,
+            pointSize: iconSize,
+            color: foreground,
+          )
+        : Icon(icon, size: iconSize, color: foreground);
 
     return Tooltip(
       message: label,
       waitDuration: const Duration(milliseconds: 600),
+      // The button below names itself; the tooltip would read it twice.
+      excludeFromSemantics: true,
       child: Semantics(
         button: true,
         enabled: handleTap != null,
@@ -39,14 +78,139 @@ class ChatActionButton extends StatelessWidget {
           behavior: HitTestBehavior.opaque,
           onTap: handleTap,
           child: SizedBox(
-            width: 32,
-            height: 32,
+            width: size,
+            height: size,
             child: Center(
-              child: Icon(icon, size: IconSize.sm + 2, color: foreground),
+              child: AnimatedSwitcher(
+                duration: context.motionDuration(
+                  const Duration(milliseconds: 160),
+                ),
+                switchInCurve: Curves.easeOut,
+                switchOutCurve: Curves.easeIn,
+                transitionBuilder: (child, animation) => FadeTransition(
+                  opacity: animation,
+                  child: ScaleTransition(
+                    scale: Tween<double>(begin: 0.8, end: 1).animate(animation),
+                    child: child,
+                  ),
+                ),
+                child: KeyedSubtree(
+                  key: ValueKey<Object>(symbol ?? icon),
+                  child: glyph,
+                ),
+              ),
             ),
           ),
         ),
       ),
     );
+  }
+}
+
+/// An SF Symbol drawn by UIKit at [pointSize] and regular weight, cached as
+/// an image and tinted with [color]. Shows [fallbackIcon] where the system
+/// has no such symbol.
+class NativeSymbolGlyph extends StatefulWidget {
+  const NativeSymbolGlyph({
+    super.key,
+    required this.symbol,
+    required this.fallbackIcon,
+    required this.pointSize,
+    required this.color,
+  });
+
+  final String symbol;
+  final IconData fallbackIcon;
+  final double pointSize;
+  final Color color;
+
+  /// Whether this platform rasterizes SF Symbols (iOS, with the host
+  /// renderer installed at startup).
+  static bool get isAvailable =>
+      PlatformUiCapabilities.isIOS &&
+      NativeSymbolImageService.hostRenderer != null;
+
+  @override
+  State<NativeSymbolGlyph> createState() => _NativeSymbolGlyphState();
+}
+
+class _NativeSymbolGlyphState extends State<NativeSymbolGlyph> {
+  Uint8List? _bytes;
+  bool _failed = false;
+  ({String name, double size, double scale})? _requested;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _resolve();
+  }
+
+  @override
+  void didUpdateWidget(covariant NativeSymbolGlyph oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.symbol != widget.symbol ||
+        oldWidget.pointSize != widget.pointSize) {
+      _resolve();
+    }
+  }
+
+  void _resolve() {
+    final scale = MediaQuery.maybeDevicePixelRatioOf(context) ?? 3;
+    final request = (name: widget.symbol, size: widget.pointSize, scale: scale);
+    if (request == _requested) return;
+    _requested = request;
+    final service = NativeSymbolImageService.instance;
+    final cached = service.cached(
+      request.name,
+      pointSize: request.size,
+      scale: request.scale,
+    );
+    if (cached != null ||
+        service.isResolved(
+          request.name,
+          pointSize: request.size,
+          scale: request.scale,
+        )) {
+      _bytes = cached;
+      _failed = cached == null;
+      return;
+    }
+    _bytes = null;
+    _failed = false;
+    service
+        .load(request.name, pointSize: request.size, scale: request.scale)
+        .then((bytes) {
+          // A newer request owns the glyph now.
+          if (!mounted || _requested != request) return;
+          setState(() {
+            _bytes = bytes;
+            _failed = bytes == null;
+          });
+        });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final bytes = _bytes;
+    if (bytes != null) {
+      return Image.memory(
+        bytes,
+        scale: _requested?.scale ?? 3,
+        color: widget.color,
+        colorBlendMode: BlendMode.srcIn,
+        gaplessPlayback: true,
+        excludeFromSemantics: true,
+      );
+    }
+    if (_failed) {
+      return Icon(
+        widget.fallbackIcon,
+        size: widget.pointSize,
+        color: widget.color,
+      );
+    }
+    // The first request takes a frame; keep the slot empty rather than flash
+    // a different glyph.
+    return SizedBox.square(dimension: widget.pointSize);
   }
 }

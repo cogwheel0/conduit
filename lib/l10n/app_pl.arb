@@ -8162,5 +8162,28 @@
   "serverAddressFooter": "Użyj adresu, który otwierasz w przeglądarce. Następnie się zalogujesz.",
   "signInChangeServer": "Zmień",
   "signInContinueWithSso": "Kontynuuj przez SSO",
-  "mutualTlsChooseFile": "Wybierz…"
+  "mutualTlsChooseFile": "Wybierz…",
+  "thinkingElapsedSeconds": "{seconds} s",
+  "@thinkingElapsedSeconds": {
+    "placeholders": {
+      "seconds": {
+        "type": "int"
+      }
+    }
+  },
+  "thinkingElapsedMinutes": "{minutes} min {seconds} s",
+  "@thinkingElapsedMinutes": {
+    "placeholders": {
+      "minutes": {
+        "type": "int"
+      },
+      "seconds": {
+        "type": "String"
+      }
+    }
+  },
+  "copied": "Skopiowano",
+  "composerAddAttachment": "Dodaj załącznik",
+  "composerShowKeyboard": "Pokaż klawiaturę",
+  "composerAttachUploads": "Przesłane"
 }

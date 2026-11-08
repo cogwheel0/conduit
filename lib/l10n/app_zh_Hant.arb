@@ -4360,5 +4360,28 @@
   "serverAddressFooter": "請使用您在網頁瀏覽器中開啟的位址。下一步您將登入。",
   "signInChangeServer": "更改",
   "signInContinueWithSso": "使用 SSO 繼續",
-  "mutualTlsChooseFile": "選擇…"
+  "mutualTlsChooseFile": "選擇…",
+  "thinkingElapsedSeconds": "{seconds} 秒",
+  "@thinkingElapsedSeconds": {
+    "placeholders": {
+      "seconds": {
+        "type": "int"
+      }
+    }
+  },
+  "thinkingElapsedMinutes": "{minutes} 分 {seconds} 秒",
+  "@thinkingElapsedMinutes": {
+    "placeholders": {
+      "minutes": {
+        "type": "int"
+      },
+      "seconds": {
+        "type": "String"
+      }
+    }
+  },
+  "copied": "已複製",
+  "composerAddAttachment": "加入附件",
+  "composerShowKeyboard": "顯示鍵盤",
+  "composerAttachUploads": "已上傳"
 }

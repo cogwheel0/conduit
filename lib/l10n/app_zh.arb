@@ -4360,5 +4360,28 @@
   "serverAddressFooter": "请使用您在网页浏览器中打开的地址。下一步您将登录。",
   "signInChangeServer": "更改",
   "signInContinueWithSso": "使用 SSO 继续",
-  "mutualTlsChooseFile": "选择…"
+  "mutualTlsChooseFile": "选择…",
+  "thinkingElapsedSeconds": "{seconds} 秒",
+  "@thinkingElapsedSeconds": {
+    "placeholders": {
+      "seconds": {
+        "type": "int"
+      }
+    }
+  },
+  "thinkingElapsedMinutes": "{minutes} 分 {seconds} 秒",
+  "@thinkingElapsedMinutes": {
+    "placeholders": {
+      "minutes": {
+        "type": "int"
+      },
+      "seconds": {
+        "type": "String"
+      }
+    }
+  },
+  "copied": "已复制",
+  "composerAddAttachment": "添加附件",
+  "composerShowKeyboard": "显示键盘",
+  "composerAttachUploads": "已上传"
 }

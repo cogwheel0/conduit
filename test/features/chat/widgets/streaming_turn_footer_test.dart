@@ -4,6 +4,7 @@ import 'package:conduit_core/services/settings_service.dart';
 import 'package:conduit_core/features/chat/providers/queued_completion_provider.dart';
 import 'package:conduit/features/chat/widgets/conduit_streaming_orbit.dart';
 import 'package:conduit/features/chat/widgets/streaming_turn_footer.dart';
+import 'package:conduit/features/chat/widgets/thinking_status_label.dart';
 import 'package:conduit/shared/theme/app_theme.dart';
 import 'package:conduit/shared/theme/tweakcn_themes.dart';
 import 'package:flutter/foundation.dart';
@@ -83,6 +84,78 @@ void main() {
     await tester.pump();
 
     expect(find.byKey(const ValueKey('typing')), findsOneWidget);
+  });
+
+  testWidgets('spells out the wait until the reply shows anything', (
+    tester,
+  ) async {
+    final container = _buildContainer();
+    addTearDown(container.dispose);
+    final empty = ChatMessage(
+      id: 'assistant-live',
+      role: 'assistant',
+      content: '',
+      timestamp: DateTime.now(),
+      isStreaming: true,
+    );
+
+    await tester.pumpWidget(
+      _buildHarness(container: container, message: empty),
+    );
+    await tester.pump();
+    expect(find.byType(ThinkingStatusLabel), findsOneWidget);
+    expect(find.byType(ConduitStreamingOrbit), findsOneWidget);
+
+    await tester.pumpWidget(
+      _buildHarness(
+        container: container,
+        message: empty.copyWith(content: 'Hello'),
+      ),
+    );
+    await tester.pump();
+    // The label leaves; the orbit stays where it was.
+    expect(find.byType(ThinkingStatusLabel), findsNothing);
+    expect(find.byType(ConduitStreamingOrbit), findsOneWidget);
+  });
+
+  test('the thinking label yields to anything the reply shows', () {
+    final empty = ChatMessage(
+      id: 'assistant-live',
+      role: 'assistant',
+      content: '',
+      timestamp: DateTime(2026),
+      isStreaming: true,
+    );
+    expect(
+      shouldShowThinkingLabel(message: empty, hasStreamedContent: false),
+      isTrue,
+    );
+    expect(
+      shouldShowThinkingLabel(message: empty, hasStreamedContent: true),
+      isFalse,
+    );
+    expect(
+      shouldShowThinkingLabel(
+        message: empty.copyWith(
+          statusHistory: const [
+            ChatStatusUpdate(action: 'search', description: 'Searching'),
+          ],
+        ),
+        hasStreamedContent: false,
+      ),
+      isFalse,
+    );
+    expect(
+      shouldShowThinkingLabel(
+        message: empty.copyWith(
+          statusHistory: const [
+            ChatStatusUpdate(action: 'hidden', hidden: true),
+          ],
+        ),
+        hasStreamedContent: false,
+      ),
+      isTrue,
+    );
   });
 
   testWidgets('stays visible once streaming content arrives', (tester) async {

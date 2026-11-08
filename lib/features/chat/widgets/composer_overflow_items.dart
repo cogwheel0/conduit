@@ -217,24 +217,26 @@ List<ComposerOverflowItem> buildComposerOverflowAttachmentItems({
   required ComposerOverflowAttachmentAvailability attachmentAvailability,
 }) {
   return <ComposerOverflowItem>[
+    // "Files" opens the system file picker, named and drawn like the Files
+    // app it shows; "Uploads" lists files already on the server.
     ComposerOverflowItem(
       id: ComposerOverflowActionIds.file,
       kind: ComposerOverflowItemKind.attachment,
       section: ComposerOverflowSection.attachments,
-      label: l10n.file,
-      cupertinoIcon: CupertinoIcons.doc,
+      label: l10n.files,
+      cupertinoIcon: CupertinoIcons.folder,
       materialIcon: Icons.attach_file,
-      sfSymbol: 'doc',
+      sfSymbol: 'folder',
       enabled: attachmentAvailability.file,
     ),
     ComposerOverflowItem(
       id: ComposerOverflowActionIds.serverFile,
       kind: ComposerOverflowItemKind.attachment,
       section: ComposerOverflowSection.attachments,
-      label: l10n.files,
-      cupertinoIcon: CupertinoIcons.folder,
-      materialIcon: Icons.folder_rounded,
-      sfSymbol: 'folder',
+      label: l10n.composerAttachUploads,
+      cupertinoIcon: CupertinoIcons.arrow_up_doc,
+      materialIcon: Icons.cloud_upload_outlined,
+      sfSymbol: 'arrow.up.doc',
       enabled: attachmentAvailability.serverFile,
     ),
     ComposerOverflowItem(

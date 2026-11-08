@@ -4132,5 +4132,28 @@
   "serverAddressFooter": "웹 브라우저에서 여는 주소를 입력하세요. 다음 단계에서 로그인합니다.",
   "signInChangeServer": "변경",
   "signInContinueWithSso": "SSO로 계속",
-  "mutualTlsChooseFile": "선택…"
+  "mutualTlsChooseFile": "선택…",
+  "thinkingElapsedSeconds": "{seconds}초",
+  "@thinkingElapsedSeconds": {
+    "placeholders": {
+      "seconds": {
+        "type": "int"
+      }
+    }
+  },
+  "thinkingElapsedMinutes": "{minutes}분 {seconds}초",
+  "@thinkingElapsedMinutes": {
+    "placeholders": {
+      "minutes": {
+        "type": "int"
+      },
+      "seconds": {
+        "type": "String"
+      }
+    }
+  },
+  "copied": "복사됨",
+  "composerAddAttachment": "첨부 파일 추가",
+  "composerShowKeyboard": "키보드 보기",
+  "composerAttachUploads": "업로드한 파일"
 }

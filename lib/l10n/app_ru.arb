@@ -4398,5 +4398,28 @@
   "serverAddressFooter": "Укажите адрес, который вы открываете в браузере. Затем вы войдёте в систему.",
   "signInChangeServer": "Изменить",
   "signInContinueWithSso": "Продолжить через SSO",
-  "mutualTlsChooseFile": "Выбрать…"
+  "mutualTlsChooseFile": "Выбрать…",
+  "thinkingElapsedSeconds": "{seconds} с",
+  "@thinkingElapsedSeconds": {
+    "placeholders": {
+      "seconds": {
+        "type": "int"
+      }
+    }
+  },
+  "thinkingElapsedMinutes": "{minutes} мин {seconds} с",
+  "@thinkingElapsedMinutes": {
+    "placeholders": {
+      "minutes": {
+        "type": "int"
+      },
+      "seconds": {
+        "type": "String"
+      }
+    }
+  },
+  "copied": "Скопировано",
+  "composerAddAttachment": "Добавить вложение",
+  "composerShowKeyboard": "Показать клавиатуру",
+  "composerAttachUploads": "Загруженные"
 }

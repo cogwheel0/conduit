@@ -6283,5 +6283,28 @@
   "serverAddressFooter": "Použijte adresu, kterou otevíráte ve webovém prohlížeči. Potom se přihlásíte.",
   "signInChangeServer": "Změnit",
   "signInContinueWithSso": "Pokračovat přes SSO",
-  "mutualTlsChooseFile": "Vybrat…"
+  "mutualTlsChooseFile": "Vybrat…",
+  "thinkingElapsedSeconds": "{seconds} s",
+  "@thinkingElapsedSeconds": {
+    "placeholders": {
+      "seconds": {
+        "type": "int"
+      }
+    }
+  },
+  "thinkingElapsedMinutes": "{minutes} min {seconds} s",
+  "@thinkingElapsedMinutes": {
+    "placeholders": {
+      "minutes": {
+        "type": "int"
+      },
+      "seconds": {
+        "type": "String"
+      }
+    }
+  },
+  "copied": "Zkopírováno",
+  "composerAddAttachment": "Přidat přílohu",
+  "composerShowKeyboard": "Zobrazit klávesnici",
+  "composerAttachUploads": "Nahrané"
 }

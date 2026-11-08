@@ -10,6 +10,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../shared/services/navigation_service.dart';
 
+import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
 
 import '../../../shared/theme/conduit_input_styles.dart';
@@ -21,6 +22,7 @@ import '../../../shared/utils/locale_display_formatters.dart';
 import 'package:conduit_core/features/chat/services/chat_message_actions.dart';
 import 'package:conduit_core/features/chat/utils/file_utils.dart';
 
+import 'chat_send_motion.dart';
 import 'enhanced_attachment.dart';
 import 'enhanced_image_attachment.dart';
 import 'image_gallery_scope.dart';
@@ -786,7 +788,14 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
 
   @override
   Widget build(BuildContext context) {
-    return _buildUserMessage();
+    final message = widget.message;
+    if (message is! ChatMessage) return _buildUserMessage();
+    // A message just sent rises from the composer into place, once.
+    return ChatSendEntrance(
+      messageId: message.id,
+      timestamp: message.timestamp,
+      child: _buildUserMessage(),
+    );
   }
 
   Widget _buildUserMessage() {
