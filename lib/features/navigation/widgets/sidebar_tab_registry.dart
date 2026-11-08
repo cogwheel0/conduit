@@ -63,8 +63,10 @@ final class SidebarTabDescriptor {
   final IconData materialIcon;
   final IconData selectedMaterialIcon;
 
-  /// SF Symbols for the iOS tab bar. Tab bars use the filled variant in both
-  /// states, as iOS apps do; the tint and selection pill mark the current tab.
+  /// SF Symbols for the iOS tab bar: the outline glyph, and its filled form
+  /// for the current tab. Conduit's palette is monochrome, so the bar's tint
+  /// is the same colour as the other tabs; the fill, with the selection pill,
+  /// is what marks the current tab.
   final String sfSymbol;
   final String selectedSfSymbol;
   final SidebarTabVisibilityPredicate isVisible;
@@ -160,7 +162,7 @@ const sidebarTabRegistry = <SidebarTabDescriptor>[
     bodyBuilder: _chatsBody,
     materialIcon: Icons.chat_bubble_outline,
     selectedMaterialIcon: Icons.chat_bubble,
-    sfSymbol: 'bubble.left.fill',
+    sfSymbol: 'bubble.left',
     selectedSfSymbol: 'bubble.left.fill',
     isVisible: _chatsVisible,
     createAction: chatSidebarCreateAction,
@@ -188,7 +190,7 @@ const sidebarTabRegistry = <SidebarTabDescriptor>[
     bodyBuilder: _notesBody,
     materialIcon: Icons.note_outlined,
     selectedMaterialIcon: Icons.note,
-    sfSymbol: 'doc.text.fill',
+    sfSymbol: 'doc.text',
     selectedSfSymbol: 'doc.text.fill',
     isVisible: _notesVisible,
     createAction: noteSidebarCreateAction,
@@ -200,7 +202,7 @@ const sidebarTabRegistry = <SidebarTabDescriptor>[
     bodyBuilder: _terminalBody,
     materialIcon: Icons.terminal_rounded,
     selectedMaterialIcon: Icons.terminal,
-    sfSymbol: 'terminal.fill',
+    sfSymbol: 'terminal',
     selectedSfSymbol: 'terminal.fill',
     isVisible: _terminalVisible,
     behavior: terminalSidebarTabBehavior,
