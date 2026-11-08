@@ -4961,6 +4961,24 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       }
     }
 
+    // The glyph has no label, so a tap names it first: a popover from the
+    // button with the setting as a labelled switch and a line on what it
+    // does. Where there is no such popover, a tap flips it.
+    Future<void> presentToggle() async {
+      final shown = await showConduitToolbarTogglePopover(
+        context: context,
+        anchorKey: _temporaryChatToggleKey,
+        label: l10n.temporaryChat,
+        detail: l10n.temporaryChatTooltip,
+        symbol: temporaryChatToolbarSymbol(isTemporary: false),
+        value: ref.read(temporaryChatEnabledProvider),
+        onChanged: setTemporary,
+      );
+      if (!shown && mounted) {
+        setTemporary(!ref.read(temporaryChatEnabledProvider));
+      }
+    }
+
     return _buildChatToolbarIconAction(
       id: 'temporary-chat',
       icon: isTemporary
@@ -4977,27 +4995,13 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       // While the first message is on its way the toggle stays in place but
       // no longer changes the chat (it keeps looking enabled, so the bar
       // does not flicker before it changes to the chat's actions).
-      onPressed: held
-          ? () {}
-          : () => setTemporary(!ref.read(temporaryChatEnabledProvider)),
-      // The glyph has no label: a long press names it, says what it does
-      // and offers it as a switch.
+      onPressed: held ? () {} : () => unawaited(presentToggle()),
       anchorKey: _temporaryChatToggleKey,
       onLongPress: held
           ? null
           : () {
               ConduitHaptics.lightImpact();
-              unawaited(
-                showConduitToolbarTogglePopover(
-                  context: context,
-                  anchorKey: _temporaryChatToggleKey,
-                  label: l10n.temporaryChat,
-                  detail: l10n.temporaryChatTooltip,
-                  symbol: 'circle.dashed',
-                  value: ref.read(temporaryChatEnabledProvider),
-                  onChanged: setTemporary,
-                ),
-              );
+              unawaited(presentToggle());
             },
     );
   }

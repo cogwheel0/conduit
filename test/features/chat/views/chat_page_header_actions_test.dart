@@ -345,4 +345,34 @@ void main() {
     expect((201 - maxWidth / 2) - sidebar.right, greaterThanOrEqualTo(12));
     await _tearDown(tester);
   });
+
+  testWidgets('a tap on the Temporary Chat glyph explains it before it '
+      'changes anything', (tester) async {
+    final container = await _pumpChatPage(tester);
+    final toggle = tester
+        .widget<ConduitToolbarActionCluster>(
+          find.byType(ConduitToolbarActionCluster),
+        )
+        .items
+        .single;
+    expect(toggle.id, 'temporary-chat');
+
+    toggle.action.onPressed!();
+    await tester.pumpAndSettle();
+    // The popover names the setting and says what it does; the tap alone
+    // leaves the chat as it was.
+    expect(find.text('Temporary Chat'), findsOneWidget);
+    expect(find.text("This chat won't appear in history"), findsOneWidget);
+    expect(container.read(temporaryChatEnabledProvider), isFalse);
+
+    // The popover's switch (Flutter's own where there is no native side).
+    await tester.tap(
+      find.byWidgetPredicate(
+        (widget) => widget.runtimeType.toString() == 'CupertinoSwitch',
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(container.read(temporaryChatEnabledProvider), isTrue);
+    await _tearDown(tester);
+  });
 }
