@@ -7,6 +7,7 @@ import 'package:conduit/features/search/views/library_search_page.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/shared/theme/app_theme.dart';
 import 'package:conduit/shared/theme/tweakcn_themes.dart';
+import 'package:conduit/shared/theme/theme_extensions.dart';
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:conduit_core/database/app_database.dart';
 import 'package:conduit_core/database/chat_database_repository.dart';
@@ -472,6 +473,18 @@ void main() {
     await tester.enterText(find.byType(EditableText), 'cobalt');
     await tester.pump(const Duration(milliseconds: 300));
     await tester.pumpAndSettle();
+    final chipLabel = find.descendant(
+      of: find.byKey(const ValueKey('search-filter-all')),
+      matching: find.byType(Text),
+    );
+    final context = tester.element(chipLabel);
+    final foreground = DefaultTextStyle.of(context).style.color!
+        .computeLuminance();
+    final background = context.conduitTheme.surfaceContainer.computeLuminance();
+    expect(
+      (foreground + 0.05) / (background + 0.05),
+      greaterThanOrEqualTo(4.5),
+    );
     expect(tester.takeException(), isNull);
     expect(tester.getSize(find.byType(EditableText)).width, lessThan(760));
     expect(

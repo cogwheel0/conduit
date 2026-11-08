@@ -187,6 +187,7 @@ class _LibrarySearchPageState extends ConsumerState<LibrarySearchPage> {
                             side: BorderSide.none,
                             shape: const StadiumBorder(),
                             selectedColor: theme.surfaceContainer,
+                            labelStyle: TextStyle(color: theme.textPrimary),
                             backgroundColor: const Color(0x00000000),
                             onSelected: (_) => setState(() => _scope = filter),
                           ),
