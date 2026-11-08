@@ -1183,9 +1183,9 @@ class UserMessageFlightBubble extends StatelessWidget {
 }
 
 /// The flying bubble's fill: the words' own frame at 0, the whole bubble at
-/// 1. Its tone comes in ahead of its size, so by the time the message passes
-/// anything on its way up (a leaving greeting) it already reads as a bubble
-/// over it rather than as two lines of text crossing.
+/// 1. It is there from the first frame, already a soft tone around the
+/// words, and its tone comes in ahead of its size, so the message leaves the
+/// composer as a bubble rather than as bare text that gains one on the way.
 class _GrowingBubbleFill extends CustomPainter {
   _GrowingBubbleFill({required this.morph, required this.color})
     : super(repaint: morph);
@@ -1195,10 +1195,12 @@ class _GrowingBubbleFill extends CustomPainter {
 
   static const double _radius = AppBorderRadius.chatBubble;
 
+  /// The fill's share of its full tone in the frame of the send.
+  static const double initialTone = 0.6;
+
   @override
   void paint(Canvas canvas, Size size) {
     final progress = morph.value.clamp(0.0, 1.0);
-    if (progress <= 0) return;
     final inset = EdgeInsets.lerp(
       _userBubblePadding,
       EdgeInsets.zero,
@@ -1206,7 +1208,10 @@ class _GrowingBubbleFill extends CustomPainter {
     )!;
     final rect = inset.deflateRect(Offset.zero & size);
     final radius = _radius * (0.4 + 0.6 * progress);
-    final tone = Curves.easeOut.transform((progress * 2.5).clamp(0.0, 1.0));
+    final tone =
+        initialTone +
+        (1 - initialTone) *
+            Curves.easeOut.transform((progress * 2).clamp(0.0, 1.0));
     canvas.drawRRect(
       RRect.fromRectAndRadius(rect, Radius.circular(radius)),
       Paint()..color = color.withValues(alpha: color.a * tone),

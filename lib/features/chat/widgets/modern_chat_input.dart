@@ -429,6 +429,10 @@ class ModernChatInput extends ConsumerStatefulWidget {
   /// Falls back to the localised default ("Ask anything...").
   final String? placeholder;
 
+  /// The longest the composer ever holds its shape for a sent message's
+  /// words, whatever happens to them (a flying bubble reports long before).
+  static const Duration sentWordsHoldLimit = Duration(milliseconds: 1500);
+
   /// Builder that replaces the default overflow (+) button entirely.
   /// Receives the button size so the replacement can match layout.
   /// When provided, the default [ComposerAttachmentKeyboard] is not used.
@@ -630,6 +634,10 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
   /// Without this, different parent ValueKeys cause Flutter to unmount and
   /// remount the TextField, losing focus and keyboard state.
   final GlobalKey _textFieldKey = GlobalKey();
+
+  /// The composer's shell: the edge a sent message's words must rise above
+  /// before the composer closes up behind them.
+  final GlobalKey _composerShellKey = GlobalKey(debugLabel: 'composer-shell');
   double _compactTextFieldWidth = 0;
   _ComposerLayoutMetrics? _composerLayoutMetrics;
   _ComposerLayoutMetrics? _pendingComposerLayoutMetrics;
@@ -680,17 +688,52 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
   /// at one line are the same capsule as the compact ones.
   bool _sendCollapseActive = false;
 
+  /// Hears when the words of the message being sent have flown out of the
+  /// composer (see [ChatSendDeparture]).
+  ChatSendDeparture? _sendDeparture;
+
+  /// The sent words are still flying out of the composer: it keeps the shape
+  /// it had when Send was tapped (its height, its rows, its buttons in
+  /// place) and draws neither the words, which the flying bubble now draws,
+  /// nor its placeholder, until they have risen above its top edge. Then it
+  /// closes up on the spring and fades its placeholder in, so the two are
+  /// never drawn over each other and nothing in the composer moves while the
+  /// words are still in it.
+  bool _holdingSentWords = false;
+
+  /// Whether the composer had several lines when it began holding.
+  bool _heldMultiline = false;
+
+  /// The placeholder's opacity: 0 while sent words are in the composer,
+  /// fading back in once they have left.
+  late final AnimationController _placeholderReveal = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 180),
+    value: 1,
+  );
+
   /// The message has left the composer: from this frame it lays out as
   /// empty (one line, Stop in place of Send), shrinking on the same spring
   /// as the bubble rising out of it, and the keyboard goes down with it, so
-  /// the whole send is one motion.
+  /// the whole send is one motion. While the flying words are still inside
+  /// it, it holds its shape first (see [_holdingSentWords]).
   void _beginSendHandOff() {
     if (!mounted || _isDeactivated) return;
+    final departure = _sendDeparture;
+    final hold =
+        departure != null && !departure.departed && !context.reduceMotion;
     setState(() {
       _draftHandedOff = true;
-      _sendCollapseToken++;
-      _sendCollapseActive = _isMultiline;
+      if (hold) {
+        _holdingSentWords = true;
+        _heldMultiline = _isMultiline;
+        _placeholderReveal.value = 0;
+      } else {
+        _sendCollapseToken++;
+        _sendCollapseActive = _isMultiline;
+      }
     });
+    if (hold) _watchSentWordsHold(departure);
     // The keyboard starts down once the frame that hands the message over
     // is on screen: a slow first frame (a new chat's transcript mounting)
     // must not leave it sliding away under a composer that still shows the
@@ -719,6 +762,43 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
   void _endSendCollapse() {
     if (!mounted || !_sendCollapseActive) return;
     setState(() => _sendCollapseActive = false);
+  }
+
+  /// Lets the hold go if nothing takes the words within a couple of frames
+  /// (no flying bubble will ever report back), and in any case after
+  /// [ModernChatInput.sentWordsHoldLimit].
+  void _watchSentWordsHold(ChatSendDeparture departure) {
+    final binding = WidgetsBinding.instance;
+    binding.addPostFrameCallback((_) {
+      binding.addPostFrameCallback((_) {
+        Timer(const Duration(milliseconds: 150), () {
+          if (ChatSendOrigin.isWaiting(departure)) {
+            ChatSendOrigin.takeFollowing();
+            departure.depart();
+          }
+        });
+      });
+      binding.scheduleFrame();
+    });
+    Timer(ModernChatInput.sentWordsHoldLimit, departure.depart);
+  }
+
+  /// The sent words have left the composer (or will never fly): it closes up
+  /// behind them on the spring and its placeholder fades in.
+  void _releaseSentWords(ChatSendDeparture departure) {
+    if (!identical(departure, _sendDeparture)) return;
+    _sendDeparture = null;
+    if (!mounted || _isDeactivated || !_holdingSentWords) return;
+    setState(() {
+      _holdingSentWords = false;
+      _sendCollapseToken++;
+      _sendCollapseActive = _heldMultiline;
+    });
+    if (context.reduceMotion) {
+      _placeholderReveal.value = 1;
+    } else {
+      _placeholderReveal.forward(from: 0);
+    }
   }
 
   bool _sendingDraft = false;
@@ -918,6 +998,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     // The focus state will be naturally cleared when the widget is disposed
 
     unawaited(_draftBinding?.dispose());
+    _placeholderReveal.dispose();
     WidgetsBinding.instance.removeObserver(this);
     _draftSubscription?.close();
     _controller.removeListener(_handleComposerChanged);
@@ -1091,8 +1172,18 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       return;
     }
     widget.onSendStarted?.call();
-    // The bubble for this message rises from where its text is now.
-    ChatSendOrigin.recordFrom(_focusNode.context);
+    // The bubble for this message rises from where its text is now, its
+    // last line on the field's last line, and tells the composer when its
+    // words have risen clear of it.
+    late final ChatSendDeparture departure;
+    departure = ChatSendDeparture(() => _releaseSentWords(departure));
+    _sendDeparture = departure;
+    ChatSendOrigin.recordFrom(
+      _focusNode.context,
+      alignLastLine: true,
+      clearOf: _composerShellKey.currentContext,
+      departure: departure,
+    );
     // A project draft that starts with two saved models sends to both, through
     // the same committed-turn path as the Compare command. A host that cannot
     // admit a comparison sends the message the ordinary way.
@@ -1610,6 +1701,16 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     } finally {
       _sendingDraft = false;
       _draftSendOwner = null;
+      // A refused send keeps its words here: stop holding for them. A sent
+      // one's flying words report their own departure.
+      final departure = _sendDeparture;
+      if (departure != null &&
+          (!_holdingSentWords || _controller.text.trim().isNotEmpty)) {
+        if (ChatSendOrigin.isWaiting(departure)) {
+          ChatSendOrigin.takeFollowing();
+        }
+        departure.depart();
+      }
       if (_draftHandedOff && mounted) {
         setState(() => _draftHandedOff = false);
       }
@@ -1861,6 +1962,11 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       // Clearing the sent draft, or any edit, shows the field's text again.
       if (_draftHandedOff && mounted && !_isDeactivated) {
         setState(() => _draftHandedOff = false);
+      }
+      // Typing again while the sent words are still leaving shows what is
+      // typed at once.
+      if (_holdingSentWords && _controller.text.trim().isNotEmpty) {
+        _sendDeparture?.depart();
       }
     }
     if (!mounted || _isDeactivated) return;
@@ -3960,11 +4066,15 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
         isGenerating &&
         !_sendingDraft &&
         ref.watch(chatDraftQueueOfferProvider);
+    // While the sent words are still flying out, the composer keeps the rows
+    // it had when Send was tapped; once they have left, it lays out empty.
     final bool showCompactComposer =
         conduitSystemControlScaleOf(context) <=
             _maxCompactComposerControlScale &&
         quickPills.isEmpty &&
-        (!_isMultiline || _draftHandedOff) &&
+        (_holdingSentWords
+            ? !_heldMultiline
+            : (!_isMultiline || _draftHandedOff)) &&
         !showQueueAction &&
         !(isDesktopHermesComposer && isGenerating && _hasText);
     final bool showInlineMicAction =
@@ -4020,7 +4130,10 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                       isActive: isActive,
                     ),
                   ),
-                  if (_showExpandButton && !_expandModalOpen)
+                  if (_showExpandButton &&
+                      !_expandModalOpen &&
+                      !_draftHandedOff &&
+                      !_holdingSentWords)
                     PositionedDirectional(
                       top: Spacing.xs,
                       end: Spacing.xs,
@@ -4266,6 +4379,9 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
         isRecording: _isRecording,
         child: ComposerSendCollapse(
           token: _sendCollapseToken,
+          // Its height stays while the sent words are still inside it, even
+          // when the field clears under them.
+          holding: _holdingSentWords,
           onDone: _endSendCollapse,
           child: shellContent,
         ),
@@ -4292,7 +4408,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
             ),
           ?compactPromptOverlay,
           const ChatDraftQueueRow(),
-          shell,
+          KeyedSubtree(key: _composerShellKey, child: shell),
         ],
       ),
     );
@@ -4646,16 +4762,26 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
               },
             ),
           },
-          child: Builder(
-            builder: (context) {
+          // Rebuilds only while the placeholder fades back in after a send.
+          child: AnimatedBuilder(
+            animation: _placeholderReveal,
+            builder: (context, _) {
               final double factor = isActive ? 1.0 : 0.0;
-              final Color animatedPlaceholder = Color.lerp(
+              final Color placeholderTone = Color.lerp(
                 placeholderBase,
                 placeholderFocused,
                 factor,
               )!;
+              final double placeholderReveal = Curves.easeOut.transform(
+                _placeholderReveal.value,
+              );
+              final Color animatedPlaceholder = placeholderTone.withValues(
+                alpha: placeholderTone.a * placeholderReveal,
+              );
+              // Sent words are drawn by their flying bubble, not here.
+              final bool hideWords = _draftHandedOff || _holdingSentWords;
               final textLabel = context.conduitTheme.inputText;
-              final Color animatedTextColor = _draftHandedOff
+              final Color animatedTextColor = hideWords
                   ? textLabel.withValues(alpha: 0)
                   : Color.lerp(
                       textLabel.withValues(alpha: 0.88),
@@ -4701,7 +4827,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                   cursorOpacityAnimates: composerCursorOpacityAnimates(
                     usesNativePlatformView: usesNativePlatformView,
                   ),
-                  cursorColor: _draftHandedOff
+                  cursorColor: hideWords
                       ? const Color(0x00000000)
                       : Theme.of(context).textSelectionTheme.cursorColor,
                   magnifierConfiguration: usesNativePlatformView

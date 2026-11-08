@@ -642,6 +642,7 @@ void main() {
     expect(flight, findsOneWidget);
     expect(tester.getTopLeft(flight).dy, closeTo(540, 0.5));
     expect(timeline.rowTop('user'), greaterThan(600));
+    final writtenAt = tester.getTopLeft(flight).dx;
 
     final arrival = timeline.controller.springMessageToTop(
       'user',
@@ -654,6 +655,11 @@ void main() {
       final row = timeline.rowTop('user');
       expect(message, greaterThanOrEqualTo((row < 540 ? row : 540) - 0.5));
       expect(message, lessThanOrEqualTo(540.5));
+      // Waiting for its row, it waits as a whole: it never slides along
+      // the composer towards its buttons.
+      if (message > 539.5) {
+        expect(tester.getTopLeft(flight).dx, closeTo(writtenAt, 0.5));
+      }
     }
     expect(await arrival, isTrue);
     await tester.pumpAndSettle();
@@ -693,6 +699,113 @@ void main() {
     expect(find.byKey(_flightText), findsNothing);
     expect(_paintedTop(tester), closeTo(32, 0.5));
     await timeline.dispose();
+  });
+
+  testWidgets('the flying words start on the typed text\'s last line of '
+      'letters, so a narrower wrap grows upwards', (tester) async {
+    const flightText = ValueKey('flight-text');
+    // The field's last line of letters ends at y = 744.
+    ChatSendOrigin.record(
+      const Rect.fromLTWH(20, 700, 360, 44),
+      line: (y: 744, last: true),
+    );
+    await tester.pumpWidget(
+      _harness(
+        ChatSendEntrance(
+          messageId: 'last-line',
+          timestamp: DateTime.now(),
+          flightBuilder: (context, morph) => const Align(
+            alignment: Alignment.topRight,
+            child: SizedBox(
+              width: 120,
+              child: Text('Picnic plans for Saturday', key: flightText),
+            ),
+          ),
+          child: _bubble(),
+        ),
+      ),
+    );
+    final paragraph = tester.renderObject<RenderBox>(find.byKey(flightText));
+    final glyphs = chatTextLineExtent(paragraph, last: true)!;
+    final top = tester.getTopLeft(find.byKey(flightText));
+    // Its last line sits on the field's last line; its leading edge on the
+    // field's; its extra lines are above, never below over the buttons.
+    expect(top.dy + glyphs.bottom, closeTo(744, 0.5));
+    expect(top.dx, closeTo(20, 0.5));
+    expect(top.dy, lessThan(744 - 14));
+    await tester.pumpAndSettle();
+  });
+
+  testWidgets('the composer hears that the words have left once they have '
+      'risen above its top edge, before they land', (tester) async {
+    var departed = 0;
+    final departure = ChatSendDeparture(() => departed++);
+    ChatSendOrigin.record(
+      const Rect.fromLTWH(20, 700, 360, 44),
+      clearanceTop: 680,
+      departure: departure,
+    );
+    await tester.pumpWidget(
+      _harness(
+        ChatSendEntrance(
+          messageId: 'leaves-composer',
+          timestamp: DateTime.now(),
+          flightBuilder: (context, morph) => const Align(
+            alignment: Alignment.topRight,
+            child: Text('Picnic plans', key: _flightText),
+          ),
+          child: _bubble(),
+        ),
+      ),
+    );
+    // Still inside the composer: it keeps its shape.
+    await tester.pump();
+    expect(departed, 0);
+    var frames = 0;
+    while (departed == 0 && frames < 30) {
+      await tester.pump(const Duration(milliseconds: 16));
+      frames++;
+    }
+    expect(departed, 1);
+    // Told while still on the way, not on landing.
+    expect(find.byKey(_flightText), findsOneWidget);
+    expect(
+      tester.getBottomLeft(find.byKey(_flightText)).dy,
+      lessThanOrEqualTo(680.5),
+    );
+    await tester.pumpAndSettle();
+    expect(departed, 1);
+  });
+
+  testWidgets('a row that rises by itself, or a send that cannot fly, lets '
+      'the composer close up at once', (tester) async {
+    var departed = 0;
+    ChatSendOrigin.record(
+      const Rect.fromLTWH(20, 700, 360, 44),
+      clearanceTop: 680,
+      departure: ChatSendDeparture(() => departed++),
+    );
+    await tester.pumpWidget(
+      _harness(
+        ChatSendEntrance(
+          messageId: 'rises-in-transcript',
+          timestamp: DateTime.now(),
+          child: _bubble(),
+        ),
+      ),
+    );
+    await tester.pump();
+    expect(departed, 1);
+    await tester.pumpAndSettle();
+
+    // A newer send replacing one that never left lets the first go.
+    var first = 0;
+    ChatSendOrigin.record(
+      const Rect.fromLTWH(20, 700, 360, 44),
+      departure: ChatSendDeparture(() => first++),
+    );
+    ChatSendOrigin.record(const Rect.fromLTWH(20, 700, 360, 44));
+    expect(first, 1);
   });
 
   testWidgets('obsolete content gives up its room at once and fades out', (
