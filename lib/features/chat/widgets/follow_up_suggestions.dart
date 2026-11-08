@@ -25,9 +25,10 @@ class FollowUpSuggestionBar extends StatelessWidget {
   final bool isBusy;
 
   /// Space between the action row above and the heading. The action row's
-  /// 44 pt targets already leave air under its glyphs, so this only tops it
-  /// up to the gap the heading keeps from the first suggestion.
-  static const double headingTopGap = Spacing.sm;
+  /// 44 pt targets already leave about 12 pt of air under its glyphs, so this
+  /// stays small: the heading should sit visibly closer to the suggestions it
+  /// names than to the actions above it.
+  static const double headingTopGap = Spacing.xxs;
 
   /// Space between the heading and the first suggestion.
   static const double headingBottomGap = Spacing.sm;
@@ -59,7 +60,10 @@ class FollowUpSuggestionBar extends StatelessWidget {
             top: headingTopGap,
             bottom: headingBottomGap,
           ),
+          // Its own node, so VoiceOver reads it as a heading rather than as
+          // the last line of the reply it follows.
           child: Semantics(
+            container: true,
             header: true,
             child: Text(
               l10n.followUpSuggestionsHeading,
@@ -143,9 +147,9 @@ class _FollowUpSuggestionRowState extends State<FollowUpSuggestionRow> {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     // Monochrome fills, like the system's gray button: the label colour at a
     // low opacity, a step stronger while pressed.
-    final restFill = theme.textPrimary.withValues(alpha: isDark ? 0.10 : 0.05);
+    final restFill = theme.textPrimary.withValues(alpha: isDark ? 0.12 : 0.05);
     final pressedFill = theme.textPrimary.withValues(
-      alpha: isDark ? 0.18 : 0.11,
+      alpha: isDark ? 0.20 : 0.11,
     );
     final textStyle = AppTypography.titleMediumStyle.copyWith(
       color: _enabled

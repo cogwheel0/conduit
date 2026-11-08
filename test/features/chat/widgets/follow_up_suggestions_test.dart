@@ -149,10 +149,16 @@ void main() {
     final semantics = tester.ensureSemantics();
     await tester.pumpWidget(
       _buildHarness(
-        FollowUpSuggestionBar(
-          suggestions: const ['First'],
-          onSelected: (_) {},
-          isBusy: false,
+        // Inside a reply's own node, as in the chat, the heading still
+        // stands alone instead of joining the reply's text.
+        Semantics(
+          container: true,
+          label: 'The reply',
+          child: FollowUpSuggestionBar(
+            suggestions: const ['First'],
+            onSelected: (_) {},
+            isBusy: false,
+          ),
         ),
       ),
     );
@@ -161,6 +167,7 @@ void main() {
     final data = tester
         .getSemantics(find.text('Suggestions'))
         .getSemanticsData();
+    expect(data.label, 'Suggestions');
     expect(data.flagsCollection.isHeader, isTrue);
     // The heading sits above the first suggestion, not beside it.
     expect(
