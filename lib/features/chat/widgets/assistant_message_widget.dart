@@ -33,6 +33,7 @@ import 'package:conduit_core/features/chat/providers/streaming_haptic_memory.dar
 import 'package:conduit_core/features/chat/providers/reasoning_effort_provider.dart'
     show kAutomaticReasoningEffort, reasoningEffortForModel;
 
+import 'chat_send_motion.dart';
 import 'enhanced_image_attachment.dart';
 import 'enhanced_video_attachment.dart';
 import 'image_gallery_scope.dart';
@@ -202,6 +203,10 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     milliseconds: 1200,
   );
 
+  /// New reply content fades in over this, quick enough to read as arrival
+  /// rather than as a transition.
+  static const Duration _contentFadeDuration = Duration(milliseconds: 200);
+
   /// Reply actions: one SF Symbol size and colour for every glyph, inline or
   /// in More, inside a 44 pt target.
   static const double _footerActionTarget = 44;
@@ -251,7 +256,25 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
       ref.read(streamingHapticMemoryProvider);
 
   bool get _shouldAnimateOnMount =>
-      widget.animateOnMount && !_disableAnimations;
+      widget.animateOnMount && !_disableAnimations && _isNewThisSession;
+
+  /// Whether this reply was created moments ago and has not appeared before:
+  /// only then does the row fade in. A reply mounting again (scrolled back
+  /// into view, a rebuilt timeline) or loaded from history appears in place.
+  late final bool _isNewThisSession = () {
+    final message = _chatMessage;
+    if (message == null) return true;
+    return isFreshChatContent(message.timestamp) &&
+        claimChatEntrance('row:${message.id}');
+  }();
+
+  /// The first text of a reply fades in once per message, not again when the
+  /// row remounts mid-stream.
+  bool _claimStreamingContentFade() {
+    final id = _chatMessage?.id;
+    if (id == null || id.isEmpty) return true;
+    return claimChatEntrance('content:$id');
+  }
 
   ChatMessage? get _chatMessage =>
       widget.message is ChatMessage ? widget.message as ChatMessage : null;
@@ -325,12 +348,12 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
         .disableAnimations;
     final shouldAnimateOnMount = _shouldAnimateOnMount;
     _fadeController = AnimationController(
-      duration: const Duration(milliseconds: 300),
+      duration: _contentFadeDuration,
       vsync: this,
       value: shouldAnimateOnMount ? 0.0 : 1.0,
     );
     _streamingContentFadeController = AnimationController(
-      duration: const Duration(milliseconds: 260),
+      duration: _contentFadeDuration,
       vsync: this,
       value: 1.0,
     );
@@ -551,7 +574,8 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
   }
 
   void _primeInitialStreamingContentFade() {
-    if (!_canFadeStreamingContent(_displayedContent)) {
+    if (!_canFadeStreamingContent(_displayedContent) ||
+        !_claimStreamingContentFade()) {
       return;
     }
     _streamingContentFadeController.value = 0.0;
@@ -565,7 +589,8 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
 
   bool _shouldFadeInStreamingContent(String nextRaw) {
     return _canFadeStreamingContent(nextRaw) &&
-        _displayedContent.trim().isEmpty;
+        _displayedContent.trim().isEmpty &&
+        _claimStreamingContentFade();
   }
 
   bool _canFadeStreamingContent(String nextRaw) {
@@ -1209,7 +1234,9 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
         )) {
       // One acknowledgement is enough; the previous three pulses at
       // 0/150/300ms felt like an unintended rapid vibration after every send.
-      _streamingHaptic(HapticType.medium);
+      // A selection tick, not an impact: the reply starting is news, not a
+      // collision, and the send already had its own tap.
+      _streamingHaptic(HapticType.selection);
     }
   }
 
