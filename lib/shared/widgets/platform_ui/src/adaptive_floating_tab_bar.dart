@@ -393,8 +393,10 @@ class _NativeFloatingTabBarState extends State<_NativeFloatingTabBar> {
   @override
   Widget build(BuildContext context) {
     final bar = widget.bar;
-    final layout =
-        _measured ?? AdaptiveFloatingTabBar._guessNativeLayout(context);
+    // Only a mounted tab bar reports its layout, so without one a window
+    // resize would otherwise leave the action sized for the old layout.
+    final guessed = AdaptiveFloatingTabBar._guessNativeLayout(context);
+    final layout = bar.tabs.length >= 2 ? (_measured ?? guessed) : guessed;
     final metrics = AdaptiveFloatingTabBar._nativeMetrics(layout);
     final action = bar.action;
     return Row(
