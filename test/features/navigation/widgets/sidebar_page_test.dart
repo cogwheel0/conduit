@@ -20,13 +20,15 @@ import 'package:conduit/l10n/app_localizations_en.dart';
 import 'package:conduit/shared/theme/app_theme.dart';
 import 'package:conduit/shared/theme/theme_extensions.dart';
 import 'package:conduit/shared/theme/tweakcn_themes.dart';
+import 'package:cupertino_native_better/cupertino_native_better.dart'
+    show CNToolbar, CNToolbarSegmentedGroup;
 import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:material_ui/material_ui.dart';
-import 'package:flutter/foundation.dart' show SynchronousFuture;
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import '../../../support/native_platform_views.dart';
 import 'sidebar_page_test_support.dart';
 
 void main() {
@@ -400,23 +402,11 @@ void main() {
   testWidgets(
     'iOS 26 keeps destinations in the pane without a native tab overlay',
     (tester) async {
+      stubNativePlatformViews();
       PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.iOS;
       PlatformUiCapabilities.debugIOSMajorVersionOverride = 26;
       PlatformUiCapabilities.debugNativeIOS26Override = true;
       addTearDown(PlatformUiCapabilities.resetDebugOverrides);
-      AdaptiveFloatingTabBar.debugIconRenderer = (_, _, _, _) =>
-          SynchronousFuture(Uint8List(0));
-      addTearDown(AdaptiveFloatingTabBar.debugReset);
-      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
-        SystemChannels.platform_views,
-        (_) async => null,
-      );
-      addTearDown(
-        () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
-          SystemChannels.platform_views,
-          null,
-        ),
-      );
       await tester.pumpWidget(
         sidebarTestBuildHarness(
           controllers: SidebarTestSidebarHarnessControllers(),
@@ -432,18 +422,20 @@ void main() {
       final bar = find.byKey(
         const ValueKey<String>('sidebar-backend-selector'),
       );
-      final params =
-          tester
-                  .widget<UiKitView>(
-                    find.descendant(of: bar, matching: find.byType(UiKitView)),
-                  )
-                  .creationParams
-              as Map;
-      expect([
-        for (final tab in (params['tabs'] as List).cast<Map>()) tab['label'],
-      ], ['Open WebUI', 'Hermes']);
-      expect(params['selectedIndex'], 0);
+      final tabs = tester
+          .widget<CNToolbar>(
+            find.descendant(of: bar, matching: find.byType(CNToolbar)),
+          )
+          .items
+          .whereType<CNToolbarSegmentedGroup>()
+          .single;
+      expect(
+        [for (final s in tabs.segments) s.label],
+        ['Open WebUI', 'Hermes'],
+      );
+      expect(tabs.selectedIndices, {0});
       await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pumpAndSettle();
     },
   );
 
@@ -718,7 +710,10 @@ void main() {
 
     final barScope = find.byKey(const ValueKey<String>('sidebar-destinations'));
     // The history below is the chats, so they need no row of their own.
-    expect(find.descendant(of: barScope, matching: find.text('Chats')), findsNothing);
+    expect(
+      find.descendant(of: barScope, matching: find.text('Chats')),
+      findsNothing,
+    );
 
     final notesSemantics = tester.getSemantics(
       find.descendant(of: barScope, matching: find.text('Notes')).first,

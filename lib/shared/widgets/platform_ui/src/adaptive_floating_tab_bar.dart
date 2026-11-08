@@ -1,10 +1,6 @@
 import 'dart:math' as math;
-import 'dart:ui' as ui;
 
-import 'package:cupertino_ui/cupertino_ui.dart';
-import 'package:flutter/foundation.dart';
-import 'package:flutter/gestures.dart';
-import 'package:flutter/services.dart';
+import 'package:cupertino_native_better/cupertino_native_better.dart';
 import 'package:material_ui/material_ui.dart';
 
 import 'adaptive_controls.dart';
@@ -12,16 +8,17 @@ import 'adaptive_floating_action_button.dart';
 import 'adaptive_glass_controls.dart';
 import 'platform_ui_capabilities.dart';
 
-/// Native view type registered by the iOS app delegate.
-const String _kNativeViewType = 'conduit/floating_tab_bar';
-
-/// Room above the native bar for its selection lens, and for the tabs to
-/// swell while pressed.
-const double _kNativeTabBarHeadroom = 24;
-
 /// Default height of an [AdaptiveFloatingTabBar]: the minimum touch target,
 /// which toolbar buttons use too.
 const double kAdaptiveFloatingBarDefaultExtent = 44;
+
+/// Height of the iOS 26 system toolbar, which keeps it at every text size.
+const double _kNativeToolbarExtent = 44;
+
+/// Ids of the iOS 26 toolbar's items, so each is updated in place.
+const String _kTabsItemId = 'tabs';
+const String _kSpaceItemId = 'space';
+const String _kActionItemId = 'action';
 
 /// One icon-only destination in an [AdaptiveFloatingTabBar].
 class AdaptiveFloatingTab {
@@ -29,7 +26,6 @@ class AdaptiveFloatingTab {
     required this.label,
     required this.icon,
     required this.nativeAsset,
-    this.nativeIconSize = 24,
   });
 
   /// Read by screen readers, and shown as the Material tooltip.
@@ -38,14 +34,9 @@ class AdaptiveFloatingTab {
   /// Drawn by Flutter, tinted through the ambient [IconTheme].
   final Widget icon;
 
-  /// Bitmap asset the iOS 26 tab bar tints as a template, so only its alpha
-  /// shows.
+  /// Bitmap asset of the iOS 26 segment. The segmented control fits it in
+  /// its icon box and tints it as a template, so only its alpha shows.
   final String nativeAsset;
-
-  /// Longest side of [nativeAsset] on screen, in points. The native bar
-  /// shrinks to [AdaptiveFloatingTabBar.controlExtent] and draws the icon for
-  /// that scale, so it matches glyphs of the same size elsewhere.
-  final double nativeIconSize;
 }
 
 /// The round action at the trailing end of an [AdaptiveFloatingTabBar].
@@ -69,12 +60,12 @@ class AdaptiveFloatingBarAction {
 /// Place it flush with the bottom of the window across its container, and
 /// keep [extentOf] clear below scrolling content.
 ///
-/// On iOS 26 this is the system tab bar beside a Liquid Glass button, drawn
-/// by one native view so UIKit lines them up, and scaled so both are
-/// [controlExtent] tall. Elsewhere it is a Material navigation bar in a pill
-/// beside a floating action button of the same height. Fewer than two [tabs]
-/// leave only the action.
-class AdaptiveFloatingTabBar extends StatefulWidget {
+/// On iOS 26 this is the system bottom toolbar: the tabs are a segmented
+/// control and the action a prominent button, on Liquid Glass. The toolbar
+/// is 44 points high at every text size. Elsewhere it is a Material
+/// navigation bar in a pill beside a floating action button of
+/// [controlExtent]. Fewer than two [tabs] leave only the action.
+class AdaptiveFloatingTabBar extends StatelessWidget {
   const AdaptiveFloatingTabBar({
     super.key,
     required this.tabs,
@@ -98,291 +89,72 @@ class AdaptiveFloatingTabBar extends StatefulWidget {
 
   final List<AdaptiveFloatingTab> tabs;
   final int selectedIndex;
+
+  /// Called with the tab chosen. The iOS 26 segmented control reports only
+  /// a change of tab; the Material bar reports the selected tab again.
   final ValueChanged<int> onTap;
   final AdaptiveFloatingBarAction action;
+
+  /// Width of each Material tab.
   final double itemWidth;
+
+  /// Colour of the selected Material tab, and the iOS 26 toolbar's tint.
   final Color? selectedItemColor;
   final Color? unselectedItemColor;
 
   /// Icon colour of the action.
   final Color? actionForegroundColor;
 
-  /// Fill of the Material action. The iOS 26 action is glass.
+  /// Fill of the action: the Material button's, and the iOS 26 prominent
+  /// button's tint. The glass action of earlier iOS has none.
   final Color? actionBackgroundColor;
 
-  /// Fill of the Material pill. The iOS 26 bar draws its own glass.
+  /// Fill of the Material pill. The iOS 26 toolbar draws its own glass.
   final Color? backgroundColor;
 
   /// Outline of the Material pill.
   final Color? borderColor;
 
-  /// Keys for the Flutter-drawn tabs and action, which the native bar draws
-  /// in one view.
+  /// Keys for the Flutter-drawn tabs and action, which the iOS 26 toolbar
+  /// draws in one native view.
   final Key? tabsKey;
   final Key? actionKey;
 
-  /// Height of the tabs and the action's diameter: the size of the window's
-  /// other toolbar buttons, so the bar matches them.
+  /// Height of the Flutter-drawn tabs and the action's diameter: the size of
+  /// the window's other toolbar buttons, so the bar matches them. The iOS 26
+  /// toolbar keeps its own height.
   final double controlExtent;
 
-  /// Inset of the tabs and the action from the sides of the window, as the
-  /// window's toolbar insets its buttons.
+  /// Inset of the Flutter-drawn tabs and action from the sides of the
+  /// window, as the window's toolbar insets its buttons. The iOS 26 toolbar
+  /// keeps its own margins.
   final double edgeInset;
 
   /// Least gap below the bar, on a window whose bottom safe area is smaller.
   /// The bar otherwise sits on the safe area.
   final double minimumBottomInset;
 
-  /// Point size of the action's SF Symbol on iOS, as the window's other glass
-  /// buttons draw theirs.
+  /// Point size of the glass action's SF Symbol before iOS 26, as the
+  /// window's other glass buttons draw theirs. The iOS 26 toolbar sizes its
+  /// own symbols.
   final double actionSymbolSize;
 
   /// Room the bar takes from the bottom of the window, for a bar
-  /// [controlExtent] tall with at least [minimumBottomInset] below it.
+  /// [controlExtent] tall, or the iOS 26 toolbar's height, with at least
+  /// [minimumBottomInset] below it.
   static double extentOf(
     BuildContext context, {
     double controlExtent = kAdaptiveFloatingBarDefaultExtent,
     double minimumBottomInset = 16,
-  }) => _bottomInset(context, minimumBottomInset) + controlExtent;
+  }) =>
+      _bottomInset(context, minimumBottomInset) +
+      (PlatformUiCapabilities.usesNativeIOS26
+          ? _kNativeToolbarExtent
+          : controlExtent);
 
   /// Gap between the bar and the bottom of the window.
   static double _bottomInset(BuildContext context, double minimum) =>
       math.max(MediaQuery.viewPaddingOf(context).bottom, minimum);
-
-  /// Renders the native bar's tab icons. Widget tests, which run inside fake
-  /// async, swap in a synchronous renderer.
-  @visibleForTesting
-  static AdaptiveFloatingTabIconRenderer debugIconRenderer = renderNativeIcon;
-
-  /// Restores [debugIconRenderer] and forgets icons rendered so far.
-  @visibleForTesting
-  static void debugReset() {
-    debugIconRenderer = renderNativeIcon;
-    _renderedIcons.clear();
-  }
-
-  static final Map<String, Uint8List> _renderedIcons = {};
-
-  /// Renders the bitmap [asset] as a PNG whose longest side is [size] points
-  /// at [scale], because UIKit draws a bitmap at its own size.
-  static Future<Uint8List> renderNativeIcon(
-    AssetBundle bundle,
-    String asset,
-    double size,
-    double scale,
-  ) async {
-    final pixels = (size * scale).round();
-    final data = await bundle.load(asset);
-    final buffer = await ui.ImmutableBuffer.fromUint8List(
-      data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes),
-    );
-    final descriptor = await ui.ImageDescriptor.encoded(buffer);
-    final landscape = descriptor.width >= descriptor.height;
-    final codec = await descriptor.instantiateCodec(
-      targetWidth: landscape ? pixels : null,
-      targetHeight: landscape ? null : pixels,
-    );
-    final ui.Image image;
-    try {
-      image = (await codec.getNextFrame()).image;
-    } finally {
-      codec.dispose();
-      descriptor.dispose();
-      buffer.dispose();
-    }
-    try {
-      final png = await image.toByteData(format: ui.ImageByteFormat.png);
-      return png!.buffer.asUint8List(png.offsetInBytes, png.lengthInBytes);
-    } finally {
-      image.dispose();
-    }
-  }
-
-  @override
-  State<AdaptiveFloatingTabBar> createState() => _AdaptiveFloatingTabBarState();
-}
-
-/// Renders one tab icon for the native bar; see
-/// [AdaptiveFloatingTabBar.renderNativeIcon].
-typedef AdaptiveFloatingTabIconRenderer =
-    Future<Uint8List> Function(
-      AssetBundle bundle,
-      String asset,
-      double size,
-      double scale,
-    );
-
-class _AdaptiveFloatingTabBarState extends State<AdaptiveFloatingTabBar> {
-  MethodChannel? _channel;
-  String? _iconsKey;
-
-  /// Icons for the tabs named by [_iconsKey], once all have rendered.
-  List<Uint8List>? _icons;
-  Map<String, Object?>? _sentParams;
-
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    if (PlatformUiCapabilities.usesNativeIOS26) _loadIcons();
-  }
-
-  @override
-  void didUpdateWidget(covariant AdaptiveFloatingTabBar oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (PlatformUiCapabilities.usesNativeIOS26) _loadIcons();
-  }
-
-  @override
-  void dispose() {
-    _channel?.setMethodCallHandler(null);
-    super.dispose();
-  }
-
-  void _loadIcons() {
-    final bundle = DefaultAssetBundle.of(context);
-    final scale = MediaQuery.devicePixelRatioOf(context);
-    final keys = [for (final tab in widget.tabs) _iconKey(bundle, tab, scale)];
-    final key = keys.join('|');
-    if (key == _iconsKey) return;
-    _iconsKey = key;
-    _icons = null;
-    final rendered = AdaptiveFloatingTabBar._renderedIcons;
-    // Icons rendered before, by this bar or another, appear in the first
-    // frame instead of after a blank one.
-    if (keys.every(rendered.containsKey)) {
-      _icons = [for (final key in keys) rendered[key]!];
-      return;
-    }
-    Future.wait([for (final tab in widget.tabs) _icon(bundle, tab, scale)])
-        .then((icons) {
-          if (!mounted || _iconsKey != key) return;
-          setState(() => _icons = icons);
-        });
-  }
-
-  /// Keyed by bundle too: another bundle can hold a different image at the
-  /// same asset path.
-  static String _iconKey(
-    AssetBundle bundle,
-    AdaptiveFloatingTab tab,
-    double scale,
-  ) =>
-      '${identityHashCode(bundle)}:${tab.nativeAsset}@${tab.nativeIconSize}x'
-      '$scale';
-
-  /// A tab's rendered icon, or no image when it cannot be rendered, so the
-  /// bar still appears with its labelled tabs.
-  static Future<Uint8List> _icon(
-    AssetBundle bundle,
-    AdaptiveFloatingTab tab,
-    double scale,
-  ) async {
-    final key = _iconKey(bundle, tab, scale);
-    final rendered = AdaptiveFloatingTabBar._renderedIcons;
-    if (rendered[key] case final icon?) return icon;
-    try {
-      final icon = await AdaptiveFloatingTabBar.debugIconRenderer(
-        bundle,
-        tab.nativeAsset,
-        tab.nativeIconSize,
-        scale,
-      );
-      return rendered[key] = icon;
-    } catch (error, stack) {
-      FlutterError.reportError(
-        FlutterErrorDetails(
-          exception: error,
-          stack: stack,
-          library: 'platform_ui',
-          context: ErrorDescription('rendering the tab icon ${tab.nativeAsset}'),
-        ),
-      );
-      return Uint8List(0);
-    }
-  }
-
-  Map<String, Object?> _nativeParams(List<Uint8List> icons, bool isDark) {
-    final scale = MediaQuery.devicePixelRatioOf(context);
-    return {
-      'tabs': [
-        for (var index = 0; index < widget.tabs.length; index++)
-          {
-            'label': widget.tabs[index].label,
-            'image': icons[index],
-            'imageScale': scale,
-            'iconSize': widget.tabs[index].nativeIconSize,
-          },
-      ],
-      'selectedIndex': widget.selectedIndex,
-      'itemWidth': widget.itemWidth,
-      'isDark': isDark,
-      // Sent even when unset, so clearing a color restores the system's.
-      'tint': widget.selectedItemColor?.toARGB32(),
-      'unselectedTint': widget.unselectedItemColor?.toARGB32(),
-      'controlExtent': widget.controlExtent,
-      'edgeInset': widget.edgeInset,
-      'bottomInset': AdaptiveFloatingTabBar._bottomInset(
-        context,
-        widget.minimumBottomInset,
-      ),
-      'actionSymbol': widget.action.sfSymbol,
-      'actionSymbolSize': widget.actionSymbolSize,
-      'actionLabel': widget.action.label,
-      'actionTint': widget.actionForegroundColor?.toARGB32(),
-    };
-  }
-
-  void _onPlatformViewCreated(int id) {
-    _channel?.setMethodCallHandler(null);
-    final channel = MethodChannel('${_kNativeViewType}_$id');
-    _channel = channel;
-    // Catch up on anything that changed while the view was being created.
-    if (_sentParams case final params?) {
-      channel.invokeMethod<void>('update', params).catchError((_) {});
-    }
-    channel.setMethodCallHandler((call) async {
-      if (!mounted) return;
-      switch (call.method) {
-        case 'select':
-          final index = call.arguments as int?;
-          if (index != null && index >= 0 && index < widget.tabs.length) {
-            widget.onTap(index);
-          }
-        case 'action':
-          widget.action.onPressed();
-      }
-    });
-  }
-
-  void _sendUpdate(Map<String, Object?> params) {
-    final sent = _sentParams;
-    _sentParams = params;
-    if (sent == null || _channel == null || _sameParams(sent, params)) return;
-    _channel!.invokeMethod<void>('update', params).catchError((_) {});
-  }
-
-  static bool _sameParams(Map<String, Object?> a, Map<String, Object?> b) {
-    if (a.length != b.length) return false;
-    for (final entry in a.entries) {
-      final other = b[entry.key];
-      final value = entry.value;
-      if (value is List && other is List) {
-        if (value.length != other.length) return false;
-        for (var i = 0; i < value.length; i++) {
-          final x = value[i];
-          final y = other[i];
-          if (x is Map && y is Map) {
-            if (!mapEquals(x, y)) return false;
-          } else if (x != y) {
-            return false;
-          }
-        }
-      } else if (value != other) {
-        return false;
-      }
-    }
-    return true;
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -391,45 +163,55 @@ class _AdaptiveFloatingTabBarState extends State<AdaptiveFloatingTabBar> {
   }
 
   Widget _buildNative(BuildContext context) {
-    final height =
-        AdaptiveFloatingTabBar.extentOf(
-          context,
-          controlExtent: widget.controlExtent,
-          minimumBottomInset: widget.minimumBottomInset,
-        ) +
-        _kNativeTabBarHeadroom;
-    final isDark = CupertinoTheme.brightnessOf(context) == Brightness.dark;
-    // While new tabs' icons render, the view keeps showing the tabs it has.
-    if (_icons case final icons?) _sendUpdate(_nativeParams(icons, isDark));
-    return SizedBox(
-      height: height,
-      child: _sentParams == null
-          ? null
-          : UiKitView(
-              viewType: _kNativeViewType,
-              creationParams: _sentParams,
-              creationParamsCodec: const StandardMessageCodec(),
-              onPlatformViewCreated: _onPlatformViewCreated,
-              gestureRecognizers: <Factory<OneSequenceGestureRecognizer>>{
-                Factory<TapGestureRecognizer>(() => TapGestureRecognizer()),
-              },
+    return Padding(
+      padding: EdgeInsets.only(
+        bottom: _bottomInset(context, minimumBottomInset),
+      ),
+      child: CNToolbar(
+        tint: selectedItemColor,
+        items: [
+          if (tabs.length >= 2)
+            CNToolbarSegmentedGroup(
+              id: _kTabsItemId,
+              // VoiceOver reads each segment's own label.
+              label: '',
+              segments: [
+                for (final tab in tabs)
+                  CNToolbarSegment(
+                    label: tab.label,
+                    imageAsset: CNImageAsset(tab.nativeAsset),
+                  ),
+              ],
+              selectedIndices: {selectedIndex},
+              onSelected: onTap,
             ),
+          const CNToolbarSpace.flexible(id: _kSpaceItemId),
+          CNToolbarButton(
+            id: _kActionItemId,
+            label: action.label,
+            icon: CNSymbol(action.sfSymbol, color: actionForegroundColor),
+            style: CNToolbarItemStyle.prominent,
+            tint: actionBackgroundColor,
+            onPressed: action.onPressed,
+          ),
+        ],
+      ),
     );
   }
 
   Widget _buildFlutter(BuildContext context) {
     return Padding(
       padding: EdgeInsets.fromLTRB(
-        widget.edgeInset,
+        edgeInset,
         0,
-        widget.edgeInset,
-        AdaptiveFloatingTabBar._bottomInset(context, widget.minimumBottomInset),
+        edgeInset,
+        _bottomInset(context, minimumBottomInset),
       ),
       child: SizedBox(
-        height: widget.controlExtent,
+        height: controlExtent,
         child: Row(
           children: [
-            if (widget.tabs.length >= 2) _buildPill(context),
+            if (tabs.length >= 2) _buildPill(context),
             const Spacer(),
             _buildAction(),
           ],
@@ -439,22 +221,19 @@ class _AdaptiveFloatingTabBarState extends State<AdaptiveFloatingTabBar> {
   }
 
   Widget _buildPill(BuildContext context) {
-    final borderRadius = BorderRadius.circular(widget.controlExtent / 2);
+    final borderRadius = BorderRadius.circular(controlExtent / 2);
     final selectedColor =
-        widget.selectedItemColor ?? Theme.of(context).colorScheme.primary;
+        selectedItemColor ?? Theme.of(context).colorScheme.primary;
     final unselectedColor =
-        widget.unselectedItemColor ??
-        Theme.of(context).colorScheme.onSurfaceVariant;
+        unselectedItemColor ?? Theme.of(context).colorScheme.onSurfaceVariant;
     return SizedBox(
-      key: widget.tabsKey,
-      width: widget.itemWidth * widget.tabs.length,
+      key: tabsKey,
+      width: itemWidth * tabs.length,
       child: DecoratedBox(
         decoration: BoxDecoration(
-          color: widget.backgroundColor,
+          color: backgroundColor,
           borderRadius: borderRadius,
-          border: widget.borderColor == null
-              ? null
-              : Border.all(color: widget.borderColor!),
+          border: borderColor == null ? null : Border.all(color: borderColor!),
         ),
         child: ClipRRect(
           borderRadius: borderRadius,
@@ -478,16 +257,16 @@ class _AdaptiveFloatingTabBarState extends State<AdaptiveFloatingTabBar> {
                 ),
               ),
               child: NavigationBar(
-                height: widget.controlExtent,
-                selectedIndex: widget.selectedIndex,
-                onDestinationSelected: widget.onTap,
+                height: controlExtent,
+                selectedIndex: selectedIndex,
+                onDestinationSelected: onTap,
                 backgroundColor: Colors.transparent,
                 surfaceTintColor: Colors.transparent,
                 elevation: 0,
                 indicatorColor: selectedColor.withValues(alpha: 0.12),
                 labelBehavior: NavigationDestinationLabelBehavior.alwaysHide,
                 destinations: [
-                  for (final tab in widget.tabs)
+                  for (final tab in tabs)
                     NavigationDestination(
                       icon: tab.icon,
                       label: tab.label,
@@ -503,25 +282,24 @@ class _AdaptiveFloatingTabBarState extends State<AdaptiveFloatingTabBar> {
   }
 
   Widget _buildAction() {
-    final action = widget.action;
     if (!PlatformUiCapabilities.isIOS) {
       return SizedBox.square(
-        key: widget.actionKey,
-        dimension: widget.controlExtent,
+        key: actionKey,
+        dimension: controlExtent,
         child: AdaptiveFloatingActionButton(
           onPressed: action.onPressed,
           semanticLabel: action.label,
           // Round, as the toolbar's buttons and the pill's ends are.
           shape: const CircleBorder(),
-          backgroundColor: widget.actionBackgroundColor,
-          foregroundColor: widget.actionForegroundColor,
+          backgroundColor: actionBackgroundColor,
+          foregroundColor: actionForegroundColor,
           child: Icon(action.icon),
         ),
       );
     }
     // The glass fallback has no label of its own; announce one control.
     return Semantics(
-      key: widget.actionKey,
+      key: actionKey,
       label: action.label,
       button: true,
       excludeSemantics: true,
@@ -530,10 +308,10 @@ class _AdaptiveFloatingTabBarState extends State<AdaptiveFloatingTabBar> {
         onPressed: action.onPressed,
         symbol: SFSymbol(
           action.sfSymbol,
-          size: widget.actionSymbolSize,
-          color: widget.actionForegroundColor,
+          size: actionSymbolSize,
+          color: actionForegroundColor,
         ),
-        dimension: widget.controlExtent,
+        dimension: controlExtent,
       ),
     );
   }
