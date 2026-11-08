@@ -20,6 +20,22 @@ String normalizeProfileImageUrl(String? value) {
   return trimmed;
 }
 
+/// Whether [url] is the stand-in avatar Open WebUI gives a user without a
+/// photo (its `/user.png`, relative or on any host), or no image at all, so
+/// a client can draw the user's initials instead of a generic silhouette.
+///
+/// The per-user `/api/v1/users/{id}/profile/image` endpoint that sign-in
+/// reports may serve either, so it counts as a photo.
+bool isDefaultProfileImageUrl(String? url) {
+  final trimmed = url?.trim();
+  if (trimmed == null || trimmed.isEmpty) return true;
+  if (trimmed.startsWith('data:')) return false;
+  final path = Uri.tryParse(trimmed)?.path ?? trimmed;
+  return path == kDefaultProfileImagePath ||
+      path == kDefaultProfileImagePath.substring(1) ||
+      path == '/static$kDefaultProfileImagePath';
+}
+
 /// Up to two initials for [name]: the first two characters of a single
 /// word, or the first character of each of the first two words; `U` for an
 /// empty name. Characters are Unicode code points, so a surrogate pair is
