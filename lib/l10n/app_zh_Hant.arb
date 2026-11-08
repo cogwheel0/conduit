@@ -465,7 +465,17 @@
     }
   },
   "ttsVoice": "語音",
-  "ttsSpeechRate": "語速",
+  "ttsPlaybackSpeed": "播放速度",
+  "ttsSpeedValue": "{speed}×",
+  "@ttsSpeedValue": {
+    "placeholders": {
+      "speed": {
+        "type": "double",
+        "format": "decimalPattern",
+        "example": "1.25"
+      }
+    }
+  },
   "ttsPitch": "音調",
   "ttsVolume": "音量",
   "ttsPreview": "預覽語音",
@@ -1019,6 +1029,24 @@
   "usageQueueTime": "排隊時間",
   "usageReasoningTokens": "推理 token",
   "usageTotalTokens": "總 token",
+  "usageContextWindow": "上下文視窗",
+  "usageContextWindowValue": "{percent} · {used} / {total}",
+  "@usageContextWindowValue": {
+    "placeholders": {
+      "percent": {
+        "type": "String",
+        "example": "62%"
+      },
+      "used": {
+        "type": "String",
+        "example": "79K"
+      },
+      "total": {
+        "type": "String",
+        "example": "128K"
+      }
+    }
+  },
   "proxyAuthentication": "代理認證",
   "proxyAuthPlatformNotSupported": "代理認證需要行動裝置。請先透過瀏覽器進行認證。",
   "proxyAuthLoading": "正在載入認證頁面...",
@@ -3370,6 +3398,7 @@
   "hermesTurnSendNext": "傳送下一則",
   "hermesTurnControlsUnsupported": "請升級 Hermes 以啟用安全的回合控制。",
   "sidebarHermesTab": "Hermes",
+  "sidebarBackendSwitcher": "後端",
   "markdownShowMoreLines": "再顯示 {count} 行",
   "@markdownShowMoreLines": {"placeholders":{"count":{"type":"int"}}},
   "markdownShowLess": "收合",

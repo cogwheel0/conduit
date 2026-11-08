@@ -467,7 +467,17 @@
     }
   },
   "ttsVoice": "Stimme",
-  "ttsSpeechRate": "Sprechgeschwindigkeit",
+  "ttsPlaybackSpeed": "Wiedergabegeschwindigkeit",
+  "ttsSpeedValue": "{speed}×",
+  "@ttsSpeedValue": {
+    "placeholders": {
+      "speed": {
+        "type": "double",
+        "format": "decimalPattern",
+        "example": "1.25"
+      }
+    }
+  },
   "ttsPitch": "Tonhöhe",
   "ttsVolume": "Lautstärke",
   "ttsPreview": "Stimme vorschau",
@@ -1021,6 +1031,24 @@
   "usageQueueTime": "Wartezeit",
   "usageReasoningTokens": "Reasoning-Tokens",
   "usageTotalTokens": "Gesamte Tokens",
+  "usageContextWindow": "Kontextfenster",
+  "usageContextWindowValue": "{percent} · {used} von {total}",
+  "@usageContextWindowValue": {
+    "placeholders": {
+      "percent": {
+        "type": "String",
+        "example": "62%"
+      },
+      "used": {
+        "type": "String",
+        "example": "79K"
+      },
+      "total": {
+        "type": "String",
+        "example": "128K"
+      }
+    }
+  },
   "proxyAuthentication": "Proxy-Authentifizierung",
   "proxyAuthPlatformNotSupported": "Proxy-Authentifizierung erfordert ein mobiles Gerät. Bitte authentifizieren Sie sich zuerst über einen Browser.",
   "proxyAuthLoading": "Authentifizierungsseite wird geladen...",
@@ -3370,6 +3398,7 @@
   "hermesTurnSendNext": "Nächste senden",
   "hermesTurnControlsUnsupported": "Aktualisiere Hermes, um sichere Zugsteuerung zu aktivieren.",
   "sidebarHermesTab": "Hermes",
+  "sidebarBackendSwitcher": "Backend",
   "markdownShowMoreLines": "{count, plural, =1{1 weitere Zeile anzeigen} other{{count} weitere Zeilen anzeigen}}",
   "@markdownShowMoreLines": {"placeholders":{"count":{"type":"int"}}},
   "markdownShowLess": "Weniger anzeigen",

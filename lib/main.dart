@@ -167,11 +167,15 @@ import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 
 import 'features/hermes/services/hermes_dashboard_rest_bridge.dart';
 import 'features/hermes/widgets/hermes_connection_switcher.dart';
+
 import 'package:conduit_core/features/chat/providers/chat_handoff_providers.dart';
+
 import 'features/chat/services/chat_handoff_host.dart';
+
 import 'package:conduit_core/providers/openwebui_accounts_controller.dart';
 import 'package:conduit_core/providers/openwebui_route_resolver.dart'
     show openWebUiRouteResolverProvider;
+
 import 'core/services/background_streaming_handler.dart';
 import 'features/profile/widgets/account_actions.dart';
 import 'features/profile/widgets/account_sheet.dart'
@@ -632,7 +636,10 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
 
   /// The native Settings rows for accounts and connections. Returns whether
   /// [actionId] was one of them.
-  Future<bool> _handleNativeAccountAction(String actionId, Object? value) async {
+  Future<bool> _handleNativeAccountAction(
+    String actionId,
+    Object? value,
+  ) async {
     final context = NavigationService.context;
     switch (actionId) {
       case nativeAccountSwitchActionId:
@@ -1072,14 +1079,10 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
                 .read(appSettingsProvider.notifier)
                 .setVoiceSilenceDuration(ms);
           }
-        case 'tts-speech-rate':
-          final rate = switch (value) {
-            final double d => d,
-            final int i => i.toDouble(),
-            _ => double.tryParse('$value'),
-          };
-          if (rate != null) {
-            await ref.read(appSettingsProvider.notifier).setTtsSpeechRate(rate);
+        case 'tts-speed':
+          final speed = double.tryParse('$value');
+          if (speed != null) {
+            await ref.read(appSettingsProvider.notifier).setTtsSpeed(speed);
           }
         case 'tts-preview':
           final text = value is String ? value : null;

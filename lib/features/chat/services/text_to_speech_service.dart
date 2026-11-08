@@ -116,7 +116,7 @@ class TextToSpeechService implements VoiceModeSpeech {
   Future<bool> initialize({
     String? deviceVoice,
     String? serverVoice,
-    double speechRate = 0.5,
+    double speed = 1.0,
     double pitch = 1.0,
     double volume = 1.0,
     TtsEngine engine = TtsEngine.device,
@@ -127,7 +127,7 @@ class TextToSpeechService implements VoiceModeSpeech {
         _buildConfig(
           voice: deviceVoice,
           serverVoice: serverVoice,
-          speechRate: speechRate,
+          speed: speed,
           pitch: pitch,
           volume: volume,
           engine: engine,
@@ -141,7 +141,7 @@ class TextToSpeechService implements VoiceModeSpeech {
       config: _buildConfig(
         voice: deviceVoice,
         serverVoice: serverVoice,
-        speechRate: speechRate,
+        speed: speed,
         pitch: pitch,
         volume: volume,
         engine: engine,
@@ -177,8 +177,13 @@ class TextToSpeechService implements VoiceModeSpeech {
   bool get canSeek => TtsManager.instance.canSeek;
   Duration? get playbackPosition => TtsManager.instance.playbackPosition;
   Duration? get playbackDuration => TtsManager.instance.playbackDuration;
+  ({int index, Duration position, Duration duration})? get chunkProgress =>
+      TtsManager.instance.chunkProgress;
+  bool get reportsSpokenWords => TtsManager.instance.reportsSpokenWords;
   Future<Duration?> seekRelative(Duration offset) =>
       TtsManager.instance.seekRelative(offset);
+  Future<Duration?> seekTo(Duration position) =>
+      TtsManager.instance.seekTo(position);
 
   /// Starts an incremental TTS session for streaming assistant responses.
   @override
@@ -241,7 +246,7 @@ class TextToSpeechService implements VoiceModeSpeech {
   Future<void> updateSettings({
     Object? voice = const _NotProvided(),
     Object? serverVoice = const _NotProvided(),
-    double? speechRate,
+    double? speed,
     double? pitch,
     double? volume,
     TtsEngine? engine,
@@ -254,7 +259,7 @@ class TextToSpeechService implements VoiceModeSpeech {
         serverVoice: serverVoice is _NotProvided
             ? current.serverVoice
             : serverVoice as String?,
-        speechRate: speechRate ?? current.speechRate,
+        speed: speed ?? current.speed,
         pitch: pitch ?? current.pitch,
         volume: volume ?? current.volume,
         engine: engine != null
@@ -271,7 +276,7 @@ class TextToSpeechService implements VoiceModeSpeech {
       await initialize(
         deviceVoice: config.voice,
         serverVoice: config.serverVoice,
-        speechRate: config.speechRate,
+        speed: config.speed,
         pitch: config.pitch,
         volume: config.volume,
         engine: config.preferServer ? TtsEngine.server : TtsEngine.device,
@@ -340,7 +345,7 @@ class TextToSpeechService implements VoiceModeSpeech {
   TtsConfig _buildConfig({
     required String? voice,
     required String? serverVoice,
-    required double speechRate,
+    required double speed,
     required double pitch,
     required double volume,
     required TtsEngine engine,
@@ -350,7 +355,7 @@ class TextToSpeechService implements VoiceModeSpeech {
       voice: voice,
       serverVoice: serverVoice,
       splitOn: _resolveSplitOn(current.splitOn),
-      speechRate: speechRate,
+      speed: speed,
       pitch: pitch,
       volume: volume,
       preferServer: engine == TtsEngine.server,

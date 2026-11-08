@@ -465,7 +465,17 @@
     }
   },
   "ttsVoice": "语音",
-  "ttsSpeechRate": "语速",
+  "ttsPlaybackSpeed": "播放速度",
+  "ttsSpeedValue": "{speed}×",
+  "@ttsSpeedValue": {
+    "placeholders": {
+      "speed": {
+        "type": "double",
+        "format": "decimalPattern",
+        "example": "1.25"
+      }
+    }
+  },
   "ttsPitch": "音调",
   "ttsVolume": "音量",
   "ttsPreview": "预览语音",
@@ -1019,6 +1029,24 @@
   "usageQueueTime": "排队时间",
   "usageReasoningTokens": "推理 token",
   "usageTotalTokens": "总 token",
+  "usageContextWindow": "上下文窗口",
+  "usageContextWindowValue": "{percent} · {used} / {total}",
+  "@usageContextWindowValue": {
+    "placeholders": {
+      "percent": {
+        "type": "String",
+        "example": "62%"
+      },
+      "used": {
+        "type": "String",
+        "example": "79K"
+      },
+      "total": {
+        "type": "String",
+        "example": "128K"
+      }
+    }
+  },
   "proxyAuthentication": "代理认证",
   "proxyAuthPlatformNotSupported": "代理认证需要移动设备。请先通过浏览器进行认证。",
   "proxyAuthLoading": "正在加载认证页面...",
@@ -3370,6 +3398,7 @@
   "hermesTurnSendNext": "发送下一条",
   "hermesTurnControlsUnsupported": "请升级 Hermes 以启用安全的轮次控制。",
   "sidebarHermesTab": "Hermes",
+  "sidebarBackendSwitcher": "后端",
   "markdownShowMoreLines": "再显示 {count} 行",
   "@markdownShowMoreLines": {"placeholders":{"count":{"type":"int"}}},
   "markdownShowLess": "收起",
