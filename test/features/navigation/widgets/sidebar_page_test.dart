@@ -664,7 +664,7 @@ void main() {
     expect(sidebarTestDestinationLabel('Terminal'), findsNothing);
     expect(sidebarTestDestinationLabel('Channels'), findsOneWidget);
 
-    await tester.tap(find.byIcon(Icons.search));
+    await tester.tap(find.byKey(const ValueKey('sidebar-search-button')));
     await tester.pumpAndSettle();
 
     final context = tester.element(

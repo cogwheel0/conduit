@@ -932,8 +932,18 @@ void main() {
     expect(mainSearchController.text, 'unmatched');
     await tester.tap(find.byKey(const ValueKey('library-search-close')));
     await tester.pumpAndSettle();
+    expect(find.byType(LibrarySearchPage), findsNothing);
+    // Dismiss the overlay by tapping the exposed main pane.
     await tester.tapAt(const Offset(380, 420));
     await tester.pumpAndSettle();
+    expect(
+      tester
+          .state<ResponsiveDrawerLayoutState>(
+            find.byType(ResponsiveDrawerLayout),
+          )
+          .isOpen,
+      isFalse,
+    );
     expect(mainSearchController.text, 'unmatched');
     await tester.tap(
       find.byKey(const ValueKey<String>('destination-search-button')),

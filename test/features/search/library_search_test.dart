@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:typed_data';
 
+import 'package:conduit/features/navigation/widgets/drawer_shell_page.dart';
 import 'package:conduit/features/search/providers/library_search_providers.dart';
 import 'package:conduit/features/search/views/library_search_page.dart';
 import 'package:conduit/l10n/app_localizations.dart';
@@ -18,10 +18,12 @@ import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit_core/services/connectivity_service.dart';
+import 'package:conduit_core/services/settings_service.dart';
 import 'package:conduit_core/services/worker_manager.dart';
 import 'package:dio/dio.dart';
 import 'package:drift/native.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
 
@@ -123,6 +125,32 @@ void main() {
     final provider = librarySearchPageProvider(request);
     container.listen(provider, (_, _) {});
     return container.read(provider.future);
+  }
+
+  void changeAccount() {
+    container.updateOverrides([
+      reviewerModeProvider.overrideWithValue(true),
+      openWebUiAuthSessionEpochProvider.overrideWithValue(Object()),
+      apiServiceProvider.overrideWithValue(api),
+      isOnlineProvider.overrideWithValue(true),
+      appDatabaseProvider.overrideWithValue(null),
+      directLocalDatabaseProvider.overrideWithValue(local),
+      openWebUiAccountAvailableProvider.overrideWithValue(true),
+      foldersAvailableProvider.overrideWithValue(true),
+      foldersProvider.overrideWith(() => _Folders()),
+    ]);
+  }
+
+  void searchWidgetTest(String name, WidgetTesterCallback callback) {
+    testWidgets(name, (tester) async {
+      try {
+        await callback(tester);
+      } finally {
+        await tester.pumpWidget(const SizedBox.shrink());
+        container.invalidate(libraryChatSnippetProvider);
+        await tester.pump(Duration.zero);
+      }
+    });
   }
 
   test(
@@ -229,6 +257,75 @@ void main() {
     );
   });
 
+  test('invalid note identities do not hide valid body matches', () async {
+    adapter.respond = (_) => {
+      'items': [
+        {'title': 'Missing ID'},
+        {'id': 123, 'title': 'Invalid ID'},
+        {'id': '', 'title': 'Empty ID'},
+        {
+          'id': 'note-1',
+          'title': 'Sketchbook',
+          'data': {
+            'content': {'md': 'Mix cobalt with white.'},
+          },
+          'created_at': 1,
+          'updated_at': 1,
+        },
+      ],
+    };
+    final page = await load((
+      source: LibrarySearchSource.notes,
+      query: 'cobalt',
+      page: 1,
+    ));
+    expect(page.items.single.id, 'note-1');
+    expect(page.items.single.excerpt, contains('cobalt'));
+  });
+
+  for (final status in [200, 404]) {
+    test('recycled snippets reuse a completed $status response', () async {
+      adapter.respond = (_) => ResponseBody.fromString(
+        jsonEncode('A cobalt kite'),
+        status,
+        headers: {
+          Headers.contentTypeHeader: [Headers.jsonContentType],
+        },
+      );
+      final provider = libraryChatSnippetProvider((
+        id: 'chat-1',
+        query: 'cobalt',
+      ));
+      final subscription = container.listen(provider, (_, _) {});
+      final snippet = await container.read(provider.future);
+      expect(snippet, status == 200 ? 'A cobalt kite' : null);
+      subscription.close();
+      await container.pump();
+      container.listen(provider, (_, _) {});
+      expect(await container.read(provider.future), snippet);
+      expect(adapter.requests, hasLength(1));
+      changeAccount();
+      await container.pump();
+      await container.read(provider.future);
+      expect(adapter.requests, hasLength(2));
+    });
+  }
+
+  test('pending excerpts still cancel when their tile leaves', () async {
+    final pending = Completer<Object?>();
+    adapter.respond = (_) => pending.future;
+    final provider = libraryChatSnippetProvider((
+      id: 'chat-1',
+      query: 'cobalt',
+    ));
+    final subscription = container.listen(provider, (_, _) {});
+    await Future<void>.delayed(const Duration(milliseconds: 30));
+    subscription.close();
+    await container.pump();
+    expect(adapter.requests.single.cancelToken!.isCancelled, isTrue);
+    pending.complete('A cobalt kite');
+  });
+
   test('dropping a query cancels its transport', () async {
     final pending = Completer<Object?>();
     adapter.respond = (_) => pending.future;
@@ -251,6 +348,7 @@ void main() {
     Size size = const Size(390, 844),
     bool dark = false,
     double textScale = 1,
+    Widget? home,
   }) async {
     tester.view.physicalSize = size;
     tester.view.devicePixelRatio = 1;
@@ -269,14 +367,48 @@ void main() {
                 .copyWith(textScaler: TextScaler.linear(textScale)),
             child: child!,
           ),
-          home: const LibrarySearchPage(),
+          home: home ?? const LibrarySearchPage(),
         ),
       ),
     );
     await tester.pumpAndSettle();
   }
 
-  testWidgets('full-page search shows body excerpts and switches scopes', (
+  searchWidgetTest('Command-K opens full-page search and Escape dismisses it', (
+    tester,
+  ) async {
+    PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.iOS;
+    PlatformUiCapabilities.debugIOSAppOnMacOverride = true;
+    addTearDown(PlatformUiCapabilities.resetDebugOverrides);
+    await pumpSearch(
+      tester,
+      home: ProviderScope(
+        overrides: [
+          appSettingsProvider.overrideWithValue(
+            AppSettings(slidingSidebarEnabled: true),
+          ),
+        ],
+        child: const MacDesktopShortcuts(
+          child: Focus(autofocus: true, child: Text('Content')),
+        ),
+      ),
+    );
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.metaLeft);
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyK);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.metaLeft);
+    await tester.pumpAndSettle();
+    expect(find.byType(LibrarySearchPage), findsOneWidget);
+    await tester.enterText(find.byType(EditableText), 'cobalt');
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.pumpAndSettle();
+    expect(find.text('Color study'), findsOneWidget);
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.pumpAndSettle();
+    expect(find.byType(LibrarySearchPage), findsNothing);
+    expect(find.text('Content'), findsOneWidget);
+  });
+
+  searchWidgetTest('full-page search shows body excerpts and switches scopes', (
     tester,
   ) async {
     await pumpSearch(tester);
@@ -308,7 +440,9 @@ void main() {
     expect(find.text('Search your library'), findsNWidgets(2));
   });
 
-  testWidgets('replaced query cannot reveal a late response', (tester) async {
+  searchWidgetTest('replaced query cannot reveal a late response', (
+    tester,
+  ) async {
     final old = Completer<Object?>();
     adapter.respond = (request) {
       if (request.path == '/api/v1/chats/search') {
@@ -331,61 +465,65 @@ void main() {
     expect(find.text('Stale result'), findsNothing);
   });
 
-  testWidgets('pagination retains results, retries, and deduplicates pages', (
-    tester,
-  ) async {
-    var secondPageAttempts = 0;
-    adapter.respond = (request) {
-      if (request.path != '/api/v1/chats/search') return [];
-      if (request.queryParameters['page'] == 1) {
-        return List.generate(60, (i) => SearchAdapter.chat('$i', 'Swatch $i'));
-      }
-      if (++secondPageAttempts == 1) {
-        throw DioException(
-          requestOptions: request,
-          type: DioExceptionType.connectionError,
-        );
-      }
-      return [
-        SearchAdapter.chat('59', 'Swatch 59'),
-        SearchAdapter.chat('60', 'Final swatch'),
-      ];
-    };
-    await pumpSearch(tester);
-    await tester.tap(find.byKey(const ValueKey('search-filter-chats')));
-    await tester.enterText(find.byType(TextField), 'swatch');
-    await tester.pump(const Duration(milliseconds: 300));
-    await tester.pumpAndSettle();
-    final more = find.byKey(const ValueKey('search-more-chats'));
-    final scrollable = find
-        .descendant(
-          of: find.byType(CustomScrollView),
-          matching: find.byType(Scrollable),
-        )
-        .first;
-    await tester.scrollUntilVisible(
-      more,
-      500,
-      maxScrolls: 20,
-      scrollable: scrollable,
-    );
-    await tester.tap(more);
-    await tester.pumpAndSettle();
-    expect(find.text('Swatch 59'), findsOneWidget);
-    await tester.tap(find.textContaining('Retry'));
-    await tester.pumpAndSettle();
-    await tester.scrollUntilVisible(
-      find.text('Final swatch'),
-      200,
-      scrollable: scrollable,
-    );
-    expect(find.text('Swatch 59'), findsOneWidget);
-    expect(find.text('Final swatch'), findsOneWidget);
-    expect(more, findsNothing);
-    expect(secondPageAttempts, 2);
-  });
+  searchWidgetTest(
+    'pagination retains results, retries, and deduplicates pages',
+    (tester) async {
+      var secondPageAttempts = 0;
+      adapter.respond = (request) {
+        if (request.path != '/api/v1/chats/search') return [];
+        if (request.queryParameters['page'] == 1) {
+          return List.generate(
+            60,
+            (i) => SearchAdapter.chat('$i', 'Swatch $i'),
+          );
+        }
+        if (++secondPageAttempts == 1) {
+          throw DioException(
+            requestOptions: request,
+            type: DioExceptionType.connectionError,
+          );
+        }
+        return [
+          SearchAdapter.chat('59', 'Swatch 59'),
+          SearchAdapter.chat('60', 'Final swatch'),
+        ];
+      };
+      await pumpSearch(tester);
+      await tester.tap(find.byKey(const ValueKey('search-filter-chats')));
+      await tester.enterText(find.byType(TextField), 'swatch');
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.pumpAndSettle();
+      final more = find.byKey(const ValueKey('search-more-chats'));
+      final scrollable = find
+          .descendant(
+            of: find.byType(CustomScrollView),
+            matching: find.byType(Scrollable),
+          )
+          .first;
+      await tester.scrollUntilVisible(
+        more,
+        500,
+        maxScrolls: 20,
+        scrollable: scrollable,
+      );
+      await tester.tap(more);
+      await tester.pumpAndSettle();
+      expect(find.text('Swatch 59'), findsOneWidget);
+      await tester.tap(find.textContaining('Retry'));
+      await tester.pumpAndSettle();
+      await tester.scrollUntilVisible(
+        find.text('Final swatch'),
+        200,
+        scrollable: scrollable,
+      );
+      expect(find.text('Swatch 59'), findsOneWidget);
+      expect(find.text('Final swatch'), findsOneWidget);
+      expect(more, findsNothing);
+      expect(secondPageAttempts, 2);
+    },
+  );
 
-  testWidgets(
+  searchWidgetTest(
     'selecting a folder returns its identity; close returns no result',
     (tester) async {
       Object? selection;
@@ -434,7 +572,7 @@ void main() {
     },
   );
 
-  testWidgets(
+  searchWidgetTest(
     'account transition clears results even with the same API object',
     (tester) async {
       await pumpSearch(tester);
@@ -443,23 +581,13 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('Color study'), findsOneWidget);
       adapter.respond = (_) => [];
-      container.updateOverrides([
-        reviewerModeProvider.overrideWithValue(true),
-        openWebUiAuthSessionEpochProvider.overrideWithValue(Object()),
-        apiServiceProvider.overrideWithValue(api),
-        isOnlineProvider.overrideWithValue(true),
-        appDatabaseProvider.overrideWithValue(null),
-        directLocalDatabaseProvider.overrideWithValue(local),
-        openWebUiAccountAvailableProvider.overrideWithValue(true),
-        foldersAvailableProvider.overrideWithValue(true),
-        foldersProvider.overrideWith(() => _Folders()),
-      ]);
+      changeAccount();
       await tester.pumpAndSettle();
       expect(find.text('Color study'), findsNothing);
     },
   );
 
-  testWidgets('iPad layout, dark mode and large text remain usable', (
+  searchWidgetTest('iPad layout, dark mode and large text remain usable', (
     tester,
   ) async {
     PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.iOS;

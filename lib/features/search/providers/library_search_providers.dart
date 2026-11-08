@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:conduit_core/database/chat_database_repository.dart';
 import 'package:conduit_core/database/database_provider.dart';
 import 'package:conduit_core/database/mappers/conversation_assembler.dart';
@@ -116,14 +118,15 @@ final librarySearchPageProvider = FutureProvider.autoDispose
             return (
               items: [
                 for (final row in rows)
-                  LibrarySearchResult(
-                    id: row['id'] as String,
-                    title: row['title'] as String? ?? '',
-                    excerpt: searchExcerpt(
-                      Note.fromJson(row).data.content.md,
-                      query,
+                  if (row['id'] case final String id when id.isNotEmpty)
+                    LibrarySearchResult(
+                      id: id,
+                      title: row['title'] as String? ?? '',
+                      excerpt: searchExcerpt(
+                        Note.fromJson(row).data.content.md,
+                        query,
+                      ),
                     ),
-                  ),
               ],
               hasMore: rows.length == pageSize,
             );
@@ -190,9 +193,17 @@ final libraryChatSnippetProvider = FutureProvider.autoDispose
       if (api == null) return null;
       final cancel = CancelToken();
       ref.onDispose(cancel.cancel);
-      return api.getChatSearchSnippet(
+      final snippet = await api.getChatSearchSnippet(
         chatId: request.id,
         query: request.query,
         cancelToken: cancel,
       );
+      if (ref.mounted) {
+        // Recycled tiles reuse completed excerpts, including unsupported ones.
+        // Pending requests still cancel immediately when no longer visible.
+        final cache = ref.keepAlive();
+        final expiry = Timer(const Duration(minutes: 2), cache.close);
+        ref.onDispose(expiry.cancel);
+      }
+      return snippet;
     });

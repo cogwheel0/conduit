@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:conduit_core/database/database_provider.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 
 import '../../../l10n/app_localizations.dart';
@@ -148,111 +149,124 @@ class _LibrarySearchPageState extends ConsumerState<LibrarySearchPage> {
               page.asData?.value.items.isEmpty == true;
         });
 
-    return AdaptiveScaffold(
-      key: const ValueKey('library-search-page'),
-      body: SafeArea(
-        child: Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 760),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 8,
+    return CallbackShortcuts(
+      bindings: {
+        const SingleActivator(LogicalKeyboardKey.escape): () =>
+            Navigator.of(context).maybePop(),
+      },
+      child: AdaptiveScaffold(
+        key: const ValueKey('library-search-page'),
+        body: SafeArea(
+          child: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 760),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 8,
+                    ),
+                    child: Row(
+                      children: [
+                        for (final filter in <LibrarySearchSource?>[
+                          null,
+                          ...sources.where(
+                            (s) => s != LibrarySearchSource.localChats,
+                          ),
+                        ])
+                          Padding(
+                            padding: const EdgeInsetsDirectional.only(end: 8),
+                            child: AdaptiveChip.choice(
+                              key: ValueKey(
+                                'search-filter-${filter?.name ?? 'all'}',
+                              ),
+                              label: Text(
+                                filter == null
+                                    ? l10n.librarySearchAll
+                                    : _sourceLabel(l10n, filter),
+                              ),
+                              selected: scope == filter,
+                              showCheckmark: false,
+                              side: BorderSide.none,
+                              shape: const StadiumBorder(),
+                              selectedColor: theme.surfaceContainer,
+                              labelStyle: TextStyle(color: theme.textPrimary),
+                              backgroundColor: const Color(0x00000000),
+                              onSelected: (_) =>
+                                  setState(() => _scope = filter),
+                            ),
+                          ),
+                      ],
+                    ),
                   ),
-                  child: Row(
-                    children: [
-                      for (final filter in <LibrarySearchSource?>[
-                        null,
-                        ...sources.where(
-                          (s) => s != LibrarySearchSource.localChats,
-                        ),
-                      ])
-                        Padding(
-                          padding: const EdgeInsetsDirectional.only(end: 8),
-                          child: AdaptiveChip.choice(
-                            key: ValueKey(
-                              'search-filter-${filter?.name ?? 'all'}',
-                            ),
-                            label: Text(
-                              filter == null
-                                  ? l10n.librarySearchAll
-                                  : _sourceLabel(l10n, filter),
-                            ),
-                            selected: scope == filter,
-                            showCheckmark: false,
-                            side: BorderSide.none,
-                            shape: const StadiumBorder(),
-                            selectedColor: theme.surfaceContainer,
-                            labelStyle: TextStyle(color: theme.textPrimary),
-                            backgroundColor: const Color(0x00000000),
-                            onSelected: (_) => setState(() => _scope = filter),
+                  Expanded(
+                    child: _query.isEmpty
+                        ? _SearchMessage(
+                            title: l10n.librarySearchTitle,
+                            detail: _controller.text.trim().isEmpty
+                                ? l10n.librarySearchHint
+                                : l10n.librarySearching,
+                          )
+                        : noResults
+                        ? _SearchMessage(
+                            title: l10n.noResults,
+                            detail: l10n.tryDifferentSearch,
+                          )
+                        : CustomScrollView(
+                            key: ValueKey((
+                              _query,
+                              scope,
+                              api,
+                              database,
+                              owner,
+                            )),
+                            keyboardDismissBehavior:
+                                ScrollViewKeyboardDismissBehavior.onDrag,
+                            slivers: [
+                              for (final source in visibleSources)
+                                _SearchSection(source: source, query: _query),
+                            ],
+                          ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 8, 12, 8),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: ConduitGlassSearchField(
+                            controller: _controller,
+                            focusNode: _focus,
+                            hintText: l10n.librarySearchTitle,
+                            query: _controller.text,
+                            onChanged: _changeQuery,
+                            onClear: () {
+                              _controller.clear();
+                              _changeQuery('');
+                              _focus.requestFocus();
+                            },
                           ),
                         ),
-                    ],
-                  ),
-                ),
-                Expanded(
-                  child: _query.isEmpty
-                      ? _SearchMessage(
-                          title: l10n.librarySearchTitle,
-                          detail: _controller.text.trim().isEmpty
-                              ? l10n.librarySearchHint
-                              : l10n.librarySearching,
-                        )
-                      : noResults
-                      ? _SearchMessage(
-                          title: l10n.noResults,
-                          detail: l10n.tryDifferentSearch,
-                        )
-                      : CustomScrollView(
-                          key: ValueKey((_query, scope, api, database, owner)),
-                          keyboardDismissBehavior:
-                              ScrollViewKeyboardDismissBehavior.onDrag,
-                          slivers: [
-                            for (final source in visibleSources)
-                              _SearchSection(source: source, query: _query),
-                          ],
+                        const SizedBox(width: 8),
+                        AdaptiveButton.icon(
+                          key: const ValueKey('library-search-close'),
+                          semanticLabel: l10n.close,
+                          icon: Icons.close,
+                          style: AdaptiveButtonStyle.gray,
+                          size: AdaptiveButtonSize.large,
+                          minSize: const Size.square(48),
+                          padding: EdgeInsets.zero,
+                          useSmoothRectangleBorder: false,
+                          borderRadius: BorderRadius.circular(24),
+                          onPressed: () => Navigator.of(context).pop(),
                         ),
-                ),
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 8, 12, 8),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: ConduitGlassSearchField(
-                          controller: _controller,
-                          focusNode: _focus,
-                          hintText: l10n.librarySearchTitle,
-                          query: _controller.text,
-                          onChanged: _changeQuery,
-                          onClear: () {
-                            _controller.clear();
-                            _changeQuery('');
-                            _focus.requestFocus();
-                          },
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      AdaptiveButton.icon(
-                        key: const ValueKey('library-search-close'),
-                        semanticLabel: l10n.close,
-                        icon: Icons.close,
-                        style: AdaptiveButtonStyle.gray,
-                        size: AdaptiveButtonSize.large,
-                        minSize: const Size.square(48),
-                        padding: EdgeInsets.zero,
-                        useSmoothRectangleBorder: false,
-                        borderRadius: BorderRadius.circular(24),
-                        onPressed: () => Navigator.of(context).pop(),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         ),

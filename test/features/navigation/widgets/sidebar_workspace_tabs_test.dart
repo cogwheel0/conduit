@@ -16,7 +16,6 @@ import 'package:conduit_core/models/user.dart';
 import 'package:conduit/shared/services/navigation_service.dart';
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit/features/channels/widgets/channel_list_tab.dart';
-import 'package:conduit/features/navigation/providers/sidebar_providers.dart';
 import 'package:conduit_core/features/navigation/models/sidebar_navigation_model.dart';
 import 'package:conduit/features/navigation/widgets/conversation_tile.dart';
 import 'package:conduit/features/navigation/widgets/sidebar_page.dart';
@@ -1001,7 +1000,7 @@ void main() {
     );
   });
 
-  testWidgets('closing expanded search clears the active filter', (
+  testWidgets('closing library search preserves unfiltered sidebar history', (
     tester,
   ) async {
     final controllers = SidebarTestSidebarHarnessControllers();
@@ -1039,10 +1038,9 @@ void main() {
     expect(find.text('Alpha Chat'), findsOneWidget);
     expect(find.text('Beta Chat'), findsOneWidget);
 
-    ProviderScope.containerOf(tester.element(find.byType(SidebarPage)))
-        .read(sidebarHeaderSearchExpandedProvider.notifier)
-        .setExpanded(true);
+    await tester.tap(find.byKey(const ValueKey('sidebar-search-button')));
     await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('library-search-page')), findsOneWidget);
 
     await tester.enterText(find.byType(TextField), 'zzz');
     await tester.pump(const Duration(milliseconds: 300));
@@ -1051,11 +1049,10 @@ void main() {
     expect(find.text('Alpha Chat'), findsNothing);
     expect(find.text('Beta Chat'), findsNothing);
 
-    await tester.tap(
-      find.byKey(const ValueKey<String>('sidebar-search-button')),
-    );
+    await tester.tap(find.byKey(const ValueKey('library-search-close')));
     await tester.pumpAndSettle();
 
+    expect(find.byKey(const ValueKey('library-search-page')), findsNothing);
     expect(find.text('Alpha Chat'), findsOneWidget);
     expect(find.text('Beta Chat'), findsOneWidget);
   });
