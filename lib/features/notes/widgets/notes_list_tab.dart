@@ -134,11 +134,11 @@ class _NotesListTabState extends ConsumerState<NotesListTab>
     }
   }
 
-  Widget _buildEmptyState(String message) {
+  Widget _buildEmptyState(String message, {required bool showLargeTitle}) {
     final theme = context.conduitTheme;
     final refreshLabel = MaterialLocalizations.of(context)
         .refreshIndicatorSemanticLabel;
-    return Center(
+    final emptyState = Center(
       child: Padding(
         padding: const EdgeInsets.all(Spacing.lg),
         child: Column(
@@ -169,6 +169,20 @@ class _NotesListTabState extends ConsumerState<NotesListTab>
           ],
         ),
       ),
+    );
+    if (!showLargeTitle) return emptyState;
+    // Keep the list's large title above an empty list, as the Chats tab
+    // keeps its own, so the tab still says where you are.
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        SizedBox(height: sidebarTabContentTopPadding(context)),
+        SidebarLargeTitle(
+          key: const ValueKey<String>('notes-large-title'),
+          title: AppLocalizations.of(context)!.sidebarNotesTab,
+        ),
+        Expanded(child: emptyState),
+      ],
     );
   }
 
@@ -309,6 +323,7 @@ class _NotesListTabState extends ConsumerState<NotesListTab>
             if (noteList.isEmpty) {
               return _buildEmptyState(
                 query.isEmpty ? l10n.noNotesYet : l10n.noNotesFound,
+                showLargeTitle: query.isEmpty,
               );
             }
             final pinnedNotes = noteList

@@ -2361,7 +2361,7 @@
   "@searchNotes": {
     "description": "Placeholder text for notes search field."
   },
-  "createNote": "Create note",
+  "createNote": "Create Note",
   "@createNote": {
     "description": "Tooltip/button label for creating a new note."
   },
