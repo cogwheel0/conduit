@@ -1398,9 +1398,18 @@ class _HighlightedCodeTextState extends State<_HighlightedCodeText> {
     return RichText(
       text: TextSpan(style: rootStyle, children: children),
       textScaler: MediaQuery.textScalerOf(context),
+      textHeightBehavior: _codeTextHeightBehavior,
     );
   }
 }
+
+/// Code's 19 pt lines keep their leading between lines but not above the
+/// first or below the last, where the block's padding alone sets the space;
+/// otherwise the first line sits a near-empty line's depth below the header.
+const _codeTextHeightBehavior = TextHeightBehavior(
+  applyHeightToFirstAscent: false,
+  applyHeightToLastDescent: false,
+);
 
 /// Soft-wrapped code, one paragraph per source line, so a wrapped line's
 /// continuation starts under the line's first character instead of at the
@@ -1440,7 +1449,7 @@ class _WrappedCodeLines extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            for (final line in lines)
+            for (final (index, line) in lines.indexed)
               Padding(
                 padding: EdgeInsets.only(
                   left: math.min(line.indentColumns * columnWidth, maxIndent),
@@ -1454,6 +1463,12 @@ class _WrappedCodeLines extends StatelessWidget {
                         : line.runs,
                   ),
                   textScaler: textScaler,
+                  // Only the block's outer edges drop their leading, as the
+                  // unwrapped paragraph does.
+                  textHeightBehavior: TextHeightBehavior(
+                    applyHeightToFirstAscent: index != 0,
+                    applyHeightToLastDescent: index != lines.length - 1,
+                  ),
                 ),
               ),
           ],
@@ -1611,12 +1626,38 @@ class _CodeBlockBody extends StatefulWidget {
   /// Reports whether unwrapped code is wider than the card.
   final ValueChanged<bool> onOverflowChanged;
 
-  /// Even inner padding around the code on every side.
+  /// Inner padding before the code's leading edge, and on both sides of
+  /// wrapped code.
   static const double padding = Spacing.md - Spacing.xs;
 
+  /// Padding after the end of a line that scrolls: when a line runs on, the
+  /// fade ends this far inside the card's edge; scrolled to its end, the
+  /// line rests this far from it.
+  static const double trailingPadding = Spacing.md;
+
+  /// Padding above the first line and below the last. With the lines'
+  /// outer leading trimmed (see [_codeTextHeightBehavior]), SF Mono's cap
+  /// height sits about 13 pt below the header and the last baseline about
+  /// 13 pt above the card's edge: the same optical inset as the glyphs keep
+  /// from the leading edge.
+  static const double verticalPadding = Spacing.sm + Spacing.xxs;
+
+  static const EdgeInsetsDirectional scrollingPadding =
+      EdgeInsetsDirectional.fromSTEB(
+        padding,
+        verticalPadding,
+        trailingPadding,
+        verticalPadding,
+      );
+
+  static const EdgeInsets wrappedPadding = EdgeInsets.symmetric(
+    horizontal: padding,
+    vertical: verticalPadding,
+  );
+
   /// Width of the fade at an edge that hides part of a long line, inside the
-  /// [padding] margin.
-  static const double edgeFadeExtent = 12;
+  /// padding margin: about three characters, so a cut line visibly runs on.
+  static const double edgeFadeExtent = 24;
 
   /// Lines above this count trigger collapse behavior.
   static const collapseThreshold = 15;
@@ -1682,18 +1723,16 @@ class _CodeBlockBodyState extends State<_CodeBlockBody> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         if (widget.softWrap)
-          Padding(
-            padding: const EdgeInsets.all(_CodeBlockBody.padding),
-            child: highlighted,
-          )
+          Padding(padding: _CodeBlockBody.wrappedPadding, child: highlighted)
         else
           // Long lines scroll sideways. At an edge that hides more of a line
-          // the code fades out before the padding, so no glyph is cut at the
-          // card's edge, and a thin indicator shows where the view is while
-          // it moves.
+          // the code fades out over a few characters before the padding, so
+          // the line visibly runs on and no glyph is cut at the card's edge,
+          // and a thin indicator shows where the view is while it moves.
           HorizontalOverflowFade(
             fadeExtent: _CodeBlockBody.edgeFadeExtent,
             edgeInset: _CodeBlockBody.padding,
+            endEdgeInset: _CodeBlockBody.trailingPadding,
             scrollIndicatorColor: widget.scrollIndicatorColor,
             scrollIndicatorInset: widget.scrollIndicatorInset,
             onOverflowChanged: widget.onOverflowChanged,
@@ -1701,7 +1740,7 @@ class _CodeBlockBodyState extends State<_CodeBlockBody> {
               child: SingleChildScrollView(
                 controller: controller,
                 scrollDirection: Axis.horizontal,
-                padding: const EdgeInsets.all(_CodeBlockBody.padding),
+                padding: _CodeBlockBody.scrollingPadding,
                 child: highlighted,
               ),
             ),

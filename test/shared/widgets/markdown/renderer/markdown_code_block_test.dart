@@ -283,28 +283,90 @@ void main() {
       await tester.pumpAndSettle();
 
       final fade = tester.widget<HorizontalOverflowFade>(overflowFade());
-      // Clear of the card's edge by the code's own padding, then a short
-      // fade, so no glyph is cut at the border.
+      // Clear of the card's edge by the code's own padding, then a fade a
+      // few characters wide, so a cut line visibly runs on rather than
+      // stopping flush at the padding.
       final code = codeParagraph(tester, 'print(');
       final card = tester.getRect(find.byType(CodeBlockCard));
       final padding = code.localToGlobal(Offset.zero).dx - card.left;
       expect(fade.edgeInset, closeTo(padding, 1));
-      expect(fade.fadeExtent, inInclusiveRange(8, 12));
+      expect(fade.fadeExtent, greaterThanOrEqualTo(20));
       final edges = fadeState(tester).edges as HorizontalFadeEdges;
       expect(edges.right, 1);
       expect(edges.left, 0);
 
-      // Scrolled to the end, the fade moves to the leading edge.
-      await tester.dragFrom(card.center, const Offset(-2000, 0));
+      // Scrolled to the end, the fade moves to the leading edge, and the
+      // line's end rests as far from the card's edge as the trailing fade
+      // stays clear of it.
+      await tester.dragFrom(
+        tester.getCenter(overflowFade()),
+        const Offset(-2000, 0),
+      );
       await tester.pumpAndSettle();
       final scrolled = fadeState(tester).edges as HorizontalFadeEdges;
       expect(scrolled.right, 0);
       expect(scrolled.left, 1);
-
-      // The last line keeps its bottom padding above the card's edge.
       final text = codeParagraph(tester, 'print(');
-      final textBottom = text.localToGlobal(Offset(0, text.size.height)).dy;
-      expect(card.bottom - textBottom, inInclusiveRange(11, 13));
+      final textEnd = text.localToGlobal(Offset(text.size.width, 0)).dx;
+      expect(fade.endEdgeInset, closeTo(card.right - textEnd, 1));
+      expect(fade.endEdgeInset, greaterThan(padding));
+    });
+
+    testWidgets('lines keep their leading between them, not around them', (
+      tester,
+    ) async {
+      // One and three lines, unwrapped and wrapped. (The vertical rhythm
+      // tests own the padding itself.)
+      final gaps = <String, (double, double)>{};
+      for (final wrap in [false, true]) {
+        final heights = <int, double>{};
+        for (final lines in [1, 3]) {
+          final source = [
+            longLine,
+            for (var i = 1; i < lines; i++) 'x = $i',
+          ].join('\n');
+          // A fresh card each time, unwrapped.
+          await tester.pumpWidget(const SizedBox());
+          await tester.pumpWidget(buildHarness('```python\n$source\n```'));
+          await tester.pumpAndSettle();
+          if (wrap) {
+            await tester.tap(wrapToggle());
+            await tester.pumpAndSettle();
+          }
+          final header = tester.getRect(find.byType(CodeBlockHeader));
+          final card = tester.getRect(find.byType(CodeBlockCard));
+          final first = codeParagraph(tester, 'print(');
+          // Unwrapped code is one paragraph; wrapped code one per line.
+          final last = wrap && lines > 1
+              ? codeParagraph(tester, 'x = ${lines - 1}')
+              : first;
+          final top = first.localToGlobal(Offset.zero).dy;
+          final bottom = last.localToGlobal(Offset(0, last.size.height)).dy;
+          gaps['$wrap/$lines'] = (top - header.bottom, card.bottom - bottom);
+          heights[lines] = wrap ? bottom - top : first.size.height;
+        }
+        final style = codeParagraph(tester, 'print(').text.style!;
+        final lineHeight = style.fontSize! * style.height!;
+        if (!wrap) {
+          // No line's worth of leading above the first line or below the
+          // last, where it read as a blank line under the header.
+          expect(heights[1], lessThan(lineHeight));
+        }
+        // Between lines the pitch is unchanged (within the paragraph's
+        // rounding of each line's height).
+        expect(
+          heights[3]! - heights[1]!,
+          closeTo(lineHeight * 2, 1.5),
+          reason: 'wrap: $wrap',
+        );
+      }
+      // Wrapped code sits in the card exactly as unwrapped code does.
+      for (final lines in [1, 3]) {
+        final (top, bottom) = gaps['false/$lines']!;
+        final (wrappedTop, wrappedBottom) = gaps['true/$lines']!;
+        expect(wrappedTop, closeTo(top, 0.5), reason: 'lines: $lines');
+        expect(wrappedBottom, closeTo(bottom, 0.5), reason: 'lines: $lines');
+      }
     });
 
     testWidgets(
@@ -330,8 +392,9 @@ void main() {
         expect(overflowFade(), isNot(paints..rrect()));
 
         // Held visible for as long as a drag lasts.
-        final card = tester.getRect(find.byType(CodeBlockCard));
-        final gesture = await tester.startGesture(card.center);
+        final gesture = await tester.startGesture(
+          tester.getCenter(overflowFade()),
+        );
         await gesture.moveBy(const Offset(-40, 0));
         await tester.pump();
         await gesture.moveBy(const Offset(-40, 0));
@@ -370,7 +433,102 @@ void main() {
           box.size.height -
           HorizontalOverflowFade.scrollIndicatorBottomGap -
           thickness;
-      expect(thumbTop - textBottom, greaterThanOrEqualTo(6));
+      // Clear of the last line's descenders.
+      expect(thumbTop - textBottom, greaterThanOrEqualTo(4));
+    });
+
+    testWidgets('the indicator flashes when the block first comes into view', (
+      tester,
+    ) async {
+      final scroll = ScrollController();
+      addTearDown(scroll.dispose);
+      await tester.pumpWidget(
+        ProviderScope(
+          child: MaterialApp(
+            localizationsDelegates: conduitLocalizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            home: Scaffold(
+              body: SingleChildScrollView(
+                controller: scroll,
+                child: const Column(
+                  children: [
+                    SizedBox(height: 2000),
+                    ConduitMarkdownWidget(
+                      data: '```python\n$longLine\n```',
+                      heavyBlockPolicy: MarkdownHeavyBlockPolicy.eager,
+                    ),
+                    SizedBox(height: 2000),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      // Laid out below the fold: it overflows, but nobody saw a flash.
+      expect((fadeState(tester).edges as HorizontalFadeEdges).right, 1);
+      expect(fadeState(tester).scrollIndicatorOpacity, 0);
+
+      // Scrolled into view, it shows where the line sits, then hides.
+      scroll.jumpTo(1700);
+      await tester.pump();
+      var flashed = false;
+      for (var i = 0; i < 20 && !flashed; i++) {
+        await tester.pump(const Duration(milliseconds: 50));
+        flashed = (fadeState(tester).scrollIndicatorOpacity as double) >= 1;
+      }
+      expect(flashed, isTrue);
+      await tester.pumpAndSettle();
+      expect(fadeState(tester).scrollIndicatorOpacity, 0);
+
+      // Only the first time.
+      scroll.jumpTo(0);
+      await tester.pump();
+      scroll.jumpTo(1700);
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(fadeState(tester).scrollIndicatorOpacity, 0);
+    });
+
+    testWidgets('the indicator waits for a hidden view to show', (
+      tester,
+    ) async {
+      // Like a transcript kept invisible until it settles at its position.
+      final hidden = ValueNotifier(true);
+      addTearDown(hidden.dispose);
+      await tester.pumpWidget(
+        ProviderScope(
+          child: MaterialApp(
+            localizationsDelegates: conduitLocalizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            home: Scaffold(
+              body: ValueListenableBuilder<bool>(
+                valueListenable: hidden,
+                builder: (context, isHidden, child) =>
+                    Opacity(opacity: isHidden ? 0 : 1, child: child),
+                child: const SingleChildScrollView(
+                  child: ConduitMarkdownWidget(
+                    data: '```python\n$longLine\n```',
+                    heavyBlockPolicy: MarkdownHeavyBlockPolicy.eager,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect((fadeState(tester).edges as HorizontalFadeEdges).right, 1);
+      expect(fadeState(tester).scrollIndicatorOpacity, 0);
+
+      hidden.value = false;
+      await tester.pump();
+      var flashed = false;
+      for (var i = 0; i < 20 && !flashed; i++) {
+        await tester.pump(const Duration(milliseconds: 50));
+        flashed = (fadeState(tester).scrollIndicatorOpacity as double) >= 1;
+      }
+      expect(flashed, isTrue);
     });
 
     testWidgets('a long line can wrap', (tester) async {

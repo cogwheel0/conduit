@@ -231,7 +231,11 @@ void main() {
       final bottom = card.bottom - text.bottom;
       // Within a hairline border of each other.
       expect((top - bottom).abs(), lessThanOrEqualTo(1));
-      expect(top, inInclusiveRange(11, 13));
+      // The paragraph carries no leading above its first line or below its
+      // last, so a little under the 12 pt side inset puts the glyphs (cap
+      // height above, baseline below) about as far from the edges as from
+      // the side.
+      expect(top, inInclusiveRange(9, 11));
     });
 
     testWidgets('headings have more space above than below', (tester) async {
