@@ -6916,6 +6916,7 @@
   "hermesTurnSendNext": "Wyślij następne",
   "hermesTurnControlsUnsupported": "Zaktualizuj Hermes, aby włączyć bezpieczne sterowanie turą.",
   "sidebarHermesTab": "Hermes",
+  "sidebarBackendSwitcher": "Backend",
   "@sidebarHermesTab": {
     "description": "Compact label for the Hermes sidebar tab."
   },
@@ -8191,5 +8192,9 @@
   "composerAttachServerFiles": "Pliki na serwerze",
   "followUpSuggestionsHeading": "Sugestie",
   "codeBlockPlainText": "Zwykły tekst",
-  "codeBlockWrapLines": "Zawijaj wiersze"
+  "codeBlockWrapLines": "Zawijaj wiersze",
+  "workspacePromptHistoryDiffTooLarge": "Te wersje są zbyt długie, aby je porównać.",
+  "@workspacePromptHistoryDiffTooLarge": {
+    "description": "Shown when the server refuses to compare two prompt versions because either is too long."
+  }
 }

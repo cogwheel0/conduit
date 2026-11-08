@@ -5320,6 +5320,7 @@
   "hermesTurnSendNext": "Odeslat další",
   "hermesTurnControlsUnsupported": "Aktualizujte Hermes, abyste povolili bezpečné ovládání tahů.",
   "sidebarHermesTab": "Hermes",
+  "sidebarBackendSwitcher": "Backend",
   "markdownShowMoreLines": "{count, plural, one{Zobrazit další řádek} few{Zobrazit další {count} řádky} other{Zobrazit dalších {count} řádků}}",
   "@markdownShowMoreLines": {"placeholders":{"count":{"type":"int"}}},
   "markdownShowLess": "Zobrazit méně",
@@ -6312,5 +6313,6 @@
   "composerAttachServerFiles": "Soubory na serveru",
   "followUpSuggestionsHeading": "Návrhy",
   "codeBlockPlainText": "Prostý text",
-  "codeBlockWrapLines": "Zalamovat řádky"
+  "codeBlockWrapLines": "Zalamovat řádky",
+  "workspacePromptHistoryDiffTooLarge": "Tyto verze jsou příliš dlouhé na porovnání."
 }

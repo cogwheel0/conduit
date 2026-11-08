@@ -1407,6 +1407,8 @@ CompiledMarkdownToolCallData _compileToolCallData(
         if (isMcpAppEmbed(embed)) embed.cast<String, Object?>(),
     ],
     imageUrls: imageUrls,
+    runningLabel: _decodeDetailAttribute(attributes['running_label']).trim(),
+    completedLabel: _decodeDetailAttribute(attributes['display_label']).trim(),
   );
 }
 

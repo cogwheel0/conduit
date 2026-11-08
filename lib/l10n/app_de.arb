@@ -3397,6 +3397,7 @@
   "hermesTurnSendNext": "Nächste senden",
   "hermesTurnControlsUnsupported": "Aktualisiere Hermes, um sichere Zugsteuerung zu aktivieren.",
   "sidebarHermesTab": "Hermes",
+  "sidebarBackendSwitcher": "Backend",
   "markdownShowMoreLines": "{count, plural, =1{1 weitere Zeile anzeigen} other{{count} weitere Zeilen anzeigen}}",
   "@markdownShowMoreLines": {"placeholders":{"count":{"type":"int"}}},
   "markdownShowLess": "Weniger anzeigen",
@@ -4389,5 +4390,6 @@
   "composerAttachServerFiles": "Server-Dateien",
   "followUpSuggestionsHeading": "Vorschläge",
   "codeBlockPlainText": "Nur Text",
-  "codeBlockWrapLines": "Zeilen umbrechen"
+  "codeBlockWrapLines": "Zeilen umbrechen",
+  "workspacePromptHistoryDiffTooLarge": "Diese Versionen sind zu lang zum Vergleichen."
 }

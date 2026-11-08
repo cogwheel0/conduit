@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 
 import 'package:cupertino_native_better/cupertino_native_better.dart';
+import 'package:flutter/rendering.dart';
 import 'package:material_ui/material_ui.dart';
 
 import 'adaptive_controls.dart';
@@ -12,15 +13,71 @@ import 'platform_ui_capabilities.dart';
 /// which toolbar buttons use too.
 const double kAdaptiveFloatingBarDefaultExtent = 44;
 
-/// Height of the iOS 26 system toolbar, which keeps it at every text size.
-const double _kNativeToolbarExtent = 44;
+/// How UIKit lays out the iOS 26 tab bar: the height of the glass platter
+/// holding the tabs, and of the strip it leaves below the platter inside
+/// the bar. Measured on iOS 26 and 27; the bar keeps them at every text
+/// size.
+typedef _NativeTabBarMetrics = ({double platter, double below});
 
-/// Ids of the iOS 26 toolbar's items, so each is updated in place.
-const String _kTabsItemId = 'tabs';
-const String _kSpaceItemId = 'space';
-const String _kActionItemId = 'action';
+/// The layouts UIKit gives the tab bar.
+enum _NativeTabBarLayout {
+  /// Room for an icon above a label, as on an iPhone, in portrait and
+  /// landscape.
+  stacked,
 
-/// One icon-only destination in an [AdaptiveFloatingTabBar].
+  /// Room for an icon beside a label, as in a full-width iPad window.
+  inline,
+}
+
+/// A stacked tab bar at the size UIKit gives it: on iOS 26, where the bar
+/// keeps its own height.
+const _NativeTabBarMetrics _kStackedTabBar = (platter: 62, below: 21);
+
+/// A stacked tab bar given [_kCompactTabBarHeight], from iOS 27: its icons
+/// need no room for a label, and it is as tall as the window's other glass
+/// buttons.
+const _NativeTabBarMetrics _kCompactTabBar = (platter: 44, below: 21);
+
+/// An inline tab bar, which is already no taller than [_kCompactTabBar].
+const _NativeTabBarMetrics _kInlineTabBar = (platter: 44, below: 20);
+
+/// Point size of a tab's mark.
+const double _kTabIconSize = 22;
+
+/// Point size of a tab's mark on [_kCompactTabBar].
+const double _kCompactTabIconSize = 20;
+
+/// How UIKit lays the platter out across the tab bar, for tabs that show
+/// only their icons: the least room it leaves on each side of the platter,
+/// and the platter's width, [ends] plus [pitch] for each tab. A wider bar
+/// centres the platter; a narrower one shrinks it to the bar less that
+/// room. Measured on iOS 27.2 from the tab frames of a two-tab bar.
+typedef _NativeTabBarSpan = ({double margin, double ends, double pitch});
+
+/// Tabs 94 points wide, overlapping by 8, with 4 points at each end.
+const _NativeTabBarSpan _kStackedTabBarSpan = (margin: 21, ends: 16, pitch: 86);
+
+/// Tabs 66 points wide, 4 points apart and from each end.
+const _NativeTabBarSpan _kInlineTabBarSpan = (margin: 38, ends: 4, pitch: 70);
+
+/// Room `CNTabBar` keeps above its bar for the selection pill, which its
+/// box includes.
+const double _kTabBarPillRoom = 14;
+
+/// Height of the `CNTabBar` box that gives a stacked bar [_kCompactTabBar].
+final double _kCompactTabBarHeight =
+    _kTabBarPillRoom + _kCompactTabBar.platter + _kCompactTabBar.below;
+
+/// Shortest window side from which the tab bar is taken to be laid out
+/// inline, until it has measured itself: an iPad's.
+const double _kInlineTabBarShortestSide = 600;
+
+/// Platter height at which the action's symbol takes
+/// [AdaptiveFloatingTabBar.actionSymbolSize]: that of the window's other
+/// glass buttons. A taller platter scales the symbol up with it.
+const double _kActionSymbolScaleExtent = 44;
+
+/// One destination in an [AdaptiveFloatingTabBar].
 class AdaptiveFloatingTab {
   const AdaptiveFloatingTab({
     required this.label,
@@ -28,14 +85,15 @@ class AdaptiveFloatingTab {
     required this.nativeAsset,
   });
 
-  /// Read by screen readers, and shown as the Material tooltip.
+  /// Read by screen readers, as the value of the iOS 26 tab bar, whose tabs
+  /// show only their icons, and shown as the Material tooltip.
   final String label;
 
   /// Drawn by Flutter, tinted through the ambient [IconTheme].
   final Widget icon;
 
-  /// Bitmap asset of the iOS 26 segment. The segmented control fits it in
-  /// its icon box and tints it as a template, so only its alpha shows.
+  /// Bitmap asset of the iOS 26 tab. The tab bar fits it in its icon box and
+  /// tints it as a template, so only its alpha shows.
   final String nativeAsset;
 }
 
@@ -54,17 +112,24 @@ class AdaptiveFloatingBarAction {
   final VoidCallback onPressed;
 }
 
-/// Icon-only tabs at the leading edge and a round [action] at the trailing
-/// edge, floating over scrolling content at the bottom of the window.
+/// Tabs at the leading edge and a round [action] at the trailing edge,
+/// floating over scrolling content at the bottom of the window.
 ///
 /// Place it flush with the bottom of the window across its container, and
 /// keep [extentOf] clear below scrolling content.
 ///
-/// On iOS 26 this is the system bottom toolbar: the tabs are a segmented
-/// control and the action a prominent button, on Liquid Glass. The toolbar
-/// is 44 points high at every text size. Elsewhere it is a Material
-/// navigation bar in a pill beside a floating action button of
-/// [controlExtent]. Fewer than two [tabs] leave only the action.
+/// On iOS 26 the tabs are the system tab bar, showing their icons only, and
+/// the action a Liquid Glass button as tall as the tab bar's platter, lined
+/// up with it. The platter is 44 points on a phone from iOS 27, the size
+/// UIKit gives it on iOS 26, and UIKit's inline one, as tall, on an iPad; it
+/// keeps that size at every text size. Like the Flutter-drawn bar, both sit
+/// on the bottom safe area, or [minimumBottomInset] above the bottom of the
+/// window when that is less. Screen readers find the tabs as one
+/// adjustable control, named [tabsSemanticLabel], whose value is the
+/// selected tab's label. The action is a button of its own, so it never
+/// takes the selection. Elsewhere the tabs are a Material navigation bar in
+/// a pill beside a floating action button of [controlExtent]. Fewer than two
+/// [tabs] leave only the action.
 class AdaptiveFloatingTabBar extends StatelessWidget {
   const AdaptiveFloatingTabBar({
     super.key,
@@ -81,6 +146,7 @@ class AdaptiveFloatingTabBar extends StatelessWidget {
     this.borderColor,
     this.tabsKey,
     this.actionKey,
+    this.tabsSemanticLabel,
     this.controlExtent = kAdaptiveFloatingBarDefaultExtent,
     this.edgeInset = 16,
     this.minimumBottomInset = 16,
@@ -90,113 +156,110 @@ class AdaptiveFloatingTabBar extends StatelessWidget {
   final List<AdaptiveFloatingTab> tabs;
   final int selectedIndex;
 
-  /// Called with the tab chosen. The iOS 26 segmented control reports only
-  /// a change of tab; the Material bar reports the selected tab again.
+  /// Called with the tab chosen, including the selected tab chosen again.
   final ValueChanged<int> onTap;
   final AdaptiveFloatingBarAction action;
 
   /// Width of each Material tab.
   final double itemWidth;
 
-  /// Colour of the selected Material tab, and the iOS 26 toolbar's tint.
+  /// Colour of the selected tab.
   final Color? selectedItemColor;
+
+  /// Colour of the other Material tabs. The iOS 26 tab bar draws its own.
   final Color? unselectedItemColor;
 
   /// Icon colour of the action.
   final Color? actionForegroundColor;
 
-  /// Fill of the action: the Material button's, and the iOS 26 prominent
-  /// button's tint. The glass action of earlier iOS has none.
+  /// Fill of the Material action. The glass action of iOS has none.
   final Color? actionBackgroundColor;
 
-  /// Fill of the Material pill. The iOS 26 toolbar draws its own glass.
+  /// Fill of the Material pill. The iOS 26 tab bar draws its own glass.
   final Color? backgroundColor;
 
   /// Outline of the Material pill.
   final Color? borderColor;
 
-  /// Keys for the Flutter-drawn tabs and action, which the iOS 26 toolbar
-  /// draws in one native view.
+  /// Keys for the tabs and the action.
   final Key? tabsKey;
   final Key? actionKey;
 
+  /// Name screen readers give the iOS 26 tab bar, before the selected tab's
+  /// label, such as "Backend".
+  final String? tabsSemanticLabel;
+
   /// Height of the Flutter-drawn tabs and the action's diameter: the size of
   /// the window's other toolbar buttons, so the bar matches them. The iOS 26
-  /// toolbar keeps its own height.
+  /// tab bar keeps the size UIKit gives it.
   final double controlExtent;
 
-  /// Inset of the Flutter-drawn tabs and action from the sides of the
-  /// window, as the window's toolbar insets its buttons. The iOS 26 toolbar
-  /// keeps its own margins.
+  /// Inset of the action, and of the Flutter-drawn tabs, from the sides of
+  /// the window, as the window's toolbar insets its buttons. The iOS 26 tab
+  /// bar centres its platter in the room beside the action.
   final double edgeInset;
 
   /// Least gap below the bar, on a window whose bottom safe area is smaller.
   /// The bar otherwise sits on the safe area.
   final double minimumBottomInset;
 
-  /// Point size of the glass action's SF Symbol before iOS 26, as the
-  /// window's other glass buttons draw theirs. The iOS 26 toolbar sizes its
-  /// own symbols.
+  /// Point size of the glass action's SF Symbol beside a 44 point bar, as
+  /// the window's other glass buttons draw theirs. It scales with the iOS 26
+  /// tab bar's platter.
   final double actionSymbolSize;
 
-  /// Room the bar takes from the bottom of the window, for a bar
-  /// [controlExtent] tall, or the iOS 26 toolbar's height, with at least
+  /// Room the bar takes from the bottom of the window.
+  ///
+  /// The bar is [controlExtent] tall, or the iOS 26 tab bar's platter as
+  /// UIKit lays it out in a window of this size, with at least
   /// [minimumBottomInset] below it.
   static double extentOf(
     BuildContext context, {
     double controlExtent = kAdaptiveFloatingBarDefaultExtent,
     double minimumBottomInset = 16,
-  }) =>
-      _bottomInset(context, minimumBottomInset) +
-      (PlatformUiCapabilities.usesNativeIOS26
-          ? _kNativeToolbarExtent
-          : controlExtent);
+  }) {
+    final height = PlatformUiCapabilities.usesNativeIOS26
+        ? _nativeMetrics(_guessNativeLayout(context)).platter
+        : controlExtent;
+    return _bottomInset(context, minimumBottomInset) + height;
+  }
 
   /// Gap between the bar and the bottom of the window.
   static double _bottomInset(BuildContext context, double minimum) =>
       math.max(MediaQuery.viewPaddingOf(context).bottom, minimum);
 
+  /// The iOS 26 tab bar's layout in this window, before it has measured
+  /// itself.
+  static _NativeTabBarLayout _guessNativeLayout(BuildContext context) =>
+      MediaQuery.sizeOf(context).shortestSide >= _kInlineTabBarShortestSide
+      ? _NativeTabBarLayout.inline
+      : _NativeTabBarLayout.stacked;
+
+  /// Whether `CNTabBar.height` sizes a stacked tab bar. On iOS 26 the
+  /// package keeps the bar at its own height, where a shorter one put the
+  /// labels over the icons.
+  static bool get _sizesStackedTabBar =>
+      PlatformUiCapabilities.iOSMajorVersion >= 27;
+
+  static _NativeTabBarMetrics _nativeMetrics(_NativeTabBarLayout layout) =>
+      switch (layout) {
+        _NativeTabBarLayout.inline => _kInlineTabBar,
+        _NativeTabBarLayout.stacked =>
+          _sizesStackedTabBar ? _kCompactTabBar : _kStackedTabBar,
+      };
+
+  static _NativeTabBarSpan _nativeSpan(_NativeTabBarLayout layout) =>
+      switch (layout) {
+        _NativeTabBarLayout.inline => _kInlineTabBarSpan,
+        _NativeTabBarLayout.stacked => _kStackedTabBarSpan,
+      };
+
   @override
   Widget build(BuildContext context) {
-    if (PlatformUiCapabilities.usesNativeIOS26) return _buildNative(context);
+    if (PlatformUiCapabilities.usesNativeIOS26) {
+      return _NativeFloatingTabBar(bar: this);
+    }
     return _buildFlutter(context);
-  }
-
-  Widget _buildNative(BuildContext context) {
-    return Padding(
-      padding: EdgeInsets.only(
-        bottom: _bottomInset(context, minimumBottomInset),
-      ),
-      child: CNToolbar(
-        tint: selectedItemColor,
-        items: [
-          if (tabs.length >= 2)
-            CNToolbarSegmentedGroup(
-              id: _kTabsItemId,
-              // VoiceOver reads each segment's own label.
-              label: '',
-              segments: [
-                for (final tab in tabs)
-                  CNToolbarSegment(
-                    label: tab.label,
-                    imageAsset: CNImageAsset(tab.nativeAsset),
-                  ),
-              ],
-              selectedIndices: {selectedIndex},
-              onSelected: onTap,
-            ),
-          const CNToolbarSpace.flexible(id: _kSpaceItemId),
-          CNToolbarButton(
-            id: _kActionItemId,
-            label: action.label,
-            icon: CNSymbol(action.sfSymbol, color: actionForegroundColor),
-            style: CNToolbarItemStyle.prominent,
-            tint: actionBackgroundColor,
-            onPressed: action.onPressed,
-          ),
-        ],
-      ),
-    );
   }
 
   Widget _buildFlutter(BuildContext context) {
@@ -314,5 +377,250 @@ class AdaptiveFloatingTabBar extends StatelessWidget {
         dimension: controlExtent,
       ),
     );
+  }
+}
+
+/// The iOS 26 bar: the system tab bar, and the action as a glass button
+/// lined up with the tab bar's platter.
+///
+/// UIKit gives the tab bar its height, so the bar takes the action's size
+/// and place from the tab bar as laid out: icon above label on a phone,
+/// beside it in a full-width iPad window.
+class _NativeFloatingTabBar extends StatefulWidget {
+  const _NativeFloatingTabBar({required this.bar});
+
+  final AdaptiveFloatingTabBar bar;
+
+  @override
+  State<_NativeFloatingTabBar> createState() => _NativeFloatingTabBarState();
+}
+
+class _NativeFloatingTabBarState extends State<_NativeFloatingTabBar> {
+  /// The tab bar's layout, once it has measured itself. Only a tab bar left
+  /// to its own height measures itself: given one, it reports that height.
+  _NativeTabBarLayout? _measured;
+
+  /// The layout guessed from the window when [_measured] was taken. A window
+  /// of another class lays the tab bar out again.
+  _NativeTabBarLayout? _guessed;
+
+  /// The tab bar's box before it has measured itself is at most this tall.
+  static const double _unmeasuredTabBarExtent = 50;
+
+  void _onTabBarSize(Size size) {
+    if (size.height <= _unmeasuredTabBarExtent) return;
+    final bar = size.height - _kTabBarPillRoom;
+    // Only a tab bar at its own height reports, so a stacked one is the
+    // full-size platter; halfway to an inline bar leaves room either side.
+    final stacked = _kStackedTabBar.platter + _kStackedTabBar.below;
+    final inline = _kInlineTabBar.platter + _kInlineTabBar.below;
+    final layout = bar >= (stacked + inline) / 2
+        ? _NativeTabBarLayout.stacked
+        : _NativeTabBarLayout.inline;
+    if (layout != _measured) setState(() => _measured = layout);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final bar = widget.bar;
+    final guessed = AdaptiveFloatingTabBar._guessNativeLayout(context);
+    if (guessed != _guessed) {
+      // A measurement from a window of another class no longer holds.
+      _guessed = guessed;
+      _measured = null;
+    }
+    // Only a mounted tab bar reports its layout, so without one a window
+    // resize would otherwise leave the action sized for the old layout.
+    final layout = bar.tabs.length >= 2 ? (_measured ?? guessed) : guessed;
+    final metrics = AdaptiveFloatingTabBar._nativeMetrics(layout);
+    final action = bar.action;
+    final bottomInset = AdaptiveFloatingTabBar._bottomInset(
+      context,
+      bar.minimumBottomInset,
+    );
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.end,
+      children: [
+        Expanded(
+          child: bar.tabs.length < 2
+              ? const SizedBox.shrink()
+              // UIKit keeps its strip below the platter inside the tab bar,
+              // so the bar is moved by the rest of the inset.
+              : _tabBar(layout, lift: bottomInset - metrics.below),
+        ),
+        Padding(
+          padding: EdgeInsetsDirectional.only(
+            end: bar.edgeInset,
+            bottom: bottomInset,
+          ),
+          // The glass button has no label of its own; announce one control.
+          child: Semantics(
+            key: bar.actionKey,
+            label: action.label,
+            button: true,
+            excludeSemantics: true,
+            onTap: action.onPressed,
+            child: NativeGlassIconButton(
+              onPressed: action.onPressed,
+              symbol: SFSymbol(
+                action.sfSymbol,
+                size:
+                    bar.actionSymbolSize *
+                    metrics.platter /
+                    _kActionSymbolScaleExtent,
+                color: bar.actionForegroundColor,
+              ),
+              dimension: metrics.platter,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+extension on _NativeFloatingTabBarState {
+  /// The tab bar, its platter's leading edge [AdaptiveFloatingTabBar.edgeInset]
+  /// from the start of the window, as the header's leading button is, and any
+  /// room left over between it and the action. The bar is raised by [lift],
+  /// or lowered when it is negative, so the platter's bottom lands where the
+  /// action's does.
+  ///
+  /// UIKit centres the platter in the bar, so the bar is made as wide as the
+  /// platter and the room UIKit keeps on each side of it, and starts that
+  /// room before the edge inset.
+  Widget _tabBar(_NativeTabBarLayout layout, {required double lift}) {
+    final bar = widget.bar;
+    final span = AdaptiveFloatingTabBar._nativeSpan(layout);
+    final height =
+        layout == _NativeTabBarLayout.stacked &&
+            AdaptiveFloatingTabBar._sizesStackedTabBar
+        ? _kCompactTabBarHeight
+        : null;
+    final start = bar.edgeInset - span.margin;
+    final rtl = Directionality.of(context) == TextDirection.rtl;
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final width = math.min(
+          span.ends + span.pitch * bar.tabs.length + 2 * span.margin,
+          // A narrower room shrinks the platter, which keeps its edge.
+          constraints.maxWidth - start,
+        );
+        return Padding(
+          padding: EdgeInsets.only(bottom: math.max(0, lift)),
+          child: Align(
+            alignment: AlignmentDirectional.bottomStart,
+            child: Transform.translate(
+              offset: Offset(rtl ? -start : start, math.max(0, -lift)),
+              child: SizedBox(
+                width: width,
+                child: _semantics(
+                  _SizeObserver(
+                    // A tab bar given its height reports only that height.
+                    onSize: height == null ? _onTabBarSize : null,
+                    // A tab bar measures itself only when it is created: one
+                    // that stops being given a height, or whose window lays
+                    // it out anew (an iOS 26 tab bar is never given one), is
+                    // created again.
+                    child: KeyedSubtree(
+                      key: ValueKey<(double?, _NativeTabBarLayout)>((
+                        height,
+                        layout,
+                      )),
+                      child: CNTabBar(
+                        key: bar.tabsKey,
+                        items: [
+                          for (final tab in bar.tabs)
+                            CNTabBarItem(
+                              imageAsset: CNImageAsset(tab.nativeAsset),
+                            ),
+                        ],
+                        currentIndex: bar.selectedIndex,
+                        onTap: bar.onTap,
+                        tint: bar.selectedItemColor,
+                        shrinkCentered: false,
+                        iconSize: height == null
+                            ? _kTabIconSize
+                            : _kCompactTabIconSize,
+                        height: height,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  /// The tabs as one adjustable control: the native tabs, which show only
+  /// their icons, have no names for screen readers. Adjusting it chooses a
+  /// tab as a tap does.
+  Widget _semantics(Widget tabBar) {
+    final bar = widget.bar;
+    final tabs = bar.tabs;
+    final index = bar.selectedIndex.clamp(0, tabs.length - 1);
+    final next = index + 1 < tabs.length ? index + 1 : null;
+    final previous = index > 0 ? index - 1 : null;
+    return Semantics(
+      container: true,
+      label: bar.tabsSemanticLabel,
+      value: tabs[index].label,
+      increasedValue: next == null ? null : tabs[next].label,
+      decreasedValue: previous == null ? null : tabs[previous].label,
+      onIncrease: next == null ? null : () => bar.onTap(next),
+      onDecrease: previous == null ? null : () => bar.onTap(previous),
+      child: ExcludeSemantics(child: tabBar),
+    );
+  }
+}
+
+/// Reports the size of [child] after each layout that changes it.
+class _SizeObserver extends SingleChildRenderObjectWidget {
+  const _SizeObserver({required this.onSize, required super.child});
+
+  /// Null reports nothing.
+  final ValueChanged<Size>? onSize;
+
+  @override
+  RenderObject createRenderObject(BuildContext context) =>
+      _RenderSizeObserver(onSize);
+
+  @override
+  void updateRenderObject(
+    BuildContext context,
+    covariant _RenderSizeObserver renderObject,
+  ) {
+    renderObject.onSize = onSize;
+  }
+}
+
+class _RenderSizeObserver extends RenderProxyBox {
+  _RenderSizeObserver(this._onSize);
+
+  ValueChanged<Size>? _onSize;
+  Size? _reported;
+
+  set onSize(ValueChanged<Size>? value) {
+    if (value != null && _onSize == null) {
+      // Report again to a listener that has missed the size so far.
+      _reported = null;
+      markNeedsLayout();
+    }
+    _onSize = value;
+  }
+
+  @override
+  void performLayout() {
+    super.performLayout();
+    if (_onSize == null || size == _reported) return;
+    _reported = size;
+    final reported = size;
+    // Tell after this frame: layout cannot rebuild the tree.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (attached) _onSize?.call(reported);
+    });
   }
 }

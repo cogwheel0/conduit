@@ -3397,6 +3397,7 @@
   "hermesTurnSendNext": "发送下一条",
   "hermesTurnControlsUnsupported": "请升级 Hermes 以启用安全的轮次控制。",
   "sidebarHermesTab": "Hermes",
+  "sidebarBackendSwitcher": "后端",
   "markdownShowMoreLines": "再显示 {count} 行",
   "@markdownShowMoreLines": {"placeholders":{"count":{"type":"int"}}},
   "markdownShowLess": "收起",
@@ -4389,5 +4390,6 @@
   "composerAttachServerFiles": "服务器文件",
   "followUpSuggestionsHeading": "建议",
   "codeBlockPlainText": "纯文本",
-  "codeBlockWrapLines": "自动换行"
+  "codeBlockWrapLines": "自动换行",
+  "workspacePromptHistoryDiffTooLarge": "这些版本过长，无法比较。"
 }

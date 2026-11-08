@@ -3432,6 +3432,7 @@
   "hermesTurnSendNext": "Отправить следующее",
   "hermesTurnControlsUnsupported": "Обновите Hermes, чтобы включить безопасное управление ходами.",
   "sidebarHermesTab": "Hermes",
+  "sidebarBackendSwitcher": "Бэкенд",
   "markdownShowMoreLines": "Показать ещё {count, plural, one{{count} строку} few{{count} строки} many{{count} строк} other{{count} строк}}",
   "@markdownShowMoreLines": {
     "placeholders": {
@@ -4427,5 +4428,6 @@
   "composerAttachServerFiles": "Файлы на сервере",
   "followUpSuggestionsHeading": "Предложения",
   "codeBlockPlainText": "Обычный текст",
-  "codeBlockWrapLines": "Переносить строки"
+  "codeBlockWrapLines": "Переносить строки",
+  "workspacePromptHistoryDiffTooLarge": "Эти версии слишком длинные для сравнения."
 }

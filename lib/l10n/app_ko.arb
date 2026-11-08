@@ -3175,6 +3175,7 @@
   "hermesTurnSendNext": "다음 보내기",
   "hermesTurnControlsUnsupported": "안전한 턴 제어를 사용하려면 Hermes를 업그레이드하세요.",
   "sidebarHermesTab": "Hermes",
+  "sidebarBackendSwitcher": "백엔드",
   "markdownShowMoreLines": "{count}줄 더 보기",
   "@markdownShowMoreLines": {"placeholders":{"count":{"type":"int"}}},
   "markdownShowLess": "접기",
@@ -4161,5 +4162,6 @@
   "composerAttachServerFiles": "서버 파일",
   "followUpSuggestionsHeading": "제안",
   "codeBlockPlainText": "일반 텍스트",
-  "codeBlockWrapLines": "줄 바꿈"
+  "codeBlockWrapLines": "줄 바꿈",
+  "workspacePromptHistoryDiffTooLarge": "이 버전들은 너무 길어서 비교할 수 없습니다."
 }

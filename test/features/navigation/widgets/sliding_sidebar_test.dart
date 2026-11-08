@@ -15,12 +15,6 @@ import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/models/user.dart';
 import 'package:conduit_core/features/navigation/models/sidebar_navigation_model.dart';
-import 'package:cupertino_native_better/cupertino_native_better.dart'
-    show
-        CNToolbar,
-        CNToolbarButton,
-        CNToolbarItemStyle,
-        CNToolbarSegmentedGroup;
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -585,11 +579,11 @@ void main() {
   // On the default target platform, as the other sidebar tests. Under an iOS
   // target, Linux CI draws the package's Flutter fallback for every native
   // control in the sidebar, and one of them overflows its row by a few
-  // pixels. The toolbar follows PlatformUiCapabilities, so its configuration
-  // is checked either way.
-  testWidgets('iOS 26 draws the bottom bar as the system toolbar', (
-    tester,
-  ) async {
+  // pixels. The bar follows PlatformUiCapabilities, so its configuration is
+  // checked either way.
+  testWidgets('iOS 26 draws the backends as the system tab bar beside a '
+      'glass New Chat', (tester) async {
+    final semantics = tester.ensureSemantics();
     stubNativePlatformViews();
     PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.iOS;
     PlatformUiCapabilities.debugIOSMajorVersionOverride = 26;
@@ -619,72 +613,94 @@ void main() {
       ),
     );
     await tester.pump(const Duration(milliseconds: 500));
+    final searchButton = find.byKey(
+      const ValueKey<String>('sidebar-search-button'),
+    );
     final search = tester.widget<CNButton>(
-      find.descendant(
-        of: find.byKey(const ValueKey<String>('sidebar-search-button')),
-        matching: find.byType(CNButton),
-      ),
+      find.descendant(of: searchButton, matching: find.byType(CNButton)),
     );
     expect(search.icon?.name, 'magnifyingglass');
     expect(search.config.style, CNButtonStyle.glass);
-    expect(find.byType(CNTabBar), findsNothing);
 
     final bar = find.byKey(const ValueKey<String>('sidebar-backend-selector'));
-    final toolbar = find.descendant(of: bar, matching: find.byType(CNToolbar));
-    CNToolbar config() => tester.widget<CNToolbar>(toolbar);
-    CNToolbarSegmentedGroup tabs() =>
-        config().items.whereType<CNToolbarSegmentedGroup>().single;
+    // The only tab bar holds the backends; the destinations stay in the pane.
+    expect(find.byType(CNTabBar), findsOneWidget);
+    CNTabBar tabBar() => tester.widget<CNTabBar>(
+      find.descendant(of: bar, matching: find.byType(CNTabBar)),
+    );
     final theme = tester.element(bar).conduitTheme;
 
+    // Icons only; screen readers get the names from one adjustable control.
+    expect([for (final item in tabBar().items) item.label], [null, null]);
     expect(
-      [for (final s in tabs().segments) s.label],
-      ['Open WebUI', 'Hermes'],
-    );
-    expect(
-      [for (final s in tabs().segments) s.imageAsset?.assetPath],
+      [for (final item in tabBar().items) item.imageAsset?.assetPath],
       ['assets/icons/open_webui_tab.png', 'assets/icons/hermes_agent.png'],
     );
-    expect(tabs().selectedIndices, {0});
-    expect(config().tint, theme.buttonPrimary);
-    final action = config().items.whereType<CNToolbarButton>().single;
-    expect(action.label, 'New Chat');
-    expect(action.icon?.name, 'square.and.pencil');
-    expect(action.style, CNToolbarItemStyle.prominent);
-    // The palette's primary button, as the Material action is.
-    expect(action.tint, theme.buttonPrimary);
-    expect(action.icon?.color, theme.buttonPrimaryText);
+    expect(tabBar().currentIndex, 0);
+    expect(tabBar().tint, theme.buttonPrimary);
+    expect(tabBar().split, isFalse);
 
-    // The chat composer's gap, so the toolbar lines up with it, and the
-    // history keeps the toolbar's room clear.
+    final button = find.descendant(
+      of: bar,
+      matching: find.byType(NativeGlassIconButton),
+    );
+    final action = tester.widget<NativeGlassIconButton>(button);
+    expect(action.symbol.name, 'square.and.pencil');
+    expect(action.symbol.color, theme.textPrimary);
+
+    // The test window is as wide as a tablet's, where UIKit lays the tab bar
+    // out inline, on a 44 point platter. The window has no safe area, so
+    // New Chat sits the chat composer's least gap of 8 points up, takes the
+    // platter's size, ends under the header's search button, and the
+    // history keeps their room clear.
     final surface = find.byKey(const ValueKey<String>('sidebar-page-surface'));
+    expect(tester.getSize(button), const Size.square(44));
     expect(
-      tester.getBottomLeft(toolbar).dy,
+      tester.getBottomRight(button).dy,
       tester.getBottomLeft(surface).dy - Spacing.sm,
     );
-    expect(tester.getSize(toolbar).height, 44);
+    expect(tester.getTopRight(button).dx, tester.getTopRight(searchButton).dx);
     final layout = tester.widget<SidebarTabLayoutScope>(
       find.byType(SidebarTabLayoutScope).first,
     );
     expect(layout.floatingChromeInsets?.bottom, Spacing.sm + 44);
 
     // Choosing the other backend switches the history and taps once.
-    tabs().onSelected!(1);
+    tabBar().onTap(1);
     await tester.pump();
     final container = ProviderScope.containerOf(tester.element(bar));
     expect(container.read(sidebarHistoryTabProvider), SidebarTabId.hermes);
-    expect(tabs().selectedIndices, {1});
+    expect(tabBar().currentIndex, 1);
     expect(haptics, ['HapticFeedbackType.selectionClick']);
-    // The selected backend again changes nothing, and stays quiet.
-    tabs().onSelected!(1);
+    // The tab bar reports the selected backend again; it changes nothing and
+    // stays quiet.
+    tabBar().onTap(1);
     await tester.pump();
     expect(container.read(sidebarHistoryTabProvider), SidebarTabId.hermes);
     expect(haptics, hasLength(1));
-    // New Chat stays the action of the Hermes history.
+    // Screen readers adjust the backend, which switches as a tap does.
     expect(
-      config().items.whereType<CNToolbarButton>().single.icon?.name,
+      tester.getSemantics(find.bySemanticsLabel('Backend')),
+      matchesSemantics(
+        label: 'Backend',
+        value: 'Hermes',
+        decreasedValue: 'Open WebUI',
+        hasDecreaseAction: true,
+      ),
+    );
+    tester.semantics.decrease(find.semantics.byLabel('Backend'));
+    await tester.pump();
+    expect(container.read(sidebarHistoryTabProvider), SidebarTabId.chats);
+    expect(tabBar().currentIndex, 0);
+    expect(haptics, hasLength(2));
+    // New Chat stays the action of the Hermes history, outside the tabs.
+    expect(tabBar().items, hasLength(2));
+    expect(
+      tester.widget<NativeGlassIconButton>(button).symbol.name,
       'square.and.pencil',
     );
     expect(tester.takeException(), isNull);
+    semantics.dispose();
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pumpAndSettle();
   });
