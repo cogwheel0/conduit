@@ -1041,7 +1041,7 @@ class ChatVoiceModeController extends Notifier<ChatVoiceModeSnapshot> {
     return tts.initialize(
       deviceVoice: settings.ttsVoice,
       serverVoice: settings.ttsServerVoiceId,
-      speechRate: settings.ttsSpeechRate,
+      speed: settings.ttsSpeed,
       pitch: settings.ttsPitch,
       volume: settings.ttsVolume,
       engine: settings.ttsEngine,

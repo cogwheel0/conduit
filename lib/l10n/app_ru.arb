@@ -471,7 +471,17 @@
     }
   },
   "ttsVoice": "Голос",
-  "ttsSpeechRate": "Скорость речи",
+  "ttsPlaybackSpeed": "Скорость воспроизведения",
+  "ttsSpeedValue": "{speed}×",
+  "@ttsSpeedValue": {
+    "placeholders": {
+      "speed": {
+        "type": "double",
+        "format": "decimalPattern",
+        "example": "1.25"
+      }
+    }
+  },
   "ttsPitch": "Высота тона",
   "ttsVolume": "Громкость",
   "ttsPreview": "Предпросмотр голоса",
@@ -1025,6 +1035,24 @@
   "usageQueueTime": "Время в очереди",
   "usageReasoningTokens": "Токены рассуждений",
   "usageTotalTokens": "Всего токенов",
+  "usageContextWindow": "Контекстное окно",
+  "usageContextWindowValue": "{percent} · {used} из {total}",
+  "@usageContextWindowValue": {
+    "placeholders": {
+      "percent": {
+        "type": "String",
+        "example": "62%"
+      },
+      "used": {
+        "type": "String",
+        "example": "79K"
+      },
+      "total": {
+        "type": "String",
+        "example": "128K"
+      }
+    }
+  },
   "proxyAuthentication": "Аутентификация через прокси",
   "proxyAuthPlatformNotSupported": "Аутентификация через прокси требует мобильное устройство. Пожалуйста, сначала авторизуйтесь через браузер.",
   "proxyAuthLoading": "Загрузка страницы аутентификации...",

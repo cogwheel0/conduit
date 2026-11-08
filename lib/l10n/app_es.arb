@@ -465,7 +465,17 @@
     }
   },
   "ttsVoice": "Voz",
-  "ttsSpeechRate": "Velocidad de voz",
+  "ttsPlaybackSpeed": "Velocidad de reproducción",
+  "ttsSpeedValue": "{speed}×",
+  "@ttsSpeedValue": {
+    "placeholders": {
+      "speed": {
+        "type": "double",
+        "format": "decimalPattern",
+        "example": "1.25"
+      }
+    }
+  },
   "ttsPitch": "Tono",
   "ttsVolume": "Volumen",
   "ttsPreview": "Vista previa de voz",
@@ -1019,6 +1029,24 @@
   "usageQueueTime": "Tiempo en cola",
   "usageReasoningTokens": "Tokens de razonamiento",
   "usageTotalTokens": "Tokens totales",
+  "usageContextWindow": "Ventana de contexto",
+  "usageContextWindowValue": "{percent} · {used} de {total}",
+  "@usageContextWindowValue": {
+    "placeholders": {
+      "percent": {
+        "type": "String",
+        "example": "62%"
+      },
+      "used": {
+        "type": "String",
+        "example": "79K"
+      },
+      "total": {
+        "type": "String",
+        "example": "128K"
+      }
+    }
+  },
   "proxyAuthentication": "Autenticación de Proxy",
   "proxyAuthPlatformNotSupported": "La autenticación de proxy requiere un dispositivo móvil. Por favor, autentíquese primero a través de un navegador.",
   "proxyAuthLoading": "Cargando página de autenticación...",

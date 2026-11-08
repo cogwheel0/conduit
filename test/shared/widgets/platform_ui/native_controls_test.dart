@@ -12,7 +12,12 @@ import 'package:conduit/shared/widgets/legacy_design_compatibility.dart';
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:conduit/shared/widgets/themed_sheets.dart';
 import 'package:cupertino_native_better/cupertino_native_better.dart'
-    show CNProgressIndicator, CNSliderStyle;
+    show
+        CNIcon,
+        CNProgressIndicator,
+        CNSliderStyle,
+        CNSymbolEffectType,
+        CNSymbolReplaceTransition;
 import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -649,4 +654,67 @@ void main() {
     },
     variant: TargetPlatformVariant.only(TargetPlatform.iOS),
   );
+
+  for (final (name, iosMajorVersion, reduceMotion) in <(String, int?, bool)>[
+    ('iOS 26', 26, false),
+    ('iOS 26 with Reduce Motion', 26, true),
+    ('iOS 25', 25, false),
+    ('Android', null, false),
+  ]) {
+    testWidgets(
+      'symbol icon on $name keeps its label and animates only natively',
+      (tester) async {
+        PlatformUiCapabilities.debugPlatformOverride = iosMajorVersion == null
+            ? TargetPlatform.android
+            : TargetPlatform.iOS;
+        PlatformUiCapabilities.debugIOSMajorVersionOverride = iosMajorVersion;
+        final semantics = tester.ensureSemantics();
+        try {
+          await tester.pumpWidget(
+            host(
+              MediaQuery(
+                data: MediaQueryData(disableAnimations: reduceMotion),
+                child: const AdaptiveSymbolIcon(
+                  symbol: 'speaker.wave.3.fill',
+                  fallbackIcon: CupertinoIcons.speaker_3_fill,
+                  size: 20,
+                  color: Color(0xFF336699),
+                  semanticLabel: 'Speaker off',
+                  effect: AdaptiveSymbolEffect.variableColor,
+                  transition: AdaptiveSymbolTransition.replace,
+                ),
+              ),
+            ),
+          );
+
+          expect(
+            tester.getSemantics(find.byType(AdaptiveSymbolIcon)).label,
+            'Speaker off',
+          );
+          if (iosMajorVersion != null && iosMajorVersion >= 26) {
+            final icon = tester.widget<CNIcon>(find.byType(CNIcon));
+            expect(icon.symbol!.name, 'speaker.wave.3.fill');
+            expect(icon.size, 20);
+            expect(icon.color, const Color(0xFF336699));
+            // Reduce Motion keeps the symbol and drops every animation.
+            expect(
+              icon.effect?.type,
+              reduceMotion ? isNull : CNSymbolEffectType.variableColor,
+            );
+            expect(
+              icon.replaceTransition,
+              reduceMotion ? isNull : CNSymbolReplaceTransition.replace,
+            );
+          } else {
+            expect(find.byType(CNIcon), findsNothing);
+            expect(find.byIcon(CupertinoIcons.speaker_3_fill), findsOneWidget);
+          }
+        } finally {
+          semantics.dispose();
+        }
+        await tester.pump(const Duration(milliseconds: 500));
+      },
+      variant: TargetPlatformVariant.only(TargetPlatform.iOS),
+    );
+  }
 }

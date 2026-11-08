@@ -18,6 +18,10 @@ import 'package:conduit_core/utils/usage_summary.dart';
 import 'package:conduit_core/models/chat_comparison.dart';
 import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit_core/models/message_voice.dart';
+import 'package:conduit_core/features/direct_connections/providers/direct_connection_providers.dart'
+    show directContextLengthOverridesProvider;
+import 'package:conduit_core/features/direct_connections/services/direct_chat_bridge.dart'
+    show directModelAdvertisedContextLength;
 import 'package:conduit_core/features/web_search/services/direct_web_search_mode.dart';
 import 'package:conduit_markdown/conduit_markdown.dart';
 
@@ -88,8 +92,10 @@ import 'package:conduit_core/features/chat/utils/file_utils.dart';
 
 import 'chat_branch_actions.dart';
 import 'chat_comparison_widgets.dart';
+
 import 'package:conduit/features/chat/widgets/mcp_app_embed.dart';
 import 'package:conduit_core/features/mcp_apps/openwebui_mcp_app.dart';
+
 import 'code_execution_display.dart';
 import 'follow_up_suggestions.dart';
 import 'usage_stats_modal.dart';
@@ -187,6 +193,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     with TickerProviderStateMixin, WidgetsBindingObserver {
   final _overflowButtonKey = GlobalKey();
   final _inlineShareButtonKey = GlobalKey();
+  final _inlineUsageButtonKey = GlobalKey();
   late AnimationController _fadeController;
   late AnimationController _streamingContentFadeController;
   late CurvedAnimation _streamingContentFade;
@@ -876,21 +883,47 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     children.add(
       Consumer(
         builder: (context, childRef, _) {
-          final ttsState = childRef.watch(textToSpeechControllerProvider);
+          // Only this message's reading rebuilds its card, which follows
+          // every estimated word.
+          final ttsState = childRef.watch(
+            textToSpeechControllerProvider.select(
+              (state) => state.activeMessageId == _messageId ? state : null,
+            ),
+          );
           final isActive =
-              ttsState.activeMessageId == _messageId &&
+              ttsState != null &&
+              ttsState.activeSentenceIndex >= 0 &&
               (ttsState.status == TtsPlaybackStatus.speaking ||
                   ttsState.status == TtsPlaybackStatus.paused ||
                   ttsState.status == TtsPlaybackStatus.loading);
-          if (!isActive || ttsState.activeSentenceIndex < 0) {
-            return const SizedBox.shrink();
+          final card = SizedBox(
+            width: double.infinity,
+            child: isActive
+                ? Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const SizedBox(height: Spacing.sm),
+                      _buildKaraokeBar(ttsState),
+                    ],
+                  )
+                : null,
+          );
+          // The card grows in, follows each sentence's height and shrinks
+          // away instead of jumping. Under Reduce Motion it changes at once;
+          // AnimatedSize cannot run for no time.
+          final duration = context.motionDuration(
+            const Duration(milliseconds: 220),
+          );
+          const key = ValueKey('assistant-read-aloud-card-size');
+          if (duration == Duration.zero) {
+            return KeyedSubtree(key: key, child: card);
           }
-          return Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const SizedBox(height: Spacing.sm),
-              _buildKaraokeBar(ttsState),
-            ],
+          return AnimatedSize(
+            key: key,
+            duration: duration,
+            curve: Curves.easeOutCubic,
+            alignment: Alignment.topCenter,
+            child: card,
           );
         },
       ),
@@ -1662,7 +1695,8 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
         if (!cleared) {
           AdaptiveSnackBar.show(
             context,
-            message: AppLocalizations.of(context)!.reasoningEffortClearIncomplete,
+            message: AppLocalizations.of(context)!
+                .reasoningEffortClearIncomplete,
             type: AdaptiveSnackBarType.warning,
           );
         }
@@ -2300,7 +2334,11 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
       if (continueFromId == null) ?versionPager,
       for (final action in visibleActions)
         KeyedSubtree(
-          key: action.id == 'share' ? _inlineShareButtonKey : null,
+          key: switch (action.id) {
+            'share' => _inlineShareButtonKey,
+            'usage' => _inlineUsageButtonKey,
+            _ => null,
+          },
           child: _buildActionButton(
             icon: action.icon,
             label: action.label,
@@ -2487,6 +2525,27 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
         ? widget.message as ChatMessage
         : null;
     return message?.model;
+  }
+
+  /// The context length of the model that wrote the response on screen,
+  /// when it is known: the one the model advertises (Direct connections and
+  /// some providers do), else the one set for a Direct model that advertises
+  /// none. Null when the response names no model or the model has left the
+  /// list.
+  int? _activeModelContextLength() {
+    final rawModelId =
+        _activeVersionIndex >= 0 &&
+            _activeVersionIndex < widget.message.versions.length
+        ? widget.message.versions[_activeVersionIndex].model
+        : widget.message.model;
+    final modelId = (rawModelId as String?)?.trim();
+    if (modelId == null || modelId.isEmpty) return null;
+    final model = (ref.read(modelsProvider).value ?? const <Model>[])
+        .where((model) => model.id == modelId)
+        .firstOrNull;
+    if (model == null) return null;
+    return directModelAdvertisedContextLength(model) ??
+        ref.read(directContextLengthOverridesProvider)[model.id];
   }
 
   /// The model a live regeneration routes this answer through: ordinary
@@ -2773,7 +2832,16 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
           id: 'usage',
           icon: Platform.isIOS ? CupertinoIcons.info : Icons.info_outline,
           label: l10n.usageInfo,
-          onTap: () => UsageStatsModal.show(context, activeUsage),
+          // The popover points at the Info button, or at More when Info is
+          // one of its items.
+          onTap: () => UsageStatsModal.show(
+            context,
+            activeUsage,
+            anchorKey: _inlineUsageButtonKey.currentContext != null
+                ? _inlineUsageButtonKey
+                : _overflowButtonKey,
+            contextLength: _activeModelContextLength(),
+          ),
           sfSymbol: 'info.circle',
         ),
       if (canFork)
@@ -2925,6 +2993,75 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     );
   }
 
+  /// The actions More shows as a row of icons when two or more of them are
+  /// in it: the everyday ones, each told apart by its symbol alone.
+  static const _paletteActionIds = {
+    'copy',
+    'tts',
+    'regenerate',
+    'retry',
+    'share',
+  };
+
+  /// [actions] grouped as an iOS 26 menu groups them: the everyday actions
+  /// as a row of icons on top, then the ones that make another answer or
+  /// chat from this one, then the ones that read, pass on or describe this
+  /// answer, and Delete last on its own. A lone everyday action is a row in
+  /// its group rather than a row of one icon. Each group keeps the footer's
+  /// order.
+  List<AdaptivePopupMenuEntry> _overflowMenuSections(
+    List<_AssistantFooterAction> actions,
+  ) {
+    final palette = [
+      for (final action in actions)
+        if (_paletteActionIds.contains(action.id)) action,
+    ];
+    final usePalette = palette.length >= 2;
+    final answer = <_AssistantFooterAction>[];
+    final response = <_AssistantFooterAction>[];
+    final destructive = <_AssistantFooterAction>[];
+    for (final action in actions) {
+      if (usePalette && _paletteActionIds.contains(action.id)) continue;
+      switch (action.id) {
+        case 'regenerate' ||
+            'retry' ||
+            'retry-without-effort' ||
+            'merge' ||
+            'stop-merge' ||
+            'fork':
+          answer.add(action);
+        case 'delete':
+          destructive.add(action);
+        default:
+          response.add(action);
+      }
+    }
+    AdaptivePopupMenuItem<String> item(_AssistantFooterAction action) =>
+        AdaptivePopupMenuItem<String>(
+          value: action.id,
+          label: action.label,
+          icon: PlatformUiCapabilities.isIOS ? action.sfSymbol : action.icon,
+          enabled: action.onTap != null,
+          isDestructive: action.id == 'delete',
+        );
+    return [
+      for (final (group, style) in [
+        (
+          usePalette ? palette : const [],
+          AdaptivePopupMenuSectionStyle.palette,
+        ),
+        (answer, AdaptivePopupMenuSectionStyle.inline),
+        (response, AdaptivePopupMenuSectionStyle.inline),
+        (destructive, AdaptivePopupMenuSectionStyle.inline),
+      ])
+        if (group.isNotEmpty)
+          AdaptivePopupMenuSection<String>(
+            items: [for (final action in group) item(action)],
+            style: style,
+          ),
+    ];
+  }
+
   Widget _buildOverflowActionButton(
     List<_AssistantFooterAction> overflowActions,
   ) {
@@ -2943,19 +3080,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
           icon: PlatformUiCapabilities.isIOS
               ? 'ellipsis'
               : Icons.more_horiz_rounded,
-          items: overflowActions
-              .map(
-                (action) => AdaptivePopupMenuItem<String>(
-                  value: action.id,
-                  label: action.label,
-                  icon: PlatformUiCapabilities.isIOS
-                      ? action.sfSymbol
-                      : action.icon,
-                  enabled: action.onTap != null,
-                  isDestructive: action.id == 'delete',
-                ),
-              )
-              .toList(growable: false),
+          items: _overflowMenuSections(overflowActions),
           onSelected: (_, entry) {
             final selectedId = entry.value;
             if (selectedId == null) {

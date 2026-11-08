@@ -465,7 +465,17 @@
     }
   },
   "ttsVoice": "Stem",
-  "ttsSpeechRate": "Spraaksnelheid",
+  "ttsPlaybackSpeed": "Afspeelsnelheid",
+  "ttsSpeedValue": "{speed}×",
+  "@ttsSpeedValue": {
+    "placeholders": {
+      "speed": {
+        "type": "double",
+        "format": "decimalPattern",
+        "example": "1.25"
+      }
+    }
+  },
   "ttsPitch": "Toonhoogte",
   "ttsVolume": "Volume",
   "ttsPreview": "Stemvoorbeeld",
@@ -1019,6 +1029,24 @@
   "usageQueueTime": "Wachttijd",
   "usageReasoningTokens": "Redeneertokens",
   "usageTotalTokens": "Totaal tokens",
+  "usageContextWindow": "Contextvenster",
+  "usageContextWindowValue": "{percent} · {used} van {total}",
+  "@usageContextWindowValue": {
+    "placeholders": {
+      "percent": {
+        "type": "String",
+        "example": "62%"
+      },
+      "used": {
+        "type": "String",
+        "example": "79K"
+      },
+      "total": {
+        "type": "String",
+        "example": "128K"
+      }
+    }
+  },
   "proxyAuthentication": "Proxy-authenticatie",
   "proxyAuthPlatformNotSupported": "Proxy-authenticatie vereist een mobiel apparaat. Authenticeer eerst via een browser.",
   "proxyAuthLoading": "Authenticatiepagina laden...",

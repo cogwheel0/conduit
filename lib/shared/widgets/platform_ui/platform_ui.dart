@@ -4,11 +4,13 @@ export 'package:cupertino_ui/cupertino_ui.dart' show CupertinoColors;
 
 export 'src/adaptive_app.dart';
 export 'src/adaptive_controls.dart';
+export 'src/adaptive_symbol_icon.dart';
 export 'src/sf_symbols.dart';
 export 'src/adaptive_glass_controls.dart';
 export 'src/adaptive_selection_controls.dart';
 export 'src/adaptive_feedback.dart';
 export 'src/adaptive_document_selection_menu.dart';
+export 'src/adaptive_info_popover.dart';
 export 'src/adaptive_inputs.dart';
 export 'src/adaptive_search_bar.dart';
 export 'src/ios_text_magnifier.dart';
@@ -55,6 +57,8 @@ export 'src/adaptive_progress.dart';
 export 'src/adaptive_value_segmented_control.dart';
 
 export 'src/adaptive_floating_action_button.dart';
+
+export 'src/adaptive_floating_island.dart';
 
 export 'src/adaptive_floating_tab_bar.dart';
 
