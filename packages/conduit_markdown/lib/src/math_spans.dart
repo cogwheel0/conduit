@@ -72,11 +72,14 @@ final class MathSpan {
 /// than re-running the patterns.
 ///
 /// The `$…$` guards: no whitespace just inside either delimiter, no `$` or
-/// backslash just before the opening one, no newline inside, and the closing
-/// `$` must be followed by whitespace, `]`, `)`, `,`, `.`, `;`, `:`, `!`, `?`
-/// or the end of the input. So `$65,539 USD ... ~$42.6` stays prose, and so
-/// do `$n$-th` and `**$x$**` (see the package tests for the full list of
-/// cases where this differs from the rule the earlier desktop renderer used).
+/// backslash just before the opening one, and no newline inside. The closing
+/// `$` must be followed by whitespace, `] ) , . ; : ! ?` or the end of the
+/// input; or by `* _ ' ’ - " ” ~` or CJK when the span does not start like a
+/// shell parameter, a quoted string or CJK text. So `**$E=mc^2$**`,
+/// `$n$-th`, `"$x$"` and `数学$x$是` are math, while `$65,539 USD ... ~$42.6`,
+/// `Use "$@" instead of "$*"` and `IFS=$'\n'` stay prose (the package tests
+/// hold a price and shell corpus, and the cases where this still differs
+/// from the rule the earlier desktop renderer used).
 ///
 /// The tokenizer knows nothing about markdown. The mobile renderer runs it
 /// over the whole message (outside `<details>` opening tags), code included;
@@ -110,18 +113,51 @@ final class MathTokenizer {
   /// Matches `\(...\)` (inline LaTeX), non-greedy.
   static final _parenInlinePattern = RegExp(r'\\\(([\s\S]+?)\\\)');
 
+  /// What may follow a closing `$`, for any span: whitespace,
+  /// `] ) , . ; : ! ?`, or the end of the input.
+  static const _anyCloser = r'\s\]),.;:!?';
+
+  /// What may also follow a closing `$`, unless the span starts the way a
+  /// shell parameter, a quoted string or CJK text does (see
+  /// [_dollarInlinePattern]): emphasis (`*`, `_`), apostrophes (`'`, `’`),
+  /// a hyphen, double quotes (`"`, `”`), a tilde, and CJK.
+  ///
+  /// `/`, `|` and `(` are deliberately absent. Each turns realistic prose
+  /// into math: `5$/kg and 10$/kg`, a compact table row `|5$|Pears|10$|`, and
+  /// `echo $PREFIX$(date)`.
+  static const _closerAfterPlainStart =
+      '*_\'\u2019\\-"\u201D~$_cjk';
+
+  /// Han (with the supplementary planes' high surrogates), kana, Hangul, CJK
+  /// symbols and punctuation, and the fullwidth and halfwidth forms other
+  /// than Latin letters and digits.
+  static const _cjk =
+      r'\u1100-\u11FF\u3000-\u303F\u3040-\u30FF\u3130-\u318F\u31F0-\u31FF'
+      r'\u3400-\u4DBF\u4E00-\u9FFF\uAC00-\uD7AF\uF900-\uFAFF\uFE30-\uFE4F'
+      r'\uFF01-\uFF0F\uFF1A-\uFF20\uFF3B-\uFF40\uFF5B-\uFFDC\uD840-\uD8BF';
+
+  /// Span starts that rule out [_closerAfterPlainStart]: shell special
+  /// parameters (`$@`, `$*`, `$#`, `$?`, `$!`), quoting (`$'\n'`, `$"…"`),
+  /// and CJK text (`5$和10$之间`, a price written after its number).
+  static const _shellQuoteOrCjkStart = '@#?!*\'"$_cjk';
+
   /// Matches `$...$` (inline LaTeX).
   ///
   /// Excludes `$$`, escaped `\$`, and requires non-whitespace
   /// immediately after the opening `$` and before the closing
   /// `$`.
   ///
-  /// Also requires a safe trailing boundary after the closing
-  /// `$` (whitespace, punctuation, or end-of-input) so plain
-  /// currency text such as `$65,539 USD ... ~$42.6` is not
-  /// treated as a math span.
+  /// Also requires a safe trailing boundary after the closing `$` so
+  /// currency such as `$65,539 USD ... ~$42.6` stays prose: one of
+  /// [_anyCloser] or the end of the input, or, when the span does not start
+  /// with one of [_shellQuoteOrCjkStart], one of [_closerAfterPlainStart].
+  /// Content never holds a `$`, so the closing `$` is always the next one on
+  /// the line and the start check can look ahead to it.
   static final _dollarInlinePattern = RegExp(
-    r'(?<!\$)(?<!\\)\$(?!\$)(\S(?:[^\n$]*?\S)?)\$(?!\$)(?=(?:[\s\]),.;:!?]|$))',
+    r'(?<!\$)(?<!\\)\$(?!\$)'
+    '(?![$_shellQuoteOrCjkStart][^\\n\$]*\\\$(?![$_anyCloser]|\$))'
+    r'(\S(?:[^\n$]*?\S)?)\$(?!\$)'
+    '(?=[$_anyCloser$_closerAfterPlainStart]|\$)',
   );
 
   static final _anyToken = RegExp(

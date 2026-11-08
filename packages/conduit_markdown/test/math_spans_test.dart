@@ -156,10 +156,107 @@ void main() {
     });
   });
 
+  // Math that sits against emphasis, an apostrophe, a hyphen, quotes, a
+  // tilde or CJK. The shared rule used to keep these as prose; it now
+  // agrees with #754 on them.
+  group('now math', () {
+    const cases = <(String, List<String>)>[
+      (r'**$E=mc^2$** is bold', ['E=mc^2']),
+      (r'the $n$-th term', ['n']),
+      (r"$x$'s value", ['x']),
+      (r'"$x$" in quotes', ['x']),
+      (r'$x$-$y$', ['x', 'y']),
+      (r'$x$~', ['x']),
+      (r'数学$x$是', ['x']),
+      (r'公式$x$。', ['x']),
+    ];
+    for (final (input, expected) in cases) {
+      test(input, () {
+        expect(mathIn(input), expected);
+        expect(rule754(input), expected);
+      });
+    }
+
+    test('typographic quotes, kana, Hangul and CJK brackets too', () {
+      expect(mathIn(r'$x$’s and “$y$”'), ['x', 'y']);
+      expect(mathIn(r'「$x$」と$y$の値'), ['x', 'y']);
+      expect(mathIn(r'$x$는 정수'), ['x']);
+      expect(mathIn(r'*$a$* and _$b$_ and __$c$__'), ['a', 'b', 'c']);
+    });
+
+    test('a span that starts like a shell parameter, a quote or CJK text '
+        'only closes before whitespace, ] ) , . ; : ! ? or the end', () {
+      expect(mathIn(r'$*x$ end'), ['*x']);
+      expect(mathIn(r'$*x$-th'), isEmpty);
+      expect(mathIn(r"$'a'$."), ["'a'"]);
+      expect(mathIn(r"$'a'$'s"), isEmpty);
+      expect(mathIn(r'$和x$ 是'), ['和x']);
+      expect(mathIn(r'$和x$是'), isEmpty);
+    });
+  });
+
+  // Text that must never become math: money in the shapes models write, and
+  // shell. Each case is prose under the shared rule. The rule leaves out `/`,
+  // `|` and `(` after a closing `$` because of the cases marked below.
+  group('price and shell text stays prose', () {
+    const cases = <String>[
+      r'$5 and $10',
+      r'$5-$10',
+      r'between $5-$10 each',
+      r'$5/$10',
+      r"costs $5, or $10's worth",
+      r'$5*',
+      r'**$5** off',
+      r'$1,000-$2,000',
+      r'USD $5 or CAD $7',
+      r'$5 for "$10" deals',
+      r'価格は$5、割引$3',
+      r'price: $5. Tip: $1',
+      r'$PATH and $HOME',
+      r'echo $A$B',
+      r'$5–$10 a night',
+      r'**$5**–**$10**',
+      r'_$5_ or _$10_',
+      r"'$5' or '$10'",
+      r'"$5"/"$10"',
+      r'Only $5* or $10*',
+      r'$5-ish or $10-ish',
+      r'was ~~$20~~, now $15',
+      r'($5) or ($10)',
+      r'$5/mo or $50/yr',
+      r'$5, $10, $20',
+      r'Plain currency text like $65,539 USD is about ~$42.6 million.',
+      r'从$5到$10之间',
+      r'价格$5，会员价$4起',
+      // A price written after its number, in CJK text: the span would start
+      // with CJK, so the CJK after it does not close it.
+      r'5$和10$之间',
+      // Rules out `/` after a closing `$`.
+      r'apples 5$/kg, pears 10$/kg',
+      // Rules out `|`.
+      r'|Apples|5$|Pears|10$|',
+      r'echo "$A$B"',
+      r'echo $1$2',
+      r'export PATH=$HOME/bin:$PATH',
+      r'cd $DIR/$SUB',
+      r'echo ${A}$B',
+      // Rules out `(`.
+      r'echo $PREFIX$(date +%s)',
+      // Shell special parameters and quoting: a span starting with one does
+      // not close before `*`, `'` and the other added characters.
+      r'Use "$@" instead of "$*" to keep arguments apart.',
+      r'"$@","$*"',
+      r"Set IFS=$'\n' or IFS=$'\t'.",
+    ];
+    for (final input in cases) {
+      test(input, () => expect(mathIn(input), isEmpty));
+    }
+  });
+
   // Every probe runs through both rules. Where they differ, Conduit keeps the
-  // mobile rule (the shared one); the `rule754` column records what the
-  // earlier desktop renderer did, for a later decision.
-  group('where the shared rule and #754 disagree', () {
+  // shared rule; the `rule754` column records what the earlier desktop
+  // renderer did.
+  group('where the shared rule and #754 still disagree', () {
     const agree = <(String, List<String>)>[
       (r'Let $x^2$ be.', ['x^2']),
       (r'($x$)', ['x']),
@@ -167,8 +264,6 @@ void main() {
       (r'e.g.$x$', ['x']),
       (r'a$b$c', []),
       (r'$1$st', []),
-      (r'$x$_1', []),
-      (r'_$x$_', []),
       (r'$5-$10', []),
       (r'$ x$ and $x $', []),
       (r'$$a$$b', ['a']),
@@ -183,20 +278,15 @@ void main() {
 
     // (input, shared rule, #754)
     const disagree = <(String, List<String>, List<String>)>[
-      // A closing `$` followed by something other than whitespace or
-      // `] ) , . ; : ! ?`: the shared rule keeps it prose; #754 only
-      // refused a word character there.
-      (r'the $n$-th term', [], ['n']),
-      (r"$x$'s value", [], ['x']),
-      (r'**$E=mc^2$** is bold', [], ['E=mc^2']),
-      (r'"$x$" in quotes', [], ['x']),
+      // `/`, `|` and `(` after a closing `$`: prose here, math in #754 (see
+      // the price group for why).
       (r'$f$(x)', [], ['f']),
       (r'|$a$|$b$|', [], ['a', 'b']),
       (r'$x$/$y$', ['y'], ['x', 'y']),
-      (r'$x$-$y$', ['y'], ['x', 'y']),
-      (r'$x$~', [], ['x']),
-      (r'数学$x$是', [], ['x']),
-      (r'公式$x$。', [], ['x']),
+      // `_` after a closing `$` now closes a span; #754 refused any word
+      // character there and before the opening `$`.
+      (r'$x$_1', ['x'], []),
+      (r'_$x$_', ['x'], []),
       // An opening `$` right after a word character: the shared rule opens;
       // #754 did not.
       (r'2$x$ apples', ['x'], []),
@@ -210,7 +300,7 @@ void main() {
     ];
     for (final (input, shared, earlier) in disagree) {
       test('differs: ${input.replaceAll('\n', r'\n')}', () {
-        expect(mathIn(input), shared, reason: 'the shared (mobile) rule');
+        expect(mathIn(input), shared, reason: 'the shared rule');
         expect(rule754(input), earlier, reason: "#754's rule");
       });
     }

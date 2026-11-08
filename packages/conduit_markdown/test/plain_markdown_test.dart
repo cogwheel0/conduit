@@ -65,9 +65,18 @@ void main() {
       );
     });
 
+    test('keeps math against emphasis, hyphens and CJK', () {
+      expect(plain(r'the $n$-th term'), r'the $n$-th term');
+      expect(plain(r'**$E=mc^2$**'), r'**$E=mc^2$**');
+      expect(plain(r'数学$x$是'), r'数学$x$是');
+    });
+
     test('escapes what the shared rule keeps as prose', () {
-      expect(plain(r'the $n$-th term'), r'the \$n\$-th term');
-      expect(plain(r'**$E=mc^2$**'), r'**\$E=mc^2\$**');
+      expect(
+        plain(r'Use "$@" instead of "$*".'),
+        r'Use "\$@" instead of "\$*".',
+      );
+      expect(plain(r'$f$(x)'), r'\$f\$(x)');
     });
 
     test('leaves an escaped dollar alone and escapes one after \\\\', () {
