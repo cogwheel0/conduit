@@ -271,8 +271,7 @@ void main() {
   );
 
   group('iOS 26 island', () {
-    // Every line the panel may show: a transcript past three lines, a reply
-    // past two, and an error past two.
+    // A transcript, a reply and an error past the lines they may take.
     const transcript =
         'Please remind me to water the fern on the balcony tomorrow morning, '
         'then check whether the tomato seedlings need a bigger pot, and add '
@@ -306,24 +305,27 @@ void main() {
       matching: find.byType(AdaptiveButton),
     );
 
-    /// Expects the call's tallest text to sit on the glass between the
-    /// header and the controls.
-    void expectTallestTextFits(
+    /// Expects the panel to leave the transcript and the reply to the chat
+    /// and to fit the error on the glass between the header and the
+    /// controls.
+    void expectErrorFitsWithoutCallText(
       WidgetTester tester,
       AppLocalizations l10n,
-      Finder text,
     ) {
+      expect(find.text(transcript), findsNothing);
+      expect(find.text(reply, findRichText: true), findsNothing);
       final controlsTop = tester.getRect(action(l10n.voiceCallEnd)).top;
-      for (final finder in [text, find.text(error)]) {
-        expectOnFloatingIslandGlass(tester, finder);
-        expect(tester.getRect(finder).bottom, lessThanOrEqualTo(controlsTop));
-      }
+      expectOnFloatingIslandGlass(tester, find.text(error));
+      expect(
+        tester.getRect(find.text(error)).bottom,
+        lessThanOrEqualTo(controlsTop),
+      );
       expectOnFloatingIslandGlass(tester, action(l10n.voiceCallEnd));
     }
 
     testWidgets(
-      'morphs between the pill and a panel that keeps room for its tallest '
-      'text',
+      'morphs between the pill and a panel that keeps room for an error but '
+      'leaves the call text to the chat',
       (tester) async {
         useNativeIOS26();
         final container = ProviderContainer(
@@ -350,17 +352,15 @@ void main() {
         expect(floatingIsland(tester).isExpanded, isTrue);
         expect(panel.width, 402 - 2 * Spacing.inputPadding);
 
-        // Its tallest text fills that room without resizing the island,
-        // whose native view keeps the size it was created with.
-        for (final (snapshot, text) in [
-          (listening, find.text(transcript)),
-          (speaking, find.text(reply, findRichText: true)),
-        ]) {
+        // Heard and spoken text never shows, and an error fits without
+        // resizing the island, whose native view keeps the size it was
+        // created with.
+        for (final snapshot in [listening, speaking]) {
           controller.update(snapshot);
           await tester.pumpAndSettle();
           expect(tester.state(find.byType(CNFloatingIsland)), same(island));
           expect(floatingIslandGlass(tester), panel);
-          expectTallestTextFits(tester, l10n, text);
+          expectErrorFitsWithoutCallText(tester, l10n);
         }
 
         tester
@@ -389,7 +389,7 @@ void main() {
 
     testWidgets(
       'a text size change mid-call creates the island again with room for '
-      'the larger text',
+      'the larger error',
       (tester) async {
         useNativeIOS26();
         final container = ProviderContainer(
@@ -418,7 +418,7 @@ void main() {
 
         expect(tester.state(find.byType(CNFloatingIsland)), isNot(island));
         expect(floatingIsland(tester).expandedHeight, greaterThan(height));
-        expectTallestTextFits(tester, l10n, find.text(transcript));
+        expectErrorFitsWithoutCallText(tester, l10n);
         expect(tester.takeException(), isNull);
       },
       variant: TargetPlatformVariant.only(TargetPlatform.iOS),
