@@ -8,6 +8,11 @@ import 'package:conduit_core/features/librechat/models/librechat_session.dart';
 import 'package:conduit_core/features/librechat/services/librechat_errors.dart';
 import 'package:conduit_core/features/librechat/services/librechat_http_client.dart';
 
+/// A conversation's share link: its share id, and whether it shares the
+/// chat's files (null when the server does not say, which LibreChat reads
+/// as sharing them).
+typedef LibreChatSharedLink = ({String shareId, bool? snapshotFiles});
+
 /// The REST routes of one signed-in LibreChat server (v0.8.8), other than
 /// generation, which [LibreChatStreamClient] owns.
 ///
@@ -310,7 +315,13 @@ final class LibreChatApiService {
     if (key == 'preferences') {
       final list = (await memories())['memories'];
       for (final memory in list is List ? list : const <Object?>[]) {
-        if (memory is! Map || memory['key'] != key) continue;
+        // An agent's memory of that name is not the user's own, which is the
+        // one the id route changes when no agent is named.
+        if (memory is! Map ||
+            memory['key'] != key ||
+            memory['agentId'] != null) {
+          continue;
+        }
         final id = memory['_id'];
         if (id is String && id.isNotEmpty) {
           return '/api/memories/id/${Uri.encodeComponent(id)}';
@@ -343,14 +354,23 @@ final class LibreChatApiService {
 
   // ---- sharing, forking -----------------------------------------------------
 
-  /// The share id of conversation [id]'s link, or null when it has none.
-  Future<String?> sharedLinkId(String id) async {
+  /// Conversation [id]'s share link, or null when it has none.
+  Future<LibreChatSharedLink?> sharedLink(String id) async {
     final data = _map(
       await _get('/api/share/link/${Uri.encodeComponent(id)}'),
     );
     final shareId = data['shareId'];
-    return shareId is String && shareId.isNotEmpty ? shareId : null;
+    if (shareId is! String || shareId.isEmpty) return null;
+    final snapshotFiles = data['snapshotFiles'];
+    return (
+      shareId: shareId,
+      snapshotFiles: snapshotFiles is bool ? snapshotFiles : null,
+    );
   }
+
+  /// The share id of conversation [id]'s link, or null when it has none.
+  Future<String?> sharedLinkId(String id) async =>
+      (await sharedLink(id))?.shareId;
 
   /// Shares conversation [id] up to [targetMessageId] (its latest message by
   /// default) and returns the share id.
@@ -367,6 +387,28 @@ final class LibreChatApiService {
       );
     } on DioException catch (error) {
       throw libreChatErrorOf(error, fallback: 'Could not share the chat.');
+    }
+  }
+
+  /// Snapshots shared link [shareId]'s conversation as it is now, under the
+  /// same link, and returns the share id the server reports for it.
+  ///
+  /// [snapshotFiles] is the link's own choice about the chat's files, as
+  /// [sharedLink] read it. LibreChat takes an update that leaves it out as
+  /// sharing them, which would hand the files to a link made without them.
+  Future<String> refreshSharedLink(
+    String shareId, {
+    required bool? snapshotFiles,
+  }) async {
+    try {
+      final response = await _dio.patch<dynamic>(
+        '/api/share/${Uri.encodeComponent(shareId)}',
+        data: <String, dynamic>{'snapshotFiles': ?snapshotFiles},
+      );
+      final next = _map(response.data)['shareId'];
+      return next is String && next.isNotEmpty ? next : shareId;
+    } on DioException catch (error) {
+      throw libreChatErrorOf(error, fallback: 'Could not update the link.');
     }
   }
 

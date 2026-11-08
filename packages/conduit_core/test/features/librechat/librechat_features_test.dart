@@ -387,6 +387,39 @@ void main() {
       });
     });
 
+    test('a link made without its files is updated without them', () async {
+      final patches = <Object?>[];
+      fake
+        ..on(
+          'GET',
+          '/api/share/link/c1',
+          (request, match) => FakeLibreChatResponse.json({
+            'success': true,
+            'shareId': 's1',
+            'snapshotFiles': false,
+          }),
+        )
+        ..on('PATCH', '/api/share/(.+)', (request, match) {
+          patches.add(request.data);
+          return FakeLibreChatResponse.json({'shareId': 's2'});
+        });
+      final link = (await api.sharedLink('c1'))!;
+      check(link.shareId).equals('s1');
+      check(link.snapshotFiles).equals(false);
+      check(
+        await api.refreshSharedLink(
+          link.shareId,
+          snapshotFiles: link.snapshotFiles,
+        ),
+      ).equals('s2');
+      // A link that does not say keeps LibreChat's own reading of that.
+      await api.refreshSharedLink('s2', snapshotFiles: null);
+      check(patches).deepEquals([
+        {'snapshotFiles': false},
+        <String, dynamic>{},
+      ]);
+    });
+
     test('server speech uses the audio field and reports its engines', () async {
       fake
         ..on(
@@ -455,6 +488,14 @@ void main() {
           '/api/memories',
           (request, match) => FakeLibreChatResponse.json({
             'memories': [
+              // An agent's memory of the same name comes first, and is not
+              // the one shown.
+              {
+                '_id': '665f1c2a9b3e4d0012a7c009',
+                'key': 'preferences',
+                'value': 'Formal tone',
+                'agentId': 'agent_writer',
+              },
               {
                 '_id': '665f1c2a9b3e4d0012a7c001',
                 'key': 'preferences',

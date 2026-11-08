@@ -486,8 +486,13 @@ class ProfilePage extends ConsumerWidget {
         title: l10n.audioSettingsTitle,
         onTap: () => context.pushNamed(RouteNames.audioSettings),
       ),
-      // Without an account, Direct's default model is set there.
-      if (!hasOpenWebUiAccount && directPrimary) personalizationItem,
+      // Without an account, Direct's default model is set there, and
+      // LibreChat's memories are kept there.
+      if (!hasOpenWebUiAccount &&
+          (directPrimary ||
+              ref.watch(primaryAccountKindProvider) ==
+                  PrimaryAccountKind.libreChat))
+        personalizationItem,
     ];
     // Everyday server places: things to open and use, not to configure.
     final placeItems = <Widget>[

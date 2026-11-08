@@ -554,6 +554,89 @@ void main() {
     check(await db.chatsDao.getChat('c1')).isNull();
   });
 
+  test('a chat another engine on the database deleted stays deleted',
+      () async {
+    fake.addConversation(
+      'c1',
+      updatedAt: now,
+      messageList: _turn('c1', 'Q', 'A'),
+    );
+    await engine.pull();
+    now = now.add(const Duration(hours: 1));
+    fake.addConversation(
+      'c1',
+      updatedAt: now,
+      messageList: _turn('c1', 'Q', 'A'),
+    );
+    final messages = fake.messages['c1']!;
+    final fetching = Completer<void>();
+    final answer = Completer<void>();
+    fake.on('GET', '/api/messages/c1', (request, match) async {
+      if (!fetching.isCompleted) fetching.complete();
+      await answer.future;
+      return FakeLibreChatResponse.json(messages);
+    });
+    final pulling = engine.pull();
+    await fetching.future;
+
+    // A quick return to the account: a new engine deletes the chat while the
+    // old one is still pulling it.
+    final next = LibreChatSyncEngine(
+      db: db,
+      api: engine.api,
+      backoff: Backoff(jitter: () => 0),
+    );
+    await db.chatsDao.tombstoneWithOutbox('c1');
+    await next.drain();
+    check(await db.chatsDao.getChat('c1')).isNull();
+
+    answer.complete();
+    await pulling;
+    check(await db.chatsDao.getChat('c1')).isNull();
+  });
+
+  test('a copy read before a push finished does not undo it', () async {
+    fake.addConversation(
+      'c1',
+      title: 'Old',
+      updatedAt: now,
+      messageList: _turn('c1', 'Q', 'A'),
+    );
+    await engine.pull();
+    now = now.add(const Duration(hours: 1));
+    fake.addConversation(
+      'c1',
+      title: 'Old',
+      updatedAt: now,
+      messageList: _turn('c1', 'Q', 'A'),
+    );
+    final messages = fake.messages['c1']!;
+    final fetching = Completer<void>();
+    final answer = Completer<void>();
+    fake.on('GET', '/api/messages/c1', (request, match) async {
+      if (!fetching.isCompleted) {
+        fetching.complete();
+        await answer.future;
+      }
+      return FakeLibreChatResponse.json(messages);
+    });
+    final pulling = engine.pull();
+    await fetching.future;
+
+    // Renamed here and pushed while the pull holds the copy it listed.
+    await db.chatsDao.updateEnvelopeWithOutbox(
+      'c1',
+      title: const Value('New'),
+      enqueue: true,
+    );
+    await engine.drain();
+    check(fake.conversations['c1']!['title']).equals('New');
+
+    answer.complete();
+    await pulling;
+    check((await db.chatsDao.getChat('c1'))!.title).equals('New');
+  });
+
   test('a chat archived here arrives whole with what the server '
       'gained', () async {
     fake

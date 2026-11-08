@@ -274,6 +274,11 @@ final class LibreChatTemporaryChatException implements Exception {
       'off temporary chat to send';
 }
 
+/// Whether [message] is a LibreChat turn its server has not accepted: its id
+/// is this device's, which the server knows nothing of (to fork from, say).
+bool isUnconfirmedLibreChatMessage(ChatMessage message) =>
+    message.metadata?[_kLibreChatPendingKey] == true;
+
 /// Refuses a second turn in a LibreChat chat while its reply still runs,
 /// before anything is written: it would follow the running reply, which
 /// would then go on with no Stop.

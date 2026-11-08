@@ -344,9 +344,10 @@ final class LibreChatSyncEngine {
   /// Fetches conversation [id] now and stores it, unless it has queued work
   /// or a reply generating. Returns whether the server has it.
   Future<bool> pullChat(String id) => _holdingDatabase(() async {
+    final pushesSeen = _pushesOf(id);
     final conversation = await api.conversation(id);
     if (conversation == null) return false;
-    await _adapter.storeConversation(conversation);
+    await _adapter.storeConversation(conversation, pushesSeen: pushesSeen);
     return true;
   });
 
@@ -589,10 +590,25 @@ final class LibreChatSyncEngine {
     );
   }
 
-  /// The conversations this run deleted on the server. A pull that fetched
-  /// one before the delete went through must not store it again, and its id
-  /// never comes back.
-  final Set<String> _deletedOnServer = <String>{};
+  /// The conversations deleted on the server in this run, by any engine on
+  /// this database. A pull that fetched one before the delete went through
+  /// must not store it again -- one an engine left behind is still running
+  /// included -- and its id never comes back.
+  Set<String> get _deletedOnServer =>
+      _deletedByDatabase[db] ??= <String>{};
+
+  static final Expando<Set<String>> _deletedByDatabase =
+      Expando<Set<String>>('librechat-deleted');
+
+  /// How many pushes of each conversation ended in this run, by any engine on
+  /// this database. A copy of the chat read before one of them ended is older
+  /// than what the push left on the server and in the chat.
+  Map<String, int> get _pushes => _pushesByDatabase[db] ??= <String, int>{};
+
+  static final Expando<Map<String, int>> _pushesByDatabase =
+      Expando<Map<String, int>>('librechat-pushes');
+
+  int _pushesOf(String id) => _pushes[id] ?? 0;
 
   /// Whether conversation [id] has outbox work not yet confirmed; with
   /// [besidesEnvelopeEdits], other than a rename, pin or archive still
@@ -657,6 +673,12 @@ final class LibreChatChatAdapter implements SyncEntityAdapter {
   final Map<String, LibreChatConversation> _listed =
       <String, LibreChatConversation>{};
 
+  /// For each conversation listed, how many of its pushes had ended when the
+  /// list was read.
+  final Map<String, int> _listedPushes = <String, int>{};
+
+  static const String _pushesSeenKey = 'pushesSeen';
+
   AppDatabase get _db => _engine.db;
 
   @override
@@ -686,6 +708,7 @@ final class LibreChatChatAdapter implements SyncEntityAdapter {
         ..clear()
         ..[1] = null;
       _listed.clear();
+      _listedPushes.clear();
     }
     if (!_cursors.containsKey(page)) return const <SyncListItem>[];
     final result = await _engine.api.conversations(
@@ -704,6 +727,9 @@ final class LibreChatChatAdapter implements SyncEntityAdapter {
 
   SyncListItem _listItem(LibreChatConversation conversation) {
     _listed[conversation.conversationId] = conversation;
+    _listedPushes[conversation.conversationId] = _engine._pushesOf(
+      conversation.conversationId,
+    );
     return SyncListItem(
       id: conversation.conversationId,
       updatedAt: conversation.updatedAt!.millisecondsSinceEpoch ~/ 1000,
@@ -712,13 +738,17 @@ final class LibreChatChatAdapter implements SyncEntityAdapter {
 
   @override
   Future<Map<String, dynamic>?> fetchRaw(String id) async {
-    final conversation =
-        _listed[id] ?? await _engine.api.conversation(id);
+    final listed = _listed[id];
+    final pushesSeen = listed == null
+        ? _engine._pushesOf(id)
+        : _listedPushes[id] ?? 0;
+    final conversation = listed ?? await _engine.api.conversation(id);
     if (conversation == null) return null;
     final messages = await _engine.api.messages(id);
     return <String, dynamic>{
       'conversation': conversation.raw,
       'messages': [for (final message in messages) message.raw],
+      _pushesSeenKey: pushesSeen,
     };
   }
 
@@ -731,13 +761,22 @@ final class LibreChatChatAdapter implements SyncEntityAdapter {
       if (list is List)
         for (final item in list) ?LibreChatMessage.fromJson(item),
     ];
-    return store(conversation, messages);
+    final pushesSeen = raw[_pushesSeenKey];
+    return store(
+      conversation,
+      messages,
+      pushesSeen: pushesSeen is int ? pushesSeen : null,
+    );
   }
 
-  /// Fetches [conversation]'s messages and stores both.
-  Future<bool> storeConversation(LibreChatConversation conversation) async {
+  /// Fetches [conversation]'s messages and stores both. [pushesSeen] as for
+  /// [store].
+  Future<bool> storeConversation(
+    LibreChatConversation conversation, {
+    int? pushesSeen,
+  }) async {
     final messages = await _engine.api.messages(conversation.conversationId);
-    return store(conversation, messages);
+    return store(conversation, messages, pushesSeen: pushesSeen);
   }
 
   /// Stores [conversation] with [messages] unless local work owns it right
@@ -748,10 +787,15 @@ final class LibreChatChatAdapter implements SyncEntityAdapter {
   /// queued, or one it refused) takes the server's messages and the fields
   /// the user did not change, but keeps the ones they did, so the edit can
   /// still be pushed or retried.
+  ///
+  /// [pushesSeen] is how many pushes of the chat had ended when
+  /// [conversation] was read from the server. A copy read before one more
+  /// ended is older than what that push left there, and is fetched again.
   Future<bool> store(
     LibreChatConversation conversation,
-    List<LibreChatMessage> messages,
-  ) {
+    List<LibreChatMessage> messages, {
+    int? pushesSeen,
+  }) {
     final id = conversation.conversationId;
     if (_engine._isGenerating(id)) {
       return _engine._defer(id).then((_) => false);
@@ -766,6 +810,10 @@ final class LibreChatChatAdapter implements SyncEntityAdapter {
       if (await _engine._hasQueuedWork(id, besidesEnvelopeEdits: true)) {
         await _engine._defer(id);
         return true;
+      }
+      if (pushesSeen != null && _engine._pushesOf(id) != pushesSeen) {
+        await _engine._defer(id);
+        return false;
       }
       if (_engine._deletedOnServer.contains(id)) return false;
       final existing = await _db.chatsDao.getChat(id);
@@ -785,7 +833,13 @@ final class LibreChatChatAdapter implements SyncEntityAdapter {
         'pinned': conversation.pinned,
         'archived': conversation.isArchived,
       };
-      await _db.chatsDao.upsertServerChat(rows: rows, meta: meta);
+      // LibreChat's conversation does not carry its share link; the one the
+      // app made or found stays, so the chat can still delete it.
+      await _db.chatsDao.upsertServerChat(
+        rows: rows,
+        meta: meta,
+        shareId: existing?.shareId,
+      );
       if (existing == null || !existing.dirty) return false;
       await (_db.update(_db.chats)..where((t) => t.id.equals(id))).write(
         ChatsCompanion(
@@ -827,6 +881,16 @@ final class LibreChatChatAdapter implements SyncEntityAdapter {
   }
 
   Future<void> _pushEnvelope(String id) async {
+    try {
+      await _pushEnvelopeChanges(id);
+    } finally {
+      // Whatever reached the server, a copy of the chat read before now is
+      // older than it.
+      _engine._pushes.update(id, (count) => count + 1, ifAbsent: () => 1);
+    }
+  }
+
+  Future<void> _pushEnvelopeChanges(String id) async {
     // Read under the chat's lock: a pull storing the server's copy puts the
     // local edit back only after writing the server's fields, and the row
     // between the two would look like nothing to send.

@@ -10,6 +10,7 @@ import 'package:conduit_core/features/librechat/models/librechat_session.dart';
 import 'package:conduit_core/features/librechat/providers/librechat_providers.dart';
 import 'package:conduit_core/features/librechat/services/librechat_auth_service.dart';
 import 'package:conduit_core/features/librechat/services/librechat_errors.dart';
+import 'package:conduit_core/features/librechat/services/librechat_registry_store.dart';
 import 'package:conduit_core/features/librechat/services/librechat_session_store.dart';
 import 'package:conduit_core/persistence/persistence_keys.dart';
 import 'package:conduit_core/persistence/preferences_store.dart';
@@ -86,6 +87,24 @@ final class _HeldSessionWrites extends InMemorySecureKeyValueStore {
   Future<void> write({required String key, required String? value}) async {
     if (key.startsWith(SecureLibreChatSessionStore.keyPrefix)) {
       await hold?.future;
+    }
+    return super.write(key: key, value: value);
+  }
+}
+
+/// Refuses session writes while [fail] is set, as a Keychain that will not
+/// write.
+final class _FailingSessionWrites extends InMemorySecureKeyValueStore {
+  bool fail = false;
+
+  /// Refuses writes of the account registry instead.
+  bool failRegistry = false;
+
+  @override
+  Future<void> write({required String key, required String? value}) {
+    if ((fail && key.startsWith(SecureLibreChatSessionStore.keyPrefix)) ||
+        (failRegistry && key == LibreChatRegistryStore.key)) {
+      return Future.error(StateError('The Keychain refused the write.'));
     }
     return super.write(key: key, value: value);
   }
@@ -226,6 +245,28 @@ void main() {
         ..has((it) => it.agents, 'agents').isTrue()
         ..has((it) => it.serverSearch, 'serverSearch').isTrue()
         ..has((it) => it.modelSpecsEnforced, 'modelSpecsEnforced').isTrue();
+    });
+
+    test('links are offered only where LibreChat makes them public', () {
+      LibreChatCapabilities read(Map<String, Object> sharedLinks) =>
+          LibreChatCapabilities.from(
+            startupConfig: const {},
+            permissions: {'SHARED_LINKS': sharedLinks},
+            endpoints: const {},
+          );
+      check(
+        read({'CREATE': true, 'SHARE': true, 'SHARE_PUBLIC': true}).sharedLinks,
+      ).isTrue();
+      // Made, they would open for their owner alone.
+      check(
+        read({'CREATE': true, 'SHARE': true, 'SHARE_PUBLIC': false})
+            .sharedLinks,
+      ).isFalse();
+      // LibreChat publishes only on an outright grant.
+      check(read({'CREATE': true}).sharedLinks).isFalse();
+      check(
+        read({'CREATE': false, 'SHARE_PUBLIC': true}).sharedLinks,
+      ).isFalse();
     });
 
     test('memories are added, changed and switched by separate permissions',
@@ -471,6 +512,111 @@ void main() {
       check(await SecureLibreChatSessionStore(held, account.id).read()).isNull();
     });
 
+    test('a session signed in to again is not overwritten by the one it '
+        'replaced', () async {
+      final accounts = container.read(libreChatAccountsProvider);
+      final account = await accounts.saveSignedIn(
+        server: server,
+        session: await signIn(),
+      );
+      final first =
+          await container.read(libreChatSessionProvider.future)
+              as LibreChatSignedInState;
+      final second = await signIn();
+      await accounts.saveSignedIn(server: server, session: second);
+
+      // The session replaced hears of a cookie: it is not saved over the
+      // new one.
+      await first.handle.absorbCookies(['late=1; Path=/']);
+      final stored = await SecureLibreChatSessionStore(
+        secure,
+        account.id,
+      ).read();
+      check(stored!.accessToken).equals(second.accessToken);
+    });
+
+    test('a session that ends after it was replaced leaves the new one',
+        () async {
+      final accounts = container.read(libreChatAccountsProvider);
+      final account = await accounts.saveSignedIn(
+        server: server,
+        session: await signIn(),
+      );
+      final first =
+          await container.read(libreChatSessionProvider.future)
+              as LibreChatSignedInState;
+      final second = await signIn();
+      await accounts.saveSignedIn(server: server, session: second);
+
+      // The replaced session's renewal comes back expired, and it ends.
+      await first.handle.end();
+      final stored = await SecureLibreChatSessionStore(
+        secure,
+        account.id,
+      ).read();
+      check(stored?.accessToken).equals(second.accessToken);
+    });
+
+    test('a sign-in that cannot be saved leaves the session in use saving',
+        () async {
+      final failing = _FailingSessionWrites();
+      secure = failing;
+      final signedIn = newContainer();
+      final accounts = signedIn.read(libreChatAccountsProvider);
+      final account = await accounts.saveSignedIn(
+        server: server,
+        session: await signIn(),
+      );
+      await signedIn.read(libreChatSessionProvider.future);
+
+      failing.fail = true;
+      final again = await signIn();
+      await check(
+        accounts.saveSignedIn(server: server, session: again),
+      ).throws<StateError>();
+      failing.fail = false;
+
+      final state =
+          await signedIn.read(libreChatSessionProvider.future)
+              as LibreChatSignedInState;
+      await state.handle.absorbCookies(['late=1; Path=/']);
+      final stored = await SecureLibreChatSessionStore(
+        failing,
+        account.id,
+      ).read();
+      check(stored!.cookies.value('late')).equals('1');
+    });
+
+    test('a sign-in whose account cannot be saved leaves the session in use '
+        'saving', () async {
+      final failing = _FailingSessionWrites();
+      secure = failing;
+      final signedIn = newContainer();
+      final accounts = signedIn.read(libreChatAccountsProvider);
+      final account = await accounts.saveSignedIn(
+        server: server,
+        session: await signIn(),
+      );
+      await signedIn.read(libreChatSessionProvider.future);
+
+      failing.failRegistry = true;
+      final again = await signIn();
+      await check(
+        accounts.saveSignedIn(server: server, session: again),
+      ).throws<StateError>();
+      failing.failRegistry = false;
+
+      final state =
+          await signedIn.read(libreChatSessionProvider.future)
+              as LibreChatSignedInState;
+      await state.handle.absorbCookies(['late=1; Path=/']);
+      final stored = await SecureLibreChatSessionStore(
+        failing,
+        account.id,
+      ).read();
+      check(stored!.cookies.value('late')).equals('1');
+    });
+
     test('a session switched away from saves nothing past its sign-out',
         () async {
       const other = LibreChatServer(baseUrl: 'https://other.example.com');
@@ -566,6 +712,47 @@ void main() {
       registry.finishAppDataClear();
       release.complete();
       await signingOut;
+
+      await refused;
+      check(await SecureLibreChatSessionStore(held, account.id).read())
+          .isNull();
+      check(
+        (await container.read(libreChatRegistryStoreProvider).read()).accounts,
+      ).isEmpty();
+    });
+
+    test('a sign-in waiting on a session that is ending is not saved after '
+        'a full sign-out', () async {
+      final held = _HeldSessionDeletes();
+      secure = held;
+      final container = newContainer();
+      final accounts = container.read(libreChatAccountsProvider);
+      final account = await accounts.saveSignedIn(
+        server: server,
+        session: await signIn(),
+      );
+      final first =
+          await container.read(libreChatSessionProvider.future)
+              as LibreChatSignedInState;
+      // The session in use ends, and clearing it is slow.
+      final release = held.hold = Completer<void>();
+      final ending = first.handle.end();
+      await held.deleting.future;
+      final signingIn = accounts.saveSignedIn(
+        server: server,
+        session: await signIn(),
+      );
+      final refused = check(signingIn).throws<StateError>();
+      await pumpEventQueue();
+
+      // Every account is signed out of while the sign-in waits on that clear.
+      held.hold = null;
+      final registry = container.read(libreChatRegistryProvider.notifier);
+      await registry.blockForAppDataClear();
+      await container.read(libreChatRegistryStoreProvider).deleteAll();
+      registry.finishAppDataClear();
+      release.complete();
+      await ending;
 
       await refused;
       check(await SecureLibreChatSessionStore(held, account.id).read())

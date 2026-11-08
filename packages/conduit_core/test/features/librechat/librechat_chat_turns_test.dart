@@ -1347,11 +1347,15 @@ void main() {
     check(visible().last.error?.content).equals('Model unavailable');
   });
 
-  test('a LibreChat chat offers no Open WebUI fork', () async {
+  test('a LibreChat chat branches on its own server, not Open WebUI', () async {
     await firstTurn('Hi there', 'Hello world');
+    // Open WebUI's sibling controls stay off; the branch action is
+    // LibreChat's fork, offered while the account can sync.
     check(container.read(chatBranchControlsProvider)).isFalse();
-    check(container.read(chatForkAvailabilityProvider))
-        .equals(ChatForkAvailability.hidden);
+    // Online and not streaming: the fork is offered as it is.
+    check(
+      container.read(chatForkAvailabilityProvider),
+    ).equals(ChatForkAvailability.available);
   });
 
   test('Open WebUI-only toggles are off for LibreChat models', () {

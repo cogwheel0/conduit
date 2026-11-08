@@ -4150,5 +4150,11 @@
   "libreChatGoogleUnsupported": "Google은 앱 안에서의 로그인을 허용하지 않습니다. 다른 방법으로 로그인하세요.",
   "libreChatSsoUnfinished": "로그인이 완료되지 않았습니다. 다시 시도하세요.",
   "libreChatChangeServer": "다른 서버 사용",
-  "libreChatSessionEnded": "{server}의 세션이 종료되었습니다. 다시 로그인하세요."
+  "libreChatSessionEnded": "{server}의 세션이 종료되었습니다. 다시 로그인하세요.",
+  "libreChatDuplicateChat": "채팅 복제",
+  "libreChatCopyFailed": "채팅을 복사하지 못했습니다. 연결을 확인하고 다시 시도하세요.",
+  "libreChatMemoryKeyLabel": "키",
+  "libreChatMemoryKeyHint": "예: preferences",
+  "libreChatMemoryKeyRequired": "메모리에 키를 지정하세요.",
+  "libreChatMemoryUsage": "{limit}개 토큰 중 {used}개 사용"
 }

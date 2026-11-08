@@ -110,6 +110,7 @@ class NativeProfileRootVisibility {
     this.showScheduledTasks = false,
     this.showPersonalConnections = false,
     this.showChatDataControls = false,
+    this.showLibreChatPersonalization = false,
   });
 
   final bool showCalendar;
@@ -118,6 +119,11 @@ class NativeProfileRootVisibility {
   final bool showPersonalConnections;
   final bool showChatDataControls;
 
+  /// LibreChat is in charge, with no Open WebUI account: its memories are
+  /// on the Flutter Personalization page, as the Flutter Settings page has
+  /// it.
+  final bool showLibreChatPersonalization;
+
   @override
   bool operator ==(Object other) =>
       other is NativeProfileRootVisibility &&
@@ -125,7 +131,8 @@ class NativeProfileRootVisibility {
       other.canManageWorkspace == canManageWorkspace &&
       other.showScheduledTasks == showScheduledTasks &&
       other.showPersonalConnections == showPersonalConnections &&
-      other.showChatDataControls == showChatDataControls;
+      other.showChatDataControls == showChatDataControls &&
+      other.showLibreChatPersonalization == showLibreChatPersonalization;
 
   @override
   int get hashCode => Object.hash(
@@ -134,6 +141,7 @@ class NativeProfileRootVisibility {
     showScheduledTasks,
     showPersonalConnections,
     showChatDataControls,
+    showLibreChatPersonalization,
   );
 }
 
@@ -208,7 +216,12 @@ List<NativeSheetSectionConfig> buildNativeProfileRootSections(
         title: nativeDataConnectionTitle(l10n),
         sfSymbol: 'network',
       ),
-    ],
+    ] else if (visibility.showLibreChatPersonalization)
+      _nativeRootPageItem(
+        nativeLibreChatPersonalizationActionId,
+        title: l10n.personalization,
+        sfSymbol: 'person.crop.circle.badge.checkmark',
+      ),
   ];
   // Single-line settings rows, so each title and its symbol carry the
   // meaning without a descriptive subtitle.
@@ -325,6 +338,10 @@ List<NativeSheetSectionConfig> buildNativeProfileRootSections(
 
 /// Id of the native Accounts page, pushed from the account card.
 const nativeAccountsDetailId = 'accounts';
+
+/// The root row that opens the Flutter Personalization page while LibreChat
+/// is in charge.
+const nativeLibreChatPersonalizationActionId = 'librechat-personalization';
 
 /// The native Accounts page: a card for each Open WebUI server -- its own
 /// row opening its page, its accounts under it, the active one checked --

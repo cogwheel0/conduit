@@ -128,6 +128,8 @@ NativeProfileRootVisibility readNativeProfileRootVisibility(
   showScheduledTasks: read(scheduledTasksEntryVisibleProvider),
   showPersonalConnections: read(personalConnectionsEntryVisibleProvider),
   showChatDataControls: read(chatDataControlsEntryVisibleProvider),
+  showLibreChatPersonalization:
+      read(primaryAccountKindProvider) == PrimaryAccountKind.libreChat,
 );
 
 /// Whom the account card atop the native Settings root is for, and what it
@@ -187,7 +189,9 @@ NativeSheetDetailConfig readNativeAccountsDetail(
         read(primaryAccountKindProvider) == PrimaryAccountKind.libreChat
         ? read(activeLibreChatAccountProvider)?.id
         : null,
-    libreChatInChargeSignedIn: libreChatSession is! LibreChatNeedsSignIn,
+    // Only a session known to be signed in is shown in use: one that could
+    // not be read keeps its sign-in a tap away.
+    libreChatInChargeSignedIn: libreChatSession is LibreChatSignedInState,
     accounts: read(openWebUiAccountsProvider).value,
     hermesConnections: read(hermesConnectionsProvider),
     hermesInUseId: read(hermesEnabledProvider)

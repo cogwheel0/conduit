@@ -25,15 +25,13 @@ import 'package:conduit_core/providers/host_ports.dart';
 import 'package:conduit_core/providers/storage_providers.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
 
-/// Preference that turns the LibreChat backend on before it ships.
+/// Preference that turns the LibreChat backend off (or back on).
 const String kLibreChatBackendEnabledPreference = 'librechat_backend_enabled_v1';
 
-/// Whether LibreChat can be added and used. Off until the backend is
-/// complete; developers turn it on with
-/// [kLibreChatBackendEnabledPreference].
+/// Whether LibreChat can be added and used. On, labelled Beta while it is
+/// new; [kLibreChatBackendEnabledPreference] set to false turns it off.
 final libreChatBackendEnabledProvider = Provider<bool>(
-  (ref) =>
-      PreferencesStore.getBool(kLibreChatBackendEnabledPreference) ?? false,
+  (ref) => PreferencesStore.getBool(kLibreChatBackendEnabledPreference) ?? true,
 );
 
 /// The HTTP adapter LibreChat clients use; null for the platform's own.
@@ -466,11 +464,27 @@ final class LibreChatAccounts {
       if (store.clears != clears) {
         throw StateError('LibreChat accounts were cleared meanwhile.');
       }
-      await store.sessionStore(account.id).write(session);
-      _signIns.update(account.id, (count) => count + 1, ifAbsent: () => 1);
-      await _ref
-          .read(libreChatRegistryProvider.notifier)
-          .save(account, activate: activate);
+      // A session this replaces may still be saving a renewal or a cookie:
+      // what it is writing lands first, and nothing it writes later
+      // overwrites this one.
+      await store.retireSessionStores(account.id);
+      try {
+        // That can wait on a session still ending, across a full sign-out:
+        // asked again, so the sign-in is not saved into what it cleared.
+        if (store.clears != clears) {
+          throw StateError('LibreChat accounts were cleared meanwhile.');
+        }
+        await store.sessionStore(account.id).write(session);
+        _signIns.update(account.id, (count) => count + 1, ifAbsent: () => 1);
+        await _ref
+            .read(libreChatRegistryProvider.notifier)
+            .save(account, activate: activate);
+      } catch (_) {
+        // The session in use was cut off from its store above: it reloads,
+        // onto one it can write to again.
+        _ref.invalidate(libreChatSessionProvider);
+        rethrow;
+      }
     });
     // A session saved again for the account in use must reload -- in use
     // now: one switched to while this waited has read no session yet.
@@ -516,7 +530,8 @@ final class LibreChatAccounts {
       // So does one switched away from, which can still be saving: what it
       // is writing lands first, and nothing it writes later is kept.
       await _store.retireSessionStores(accountId);
-      await store.clear();
+      // Through a store handed out now: the one read above is retired.
+      await _store.sessionStore(accountId).clear();
       await _ref.read(libreChatRegistryProvider.notifier).remove(accountId);
       try {
         await _ref.read(libreChatDatabaseManagerProvider).deleteFor(accountId);

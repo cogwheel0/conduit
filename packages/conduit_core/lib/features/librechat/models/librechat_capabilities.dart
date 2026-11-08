@@ -46,6 +46,10 @@ final class LibreChatCapabilities {
   final bool fileSearch;
   final bool mcpServers;
   final bool agents;
+
+  /// Making and updating share links their recipients can open: anyone
+  /// signed in to the server, or anyone at all where it allows anonymous
+  /// viewing (`ALLOW_SHARED_LINKS_PUBLIC`).
   final bool sharedLinks;
   final bool temporaryChat;
 
@@ -136,9 +140,14 @@ final class LibreChatCapabilities {
           agentsEndpoint is Map &&
           shown('agents', sub: 'use') &&
           granted('AGENTS'),
+      // LibreChat makes a role's links public only when it is granted that
+      // outright; a role that may make links but not public ones gets links
+      // only their owner can open, so none is offered.
       sharedLinks:
           startupConfig['sharedLinksEnabled'] != false &&
-          granted('SHARED_LINKS', 'CREATE'),
+          granted('SHARED_LINKS', 'CREATE') &&
+          permissions['SHARED_LINKS'] is Map &&
+          (permissions['SHARED_LINKS'] as Map)['SHARE_PUBLIC'] == true,
       temporaryChat: shown('temporaryChat') && granted('TEMPORARY_CHAT'),
       serverSearch: serverSearch,
       modelSelect: interface['modelSelect'] != false,
