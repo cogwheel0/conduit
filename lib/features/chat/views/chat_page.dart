@@ -24,6 +24,7 @@ import 'dart:async';
 import 'package:conduit_core/features/chat/providers/chat_model_choice.dart';
 import 'package:conduit_core/features/chat/models/model_selector_layout.dart';
 import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/providers/primary_account_providers.dart';
 
 import 'package:conduit_core/services/interaction_activity.dart';
 
@@ -73,7 +74,6 @@ import '../../navigation/utils/chat_list_back.dart';
 
 import 'package:conduit_core/utils/debug_logger.dart';
 
-import 'package:conduit_core/utils/user_display_name.dart';
 
 import '../../../core/utils/model_icon_utils.dart';
 import '../../../shared/widgets/markdown/markdown_compile_service.dart';
@@ -517,6 +517,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   ChatTimelineRowBuilder? _rowBuilderMemo;
   List<Object?> _rowRebuildKeysMemo = const <Object?>[];
   String? _cachedGreetingName;
+  // Whose name [_cachedGreetingName] is: it never greets another account.
+  PrimaryAccountRef? _greetingAccount;
   bool _greetingReady = false;
   ProviderSubscription<String?>? _screenContextSub;
   ProviderSubscription<bool>? _conversationLoadingSub;
@@ -3641,15 +3643,16 @@ class _ChatPageState extends ConsumerState<ChatPage> {
 
   Widget _buildEmptyState(ThemeData theme) {
     final l10n = AppLocalizations.of(context)!;
-    final authUser = ref.watch(currentUserProvider2);
-    final asyncUser = ref.watch(currentUserProvider);
-    final user = asyncUser.maybeWhen(
-      data: (value) => value ?? authUser,
-      orElse: () => authUser,
-    );
+    // Whoever owns the Chats tab: an Open WebUI or a LibreChat user.
+    final account = ref.watch(primaryAccountProvider);
+    if (account != _greetingAccount) {
+      _greetingAccount = account;
+      _cachedGreetingName = null;
+    }
+    final user = ref.watch(primaryUserProvider);
     String? greetingName;
     if (user != null) {
-      final derived = deriveUserDisplayName(user, fallback: '').trim();
+      final derived = user.displayName.trim();
       if (derived.isNotEmpty) {
         greetingName = derived;
         _cachedGreetingName = derived;

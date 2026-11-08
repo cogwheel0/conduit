@@ -40,3 +40,15 @@ final preferredBackendProvider =
     NotifierProvider<PreferredBackendController, PreferredBackend>(
       PreferredBackendController.new,
     );
+
+/// Which kind of account owns the Chats tab. Only one does at a time.
+enum PrimaryAccountKind { openWebUi, libreChat }
+
+/// LibreChat while it is the preferred backend; Open WebUI otherwise. Hermes
+/// and Direct installs count as Open WebUI here: the account they may also
+/// hold, alongside, is an Open WebUI one.
+final primaryAccountKindProvider = Provider<PrimaryAccountKind>(
+  (ref) => ref.watch(preferredBackendProvider) == PreferredBackend.libreChat
+      ? PrimaryAccountKind.libreChat
+      : PrimaryAccountKind.openWebUi,
+);
