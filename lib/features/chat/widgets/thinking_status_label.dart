@@ -171,18 +171,26 @@ class _ThinkingStatusLabelState extends State<ThinkingStatusLabel>
     final textTheme = Theme.of(context).textTheme;
     final baseStyle =
         widget.style ?? textTheme.bodyLarge ?? AppTypography.chatMessageStyle;
-    final restColor = theme.textPrimary.withValues(alpha: 0.6);
+    // Secondary text: quiet beside the reply but readable (4.5:1 or
+    // better), the time in the same tone so "Thinking… 3s" reads as one
+    // status. The sweep briefly lifts the label to primary.
+    final restColor = theme.textSecondary;
     final labelStyle = baseStyle.copyWith(color: restColor);
     final elapsedStyle = baseStyle.copyWith(
-      color: theme.textPrimary.withValues(alpha: 0.38),
+      color: theme.textSecondary,
       fontFeatures: const [FontFeature.tabularFigures()],
     );
 
+    // Both runs, the hidden empty time included, keep the style's own line
+    // box, so the label is exactly one line of [baseStyle] tall and can stand
+    // in a reply's first line without shifting it.
+    final strut = StrutStyle.fromTextStyle(baseStyle, forceStrutHeight: true);
     final label = Text(
       l10n.thinking,
       maxLines: 1,
       overflow: TextOverflow.ellipsis,
       style: labelStyle,
+      strutStyle: strut,
     );
 
     return Semantics(
@@ -232,6 +240,7 @@ class _ThinkingStatusLabelState extends State<ThinkingStatusLabel>
                       show ? formatThinkingElapsed(l10n, seconds) : '',
                       maxLines: 1,
                       style: elapsedStyle,
+                      strutStyle: strut,
                     ),
                   ),
                 );
