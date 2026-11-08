@@ -4125,5 +4125,11 @@
   "terminalPortPreviewReload": "새로고침",
   "terminalPortPreviewLoadFailed": "이 페이지를 불러올 수 없습니다.",
   "modelMenuAllModels": "모든 모델…",
-  "citationPreviewOpen": "열기"
+  "citationPreviewOpen": "열기",
+  "thinkingElapsedSeconds": "{seconds}초",
+  "thinkingElapsedMinutes": "{minutes}분 {seconds}초",
+  "copied": "복사됨",
+  "composerAddAttachment": "첨부 파일 추가",
+  "composerShowKeyboard": "키보드 보기",
+  "composerAttachUploads": "업로드한 파일"
 }

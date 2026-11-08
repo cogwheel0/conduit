@@ -4353,5 +4353,11 @@
   "terminalPortPreviewReload": "重新加载",
   "terminalPortPreviewLoadFailed": "无法加载此页面。",
   "modelMenuAllModels": "所有模型…",
-  "citationPreviewOpen": "打开"
+  "citationPreviewOpen": "打开",
+  "thinkingElapsedSeconds": "{seconds} 秒",
+  "thinkingElapsedMinutes": "{minutes} 分 {seconds} 秒",
+  "copied": "已复制",
+  "composerAddAttachment": "添加附件",
+  "composerShowKeyboard": "显示键盘",
+  "composerAttachUploads": "已上传"
 }

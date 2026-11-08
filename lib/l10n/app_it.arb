@@ -4353,5 +4353,11 @@
   "terminalPortPreviewReload": "Ricarica",
   "terminalPortPreviewLoadFailed": "Impossibile caricare questa pagina.",
   "modelMenuAllModels": "Tutti i modelli…",
-  "citationPreviewOpen": "Apri"
+  "citationPreviewOpen": "Apri",
+  "thinkingElapsedSeconds": "{seconds} s",
+  "thinkingElapsedMinutes": "{minutes} min {seconds} s",
+  "copied": "Copiato",
+  "composerAddAttachment": "Aggiungi allegato",
+  "composerShowKeyboard": "Mostra tastiera",
+  "composerAttachUploads": "Caricati"
 }

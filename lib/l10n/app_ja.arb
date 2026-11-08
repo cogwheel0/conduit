@@ -5970,5 +5970,11 @@
   "terminalPortPreviewReload": "再読み込み",
   "terminalPortPreviewLoadFailed": "このページを読み込めませんでした。",
   "modelMenuAllModels": "すべてのモデル…",
-  "citationPreviewOpen": "開く"
+  "citationPreviewOpen": "開く",
+  "thinkingElapsedSeconds": "{seconds}秒",
+  "thinkingElapsedMinutes": "{minutes}分{seconds}秒",
+  "copied": "コピーしました",
+  "composerAddAttachment": "添付ファイルを追加",
+  "composerShowKeyboard": "キーボードを表示",
+  "composerAttachUploads": "アップロード済み"
 }

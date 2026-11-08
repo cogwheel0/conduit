@@ -8161,5 +8161,11 @@
   "citationPreviewOpen": "Otwórz",
   "@citationPreviewOpen": {
     "description": "Button in a citation's preview popover that opens the cited page in the browser."
-  }
+  },
+  "thinkingElapsedSeconds": "{seconds} s",
+  "thinkingElapsedMinutes": "{minutes} min {seconds} s",
+  "copied": "Skopiowano",
+  "composerAddAttachment": "Dodaj załącznik",
+  "composerShowKeyboard": "Pokaż klawiaturę",
+  "composerAttachUploads": "Przesłane"
 }

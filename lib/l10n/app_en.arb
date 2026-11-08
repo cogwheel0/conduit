@@ -9126,5 +9126,42 @@
   "citationPreviewOpen": "Open",
   "@citationPreviewOpen": {
     "description": "Button in a citation's preview popover that opens the cited page in the browser."
+  },
+  "thinkingElapsedSeconds": "{seconds}s",
+  "@thinkingElapsedSeconds": {
+    "description": "Time a reply has been thinking so far, under a minute, shown beside \"Thinking…\" in tabular figures. Keep it short.",
+    "placeholders": {
+      "seconds": {
+        "type": "int"
+      }
+    }
+  },
+  "thinkingElapsedMinutes": "{minutes}m {seconds}s",
+  "@thinkingElapsedMinutes": {
+    "description": "Time a reply has been thinking so far, from one minute on, shown beside \"Thinking…\". The seconds are always two digits (05).",
+    "placeholders": {
+      "minutes": {
+        "type": "int"
+      },
+      "seconds": {
+        "type": "String"
+      }
+    }
+  },
+  "copied": "Copied",
+  "@copied": {
+    "description": "Brief confirmation on a Copy button after its text was copied; also read by VoiceOver."
+  },
+  "composerAddAttachment": "Add Attachment",
+  "@composerAddAttachment": {
+    "description": "Accessibility label and tooltip of the composer + button, which opens the panel for attaching files, photos, and tools."
+  },
+  "composerShowKeyboard": "Show Keyboard",
+  "@composerShowKeyboard": {
+    "description": "Accessibility label and tooltip of the composer button that closes the attachment panel and brings the keyboard back."
+  },
+  "composerAttachUploads": "Uploads",
+  "@composerAttachUploads": {
+    "description": "Attachment panel tile and sheet title for files already uploaded to the server, as opposed to \"Files\", which picks a file from the device. Keep it to one short word if possible."
   }
 }

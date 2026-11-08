@@ -6276,5 +6276,11 @@
   "terminalPortPreviewReload": "Načíst znovu",
   "terminalPortPreviewLoadFailed": "Tuto stránku se nepodařilo načíst.",
   "modelMenuAllModels": "Všechny modely…",
-  "citationPreviewOpen": "Otevřít"
+  "citationPreviewOpen": "Otevřít",
+  "thinkingElapsedSeconds": "{seconds} s",
+  "thinkingElapsedMinutes": "{minutes} min {seconds} s",
+  "copied": "Zkopírováno",
+  "composerAddAttachment": "Přidat přílohu",
+  "composerShowKeyboard": "Zobrazit klávesnici",
+  "composerAttachUploads": "Nahrané"
 }

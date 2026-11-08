@@ -6276,5 +6276,11 @@
   "terminalPortPreviewReload": "Znova načítať",
   "terminalPortPreviewLoadFailed": "Túto stránku sa nepodarilo načítať.",
   "modelMenuAllModels": "Všetky modely…",
-  "citationPreviewOpen": "Otvoriť"
+  "citationPreviewOpen": "Otvoriť",
+  "thinkingElapsedSeconds": "{seconds} s",
+  "thinkingElapsedMinutes": "{minutes} min {seconds} s",
+  "copied": "Skopírované",
+  "composerAddAttachment": "Pridať prílohu",
+  "composerShowKeyboard": "Zobraziť klávesnicu",
+  "composerAttachUploads": "Nahrané"
 }

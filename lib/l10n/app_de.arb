@@ -4353,5 +4353,11 @@
   "terminalPortPreviewReload": "Neu laden",
   "terminalPortPreviewLoadFailed": "Diese Seite konnte nicht geladen werden.",
   "modelMenuAllModels": "Alle Modelle…",
-  "citationPreviewOpen": "Öffnen"
+  "citationPreviewOpen": "Öffnen",
+  "thinkingElapsedSeconds": "{seconds} s",
+  "thinkingElapsedMinutes": "{minutes} min {seconds} s",
+  "copied": "Kopiert",
+  "composerAddAttachment": "Anhang hinzufügen",
+  "composerShowKeyboard": "Tastatur einblenden",
+  "composerAttachUploads": "Uploads"
 }

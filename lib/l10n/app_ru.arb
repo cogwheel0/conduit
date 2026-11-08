@@ -4391,5 +4391,11 @@
   "terminalPortPreviewReload": "Обновить",
   "terminalPortPreviewLoadFailed": "Не удалось загрузить эту страницу.",
   "modelMenuAllModels": "Все модели…",
-  "citationPreviewOpen": "Открыть"
+  "citationPreviewOpen": "Открыть",
+  "thinkingElapsedSeconds": "{seconds} с",
+  "thinkingElapsedMinutes": "{minutes} мин {seconds} с",
+  "copied": "Скопировано",
+  "composerAddAttachment": "Добавить вложение",
+  "composerShowKeyboard": "Показать клавиатуру",
+  "composerAttachUploads": "Загруженные"
 }

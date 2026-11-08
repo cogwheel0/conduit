@@ -4353,5 +4353,11 @@
   "terminalPortPreviewReload": "Actualiser",
   "terminalPortPreviewLoadFailed": "Impossible de charger cette page.",
   "modelMenuAllModels": "Tous les modèles…",
-  "citationPreviewOpen": "Ouvrir"
+  "citationPreviewOpen": "Ouvrir",
+  "thinkingElapsedSeconds": "{seconds} s",
+  "thinkingElapsedMinutes": "{minutes} min {seconds} s",
+  "copied": "Copié",
+  "composerAddAttachment": "Ajouter une pièce jointe",
+  "composerShowKeyboard": "Afficher le clavier",
+  "composerAttachUploads": "Importés"
 }
