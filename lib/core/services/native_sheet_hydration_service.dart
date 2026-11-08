@@ -1338,6 +1338,8 @@ class NativeSheetHydrationService {
                       NativeSheetOptionConfig(
                         id: theme.id,
                         label: theme.label(l10n),
+                        swatches: nativePaletteSwatches(theme.light),
+                        darkSwatches: nativePaletteSwatches(theme.dark),
                       ),
                   ],
                 ),
@@ -2140,3 +2142,13 @@ class NativeSheetHydrationService {
     );
   }
 }
+
+/// The colours a palette row previews in Appearance, as ARGB: the palette's
+/// primary (its ink and buttons), accent (its fills) and background, so
+/// Conduit reads as the monochrome it is and a coloured palette shows its
+/// hue.
+List<int> nativePaletteSwatches(TweakcnThemeVariant variant) => [
+  variant.primary.toARGB32(),
+  variant.accent.toARGB32(),
+  variant.background.toARGB32(),
+];

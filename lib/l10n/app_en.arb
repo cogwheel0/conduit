@@ -114,9 +114,9 @@
   "@slidingSidebar": {
     "description": "Appearance setting that opts into the sliding sidebar layout."
   },
-  "slidingSidebarDescription": "Notes, Terminal and Channels open beside your chats.",
+  "slidingSidebarDescription": "When on, Notes, Terminal, and Channels open beside your chats instead of replacing them.",
   "@slidingSidebarDescription": {
-    "description": "One-line footer under the Sliding Sidebar toggle in Appearance (and subtitle on Android): with the toggle on, Notes, Terminal and Channels open beside the chat list instead of inside the sidebar. Keep it short enough for one line."
+    "description": "One-sentence footer under the Sliding Sidebar toggle in Appearance (and subtitle on Android) saying what On does compared with Off: with it on, Notes, Terminal and Channels open beside the chat list; with it off, they replace the chat list inside the sidebar. Keep the feature names as the sidebar tabs write them."
   },
   "settingsAppearance": "Appearance",
   "@settingsAppearance": {
@@ -1864,9 +1864,9 @@
   "@citationBackground": {
     "description": "Toggle title for filled backgrounds on inline citation badges."
   },
-  "citationBackgroundDescription": "Puts a shaded background behind citations in replies. Turn it off for plain citations.",
+  "citationBackgroundDescription": "Puts a shaded background behind citations in replies.",
   "@citationBackgroundDescription": {
-    "description": "Footer under the Appearance group with the Citation Background toggle (and subtitle on Android): what the shaded citation background is and what turning it off does."
+    "description": "Footer under the Appearance group with the Citation Background toggle (and subtitle on Android): what the shaded citation background is. One sentence."
   },
   "citationShowTitles": "Show Citation Page Titles",
   "@citationShowTitles": {
@@ -6002,13 +6002,13 @@
   "@backendChooserModelApisSectionTitle": {
     "description": "Section title for direct model API choices on the first-run backend chooser."
   },
-  "backendChooserDirectTitle": "Connect Directly",
+  "backendChooserDirectTitle": "Model Provider",
   "@backendChooserDirectTitle": {
-    "description": "Title of the direct provider option on the first-run backend chooser."
+    "description": "Title of the option on the first-run backend chooser for chatting through a model provider's API (OpenAI, OpenRouter, Ollama) with the user's own key, without a server. Title Case."
   },
-  "backendChooserDirectSubtitle": "Connect an OpenAI-compatible or Ollama API. Credentials stay on this device.",
+  "backendChooserDirectSubtitle": "Chat through OpenAI, OpenRouter, or Ollama. Your key stays on this device.",
   "@backendChooserDirectSubtitle": {
-    "description": "Description of the direct provider option on the first-run backend chooser."
+    "description": "Subtitle of the Model Provider option on the first-run backend chooser: which providers it reaches and that the API key stays on the device. Keep the brand names OpenAI, OpenRouter and Ollama."
   },
   "backendChooserAppleOnDeviceTitle": "Apple On-Device",
   "@backendChooserAppleOnDeviceTitle": {
@@ -6151,9 +6151,9 @@
   "@backendChooserHermesTitle": {
     "description": "Title of the Hermes Agent option on the backend chooser."
   },
-  "backendChooserHermesSubtitle": "Connect a self-hosted Hermes agent.",
+  "backendChooserHermesSubtitle": "Chat with your own agent that uses tools and remembers past sessions.",
   "@backendChooserHermesSubtitle": {
-    "description": "Description of the Hermes Agent option on the backend chooser."
+    "description": "Subtitle of the Hermes Agent option on the first-run backend chooser: what the user gets (an agent of their own that uses tools and remembers past sessions), without repeating the title. Keep the brand name Hermes out of it; the title has it."
   },
   "hermesApprovalRequired": "Approval Required",
   "@hermesApprovalRequired": {
@@ -9231,5 +9231,33 @@
   "composerSaveDraftAsNoteDescription": "Keep this message as a new note instead of sending it.",
   "@composerSaveDraftAsNoteDescription": {
     "description": "Subtitle under the Save as Note row in the composer's + panel."
+  },
+  "authFieldServer": "Server",
+  "@authFieldServer": {
+    "description": "Leading label of the server address field on the iOS server step, as in an iOS account form (\"Server   https://…\"). One short word."
+  },
+  "authFieldEmail": "Email",
+  "@authFieldEmail": {
+    "description": "Leading label of the email field on the iOS sign-in form, as in an iOS account form. As short as possible: it sits in a column beside the field."
+  },
+  "authFieldName": "Name",
+  "@authFieldName": {
+    "description": "Leading label of the optional name field for a saved server address (not a person's name) on the iOS server step."
+  },
+  "authFieldRequired": "Required",
+  "@authFieldRequired": {
+    "description": "Placeholder inside a required text field whose leading label names it, as iOS account forms write it."
+  },
+  "authFieldOptional": "Optional",
+  "@authFieldOptional": {
+    "description": "Placeholder inside an optional text field whose leading label names it, as iOS account forms write it."
+  },
+  "authEmailPlaceholder": "name@example.com",
+  "@authEmailPlaceholder": {
+    "description": "Example address shown as the placeholder of the email field on the iOS sign-in form. Keep an example.com address."
+  },
+  "authTokenFieldLabel": "Token",
+  "@authTokenFieldLabel": {
+    "description": "Leading label of the session token field on the iOS sign-in form. One short word; the method control above already says Session Token."
   }
 }

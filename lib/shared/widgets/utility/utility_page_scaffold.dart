@@ -6,6 +6,7 @@ import '../adaptive_route_shell.dart';
 import '../adaptive_toolbar_components.dart';
 import '../chrome_gradient_fade.dart';
 import '../platform_ui/platform_ui.dart';
+import 'utility_grouped_surfaces.dart';
 
 /// Standard shell for settings and other calm, grouped utility screens.
 ///
@@ -42,6 +43,7 @@ class UtilityPageScaffold extends StatefulWidget {
     this.trailing,
     this.largeTitle = false,
     this.largeTitleHeader,
+    this.systemListMargins = false,
   }) : content = List<Widget>.unmodifiable(content);
 
   factory UtilityPageScaffold.auth({
@@ -81,6 +83,7 @@ class UtilityPageScaffold extends StatefulWidget {
     onTitleLongPress: onTitleLongPress,
     largeTitle: largeTitle,
     largeTitleHeader: largeTitleHeader,
+    systemListMargins: true,
   );
 
   factory UtilityPageScaffold.settings({
@@ -124,6 +127,11 @@ class UtilityPageScaffold extends StatefulWidget {
   /// scrolled away.
   final Widget? largeTitleHeader;
 
+  /// On iOS, insets the content and the bottom action by the margins UIKit
+  /// gives an inset-grouped list on this screen width, so grouped cards
+  /// line up with the native settings sheets' cards.
+  final bool systemListMargins;
+
   @override
   State<UtilityPageScaffold> createState() => _UtilityPageScaffoldState();
 }
@@ -141,6 +149,18 @@ class _UtilityPageScaffoldState extends State<UtilityPageScaffold> {
   /// over the large title at rest.
   bool _scrolledUnderBar = false;
 
+  /// Whether content continues below the bottom edge. A page with nothing
+  /// pinned under its list fades its rows out above the home indicator
+  /// then, as iOS's scroll edge does, instead of cutting them off under it.
+  bool _contentBelow = false;
+
+  bool _handleScrollMetrics(ScrollMetrics metrics) {
+    if (metrics.axis != Axis.vertical) return false;
+    final below = metrics.extentAfter > 0.5;
+    if (below != _contentBelow) setState(() => _contentBelow = below);
+    return false;
+  }
+
   @override
   void initState() {
     super.initState();
@@ -155,12 +175,25 @@ class _UtilityPageScaffoldState extends State<UtilityPageScaffold> {
   }
 
   /// The bar's title appears once half the large title has scrolled
-  /// under the bar, as a native large title collapses into it.
+  /// under the bar, as a native large title collapses into it. A header of
+  /// the page's own (a welcome hero) leads with artwork above its title, so
+  /// its title reaches the bar sooner: at [_customHeaderCollapseShare] of
+  /// its height. Either way the bar takes the title by the end of the list,
+  /// so a short page never rests with its title cut off and none in the bar.
   void _syncInlineTitle() {
     if (!_largeTitleActive(context) || !_controller.hasClients) return;
     final box = _largeTitleKey.currentContext?.findRenderObject();
     final height = box is RenderBox && box.hasSize ? box.size.height : 0.0;
-    final shown = _controller.offset > _largeTitleTop + height * 0.5;
+    final share = widget.largeTitleHeader == null
+        ? 0.5
+        : _customHeaderCollapseShare;
+    final position = _controller.position;
+    final threshold = _largeTitleTop + height * share;
+    final atEnd =
+        position.hasContentDimensions &&
+        position.maxScrollExtent > _largeTitleTop + height * 0.25 &&
+        position.pixels >= position.maxScrollExtent - 0.5;
+    final shown = _controller.offset > threshold || atEnd;
     final scrolled = _controller.offset > 0.5;
     if (shown != _inlineTitleShown || scrolled != _scrolledUnderBar) {
       setState(() {
@@ -183,10 +216,9 @@ class _UtilityPageScaffoldState extends State<UtilityPageScaffold> {
             header: true,
             child: Text(
               widget.title,
-              style:
-                  AppTypography.displayLargeStyle.copyWith(
-                    color: context.conduitTheme.textPrimary,
-                  ),
+              style: AppTypography.displayLargeStyle.copyWith(
+                color: context.conduitTheme.textPrimary,
+              ),
             ),
           ),
         );
@@ -201,6 +233,20 @@ class _UtilityPageScaffoldState extends State<UtilityPageScaffold> {
               child: header,
             ),
     );
+  }
+
+  EdgeInsets _bottomActionPadding(double? listMargin) {
+    final padding =
+        widget.bottomActionPadding ??
+        const EdgeInsets.fromLTRB(
+          Spacing.pagePadding,
+          Spacing.sm,
+          Spacing.pagePadding,
+          Spacing.sm,
+        );
+    return listMargin == null
+        ? padding
+        : padding.copyWith(left: listMargin, right: listMargin);
   }
 
   @override
@@ -226,6 +272,12 @@ class _UtilityPageScaffoldState extends State<UtilityPageScaffold> {
     if (largeTitleActive) {
       // A large title sits right under the bar, as on iOS.
       basePadding = basePadding.copyWith(top: Spacing.xs);
+    }
+    final listMargin = widget.systemListMargins && context.usesCupertinoChrome
+        ? iosInsetGroupedMargin(mediaQuery.size.width)
+        : null;
+    if (listMargin != null) {
+      basePadding = basePadding.copyWith(left: listMargin, right: listMargin);
     }
     final contentPadding = basePadding.copyWith(
       top: context.usesCupertinoChrome
@@ -258,12 +310,26 @@ class _UtilityPageScaffoldState extends State<UtilityPageScaffold> {
           ),
       ],
     );
-    final scrollable = context.usesCupertinoChrome
+    final scrollbar = context.usesCupertinoChrome
         ? CupertinoScrollbar(controller: _controller, child: list)
         : Scrollbar(
             controller: _controller,
             interactive: widget.interactiveScrollbar,
             child: list,
+          );
+    final fadesBottomEdge =
+        context.usesCupertinoChrome && widget.bottomAction == null;
+    final scrollable = !fadesBottomEdge
+        ? scrollbar
+        : NotificationListener<ScrollMetricsNotification>(
+            onNotification: (notification) =>
+                _handleScrollMetrics(notification.metrics),
+            child: NotificationListener<ScrollNotification>(
+              onNotification: (notification) =>
+                  notification.depth == 0 &&
+                  _handleScrollMetrics(notification.metrics),
+              child: scrollbar,
+            ),
           );
 
     final backNavigation = widget.backNavigation;
@@ -304,10 +370,7 @@ class _UtilityPageScaffoldState extends State<UtilityPageScaffold> {
             ),
           );
     final titleText = largeTitleActive
-        ? _InlineTitle(
-            title: widget.title,
-            shown: _inlineTitleShown,
-          )
+        ? _InlineTitle(title: widget.title, shown: _inlineTitleShown)
         : Text(widget.title);
     final title = widget.onTitleLongPress == null
         ? titleText
@@ -359,14 +422,7 @@ class _UtilityPageScaffoldState extends State<UtilityPageScaffold> {
                   if (widget.bottomAction != null)
                     SafeArea(
                       top: false,
-                      minimum:
-                          widget.bottomActionPadding ??
-                          const EdgeInsets.fromLTRB(
-                            Spacing.pagePadding,
-                            Spacing.sm,
-                            Spacing.pagePadding,
-                            Spacing.sm,
-                          ),
+                      minimum: _bottomActionPadding(listMargin),
                       child: Center(
                         child: ConstrainedBox(
                           constraints: BoxConstraints(
@@ -380,6 +436,25 @@ class _UtilityPageScaffoldState extends State<UtilityPageScaffold> {
               ),
             ),
           ),
+          if (fadesBottomEdge)
+            Positioned(
+              left: 0,
+              right: 0,
+              bottom: 0,
+              child: AnimatedOpacity(
+                key: const ValueKey<String>('utility-bottom-scroll-edge'),
+                opacity: _contentBelow ? 1 : 0,
+                duration: context.motionDuration(AnimationDuration.fast),
+                curve: Curves.easeOut,
+                child: ConduitChromeGradientFade.bottom(
+                  contentHeight: mediaQuery.viewPadding.bottom,
+                  fadeHeight: _bottomScrollEdgeFadeHeight,
+                  backgroundColor:
+                      widget.backgroundColor ??
+                      context.conduitTheme.groupedBackground,
+                ),
+              ),
+            ),
           if (context.usesCupertinoChrome)
             Positioned(
               left: 0,
@@ -396,6 +471,11 @@ class _UtilityPageScaffoldState extends State<UtilityPageScaffold> {
                   // Settings titles sit over scrolling rows; keep them
                   // legible.
                   solidBehindChrome: true,
+                  // The page's own tone, so the bar never reads as a band
+                  // of another colour over a grouped page.
+                  backgroundColor:
+                      widget.backgroundColor ??
+                      context.conduitTheme.groupedBackground,
                 ),
               ),
             ),
@@ -404,6 +484,14 @@ class _UtilityPageScaffoldState extends State<UtilityPageScaffold> {
     );
   }
 }
+
+/// The share of a custom large-title header's height that has scrolled
+/// under the bar when its title (below the header's artwork) reaches it.
+const double _customHeaderCollapseShare = 0.4;
+
+/// How far above the home indicator the bottom scroll edge reaches before
+/// rows are clear: about one row's subtitle line.
+const double _bottomScrollEdgeFadeHeight = 40;
 
 /// The bar title of a large-title page: semibold, shown only once the large
 /// title has scrolled under the bar, and silent to assistive tech until then

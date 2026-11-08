@@ -80,7 +80,7 @@ void main() {
       expect(find.text('Apple Intelligence'), findsOneWidget);
       expect(find.text('Model APIs'), findsOneWidget);
       expect(find.text('Open WebUI'), findsOneWidget);
-      expect(find.text('Connect Directly'), findsOneWidget);
+      expect(find.text('Model Provider'), findsOneWidget);
       expect(find.text('Apple On-Device'), findsOneWidget);
       expect(find.text('Apple Private Cloud Compute'), findsOneWidget);
       expect(find.text('Hermes Agent'), findsOneWidget);
@@ -147,7 +147,7 @@ void main() {
     expect(find.text('Apple On-Device'), findsOneWidget);
     expect(find.text('Apple Private Cloud Compute'), findsOneWidget);
     expect(find.text('Open WebUI'), findsOneWidget);
-    expect(find.text('Connect Directly'), findsOneWidget);
+    expect(find.text('Model Provider'), findsOneWidget);
 
     await harness.unmount(tester);
   });
@@ -173,7 +173,7 @@ void main() {
     expect(find.text('Apple On-Device'), findsNothing);
     expect(find.text('Apple Private Cloud Compute'), findsNothing);
     expect(find.text('Open WebUI'), findsOneWidget);
-    expect(find.text('Connect Directly'), findsOneWidget);
+    expect(find.text('Model Provider'), findsOneWidget);
 
     await harness.unmount(tester);
   });
@@ -310,9 +310,9 @@ void main() {
       expect(tester.takeException(), isNull);
 
       // The welcome hero leaves the last row below the fold here.
-      await tester.ensureVisible(find.text('Connect Directly'));
+      await tester.ensureVisible(find.text('Model Provider'));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Connect Directly'));
+      await tester.tap(find.text('Model Provider'));
       await tester.pumpAndSettle();
 
       final route = harness.router.routeInformationProvider.value.uri;
@@ -384,9 +384,9 @@ void main() {
       await tester.pumpAndSettle();
 
       // The welcome hero leaves the last row below the fold here.
-      await tester.ensureVisible(find.text('Connect Directly'));
+      await tester.ensureVisible(find.text('Model Provider'));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Connect Directly'));
+      await tester.tap(find.text('Model Provider'));
       await tester.pumpAndSettle();
 
       final route = harness.router.routeInformationProvider.value.uri;

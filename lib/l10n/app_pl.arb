@@ -111,7 +111,7 @@
     "description": "Settings destination for transport, connectivity, and related server data options."
   },
   "slidingSidebar": "Wysuwany panel boczny",
-  "slidingSidebarDescription": "Notatki, Terminal i Kanały otwierają się obok czatów.",
+  "slidingSidebarDescription": "Po włączeniu Notatki, Terminal i Kanały otwierają się obok czatów, zamiast je zastępować.",
   "settingsAppearance": "Wygląd",
   "@settingsAppearance": {
     "description": "Settings destination for app appearance options."
@@ -1825,7 +1825,7 @@
     "description": "Subtitle for the setting that suppresses assistant response streaming haptics."
   },
   "citationBackground": "Tło cytowań",
-  "citationBackgroundDescription": "Wyświetla cytowania w odpowiedziach na cieniowanym tle. Wyłącz, aby pokazywać je bez tła.",
+  "citationBackgroundDescription": "Wyświetla cytowania w odpowiedziach na cieniowanym tle.",
   "citationShowTitles": "Pokazuj tytuły stron w cytowaniach",
   "@citationShowTitles": {
     "description": "Toggle title for labeling inline citation badges with page titles instead of domains."
@@ -6386,11 +6386,11 @@
   "@backendChooserModelApisSectionTitle": {
     "description": "Section title for direct model API choices on the first-run backend chooser."
   },
-  "backendChooserDirectTitle": "Połącz bezpośrednio",
+  "backendChooserDirectTitle": "Dostawca modeli",
   "@backendChooserDirectTitle": {
     "description": "Title of the direct provider option on the first-run backend chooser."
   },
-  "backendChooserDirectSubtitle": "Połącz interfejs API zgodny z OpenAI lub Ollama. Dane logowania pozostaną na tym urządzeniu.",
+  "backendChooserDirectSubtitle": "Rozmawiaj przez OpenAI, OpenRouter lub Ollama. Twój klucz pozostaje na tym urządzeniu.",
   "@backendChooserDirectSubtitle": {
     "description": "Description of the direct provider option on the first-run backend chooser."
   },
@@ -6535,7 +6535,7 @@
   "@backendChooserHermesTitle": {
     "description": "Title of the Hermes Agent option on the backend chooser."
   },
-  "backendChooserHermesSubtitle": "Połącz samodzielnie hostowanego agenta Hermes.",
+  "backendChooserHermesSubtitle": "Rozmawiaj z własnym agentem, który korzysta z narzędzi i pamięta wcześniejsze sesje.",
   "@backendChooserHermesSubtitle": {
     "description": "Description of the Hermes Agent option on the backend chooser."
   },
@@ -8198,5 +8198,12 @@
     "description": "Shown when the server refuses to compare two prompt versions because either is too long."
   },
   "composerSaveDraftAsNote": "Zapisz jako notatkę",
-  "composerSaveDraftAsNoteDescription": "Zachowaj tę wiadomość jako nową notatkę zamiast ją wysyłać."
+  "composerSaveDraftAsNoteDescription": "Zachowaj tę wiadomość jako nową notatkę zamiast ją wysyłać.",
+  "authFieldServer": "Serwer",
+  "authFieldEmail": "E-mail",
+  "authFieldName": "Nazwa",
+  "authFieldRequired": "Wymagane",
+  "authFieldOptional": "Opcjonalne",
+  "authEmailPlaceholder": "name@example.com",
+  "authTokenFieldLabel": "Token"
 }

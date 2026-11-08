@@ -10,6 +10,11 @@ import '../../../shared/theme/theme_extensions.dart';
 
 /// Neutral gradient and ink of a monogram avatar, as iOS draws a contact
 /// without a photo: grey in both appearances, never a hue.
+///
+/// The greys are dark enough that the white initials reach 4.5:1 against
+/// every part of the gradient, in both appearances. The native Settings card
+/// (`nativeMonogramUIImage` in NativeSheetBridge.swift) draws the same
+/// colours, so the sidebar and Settings show one monogram.
 @immutable
 class SidebarMonogramColors {
   const SidebarMonogramColors({
@@ -20,15 +25,15 @@ class SidebarMonogramColors {
 
   /// The light-appearance monogram.
   static const light = SidebarMonogramColors(
-    top: Color(0xFFADADB3),
-    bottom: Color(0xFF8E8E93),
+    top: Color(0xFF737378),
+    bottom: Color(0xFF5A5A5F),
     foreground: Color(0xFFFFFFFF),
   );
 
   /// The dark-appearance monogram, a step darker so it does not glare.
   static const dark = SidebarMonogramColors(
-    top: Color(0xFF85858B),
-    bottom: Color(0xFF636368),
+    top: Color(0xFF6A6A6F),
+    bottom: Color(0xFF4E4E53),
     foreground: Color(0xFFFFFFFF),
   );
 

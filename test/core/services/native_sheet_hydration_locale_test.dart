@@ -332,6 +332,27 @@ void main() {
     check(sidebarGroup.items.single.value).equals(false);
     check(sidebarGroup.items.single.subtitle).isNull();
     check(sidebarGroup.footer).isNotNull();
+    // Every palette previews itself as swatches in both appearances, and
+    // Conduit's read as the monochrome palette it is.
+    final palette = appearance.single.sections
+        .expand((section) => section.items)
+        .singleWhere((item) => item.id == 'theme-palette');
+    check(palette.options).isNotEmpty();
+    for (final option in palette.options) {
+      check(option.swatchesArgb).isNotNull().length.equals(3);
+      check(option.darkSwatchesArgb).isNotNull().length.equals(3);
+    }
+    final conduit = palette.options.singleWhere(
+      (option) => option.id == 'conduit',
+    );
+    for (final argb in [
+      ...conduit.swatchesArgb!,
+      ...conduit.darkSwatchesArgb!,
+    ]) {
+      final color = Color(argb);
+      check(color.r).equals(color.g);
+      check(color.g).equals(color.b);
+    }
     // The pages that do need the server show the error instead.
     check(patches.where((p) => p.detailId == 'chats')).isNotEmpty();
   });
