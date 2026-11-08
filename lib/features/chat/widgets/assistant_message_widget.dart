@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io' show Platform;
 
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
+import 'package:flutter/semantics.dart' show SemanticsService;
 import 'package:material_ui/material_ui.dart';
 import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:flutter/services.dart' show Clipboard, ClipboardData;
@@ -193,6 +194,18 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     with TickerProviderStateMixin, WidgetsBindingObserver {
   final _overflowButtonKey = GlobalKey();
   final _inlineShareButtonKey = GlobalKey();
+
+  /// Copy shows a checkmark, read as "Copied", for a moment after it runs.
+  bool _showCopied = false;
+  Timer? _copiedTimer;
+  static const Duration _copiedConfirmationDuration = Duration(
+    milliseconds: 1200,
+  );
+
+  /// Reply actions: one SF Symbol size and colour for every glyph, inline or
+  /// in More, inside a 44 pt target.
+  static const double _footerActionTarget = 44;
+  static const double _footerActionGlyph = 17;
   final _inlineUsageButtonKey = GlobalKey();
   late AnimationController _fadeController;
   late AnimationController _streamingContentFadeController;
@@ -624,9 +637,11 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
 
   void _setActiveVersionIndex(int nextIndex) {
     final raw = _resolvedMessageContent(null, nextIndex);
+    _copiedTimer?.cancel();
     setState(() {
       _activeVersionIndex = nextIndex;
       _displayedContent = raw;
+      _showCopied = false;
     });
     _displayedContentListenable.value = raw;
     _resetTtsPlainTextState();
@@ -1230,6 +1245,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _copiedTimer?.cancel();
     _streamingContentSub?.close();
     _resetTtsPlainTextState();
     _fadeController.dispose();
@@ -2303,15 +2319,16 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     // from it is the point, so it leads the row as a labelled pill right after
     // the pager, and the usual buttons keep their places.
     final continueFromId = _continueFromVersionId();
+    // With 44 pt targets the pager and the pill can outgrow a narrow row, so
+    // the pill wraps under the pager rather than overflowing.
     final pagerGroup = continueFromId == null
         ? versionPager
-        : Row(
-            mainAxisSize: MainAxisSize.min,
+        : Wrap(
+            spacing: Spacing.xs,
+            runSpacing: Spacing.xs,
+            crossAxisAlignment: WrapCrossAlignment.center,
             children: [
-              if (versionPager != null) ...[
-                versionPager,
-                const SizedBox(width: Spacing.xs),
-              ],
+              ?versionPager,
               _buildContinueFromHerePill(continueFromId),
             ],
           );
@@ -2343,11 +2360,17 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
             icon: action.icon,
             label: action.label,
             onTap: action.onTap,
+            sfSymbol: action.sfSymbol,
+            playsOwnFeedback: action.playsOwnFeedback,
           ),
         ),
       ?overflowButton,
     ];
 
+    final buttonRow = Wrap(
+      crossAxisAlignment: WrapCrossAlignment.center,
+      children: actionButtons,
+    );
     return Wrap(
       spacing: Spacing.sm,
       runSpacing: Spacing.sm,
@@ -2355,14 +2378,27 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
       children: [
         if (continueFromId != null) pagerGroup!,
         if (actionButtons.isNotEmpty)
-          Wrap(
-            crossAxisAlignment: WrapCrossAlignment.center,
-            children: actionButtons,
-          ),
+          continueFromId == null
+              // The 44 pt targets leading the row start their glyphs where
+              // the reply's text starts, not a half-target inside it.
+              ? Transform.translate(
+                  offset: Offset(
+                    Directionality.of(context) == TextDirection.rtl
+                        ? _footerLeadingGlyphInset
+                        : -_footerLeadingGlyphInset,
+                    0,
+                  ),
+                  child: buttonRow,
+                )
+              : buttonRow,
         ...infoWidgets,
       ],
     );
   }
+
+  /// Half of a target's spare width around its glyph.
+  static const double _footerLeadingGlyphInset =
+      (_footerActionTarget - _footerActionGlyph - 4) / 2;
 
   /// The id of the alternative response being previewed, when the chat can
   /// continue from it: it must be a stored same-role sibling of this response,
@@ -2769,14 +2805,17 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     final actions = <_AssistantFooterAction>[
       _AssistantFooterAction(
         id: 'copy',
-        icon: Platform.isIOS
+        icon: _showCopied
+            ? (Platform.isIOS ? CupertinoIcons.checkmark : Icons.check)
+            : Platform.isIOS
             ? CupertinoIcons.doc_on_doc
             : Icons.content_copy_outlined,
-        label: l10n.copy,
+        label: _showCopied ? l10n.copied : l10n.copy,
         onTap: _responseCompleted && widget.onCopy != null
             ? () => unawaited(_copyResponse())
             : null,
-        sfSymbol: 'doc.on.doc',
+        sfSymbol: _showCopied ? 'checkmark' : 'doc.on.doc',
+        playsOwnFeedback: true,
       ),
       if (shouldShowTtsButton)
         _AssistantFooterAction(
@@ -2905,10 +2944,12 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
   Future<void> _copyResponse() async {
     if (_activeVersionIndex < 0) {
       widget.onCopy?.call();
+      _confirmCopied();
       return;
     }
     try {
       await Clipboard.setData(ClipboardData(text: _shareableResponseText()));
+      _confirmCopied();
     } catch (_) {
       if (!mounted) return;
       AdaptiveSnackBar.show(
@@ -2917,6 +2958,24 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
         type: AdaptiveSnackBarType.error,
       );
     }
+  }
+
+  /// Swaps Copy's glyph for a checkmark, read as "Copied", with a light tap,
+  /// then restores it.
+  void _confirmCopied() {
+    if (!mounted) return;
+    ConduitHaptics.lightImpact();
+    _copiedTimer?.cancel();
+    setState(() => _showCopied = true);
+    SemanticsService.sendAnnouncement(
+      View.of(context),
+      AppLocalizations.of(context)!.copied,
+      Directionality.of(context),
+    );
+    _copiedTimer = Timer(_copiedConfirmationDuration, () {
+      if (!mounted) return;
+      setState(() => _showCopied = false);
+    });
   }
 
   Future<void> _shareResponse() async {
@@ -2947,9 +3006,23 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     required IconData icon,
     required String label,
     VoidCallback? onTap,
+    String? sfSymbol,
+    bool playsOwnFeedback = false,
   }) {
-    return ChatActionButton(icon: icon, label: label, onTap: onTap);
+    return ChatActionButton(
+      icon: icon,
+      label: label,
+      onTap: onTap,
+      sfSymbol: sfSymbol,
+      size: _footerActionTarget,
+      iconSize: _footerActionGlyph,
+      color: _footerActionColor,
+      hapticFeedback: !playsOwnFeedback,
+    );
   }
+
+  Color get _footerActionColor =>
+      context.conduitTheme.textPrimary.withValues(alpha: 0.72);
 
   /// `‹ 2/3 ›`: steps through this response's regenerations in place.
   /// [indices] are the answers it covers, oldest first, as indexes into
@@ -3066,7 +3139,6 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     List<_AssistantFooterAction> overflowActions,
   ) {
     final l10n = AppLocalizations.of(context)!;
-    final theme = context.conduitTheme;
 
     return AdaptiveTooltip(
       key: _overflowButtonKey,
@@ -3093,9 +3165,9 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
               }
             }
           },
-          tint: theme.textPrimary.withValues(alpha: 0.8),
-          size: 32,
-          iconSize: IconSize.sm,
+          tint: _footerActionColor,
+          size: _footerActionTarget,
+          iconSize: _footerActionGlyph,
           buttonStyle: PopupButtonStyle.plain,
         ),
       ),
@@ -3129,6 +3201,7 @@ class _AssistantFooterAction {
     required this.label,
     required this.sfSymbol,
     this.onTap,
+    this.playsOwnFeedback = false,
   });
 
   final String id;
@@ -3136,6 +3209,10 @@ class _AssistantFooterAction {
   final String label;
   final String sfSymbol;
   final VoidCallback? onTap;
+
+  /// Whether the action confirms itself (Copy's checkmark and tap), so the
+  /// button skips its generic selection haptic.
+  final bool playsOwnFeedback;
 }
 
 String _buildTtsPlainTextWorker(Map<String, dynamic> payload) {

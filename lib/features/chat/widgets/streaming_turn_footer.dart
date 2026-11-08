@@ -175,10 +175,9 @@ class _StreamingTurnFooterState extends ConsumerState<StreamingTurnFooter> {
                                     key: const ValueKey(
                                       'streaming-turn-thinking-label',
                                     ),
-                                    padding:
-                                        const EdgeInsetsDirectional.only(
-                                          start: Spacing.xs,
-                                        ),
+                                    padding: const EdgeInsetsDirectional.only(
+                                      start: Spacing.xs,
+                                    ),
                                     child: ThinkingStatusLabel(
                                       startedAt: widget.message.timestamp,
                                       animate: !_disableAnimations,

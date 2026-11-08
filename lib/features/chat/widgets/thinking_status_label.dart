@@ -170,9 +170,7 @@ class _ThinkingStatusLabelState extends State<ThinkingStatusLabel>
     final theme = context.conduitTheme;
     final textTheme = Theme.of(context).textTheme;
     final baseStyle =
-        widget.style ??
-        textTheme.bodyLarge ??
-        AppTypography.chatMessageStyle;
+        widget.style ?? textTheme.bodyLarge ?? AppTypography.chatMessageStyle;
     final restColor = theme.textPrimary.withValues(alpha: 0.6);
     final labelStyle = baseStyle.copyWith(color: restColor);
     final elapsedStyle = baseStyle.copyWith(

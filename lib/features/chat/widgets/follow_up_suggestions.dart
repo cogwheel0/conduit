@@ -191,7 +191,9 @@ class _FollowUpSuggestionRowState extends State<FollowUpSuggestionRow> {
                     : context.motionDuration(const Duration(milliseconds: 180)),
                 curve: Curves.easeOut,
                 decoration: BoxDecoration(
-                  color: _isPressed ? highlight : highlight.withValues(alpha: 0),
+                  color: _isPressed
+                      ? highlight
+                      : highlight.withValues(alpha: 0),
                   borderRadius: BorderRadius.circular(10),
                 ),
               ),
