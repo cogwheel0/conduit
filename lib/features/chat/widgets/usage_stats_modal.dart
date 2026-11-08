@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'dart:io' show Platform;
 
 import 'package:material_ui/material_ui.dart';
 
@@ -8,19 +7,55 @@ import 'package:conduit_core/utils/usage_summary.dart';
 
 import '../../../core/services/native_sheet_bridge.dart';
 import '../../../shared/theme/theme_extensions.dart';
+import '../../../shared/widgets/platform_ui/platform_ui.dart';
 import '../../../shared/widgets/themed_sheets.dart';
 
-/// Modal bottom sheet displaying usage/performance statistics for a
-/// chat response, matching Open WebUI's info button behavior.
+/// One figure of a response's usage: what it is, its value and, for a rate,
+/// the count it was measured on.
+typedef _UsageStat = ({String label, String value, String? detail});
+
+/// Usage/performance statistics for a chat response, behind its Info
+/// button as in Open WebUI: a popover on iOS 26 and later, a sheet
+/// elsewhere.
 class UsageStatsModal {
   UsageStatsModal._();
 
-  /// Shows a bottom sheet with usage/performance statistics for the response.
-  static void show(BuildContext context, Map<String, dynamic> usage) async {
+  /// Shows usage/performance statistics for the response.
+  ///
+  /// On iOS 26 and later they open in the system popover, pointing at the
+  /// widget of [anchorKey] (the button that asked for them). Without an
+  /// anchor, elsewhere, or when the usage holds no figure the summary knows,
+  /// they open in a sheet.
+  static void show(
+    BuildContext context,
+    Map<String, dynamic> usage, {
+    GlobalKey? anchorKey,
+  }) async {
     final theme = context.conduitTheme;
     final l10n = AppLocalizations.of(context)!;
 
-    if (Platform.isIOS) {
+    if (anchorKey != null) {
+      final summary = UsageSummary.fromUsage(usage);
+      final shown = await AdaptiveInfoPopover.show(
+        context: context,
+        anchorKey: anchorKey,
+        title: l10n.usageInfoTitle,
+        message: summary.incomplete ? l10n.usageIncomplete : null,
+        rows: [
+          for (final stat in _usageStats(summary, l10n))
+            AdaptiveInfoPopoverRow(
+              label: stat.label,
+              value: stat.value,
+              detail: stat.detail,
+            ),
+        ],
+      );
+      if (shown || !context.mounted) {
+        return;
+      }
+    }
+
+    if (PlatformUiCapabilities.isIOS) {
       try {
         await NativeSheetBridge.instance.presentSheet(
           root: NativeSheetDetailConfig(
@@ -94,70 +129,16 @@ class UsageStatsModal {
     AppLocalizations l10n,
     ConduitThemeExtension theme,
   ) {
-    final stats = <Widget>[];
-    // The arithmetic is the core's, shared with the desktop app; this only
-    // lays it out.
     final summary = UsageSummary.fromUsage(usage);
-
-    Widget row(String label, String value, {String? detail}) =>
-        _UsageStatRow(label: label, value: value, detail: detail, theme: theme);
-    String? count(int? tokens) =>
-        tokens == null ? null : l10n.usageTokenCount(tokens);
-
-    if (summary.generationPerSecond case final rate?) {
-      stats.add(
-        row(
-          l10n.usageTokenGeneration,
-          l10n.usageTokensPerSecond(rate.toStringAsFixed(1)),
-          detail: count(summary.generationTokens),
+    final stats = <Widget>[
+      for (final stat in _usageStats(summary, l10n))
+        _UsageStatRow(
+          label: stat.label,
+          value: stat.value,
+          detail: stat.detail,
+          theme: theme,
         ),
-      );
-    } else if (summary.generationTokens case final tokens?) {
-      stats.add(row(l10n.usageTokenGeneration, l10n.usageTokenCount(tokens)));
-    }
-
-    if (summary.promptPerSecond case final rate?) {
-      stats.add(
-        row(
-          l10n.usagePromptEval,
-          l10n.usageTokensPerSecond(rate.toStringAsFixed(1)),
-          detail: count(summary.promptTokens),
-        ),
-      );
-    } else if (summary.promptTokens case final tokens?) {
-      stats.add(row(l10n.usagePromptEval, l10n.usageTokenCount(tokens)));
-    }
-
-    if (summary.reasoningTokens case final tokens?) {
-      stats.add(row(l10n.usageReasoningTokens, l10n.usageTokenCount(tokens)));
-    }
-    if (summary.totalTokens case final tokens?) {
-      stats.add(row(l10n.usageTotalTokens, l10n.usageTokenCount(tokens)));
-    }
-    if (summary.totalSeconds case final seconds?) {
-      stats.add(
-        row(
-          l10n.usageTotalDuration,
-          l10n.usageSecondsFormat(seconds.toStringAsFixed(2)),
-        ),
-      );
-    }
-    if (summary.queueSeconds case final seconds?) {
-      stats.add(
-        row(
-          l10n.usageQueueTime,
-          l10n.usageSecondsFormat(seconds.toStringAsFixed(3)),
-        ),
-      );
-    }
-    if (summary.loadSeconds case final seconds?) {
-      stats.add(
-        row(
-          l10n.usageLoadDuration,
-          l10n.usageSecondsFormat(seconds.toStringAsFixed(2)),
-        ),
-      );
-    }
+    ];
     // Open WebUI's web client shows the flag with the raw figures; here it is
     // said in words, so partial figures do not pass for the whole reply's.
     if (summary.incomplete && stats.isNotEmpty) {
@@ -175,6 +156,66 @@ class UsageStatsModal {
       );
     }
 
+    return stats;
+  }
+
+  /// The figures of [summary], in the order the sheet and the popover list
+  /// them. The arithmetic is the core's, shared with the desktop app; this
+  /// only words it.
+  static List<_UsageStat> _usageStats(
+    UsageSummary summary,
+    AppLocalizations l10n,
+  ) {
+    final stats = <_UsageStat>[];
+    void add(String label, String value, {String? detail}) =>
+        stats.add((label: label, value: value, detail: detail));
+    String? count(int? tokens) =>
+        tokens == null ? null : l10n.usageTokenCount(tokens);
+
+    if (summary.generationPerSecond case final rate?) {
+      add(
+        l10n.usageTokenGeneration,
+        l10n.usageTokensPerSecond(rate.toStringAsFixed(1)),
+        detail: count(summary.generationTokens),
+      );
+    } else if (summary.generationTokens case final tokens?) {
+      add(l10n.usageTokenGeneration, l10n.usageTokenCount(tokens));
+    }
+
+    if (summary.promptPerSecond case final rate?) {
+      add(
+        l10n.usagePromptEval,
+        l10n.usageTokensPerSecond(rate.toStringAsFixed(1)),
+        detail: count(summary.promptTokens),
+      );
+    } else if (summary.promptTokens case final tokens?) {
+      add(l10n.usagePromptEval, l10n.usageTokenCount(tokens));
+    }
+
+    if (summary.reasoningTokens case final tokens?) {
+      add(l10n.usageReasoningTokens, l10n.usageTokenCount(tokens));
+    }
+    if (summary.totalTokens case final tokens?) {
+      add(l10n.usageTotalTokens, l10n.usageTokenCount(tokens));
+    }
+    if (summary.totalSeconds case final seconds?) {
+      add(
+        l10n.usageTotalDuration,
+        l10n.usageSecondsFormat(seconds.toStringAsFixed(2)),
+      );
+    }
+    if (summary.queueSeconds case final seconds?) {
+      add(
+        l10n.usageQueueTime,
+        l10n.usageSecondsFormat(seconds.toStringAsFixed(3)),
+      );
+    }
+    if (summary.loadSeconds case final seconds?) {
+      add(
+        l10n.usageLoadDuration,
+        l10n.usageSecondsFormat(seconds.toStringAsFixed(2)),
+      );
+    }
     return stats;
   }
 

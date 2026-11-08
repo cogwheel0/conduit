@@ -187,6 +187,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     with TickerProviderStateMixin, WidgetsBindingObserver {
   final _overflowButtonKey = GlobalKey();
   final _inlineShareButtonKey = GlobalKey();
+  final _inlineUsageButtonKey = GlobalKey();
   late AnimationController _fadeController;
   late AnimationController _streamingContentFadeController;
   late CurvedAnimation _streamingContentFade;
@@ -2300,7 +2301,11 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
       if (continueFromId == null) ?versionPager,
       for (final action in visibleActions)
         KeyedSubtree(
-          key: action.id == 'share' ? _inlineShareButtonKey : null,
+          key: switch (action.id) {
+            'share' => _inlineShareButtonKey,
+            'usage' => _inlineUsageButtonKey,
+            _ => null,
+          },
           child: _buildActionButton(
             icon: action.icon,
             label: action.label,
@@ -2773,7 +2778,15 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
           id: 'usage',
           icon: Platform.isIOS ? CupertinoIcons.info : Icons.info_outline,
           label: l10n.usageInfo,
-          onTap: () => UsageStatsModal.show(context, activeUsage),
+          // The popover points at the Info button, or at More when Info is
+          // one of its items.
+          onTap: () => UsageStatsModal.show(
+            context,
+            activeUsage,
+            anchorKey: _inlineUsageButtonKey.currentContext != null
+                ? _inlineUsageButtonKey
+                : _overflowButtonKey,
+          ),
           sfSymbol: 'info.circle',
         ),
       if (canFork)

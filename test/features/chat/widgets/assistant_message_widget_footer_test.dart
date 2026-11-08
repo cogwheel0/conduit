@@ -1008,6 +1008,88 @@ void main() {
     await tester.pump(const Duration(milliseconds: 500));
   });
 
+  group('usage popover on iOS 26', () {
+    const channel = MethodChannel('cn_popover');
+    final calls = <MethodCall>[];
+
+    setUp(() {
+      PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.iOS;
+      PlatformUiCapabilities.debugIOSMajorVersionOverride = 26;
+      PlatformUiCapabilities.debugNativeIOS26Override = true;
+      calls.clear();
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, (call) async {
+            calls.add(call);
+            return null;
+          });
+    });
+
+    tearDown(() {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, null);
+    });
+
+    for (final inline in [true, false]) {
+      testWidgets(
+        inline
+            ? 'points at the Info button'
+            : 'points at More when Info is one of its items',
+        (tester) async {
+          final message = ChatMessage(
+            id: 'usage-anchor',
+            role: 'assistant',
+            content: 'Water the seedlings gently.',
+            timestamp: DateTime(2026, 1, 1),
+            usage: const {'output_tokens': 120},
+          );
+          await tester.pumpWidget(
+            _buildAssistantHarness(
+              message,
+              settings: AppSettings(
+                inlineMessageActions: [inline ? 'usage' : 'copy'],
+              ),
+            ),
+          );
+          await tester.pump();
+
+          final Rect anchor;
+          if (inline) {
+            final button = find.ancestor(
+              of: find.byIcon(Icons.info_outline),
+              matching: find.byType(ChatActionButton),
+            );
+            anchor = tester.getRect(button);
+            await tester.tap(button);
+          } else {
+            final more = find.byType(CNPopupMenuButton);
+            anchor = tester.getRect(more);
+            final menu = tester.widget<CNPopupMenuButton>(more);
+            menu.onSelected!(
+              menu.items.indexWhere(
+                (item) => item is CNPopupMenuItem && item.label == 'Info',
+              ),
+            );
+          }
+          await tester.pump();
+
+          expect(calls.single.method, 'show');
+          expect((calls.single.arguments as Map)['anchor'], {
+            'x': anchor.left,
+            'y': anchor.top,
+            'width': anchor.width,
+            'height': anchor.height,
+          });
+
+          // The native package delays platform-view readiness in debug
+          // builds. Dispose the control before advancing that guard timer.
+          await tester.pumpWidget(const SizedBox.shrink());
+          await tester.pump(const Duration(milliseconds: 500));
+        },
+        variant: TargetPlatformVariant.only(TargetPlatform.iOS),
+      );
+    }
+  });
+
   testWidgets('a voice reply names itself in the app language', (
     tester,
   ) async {
