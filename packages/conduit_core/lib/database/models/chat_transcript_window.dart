@@ -22,6 +22,30 @@ int renderedTranscriptCount({required int total, required int loadedCount}) {
   return loadedCount < total ? loadedCount : total;
 }
 
+/// How many of the [total] messages to show so that the oldest row of the
+/// window already on screen stays in it: messages appended at the tail (a
+/// send, a reply) grow the window instead of sliding it forward. Paging only
+/// learns the new total after the frame, and a sliding window would drop its
+/// oldest rows for that frame (a short chat's whole previous turn) and bring
+/// them back above the new turn the next.
+///
+/// [previousOldestIndex] is where the previous window's oldest message now
+/// sits in the complete transcript, or null when it is gone or the window was
+/// reset.
+int transcriptCountKeepingOldestRow({
+  required int total,
+  required int requestedCount,
+  required int? previousOldestIndex,
+}) {
+  if (previousOldestIndex == null ||
+      previousOldestIndex < 0 ||
+      previousOldestIndex >= total) {
+    return requestedCount;
+  }
+  final kept = total - previousOldestIndex;
+  return kept > requestedCount ? kept : requestedCount;
+}
+
 /// Whether to load the next older page: the user has scrolled the timeline
 /// themselves, older messages exist, none are loading, and the oldest
 /// loaded row is on screen.

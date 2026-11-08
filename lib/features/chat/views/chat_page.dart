@@ -137,7 +137,8 @@ import 'package:conduit_core/features/chat/views/chat_turn_render_state.dart';
 import '../widgets/streaming_turn_footer.dart';
 import '../widgets/openwebui_prompt_overlay.dart';
 import '../widgets/openwebui_task_list.dart';
-import '../widgets/chat_send_motion.dart' show ChatGreetingExit;
+import '../widgets/chat_send_motion.dart'
+    show ChatGreetingExit, ChatSendEntrance;
 import '../widgets/chat_timeline_viewport.dart';
 import '../widgets/chat_scroll_to_latest_button.dart';
 import '../../../platform/frame_profiler.dart';
@@ -522,7 +523,6 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   static const int _pinScrollMaxAttempts = 12;
   static const double _scrollCorrectionEpsilon = 1.0;
   static const double _pinnedMeasurementEpsilon = 0.5;
-  static const Duration _pinTransitionDuration = Duration(milliseconds: 220);
 
   final ChatTimelineViewportController _timelineViewportController =
       ChatTimelineViewportController();
@@ -596,7 +596,9 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   // the viewport's sliver delegate skip rebuilding every mounted row, and lets
   // the stable-layout cache hit its identity fast path.
   List<ChatMessage>? _transcriptWindowSource;
-  int _transcriptWindowCount = -1;
+  int _transcriptWindowRequestedCount = -1;
+  int _transcriptWindowPagingGeneration = -1;
+  int _transcriptWindowOwnerGeneration = -1;
   List<ChatMessage> _transcriptWindowMemo = const <ChatMessage>[];
   List<ChatMessage>? _timelineModelSource;
   int _timelineModelGeneration = -1;
@@ -2285,14 +2287,53 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     List<ChatMessage> completeMessages,
     ChatTranscriptPagingState paging,
   ) {
-    final count = _renderedTranscriptCount(completeMessages, paging);
-    if (!identical(_transcriptWindowSource, completeMessages) ||
-        count != _transcriptWindowCount) {
-      _transcriptWindowSource = completeMessages;
-      _transcriptWindowCount = count;
-      _transcriptWindowMemo = latestTranscriptWindow(completeMessages, count);
+    final requested = _renderedTranscriptCount(completeMessages, paging);
+    final sameWindow =
+        paging.generation == _transcriptWindowPagingGeneration &&
+        _conversationOwnerGeneration == _transcriptWindowOwnerGeneration;
+    if (sameWindow &&
+        identical(_transcriptWindowSource, completeMessages) &&
+        requested == _transcriptWindowRequestedCount) {
+      return _transcriptWindowMemo;
     }
+    // A send appends its turn before paging hears of the new total; keep the
+    // rows already on screen rather than sliding the window past them.
+    final count = transcriptCountKeepingOldestRow(
+      total: completeMessages.length,
+      requestedCount: requested,
+      previousOldestIndex: sameWindow
+          ? _indexOfWindowStart(completeMessages, _transcriptWindowMemo)
+          : null,
+    );
+    _transcriptWindowSource = completeMessages;
+    _transcriptWindowRequestedCount = requested;
+    _transcriptWindowPagingGeneration = paging.generation;
+    _transcriptWindowOwnerGeneration = _conversationOwnerGeneration;
+    _transcriptWindowMemo = latestTranscriptWindow(completeMessages, count);
     return _transcriptWindowMemo;
+  }
+
+  /// Where [window]'s oldest message now sits in [completeMessages], or null.
+  /// Appends leave it where it was, so that index is checked first.
+  static int? _indexOfWindowStart(
+    List<ChatMessage> completeMessages,
+    List<ChatMessage> window,
+  ) {
+    if (window.isEmpty) return null;
+    final oldestId = window.first.id;
+    // Where it would be if nothing before it changed.
+    final likely = completeMessages.length - window.length;
+    for (final index in [likely, likely - 1, likely - 2]) {
+      if (index >= 0 &&
+          index < completeMessages.length &&
+          completeMessages[index].id == oldestId) {
+        return index;
+      }
+    }
+    final index = completeMessages.indexWhere(
+      (message) => message.id == oldestId,
+    );
+    return index < 0 ? null : index;
   }
 
   bool _hasScrollableTranscriptContent() {
@@ -2806,6 +2847,14 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         );
         return;
       }
+      if (!context.reduceMotion && !_pinShouldSettleImmediately) {
+        _springPinnedTurnIntoPlace(
+          targetId: targetId,
+          generation: generation,
+          attempt: attempt,
+        );
+        return;
+      }
       final targetRowMounted =
           _timelineViewportController.rowRect(targetId) != null;
       final geometryReady = _pinGeometryReady && targetRowMounted;
@@ -2846,44 +2895,9 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         return;
       }
 
-      if (context.reduceMotion || _pinShouldSettleImmediately) {
-        unawaited(
-          _timelineViewportController
-              .jumpMessageToTop(targetId)
-              .then(
-                (moved) {
-                  if (moved) {
-                    _markPinToTopPositionSettled(generation);
-                  } else {
-                    _cancelFailedPinToTopSettlement(
-                      generation: generation,
-                      reason: 'target-not-visible',
-                    );
-                  }
-                },
-                onError: (Object error, StackTrace stackTrace) {
-                  DebugLogger.error(
-                    'pin-jump-failed',
-                    scope: 'chat/scroll',
-                    error: error,
-                    stackTrace: stackTrace,
-                  );
-                  _cancelFailedPinToTopSettlement(
-                    generation: generation,
-                    reason: 'jump-failed',
-                  );
-                },
-              ),
-        );
-        return;
-      }
       unawaited(
         _timelineViewportController
-            .animateMessageToTop(
-              targetId,
-              duration: _pinTransitionDuration,
-              curve: Curves.easeOutCubic,
-            )
+            .jumpMessageToTop(targetId)
             .then(
               (moved) {
                 if (moved) {
@@ -2897,19 +2911,72 @@ class _ChatPageState extends ConsumerState<ChatPage> {
               },
               onError: (Object error, StackTrace stackTrace) {
                 DebugLogger.error(
-                  'pin-animation-failed',
+                  'pin-jump-failed',
                   scope: 'chat/scroll',
                   error: error,
                   stackTrace: stackTrace,
                 );
                 _cancelFailedPinToTopSettlement(
                   generation: generation,
-                  reason: 'animation-failed',
+                  reason: 'jump-failed',
                 );
               },
             ),
       );
     });
+  }
+
+  /// Brings a sent turn up to its pinned place on the sent message's own
+  /// spring, from the frame of the send: the previous reply stays in view and
+  /// slides up as the new turn takes the top, and the flying message aims at
+  /// where its row will rest, so the two arrive together. The row needs no
+  /// measuring first; the viewport aims at its estimated place until it is
+  /// built and corrects course each frame.
+  void _springPinnedTurnIntoPlace({
+    required String targetId,
+    required int generation,
+    required int attempt,
+  }) {
+    if (!_timelineViewportController.hasClients) {
+      if (attempt < _pinScrollMaxAttempts) {
+        _scrollToUserMessage(generation: generation, attempt: attempt + 1);
+        WidgetsBinding.instance.scheduleFrame();
+      } else {
+        _cancelFailedPinToTopSettlement(
+          generation: generation,
+          reason: 'controller-not-attached',
+        );
+      }
+      return;
+    }
+    unawaited(
+      _timelineViewportController
+          .springMessageToTop(targetId, spring: ChatSendEntrance.spring)
+          .then(
+            (moved) {
+              if (moved) {
+                _markPinToTopPositionSettled(generation);
+              } else {
+                _cancelFailedPinToTopSettlement(
+                  generation: generation,
+                  reason: 'target-not-visible',
+                );
+              }
+            },
+            onError: (Object error, StackTrace stackTrace) {
+              DebugLogger.error(
+                'pin-animation-failed',
+                scope: 'chat/scroll',
+                error: error,
+                stackTrace: stackTrace,
+              );
+              _cancelFailedPinToTopSettlement(
+                generation: generation,
+                reason: 'animation-failed',
+              );
+            },
+          ),
+    );
   }
 
   void _cancelFailedPinToTopSettlement({
@@ -3001,8 +3068,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     final isStreaming = watchRef.watch(isChatStreamingProvider);
     final completeMessages = watchRef.read(chatMessagesProvider);
     final paging = watchRef.watch(chatTranscriptPagingProvider);
-    final requestedCount = _renderedTranscriptCount(completeMessages, paging);
     final messages = _renderedTranscriptWindow(completeMessages, paging);
+    final requestedCount = messages.length;
     final pinnedAssistantId = _pinToTopState.streamingMessageId;
     final pinnedAssistantPhase = pinnedAssistantId == null
         ? null
@@ -3037,7 +3104,10 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         final currentMessageCount = ref.read(chatMessagesProvider).length;
         ref
             .read(chatTranscriptPagingProvider.notifier)
-            .ensureTotal(currentMessageCount);
+            .ensureTotal(
+              currentMessageCount,
+              minimumLoaded: _transcriptWindowMemo.length,
+            );
       });
     }
     final isLoadingConversation = watchRef.watch(isLoadingConversationProvider);

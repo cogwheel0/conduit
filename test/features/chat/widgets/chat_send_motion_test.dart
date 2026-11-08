@@ -1,4 +1,6 @@
 import 'package:conduit/features/chat/widgets/chat_send_motion.dart';
+import 'package:conduit/features/chat/widgets/chat_timeline_viewport.dart';
+import 'package:conduit_core/database/models/chat_transcript_window.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
@@ -46,6 +48,123 @@ double _paintedOpacity(WidgetTester tester) {
   final layers = tester.layers.whereType<OpacityLayer>().toList();
   if (layers.isEmpty) return 1;
   return (layers.last.alpha ?? 255) / 255;
+}
+
+const _flightText = ValueKey('flight-text');
+
+/// A transcript of [historyCount] 52 pt rows in a 400 × 600 view, at its end
+/// or scrolled to its top, whose [send] appends a user turn that leaves
+/// from its typed words.
+Future<
+  ({
+    ChatTimelineViewportController controller,
+    Future<void> Function() send,
+    double Function(String id, {bool bottom}) rowTop,
+    Future<void> Function() dispose,
+  })
+>
+_pumpTimeline(
+  WidgetTester tester, {
+  required int historyCount,
+  String? anchorId,
+  double lastReplyHeight = 52,
+}) async {
+  final scrolledUp = anchorId != null;
+  tester.view.devicePixelRatio = 1;
+  tester.view.physicalSize = const Size(400, 600);
+  addTearDown(tester.view.resetDevicePixelRatio);
+  addTearDown(tester.view.resetPhysicalSize);
+  final controller = ChatTimelineViewportController();
+  final history = List<String>.generate(
+    historyCount,
+    (index) => 'history-$index',
+  );
+  var ids = history;
+  String? pinned;
+  late StateSetter rebuild;
+  Widget row(BuildContext context, int index) {
+    final id = ids[index];
+    if (id == 'user') {
+      return ChatSendEntrance(
+        messageId: 'sent-into-chat',
+        timestamp: DateTime.now(),
+        flightBuilder: (context, morph) => const Align(
+          alignment: Alignment.topRight,
+          child: Text('Picnic plans', key: _flightText),
+        ),
+        child: _bubble(),
+      );
+    }
+    return SizedBox(
+      height: id == 'assistant'
+          ? 72
+          : id == 'history-${historyCount - 1}'
+          ? lastReplyHeight
+          : 52,
+    );
+  }
+
+  await tester.pumpWidget(
+    MaterialApp(
+      home: Scaffold(
+        body: StatefulBuilder(
+          builder: (context, setState) {
+            rebuild = setState;
+            return ChatTimelineViewport(
+              controller: controller,
+              ownerGeneration: 1,
+              messageIds: ids,
+              initialAnchor: scrolledUp
+                  ? ChatScrollAnchor(
+                      messageId: anchorId,
+                      offsetWithinMessage: 0,
+                      loadedCount: historyCount,
+                    )
+                  : null,
+              pinnedUserMessageId: pinned,
+              topContentInset: 32,
+              bottomPadding: 80,
+              horizontalPadding: 16,
+              cacheExtent: 600,
+              physics: const AlwaysScrollableScrollPhysics(),
+              isLoadingOlder: false,
+              maintainVisibleAnchor: false,
+              followLatest: pinned == null && !scrolledUp,
+              pinAutomatic: pinned != null,
+              onPointerDown: () {},
+              onUserDragStart: () {},
+              onUserDragEnd: () {},
+              onMetricsChanged: (_) {},
+              onPinEndSpaceChanged: (_) {},
+              onOldestThresholdReached: () {},
+              onTrailingRefresh: () async {},
+              onNativeScrollToTop: () async {},
+              rowBuilder: row,
+            );
+          },
+        ),
+      ),
+    ),
+  );
+  await tester.pumpAndSettle();
+  return (
+    controller: controller,
+    send: () async {
+      rebuild(() {
+        ids = [...history, 'user', 'assistant'];
+        pinned = 'user';
+      });
+      await tester.pump();
+    },
+    rowTop: (String id, {bool bottom = false}) {
+      final rect = controller.rowRect(id)!;
+      return bottom ? rect.bottom : rect.top;
+    },
+    dispose: () async {
+      await tester.pumpWidget(const SizedBox.shrink());
+      controller.dispose();
+    },
+  );
 }
 
 void main() {
@@ -467,5 +586,171 @@ void main() {
     await tester.pump();
     expect(opacity(), 0);
     expect(done, 1);
+  });
+
+  testWidgets('a message sent into a chat rides up with its turn, closing '
+      'the gap to its row and never crossing the reply above', (tester) async {
+    final timeline = await _pumpTimeline(tester, historyCount: 12);
+    // Sent from the composer's field, just under the end of the reply.
+    ChatSendOrigin.record(const Rect.fromLTWH(24, 540, 352, 24));
+    await timeline.send();
+    final arrival = timeline.controller.springMessageToTop(
+      'user',
+      spring: ChatSendEntrance.spring,
+    );
+    final gaps = <double>[];
+    for (var frame = 0; frame < 40; frame += 1) {
+      await tester.pump(const Duration(milliseconds: 16));
+      if (find.byKey(_flightText).evaluate().isEmpty) break;
+      final message = tester.getTopLeft(find.byKey(_flightText)).dy;
+      // It never rises into the reply above its row.
+      expect(
+        message,
+        greaterThanOrEqualTo(timeline.rowTop('history-11', bottom: true) - 0.5),
+      );
+      gaps.add(message - timeline.rowTop('user'));
+    }
+    expect(gaps.length, greaterThan(10));
+    // The gap to its row only ever closes: the message moves with the
+    // transcript instead of trailing behind it.
+    for (var index = 1; index < gaps.length; index += 1) {
+      expect(gaps[index], lessThanOrEqualTo(gaps[index - 1] + 0.5));
+    }
+    expect(await arrival, isTrue);
+    await tester.pumpAndSettle();
+    expect(find.byKey(_flightText), findsNothing);
+    expect(_paintedTop(tester), closeTo(32, 0.5));
+    await timeline.dispose();
+  });
+
+  testWidgets('under a reply that runs on below the composer, the words '
+      'stay in view from the send and wait for their row', (tester) async {
+    // The reply's top is in view and its end is 430 pt below the screen:
+    // the new row is laid out there, in the scroll cache, but not painted.
+    final timeline = await _pumpTimeline(
+      tester,
+      historyCount: 4,
+      anchorId: 'history-3',
+      lastReplyHeight: 1000,
+    );
+    ChatSendOrigin.record(const Rect.fromLTWH(24, 540, 352, 24));
+    await timeline.send();
+    // Its row is still below the screen, so the stand-in counts as off
+    // stage for finders; it is painted all the same.
+    final flight = find.byKey(_flightText, skipOffstage: false);
+    // The frame of the send already shows the words where they were typed.
+    expect(flight, findsOneWidget);
+    expect(tester.getTopLeft(flight).dy, closeTo(540, 0.5));
+    expect(timeline.rowTop('user'), greaterThan(600));
+
+    final arrival = timeline.controller.springMessageToTop(
+      'user',
+      spring: ChatSendEntrance.spring,
+    );
+    for (var frame = 0; frame < 60; frame += 1) {
+      await tester.pump(const Duration(milliseconds: 16));
+      if (flight.evaluate().isEmpty) break;
+      final message = tester.getTopLeft(flight).dy;
+      final row = timeline.rowTop('user');
+      expect(message, greaterThanOrEqualTo((row < 540 ? row : 540) - 0.5));
+      expect(message, lessThanOrEqualTo(540.5));
+    }
+    expect(await arrival, isTrue);
+    await tester.pumpAndSettle();
+    expect(flight, findsNothing);
+    expect(_paintedTop(tester), closeTo(32, 0.5));
+    await timeline.dispose();
+  });
+
+  testWidgets('sent from far up the history, the message waits where it was '
+      'written until its row comes up to carry it', (tester) async {
+    final timeline = await _pumpTimeline(
+      tester,
+      historyCount: 60,
+      anchorId: 'history-0',
+    );
+    ChatSendOrigin.record(const Rect.fromLTWH(24, 540, 352, 24));
+    await timeline.send();
+    final arrival = timeline.controller.springMessageToTop(
+      'user',
+      spring: ChatSendEntrance.spring,
+    );
+    var flew = 0;
+    for (var frame = 0; frame < 90; frame += 1) {
+      await tester.pump(const Duration(milliseconds: 16));
+      if (find.byKey(_flightText).evaluate().isEmpty) continue;
+      flew += 1;
+      final message = tester.getTopLeft(find.byKey(_flightText)).dy;
+      // It holds where it was written until its row comes up to it, and
+      // from then on is never above the row: nothing it passes is crossed.
+      final row = timeline.rowTop('user');
+      expect(message, greaterThanOrEqualTo((row < 540 ? row : 540) - 0.5));
+      expect(message, lessThanOrEqualTo(540.5));
+    }
+    expect(flew, greaterThan(3));
+    expect(await arrival, isTrue);
+    await tester.pumpAndSettle();
+    expect(find.byKey(_flightText), findsNothing);
+    expect(_paintedTop(tester), closeTo(32, 0.5));
+    await timeline.dispose();
+  });
+
+  testWidgets('obsolete content gives up its room at once and fades out', (
+    tester,
+  ) async {
+    const leaving = ValueKey('leaving');
+    var taps = 0;
+    Widget page({required bool show}) => MaterialApp(
+      home: Scaffold(
+        body: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            ChatLeavingContent(
+              child: show
+                  ? GestureDetector(
+                      onTap: () => taps++,
+                      child: const SizedBox(
+                        key: leaving,
+                        width: 200,
+                        height: 120,
+                      ),
+                    )
+                  : null,
+            ),
+            const SizedBox(key: ValueKey('below'), height: 40, width: 40),
+          ],
+        ),
+      ),
+    );
+    double opacity() => tester
+        .widget<FadeTransition>(
+          find
+              .ancestor(
+                of: find.byKey(leaving),
+                matching: find.byType(FadeTransition),
+              )
+              .first,
+        )
+        .opacity
+        .value;
+
+    await tester.pumpWidget(page(show: true));
+    expect(tester.getTopLeft(find.byKey(const ValueKey('below'))).dy, 120);
+    expect(opacity(), 1);
+
+    await tester.pumpWidget(page(show: false));
+    // Layout moves on in the same frame; the content is still drawn.
+    expect(tester.getTopLeft(find.byKey(const ValueKey('below'))).dy, 0);
+    expect(find.byKey(leaving), findsOneWidget);
+    // Front-loaded: mostly gone within the first two frames, before a
+    // message rising from the composer can reach its lines.
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+    expect(opacity(), inExclusiveRange(0, 0.5));
+    // A leaving suggestion is not a target any more.
+    await tester.tapAt(const Offset(100, 100));
+    expect(taps, 0);
+    await tester.pumpAndSettle();
+    expect(find.byKey(leaving), findsNothing);
   });
 }

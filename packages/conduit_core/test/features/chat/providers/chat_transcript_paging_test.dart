@@ -137,6 +137,26 @@ void main() {
     check(container.read(chatTranscriptPagingProvider)).identicalTo(emptied);
   });
 
+  test('ensureTotal never claims fewer rows than the timeline shows', () {
+    final container = ProviderContainer();
+    addTearDown(container.dispose);
+    final notifier = container.read(chatTranscriptPagingProvider.notifier);
+
+    notifier.reset(totalMessages: 60);
+    check(container.read(chatTranscriptPagingProvider).loadedCount).equals(50);
+
+    // A sent turn grew the shown window at its tail to 52 rows.
+    notifier.ensureTotal(62, minimumLoaded: 52);
+    final state = container.read(chatTranscriptPagingProvider);
+    check(state.loadedCount).equals(52);
+    check(state.hasOlder).isTrue();
+    check(state.generation).equals(1);
+
+    // Capped by the transcript itself.
+    notifier.ensureTotal(40, minimumLoaded: 52);
+    check(container.read(chatTranscriptPagingProvider).loadedCount).equals(40);
+  });
+
   test('ensureTotal refills up to the page-size floor once rows return', () {
     final container = ProviderContainer();
     addTearDown(container.dispose);
