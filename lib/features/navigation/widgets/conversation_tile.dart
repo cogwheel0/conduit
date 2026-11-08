@@ -524,12 +524,13 @@ class ConversationTileContent extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = context.conduitTheme;
 
-    // Every title uses primary ink at regular weight: the row fill marks
-    // selection and the dot alone marks unread, so a list with many unread
-    // chats does not turn into a wall of bold.
+    // Every title uses primary ink; the row fill marks selection. Unread
+    // titles are semibold beside their dot: in one ink, without an accent
+    // dot, weight is what lets an unread chat stand out at a glance. Read
+    // titles stay regular.
     final textStyle = AppTypography.sidebarTitleStyle.copyWith(
       color: theme.textPrimary,
-      fontWeight: FontWeight.w400,
+      fontWeight: unread ? FontWeight.w600 : FontWeight.w400,
       height: 1.4,
     );
 
