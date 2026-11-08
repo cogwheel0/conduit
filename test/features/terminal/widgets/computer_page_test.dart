@@ -625,6 +625,79 @@ void main() {
     await tester.pumpWidget(const SizedBox());
   });
 
+  for (final overlay in [
+    'Browser tabs',
+    'Type on computer',
+    'Keyboard shortcut',
+    'example.com',
+  ]) {
+    testWidgets(
+      'a new response invalidates $overlay without retaking control',
+      (tester) async {
+        tester.view.physicalSize = const Size(1280, 800);
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.reset);
+        final service = _Service();
+        var gates = 0;
+        when(() => service.open(any())).thenAnswer(
+          (call) async => _connection(call.positionalArguments.first),
+        );
+        when(service.browserTabs).thenAnswer((_) async => []);
+        await tester.pumpWidget(
+          _harness(
+            service,
+            takeControl: () async {
+              gates++;
+              return true;
+            },
+          ),
+        );
+        await tester.pump();
+        await tester.pump();
+        await tester.tap(find.text('Browser'));
+        await tester.pump();
+        await tester.pump();
+        final view = tester.widget<ComputerSurfaceView>(
+          find.byType(ComputerSurfaceView),
+        );
+        view.onState({'status': 'state', 'url': 'https://example.com'});
+        view.onState({'status': 'live'});
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Take control'));
+        await tester.pumpAndSettle();
+        await tester.ensureVisible(find.bySemanticsLabel(overlay));
+        await tester.tap(find.bySemanticsLabel(overlay));
+        await tester.pumpAndSettle();
+        if (overlay != 'Browser tabs') {
+          await tester.enterText(find.byType(TextField), 'synthetic');
+        }
+        // Native sheets can blur the viewer before the response arrives.
+        view.onState({'status': 'watching'});
+        ProviderScope.containerOf(tester.element(find.byType(ComputerPage)))
+            .read(chatMessagesProvider.notifier)
+            .setMessages([
+              ChatMessage(
+                id: 'new-response',
+                role: 'assistant',
+                content: '',
+                timestamp: DateTime.utc(2026),
+                isStreaming: true,
+              ),
+            ]);
+        await tester.pumpAndSettle();
+        if (overlay == 'Browser tabs') {
+          expect(find.byType(ComputerBrowserTabs), findsNothing);
+        } else {
+          await tester.tap(find.text('Send'));
+          await tester.pumpAndSettle();
+        }
+        expect(gates, 1);
+        expect(find.text('You’re in control'), findsNothing);
+        await tester.pumpWidget(const SizedBox());
+      },
+    );
+  }
+
   for (final size in [const Size(320, 568), const Size(568, 320)]) {
     testWidgets('connection failure stays usable at large text in $size', (
       tester,

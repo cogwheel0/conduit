@@ -296,7 +296,8 @@ void main() {
       expect(connection.token, isNull);
       expect(requests.map((request) => request.method), ['GET', 'GET']);
       await service.keepAlive(connection);
-      expect(requests.last.data, isEmpty);
+      expect(requests.last.method, 'GET');
+      expect(requests.last.path, '/nested/browser/tabs');
       expect(
         requests.every((request) => request.scope == 'chat-fixture'),
         isTrue,

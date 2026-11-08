@@ -190,15 +190,11 @@ class ComputerService {
     );
   }
 
-  /// Renews the selected browser session without changing its active state.
+  /// Renews the server's current tab without changing selection. Touching a
+  /// previously watched session can otherwise win an inactive-tab selection tie.
   Future<void> keepAlive(ComputerConnection connection) async {
-    final session = connection.browserSession;
-    if (session == null) return;
-    await _json(
-      'browser/sessions/${Uri.encodeComponent(session.id)}',
-      method: 'PATCH',
-      data: <String, dynamic>{},
-    );
+    if (connection.browserSession == null) return;
+    await _json('browser/tabs');
   }
 
   /// Sends a named key combination to the displayed surface and chat scope.

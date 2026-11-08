@@ -92,6 +92,45 @@ void main() {
         expect(activated.requiresBrowserActivation, isFalse);
         await service.closeBrowserTab(ownedTabs.removeLast());
 
+        // Never-activated tabs tie on active/last_used. Renewing an older
+        // watched tab must not win that tie by changing its touched time.
+        final watchedResponse = await terminal.requestComputer(
+          server,
+          'browser/sessions',
+          sessionScopeId: chatId,
+          method: 'POST',
+          data: {'url': ''},
+        );
+        ownedTabs.add((watchedResponse.data as Map)['id'] as String);
+        await terminal.requestComputer(
+          server,
+          'browser/sessions/${ownedTabs.single}',
+          sessionScopeId: chatId,
+          method: 'PATCH',
+          data: {'mode': 'chrome'},
+        );
+        final watched = (await service.open(ComputerSurface.browser))!;
+        final nextResponse = await terminal.requestComputer(
+          server,
+          'browser/sessions',
+          sessionScopeId: chatId,
+          method: 'POST',
+          data: {'url': ''},
+        );
+        ownedTabs.add((nextResponse.data as Map)['id'] as String);
+        expect(
+          (await service.browserTabs()).singleWhere((tab) => tab.selected).id,
+          ownedTabs.last,
+        );
+        await service.keepAlive(watched);
+        expect(
+          (await service.browserTabs()).singleWhere((tab) => tab.selected).id,
+          ownedTabs.last,
+        );
+        while (ownedTabs.isNotEmpty) {
+          await service.closeBrowserTab(ownedTabs.removeLast());
+        }
+
         for (var i = 0; i < 2; i++) {
           final connection = await service.createBrowserTab();
           ownedTabs.add(connection.browserSession!.id);

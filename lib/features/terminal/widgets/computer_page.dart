@@ -114,6 +114,7 @@ class _ComputerPageState extends ConsumerState<ComputerPage>
         final activating = _controlWhenLive && _connection == null;
         _hasTakenControl = false;
         _watch();
+        if (_tabsOpen) Navigator.of(context).pop();
         // The pending activation is stale; rediscover its surface in Watch.
         if (activating) unawaited(_open());
       }
@@ -333,6 +334,7 @@ class _ComputerPageState extends ConsumerState<ComputerPage>
 
   Future<void> _showTabs() async {
     if (_tabsOpen) return;
+    final generation = _generation;
     final connection = _connection;
     final hadControl = _controlling;
     _tabsOpen = true;
@@ -344,6 +346,7 @@ class _ComputerPageState extends ConsumerState<ComputerPage>
     );
     _tabsOpen = false;
     if (!mounted ||
+        generation != _generation ||
         !_active ||
         !_scopeValid ||
         _selected != ComputerSurface.browser ||
@@ -357,7 +360,7 @@ class _ComputerPageState extends ConsumerState<ComputerPage>
       return;
     }
     // A native sheet may blur the viewer. Reapply the cancellation gate before
-    // the requested mutation, including if a response started while it was open.
+    // the requested mutation. A new response invalidates the sheet above.
     if (!_controlling && hadControl) await _takeControl();
     if (!mounted || !_controlling) return;
     switch (choice.action) {
@@ -390,6 +393,7 @@ class _ComputerPageState extends ConsumerState<ComputerPage>
     bool navigate = false,
     bool shortcut = false,
   }) async {
+    final generation = _generation;
     final l10n = AppLocalizations.of(context)!;
     final connection = _connection;
     setState(() => _inputFailed = false);
@@ -431,6 +435,7 @@ class _ComputerPageState extends ConsumerState<ComputerPage>
     // The keyboard can blur the WebView, which deliberately returns to Watch.
     // Do not re-enable input without the same explicit control gate.
     if (mounted &&
+        generation == _generation &&
         result != null &&
         result.isNotEmpty &&
         _active &&
