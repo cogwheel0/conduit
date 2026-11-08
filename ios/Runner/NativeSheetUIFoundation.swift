@@ -173,6 +173,62 @@ final class NativeSheetNavigationController: UINavigationController {
     }
 }
 
+/// The transition still running in the modal chain above [root]: a sheet
+/// animating in, or one still leaving or being dragged away.
+func nativeModalTransitionInFlight(
+    from root: UIViewController?
+) -> UIViewControllerTransitionCoordinator? {
+    var controller = root
+    while let current = controller {
+        if current.isBeingPresented || current.isBeingDismissed,
+           let coordinator = current.transitionCoordinator {
+            return coordinator
+        }
+        controller = current.presentedViewController
+    }
+    return nil
+}
+
+/// Runs [work] on the main queue once nothing in the modal chain above
+/// [root] is mid-transition.
+///
+/// UIKit declines to present over a controller that is still animating in
+/// or out, and says so only in the console. A sheet asked for while the one
+/// before it was still leaving -- New Folder chosen in Move to Folder, say --
+/// never appeared, and the call that asked for it never heard back.
+func nativeWhenModalChainIdle(
+    from root: @escaping () -> UIViewController?,
+    remainingWaits: Int = 8,
+    _ work: @escaping () -> Void
+) {
+    DispatchQueue.main.async {
+        guard remainingWaits > 0,
+              let coordinator = nativeModalTransitionInFlight(from: root())
+        else {
+            work()
+            return
+        }
+        var resumed = false
+        let resume = {
+            guard !resumed else { return }
+            resumed = true
+            nativeWhenModalChainIdle(
+                from: root,
+                remainingWaits: remainingWaits - 1,
+                work
+            )
+        }
+        let queued = coordinator.animate(alongsideTransition: nil) { _ in
+            resume()
+        }
+        if !queued {
+            // The transition could not take a completion (it is ending this
+            // very moment); look again shortly.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05, execute: resume)
+        }
+    }
+}
+
 func applyNativeSheetSegmentedControlTheme(_ control: UISegmentedControl) {
     let theme = NativeSheetTheme.shared
     control.backgroundColor = theme.elevatedSurface

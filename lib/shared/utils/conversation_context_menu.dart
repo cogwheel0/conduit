@@ -448,11 +448,6 @@ String? _conversationFolderId(dynamic conversation) {
   return null;
 }
 
-/// Long enough for a native sheet's dismissal animation to finish, with
-/// room for a busy device. The native options selector reports a choice as
-/// its sheet starts to close and has no signal for when it is gone.
-const Duration _kNativeSheetDismissalAllowance = Duration(milliseconds: 800);
-
 class _ConversationMoveTarget {
   const _ConversationMoveTarget({required this.folderId})
     : createsFolder = false;
@@ -577,9 +572,8 @@ Future<_ConversationMoveTarget?> _showConversationMoveSheet(
         return const _ConversationMoveTarget(folderId: null);
       }
       if (selectedId == newFolderId) {
-        // The selector answers as it starts to close, and UIKit refuses to
-        // present the folder name editor over a sheet still animating away.
-        await Future<void>.delayed(_kNativeSheetDismissalAllowance);
+        // The name editor can be asked for at once: the native side waits
+        // for this sheet to finish closing before presenting it.
         return const _ConversationMoveTarget.newFolder();
       }
       return _ConversationMoveTarget(folderId: selectedId);

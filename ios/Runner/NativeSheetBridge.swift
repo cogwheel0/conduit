@@ -1208,6 +1208,7 @@ final class NativeSheetBridge: ConduitBridge, NativeSheetHostApi {
     private var activeSheetMode: ActiveSheetMode = .profileMenu
     private var pendingModelSelectorResult: PendingStringResult?
     private var pendingOptionsSelectorResult: PendingStringResult?
+    private var pendingDatePickerResult: PendingStringResult?
     private var pendingTextEditorResult: PendingActionResult?
     private var pendingResultSheetResult: PendingActionResult?
     private var resultSheetValues: [String: Any] = [:]
@@ -1307,7 +1308,7 @@ final class NativeSheetBridge: ConduitBridge, NativeSheetHostApi {
         config: PlatformNativeProfileSheetConfig,
         completion: @escaping (Result<Bool, Error>) -> Void
     ) {
-        DispatchQueue.main.async { [weak self] in
+        whenModalChainIdle { [weak self] in
             guard let self else { return }
             guard let configuration = NativeSheetConfiguration(config.asPayload())
             else {
@@ -1356,7 +1357,7 @@ final class NativeSheetBridge: ConduitBridge, NativeSheetHostApi {
         request: PlatformNativeSheetModelSelectorRequest,
         completion: @escaping (Result<String?, Error>) -> Void
     ) {
-        DispatchQueue.main.async { [weak self] in
+        whenModalChainIdle { [weak self] in
             guard let self else { return }
             guard let configuration = NativeModelSelectorConfiguration(request.asPayload())
             else {
@@ -1419,7 +1420,7 @@ final class NativeSheetBridge: ConduitBridge, NativeSheetHostApi {
         request: PlatformNativeSheetOptionsSelectorRequest,
         completion: @escaping (Result<String?, Error>) -> Void
     ) {
-        DispatchQueue.main.async { [weak self] in
+        whenModalChainIdle { [weak self] in
             guard let self else { return }
             guard let configuration = NativeOptionsSelectorConfiguration(request.asPayload())
             else {
@@ -1438,7 +1439,7 @@ final class NativeSheetBridge: ConduitBridge, NativeSheetHostApi {
         request: PlatformNativeSheetDatePickerRequest,
         completion: @escaping (Result<String?, Error>) -> Void
     ) {
-        DispatchQueue.main.async { [weak self] in
+        whenModalChainIdle { [weak self] in
             guard let self else { return }
             guard let configuration = NativeDatePickerConfiguration(request.asPayload())
             else {
@@ -1457,7 +1458,7 @@ final class NativeSheetBridge: ConduitBridge, NativeSheetHostApi {
         request: PlatformNativeSheetTextEditorRequest,
         completion: @escaping (Result<PlatformNativeSheetActionResult?, Error>) -> Void
     ) {
-        DispatchQueue.main.async { [weak self] in
+        whenModalChainIdle { [weak self] in
             guard let self else { return }
             guard let configuration = NativeTextEditorConfiguration(request.asPayload())
             else {
@@ -1476,7 +1477,7 @@ final class NativeSheetBridge: ConduitBridge, NativeSheetHostApi {
         request: PlatformNativeSheetResultRequest,
         completion: @escaping (Result<PlatformNativeSheetActionResult?, Error>) -> Void
     ) {
-        DispatchQueue.main.async { [weak self] in
+        whenModalChainIdle { [weak self] in
             guard let self else { return }
             guard let configuration = NativeResultSheetConfiguration(request.asPayload())
             else {
@@ -1545,6 +1546,17 @@ final class NativeSheetBridge: ConduitBridge, NativeSheetHostApi {
         var applied = false
         DispatchQueue.main.sync { applied = apply() }
         return applied
+    }
+
+    /// Runs [work] on main once no sheet above Flutter is still animating
+    /// in or out, so a sheet Flutter asks for straight after another closed
+    /// (New Folder chosen in Move to Folder) is presented rather than
+    /// refused by UIKit.
+    private func whenModalChainIdle(_ work: @escaping () -> Void) {
+        nativeWhenModalChainIdle(
+            from: { [weak self] in self?.host?.presentingViewController },
+            work
+        )
     }
 
     private func presentProfileMenu(_ configuration: NativeSheetConfiguration) -> Bool {
@@ -1900,6 +1912,10 @@ final class NativeSheetBridge: ConduitBridge, NativeSheetHostApi {
                     self?.pendingOptionsSelectorResult = nil
                     pending(.success(nil))
                 }
+                if let pending = self?.pendingDatePickerResult {
+                    self?.pendingDatePickerResult = nil
+                    pending(.success(nil))
+                }
                 if let pending = self?.pendingTextEditorResult {
                     self?.pendingTextEditorResult = nil
                     pending(.success(self?.actionResult(
@@ -1937,6 +1953,17 @@ final class NativeSheetBridge: ConduitBridge, NativeSheetHostApi {
             maxHeightFraction: maxHeightFraction
         )
         presenter.present(controller, animated: true)
+        // UIKit refuses a presentation it cannot make (the presenter is
+        // already presenting, or is mid-transition) with only a console
+        // warning. Say so, so the caller's future fails instead of waiting
+        // for a sheet that never appears.
+        guard controller.presentingViewController != nil else {
+            if activeController === controller {
+                activeController = nil
+                presentationDelegate = nil
+            }
+            return false
+        }
         return true
     }
 
@@ -2064,20 +2091,35 @@ final class NativeSheetBridge: ConduitBridge, NativeSheetHostApi {
         _ configuration: NativeDatePickerConfiguration,
         result: @escaping PendingStringResult
     ) {
+        if pendingDatePickerResult != nil {
+            result(.failure(PigeonError(
+                code: "ALREADY_PRESENTING",
+                message: "A native date picker is already open",
+                details: nil
+            )))
+            return
+        }
+
         activeSheetMode = .resultSheet
+        // Held like the other pickers' results, so swiping the sheet away
+        // answers nil instead of leaving the call waiting forever.
+        pendingDatePickerResult = result
         let controller = NativeDatePickerViewController(
             configuration: configuration,
             onConfirm: { [weak self] date in
-                result(.success(nativeSheetFormatDate(date)))
-                self?.dismissActive()
+                guard let self else { return }
+                let pending = self.pendingDatePickerResult
+                self.pendingDatePickerResult = nil
+                pending?(.success(nativeSheetFormatDate(date)))
+                self.dismissActive()
             },
             onClose: { [weak self] in
-                result(.success(nil))
                 self?.dismissActive()
             }
         )
         let navigation = NativeSheetNavigationController(rootViewController: controller)
         if !present(navigation, initialDetent: .large) {
+            pendingDatePickerResult = nil
             activeSheetMode = .profileMenu
             result(.failure(PigeonError(
                 code: "PRESENTATION_FAILED",
@@ -2355,6 +2397,10 @@ final class NativeSheetBridge: ConduitBridge, NativeSheetHostApi {
         }
         if let pending = pendingOptionsSelectorResult {
             pendingOptionsSelectorResult = nil
+            pending(.success(nil))
+        }
+        if let pending = pendingDatePickerResult {
+            pendingDatePickerResult = nil
             pending(.success(nil))
         }
         if let pending = pendingTextEditorResult {
