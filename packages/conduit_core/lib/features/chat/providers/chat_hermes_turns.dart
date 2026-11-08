@@ -2579,13 +2579,22 @@ Future<void> _carryHermesCopiedHistory(
       sessionId: fromSessionId,
     );
     if (saved == null) return;
+    // The copy's own turns join them when they can be read; without them
+    // the earlier messages still follow, rather than none.
+    List<Map<String, dynamic>> own = const [];
+    try {
+      own = await service.getSessionMessages(fromSessionId);
+    } catch (error) {
+      DebugLogger.warning(
+        'copied-history-carry-read-failed',
+        scope: 'hermes/sessions',
+        data: {'errorType': error.runtimeType.toString()},
+      );
+    }
     await store.save(
       connectionIdentity: connectionIdentity,
       sessionId: toSessionId,
-      messages: mergeHermesCopiedHistory(
-        saved,
-        await service.getSessionMessages(fromSessionId),
-      ),
+      messages: mergeHermesCopiedHistory(saved, own),
     );
   } catch (error) {
     // The turn runs either way; only a later reopen misses the context.

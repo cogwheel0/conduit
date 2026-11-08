@@ -3493,8 +3493,11 @@ void main() {
 
       check(fake.getRunCalls).equals(4);
       check(message.error).isNull();
-      check(statuses.last.action).equals('hermes_run_queued');
-      check(statuses.last.done).equals(true);
+      final queued = statuses.lastWhere((s) => s.action == 'hermes_run_queued');
+      check(queued.done).equals(true);
+      // Its answer was not fetched: the reply says so and stays recoverable.
+      check(statuses.last.action).equals(kHermesRunAwaitingAction);
+      check(message.metadata?[kHermesRunAwaitingAnswerKey]).equals(true);
     });
 
     test('settleUnknownHermesRun acknowledges only unknown runs', () async {

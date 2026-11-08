@@ -90,6 +90,18 @@ bool hermesRunEndedOnBudget(Map<String, dynamic> record) {
 /// that stopped short).
 const String kHermesRunNoticeAction = 'hermes_run_notice';
 
+/// Marks a reply whose run Hermes saved during a restart and had not run
+/// when polling for it ended: reopening the chat asks for its answer again.
+const String kHermesRunAwaitingAnswerKey = 'hermesRunAwaitingAnswer';
+
+/// The status action of the note on such a reply.
+const String kHermesRunAwaitingAction = 'hermes_run_awaiting';
+
+/// That note.
+const String kHermesRunAwaitingNotice =
+    "Hermes hasn't run this message yet. Reopen this chat later to get its "
+    'answer.';
+
 /// The note a recovered answer with [status] is shown with: a wrap-up or a
 /// stopped-short answer is still the answer. Null for any other status.
 String? hermesRecoveredRunNotice(String status) => switch (status) {
@@ -871,7 +883,27 @@ Future<void> dispatchHermesRun({
             extendedPollInterval: extendedRecoveryPollInterval,
           );
         }
-        if (recovered == null) return;
+        if (recovered == null) {
+          // Still saved for after the restart: the reply keeps its run, and
+          // reopening the chat asks for the answer again.
+          if (waitingForRestart && !runCancelToken.isCancelled) {
+            updateMessage((m) {
+              final metadata = Map<String, dynamic>.from(
+                m.metadata ?? const {},
+              );
+              metadata[kHermesRunAwaitingAnswerKey] = true;
+              return m.copyWith(metadata: metadata);
+            });
+            statusAccumulator.appendStatus(
+              const ChatStatusUpdate(
+                action: kHermesRunAwaitingAction,
+                description: kHermesRunAwaitingNotice,
+                done: true,
+              ),
+            );
+          }
+          return;
+        }
         if (runCancelToken.isCancelled) return;
         if (recovered.text.isNotEmpty) {
           _appendAuthoritativeOutput(

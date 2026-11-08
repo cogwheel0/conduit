@@ -4436,5 +4436,5 @@
   "hermesContinueInCopyFailed": "No se pudo copiar este chat. Inténtalo de nuevo.",
   "hermesContinueHere": "Continuar aquí",
   "hermesContinueHereFailed": "No se pudo continuar este chat aquí. Inténtalo de nuevo.",
-  "hermesContinueChoiceExplanation": "Si continúas aquí, este chat termina en la otra app, que empezará uno nuevo con su próximo mensaje. Una copia deja ese chat intacto, pero guarda los mensajes anteriores solo en este dispositivo."
+  "hermesContinueChoiceExplanation": "Si continúas aquí, este chat termina en la otra app, que empezará uno nuevo con su próximo mensaje. Una copia deja ese chat intacto, pero guarda los mensajes anteriores solo en este dispositivo. Conserva hasta los 1000 mensajes más recientes (1 MB), en las 32 copias abiertas más recientemente."
 }

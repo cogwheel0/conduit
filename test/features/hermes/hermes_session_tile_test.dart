@@ -521,6 +521,27 @@ void main() {
       ).isNotEmpty();
     });
 
+    // Another chat was chosen while the copy was being made, and was still
+    // loading: the original still read as open, and the copy replaced it.
+    testWidgets('a copy finished after another chat was chosen is removed', (
+      tester,
+    ) async {
+      final service = _FakeHermesApiService(messages: harborTranscript);
+      final container = ownershipContainer(service);
+      await openForeignChat(tester, container);
+      final created = service.createGate = Completer<void>();
+
+      await tester.tap(find.byKey(const ValueKey('hermes-continue-in-copy')));
+      await tester.pump();
+      // Another chat starts opening: the original is still the active one.
+      container.read(hermesSessionNavigationEpochProvider.notifier).bump();
+      created.complete();
+      await pumpUntil(tester, () => service.deletedSessionIds.isNotEmpty);
+
+      check(service.deletedSessionIds).deepEquals(['harbor-notes-copy']);
+      check(showsCopy(container)).isFalse();
+    });
+
     testWidgets('reopening a copy shows its earlier messages first and '
         'replays them', (tester) async {
       final service = _FakeHermesApiService(messages: harborTranscript);
@@ -1312,12 +1333,19 @@ class _FakeHermesApiService extends HermesApiService {
   }
 
   final List<String?> createdSessionTitles = [];
+
+  /// When set, the next session created waits for it.
+  Completer<void>? createGate;
+
   @override
   Future<String> createSession({
     String? title,
     CancelToken? cancelToken,
   }) async {
     createdSessionTitles.add(title);
+    final gate = createGate;
+    createGate = null;
+    await gate?.future;
     return 'harbor-notes-copy';
   }
 

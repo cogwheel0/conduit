@@ -6232,6 +6232,68 @@ void main() {
       },
     );
 
+    // Saved during a restart and not run when polling ended, its answer was
+    // never fetched: the reply had stopped streaming, so reopening skipped it.
+    test(
+      'a reopened reply still waiting for its saved run gets its answer',
+      () async {
+        final service = _RecoveredHermesApi();
+        final container = _testContainer(
+          overrides: [
+            activeConversationProvider.overrideWith(
+              () => _TestActiveConversationNotifier(),
+            ),
+            apiServiceProvider.overrideWithValue(null),
+            socketServiceProvider.overrideWithValue(null),
+            hermesApiServiceProvider.overrideWithValue(service),
+          ],
+        );
+        addTearDown(container.dispose);
+        final assistant = _assistantMessage(
+          id: 'cold-hermes-awaiting',
+          content: '',
+          metadata: const <String, dynamic>{
+            'transport': kHermesTransport,
+            'hermesRunId': 'run-cold',
+            'hermesSessionId': 'session-cold',
+            kHermesRunAwaitingAnswerKey: true,
+          },
+        ).copyWith(
+          statusHistory: const [
+            ChatStatusUpdate(
+              action: kHermesRunAwaitingAction,
+              description: kHermesRunAwaitingNotice,
+              done: true,
+            ),
+          ],
+        );
+        container
+            .read(activeConversationProvider.notifier)
+            .set(
+              markNativeHermesConversation(
+                withChatStorageProvenance(
+                  _conversation('local:hermes_session-cold', <ChatMessage>[
+                    assistant,
+                  ]),
+                  ChatStorageKind.directLocal,
+                ),
+              ),
+            );
+        await _waitForCondition(
+          () =>
+              container.read(chatMessagesProvider).singleOrNull?.content ==
+              'Authoritative recovered answer',
+        );
+
+        final recovered = container.read(chatMessagesProvider).single;
+        check(service.getRunCalls).equals(1);
+        check(recovered.metadata?[kHermesRunAwaitingAnswerKey]).isNull();
+        check(
+          recovered.statusHistory.map((status) => status.action),
+        ).not((it) => it.contains(kHermesRunAwaitingAction));
+      },
+    );
+
     // A restart that interrupted the run showed "Hermes run failed." here,
     // not the restart explanation the live path gives.
     test(

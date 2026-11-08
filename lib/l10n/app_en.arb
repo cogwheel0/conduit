@@ -9402,7 +9402,7 @@
   "@hermesContinueHereFailed": {
     "description": "Error shown when continuing a read-only Hermes chat in Conduit fails."
   },
-  "hermesContinueChoiceExplanation": "Continuing here ends this chat in the other app, which starts a new one on its next message. A copy leaves that chat untouched but keeps the earlier messages on this device only.",
+  "hermesContinueChoiceExplanation": "Continuing here ends this chat in the other app, which starts a new one on its next message. A copy leaves that chat untouched but keeps the earlier messages on this device only. Up to the newest 1,000 messages (1 MB) are kept, for the 32 copies opened most recently.",
   "@hermesContinueChoiceExplanation": {
     "description": "Explains, under the read-only Hermes chat notice, the difference between continuing the chat here and continuing it in a copy."
   }

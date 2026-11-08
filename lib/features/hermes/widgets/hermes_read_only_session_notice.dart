@@ -111,6 +111,7 @@ class _HermesReadOnlySessionNoticeState
     if (service == null || conversation == null || sessionId is! String) {
       return;
     }
+    _navigationEpoch = ref.read(hermesSessionNavigationEpochProvider);
     setState(() => _busy = true);
     try {
       await action(service, conversation, sessionId);
@@ -128,10 +129,16 @@ class _HermesReadOnlySessionNoticeState
     }
   }
 
-  /// Whether [conversation] is still the open chat on [service].
+  /// The chat navigation epoch when the running action started: any chat
+  /// opened since, even one still loading, bumps it.
+  int? _navigationEpoch;
+
+  /// Whether [conversation] is still the open chat on [service], with no
+  /// other chat chosen since the action started.
   bool _sameChat(HermesBackendService service, Conversation conversation) =>
       identical(ref.read(hermesApiServiceProvider), service) &&
-      ref.read(activeConversationProvider)?.id == conversation.id;
+      ref.read(activeConversationProvider)?.id == conversation.id &&
+      ref.read(hermesSessionNavigationEpochProvider) == _navigationEpoch;
 
   /// Hermes' fork copies every message into a session the API server owns,
   /// on every device, but ends the original as "branched": the other app

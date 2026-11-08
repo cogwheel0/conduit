@@ -6359,5 +6359,5 @@
   "hermesContinueInCopyFailed": "Tento chat sa nepodarilo skopírovať. Skúste to znova.",
   "hermesContinueHere": "Pokračovať tu",
   "hermesContinueHereFailed": "V tomto chate sa nepodarilo pokračovať tu. Skúste to znova.",
-  "hermesContinueChoiceExplanation": "Pokračovaním tu sa tento chat v druhej aplikácii ukončí a tá pri ďalšej správe začne nový. Kópia ten chat ponechá bez zmeny, ale staršie správy uloží iba v tomto zariadení."
+  "hermesContinueChoiceExplanation": "Pokračovaním tu sa tento chat v druhej aplikácii ukončí a tá pri ďalšej správe začne nový. Kópia ten chat ponechá bez zmeny, ale staršie správy uloží iba v tomto zariadení. Uchová najviac 1 000 najnovších správ (1 MB), a to pri 32 naposledy otvorených kópiách."
 }

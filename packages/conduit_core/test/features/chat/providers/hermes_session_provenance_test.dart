@@ -98,6 +98,9 @@ final class _RecordingHermesApi extends HermesApiService {
 final class _ChainingHermesApi extends HermesApiService {
   final List<String?> previousResponseIds = [];
 
+  /// When set, reading the copy's own turns fails.
+  bool failReads = false;
+
   _ChainingHermesApi()
     : super(
         config: const HermesConfig(
@@ -130,7 +133,9 @@ final class _ChainingHermesApi extends HermesApiService {
   Future<List<Map<String, dynamic>>> getSessionMessages(
     String id, {
     CancelToken? cancelToken,
-  }) async => id == 'copy-1'
+  }) async => failReads
+      ? throw StateError('unreachable')
+      : id == 'copy-1'
       ? const [
           {'id': 'own-1', 'role': 'user', 'content': 'Which shelf?'},
           {'id': 'own-2', 'role': 'assistant', 'content': 'The top one.'},
@@ -306,6 +311,83 @@ void main() {
       'Which shelf?',
       'The top one.',
     ]);
+  });
+
+  // When the copy's own turns could not be read, nothing was carried, and
+  // the new session lost the earlier messages too.
+  test('a copy whose own turns cannot be read still carries the earlier '
+      'ones', () async {
+    final service = _ChainingHermesApi()..failReads = true;
+    final database = AppDatabase(NativeDatabase.memory());
+    addTearDown(database.close);
+    final copiedHistory = HermesCopiedHistoryStore(database);
+    final container = ProviderContainer(
+      overrides: [
+        openWebUiDatabaseAccessProvider.overrideWith(_OpenDatabaseAccess.new),
+        appDatabaseProvider.overrideWith((ref) {
+          final database = AppDatabase(NativeDatabase.memory());
+          ref.onDispose(() => unawaited(database.close()));
+          return database;
+        }),
+        apiServiceProvider.overrideWithValue(null),
+        socketServiceProvider.overrideWithValue(null),
+        hermesConfigProvider.overrideWith(_FixedHermesConfig.new),
+        hermesApiServiceProvider.overrideWithValue(service),
+        hermesCopiedHistoryStoreProvider.overrideWithValue(copiedHistory),
+      ],
+    );
+    addTearDown(container.dispose);
+    final connection = _connectionIdentity(container);
+    await copiedHistory.save(
+      connectionIdentity: connection,
+      sessionId: 'copy-1',
+      messages: const [
+        {'id': 'earlier-1', 'role': 'user', 'content': 'Sort the books.'},
+      ],
+    );
+    final placeholder = _assistant(
+      'placeholder',
+      streaming: true,
+      metadata: const <String, dynamic>{'transport': kHermesTransport},
+    );
+    container
+        .read(activeConversationProvider.notifier)
+        .set(
+          markNativeHermesConversation(
+            Conversation(
+              id: 'local:hermes_copy-1',
+              title: 'Copy',
+              createdAt: DateTime.utc(2026, 7, 14),
+              updatedAt: DateTime.utc(2026, 7, 14),
+              messages: <ChatMessage>[placeholder],
+              metadata: const <String, dynamic>{
+                'backend': 'hermes',
+                'hermesSessionId': 'copy-1',
+              },
+            ),
+          ),
+        );
+    container.read(chatMessagesProvider.notifier).setMessages(<ChatMessage>[
+      placeholder,
+    ]);
+
+    await dispatchHermesRunFromChatForTest(
+      container,
+      assistantMessageId: placeholder.id,
+      assistantSeed: placeholder,
+      input: 'Here is the shelf photo.',
+      existingMessages: const <ChatMessage>[],
+      responseInput: HermesChatInput.text('Here is the shelf photo.'),
+      responseHistory: const <Map<String, dynamic>>[],
+    );
+
+    final carried = await copiedHistory.load(
+      connectionIdentity: connection,
+      sessionId: 'chain-2',
+    );
+    check(
+      carried?.map((message) => message['content']).toList(),
+    ).isNotNull().deepEquals(['Sort the books.']);
   });
 
   // A chained turn Hermes moved to another session (its own was deleted, or

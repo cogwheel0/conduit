@@ -4436,5 +4436,5 @@
   "hermesContinueInCopyFailed": "無法複製此聊天。請再試一次。",
   "hermesContinueHere": "在此繼續",
   "hermesContinueHereFailed": "無法在此繼續此聊天。請再試一次。",
-  "hermesContinueChoiceExplanation": "在此繼續會結束另一個應用程式中的這個聊天，該應用程式會在下一則訊息時開始新聊天。副本會保持那個聊天不變，但先前的訊息只儲存在此裝置上。"
+  "hermesContinueChoiceExplanation": "在此繼續會結束另一個應用程式中的這個聊天，該應用程式會在下一則訊息時開始新聊天。副本會保持那個聊天不變，但先前的訊息只儲存在此裝置上。最多保留最新的 1,000 則訊息（1 MB），且僅限最近開啟的 32 個副本。"
 }

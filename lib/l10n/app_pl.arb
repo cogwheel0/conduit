@@ -8311,7 +8311,7 @@
   "@hermesContinueHereFailed": {
     "description": "Error shown when continuing a read-only Hermes chat in Conduit fails."
   },
-  "hermesContinueChoiceExplanation": "Kontynuowanie tutaj kończy ten czat w drugiej aplikacji, która przy następnej wiadomości zacznie nowy. Kopia pozostawia ten czat bez zmian, ale wcześniejsze wiadomości zapisuje tylko na tym urządzeniu.",
+  "hermesContinueChoiceExplanation": "Kontynuowanie tutaj kończy ten czat w drugiej aplikacji, która przy następnej wiadomości zacznie nowy. Kopia pozostawia ten czat bez zmian, ale wcześniejsze wiadomości zapisuje tylko na tym urządzeniu. Przechowuje do 1000 najnowszych wiadomości (1 MB), dla 32 ostatnio otwieranych kopii.",
   "@hermesContinueChoiceExplanation": {
     "description": "Explains, under the read-only Hermes chat notice, the difference between continuing the chat here and continuing it in a copy."
   }
