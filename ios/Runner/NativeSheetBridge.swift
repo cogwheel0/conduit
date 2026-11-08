@@ -5034,7 +5034,7 @@ private final class NativeModelSelectorTableViewController: UITableViewControlle
     /// table's content. Before the first layout, an estimate from the rows.
     var fittedSheetHeight: CGFloat {
         let barHeight = navigationController?.navigationBar.frame.height ?? 0
-        let chrome = max(barHeight, 56) + 16
+        let chrome = max(barHeight, 56)
         guard isViewLoaded, tableView.contentSize.height > 0 else {
             let rows = CGFloat(featuredModels.count + (effortSelectionEnabled ? 1 : 0))
             let groups = CGFloat(sections.count)
