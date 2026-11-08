@@ -1,4 +1,5 @@
 {
+  "computerEnabledDescription": "チャットでデスクトップとブラウザのセッションを表示・操作します。",
   "computerPointerControls": "ポインター操作",
   "computerDirectTouch": "直接タッチ",
   "computerTrackpad": "トラックパッド",

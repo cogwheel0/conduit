@@ -21,6 +21,11 @@ import 'computer_test_platform.dart';
 
 class _Service extends Mock implements ComputerService {}
 
+class _Opened extends ComputerOpenedNotifier {
+  @override
+  bool build() => false;
+}
+
 class _Messages extends ChatMessagesNotifier {
   @override
   List<ChatMessage> build() => [];
@@ -45,11 +50,16 @@ void main() {
   Widget harness(
     ComputerService service, {
     bool available = true,
+    bool active = true,
+    bool enabled = true,
     bool desktop = false,
     double scale = 1,
     Future<ComputerService?> Function()? loadService,
   }) => ProviderScope(
     overrides: [
+      computerEnabledProvider.overrideWithValue(enabled),
+      computerActiveProvider.overrideWithValue(enabled && active),
+      computerOpenedProvider.overrideWith(_Opened.new),
       computerServiceProvider.overrideWith(
         (ref) async => loadService == null ? service : await loadService(),
       ),
@@ -73,6 +83,29 @@ void main() {
       ),
     ),
   );
+
+  for (final enabled in [true, false]) {
+    testWidgets(
+      'inactive Computer is hidden without probes (enabled: $enabled)',
+      (tester) async {
+        var probes = 0;
+        await tester.pumpWidget(
+          harness(
+            _Service(),
+            enabled: enabled,
+            active: false,
+            loadService: () async {
+              probes++;
+              return _Service();
+            },
+          ),
+        );
+        await tester.pumpAndSettle();
+        expect(find.text('Computer'), findsNothing);
+        expect(probes, 0);
+      },
+    );
+  }
 
   testWidgets('collapsed entry never opens a computer or fetches pixels', (
     tester,
@@ -195,6 +228,8 @@ void main() {
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
+          computerActiveProvider.overrideWithValue(true),
+          computerOpenedProvider.overrideWith(_Opened.new),
           computerServiceProvider.overrideWith((ref) async => service),
           computerCapabilitiesProvider.overrideWith(
             (ref) async => const ComputerCapabilities(browser: true),
@@ -236,6 +271,11 @@ void main() {
     expect(tester.getSize(find.byType(ComputerPage)).width, 800);
     expect(pane.currentState!.canPop(), isFalse);
     expect(root.currentState!.canPop(), isTrue);
+    expect(
+      ProviderScope.containerOf(tester.element(find.byType(ComputerPage)))
+          .read(computerOpenedProvider),
+      isTrue,
+    );
     root.currentState!.pop();
     await tester.pumpAndSettle();
     expect(find.text('Computer'), findsOneWidget);

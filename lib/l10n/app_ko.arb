@@ -1,4 +1,5 @@
 {
+  "computerEnabledDescription": "채팅에서 데스크톱 및 브라우저 세션을 보고 제어합니다.",
   "computerPointerControls": "포인터 제어",
   "computerDirectTouch": "직접 터치",
   "computerTrackpad": "트랙패드",

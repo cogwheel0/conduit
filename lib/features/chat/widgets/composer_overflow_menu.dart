@@ -194,6 +194,7 @@ class ComposerAttachmentKeyboard extends ConsumerStatefulWidget {
     this.onMcpContent,
     this.onToolSettings,
     this.onCompareModels,
+    this.onComputer,
     this.compareModelsHasMessage = true,
   });
 
@@ -216,6 +217,7 @@ class ComposerAttachmentKeyboard extends ConsumerStatefulWidget {
   /// Starts a model comparison from the composer's message. Null hides the
   /// Advanced command.
   final VoidCallback? onCompareModels;
+  final VoidCallback? onComputer;
 
   /// Whether the composer holds a message to compare. Until it does, the
   /// command stays visible but off and says why.
@@ -521,6 +523,25 @@ class _ComposerAttachmentKeyboardState
         const SizedBox(height: Spacing.sm),
         ...featureTiles,
       ],
+      if (!restrictedMode && widget.onComputer != null)
+        for (final item in buildComposerOverflowComputerItems(
+          l10n: l10n,
+          available: true,
+        ))
+          ToggleTile(
+            glyph: _buildIconGlyph(
+              icon: item.iconFor(useCupertino: Platform.isIOS),
+              selected: false,
+              theme: theme,
+            ),
+            title: item.label,
+            subtitle: item.subtitle,
+            selected: false,
+            isAction: true,
+            enabled: true,
+            onToggle: widget.onComputer!,
+            theme: theme,
+          ),
       if (!restrictedMode && widget.onCompareModels != null)
         ..._buildCompareModelsTiles(l10n),
       if (!widget.localAttachmentsOnly) ...[

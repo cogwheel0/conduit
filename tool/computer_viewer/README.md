@@ -25,8 +25,16 @@ text uses a scrollable layout so every control remains reachable. After taking
 control, Watch explains that a new chat message continues the task.
 
 In a saved Open WebUI chat, select a Computer-enabled terminal with the existing
-composer Terminal picker or the sidebar's Terminal tab. The Computer card appears
-when that terminal advertises Desktop or Browser support. No preview or stream
+composer Terminal picker or the sidebar's Terminal tab. With a supported terminal,
+Computer in the composer's menu opens the viewer explicitly. The card above the
+composer appears only after a Computer tool call in the latest assistant turn or
+an explicit open during this chat session; selecting a terminal alone leaves it
+hidden. Explicit activity resets on chat, account, or terminal changes.
+
+Settings > Chat > Computer disables the feature on this device, removes both
+entry points, releases any open viewer, and prevents Computer discovery and
+connection requests. The preference survives restarts. It does not change the
+server's tools or stop other clients' sessions. No preview or stream
 is opened until requested.
 
 Protocol references:

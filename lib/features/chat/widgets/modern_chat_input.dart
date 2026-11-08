@@ -35,6 +35,8 @@ import '../services/ios_keyboard_attachment_bridge.dart';
 import 'speech_playback_bar.dart';
 import '../../terminal/widgets/computer_launcher.dart';
 
+import 'package:conduit_core/features/terminal/providers/computer_providers.dart';
+
 import 'package:conduit_core/features/chat/providers/context_attachments_provider.dart';
 import 'package:conduit_core/features/chat/providers/knowledge_cache_provider.dart';
 
@@ -311,6 +313,7 @@ List<IosKeyboardAttachmentActionConfig> buildIosKeyboardAttachmentActions({
   ComposerPersonalConnections connections = ComposerPersonalConnections.none,
   bool toolSettingsAvailable = false,
   bool compareModelsAvailable = false,
+  bool computerAvailable = false,
   bool hasMessage = true,
   CodeInterpreterOffer? codeInterpreter,
 }) {
@@ -338,6 +341,7 @@ List<IosKeyboardAttachmentActionConfig> buildIosKeyboardAttachmentActions({
     // Comparing models is an Open WebUI server feature.
     compareModelsAvailable:
         !hermesMode && !directMode && compareModelsAvailable,
+    computerAvailable: !hermesMode && !directMode && computerAvailable,
     hasMessage: hasMessage,
     codeInterpreter: codeInterpreter,
   );
@@ -1107,6 +1111,9 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       case ComposerOverflowActionIds.toolSettings:
         _openToolSettings();
         return;
+      case ComposerOverflowActionIds.computer:
+        unawaited(_openComputer());
+        return;
       case ComposerOverflowActionIds.compareModels:
         // The same command the Flutter menu runs: one controller for both.
         unawaited(_openCompareModels());
@@ -1119,6 +1126,12 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
         toggleComposerOverflowSelection(ref, id);
         return;
     }
+  }
+
+  Future<void> _openComputer() async {
+    await _hideAttachmentPanels();
+    _focusNode.unfocus();
+    if (mounted) await openComputerWorkspace(context, ref);
   }
 
   Future<void> _toggleNativeConnection(String id) async {
@@ -3071,6 +3084,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     required ComposerPersonalConnections connections,
     required bool toolSettingsAvailable,
     required bool compareModelsAvailable,
+    required bool computerAvailable,
     required bool hasMessage,
     required CodeInterpreterOffer? codeInterpreter,
   }) {
@@ -3100,6 +3114,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       connections: connections,
       toolSettingsAvailable: toolSettingsAvailable,
       compareModelsAvailable: compareModelsAvailable,
+      computerAvailable: computerAvailable,
       hasMessage: hasMessage,
       codeInterpreter: codeInterpreter,
     );
@@ -3154,6 +3169,10 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       connections: connections,
       toolSettingsAvailable: ref.read(personalValvesCommandAvailableProvider),
       compareModelsAvailable: _comparisonCommandAvailable(ref.read),
+      computerAvailable:
+          !directMode &&
+          !(selectedModel != null && isHermesModel(selectedModel)) &&
+          ref.read(computerAvailableProvider),
       hasMessage: _controller.text.trim().isNotEmpty,
       codeInterpreter: ref.read(codeInterpreterOfferProvider),
     );
@@ -3521,6 +3540,9 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       ref.listen(personalConnectionsProvider, (previous, next) {
         _scheduleNativeKeyboardAttachmentSync();
       });
+      ref.listen(computerAvailableProvider, (_, _) {
+        _scheduleNativeKeyboardAttachmentSync();
+      });
       ref.listen(terminalAvailableServersProvider, (previous, next) {
         _scheduleNativeKeyboardAttachmentSync();
       });
@@ -3630,6 +3652,10 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       connections: nativeConnections,
       toolSettingsAvailable: ref.watch(personalValvesCommandAvailableProvider),
       compareModelsAvailable: _comparisonCommandAvailable(ref.watch),
+      computerAvailable:
+          !isHermesComposer &&
+          !isDirectComposer &&
+          ref.watch(computerAvailableProvider),
       hasMessage: _hasText,
       codeInterpreter: codeInterpreterOffer,
     );
@@ -4209,6 +4235,11 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     required bool localAttachmentsOnly,
     required ComposerOverflowAttachmentAvailability attachmentAvailability,
   }) {
+    final model = ref.watch(selectedModelProvider);
+    final computerAvailable =
+        !localAttachmentsOnly &&
+        !(model != null && hasReservedDirectIdentity(model)) &&
+        ref.watch(computerAvailableProvider);
     final fallbackPanel = ComposerAttachmentKeyboard(
       height: _fallbackAttachmentPanelHeight,
       localAttachmentsOnly: localAttachmentsOnly,
@@ -4234,6 +4265,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       onToolSettings: ref.watch(personalValvesCommandAvailableProvider)
           ? _openToolSettings
           : null,
+      onComputer: computerAvailable ? () => unawaited(_openComputer()) : null,
       onCompareModels: _comparisonCommandAvailable(ref.watch)
           ? () => unawaited(_openCompareModels())
           : null,

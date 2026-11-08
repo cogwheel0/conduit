@@ -1,4 +1,5 @@
 {
+  "computerEnabledDescription": "在聊天中查看和控制桌面与浏览器会话。",
   "computerPointerControls": "指针控制",
   "computerDirectTouch": "直接触控",
   "computerTrackpad": "触控板",

@@ -42,6 +42,7 @@ void main() {
       ProviderScope(
         overrides: [
           apiServiceProvider.overrideWithValue(null),
+          computerActiveProvider.overrideWithValue(computer != null),
           computerServiceProvider.overrideWith((ref) async => computer),
           computerCapabilitiesProvider.overrideWith(
             (ref) async => ComputerCapabilities(browser: computer != null),

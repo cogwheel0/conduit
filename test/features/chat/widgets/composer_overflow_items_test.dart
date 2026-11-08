@@ -37,6 +37,45 @@ const _toggleFilter = ToggleFilter(
 void main() {
   final l10n = AppLocalizationsEn();
 
+  test('Computer is a command only for available Open WebUI sessions', () {
+    expect(
+      buildComposerOverflowComputerItems(l10n: l10n, available: false),
+      isEmpty,
+    );
+    final command = buildComposerOverflowComputerItems(
+      l10n: l10n,
+      available: true,
+    ).single;
+    expect(command.id, ComposerOverflowActionIds.computer);
+    expect(command.kind, ComposerOverflowItemKind.action);
+    for (final direct in [false, true]) {
+      for (final hermes in [false, true]) {
+        for (final available in [false, true]) {
+          final actions = buildIosKeyboardAttachmentActions(
+            l10n: l10n,
+            attachmentAvailability:
+                const ComposerOverflowAttachmentAvailability(),
+            hermesMode: hermes,
+            directMode: direct,
+            webSearchAvailable: false,
+            webSearchEnabled: false,
+            imageGenerationAvailable: false,
+            imageGenerationEnabled: false,
+            availableTools: const [],
+            selectedToolIds: const [],
+            availableFilters: const [],
+            selectedFilterIds: const [],
+            computerAvailable: available,
+          );
+          expect(
+            actions.any((a) => a.id == ComposerOverflowActionIds.computer),
+            available && !direct && !hermes,
+          );
+        }
+      }
+    }
+  });
+
   test('shared overflow items include selected model filters', () {
     final items = buildComposerOverflowItems(
       l10n: l10n,

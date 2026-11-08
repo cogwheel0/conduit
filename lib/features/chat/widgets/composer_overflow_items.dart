@@ -32,6 +32,7 @@ class ComposerOverflowActionIds {
   static const codeInterpreter = 'codeInterpreter';
   static const toolSettings = 'toolSettings';
   static const compareModels = 'compareModels';
+  static const computer = 'computer';
   static const _filterPrefix = 'filter:';
   static const _toolPrefix = 'tool:';
   static const _terminalPrefix = 'terminal:';
@@ -171,6 +172,7 @@ List<ComposerOverflowItem> buildComposerOverflowItems({
   ComposerPersonalConnections connections = ComposerPersonalConnections.none,
   bool toolSettingsAvailable = false,
   bool compareModelsAvailable = false,
+  bool computerAvailable = false,
   bool hasMessage = true,
   CodeInterpreterOffer? codeInterpreter,
 }) {
@@ -186,6 +188,10 @@ List<ComposerOverflowItem> buildComposerOverflowItems({
       imageGenerationAvailable: imageGenerationAvailable,
       imageGenerationEnabled: imageGenerationEnabled,
       codeInterpreter: codeInterpreter,
+    ),
+    ...buildComposerOverflowComputerItems(
+      l10n: l10n,
+      available: computerAvailable,
     ),
     ...buildComposerOverflowComparisonItems(
       l10n: l10n,
@@ -901,3 +907,20 @@ class _ComposerOverflowToolIcons {
   final IconData materialIcon;
   final String sfSymbol;
 }
+
+List<ComposerOverflowItem> buildComposerOverflowComputerItems({
+  required AppLocalizations l10n,
+  required bool available,
+}) => [
+  if (available)
+    ComposerOverflowItem(
+      id: ComposerOverflowActionIds.computer,
+      kind: ComposerOverflowItemKind.action,
+      section: ComposerOverflowSection.features,
+      label: l10n.computerTitle,
+      subtitle: l10n.computerReadOnly,
+      cupertinoIcon: CupertinoIcons.desktopcomputer,
+      materialIcon: Icons.desktop_windows_outlined,
+      sfSymbol: 'desktopcomputer',
+    ),
+];

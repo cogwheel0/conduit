@@ -1,4 +1,6 @@
 {
+  "computerEnabledDescription": "Watch and control Desktop and Browser sessions in chats.",
+  "@computerEnabledDescription": {"description": "Settings subtitle for enabling the Computer viewer on this device."},
   "computerPointerControls": "Pointer controls",
   "@computerPointerControls": {"description": "Title of the menu for choosing remote pointer behavior and mouse actions."},
   "computerDirectTouch": "Direct touch",

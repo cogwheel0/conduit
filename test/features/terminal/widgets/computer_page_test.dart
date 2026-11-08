@@ -32,10 +32,16 @@ Widget _harness(
   Future<bool> Function()? takeControl,
   double textScale = 1,
   Future<ComputerService?> Function()? loadService,
+  bool Function()? enabled,
 }) => ProviderScope(
   overrides: [
+    computerEnabledProvider.overrideWith((ref) => enabled?.call() ?? true),
     computerServiceProvider.overrideWith(
-      (ref) async => loadService == null ? service : await loadService(),
+      (ref) async => !ref.watch(computerEnabledProvider)
+          ? null
+          : loadService == null
+          ? service
+          : await loadService(),
     ),
     chatMessagesProvider.overrideWith(_Messages.new),
     if (takeControl != null)
@@ -405,6 +411,26 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Watching live'), findsOneWidget);
     verifyNever(() => service.selectBrowserTab('agent-tab'));
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('disabling Computer releases an open viewer', (tester) async {
+    final service = _Service();
+    when(() => service.open(any()))
+        .thenAnswer((_) async => _connection(ComputerSurface.desktop));
+    var enabled = true;
+    await tester.pumpWidget(_harness(service, enabled: () => enabled));
+    await tester.pump();
+    await tester.pump();
+    expect(find.byType(ComputerSurfaceView), findsOneWidget);
+    final container = ProviderScope.containerOf(
+      tester.element(find.byType(ComputerPage)),
+    );
+    enabled = false;
+    container.invalidate(computerEnabledProvider);
+    await tester.pump();
+    await tester.pump();
+    expect(find.byType(ComputerSurfaceView), findsNothing);
     await tester.pumpWidget(const SizedBox());
   });
 

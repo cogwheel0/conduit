@@ -16,12 +16,28 @@ import '../../../shared/utils/platform_page_route.dart';
 import 'computer_page.dart';
 import 'computer_mode_selector.dart';
 
+/// Explicit entry from the composer; availability alone never opens a VM.
+Future<void> openComputerWorkspace(BuildContext context, WidgetRef ref) async {
+  if (!ref.read(computerAvailableProvider)) return;
+  final service = ref.read(computerServiceProvider).value;
+  final capabilities = ref.read(computerCapabilitiesProvider).value;
+  if (service == null || capabilities == null) return;
+  ref.read(computerOpenedProvider.notifier).open();
+  await Navigator.of(context, rootNavigator: true).push(
+    buildPlatformPageRoute<void>(
+      builder: (_) =>
+          ComputerPage(service: service, capabilities: capabilities),
+    ),
+  );
+}
+
 /// A chat-scoped, on-demand entry. No pixels are fetched while collapsed.
 class ComputerLauncher extends ConsumerWidget {
   const ComputerLauncher({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    if (!ref.watch(computerActiveProvider)) return const SizedBox.shrink();
     final serviceState = ref.watch(computerServiceProvider);
     final capabilitiesState = ref.watch(computerCapabilitiesProvider);
     if (serviceState.isLoading ||
@@ -39,6 +55,7 @@ class ComputerLauncher extends ConsumerWidget {
       key: ObjectKey(service),
       service: service,
       capabilities: capabilities,
+      onOpen: () => ref.read(computerOpenedProvider.notifier).open(),
     );
   }
 }
@@ -48,9 +65,11 @@ class _ComputerCard extends StatefulWidget {
     super.key,
     required this.service,
     required this.capabilities,
+    required this.onOpen,
   });
   final ComputerService service;
   final ComputerCapabilities capabilities;
+  final VoidCallback onOpen;
 
   @override
   State<_ComputerCard> createState() => _ComputerCardState();
@@ -123,6 +142,7 @@ class _ComputerCardState extends State<_ComputerCard>
   }
 
   Future<void> _open() async {
+    widget.onOpen();
     await Navigator.of(context, rootNavigator: true).push(
       buildPlatformPageRoute<void>(
         builder: (_) => ComputerPage(
