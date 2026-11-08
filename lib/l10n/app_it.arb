@@ -4383,5 +4383,6 @@
   "copied": "Copiato",
   "composerAddAttachment": "Aggiungi allegato",
   "composerShowKeyboard": "Mostra tastiera",
-  "composerAttachServerFiles": "File sul server"
+  "composerAttachServerFiles": "File sul server",
+  "followUpSuggestionsHeading": "Suggerimenti"
 }

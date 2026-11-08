@@ -8185,5 +8185,6 @@
   "copied": "Skopiowano",
   "composerAddAttachment": "Dodaj załącznik",
   "composerShowKeyboard": "Pokaż klawiaturę",
-  "composerAttachServerFiles": "Pliki na serwerze"
+  "composerAttachServerFiles": "Pliki na serwerze",
+  "followUpSuggestionsHeading": "Sugestie"
 }

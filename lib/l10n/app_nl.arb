@@ -4383,5 +4383,6 @@
   "copied": "Gekopieerd",
   "composerAddAttachment": "Bijlage toevoegen",
   "composerShowKeyboard": "Toetsenbord tonen",
-  "composerAttachServerFiles": "Serverbestanden"
+  "composerAttachServerFiles": "Serverbestanden",
+  "followUpSuggestionsHeading": "Suggesties"
 }

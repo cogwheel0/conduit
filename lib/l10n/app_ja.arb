@@ -6000,5 +6000,6 @@
   "copied": "コピーしました",
   "composerAddAttachment": "添付ファイルを追加",
   "composerShowKeyboard": "キーボードを表示",
-  "composerAttachServerFiles": "サーバーのファイル"
+  "composerAttachServerFiles": "サーバーのファイル",
+  "followUpSuggestionsHeading": "提案"
 }

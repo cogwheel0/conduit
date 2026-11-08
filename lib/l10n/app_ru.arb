@@ -4421,5 +4421,6 @@
   "copied": "Скопировано",
   "composerAddAttachment": "Добавить вложение",
   "composerShowKeyboard": "Показать клавиатуру",
-  "composerAttachServerFiles": "Файлы на сервере"
+  "composerAttachServerFiles": "Файлы на сервере",
+  "followUpSuggestionsHeading": "Предложения"
 }

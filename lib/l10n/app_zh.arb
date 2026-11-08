@@ -4383,5 +4383,6 @@
   "copied": "已复制",
   "composerAddAttachment": "添加附件",
   "composerShowKeyboard": "显示键盘",
-  "composerAttachServerFiles": "服务器文件"
+  "composerAttachServerFiles": "服务器文件",
+  "followUpSuggestionsHeading": "建议"
 }

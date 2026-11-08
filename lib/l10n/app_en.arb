@@ -9191,5 +9191,9 @@
   "composerAttachServerFiles": "Server Files",
   "@composerAttachServerFiles": {
     "description": "Attachment panel tile, and the title of the sheet it opens, for files already stored on the server, as opposed to \"Files\", which picks a file from the device. Keep it short; it sits under an icon."
+  },
+  "followUpSuggestionsHeading": "Suggestions",
+  "@followUpSuggestionsHeading": {
+    "description": "Small heading above the suggested follow-up prompts shown under a finished reply; tapping one sends it."
   }
 }
