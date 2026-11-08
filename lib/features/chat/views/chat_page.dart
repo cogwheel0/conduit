@@ -4213,12 +4213,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                 ),
               ),
               Positioned(
-                bottom: math.max(
-                  0,
-                  _composerTopInset(context) +
-                      kChatScrollToLatestComposerGap -
-                      kChatScrollToLatestHaloInset,
-                ),
+                bottom: _composerTopInset(context),
                 left: 0,
                 right: 0,
                 child: ThemedSheets.hideNativeChromeWhileCovered(
@@ -4232,15 +4227,13 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                         hasScrollableContent: canScroll,
                         hasMessages: hasMessages,
                       );
-                      return Center(
-                        child: ChatScrollToLatestButton(
-                          key: const ValueKey('scroll_to_bottom'),
-                          visible: visible,
-                          dimension: _kScrollToLatestButtonSize,
-                          child: AdaptiveTooltip(
-                            message: l10n.scrollToBottom,
-                            child: _buildScrollToBottomButton(context),
-                          ),
+                      return ChatScrollToLatestButton(
+                        key: const ValueKey('scroll_to_bottom'),
+                        visible: visible,
+                        dimension: _kScrollToLatestButtonSize,
+                        child: AdaptiveTooltip(
+                          message: l10n.scrollToBottom,
+                          child: _buildScrollToBottomButton(context),
                         ),
                       );
                     },
@@ -4315,6 +4308,9 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         final openFullList = await _showPinnedModelMenu(menuAnchor, models);
         if (!openFullList || !mounted || !context.mounted) return;
       }
+      // Loaded: the pill shows its model again while the list is up, which a
+      // short list's sheet leaves in view.
+      setState(() => _isOpeningModelSelector = false);
       await _showModelDropdown(context, ref, models);
     } catch (error, stackTrace) {
       DebugLogger.error(

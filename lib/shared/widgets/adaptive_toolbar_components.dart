@@ -1514,12 +1514,17 @@ class _ConduitTitledModelSelectorState
             : widget.semanticsLabel;
         final drift = context.reduceMotion ? 0.0 : _kConduitTitledPillDrift;
         final width = lerpDouble(modelWidth, titledWidth, t)!;
-        // Out first, then in, so the two never read as one smudge.
-        final modelOpacity =
-            1 - Curves.easeOut.transform((t / 0.6).clamp(0.0, 1.0));
-        final titleOpacity = Curves.easeIn.transform(
-          ((t - 0.4) / 0.6).clamp(0.0, 1.0),
-        );
+        // One curve for both directions, a pure function of the spring's
+        // value, so a reversal mid-way never pops: each line holds its
+        // own half and they overlap only faintly around the middle, never
+        // smudging together nor leaving the pill empty for long.
+        double smoothstep(double from, double to, double x) {
+          final u = ((x - from) / (to - from)).clamp(0.0, 1.0);
+          return u * u * (3 - 2 * u);
+        }
+
+        final modelOpacity = 1 - smoothstep(0.15, 0.55, t);
+        final titleOpacity = smoothstep(0.45, 0.85, t);
         final content = ClipRect(
           child: OverflowBox(
             minWidth: 0,

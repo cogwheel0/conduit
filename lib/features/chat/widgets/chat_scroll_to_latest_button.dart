@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/physics.dart';
 import 'package:flutter/widgets.dart';
 
@@ -9,6 +11,9 @@ const double kChatScrollToLatestComposerGap = 12;
 /// Clear space around the button that the page background fades across.
 const double kChatScrollToLatestHaloInset = 12;
 
+/// Soft strip above the button where the deepened scroll edge eases out.
+const double kChatScrollToLatestEdgeSoftHeight = 24;
+
 /// Floating "jump to the latest message" control that rests just above the
 /// composer.
 ///
@@ -17,9 +22,12 @@ const double kChatScrollToLatestHaloInset = 12;
 /// quick scroll back and forth reverses it smoothly. Reduce Motion keeps
 /// only the fade.
 ///
-/// A soft disc of the page background sits under the button, so its Liquid
-/// Glass shows a clean surface instead of refracting the transcript, and
-/// nearby text fades out rather than running into its edge.
+/// Place it full width with its bottom on the composer's top edge. While it
+/// shows, the scroll edge above the composer deepens to hold it: opaque to
+/// the button's middle, then easing out just above it, so the transcript
+/// fades away behind the button rather than running under it. A soft disc of
+/// the page background sits right under the button, so its Liquid Glass
+/// shows a clean surface instead of refracting text.
 class ChatScrollToLatestButton extends StatefulWidget {
   const ChatScrollToLatestButton({
     super.key,
@@ -95,9 +103,39 @@ class _ChatScrollToLatestButtonState extends State<ChatScrollToLatestButton>
     super.dispose();
   }
 
+  /// The deepened edge: opaque from the composer to the button's middle,
+  /// then a cosine ease to clear above the button.
+  LinearGradient _edgeGradient(Color background, double height) {
+    final solidStop =
+        (kChatScrollToLatestComposerGap + widget.dimension / 2) / height;
+    const steps = 8;
+    return LinearGradient(
+      begin: Alignment.bottomCenter,
+      end: Alignment.topCenter,
+      colors: [
+        background,
+        background,
+        for (var i = 1; i <= steps; i++)
+          background.withValues(
+            alpha: background.a * 0.5 * (1 + math.cos(math.pi * i / steps)),
+          ),
+      ],
+      stops: [
+        0,
+        solidStop,
+        for (var i = 1; i <= steps; i++)
+          solidStop + (1 - solidStop) * i / steps,
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final haloExtent = widget.dimension + kChatScrollToLatestHaloInset * 2;
+    final edgeHeight =
+        kChatScrollToLatestComposerGap +
+        widget.dimension +
+        kChatScrollToLatestEdgeSoftHeight;
     final background = context.conduitTheme.surfaceBackground;
     final halo = DecoratedBox(
       decoration: BoxDecoration(
@@ -114,36 +152,68 @@ class _ChatScrollToLatestButtonState extends State<ChatScrollToLatestButton>
       ),
     );
 
-    return AnimatedBuilder(
-      animation: _presence,
-      child: SizedBox.square(
-        dimension: haloExtent,
-        child: Stack(
-          alignment: Alignment.center,
-          children: [
-            Positioned.fill(child: IgnorePointer(child: halo)),
-            widget.child,
-          ],
+    final button = SizedBox.square(
+      dimension: haloExtent,
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          Positioned.fill(child: IgnorePointer(child: halo)),
+          widget.child,
+        ],
+      ),
+    );
+    final edge = IgnorePointer(
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          gradient: _edgeGradient(background, edgeHeight),
         ),
       ),
-      builder: (context, child) {
-        final presence = _presence.value.clamp(0.0, 1.0);
-        if (presence <= 0.001 && !widget.visible) {
-          // Fully gone: drop the native button rather than keep an invisible
-          // platform view in the scene.
-          return SizedBox.square(dimension: haloExtent);
-        }
-        final rise = context.reduceMotion
-            ? 0.0
-            : (1 - presence) * ChatScrollToLatestButton.riseDistance;
-        return IgnorePointer(
-          ignoring: !widget.visible,
-          child: Opacity(
-            opacity: presence,
-            child: Transform.translate(offset: Offset(0, rise), child: child),
-          ),
-        );
-      },
+    );
+
+    return SizedBox(
+      height: edgeHeight,
+      width: double.infinity,
+      child: AnimatedBuilder(
+        animation: _presence,
+        builder: (context, _) {
+          final presence = _presence.value.clamp(0.0, 1.0);
+          if (presence <= 0.001 && !widget.visible) {
+            // Fully gone: drop the native button rather than keep an
+            // invisible platform view in the scene.
+            return const SizedBox.shrink();
+          }
+          final rise = context.reduceMotion
+              ? 0.0
+              : (1 - presence) * ChatScrollToLatestButton.riseDistance;
+          return Stack(
+            clipBehavior: Clip.none,
+            children: [
+              Positioned.fill(
+                child: Opacity(opacity: presence, child: edge),
+              ),
+              Positioned(
+                left: 0,
+                right: 0,
+                bottom:
+                    kChatScrollToLatestComposerGap -
+                    kChatScrollToLatestHaloInset,
+                child: Center(
+                  child: IgnorePointer(
+                    ignoring: !widget.visible,
+                    child: Opacity(
+                      opacity: presence,
+                      child: Transform.translate(
+                        offset: Offset(0, rise),
+                        child: button,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          );
+        },
+      ),
     );
   }
 }

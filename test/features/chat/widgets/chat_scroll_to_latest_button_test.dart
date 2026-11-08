@@ -60,8 +60,9 @@ void main() {
     await pumpButton(tester, visible: false);
 
     expect(find.byKey(buttonKey), findsNothing);
-    check(tester.getSize(find.byType(ChatScrollToLatestButton)).height)
-        .equals(40 + kChatScrollToLatestHaloInset * 2);
+    check(tester.getSize(find.byType(ChatScrollToLatestButton)).height).equals(
+      kChatScrollToLatestComposerGap + 40 + kChatScrollToLatestEdgeSoftHeight,
+    );
   });
 
   testWidgets('it rises and fades in without overshooting', (tester) async {
@@ -113,5 +114,29 @@ void main() {
     check(rise(tester)).equals(0);
     await tester.pumpAndSettle();
     check(opacity(tester)).equals(1);
+  });
+
+  testWidgets('while it shows, the edge behind it is opaque to its middle', (
+    tester,
+  ) async {
+    await pumpButton(tester, visible: true);
+
+    final edge = tester.widget<DecoratedBox>(
+      find
+          .descendant(
+            of: find.byType(ChatScrollToLatestButton),
+            matching: find.byType(DecoratedBox),
+          )
+          .first,
+    );
+    final gradient =
+        (edge.decoration as BoxDecoration).gradient! as LinearGradient;
+    const height =
+        kChatScrollToLatestComposerGap + 40 + kChatScrollToLatestEdgeSoftHeight;
+    check(gradient.begin).equals(Alignment.bottomCenter);
+    check(gradient.colors[1].a).equals(gradient.colors[0].a);
+    check(gradient.stops![1])
+        .equals((kChatScrollToLatestComposerGap + 20) / height);
+    check(gradient.colors.last.a).equals(0);
   });
 }
