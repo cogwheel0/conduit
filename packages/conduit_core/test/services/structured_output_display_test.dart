@@ -92,6 +92,130 @@ void main() {
     });
   });
 
+  group('hidden tool calls (Open WebUI 0.13.1)', () {
+    // The context the server keeps as tool history for itself, as
+    // `hidden_tool_result` writes it, ahead of the reply.
+    Map<String, dynamic> hidden(String id, String name, {String? status}) => {
+      ...call(id, name),
+      'hidden': true,
+      'arguments': '{}',
+      'status': status ?? 'completed',
+    };
+
+    test('memory recall and the skills list are not shown, nor their '
+        'results', () {
+      final blocks = parseOpenWebUIStructuredOutput([
+        hidden('m1', 'recall_memories'),
+        result('m1', 'Prefers short answers'),
+        hidden('s1', 'list_available_skills'),
+        result('s1', '<available_skills></available_skills>'),
+        {
+          'type': 'message',
+          'id': 'msg1',
+          'status': 'completed',
+          'content': [
+            {'type': 'output_text', 'text': 'Hello'},
+          ],
+        },
+      ]);
+      check(blocks).length.equals(1);
+      check(blocks.single)
+          .isA<StructuredOutputTextBlock>()
+          .has((b) => b.text, 'text')
+          .equals('Hello');
+    });
+
+    test('a reply with only hidden context so far shows nothing yet', () {
+      check(
+        parseOpenWebUIStructuredOutput([
+          hidden('k1', 'list_attached_knowledge'),
+          result('k1', 'Handbook'),
+        ]),
+      ).isEmpty();
+    });
+
+    test('a hidden call that waits on the user stays visible', () {
+      for (final status in ['pending', 'queued', 'requires_approval']) {
+        final blocks = parseOpenWebUIStructuredOutput([
+          hidden('t1', 'call_tool', status: status),
+        ]);
+        check(blocks.single)
+            .isA<StructuredOutputToolCallBlock>()
+            .has((b) => b.status, 'status')
+            .equals(status);
+      }
+    });
+  });
+
+  group('tool call labels (Open WebUI 0.13.1)', () {
+    test('a call carries the labels the model wrote for it', () {
+      final block =
+          parseOpenWebUIStructuredOutput([
+                {
+                  ...call('c1', 'search'),
+                  'display_labels': {
+                    'running': 'Searching for flights',
+                    'completed': 'Searched for flights',
+                  },
+                },
+              ]).single
+              as StructuredOutputToolCallBlock;
+      check(block.runningLabel).equals('Searching for flights');
+      check(block.completedLabel).equals('Searched for flights');
+      final rendered = renderStructuredOutputBlocks([block]);
+      check(rendered).contains('running_label="Searching for flights"');
+      check(rendered).contains('display_label="Searched for flights"');
+    });
+
+    test('an older single label is the completed one; none without '
+        'either', () {
+      final blocks = parseOpenWebUIStructuredOutput([
+        {...call('c1', 'search'), 'display_label': 'Searched the web'},
+        {
+          ...call('c2', 'fetch'),
+          'display_labels': {'running': '', 'completed': 7},
+        },
+      ]).cast<StructuredOutputToolCallBlock>();
+      check(blocks.first.runningLabel).isNull();
+      check(blocks.first.completedLabel).equals('Searched the web');
+      check(blocks.last.runningLabel).isNull();
+      check(blocks.last.completedLabel).isNull();
+    });
+
+    test('the arguments the server adds for itself are not shown once '
+        'complete', () {
+      final blocks = parseOpenWebUIStructuredOutput([
+        {
+          ...call('c1', 'search'),
+          'status': 'in_progress',
+          'arguments': jsonEncode({
+            '__labels__': {'running': 'Searching', 'completed': 'Searched'},
+            '__approval__': {'required': false},
+            'q': 'cats',
+          }),
+        },
+        {
+          ...call('c2', 'fetch'),
+          'arguments': {
+            '__approval__': {'required': true},
+            'url': 'https://example.com',
+          },
+        },
+        // Still streaming: left alone until it parses.
+        {
+          ...call('c3', 'find'),
+          'status': 'in_progress',
+          'arguments': '{"__labels__": {"running": "Find',
+        },
+      ]).cast<StructuredOutputToolCallBlock>().toList();
+      check(blocks[0].arguments).equals('{"q":"cats"}');
+      check(blocks[1].arguments)
+          .isA<Map<Object?, Object?>>()
+          .deepEquals({'url': 'https://example.com'});
+      check(blocks[2].arguments).equals('{"__labels__": {"running": "Find');
+    });
+  });
+
   group('image_generation_call', () {
     test('an image the model made shows as an image', () {
       final blocks = parseOpenWebUIStructuredOutput([
