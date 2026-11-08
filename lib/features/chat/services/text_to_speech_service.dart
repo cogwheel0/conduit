@@ -177,6 +177,9 @@ class TextToSpeechService implements VoiceModeSpeech {
   bool get canSeek => TtsManager.instance.canSeek;
   Duration? get playbackPosition => TtsManager.instance.playbackPosition;
   Duration? get playbackDuration => TtsManager.instance.playbackDuration;
+  ({int index, Duration position, Duration duration})? get chunkProgress =>
+      TtsManager.instance.chunkProgress;
+  bool get reportsSpokenWords => TtsManager.instance.reportsSpokenWords;
   Future<Duration?> seekRelative(Duration offset) =>
       TtsManager.instance.seekRelative(offset);
 

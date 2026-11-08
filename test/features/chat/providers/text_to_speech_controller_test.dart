@@ -286,6 +286,63 @@ void main() {
       },
     );
   }
+
+  test('audio clips highlight the word their position reaches, and live '
+      'device speech keeps its own word reports', () {
+    for (final reportsWords in [false, true]) {
+      fakeAsync((time) {
+        final speech = _Speech()
+          ..reportsWords = reportsWords
+          ..progress = (
+            index: 0,
+            position: const Duration(milliseconds: 500),
+            duration: const Duration(seconds: 2),
+          );
+        final local = ProviderContainer(
+          overrides: [
+            appSettingsProvider.overrideWithValue(const AppSettings()),
+            textToSpeechServiceProvider.overrideWithValue(speech),
+          ],
+        );
+        addTearDown(local.dispose);
+        TextToSpeechState state() => local.read(textToSpeechControllerProvider);
+        const sentence = 'A blue flower grows near the gate.';
+        unawaited(
+          local
+              .read(textToSpeechControllerProvider.notifier)
+              .toggleForMessage(messageId: 'garden-guide', text: sentence),
+        );
+        time.flushMicrotasks();
+        time.elapse(const Duration(milliseconds: 300));
+
+        if (reportsWords) {
+          expect(state().wordStartInSentence, isNull);
+        } else {
+          // A quarter of the way through: A(2) blue(5) flower(7)... of 35.
+          expect(
+            sentence.substring(
+              state().wordStartInSentence!,
+              state().wordEndInSentence,
+            ),
+            'flower',
+          );
+          speech.progress = (
+            index: 0,
+            position: const Duration(milliseconds: 1900),
+            duration: const Duration(seconds: 2),
+          );
+          time.elapse(const Duration(milliseconds: 300));
+          expect(
+            sentence.substring(
+              state().wordStartInSentence!,
+              state().wordEndInSentence,
+            ),
+            'gate.',
+          );
+        }
+      });
+    }
+  });
 }
 
 class _Speech extends Fake implements TextToSpeechService {
@@ -299,6 +356,13 @@ class _Speech extends Fake implements TextToSpeechService {
   Duration? get playbackPosition => null;
   @override
   Duration? get playbackDuration => null;
+  bool reportsWords = true;
+  @override
+  bool get reportsSpokenWords => reportsWords;
+  ({int index, Duration position, Duration duration})? progress;
+  @override
+  ({int index, Duration position, Duration duration})? get chunkProgress =>
+      progress;
   final spoken = <String>[];
   bool failPause = false;
   bool pauseErrorEvent = false;

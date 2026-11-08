@@ -583,6 +583,27 @@ class TtsManager {
     return position;
   }
 
+  /// Where playback is in the clip now playing: its chunk, the position in
+  /// it and its length. Null unless the session plays audio clips and the
+  /// clip's length is known.
+  ({int index, Duration position, Duration duration})? get chunkProgress {
+    final session = _activeSession;
+    if (session == null || !session.usesAudioPlayer) return null;
+    final index = _player.currentIndex ?? _serverCurrentIndex;
+    if (index < 0 || index >= session.chunks.length) return null;
+    final duration = _clipDurations[index];
+    if (duration == null || duration <= Duration.zero) return null;
+    return (index: index, position: _player.position, duration: duration);
+  }
+
+  /// Whether the session reports each word as it is spoken. Only the device
+  /// engine speaking live does; audio clips, from the server or rendered by
+  /// the device for read-aloud, carry no word timings.
+  bool get reportsSpokenWords {
+    final session = _activeSession;
+    return session != null && !session.usesAudioPlayer;
+  }
+
   Duration? get playbackDuration {
     final session = _activeSession;
     if (session == null ||

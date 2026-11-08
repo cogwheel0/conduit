@@ -76,6 +76,14 @@ void main() {
       );
       expect(player.currentIndex, 0);
       expect(player.position, const Duration(seconds: 12));
+      // Rendered clips carry no word timings; the clip's position stands in.
+      expect(manager.reportsSpokenWords, isFalse);
+      player.at(1, const Duration(seconds: 3));
+      expect(manager.chunkProgress, (
+        index: 1,
+        position: const Duration(seconds: 3),
+        duration: const Duration(seconds: 20),
+      ));
     },
   );
 
@@ -523,6 +531,8 @@ void main() {
     expect(device.liveSpeech, 1);
     expect(device.rendered, isEmpty);
     expect(manager.canSeek, isFalse);
+    expect(manager.reportsSpokenWords, isTrue);
+    expect(manager.chunkProgress, isNull);
   });
 
   test('seekable chunks respect the device limit without losing text', () {

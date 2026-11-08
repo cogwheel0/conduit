@@ -11,6 +11,7 @@ import 'package:conduit_core/providers/app_providers.dart';
 
 import 'package:conduit_markdown/conduit_markdown.dart';
 
+import '../services/spoken_word_estimate.dart';
 import '../services/text_to_speech_service.dart';
 import '../services/tts_manager.dart';
 
@@ -29,8 +30,10 @@ class TextToSpeechState {
   final List<String> sentences;
   final List<int> sentenceOffsets; // start indices in full text
   final int activeSentenceIndex; // -1 when none
-  final int? wordStartInSentence; // nullable; only for on-device
-  final int? wordEndInSentence; // nullable; only for on-device
+  // The word being spoken, as offsets in the active sentence: reported by the
+  // device engine speaking live, estimated from the position for audio clips.
+  final int? wordStartInSentence;
+  final int? wordEndInSentence;
 
   const TextToSpeechState({
     this.initialized = false,
@@ -101,6 +104,10 @@ class TextToSpeechState {
 }
 
 class TextToSpeechController extends Notifier<TextToSpeechState> {
+  /// How often audio clips publish their position and the word estimated
+  /// from it.
+  static const _audioProgressInterval = Duration(milliseconds: 150);
+
   late TextToSpeechService _service;
   bool _handlersBound = false;
   late Stopwatch _playbackClock;
@@ -417,6 +424,13 @@ class TextToSpeechController extends Notifier<TextToSpeechState> {
           elapsed: position,
           duration: _service.playbackDuration ?? Duration.zero,
         );
+        if (!_service.reportsSpokenWords) {
+          final word = _estimatedWord();
+          state = state.copyWith(
+            wordStartInSentence: word?.start,
+            wordEndInSentence: word?.end,
+          );
+        }
       }
     } catch (error) {
       if (ref.mounted && epoch == _requestEpoch) {
@@ -432,14 +446,42 @@ class TextToSpeechController extends Notifier<TextToSpeechState> {
   void _startPlaybackClock() {
     if (state.activeMessageId == null || _playbackClock.isRunning) return;
     _playbackClock.start();
-    _playbackTicker = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (ref.mounted) {
-        state = state.copyWith(
-          elapsed: _service.playbackPosition ?? _playbackClock.elapsed,
-          duration: _service.playbackDuration ?? Duration.zero,
-        );
-      }
-    });
+    // The device engine speaking live reports each word itself. Audio clips
+    // report none, so they are followed closely enough to estimate the word.
+    final interval = _service.reportsSpokenWords
+        ? const Duration(seconds: 1)
+        : _audioProgressInterval;
+    _playbackTicker = Timer.periodic(interval, (_) => _publishProgress());
+  }
+
+  /// Publishes the playback position and, for audio clips, the word
+  /// estimated from it.
+  void _publishProgress() {
+    if (!ref.mounted) return;
+    final word = _service.reportsSpokenWords ? null : _estimatedWord();
+    state = state.copyWith(
+      elapsed: _service.playbackPosition ?? _playbackClock.elapsed,
+      duration: _service.playbackDuration ?? Duration.zero,
+      wordStartInSentence: word?.start,
+      wordEndInSentence: word?.end,
+    );
+  }
+
+  /// The word of the active sentence at the clip's position, weighted by
+  /// characters; null while the clip and the sentence disagree.
+  ({int start, int end})? _estimatedWord() {
+    final progress = _service.chunkProgress;
+    final index = state.activeSentenceIndex;
+    if (progress == null ||
+        progress.index != index ||
+        index < 0 ||
+        index >= state.sentences.length) {
+      return null;
+    }
+    return estimateSpokenWord(
+      state.sentences[index],
+      progress.position.inMicroseconds / progress.duration.inMicroseconds,
+    );
   }
 
   void _stopPlaybackClock() {

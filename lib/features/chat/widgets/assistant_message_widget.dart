@@ -88,8 +88,10 @@ import 'package:conduit_core/features/chat/utils/file_utils.dart';
 
 import 'chat_branch_actions.dart';
 import 'chat_comparison_widgets.dart';
+
 import 'package:conduit/features/chat/widgets/mcp_app_embed.dart';
 import 'package:conduit_core/features/mcp_apps/openwebui_mcp_app.dart';
+
 import 'code_execution_display.dart';
 import 'follow_up_suggestions.dart';
 import 'usage_stats_modal.dart';
@@ -876,21 +878,47 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     children.add(
       Consumer(
         builder: (context, childRef, _) {
-          final ttsState = childRef.watch(textToSpeechControllerProvider);
+          // Only this message's reading rebuilds its card, which follows
+          // every estimated word.
+          final ttsState = childRef.watch(
+            textToSpeechControllerProvider.select(
+              (state) => state.activeMessageId == _messageId ? state : null,
+            ),
+          );
           final isActive =
-              ttsState.activeMessageId == _messageId &&
+              ttsState != null &&
+              ttsState.activeSentenceIndex >= 0 &&
               (ttsState.status == TtsPlaybackStatus.speaking ||
                   ttsState.status == TtsPlaybackStatus.paused ||
                   ttsState.status == TtsPlaybackStatus.loading);
-          if (!isActive || ttsState.activeSentenceIndex < 0) {
-            return const SizedBox.shrink();
+          final card = SizedBox(
+            width: double.infinity,
+            child: isActive
+                ? Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const SizedBox(height: Spacing.sm),
+                      _buildKaraokeBar(ttsState),
+                    ],
+                  )
+                : null,
+          );
+          // The card grows in, follows each sentence's height and shrinks
+          // away instead of jumping. Under Reduce Motion it changes at once;
+          // AnimatedSize cannot run for no time.
+          final duration = context.motionDuration(
+            const Duration(milliseconds: 220),
+          );
+          const key = ValueKey('assistant-read-aloud-card-size');
+          if (duration == Duration.zero) {
+            return KeyedSubtree(key: key, child: card);
           }
-          return Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const SizedBox(height: Spacing.sm),
-              _buildKaraokeBar(ttsState),
-            ],
+          return AnimatedSize(
+            key: key,
+            duration: duration,
+            curve: Curves.easeOutCubic,
+            alignment: Alignment.topCenter,
+            child: card,
           );
         },
       ),
@@ -1662,7 +1690,8 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
         if (!cleared) {
           AdaptiveSnackBar.show(
             context,
-            message: AppLocalizations.of(context)!.reasoningEffortClearIncomplete,
+            message: AppLocalizations.of(context)!
+                .reasoningEffortClearIncomplete,
             type: AdaptiveSnackBarType.warning,
           );
         }

@@ -46,6 +46,13 @@ class _TestTextToSpeechController extends TextToSpeechController {
   TextToSpeechState build() => const TextToSpeechState();
 }
 
+class _ReadingTextToSpeechController extends TextToSpeechController {
+  @override
+  TextToSpeechState build() => const TextToSpeechState();
+
+  void show(TextToSpeechState next) => state = next;
+}
+
 class _RecordingTextToSpeechController extends TextToSpeechController {
   _RecordingTextToSpeechController(this.onToggle);
 
@@ -919,6 +926,113 @@ void main() {
     },
   );
 
+  for (final reduceMotion in [false, true]) {
+    testWidgets('the read-aloud card '
+        '${reduceMotion ? 'changes at once under Reduce Motion' : 'grows in and shrinks away'}'
+        ' and marks the word being read', (tester) async {
+      final container = ProviderContainer(
+        overrides: [
+          textToSpeechControllerProvider.overrideWith(
+            _ReadingTextToSpeechController.new,
+          ),
+          streamingHapticsEnabledProvider.overrideWithValue(false),
+          isChatStreamingProvider.overrideWithValue(false),
+        ],
+      );
+      addTearDown(container.dispose);
+      const sentence = 'Water the fern at dawn.';
+      final message = ChatMessage(
+        id: 'garden-card',
+        role: 'assistant',
+        content: sentence,
+        timestamp: DateTime(2024, 1, 1),
+        isStreaming: false,
+        metadata: const {'responseDone': true},
+      );
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: MaterialApp(
+            theme: AppTheme.light(TweakcnThemes.t3Chat),
+            localizationsDelegates: conduitLocalizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            builder: (context, child) => MediaQuery(
+              data: MediaQuery.of(context)
+                  .copyWith(disableAnimations: reduceMotion),
+              child: child!,
+            ),
+            home: Scaffold(
+              body: AssistantMessageWidget(
+                message: message,
+                isStreaming: false,
+                showFollowUps: false,
+                animateOnMount: false,
+                onDelete: () {},
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final tts = container.read(
+        textToSpeechControllerProvider.notifier,
+      ) as _ReadingTextToSpeechController;
+      final card = find.byKey(const ValueKey('assistant-read-aloud-card-size'));
+      expect(tester.getSize(card).height, 0);
+
+      tts.show(
+        const TextToSpeechState(
+          initialized: true,
+          available: true,
+          status: TtsPlaybackStatus.speaking,
+          activeMessageId: 'garden-card',
+          sentences: [sentence],
+          sentenceOffsets: [0],
+          activeSentenceIndex: 0,
+          wordStartInSentence: 6,
+          wordEndInSentence: 9,
+        ),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 60));
+      final growing = tester.getSize(card).height;
+      await tester.pumpAndSettle();
+      final full = tester.getSize(card).height;
+      expect(full, greaterThan(0));
+      if (reduceMotion) {
+        expect(growing, full);
+      } else {
+        expect(growing, inExclusiveRange(0, full));
+      }
+      final text =
+          tester
+                  .widget<RichText>(
+                    find.descendant(of: card, matching: find.byType(RichText)),
+                  )
+                  .text
+              as TextSpan;
+      final spans = text.children!.cast<TextSpan>();
+      expect(spans.map((span) => span.text), [
+        'Water ',
+        'the',
+        ' fern at dawn.',
+      ]);
+      expect(spans[1].style!.fontWeight, FontWeight.w600);
+
+      tts.show(const TextToSpeechState());
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 60));
+      final shrinking = tester.getSize(card).height;
+      await tester.pumpAndSettle();
+      expect(tester.getSize(card).height, 0);
+      if (reduceMotion) {
+        expect(shrinking, 0);
+      } else {
+        expect(shrinking, inExclusiveRange(0, full));
+      }
+    });
+  }
+
   testWidgets('the bar owner reads the whole grouped response aloud', (
     tester,
   ) async {
@@ -1008,9 +1122,7 @@ void main() {
     await tester.pump(const Duration(milliseconds: 500));
   });
 
-  testWidgets('a voice reply names itself in the app language', (
-    tester,
-  ) async {
+  testWidgets('a voice reply names itself in the app language', (tester) async {
     final message = ChatMessage(
       id: 'voice-reply',
       role: 'assistant',
@@ -2089,8 +2201,9 @@ void main() {
     expect(find.text('Retry without reasoning effort'), findsOneWidget);
   });
 
-  testWidgets('an error merely naming the parameter does not offer recovery',
-      (tester) async {
+  testWidgets('an error merely naming the parameter does not offer recovery', (
+    tester,
+  ) async {
     await pumpFailedQueued(
       tester,
       lastError: 'Upstream rejected reasoning_effort',
@@ -2138,9 +2251,8 @@ void main() {
           // Signed out: the model holds no pick of its own.
           apiServiceProvider.overrideWithValue(null),
           selectedModelProvider.overrideWith(
-            () => _SelectedAs(
-              const Model(id: 'plain-chat-model', name: 'Plain'),
-            ),
+            () =>
+                _SelectedAs(const Model(id: 'plain-chat-model', name: 'Plain')),
           ),
         ],
       );
@@ -2195,9 +2307,8 @@ void main() {
           ),
           selectedModelProvider.overrideWith(() => _SelectedAs(selected)),
           // A live answer, not a queued one.
-          queuedCompletionInfoForMessageProvider(
-            failed.id,
-          ).overrideWith((ref) => Stream<QueuedCompletionInfo?>.value(null)),
+          queuedCompletionInfoForMessageProvider(failed.id)
+              .overrideWith((ref) => Stream<QueuedCompletionInfo?>.value(null)),
           localReasoningEffortsProvider.overrideWith(
             () => _PickedEfforts({
               for (final MapEntry(:key, :value) in picks.entries)
@@ -2270,9 +2381,7 @@ void main() {
       expect(retryWithoutEffort, findsNothing);
     });
 
-    testWidgets('is not offered when the chat saved Automatic', (
-      tester,
-    ) async {
+    testWidgets('is not offered when the chat saved Automatic', (tester) async {
       // A default saved on the chat outranks the model's own pick.
       await pumpFailed(
         tester,
