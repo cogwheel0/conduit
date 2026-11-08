@@ -9,6 +9,7 @@ import 'package:conduit_core/features/chat/providers/chat_providers.dart'
         chatMessagesProvider,
         forgetReplacedHermesStoredContent,
         hermesDesktopRewindTarget,
+        hermesRewindCandidateTexts,
         kHermesStoredUserContentKey;
 import 'package:conduit_core/features/chat/services/chat_message_actions.dart'
     show undoLastHermesTurn;
@@ -1022,6 +1023,47 @@ void main() {
             .has((error) => error.message, 'message')
             .contains('could not be found'),
       );
+    });
+
+    // A plain regenerate passed only the text kept from before an edit: a
+    // later turn sent with it matched alone, and the cut took that turn.
+    test('a regenerate tries the text shown with the text kept before an '
+        'edit', () async {
+      final stored = [
+        for (final row in _transcript)
+          row['id'] == 15 ? {...row, 'content': 'Snacks?'} : row,
+        {'id': 17, 'role': 'user', 'content': 'And drinks?'},
+        {'id': 18, 'role': 'assistant', 'content': 'Water.'},
+      ];
+      final service = _service(_Gateway(), _Rest(stored));
+      final replayed = _message('u2', 'user', 'Snacks?').copyWith(
+        metadata: const {kHermesStoredUserContentKey: 'And drinks?'},
+      );
+      final texts = hermesRewindCandidateTexts(replayed: replayed);
+      check(texts.originalText).equals('And drinks?');
+      check(texts.previousText).equals('Snacks?');
+
+      await check(
+        hermesDesktopRewindTarget(
+          service: service,
+          conversation: conversation,
+          messages: [..._chat.take(2), replayed],
+          replayedUserIndex: 2,
+          originalText: texts.originalText,
+          previousText: texts.previousText,
+        ),
+      ).throws<StateError>();
+      // An edit's own texts are kept as given.
+      check(
+        hermesRewindCandidateTexts(
+          replayed: replayed,
+          originalUserContent: 'A',
+          previousUserContent: 'B',
+        ),
+      ).equals((originalText: 'A', previousText: 'B'));
+      check(
+        hermesRewindCandidateTexts(replayed: _message('u2', 'user', 'X')),
+      ).equals((originalText: null, previousText: null));
     });
 
     test('a turn that never reached the session is only sent again', () async {

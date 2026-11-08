@@ -195,20 +195,18 @@ Future<void> _regenerateHermesMessage(
   // A Desktop Gateway session keeps its own transcript: the replayed turn is
   // cut from it and sent again into that session, so every Hermes surface
   // sees the same history.
+  final texts = hermesRewindCandidateTexts(
+    replayed: replayedUser,
+    originalUserContent: originalUserContent,
+    previousUserContent: previousUserContent,
+  );
   final rewind = await hermesDesktopRewindTarget(
     service: serviceGeneration,
     conversation: activeAtStart,
     messages: existingMessages,
     replayedUserIndex: replayedUserIndex,
-    // A retry of an edit whose replacement failed before the cut still
-    // finds the turn by the text the session holds.
-    originalText:
-        originalUserContent ??
-        switch (replayedUser?.metadata?[kHermesStoredUserContentKey]) {
-          final String stored => stored,
-          _ => null,
-        },
-    previousText: previousUserContent,
+    originalText: texts.originalText,
+    previousText: texts.previousText,
   );
   if (!chatMutationTokenStillActive(ref, mutationOwner)) return;
   if (!configController.sessionActionAdmissionIsCurrent(configAdmission) ||
@@ -712,6 +710,32 @@ Future<void> regenerateEditedHermesUserMessage(
     }
     rethrow;
   }
+}
+
+/// The texts the session may store the replayed turn [replayed] with, for
+/// [hermesDesktopRewindTarget]. An edit passes both its own. Otherwise (a
+/// regenerate) the text before an edit comes from the turn's metadata,
+/// which an edit may not have cleared yet: the text shown is then tried
+/// too, so a later turn sent with the old text and the edited one itself
+/// match two rows, which refuses the cut instead of cutting the wrong one.
+@visibleForTesting
+({String? originalText, String? previousText}) hermesRewindCandidateTexts({
+  required ChatMessage? replayed,
+  String? originalUserContent,
+  String? previousUserContent,
+}) {
+  final stored = switch (replayed?.metadata?[kHermesStoredUserContentKey]) {
+    final String text => text,
+    _ => null,
+  };
+  return (
+    originalText: originalUserContent ?? stored,
+    previousText:
+        previousUserContent ??
+        (originalUserContent == null && stored != null
+            ? replayed?.content
+            : null),
+  );
 }
 
 /// Drops the text a Desktop turn was stored with before an edit

@@ -4474,8 +4474,8 @@
   "hermesHiddenChatsLoadError": "Ausgeblendete Chats konnten nicht geladen werden.",
   "hermesBranchFromHere": "Ab hier abzweigen",
   "hermesBranchFailed": "Von diesem Chat konnte nicht abgezweigt werden. Versuche es erneut.",
-  "hermesUndoLastTurn": "Letzten Wechsel rückgängig machen",
-  "hermesUndoLastTurnDone": "Letzter Wechsel rückgängig gemacht.",
-  "hermesUndoLastTurnFailed": "Der letzte Wechsel konnte nicht rückgängig gemacht werden. Versuche es erneut.",
+  "hermesUndoLastTurn": "Letzten Nachrichtenaustausch rückgängig machen",
+  "hermesUndoLastTurnDone": "Letzter Nachrichtenaustausch rückgängig gemacht.",
+  "hermesUndoLastTurnFailed": "Der letzte Nachrichtenaustausch konnte nicht rückgängig gemacht werden. Versuche es erneut.",
   "hermesArchivedLoadError": "Archivierte Chats konnten nicht geladen werden."
 }
