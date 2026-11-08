@@ -174,46 +174,432 @@ Future<void> _pumpSettleFrames(
   }
 }
 
+Rect _paintedThumb(WidgetTester tester) {
+  final paint = tester
+      .widgetList<CustomPaint>(find.byType(CustomPaint))
+      .firstWhere((widget) => widget.foregroundPainter is ScrollbarPainter);
+  final painter = paint.foregroundPainter! as ScrollbarPainter;
+  double? top;
+  double? bottom;
+  for (var y = 0.0; y < 600; y += .25) {
+    if (painter.hitTestOnlyThumbInteractive(
+      Offset(796, y),
+      PointerDeviceKind.mouse,
+    )) {
+      top ??= y;
+      bottom = y;
+    }
+  }
+  if (top == null || bottom == null) {
+    throw StateError('Scrollbar thumb not painted');
+  }
+  return Rect.fromLTRB(792, top, 799, bottom);
+}
+
 void main() {
-  _viewportTest('uses one scroll controller for each platform scrollbar', (
+  _viewportTest(
+    'animated navigation reaches both ends despite inaccurate estimates',
+    (tester) async {
+      final controller = _controller(tester);
+      final ids = List.generate(10000, (i) => 'synthetic-$i');
+      await tester.pumpWidget(
+        _viewportHost(
+          _viewport(
+            controller: controller,
+            ids: ids,
+            followLatest: false,
+            estimateRowExtent: (_) => 100,
+            rowBuilder: (_, i) => SizedBox(height: i % 10 == 5 ? 3000 : 60),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final oldest = controller.animateToOldest(
+        duration: const Duration(milliseconds: 500),
+        curve: Curves.linear,
+      );
+      await tester.pumpAndSettle();
+      expect(await oldest, isTrue);
+      expect(controller.visibleMessageIds.first, ids.first);
+      final latest = controller.animateToLatest(
+        duration: const Duration(milliseconds: 500),
+        curve: Curves.linear,
+      );
+      await tester.pumpAndSettle();
+      await latest;
+      expect(controller.visibleMessageIds.last, ids.last);
+      expect(controller.distanceFromLatest, closeTo(0, 1));
+    },
+  );
+
+  for (final platform in [TargetPlatform.android, TargetPlatform.iOS]) {
+    _viewportTest('$platform switching chats cancels a held scrollbar', (
+      tester,
+    ) async {
+      PlatformUiCapabilities.debugPlatformOverride = platform;
+      addTearDown(PlatformUiCapabilities.resetDebugOverrides);
+      final controller = _controller(tester);
+      var ends = 0;
+      Widget host(int owner) => _viewportHost(
+        _viewport(
+          controller: controller,
+          ownerGeneration: owner,
+          ids: List.generate(
+            owner == 1 ? 500 : 4,
+            (i) => 'synthetic-$owner-$i',
+          ),
+          followLatest: false,
+          rowHeight: (_) => 100,
+          onUserDragEnd: () => ends++,
+        ),
+        theme: ThemeData(
+          scrollbarTheme: const ScrollbarThemeData(
+            thumbVisibility: WidgetStatePropertyAll(true),
+            interactive: true,
+            thickness: WidgetStatePropertyAll(8),
+          ),
+        ),
+      );
+      await tester.pumpWidget(host(1));
+      await tester.pumpAndSettle();
+      final position = tester
+          .state<ScrollableState>(find.byType(Scrollable))
+          .position;
+      position.jumpTo(position.pixels - 1);
+      for (var i = 0; i < 3; i++) {
+        await tester.pump(const Duration(milliseconds: 100));
+      }
+      final gesture = await _startTrackedGesture(
+        tester,
+        _paintedThumb(tester).center,
+      );
+      await tester.pump(const Duration(milliseconds: 150));
+      await gesture.moveBy(const Offset(0, -60));
+      await tester.pump(const Duration(milliseconds: 32));
+      await gesture.moveBy(const Offset(0, -60));
+      await tester.pump(const Duration(milliseconds: 32));
+      await tester.pumpWidget(host(2));
+      await tester.pumpAndSettle();
+      final newOffset = position.pixels;
+      await gesture.moveBy(const Offset(0, -60));
+      await tester.pump(const Duration(milliseconds: 32));
+      expect(position.pixels, newOffset);
+      await gesture.up();
+      await tester.pumpAndSettle();
+      expect(ends, 1);
+      expect(
+        controller.visibleMessageIds.every(
+          (id) => id.startsWith('synthetic-2-'),
+        ),
+        isTrue,
+      );
+    });
+
+    _viewportTest(
+      '$platform scrollbar reaches both ends of the complete history',
+      (tester) async {
+        PlatformUiCapabilities.debugPlatformOverride = platform;
+        addTearDown(PlatformUiCapabilities.resetDebugOverrides);
+        final controller = _controller(tester);
+        final ids = List.generate(500, (index) => 'synthetic-$index');
+        await tester.pumpWidget(
+          _viewportHost(
+            _viewport(
+              controller: controller,
+              ids: ids,
+              followLatest: false,
+              estimateRowExtent: (_) => 100,
+              rowBuilder: (_, index) =>
+                  SizedBox(height: index % 10 == 5 ? 3000 : 60),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        final oldest = controller.jumpToOldest();
+        await tester.pumpAndSettle();
+        expect(await oldest, isTrue);
+        final bar = platform == TargetPlatform.iOS
+            ? tester
+                  .widget<CupertinoScrollbar>(find.byType(CupertinoScrollbar))
+                  .controller!
+                  .position
+            : tester
+                  .widget<Scrollbar>(find.byType(Scrollbar))
+                  .controller!
+                  .position;
+        expect(bar.pixels, closeTo(bar.minScrollExtent, .01));
+        controller.jumpToLatest();
+        await tester.pumpAndSettle();
+        expect(bar.pixels, closeTo(bar.maxScrollExtent, .01));
+        expect(controller.visibleMessageIds.last, ids.last);
+      },
+    );
+
+    _viewportTest(
+      '$platform thumb moves continuously within one tall message',
+      (tester) async {
+        PlatformUiCapabilities.debugPlatformOverride = platform;
+        addTearDown(PlatformUiCapabilities.resetDebugOverrides);
+        final controller = _controller(tester);
+        await tester.pumpWidget(
+          _viewportHost(
+            _viewport(
+              controller: controller,
+              ids: const ['synthetic-tall'],
+              followLatest: false,
+              initialAnchor: const ChatScrollAnchor(
+                messageId: 'synthetic-tall',
+                offsetWithinMessage: 0,
+                loadedCount: 1,
+              ),
+              rowBuilder: (_, _) => const SizedBox(height: 10000),
+            ),
+            theme: ThemeData(
+              scrollbarTheme: const ScrollbarThemeData(
+                thumbVisibility: WidgetStatePropertyAll(true),
+                interactive: true,
+                thickness: WidgetStatePropertyAll(8),
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        final position = tester
+            .state<ScrollableState>(find.byType(Scrollable))
+            .position;
+        position.jumpTo(1);
+        for (var i = 0; i < 3; i++) {
+          await tester.pump(const Duration(milliseconds: 100));
+        }
+        final thumb = _paintedThumb(tester);
+        final gesture = await _startTrackedGesture(tester, thumb.center);
+        await tester.pump(const Duration(milliseconds: 150));
+        var previous = position.pixels;
+        for (var i = 0; i < 8; i++) {
+          await gesture.moveBy(const Offset(0, 10));
+          await tester.pump(const Duration(milliseconds: 32));
+          if (i > 1) expect(position.pixels, greaterThan(previous));
+          previous = position.pixels;
+        }
+        expect(position.pixels, greaterThan(1000));
+        await gesture.up();
+        await tester.pumpAndSettle();
+      },
+    );
+
+    _viewportTest(
+      '$platform thumb drags through a long history without building intervening rows',
+      (tester) async {
+        PlatformUiCapabilities.debugPlatformOverride = platform;
+        addTearDown(PlatformUiCapabilities.resetDebugOverrides);
+        final controller = _controller(tester);
+        final ids = List.generate(10000, (index) => 'synthetic-$index');
+        var builds = 0;
+        var starts = 0;
+        var ends = 0;
+        await tester.pumpWidget(
+          _viewportHost(
+            _viewport(
+              controller: controller,
+              ids: ids,
+              followLatest: false,
+              initialAnchor: const ChatScrollAnchor(
+                messageId: 'synthetic-1000',
+                offsetWithinMessage: 0,
+                loadedCount: 10000,
+              ),
+              estimateRowExtent: (_) => 100,
+              rowBuilder: (_, index) {
+                builds++;
+                return SizedBox(height: index % 10 == 5 ? 3000 : 60);
+              },
+              onUserDragStart: () => starts++,
+              onUserDragEnd: () => ends++,
+            ),
+            theme: ThemeData(
+              scrollbarTheme: const ScrollbarThemeData(
+                thumbVisibility: WidgetStatePropertyAll(true),
+                interactive: true,
+                thickness: WidgetStatePropertyAll(8),
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        final position = tester
+            .state<ScrollableState>(find.byType(Scrollable))
+            .position;
+        position.jumpTo(position.pixels + 1);
+        await tester.pump(const Duration(milliseconds: 100));
+        await tester.pump(const Duration(milliseconds: 100));
+        await tester.pump(const Duration(milliseconds: 100));
+        final thumb = _paintedThumb(tester);
+        final initialBuilds = builds;
+        final gesture = await _startTrackedGesture(tester, thumb.center);
+        await tester.pump(const Duration(milliseconds: 150));
+        for (var i = 0; i < 10; i++) {
+          await gesture.moveBy(const Offset(0, 20));
+          await tester.pump(const Duration(milliseconds: 32));
+        }
+        await tester.pump(const Duration(milliseconds: 32));
+        expect(_paintedThumb(tester).top - thumb.top, closeTo(200, 24));
+        await gesture.up();
+        await tester.pumpAndSettle();
+        final anchor = controller.captureTopVisibleAnchor(
+          loadedCount: ids.length,
+        )!;
+        final index = int.parse(anchor.messageId.split('-').last);
+        expect(index, greaterThan(3000));
+        expect(index, lessThan(8000));
+        expect(builds - initialBuilds, lessThan(350));
+        expect(starts, 1);
+        expect(ends, 1);
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
+
+  _viewportTest('scrolling does not re-estimate the remaining history', (
     tester,
   ) async {
     final controller = _controller(tester);
-    final ids = List<String>.generate(30, (index) => 'message-$index');
-    addTearDown(PlatformUiCapabilities.resetDebugOverrides);
-
-    PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.android;
+    var estimates = 0;
+    final ids = List.generate(10000, (index) => 'synthetic-$index');
     await tester.pumpWidget(
-      _viewportHost(_viewport(controller: controller, ids: ids)),
+      _viewportHost(
+        _viewport(
+          controller: controller,
+          ids: ids,
+          followLatest: false,
+          initialAnchor: const ChatScrollAnchor(
+            messageId: 'synthetic-5000',
+            offsetWithinMessage: 0,
+            loadedCount: 10000,
+          ),
+          estimateRowExtent: (_) {
+            estimates++;
+            return 100;
+          },
+          rowBuilder: (_, index) => SizedBox(height: index.isEven ? 60 : 240),
+        ),
+      ),
     );
-    await tester.pump();
-
-    final scrollView = tester.widget<CustomScrollView>(
-      find.byType(CustomScrollView),
-    );
-    final materialScrollbar = tester.widget<Scrollbar>(find.byType(Scrollbar));
-    expect(
-      identical(materialScrollbar.controller, scrollView.controller),
-      true,
-    );
-
-    PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.iOS;
-    await tester.pumpWidget(
-      _viewportHost(_viewport(controller: controller, ids: ids)),
-    );
-    await tester.pump();
-
-    final cupertinoScrollbar = tester.widget<CupertinoScrollbar>(
-      find.byType(CupertinoScrollbar),
-    );
-    final iosScrollView = tester.widget<CustomScrollView>(
-      find.byType(CustomScrollView),
-    );
-    expect(
-      identical(cupertinoScrollbar.controller, iosScrollView.controller),
-      true,
-    );
+    await tester.pumpAndSettle();
+    final estimatesAtRest = estimates;
+    final position = tester
+        .state<ScrollableState>(find.byType(Scrollable))
+        .position;
+    for (var frame = 0; frame < 60; frame++) {
+      position.jumpTo(position.pixels - 80);
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+    expect(estimates - estimatesAtRest, 0);
   });
+
+  for (final direction in [-1, 1]) {
+    _viewportTest(
+      'scrollbar advances consistently in direction $direction past inaccurate row estimates',
+      (tester) async {
+        final controller = _controller(tester);
+        final ids = List.generate(300, (index) => 'synthetic-$index');
+        await tester.pumpWidget(
+          _viewportHost(
+            _viewport(
+              controller: controller,
+              ids: ids,
+              initialAnchor: const ChatScrollAnchor(
+                messageId: 'synthetic-100',
+                offsetWithinMessage: 0,
+                loadedCount: 300,
+              ),
+              followLatest: false,
+              estimateRowExtent: (_) => 100,
+              rowBuilder: (_, index) => SizedBox(
+                height: index % 10 == 5 ? 3000 : 60,
+                child: Text('Synthetic row $index'),
+              ),
+            ),
+            theme: ThemeData(
+              scrollbarTheme: const ScrollbarThemeData(
+                thumbVisibility: WidgetStatePropertyAll(true),
+                interactive: true,
+                thickness: WidgetStatePropertyAll(8),
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        final position = tester
+            .state<ScrollableState>(find.byType(Scrollable))
+            .position;
+        var previous = _paintedThumb(tester).top;
+        var reversals = 0;
+        var largestReverse = 0.0;
+        for (var frame = 0; frame < 180; frame++) {
+          position.jumpTo(position.pixels + direction * 80);
+          await tester.pump(const Duration(milliseconds: 16));
+          final current = _paintedThumb(tester).top;
+          if ((current - previous) * direction < -.25) {
+            reversals++;
+            if ((previous - current).abs() > largestReverse) {
+              largestReverse = (previous - current).abs();
+            }
+          }
+          previous = current;
+        }
+        expect(
+          reversals,
+          0,
+          reason: 'Largest backwards thumb movement: $largestReverse px',
+        );
+      },
+    );
+  }
+
+  _viewportTest(
+    'platform scrollbars keep message metrics separate from pixel scrolling',
+    (tester) async {
+      final controller = _controller(tester);
+      final ids = List<String>.generate(30, (index) => 'message-$index');
+      addTearDown(PlatformUiCapabilities.resetDebugOverrides);
+
+      PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.android;
+      await tester.pumpWidget(
+        _viewportHost(_viewport(controller: controller, ids: ids)),
+      );
+      await tester.pump();
+
+      final scrollView = tester.widget<CustomScrollView>(
+        find.byType(CustomScrollView),
+      );
+      final materialScrollbar = tester.widget<Scrollbar>(
+        find.byType(Scrollbar),
+      );
+      expect(
+        identical(materialScrollbar.controller, scrollView.controller),
+        false,
+      );
+      expect(materialScrollbar.controller!.hasClients, isTrue);
+
+      PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.iOS;
+      await tester.pumpWidget(
+        _viewportHost(_viewport(controller: controller, ids: ids)),
+      );
+      await tester.pump();
+
+      final cupertinoScrollbar = tester.widget<CupertinoScrollbar>(
+        find.byType(CupertinoScrollbar),
+      );
+      final iosScrollView = tester.widget<CustomScrollView>(
+        find.byType(CustomScrollView),
+      );
+      expect(
+        identical(cupertinoScrollbar.controller, iosScrollView.controller),
+        false,
+      );
+      expect(cupertinoScrollbar.controller!.hasClients, isTrue);
+    },
+  );
 
   _viewportTest('scrollbar track is inset by the toolbar and composer', (
     tester,

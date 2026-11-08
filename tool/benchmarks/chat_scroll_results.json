@@ -1,0 +1,435 @@
+{
+  "baselineCommit": "030a1823ee753e76bbdb930a6e67fad325395b59",
+  "environment": {
+    "flutter": "3.47.9",
+    "dart": "3.13.7",
+    "mode": "profile",
+    "device": "Android arm64 emulator",
+    "resolution": "1080x2400",
+    "density": 420,
+    "refreshHz": 60,
+    "graphics": "host GPU, Impeller OpenGLES"
+  },
+  "method": "Interleaved baseline/candidate/candidate/baseline runs; 20 viewports forward and back, six seconds each direction; fresh synthetic Markdown; no recording or concurrent builds during measurement. Device visually verified before the run; every run checked for Android ANR events.",
+  "frameRuns": [
+    {
+      "run": 1,
+      "variant": "baseline",
+      "phases": [
+        {
+          "phase": "1000-cold",
+          "buildMs": {
+            "samples": 723,
+            "p50": 0.467,
+            "p95": 1.893,
+            "p99": 3.272,
+            "max": 5.946
+          },
+          "rasterMs": {
+            "samples": 723,
+            "p50": 16.402,
+            "p95": 19.019,
+            "p99": 22.0,
+            "max": 32.372
+          },
+          "over16ms": 284,
+          "estimates": 352142,
+          "rowsBuilt": 69,
+          "rssBytes": 313040896
+        },
+        {
+          "phase": "1000-warm",
+          "buildMs": {
+            "samples": 721,
+            "p50": 0.502,
+            "p95": 1.849,
+            "p99": 2.831,
+            "max": 6.439
+          },
+          "rasterMs": {
+            "samples": 721,
+            "p50": 1.543,
+            "p95": 2.288,
+            "p99": 3.232,
+            "max": 9.832
+          },
+          "over16ms": 0,
+          "estimates": 351237,
+          "rowsBuilt": 69,
+          "rssBytes": 313249792
+        },
+        {
+          "phase": "10000-cold",
+          "buildMs": {
+            "samples": 724,
+            "p50": 1.75,
+            "p95": 2.881,
+            "p99": 4.46,
+            "max": 10.433
+          },
+          "rasterMs": {
+            "samples": 724,
+            "p50": 1.213,
+            "p95": 1.633,
+            "p99": 2.153,
+            "max": 4.534
+          },
+          "over16ms": 0,
+          "estimates": 3718636,
+          "rowsBuilt": 69,
+          "rssBytes": 327598080
+        },
+        {
+          "phase": "10000-warm",
+          "buildMs": {
+            "samples": 724,
+            "p50": 1.771,
+            "p95": 2.74,
+            "p99": 3.48,
+            "max": 7.862
+          },
+          "rasterMs": {
+            "samples": 724,
+            "p50": 1.219,
+            "p95": 1.664,
+            "p99": 2.437,
+            "max": 10.464
+          },
+          "over16ms": 0,
+          "estimates": 3723598,
+          "rowsBuilt": 69,
+          "rssBytes": 327659520
+        }
+      ]
+    },
+    {
+      "run": 2,
+      "variant": "candidate",
+      "phases": [
+        {
+          "phase": "1000-cold",
+          "buildMs": {
+            "samples": 724,
+            "p50": 0.331,
+            "p95": 1.866,
+            "p99": 3.836,
+            "max": 5.91
+          },
+          "rasterMs": {
+            "samples": 724,
+            "p50": 1.674,
+            "p95": 2.31,
+            "p99": 3.218,
+            "max": 5.587
+          },
+          "over16ms": 0,
+          "estimates": 995,
+          "rowsBuilt": 69,
+          "rssBytes": 313999360
+        },
+        {
+          "phase": "1000-warm",
+          "buildMs": {
+            "samples": 723,
+            "p50": 0.329,
+            "p95": 1.601,
+            "p99": 2.85,
+            "max": 6.933
+          },
+          "rasterMs": {
+            "samples": 723,
+            "p50": 1.743,
+            "p95": 16.733,
+            "p99": 18.249,
+            "max": 24.011
+          },
+          "over16ms": 40,
+          "estimates": 995,
+          "rowsBuilt": 69,
+          "rssBytes": 314261504
+        },
+        {
+          "phase": "10000-cold",
+          "buildMs": {
+            "samples": 721,
+            "p50": 0.332,
+            "p95": 1.82,
+            "p99": 4.344,
+            "max": 7.918
+          },
+          "rasterMs": {
+            "samples": 721,
+            "p50": 1.699,
+            "p95": 2.29,
+            "p99": 2.758,
+            "max": 12.252
+          },
+          "over16ms": 0,
+          "estimates": 9995,
+          "rowsBuilt": 69,
+          "rssBytes": 328298496
+        },
+        {
+          "phase": "10000-warm",
+          "buildMs": {
+            "samples": 724,
+            "p50": 0.353,
+            "p95": 1.585,
+            "p99": 2.808,
+            "max": 7.218
+          },
+          "rasterMs": {
+            "samples": 724,
+            "p50": 1.872,
+            "p95": 17.543,
+            "p99": 19.626,
+            "max": 23.703
+          },
+          "over16ms": 111,
+          "estimates": 9995,
+          "rowsBuilt": 69,
+          "rssBytes": 328536064
+        }
+      ]
+    },
+    {
+      "run": 3,
+      "variant": "candidate",
+      "phases": [
+        {
+          "phase": "1000-cold",
+          "buildMs": {
+            "samples": 724,
+            "p50": 0.333,
+            "p95": 1.787,
+            "p99": 3.844,
+            "max": 4.64
+          },
+          "rasterMs": {
+            "samples": 724,
+            "p50": 1.702,
+            "p95": 2.389,
+            "p99": 3.023,
+            "max": 5.717
+          },
+          "over16ms": 0,
+          "estimates": 995,
+          "rowsBuilt": 69,
+          "rssBytes": 314470400
+        },
+        {
+          "phase": "1000-warm",
+          "buildMs": {
+            "samples": 724,
+            "p50": 0.343,
+            "p95": 1.676,
+            "p99": 2.836,
+            "max": 5.462
+          },
+          "rasterMs": {
+            "samples": 724,
+            "p50": 1.733,
+            "p95": 2.37,
+            "p99": 2.981,
+            "max": 8.396
+          },
+          "over16ms": 0,
+          "estimates": 995,
+          "rowsBuilt": 69,
+          "rssBytes": 314863616
+        },
+        {
+          "phase": "10000-cold",
+          "buildMs": {
+            "samples": 724,
+            "p50": 0.349,
+            "p95": 1.897,
+            "p99": 4.026,
+            "max": 6.194
+          },
+          "rasterMs": {
+            "samples": 724,
+            "p50": 1.77,
+            "p95": 2.35,
+            "p99": 2.865,
+            "max": 4.441
+          },
+          "over16ms": 0,
+          "estimates": 9995,
+          "rowsBuilt": 69,
+          "rssBytes": 328314880
+        },
+        {
+          "phase": "10000-warm",
+          "buildMs": {
+            "samples": 725,
+            "p50": 0.365,
+            "p95": 1.47,
+            "p99": 3.01,
+            "max": 3.825
+          },
+          "rasterMs": {
+            "samples": 725,
+            "p50": 1.728,
+            "p95": 2.374,
+            "p99": 3.417,
+            "max": 9.364
+          },
+          "over16ms": 0,
+          "estimates": 9995,
+          "rowsBuilt": 69,
+          "rssBytes": 328548352
+        }
+      ]
+    },
+    {
+      "run": 4,
+      "variant": "baseline",
+      "phases": [
+        {
+          "phase": "1000-cold",
+          "buildMs": {
+            "samples": 724,
+            "p50": 0.484,
+            "p95": 1.906,
+            "p99": 4.345,
+            "max": 5.66
+          },
+          "rasterMs": {
+            "samples": 724,
+            "p50": 1.647,
+            "p95": 2.381,
+            "p99": 3.346,
+            "max": 5.749
+          },
+          "over16ms": 0,
+          "estimates": 353645,
+          "rowsBuilt": 69,
+          "rssBytes": 313180160
+        },
+        {
+          "phase": "1000-warm",
+          "buildMs": {
+            "samples": 722,
+            "p50": 0.487,
+            "p95": 1.826,
+            "p99": 3.071,
+            "max": 5.461
+          },
+          "rasterMs": {
+            "samples": 722,
+            "p50": 1.757,
+            "p95": 17.391,
+            "p99": 19.363,
+            "max": 29.534
+          },
+          "over16ms": 84,
+          "estimates": 352721,
+          "rowsBuilt": 69,
+          "rssBytes": 313966592
+        },
+        {
+          "phase": "10000-cold",
+          "buildMs": {
+            "samples": 724,
+            "p50": 1.79,
+            "p95": 2.848,
+            "p99": 4.5,
+            "max": 8.775
+          },
+          "rasterMs": {
+            "samples": 724,
+            "p50": 1.288,
+            "p95": 1.703,
+            "p99": 2.465,
+            "max": 5.433
+          },
+          "over16ms": 0,
+          "estimates": 3718636,
+          "rowsBuilt": 69,
+          "rssBytes": 327598080
+        },
+        {
+          "phase": "10000-warm",
+          "buildMs": {
+            "samples": 725,
+            "p50": 1.818,
+            "p95": 2.698,
+            "p99": 3.605,
+            "max": 9.619
+          },
+          "rasterMs": {
+            "samples": 725,
+            "p50": 15.668,
+            "p95": 18.224,
+            "p99": 20.165,
+            "max": 22.067
+          },
+          "over16ms": 113,
+          "estimates": 3728596,
+          "rowsBuilt": 69,
+          "rssBytes": 328290304
+        }
+      ]
+    }
+  ],
+  "presentationMethod": "SurfaceFlinger actual-present timestamps, sampled for eight seconds within the 10,000-message cold scroll, away from phase boundaries; separate interleaved runs.",
+  "presentationRuns": [
+    {
+      "run": 1,
+      "kind": "baseline",
+      "phase": "10000-cold",
+      "presentIntervalMs": {
+        "p50": 16.670791,
+        "p95": 19.790875,
+        "p99": 21.600292,
+        "max": 43.21675,
+        "samples": 494
+      },
+      "intervalsOver25ms": 2,
+      "displayedFrames": 495
+    },
+    {
+      "run": 2,
+      "kind": "candidate",
+      "phase": "10000-cold",
+      "presentIntervalMs": {
+        "p50": 16.64875,
+        "p95": 19.278667,
+        "p99": 20.993708,
+        "max": 22.52225,
+        "samples": 496
+      },
+      "intervalsOver25ms": 0,
+      "displayedFrames": 497
+    },
+    {
+      "run": 3,
+      "kind": "candidate",
+      "phase": "10000-cold",
+      "presentIntervalMs": {
+        "p50": 16.707666,
+        "p95": 20.106292,
+        "p99": 21.735209,
+        "max": 23.855584,
+        "samples": 491
+      },
+      "intervalsOver25ms": 0,
+      "displayedFrames": 492
+    },
+    {
+      "run": 4,
+      "kind": "baseline",
+      "phase": "10000-cold",
+      "presentIntervalMs": {
+        "p50": 16.638667,
+        "p95": 19.331459,
+        "p99": 21.387416,
+        "max": 49.225208,
+        "samples": 489
+      },
+      "intervalsOver25ms": 2,
+      "displayedFrames": 490
+    }
+  ]
+}

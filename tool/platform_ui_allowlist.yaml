@@ -387,12 +387,6 @@ exceptions:
     reason: "Existing use awaiting migration to the platform UI seam"
     removal: platform-ui-migration
   - path: lib/features/chat/widgets/chat_timeline_viewport.dart
-    package: "package:cupertino_ui/cupertino_ui.dart"
-    count: 1
-    owner: chat
-    reason: "Existing use awaiting migration to the platform UI seam"
-    removal: platform-ui-migration
-  - path: lib/features/chat/widgets/chat_timeline_viewport.dart
     package: "package:material_ui/material_ui.dart"
     count: 1
     owner: chat

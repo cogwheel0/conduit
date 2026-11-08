@@ -1,9 +1,9 @@
 import 'dart:async';
 import 'dart:collection';
 import 'dart:math' as math;
+import 'dart:typed_data';
 
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
-import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:flutter/foundation.dart' show listEquals, visibleForTesting;
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter/rendering.dart'
@@ -11,6 +11,7 @@ import 'package:flutter/rendering.dart'
         MatrixUtils,
         RenderBox,
         RenderObject,
+        RenderProxyBox,
         ScrollCacheExtent,
         ScrollDirection;
 
@@ -50,9 +51,13 @@ class _TimelineRowKey extends ValueKey<String> {
 /// position performs the same correction while Flutter is resolving the new
 /// content dimensions, before paint.
 class _ChatTimelineScrollController extends ScrollController {
-  _ChatTimelineScrollController({required this.shouldMaintainLatest});
+  _ChatTimelineScrollController({
+    required this.shouldMaintainLatest,
+    required this.resolveRecenterOffset,
+  });
 
   final bool Function() shouldMaintainLatest;
+  final double? Function(ScrollMetrics metrics) resolveRecenterOffset;
 
   @override
   ScrollPosition createScrollPosition(
@@ -68,6 +73,7 @@ class _ChatTimelineScrollController extends ScrollController {
       oldPosition: oldPosition,
       debugLabel: debugLabel,
       shouldMaintainLatest: shouldMaintainLatest,
+      resolveRecenterOffset: resolveRecenterOffset,
     );
   }
 }
@@ -81,17 +87,36 @@ class _ChatTimelineScrollPosition extends ScrollPositionWithSingleContext {
     super.oldPosition,
     super.debugLabel,
     required this.shouldMaintainLatest,
+    required this.resolveRecenterOffset,
   });
 
   static const double _latestEpsilon = 0.5;
 
   final bool Function() shouldMaintainLatest;
+  final double? Function(ScrollMetrics metrics) resolveRecenterOffset;
+
+  void prepareForRecenter() {
+    goIdle();
+    correctBy(-pixels);
+    notifyListeners();
+  }
 
   @override
   bool correctForNewDimensions(
     ScrollMetrics oldPosition,
     ScrollMetrics newPosition,
   ) {
+    final seek = resolveRecenterOffset(newPosition);
+    if (seek != null) {
+      final target = seek.clamp(
+        newPosition.minScrollExtent,
+        newPosition.maxScrollExtent,
+      );
+      if ((pixels - target).abs() > _latestEpsilon) {
+        correctPixels(target);
+        return false;
+      }
+    }
     final wasAtLatest =
         (pixels - oldPosition.maxScrollExtent).abs() <= _latestEpsilon;
     if (shouldMaintainLatest() &&
@@ -269,7 +294,7 @@ class ChatTimelineViewport extends StatefulWidget {
     required this.horizontalPadding,
     required this.cacheExtent,
     required this.physics,
-    required this.isLoadingOlder,
+    this.isLoadingOlder = false,
     required this.maintainVisibleAnchor,
     required this.followLatest,
     required this.pinAutomatic,
@@ -278,7 +303,7 @@ class ChatTimelineViewport extends StatefulWidget {
     required this.onUserDragEnd,
     required this.onMetricsChanged,
     required this.onPinEndSpaceChanged,
-    required this.onOldestThresholdReached,
+    this.onOldestThresholdReached,
     required this.onTrailingRefresh,
     required this.onNativeScrollToTop,
     this.initialAnchor,
@@ -333,7 +358,7 @@ class ChatTimelineViewport extends StatefulWidget {
   final VoidCallback onUserDragEnd;
   final ValueChanged<ChatTimelineViewportMetrics> onMetricsChanged;
   final ValueChanged<double> onPinEndSpaceChanged;
-  final VoidCallback onOldestThresholdReached;
+  final VoidCallback? onOldestThresholdReached;
   final Future<void> Function() onTrailingRefresh;
   final Future<void> Function() onNativeScrollToTop;
 
@@ -378,6 +403,8 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
   final ValueNotifier<double> _pinSupportSpace = ValueNotifier<double>(0);
   final Map<String, GlobalKey> _rowKeys = <String, GlobalKey>{};
   final Map<String, double> _rowExtents = <String, double>{};
+  _RowExtentIndex? _rowExtentIndex;
+  double? _typicalRowExtent;
   (double, TextScaler)? _rowExtentLayoutInputs;
   final Map<String, int> _mountedRowCounts = <String, int>{};
   final Map<String, ({int sourceIndex, Object? rebuildKey, Widget widget})>
@@ -412,6 +439,9 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
   bool _oldestThresholdVisible = false;
   bool _refreshTriggered = false;
   bool _refreshActive = false;
+  ({String id, double fraction, bool alignToLatest, double viewportOffset})?
+  _pendingRecenter;
+  double _scrollbarScale = 1;
   bool _pinGeometryReported = false;
   double _pinEndSpace = 0;
   String? _cachedPinnedMessageId;
@@ -440,6 +470,7 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
     super.initState();
     _scrollController = _ChatTimelineScrollController(
       shouldMaintainLatest: () => mounted && _maintainsLatestDuringLayout,
+      resolveRecenterOffset: _resolveRecenterOffset,
     );
     WidgetsBinding.instance.addObserver(this);
     _syncTimelineEntries();
@@ -462,6 +493,8 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
     if (_rowExtentLayoutInputs != layoutInputs) {
       _rowExtentLayoutInputs = layoutInputs;
       _rowExtents.clear();
+      _rowExtentIndex = null;
+      _typicalRowExtent = null;
     }
   }
 
@@ -485,6 +518,8 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
     if (rowBuilderChanged ||
         oldWidget.horizontalPadding != widget.horizontalPadding) {
       _rowExtents.clear();
+      _rowExtentIndex = null;
+      _typicalRowExtent = null;
     }
     if ((oldWidget.maintainVisibleAnchor || widget.maintainVisibleAnchor) &&
         (_freeAnchor == null || _rowRect(_freeAnchor!.messageId) == null)) {
@@ -543,11 +578,14 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
     _invalidateInitialPositionCallback();
     _setCenterMessageId(_resolveInitialCenter());
     _freeAnchor = null;
+    _pendingRecenter = null;
     _centerRecoveryPending = false;
     _metricsSnapshot = null;
     _lastReportedMetrics = null;
     _rowWidgetCache.clear();
     _rowExtents.clear();
+    _rowExtentIndex = null;
+    _typicalRowExtent = null;
     _anchorCorrectionAttempts = 0;
     _initialPositionResolved = false;
     _initialEmptyFallbackVisible = false;
@@ -652,10 +690,9 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
     if (savedId != null && _messageIdSet.contains(savedId)) {
       return savedId;
     }
-    // The fixed center is deliberately the oldest row in the initial window.
-    // Newer rows remain chronological in the forward center sliver while
-    // older pages grow into negative extents without moving visible content.
-    return _messageIds.first;
+    // Start near the tail without laying out the entire history. Earlier rows
+    // remain available in the reverse sliver, built only as they come into view.
+    return _messageIds[math.max(0, _messageIds.length - 50)];
   }
 
   String? _nearestSurvivingCenter(
@@ -679,6 +716,8 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
   }
 
   void _syncTimelineEntries() {
+    _rowExtentIndex = null;
+    _typicalRowExtent = null;
     final seen = <String>{};
     final entries = <({String id, int sourceIndex, Object? rebuildKey})>[];
     for (var index = 0; index < widget.messageIds.length; index += 1) {
@@ -808,8 +847,10 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
       final extent = box.size.height;
       if (_rowExtents[id] != extent) {
         _rowExtents[id] = extent;
+        _typicalRowExtent = null;
         final index = _messageIndexById[id];
         if (index != null) {
+          _rowExtentIndex?.update(index, extent);
           widget.onRowExtentMeasured?.call(
             _timelineEntries[index].sourceIndex,
             extent,
@@ -945,7 +986,7 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
     return position == null ? null : _contentLatestOffset(position);
   }
 
-  double _contentLatestOffset(ScrollPosition position) {
+  double _contentLatestOffset(ScrollMetrics position) {
     return (position.maxScrollExtent - _effectivePinSupportSpace)
         .clamp(position.minScrollExtent, position.maxScrollExtent)
         .toDouble();
@@ -1061,7 +1102,7 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
         _oldestThresholdVisible = false;
       } else if (!widget.isLoadingOlder && !_oldestThresholdVisible) {
         _oldestThresholdVisible = true;
-        widget.onOldestThresholdReached();
+        widget.onOldestThresholdReached?.call();
       }
       if (!centerRecoveryOwnedFrame &&
           widget.followLatest &&
@@ -1386,7 +1427,11 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
     final position = _dimensionedPosition;
     if (position == null) return;
     _freeAnchor = null;
-    position.jumpTo(_contentLatestOffset(position));
+    if (_messageIds.isNotEmpty && _rowRect(_messageIds.last) == null) {
+      _recenterForSeek(_messageIds.last, 0, alignToLatest: true);
+    } else {
+      position.jumpTo(_contentLatestOffset(position));
+    }
   }
 
   void _prepositionOneViewportFromLatest() {
@@ -1434,12 +1479,12 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
     try {
       var target = _contentLatestOffset(position);
       final distance = (target - position.pixels).abs();
-      if (distance > position.viewportDimension) {
-        position.jumpTo(
-          math.max(
-            position.minScrollExtent,
-            target - position.viewportDimension,
-          ),
+      if (distance > position.viewportDimension && _messageIds.isNotEmpty) {
+        _recenterForSeek(
+          _messageIds.last,
+          0,
+          alignToLatest: true,
+          viewportOffset: -1,
         );
         await WidgetsBinding.instance.endOfFrame;
         if (!mounted || generation != _navigationGeneration) {
@@ -1467,7 +1512,7 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
     required Duration duration,
     required Curve curve,
   }) async {
-    final position = _dimensionedPosition;
+    var position = _dimensionedPosition;
     if (_messageIds.isEmpty || position == null) return false;
     if (_programmaticNavigationActive) {
       _cancelProgrammaticNavigation();
@@ -1476,6 +1521,14 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
     _programmaticNavigationActive = true;
     _freeAnchor = null;
     try {
+      if (position.pixels - position.minScrollExtent >
+          position.viewportDimension) {
+        _recenterForSeek(_messageIds.first, 0, viewportOffset: 1);
+        await WidgetsBinding.instance.endOfFrame;
+        if (!mounted || generation != _navigationGeneration) return false;
+        position = _dimensionedPosition;
+        if (position == null) return false;
+      }
       await _scrollController.animateTo(
         position.minScrollExtent,
         duration: duration,
@@ -1499,7 +1552,8 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
     _programmaticNavigationActive = true;
     _freeAnchor = null;
     try {
-      position.jumpTo(position.minScrollExtent);
+      _recenterForSeek(_messageIds.first, 0);
+      await WidgetsBinding.instance.endOfFrame;
       return await _settleAtOldest(generation);
     } finally {
       if (mounted && generation == _navigationGeneration) {
@@ -1736,6 +1790,7 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
   }
 
   void _cancelProgrammaticNavigation({bool restoreSeekEntryOffset = false}) {
+    _pendingRecenter = null;
     final wasActive = _programmaticNavigationActive;
     final entryOffset =
         restoreSeekEntryOffset && _seekEntryGeneration == _navigationGeneration
@@ -1898,12 +1953,132 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
     return chronologicalIndex - centerIndex;
   }
 
+  double _extentBetween(int start, int end) {
+    final index = _rowExtentIndex ??= _RowExtentIndex([
+      for (final entry in _timelineEntries)
+        _rowExtents[entry.id] ??
+            widget.estimateRowExtent?.call(entry.sourceIndex),
+    ]);
+    final unknown = index.unknownBefore(end) - index.unknownBefore(start);
+    if (unknown > 0 && _typicalRowExtent == null) {
+      final measured = _rowExtents.values.toList()..sort();
+      _typicalRowExtent = measured.isEmpty
+          ? 96
+          : measured[measured.length ~/ 2];
+    }
+    return index.sum(end) -
+        index.sum(start) +
+        unknown * (_typicalRowExtent ?? 0);
+  }
+
   void _registerMountedRow(String messageId) {
     _mountedRowCounts.update(
       messageId,
       (count) => count + 1,
       ifAbsent: () => 1,
     );
+  }
+
+  FixedScrollMetrics? _scrollbarMetrics() {
+    final position = _dimensionedPosition;
+    final viewport = _viewportRect;
+    if (position == null || viewport == null || _messageIds.isEmpty) {
+      return null;
+    }
+    final rects = _mountedRowRectSnapshot();
+    if (rects.isEmpty) return null;
+    // A message occupies one fixed unit, with continuous progress inside it.
+    // Its measured height only maps the visible fraction, never the full range.
+    double coordinateAt(double edge) {
+      double? nearest;
+      var distance = double.infinity;
+      for (final entry in rects.entries) {
+        final index = _messageIndexById[entry.key];
+        final rect = entry.value;
+        if (index == null || rect.height <= 0) continue;
+        final fraction = ((edge - rect.top) / rect.height).clamp(0.0, 1.0);
+        final gap = (edge - (rect.top + fraction * rect.height)).abs();
+        if (gap < distance) {
+          distance = gap;
+          nearest = (index + fraction) * 1000;
+        }
+      }
+      return nearest ?? 0;
+    }
+
+    final total = _messageIds.length * 1000.0;
+    final before = coordinateAt(viewport.top + widget.topContentInset);
+    final bottom = coordinateAt(viewport.bottom - widget.bottomPadding);
+    final inside = (bottom - before).clamp(1.0, total);
+    final maximum = total - inside;
+    _scrollbarScale = position.viewportDimension / inside;
+    return FixedScrollMetrics(
+      minScrollExtent: 0,
+      maxScrollExtent: maximum * _scrollbarScale,
+      pixels: before.clamp(0.0, maximum) * _scrollbarScale,
+      viewportDimension: position.viewportDimension,
+      axisDirection: AxisDirection.down,
+      devicePixelRatio: position.devicePixelRatio,
+    );
+  }
+
+  void _seekFromScrollbar(double offset) {
+    if (_messageIds.isEmpty || !_scrollController.hasClients) return;
+    final coordinate = (offset / _scrollbarScale / 1000).clamp(
+      0.0,
+      _messageIds.length - .000001,
+    );
+    final index = coordinate.floor();
+    final id = _messageIds[index];
+    _cancelProgrammaticNavigation();
+    _freeAnchor = null;
+    _centerRecoveryPending = false;
+    _recenterForSeek(id, coordinate - index);
+  }
+
+  void _recenterForSeek(
+    String id,
+    double fraction, {
+    bool alignToLatest = false,
+    double viewportOffset = 0,
+  }) {
+    final position = _scrollController.position as _ChatTimelineScrollPosition;
+    position.prepareForRecenter();
+    setState(() {
+      _setCenterMessageId(id);
+      _pendingRecenter = (
+        id: id,
+        fraction: fraction,
+        alignToLatest: alignToLatest,
+        viewportOffset: viewportOffset,
+      );
+    });
+  }
+
+  double? _resolveRecenterOffset(ScrollMetrics metrics) {
+    final seek = _pendingRecenter;
+    if (seek == null) return null;
+    if (seek.alignToLatest) {
+      _pendingRecenter = null;
+      return _contentLatestOffset(metrics) +
+          seek.viewportOffset * metrics.viewportDimension;
+    }
+    final key = _rowKeys[seek.id];
+    final box = key == null ? null : _renderBoxFor(key);
+    if (box is! _RenderTimelineRowLayout) return null;
+    _pendingRecenter = null;
+    return seek.fraction * box.extent +
+        seek.viewportOffset * metrics.viewportDimension;
+  }
+
+  void _endScrollbarDrag() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted &&
+          !(_dimensionedPosition?.isScrollingNotifier.value ?? false)) {
+        _handleUserDragEnd();
+      }
+    });
+    WidgetsBinding.instance.scheduleFrame();
   }
 
   void _unregisterMountedRow(String messageId) {
@@ -2009,8 +2184,7 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
                     entries: _timelineEntries,
                     centerIndex: centerIndex,
                     reverse: true,
-                    rowExtents: _rowExtents,
-                    estimateRowExtent: widget.estimateRowExtent,
+                    extentBetween: _extentBetween,
                   ),
                 ),
               ),
@@ -2029,8 +2203,7 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
                     entries: _timelineEntries,
                     centerIndex: centerIndex,
                     reverse: false,
-                    rowExtents: _rowExtents,
-                    estimateRowExtent: widget.estimateRowExtent,
+                    extentBetween: _extentBetween,
                   ),
                 ),
               ),
@@ -2096,12 +2269,14 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
     );
     final scrollableTranscript = MediaQuery(
       data: scrollbarMediaQuery,
-      child: PlatformInfo.isIOS
-          ? CupertinoScrollbar(
-              controller: _scrollController,
-              child: insetTranscript,
-            )
-          : Scrollbar(controller: _scrollController, child: insetTranscript),
+      child: AdaptiveMappedScrollbar(
+        ownerGeneration: widget.ownerGeneration,
+        metrics: _scrollbarMetrics,
+        onSeek: _seekFromScrollbar,
+        onDragStart: _handleUserDragStart,
+        onDragEnd: _endScrollbarDrag,
+        child: insetTranscript,
+      ),
     );
 
     return Stack(
@@ -2222,11 +2397,8 @@ class ChatRowExtentMemory {
 /// from [rowBuilder] and [entries]; per-row Consumers pick up message-level
 /// changes on their own, so identical inputs mean no rebuild is needed.
 ///
-/// It also estimates the extent of unbuilt rows from heights the viewport
-/// recorded in [rowExtents] while those rows were mounted. The default
-/// extrapolation averages only
-/// the currently built rows, so one long response makes the scrollbar thumb
-/// jump as rows enter and leave the build window.
+/// Unbuilt extents come from an indexed sum, updated when a row is measured.
+/// Layout must not scan the remaining history on every scroll frame.
 class _TimelineRowDelegate extends SliverChildBuilderDelegate {
   const _TimelineRowDelegate(
     super.builder, {
@@ -2236,19 +2408,14 @@ class _TimelineRowDelegate extends SliverChildBuilderDelegate {
     required this.entries,
     required this.centerIndex,
     required this.reverse,
-    required this.rowExtents,
-    required this.estimateRowExtent,
+    required this.extentBetween,
   }) : super(addSemanticIndexes: false);
 
   final ChatTimelineRowBuilder rowBuilder;
   final List<({String id, int sourceIndex, Object? rebuildKey})> entries;
   final int centerIndex;
   final bool reverse;
-  final Map<String, double> rowExtents;
-  final double? Function(int sourceIndex)? estimateRowExtent;
-
-  ({String id, int sourceIndex, Object? rebuildKey}) _entryAt(int index) =>
-      entries[reverse ? centerIndex - 1 - index : centerIndex + index];
+  final double Function(int start, int end) extentBetween;
 
   @override
   double? estimateMaxScrollOffset(
@@ -2257,30 +2424,10 @@ class _TimelineRowDelegate extends SliverChildBuilderDelegate {
     double leadingScrollOffset,
     double trailingScrollOffset,
   ) {
-    final count = childCount;
-    if (count == null) return null;
-    var total = trailingScrollOffset;
-    var unknown = 0;
-    for (var index = lastIndex + 1; index < count; index += 1) {
-      final entry = _entryAt(index);
-      final extent =
-          rowExtents[entry.id] ?? estimateRowExtent?.call(entry.sourceIndex);
-      if (extent == null) {
-        unknown += 1;
-      } else {
-        total += extent;
-      }
-    }
-    if (unknown == 0) return total;
-    // Rows never laid out fall back to the median known row height. Unlike
-    // the built-row mean, one giant response cannot drag it around as short
-    // rows mount, which is what keeps the thumb still.
-    final known = rowExtents.values.toList()..sort();
-    final typical = known.isEmpty
-        ? (trailingScrollOffset - leadingScrollOffset) /
-              (lastIndex - firstIndex + 1)
-        : known[known.length ~/ 2];
-    return total + unknown * typical;
+    final remaining = reverse
+        ? extentBetween(0, centerIndex - lastIndex - 1)
+        : extentBetween(centerIndex + lastIndex + 1, entries.length);
+    return trailingScrollOffset + remaining;
   }
 
   @override
@@ -2288,6 +2435,49 @@ class _TimelineRowDelegate extends SliverChildBuilderDelegate {
     return !identical(rowBuilder, oldDelegate.rowBuilder) ||
         !identical(entries, oldDelegate.entries) ||
         centerIndex != oldDelegate.centerIndex;
+  }
+}
+
+/// Fenwick sums keep both measured-height updates and range queries O(log n).
+/// Recreated only when row identities or layout inputs change.
+class _RowExtentIndex {
+  _RowExtentIndex(List<double?> extents)
+    : _extents = List<double?>.of(extents),
+      _sums = Float64List(extents.length + 1),
+      _unknown = Float64List(extents.length + 1) {
+    for (var i = 1; i < _sums.length; i++) {
+      _sums[i] += extents[i - 1] ?? 0;
+      _unknown[i] += extents[i - 1] == null ? 1 : 0;
+      final parent = i + (i & -i);
+      if (parent < _sums.length) {
+        _sums[parent] += _sums[i];
+        _unknown[parent] += _unknown[i];
+      }
+    }
+  }
+
+  final List<double?> _extents;
+  final Float64List _sums;
+  final Float64List _unknown;
+
+  void update(int index, double extent) {
+    final previous = _extents[index];
+    _extents[index] = extent;
+    for (var i = index + 1; i < _sums.length; i += i & -i) {
+      _sums[i] += extent - (previous ?? 0);
+      if (previous == null) _unknown[i] -= 1;
+    }
+  }
+
+  double sum(int end) => _prefix(_sums, end);
+  double unknownBefore(int end) => _prefix(_unknown, end);
+
+  static double _prefix(Float64List tree, int end) {
+    var total = 0.0;
+    for (var i = end; i > 0; i -= i & -i) {
+      total += tree[i];
+    }
+    return total;
   }
 }
 
@@ -2331,5 +2521,25 @@ class _MountedTimelineRowState extends State<_MountedTimelineRow> {
   }
 
   @override
-  Widget build(BuildContext context) => widget.child;
+  Widget build(BuildContext context) => _TimelineRowLayout(child: widget.child);
+}
+
+/// Makes a row's freshly laid-out extent available during viewport correction,
+/// when accessing another render object's size directly is not permitted.
+class _TimelineRowLayout extends SingleChildRenderObjectWidget {
+  const _TimelineRowLayout({required super.child});
+
+  @override
+  RenderObject createRenderObject(BuildContext context) =>
+      _RenderTimelineRowLayout();
+}
+
+class _RenderTimelineRowLayout extends RenderProxyBox {
+  double extent = 0;
+
+  @override
+  void performLayout() {
+    super.performLayout();
+    extent = size.height;
+  }
 }

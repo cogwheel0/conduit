@@ -113,49 +113,6 @@ void main() {
     );
   });
 
-  test('older paging requires navigation, history, and an oldest row', () {
-    check(
-      debugShouldLoadOlderPageForTesting(
-        hasUserScrolled: true,
-        hasOlder: true,
-        isLoadingOlder: false,
-        anyOldestLoadedRowVisible: true,
-      ),
-    ).isTrue();
-    check(
-      debugShouldLoadOlderPageForTesting(
-        hasUserScrolled: false,
-        hasOlder: true,
-        isLoadingOlder: false,
-        anyOldestLoadedRowVisible: true,
-      ),
-    ).isFalse();
-    check(
-      debugShouldLoadOlderPageForTesting(
-        hasUserScrolled: true,
-        hasOlder: false,
-        isLoadingOlder: false,
-        anyOldestLoadedRowVisible: true,
-      ),
-    ).isFalse();
-    check(
-      debugShouldLoadOlderPageForTesting(
-        hasUserScrolled: true,
-        hasOlder: true,
-        isLoadingOlder: true,
-        anyOldestLoadedRowVisible: true,
-      ),
-    ).isFalse();
-    check(
-      debugShouldLoadOlderPageForTesting(
-        hasUserScrolled: true,
-        hasOlder: true,
-        isLoadingOlder: false,
-        anyOldestLoadedRowVisible: false,
-      ),
-    ).isFalse();
-  });
-
   test('deferred chat mutations are fenced to the scheduled conversation', () {
     expect(
       debugShouldApplyDeferredConversationMutationForTesting(
