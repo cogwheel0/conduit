@@ -109,6 +109,7 @@ import 'chat_draft_queue_sheet.dart';
 import 'chat_input_intents.dart';
 import 'expanded_text_editor.dart';
 import 'chat_comparison_widgets.dart';
+import 'chat_send_motion.dart';
 import 'composer_overflow_items.dart';
 import 'composer_overflow_menu.dart';
 import 'mention_text_controller.dart';
@@ -1011,6 +1012,8 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       _queueDraft();
       return;
     }
+    // The bubble for this message rises from where its text is now.
+    ChatSendOrigin.recordFrom(_focusNode.context);
     // A project draft that starts with two saved models sends to both, through
     // the same committed-turn path as the Compare command. A host that cannot
     // admit a comparison sends the message the ordinary way.

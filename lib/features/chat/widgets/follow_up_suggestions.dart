@@ -5,6 +5,7 @@ import 'package:material_ui/material_ui.dart';
 
 import '../../../core/services/haptic_service.dart';
 import '../../../shared/theme/theme_extensions.dart';
+import 'chat_send_motion.dart';
 
 /// Suggested next prompts under a finished reply, as a short list of rows.
 ///
@@ -114,6 +115,8 @@ class _FollowUpSuggestionRowState extends State<FollowUpSuggestionRow> {
     final onPressed = widget.onPressed;
     if (onPressed == null) return;
     ConduitHaptics.selectionClick();
+    // The sent message rises from the row that was tapped.
+    ChatSendOrigin.recordFrom(context);
     onPressed();
   }
 
