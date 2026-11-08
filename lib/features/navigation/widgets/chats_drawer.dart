@@ -1246,8 +1246,10 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
           child: ConstrainedBox(
             constraints: const BoxConstraints(minHeight: TouchTarget.listItem),
             child: Padding(
+              // The folder symbol takes the row's leading column, where a
+              // chat row keeps its unread dot.
               padding: const EdgeInsets.symmetric(
-                horizontal: Spacing.md,
+                horizontal: kSidebarRowHorizontalPadding,
                 vertical: Spacing.xxs,
               ),
               child: Row(

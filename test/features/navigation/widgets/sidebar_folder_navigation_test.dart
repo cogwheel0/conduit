@@ -114,8 +114,10 @@ void main() {
       childIconLeft - parentIconLeft,
       2 * FolderTreeHierarchyNode.segmentWidth,
     );
+    // A nested chat's leading column -- its unread dot -- steps in as a
+    // folder symbol does; its title follows that column.
     expect(
-      nestedChatTitleLeft - parentIconLeft,
+      nestedChatTitleLeft - kSidebarRowStatusGutter - parentIconLeft,
       3 * FolderTreeHierarchyNode.segmentWidth,
     );
   });
@@ -379,11 +381,14 @@ void main() {
     expect(chatRect.left, 0);
     expect(chatRect.left, folderRect.left);
     expect(chatRect.right, folderRect.right);
-    // Section titles, folder icons and chat titles share one leading edge.
-    expect(tester.getTopLeft(find.text('Active Chat')).dx, Spacing.lg);
+    // Section titles and folder symbols share the leading edge; chat titles
+    // start after the unread column that edge also begins.
     expect(sectionTitleLeft, kSidebarRowContentInset);
-    expect(tester.getTopLeft(find.text('Active Chat')).dx, sectionTitleLeft);
     expect(folderIconLeft, sectionTitleLeft);
+    expect(
+      tester.getTopLeft(find.text('Active Chat')).dx,
+      kSidebarRowTitleInset,
+    );
 
     NavigationService.router.go('/folder/parent-folder');
     await tester.pumpAndSettle();
@@ -398,7 +403,7 @@ void main() {
     final leftTintInset = chatTintRect.left - drawerRect.left;
     final rightTintInset = drawerRect.right - chatTintRect.right;
     final titleLeft = tester.getTopLeft(find.text('Active Chat')).dx;
-    expect(titleLeft - chatTintRect.left, Spacing.md);
+    expect(titleLeft, kSidebarRowTitleInset);
     expect(chatTintRect.left, Spacing.sm);
     expect(rightTintInset, leftTintInset);
     expect(chatTintRect.left, folderTintRect.left);

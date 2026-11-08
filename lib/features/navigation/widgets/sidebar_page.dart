@@ -28,6 +28,8 @@ import '../utils/sidebar_create_action.dart';
 import 'sidebar_user_pill.dart';
 import 'sidebar_tab_registry.dart';
 import 'chats_drawer.dart';
+import 'conversation_tile.dart'
+    show kSidebarRowContentInset, kSidebarRowHorizontalPadding;
 import '../../hermes/widgets/hermes_sessions_tab.dart';
 
 /// Compact bottom bar height on Material (default M3 bar is ~80 logical px).
@@ -1017,6 +1019,11 @@ class _SlidingSidebarDestinations extends ConsumerWidget {
                     'sidebar-destination-${destination.id.name}',
                   ),
                   minTileHeight: 48,
+                  // Symbols start on the list's leading edge, with the
+                  // folder symbols and unread dots of the rows below.
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: kSidebarRowHorizontalPadding,
+                  ),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(12),
                   ),
@@ -1045,7 +1052,10 @@ class _SlidingSidebarDestinations extends ConsumerWidget {
             ],
           ),
         ),
-        const Divider(indent: Spacing.md, endIndent: Spacing.md),
+        const Divider(
+          indent: kSidebarRowContentInset,
+          endIndent: kSidebarRowContentInset,
+        ),
       ],
     );
   }

@@ -9,7 +9,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  testWidgets('unread conversations show an indicator and stronger title', (
+  testWidgets('unread conversations show only the dot; titles stay regular', (
     tester,
   ) async {
     await tester.pumpWidget(
@@ -29,8 +29,11 @@ void main() {
       find.byKey(const ValueKey<String>('conversation-unread-indicator')),
       findsOneWidget,
     );
+    // With many unread chats, bold would stop meaning anything: the dot
+    // alone marks them.
     final title = tester.widget<Text>(find.text('Unread chat'));
-    expect(title.style?.fontWeight, FontWeight.w600);
+    expect(title.style?.fontWeight, FontWeight.w400);
+    expect(title.semanticsLabel, 'Unread chat\nUnread');
   });
 
   testWidgets('read or selected conversations do not show unread indicator', (
@@ -53,7 +56,7 @@ void main() {
       find.byKey(const ValueKey<String>('conversation-unread-indicator')),
       findsNothing,
     );
-    // Selection is carried by the row fill; only unread chats are bold.
+    // Selection is carried by the row fill.
     final title = tester.widget<Text>(find.text('Read chat'));
     expect(title.style?.fontWeight, FontWeight.w400);
   });
@@ -252,9 +255,8 @@ void main() {
     }
   });
 
-  testWidgets('the unread dot hangs outside the shared title edge', (
-    tester,
-  ) async {
+  testWidgets('the unread dot has a column of its own inside the content '
+      'inset, before the shared title edge', (tester) async {
     await tester.pumpWidget(
       _harness(
         const Column(
@@ -281,10 +283,15 @@ void main() {
 
     final unreadLeft = tester.getTopLeft(find.text('Unread chat')).dx;
     expect(unreadLeft, tester.getTopLeft(find.text('Read chat')).dx);
+    expect(unreadLeft, kSidebarRowTitleInset);
     final dot = tester.getRect(
       find.byKey(const ValueKey<String>('conversation-unread-indicator')),
     );
+    // On the leading content edge, not squeezed into the row's margin.
+    expect(dot.left, kSidebarRowContentInset);
     expect(dot.right, lessThan(unreadLeft));
+    final titleCenter = tester.getCenter(find.text('Unread chat')).dy;
+    expect(dot.center.dy, closeTo(titleCenter, 0.5));
   });
 
   testWidgets('chat-style sidebar rows highlight under a mouse pointer', (
@@ -523,6 +530,8 @@ Widget _localizedHarness(Widget child) {
 Widget _harness(Widget child) {
   return MaterialApp(
     theme: AppTheme.light(TweakcnThemes.t3Chat),
+    localizationsDelegates: AppLocalizations.localizationsDelegates,
+    supportedLocales: AppLocalizations.supportedLocales,
     home: Scaffold(body: Center(child: child)),
   );
 }
