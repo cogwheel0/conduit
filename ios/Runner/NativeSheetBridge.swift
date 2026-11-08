@@ -3749,7 +3749,7 @@ private final class NativeSheetSegmentTableViewCell: UITableViewCell {
         subtitleLabel.textColor = NativeSheetTheme.shared.secondaryForeground
         // The symbol at the size, weight and tint of every row's.
         iconView.tintColor = NativeSheetSettingsStyle.iconForeground
-        iconView.image = UIImage(systemName: item.sfSymbol)?.withConfiguration(
+        iconView.image = nativeSettingsSymbolImage(item.sfSymbol)?.withConfiguration(
             UIImage.SymbolConfiguration(
                 pointSize: NativeSheetSettingsStyle.symbolPointSize,
                 weight: .regular,
@@ -4182,7 +4182,7 @@ private final class NativeSheetDropdownTableViewCell: UITableViewCell {
         subtitleLabel.text = item.subtitle
         subtitleLabel.isHidden = item.subtitle?.isEmpty ?? true
         iconView.contentMode = .center
-        iconView.image = UIImage(systemName: item.sfSymbol)?.withConfiguration(
+        iconView.image = nativeSettingsSymbolImage(item.sfSymbol)?.withConfiguration(
             UIImage.SymbolConfiguration(
                 pointSize: NativeSheetSettingsStyle.symbolPointSize,
                 weight: .regular,
@@ -7827,9 +7827,9 @@ private func configureNavigationCell(
     } else if let iconAsset = item.iconAsset {
         content.image = loadFlutterAssetImage(iconAsset)?
             .withRenderingMode(.alwaysTemplate)
-            ?? UIImage(systemName: item.sfSymbol)
+            ?? nativeSettingsSymbolImage(item.sfSymbol)
     } else {
-        content.image = UIImage(systemName: item.sfSymbol)
+        content.image = nativeSettingsSymbolImage(item.sfSymbol)
     }
     NativeSheetSettingsStyle.applyContentStyle(&content)
     if avatar != nil {

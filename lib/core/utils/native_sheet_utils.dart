@@ -204,7 +204,9 @@ List<NativeSheetSectionConfig> buildNativeProfileRootSections(
   //
   // Every root symbol is an outline drawn at one size and weight, chosen to
   // carry about the same ink: a single bubble rather than the wider pair,
-  // sparkles rather than the sparse wand.
+  // sparkles rather than the sparse wand, the voice waveform in a ring like
+  // About's rather than its thin bars alone. The native sheet draws
+  // `calendar` as an outline too, since the system symbol's header is solid.
   final accountItems = <NativeSheetItemConfig>[
     if (hasAccount) ...[
       NativeSheetItemConfig(
@@ -242,7 +244,7 @@ List<NativeSheetSectionConfig> buildNativeProfileRootSections(
     NativeSheetItemConfig(
       id: NativeSheetRoutes.voice,
       title: l10n.voice,
-      sfSymbol: 'waveform',
+      sfSymbol: 'waveform.circle',
     ),
   ];
   // Everyday server places: things to open and use, not to configure.

@@ -388,6 +388,58 @@ enum NativeSheetSettingsStyle {
     }
 }
 
+/// A settings row's symbol by name. SF Symbols draws every calendar with a
+/// solid header bar, which reads as a heavier, filled glyph beside the
+/// outline symbols of the other rows, so "calendar" is drawn here as an
+/// outline at the size and stroke of a 19 pt regular symbol. Every other
+/// name is the system's symbol.
+func nativeSettingsSymbolImage(_ name: String) -> UIImage? {
+    if name == "calendar" { return nativeOutlineCalendarImage }
+    return UIImage(systemName: name)
+}
+
+/// An outline calendar -- frame, header rule, two binder rings and a few
+/// days -- drawn as a template so it takes a row's tint like a symbol.
+private let nativeOutlineCalendarImage: UIImage = {
+    let size = CGSize(width: 22, height: 22)
+    let stroke: CGFloat = 1.5
+    let image = UIGraphicsImageRenderer(size: size).image { _ in
+        UIColor.black.setStroke()
+        UIColor.black.setFill()
+        let frame = UIBezierPath(
+            roundedRect: CGRect(x: 2, y: 3.2, width: 18, height: 16.8),
+            cornerRadius: 3.8
+        )
+        frame.lineWidth = stroke
+        frame.stroke()
+        let header = UIBezierPath()
+        header.move(to: CGPoint(x: 2, y: 8))
+        header.addLine(to: CGPoint(x: 20, y: 8))
+        header.lineWidth = stroke
+        header.stroke()
+        for x: CGFloat in [7, 15] {
+            let ring = UIBezierPath()
+            ring.move(to: CGPoint(x: x, y: 1.3))
+            ring.addLine(to: CGPoint(x: x, y: 5))
+            ring.lineWidth = stroke
+            ring.lineCapStyle = .round
+            ring.stroke()
+        }
+        let dot: CGFloat = 1.9
+        for y: CGFloat in [12, 15.9] {
+            for x: CGFloat in [6.6, 11, 15.4] {
+                UIBezierPath(ovalIn: CGRect(
+                    x: x - dot / 2,
+                    y: y - dot / 2,
+                    width: dot,
+                    height: dot
+                )).fill()
+            }
+        }
+    }
+    return image.withRenderingMode(.alwaysTemplate)
+}()
+
 /// A palette's colour as one filled disc with a hairline edge, the way
 /// Calendar marks a calendar beside its name: plainly a swatch, never a
 /// control. (Overlapping discs read as a switch's knob and track.) The edge
