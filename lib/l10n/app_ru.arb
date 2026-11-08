@@ -4421,5 +4421,7 @@
   "copied": "Скопировано",
   "composerAddAttachment": "Добавить вложение",
   "composerShowKeyboard": "Показать клавиатуру",
-  "composerAttachUploads": "Загруженные"
+  "composerAttachUploads": "Загруженные",
+  "codeBlockPlainText": "Обычный текст",
+  "codeBlockWrapLines": "Переносить строки"
 }

@@ -6306,5 +6306,7 @@
   "copied": "Zkopírováno",
   "composerAddAttachment": "Přidat přílohu",
   "composerShowKeyboard": "Zobrazit klávesnici",
-  "composerAttachUploads": "Nahrané"
+  "composerAttachUploads": "Nahrané",
+  "codeBlockPlainText": "Prostý text",
+  "codeBlockWrapLines": "Zalamovat řádky"
 }

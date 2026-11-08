@@ -10,8 +10,6 @@ import 'package:material_ui/material_ui.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_highlight/themes/atom-one-dark.dart';
-import 'package:flutter_highlight/themes/github.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:highlight/highlight.dart' show Node, highlight;
@@ -26,12 +24,15 @@ import '../horizontal_gesture_ownership.dart';
 import '../themed_sheets.dart';
 import '../../theme/color_tokens.dart';
 import '../../theme/theme_extensions.dart';
+import 'renderer/code_syntax_theme.dart';
 import 'renderer/horizontal_overflow_fade.dart';
 import 'renderer/markdown_style.dart';
 
 import 'package:conduit/core/network/self_signed_image_cache_manager.dart';
 import 'package:conduit/core/network/image_header_utils.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
+import 'package:conduit_markdown/conduit_markdown.dart'
+    show codeLanguageDisplayName;
 import 'package:conduit/shared/services/raster_media_policy.dart';
 import 'package:conduit/shared/utils/platform_utils.dart';
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
@@ -434,52 +435,7 @@ class ConduitMarkdown {
     required ConduitThemeExtension theme,
     VoidCallback? onPreview,
   }) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final markdownStyle = ConduitMarkdownStyle.fromTheme(context);
-    final normalizedLanguage = language.trim().isEmpty
-        ? 'plaintext'
-        : language.trim();
-
-    // Map common language aliases to highlight.js recognized names
-    final highlightLanguage = mapLanguage(normalizedLanguage);
-
-    // Syntax colours come from Atom One Dark / GitHub; the card itself is a
-    // neutral tint of the label colour so it sits in the monochrome page.
-    final highlightTheme = isDark ? atomOneDarkTheme : githubTheme;
-    final ink = markdownStyle.textPrimary;
-    final codeBackground = ink.withValues(alpha: isDark ? 0.09 : 0.04);
-    final borderColor = ink.withValues(alpha: isDark ? 0.10 : 0.07);
-
-    return Container(
-      decoration: BoxDecoration(
-        color: codeBackground,
-        borderRadius: BorderRadius.circular(markdownStyle.codeBlockRadius),
-        border: Border.all(color: borderColor, width: BorderWidth.thin),
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          CodeBlockHeader(
-            language: normalizedLanguage,
-            backgroundColor: Colors.transparent,
-            borderColor: borderColor,
-            isDark: isDark,
-            onPreview: onPreview,
-            onCopy: () => Clipboard.setData(ClipboardData(text: code)),
-          ),
-          _CodeBlockBody(
-            code: code,
-            highlightLanguage: highlightLanguage,
-            highlightTheme: highlightTheme,
-            codeStyle: markdownStyle.codeBlock,
-            isDark: isDark,
-            dividerColor: borderColor,
-          ),
-        ],
-      ),
-    );
+    return CodeBlockCard(code: code, language: language, onPreview: onPreview);
   }
 
   static bool isPreviewableCodeBlock(String language, String code) {
@@ -1057,6 +1013,96 @@ class ConduitMarkdown {
   }
 }
 
+/// A fenced code block: a quiet rounded card with a header (the language,
+/// a soft-wrap toggle once a line is too long, and Copy) above the code.
+///
+/// Long lines scroll sideways by default, with a slim indicator and a fade at
+/// the edge that hides more; the toggle wraps them inside the card instead.
+class CodeBlockCard extends StatefulWidget {
+  const CodeBlockCard({
+    super.key,
+    required this.code,
+    required this.language,
+    this.onPreview,
+  });
+
+  final String code;
+  final String language;
+  final VoidCallback? onPreview;
+
+  @override
+  State<CodeBlockCard> createState() => _CodeBlockCardState();
+}
+
+class _CodeBlockCardState extends State<CodeBlockCard> {
+  bool _softWrap = false;
+  bool _overflows = false;
+
+  void _handleOverflowChanged(bool overflows) {
+    if (!mounted || overflows == _overflows) return;
+    setState(() => _overflows = overflows);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final markdownStyle = ConduitMarkdownStyle.fromTheme(context);
+    final normalizedLanguage = widget.language.trim().isEmpty
+        ? 'plaintext'
+        : widget.language.trim();
+
+    // Map common language aliases to highlight.js recognized names
+    final highlightLanguage = ConduitMarkdown.mapLanguage(normalizedLanguage);
+
+    // The card is a neutral tint of the label colour so it sits in the
+    // monochrome page; syntax colours stay muted inside it.
+    final highlightTheme = CodeSyntaxTheme.highlightTheme(isDark: isDark);
+    final ink = markdownStyle.textPrimary;
+    final codeBackground = ink.withValues(alpha: isDark ? 0.09 : 0.04);
+    final borderColor = ink.withValues(alpha: isDark ? 0.10 : 0.07);
+    final code = widget.code;
+
+    return Container(
+      decoration: BoxDecoration(
+        color: codeBackground,
+        borderRadius: BorderRadius.circular(markdownStyle.codeBlockRadius),
+        border: Border.all(color: borderColor, width: BorderWidth.thin),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          CodeBlockHeader(
+            language: normalizedLanguage,
+            backgroundColor: Colors.transparent,
+            borderColor: borderColor,
+            isDark: isDark,
+            onPreview: widget.onPreview,
+            onCopy: () => Clipboard.setData(ClipboardData(text: code)),
+            softWrap: _softWrap,
+            onToggleSoftWrap: _softWrap || _overflows
+                ? () => setState(() => _softWrap = !_softWrap)
+                : null,
+          ),
+          _CodeBlockBody(
+            code: code,
+            highlightLanguage: highlightLanguage,
+            highlightTheme: highlightTheme,
+            codeStyle: markdownStyle.codeBlock,
+            isDark: isDark,
+            dividerColor: borderColor,
+            softWrap: _softWrap,
+            scrollIndicatorColor: ink.withValues(alpha: isDark ? 0.34 : 0.26),
+            scrollIndicatorInset: markdownStyle.codeBlockRadius,
+            onOverflowChanged: _handleOverflowChanged,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 /// Collapsible code block body with syntax highlighting.
 ///
 /// When the code exceeds [collapseThreshold] lines, only the
@@ -1235,6 +1281,7 @@ class _HighlightedCodeText extends StatefulWidget {
     required this.textStyle,
     required this.isDark,
     this.plainText = false,
+    this.softWrap = false,
   });
 
   static const _rootKey = 'root';
@@ -1251,6 +1298,9 @@ class _HighlightedCodeText extends StatefulWidget {
   final TextStyle textStyle;
   final bool isDark;
   final bool plainText;
+
+  /// Wraps long lines, each continuation keeping its line's indentation.
+  final bool softWrap;
 
   @override
   State<_HighlightedCodeText> createState() => _HighlightedCodeTextState();
@@ -1335,10 +1385,138 @@ class _HighlightedCodeTextState extends State<_HighlightedCodeText> {
         ? <TextSpan>[TextSpan(text: widget.source)]
         : _resolveSpans() ?? <TextSpan>[TextSpan(text: widget.source)];
 
+    if (widget.softWrap) {
+      return _WrappedCodeLines(
+        spans: children,
+        rootStyle: rootStyle,
+        textScaler: MediaQuery.textScalerOf(context),
+      );
+    }
+
     return RichText(
       text: TextSpan(style: rootStyle, children: children),
       textScaler: MediaQuery.textScalerOf(context),
     );
+  }
+}
+
+/// Soft-wrapped code, one paragraph per source line, so a wrapped line's
+/// continuation starts under the line's first character instead of at the
+/// left edge, where it would read as a new statement.
+class _WrappedCodeLines extends StatelessWidget {
+  const _WrappedCodeLines({
+    required this.spans,
+    required this.rootStyle,
+    required this.textScaler,
+  });
+
+  /// Columns a tab advances in leading indentation.
+  static const int tabColumns = 4;
+
+  final List<TextSpan> spans;
+  final TextStyle rootStyle;
+  final TextScaler textScaler;
+
+  @override
+  Widget build(BuildContext context) {
+    final lines = splitCodeLines(spans);
+    final space = TextPainter(
+      text: TextSpan(text: ' ', style: rootStyle),
+      textScaler: textScaler,
+      textDirection: TextDirection.ltr,
+    )..layout();
+    final columnWidth = space.width;
+    space.dispose();
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        // Deeply nested lines still keep half the width for their text.
+        final maxIndent = constraints.maxWidth.isFinite
+            ? constraints.maxWidth / 2
+            : double.infinity;
+        return Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            for (final line in lines)
+              Padding(
+                padding: EdgeInsets.only(
+                  left: math.min(line.indentColumns * columnWidth, maxIndent),
+                ),
+                child: RichText(
+                  text: TextSpan(
+                    style: rootStyle,
+                    // A blank line keeps its height.
+                    children: line.runs.isEmpty
+                        ? const [TextSpan(text: ' ')]
+                        : line.runs,
+                  ),
+                  textScaler: textScaler,
+                ),
+              ),
+          ],
+        );
+      },
+    );
+  }
+
+  /// Splits highlighted [spans] into source lines of flat, fully styled
+  /// runs, with each line's leading indentation removed and counted.
+  static List<({int indentColumns, List<TextSpan> runs})> splitCodeLines(
+    List<TextSpan> spans,
+  ) {
+    final lines = <List<TextSpan>>[<TextSpan>[]];
+    void visit(InlineSpan span, TextStyle? inherited) {
+      if (span is! TextSpan) return;
+      final own = span.style;
+      final style = inherited == null
+          ? own
+          : (own == null ? inherited : inherited.merge(own));
+      final text = span.text;
+      if (text != null && text.isNotEmpty) {
+        final parts = text.split('\n');
+        for (var i = 0; i < parts.length; i++) {
+          if (i > 0) lines.add(<TextSpan>[]);
+          if (parts[i].isNotEmpty) {
+            lines.last.add(TextSpan(text: parts[i], style: style));
+          }
+        }
+      }
+      for (final child in span.children ?? const <InlineSpan>[]) {
+        visit(child, style);
+      }
+    }
+
+    for (final span in spans) {
+      visit(span, null);
+    }
+    return [for (final runs in lines) _stripIndent(runs)];
+  }
+
+  static ({int indentColumns, List<TextSpan> runs}) _stripIndent(
+    List<TextSpan> runs,
+  ) {
+    var columns = 0;
+    var leading = true;
+    final stripped = <TextSpan>[];
+    for (final run in runs) {
+      if (!leading) {
+        stripped.add(run);
+        continue;
+      }
+      final text = run.text!;
+      var index = 0;
+      while (index < text.length &&
+          (text[index] == ' ' || text[index] == '\t')) {
+        columns += text[index] == '\t' ? tabColumns : 1;
+        index++;
+      }
+      if (index < text.length) {
+        leading = false;
+        stripped.add(TextSpan(text: text.substring(index), style: run.style));
+      }
+    }
+    return (indentColumns: leading ? 0 : columns, runs: stripped);
   }
 }
 
@@ -1410,6 +1588,10 @@ class _CodeBlockBody extends StatefulWidget {
     required this.codeStyle,
     required this.isDark,
     required this.dividerColor,
+    required this.softWrap,
+    required this.scrollIndicatorColor,
+    required this.scrollIndicatorInset,
+    required this.onOverflowChanged,
   });
 
   final String code;
@@ -1418,6 +1600,14 @@ class _CodeBlockBody extends StatefulWidget {
   final TextStyle codeStyle;
   final bool isDark;
   final Color dividerColor;
+
+  /// Wraps long lines inside the card instead of scrolling sideways.
+  final bool softWrap;
+  final Color scrollIndicatorColor;
+  final double scrollIndicatorInset;
+
+  /// Reports whether unwrapped code is wider than the card.
+  final ValueChanged<bool> onOverflowChanged;
 
   /// Even inner padding around the code on every side.
   static const double padding = Spacing.md - Spacing.xs;
@@ -1471,30 +1661,43 @@ class _CodeBlockBodyState extends State<_CodeBlockBody> {
                 widget.code.length >
                     _CodeBlockBody.largeJsonPlainPreviewCharThreshold));
 
+    final highlighted = _HighlightedCodeText(
+      source: displayCode,
+      language: widget.highlightLanguage,
+      theme: widget.highlightTheme,
+      textStyle: widget.codeStyle,
+      isDark: widget.isDark,
+      plainText: renderPlainPreview,
+      softWrap: widget.softWrap,
+    );
+
     return Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        // Long lines scroll sideways; the trailing edge fades while more of
-        // the line is hidden so the cut reads as "scroll for more".
-        HorizontalOverflowFade(
-          fadeExtent: _CodeBlockBody.padding * 2,
-          builder: (context, controller) => HorizontalScrollGestureBoundary(
-            child: SingleChildScrollView(
-              controller: controller,
-              scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.all(_CodeBlockBody.padding),
-              child: _HighlightedCodeText(
-                source: displayCode,
-                language: widget.highlightLanguage,
-                theme: widget.highlightTheme,
-                textStyle: widget.codeStyle,
-                isDark: widget.isDark,
-                plainText: renderPlainPreview,
+        if (widget.softWrap)
+          Padding(
+            padding: const EdgeInsets.all(_CodeBlockBody.padding),
+            child: highlighted,
+          )
+        else
+          // Long lines scroll sideways; the edge that hides more of a line
+          // fades and a slim indicator shows where the view is, so the cut
+          // reads as "scroll for more".
+          HorizontalOverflowFade(
+            fadeExtent: _CodeBlockBody.padding * 2,
+            scrollIndicatorColor: widget.scrollIndicatorColor,
+            scrollIndicatorInset: widget.scrollIndicatorInset,
+            onOverflowChanged: widget.onOverflowChanged,
+            builder: (context, controller) => HorizontalScrollGestureBoundary(
+              child: SingleChildScrollView(
+                controller: controller,
+                scrollDirection: Axis.horizontal,
+                padding: const EdgeInsets.all(_CodeBlockBody.padding),
+                child: highlighted,
               ),
             ),
           ),
-        ),
         if (isCollapsible)
           _CollapseToggle(
             isCollapsed: _isCollapsed,
@@ -1579,9 +1782,10 @@ class _CollapseToggle extends StatelessWidget {
   }
 }
 
-/// Code block header: the language in secondary system text, and a copy
-/// button that confirms in place ("Copied" with a checkmark) instead of
-/// raising a toast.
+/// Code block header: the language's proper name in secondary system text,
+/// a soft-wrap toggle when lines are too long to show, and a copy button
+/// that confirms in place ("Copied" with a checkmark) instead of raising a
+/// toast.
 class CodeBlockHeader extends StatefulWidget {
   /// Creates a code block header.
   const CodeBlockHeader({
@@ -1592,6 +1796,8 @@ class CodeBlockHeader extends StatefulWidget {
     required this.isDark,
     this.onPreview,
     required this.onCopy,
+    this.softWrap = false,
+    this.onToggleSoftWrap,
   });
 
   /// How long the copied confirmation stays before the button resets.
@@ -1606,6 +1812,12 @@ class CodeBlockHeader extends StatefulWidget {
   final bool isDark;
   final VoidCallback? onPreview;
   final FutureOr<void> Function() onCopy;
+
+  /// Whether long lines currently wrap.
+  final bool softWrap;
+
+  /// Toggles [softWrap]; null hides the toggle (every line fits).
+  final VoidCallback? onToggleSoftWrap;
 
   @override
   State<CodeBlockHeader> createState() => _CodeBlockHeaderState();
@@ -1647,7 +1859,10 @@ class _CodeBlockHeaderState extends State<CodeBlockHeader> {
   Widget build(BuildContext context) {
     final markdownStyle = ConduitMarkdownStyle.fromTheme(context);
     final l10n = AppLocalizations.of(context);
-    final label = widget.language.isEmpty ? 'plaintext' : widget.language;
+    final label =
+        codeLanguageDisplayName(widget.language) ??
+        l10n?.codeBlockPlainText ??
+        'Plain Text';
     final cupertino = context.usesCupertinoChrome;
     final secondary = markdownStyle.textSecondary;
     final chromeText = AppTypography.bodySmallStyle.copyWith(
@@ -1689,9 +1904,22 @@ class _CodeBlockHeaderState extends State<CodeBlockHeader> {
               color: secondary,
               onTap: widget.onPreview!,
             ),
+          _SoftWrapToggle(
+            visible: widget.onToggleSoftWrap != null,
+            selected: widget.softWrap,
+            label: l10n?.codeBlockWrapLines ?? 'Wrap Lines',
+            color: secondary,
+            selectedColor: markdownStyle.textPrimary,
+            selectedBackground: markdownStyle.textPrimary.withValues(
+              alpha: widget.isDark ? 0.14 : 0.08,
+            ),
+            duration: duration,
+            onTap: widget.onToggleSoftWrap,
+          ),
           Semantics(
             button: true,
             label: _isCopied ? l10n?.codeCopied : l10n?.copy,
+            onTap: _handleCopy,
             excludeSemantics: true,
             child: GestureDetector(
               onTap: _handleCopy,
@@ -1759,6 +1987,83 @@ class _CodeBlockHeaderState extends State<CodeBlockHeader> {
   }
 }
 
+/// Header toggle that wraps long code lines. Fades in once a line is too
+/// long to show and sits in a soft capsule while wrapping is on.
+class _SoftWrapToggle extends StatelessWidget {
+  const _SoftWrapToggle({
+    required this.visible,
+    required this.selected,
+    required this.label,
+    required this.color,
+    required this.selectedColor,
+    required this.selectedBackground,
+    required this.duration,
+    required this.onTap,
+  });
+
+  final bool visible;
+  final bool selected;
+  final String label;
+  final Color color;
+  final Color selectedColor;
+  final Color selectedBackground;
+  final Duration duration;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final toggle = Semantics(
+      button: true,
+      enabled: onTap != null,
+      toggled: selected,
+      label: label,
+      onTap: onTap,
+      excludeSemantics: true,
+      child: GestureDetector(
+        onTap: onTap,
+        behavior: HitTestBehavior.opaque,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(
+            minWidth: 44,
+            minHeight: CodeBlockHeader.height,
+          ),
+          child: Center(
+            child: AnimatedContainer(
+              duration: duration,
+              curve: Curves.easeOutCubic,
+              padding: const EdgeInsets.symmetric(
+                horizontal: Spacing.xs + Spacing.xxs,
+                vertical: Spacing.xxs,
+              ),
+              decoration: BoxDecoration(
+                color: selected
+                    ? selectedBackground
+                    : selectedBackground.withValues(alpha: 0),
+                borderRadius: BorderRadius.circular(AppBorderRadius.xs + 2),
+              ),
+              child: Icon(
+                Icons.wrap_text_rounded,
+                size: IconSize.sm + 2,
+                color: selected ? selectedColor : color,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    return AnimatedSwitcher(
+      duration: duration,
+      switchInCurve: Curves.easeOutCubic,
+      switchOutCurve: Curves.easeOutCubic,
+      transitionBuilder: (child, animation) =>
+          FadeTransition(opacity: animation, child: child),
+      child: visible
+          ? KeyedSubtree(key: const ValueKey('wrap'), child: toggle)
+          : const SizedBox.shrink(key: ValueKey('none')),
+    );
+  }
+}
+
 class _CodeBlockActionButton extends StatelessWidget {
   const _CodeBlockActionButton({
     required this.icon,
@@ -1777,6 +2082,7 @@ class _CodeBlockActionButton extends StatelessWidget {
     return Semantics(
       button: true,
       label: label,
+      onTap: onTap,
       excludeSemantics: true,
       child: GestureDetector(
         onTap: onTap,

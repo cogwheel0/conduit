@@ -4383,5 +4383,7 @@
   "copied": "Copiado",
   "composerAddAttachment": "Añadir archivo adjunto",
   "composerShowKeyboard": "Mostrar teclado",
-  "composerAttachUploads": "Subidos"
+  "composerAttachUploads": "Subidos",
+  "codeBlockPlainText": "Texto sin formato",
+  "codeBlockWrapLines": "Ajustar líneas"
 }

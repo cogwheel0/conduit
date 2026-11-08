@@ -4383,5 +4383,7 @@
   "copied": "Copiato",
   "composerAddAttachment": "Aggiungi allegato",
   "composerShowKeyboard": "Mostra tastiera",
-  "composerAttachUploads": "Caricati"
+  "composerAttachUploads": "Caricati",
+  "codeBlockPlainText": "Testo semplice",
+  "codeBlockWrapLines": "A capo automatico"
 }

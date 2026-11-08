@@ -8185,5 +8185,7 @@
   "copied": "Skopiowano",
   "composerAddAttachment": "Dodaj załącznik",
   "composerShowKeyboard": "Pokaż klawiaturę",
-  "composerAttachUploads": "Przesłane"
+  "composerAttachUploads": "Przesłane",
+  "codeBlockPlainText": "Zwykły tekst",
+  "codeBlockWrapLines": "Zawijaj wiersze"
 }

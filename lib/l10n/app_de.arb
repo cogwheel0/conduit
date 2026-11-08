@@ -4383,5 +4383,7 @@
   "copied": "Kopiert",
   "composerAddAttachment": "Anhang hinzufügen",
   "composerShowKeyboard": "Tastatur einblenden",
-  "composerAttachUploads": "Uploads"
+  "composerAttachUploads": "Uploads",
+  "codeBlockPlainText": "Nur Text",
+  "codeBlockWrapLines": "Zeilen umbrechen"
 }

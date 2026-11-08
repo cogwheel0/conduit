@@ -6000,5 +6000,7 @@
   "copied": "コピーしました",
   "composerAddAttachment": "添付ファイルを追加",
   "composerShowKeyboard": "キーボードを表示",
-  "composerAttachUploads": "アップロード済み"
+  "composerAttachUploads": "アップロード済み",
+  "codeBlockPlainText": "プレーンテキスト",
+  "codeBlockWrapLines": "行を折り返す"
 }

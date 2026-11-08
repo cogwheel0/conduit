@@ -7,6 +7,7 @@ import 'package:conduit/shared/widgets/markdown/renderer/block_renderer.dart';
 import 'package:conduit/shared/widgets/markdown/renderer/conduit_markdown_widget.dart';
 import 'package:conduit/shared/widgets/web_content_embed.dart';
 import 'package:cupertino_ui/cupertino_ui.dart';
+import 'package:flutter/rendering.dart' show RenderParagraph;
 import 'package:flutter/services.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -182,5 +183,159 @@ void main() {
 
     expect(scaledCodeRichText, isNotEmpty);
     expect(scaledCodeRichText.first.textScaler.scale(10), 25);
+  });
+
+  group('code block header and lines', () {
+    const longLine =
+        'print("a line long enough to run well past the right edge of the '
+        'code block on any phone, so it has to scroll or wrap")';
+
+    RenderParagraph codeParagraph(WidgetTester tester, String prefix) => tester
+        .renderObjectList<RenderParagraph>(find.byType(RichText))
+        .singleWhere(
+          (paragraph) => paragraph.text.toPlainText().startsWith(prefix),
+        );
+
+    Finder wrapToggle() => find.byIcon(Icons.wrap_text_rounded);
+
+    testWidgets('the header names the language properly', (tester) async {
+      for (final (fence, label) in [
+        ('python', 'Python'),
+        ('js', 'JavaScript'),
+        ('cpp', 'C++'),
+        ('', 'Plain Text'),
+      ]) {
+        await tester.pumpWidget(buildHarness('```$fence\nx = 1\n```'));
+        await tester.pumpAndSettle();
+        expect(
+          find.descendant(
+            of: find.byType(CodeBlockHeader),
+            matching: find.text(label),
+          ),
+          findsOneWidget,
+          reason: 'fence "$fence"',
+        );
+      }
+    });
+
+    testWidgets('code is regular weight with semibold keywords', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        buildHarness('```python\ndef total(rows):\n    return 1\n```'),
+      );
+      await tester.pumpAndSettle();
+
+      final code = codeParagraph(tester, 'def total');
+      final root = code.text.style!;
+      expect(root.fontWeight, FontWeight.w400);
+      expect(root.fontSize, 13);
+      // The effective style of the run "def", inherited through nesting.
+      TextStyle? styleOf(InlineSpan span, TextStyle inherited, String text) {
+        if (span is! TextSpan) return null;
+        final style = inherited.merge(span.style);
+        if (span.text == text) return style;
+        for (final child in span.children ?? const <InlineSpan>[]) {
+          final found = styleOf(child, style, text);
+          if (found != null) return found;
+        }
+        return null;
+      }
+
+      expect(
+        styleOf(code.text, const TextStyle(), 'def')?.fontWeight,
+        FontWeight.w600,
+      );
+      expect(
+        styleOf(code.text, const TextStyle(), 'total')?.fontWeight,
+        FontWeight.w400,
+      );
+    });
+
+    testWidgets('short lines show no wrap toggle or scroll indicator', (
+      tester,
+    ) async {
+      await tester.pumpWidget(buildHarness('```python\nx = 1\n```'));
+      await tester.pumpAndSettle();
+
+      expect(wrapToggle(), findsNothing);
+      expect(find.byType(RawScrollbar), isNot(paints..rrect()));
+    });
+
+    testWidgets('a long line shows an indicator and can wrap', (tester) async {
+      await tester.pumpWidget(buildHarness('```python\n$longLine\n```'));
+      await tester.pumpAndSettle();
+
+      final card = tester.getRect(find.byType(CodeBlockCard));
+      final unwrapped = codeParagraph(tester, 'print(');
+      expect(unwrapped.size.width, greaterThan(card.width));
+      expect(find.byType(RawScrollbar), paints..rrect());
+      expect(wrapToggle(), findsOneWidget);
+      expect(
+        tester.getSemantics(wrapToggle()),
+        matchesSemantics(
+          label: 'Wrap Lines',
+          isButton: true,
+          hasEnabledState: true,
+          isEnabled: true,
+          hasToggledState: true,
+          isToggled: false,
+          hasTapAction: true,
+        ),
+      );
+
+      await tester.tap(wrapToggle());
+      await tester.pumpAndSettle();
+
+      final wrapped = codeParagraph(tester, 'print(');
+      expect(wrapped.size.width, lessThan(card.width));
+      expect(wrapped.size.height, greaterThan(unwrapped.size.height * 2));
+      expect(
+        find.descendant(
+          of: find.byType(CodeBlockCard),
+          matching: find.byType(SingleChildScrollView),
+        ),
+        findsNothing,
+      );
+      // The toggle stays so the lines can be unwrapped again.
+      expect(wrapToggle(), findsOneWidget);
+
+      await tester.tap(wrapToggle());
+      await tester.pumpAndSettle();
+      expect(
+        codeParagraph(tester, 'print(').size.width,
+        greaterThan(card.width),
+      );
+    });
+
+    testWidgets('wrapped lines continue under their own indentation', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        buildHarness(
+          '```python\ndef plan():\n    $longLine\n\n    return 1\n```',
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(wrapToggle());
+      await tester.pumpAndSettle();
+
+      final header = codeParagraph(tester, 'def plan');
+      final body = codeParagraph(tester, 'print(');
+      final tail = codeParagraph(tester, 'return 1');
+      final column = header.text.style!.fontSize!; // Ahem: 1em per glyph.
+      double left(RenderParagraph p) => p.localToGlobal(Offset.zero).dx;
+      // The indented line and every wrapped continuation of it start four
+      // columns in, not back at the left edge.
+      expect(left(body) - left(header), closeTo(column * 4, 0.5));
+      expect(body.size.height, greaterThan(column * 2));
+      expect(left(tail), closeTo(left(body), 0.5));
+      // The blank line between them keeps a line of space.
+      expect(
+        tail.localToGlobal(Offset.zero).dy -
+            (body.localToGlobal(Offset.zero).dy + body.size.height),
+        greaterThan(column),
+      );
+    });
   });
 }

@@ -4383,5 +4383,7 @@
   "copied": "Gekopieerd",
   "composerAddAttachment": "Bijlage toevoegen",
   "composerShowKeyboard": "Toetsenbord tonen",
-  "composerAttachUploads": "Uploads"
+  "composerAttachUploads": "Uploads",
+  "codeBlockPlainText": "Platte tekst",
+  "codeBlockWrapLines": "Regels afbreken"
 }

@@ -4383,5 +4383,7 @@
   "copied": "已複製",
   "composerAddAttachment": "加入附件",
   "composerShowKeyboard": "顯示鍵盤",
-  "composerAttachUploads": "已上傳"
+  "composerAttachUploads": "已上傳",
+  "codeBlockPlainText": "純文字",
+  "codeBlockWrapLines": "自動換行"
 }

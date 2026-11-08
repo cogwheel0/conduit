@@ -9191,5 +9191,13 @@
   "composerAttachUploads": "Uploads",
   "@composerAttachUploads": {
     "description": "Attachment panel tile and sheet title for files already uploaded to the server, as opposed to \"Files\", which picks a file from the device. Keep it to one short word if possible."
+  },
+  "codeBlockPlainText": "Plain Text",
+  "@codeBlockPlainText": {
+    "description": "Label in a code block header when the code has no particular programming language."
+  },
+  "codeBlockWrapLines": "Wrap Lines",
+  "@codeBlockWrapLines": {
+    "description": "Accessibility label of the code block header toggle that wraps long code lines inside the block instead of scrolling them sideways."
   }
 }
