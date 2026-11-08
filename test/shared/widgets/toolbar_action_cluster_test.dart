@@ -232,7 +232,9 @@ void main() {
     await tester.pump(const Duration(milliseconds: 16));
     await tester.pump(const Duration(milliseconds: 16));
     expect(tester.getSize(cluster).width, 80);
-    await tester.pump(const Duration(milliseconds: 80));
+    for (var i = 0; i < 6; i++) {
+      await tester.pump(const Duration(milliseconds: 16));
+    }
     expect(_opacityOf(tester, 'more'), inExclusiveRange(0, 1));
     await tester.pumpAndSettle();
     expect(_opacityOf(tester, 'more'), 1);

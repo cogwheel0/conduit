@@ -899,6 +899,9 @@ class ConduitToolbarClusterItem {
   final GlobalKey? anchorKey;
 }
 
+/// The most one frame may advance the cluster's springs, in seconds.
+const double _kClusterMaxStep = 1 / 30;
+
 /// Where an arriving action's presence starts: below zero, so its fade
 /// begins about 60 ms after the change.
 const double _kClusterArrivalLead = -0.35;
@@ -1075,10 +1078,14 @@ class _ConduitToolbarActionClusterState
     final last = _lastTick;
     _lastTick = elapsed;
     if (last == null) return;
-    // The step is the spring's exact solution, so a long (stalled) frame
-    // lands where the motion would be by then, without overshoot.
-    final seconds =
-        (elapsed - last).inMicroseconds / Duration.microsecondsPerSecond;
+    // The step is the spring's exact solution, but a long frame (creating
+    // the arriving glyphs' native views stalls one) advances it by at most
+    // two frames' time, so the reshape slows for a moment instead of
+    // jumping to its end.
+    final seconds = math.min(
+      (elapsed - last).inMicroseconds / Duration.microsecondsPerSecond,
+      _kClusterMaxStep,
+    );
     final omega = ConduitToolbarActionCluster.springOmega;
     _width.step(seconds, omega);
     for (final entry in _entries.values) {
@@ -1163,45 +1170,39 @@ class _ConduitToolbarActionClusterState
     final action = item.action;
     final color = ConduitNativeToolbarActionGroup._symbolColor(action);
     if (!usesNativeGlass) return _buildFallbackAction(item, extent);
+    // The native controls carry the label themselves, as the leading button
+    // does: VoiceOver reads it once, not alongside the symbol's own
+    // generated name ("compose").
     if (action.menuItems.isEmpty) {
-      return Semantics(
-        label: action.accessibilityLabel,
-        button: true,
+      return CNButton.icon(
+        icon: CNSymbol(
+          action.iosSymbol,
+          size: kConduitNativeSingleActionSymbolExtent,
+          color: color,
+        ),
+        semanticLabel: action.accessibilityLabel,
+        onPressed: action.onPressed,
         enabled: action.enabled,
-        onTap: action.enabled ? action.onPressed : null,
-        child: CNButton.icon(
-          icon: CNSymbol(
-            action.iosSymbol,
-            size: kConduitNativeSingleActionSymbolExtent,
-            color: color,
-          ),
-          onPressed: action.onPressed,
-          enabled: action.enabled,
-          tint: action.tintColor,
-          config: CNButtonConfig(
-            width: extent,
-            minHeight: extent,
-            padding: EdgeInsets.zero,
-            style: CNButtonStyle.plain,
-          ),
+        tint: action.tintColor,
+        config: CNButtonConfig(
+          width: extent,
+          minHeight: extent,
+          padding: EdgeInsets.zero,
+          style: CNButtonStyle.plain,
         ),
       );
     }
-    return Semantics(
-      label: action.accessibilityLabel,
-      button: true,
+    return AdaptivePopupMenuButton.icon<int>(
+      icon: action.iosSymbol,
+      semanticLabel: action.accessibilityLabel,
+      iconSize: kConduitNativeSingleActionSymbolExtent,
+      iconColor: color,
+      tint: action.tintColor,
+      size: extent,
       enabled: action.enabled,
-      child: AdaptivePopupMenuButton.icon<int>(
-        icon: action.iosSymbol,
-        iconSize: kConduitNativeSingleActionSymbolExtent,
-        iconColor: color,
-        tint: action.tintColor,
-        size: extent,
-        enabled: action.enabled,
-        buttonStyle: PopupButtonStyle.plain,
-        items: _menuEntries(action),
-        onSelected: (index, entry) => _onMenuSelected(action, entry),
-      ),
+      buttonStyle: PopupButtonStyle.plain,
+      items: _menuEntries(action),
+      onSelected: (index, entry) => _onMenuSelected(action, entry),
     );
   }
 
