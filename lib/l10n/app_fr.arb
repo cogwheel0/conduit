@@ -4401,5 +4401,7 @@
   "authFieldOptional": "Facultatif",
   "authEmailPlaceholder": "name@example.com",
   "authTokenFieldLabel": "Jeton",
-  "composerAttachPhotos": "Photos"
+  "composerAttachPhotos": "Photos",
+  "modelPickerAppleOnDeviceSubtitle": "Sur cet appareil, même hors ligne",
+  "modelPickerApplePccSubtitle": "Sur les serveurs privés d’Apple"
 }

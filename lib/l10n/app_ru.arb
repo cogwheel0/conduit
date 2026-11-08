@@ -4439,5 +4439,7 @@
   "authFieldOptional": "Необязательно",
   "authEmailPlaceholder": "name@example.com",
   "authTokenFieldLabel": "Токен",
-  "composerAttachPhotos": "Фото"
+  "composerAttachPhotos": "Фото",
+  "modelPickerAppleOnDeviceSubtitle": "На этом устройстве, работает офлайн",
+  "modelPickerApplePccSubtitle": "На частных серверах Apple"
 }

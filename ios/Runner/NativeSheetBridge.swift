@@ -7476,10 +7476,13 @@ private final class NativeModelAvatarView: UIView {
         addSubview(initialsLabel)
 
         symbolView.translatesAutoresizingMaskIntoConstraints = false
-        symbolView.contentMode = .scaleAspectFit
+        // A system mark (Apple Intelligence) at the optical size and weight
+        // of the solid brand logos beside it -- about 19 pt across -- drawn
+        // unscaled, so a line glyph is not thinned into a smaller box.
+        symbolView.contentMode = .center
         symbolView.preferredSymbolConfiguration = UIImage.SymbolConfiguration(
-            pointSize: 16,
-            weight: .medium
+            pointSize: 18,
+            weight: .semibold
         )
         symbolView.isHidden = true
         addSubview(symbolView)
@@ -7497,8 +7500,8 @@ private final class NativeModelAvatarView: UIView {
 
             symbolView.centerXAnchor.constraint(equalTo: centerXAnchor),
             symbolView.centerYAnchor.constraint(equalTo: centerYAnchor),
-            symbolView.widthAnchor.constraint(equalToConstant: 18),
-            symbolView.heightAnchor.constraint(equalToConstant: 18),
+            symbolView.widthAnchor.constraint(equalToConstant: 26),
+            symbolView.heightAnchor.constraint(equalToConstant: 26),
         ])
     }
 
@@ -7547,7 +7550,8 @@ private final class NativeModelAvatarView: UIView {
 
         if let sfSymbol, !sfSymbol.isEmpty {
             symbolView.image = UIImage(systemName: sfSymbol)
-            symbolView.tintColor = ink
+            // The full ink the logos are rendered in, not the initials' grey.
+            symbolView.tintColor = NativeSheetTheme.shared.foreground
             symbolView.isHidden = false
             initialsLabel.isHidden = true
         } else {

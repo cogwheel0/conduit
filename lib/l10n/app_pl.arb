@@ -8206,5 +8206,7 @@
   "authFieldOptional": "Opcjonalne",
   "authEmailPlaceholder": "name@example.com",
   "authTokenFieldLabel": "Token",
-  "composerAttachPhotos": "Zdjęcia"
+  "composerAttachPhotos": "Zdjęcia",
+  "modelPickerAppleOnDeviceSubtitle": "Na tym urządzeniu, także offline",
+  "modelPickerApplePccSubtitle": "Na prywatnych serwerach Apple"
 }

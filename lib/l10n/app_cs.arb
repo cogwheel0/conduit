@@ -6324,5 +6324,7 @@
   "authFieldOptional": "Volitelné",
   "authEmailPlaceholder": "name@example.com",
   "authTokenFieldLabel": "Token",
-  "composerAttachPhotos": "Fotky"
+  "composerAttachPhotos": "Fotky",
+  "modelPickerAppleOnDeviceSubtitle": "Na tomto zařízení, funguje offline",
+  "modelPickerApplePccSubtitle": "Na soukromých serverech Apple"
 }

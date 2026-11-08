@@ -4401,5 +4401,7 @@
   "authFieldOptional": "Optioneel",
   "authEmailPlaceholder": "name@example.com",
   "authTokenFieldLabel": "Token",
-  "composerAttachPhotos": "Foto's"
+  "composerAttachPhotos": "Foto's",
+  "modelPickerAppleOnDeviceSubtitle": "Op dit apparaat, ook offline",
+  "modelPickerApplePccSubtitle": "Op de privéservers van Apple"
 }

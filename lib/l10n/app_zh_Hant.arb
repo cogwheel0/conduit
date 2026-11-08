@@ -4401,5 +4401,7 @@
   "authFieldOptional": "選填",
   "authEmailPlaceholder": "name@example.com",
   "authTokenFieldLabel": "權杖",
-  "composerAttachPhotos": "照片"
+  "composerAttachPhotos": "照片",
+  "modelPickerAppleOnDeviceSubtitle": "在此裝置上執行，可離線使用",
+  "modelPickerApplePccSubtitle": "在 Apple 的私有伺服器上執行"
 }

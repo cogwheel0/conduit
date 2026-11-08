@@ -71,6 +71,7 @@ import 'package:conduit_core/services/settings_service.dart';
 import '../../shared/theme/theme_providers.dart';
 import '../../shared/services/app_package_info.dart';
 import '../utils/account_display.dart';
+import '../../shared/utils/model_picker_subtitles.dart';
 
 final nativeSheetHydrationServiceProvider =
     Provider<NativeSheetHydrationService>(NativeSheetHydrationService.new);
@@ -453,7 +454,10 @@ class NativeSheetHydrationService {
           // Friendly names, with the full id underneath whenever the name
           // was derived from it.
           final name = displayNameForModel(model);
-          final subtitle = modelPickerSubtitle(model);
+          final subtitle = modelPickerSubtitle(
+            model,
+            apple: appleModelPickerSubtitles(l10n),
+          );
           if (symbolName != null) {
             return NativeSheetModelOption(
               id: model.id,

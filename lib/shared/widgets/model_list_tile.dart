@@ -12,6 +12,7 @@ import '../theme/theme_extensions.dart';
 import 'model_avatar.dart';
 import 'horizontal_gesture_ownership.dart';
 import 'horizontal_overflow_fade.dart';
+import '../utils/model_picker_subtitles.dart';
 
 /// Whether a [Model] supports reasoning based on its parameters.
 bool modelSupportsReasoning(Model model) {
@@ -187,7 +188,9 @@ class ModelListTile extends StatelessWidget {
     final l10n = AppLocalizations.of(context)!;
     final borderRadius = BorderRadius.circular(AppBorderRadius.card);
     final displayName = displayNameForModel(model);
-    final subtitle = isAutoSelect ? null : modelPickerSubtitle(model);
+    final subtitle = isAutoSelect
+        ? null
+        : modelPickerSubtitle(model, apple: appleModelPickerSubtitles(l10n));
 
     // Selection is carried by the trailing checkmark, as in the native iOS
     // picker; rows themselves stay unfilled.

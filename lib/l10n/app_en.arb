@@ -9263,5 +9263,13 @@
   "composerAttachPhotos": "Photos",
   "@composerAttachPhotos": {
     "description": "Attachment panel tile that opens the photo library to pick photos. Plural, as iOS names the Photos app and its picker."
+  },
+  "modelPickerAppleOnDeviceSubtitle": "On this device, works offline",
+  "@modelPickerAppleOnDeviceSubtitle": {
+    "description": "One-line subtitle under Apple On-Device in the model picker (the other rows show a model id there): where the model runs, and that it works offline. Sentence case, short."
+  },
+  "modelPickerApplePccSubtitle": "On Apple's private servers",
+  "@modelPickerApplePccSubtitle": {
+    "description": "One-line subtitle under Apple Private Cloud Compute in the model picker (the other rows show a model id there): where the model runs. Sentence case, short; the title already says Private Cloud Compute."
   }
 }
