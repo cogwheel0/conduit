@@ -1029,6 +1029,24 @@
   "usageQueueTime": "排隊時間",
   "usageReasoningTokens": "推理 token",
   "usageTotalTokens": "總 token",
+  "usageContextWindow": "上下文視窗",
+  "usageContextWindowValue": "{percent} · {used} / {total}",
+  "@usageContextWindowValue": {
+    "placeholders": {
+      "percent": {
+        "type": "String",
+        "example": "62%"
+      },
+      "used": {
+        "type": "String",
+        "example": "79K"
+      },
+      "total": {
+        "type": "String",
+        "example": "128K"
+      }
+    }
+  },
   "proxyAuthentication": "代理認證",
   "proxyAuthPlatformNotSupported": "代理認證需要行動裝置。請先透過瀏覽器進行認證。",
   "proxyAuthLoading": "正在載入認證頁面...",

@@ -1213,6 +1213,28 @@
   "@usageTotalTokens": {
     "description": "Label for total token count"
   },
+  "usageContextWindow": "Kontextové okno",
+  "@usageContextWindow": {
+    "description": "Label for how full the model's context window was at the end of a response: the tokens of its prompt and answer against the model's context length"
+  },
+  "usageContextWindowValue": "{percent} · {used} z {total}",
+  "@usageContextWindowValue": {
+    "description": "How full the model's context window was at the end of a response: the share used, then the tokens used and the context length as compact numbers",
+    "placeholders": {
+      "percent": {
+        "type": "String",
+        "example": "62%"
+      },
+      "used": {
+        "type": "String",
+        "example": "79K"
+      },
+      "total": {
+        "type": "String",
+        "example": "128K"
+      }
+    }
+  },
   "edit": "Upraviť",
   "@edit": {
     "description": "Action to edit an item/message."

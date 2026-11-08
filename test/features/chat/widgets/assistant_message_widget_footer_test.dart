@@ -14,6 +14,10 @@ import 'package:conduit_core/services/settings_service.dart';
 import 'package:conduit_core/services/worker_manager.dart';
 import 'package:conduit/features/chat/providers/assistant_response_builder_provider.dart';
 import 'package:conduit_core/features/chat/providers/chat_providers.dart';
+import 'package:conduit_core/features/direct_connections/providers/direct_connection_providers.dart'
+    show
+        DirectContextLengthOverridesController,
+        directContextLengthOverridesProvider;
 import 'package:conduit_core/features/chat/providers/queued_completion_provider.dart';
 import 'package:conduit_core/features/chat/providers/reasoning_effort_provider.dart'
     show
@@ -34,6 +38,8 @@ import 'package:conduit/shared/theme/tweakcn_themes.dart';
 import 'package:conduit/shared/widgets/chat_action_button.dart';
 import 'package:conduit/shared/widgets/markdown/streaming_markdown_widget.dart';
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
+import 'package:cupertino_native_better/cupertino_native_better.dart'
+    show CNPopupMenuSubmenu;
 import 'package:flutter/foundation.dart' show SynchronousFuture;
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
@@ -151,9 +157,11 @@ Widget _buildAssistantHarness(
   VoidCallback? onRegenerate,
   FutureOr<void> Function(String suggestion)? onFollowUpSelected,
   Locale? locale,
+  List<Override> overrides = const [],
 }) {
   return ProviderScope(
     overrides: [
+      ...overrides,
       if (settings != null) appSettingsProvider.overrideWithValue(settings),
       textToSpeechControllerProvider.overrideWith(
         _TestTextToSpeechController.new,
@@ -190,6 +198,50 @@ Widget _buildAssistantHarness(
       ),
     ),
   );
+}
+
+class _FixedContextLengths extends DirectContextLengthOverridesController {
+  _FixedContextLengths(this.lengths);
+
+  final Map<String, int> lengths;
+
+  @override
+  Map<String, int> build() => lengths;
+}
+
+class _FixedModels extends Models {
+  _FixedModels(this.models);
+
+  final List<Model> models;
+
+  @override
+  Future<List<Model>> build() async => models;
+}
+
+/// The native menu's entries as their sections lay them out: each section's
+/// style and its items' labels; a top-level item as a section of its own.
+List<String> _menuLayout(CNPopupMenuButton menu) => [
+  for (final entry in menu.items)
+    switch (entry) {
+      CNPopupMenuSubmenu(:final style, :final items) =>
+        '${style.name}: '
+            '${items.cast<CNPopupMenuItem>().map((item) => item.label).join(', ')}',
+      CNPopupMenuItem(:final label) => 'item: $label',
+      _ => 'divider',
+    },
+];
+
+/// The path `onPathSelected` reports for the native menu item [label].
+List<int> _menuPath(CNPopupMenuButton menu, String label) {
+  for (final (i, entry) in menu.items.indexed) {
+    if (entry is CNPopupMenuItem && entry.label == label) return [i];
+    if (entry is CNPopupMenuSubmenu) {
+      for (final (j, item) in entry.items.indexed) {
+        if (item is CNPopupMenuItem && item.label == label) return [i, j];
+      }
+    }
+  }
+  throw StateError('No menu item "$label"');
 }
 
 bool _hasInProgressFadeAncestor(WidgetTester tester, Finder childFinder) {
@@ -1081,12 +1133,12 @@ void main() {
     check(spoken.single).contains('The last part.');
   });
 
-  testWidgets('assistant overflow uses the native iOS 26 popup menu', (
-    tester,
-  ) async {
-    PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.iOS;
-    PlatformUiCapabilities.debugIOSMajorVersionOverride = 26;
-    PlatformUiCapabilities.debugNativeIOS26Override = true;
+  group('More on iOS 26', () {
+    setUp(() {
+      PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.iOS;
+      PlatformUiCapabilities.debugIOSMajorVersionOverride = 26;
+      PlatformUiCapabilities.debugNativeIOS26Override = true;
+    });
 
     final message = ChatMessage(
       id: 'assistant-native-overflow',
@@ -1103,23 +1155,216 @@ void main() {
       ],
     );
 
-    await tester.pumpWidget(_buildAssistantHarness(message));
-    await tester.pump();
+    for (final layout in [
+      (
+        name: 'puts the everyday actions in a row of icons',
+        inline: ['copy'],
+        sections: [
+          'palette: Listen, Regenerate, Share...',
+          'inline: Info',
+          'inline: Delete',
+        ],
+      ),
+      (
+        name: 'lists a lone everyday action with its group',
+        inline: null,
+        sections: ['inline: Info, Share...', 'inline: Delete'],
+      ),
+      (
+        name: 'puts what makes another answer before what reads this one',
+        inline: ['copy', 'tts', 'share'],
+        sections: ['inline: Regenerate', 'inline: Info', 'inline: Delete'],
+      ),
+    ]) {
+      testWidgets(layout.name, (tester) async {
+        await tester.pumpWidget(
+          _buildAssistantHarness(
+            message,
+            settings: AppSettings(inlineMessageActions: layout.inline),
+          ),
+        );
+        await tester.pump();
 
-    final nativeMenu = tester.widget<CNPopupMenuButton>(
-      find.byType(CNPopupMenuButton),
-    );
-    expect(nativeMenu.buttonStyle, CNButtonStyle.plain);
-    expect(nativeMenu.width, 32);
-    expect(
-      nativeMenu.items.whereType<CNPopupMenuItem>().last.isDestructive,
-      isTrue,
-    );
+        final menu = tester.widget<CNPopupMenuButton>(
+          find.byType(CNPopupMenuButton),
+        );
+        expect(menu.buttonStyle, CNButtonStyle.plain);
+        expect(menu.width, 32);
+        expect(_menuLayout(menu), layout.sections);
+        final delete = (menu.items.last as CNPopupMenuSubmenu).items.single;
+        expect((delete as CNPopupMenuItem).isDestructive, isTrue);
 
-    // The native package delays platform-view readiness in debug builds.
-    // Dispose the control before advancing that guard timer in widget tests.
-    await tester.pumpWidget(const SizedBox.shrink());
-    await tester.pump(const Duration(milliseconds: 500));
+        // The native package delays platform-view readiness in debug builds.
+        // Dispose the control before advancing that guard timer.
+        await tester.pumpWidget(const SizedBox.shrink());
+        await tester.pump(const Duration(milliseconds: 500));
+      }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
+    }
+
+    testWidgets('runs the action chosen in a section', (tester) async {
+      var regenerated = 0;
+      await tester.pumpWidget(
+        _buildAssistantHarness(
+          message,
+          settings: const AppSettings(inlineMessageActions: ['copy']),
+          onRegenerate: () => regenerated++,
+        ),
+      );
+      await tester.pump();
+
+      final menu = tester.widget<CNPopupMenuButton>(
+        find.byType(CNPopupMenuButton),
+      );
+      menu.onPathSelected!(_menuPath(menu, 'Regenerate'));
+      expect(regenerated, 1);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pump(const Duration(milliseconds: 500));
+    }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
+  });
+
+  group('usage popover on iOS 26', () {
+    const channel = MethodChannel('cn_popover');
+    final calls = <MethodCall>[];
+
+    setUp(() {
+      PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.iOS;
+      PlatformUiCapabilities.debugIOSMajorVersionOverride = 26;
+      PlatformUiCapabilities.debugNativeIOS26Override = true;
+      calls.clear();
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, (call) async {
+            calls.add(call);
+            return null;
+          });
+    });
+
+    tearDown(() {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, null);
+    });
+
+    for (final inline in [true, false]) {
+      testWidgets(
+        inline
+            ? 'points at the Info button'
+            : 'points at More when Info is one of its items',
+        (tester) async {
+          final message = ChatMessage(
+            id: 'usage-anchor',
+            role: 'assistant',
+            content: 'Water the seedlings gently.',
+            timestamp: DateTime(2026, 1, 1),
+            usage: const {'output_tokens': 120},
+          );
+          await tester.pumpWidget(
+            _buildAssistantHarness(
+              message,
+              settings: AppSettings(
+                inlineMessageActions: [inline ? 'usage' : 'copy'],
+              ),
+            ),
+          );
+          await tester.pump();
+
+          final Rect anchor;
+          if (inline) {
+            final button = find.ancestor(
+              of: find.byIcon(Icons.info_outline),
+              matching: find.byType(ChatActionButton),
+            );
+            anchor = tester.getRect(button);
+            await tester.tap(button);
+          } else {
+            final more = find.byType(CNPopupMenuButton);
+            anchor = tester.getRect(more);
+            final menu = tester.widget<CNPopupMenuButton>(more);
+            menu.onPathSelected!(_menuPath(menu, 'Info'));
+          }
+          await tester.pump();
+
+          expect(calls.single.method, 'show');
+          expect((calls.single.arguments as Map)['anchor'], {
+            'x': anchor.left,
+            'y': anchor.top,
+            'width': anchor.width,
+            'height': anchor.height,
+          });
+
+          // The native package delays platform-view readiness in debug
+          // builds. Dispose the control before advancing that guard timer.
+          await tester.pumpWidget(const SizedBox.shrink());
+          await tester.pump(const Duration(milliseconds: 500));
+        },
+        variant: TargetPlatformVariant.only(TargetPlatform.iOS),
+      );
+    }
+
+    for (final source in [
+      (
+        name: 'the length the model advertises',
+        capabilities: <String, dynamic>{'context_length': 128000},
+        overrideLength: null,
+      ),
+      (
+        name: 'the length set for a Direct model',
+        capabilities: <String, dynamic>{},
+        overrideLength: 128000,
+      ),
+    ]) {
+      testWidgets('shows how full the context window was, from '
+          '${source.name}', (tester) async {
+        final message = ChatMessage(
+          id: 'usage-context',
+          role: 'assistant',
+          content: 'Water the seedlings gently.',
+          timestamp: DateTime(2026, 1, 1),
+          model: 'sample-model',
+          usage: const {'prompt_tokens': 78000, 'completion_tokens': 1360},
+        );
+        await tester.pumpWidget(
+          _buildAssistantHarness(
+            message,
+            settings: const AppSettings(inlineMessageActions: ['usage']),
+            overrides: [
+              modelsProvider.overrideWith(
+                () => _FixedModels([
+                  const Model(id: 'other-model', name: 'Other model'),
+                  Model(
+                    id: 'sample-model',
+                    name: 'Sample model',
+                    capabilities: source.capabilities,
+                  ),
+                ]),
+              ),
+              directContextLengthOverridesProvider.overrideWith(
+                () => _FixedContextLengths({
+                  'other-model': 4096,
+                  'sample-model': ?source.overrideLength,
+                }),
+              ),
+            ],
+          ),
+        );
+        // The app loads the model list at start-up; here it loads now.
+        await ProviderScope.containerOf(
+          tester.element(find.byType(AssistantMessageWidget)),
+        ).read(modelsProvider.future);
+        await tester.pump();
+
+        await tester.tap(
+          find.ancestor(
+            of: find.byIcon(Icons.info_outline),
+            matching: find.byType(ChatActionButton),
+          ),
+        );
+        await tester.pump();
+
+        final rows =
+            ((calls.single.arguments as Map)['content'] as Map)['rows'] as List;
+        expect((rows.first as Map)['trailingText'], '62% \u00b7 79K of 128K');
+      }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
+    }
   });
 
   testWidgets('a voice reply names itself in the app language', (tester) async {

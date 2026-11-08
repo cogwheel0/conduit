@@ -16,6 +16,7 @@ class UsageSummary {
     this.totalSeconds,
     this.queueSeconds,
     this.loadSeconds,
+    this.contextTokens,
     this.incomplete = false,
   });
 
@@ -40,6 +41,14 @@ class UsageSummary {
 
   /// Time spent loading the model into memory (Ollama).
   final double? loadSeconds;
+
+  /// What the model's context window held when the reply ended: the prompt
+  /// its last call read plus the answer it wrote. Null unless the usage
+  /// gives both counts of one call.
+  ///
+  /// Not one of the figures [isEmpty] considers: it is measured against the
+  /// model's context length, which the usage does not carry.
+  final int? contextTokens;
 
   /// Whether Open WebUI marked the usage `incomplete`: some steps of the
   /// reply, a tool round say, reported none, so the figures may be low.
@@ -123,6 +132,24 @@ class UsageSummary {
       promptCount = inputTokens ?? promptTokens;
     }
 
+    // The last call's prompt and answer. Over several calls, Open WebUI
+    // 0.12.5 and Direct connections alike keep that call's counts in
+    // prompt_tokens/completion_tokens and sum every call's in
+    // input_tokens/output_tokens, so input/output without prompt/completion
+    // are one call's (a Responses API reply), and come last. llama.cpp's
+    // prompt_n leaves out the part of the prompt it reused from its cache
+    // (cache_n).
+    num? both(num? prompt, num? answer) =>
+        prompt != null && answer != null ? prompt + answer : null;
+    final contextCount =
+        both(promptTokens, completionTokens) ??
+        both(promptEvalCount, evalCount) ??
+        both(
+          promptN == null ? null : promptN + (read('cache_n') ?? 0),
+          predictedN,
+        ) ??
+        both(inputTokens, outputTokens);
+
     double? seconds;
     if (totalDuration != null && totalDuration > 0) {
       seconds = totalDuration / 1e9;
@@ -152,6 +179,9 @@ class UsageSummary {
           : null,
       loadSeconds: loadDuration != null && loadDuration > 0
           ? loadDuration / 1e9
+          : null,
+      contextTokens: contextCount != null && contextCount > 0
+          ? contextCount.toInt()
           : null,
       incomplete: usage['incomplete'] == true,
     );
