@@ -216,6 +216,32 @@ void main() {
     ).equals(PrimarySwitchResult.done);
   });
 
+  test('signing in to another LibreChat account while one is in charge '
+      'still asks before stopping a reply', () async {
+    await switcher().useLibreChat(libreChatAccount.id);
+    final other = await container
+        .read(libreChatAccountsProvider)
+        .saveSignedIn(
+          server: server,
+          session: const LibreChatSession(
+            accessToken: 'b',
+            user: LibreChatUser(id: 'lc-other', name: 'Other'),
+          ),
+          activate: false,
+        );
+    // Saved, but the account in charge has not changed under the guard.
+    check(container.read(primaryAccountProvider)).equals(
+      PrimaryAccountRef(PrimaryAccountKind.libreChat, libreChatAccount.id),
+    );
+    replying = true;
+    check(
+      await switcher().useLibreChat(other.id),
+    ).equals(PrimarySwitchResult.blockedByActiveReply);
+    check(
+      container.read(activeLibreChatAccountProvider)?.id,
+    ).equals(libreChatAccount.id);
+  });
+
   test('a switch cut short is finished at the next start', () async {
     // Crashed after parking, before LibreChat took over.
     await PrimarySwitchIntent(

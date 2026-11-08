@@ -8,6 +8,7 @@ import 'package:conduit_core/features/chat/providers/chat_providers.dart'
     show chatDataControlsEntryVisibleProvider;
 import 'package:conduit_core/features/integrations/providers/personal_connections_providers.dart';
 import 'package:conduit_core/providers/backend_mode_providers.dart';
+import 'package:conduit_core/providers/primary_account_providers.dart';
 import 'package:conduit_core/models/channel.dart';
 import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/models/note.dart';
@@ -435,6 +436,43 @@ void main() {
     expect(
       tester.widget<UserAvatar>(find.byType(UserAvatar)).fallbackText,
       'HL',
+    );
+  });
+
+  testWidgets('LibreChat in charge names and draws the button, over Hermes', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          currentUserProvider2.overrideWithValue(null),
+          currentUserProvider.overrideWith((ref) async => null),
+          apiServiceProvider.overrideWithValue(null),
+          hermesOnlyModeProvider.overrideWithValue(true),
+          hermesActiveConnectionNameProvider.overrideWithValue('Home Lab'),
+          primaryAccountKindProvider.overrideWithValue(
+            PrimaryAccountKind.libreChat,
+          ),
+          primaryUserProvider.overrideWithValue(
+            const PrimaryUserSummary(
+              kind: PrimaryAccountKind.libreChat,
+              id: 'u1',
+              displayName: 'Dev',
+            ),
+          ),
+        ],
+        child: MaterialApp(
+          localizationsDelegates: conduitLocalizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: const Scaffold(body: SidebarProfileAppBarLeading()),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      tester.widget<UserAvatar>(find.byType(UserAvatar)).fallbackText,
+      'D',
     );
   });
 

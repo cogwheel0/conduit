@@ -4127,5 +4127,19 @@
   "terminalPortPreviewLoadFailed": "이 페이지를 불러올 수 없습니다.",
   "modelMenuAllModels": "모든 모델…",
   "citationPreviewOpen": "열기",
-  "workspacePromptHistoryDiffTooLarge": "이 버전들은 너무 길어서 비교할 수 없습니다."
+  "workspacePromptHistoryDiffTooLarge": "이 버전들은 너무 길어서 비교할 수 없습니다.",
+  "libreChatTitle": "LibreChat",
+  "libreChatBetaLabel": "베타",
+  "libreChatChooserSubtitle": "LibreChat 서버에 로그인해 채팅, 에이전트 등을 동기화하세요.",
+  "libreChatAddAccount": "LibreChat 계정 추가",
+  "libreChatAddAccountMessage": "LibreChat 서버 주소를 입력하세요.",
+  "libreChatInvalidAddress": "chat.example.com과 같은 서버 주소를 입력하세요.",
+  "libreChatUnreachable": "서버에 연결할 수 없습니다. 주소와 연결 상태를 확인하세요.",
+  "libreChatNotLibreChat": "이 서버는 LibreChat이 아닙니다. 주소를 확인하세요.",
+  "libreChatIsOpenWebUi": "이 서버는 Open WebUI 서버입니다. Open WebUI 탭에서 추가하세요.",
+  "libreChatPasswordSignInOff": "이 서버는 싱글 사인온(SSO)으로만 로그인할 수 있습니다.",
+  "libreChatGoogleUnsupported": "Google은 앱 안에서의 로그인을 허용하지 않습니다. 다른 방법으로 로그인하세요.",
+  "libreChatSsoUnfinished": "로그인이 완료되지 않았습니다. 다시 시도하세요.",
+  "libreChatChangeServer": "다른 서버 사용",
+  "libreChatSessionEnded": "{server}의 세션이 종료되었습니다. 다시 로그인하세요."
 }

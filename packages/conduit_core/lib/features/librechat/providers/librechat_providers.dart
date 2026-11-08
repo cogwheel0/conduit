@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import 'package:dio/dio.dart';
 import 'package:riverpod/riverpod.dart';
+import 'package:synchronized/synchronized.dart';
 
 import 'package:conduit_core/database/app_database.dart';
 import 'package:conduit_core/database/database_manager.dart';
@@ -425,19 +426,30 @@ final class LibreChatAccounts {
   /// renewal rotates without signing anyone in.
   final Map<String, int> _signIns = {};
 
+  /// A sign-in's save and a sign-out's local forgetting run one at a time,
+  /// so a sign-in that lands while a sign-out forgets the account is either
+  /// before it (and the sign-out stands down) or after it (and saves the
+  /// account anew) -- never undone halfway.
+  final Lock _accountChanges = Lock();
+
   LibreChatRegistryStore get _store => _ref.read(libreChatRegistryStoreProvider);
 
   /// Saves the account [session] signed in to on [server] with its session,
-  /// and makes it the LibreChat account in use.
+  /// and makes it the LibreChat account in use when [activate]. Sign-in
+  /// screens save without activating and switch through
+  /// `PrimaryAccountSwitcher`, which asks before stopping a reply.
   Future<LibreChatAccount> saveSignedIn({
     required LibreChatServer server,
     required LibreChatSession session,
     LibreChatServerInfo? info,
+    bool activate = true,
   }) async {
     final registryController = _ref.read(libreChatRegistryProvider.notifier);
     if (registryController.isBlockedForAppDataClear) {
       throw StateError('LibreChat accounts are being cleared.');
     }
+    final store = _store;
+    final clears = store.clears;
     final registry = await _ref.read(libreChatRegistryProvider.future);
     final id = LibreChatAccount.idFor(server.baseUrl, session.user.id);
     final existing = registry.byId(id);
@@ -448,13 +460,24 @@ final class LibreChatAccounts {
               serverTitle: info?.appTitle,
               lastUsedAt: DateTime.now().toUtc(),
             );
-    await _store.sessionStore(account.id).write(session);
-    _signIns.update(account.id, (count) => count + 1, ifAbsent: () => 1);
-    await _ref
-        .read(libreChatRegistryProvider.notifier)
-        .save(account, activate: true);
-    // A session saved again for the account in use must reload.
-    _ref.invalidate(libreChatSessionProvider);
+    await _accountChanges.synchronized(() async {
+      // Every account was signed out of while this waited: the sign-in is
+      // from before that, and is not saved into the storage cleared since.
+      if (store.clears != clears) {
+        throw StateError('LibreChat accounts were cleared meanwhile.');
+      }
+      await store.sessionStore(account.id).write(session);
+      _signIns.update(account.id, (count) => count + 1, ifAbsent: () => 1);
+      await _ref
+          .read(libreChatRegistryProvider.notifier)
+          .save(account, activate: activate);
+    });
+    // A session saved again for the account in use must reload -- in use
+    // now: one switched to while this waited has read no session yet.
+    final activeNow = _ref.read(libreChatRegistryProvider).value?.activeId;
+    if (activate || activeNow == account.id) {
+      _ref.invalidate(libreChatSessionProvider);
+    }
     return account;
   }
 
@@ -476,32 +499,39 @@ final class LibreChatAccounts {
       } finally {
         auth.close();
       }
+    }
+    await _accountChanges.synchronized(() async {
       // Signed in to again while the server was told: that sign-in, and the
       // chats it brings, stay. A renewal meanwhile is no sign-in, though it
-      // stores a new session too.
+      // stores a new session too. Asked here, where no sign-in can land
+      // until this one is done.
       if (_signIns[accountId] != signIns) return;
-    }
-    // The session in use ends first: a renewal or cookie it is still saving
-    // lands before the clear, and none it makes later reaches the store.
-    final live = _ref.read(libreChatSessionProvider).asData?.value;
-    if (live is LibreChatSignedInState && live.account.id == accountId) {
-      await live.handle.end();
-    }
-    await store.clear();
-    await _ref.read(libreChatRegistryProvider.notifier).remove(accountId);
-    try {
-      await _ref.read(libreChatDatabaseManagerProvider).deleteFor(accountId);
-    } catch (error) {
-      DebugLogger.warning(
-        'database-delete-failed',
-        scope: 'librechat/accounts',
-        data: {'error': error.runtimeType.toString()},
-      );
-      await _holdLeftoverDatabases(
-        keepSavedAccounts: true,
-        fallback: {libreChatDatabaseFileName(accountId)},
-      );
-    }
+      // The session in use ends first: a renewal or cookie it is still
+      // saving lands before the clear, and none it makes later reaches the
+      // store.
+      final live = _ref.read(libreChatSessionProvider).asData?.value;
+      if (live is LibreChatSignedInState && live.account.id == accountId) {
+        await live.handle.end();
+      }
+      // So does one switched away from, which can still be saving: what it
+      // is writing lands first, and nothing it writes later is kept.
+      await _store.retireSessionStores(accountId);
+      await store.clear();
+      await _ref.read(libreChatRegistryProvider.notifier).remove(accountId);
+      try {
+        await _ref.read(libreChatDatabaseManagerProvider).deleteFor(accountId);
+      } catch (error) {
+        DebugLogger.warning(
+          'database-delete-failed',
+          scope: 'librechat/accounts',
+          data: {'error': error.runtimeType.toString()},
+        );
+        await _holdLeftoverDatabases(
+          keepSavedAccounts: true,
+          fallback: {libreChatDatabaseFileName(accountId)},
+        );
+      }
+    });
   }
 
   /// Keeps the databases on disk that no saved account owns closed until

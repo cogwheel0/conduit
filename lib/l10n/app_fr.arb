@@ -4355,5 +4355,19 @@
   "terminalPortPreviewLoadFailed": "Impossible de charger cette page.",
   "modelMenuAllModels": "Tous les modèles…",
   "citationPreviewOpen": "Ouvrir",
-  "workspacePromptHistoryDiffTooLarge": "Ces versions sont trop longues pour être comparées."
+  "workspacePromptHistoryDiffTooLarge": "Ces versions sont trop longues pour être comparées.",
+  "libreChatTitle": "LibreChat",
+  "libreChatBetaLabel": "Bêta",
+  "libreChatChooserSubtitle": "Connectez-vous à votre serveur LibreChat pour des discussions synchronisées, des agents et plus encore.",
+  "libreChatAddAccount": "Ajouter un compte LibreChat",
+  "libreChatAddAccountMessage": "Saisissez l'adresse de votre serveur LibreChat.",
+  "libreChatInvalidAddress": "Saisissez l'adresse d'un serveur, comme chat.example.com.",
+  "libreChatUnreachable": "Impossible de joindre le serveur. Vérifiez l'adresse et votre connexion.",
+  "libreChatNotLibreChat": "Ce serveur n'est pas un serveur LibreChat. Vérifiez l'adresse.",
+  "libreChatIsOpenWebUi": "Il s'agit d'un serveur Open WebUI. Ajoutez-le depuis l'onglet Open WebUI.",
+  "libreChatPasswordSignInOff": "Ce serveur n'autorise que l'authentification unique (SSO).",
+  "libreChatGoogleUnsupported": "Google n'autorise pas la connexion depuis une app. Utilisez un autre moyen de connexion.",
+  "libreChatSsoUnfinished": "La connexion n'a pas abouti. Réessayez.",
+  "libreChatChangeServer": "Utiliser un autre serveur",
+  "libreChatSessionEnded": "Votre session sur {server} a pris fin. Reconnectez-vous."
 }

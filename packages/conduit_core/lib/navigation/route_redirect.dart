@@ -141,6 +141,7 @@ String? resolveRouteRedirect(String location, ProviderRead read) {
   );
   final isLocalBackendSetup =
       location == Routes.backendChooser ||
+      location == Routes.libreChatSignIn ||
       isHermesSettingsLocation(location) ||
       isDirectConnectionsLocation(location);
 
@@ -402,10 +403,8 @@ String? _libreChatRedirect(
     case AuthNavigationState.loading:
       return location == Routes.splash ? null : Routes.splash;
     case AuthNavigationState.needsLogin:
-      // LibreChat's own sign-in arrives with its accounts. Until then the
-      // backend chooser is where a LibreChat install without a session
-      // starts again.
-      return location == Routes.backendChooser ? null : Routes.backendChooser;
+      // No session for the LibreChat account in charge: its own sign-in.
+      return Routes.libreChatSignIn;
     case AuthNavigationState.error:
     // A session that cannot be checked right now keeps the cached chats in
     // reach, as a signed-in one does.

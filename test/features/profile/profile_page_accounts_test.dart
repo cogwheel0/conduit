@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:checks/checks.dart';
 import 'package:conduit/features/profile/views/profile_page.dart';
 import 'package:conduit/l10n/app_localizations.dart';
@@ -9,6 +11,10 @@ import 'package:conduit_core/features/calendar/providers/calendar_providers.dart
 import 'package:conduit_core/features/chat/providers/chat_providers.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 import 'package:conduit_core/features/integrations/providers/personal_connections_providers.dart';
+import 'package:conduit_core/features/librechat/models/librechat_account.dart';
+import 'package:conduit_core/features/librechat/models/librechat_server.dart';
+import 'package:conduit_core/features/librechat/models/librechat_session.dart';
+import 'package:conduit_core/features/librechat/providers/librechat_providers.dart';
 import 'package:conduit_core/models/openwebui_registry.dart';
 import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/models/user.dart';
@@ -75,6 +81,23 @@ final class _RecordingController implements OpenWebUiAccountsController {
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
+/// LibreChat accounts saved beside Open WebUI's.
+final class _SavedLibreChat extends LibreChatRegistryController {
+  _SavedLibreChat(this.accounts);
+
+  final List<LibreChatAccount> accounts;
+
+  @override
+  Future<LibreChatRegistry> build() async =>
+      LibreChatRegistry(accounts: accounts);
+}
+
+/// LibreChat accounts still being read out of secure storage.
+final class _UnreadLibreChat extends LibreChatRegistryController {
+  @override
+  Future<LibreChatRegistry> build() => Completer<LibreChatRegistry>().future;
+}
+
 final class _DirectPrimary extends PreferredBackendController {
   @override
   PreferredBackend build() => PreferredBackend.direct;
@@ -87,6 +110,9 @@ void main() {
     Object? accountsError,
     User? user = _alex,
     bool directPrimary = false,
+    LibreChatAccount? libreChatInCharge,
+    List<LibreChatAccount> libreChatSaved = const [],
+    bool libreChatUnread = false,
   }) async {
     final controller = _RecordingController();
     final workerManager = WorkerManager();
@@ -111,6 +137,19 @@ void main() {
           currentUserProvider.overrideWith((ref) async => user),
           if (directPrimary)
             preferredBackendProvider.overrideWith(_DirectPrimary.new),
+          libreChatRegistryProvider.overrideWith(
+            libreChatUnread
+                ? _UnreadLibreChat.new
+                : () => _SavedLibreChat(libreChatSaved),
+          ),
+          if (libreChatInCharge != null) ...[
+            primaryAccountKindProvider.overrideWithValue(
+              PrimaryAccountKind.libreChat,
+            ),
+            activeLibreChatAccountProvider.overrideWithValue(
+              libreChatInCharge,
+            ),
+          ],
           isAuthLoadingProvider2.overrideWithValue(false),
           apiServiceProvider.overrideWithValue(
             ApiService(
@@ -215,6 +254,28 @@ void main() {
     check(find.text('Sign out of all accounts').evaluate()).isEmpty();
   });
 
+  testWidgets('with a LibreChat account saved too, Sign out leaves only the '
+      'active one', (tester) async {
+    await pumpProfile(
+      tester,
+      [_entry('alex-home', _home, name: 'Alex', isActive: true)],
+      libreChatSaved: [
+        LibreChatAccount.forUser(
+          const LibreChatServer(baseUrl: 'https://chat.example.com'),
+          const LibreChatUser(id: 'u1', name: 'Dev'),
+        ),
+      ],
+    );
+
+    await tester.fling(find.byType(ListView), const Offset(0, -2000), 3000);
+    await tester.pumpAndSettle();
+    // Signing out of every account would forget the LibreChat one too.
+    check(
+      find.byKey(const Key('settings-sign-out-account')).evaluate(),
+    ).isNotEmpty();
+    check(find.byKey(const Key('settings-sign-out')).evaluate()).isEmpty();
+  });
+
   testWidgets('with one account, sign out is unchanged', (tester) async {
     await pumpProfile(tester, [
       _entry('alex-home', _home, name: 'Alex', isActive: true),
@@ -226,6 +287,44 @@ void main() {
     expect(find.byKey(const Key('settings-sign-out')), findsOneWidget);
     expect(find.text('Sign out'), findsOneWidget);
     expect(find.byKey(const Key('settings-sign-out-account')), findsNothing);
+  });
+
+  // Signing out of the one Open WebUI account forgets the LibreChat ones
+  // too; until they are read, there may be some.
+  testWidgets('with LibreChat\'s accounts not read yet, sign out says it '
+      'signs out of all of them', (tester) async {
+    await pumpProfile(tester, [
+      _entry('alex-home', _home, name: 'Alex', isActive: true),
+    ], libreChatUnread: true);
+
+    await tester.fling(find.byType(ListView), const Offset(0, -2000), 3000);
+    await tester.pump();
+    check(find.text('Sign out of all accounts').evaluate()).isNotEmpty();
+    check(find.text('Sign out').evaluate()).isEmpty();
+  });
+
+  testWidgets('with LibreChat in charge, Sign out signs out of its account', (
+    tester,
+  ) async {
+    await pumpProfile(
+      tester,
+      const [],
+      user: null,
+      libreChatInCharge: LibreChatAccount.forUser(
+        const LibreChatServer(baseUrl: 'https://chat.example.com'),
+        const LibreChatUser(id: 'u1', name: 'Dev'),
+      ),
+    );
+
+    await tester.fling(find.byType(ListView), const Offset(0, -2000), 3000);
+    await tester.pumpAndSettle();
+    final signOut = find.byKey(const Key('settings-sign-out-librechat'));
+    check(signOut.evaluate()).isNotEmpty();
+    check(
+      find.descendant(of: signOut, matching: find.text('Sign out')).evaluate(),
+    ).isNotEmpty();
+    // No Open WebUI user: its own sign-out is not offered.
+    check(find.byKey(const Key('settings-sign-out')).evaluate()).isEmpty();
   });
 
   // Signing out signs out of every saved account. With the list unread, the

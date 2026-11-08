@@ -27,6 +27,7 @@ import 'package:conduit_core/features/integrations/providers/personal_connection
 
 import 'package:conduit_core/providers/backend_mode_providers.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
+import 'package:conduit_core/features/librechat/providers/librechat_providers.dart';
 
 import '../../../shared/services/navigation_service.dart';
 
@@ -138,6 +139,10 @@ class ProfilePage extends ConsumerWidget {
     final directPrimary =
         ref.watch(preferredBackendProvider) == PreferredBackend.direct;
     final hasOpenWebUiAccount = userData != null && api != null;
+    final libreChatInCharge =
+        ref.watch(primaryAccountKindProvider) == PrimaryAccountKind.libreChat
+        ? ref.watch(activeLibreChatAccountProvider)
+        : null;
     final items = _buildSettingsItems(
       context,
       ref,
@@ -147,6 +152,10 @@ class ProfilePage extends ConsumerWidget {
     final accountsAsync = ref.watch(openWebUiAccountsProvider);
     final accounts = accountsAsync.value ?? const <OpenWebUiAccountEntry>[];
     final activeAccount = accounts.where((entry) => entry.isActive).firstOrNull;
+    // Saved LibreChat accounts are others too: signing out of every account
+    // would forget them, and their chats, with this one.
+    final libreChatAsync = ref.watch(libreChatRegistryProvider);
+    final libreChatSaved = libreChatAsync.value?.accounts.length ?? 0;
     return ListView(
       physics: const BouncingScrollPhysics(
         parent: AlwaysScrollableScrollPhysics(),
@@ -175,15 +184,48 @@ class ProfilePage extends ConsumerWidget {
             children: [
               // With several accounts, Sign out leaves this one and the next
               // takes over; signing out of all is on the Accounts page. With
-              // one, it is what it always was -- and until the accounts are
-              // read, or when they cannot be, there may be several, and it
-              // signs out of every one: say so.
-              if (accounts.length > 1 && activeAccount != null)
+              // one, it is what it always was -- and until the accounts
+              // (Open WebUI's and LibreChat's) are read, or when they cannot
+              // be, there may be several, and it signs out of every one: say
+              // so.
+              if (accounts.length + libreChatSaved > 1 &&
+                  activeAccount != null)
                 _buildSignOutOfAccountOption(context, ref, activeAccount)
               else
-                _buildSignOutOption(context, ref, all: !accountsAsync.hasValue),
+                _buildSignOutOption(
+                  context,
+                  ref,
+                  all: !accountsAsync.hasValue || !libreChatAsync.hasValue,
+                ),
             ],
           ),
+        // With LibreChat in charge there is no Open WebUI user: its account
+        // is signed out of here instead, as Open WebUI's is above.
+        if (!hasOpenWebUiAccount && libreChatInCharge != null) ...[
+          const SizedBox(height: Spacing.xl),
+          InsetGroupedList(
+            children: [
+              Builder(
+                builder: (rowContext) => _buildAccountOption(
+                  rowContext,
+                  key: const Key('settings-sign-out-librechat'),
+                  icon: UiUtils.platformIcon(
+                    ios: CupertinoIcons.square_arrow_left,
+                    android: Icons.logout,
+                  ),
+                  title: AppLocalizations.of(context)!.signOut,
+                  onTap: () => signOutOfLibreChatAccount(
+                    context,
+                    libreChatInCharge,
+                    anchorContext: rowContext,
+                  ),
+                  showChevron: false,
+                  destructive: true,
+                ),
+              ),
+            ],
+          ),
+        ],
       ],
     );
   }
@@ -283,6 +325,12 @@ class ProfilePage extends ConsumerWidget {
       hermesInUseId: ref.watch(hermesEnabledProvider)
           ? ref.watch(hermesActiveConnectionIdProvider)
           : null,
+      libreChatPrimary:
+          ref.watch(primaryAccountKindProvider) == PrimaryAccountKind.libreChat
+          ? ref.watch(activeLibreChatAccountProvider)
+          : null,
+      libreChatAccounts:
+          ref.watch(libreChatRegistryProvider).value?.accounts ?? const [],
     );
     final Widget leading = switch (card.kind) {
       AccountCardKind.openWebUi => UserAvatar(
@@ -304,6 +352,13 @@ class ProfilePage extends ConsumerWidget {
           android: Icons.hub_outlined,
         ),
         color: theme.iconSecondary,
+      ),
+      AccountCardKind.libreChat => UserAvatar(
+        size: IconSize.xl,
+        imageUrl: null,
+        fallbackText: card.title.characters.isEmpty
+            ? 'L'
+            : card.title.characters.first.toUpperCase(),
       ),
     };
 

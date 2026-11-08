@@ -21,6 +21,8 @@ import '../../../core/network/image_header_utils.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 
 import 'package:conduit_core/providers/backend_mode_providers.dart';
+import 'package:conduit_core/providers/primary_account_providers.dart'
+    show primaryUserProvider;
 
 import 'package:conduit_core/services/api_service.dart';
 
@@ -364,7 +366,16 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
     final hermesOnly = ref.watch(hermesOnlyModeProvider);
     final directPrimary =
         ref.watch(preferredBackendProvider) == PreferredBackend.direct;
-    if (user == null && !hermesOnly && !directPrimary) {
+    // With LibreChat in charge there is no Open WebUI user: the button
+    // stands for the LibreChat account.
+    final libreChatUser =
+        ref.watch(primaryAccountKindProvider) == PrimaryAccountKind.libreChat
+        ? ref.watch(primaryUserProvider)
+        : null;
+    if (user == null &&
+        !hermesOnly &&
+        !directPrimary &&
+        libreChatUser == null) {
       return const SizedBox.shrink();
     }
 
@@ -373,12 +384,19 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
     final canManageWorkspace = canManageAnyWorkspaceSection(ref);
     final directTitle = l10n.directConnectionsTitle;
     final hermesName = ref.watch(hermesActiveConnectionNameProvider);
-    final displayName = hermesOnly
+    final displayName = libreChatUser != null
+        ? (libreChatUser.displayName.isEmpty
+              ? l10n.libreChatTitle
+              : libreChatUser.displayName)
+        : hermesOnly
         ? hermesName ?? kHermesDefaultConnectionName
         : directPrimary && user == null
         ? directTitle
         : deriveUserDisplayName(user, fallback: l10n.userFallbackName);
-    final initial = hermesOnly
+    // The button's initials and avatar stand for the same account as its
+    // name: LibreChat's, when it is in charge, over a Hermes connection.
+    final hermesShown = hermesOnly && libreChatUser == null;
+    final initial = hermesShown
         ? hermesConnectionInitials(hermesName)
         : directPrimary && user == null
         ? directTitle.characters.first.toUpperCase()
@@ -397,7 +415,7 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
     final supportsNativeGlass = conduitSupportsNativeGlass();
     final rawNativeAvatarBytes = !supportsNativeGlass
         ? null
-        : hermesOnly
+        : hermesShown
         ? ref.watch(_sidebarHermesAvatarBytesProvider).asData?.value
         : inlineAvatarBytes ??
               (api == null || avatarUrl == null || avatarUrl.isEmpty
@@ -773,6 +791,16 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
           displayName: l10n.directConnectionsTitle,
           email: l10n.directConnectionsSubtitle,
           initials: l10n.directConnectionsTitle.characters.first.toUpperCase(),
+        ),
+        AccountCardKind.libreChat => NativeProfileSheetUser(
+          displayName: card.title,
+          email:
+              ref.read(primaryUserProvider)?.email ??
+              card.subtitle ??
+              l10n.libreChatTitle,
+          initials: card.title.characters.isEmpty
+              ? 'L'
+              : card.title.characters.first.toUpperCase(),
         ),
         AccountCardKind.openWebUi => _nativeAccountProfileUser(
           ref,

@@ -61,6 +61,23 @@ final class _GatedClose extends QueryInterceptor {
   }
 }
 
+/// Secure storage whose session deletes wait for [hold] while it is set,
+/// completing [deleting] when one starts waiting.
+final class _HeldSessionDeletes extends InMemorySecureKeyValueStore {
+  Completer<void>? hold;
+  final Completer<void> deleting = Completer<void>();
+
+  @override
+  Future<void> delete({required String key}) async {
+    final gate = hold;
+    if (gate != null && key.startsWith(SecureLibreChatSessionStore.keyPrefix)) {
+      if (!deleting.isCompleted) deleting.complete();
+      await gate.future;
+    }
+    return super.delete(key: key);
+  }
+}
+
 /// Secure storage whose session writes wait for [hold] while it is set.
 final class _HeldSessionWrites extends InMemorySecureKeyValueStore {
   Completer<void>? hold;
@@ -452,6 +469,110 @@ void main() {
       await absorbing;
       await signingOut;
       check(await SecureLibreChatSessionStore(held, account.id).read()).isNull();
+    });
+
+    test('a session switched away from saves nothing past its sign-out',
+        () async {
+      const other = LibreChatServer(baseUrl: 'https://other.example.com');
+      final held = _HeldSessionWrites();
+      secure = held;
+      final signedIn = newContainer();
+      final accounts = signedIn.read(libreChatAccountsProvider);
+      final a = await accounts.saveSignedIn(
+        server: server,
+        session: await signIn(),
+      );
+      final first =
+          await signedIn.read(libreChatSessionProvider.future)
+              as LibreChatSignedInState;
+      await accounts.saveSignedIn(server: other, session: await signIn(other));
+      check(
+        (await signedIn.read(libreChatSessionProvider.future)
+                as LibreChatSignedInState)
+            .account
+            .id,
+      ).not((it) => it.equals(a.id));
+
+      // A's session, no longer in use, is saving a response's cookie as A is
+      // signed out.
+      held.hold = Completer<void>();
+      final absorbing = first.handle.absorbCookies(['extra=1; Path=/']);
+      await pumpEventQueue();
+      final signingOut = accounts.signOut(a.id);
+      await pumpEventQueue();
+      held.hold!.complete();
+      await absorbing;
+      await signingOut;
+      check(await SecureLibreChatSessionStore(held, a.id).read()).isNull();
+
+      // Nor does a cookie it hears of later come back.
+      await first.handle.absorbCookies(['late=1; Path=/']);
+      check(await SecureLibreChatSessionStore(held, a.id).read()).isNull();
+    });
+
+    test('a sign-in landing while a sign-out forgets the account keeps it',
+        () async {
+      final held = _HeldSessionDeletes();
+      secure = held;
+      final accounts = newContainer().read(libreChatAccountsProvider);
+      final account = await accounts.saveSignedIn(
+        server: server,
+        session: await signIn(),
+      );
+      held.hold = Completer<void>();
+      final signingOut = accounts.signOut(account.id);
+      // The sign-out has told the server and is forgetting the account.
+      await held.deleting.future;
+
+      final again = await signIn();
+      final signingIn = accounts.saveSignedIn(server: server, session: again);
+      await pumpEventQueue();
+      held.hold!.complete();
+      await signingOut;
+      await signingIn;
+
+      check(await SecureLibreChatSessionStore(held, account.id).read())
+          .equals(again);
+    });
+
+    test('a sign-in waiting on a sign-out is not saved after a full '
+        'sign-out', () async {
+      final held = _HeldSessionDeletes();
+      secure = held;
+      final container = newContainer();
+      final accounts = container.read(libreChatAccountsProvider);
+      final account = await accounts.saveSignedIn(
+        server: server,
+        session: await signIn(),
+      );
+      final release = held.hold = Completer<void>();
+      final signingOut = accounts.signOut(account.id);
+      await held.deleting.future;
+      final signingIn = accounts.saveSignedIn(
+        server: server,
+        session: await signIn(),
+      );
+      // Expected from the start: it fails as soon as the sign-out lets it
+      // go, which may be before the test looks again.
+      final refused = check(signingIn).throws<StateError>();
+      await pumpEventQueue();
+
+      // Every account is signed out of, and that is over, while the sign-in
+      // still waits.
+      held.hold = null;
+      final registry = container.read(libreChatRegistryProvider.notifier);
+      await registry.blockForAppDataClear();
+      await container.read(libreChatRegistryStoreProvider).deleteAll();
+      registry.finishAppDataClear();
+      release.complete();
+      await signingOut;
+
+      await refused;
+      check(await SecureLibreChatSessionStore(held, account.id).read())
+          .isNull();
+      check(
+        (await container.read(libreChatRegistryStoreProvider).read()).accounts,
+      ).isEmpty();
     });
 
     test('a renewal while the sign-out waits does not stop it', () async {

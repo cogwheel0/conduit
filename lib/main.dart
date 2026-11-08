@@ -74,6 +74,8 @@ import 'core/services/native_symbol_image_service.dart';
 
 import 'package:conduit_core/services/readiness_gated_secure_storage.dart';
 import 'package:conduit_core/features/chat/server_speech/direct_voice_provider_settings.dart';
+import 'package:conduit_core/features/librechat/providers/librechat_providers.dart'
+    show libreChatRegistryProvider;
 import 'package:conduit_core/features/chat/realtime_call/realtime_call_availability.dart';
 import 'package:conduit_core/services/settings_service.dart';
 import 'package:conduit_core/features/automations/providers/automation_providers.dart'
@@ -97,6 +99,8 @@ import 'core/utils/native_sheet_utils.dart'
         nativeAccountSwitchActionId,
         nativeDirectEditActionId,
         nativeHermesUseActionId,
+        nativeLibreChatSignOutActionId,
+        nativeLibreChatUseActionId,
         nativeAdvancedFeaturesId,
         nativeSlidingSidebarId,
         nativeCitationShowTitlesId,
@@ -668,6 +672,17 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
       case nativeHermesUseActionId:
         if (context == null || value is! String) return true;
         await useHermesConnection(context, ref, value);
+        return true;
+      case nativeLibreChatUseActionId:
+        if (context == null || value is! String) return true;
+        await switchToLibreChatAccount(context, ref, value);
+        return true;
+      case nativeLibreChatSignOutActionId:
+        if (context == null || value is! String) return true;
+        final registry = await ref.read(libreChatRegistryProvider.future);
+        final account = registry.byId(value);
+        if (account == null || !context.mounted) return true;
+        await signOutOfLibreChatAccount(context, account);
         return true;
       case nativeDirectEditActionId:
         if (context == null || value is! String) return true;
