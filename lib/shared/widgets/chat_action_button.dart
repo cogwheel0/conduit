@@ -68,6 +68,8 @@ class ChatActionButton extends StatelessWidget {
     return Tooltip(
       message: label,
       waitDuration: const Duration(milliseconds: 600),
+      // The button below names itself; the tooltip would read it twice.
+      excludeFromSemantics: true,
       child: Semantics(
         button: true,
         enabled: handleTap != null,

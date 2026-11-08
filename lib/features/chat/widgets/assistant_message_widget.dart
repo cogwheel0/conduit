@@ -1616,7 +1616,9 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
         );
       }
       if (hasFollowUps) {
-        children.add(const SizedBox(height: Spacing.md));
+        // The action row's 44 pt targets and each suggestion's own 44 pt row
+        // already leave air; a wider gap detached the suggestions.
+        children.add(const SizedBox(height: Spacing.xs));
         children.add(_buildFollowUpSuggestions(activeFollowUps));
       }
       if (children.isNotEmpty) {
