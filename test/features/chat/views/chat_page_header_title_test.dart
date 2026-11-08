@@ -46,6 +46,29 @@ void main() {
       );
     });
 
+    test('a chat that fits on one screen never names itself', () {
+      // A first turn settling into place reports a scroll offset from its
+      // pinned end space; the title must not flash in.
+      expect(
+        chatHeaderShowsTitle(
+          scrolledFromTop: 120,
+          hasOlderMessages: false,
+          currentlyShowing: false,
+          contentOverflowsViewport: false,
+        ),
+        isFalse,
+      );
+      expect(
+        chatHeaderShowsTitle(
+          scrolledFromTop: 120,
+          hasOlderMessages: false,
+          currentlyShowing: true,
+          contentOverflowsViewport: false,
+        ),
+        isFalse,
+      );
+    });
+
     test('older messages still above always count as scrolled', () {
       expect(
         chatHeaderShowsTitle(

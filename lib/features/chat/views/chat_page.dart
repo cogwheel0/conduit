@@ -628,6 +628,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       scrolledFromTop: metrics.pixels - metrics.minScrollExtent,
       hasOlderMessages: ref.read(chatTranscriptPagingProvider).hasOlder,
       currentlyShowing: _headerShowsTitle.value,
+      contentOverflowsViewport: metrics.hasRealContentOverflow,
     );
     if (_isUserInteractingWithScroll &&
         metrics.distanceFromLatest > _scrollButtonHideThreshold) {
@@ -4977,13 +4978,19 @@ String? chatHeaderTitle(String? title) {
 /// Whether the header should name the chat: once the first message has
 /// slipped under the bar, or older messages wait above. Hysteresis keeps a
 /// resting scroll from flickering the title in and out.
+///
+/// A transcript that fits on one screen never names the chat: nothing can
+/// be under the bar, and a first turn that is still settling into place
+/// (its pinned end space reports a scroll offset) must not flash the title.
 @visibleForTesting
 bool chatHeaderShowsTitle({
   required double scrolledFromTop,
   required bool hasOlderMessages,
   required bool currentlyShowing,
+  bool contentOverflowsViewport = true,
 }) {
   if (hasOlderMessages) return true;
+  if (!contentOverflowsViewport) return false;
   return scrolledFromTop > (currentlyShowing ? 8.0 : 20.0);
 }
 
