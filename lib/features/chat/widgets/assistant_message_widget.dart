@@ -1495,9 +1495,10 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
 
           // Footer slot: keep completion actions inside the message while the
           // running turn indicator is owned by the timeline. The plain action
-          // row is extent-matched to the timeline's typing indicator (16+32
-          // vs 16+28+4) so the settle swap does not shift the
-          // bottom-anchored viewport; see settle_height_test.dart.
+          // row is extent-matched to the timeline's typing indicator (16+44
+          // each: 44 pt action targets, and the orbit row sized to match) so
+          // the settle swap does not shift the bottom-anchored viewport; see
+          // settle_height_test.dart.
           if (!hasQueuedCompletion)
             AnimatedSwitcher(
               // The running indicator is owned by the timeline footer now, so

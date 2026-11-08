@@ -2155,7 +2155,8 @@ double estimateChatRowExtent({
   // ponytail: flat per-kind terms plus body-text lines, as paseo does; code
   // blocks, tables, and markdown structure are not modelled. Refine only if
   // the thumb still drifts.
-  final chrome = isUser ? 56.0 : 88.0;
+  // Assistant chrome includes the 16 + 44 pt action row.
+  final chrome = isUser ? 56.0 : 100.0;
   final lineHeight = 22.0 * textScale;
   final glyphWidth = 8.0 * textScale;
   const minCharsPerLine = 20.0;

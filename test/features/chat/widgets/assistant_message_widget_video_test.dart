@@ -73,14 +73,17 @@ Future<_RecordingVideoCache> _pumpMessage(
         localizationsDelegates: conduitLocalizationsDelegates,
         supportedLocales: AppLocalizations.supportedLocales,
         home: Scaffold(
-          body: AssistantMessageWidget(
-            message: message,
-            isStreaming: false,
-            showFollowUps: false,
-            animateOnMount: false,
-            onCopy: () {},
-            onRegenerate: () {},
-            onDelete: () {},
+          // Rows live in a scrolling timeline, never in a fixed-height box.
+          body: SingleChildScrollView(
+            child: AssistantMessageWidget(
+              message: message,
+              isStreaming: false,
+              showFollowUps: false,
+              animateOnMount: false,
+              onCopy: () {},
+              onRegenerate: () {},
+              onDelete: () {},
+            ),
           ),
         ),
       ),

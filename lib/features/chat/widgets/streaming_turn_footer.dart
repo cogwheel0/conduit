@@ -18,6 +18,10 @@ import '../../../shared/widgets/markdown/renderer/markdown_style.dart';
 import 'conduit_streaming_orbit.dart';
 import 'thinking_status_label.dart';
 
+/// The running footer's row: the height of a reply's action row, so the
+/// settle swap between them is extent-neutral.
+const double kStreamingTurnFooterRowHeight = 44;
+
 class StreamingTurnFooter extends ConsumerStatefulWidget {
   const StreamingTurnFooter({
     super.key,
@@ -137,60 +141,65 @@ class _StreamingTurnFooterState extends ConsumerState<StreamingTurnFooter> {
                     padding: EdgeInsets.only(
                       top: ConduitMarkdownStyle.fromTheme(context)
                           .paragraphSpacing,
-                      bottom: Spacing.xs,
                     ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        RepaintBoundary(
-                          child: ConduitStreamingOrbit(
-                            size: 28,
-                            color: context.conduitTheme.textSecondary
-                                .withValues(alpha: 0.75),
-                            animate: !_disableAnimations,
+                    // As tall as the reply's action row (44 pt targets) that
+                    // replaces it at settle, with the orbit centred where those
+                    // glyphs will sit, so the swap moves nothing.
+                    child: SizedBox(
+                      height: kStreamingTurnFooterRowHeight,
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          RepaintBoundary(
+                            child: ConduitStreamingOrbit(
+                              size: 28,
+                              color: context.conduitTheme.textSecondary
+                                  .withValues(alpha: 0.75),
+                              animate: !_disableAnimations,
+                            ),
                           ),
-                        ),
-                        // Until the reply shows anything, the orbit alone is
-                        // too quiet for a wait of several seconds. The label
-                        // leaves as soon as text, a status, or a streamed
-                        // reasoning block (with its own "Thinking…") appears;
-                        // the orbit stays put, so nothing shifts.
-                        Flexible(
-                          child: AnimatedSwitcher(
-                            duration: _disableAnimations
-                                ? Duration.zero
-                                : _labelSwitchDuration,
-                            switchInCurve: Curves.easeOut,
-                            switchOutCurve: Curves.easeIn,
-                            layoutBuilder: (currentChild, previousChildren) =>
-                                Stack(
-                                  alignment: AlignmentDirectional.centerStart,
-                                  children: [
-                                    ...previousChildren,
-                                    ?currentChild,
-                                  ],
-                                ),
-                            child: showThinkingLabel
-                                ? Padding(
-                                    key: const ValueKey(
-                                      'streaming-turn-thinking-label',
-                                    ),
-                                    padding: const EdgeInsetsDirectional.only(
-                                      start: Spacing.xs,
-                                    ),
-                                    child: ThinkingStatusLabel(
-                                      startedAt: widget.message.timestamp,
-                                      animate: !_disableAnimations,
-                                    ),
-                                  )
-                                : const SizedBox.shrink(
-                                    key: ValueKey(
-                                      'streaming-turn-thinking-label-empty',
-                                    ),
+                          // Until the reply shows anything, the orbit alone is
+                          // too quiet for a wait of several seconds. The label
+                          // leaves as soon as text, a status, or a streamed
+                          // reasoning block (with its own "Thinking…") appears;
+                          // the orbit stays put, so nothing shifts.
+                          Flexible(
+                            child: AnimatedSwitcher(
+                              duration: _disableAnimations
+                                  ? Duration.zero
+                                  : _labelSwitchDuration,
+                              switchInCurve: Curves.easeOut,
+                              switchOutCurve: Curves.easeIn,
+                              layoutBuilder: (currentChild, previousChildren) =>
+                                  Stack(
+                                    alignment: AlignmentDirectional.centerStart,
+                                    children: [
+                                      ...previousChildren,
+                                      ?currentChild,
+                                    ],
                                   ),
+                              child: showThinkingLabel
+                                  ? Padding(
+                                      key: const ValueKey(
+                                        'streaming-turn-thinking-label',
+                                      ),
+                                      padding: const EdgeInsetsDirectional.only(
+                                        start: Spacing.xs,
+                                      ),
+                                      child: ThinkingStatusLabel(
+                                        startedAt: widget.message.timestamp,
+                                        animate: !_disableAnimations,
+                                      ),
+                                    )
+                                  : const SizedBox.shrink(
+                                      key: ValueKey(
+                                        'streaming-turn-thinking-label-empty',
+                                      ),
+                                    ),
+                            ),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
                   ),
                 ),
