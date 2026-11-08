@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:math';
 
+import 'package:conduit_core/features/librechat/services/librechat_provenance.dart';
 import 'package:conduit_core/models/conversation.dart';
 
 import 'app_database.dart';
@@ -138,6 +139,18 @@ Conversation annotateConversationStorage(
       kChatStorageKindMetadataKey: storage.name,
     },
   );
+}
+
+/// A full load from [storage], annotated with where it lives and, for a
+/// LibreChat account's database, its trusted LibreChat provenance.
+Conversation _withProvenance(
+  Conversation conversation,
+  ChatStorageKind storage,
+) {
+  final annotated = annotateConversationStorage(conversation, storage);
+  return storage == ChatStorageKind.libreChat
+      ? stampLibreChatProvenance(annotated)
+      : annotated;
 }
 
 /// Reads storage provenance previously written by
@@ -427,7 +440,7 @@ class ChatDatabaseRepository {
     if (locationIsCurrent?.call(location) == false) return null;
     return LocatedConversation(
       location: location,
-      conversation: annotateConversationStorage(conversation, location.storage),
+      conversation: _withProvenance(conversation, location.storage),
     );
   }
 
@@ -463,7 +476,7 @@ class ChatDatabaseRepository {
     if (locationIsCurrent?.call(location) == false) return null;
     return LocatedConversationWindow(
       location: location,
-      conversation: annotateConversationStorage(conversation, location.storage),
+      conversation: _withProvenance(conversation, location.storage),
       rowWindow: rowWindow,
     );
   }

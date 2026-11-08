@@ -14,6 +14,7 @@ import 'package:conduit_core/sync/backoff.dart';
 import 'package:conduit_core/sync/chat_locks.dart';
 import 'package:conduit_core/sync/clock.dart';
 import 'package:conduit_core/sync/outbox_drainer.dart';
+import 'package:conduit_core/sync/pull_sync.dart';
 import 'package:conduit_core/sync/sync_api_client.dart';
 import 'package:conduit_core/sync/sync_entity_adapter.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
@@ -45,12 +46,14 @@ final class LibreChatSyncEngine {
     Backoff? backoff,
     bool Function()? isOnline,
     bool Function(String conversationId)? isGenerating,
+    Future<void> Function()? Function()? holdDatabase,
     RequestCompletionRunner? completion,
     this.reconcileInterval = const Duration(minutes: 15),
   }) : locks = locks ?? ChatLocks(),
        _clock = clock ?? SystemSyncClock(),
        _isOnline = isOnline ?? _alwaysOnline,
-       _isGenerating = isGenerating ?? _neverGenerating {
+       _isGenerating = isGenerating ?? _neverGenerating,
+       _holdDatabase = holdDatabase {
     _adapter = LibreChatChatAdapter(this);
     _drainer = OutboxDrainer(
       db: db,
@@ -71,6 +74,10 @@ final class LibreChatSyncEngine {
   final bool Function() _isOnline;
   final bool Function(String conversationId) _isGenerating;
 
+  /// Keeps [db] open until the returned release is called; null when it
+  /// cannot be held (or needs no holding).
+  final Future<void> Function()? Function()? _holdDatabase;
+
   /// A forced reconciliation asked for while a pull ran, for the pass that
   /// follows it.
   bool _forceReconcileAgain = false;
@@ -78,8 +85,17 @@ final class LibreChatSyncEngine {
   /// Conversations a pull passed over because local work held them (a reply
   /// generating, a queued edit). Their changes are behind the watermark now,
   /// so they are fetched on their own once that work is done.
-  final Set<String> _deferred = <String>{};
-  bool _deferredLoaded = false;
+  ///
+  /// One list per database, as its saved copy is: a quick return to an
+  /// account can hand a new engine the database a departing one still
+  /// pulls in, and each saving its own list would drop the other's.
+  late final _DeferredIds _deferredIds = _deferredByDatabase[db] ??=
+      _DeferredIds();
+
+  Set<String> get _deferred => _deferredIds.ids;
+
+  static final Expando<_DeferredIds> _deferredByDatabase =
+      Expando<_DeferredIds>('librechat-deferred');
 
   /// Conversations the last full pass found on the server with no local
   /// copy. Those the archived pass after it does not store are fetched with
@@ -92,12 +108,22 @@ final class LibreChatSyncEngine {
   );
   late final LibreChatChatAdapter _adapter;
   late final OutboxDrainer _drainer;
-  Future<void>? _pull;
+  Future<PullResult>? _pull;
   bool _pullAgain = false;
+  Future<void>? _drain;
+  bool _drainAgain = false;
   bool _closed = false;
 
   static bool _alwaysOnline() => true;
   static bool _neverGenerating(String _) => false;
+
+  /// The drain last started on each database, by whichever engine. A quick
+  /// return to an account can hand a new engine the database a departing
+  /// one is still draining. A new drainer first takes back every op left in
+  /// flight, so it waits for that drain to end rather than take back, and
+  /// send again, an op still being pushed.
+  static final Expando<Future<void>> _drainsByDatabase =
+      Expando<Future<void>>('librechat-drains');
 
   /// `sync_meta` keys.
   static const String watermarkKey = 'librechat_pull_watermark';
@@ -109,36 +135,96 @@ final class LibreChatSyncEngine {
   /// Stops new work; work already running finishes.
   void close() => _closed = true;
 
+  static const PullResult _notPulled = PullResult(
+    success: false,
+    watermarkAdvanced: false,
+  );
+
   /// Pulls what changed. Overlapping calls share one pull, plus at most one
-  /// more after it.
-  Future<void> pull({bool forceReconcile = false}) {
-    if (_closed) return Future<void>.value();
+  /// more after it. Reports how the last pass went; offline, nothing is
+  /// pulled and the result says so.
+  Future<PullResult> pull({bool forceReconcile = false}) {
+    if (_closed) return Future<PullResult>.value(_notPulled);
     final running = _pull;
     if (running != null) {
       _pullAgain = true;
       if (forceReconcile) _forceReconcileAgain = true;
       return running;
     }
-    final pull = _runPulls(forceReconcile);
-    _pull = pull;
-    return pull.whenComplete(() => _pull = null);
+    // Set before the run starts: one that ends before its first await (a
+    // hold that fails) clears it then, and must not be stored after that.
+    final run = Completer<PullResult>();
+    _pull = run.future;
+    run.complete(_runPulls(forceReconcile));
+    return run.future;
   }
 
-  Future<void> _runPulls(bool forceReconcile) async {
-    do {
-      _pullAgain = false;
-      await _pullOnce(forceReconcile);
-      forceReconcile = _forceReconcileAgain;
-      _forceReconcileAgain = false;
-    } while (_pullAgain && !_closed);
+  Future<PullResult> _runPulls(bool forceReconcile) async {
+    var result = _notPulled;
+    // Held open to the end, so leaving the account mid-pull cannot close
+    // the database before the passed-over chats are saved. Taken inside the
+    // try: a hold that fails still clears the pull, so the next one runs.
+    Future<void> Function()? release;
+    try {
+      release = _holdDatabase?.call();
+      do {
+        _pullAgain = false;
+        result = await _pullOnce(forceReconcile);
+        forceReconcile = _forceReconcileAgain;
+        _forceReconcileAgain = false;
+      } while (_pullAgain && !_closed);
+    } finally {
+      // Cleared as the loop ends, so a call from now on starts a new pull
+      // rather than joining one that will not look again.
+      _pull = null;
+      await _keepDeferred();
+      await release?.call();
+    }
+    return result;
   }
 
-  Future<void> _pullOnce(bool forceReconcile) async {
-    if (!_isOnline()) return;
-    final result = await runPullFor(_adapter, db: db);
-    if (!result.success || _closed) return;
+  /// Saves the conversations a pull passed over however it ended -- one cut
+  /// short when the account is left included: its watermark has moved past
+  /// them, so only this list brings them back.
+  Future<void> _keepDeferred() async {
+    if (_deferred.isEmpty) return;
+    try {
+      await _loadDeferred();
+      await _saveDeferred();
+    } catch (error) {
+      DebugLogger.warning(
+        'deferred-save-failed',
+        scope: 'librechat/sync',
+        data: {'error': error.runtimeType.toString()},
+      );
+    }
+  }
+
+  Future<PullResult> _pullOnce(bool forceReconcile) async {
+    if (!_isOnline()) return _notPulled;
+    // A list's first sync brings in what the user already had, read as it
+    // stands: LibreChat keeps no read state, and every chat would show as
+    // unread. Only chats new or changed after it are. Until a pass over the
+    // list succeeds it has no watermark, so a first sync cut short or failed
+    // is still the first next time, and what it brings then starts read too.
+    final firstSync = await db.syncMetaDao.getValue(watermarkKey) == null;
+    final firstArchiveSync =
+        await db.syncMetaDao.getValue(archivedWatermarkKey) == null;
+    final pass = await runPullFor(_adapter, db: db);
+    if (firstSync) await _markAllRead(archived: false);
+    final result = PullResult(
+      success: pass.success && pass.failedFetches == 0,
+      changedChats: pass.changed,
+      failedFetches: pass.failedFetches,
+      watermarkAdvanced: pass.watermarkAdvanced,
+    );
+    if (!pass.success || _closed) return result;
+    // Search reads the full-text index, which a new database builds once
+    // (live writes index themselves after that), as Open WebUI's sync does.
+    await db.buildFtsIfNeeded();
+    if (_closed) return result;
     await _reconcilePins();
-    if (_closed) return;
+    if (_closed) return result;
     final now = _clock.nowEpochSeconds();
     final last = int.tryParse(
       await db.syncMetaDao.getValue(reconciledAtKey) ?? '',
@@ -150,50 +236,105 @@ final class LibreChatSyncEngine {
         await db.syncMetaDao.setValue(reconciledAtKey, '$now');
       }
     }
-    if (_closed) return;
+    if (_closed) return result;
     // The archive is listed apart from the active conversations, so it has
     // its own pass and watermark; without it a chat archived before the
-    // first sync would never arrive.
-    await runPullFor(_archivedAdapter, db: db);
-    if (_closed) return;
-    await _pullDeferred();
+    // first sync would never arrive. Its failures count as the pull's.
+    final archivedPass = await runPullFor(_archivedAdapter, db: db);
+    if (firstArchiveSync) await _markAllRead(archived: true);
+    final combined = PullResult(
+      success:
+          result.success &&
+          archivedPass.success &&
+          archivedPass.failedFetches == 0,
+      changedChats: result.changedChats + archivedPass.changed,
+      failedFetches: result.failedFetches + archivedPass.failedFetches,
+      watermarkAdvanced:
+          result.watermarkAdvanced || archivedPass.watermarkAdvanced,
+    );
+    if (_closed) return combined;
+    final deferredFailures = await _pullDeferred();
+    if (deferredFailures == 0) return combined;
+    // A conversation passed over earlier that still could not be fetched
+    // leaves history behind: the pull did not fully succeed.
+    return PullResult(
+      success: false,
+      changedChats: combined.changedChats,
+      failedFetches: combined.failedFetches + deferredFailures,
+      watermarkAdvanced: combined.watermarkAdvanced,
+    );
   }
 
+  /// Marks every chat stored so far in the active list, or with [archived]
+  /// in the archive, read up to its last change.
+  Future<void> _markAllRead({required bool archived}) => db.customUpdate(
+    'UPDATE chats SET last_read_at = updated_at '
+    'WHERE last_read_at IS NULL AND archived = ?',
+    variables: [Variable.withBool(archived)],
+    updates: {db.chats},
+    updateKind: UpdateKind.update,
+  );
+
   /// Fetches the conversations earlier pulls passed over, now that the
-  /// local work that held them is done.
-  Future<void> _pullDeferred() async {
+  /// local work that held them is done. Returns how many could not be
+  /// fetched; they are tried again later.
+  Future<int> _pullDeferred() async {
     await _loadDeferred();
+    var failures = 0;
     // One no pass stored, such as a chat moved between the lists while they
     // were read, is behind both watermarks and would never arrive.
     for (final id in _unstored) {
-      if (await db.chatsDao.getChat(id) == null) _defer(id);
+      if (await db.chatsDao.getChat(id) == null) await _defer(id);
     }
     _unstored.clear();
     for (final id in _deferred.toList()) {
-      if (_closed) return;
+      if (_closed) return failures;
       if (_isGenerating(id) || await _hasQueuedWork(id)) continue;
       _deferred.remove(id);
       try {
         await pullChat(id);
-      } on LibreChatApiException {
+      } catch (error) {
+        // Kept however the fetch failed: the list is saved as the pull ends,
+        // and an id left off it would never be fetched.
         _deferred.add(id);
+        if (error is! LibreChatApiException) rethrow;
+        failures++;
       }
     }
     await _saveDeferred();
+    return failures;
   }
 
-  void _defer(String id) => _deferred.add(id);
+  /// Puts conversation [id] on the list fetched once local work lets it, and
+  /// saves the list straight away: the pull that passed it over may write a
+  /// watermark past it before it ends, and a process killed in between
+  /// would otherwise never fetch it.
+  Future<void> _defer(String id) async {
+    await _loadDeferred();
+    if (_deferred.add(id)) await _saveDeferred();
+  }
 
-  Future<void> _loadDeferred() async {
-    if (_deferredLoaded) return;
-    _deferredLoaded = true;
-    final raw = await db.syncMetaDao.getValue(deferredKey);
-    if (raw == null || raw.isEmpty) return;
+  /// Merges the saved list into the one in memory, once per database. Every
+  /// caller waits for the same read, so none saves the list before it is
+  /// in; a read that fails is tried again by the next.
+  Future<void> _loadDeferred() {
+    final deferred = _deferredIds;
+    return deferred.load ??= _readDeferred(deferred);
+  }
+
+  Future<void> _readDeferred(_DeferredIds deferred) async {
     try {
-      final ids = jsonDecode(raw);
-      if (ids is List) _deferred.addAll(ids.whereType<String>());
-    } on FormatException {
-      // A damaged list is dropped; the next full pass catches up.
+      final raw = await db.syncMetaDao.getValue(deferredKey);
+      if (raw == null || raw.isEmpty) return;
+      try {
+        final ids = jsonDecode(raw);
+        if (ids is List) deferred.ids.addAll(ids.whereType<String>());
+      } on FormatException {
+        // A damaged list is dropped; the next full pass catches up.
+      }
+    } catch (_) {
+      deferred.load = null;
+      rethrow;
     }
   }
 
@@ -202,15 +343,81 @@ final class LibreChatSyncEngine {
 
   /// Fetches conversation [id] now and stores it, unless it has queued work
   /// or a reply generating. Returns whether the server has it.
-  Future<bool> pullChat(String id) async {
+  Future<bool> pullChat(String id) => _holdingDatabase(() async {
     final conversation = await api.conversation(id);
     if (conversation == null) return false;
     await _adapter.storeConversation(conversation);
     return true;
+  });
+
+  /// Runs [work] with [db] held open, so leaving the account meanwhile
+  /// cannot close it under a write.
+  Future<T> _holdingDatabase<T>(Future<T> Function() work) async {
+    final release = _holdDatabase?.call();
+    try {
+      return await work();
+    } finally {
+      await release?.call();
+    }
+  }
+
+  /// Connectivity is back: queued changes waiting out a retry delay are due
+  /// now, then the outbox runs.
+  Future<void> drainNow() async {
+    if (_closed) return;
+    await _holdingDatabase(() async {
+      await db.outboxDao.resetBackoffForPending(
+        nowEpochSeconds: _clock.nowEpochSeconds(),
+      );
+      await drain();
+    });
   }
 
   /// Runs the outbox: queued renames, pins, archives, deletes and sends.
-  Future<void> drain() => _closed ? Future<void>.value() : _drainer.drain();
+  ///
+  /// Completes once the work queued when it was called has run: a call made
+  /// while a drain runs joins it, and one more pass follows.
+  Future<void> drain() {
+    if (_closed) return Future<void>.value();
+    final running = _drain;
+    if (running != null) {
+      _drainAgain = true;
+      return running;
+    }
+    // Set before the run starts, as a pull's.
+    final run = Completer<void>();
+    _drain = run.future;
+    run.complete(_runDrains());
+    return run.future;
+  }
+
+  Future<void> _runDrains() async {
+    final before = _drainsByDatabase[db];
+    final done = Completer<void>();
+    _drainsByDatabase[db] = done.future;
+    Future<void> Function()? release;
+    try {
+      // Inside the try, as a pull's: a hold that fails still clears the
+      // drain.
+      release = _holdDatabase?.call();
+      await before;
+      do {
+        _drainAgain = false;
+        await _drainer.drain();
+      } while (_drainAgain && !_closed);
+    } finally {
+      // Cleared as the loop ends, before the release yields, so a call from
+      // now on starts a new drain rather than joining one that will not run
+      // again.
+      _drain = null;
+      // A push can leave a chat to fetch again (one archived here, which the
+      // archived list's watermark may pass by): kept, as a pull keeps those
+      // it put off, so a restart before the next pull still fetches it.
+      await _keepDeferred();
+      done.complete();
+      await release?.call();
+    }
+  }
 
   /// Stores a conversation the caller already holds, with its [messages],
   /// as the server has it now (after a reply finished, say).
@@ -324,7 +531,7 @@ final class LibreChatSyncEngine {
         // Moving between the lists can leave it behind the new list's
         // watermark, with messages added before the move never pulled:
         // fetched whole once this pass is done.
-        _defer(entry.id);
+        await _defer(entry.id);
       });
     }
     return true;
@@ -387,8 +594,14 @@ final class LibreChatSyncEngine {
   /// never comes back.
   final Set<String> _deletedOnServer = <String>{};
 
-  /// Whether conversation [id] has outbox work not yet confirmed.
-  Future<bool> _hasQueuedWork(String id) async {
+  /// Whether conversation [id] has outbox work not yet confirmed; with
+  /// [besidesEnvelopeEdits], other than a rename, pin or archive still
+  /// waiting to go out. One being sent counts: a copy of the chat listed
+  /// before it landed would put back the baseline the push records.
+  Future<bool> _hasQueuedWork(
+    String id, {
+    bool besidesEnvelopeEdits = false,
+  }) async {
     final ops =
         await (db.select(db.outboxOps)..where(
               (t) =>
@@ -396,7 +609,12 @@ final class LibreChatSyncEngine {
                   t.status.isIn([OutboxStatus.pending, OutboxStatus.inFlight]),
             ))
             .get();
-    return ops.isNotEmpty;
+    return ops.any(
+      (op) =>
+          !besidesEnvelopeEdits ||
+          op.kind != OutboxKind.updateChat.name ||
+          op.status == OutboxStatus.inFlight,
+    );
   }
 
   static Map<String, dynamic> _decode(String? raw) {
@@ -527,20 +745,26 @@ final class LibreChatChatAdapter implements SyncEntityAdapter {
   /// whether local work is still owed to the server.
   ///
   /// A chat with a local envelope edit the server has not taken (one still
-  /// queued, or one it refused) takes the server's messages but keeps the
-  /// edit, so the edit can still be pushed or retried.
+  /// queued, or one it refused) takes the server's messages and the fields
+  /// the user did not change, but keeps the ones they did, so the edit can
+  /// still be pushed or retried.
   Future<bool> store(
     LibreChatConversation conversation,
     List<LibreChatMessage> messages,
   ) {
     final id = conversation.conversationId;
     if (_engine._isGenerating(id)) {
-      _engine._defer(id);
-      return Future<bool>.value(false);
+      return _engine._defer(id).then((_) => false);
     }
     return _engine.locks.runExclusive(id, () async {
-      if (await _engine._hasQueuedWork(id)) {
-        _engine._defer(id);
+      // A queued send or delete holds the chat as it shows it until it is
+      // through: the server's copy would undo it. So does a rename, pin or
+      // archive being sent. One still waiting lets the messages in -- kept
+      // below as the user left them -- or a new chat edited before its
+      // first reply was saved could not be opened until the edit went
+      // through.
+      if (await _engine._hasQueuedWork(id, besidesEnvelopeEdits: true)) {
+        await _engine._defer(id);
         return true;
       }
       if (_engine._deletedOnServer.contains(id)) return false;
@@ -550,6 +774,12 @@ final class LibreChatChatAdapter implements SyncEntityAdapter {
       final meta = existing == null
           ? <String, dynamic>{}
           : LibreChatSyncEngine._decode(existing.meta);
+      // What the server had when the chat was last stored. A field the user
+      // has not changed since still matches it, and takes the server's new
+      // value: a pin waiting to go out must not undo a rename made elsewhere.
+      final previous = Map<String, dynamic>.from(
+        meta[kLibreChatEnvelopeBaselineKey] as Map? ?? const {},
+      );
       meta[kLibreChatEnvelopeBaselineKey] = <String, dynamic>{
         'title': conversation.title,
         'pinned': conversation.pinned,
@@ -559,15 +789,24 @@ final class LibreChatChatAdapter implements SyncEntityAdapter {
       if (existing == null || !existing.dirty) return false;
       await (_db.update(_db.chats)..where((t) => t.id.equals(id))).write(
         ChatsCompanion(
-          title: Value(existing.title),
-          pinned: Value(existing.pinned),
-          archived: Value(existing.archived),
+          title: _editedHere(previous, 'title', existing.title),
+          pinned: _editedHere(previous, 'pinned', existing.pinned),
+          archived: _editedHere(previous, 'archived', existing.archived),
           dirty: const Value(true),
         ),
       );
       return true;
     });
   }
+
+  /// [local], when it is not what the server had for [field] at the last
+  /// store ([previous]): an edit made here. Absent otherwise, so the server's
+  /// value stands.
+  static Value<T> _editedHere<T>(
+    Map<String, dynamic> previous,
+    String field,
+    T local,
+  ) => previous[field] == local ? Value<T>.absent() : Value<T>(local);
 
   @override
   Future<void> pushOp(OutboxOp op) async {
@@ -588,7 +827,13 @@ final class LibreChatChatAdapter implements SyncEntityAdapter {
   }
 
   Future<void> _pushEnvelope(String id) async {
-    final row = await _db.chatsDao.getChat(id);
+    // Read under the chat's lock: a pull storing the server's copy puts the
+    // local edit back only after writing the server's fields, and the row
+    // between the two would look like nothing to send.
+    final row = await _engine.locks.runExclusive(
+      id,
+      () => _db.chatsDao.getChat(id),
+    );
     if (row == null || row.deleted) return;
     final meta = LibreChatSyncEngine._decode(row.meta);
     final baseline = Map<String, dynamic>.from(
@@ -608,7 +853,7 @@ final class LibreChatChatAdapter implements SyncEntityAdapter {
       // Moving between the lists can leave it behind the new list's
       // watermark, with messages the server gained before the move never
       // pulled: fetched whole by the next pull.
-      _engine._defer(id);
+      await _engine._defer(id);
     }
     await _engine.locks.runExclusive(id, () async {
       final current = await _db.chatsDao.getChat(id);
@@ -665,4 +910,13 @@ final class _NoCompletionRunner implements RequestCompletionRunner {
     DebugLogger.warning('no-completion-runner', scope: 'librechat/sync');
     throw StateError('No LibreChat completion runner is set up.');
   }
+}
+
+/// The conversations passed over on one database, and whether its saved
+/// list has been read into them.
+final class _DeferredIds {
+  final Set<String> ids = <String>{};
+
+  /// The read of the saved list, shared until it succeeds.
+  Future<void>? load;
 }

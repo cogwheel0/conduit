@@ -45,11 +45,163 @@ bool _activeConversationMatchesSelection(
 /// Refuses an Open WebUI-only action on a LibreChat chat, which must never
 /// reach Open WebUI's API whatever its raw id.
 void _requireNotLibreChat(String conversationId, {Conversation? listed}) {
-  final identity = ChatStorageIdentity.parse(conversationId);
-  if (identity.storage == ChatStorageKind.libreChat ||
-      isLibreChatConversation(listed)) {
+  if (_isLibreChatSelection(conversationId, listed)) {
     throw StateError('This action is not available for LibreChat chats yet.');
   }
+}
+
+bool _isLibreChatSelection(String conversationId, Conversation? listed) =>
+    ChatStorageIdentity.parse(conversationId).storage ==
+        ChatStorageKind.libreChat ||
+    isLibreChatConversation(listed);
+
+/// The signed-in LibreChat account's database, for a write to one of its
+/// chats.
+AppDatabase _libreChatDatabaseFor(dynamic ref) =>
+    _readProvider(ref, chatDatabaseRepositoryProvider)
+        .libreChatLocation
+        ?.database ??
+    (throw StateError('The LibreChat account is not signed in.'));
+
+/// Whether [db] is still the database of the LibreChat account that owns
+/// the Chats tab. A write that waited for its chat while the account changed
+/// still lands in the account it was made for, but must not touch the chats
+/// the new one shows, which can share its ids (a copied server, say).
+bool _libreChatDatabaseIsCurrent(dynamic ref, AppDatabase db) => identical(
+  _readProvider(
+    ref,
+    chatDatabaseRepositoryProvider,
+  ).libreChatLocation?.database,
+  db,
+);
+
+/// Runs [write] on LibreChat database [db] under chat [rawId]'s lock,
+/// keeping the database open until it is done: an account switch while the
+/// write waits for the chat would otherwise close it underneath, and the
+/// edit and its queued server change would be lost.
+Future<T> _writeLibreChatChat<T>(
+  dynamic ref,
+  AppDatabase db,
+  String rawId,
+  Future<T> Function() write,
+) async {
+  final release = _readProvider(ref, libreChatDatabaseHoldProvider)(db);
+  try {
+    return await _readProvider(
+      ref,
+      libreChatChatLocksProvider,
+    ).runExclusive<T>(rawId, write);
+  } finally {
+    await release?.call();
+  }
+}
+
+/// Writes a local envelope change of a LibreChat chat to its account's
+/// database, queues it for the server and starts the outbox. The chats list
+/// follows the database; the open chat is updated here.
+Future<void> _writeLibreChatEnvelope(
+  dynamic ref,
+  String conversationId, {
+  String? title,
+  bool? pinned,
+  bool? archived,
+}) async {
+  final rawId = ChatStorageIdentity.parse(conversationId).rawId;
+  final db = _libreChatDatabaseFor(ref);
+  final now = DateTime.now();
+  await _writeLibreChatChat(
+    ref,
+    db,
+    rawId,
+    () => db.chatsDao.updateEnvelopeWithOutbox(
+      rawId,
+      title: title == null ? const Value.absent() : Value(title),
+      pinned: pinned == null ? const Value.absent() : Value(pinned),
+      archived: archived == null ? const Value.absent() : Value(archived),
+      updatedAt: title == null
+          ? const Value.absent()
+          : Value(now.millisecondsSinceEpoch ~/ 1000),
+      enqueue: true,
+    ),
+  );
+  if (!_libreChatDatabaseIsCurrent(ref, db)) return;
+  _readProvider(ref, conversationsProvider.notifier).updateConversation(
+    conversationId,
+    (conversation) => conversation.copyWith(
+      title: title ?? conversation.title,
+      pinned: pinned ?? conversation.pinned,
+      archived: archived ?? conversation.archived,
+      updatedAt: title == null ? conversation.updatedAt : now,
+    ),
+  );
+  final active = _readProvider(ref, activeConversationProvider);
+  if (_activeConversationMatchesSelection(active, conversationId)) {
+    if (archived == true) {
+      clearSelectedFiltersForConversationBoundary(ref);
+      _readProvider(ref, activeConversationProvider.notifier).clear();
+      _readProvider(ref, chatMessagesProvider.notifier).clearMessages();
+    } else {
+      // Only these fields change: the messages are the ones shown now, which
+      // can be newer than the copy the chat opened with.
+      _readProvider(ref, activeConversationProvider.notifier).set(
+        active!.copyWith(
+          title: title ?? active.title,
+          pinned: pinned ?? active.pinned,
+          archived: archived ?? active.archived,
+          messages: _readProvider(ref, chatMessagesProvider),
+        ),
+      );
+    }
+  }
+  _drainLibreChat(ref);
+}
+
+void _drainLibreChat(dynamic ref) {
+  final engine = _readProvider(ref, libreChatSyncEngineProvider);
+  if (engine == null) return;
+  unawaited(
+    engine.drain().catchError((Object error, StackTrace stackTrace) {
+      DebugLogger.error(
+        'drain-failed',
+        scope: 'librechat/mutations',
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }),
+  );
+}
+
+/// Renames a LibreChat chat: locally at once, on the server when the outbox
+/// drains (now, or once back online).
+Future<void> renameLibreChatConversation(
+  dynamic ref,
+  String conversationId,
+  String title,
+) => _writeLibreChatEnvelope(ref, conversationId, title: title);
+
+/// Deletes a LibreChat chat: it leaves the list at once, and the server
+/// deletes it when the outbox drains. The local row stays as a tombstone
+/// until then, so a pull cannot bring it back.
+Future<void> deleteLibreChatConversation(
+  dynamic ref,
+  String conversationId,
+) async {
+  final rawId = ChatStorageIdentity.parse(conversationId).rawId;
+  final db = _libreChatDatabaseFor(ref);
+  await _writeLibreChatChat(
+    ref,
+    db,
+    rawId,
+    () => db.chatsDao.tombstoneWithOutbox(rawId),
+  );
+  if (!_libreChatDatabaseIsCurrent(ref, db)) return;
+  final active = _readProvider(ref, activeConversationProvider);
+  if (_activeConversationMatchesSelection(active, conversationId)) {
+    clearSelectedFiltersForConversationBoundary(ref);
+    _readProvider(ref, activeConversationProvider.notifier).clear();
+    _readProvider(ref, chatMessagesProvider.notifier).clearMessages();
+  }
+  _drainLibreChat(ref);
 }
 
 String _directLocalSelectionId(ChatStorageIdentity identity) {
@@ -125,7 +277,10 @@ Future<void> pinConversation(
     ref,
     conversationId,
   );
-  _requireNotLibreChat(conversationId, listed: localConversation);
+  if (_isLibreChatSelection(conversationId, localConversation)) {
+    await _writeLibreChatEnvelope(ref, conversationId, pinned: pinned);
+    return;
+  }
   if (identity.storage == ChatStorageKind.directLocal ||
       isDirectLocalConversation(localConversation)) {
     final locks = _readProvider(ref, chatLocksProvider);
@@ -275,7 +430,10 @@ Future<void> archiveConversation(
       archived &&
       _activeConversationMatchesSelection(activeConversation, conversationId);
 
-  _requireNotLibreChat(conversationId, listed: listedConversation);
+  if (_isLibreChatSelection(conversationId, listedConversation)) {
+    await _writeLibreChatEnvelope(ref, conversationId, archived: archived);
+    return;
+  }
   if (identity.storage == ChatStorageKind.directLocal ||
       isDirectLocalConversation(listedConversation)) {
     final locks = _readProvider(ref, chatLocksProvider);

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:checks/checks.dart';
 import 'package:conduit_core/database/app_database.dart';
@@ -111,6 +112,62 @@ void main() {
     final messages = await db.messagesDao.getForChat('c42');
     check(messages.map((m) => m.content)).unorderedEquals(['Q42', 'A42']);
     check(row.currentMessageId).equals('c42-a');
+  });
+
+  test('chats the first sync brings in start read; later ones do not',
+      () async {
+    fake
+      ..addConversation(
+        'c1',
+        updatedAt: now,
+        messageList: _turn('c1', 'Q', 'A'),
+      )
+      ..addConversation(
+        'c2',
+        updatedAt: now.subtract(const Duration(hours: 1)),
+        messageList: _turn('c2', 'Q', 'A'),
+      );
+    await engine.pull();
+    for (final id in ['c1', 'c2']) {
+      final row = (await db.chatsDao.getChat(id))!;
+      check(row.lastReadAt).equals(row.updatedAt);
+    }
+
+    fake.addConversation(
+      'c3',
+      updatedAt: now.add(const Duration(minutes: 1)),
+      messageList: _turn('c3', 'Q', 'A'),
+    );
+    await engine.pull();
+    check((await db.chatsDao.getChat('c3'))!.lastReadAt).isNull();
+  });
+
+  test('chats a first sync cut short brings in later still start read',
+      () async {
+    fake
+      ..addConversation('kept', updatedAt: now)
+      ..addConversation(
+        'shelved',
+        updatedAt: now,
+        messageList: _turn('shelved', 'Q', 'A'),
+      );
+    fake.conversations['shelved']!['isArchived'] = true;
+    var archiveDown = true;
+    fake.on(
+      'GET',
+      '/api/messages/shelved',
+      (request, match) => archiveDown
+          ? FakeLibreChatResponse.json({'message': 'Down'}, statusCode: 503)
+          : FakeLibreChatResponse.json(fake.messages['shelved']!),
+    );
+    check((await engine.pull()).success).isFalse();
+    final kept = (await db.chatsDao.getChat('kept'))!;
+    check(kept.lastReadAt).equals(kept.updatedAt);
+
+    archiveDown = false;
+    check((await engine.pull()).success).isTrue();
+    final shelved = (await db.chatsDao.getChat('shelved'))!;
+    check(shelved.lastReadAt).equals(shelved.updatedAt);
   });
 
   test('a later pull fetches only what changed', () async {
@@ -227,6 +284,70 @@ void main() {
     check((await db.chatsDao.getChat('c1'))!.pinned).isTrue();
   });
 
+  test('a chat with a rename still queued takes the server\'s messages and '
+      'keeps its title', () async {
+    fake.addConversation(
+      'c1',
+      title: 'Old',
+      updatedAt: now,
+      messageList: _turn('c1', 'Q', 'A'),
+    );
+    await engine.pull();
+    // Answered further elsewhere, while a rename here waits to go out.
+    fake.addConversation(
+      'c1',
+      title: 'Old',
+      updatedAt: now.add(const Duration(minutes: 1)),
+      messageList: [
+        ..._turn('c1', 'Q', 'A'),
+        ..._turn('c1b', 'Q2', 'A2').map(
+          (message) => message['parentMessageId'] == _root
+              ? {...message, 'parentMessageId': 'c1-a'}
+              : message,
+        ),
+      ],
+    );
+    await db.chatsDao.updateEnvelopeWithOutbox(
+      'c1',
+      title: const Value('New title'),
+      enqueue: true,
+    );
+
+    check(await engine.pullChat('c1')).isTrue();
+    check(await db.messagesDao.getForChat('c1')).length.equals(4);
+    final row = (await db.chatsDao.getChat('c1'))!;
+    check(row.title).equals('New title');
+    check(row.dirty).isTrue();
+
+    await engine.drain();
+    check(fake.conversations['c1']!['title']).equals('New title');
+  });
+
+  test('a pin still queued keeps a rename made elsewhere', () async {
+    fake.addConversation('c1', title: 'Old', updatedAt: now);
+    await engine.pull();
+    await db.chatsDao.updateEnvelopeWithOutbox(
+      'c1',
+      pinned: const Value(true),
+      enqueue: true,
+    );
+    // Renamed in LibreChat's web app while the pin waits to go out.
+    fake.addConversation(
+      'c1',
+      title: 'Renamed elsewhere',
+      updatedAt: now.add(const Duration(minutes: 1)),
+    );
+
+    check(await engine.pullChat('c1')).isTrue();
+    final row = (await db.chatsDao.getChat('c1'))!;
+    check(row.title).equals('Renamed elsewhere');
+    check(row.pinned).isTrue();
+
+    await engine.drain();
+    check(fake.conversations['c1']!['title']).equals('Renamed elsewhere');
+    check(fake.conversations['c1']!['pinned']).equals(true);
+  });
+
   test('a push cut short records what reached the server', () async {
     fake.addConversation('c1', title: 'A', updatedAt: now);
     await engine.pull();
@@ -261,6 +382,77 @@ void main() {
     check((await db.chatsDao.getChat('c1'))!.dirty).isTrue();
   });
 
+  test('a pull while a push is out keeps what the push recorded', () async {
+    fake.addConversation('c1', title: 'A', updatedAt: now);
+    await engine.pull();
+    // The chat as the server had it before the rename below.
+    final before = Map<String, dynamic>.from(fake.conversations['c1']!);
+    await db.chatsDao.updateEnvelopeWithOutbox(
+      'c1',
+      title: const Value('B'),
+      pinned: const Value(true),
+      enqueue: true,
+    );
+    var pinDown = true;
+    fake.on('POST', '/api/convos/pin', (request, match) async {
+      if (!pinDown) {
+        final arg = (request.data as Map)['arg'] as Map;
+        fake.conversations['c1']!['pinned'] = arg['pinned'];
+        return FakeLibreChatResponse.json(fake.conversations['c1']!);
+      }
+      pinDown = false;
+      // The rename is through. The user renames back, and a pull that read
+      // the chat before the rename landed stores it, while the push is out.
+      await db.chatsDao.updateEnvelopeWithOutbox(
+        'c1',
+        title: const Value('A'),
+        enqueue: true,
+      );
+      fake.on(
+        'GET',
+        '/api/convos/c1',
+        (request, match) => FakeLibreChatResponse.json(before),
+      );
+      await engine.pullChat('c1');
+      return FakeLibreChatResponse.json({'message': 'Down'}, statusCode: 503);
+    });
+    await engine.drain();
+    check(fake.conversations['c1']!['title']).equals('B');
+
+    await db.outboxDao.resetBackoffForPending(
+      nowEpochSeconds: DateTime.now().millisecondsSinceEpoch ~/ 1000,
+    );
+    await engine.drain();
+    check(fake.conversations['c1']!['title']).equals('A');
+    check(fake.conversations['c1']!['pinned']).equals(true);
+  });
+
+  test('a push waits for a pull to put the local edit back', () async {
+    fake.addConversation('c1', title: 'Old', updatedAt: now);
+    await engine.pull();
+    await db.chatsDao.updateEnvelopeWithOutbox(
+      'c1',
+      title: const Value('New'),
+      enqueue: true,
+    );
+    Future<void> write(String title, {required bool dirty}) =>
+        (db.update(db.chats)..where((t) => t.id.equals('c1'))).write(
+          ChatsCompanion(title: Value(title), dirty: Value(dirty)),
+        );
+    late Future<void> drained;
+    // As a pull storing the chat does under its lock: the server's fields
+    // first, then the local edit put back.
+    await engine.locks.runExclusive('c1', () async {
+      await write('Old', dirty: false);
+      drained = engine.drain();
+      await pumpEventQueue();
+      await write('New', dirty: true);
+    });
+    await drained;
+    check(fake.conversations['c1']!['title']).equals('New');
+    check((await db.chatsDao.getChat('c1'))!.dirty).isFalse();
+  });
+
   test('a chat archived elsewhere behind the archive watermark arrives '
       'whole', () async {
     fake
@@ -293,6 +485,28 @@ void main() {
     final row = (await db.chatsDao.getChat('moved'))!;
     check(row.archived).isTrue();
     check(await db.messagesDao.getForChat('moved')).length.equals(4);
+  });
+
+  test('a pull that misses the archive does not report success', () async {
+    fake.addConversation('c1', updatedAt: now);
+    fake.on('GET', '/api/convos', (request, match) {
+      final query = request.uri.queryParameters;
+      if (query['isArchived'] == 'true') {
+        return FakeLibreChatResponse.json({'message': 'Down'}, statusCode: 503);
+      }
+      return FakeLibreChatResponse.json({
+        'conversations': [
+          for (final conversation in fake.conversations.values)
+            if (query['pinned'] != 'true' || conversation['pinned'] == true)
+              conversation,
+        ],
+        'nextCursor': null,
+      });
+    });
+
+    final result = await engine.pull();
+    check(result.success).isFalse();
+    check(await storedIds()).deepEquals(['c1']);
   });
 
   test('a local delete pushes and purges', () async {
@@ -457,6 +671,350 @@ void main() {
     await engine.pull();
     check(await db.chatsDao.getChat('c1')).isNotNull();
     check(await db.messagesDao.getForChat('c1')).length.equals(2);
+  });
+
+  test('a conversation passed over is saved for later before the watermark '
+      'moves past it', () async {
+    engine = LibreChatSyncEngine(
+      db: db,
+      api: engine.api,
+      isGenerating: {'c1'}.contains,
+      backoff: Backoff(jitter: () => 0),
+    );
+    fake
+      ..addConversation(
+        'c1',
+        updatedAt: now.subtract(const Duration(hours: 1)),
+        messageList: _turn('c1', 'Q', 'A'),
+      )
+      ..addConversation('c2', updatedAt: now);
+    // Read as the pull moves on from the active list, its watermark written:
+    // what the app would find if it were killed there.
+    Future<String?>? watermark;
+    Future<String?>? deferred;
+    fake.onRequest = (request) {
+      if (request.uri.queryParameters['pinned'] != 'true') return;
+      watermark ??= db.syncMetaDao.getValue(LibreChatSyncEngine.watermarkKey);
+      deferred ??= db.syncMetaDao.getValue(LibreChatSyncEngine.deferredKey);
+    };
+    await engine.pull();
+    check(await watermark).isNotNull();
+    check(await deferred).isNotNull().contains('"c1"');
+  });
+
+  test('a passed-over conversation whose fetch fails in any way is kept',
+      () async {
+    var stage = 0;
+    var calls = 0;
+    engine = LibreChatSyncEngine(
+      db: db,
+      api: engine.api,
+      backoff: Backoff(jitter: () => 0),
+      isGenerating: (id) {
+        if (id != 'c1' || stage == 2) return false;
+        if (stage == 0) return true;
+        // Done generating when the pull picks it up; failing as it stores.
+        if (++calls == 2) throw StateError('local failure');
+        return false;
+      },
+    );
+    fake
+      ..addConversation(
+        'c1',
+        updatedAt: now.subtract(const Duration(hours: 1)),
+        messageList: _turn('c1', 'Q', 'A'),
+      )
+      ..addConversation('c2', updatedAt: now);
+    await engine.pull();
+    check(await db.chatsDao.getChat('c1')).isNull();
+
+    stage = 1;
+    await check(engine.pull()).throws<StateError>();
+
+    stage = 2;
+    await engine.pull();
+    check(await db.chatsDao.getChat('c1')).isNotNull();
+  });
+
+  test('a pull or drain that cannot hold the database lets the next run',
+      () async {
+    var refuse = true;
+    engine = LibreChatSyncEngine(
+      db: db,
+      api: engine.api,
+      backoff: Backoff(jitter: () => 0),
+      holdDatabase: () {
+        if (refuse) throw StateError('closing');
+        return () async {};
+      },
+    );
+    fake.addConversation('c1', updatedAt: now);
+    await check(engine.pull()).throws<StateError>();
+    await check(engine.drain()).throws<StateError>();
+
+    refuse = false;
+    check((await engine.pull()).success).isTrue();
+    await engine.drain();
+    check(await storedIds()).deepEquals(['c1']);
+  });
+
+  test('a conversation passed over by a pull cut short is kept for later',
+      () async {
+    final generating = <String>{'c1'};
+    engine = LibreChatSyncEngine(
+      db: db,
+      api: engine.api,
+      isGenerating: generating.contains,
+      backoff: Backoff(jitter: () => 0),
+    );
+    fake
+      ..addConversation(
+        'c1',
+        updatedAt: now.subtract(const Duration(hours: 1)),
+        messageList: _turn('c1', 'Q', 'A'),
+      )
+      ..addConversation('c2', updatedAt: now);
+    // The account is left while the pull runs: it stops after the first
+    // pass, past c1.
+    fake.onRequest = (request) {
+      if (request.path == '/api/convos' &&
+          request.uri.queryParameters['pinned'] == 'true') {
+        engine.close();
+      }
+    };
+    await engine.pull();
+    check(
+      await db.syncMetaDao.getValue(LibreChatSyncEngine.deferredKey),
+    ).isNotNull().contains('c1');
+  });
+
+  test('a chat archived here is still fetched after a restart before the '
+      'next pull', () async {
+    // On disk, so the restart below opens it afresh.
+    final dir = await Directory.systemTemp.createTemp('librechat-sync');
+    addTearDown(() => dir.delete(recursive: true));
+    final file = File('${dir.path}/chats.sqlite');
+    db = AppDatabase(NativeDatabase(file));
+    engine = LibreChatSyncEngine(
+      db: db,
+      api: engine.api,
+      backoff: Backoff(jitter: () => 0),
+    );
+    fake
+      ..addConversation(
+        'moved',
+        updatedAt: now.subtract(const Duration(days: 1)),
+        messageList: _turn('moved', 'Q', 'A'),
+      )
+      ..addConversation('archived', updatedAt: now, archived: true);
+    await engine.pull();
+    // Messages added elsewhere, then archived here: the archived list's
+    // watermark passes it by, so only the push's follow-up fetches them.
+    fake.addConversation(
+      'moved',
+      updatedAt: now.subtract(const Duration(hours: 12)),
+      messageList: [
+        ..._turn('moved', 'Q', 'A'),
+        ..._turn('moved2', 'Q2', 'A2').map(
+          (message) => message['parentMessageId'] == _root
+              ? {...message, 'parentMessageId': 'moved-a'}
+              : message,
+        ),
+      ],
+    );
+    await db.chatsDao.updateEnvelopeWithOutbox(
+      'moved',
+      archived: const Value(true),
+      enqueue: true,
+    );
+    await engine.drain();
+
+    // The app restarts before another pull.
+    await db.close();
+    db = AppDatabase(NativeDatabase(file));
+    addTearDown(db.close);
+    engine = LibreChatSyncEngine(
+      db: db,
+      api: engine.api,
+      backoff: Backoff(jitter: () => 0),
+    );
+    await engine.pull(forceReconcile: true);
+    check(await db.messagesDao.getForChat('moved')).length.equals(4);
+  });
+
+  test('an engine handed a database another still works in keeps the chats '
+      'it passed over', () async {
+    fake
+      ..addConversation(
+        'moved',
+        updatedAt: now.subtract(const Duration(days: 1)),
+        messageList: _turn('moved', 'Q', 'A'),
+      )
+      ..addConversation('archived', updatedAt: now, archived: true);
+    await engine.pull();
+    // A quick return to the account: a new engine on the same database,
+    // which has read the saved list of passed-over chats already.
+    final back = LibreChatSyncEngine(
+      db: db,
+      api: engine.api,
+      backoff: Backoff(jitter: () => 0),
+    );
+    await back.pull();
+    // The departing engine archives a chat changed elsewhere, which only
+    // its follow-up fetch brings in.
+    fake.addConversation(
+      'moved',
+      updatedAt: now.subtract(const Duration(hours: 12)),
+      messageList: [
+        ..._turn('moved', 'Q', 'A'),
+        ..._turn('moved2', 'Q2', 'A2').map(
+          (message) => message['parentMessageId'] == _root
+              ? {...message, 'parentMessageId': 'moved-a'}
+              : message,
+        ),
+      ],
+    );
+    await db.chatsDao.updateEnvelopeWithOutbox(
+      'moved',
+      archived: const Value(true),
+      enqueue: true,
+    );
+    await engine.drain();
+    engine.close();
+
+    await back.pull(forceReconcile: true);
+    check(await db.messagesDao.getForChat('moved')).length.equals(4);
+  });
+
+  test('a passed-over conversation that still cannot be fetched fails the '
+      'pull', () async {
+    final generating = <String>{'c1'};
+    engine = LibreChatSyncEngine(
+      db: db,
+      api: engine.api,
+      isGenerating: generating.contains,
+      backoff: Backoff(jitter: () => 0),
+    );
+    fake
+      ..addConversation(
+        'c1',
+        updatedAt: now.subtract(const Duration(hours: 1)),
+        messageList: _turn('c1', 'Q', 'A'),
+      )
+      ..addConversation('c2', updatedAt: now);
+    check((await engine.pull()).success).isTrue();
+
+    generating.clear();
+    fake.on(
+      'GET',
+      '/api/convos/c1',
+      (request, match) =>
+          FakeLibreChatResponse.json({'message': 'Down'}, statusCode: 503),
+    );
+    final result = await engine.pull();
+    check(result.success).isFalse();
+    check(result.failedFetches).equals(1);
+  });
+
+  test('a pull holds its database open until it is done', () async {
+    var held = 0;
+    var released = 0;
+    engine = LibreChatSyncEngine(
+      db: db,
+      api: engine.api,
+      holdDatabase: () {
+        held++;
+        return () async => released++;
+      },
+      backoff: Backoff(jitter: () => 0),
+    );
+    fake.addConversation('c1', updatedAt: now);
+    await engine.pull();
+    check(held).equals(1);
+    check(released).equals(1);
+  });
+
+  test('an edit queued while a drain lets its database go still drains',
+      () async {
+    fake.addConversation('c1', title: 'Old', updatedAt: now);
+    await engine.pull();
+    final releasing = Completer<void>();
+    final letGo = Completer<void>();
+    var holds = 0;
+    engine = LibreChatSyncEngine(
+      db: db,
+      api: engine.api,
+      holdDatabase: () {
+        // Only the first drain's release is held up.
+        final first = holds++ == 0;
+        return () async {
+          if (!first) return;
+          releasing.complete();
+          await letGo.future;
+        };
+      },
+      backoff: Backoff(jitter: () => 0),
+    );
+
+    final first = engine.drain();
+    await releasing.future;
+    // That drain's loop is over: the edit arrives as its release yields.
+    await db.chatsDao.updateEnvelopeWithOutbox(
+      'c1',
+      title: const Value('New title'),
+      enqueue: true,
+    );
+    final second = engine.drain();
+    letGo.complete();
+    await Future.wait([first, second]);
+
+    check(fake.conversations['c1']!['title']).equals('New title');
+  });
+
+  test('an engine handed a database another still drains waits for it',
+      () async {
+    fake.addConversation('c1', title: 'Old', updatedAt: now);
+    await engine.pull();
+    await db.chatsDao.updateEnvelopeWithOutbox(
+      'c1',
+      title: const Value('New title'),
+      enqueue: true,
+    );
+    final pushing = Completer<void>();
+    final answer = Completer<void>();
+    var renames = 0;
+    fake.on('POST', '/api/convos/update', (request, match) async {
+      renames++;
+      if (!pushing.isCompleted) pushing.complete();
+      await answer.future;
+      final arg = (request.data as Map)['arg'] as Map;
+      final conversation = fake.conversations[arg['conversationId']]!;
+      conversation['title'] = arg['title'];
+      return FakeLibreChatResponse.json(conversation);
+    });
+    final leaving = engine.drain();
+    await pushing.future;
+    // The account is left and returned to while the rename is out: a new
+    // engine gets the same database.
+    engine.close();
+    final back = LibreChatSyncEngine(
+      db: db,
+      api: engine.api,
+      backoff: Backoff(jitter: () => 0),
+    );
+    final draining = back.drain();
+    await pumpEventQueue(times: 200);
+    // The rename still out is not taken back and sent again.
+    check(renames).equals(1);
+    check(
+      (await db.select(db.outboxOps).get()).single.status,
+    ).equals(OutboxStatus.inFlight);
+
+    answer.complete();
+    await Future.wait([leaving, draining]);
+    check(renames).equals(1);
+    check(await db.select(db.outboxOps).get()).isEmpty();
+    check(fake.conversations['c1']!['title']).equals('New title');
   });
 
   test('archived conversations arrive with their messages', () async {

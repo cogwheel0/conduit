@@ -3,6 +3,7 @@ import 'package:conduit/shared/utils/conversation_context_menu.dart';
 import 'package:conduit_core/database/chat_database_repository.dart';
 import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/services/connectivity_service.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -58,5 +59,37 @@ void main() {
     expect(menuLabels(tester, unread), isNot(contains(markAsUnread)));
     expect(menuLabels(tester, open), isNot(contains(markAsUnread)));
     expect(menuLabels(tester, onDevice), isNot(contains(markAsUnread)));
+  });
+
+  testWidgets('a LibreChat chat offers neither it nor a server title', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(800, 1000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final generateTitle = AppLocalizationsEn().generateTitle;
+    final read = chat('read', lastReadAt: readAt);
+    // Open WebUI is signed in, but this chat is not one it holds: either
+    // action would send its id to Open WebUI.
+    final libreChat = withChatStorageProvenance(
+      chat('librechat', lastReadAt: readAt),
+      ChatStorageKind.libreChat,
+    );
+
+    await tester.pumpWidget(
+      sidebarTestBuildHarness(
+        controllers: SidebarTestSidebarHarnessControllers(),
+        conversations: [read, libreChat],
+        // Its menu asks whether the app is online, which the rig's API
+        // cannot answer.
+        extraOverrides: [isOnlineProvider.overrideWithValue(true)],
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(menuLabels(tester, read), contains(markAsUnread));
+    expect(menuLabels(tester, read), contains(generateTitle));
+    expect(menuLabels(tester, libreChat), isNot(contains(markAsUnread)));
+    expect(menuLabels(tester, libreChat), isNot(contains(generateTitle)));
   });
 }
