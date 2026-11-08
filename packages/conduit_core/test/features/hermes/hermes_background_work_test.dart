@@ -3,12 +3,15 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:checks/checks.dart';
+import 'package:conduit_core/features/chat/providers/chat_providers.dart'
+    show ChatMessagesNotifier, chatMessagesProvider;
 import 'package:conduit_core/features/hermes/models/hermes_background_work.dart';
 import 'package:conduit_core/features/hermes/models/hermes_config.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_background_work_providers.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 import 'package:conduit_core/features/hermes/services/hermes_desktop_api_service.dart';
 import 'package:conduit_core/features/hermes/services/hermes_desktop_transport.dart';
+import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/persistence/preferences_store.dart';
 import 'package:conduit_core/ports/app_lifecycle.dart';
@@ -221,6 +224,30 @@ final class _OpenHermesChat extends ActiveConversationNotifier {
     updatedAt: DateTime.utc(2030),
     metadata: const {'hermesSessionId': 'local-1'},
   );
+}
+
+/// An OpenWebUI chat whose latest reply Hermes wrote in session local-1.
+final class _MixedChat extends ActiveConversationNotifier {
+  @override
+  Conversation? build() => Conversation(
+    id: 'owui-chat-1',
+    title: 'Tides',
+    createdAt: DateTime.utc(2030),
+    updatedAt: DateTime.utc(2030),
+  );
+}
+
+final class _MixedMessages extends ChatMessagesNotifier {
+  @override
+  List<ChatMessage> build() => [
+    ChatMessage(
+      id: 'reply-1',
+      role: 'assistant',
+      content: 'Working on it.',
+      timestamp: DateTime.utc(2030),
+      metadata: const {'hermesSessionId': 'local-1'},
+    ),
+  ];
 }
 
 Map<String, Object?> _child(
@@ -680,6 +707,41 @@ void main() {
         check(
           container.read(hermesBackgroundWorkProvider)!.runningProcesses,
         ).equals(1);
+        stop(async);
+      });
+    });
+
+    // The chat names no session itself: its Hermes turn's session is on its
+    // reply, and the chip never showed.
+    test('an OpenWebUI chat lists the work of the session it bound', () {
+      fakeAsync((async) {
+        gateway = _Gateway(authority: false);
+        service = _service(gateway);
+        lifecycle = FakeAppLifecycle();
+        unawaited(service.pendingDecisionsForSession('local-1'));
+        async.elapse(Duration.zero);
+        container = ProviderContainer(
+          overrides: [
+            hermesApiServiceProvider.overrideWithValue(service),
+            activeConversationProvider.overrideWith(_MixedChat.new),
+            chatMessagesProvider.overrideWith(_MixedMessages.new),
+            appLifecycleProvider.overrideWithValue(lifecycle),
+          ],
+        );
+        gateway.processes = [_process('proc_a')];
+        container.listen(hermesBackgroundWorkProvider, (_, _) {});
+        async.elapse(Duration.zero);
+        // The reply's metadata alone, which the server could have written,
+        // names nothing.
+        check(lists()).equals(0);
+
+        // This app ran the chat's turn in that session.
+        container.read(hermesActiveSessionProvider.notifier).set('local-1');
+        async.elapse(Duration.zero);
+        check(lists()).equals(1);
+        check(
+          container.read(hermesBackgroundWorkProvider)!.processes,
+        ).length.equals(1);
         stop(async);
       });
     });

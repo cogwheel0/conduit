@@ -11,8 +11,9 @@ import 'package:conduit_core/providers/app_providers.dart'
     show activeConversationProvider;
 
 /// The Hermes session the open chat continues, when it is a Hermes chat, or
-/// the one a Hermes turn inside an OpenWebUI chat runs in.
-final _activeHermesSessionProvider = Provider.autoDispose<String?>((ref) {
+/// the one a Hermes turn inside an OpenWebUI chat runs in. Its plan and its
+/// background work follow it.
+final hermesOpenChatSessionProvider = Provider.autoDispose<String?>((ref) {
   final id = ref.watch(
     activeConversationProvider.select(
       (conversation) => conversation?.metadata['hermesSessionId'],
@@ -40,7 +41,7 @@ final _activeHermesSessionProvider = Provider.autoDispose<String?>((ref) {
 final hermesActiveTodoProvider = StreamProvider.autoDispose<HermesTodoState?>(
   (ref) {
     final service = ref.watch(hermesApiServiceProvider);
-    final storedId = ref.watch(_activeHermesSessionProvider);
+    final storedId = ref.watch(hermesOpenChatSessionProvider);
     if (service is! HermesDesktopApiService || storedId == null) {
       return Stream.value(null);
     }

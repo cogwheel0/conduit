@@ -174,6 +174,35 @@ void main() {
       expect(find.text('3 processes'), findsOneWidget);
     });
 
+    // In a Row with nothing to bound it, the label ran past the composer.
+    testWidgets('fits a narrow phone with large text', (tester) async {
+      tester.view.physicalSize = const Size(320, 640);
+      tester.view.devicePixelRatio = 1;
+      tester.platformDispatcher.textScaleFactorTestValue = 2;
+      addTearDown(tester.view.reset);
+      addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+
+      await tester.pumpWidget(
+        app(
+          Align(
+            alignment: Alignment.bottomCenter,
+            child: withHermesBackgroundWork(
+              null,
+              agents: 12,
+              processes: 30,
+            ),
+          ),
+          null,
+        ),
+      );
+
+      expect(tester.takeException(), isNull);
+      final chip = tester.getRect(
+        find.byKey(const ValueKey('hermes-background-work-chip')),
+      );
+      expect(chip.right, lessThanOrEqualTo(320));
+    });
+
     testWidgets('keeps a half-answered card as work starts and ends', (
       tester,
     ) async {

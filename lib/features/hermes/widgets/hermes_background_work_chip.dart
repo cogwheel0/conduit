@@ -95,11 +95,17 @@ class HermesBackgroundWorkChip extends StatelessWidget {
                     color: theme.buttonPrimary,
                   ),
                   const SizedBox(width: Spacing.xs),
-                  Text(
-                    label,
-                    style: AppTypography.labelSmallStyle.copyWith(
-                      color: theme.textPrimary,
-                      fontWeight: FontWeight.w600,
+                  // The label takes what the icons leave: large text on a
+                  // narrow phone wraps it, then shortens it.
+                  Flexible(
+                    child: Text(
+                      label,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppTypography.labelSmallStyle.copyWith(
+                        color: theme.textPrimary,
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
                   ),
                   const SizedBox(width: Spacing.xxs),

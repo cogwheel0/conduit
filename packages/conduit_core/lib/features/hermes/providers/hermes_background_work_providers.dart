@@ -5,10 +5,9 @@ import 'package:riverpod/riverpod.dart';
 
 import 'package:conduit_core/features/hermes/models/hermes_background_work.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
+import 'package:conduit_core/features/hermes/providers/hermes_todo_providers.dart';
 import 'package:conduit_core/features/hermes/services/hermes_desktop_api_service.dart';
 import 'package:conduit_core/ports/app_lifecycle.dart';
-import 'package:conduit_core/providers/app_providers.dart'
-    show activeConversationProvider;
 import 'package:conduit_core/providers/host_ports.dart';
 
 /// How often running work is listed again while its chat is open.
@@ -30,15 +29,12 @@ const int _kMaxFailures = 3;
 /// Reads made while the chat is not attached yet, before giving up.
 const int _kMaxUnattachedReads = 5;
 
-/// The Hermes session the open chat continues, when it is a Hermes chat.
-final _openHermesSessionProvider = Provider.autoDispose<String?>((ref) {
-  final id = ref.watch(
-    activeConversationProvider.select(
-      (conversation) => conversation?.metadata['hermesSessionId'],
-    ),
-  );
-  return id is String && id.isNotEmpty ? id : null;
-});
+/// The Hermes session the open chat continues: a Hermes chat's own, or the
+/// one this app bound a Hermes turn inside an OpenWebUI chat to, resolved as
+/// for its plan.
+final _openHermesSessionProvider = Provider.autoDispose<String?>(
+  (ref) => ref.watch(hermesOpenChatSessionProvider),
+);
 
 /// The open chat's subagents and background processes, while it is on
 /// screen: only a Desktop Gateway reports them. Null when the chat is not
