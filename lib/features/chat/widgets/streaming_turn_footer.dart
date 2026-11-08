@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -15,6 +17,7 @@ import 'package:conduit_core/features/chat/views/chat_turn_render_state.dart';
 
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/markdown/renderer/markdown_style.dart';
+import 'chat_send_motion.dart';
 import 'conduit_streaming_orbit.dart';
 import 'thinking_status_label.dart';
 
@@ -37,7 +40,43 @@ class StreamingTurnFooter extends ConsumerStatefulWidget {
       _StreamingTurnFooterState();
 }
 
-class _StreamingTurnFooterState extends ConsumerState<StreamingTurnFooter> {
+class _StreamingTurnFooterState extends ConsumerState<StreamingTurnFooter>
+    with SingleTickerProviderStateMixin {
+  /// A footer for a reply sent moments ago fades in after the sent message
+  /// has risen into place; any other mount shows it at once.
+  late final AnimationController _entrance = AnimationController(
+    vsync: this,
+    duration: _switchDuration,
+    value: 1,
+  );
+  Timer? _entranceTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    final message = widget.message;
+    if (WidgetsBinding
+            .instance
+            .platformDispatcher
+            .accessibilityFeatures
+            .disableAnimations ||
+        !isFreshChatContent(message.timestamp) ||
+        !claimChatEntrance('footer:${message.id}')) {
+      return;
+    }
+    _entrance.value = 0;
+    _entranceTimer = Timer(chatReplyEntranceDelay, () {
+      if (mounted) _entrance.forward();
+    });
+  }
+
+  @override
+  void dispose() {
+    _entranceTimer?.cancel();
+    _entrance.dispose();
+    super.dispose();
+  }
+
   static const Duration _switchDuration = Duration(milliseconds: 200);
   static const Duration _labelSwitchDuration = Duration(milliseconds: 160);
 
@@ -115,97 +154,104 @@ class _StreamingTurnFooterState extends ConsumerState<StreamingTurnFooter> {
           hasStreamedContent: hasStreamedContent,
         );
 
-    return AnimatedSwitcher(
-      duration: _disableAnimations ? Duration.zero : _switchDuration,
-      reverseDuration: _disableAnimations ? Duration.zero : _switchDuration,
-      switchInCurve: Curves.easeOutCubic,
-      switchOutCurve: Curves.easeInCubic,
-      layoutBuilder: (currentChild, previousChildren) {
-        final children = <Widget>[...previousChildren, ?currentChild];
-        if (children.isEmpty) {
-          return const SizedBox.shrink();
-        }
-        return Stack(
-          alignment: AlignmentDirectional.topStart,
-          children: children,
-        );
-      },
-      child: shouldShow
-          ? KeyedSubtree(
-              key: const ValueKey('typing'),
-              child: SizedBox(
-                width: double.infinity,
-                child: Align(
-                  alignment: AlignmentDirectional.centerStart,
-                  child: Padding(
-                    padding: EdgeInsets.only(
-                      top: ConduitMarkdownStyle.fromTheme(context)
-                          .paragraphSpacing,
-                    ),
-                    // As tall as the reply's action row (44 pt targets) that
-                    // replaces it at settle, with the orbit centred where those
-                    // glyphs will sit, so the swap moves nothing.
-                    child: SizedBox(
-                      height: kStreamingTurnFooterRowHeight,
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          RepaintBoundary(
-                            child: ConduitStreamingOrbit(
-                              size: 28,
-                              color: context.conduitTheme.textSecondary
-                                  .withValues(alpha: 0.75),
-                              animate: !_disableAnimations,
+    return FadeTransition(
+      opacity: CurvedAnimation(parent: _entrance, curve: Curves.easeOut),
+      child: AnimatedSwitcher(
+        duration: _disableAnimations ? Duration.zero : _switchDuration,
+        reverseDuration: _disableAnimations ? Duration.zero : _switchDuration,
+        switchInCurve: Curves.easeOutCubic,
+        switchOutCurve: Curves.easeInCubic,
+        layoutBuilder: (currentChild, previousChildren) {
+          final children = <Widget>[...previousChildren, ?currentChild];
+          if (children.isEmpty) {
+            return const SizedBox.shrink();
+          }
+          return Stack(
+            alignment: AlignmentDirectional.topStart,
+            children: children,
+          );
+        },
+        child: shouldShow
+            ? KeyedSubtree(
+                key: const ValueKey('typing'),
+                child: SizedBox(
+                  width: double.infinity,
+                  child: Align(
+                    alignment: AlignmentDirectional.centerStart,
+                    child: Padding(
+                      padding: EdgeInsets.only(
+                        top: ConduitMarkdownStyle.fromTheme(context)
+                            .paragraphSpacing,
+                      ),
+                      // As tall as the reply's action row (44 pt targets) that
+                      // replaces it at settle, with the orbit centred where those
+                      // glyphs will sit, so the swap moves nothing.
+                      child: SizedBox(
+                        height: kStreamingTurnFooterRowHeight,
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            RepaintBoundary(
+                              child: ConduitStreamingOrbit(
+                                size: 28,
+                                color: context.conduitTheme.textSecondary
+                                    .withValues(alpha: 0.75),
+                                animate: !_disableAnimations,
+                              ),
                             ),
-                          ),
-                          // Until the reply shows anything, the orbit alone is
-                          // too quiet for a wait of several seconds. The label
-                          // leaves as soon as text, a status, or a streamed
-                          // reasoning block (with its own "Thinking…") appears;
-                          // the orbit stays put, so nothing shifts.
-                          Flexible(
-                            child: AnimatedSwitcher(
-                              duration: _disableAnimations
-                                  ? Duration.zero
-                                  : _labelSwitchDuration,
-                              switchInCurve: Curves.easeOut,
-                              switchOutCurve: Curves.easeIn,
-                              layoutBuilder: (currentChild, previousChildren) =>
-                                  Stack(
-                                    alignment: AlignmentDirectional.centerStart,
-                                    children: [
-                                      ...previousChildren,
-                                      ?currentChild,
-                                    ],
-                                  ),
-                              child: showThinkingLabel
-                                  ? Padding(
-                                      key: const ValueKey(
-                                        'streaming-turn-thinking-label',
-                                      ),
-                                      padding: const EdgeInsetsDirectional.only(
-                                        start: Spacing.xs,
-                                      ),
-                                      child: ThinkingStatusLabel(
-                                        startedAt: widget.message.timestamp,
-                                        animate: !_disableAnimations,
-                                      ),
-                                    )
-                                  : const SizedBox.shrink(
-                                      key: ValueKey(
-                                        'streaming-turn-thinking-label-empty',
-                                      ),
+                            // Until the reply shows anything, the orbit alone is
+                            // too quiet for a wait of several seconds. The label
+                            // leaves as soon as text, a status, or a streamed
+                            // reasoning block (with its own "Thinking…") appears;
+                            // the orbit stays put, so nothing shifts.
+                            Flexible(
+                              child: AnimatedSwitcher(
+                                duration: _disableAnimations
+                                    ? Duration.zero
+                                    : _labelSwitchDuration,
+                                switchInCurve: Curves.easeOut,
+                                switchOutCurve: Curves.easeIn,
+                                layoutBuilder:
+                                    (currentChild, previousChildren) => Stack(
+                                      alignment:
+                                          AlignmentDirectional.centerStart,
+                                      children: [
+                                        ...previousChildren,
+                                        ?currentChild,
+                                      ],
                                     ),
+                                child: showThinkingLabel
+                                    ? Padding(
+                                        key: const ValueKey(
+                                          'streaming-turn-thinking-label',
+                                        ),
+                                        padding:
+                                            const EdgeInsetsDirectional.only(
+                                              start: Spacing.xs,
+                                            ),
+                                        child: ThinkingStatusLabel(
+                                          startedAt: widget.message.timestamp,
+                                          animate: !_disableAnimations,
+                                        ),
+                                      )
+                                    : const SizedBox.shrink(
+                                        key: ValueKey(
+                                          'streaming-turn-thinking-label-empty',
+                                        ),
+                                      ),
+                              ),
                             ),
-                          ),
-                        ],
+                          ],
+                        ),
                       ),
                     ),
                   ),
                 ),
+              )
+            : const SizedBox.shrink(
+                key: ValueKey('streaming-turn-footer-empty'),
               ),
-            )
-          : const SizedBox.shrink(key: ValueKey('streaming-turn-footer-empty')),
+      ),
     );
   }
 }

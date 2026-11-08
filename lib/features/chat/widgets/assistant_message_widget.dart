@@ -196,6 +196,8 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
   final _overflowButtonKey = GlobalKey();
   final _inlineShareButtonKey = GlobalKey();
 
+  Timer? _mountFadeTimer;
+
   /// Copy shows a checkmark, read as "Copied", for a moment after it runs.
   bool _showCopied = false;
   Timer? _copiedTimer;
@@ -1273,6 +1275,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _copiedTimer?.cancel();
+    _mountFadeTimer?.cancel();
     _streamingContentSub?.close();
     _resetTtsPlainTextState();
     _fadeController.dispose();
@@ -1570,7 +1573,11 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     // Animate on first appearance only, not on every streaming rebuild
     if (!_hasAnimated) {
       _hasAnimated = true;
-      _fadeController.forward();
+      // A new reply waits for the sent message to rise into place above it,
+      // so the two arrive in order rather than on top of each other.
+      _mountFadeTimer = Timer(chatReplyEntranceDelay, () {
+        if (mounted) _fadeController.forward();
+      });
     }
 
     return FadeTransition(opacity: _fadeController, child: content);

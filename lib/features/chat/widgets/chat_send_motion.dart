@@ -59,6 +59,10 @@ const int _enteredMessageIdCapacity = 512;
 @visibleForTesting
 void debugResetChatSendEntrances() => _enteredMessageIds.clear();
 
+/// How long a new reply's placeholder (model label, "Thinking…") waits
+/// before fading in, so the sent message rising above it lands first.
+const Duration chatReplyEntranceDelay = Duration(milliseconds: 160);
+
 /// Content created this long ago or less still animates in; anything older
 /// is history and appears in place.
 const Duration chatEntranceFreshness = Duration(seconds: 3);
