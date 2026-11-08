@@ -3903,7 +3903,11 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     );
     String? greetingName;
     if (user != null) {
-      final derived = deriveUserDisplayName(user, fallback: '').trim();
+      // "Hello, Robin", not a form letter's full name; the whole name when
+      // it has no clear first name.
+      final derived = deriveGreetingName(
+        deriveUserDisplayName(user, fallback: ''),
+      );
       if (derived.isNotEmpty) {
         greetingName = derived;
         _cachedGreetingName = derived;
