@@ -258,6 +258,11 @@ final class LibreChatApiService {
     return servers is Map ? Map<String, dynamic>.from(servers) : {};
   }
 
+  /// The MCP servers the user can reach, by name, with their settings,
+  /// including whether chat may pick them (`chatMenu`, `consumeOnly`).
+  Future<Map<String, dynamic>> mcpServerSettings() async =>
+      _map(await _get('/api/mcp/servers'));
+
   /// Each MCP server's connection: `{serverName: {connectionState,
   /// requiresOAuth}}`.
   Future<Map<String, dynamic>> mcpConnectionStatus() async {

@@ -178,9 +178,17 @@ final class LibreChatTurnDeferredException extends LibreChatApiException {
 /// subscription that can drop and resume. Leaving a stream does not stop the
 /// reply; only [abort] does.
 final class LibreChatStreamClient {
-  LibreChatStreamClient(this._client);
+  LibreChatStreamClient(
+    this._client, {
+    this.errorBodyTimeout = const Duration(seconds: 5),
+  });
 
   final LibreChatHttpClient _client;
+
+  /// How long a refusal's body is read for its reason. A stream has no
+  /// receive timeout, and a server that stalls the body must not hold the
+  /// turn: what arrived by then is what is told.
+  final Duration errorBodyTimeout;
 
   Dio get _dio => _client.dio;
 
@@ -275,7 +283,9 @@ final class LibreChatStreamClient {
         });
         return;
       }
-      throw libreChatErrorOf(error);
+      // Asked for as a stream, the refusal's body is still unread: the
+      // server's reason is in it.
+      throw libreChatErrorOf(await _withBodyRead(error, errorBodyTimeout));
     }
 
     final scanner = SseFrameScanner();
@@ -479,4 +489,33 @@ final class LibreChatStreamClient {
     }
     return text;
   }
+}
+
+/// [error] with its response body read into text, when it came as a stream,
+/// so the server's reason can be told. Bounded in size, as an error page can
+/// be large, and in time by [timeout], as the body can stall.
+Future<DioException> _withBodyRead(DioException error, Duration timeout) async {
+  final response = error.response;
+  final data = response?.data;
+  if (response == null || data is! ResponseBody) return error;
+  const limit = 16 * 1024;
+  final bytes = <int>[];
+  final reading = Stopwatch()..start();
+  try {
+    await for (final chunk in data.stream.timeout(timeout)) {
+      bytes.addAll(chunk.take(limit - bytes.length));
+      if (bytes.length >= limit || reading.elapsed >= timeout) break;
+    }
+  } catch (_) {
+    // What arrived before it broke off is what there is to tell.
+  }
+  return error.copyWith(
+    response: Response<dynamic>(
+      data: utf8.decode(bytes, allowMalformed: true),
+      statusCode: response.statusCode,
+      statusMessage: response.statusMessage,
+      headers: response.headers,
+      requestOptions: response.requestOptions,
+    ),
+  );
 }

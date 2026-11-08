@@ -130,6 +130,42 @@ void main() {
     },
   );
 
+  testWidgets('renders LibreChat documents by name without Open WebUI', (
+    WidgetTester tester,
+  ) async {
+    final message = ChatMessage(
+      id: 'librechat-file-message',
+      role: 'user',
+      content: '',
+      timestamp: DateTime.utc(2026, 7, 13, 10),
+      files: const [
+        <String, dynamic>{
+          'type': 'file',
+          'url': '/uploads/user1/report.pdf',
+          'name': 'report.pdf',
+          'size': 4096,
+          'content_type': 'application/pdf',
+          'libreChatFileId': 'lc-file-1',
+        },
+        <String, dynamic>{
+          'type': 'file',
+          'url': '/uploads/user1/notes.txt',
+          'name': 'notes.txt',
+          'content_type': 'text/plain',
+          'libreChatFileId': 'lc-file-2',
+        },
+      ],
+    );
+
+    await tester.pumpWidget(buildHarness(message));
+    await tester.pump();
+
+    expect(find.text('report.pdf'), findsOneWidget);
+    expect(find.text('notes.txt'), findsOneWidget);
+    expect(find.text('Service unavailable'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('uses a tail-less borderless user bubble surface', (
     WidgetTester tester,
   ) async {

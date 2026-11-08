@@ -245,6 +245,23 @@ void main() {
       ).isTrue();
     });
 
+    test('a refusal whose body stalls is still told', () async {
+      final body = StreamController<Uint8List>();
+      addTearDown(body.close);
+      fake.on('GET', '/api/agents/chat/stream/c1', (request, match) {
+        // The status and a first piece arrive; the rest never does.
+        body.add(Uint8List.fromList(utf8.encode('{"message":"Sus')));
+        return FakeLibreChatResponse(403, stream: body.stream);
+      });
+      final quick = LibreChatStreamClient(
+        client,
+        errorBodyTimeout: const Duration(milliseconds: 50),
+      );
+      await check(quick.subscribe('c1').toList()).throws<LibreChatApiException>(
+        (it) => it.has((e) => e.statusCode, 'statusCode').equals(403),
+      );
+    }, timeout: const Timeout(Duration(seconds: 10)));
+
     test('a stopped stream may simply end', () async {
       fake.on(
         'GET',

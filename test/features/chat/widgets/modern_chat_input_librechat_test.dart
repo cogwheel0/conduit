@@ -5,10 +5,15 @@ import 'package:conduit/l10n/conduit_localizations.dart';
 import 'package:conduit_core/database/chat_database_repository.dart';
 import 'package:conduit_core/features/chat/providers/chat_providers.dart';
 import 'package:conduit_core/features/librechat/models/librechat_model.dart';
+import 'package:conduit_core/features/librechat/models/librechat_prompts.dart'
+    show kLibreChatPromptMetaKey;
+import 'package:conduit_core/features/librechat/providers/librechat_composer_providers.dart';
+import 'package:conduit_core/models/prompt.dart';
 import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/models/model.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/misc.dart' show Override;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
 
@@ -104,6 +109,53 @@ void main() {
     expect(_overlay, findsNothing);
   });
 
+  testWidgets('a prompt whose command was replaced meanwhile goes at the '
+      'caret', (tester) async {
+    await _fillPromptAfterTextChanged(tester);
+
+    expect(tester.takeException(), isNull);
+    final composer = find.descendant(
+      of: find.byType(ModernChatInput),
+      matching: find.byType(TextField),
+    );
+    expect(
+      tester.widget<TextField>(composer.first).controller!.text,
+      'HiPlan 3 days',
+    );
+  });
+
+  testWidgets('a prompt whose command became another of the same length '
+      'goes at the caret', (tester) async {
+    // `/tr` became `/tx` where it stood.
+    await _fillPromptAfterTextChanged(tester, replacement: 'Note /tx');
+
+    expect(tester.takeException(), isNull);
+    final composer = find.descendant(
+      of: find.byType(ModernChatInput),
+      matching: find.byType(TextField),
+    );
+    expect(
+      tester.widget<TextField>(composer.first).controller!.text,
+      'Note /txPlan 3 days',
+    );
+  });
+
+  testWidgets('a prompt whose command is still there replaces it', (
+    tester,
+  ) async {
+    await _fillPromptAfterTextChanged(tester, replacement: 'Note /tr');
+
+    expect(tester.takeException(), isNull);
+    final composer = find.descendant(
+      of: find.byType(ModernChatInput),
+      matching: find.byType(TextField),
+    );
+    expect(
+      tester.widget<TextField>(composer.first).controller!.text,
+      'Note Plan 3 days',
+    );
+  });
+
   testWidgets('@ lists no models in a LibreChat chat', (tester) async {
     final chat = withChatStorageProvenance(
       Conversation(
@@ -146,10 +198,55 @@ void main() {
   });
 }
 
+/// A prompt's dialog is up while dictation replaces the composer's text.
+Future<void> _fillPromptAfterTextChanged(
+  WidgetTester tester, {
+  String replacement = 'Hi',
+}) async {
+  await _pumpComposer(
+    tester,
+    _libreChatModel,
+    overrides: [
+      libreChatPromptsProvider.overrideWith(
+        (ref) async => const [
+          // As LibreChat's own prompts are marked, so its fill runs.
+          Prompt(
+            command: '/trip',
+            title: 'Trip',
+            content: 'Plan {{days}} days',
+            meta: <String, dynamic>{kLibreChatPromptMetaKey: true},
+          ),
+        ],
+      ),
+    ],
+  );
+  final composer = find.descendant(
+    of: find.byType(ModernChatInput),
+    matching: find.byType(TextField),
+  );
+  await tester.enterText(composer.first, 'Note /tr');
+  await tester.pump(const Duration(milliseconds: 300));
+  await tester.tap(find.text('Trip').last);
+  await tester.pumpAndSettle();
+
+  tester.widget<TextField>(composer.first).controller!.text = replacement;
+  await tester.pump();
+  await tester.enterText(
+    find.descendant(
+      of: find.byType(Dialog),
+      matching: find.byType(TextFormField),
+    ),
+    '3',
+  );
+  await tester.tap(find.text('Continue'));
+  await tester.pumpAndSettle();
+}
+
 Future<ProviderContainer> _pumpComposer(
   WidgetTester tester,
   Model model, {
   Conversation? active,
+  List<Override> overrides = const [],
 }) async {
   await tester.pumpWidget(
     ProviderScope(
@@ -159,6 +256,7 @@ Future<ProviderContainer> _pumpComposer(
         modelsProvider.overrideWith(_Models.new),
         isChatStreamingProvider.overrideWithValue(false),
         apiServiceProvider.overrideWithValue(null),
+        ...overrides,
       ],
       child: MaterialApp(
         localizationsDelegates: conduitLocalizationsDelegates,

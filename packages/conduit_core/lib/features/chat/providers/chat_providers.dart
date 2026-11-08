@@ -64,6 +64,8 @@ import 'package:conduit_core/features/librechat/providers/librechat_sync_provide
 import 'package:conduit_core/features/librechat/models/librechat_message.dart'
     show kLibreChatRootParentId;
 import 'package:conduit_core/features/librechat/models/librechat_model.dart';
+import 'package:conduit_core/features/librechat/models/librechat_tools.dart';
+import 'package:conduit_core/features/librechat/providers/librechat_composer_providers.dart';
 import 'package:conduit_core/features/librechat/models/librechat_transport.dart';
 import 'package:conduit_core/features/librechat/providers/librechat_providers.dart';
 import 'package:conduit_core/features/librechat/services/librechat_errors.dart';
