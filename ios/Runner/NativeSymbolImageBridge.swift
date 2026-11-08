@@ -48,9 +48,23 @@ final class NativeSymbolImageBridge: ConduitBridge {
             return nil
         }
 
-        let configuration = UIImage.SymbolConfiguration(
+        var configuration = UIImage.SymbolConfiguration(
             pointSize: CGFloat(pointSize)
         )
+        // SF Symbols' small and large scales resize the artwork while keeping
+        // the stroke matched to the point size; absent means the default.
+        switch payload["symbolScale"] as? String {
+        case "small":
+            configuration = configuration.applying(
+                UIImage.SymbolConfiguration(scale: .small)
+            )
+        case "large":
+            configuration = configuration.applying(
+                UIImage.SymbolConfiguration(scale: .large)
+            )
+        default:
+            break
+        }
         guard let symbol = UIImage(
             systemName: name,
             withConfiguration: configuration

@@ -35,6 +35,8 @@ import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/l10n/conduit_localizations.dart';
 import 'package:conduit/shared/theme/app_theme.dart';
 import 'package:conduit/shared/theme/theme_extensions.dart';
+import 'package:conduit_core/services/native_symbol_image_service.dart'
+    show NativeSymbolScale;
 import 'package:conduit/shared/theme/tweakcn_themes.dart';
 import 'package:conduit/shared/widgets/chat_action_button.dart';
 import 'package:conduit/shared/widgets/markdown/streaming_markdown_widget.dart';
@@ -533,6 +535,27 @@ void main() {
       expect(size.width, greaterThanOrEqualTo(44));
       expect(size.height, greaterThanOrEqualTo(44));
     }
+
+    // One point size and weight for every glyph; Copy's squares, which fill
+    // more of their box, draw at SF Symbols' small scale to match the
+    // others' ink without a thinner stroke.
+    final actions = tester
+        .widgetList<ChatActionButton>(buttons)
+        .toList(growable: false);
+    expect(actions.map((button) => button.iconSize).toSet(), {17.0});
+    for (final button in actions) {
+      expect(
+        button.symbolScale,
+        button.sfSymbol == 'square.on.square'
+            ? NativeSymbolScale.small
+            : NativeSymbolScale.medium,
+        reason: button.label,
+      );
+    }
+    expect(
+      actions.where((button) => button.sfSymbol == 'square.on.square'),
+      hasLength(1),
+    );
   });
 
   group('copying a previewed version', () {
