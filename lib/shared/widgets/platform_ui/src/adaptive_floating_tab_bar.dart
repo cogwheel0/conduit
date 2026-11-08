@@ -29,13 +29,12 @@ enum _NativeTabBarLayout {
   inline,
 }
 
-/// A stacked tab bar at the size UIKit gives it: on iOS 26, where the bar
-/// keeps its own height.
+/// A stacked tab bar at the size UIKit gives it, before it is given a
+/// height.
 const _NativeTabBarMetrics _kStackedTabBar = (platter: 62, below: 21);
 
-/// A stacked tab bar given [_kCompactTabBarHeight], from iOS 27: its icons
-/// need no room for a label, and it is as tall as the window's other glass
-/// buttons.
+/// A stacked tab bar given [_kCompactTabBarHeight]: its icons need no room
+/// for a label, and it is as tall as the window's other glass buttons.
 const _NativeTabBarMetrics _kCompactTabBar = (platter: 44, below: 21);
 
 /// An inline tab bar, which is already no taller than [_kCompactTabBar].
@@ -120,16 +119,15 @@ class AdaptiveFloatingBarAction {
 ///
 /// On iOS 26 the tabs are the system tab bar, showing their icons only, and
 /// the action a Liquid Glass button as tall as the tab bar's platter, lined
-/// up with it. The platter is 44 points on a phone from iOS 27, the size
-/// UIKit gives it on iOS 26, and UIKit's inline one, as tall, on an iPad; it
-/// keeps that size at every text size. Like the Flutter-drawn bar, both sit
-/// on the bottom safe area, or [minimumBottomInset] above the bottom of the
-/// window when that is less. Screen readers find the tabs as one
-/// adjustable control, named [tabsSemanticLabel], whose value is the
-/// selected tab's label. The action is a button of its own, so it never
-/// takes the selection. Elsewhere the tabs are a Material navigation bar in
-/// a pill beside a floating action button of [controlExtent]. Fewer than two
-/// [tabs] leave only the action.
+/// up with it. The platter is 44 points on a phone, and UIKit's inline one,
+/// as tall, on an iPad; it keeps that size at every text size. Like the
+/// Flutter-drawn bar, both sit on the bottom safe area, or
+/// [minimumBottomInset] above the bottom of the window when that is less.
+/// Screen readers find the tabs as one adjustable control, named
+/// [tabsSemanticLabel], whose value is the selected tab's label. The action
+/// is a button of its own, so it never takes the selection. Elsewhere the
+/// tabs are a Material navigation bar in a pill beside a floating action
+/// button of [controlExtent]. Fewer than two [tabs] leave only the action.
 class AdaptiveFloatingTabBar extends StatelessWidget {
   const AdaptiveFloatingTabBar({
     super.key,
@@ -235,17 +233,10 @@ class AdaptiveFloatingTabBar extends StatelessWidget {
       ? _NativeTabBarLayout.inline
       : _NativeTabBarLayout.stacked;
 
-  /// Whether `CNTabBar.height` sizes a stacked tab bar. On iOS 26 the
-  /// package keeps the bar at its own height, where a shorter one put the
-  /// labels over the icons.
-  static bool get _sizesStackedTabBar =>
-      PlatformUiCapabilities.iOSMajorVersion >= 27;
-
   static _NativeTabBarMetrics _nativeMetrics(_NativeTabBarLayout layout) =>
       switch (layout) {
         _NativeTabBarLayout.inline => _kInlineTabBar,
-        _NativeTabBarLayout.stacked =>
-          _sizesStackedTabBar ? _kCompactTabBar : _kStackedTabBar,
+        _NativeTabBarLayout.stacked => _kCompactTabBar,
       };
 
   static _NativeTabBarSpan _nativeSpan(_NativeTabBarLayout layout) =>
@@ -383,9 +374,9 @@ class AdaptiveFloatingTabBar extends StatelessWidget {
 /// The iOS 26 bar: the system tab bar, and the action as a glass button
 /// lined up with the tab bar's platter.
 ///
-/// UIKit gives the tab bar its height, so the bar takes the action's size
-/// and place from the tab bar as laid out: icon above label on a phone,
-/// beside it in a full-width iPad window.
+/// The bar takes the action's size and place from the tab bar as laid out:
+/// stacked on a phone, where it is given the 44 point platter, and inline in
+/// a full-width iPad window, where UIKit gives it its own, as tall.
 class _NativeFloatingTabBar extends StatefulWidget {
   const _NativeFloatingTabBar({required this.bar});
 
@@ -492,9 +483,8 @@ extension on _NativeFloatingTabBarState {
   Widget _tabBar(_NativeTabBarLayout layout, {required double lift}) {
     final bar = widget.bar;
     final span = AdaptiveFloatingTabBar._nativeSpan(layout);
-    final height =
-        layout == _NativeTabBarLayout.stacked &&
-            AdaptiveFloatingTabBar._sizesStackedTabBar
+    // The package sizes an icon-only bar on iOS 26 as from iOS 27.
+    final height = layout == _NativeTabBarLayout.stacked
         ? _kCompactTabBarHeight
         : null;
     final start = bar.edgeInset - span.margin;
@@ -519,9 +509,8 @@ extension on _NativeFloatingTabBarState {
                     // A tab bar given its height reports only that height.
                     onSize: height == null ? _onTabBarSize : null,
                     // A tab bar measures itself only when it is created: one
-                    // that stops being given a height, or whose window lays
-                    // it out anew (an iOS 26 tab bar is never given one), is
-                    // created again.
+                    // that stops being given a height, or whose window lays it
+                    // out anew, is created again.
                     child: KeyedSubtree(
                       key: ValueKey<(double?, _NativeTabBarLayout)>((
                         height,
@@ -533,6 +522,11 @@ extension on _NativeFloatingTabBarState {
                           for (final tab in bar.tabs)
                             CNTabBarItem(
                               imageAsset: CNImageAsset(tab.nativeAsset),
+                              // The name of a tab that shows only its icon.
+                              // The package sets it on the tab bar item, which
+                              // the iOS 27.2 tab buttons do not read, so
+                              // [_semantics] names the tabs meanwhile.
+                              semanticLabel: tab.label,
                             ),
                         ],
                         currentIndex: bar.selectedIndex,
