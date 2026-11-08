@@ -9,6 +9,16 @@ void main() {
     (index) => Model(id: 'model-$index', name: 'Model $index'),
   );
 
+  test('available pins keep pin order, once each, without stale ones', () {
+    final pinned = availablePinnedModels(
+      models: models,
+      pinnedModelIds: const ['model-5', 'removed-model', 'model-2', 'model-5'],
+    );
+
+    check(pinned.map((model) => model.id).toList())
+        .deepEquals(['model-5', 'model-2']);
+  });
+
   test('shows only pinned models in the featured group when pins exist', () {
     final layout = buildModelSelectorLayout(
       models: models,

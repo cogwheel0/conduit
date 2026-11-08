@@ -4351,5 +4351,7 @@
   "mcpAppOpenLinkConfirm": "打开",
   "terminalPortPreviewForward": "前进",
   "terminalPortPreviewReload": "重新加载",
-  "terminalPortPreviewLoadFailed": "无法加载此页面。"
+  "terminalPortPreviewLoadFailed": "无法加载此页面。",
+  "modelMenuAllModels": "所有模型…",
+  "citationPreviewOpen": "打开"
 }

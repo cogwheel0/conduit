@@ -8153,5 +8153,13 @@
   "terminalPortPreviewLoadFailed": "Nie udało się wczytać tej strony.",
   "@terminalPortPreviewLoadFailed": {
     "description": "Shown in a terminal port preview when the page could not be reached."
+  },
+  "modelMenuAllModels": "Wszystkie modele…",
+  "@modelMenuAllModels": {
+    "description": "Last item of the chat's model menu, under the pinned models; opens the complete, searchable model list."
+  },
+  "citationPreviewOpen": "Otwórz",
+  "@citationPreviewOpen": {
+    "description": "Button in a citation's preview popover that opens the cited page in the browser."
   }
 }

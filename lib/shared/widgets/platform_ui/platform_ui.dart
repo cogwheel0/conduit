@@ -51,6 +51,8 @@ export 'package:cupertino_native_better/cupertino_native_better.dart'
 export 'src/adaptive_chip.dart';
 export 'src/adaptive_compact_date_picker.dart';
 export 'src/native_context_menu.dart';
+export 'src/adaptive_anchored_menu.dart';
+export 'src/adaptive_preview_popover.dart';
 
 export 'src/adaptive_progress.dart';
 

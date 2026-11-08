@@ -5968,5 +5968,7 @@
   "mcpAppOpenLinkConfirm": "開く",
   "terminalPortPreviewForward": "進む",
   "terminalPortPreviewReload": "再読み込み",
-  "terminalPortPreviewLoadFailed": "このページを読み込めませんでした。"
+  "terminalPortPreviewLoadFailed": "このページを読み込めませんでした。",
+  "modelMenuAllModels": "すべてのモデル…",
+  "citationPreviewOpen": "開く"
 }
