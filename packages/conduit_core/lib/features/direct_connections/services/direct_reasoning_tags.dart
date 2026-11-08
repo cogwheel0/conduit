@@ -1,0 +1,123 @@
+import 'dart:async';
+
+import 'package:conduit_core/features/direct_connections/models/direct_completion.dart';
+import 'package:conduit_markdown/conduit_markdown.dart';
+
+/// Splits raw reasoning tags (`<think>…</think>` and the other pairs Open
+/// WebUI recognises) out of a direct run's answer text.
+///
+/// Many models write their reasoning inline in `content` instead of a
+/// separate field. Each adapter passes its event stream through here, so
+/// every consumer sees that text as [DirectReasoningDelta]s and the answer
+/// as [DirectContentDelta]s, the same split Open WebUI chats get from
+/// [StreamingReasoningTagSplitter].
+///
+/// - A tag split across deltas (`<thi` + `nk>`) is held back until it can
+///   be read, as is a partial closing tag inside a block.
+/// - A tag inside Markdown code in the answer stays answer text.
+/// - Held answer text is released before any other event, so stream order
+///   holds. Inside an open block it stays held, since it may be the start of
+///   the closing tag.
+/// - When the run ends (done, error, or the stream closing) everything held
+///   is released; a block that never closed keeps the rest as reasoning.
+/// - Whitespace between reasoning and the start of the answer is dropped, as
+///   Open WebUI's server drops it around a tag.
+///
+/// A turn has one reasoning section. Provider reasoning deltas
+/// (`reasoning_content`, Ollama's `thinking`) and inline tag blocks both feed
+/// it, in the order they arrive, as Open WebUI's client merges a reasoning
+/// delta into an inline block that is still open. A blank line separates
+/// reasoning that follows a closed inline block, so two blocks do not run
+/// together.
+Stream<DirectStreamEvent> splitInlineReasoningTags(
+  Stream<DirectStreamEvent> events,
+) {
+  final splitter = StreamingReasoningTagSplitter(ignoreTagsInCode: true);
+  var separateNextReasoning = false;
+  var answerStarted = false;
+  var reasoningBeforeAnswer = false;
+  var heldWhitespace = '';
+
+  void addReasoning(EventSink<DirectStreamEvent> sink, String text) {
+    if (!answerStarted) {
+      reasoningBeforeAnswer = true;
+      heldWhitespace = '';
+    }
+    if (separateNextReasoning) {
+      separateNextReasoning = false;
+      text = '\n\n$text';
+    }
+    sink.add(DirectReasoningDelta(text));
+  }
+
+  void addAnswer(EventSink<DirectStreamEvent> sink, String text) {
+    if (answerStarted) {
+      sink.add(DirectContentDelta(text));
+      return;
+    }
+    if (text.trim().isEmpty) {
+      heldWhitespace += text;
+      return;
+    }
+    answerStarted = true;
+    final answer = reasoningBeforeAnswer
+        ? text.trimLeft()
+        : '$heldWhitespace$text';
+    heldWhitespace = '';
+    sink.add(DirectContentDelta(answer));
+  }
+
+  void emit(EventSink<DirectStreamEvent> sink, List<RawReasoningTagEvent> raw) {
+    for (final event in raw) {
+      switch (event) {
+        case RawReasoningTagText(:final text):
+          addAnswer(sink, text);
+        case RawReasoningTagReasoning(:final text):
+          addReasoning(sink, text);
+        case RawReasoningTagEnd():
+          separateNextReasoning = true;
+      }
+    }
+  }
+
+  void releaseHeldAnswerText(EventSink<DirectStreamEvent> sink) {
+    if (splitter.isInsideReasoning) return;
+    emit(sink, splitter.flush());
+  }
+
+  void releaseEverything(EventSink<DirectStreamEvent> sink) {
+    emit(sink, splitter.flush());
+    if (!answerStarted && !reasoningBeforeAnswer && heldWhitespace.isNotEmpty) {
+      sink.add(DirectContentDelta(heldWhitespace));
+    }
+    heldWhitespace = '';
+  }
+
+  return events.transform(
+    StreamTransformer<DirectStreamEvent, DirectStreamEvent>.fromHandlers(
+      handleData: (event, sink) {
+        switch (event) {
+          case DirectContentDelta(:final content):
+            emit(sink, splitter.feed(content));
+          case DirectReasoningDelta(:final content) when content.isNotEmpty:
+            releaseHeldAnswerText(sink);
+            addReasoning(sink, content);
+          case DirectStreamDone() || DirectStreamError():
+            releaseEverything(sink);
+            sink.add(event);
+          default:
+            releaseHeldAnswerText(sink);
+            sink.add(event);
+        }
+      },
+      handleError: (error, stackTrace, sink) {
+        releaseEverything(sink);
+        sink.addError(error, stackTrace);
+      },
+      handleDone: (sink) {
+        releaseEverything(sink);
+        sink.close();
+      },
+    ),
+  );
+}

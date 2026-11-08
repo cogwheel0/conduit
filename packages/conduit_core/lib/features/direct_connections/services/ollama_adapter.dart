@@ -14,6 +14,7 @@ import 'package:conduit_core/features/direct_connections/models/ollama_keep_aliv
 import 'package:conduit_core/features/direct_connections/services/direct_adapter_helpers.dart';
 import 'package:conduit_core/features/direct_connections/services/direct_http_client.dart';
 import 'package:conduit_core/features/direct_connections/services/direct_provider_adapter.dart';
+import 'package:conduit_core/features/direct_connections/services/direct_reasoning_tags.dart';
 import 'package:conduit_core/features/direct_connections/services/ollama_cloud_tools.dart';
 import 'package:conduit_core/features/direct_connections/services/ollama_stream_parser.dart';
 
@@ -920,7 +921,7 @@ final class OllamaAdapter
       id: const Uuid().v4(),
       profileId: profile.id,
       remoteModelId: request.remoteModelId,
-      events: controller.stream,
+      events: splitInlineReasoningTags(controller.stream),
       cancelToken: cancelToken,
       done: settled.future,
     );

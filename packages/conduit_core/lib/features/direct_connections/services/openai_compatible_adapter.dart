@@ -17,6 +17,7 @@ import 'package:conduit_core/features/direct_connections/models/openrouter_reaso
 import 'package:conduit_core/features/direct_connections/services/direct_adapter_helpers.dart';
 import 'package:conduit_core/features/direct_connections/services/direct_http_client.dart';
 import 'package:conduit_core/features/direct_connections/services/direct_provider_adapter.dart';
+import 'package:conduit_core/features/direct_connections/services/direct_reasoning_tags.dart';
 import 'package:conduit_core/features/direct_connections/services/openrouter_file_annotations.dart';
 
 const int _kMaxOpenRouterSources = 10;
@@ -489,7 +490,7 @@ final class OpenAiCompatibleAdapter implements DirectProviderAdapter {
       id: const Uuid().v4(),
       profileId: profile.id,
       remoteModelId: request.remoteModelId,
-      events: controller.stream,
+      events: splitInlineReasoningTags(controller.stream),
       cancelToken: cancelToken,
       done: settled.future,
     );
