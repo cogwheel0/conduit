@@ -174,32 +174,35 @@ class ConduitAdaptiveCupertinoNavigationBar extends StatelessWidget
         ),
         child: ConduitSystemTextScaling(
           textScaler: textScaler,
-          child: NavigationToolbar(
-            centerMiddle: centerMiddle,
-            // The title carries its clear space with it, so one that would
-            // come within 12 pt of a control (large text) moves aside rather
-            // than only once it would overlap it.
-            middleSpacing: 0,
-            leading: Align(
-              alignment: AlignmentDirectional.centerStart,
-              widthFactor: 1,
-              child: leading,
+          child: CustomMultiChildLayout(
+            delegate: _ConduitBarLayout(
+              centerMiddle: centerMiddle,
+              textDirection: Directionality.of(context),
             ),
-            middle: middle == null
-                ? null
-                : Padding(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: kConduitCenteredTitleClearance,
-                    ),
-                    child: Align(widthFactor: 1, child: middle),
-                  ),
-            trailing: trailing == null
-                ? null
-                : Align(
+            children: [
+              LayoutId(
+                id: _ConduitBarSlot.leading,
+                child: Align(
+                  alignment: AlignmentDirectional.centerStart,
+                  widthFactor: 1,
+                  child: leading,
+                ),
+              ),
+              if (middle != null)
+                LayoutId(
+                  id: _ConduitBarSlot.middle,
+                  child: Align(widthFactor: 1, child: middle),
+                ),
+              if (trailing != null)
+                LayoutId(
+                  id: _ConduitBarSlot.trailing,
+                  child: Align(
                     alignment: AlignmentDirectional.centerEnd,
                     widthFactor: 1,
                     child: trailing,
                   ),
+                ),
+            ],
           ),
         ),
       ),
@@ -213,6 +216,99 @@ class ConduitAdaptiveCupertinoNavigationBar extends StatelessWidget
     }
     return bar;
   }
+}
+
+enum _ConduitBarSlot { leading, middle, trailing }
+
+/// [NavigationToolbar]'s layout, with one change: a centred title keeps
+/// [kConduitCenteredTitleClearance] from the controls beside it, moving
+/// aside as soon as it would come closer rather than only once it would
+/// overlap one. The title's room is unchanged, so it is never squeezed;
+/// in a bar too tight for the full clearance it keeps the room it has.
+class _ConduitBarLayout extends MultiChildLayoutDelegate {
+  _ConduitBarLayout({required this.centerMiddle, required this.textDirection});
+
+  final bool centerMiddle;
+  final TextDirection textDirection;
+
+  /// The least space between the title and a control, as NavigationToolbar
+  /// keeps.
+  static const double _minSpacing = Spacing.sm;
+
+  @override
+  void performLayout(Size size) {
+    final rtl = textDirection == TextDirection.rtl;
+    var leadingWidth = 0.0;
+    var trailingWidth = 0.0;
+    if (hasChild(_ConduitBarSlot.leading)) {
+      leadingWidth = layoutChild(
+        _ConduitBarSlot.leading,
+        BoxConstraints(
+          maxWidth: size.width,
+          minHeight: size.height,
+          maxHeight: size.height,
+        ),
+      ).width;
+      positionChild(
+        _ConduitBarSlot.leading,
+        Offset(rtl ? size.width - leadingWidth : 0, 0),
+      );
+    }
+    if (hasChild(_ConduitBarSlot.trailing)) {
+      final trailingSize = layoutChild(
+        _ConduitBarSlot.trailing,
+        BoxConstraints.loose(size),
+      );
+      trailingWidth = trailingSize.width;
+      positionChild(
+        _ConduitBarSlot.trailing,
+        Offset(
+          rtl ? 0 : size.width - trailingWidth,
+          (size.height - trailingSize.height) / 2,
+        ),
+      );
+    }
+    if (!hasChild(_ConduitBarSlot.middle)) return;
+    final maxWidth = math.max(
+      0.0,
+      size.width - leadingWidth - trailingWidth - _minSpacing * 2,
+    );
+    final middleSize = layoutChild(
+      _ConduitBarSlot.middle,
+      BoxConstraints.loose(size).copyWith(maxWidth: maxWidth),
+    );
+    // Measured from the leading edge.
+    final minStart = leadingWidth + _minSpacing;
+    final maxStart = math.max(
+      minStart,
+      size.width - trailingWidth - _minSpacing - middleSize.width,
+    );
+    var start = minStart;
+    if (centerMiddle) {
+      start = (size.width - middleSize.width) / 2;
+      final clearEnd =
+          size.width - trailingWidth - kConduitCenteredTitleClearance;
+      final clearStart = leadingWidth + kConduitCenteredTitleClearance;
+      if (start + middleSize.width > clearEnd) {
+        start = clearEnd - middleSize.width;
+      } else if (start < clearStart) {
+        start = clearStart;
+      }
+    }
+    start = start.clamp(minStart, maxStart).toDouble();
+    positionChild(
+      _ConduitBarSlot.middle,
+      Offset(
+        rtl ? size.width - middleSize.width - start : start,
+        (size.height - middleSize.height) / 2,
+      ),
+    );
+  }
+
+  @override
+  bool shouldRelayout(_ConduitBarLayout oldDelegate) =>
+      oldDelegate.centerMiddle != centerMiddle ||
+      oldDelegate.textDirection != textDirection;
 }
 
 Widget _hideNativeToolbarChromeWhileSheetCovered({
