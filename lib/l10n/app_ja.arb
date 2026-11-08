@@ -1017,6 +1017,7 @@
     "description": "Language name: Chinese (Traditional)."
   },
   "korean": "한국어",
+  "portugueseBrazilian": "ポルトガル語（ブラジル）",
   "@korean": {
     "description": "Language name: Korean."
   },

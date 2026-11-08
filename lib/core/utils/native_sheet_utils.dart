@@ -2478,6 +2478,8 @@ String nativeLanguageLabel(AppLocalizations l10n, String code) {
       return l10n.korean;
     case 'ja':
       return l10n.japanese;
+    case 'pt-BR':
+      return l10n.portugueseBrazilian;
     case 'zh-Hant':
       return l10n.chineseTraditional;
     default:
@@ -2489,6 +2491,7 @@ String nativeLanguageLabel(AppLocalizations l10n, String code) {
       if (normalized == 'cs') return l10n.czech;
       if (normalized == 'sk') return l10n.slovak;
       if (normalized == 'pl') return l10n.polish;
+      if (normalized == 'pt-br') return l10n.portugueseBrazilian;
       return l10n.system;
   }
 }
@@ -2531,6 +2534,7 @@ List<NativeSheetOptionConfig> nativeLanguageDropdownOptions(
     NativeSheetOptionConfig(id: 'zh-Hant', label: l10n.chineseTraditional),
     NativeSheetOptionConfig(id: 'ko', label: l10n.korean),
     NativeSheetOptionConfig(id: 'ja', label: l10n.japanese),
+    NativeSheetOptionConfig(id: 'pt-BR', label: l10n.portugueseBrazilian),
   ];
 }
 
