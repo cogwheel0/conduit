@@ -47,7 +47,7 @@ void main() {
       );
     });
 
-    test('a chat that fits on one screen never names itself', () {
+    test('a chat that fits on one screen never brings the title in', () {
       // A first turn settling into place reports a scroll offset from its
       // pinned end space; the title must not flash in.
       expect(
@@ -59,9 +59,23 @@ void main() {
         ),
         isFalse,
       );
+    });
+
+    test('once shown, only a scroll back to the top takes it away', () {
+      // A sent turn settling under the bar as the keyboard leaves can read
+      // as fitting for a while; the title stays rather than blink.
       expect(
         chatHeaderShowsTitle(
-          scrolledFromTop: 120,
+          scrolledFromTop: 754,
+          hasOlderMessages: false,
+          currentlyShowing: true,
+          contentOverflowsViewport: false,
+        ),
+        isTrue,
+      );
+      expect(
+        chatHeaderShowsTitle(
+          scrolledFromTop: 4,
           hasOlderMessages: false,
           currentlyShowing: true,
           contentOverflowsViewport: false,
