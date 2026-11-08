@@ -82,7 +82,7 @@ class ConduitThemeExtension extends ThemeExtension<ConduitThemeExtension> {
       Color.lerp(surfaces.border, surfaces.ring, isDark ? 0.4 : 0.2)!;
   Color get inputBorderFocused => surfaces.ring;
   Color get inputText => tokens.neutralOnSurface;
-  Color get inputPlaceholder => textSecondary.withValues(alpha: 0.5);
+  Color get inputPlaceholder => textTertiary;
   Color get inputError => tokens.statusError60;
 
   /// Page and card colors for grouped settings screens (inset-grouped lists
@@ -179,8 +179,7 @@ class ConduitThemeExtension extends ThemeExtension<ConduitThemeExtension> {
   Color get navigationBackground =>
       isDark ? tokens.neutralTone10 : tokens.neutralTone00;
   Color get navigationSelected => variant.primary;
-  Color get navigationUnselected =>
-      isDark ? tokens.neutralTone80 : tokens.neutralTone60;
+  Color get navigationUnselected => tokens.textSecondaryTone;
   Color get navigationSelectedBackground =>
       _overlay(tokens.overlayMedium, surface: navigationBackground);
 
@@ -197,14 +196,17 @@ class ConduitThemeExtension extends ThemeExtension<ConduitThemeExtension> {
   Color get codeAccent => tokens.codeAccent;
 
   Color get textPrimary => tokens.neutralOnSurface;
-  Color get textSecondary => tokens.neutralTone80;
-  Color get textTertiary => tokens.neutralTone60;
+  /// Subtitles, captions and metadata: clearly below [textPrimary].
+  Color get textSecondary => tokens.textSecondaryTone;
+
+  /// Placeholders, hints and the quietest metadata.
+  Color get textTertiary => tokens.textTertiaryTone;
   Color get textInverse => tokens.neutralTone00;
   Color get textDisabled =>
       isDark ? tokens.neutralTone40 : tokens.neutralTone60;
 
   Color get iconPrimary => tokens.neutralOnSurface;
-  Color get iconSecondary => tokens.neutralTone80;
+  Color get iconSecondary => tokens.textSecondaryTone;
   Color get iconDisabled =>
       isDark ? tokens.neutralTone40 : tokens.neutralTone60;
   Color get iconInverse => tokens.neutralTone00;
@@ -238,16 +240,14 @@ class ConduitThemeExtension extends ThemeExtension<ConduitThemeExtension> {
   TextStyle? get bodyMedium =>
       AppTypography.bodyMediumStyle.copyWith(color: tokens.neutralOnSurface);
 
-  TextStyle? get bodySmall => AppTypography.bodySmallStyle.copyWith(
-    color: isDark ? tokens.neutralTone80 : tokens.neutralTone60,
-  );
+  TextStyle? get bodySmall =>
+      AppTypography.bodySmallStyle.copyWith(color: tokens.textSecondaryTone);
 
-  TextStyle? get caption => AppTypography.labelSmallStyle.copyWith(
-    color: isDark ? tokens.neutralTone80 : tokens.neutralTone60,
-  );
+  TextStyle? get caption =>
+      AppTypography.labelSmallStyle.copyWith(color: tokens.textSecondaryTone);
 
   TextStyle? get label =>
-      AppTypography.labelStyle.copyWith(color: tokens.neutralTone80);
+      AppTypography.labelStyle.copyWith(color: tokens.textSecondaryTone);
 
   TextStyle? get code =>
       AppTypography.codeStyle.copyWith(color: tokens.neutralOnSurface);
@@ -1288,8 +1288,9 @@ class AppTypography {
 
   static TextStyle get standard => bodyMediumStyle;
 
-  static TextStyle get inputHintStyle =>
-      bodyMediumStyle.copyWith(fontWeight: FontWeight.w300);
+  /// Placeholder text keeps the field's own weight; colour alone marks it
+  /// as a hint, as in native text fields.
+  static TextStyle get inputHintStyle => bodyMediumStyle;
 
   static TextStyle get large => bodyLargeStyle;
 
@@ -1762,34 +1763,21 @@ class AnimationDuration {
   static const Duration huge = Duration(milliseconds: 1200);
 }
 
-/// Animation curves for consistent motion design - Enhanced for production with better hierarchy
+/// Animation curves. Motion is calm and critically damped: ease-out for
+/// things arriving, ease-in for things leaving, no overshoot. Reserve
+/// bounce for gesture-driven springs that inherit a flick's velocity.
 class AnimationCurves {
   static const Curve easeIn = Curves.easeIn;
   static const Curve easeOut = Curves.easeOut;
   static const Curve easeInOut = Curves.easeInOut;
-  static const Curve bounce = Curves.bounceOut;
-  static const Curve elastic = Curves.elasticOut;
   static const Curve fastOutSlowIn = Curves.fastOutSlowIn;
   static const Curve linear = Curves.linear;
 
-  // Enhanced curves for specific interactions with better hierarchy
-  static const Curve buttonPress = Curves.easeOutCubic;
-  static const Curve cardHover = Curves.easeInOutCubic;
-  static const Curve messageSlide = Curves.easeOutCubic;
-  static const Curve typingIndicator = Curves.easeInOut;
-  static const Curve modalPresentation = Curves.easeOutBack;
-  static const Curve pageTransition = Curves.easeInOutCubic;
+  /// Elements arriving or responding to a press.
   static const Curve microInteraction = Curves.easeOutQuart;
-  static const Curve spring = Curves.elasticOut;
 
-  // Enhanced curves for better visual hierarchy
-  static const Curve micro = Curves.easeOutQuart;
-  static const Curve tiny = Curves.easeOutCubic;
-  static const Curve small = Curves.easeInOutCubic;
+  /// Elements changing state in place.
   static const Curve standard = Curves.easeInOut;
-  static const Curve large = Curves.easeOutBack;
-  static const Curve extraLarge = Curves.elasticOut;
-  static const Curve huge = Curves.bounceOut;
 }
 
 /// Common animation values - Enhanced for production with better hierarchy

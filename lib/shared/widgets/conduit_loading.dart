@@ -674,15 +674,19 @@ class ImprovedEmptyState extends StatelessWidget {
           showAnimation
               ? TweenAnimationBuilder<double>(
                   tween: Tween(begin: 0.0, end: 1.0),
-                  duration: AnimationDuration.standard,
-                  curve: AnimationCurves.elastic,
-                  builder: (context, value, child) => Transform.scale(
-                    scale: value,
-                    child: Icon(
-                      icon,
-                      size: isCompact ? IconSize.large : IconSize.xxl,
-                      color: theme.iconSecondary,
+                  duration: context.motionDuration(AnimationDuration.standard),
+                  curve: Curves.easeOutCubic,
+                  builder: (context, value, child) => Opacity(
+                    opacity: value,
+                    child: Transform.scale(
+                      scale: 0.92 + 0.08 * value,
+                      child: child,
                     ),
+                  ),
+                  child: Icon(
+                    icon,
+                    size: isCompact ? IconSize.large : IconSize.xxl,
+                    color: theme.iconSecondary,
                   ),
                 )
               : Icon(

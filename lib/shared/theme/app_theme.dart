@@ -119,8 +119,8 @@ class AppTheme {
     final TextTheme materialChromeTextTheme =
         AppTypography.materialChromeTextTheme(
           primary: tokens.neutralOnSurface,
-          secondary: isDark ? tokens.neutralTone80 : tokens.neutralTone60,
-          tertiary: tokens.neutralTone60,
+          secondary: tokens.textSecondaryTone,
+          tertiary: tokens.textTertiaryTone,
         );
     final cupertinoOverrideTheme = _buildCupertinoThemeData(
       brightness: brightness,
@@ -258,7 +258,7 @@ class AppTheme {
           conduitExtension.statusPalette.info.background,
           surfaces.card,
         ),
-        iconColor: tokens.neutralTone80,
+        iconColor: tokens.textSecondaryTone,
         textColor: tokens.neutralOnSurface,
       ),
       popupMenuTheme: PopupMenuThemeData(
@@ -316,8 +316,8 @@ class AppTheme {
     required bool isDark,
   }) {
     final primary = tokens.neutralOnSurface;
-    final secondary = isDark ? tokens.neutralTone80 : tokens.neutralTone60;
-    final tertiary = tokens.neutralTone60;
+    final secondary = tokens.textSecondaryTone;
+    final tertiary = tokens.textTertiaryTone;
     return AppTypography.textTheme(
       primary: primary,
       secondary: secondary,
@@ -330,14 +330,13 @@ class AppTheme {
     required TweakcnThemeVariant variant,
     required AppColorTokens tokens,
   }) {
-    final isDark = brightness == Brightness.dark;
     final primaryText = tokens.neutralOnSurface;
-    final secondaryText = isDark ? tokens.neutralTone80 : tokens.neutralTone60;
+    final secondaryText = tokens.textSecondaryTone;
     final actionColor = variant.primary;
     final chromeTextTheme = AppTypography.cupertinoChromeTextTheme(
       primary: primaryText,
       secondary: secondaryText,
-      tertiary: secondaryText,
+      tertiary: tokens.textTertiaryTone,
     );
 
     return CupertinoThemeData(

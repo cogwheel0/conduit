@@ -229,9 +229,10 @@ void main() {
 
     check(materialTheme.textTheme.titleLarge?.fontSize).equals(17);
     check(materialTheme.inputDecorationTheme.hintStyle?.fontWeight)
-        .equals(FontWeight.w300);
+        .equals(FontWeight.w400);
     check(materialTheme.inputDecorationTheme.hintStyle?.color)
-        .equals(conduitTheme.textSecondary.withValues(alpha: 0.5));
+        .equals(conduitTheme.inputPlaceholder);
+    check(conduitTheme.inputPlaceholder).equals(conduitTheme.textTertiary);
     check(materialTheme.appBarTheme.titleTextStyle?.fontSize).equals(22);
     check(cupertinoTheme.textTheme.navTitleTextStyle.fontSize).equals(17);
     check(cupertinoTheme.textTheme.navLargeTitleTextStyle.fontSize).equals(34);
@@ -244,11 +245,11 @@ void main() {
           ?.textTheme
           ?.tabLabelTextStyle
           .color,
-    ).equals(darkTokens.neutralTone80);
+    ).equals(darkTokens.textSecondaryTone);
     check(darkCupertinoTheme.textTheme.navTitleTextStyle.color)
         .equals(darkTokens.neutralOnSurface);
     check(darkCupertinoTheme.textTheme.tabLabelTextStyle.color)
-        .equals(darkTokens.neutralTone80);
+        .equals(darkTokens.textSecondaryTone);
   });
 
   test('platform control geometry remains adaptive', () {
