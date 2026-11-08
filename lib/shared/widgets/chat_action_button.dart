@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:material_ui/material_ui.dart';
@@ -129,6 +130,19 @@ class NativeSymbolGlyph extends StatefulWidget {
   static bool get isAvailable =>
       PlatformUiCapabilities.isIOS &&
       NativeSymbolImageService.hostRenderer != null;
+
+  /// Starts rasterizing [symbol] ahead of need, so a glyph that is about to
+  /// replace another (Stop taking Send's place as a message goes) is drawn
+  /// on its first frame rather than a frame later.
+  static void prewarm(BuildContext context, String symbol, double pointSize) {
+    if (!isAvailable) return;
+    final scale = MediaQuery.maybeDevicePixelRatioOf(context) ?? 3;
+    final service = NativeSymbolImageService.instance;
+    if (service.isResolved(symbol, pointSize: pointSize, scale: scale)) {
+      return;
+    }
+    unawaited(service.load(symbol, pointSize: pointSize, scale: scale));
+  }
 
   @override
   State<NativeSymbolGlyph> createState() => _NativeSymbolGlyphState();

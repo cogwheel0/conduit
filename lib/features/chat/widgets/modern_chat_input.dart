@@ -111,6 +111,7 @@ import 'expanded_text_editor.dart';
 import 'chat_comparison_widgets.dart';
 import 'chat_send_motion.dart';
 import 'composer_prominent_button.dart';
+import 'composer_send_collapse.dart';
 import '../../../shared/widgets/chat_action_button.dart' show NativeSymbolGlyph;
 import 'composer_overflow_items.dart';
 import 'composer_overflow_menu.dart';
@@ -663,8 +664,58 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
   /// The draft being sent already shows as its bubble, rising from here:
   /// the field stops drawing it, so the text is never on screen twice. The
   /// controller keeps it until the turn is admitted, and a refused send
-  /// shows it again untouched.
+  /// shows it again untouched. Meanwhile the composer lays out as if empty.
   bool _draftHandedOff = false;
+
+  /// Arms [ComposerSendCollapse]: each send that empties a taller composer
+  /// shrinks it on the rising message's spring.
+  int _sendCollapseToken = 0;
+
+  /// While that collapse runs, the shell keeps its expanded corners, which
+  /// at one line are the same capsule as the compact ones.
+  bool _sendCollapseActive = false;
+
+  /// The message has left the composer: from this frame it lays out as
+  /// empty (one line, Stop in place of Send), shrinking on the same spring
+  /// as the bubble rising out of it, and the keyboard goes down with it, so
+  /// the whole send is one motion.
+  void _beginSendHandOff() {
+    if (!mounted || _isDeactivated) return;
+    setState(() {
+      _draftHandedOff = true;
+      _sendCollapseToken++;
+      _sendCollapseActive = _isMultiline;
+    });
+    // The keyboard starts down once the frame that hands the message over
+    // is on screen: a slow first frame (a new chat's transcript mounting)
+    // must not leave it sliding away under a composer that still shows the
+    // draft. A built frame reaches the screen a little later than the
+    // keyboard starts moving, so give it a few more milliseconds.
+    void hideKeyboard() {
+      if (!mounted || _isDeactivated || !_draftHandedOff) return;
+      _focusNode.unfocus();
+      unawaited(_hideAttachmentPanels());
+      try {
+        SystemChannels.textInput.invokeMethod('TextInput.hide');
+      } catch (_) {
+        // Silently handle if keyboard dismissal fails
+      }
+    }
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      Timer(_keyboardHandOffLag, hideKeyboard);
+    });
+  }
+
+  /// How long after the hand-off frame is built the keyboard starts down:
+  /// about the time that frame takes to reach the screen.
+  static const Duration _keyboardHandOffLag = Duration(milliseconds: 50);
+
+  void _endSendCollapse() {
+    if (!mounted || !_sendCollapseActive) return;
+    setState(() => _sendCollapseActive = false);
+  }
+
   bool _sendingDraft = false;
   ProviderSubscription<ComposerDraftContext>? _draftSubscription;
   StreamSubscription<String>? _voiceStreamSubscription;
@@ -826,14 +877,17 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
         // If focus was lost within 500ms of the last text edit, the user was
         // actively typing and the loss was likely caused by a widget tree
         // restructure (shell swap, parent rebuild from MeasureSize, etc.).
-        // Only restore when text is non-empty (excludes post-send clear),
-        // the widget is enabled, and autofocus hasn't been explicitly
-        // suppressed (excludes body tap / scroll dismiss).
+        // Only restore when text is non-empty (excludes post-send clear)
+        // and is not a draft already handed off to its bubble (a send takes
+        // the keyboard down before the field clears), the widget is enabled,
+        // and autofocus hasn't been explicitly suppressed (excludes body tap
+        // / scroll dismiss).
         if (!hasFocus &&
             widget.enabled &&
             !_expandModalOpen &&
             !_isFallbackAttachmentPanelVisible &&
             _controller.text.isNotEmpty &&
+            !_draftHandedOff &&
             DateTime.now().difference(_lastEditTime).inMilliseconds < 500) {
           final autofocusEnabled = ref.read(composerAutofocusEnabledProvider);
           if (autofocusEnabled) {
@@ -1053,6 +1107,12 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     final wireText = _controller.toWireFormat().trim();
 
     widget.onSendMessage(wireText);
+    if (mounted && !_isDeactivated) {
+      setState(() {
+        _sendCollapseToken++;
+        _sendCollapseActive = _isMultiline;
+      });
+    }
     _controller.clearMentions();
     _controller.clear();
     _focusNode.unfocus();
@@ -1590,7 +1650,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       wireText,
       (handle) {
         _draftSendOwner = handle;
-        if (mounted) setState(() => _draftHandedOff = true);
+        _beginSendHandOff();
       },
     );
     if (committed != null) {
@@ -3886,8 +3946,11 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     // While the typed message is itself being sent, the turn it starts is
     // already generating but the draft has not cleared yet; that text is not
     // a new message to queue, so Queue must not flash in for those frames.
+    // A draft already handed off to its bubble counts as gone: the composer
+    // shows what it will be once the turn is admitted and the field clears.
+    final bool showsDraft = _hasText && !_draftHandedOff;
     final bool showQueueAction =
-        _hasText &&
+        showsDraft &&
         isGenerating &&
         !_sendingDraft &&
         ref.watch(chatDraftQueueOfferProvider);
@@ -3895,7 +3958,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
         conduitSystemControlScaleOf(context) <=
             _maxCompactComposerControlScale &&
         quickPills.isEmpty &&
-        !_isMultiline &&
+        (!_isMultiline || _draftHandedOff) &&
         !showQueueAction &&
         !(isDesktopHermesComposer && isGenerating && _hasText);
     final bool showInlineMicAction =
@@ -3904,7 +3967,9 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     const double compactRadius = AppBorderRadius.round;
     const double expandedRadius = _composerRadius;
     final BorderRadius shellRadius = BorderRadius.circular(
-      showCompactComposer ? compactRadius : expandedRadius,
+      showCompactComposer && !_sendCollapseActive
+          ? compactRadius
+          : expandedRadius,
     );
 
     late final Widget shellContent;
@@ -4051,6 +4116,9 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                 _buildInlineMicAction(voiceAvailable),
               ],
               if (!showInlineMicAction) const SizedBox(width: Spacing.xs),
+              // Not [showsDraft]: Send keeps its arrow until the reply it
+              // started runs and Stop takes its place, never the empty
+              // composer's button in between.
               _buildPrimaryButton(
                 _hasText,
                 isGenerating,
@@ -4190,7 +4258,11 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
         key: const ValueKey('composer-native-shell'),
         borderRadius: shellRadius,
         isRecording: _isRecording,
-        child: shellContent,
+        child: ComposerSendCollapse(
+          token: _sendCollapseToken,
+          onDone: _endSendCollapse,
+          child: shellContent,
+        ),
       ),
       borderRadius: shellRadius,
     );
@@ -5019,6 +5091,9 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
 
     if (hasText) {
       final onPressed = enabled ? _sendMessage : null;
+      // A message on its way keeps Send's arrow as it was until Stop takes
+      // its place, rather than dimming it for the frames in between.
+      final glyphLit = enabled || _draftHandedOff;
       final sendChild = hasUploadsInProgress
           ? SizedBox(
               width: primaryIconSize,
@@ -5033,12 +5108,15 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                   ? CupertinoIcons.arrow_up
                   : Icons.arrow_upward_rounded,
               size: primaryIconSize,
-              color: enabled
+              color: glyphLit
                   ? context.conduitTheme.buttonPrimaryText
                   : context.conduitTheme.textPrimary.withValues(
                       alpha: Alpha.disabled,
                     ),
             );
+      // Sending puts Stop in Send's place in the same frame the message
+      // leaves; have its glyph ready so the disc is never empty.
+      NativeSymbolGlyph.prewarm(context, 'stop.fill', primaryIconSize);
       return AdaptiveTooltip(
         message: enabled
             ? AppLocalizations.of(context)!.sendMessage
@@ -5055,7 +5133,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
           iosSymbolSize: primaryIconSize,
           isProminent: true,
           iosSymbol: hasUploadsInProgress ? null : 'arrow.up',
-          iosSymbolColor: enabled
+          iosSymbolColor: glyphLit
               ? context.conduitTheme.buttonPrimaryText
               : context.conduitTheme.textPrimary.withValues(
                   alpha: Alpha.disabled,

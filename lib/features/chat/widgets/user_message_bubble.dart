@@ -790,10 +790,22 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
   Widget build(BuildContext context) {
     final message = widget.message;
     if (message is! ChatMessage) return _buildUserMessage();
+    // A plain text message leaves from the typed words themselves: a
+    // stand-in of its bubble flies up from them above the composer.
+    final textOnly =
+        message.content.isNotEmpty &&
+        !_isEditing &&
+        (message.attachmentIds?.isEmpty ?? true) &&
+        !(_currentFilePartitions()?.hasRenderableFiles ?? false);
+    final text = message.content;
     // A message just sent rises from the composer into place, once.
     return ChatSendEntrance(
       messageId: message.id,
       timestamp: message.timestamp,
+      flightBuilder: textOnly
+          ? (context, morph) =>
+                UserMessageFlightBubble(text: text, morph: morph)
+          : null,
       child: _buildUserMessage(),
     );
   }
@@ -809,10 +821,7 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
     // Prefer input/textPrimary colors during inline editing to avoid low contrast
     final inlineEditTextColor = theme.textPrimary;
     final inlineEditFill = theme.surfaceContainer.withValues(alpha: 0.92);
-    final bubbleMaxWidth = math.min(
-      MediaQuery.sizeOf(context).width * 0.78,
-      640.0,
-    );
+    final bubbleMaxWidth = _userBubbleMaxWidth(context);
     // Tail-less, borderless fill: the neutral tone alone separates the turn.
     const bubbleBorderRadius = BorderRadius.all(
       Radius.circular(AppBorderRadius.chatBubble),
@@ -826,7 +835,7 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
 
     return Container(
       width: double.infinity,
-      margin: const EdgeInsets.only(bottom: Spacing.lg, left: Spacing.xxl),
+      margin: _userMessageRowMargin,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
@@ -855,10 +864,7 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
                       useNativeMenu: true,
                       child: Container(
                         key: const Key('user-message-bubble-surface'),
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: Spacing.md,
-                          vertical: Spacing.sm + Spacing.xxs,
-                        ),
+                        padding: _userBubblePadding,
                         decoration: BoxDecoration(
                           color: theme.chatBubbleUser,
                           borderRadius: bubbleBorderRadius,
@@ -903,21 +909,7 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
                                   ),
                                 ),
                               )
-                            : Text(
-                                widget.message.content,
-                                style: AppTypography.chatMessageStyle.copyWith(
-                                  color: theme.chatBubbleUserText,
-                                ),
-                                softWrap: true,
-                                textAlign: TextAlign.left,
-                                textWidthBasis: TextWidthBasis.longestLine,
-                                textHeightBehavior: const TextHeightBehavior(
-                                  applyHeightToFirstAscent: false,
-                                  applyHeightToLastDescent: false,
-                                  leadingDistribution:
-                                      TextLeadingDistribution.even,
-                                ),
-                              ),
+                            : _UserMessageText(widget.message.content),
                       ),
                     ),
                   ),
@@ -1091,4 +1083,137 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
       }
     }
   }
+}
+
+/// The row around a user message: full width, inset from the leading edge so
+/// it reads as the user's side, and a gap before the reply.
+const EdgeInsets _userMessageRowMargin = EdgeInsets.only(
+  bottom: Spacing.lg,
+  left: Spacing.xxl,
+);
+
+/// Inside a user text bubble, around its words.
+const EdgeInsets _userBubblePadding = EdgeInsets.symmetric(
+  horizontal: Spacing.md,
+  vertical: Spacing.sm + Spacing.xxs,
+);
+
+double _userBubbleMaxWidth(BuildContext context) =>
+    math.min(MediaQuery.sizeOf(context).width * 0.78, 640.0);
+
+/// A user message's words, as its bubble sets them.
+class _UserMessageText extends StatelessWidget {
+  const _UserMessageText(this.text);
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(
+      text,
+      style: AppTypography.chatMessageStyle.copyWith(
+        color: context.conduitTheme.chatBubbleUserText,
+      ),
+      softWrap: true,
+      textAlign: TextAlign.left,
+      textWidthBasis: TextWidthBasis.longestLine,
+      textHeightBehavior: const TextHeightBehavior(
+        applyHeightToFirstAscent: false,
+        applyHeightToLastDescent: false,
+        leadingDistribution: TextLeadingDistribution.even,
+      ),
+    );
+  }
+}
+
+/// A sent text message on its way up from the composer.
+///
+/// It lays out exactly like [UserMessageBubble]'s text bubble, without the
+/// menus, so it can land on the real row and hand over without a seam. As
+/// [morph] runs from 0 to 1 its fill grows out from around the words (from
+/// the text's own frame to the bubble's, its corners rounding as it goes),
+/// so the typed text becomes the bubble rather than a bubble fading in.
+class UserMessageFlightBubble extends StatelessWidget {
+  const UserMessageFlightBubble({
+    super.key,
+    required this.text,
+    required this.morph,
+  });
+
+  final String text;
+  final Animation<double> morph;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      margin: _userMessageRowMargin,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          const SizedBox(height: Spacing.xs),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: [
+              Flexible(
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(
+                    maxWidth: _userBubbleMaxWidth(context),
+                  ),
+                  child: CustomPaint(
+                    key: const Key('user-message-flight-bubble'),
+                    painter: _GrowingBubbleFill(
+                      morph: morph,
+                      color: context.conduitTheme.chatBubbleUser,
+                    ),
+                    child: Padding(
+                      padding: _userBubblePadding,
+                      child: _UserMessageText(text),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// The flying bubble's fill: the words' own frame at 0, the whole bubble at
+/// 1. Its tone comes in ahead of its size, so by the time the message passes
+/// anything on its way up (a leaving greeting) it already reads as a bubble
+/// over it rather than as two lines of text crossing.
+class _GrowingBubbleFill extends CustomPainter {
+  _GrowingBubbleFill({required this.morph, required this.color})
+    : super(repaint: morph);
+
+  final Animation<double> morph;
+  final Color color;
+
+  static const double _radius = AppBorderRadius.chatBubble;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final progress = morph.value.clamp(0.0, 1.0);
+    if (progress <= 0) return;
+    final inset = EdgeInsets.lerp(
+      _userBubblePadding,
+      EdgeInsets.zero,
+      progress,
+    )!;
+    final rect = inset.deflateRect(Offset.zero & size);
+    final radius = _radius * (0.4 + 0.6 * progress);
+    final tone = Curves.easeOut.transform((progress * 2.5).clamp(0.0, 1.0));
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(rect, Radius.circular(radius)),
+      Paint()..color = color.withValues(alpha: color.a * tone),
+    );
+  }
+
+  @override
+  bool shouldRepaint(_GrowingBubbleFill oldDelegate) =>
+      oldDelegate.color != color || oldDelegate.morph != morph;
 }
