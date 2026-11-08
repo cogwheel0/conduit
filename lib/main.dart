@@ -1264,6 +1264,12 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
                 .read(appSettingsProvider.notifier)
                 .setNotificationsEnabled(value);
             _syncNotificationPrefsToServer(enabled: value);
+            // The options under the switch come and go with it.
+            unawaited(
+              ref
+                  .read(nativeSheetHydrationServiceProvider)
+                  .hydrateDetail(NativeSheetRoutes.notificationSettings),
+            );
             if (value) {
               // Best-effort OS permission on opt-in; OS governs delivery.
               await ref
@@ -1289,6 +1295,12 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
                 .read(appSettingsProvider.notifier)
                 .setNotificationSound(value);
             _syncNotificationPrefsToServer(sound: value);
+            // Always play sound can be changed only while Sound is on.
+            unawaited(
+              ref
+                  .read(nativeSheetHydrationServiceProvider)
+                  .hydrateDetail(NativeSheetRoutes.notificationSettings),
+            );
           }
         case 'notification-sound-always':
           if (value is bool) {

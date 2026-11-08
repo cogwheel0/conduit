@@ -82,7 +82,7 @@ void main() {
     expect(
       find.descendant(
         of: group,
-        matching: find.text('Shown because Advanced is on in Settings > Chat.'),
+        matching: find.text('Shown because Advanced is turned on in Chats.'),
       ),
       findsOneWidget,
     );

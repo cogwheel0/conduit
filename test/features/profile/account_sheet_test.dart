@@ -192,7 +192,7 @@ void main() {
     await pumpSheet(tester, const AddAccountRequest());
 
     expect(find.byType(AccountSheet), findsOne);
-    expect(find.text('Add account'), findsOne);
+    expect(find.text('Add Account'), findsOne);
     for (final label in ['Open WebUI', 'Hermes', 'Direct']) {
       expect(
         find.descendant(

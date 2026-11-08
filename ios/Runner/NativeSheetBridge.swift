@@ -1208,6 +1208,7 @@ final class NativeSheetBridge: ConduitBridge, NativeSheetHostApi {
     private var activeSheetMode: ActiveSheetMode = .profileMenu
     private var pendingModelSelectorResult: PendingStringResult?
     private var pendingOptionsSelectorResult: PendingStringResult?
+    private var pendingDatePickerResult: PendingStringResult?
     private var pendingTextEditorResult: PendingActionResult?
     private var pendingResultSheetResult: PendingActionResult?
     private var resultSheetValues: [String: Any] = [:]
@@ -1307,7 +1308,7 @@ final class NativeSheetBridge: ConduitBridge, NativeSheetHostApi {
         config: PlatformNativeProfileSheetConfig,
         completion: @escaping (Result<Bool, Error>) -> Void
     ) {
-        DispatchQueue.main.async { [weak self] in
+        whenModalChainIdle { [weak self] in
             guard let self else { return }
             guard let configuration = NativeSheetConfiguration(config.asPayload())
             else {
@@ -1356,7 +1357,7 @@ final class NativeSheetBridge: ConduitBridge, NativeSheetHostApi {
         request: PlatformNativeSheetModelSelectorRequest,
         completion: @escaping (Result<String?, Error>) -> Void
     ) {
-        DispatchQueue.main.async { [weak self] in
+        whenModalChainIdle { [weak self] in
             guard let self else { return }
             guard let configuration = NativeModelSelectorConfiguration(request.asPayload())
             else {
@@ -1419,7 +1420,7 @@ final class NativeSheetBridge: ConduitBridge, NativeSheetHostApi {
         request: PlatformNativeSheetOptionsSelectorRequest,
         completion: @escaping (Result<String?, Error>) -> Void
     ) {
-        DispatchQueue.main.async { [weak self] in
+        whenModalChainIdle { [weak self] in
             guard let self else { return }
             guard let configuration = NativeOptionsSelectorConfiguration(request.asPayload())
             else {
@@ -1438,7 +1439,7 @@ final class NativeSheetBridge: ConduitBridge, NativeSheetHostApi {
         request: PlatformNativeSheetDatePickerRequest,
         completion: @escaping (Result<String?, Error>) -> Void
     ) {
-        DispatchQueue.main.async { [weak self] in
+        whenModalChainIdle { [weak self] in
             guard let self else { return }
             guard let configuration = NativeDatePickerConfiguration(request.asPayload())
             else {
@@ -1457,7 +1458,7 @@ final class NativeSheetBridge: ConduitBridge, NativeSheetHostApi {
         request: PlatformNativeSheetTextEditorRequest,
         completion: @escaping (Result<PlatformNativeSheetActionResult?, Error>) -> Void
     ) {
-        DispatchQueue.main.async { [weak self] in
+        whenModalChainIdle { [weak self] in
             guard let self else { return }
             guard let configuration = NativeTextEditorConfiguration(request.asPayload())
             else {
@@ -1476,7 +1477,7 @@ final class NativeSheetBridge: ConduitBridge, NativeSheetHostApi {
         request: PlatformNativeSheetResultRequest,
         completion: @escaping (Result<PlatformNativeSheetActionResult?, Error>) -> Void
     ) {
-        DispatchQueue.main.async { [weak self] in
+        whenModalChainIdle { [weak self] in
             guard let self else { return }
             guard let configuration = NativeResultSheetConfiguration(request.asPayload())
             else {
@@ -1545,6 +1546,17 @@ final class NativeSheetBridge: ConduitBridge, NativeSheetHostApi {
         var applied = false
         DispatchQueue.main.sync { applied = apply() }
         return applied
+    }
+
+    /// Runs [work] on main once no sheet above Flutter is still animating
+    /// in or out, so a sheet Flutter asks for straight after another closed
+    /// (New Folder chosen in Move to Folder) is presented rather than
+    /// refused by UIKit.
+    private func whenModalChainIdle(_ work: @escaping () -> Void) {
+        nativeWhenModalChainIdle(
+            from: { [weak self] in self?.host?.presentingViewController },
+            work
+        )
     }
 
     private func presentProfileMenu(_ configuration: NativeSheetConfiguration) -> Bool {
@@ -1901,6 +1913,10 @@ final class NativeSheetBridge: ConduitBridge, NativeSheetHostApi {
                     self?.pendingOptionsSelectorResult = nil
                     pending(.success(nil))
                 }
+                if let pending = self?.pendingDatePickerResult {
+                    self?.pendingDatePickerResult = nil
+                    pending(.success(nil))
+                }
                 if let pending = self?.pendingTextEditorResult {
                     self?.pendingTextEditorResult = nil
                     pending(.success(self?.actionResult(
@@ -1941,6 +1957,17 @@ final class NativeSheetBridge: ConduitBridge, NativeSheetHostApi {
             configureSheet(sheet)
         }
         presenter.present(controller, animated: true)
+        // UIKit refuses a presentation it cannot make (the presenter is
+        // already presenting, or is mid-transition) with only a console
+        // warning. Say so, so the caller's future fails instead of waiting
+        // for a sheet that never appears.
+        guard controller.presentingViewController != nil else {
+            if activeController === controller {
+                activeController = nil
+                presentationDelegate = nil
+            }
+            return false
+        }
         return true
     }
 
@@ -2091,20 +2118,35 @@ final class NativeSheetBridge: ConduitBridge, NativeSheetHostApi {
         _ configuration: NativeDatePickerConfiguration,
         result: @escaping PendingStringResult
     ) {
+        if pendingDatePickerResult != nil {
+            result(.failure(PigeonError(
+                code: "ALREADY_PRESENTING",
+                message: "A native date picker is already open",
+                details: nil
+            )))
+            return
+        }
+
         activeSheetMode = .resultSheet
+        // Held like the other pickers' results, so swiping the sheet away
+        // answers nil instead of leaving the call waiting forever.
+        pendingDatePickerResult = result
         let controller = NativeDatePickerViewController(
             configuration: configuration,
             onConfirm: { [weak self] date in
-                result(.success(nativeSheetFormatDate(date)))
-                self?.dismissActive()
+                guard let self else { return }
+                let pending = self.pendingDatePickerResult
+                self.pendingDatePickerResult = nil
+                pending?(.success(nativeSheetFormatDate(date)))
+                self.dismissActive()
             },
             onClose: { [weak self] in
-                result(.success(nil))
                 self?.dismissActive()
             }
         )
         let navigation = NativeSheetNavigationController(rootViewController: controller)
         if !present(navigation, initialDetent: .large) {
+            pendingDatePickerResult = nil
             activeSheetMode = .profileMenu
             result(.failure(PigeonError(
                 code: "PRESENTATION_FAILED",
@@ -2384,6 +2426,10 @@ final class NativeSheetBridge: ConduitBridge, NativeSheetHostApi {
             pendingOptionsSelectorResult = nil
             pending(.success(nil))
         }
+        if let pending = pendingDatePickerResult {
+            pendingDatePickerResult = nil
+            pending(.success(nil))
+        }
         if let pending = pendingTextEditorResult {
             pendingTextEditorResult = nil
             pending(.success(actionResult(
@@ -2495,6 +2541,52 @@ private func nativeInitialsAvatarUIImage(name: String, diameter: CGFloat = 250) 
             height: bounds.height
         )
         text.draw(in: drawRect, withAttributes: attrs)
+    }
+}
+
+/// [initials] on a neutral grey disc, as iOS draws a contact without a
+/// photo and as the sidebar's profile button does: grey in both appearances,
+/// never a hue. For display only; an avatar saved to the server is drawn by
+/// `nativeInitialsAvatarUIImage`, which Open WebUI's own clients match.
+func nativeMonogramUIImage(initials: String, diameter: CGFloat) -> UIImage {
+    let isDark = NativeSheetTheme.shared.isDark
+    let top = isDark
+        ? UIColor(red: 0x85 / 255, green: 0x85 / 255, blue: 0x8B / 255, alpha: 1)
+        : UIColor(red: 0xAD / 255, green: 0xAD / 255, blue: 0xB3 / 255, alpha: 1)
+    let bottom = isDark
+        ? UIColor(red: 0x63 / 255, green: 0x63 / 255, blue: 0x68 / 255, alpha: 1)
+        : UIColor(red: 0x8E / 255, green: 0x8E / 255, blue: 0x93 / 255, alpha: 1)
+    let size = CGSize(width: diameter, height: diameter)
+    return UIGraphicsImageRenderer(size: size).image { ctx in
+        let rect = CGRect(origin: .zero, size: size)
+        ctx.cgContext.addEllipse(in: rect)
+        ctx.cgContext.clip()
+        if let gradient = CGGradient(
+            colorsSpace: CGColorSpaceCreateDeviceRGB(),
+            colors: [top.cgColor, bottom.cgColor] as CFArray,
+            locations: [0, 1]
+        ) {
+            ctx.cgContext.drawLinearGradient(
+                gradient,
+                start: CGPoint(x: rect.midX, y: rect.minY),
+                end: CGPoint(x: rect.midX, y: rect.maxY),
+                options: []
+            )
+        }
+        let attrs: [NSAttributedString.Key: Any] = [
+            .font: UIFont.systemFont(ofSize: diameter * 0.4, weight: .semibold),
+            .foregroundColor: UIColor.white,
+            .kern: diameter * 0.01,
+        ]
+        let text = NSString(string: initials)
+        let bounds = text.size(withAttributes: attrs)
+        text.draw(
+            at: CGPoint(
+                x: (diameter - bounds.width) / 2,
+                y: (diameter - bounds.height) / 2
+            ),
+            withAttributes: attrs
+        )
     }
 }
 
@@ -3680,8 +3772,8 @@ private final class NativeSheetDropdownTableViewCell: UITableViewCell {
             rootStack.trailingAnchor.constraint(equalTo: contentView.layoutMarginsGuide.trailingAnchor),
             rootStack.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 11),
             rootStack.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -11),
-            iconView.widthAnchor.constraint(equalToConstant: NativeSheetSettingsStyle.iconSize),
-            iconView.heightAnchor.constraint(equalToConstant: NativeSheetSettingsStyle.iconSize),
+            iconView.widthAnchor.constraint(equalToConstant: NativeSheetSettingsStyle.iconColumnWidth),
+            iconView.heightAnchor.constraint(equalToConstant: NativeSheetSettingsStyle.iconColumnWidth),
             button.heightAnchor.constraint(greaterThanOrEqualToConstant: 36),
         ])
     }
@@ -3701,10 +3793,12 @@ private final class NativeSheetDropdownTableViewCell: UITableViewCell {
         titleLabel.text = item.title
         subtitleLabel.text = item.subtitle
         subtitleLabel.isHidden = item.subtitle?.isEmpty ?? true
+        iconView.contentMode = .center
         iconView.image = UIImage(systemName: item.sfSymbol)?.withConfiguration(
             UIImage.SymbolConfiguration(
-                pointSize: NativeSheetSettingsStyle.iconSize,
-                weight: .regular
+                pointSize: NativeSheetSettingsStyle.symbolPointSize,
+                weight: .regular,
+                scale: .medium
             )
         )
 
@@ -4548,6 +4642,7 @@ private final class NativeDetailTableViewController: UITableViewController {
     }
 
     func applyUpdatedDetail(_ newDetail: NativeSheetDetail) {
+        let previousSectionCount = tableSections.count
         detail = newDetail
         pendingTextValues.removeAll()
         committedTextValues.removeAll()
@@ -4555,7 +4650,22 @@ private final class NativeDetailTableViewController: UITableViewController {
         navigationItem.title = newDetail.title
         refreshNavigationAction()
         tableView.setEditing(tableSections.contains { $0.reorderActionId != nil }, animated: false)
-        tableView.reloadData()
+        // Groups that come or go with a switch (Notifications' options, say)
+        // fade in and out rather than popping. A cross-fade moves nothing,
+        // so it suits Reduce Motion as well.
+        guard isViewLoaded,
+              view.window != nil,
+              previousSectionCount != tableSections.count
+        else {
+            tableView.reloadData()
+            return
+        }
+        UIView.transition(
+            with: tableView,
+            duration: 0.25,
+            options: [.transitionCrossDissolve, .allowUserInteraction],
+            animations: { self.tableView.reloadData() }
+        )
     }
 
     override func viewWillAppear(_ animated: Bool) {
@@ -4671,6 +4781,14 @@ private final class NativeDetailTableViewController: UITableViewController {
     override func tableView(
         _ tableView: UITableView,
         willDisplayFooterView view: UIView,
+        forSection section: Int
+    ) {
+        NativeSheetSettingsStyle.applyHeaderFooterStyle(view)
+    }
+
+    override func tableView(
+        _ tableView: UITableView,
+        willDisplayHeaderView view: UIView,
         forSection section: Int
     ) {
         NativeSheetSettingsStyle.applyHeaderFooterStyle(view)
@@ -7243,9 +7361,20 @@ private func configureNavigationCell(
     item: NativeSheetItem,
     showsDisclosure: Bool = true
 ) {
-    var content = cell.defaultContentConfiguration()
+    // A picker shows what is chosen on the right, as Settings does
+    // ("Language   English >"), and drops below the title only when the two
+    // do not fit side by side.
+    // A read-only fact ("Version   4.3.0") reads the same way. A person or
+    // a checked choice keeps its detail under its name.
+    let isFact = item.kind == "info" && !showsDisclosure && !item.checked
+        && item.avatarName == nil && item.avatarData == nil
+    let showsValue = item.kind == "searchablePicker"
+        || (isFact && nativeRowValueFits(item.subtitle))
+    var content = showsValue
+        ? UIListContentConfiguration.valueCell()
+        : cell.defaultContentConfiguration()
     content.text = item.title
-    content.secondaryText = item.kind == "searchablePicker"
+    content.secondaryText = showsValue
         ? (item.selectedOptionLabel ?? item.subtitle)
         : item.subtitle
     let avatar = nativeRowAvatarImage(for: item)
@@ -7285,7 +7414,16 @@ private func configureNavigationCell(
         content.imageProperties.tintColor = NativeSheetTheme.shared.accent
     }
     content.textProperties.font = .preferredFont(forTextStyle: .body)
-    if item.kind == "info" && !showsDisclosure {
+    if showsValue {
+        content.secondaryTextProperties.font = .preferredFont(forTextStyle: .body)
+        content.secondaryTextProperties.numberOfLines = 1
+        content.prefersSideBySideTextAndSecondaryText = true
+    }
+    if item.kind == "toggle" {
+        // A switch's explanation is never cut short.
+        content.secondaryTextProperties.numberOfLines = 0
+    }
+    if item.kind == "info" && !showsDisclosure && !showsValue {
         content.textProperties.numberOfLines = 0
         content.textProperties.lineBreakMode = .byWordWrapping
         content.secondaryTextProperties.numberOfLines = 0
@@ -7304,7 +7442,16 @@ private func configureNavigationCell(
     NativeSheetSettingsStyle.applyCellStyle(cell)
 }
 
-private let nativeRowAvatarDiameter: CGFloat = 32
+/// Whether [value] is short enough to sit on the right of its row, as a
+/// value does in Settings, rather than under the title.
+private func nativeRowValueFits(_ value: String?) -> Bool {
+    guard let value, !value.isEmpty else { return false }
+    return value.count <= 32 && !value.contains("\n")
+}
+
+/// A row's round picture fills the symbol column exactly, so its title lines
+/// up with the titles of the symbol rows around it.
+private let nativeRowAvatarDiameter: CGFloat = NativeSheetSettingsStyle.iconColumnWidth
 
 /// A row's round picture: its bytes, cut to a circle, else its name's
 /// initials; nil for a row that has neither.
@@ -7328,8 +7475,11 @@ private func nativeRowAvatarImage(for item: NativeSheetItem) -> UIImage? {
         }.withRenderingMode(.alwaysOriginal)
     }
     guard let name = item.avatarName else { return nil }
-    return nativeInitialsAvatarUIImage(name: name, diameter: nativeRowAvatarDiameter)?
-        .withRenderingMode(.alwaysOriginal)
+    let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+    return nativeMonogramUIImage(
+        initials: nativeExtractInitials(from: trimmed.isEmpty ? "User" : trimmed),
+        diameter: nativeRowAvatarDiameter
+    ).withRenderingMode(.alwaysOriginal)
 }
 
 /// VoiceOver otherwise leads with the SF Symbol's generated description
@@ -7370,7 +7520,14 @@ private final class NativeAvatarView: UIView {
 
         imageView.contentMode = .scaleAspectFill
         imageView.translatesAutoresizingMaskIntoConstraints = false
-        imageView.isHidden = true
+        // Until (unless) a photo loads, the initials sit on a grey disc, as
+        // a contact without a photo does; the card's own colour would leave
+        // them floating with no disc at all.
+        imageView.image = nativeMonogramUIImage(
+            initials: profile.initials,
+            diameter: diameter
+        )
+        initialsLabel.isHidden = true
         addSubview(imageView)
 
         NSLayoutConstraint.activate([

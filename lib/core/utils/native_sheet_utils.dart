@@ -190,7 +190,8 @@ List<NativeSheetSectionConfig> buildNativeProfileRootSections(
       NativeSheetItemConfig(
         id: NativeSheetRoutes.profile,
         title: l10n.profileTitle,
-        sfSymbol: 'person.crop.circle',
+        // Outlined, like every other symbol in the list.
+        sfSymbol: 'person',
       ),
       NativeSheetItemConfig(
         id: NativeSheetRoutes.notificationSettings,
@@ -265,28 +266,29 @@ List<NativeSheetSectionConfig> buildNativeProfileRootSections(
         sfSymbol: 'externaldrive',
       ),
   ];
+  // Like the Settings app, no group has a heading: the rows name themselves,
+  // and a footer explains a group where it needs explaining.
   return [
     NativeSheetSectionConfig(items: cardItems),
-    if (accountItems.isNotEmpty)
-      NativeSheetSectionConfig(
-        title: l10n.accountSettingsTitle,
-        items: accountItems,
-      ),
+    if (accountItems.isNotEmpty) NativeSheetSectionConfig(items: accountItems),
     NativeSheetSectionConfig(items: appItems),
     if (placeItems.isNotEmpty) NativeSheetSectionConfig(items: placeItems),
     if (advancedItems.isNotEmpty)
       NativeSheetSectionConfig(
-        title: l10n.advancedFeatures,
         footer: l10n.profileAdvancedFooter,
         items: advancedItems,
       ),
+    // About and the ways to support the app share a group, so the list
+    // ends on two groups rather than three thin ones.
     NativeSheetSectionConfig(
+      footer: l10n.supportConduitFooter,
       items: [
         NativeSheetItemConfig(
           id: NativeSheetRoutes.helpAbout,
           title: l10n.aboutApp,
           sfSymbol: 'info.circle',
         ),
+        ...buildNativeSupportItems(l10n),
       ],
     ),
     if (hasAccount)
@@ -315,10 +317,6 @@ List<NativeSheetSectionConfig> buildNativeProfileRootSections(
             ),
         ],
       ),
-    NativeSheetSectionConfig(
-      title: l10n.supportConduit,
-      items: buildNativeSupportItems(l10n),
-    ),
   ];
 }
 
@@ -388,7 +386,12 @@ NativeSheetDetailConfig buildNativeAccountsDetail(
               NativeSheetItemConfig(
                 id: '$nativeAccountServerActionId:${group.first.server.id}',
                 title: serverDisplayName(group.first.server),
-                avatarName: serverDisplayName(group.first.server),
+                // A server known only by its address gets a server symbol;
+                // initials of "127.0.0.1" would read "12".
+                sfSymbol: 'server.rack',
+                avatarName: serverIsKnownOnlyByAddress(group.first.server)
+                    ? null
+                    : serverDisplayName(group.first.server),
                 dismissOnSelect: true,
                 actionId: nativeAccountServerActionId,
                 actionValue: group.first.server.id,
@@ -643,7 +646,11 @@ NativeSheetItemConfig _nativeRootPageItem(
 );
 
 /// The sections of the native Profile page. [accountProfile] supplies the
-/// About text; with none loaded the rows show it as not set.
+/// About text, gender and birthday; with none loaded the rows show them as
+/// not set.
+///
+/// The photo and every field share one group, each row saying what it holds
+/// now, as a contact card does; the password is the account's, below.
 List<NativeSheetSectionConfig> buildNativeProfileDetailSections(
   AppLocalizations l10n, {
   required String displayName,
@@ -657,48 +664,73 @@ List<NativeSheetSectionConfig> buildNativeProfileDetailSections(
         NativeSheetItemConfig(
           id: 'profile-photo',
           title: l10n.editPhoto,
-          sfSymbol: 'person.crop.circle',
+          sfSymbol: 'camera',
           showsDisclosure: true,
         ),
-      ],
-    ),
-    NativeSheetSectionConfig(
-      items: [
         NativeSheetItemConfig(
           id: 'profile-name',
           title: l10n.name,
-          subtitle: [displayName, if (hasBio) bio].join(' · '),
-          sfSymbol: 'person.text.rectangle',
+          subtitle: displayName,
+          sfSymbol: 'person',
           showsDisclosure: true,
         ),
         NativeSheetItemConfig(
           id: 'profile-about',
           title: l10n.bioLabel,
           subtitle: hasBio ? bio : l10n.notSet,
-          sfSymbol: 'text.bubble',
+          sfSymbol: 'text.quote',
           showsDisclosure: true,
         ),
         NativeSheetItemConfig(
           id: 'profile-details',
           title: l10n.profileDetails,
-          subtitle: l10n.profileDetailsSummary,
-          sfSymbol: 'person.crop.circle',
+          subtitle:
+              nativeProfileDetailsSummary(l10n, accountProfile) ??
+              l10n.profileDetailsSummary,
+          sfSymbol: 'calendar',
           showsDisclosure: true,
         ),
       ],
     ),
     NativeSheetSectionConfig(
-      title: l10n.accountSettingsTitle,
       items: [
         NativeSheetItemConfig(
           id: 'password',
           title: l10n.changePasswordTitle,
-          subtitle: l10n.passwordChangeDescription,
           sfSymbol: 'lock',
         ),
       ],
     ),
   ];
+}
+
+/// What the Profile details row holds now -- the gender and birthday set,
+/// "Female · Mar 12, 1990" -- or null when neither is.
+String? nativeProfileDetailsSummary(
+  AppLocalizations l10n,
+  AccountMetadata? profile,
+) {
+  final gender = profile?.gender?.trim() ?? '';
+  final genderLabel = switch (gender) {
+    '' => null,
+    'male' => l10n.genderMale,
+    'female' => l10n.genderFemale,
+    _ => gender,
+  };
+  final birth = DateTime.tryParse(profile?.dateOfBirth?.trim() ?? '');
+  final birthLabel = birth == null ? null : _formatBirthday(l10n, birth);
+  final parts = [?genderLabel, ?birthLabel];
+  return parts.isEmpty ? null : parts.join(' · ');
+}
+
+/// [date] as the app's language writes a date, or the default locale's way
+/// when that language's date data is not loaded.
+String _formatBirthday(AppLocalizations l10n, DateTime date) {
+  try {
+    return DateFormat.yMMMd(l10n.localeName).format(date);
+  } on Exception {
+    return DateFormat.yMMMd().format(date);
+  }
 }
 
 String? resolveNativeSheetModelName(List<Model> models, String? modelId) {

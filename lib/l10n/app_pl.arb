@@ -111,7 +111,7 @@
     "description": "Settings destination for transport, connectivity, and related server data options."
   },
   "slidingSidebar": "Wysuwany panel boczny",
-  "slidingSidebarDescription": "Otwieraj Notatki, Terminal i Kanały obok historii czatów.",
+  "slidingSidebarDescription": "Gdy włączone, Notatki, Terminal i Kanały otwierają się obok paska bocznego, który nadal pokazuje czaty. Gdy wyłączone, otwierają się w pasku bocznym.",
   "settingsAppearance": "Wygląd",
   "@settingsAppearance": {
     "description": "Settings destination for app appearance options."
@@ -1765,7 +1765,7 @@
     "description": "Label shown after code interpreter has finished."
   },
   "showComposerNotesButton": "Pokaż przycisk notatek",
-  "showComposerNotesButtonDescription": "Pokaż przycisk tworzenia notatki w polu wiadomości.",
+  "showComposerNotesButtonDescription": "Podczas pisania pokazuje przycisk, który zapisuje wiadomość jako notatkę zamiast ją wysyłać.",
   "appCustomization": "Personalizacja",
   "@appCustomization": {
     "description": "Title of the customization settings page."
@@ -1825,7 +1825,7 @@
     "description": "Subtitle for the setting that suppresses assistant response streaming haptics."
   },
   "citationBackground": "Tło cytowań",
-  "citationBackgroundDescription": "Wyłącz, aby cytowania w tekście miały przezroczyste tło",
+  "citationBackgroundDescription": "Wyświetla cytowania w odpowiedziach na cieniowanym tle. Wyłącz, aby pokazywać je bez tła.",
   "citationShowTitles": "Pokazuj tytuły stron w cytowaniach",
   "@citationShowTitles": {
     "description": "Toggle title for labeling inline citation badges with page titles instead of domains."
@@ -3821,7 +3821,7 @@
   "@passwordChangeDescription": {
     "description": "Subtitle for the action that updates the account password."
   },
-  "profileDetailsSummary": "Bio, płeć i data urodzenia",
+  "profileDetailsSummary": "Płeć i data urodzenia",
   "@profileDetailsSummary": {
     "description": "Subtitle for the profile details editor."
   },
@@ -7605,7 +7605,7 @@
   "chatMergeChooseDescription": "Wybierz odpowiedzi do scalenia. Wybierz co najmniej dwie; oryginały pozostają bez zmian.",
   "folderProjectComparisonFallbackNotice": "Nie wszystkie zapisane modele tego projektu mogą być użyte, więc czat rozpoczyna się z mniejszą ich liczbą. Porównanie używa dokładnie dwóch.",
   "advancedFeaturesFooter": "Dodaje porównywanie modeli, ustawienia czatu, ustawienia narzędzi, zaplanowane zadania, połączenia osobiste, webhooki i zarządzanie danymi. Wyłączenie tylko je ukrywa; to, co już skonfigurowano, nadal działa.",
-  "profileAdvancedFooter": "Widoczne, ponieważ opcja Zaawansowane jest włączona w Ustawienia > Czat.",
+  "profileAdvancedFooter": "Widoczne, ponieważ opcja Zaawansowane jest włączona w sekcji Czaty.",
   "advancedRequiredTitle": "Część trybu Zaawansowane",
   "advancedRequiredMessage": "{feature} to funkcja trybu Zaawansowane. Włącz go, aby z niej korzystać. To, co już skonfigurowano, nadal działa.",
   "@advancedRequiredMessage": {
@@ -8185,5 +8185,7 @@
   "copied": "Skopiowano",
   "composerAddAttachment": "Dodaj załącznik",
   "composerShowKeyboard": "Pokaż klawiaturę",
-  "composerAttachUploads": "Przesłane"
+  "composerAttachUploads": "Przesłane",
+  "supportConduitFooter": "Conduit jest darmowy i open source. Twoje wsparcie pomaga, by tak zostało.",
+  "aiMemoryFooter": "Twój prompt systemowy kieruje każdym czatem. Pamięć pozwala asystentowi zapamiętywać informacje z rozmów."
 }

@@ -1519,7 +1519,7 @@
     "description": "Label shown after code interpreter has finished."
   },
   "showComposerNotesButton": "Show Notes button",
-  "showComposerNotesButtonDescription": "Show Create note in the chat composer.",
+  "showComposerNotesButtonDescription": "入力中に、メッセージを送信せずにノートとして保存するボタンを表示します。",
   "appCustomization": "カスタマイズ",
   "@appCustomization": {
     "description": "Title of the customization settings page."
@@ -3694,7 +3694,7 @@
   "settingsCategorySupport": "サポート",
   "settingsDataAndConnection": "データと接続",
   "slidingSidebar": "スライド式サイドバー",
-  "slidingSidebarDescription": "チャット履歴の横でノート、ターミナル、チャンネルを開きます。",
+  "slidingSidebarDescription": "オンにすると、ノート、ターミナル、チャンネルはサイドバーの横に開き、サイドバーにはチャットが表示されたままになります。オフにするとサイドバー内で開きます。",
   "settingsAppearance": "外観",
   "settingsAppearanceSubtitle": "テーマ、カラーパレット、言語",
   "settingsChatSubtitle": "チャットの動作、クイックアクション、高度なプロンプト",
@@ -5024,7 +5024,7 @@
   "colorScheme": "カラースキーム",
   "channelEmptyHint": "チャンネルを作成してグループ会話を始めましょう。",
   "passwordChangeDescription": "アカウントのパスワードを更新",
-  "profileDetailsSummary": "自己紹介、性別、生年月日",
+  "profileDetailsSummary": "性別、生年月日",
   "notificationRequiresMaster": "この設定を変更するには通知をオンにしてください。",
   "notificationRequiresSound": "この設定を変更するにはサウンドをオンにしてください。",
   "enabled": "オン",
@@ -5137,7 +5137,7 @@
   "backendChooserModelApisSectionTitle": "モデル API",
   "backendChooserSelfHostedSectionTitle": "セルフホストのサービス",
   "citationBackground": "引用の背景",
-  "citationBackgroundDescription": "オフにすると文中の引用の背景が透明になります",
+  "citationBackgroundDescription": "回答内の引用に背景色を付けます。オフにすると背景なしで表示されます。",
   "citationShowTitles": "引用にページタイトルを表示",
   "citationShowTitlesDescription": "引用バッジにサイトのドメインではなくページタイトルを使用します",
   "directContextCompactionDescription": "これらのモデルはコンテキストウィンドウを報告しません。Conduit はリクエストが大きくなりすぎる前に、選択した上限を使って古いメッセージを圧縮します。",
@@ -5786,7 +5786,7 @@
   "chatMergeChooseDescription": "統合する応答を選択してください。2 つ以上選択する必要があります。元の応答はそのまま残ります。",
   "folderProjectComparisonFallbackNotice": "このプロジェクトに保存されているモデルをすべて使用することはできないため、チャットはそれより少ないモデルで開始されます。比較で使用するモデルは、ちょうど 2 つです。",
   "advancedFeaturesFooter": "モデル比較、チャットごとの設定、ツール設定、スケジュールタスク、個人用接続、Webhook、データ管理を追加します。オフにしても非表示になるだけで、設定済みのものは引き続き動作します。",
-  "profileAdvancedFooter": "「設定 > チャット」で詳細設定がオンになっているため表示されています。",
+  "profileAdvancedFooter": "「チャット」で詳細設定がオンになっているため表示されています。",
   "advancedRequiredTitle": "詳細設定の機能です",
   "advancedRequiredMessage": "{feature} は詳細設定の機能です。使用するには詳細設定をオンにしてください。設定済みのものは引き続き動作します。",
   "advancedTurnOn": "詳細設定をオンにする",
@@ -6000,5 +6000,7 @@
   "copied": "コピーしました",
   "composerAddAttachment": "添付ファイルを追加",
   "composerShowKeyboard": "キーボードを表示",
-  "composerAttachUploads": "アップロード済み"
+  "composerAttachUploads": "アップロード済み",
+  "supportConduitFooter": "Conduit は無料のオープンソースです。ご支援がその継続を支えます。",
+  "aiMemoryFooter": "システムプロンプトはすべてのチャットに適用されます。メモリを使うと、アシスタントが伝えた内容を覚えておけます。"
 }

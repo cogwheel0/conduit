@@ -143,12 +143,16 @@ void main() {
     check(appearance.last.title).equals(spanish.settingsAppearance);
     check(appearance.last.title)
         .not((it) => it.equals(english.settingsAppearance));
-    final citationBackground = [
-      for (final section in appearance.last.sections) ...section.items,
-    ].singleWhere((row) => row.id == 'citation-background');
+    final themeGroup = appearance.last.sections.singleWhere(
+      (section) => section.items.any((row) => row.id == 'citation-background'),
+    );
+    final citationBackground = themeGroup.items.singleWhere(
+      (row) => row.id == 'citation-background',
+    );
     check(citationBackground.title).equals(spanish.citationBackground);
-    check(citationBackground.subtitle)
-        .equals(spanish.citationBackgroundDescription);
+    // Explained in its group's footer, as Settings does, not under its title.
+    check(citationBackground.subtitle).isNull();
+    check(themeGroup.footer).equals(spanish.citationBackgroundDescription);
     check(citationBackground.kind).equals(PlatformNativeSheetItemKind.toggle);
     check(citationBackground.value).equals(true);
   });
@@ -250,21 +254,25 @@ void main() {
 
     final appearance = patches.where((p) => p.detailId == 'appearance');
     check(appearance).length.equals(1);
-    final notes = appearance.single.sections
-        .expand((section) => section.items)
-        .singleWhere((item) => item.id == 'composer-notes-button');
-    check(notes.value).equals(false);
-    check(notes.title).equals('Show Notes button');
     final ids = [
       for (final section in appearance.single.sections)
         for (final item in section.items) item.id,
     ];
-    check(ids).containsEqualInOrder(['theme-light', 'theme-palette']);
-    check(ids).contains('language');
-    final sidebar = appearance.single.sections
-        .expand((s) => s.items)
-        .singleWhere((item) => item.id == 'sliding-sidebar');
-    check(sidebar.value).equals(false);
+    // Color scheme, palette and citation shading in one group, the sidebar
+    // in the next, the language last. The Notes button lives in Chats now.
+    check(ids).deepEquals([
+      'theme-light',
+      'theme-palette',
+      'citation-background',
+      'sliding-sidebar',
+      'language',
+    ]);
+    final sidebarGroup = appearance.single.sections.singleWhere(
+      (section) => section.items.any((item) => item.id == 'sliding-sidebar'),
+    );
+    check(sidebarGroup.items.single.value).equals(false);
+    check(sidebarGroup.items.single.subtitle).isNull();
+    check(sidebarGroup.footer).isNotNull();
     // The pages that do need the server show the error instead.
     check(patches.where((p) => p.detailId == 'chats')).isNotEmpty();
   });
@@ -419,17 +427,37 @@ void main() {
       check(citation.title).equals(l10n.citationShowTitles);
       check(citation.kind).equals(PlatformNativeSheetItemKind.toggle);
       check(citation.value).equals(false);
+      // Message actions is a page, so it sits with the other pages; the
+      // toggles follow, the message field's first.
+      check(
+        chats.sections
+            .firstWhere((s) => s.items.any((r) => r.id == 'message-actions'))
+            .items
+            .last
+            .id,
+      ).equals('message-actions');
       check(
         chats.sections
             .firstWhere((s) => s.items.any((r) => r.id == 'send-on-enter'))
             .items
             .map((r) => r.id),
+      ).deepEquals(['send-on-enter', 'composer-notes-button']);
+      check(
+        chats.sections
+            .firstWhere(
+              (s) => s.items.any((r) => r.id == 'temporary-chat-default'),
+            )
+            .items
+            .map((r) => r.id),
       ).deepEquals([
-        'message-actions',
-        'send-on-enter',
         'temporary-chat-default',
         'citation-show-titles',
+        'disable-haptics-streaming',
       ]);
+      final notes = rows(chats)
+          .singleWhere((r) => r.id == 'composer-notes-button');
+      check(notes.title).equals(l10n.showComposerNotesButton);
+      check(notes.kind).equals(PlatformNativeSheetItemKind.toggle);
     });
 
     testWidgets('stays available when the models request fails', (

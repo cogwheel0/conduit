@@ -60,6 +60,13 @@ String serverDisplayName(OpenWebUiServer server) {
 
 String _hostOf(String url) => Uri.tryParse(url)?.host ?? '';
 
+/// Whether [server] goes by nothing friendlier than an address (an IP or a
+/// host name), so a list draws a server symbol for it rather than initials
+/// made of digits or letters of a domain.
+bool serverIsKnownOnlyByAddress(OpenWebUiServer server) =>
+    _isHost(serverDisplayName(server)) ||
+    serverDisplayName(server) == server.endpoints.first.url;
+
 /// Whether [name] is a host, as a URL's is written: lower case, an IPv6
 /// address without its brackets.
 bool _isHost(String name) =>
@@ -104,13 +111,18 @@ enum AccountCardKind { openWebUi, hermes, direct }
 
 /// What Settings' account card says: whom it is for -- the Open WebUI
 /// account signed in, named [signedInName], else the Hermes connection in
-/// use, else Direct -- then where that is, and how many other accounts and
-/// connections there are to switch to.
+/// use, else Direct -- then who or where that is, and how many other
+/// accounts and connections there are to switch to.
+///
+/// An Open WebUI account is told by its [signedInEmail], as a mail or cloud
+/// account is in Settings; the server it is on, which may be no more than an
+/// address, stands in only when there is no email.
 ///
 /// [hermesInUseId] is null while Hermes is off.
 ({AccountCardKind kind, String title, String? subtitle}) accountCardSummary(
   AppLocalizations l10n, {
   required String? signedInName,
+  String? signedInEmail,
   required List<OpenWebUiAccountEntry> accounts,
   required List<HermesConnectionProfile> hermesConnections,
   required String? hermesInUseId,
@@ -125,7 +137,12 @@ enum AccountCardKind { openWebUi, hermes, direct }
     kind = AccountCardKind.openWebUi;
     title = signedInName;
     final active = accounts.where((entry) => entry.isActive).firstOrNull;
-    place = active == null ? null : serverDisplayName(active.server);
+    final email = (signedInEmail ?? active?.summary.email)?.trim();
+    place = email != null && email.isNotEmpty && email != signedInName
+        ? email
+        : active == null
+        ? null
+        : serverDisplayName(active.server);
   } else if (hermes != null) {
     kind = AccountCardKind.hermes;
     title = hermes.name;

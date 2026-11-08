@@ -110,13 +110,13 @@
   "@settingsDataAndConnection": {
     "description": "Settings destination for transport, connectivity, and related server data options."
   },
-  "slidingSidebar": "Sliding sidebar",
+  "slidingSidebar": "Sliding Sidebar",
   "@slidingSidebar": {
     "description": "Appearance setting that opts into the sliding sidebar layout."
   },
-  "slidingSidebarDescription": "Open Notes, Terminal and Channels beside chat history.",
+  "slidingSidebarDescription": "When on, Notes, Terminal and Channels open beside the sidebar, which keeps showing your chats. When off, they open inside the sidebar.",
   "@slidingSidebarDescription": {
-    "description": "Explains that sidebar destinations open beside chat history when the optional layout is enabled."
+    "description": "Footer under the Sliding Sidebar toggle in Appearance (and subtitle on Android): where Notes, Terminal and Channels open with the toggle on and off."
   },
   "settingsAppearance": "Appearance",
   "@settingsAppearance": {
@@ -158,7 +158,7 @@
   "@buyMeACoffeeSubtitle": {
     "description": "Subtitle encouraging one-time donations via Buy Me a Coffee."
   },
-  "releaseNotesTitle": "What's new",
+  "releaseNotesTitle": "What's New",
   "@releaseNotesTitle": {
     "description": "Title for the baked in-app release notes sheet."
   },
@@ -193,7 +193,7 @@
       }
     }
   },
-  "signOut": "Sign out",
+  "signOut": "Sign Out",
   "@signOut": {
     "description": "Button/title for signing out of the app."
   },
@@ -213,7 +213,7 @@
   "@keepServerDetailsDescription": {
     "description": "Description of the data retained by the keep-server-details option."
   },
-  "defaultModel": "Default model",
+  "defaultModel": "Default Model",
   "@defaultModel": {
     "description": "Label for choosing a default AI model."
   },
@@ -1377,7 +1377,7 @@
   "@darkMode": {
     "description": "Label for toggling dark theme."
   },
-  "colorScheme": "Color scheme",
+  "colorScheme": "Color Scheme",
   "@colorScheme": {
     "description": "Label for choosing System, Light, or Dark appearance."
   },
@@ -1684,7 +1684,7 @@
   "@themeDark": {
     "description": "Theme label for dark appearance."
   },
-  "themePalette": "Accent palette",
+  "themePalette": "Accent Palette",
   "@themePalette": {
     "description": "Title for selecting the app color palette."
   },
@@ -1744,7 +1744,7 @@
   "@aboutConduit": {
     "description": "Dialog title for app information."
   },
-  "openSourceLicenses": "Open source licenses",
+  "openSourceLicenses": "Open Source Licenses",
   "@openSourceLicenses": {
     "description": "Action that opens licenses and notices for bundled open source software and assets."
   },
@@ -1760,7 +1760,7 @@
       }
     }
   },
-  "githubRepository": "GitHub repository",
+  "githubRepository": "GitHub Repository",
   "@githubRepository": {
     "description": "Link label pointing to the app repository."
   },
@@ -1794,13 +1794,13 @@
   "@analyzed": {
     "description": "Label shown after code interpreter has finished."
   },
-  "showComposerNotesButton": "Show Notes button",
+  "showComposerNotesButton": "Show Notes Button",
   "@showComposerNotesButton": {
     "description": "Appearance setting for showing the Create note shortcut in the chat composer."
   },
-  "showComposerNotesButtonDescription": "Show Create note in the chat composer.",
+  "showComposerNotesButtonDescription": "While you type, show a button that saves your message as a note instead of sending it.",
   "@showComposerNotesButtonDescription": {
-    "description": "Explains that this preference only changes the composer shortcut."
+    "description": "Subtitle of the Show Notes Button toggle in Chats settings: while typing, the message field offers a button that saves the draft as a note instead of sending it."
   },
   "appCustomization": "Customization",
   "@appCustomization": {
@@ -1810,9 +1810,9 @@
   "@appCustomizationSubtitle": {
     "description": "Subtitle shown under App Customization tile and page header."
   },
-  "quickActionsDescription": "Quick actions in chat",
+  "quickActionsDescription": "Quick Actions",
   "@quickActionsDescription": {
-    "description": "Helper text explaining quick action pill selection in customization."
+    "description": "Title of the Quick Actions setting: which quick action pills show in the chat composer."
   },
   "quickActionsSelectedCount": "{count, plural, =0{No actions selected} one{1 action selected} other{{count} actions selected}}",
   "@quickActionsSelectedCount": {
@@ -1830,7 +1830,7 @@
   },
   "messageActionsAutomatic": "Automatic actions",
   "@messageActionsAutomatic": {"description": "Toggle for choosing response actions automatically from the actions eligible for each message."},
-  "messageActionsTitle": "Message actions",
+  "messageActionsTitle": "Message Actions",
   "@messageActionsTitle": {"description": "Response action customization in Chat settings."},
   "messageActionsDescription": "Choose which actions appear below responses. Drag enabled actions to change their order. Other actions stay in More.",
   "@messageActionsDescription": {"description": "Response action customization in Chat settings."},
@@ -1852,7 +1852,7 @@
   "@sendOnEnterDescription": {
     "description": "Explanation of how the Send on Enter toggle behaves."
   },
-  "disableHapticsWhileStreaming": "Disable haptics while streaming",
+  "disableHapticsWhileStreaming": "Mute Streaming Haptics",
   "@disableHapticsWhileStreaming": {
     "description": "Title for the setting that suppresses assistant response streaming haptics."
   },
@@ -1860,15 +1860,15 @@
   "@disableHapticsWhileStreamingDescription": {
     "description": "Subtitle for the setting that suppresses assistant response streaming haptics."
   },
-  "citationBackground": "Citation background",
+  "citationBackground": "Citation Background",
   "@citationBackground": {
     "description": "Toggle title for filled backgrounds on inline citation badges."
   },
-  "citationBackgroundDescription": "Turn off for transparent inline citations",
+  "citationBackgroundDescription": "Puts a shaded background behind citations in replies. Turn it off for plain citations.",
   "@citationBackgroundDescription": {
-    "description": "Explains that disabling citation backgrounds makes inline citations transparent."
+    "description": "Footer under the Appearance group with the Citation Background toggle (and subtitle on Android): what the shaded citation background is and what turning it off does."
   },
-  "citationShowTitles": "Show citation page titles",
+  "citationShowTitles": "Show Citation Page Titles",
   "@citationShowTitles": {
     "description": "Toggle title for labeling inline citation badges with page titles instead of domains."
   },
@@ -1896,7 +1896,7 @@
   "@androidAssistantVoiceCallOption": {
     "description": "Option label for jumping straight into voice call from assistant trigger."
   },
-  "sttSettings": "Speech to text",
+  "sttSettings": "Speech to Text",
   "@sttSettings": {
     "description": "Section header for speech-to-text settings."
   },
@@ -2012,7 +2012,7 @@
   "@ttsServerUnavailableWarning": {
     "description": "Warning shown when server text-to-speech is unavailable."
   },
-  "voiceProviderTitle": "Voice provider",
+  "voiceProviderTitle": "Voice Provider",
   "@voiceProviderTitle": {
     "description": "Title of the setting that picks the Direct connection used for speech in Direct and Apple chats."
   },
@@ -2102,15 +2102,15 @@
       }
     }
   },
-  "ttsSettings": "Text to speech",
+  "ttsSettings": "Text to Speech",
   "@ttsSettings": {
     "description": "Section header for TTS-related customization options."
   },
-  "ttsVoice": "Playback voice",
+  "ttsVoice": "Playback Voice",
   "@ttsVoice": {
     "description": "Title for voice selection tile."
   },
-  "ttsPlaybackSpeed": "Playback speed",
+  "ttsPlaybackSpeed": "Playback Speed",
   "@ttsPlaybackSpeed": {
     "description": "Title of the control that sets how fast read-aloud and spoken replies play, cloud and device voices alike."
   },
@@ -2133,7 +2133,7 @@
   "@ttsVolume": {
     "description": "Title for volume slider."
   },
-  "ttsPreview": "Preview voice",
+  "ttsPreview": "Preview Voice",
   "@ttsPreview": {
     "description": "Title for preview button."
   },
@@ -2329,7 +2329,7 @@
   "@realtime": {
     "description": "Section header for realtime/transport settings."
   },
-  "transportMode": "Transport mode",
+  "transportMode": "Transport Mode",
   "@transportMode": {
     "description": "Title for selecting the networking transport used for realtime."
   },
@@ -2801,7 +2801,7 @@
   "@saveChat": {
     "description": "Action to save a temporary chat to history."
   },
-  "temporaryChatByDefault": "Start temporary chats",
+  "temporaryChatByDefault": "Start Temporary Chats",
   "@temporaryChatByDefault": {
     "description": "Setting to make all new chats temporary by default."
   },
@@ -3719,7 +3719,7 @@
   "@close": {
     "description": "Button label to close a dialog or sheet."
   },
-  "connectionHealth": "Connection health",
+  "connectionHealth": "Connection Health",
   "@connectionHealth": {
     "description": "Section title for connection health information."
   },
@@ -3743,7 +3743,7 @@
   "@personalizationSubtitle": {
     "description": "Subtitle for the personalization hub tile."
   },
-  "yourSystemPrompt": "Your system prompt",
+  "yourSystemPrompt": "System Prompt",
   "@yourSystemPrompt": {
     "description": "Label for the user's server-backed system prompt."
   },
@@ -3873,7 +3873,7 @@
   "@accountStatus": {
     "description": "Label for the account status row."
   },
-  "profileDetails": "Profile details",
+  "profileDetails": "Profile Details",
   "@profileDetails": {
     "description": "Heading for editable profile fields."
   },
@@ -3973,7 +3973,7 @@
   "@saveProfile": {
     "description": "Button label for saving profile details."
   },
-  "changePasswordTitle": "Change password",
+  "changePasswordTitle": "Change Password",
   "@changePasswordTitle": {
     "description": "Heading and button label for password changes."
   },
@@ -4037,11 +4037,11 @@
   "@serverInfoUnavailable": {
     "description": "Message shown when server about data cannot be loaded."
   },
-  "serverNameLabel": "Server name",
+  "serverNameLabel": "Server Name",
   "@serverNameLabel": {
     "description": "Label for the server name row."
   },
-  "serverVersionLabel": "Server version",
+  "serverVersionLabel": "Server Version",
   "@serverVersionLabel": {
     "description": "Label for the server version row."
   },
@@ -4077,9 +4077,9 @@
   "@passwordChangeDescription": {
     "description": "Subtitle for the action that updates the account password."
   },
-  "profileDetailsSummary": "Bio, gender, and birthday",
+  "profileDetailsSummary": "Gender and birthday",
   "@profileDetailsSummary": {
-    "description": "Subtitle for the profile details editor."
+    "description": "Subtitle of the Profile Details row when neither gender nor birthday is set: what that editor holds."
   },
   "apiKeysLabel": "API keys",
   "@apiKeysLabel": {
@@ -4649,7 +4649,7 @@
   "@notificationsSubtitle": {
     "description": "Subtitle for the Notifications row in the profile/settings list."
   },
-  "notificationsEnabledTitle": "Enable notifications",
+  "notificationsEnabledTitle": "Allow Notifications",
   "@notificationsEnabledTitle": {
     "description": "Master toggle title for all notifications."
   },
@@ -4665,7 +4665,7 @@
   "@notificationSoundDescription": {
     "description": "Toggle description for the notification sound."
   },
-  "notificationSoundAlwaysTitle": "Always play sound",
+  "notificationSoundAlwaysTitle": "Always Play Sound",
   "@notificationSoundAlwaysTitle": {
     "description": "Toggle title mirroring Open WebUI's notificationSoundAlways setting."
   },
@@ -4673,7 +4673,7 @@
   "@notificationSoundAlwaysDescription": {
     "description": "Toggle description for always playing the notification cue."
   },
-  "notificationInAppBannerTitle": "In-app banners",
+  "notificationInAppBannerTitle": "In-App Banners",
   "@notificationInAppBannerTitle": {
     "description": "Toggle title for in-app banner notifications shown while the app is open."
   },
@@ -4681,7 +4681,7 @@
   "@notificationInAppBannerDescription": {
     "description": "Toggle description for in-app banners."
   },
-  "notificationSystemTitle": "System notifications",
+  "notificationSystemTitle": "System Notifications",
   "@notificationSystemTitle": {
     "description": "Toggle title for OS-level notifications shown when the app is backgrounded."
   },
@@ -4689,7 +4689,7 @@
   "@notificationSystemDescription": {
     "description": "Toggle description for system notifications."
   },
-  "notificationChatTitle": "Chat responses",
+  "notificationChatTitle": "Chat Responses",
   "@notificationChatTitle": {
     "description": "Toggle title for notifications when an assistant response finishes."
   },
@@ -4697,7 +4697,7 @@
   "@notificationChatDescription": {
     "description": "Toggle description for chat-response notifications."
   },
-  "notificationChannelTitle": "Channel messages",
+  "notificationChannelTitle": "Channel Messages",
   "@notificationChannelTitle": {
     "description": "Toggle title for notifications when a new channel or DM message arrives."
   },
@@ -5650,7 +5650,7 @@
       }
     }
   },
-  "addDirectConnection": "Add connection",
+  "addDirectConnection": "Add Connection",
   "@addDirectConnection": {
     "description": "Button that creates a direct connection profile."
   },
@@ -6794,7 +6794,7 @@
   "@markdownShowMoreLines": {"description":"Action that expands a collapsed Markdown code block.","placeholders":{"count":{"type":"int","example":"12"}}},
   "markdownShowLess": "Show less",
   "@markdownShowLess": {"description":"Action that collapses an expanded Markdown code block."},
-  "voiceBargeIn": "Barge in",
+  "voiceBargeIn": "Barge In",
   "@voiceBargeIn": {"description":"Setting that allows speech to interrupt a voice response."},
   "voiceBargeInDescription": "Keep listening while the assistant speaks so you can interrupt it.",
   "@voiceBargeInDescription": {"description":"Explains the voice barge-in setting."},
@@ -8199,7 +8199,7 @@
   "@advancedFeaturesFooter": {
     "description": "Footer under the Advanced setting explaining what it reveals and that turning it off only hides those tools."
   },
-  "profileAdvancedFooter": "Shown because Advanced is on in Settings > Chat.",
+  "profileAdvancedFooter": "Shown because Advanced is turned on in Chats.",
   "@profileAdvancedFooter": {
     "description": "Footer under the Advanced group in the Settings list explaining why these entries are shown."
   },
@@ -8220,7 +8220,7 @@
   "@advancedTurnOn": {
     "description": "Button that turns on the Advanced setting from a page that needs it."
   },
-  "promptOverridesTitle": "Prompt overrides",
+  "promptOverridesTitle": "Prompt Overrides",
   "@promptOverridesTitle": {
     "description": "Section header for per-model system prompt overrides in Chat settings."
   },
@@ -8703,7 +8703,7 @@
   "@hermesConnectionsSectionTitle": {
     "description": "Heading above the list of saved Hermes connections in Hermes Agent settings."
   },
-  "hermesAddConnection": "Add connection",
+  "hermesAddConnection": "Add Connection",
   "@hermesAddConnection": {
     "description": "Button that opens the editor for a new saved Hermes connection."
   },
@@ -8797,7 +8797,7 @@
   "@accountsTitle": {
     "description": "Heading of the list of saved Open WebUI accounts on the profile page and of the page that manages them."
   },
-  "accountsAddAccount": "Add account",
+  "accountsAddAccount": "Add Account",
   "@accountsAddAccount": {
     "description": "Row and button that starts signing in to another Open WebUI account, on a saved server or a new one."
   },
@@ -8871,7 +8871,7 @@
   "@accountsSignOutConfirmMessage": {
     "description": "Body of the confirmation before signing out of one Open WebUI account while others remain saved."
   },
-  "accountsSignOutAll": "Sign out of all accounts",
+  "accountsSignOutAll": "Sign Out of All Accounts",
   "@accountsSignOutAll": {
     "description": "Destructive row that signs out of every saved account and clears the app's data, as signing out did before several accounts could be saved."
   },
@@ -9191,5 +9191,13 @@
   "composerAttachUploads": "Uploads",
   "@composerAttachUploads": {
     "description": "Attachment panel tile and sheet title for files already uploaded to the server, as opposed to \"Files\", which picks a file from the device. Keep it to one short word if possible."
+  },
+  "supportConduitFooter": "Conduit is free and open source. Your support helps keep it that way.",
+  "@supportConduitFooter": {
+    "description": "Footer under the About and support rows at the end of Settings, saying why the support rows are there."
+  },
+  "aiMemoryFooter": "Your system prompt guides every chat. Memory lets the assistant remember things you've told it.",
+  "@aiMemoryFooter": {
+    "description": "Footer under the System Prompt and Memory rows of the AI and Memory settings page, explaining both in plain words."
   }
 }

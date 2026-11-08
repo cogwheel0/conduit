@@ -61,7 +61,7 @@ void main() {
     expect(find.byKey(const Key('settings-category-server')), findsNothing);
     // Connections -- Open WebUI's included -- are reached through Accounts.
     expect(find.text('Connect to Open WebUI'), findsNothing);
-    expect(find.text('Add account'), findsOneWidget);
+    expect(find.text('Add Account'), findsOneWidget);
 
     await tester.fling(find.byType(ListView), const Offset(0, -1000), 2000);
     await tester.pumpAndSettle();

@@ -387,7 +387,7 @@
   "analyzing": "Analizando…",
   "analyzed": "Analizado",
   "showComposerNotesButton": "Show Notes button",
-  "showComposerNotesButtonDescription": "Show Create note in the chat composer.",
+  "showComposerNotesButtonDescription": "Mientras escribes, muestra un botón que guarda tu mensaje como nota en lugar de enviarlo.",
   "appCustomization": "Personalización",
   "appCustomizationSubtitle": "Tema, idioma, voz y quick actions",
   "quickActionsDescription": "Accesos directos en chat",
@@ -2077,7 +2077,7 @@
   "settingsCategorySupport": "Soporte",
   "settingsDataAndConnection": "Datos y conexión",
   "slidingSidebar": "Barra lateral deslizante",
-  "slidingSidebarDescription": "Abre Notas, Terminal y Canales junto al historial de chats.",
+  "slidingSidebarDescription": "Si está activado, Notas, Terminal y Canales se abren junto a la barra lateral, que sigue mostrando tus chats. Si está desactivado, se abren dentro de ella.",
   "settingsAppearance": "Apariencia",
   "settingsAppearanceSubtitle": "Tema, paleta de colores e idioma",
   "settingsChatSubtitle": "Comportamiento del chat, acciones rápidas y prompts avanzados",
@@ -3458,7 +3458,7 @@
   "notificationRequiresMaster": "Activa las notificaciones para cambiar este ajuste.",
   "notificationRequiresSound": "Activa el sonido para cambiar este ajuste.",
   "passwordChangeDescription": "Actualizar la contraseña de la cuenta",
-  "profileDetailsSummary": "Biografía, género y fecha de nacimiento",
+  "profileDetailsSummary": "Género y fecha de nacimiento",
   "directMcpServersTitle": "MCP servers", "directMcpEmptyTitle": "No MCP servers yet", "directMcpReachabilityHelp": "Add a Streamable HTTP endpoint that this phone can reach.", "directMcpEditorTitle": "Edit MCP server", "directMcpAddTitle": "Add MCP server", "directMcpName": "Server name", "directMcpEndpoint": "Streamable HTTP endpoint", "directMcpBearerToken": "Bearer token (optional)", "directMcpCustomHeaders": "Custom headers (optional)", "directMcpCustomHeadersHint": "One per line: Name: Value", "directMcpTestConnection": "Test connection", "directMcpTesting": "Testing connection…", "directMcpTestSucceeded": "Connected — {count} tools found.", "directMcpTestFailed": "Could not list tools from this MCP server.", "directMcpSaveFailed": "Could not save this MCP server.", "directMcpLoadFailed": "Could not load MCP servers from secure storage.", "directMcpMissing": "This MCP server no longer exists.", "directMcpCredentialTransferTitle": "Use credentials with new server?", "directMcpCredentialTransferMessage": "This sends the bearer token and custom headers to the new server. Continue only if you trust it. Cancel saves the server without credentials.", "directMcpCredentialTransferConfirm": "Use credentials", "directMcpDeleteTitle": "Delete MCP server?", "directMcpDeleteMessage": "This removes {name} and its credentials from this device.", "directMcpDeleteFailed": "Could not delete this MCP server.", "directMcpAuthMode": "Authentication", "directMcpAuthNone": "None", "directMcpAuthBearer": "Bearer token", "directMcpAuthOAuth": "OAuth", "directMcpOAuthConnect": "Connect in browser", "directMcpOAuthReconnect": "Reconnect in browser", "directMcpOAuthDisconnect": "Disconnect OAuth", "directMcpOAuthPending": "Waiting for authorization in the browser…", "directMcpOAuthConnected": "OAuth connected.", "directMcpOAuthConnectionDetails": "Connected to {issuerHost} · {scopes}", "directMcpOAuthNoScopes": "No scopes reported", "directMcpOAuthConnectFailed": "Could not connect this MCP server with OAuth.", "directMcpOAuthDisconnectFailed": "Could not disconnect OAuth from this MCP server.", "directMcpApprovalTitle": "Tool approval", "directMcpApprovalAllowOnce": "Allow once", "directMcpApprovalAllowSession": "Allow for session", "directMcpApprovalAllowAlways": "Always allow", "directMcpApprovalAlwaysTitle": "Always allow this tool?", "directMcpApprovalAlwaysMessage": "{serverName} will be allowed to run {toolName} without asking again. The approval is revoked automatically if the tool schema changes.", "@directMcpApprovalAlwaysMessage": {"placeholders":{"serverName":{"type":"String"},"toolName":{"type":"String"}}}, "directMcpApprovalSaveFailed": "Could not remember this approval. You can retry or choose another option.", "directMcpApprovalDeny": "Denegar", "directMcpApprovalAllowed": "Allowed once", "directMcpApprovalAllowedSession": "Allowed for session", "directMcpApprovalAllowedAlways": "Always allowed", "directMcpApprovalDenied": "Denied", "directMcpApprovalExpired": "Approval expired", "directMcpRememberedApprovalsTitle": "Always allowed tools", "directMcpRememberedApprovalsSubtitle": "These exact tools can run without asking while their server and input schema remain unchanged.", "directMcpRememberedApprovalRevoke": "Revoke", "directMcpRememberedApprovalsRevokeAll": "Revoke all", "directMcpRememberedApprovalRevokeFailed": "Could not revoke the remembered approval."
   ,"directMcpContentAction": "MCP content"
   ,"directMcpContentTitle": "MCP content"
@@ -3520,7 +3520,7 @@
   "backendChooserModelApisSectionTitle": "API de modelos",
   "backendChooserSelfHostedSectionTitle": "Servicios autoalojados",
   "citationBackground": "Fondo de las citas",
-  "citationBackgroundDescription": "Desactívalo para mostrar citas en línea transparentes",
+  "citationBackgroundDescription": "Pone un fondo sombreado detrás de las citas en las respuestas. Desactívalo para citas sin fondo.",
   "citationShowTitles": "Mostrar títulos de página en las citas",
   "citationShowTitlesDescription": "Usar títulos de página en lugar de dominios en las insignias de cita",
   "directContextCompactionDescription": "Estos modelos no indican su ventana de contexto. Conduit usa el límite seleccionado para compactar los mensajes antiguos antes de que las solicitudes sean demasiado grandes.",
@@ -4169,7 +4169,7 @@
   "chatMergeChooseDescription": "Elige las respuestas que quieres combinar. Selecciona al menos dos; las originales se mantienen como están.",
   "folderProjectComparisonFallbackNotice": "No se pueden usar todos los modelos guardados de este proyecto, así que el chat empieza con menos. Una comparación usa exactamente dos.",
   "advancedFeaturesFooter": "Añade comparación de modelos, ajustes por chat, ajustes de herramientas, tareas programadas, conexiones personales, webhooks y controles de datos. Desactivarlo solo los oculta; lo que ya esté configurado sigue funcionando.",
-  "profileAdvancedFooter": "Se muestra porque Avanzado está activado en Ajustes > Chat.",
+  "profileAdvancedFooter": "Se muestra porque Avanzado está activado en Chats.",
   "advancedRequiredTitle": "Parte de Avanzado",
   "advancedRequiredMessage": "{feature} es una función de Avanzado. Activa Avanzado para usarla. Lo que ya esté configurado sigue funcionando.",
   "advancedTurnOn": "Activar Avanzado",
@@ -4383,5 +4383,7 @@
   "copied": "Copiado",
   "composerAddAttachment": "Añadir archivo adjunto",
   "composerShowKeyboard": "Mostrar teclado",
-  "composerAttachUploads": "Subidos"
+  "composerAttachUploads": "Subidos",
+  "supportConduitFooter": "Conduit es gratuito y de código abierto. Tu apoyo ayuda a que siga así.",
+  "aiMemoryFooter": "Tu prompt del sistema guía cada chat. La memoria permite al asistente recordar lo que le has contado."
 }

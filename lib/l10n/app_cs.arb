@@ -1519,7 +1519,7 @@
     "description": "Label shown after code interpreter has finished."
   },
   "showComposerNotesButton": "Show Notes button",
-  "showComposerNotesButtonDescription": "Show Create note in the chat composer.",
+  "showComposerNotesButtonDescription": "Při psaní zobrazí tlačítko, které zprávu místo odeslání uloží jako poznámku.",
   "appCustomization": "Přizpůsobení",
   "@appCustomization": {
     "description": "Title of the customization settings page."
@@ -4000,7 +4000,7 @@
   "settingsCategorySupport": "Podpora",
   "settingsDataAndConnection": "Data a připojení",
   "slidingSidebar": "Vysouvací postranní panel",
-  "slidingSidebarDescription": "Otevírat Poznámky, Terminál a Kanály vedle historie chatů.",
+  "slidingSidebarDescription": "Když je zapnuto, Poznámky, Terminál a Kanály se otevírají vedle postranního panelu, který dál zobrazuje vaše chaty. Když je vypnuto, otevírají se v něm.",
   "settingsAppearance": "Vzhled",
   "settingsAppearanceSubtitle": "Motiv, paleta barev a jazyk",
   "settingsChatSubtitle": "Chování chatu, rychlé akce a pokročilé prompty",
@@ -5330,7 +5330,7 @@
   "colorScheme": "Barevné schéma",
   "channelEmptyHint": "Vytvořte kanál a zahajte skupinovou konverzaci.",
   "passwordChangeDescription": "Aktualizovat heslo k účtu",
-  "profileDetailsSummary": "Profil, pohlaví a datum narození",
+  "profileDetailsSummary": "Pohlaví a datum narození",
   "notificationRequiresMaster": "Chcete-li změnit toto nastavení, zapněte oznámení.",
   "notificationRequiresSound": "Chcete-li změnit toto nastavení, zapněte zvuk.",
   "enabled": "Zapnuto",
@@ -5443,7 +5443,7 @@
   "backendChooserModelApisSectionTitle": "API modelů",
   "backendChooserSelfHostedSectionTitle": "Vlastní hostované služby",
   "citationBackground": "Pozadí citací",
-  "citationBackgroundDescription": "Vypněte pro průhledné citace v textu",
+  "citationBackgroundDescription": "Zobrazí citace v odpovědích na stínovaném pozadí. Vypněte pro citace bez pozadí.",
   "citationShowTitles": "Zobrazovat názvy stránek u citací",
   "citationShowTitlesDescription": "V odznacích citací používat názvy stránek místo domén webů",
   "directContextCompactionDescription": "Tyto modely neuvádějí velikost kontextového okna. Conduit použije zvolený limit ke zhuštění starších zpráv dříve, než budou požadavky příliš velké.",
@@ -6092,7 +6092,7 @@
   "chatMergeChooseDescription": "Zvolte odpovědi ke sloučení. Vyberte alespoň dvě; původní odpovědi zůstanou beze změny.",
   "folderProjectComparisonFallbackNotice": "Uložené modely tohoto projektu nelze použít všechny, proto chat začíná s menším počtem. Porovnání používá právě dva.",
   "advancedFeaturesFooter": "Přidá porovnání modelů, nastavení jednotlivých chatů, nastavení nástrojů, naplánované úlohy, osobní připojení, webhooky a správu dat. Vypnutím je pouze skryjete; vše, co už je nastavené, dál funguje.",
-  "profileAdvancedFooter": "Zobrazeno, protože je v Nastavení > Chat zapnuto Pokročilé.",
+  "profileAdvancedFooter": "Zobrazeno, protože je v sekci Chaty zapnuto Pokročilé.",
   "advancedRequiredTitle": "Součást Pokročilého",
   "advancedRequiredMessage": "{feature} je funkce režimu Pokročilé. Zapněte Pokročilé, chcete-li ji použít. Vše, co už je nastavené, dál funguje.",
   "advancedTurnOn": "Zapnout Pokročilé",
@@ -6306,5 +6306,7 @@
   "copied": "Zkopírováno",
   "composerAddAttachment": "Přidat přílohu",
   "composerShowKeyboard": "Zobrazit klávesnici",
-  "composerAttachUploads": "Nahrané"
+  "composerAttachUploads": "Nahrané",
+  "supportConduitFooter": "Conduit je zdarma a open source. Vaše podpora pomáhá, aby to tak zůstalo.",
+  "aiMemoryFooter": "Váš systémový prompt řídí každý chat. Paměť umožňuje asistentovi pamatovat si, co jste mu sdělili."
 }
