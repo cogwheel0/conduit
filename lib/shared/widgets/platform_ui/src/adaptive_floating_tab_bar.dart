@@ -410,9 +410,11 @@ class _NativeFloatingTabBarState extends State<_NativeFloatingTabBar> {
   void _onTabBarSize(Size size) {
     if (size.height <= _unmeasuredTabBarExtent) return;
     final bar = size.height - _kTabBarPillRoom;
-    final compact = _kCompactTabBar.platter + _kCompactTabBar.below;
+    // Only a tab bar at its own height reports, so a stacked one is the
+    // full-size platter; halfway to an inline bar leaves room either side.
+    final stacked = _kStackedTabBar.platter + _kStackedTabBar.below;
     final inline = _kInlineTabBar.platter + _kInlineTabBar.below;
-    final layout = bar >= (compact + inline) / 2
+    final layout = bar >= (stacked + inline) / 2
         ? _NativeTabBarLayout.stacked
         : _NativeTabBarLayout.inline;
     if (layout != _measured) setState(() => _measured = layout);
