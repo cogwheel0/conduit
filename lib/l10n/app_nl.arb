@@ -4171,7 +4171,7 @@
   "chatMergeChooseDescription": "Kies de reacties die je wilt samenvoegen. Kies er minstens twee; de originelen blijven zoals ze zijn.",
   "folderProjectComparisonFallbackNotice": "Niet alle opgeslagen modellen van dit project kunnen worden gebruikt, dus de chat begint met minder. Een vergelijking gebruikt er precies twee.",
   "advancedFeaturesFooter": "Voegt modelvergelijking, instellingen per chat, toolinstellingen, geplande taken, persoonlijke verbindingen, webhooks en gegevensbeheer toe. Uitschakelen verbergt ze alleen; wat al is ingesteld, blijft werken.",
-  "profileAdvancedFooter": "Getoond omdat Geavanceerd aan staat in Instellingen > Chat.",
+  "profileAdvancedFooter": "Getoond omdat Geavanceerd aan staat in Chats.",
   "advancedRequiredTitle": "Onderdeel van Geavanceerd",
   "advancedRequiredMessage": "{feature} hoort bij Geavanceerd. Zet Geavanceerd aan om het te gebruiken. Wat al is ingesteld, blijft werken.",
   "advancedTurnOn": "Geavanceerd aanzetten",
@@ -4354,5 +4354,6 @@
   "terminalPortPreviewLoadFailed": "Deze pagina kan niet worden geladen.",
   "modelMenuAllModels": "Alle modellen…",
   "citationPreviewOpen": "Openen",
-  "chatUnreadState": "Ongelezen"
+  "chatUnreadState": "Ongelezen",
+  "supportConduitFooter": "Conduit is gratis en open source. Jouw steun helpt dat zo te houden."
 }

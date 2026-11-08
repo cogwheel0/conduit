@@ -190,7 +190,8 @@ List<NativeSheetSectionConfig> buildNativeProfileRootSections(
       NativeSheetItemConfig(
         id: NativeSheetRoutes.profile,
         title: l10n.profileTitle,
-        sfSymbol: 'person.crop.circle',
+        // Outlined, like every other symbol in the list.
+        sfSymbol: 'person',
       ),
       NativeSheetItemConfig(
         id: NativeSheetRoutes.notificationSettings,
@@ -265,28 +266,29 @@ List<NativeSheetSectionConfig> buildNativeProfileRootSections(
         sfSymbol: 'externaldrive',
       ),
   ];
+  // Like the Settings app, no group has a heading: the rows name themselves,
+  // and a footer explains a group where it needs explaining.
   return [
     NativeSheetSectionConfig(items: cardItems),
-    if (accountItems.isNotEmpty)
-      NativeSheetSectionConfig(
-        title: l10n.accountSettingsTitle,
-        items: accountItems,
-      ),
+    if (accountItems.isNotEmpty) NativeSheetSectionConfig(items: accountItems),
     NativeSheetSectionConfig(items: appItems),
     if (placeItems.isNotEmpty) NativeSheetSectionConfig(items: placeItems),
     if (advancedItems.isNotEmpty)
       NativeSheetSectionConfig(
-        title: l10n.advancedFeatures,
         footer: l10n.profileAdvancedFooter,
         items: advancedItems,
       ),
+    // About and the ways to support the app share a group, so the list
+    // ends on two groups rather than three thin ones.
     NativeSheetSectionConfig(
+      footer: l10n.supportConduitFooter,
       items: [
         NativeSheetItemConfig(
           id: NativeSheetRoutes.helpAbout,
           title: l10n.aboutApp,
           sfSymbol: 'info.circle',
         ),
+        ...buildNativeSupportItems(l10n),
       ],
     ),
     if (hasAccount)
@@ -315,10 +317,6 @@ List<NativeSheetSectionConfig> buildNativeProfileRootSections(
             ),
         ],
       ),
-    NativeSheetSectionConfig(
-      title: l10n.supportConduit,
-      items: buildNativeSupportItems(l10n),
-    ),
   ];
 }
 
@@ -388,7 +386,12 @@ NativeSheetDetailConfig buildNativeAccountsDetail(
               NativeSheetItemConfig(
                 id: '$nativeAccountServerActionId:${group.first.server.id}',
                 title: serverDisplayName(group.first.server),
-                avatarName: serverDisplayName(group.first.server),
+                // A server known only by its address gets a server symbol;
+                // initials of "127.0.0.1" would read "12".
+                sfSymbol: 'server.rack',
+                avatarName: serverIsKnownOnlyByAddress(group.first.server)
+                    ? null
+                    : serverDisplayName(group.first.server),
                 dismissOnSelect: true,
                 actionId: nativeAccountServerActionId,
                 actionValue: group.first.server.id,

@@ -137,6 +137,7 @@ NativeProfileRootVisibility readNativeProfileRootVisibility(
   return accountCardSummary(
     l10n,
     signedInName: account?.displayName,
+    signedInEmail: account?.email,
     accounts: read(openWebUiAccountsProvider).value ?? const [],
     hermesConnections: read(hermesConnectionsProvider),
     hermesInUseId: read(hermesEnabledProvider)

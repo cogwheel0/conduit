@@ -153,7 +153,7 @@ void main() {
     matching: finder,
   );
 
-  testWidgets('the card says who is signed in, where, and how many others, '
+  testWidgets('the card says who is signed in, as whom, and how many others, '
       'and leads to them all', (tester) async {
     await pumpProfile(tester, [
       _entry(
@@ -168,8 +168,9 @@ void main() {
     ]);
 
     check(inCard(find.text('Alex')).evaluate()).isNotEmpty();
-    check(inCard(find.text('Home +2')).evaluate()).isNotEmpty();
-    check(inCard(find.text('Add account')).evaluate()).isNotEmpty();
+    // Named by its email, not the server, then how many others there are.
+    check(inCard(find.text('alex@home.example +2')).evaluate()).isNotEmpty();
+    check(inCard(find.text('Add Account')).evaluate()).isNotEmpty();
     // The other accounts are on the Accounts page, not listed here.
     check(find.text('Alex (work)').evaluate()).isEmpty();
     check(find.text('Manage accounts').evaluate()).isEmpty();
@@ -210,9 +211,9 @@ void main() {
     final signOut = find.byKey(const Key('settings-sign-out-account'));
     check(signOut.evaluate()).isNotEmpty();
     check(
-      find.descendant(of: signOut, matching: find.text('Sign out')).evaluate(),
+      find.descendant(of: signOut, matching: find.text('Sign Out')).evaluate(),
     ).isNotEmpty();
-    check(find.text('Sign out of all accounts').evaluate()).isEmpty();
+    check(find.text('Sign Out of All Accounts').evaluate()).isEmpty();
   });
 
   testWidgets('with one account, sign out is unchanged', (tester) async {
@@ -224,7 +225,7 @@ void main() {
     await tester.fling(find.byType(ListView), const Offset(0, -2000), 3000);
     await tester.pumpAndSettle();
     expect(find.byKey(const Key('settings-sign-out')), findsOneWidget);
-    expect(find.text('Sign out'), findsOneWidget);
+    expect(find.text('Sign Out'), findsOneWidget);
     expect(find.byKey(const Key('settings-sign-out-account')), findsNothing);
   });
 
@@ -237,8 +238,8 @@ void main() {
     check(inCard(find.text('Alex')).evaluate()).isNotEmpty();
     await tester.fling(find.byType(ListView), const Offset(0, -2000), 3000);
     await tester.pumpAndSettle();
-    check(find.text('Sign out of all accounts').evaluate()).isNotEmpty();
-    check(find.text('Sign out').evaluate()).isEmpty();
+    check(find.text('Sign Out of All Accounts').evaluate()).isNotEmpty();
+    check(find.text('Sign Out').evaluate()).isEmpty();
     check(
       find.byKey(const Key('settings-sign-out-account')).evaluate(),
     ).isEmpty();

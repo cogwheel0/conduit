@@ -4171,7 +4171,7 @@
   "chatMergeChooseDescription": "Wähle die Antworten zum Zusammenführen aus. Wähle mindestens zwei; die ursprünglichen Antworten bleiben unverändert.",
   "folderProjectComparisonFallbackNotice": "Die gespeicherten Modelle dieses Projekts können nicht alle verwendet werden, daher startet der Chat mit weniger. Ein Vergleich verwendet genau zwei.",
   "advancedFeaturesFooter": "Fügt Modellvergleich, Chat-Einstellungen, Werkzeugeinstellungen, geplante Aufgaben, persönliche Verbindungen, Webhooks und Datenverwaltung hinzu. Beim Ausschalten werden sie nur ausgeblendet; bereits Eingerichtetes funktioniert weiter.",
-  "profileAdvancedFooter": "Angezeigt, weil „Erweitert“ unter Einstellungen > Chat aktiviert ist.",
+  "profileAdvancedFooter": "Angezeigt, weil „Erweitert“ unter Chats aktiviert ist.",
   "advancedRequiredTitle": "Teil von „Erweitert“",
   "advancedRequiredMessage": "{feature} gehört zu „Erweitert“. Schalten Sie „Erweitert“ ein, um es zu verwenden. Bereits Eingerichtetes funktioniert weiter.",
   "advancedTurnOn": "„Erweitert“ einschalten",
@@ -4354,5 +4354,6 @@
   "terminalPortPreviewLoadFailed": "Diese Seite konnte nicht geladen werden.",
   "modelMenuAllModels": "Alle Modelle…",
   "citationPreviewOpen": "Öffnen",
-  "chatUnreadState": "Ungelesen"
+  "chatUnreadState": "Ungelesen",
+  "supportConduitFooter": "Conduit ist kostenlos und Open Source. Deine Unterstützung hilft, dass es so bleibt."
 }

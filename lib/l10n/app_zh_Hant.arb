@@ -4171,7 +4171,7 @@
   "chatMergeChooseDescription": "選擇要合併的回覆。至少選擇兩則；原始回覆會維持不變。",
   "folderProjectComparisonFallbackNotice": "此專案中儲存的模型無法全部使用，因此聊天將以較少的模型開始。比較恰好使用兩個模型。",
   "advancedFeaturesFooter": "加入模型比較、個別聊天設定、工具設定、排程任務、個人連線、Webhook 與資料管理。關閉後只會隱藏它們，已設定的內容會繼續運作。",
-  "profileAdvancedFooter": "因「設定 > 聊天」中已開啟進階功能而顯示。",
+  "profileAdvancedFooter": "因「聊天」中已開啟進階功能而顯示。",
   "advancedRequiredTitle": "屬於進階功能",
   "advancedRequiredMessage": "{feature}屬於進階功能。開啟進階功能即可使用。已設定的內容會繼續運作。",
   "advancedTurnOn": "開啟進階功能",
@@ -4354,5 +4354,6 @@
   "terminalPortPreviewLoadFailed": "無法載入此頁面。",
   "modelMenuAllModels": "所有模型…",
   "citationPreviewOpen": "開啟",
-  "chatUnreadState": "未讀"
+  "chatUnreadState": "未讀",
+  "supportConduitFooter": "Conduit 免費且開源。您的支持讓它得以延續。"
 }

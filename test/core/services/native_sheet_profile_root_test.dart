@@ -125,15 +125,26 @@ void main() {
           NativeSheetRoutes.personalConnections,
           NativeSheetRoutes.chatDataControls,
         ],
-        [NativeSheetRoutes.helpAbout],
+        [NativeSheetRoutes.helpAbout, 'buy-me-a-coffee', 'github-sponsors'],
         [nativeSignOutActionId],
-        ['buy-me-a-coffee', 'github-sponsors'],
       ]);
-      expect(sections[1].title, _l10n.accountSettingsTitle);
+      // As in the Settings app, no group has a heading; footers explain the
+      // groups that need it.
+      expect(sections.map((section) => section.title), everyElement(isNull));
       final advanced = sections[4];
-      expect(advanced.title, _l10n.advancedFeatures);
       expect(advanced.footer, _l10n.profileAdvancedFooter);
-      expect(sections.last.title, _l10n.supportConduit);
+      expect(sections[5].footer, _l10n.supportConduitFooter);
+    });
+
+    test('every row symbol is an outline, Profile included', () {
+      final sections = _root(visibility: _everything);
+
+      expect(_item(sections, NativeSheetRoutes.profile).sfSymbol, 'person');
+      final symbols = [
+        for (final section in sections)
+          for (final item in section.items) item.sfSymbol,
+      ];
+      expect(symbols.where((symbol) => symbol.endsWith('.fill')), isEmpty);
     });
 
     test('the account card leads to Accounts, with Add account under it', () {
@@ -174,18 +185,14 @@ void main() {
       final sections = _root();
 
       expect(
-        sections.map((section) => section.title),
-        isNot(contains(_l10n.advancedFeatures)),
+        sections.map((section) => section.footer),
+        isNot(contains(_l10n.profileAdvancedFooter)),
       );
       final ids = _ids(sections).expand((ids) => ids).toList();
       expect(ids, isNot(contains(NativeSheetRoutes.calendar)));
       expect(ids, isNot(contains(NativeSheetRoutes.workspace)));
       expect(ids, isNot(contains(NativeSheetRoutes.scheduledTasks)));
-      // Only the account's and support titles remain as section headings.
-      expect(
-        sections.where((section) => section.title != null).map((s) => s.title),
-        [_l10n.accountSettingsTitle, _l10n.supportConduit],
-      );
+      expect(_ids(sections), hasLength(5));
     });
 
     test('with several accounts, Sign out leaves only the active one', () {
@@ -291,6 +298,10 @@ void main() {
       expect(server.avatarName, 'Home Lab');
       expect(server.actionId, nativeAccountServerActionId);
       expect(server.actionValue, 'home');
+      expect(
+        _item(page.sections, '$nativeAccountServerActionId:work').avatarName,
+        'Work',
+      );
 
       // The one in use stays put.
       final active = _item(
@@ -314,6 +325,26 @@ void main() {
 
     // A switch left the active account signed out: it is switched to again,
     // which opens its sign-in.
+    // Initials of "127.0.0.1" read "12"; a server known only by its address
+    // shows a server symbol instead.
+    test('a server known only by its address shows a server symbol', () {
+      final local = OpenWebUiServer(
+        id: 'local',
+        name: '127.0.0.1',
+        endpoints: [
+          OpenWebUiEndpoint(id: 'local-1', url: 'http://127.0.0.1:8091'),
+        ],
+      );
+      final page = accountsPage(
+        accounts: [_entry('ada-local', local, name: 'Ada', isActive: true)],
+      );
+
+      final server = _item(page.sections, '$nativeAccountServerActionId:local');
+      expect(server.title, '127.0.0.1');
+      expect(server.avatarName, isNull);
+      expect(server.sfSymbol, 'server.rack');
+    });
+
     test('the active account, signed out, is switched to', () {
       final page = accountsPage(
         accounts: [

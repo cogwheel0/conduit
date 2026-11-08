@@ -6094,7 +6094,7 @@
   "chatMergeChooseDescription": "Vyberte odpovede na zlúčenie. Vyberte aspoň dve; pôvodné odpovede zostanú nezmenené.",
   "folderProjectComparisonFallbackNotice": "Uložené modely tohto projektu sa nedajú použiť všetky, preto chat začína s menším počtom. Porovnanie používa presne dva.",
   "advancedFeaturesFooter": "Pridá porovnanie modelov, nastavenia jednotlivých chatov, nastavenia nástrojov, naplánované úlohy, osobné pripojenia, webhooky a správu údajov. Vypnutím ich len skryjete; všetko, čo je už nastavené, ďalej funguje.",
-  "profileAdvancedFooter": "Zobrazené, pretože v Nastavenia > Chat je zapnuté Pokročilé.",
+  "profileAdvancedFooter": "Zobrazené, pretože v sekcii Chaty je zapnuté Pokročilé.",
   "advancedRequiredTitle": "Súčasť Pokročilého",
   "advancedRequiredMessage": "{feature} je funkcia režimu Pokročilé. Zapnite Pokročilé, ak ju chcete používať. Všetko, čo je už nastavené, ďalej funguje.",
   "advancedTurnOn": "Zapnúť Pokročilé",
@@ -6277,5 +6277,6 @@
   "terminalPortPreviewLoadFailed": "Túto stránku sa nepodarilo načítať.",
   "modelMenuAllModels": "Všetky modely…",
   "citationPreviewOpen": "Otvoriť",
-  "chatUnreadState": "Neprečítaný"
+  "chatUnreadState": "Neprečítaný",
+  "supportConduitFooter": "Conduit je zadarmo a open source. Vaša podpora pomáha, aby to tak zostalo."
 }

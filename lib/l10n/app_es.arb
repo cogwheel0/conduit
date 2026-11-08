@@ -4171,7 +4171,7 @@
   "chatMergeChooseDescription": "Elige las respuestas que quieres combinar. Selecciona al menos dos; las originales se mantienen como están.",
   "folderProjectComparisonFallbackNotice": "No se pueden usar todos los modelos guardados de este proyecto, así que el chat empieza con menos. Una comparación usa exactamente dos.",
   "advancedFeaturesFooter": "Añade comparación de modelos, ajustes por chat, ajustes de herramientas, tareas programadas, conexiones personales, webhooks y controles de datos. Desactivarlo solo los oculta; lo que ya esté configurado sigue funcionando.",
-  "profileAdvancedFooter": "Se muestra porque Avanzado está activado en Ajustes > Chat.",
+  "profileAdvancedFooter": "Se muestra porque Avanzado está activado en Chats.",
   "advancedRequiredTitle": "Parte de Avanzado",
   "advancedRequiredMessage": "{feature} es una función de Avanzado. Activa Avanzado para usarla. Lo que ya esté configurado sigue funcionando.",
   "advancedTurnOn": "Activar Avanzado",
@@ -4354,5 +4354,6 @@
   "terminalPortPreviewLoadFailed": "No se pudo cargar esta página.",
   "modelMenuAllModels": "Todos los modelos…",
   "citationPreviewOpen": "Abrir",
-  "chatUnreadState": "No leída"
+  "chatUnreadState": "No leída",
+  "supportConduitFooter": "Conduit es gratuito y de código abierto. Tu apoyo ayuda a que siga así."
 }

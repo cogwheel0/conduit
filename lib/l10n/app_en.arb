@@ -193,7 +193,7 @@
       }
     }
   },
-  "signOut": "Sign out",
+  "signOut": "Sign Out",
   "@signOut": {
     "description": "Button/title for signing out of the app."
   },
@@ -5650,7 +5650,7 @@
       }
     }
   },
-  "addDirectConnection": "Add connection",
+  "addDirectConnection": "Add Connection",
   "@addDirectConnection": {
     "description": "Button that creates a direct connection profile."
   },
@@ -8207,7 +8207,7 @@
   "@advancedFeaturesFooter": {
     "description": "Footer under the Advanced setting explaining what it reveals and that turning it off only hides those tools."
   },
-  "profileAdvancedFooter": "Shown because Advanced is on in Settings > Chat.",
+  "profileAdvancedFooter": "Shown because Advanced is turned on in Chats.",
   "@profileAdvancedFooter": {
     "description": "Footer under the Advanced group in the Settings list explaining why these entries are shown."
   },
@@ -8711,7 +8711,7 @@
   "@hermesConnectionsSectionTitle": {
     "description": "Heading above the list of saved Hermes connections in Hermes Agent settings."
   },
-  "hermesAddConnection": "Add connection",
+  "hermesAddConnection": "Add Connection",
   "@hermesAddConnection": {
     "description": "Button that opens the editor for a new saved Hermes connection."
   },
@@ -8805,7 +8805,7 @@
   "@accountsTitle": {
     "description": "Heading of the list of saved Open WebUI accounts on the profile page and of the page that manages them."
   },
-  "accountsAddAccount": "Add account",
+  "accountsAddAccount": "Add Account",
   "@accountsAddAccount": {
     "description": "Row and button that starts signing in to another Open WebUI account, on a saved server or a new one."
   },
@@ -8879,7 +8879,7 @@
   "@accountsSignOutConfirmMessage": {
     "description": "Body of the confirmation before signing out of one Open WebUI account while others remain saved."
   },
-  "accountsSignOutAll": "Sign out of all accounts",
+  "accountsSignOutAll": "Sign Out of All Accounts",
   "@accountsSignOutAll": {
     "description": "Destructive row that signs out of every saved account and clears the app's data, as signing out did before several accounts could be saved."
   },
@@ -9130,5 +9130,9 @@
   "chatUnreadState": "Unread",
   "@chatUnreadState": {
     "description": "VoiceOver value of a chat in the sidebar list whose newest reply the user has not read yet."
+  },
+  "supportConduitFooter": "Conduit is free and open source. Your support helps keep it that way.",
+  "@supportConduitFooter": {
+    "description": "Footer under the About and support rows at the end of Settings, saying why the support rows are there."
   }
 }

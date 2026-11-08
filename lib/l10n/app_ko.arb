@@ -3943,7 +3943,7 @@
   "chatMergeChooseDescription": "병합할 응답을 선택하세요. 두 개 이상 선택해야 하며, 원래 응답은 그대로 유지됩니다.",
   "folderProjectComparisonFallbackNotice": "이 프로젝트에 저장된 모델을 모두 사용할 수는 없으므로 채팅이 더 적은 수의 모델로 시작됩니다. 비교에는 정확히 두 개의 모델이 사용됩니다.",
   "advancedFeaturesFooter": "모델 비교, 채팅별 설정, 도구 설정, 예약 작업, 개인 연결, 웹후크, 데이터 관리를 추가합니다. 끄면 숨겨지기만 하며 이미 설정된 항목은 계속 작동합니다.",
-  "profileAdvancedFooter": "설정 > 채팅에서 고급이 켜져 있어 표시됩니다.",
+  "profileAdvancedFooter": "채팅에서 고급이 켜져 있어 표시됩니다.",
   "advancedRequiredTitle": "고급 기능",
   "advancedRequiredMessage": "{feature}은(는) 고급 기능입니다. 사용하려면 고급을 켜세요. 이미 설정된 항목은 계속 작동합니다.",
   "advancedTurnOn": "고급 켜기",
@@ -4126,5 +4126,6 @@
   "terminalPortPreviewLoadFailed": "이 페이지를 불러올 수 없습니다.",
   "modelMenuAllModels": "모든 모델…",
   "citationPreviewOpen": "열기",
-  "chatUnreadState": "읽지 않음"
+  "chatUnreadState": "읽지 않음",
+  "supportConduitFooter": "Conduit는 무료 오픈 소스입니다. 여러분의 후원이 이를 지켜 줍니다."
 }

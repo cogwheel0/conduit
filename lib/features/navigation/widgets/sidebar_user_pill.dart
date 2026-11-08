@@ -722,12 +722,16 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
     required String initials,
     required AccountMetadata? accountProfile,
   }) {
-    final avatarUrl = resolveUserAvatarUrlForUser(api, user);
+    // Open WebUI's grey stand-in is no photo: the card shows the initials on
+    // a neutral disc instead, as the sidebar's profile button does.
+    final standIn =
+        user != null && isDefaultProfileImageUrl(deriveUserProfileImage(user));
+    final avatarUrl = standIn ? null : resolveUserAvatarUrlForUser(api, user);
     final avatarBytes = _decodeDataImage(avatarUrl);
     return NativeProfileSheetUser(
       displayName: displayName,
       email: _extractEmail(user) ?? l10n.noEmailLabel,
-      initials: initials,
+      initials: extractAvatarInitials(displayName),
       avatarUrl: avatarBytes == null ? avatarUrl : null,
       avatarBytes: avatarBytes,
       avatarHeaders: avatarUrl == null
@@ -780,9 +784,11 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
     final supportItems = buildNativeSupportItems(l10n);
     // The native sheet lays itself out from [sections]; the flat lists are
     // its fallback when a payload carries none.
+    final supportIds = {for (final item in supportItems) item.id};
     final menuItems = <NativeSheetItemConfig>[
       for (final section in sections)
-        if (section.title != l10n.supportConduit) ...section.items,
+        for (final item in section.items)
+          if (!supportIds.contains(item.id)) item,
     ];
 
     return NativeProfileSheetConfig(
