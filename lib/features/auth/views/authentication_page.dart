@@ -30,6 +30,7 @@ import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart
 import '../../../platform/webview_cookie_helper.dart' show isWebViewSupported;
 import '../../../shared/widgets/connection_components.dart';
 import '../../../shared/widgets/utility_components.dart';
+import '../widgets/auth_grouped_form.dart';
 import '../widgets/openwebui_two_step_form.dart';
 
 /// Authentication mode options
@@ -111,6 +112,11 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
   final TextEditingController _apiKeyController = TextEditingController();
   final TextEditingController _ldapUsernameController = TextEditingController();
   final TextEditingController _ldapPasswordController = TextEditingController();
+  final FocusNode _usernameFocus = FocusNode();
+  final FocusNode _passwordFocus = FocusNode();
+  final FocusNode _ldapUsernameFocus = FocusNode();
+  final FocusNode _ldapPasswordFocus = FocusNode();
+  final FocusNode _tokenFocus = FocusNode();
 
   bool _obscurePassword = true;
   AuthMode _authMode = AuthMode.credentials;
@@ -202,7 +208,10 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
       try {
         await _loadSavedCredentials();
       } finally {
-        if (mounted) _checkAuthStateError();
+        if (mounted) {
+          _checkAuthStateError();
+          _focusFirstEmptyField();
+        }
       }
     });
   }
@@ -279,8 +288,32 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
     }
   }
 
+  /// Puts the cursor where typing starts: the username, or the password when
+  /// the username was remembered.
+  void _focusFirstEmptyField() {
+    if (_twoStep != null) return;
+    final FocusNode? node = switch (_authMode) {
+      AuthMode.credentials =>
+        _usernameController.text.trim().isEmpty
+            ? _usernameFocus
+            : _passwordFocus,
+      AuthMode.ldap =>
+        _ldapUsernameController.text.trim().isEmpty
+            ? _ldapUsernameFocus
+            : _ldapPasswordFocus,
+      AuthMode.token => _tokenFocus,
+      AuthMode.sso => null,
+    };
+    if (node != null && node.context != null) node.requestFocus();
+  }
+
   @override
   void dispose() {
+    _usernameFocus.dispose();
+    _passwordFocus.dispose();
+    _ldapUsernameFocus.dispose();
+    _ldapPasswordFocus.dispose();
+    _tokenFocus.dispose();
     _usernameController.dispose();
     _passwordController.dispose();
     _apiKeyController.dispose();
@@ -559,6 +592,8 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
         ref.watch(pendingSignInAbandonableProvider).value ?? false;
 
     final twoStep = _twoStep;
+    final cupertino = context.usesCupertinoChrome;
+    final backNavigation = _backNavigation(l10n, abandonable: abandonable);
 
     // The system back and the edge swipe leave as Cancel does, so they cannot
     // leave an added account that never signed in as the active one. During
@@ -575,11 +610,22 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
       },
       child: UtilityPageScaffold.auth(
         title: l10n.signIn,
-        backNavigation: _backNavigation(l10n, abandonable: abandonable),
-        bottomAction: twoStep == null ? _buildSignInButton() : null,
+        largeTitle: true,
+        backNavigation: backNavigation,
+        bottomAction: twoStep == null
+            ? (cupertino
+                  ? _buildCupertinoSignInButton()
+                  : _buildSignInButton())
+            : null,
         body: Form(
           key: _formKey,
-          child: Column(
+          child: cupertino
+              ? _buildCupertinoBody(
+                  l10n,
+                  twoStep: twoStep,
+                  changeServer: abandonable ? null : backNavigation.onPressed,
+                )
+              : Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               _buildHeader(),
@@ -602,6 +648,210 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
           ),
         ),
       ),
+    );
+  }
+
+  /// The iOS sign-in: the server as a grouped row with Change, the methods
+  /// as a segmented control, and the fields as one grouped section whose
+  /// footer guides or, after a failed attempt, says why.
+  Widget _buildCupertinoBody(
+    AppLocalizations l10n, {
+    required OpenWebUiTwoStepChallenge? twoStep,
+    required VoidCallback? changeServer,
+  }) {
+    final methods = _availableAuthModes;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _buildCupertinoServerRow(l10n, changeServer: changeServer),
+        const SizedBox(height: Spacing.lg + Spacing.xs),
+        if (twoStep != null)
+          OpenWebUiTwoStepForm(
+            key: ObjectKey(twoStep),
+            challenge: twoStep,
+            account: _twoStepAccount,
+            onCancel: _leaveTwoStep,
+            mayFinish: _signInTargetStillSelected,
+            formatSignInError: _formatLoginError,
+          )
+        else ...[
+          if (methods.length > 1) ...[
+            _buildAuthMethodSection(),
+            const SizedBox(height: Spacing.lg),
+          ],
+          _buildCupertinoAuthForm(l10n),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildCupertinoServerRow(
+    AppLocalizations l10n, {
+    required VoidCallback? changeServer,
+  }) {
+    final address = _serverAddressForDisplay(_resolvedServerConfig?.url);
+    final host = address.replaceFirst(RegExp(r'^https?://'), '');
+    return AuthGroupedCard(
+      children: [
+        AuthGroupedRow(
+          key: const ValueKey<String>('authentication-server-row'),
+          leading: const AuthIconTile(
+            assetName: 'assets/icons/open_webui_tab.png',
+            assetSize: 17,
+            size: 30,
+          ),
+          title: host,
+          subtitle: l10n.backendChooserOpenWebUITitle,
+          semanticLabel: '${l10n.backendChooserOpenWebUITitle}. $address',
+          verticalPadding: Spacing.sm,
+          trailing: changeServer == null
+              ? null
+              : _ChangeServerButton(
+                  label: l10n.signInChangeServer,
+                  onPressed: _isSigningIn ? null : changeServer,
+                ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildCupertinoAuthForm(AppLocalizations l10n) {
+    final error = _isSigningIn ? null : _loginError;
+    final visibilityToggle = _buildVisibilityToggle(l10n);
+    switch (_authMode) {
+      case AuthMode.credentials when _hasLoginFormEnabled:
+        return AutofillGroup(
+          onDisposeAction: _autofillDisposeAction,
+          child: AuthGroupedSection(
+            key: const ValueKey('credentials_form'),
+            error: error,
+            children: [
+              AuthGroupedTextField(
+                controller: _usernameController,
+                focusNode: _usernameFocus,
+                placeholder: l10n.usernameOrEmailHint,
+                semanticLabel: l10n.usernameOrEmail,
+                keyboardType: TextInputType.emailAddress,
+                textInputAction: TextInputAction.next,
+                autofillHints: const [
+                  AutofillHints.username,
+                  AutofillHints.email,
+                ],
+                validator: (value) => InputValidationService.combine([
+                  InputValidationService.validateRequired,
+                  InputValidationService.validateEmailOrUsername,
+                ])(value),
+                onSubmitted: (_) => _passwordFocus.requestFocus(),
+              ),
+              AuthGroupedTextField(
+                controller: _passwordController,
+                focusNode: _passwordFocus,
+                placeholder: l10n.passwordHint,
+                semanticLabel: l10n.password,
+                obscureText: _obscurePassword,
+                textInputAction: TextInputAction.go,
+                autofillHints: const [AutofillHints.password],
+                validator: InputValidationService.validateRequired,
+                onSubmitted: (_) => _submitFromKeyboard(),
+                trailing: visibilityToggle,
+              ),
+            ],
+          ),
+        );
+      case AuthMode.ldap when _hasLdapEnabled:
+        return AutofillGroup(
+          onDisposeAction: _autofillDisposeAction,
+          child: AuthGroupedSection(
+            key: const ValueKey('ldap_form'),
+            footer: l10n.ldapDescription,
+            error: error,
+            children: [
+              AuthGroupedTextField(
+                controller: _ldapUsernameController,
+                focusNode: _ldapUsernameFocus,
+                placeholder: l10n.ldapUsername,
+                semanticLabel: l10n.ldapUsername,
+                textInputAction: TextInputAction.next,
+                autofillHints: const [AutofillHints.username],
+                validator: InputValidationService.validateRequired,
+                onSubmitted: (_) => _ldapPasswordFocus.requestFocus(),
+              ),
+              AuthGroupedTextField(
+                controller: _ldapPasswordController,
+                focusNode: _ldapPasswordFocus,
+                placeholder: l10n.passwordHint,
+                semanticLabel: l10n.password,
+                obscureText: _obscurePassword,
+                textInputAction: TextInputAction.go,
+                autofillHints: const [AutofillHints.password],
+                validator: InputValidationService.validateRequired,
+                onSubmitted: (_) => _submitFromKeyboard(),
+                trailing: visibilityToggle,
+              ),
+            ],
+          ),
+        );
+      case AuthMode.token:
+        return AuthGroupedSection(
+          key: const ValueKey('api_key_form'),
+          footer: l10n.tokenHint,
+          error: error,
+          children: [
+            AuthGroupedTextField(
+              controller: _apiKeyController,
+              focusNode: _tokenFocus,
+              placeholder: l10n.token,
+              semanticLabel: l10n.token,
+              obscureText: _obscurePassword,
+              textInputAction: TextInputAction.go,
+              autofillHints: const [AutofillHints.password],
+              validator: (value) =>
+                  _validateJwtToken(value ?? _apiKeyController.text),
+              onSubmitted: (_) => _submitFromKeyboard(),
+              trailing: visibilityToggle,
+            ),
+          ],
+        );
+      case AuthMode.sso:
+        return AuthGroupedSection(
+          key: const ValueKey<String>('sso_form'),
+          footer: _ssoSubtitle(l10n),
+          error: error,
+          children: const [],
+        );
+      case AuthMode.credentials || AuthMode.ldap:
+        return const SizedBox.shrink();
+    }
+  }
+
+  void _submitFromKeyboard() {
+    if (!_canSubmit) return;
+    if (_authMode == AuthMode.sso) {
+      _navigateToSso();
+    } else {
+      _signIn();
+    }
+  }
+
+  Widget _buildVisibilityToggle(AppLocalizations l10n) {
+    return ConduitIconButton(
+      icon: _obscurePassword ? CupertinoIcons.eye_slash : CupertinoIcons.eye,
+      iconColor: context.conduitTheme.textSecondary,
+      onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
+      tooltip: _obscurePassword ? l10n.showPassword : l10n.hidePassword,
+      isCompact: true,
+    );
+  }
+
+  Widget _buildCupertinoSignInButton() {
+    final l10n = AppLocalizations.of(context)!;
+    final sso = _authMode == AuthMode.sso;
+    return AuthPrimaryButton(
+      key: const ValueKey<String>('authentication-submit'),
+      label: sso ? l10n.signInContinueWithSso : l10n.signIn,
+      busyLabel: l10n.signingIn,
+      busy: _isSigningIn,
+      onPressed: !_canSubmit ? null : (sso ? _navigateToSso : _signIn),
     );
   }
 
@@ -1002,6 +1252,87 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
           : _signIn,
       isLoading: _isSigningIn,
       isFullWidth: true,
+    );
+  }
+}
+
+/// A small capsule button at the end of the server row, like iOS's bordered
+/// capsule buttons: neutral fill, semibold label, dimmed while pressed.
+class _ChangeServerButton extends StatefulWidget {
+  const _ChangeServerButton({required this.label, required this.onPressed});
+
+  final String label;
+  final VoidCallback? onPressed;
+
+  @override
+  State<_ChangeServerButton> createState() => _ChangeServerButtonState();
+}
+
+class _ChangeServerButtonState extends State<_ChangeServerButton> {
+  bool _pressed = false;
+
+  void _setPressed(bool value) {
+    if (_pressed == value) return;
+    setState(() => _pressed = value);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = context.conduitTheme;
+    final enabled = widget.onPressed != null;
+    return Semantics(
+      button: true,
+      enabled: enabled,
+      label: widget.label,
+      onTap: widget.onPressed,
+      excludeSemantics: true,
+      child: GestureDetector(
+        key: const ValueKey<String>('authentication-change-server'),
+        behavior: HitTestBehavior.opaque,
+        onTapDown: enabled ? (_) => _setPressed(true) : null,
+        onTapUp: enabled ? (_) => _setPressed(false) : null,
+        onTapCancel: enabled ? () => _setPressed(false) : null,
+        onTap: widget.onPressed == null
+            ? null
+            : () {
+                ConduitHaptics.selectionClick();
+                widget.onPressed!();
+              },
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(minHeight: TouchTarget.minimum),
+          child: Center(
+            widthFactor: 1,
+            child: AnimatedOpacity(
+              opacity: !enabled ? 0.4 : (_pressed ? 0.55 : 1),
+              duration: _pressed
+                  ? Duration.zero
+                  : context.motionDuration(AnimationDuration.fast),
+              curve: Curves.easeOut,
+              child: DecoratedBox(
+                decoration: ShapeDecoration(
+                  shape: const StadiumBorder(),
+                  color: theme.textPrimary.withValues(
+                    alpha: theme.isDark ? 0.14 : 0.07,
+                  ),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: Spacing.md - Spacing.xxs,
+                    vertical: Spacing.xs + Spacing.xxs,
+                  ),
+                  child: Text(
+                    widget.label,
+                    style: AppTypography.titleMediumStyle.copyWith(
+                      fontWeight: FontWeight.w600,
+                      color: theme.textPrimary,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
     );
   }
 }

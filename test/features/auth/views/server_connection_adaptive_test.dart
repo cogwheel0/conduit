@@ -325,7 +325,7 @@ void main() {
     );
     expect(addHeaderFinder, findsOneWidget);
     final addHeaderButton = tester.widget<ConduitButton>(addHeaderFinder);
-    check(addHeaderButton.text).equals('Add header');
+    check(addHeaderButton.text).equals('Add Header');
     check(addHeaderButton.icon).isNull();
     check(addHeaderButton.onPressed).isNull();
 
