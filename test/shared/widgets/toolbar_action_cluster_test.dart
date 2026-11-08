@@ -87,7 +87,7 @@ void main() {
     expect(conduitToolbarClusterWidth(context, 3), 120);
   });
 
-  testWidgets('a centred title reserves the wider side on both sides', (
+  testWidgets('a bar title may take the room between the controls', (
     tester,
   ) async {
     tester.view.physicalSize = const Size(402, 874);
@@ -104,17 +104,58 @@ void main() {
         ),
       ),
     );
-    // 402 - 2 * (16 + 80 + 12): equal room either side of the centre line,
-    // with 12 pt clear of the controls.
+    // 402 - 2 * 16 - 44 - 80 - 2 * 12: everything between the sidebar
+    // button and the group, 12 pt clear of each, not only what would keep
+    // it on the centre line (186).
     expect(
-      resolveConduitCenteredTitleMaxWidth(
+      resolveConduitBarTitleMaxWidth(
         context,
         leadingWidth: 44,
         trailingWidth: 80,
         maxWidth: 320,
       ),
-      186,
+      222,
     );
+    expect(
+      resolveConduitBarTitleMaxWidth(
+        context,
+        leadingWidth: 44,
+        trailingWidth: 80,
+        maxWidth: 200,
+      ),
+      200,
+    );
+  });
+
+  testWidgets('a title that needs all the room sits 12 pt from both sides', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(402, 874);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: Scaffold(
+          appBar: ConduitAdaptiveCupertinoNavigationBar(
+            textScaler: TextScaler.noScaling,
+            leading: SizedBox(key: ValueKey('leading'), width: 44, height: 44),
+            middle: SizedBox(key: ValueKey('middle'), width: 222, height: 44),
+            trailing: SizedBox(
+              key: ValueKey('trailing'),
+              width: 80,
+              height: 44,
+            ),
+          ),
+        ),
+      ),
+    );
+    final middle = tester.getRect(find.byKey(const ValueKey('middle')));
+    final leading = tester.getRect(find.byKey(const ValueKey('leading')));
+    final trailing = tester.getRect(find.byKey(const ValueKey('trailing')));
+    // Off the centre line, toward the narrower sidebar button.
+    expect(middle.center.dx, lessThan(201));
+    expect(middle.left - leading.right, closeTo(12, 0.01));
+    expect(trailing.left - middle.right, closeTo(12, 0.01));
   });
 
   for (final width in [150.0, 120.0]) {
