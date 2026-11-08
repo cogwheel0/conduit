@@ -1,6 +1,7 @@
 import 'package:conduit/core/services/native_sheet_bridge.dart';
 import 'package:conduit/features/chat/widgets/usage_stats_modal.dart';
 import 'package:conduit/l10n/app_localizations.dart';
+import 'package:conduit/l10n/conduit_localizations.dart';
 import 'package:conduit/platform/conduit_platform_apis.g.dart';
 import 'package:conduit/shared/theme/app_theme.dart';
 import 'package:conduit/shared/theme/tweakcn_themes.dart';
@@ -24,22 +25,34 @@ void main() {
     Map<String, dynamic> usage, {
     GlobalKey? anchorKey,
     bool anchorOnScreen = true,
+    int? contextLength,
+    Locale? locale,
+    double textScale = 1,
   }) async {
     late AppLocalizations l10n;
     await tester.pumpWidget(
       MaterialApp(
         theme: AppTheme.light(TweakcnThemes.t3Chat),
-        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        locale: locale,
+        localizationsDelegates: conduitLocalizationsDelegates,
         supportedLocales: AppLocalizations.supportedLocales,
-        builder: (context, child) => LegacyDesignCompatibility(child: child!),
+        builder: (context, child) => MediaQuery(
+          data: MediaQuery.of(context)
+              .copyWith(textScaler: TextScaler.linear(textScale)),
+          child: LegacyDesignCompatibility(child: child!),
+        ),
         home: Scaffold(
           body: Builder(
             builder: (context) {
               l10n = AppLocalizations.of(context)!;
               return TextButton(
                 key: anchorOnScreen ? anchorKey : null,
-                onPressed: () =>
-                    UsageStatsModal.show(context, usage, anchorKey: anchorKey),
+                onPressed: () => UsageStatsModal.show(
+                  context,
+                  usage,
+                  anchorKey: anchorKey,
+                  contextLength: contextLength,
+                ),
                 child: const Text('open'),
               );
             },
@@ -73,6 +86,76 @@ void main() {
 
     expect(find.text(l10n.usageTokenCount(120)), findsOneWidget);
     expect(find.text(l10n.usageIncomplete), findsNothing);
+  });
+
+  testWidgets('the context window shows when the model\'s length is known', (
+    tester,
+  ) async {
+    const usage = <String, dynamic>{
+      'prompt_tokens': 78000,
+      'completion_tokens': 1360,
+    };
+    var l10n = await openSheet(tester, usage, contextLength: 128000);
+    expect(find.text(l10n.usageContextWindow), findsOneWidget);
+    expect(find.text('62% \u00b7 79K of 128K'), findsOneWidget);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    l10n = await openSheet(tester, usage);
+    expect(find.text(l10n.usageContextWindow), findsNothing);
+
+    // A length of whole 1,024-token blocks is named as models name it.
+    await tester.pumpWidget(const SizedBox.shrink());
+    await openSheet(tester, const <String, dynamic>{
+      'prompt_tokens': 19500,
+      'completion_tokens': 820,
+    }, contextLength: 32768);
+    expect(find.text('62% \u00b7 20K of 32K'), findsOneWidget);
+  });
+
+  testWidgets('counts round as iOS rounds them, ties to even', (tester) async {
+    for (final (tokens, length, figure) in [
+      (9500, 128000, '7% \u00b7 9.5K of 128K'),
+      // Under ten of a unit keeps one decimal, ties going to the even digit.
+      (9850, 128000, '8% \u00b7 9.8K of 128K'),
+      // Rounding up into the next ten or the next unit.
+      (9950, 128000, '8% \u00b7 10K of 128K'),
+      (999500, 2000000, '50% \u00b7 1M of 2M'),
+      (999499, 2000000, '50% \u00b7 999K of 2M'),
+    ]) {
+      await openSheet(tester, <String, dynamic>{
+        'prompt_tokens': tokens,
+        'completion_tokens': 0,
+      }, contextLength: length);
+      expect(find.text(figure), findsOneWidget, reason: '$tokens tokens');
+      await tester.pumpWidget(const SizedBox.shrink());
+    }
+  });
+
+  testWidgets('a long context figure wraps on a narrow sheet', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(320, 700));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    // German has no short form for thousands, so the figure is long.
+    final l10n = await openSheet(
+      tester,
+      const <String, dynamic>{
+        'prompt_tokens': 78000,
+        'completion_tokens': 1360,
+        'prompt_time': 0.25,
+      },
+      contextLength: 128000,
+      locale: const Locale('de'),
+      textScale: 1.3,
+    );
+
+    expect(tester.takeException(), isNull);
+    final value = find.textContaining('79360');
+    final label = find.text(l10n.usageContextWindow);
+    expect(value, findsOneWidget);
+    expect(
+      tester.getRect(value).left,
+      greaterThan(tester.getRect(label).right),
+    );
+    expect(tester.getRect(value).right, lessThanOrEqualTo(320));
   });
 
   test('the native sheet text carries the note too', () async {
@@ -164,6 +247,65 @@ void main() {
         ],
       );
       expect(sheets, isEmpty);
+    }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
+
+    List<Map<Object?, Object?>> popoverRows() => [
+      for (final row
+          in ((calls.last.arguments as Map)['content'] as Map)['rows'] as List)
+        row as Map<Object?, Object?>,
+    ];
+
+    testWidgets('the context window leads, with a gauge of how full it was', (
+      tester,
+    ) async {
+      final l10n = await openSheet(
+        tester,
+        <String, dynamic>{'prompt_tokens': 78000, 'completion_tokens': 1360},
+        anchorKey: GlobalKey(),
+        contextLength: 128000,
+      );
+
+      final rows = popoverRows();
+      expect(
+        (
+          rows.first['title'],
+          rows.first['trailingText'],
+          rows.first['leadingSfSymbol'],
+        ),
+        (
+          l10n.usageContextWindow,
+          '62% \u00b7 79K of 128K',
+          'gauge.with.dots.needle.67percent',
+        ),
+      );
+      expect(
+        rows.skip(1).map((row) => row['leadingSfSymbol']),
+        everyElement(isNull),
+      );
+    }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
+
+    testWidgets('the gauge shows the needle nearest to the fill', (
+      tester,
+    ) async {
+      final needles = <String?>[];
+      for (final tokens in [10000, 50000, 70000, 95000, 150000]) {
+        await openSheet(
+          tester,
+          <String, dynamic>{'prompt_tokens': tokens, 'completion_tokens': 0},
+          anchorKey: GlobalKey(),
+          contextLength: 128000,
+        );
+        needles.add(popoverRows().first['leadingSfSymbol'] as String?);
+        await tester.pumpWidget(const SizedBox.shrink());
+      }
+      // 8%, 39%, 55%, 74% and, past the length, 117%.
+      expect(needles, [
+        'gauge.with.dots.needle.0percent',
+        'gauge.with.dots.needle.33percent',
+        'gauge.with.dots.needle.50percent',
+        'gauge.with.dots.needle.67percent',
+        'gauge.with.dots.needle.100percent',
+      ]);
     }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
 
     for (final fallback in [

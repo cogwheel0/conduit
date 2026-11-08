@@ -11,6 +11,7 @@ class AdaptiveInfoPopoverRow {
     required this.label,
     required this.value,
     this.detail,
+    this.symbol,
   });
 
   final String label;
@@ -18,6 +19,10 @@ class AdaptiveInfoPopoverRow {
 
   /// A smaller second line under [label].
   final String? detail;
+
+  /// The name of an SF Symbol before [label], which VoiceOver skips. Once
+  /// one row has a symbol, every row's text starts after that column.
+  final String? symbol;
 }
 
 /// Read-only figures in the system popover of iOS 26 and later, its arrow
@@ -59,6 +64,9 @@ abstract final class AdaptiveInfoPopover {
                 title: row.label,
                 subtitle: row.detail,
                 trailingText: row.value,
+                leadingSymbol: row.symbol == null
+                    ? null
+                    : CNSymbol(row.symbol!),
               ),
             ),
         ],
