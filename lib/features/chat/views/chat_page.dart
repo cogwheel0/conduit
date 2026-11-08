@@ -458,6 +458,53 @@ enum _ChatTimelineScrollMode {
   freeScrolling,
 }
 
+/// What a Desktop chat's transcript refresh does with the read it made.
+enum HermesTranscriptRefreshStep {
+  /// Show the read.
+  apply,
+
+  /// Keep the chat as it is.
+  keep,
+
+  /// Read again now.
+  retry,
+
+  /// Read again once the reply running now ends.
+  afterReply,
+}
+
+/// The step for a transcript read, given whether the chat on screen
+/// changed while it was read ([shownChanged]), whether a reply streams now,
+/// whether this read is already a retry, the authoritative message counts
+/// on screen and in the read, and [shortened], which uses up the allowance
+/// a change that shortened the chat gave (an undo) and says whether there
+/// was one. It is asked only for a read that is compared.
+@visibleForTesting
+HermesTranscriptRefreshStep hermesTranscriptRefreshStep({
+  required bool shownChanged,
+  required bool streaming,
+  required bool retried,
+  required int shownCount,
+  required int readCount,
+  required bool Function() shortened,
+}) {
+  // A message sent, or a reply streamed, while the transcript was read is
+  // not in it: replacing the chat now would drop it.
+  if (shownChanged) {
+    if (streaming) return HermesTranscriptRefreshStep.afterReply;
+    return retried
+        ? HermesTranscriptRefreshStep.keep
+        : HermesTranscriptRefreshStep.retry;
+  }
+  final allowed = shortened();
+  // A shorter read is taken only after a change that shortened the chat;
+  // otherwise it is an incomplete one.
+  if (shownCount > 0 && readCount < shownCount && !allowed) {
+    return HermesTranscriptRefreshStep.keep;
+  }
+  return HermesTranscriptRefreshStep.apply;
+}
+
 class ChatPage extends ConsumerStatefulWidget {
   const ChatPage({super.key});
 
@@ -1043,7 +1090,10 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     return result.dispatched ? committed : null;
   }
 
-  Future<void> _refreshDesktopHermesTranscript(String storedId) async {
+  Future<void> _refreshDesktopHermesTranscript(
+    String storedId, {
+    bool retried = false,
+  }) async {
     final active = ref.read(activeConversationProvider);
     if (active == null ||
         !isNativeHermesConversation(active) ||
@@ -1059,6 +1109,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     final service = ref.read(hermesApiServiceProvider);
     if (service is! HermesDesktopApiService) return;
     final generation = ++_hermesTranscriptRefreshGeneration;
+    final shownBefore = ref.read(chatMessagesProvider);
     try {
       final raw = await service.getSessionMessages(storedId);
       List<HermesPendingDesktopDecision> pending;
@@ -1116,6 +1167,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
             service.turnStateFor(storedId) == HermesDesktopTurnState.running,
       );
       final currentMessages = ref.read(chatMessagesProvider);
+      final shownChanged = !identical(currentMessages, shownBefore);
       final currentAuthoritativeCount = currentMessages
           .where(
             (message) =>
@@ -1130,12 +1182,27 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                 !isRestoredHermesDesktopRunningPlaceholder(message),
           )
           .length;
-      // A shorter read is taken only after a change that shortened the
-      // chat (an undo it did not see); otherwise it is an incomplete one.
-      if (currentAuthoritativeCount > 0 &&
-          candidateAuthoritativeCount < currentAuthoritativeCount &&
-          !service.takeShortenedTranscript(storedId)) {
-        return;
+      final step = hermesTranscriptRefreshStep(
+        shownChanged: shownChanged,
+        streaming: ref.read(isChatStreamingProvider),
+        retried: retried,
+        shownCount: currentAuthoritativeCount,
+        readCount: candidateAuthoritativeCount,
+        // Used up by the read that is compared, longer or not: left for a
+        // later incomplete read, it would let that one shorten the chat.
+        shortened: () => service.takeShortenedTranscript(storedId),
+      );
+      switch (step) {
+        case HermesTranscriptRefreshStep.keep:
+          return;
+        case HermesTranscriptRefreshStep.afterReply:
+          _pendingHermesTranscriptRefresh = storedId;
+          return;
+        case HermesTranscriptRefreshStep.retry:
+          unawaited(_refreshDesktopHermesTranscript(storedId, retried: true));
+          return;
+        case HermesTranscriptRefreshStep.apply:
+          break;
       }
       ref.read(chatMessagesProvider.notifier).setMessages(messages);
       ref

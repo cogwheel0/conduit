@@ -9541,7 +9541,7 @@
   "@hermesHiddenChatsDescription": {
     "description": "Footer of the hidden Hermes chats list."
   },
-  "hermesHiddenChatsEmpty": "No hidden chats.",
+  "hermesHiddenChatsEmpty": "No chats hidden on this device.",
   "@hermesHiddenChatsEmpty": {
     "description": "Shown when no Hermes chats are hidden."
   },

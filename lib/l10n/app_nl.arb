@@ -4470,7 +4470,7 @@
   "hermesSessionHiddenNotice": "Chat verborgen. Je vindt hem onder Verborgen chats in de Hermes-instellingen.",
   "hermesHiddenChatsTitle": "Verborgen chats",
   "hermesHiddenChatsDescription": "Chats die op dit apparaat uit de Hermes-lijst zijn verborgen. Tik op een chat om hem te openen, of toon hem weer om hem opnieuw in de lijst te zien.",
-  "hermesHiddenChatsEmpty": "Geen verborgen chats.",
+  "hermesHiddenChatsEmpty": "Geen chats verborgen op dit apparaat.",
   "hermesHiddenChatsLoadError": "Verborgen chats konden niet worden geladen.",
   "hermesBranchFromHere": "Vanaf hier vertakken",
   "hermesBranchFailed": "Deze chat kon niet worden vertakt. Probeer het opnieuw.",

@@ -4470,7 +4470,7 @@
   "hermesSessionHiddenNotice": "聊天已隱藏。可在 Hermes 設定的「已隱藏的聊天」中找到。",
   "hermesHiddenChatsTitle": "已隱藏的聊天",
   "hermesHiddenChatsDescription": "在此裝置上從 Hermes 列表中隱藏的聊天。輕點即可開啟，取消隱藏即可讓它重新出現在列表中。",
-  "hermesHiddenChatsEmpty": "沒有已隱藏的聊天。",
+  "hermesHiddenChatsEmpty": "此裝置上沒有已隱藏的聊天。",
   "hermesHiddenChatsLoadError": "無法載入已隱藏的聊天。",
   "hermesBranchFromHere": "從此處分支",
   "hermesBranchFailed": "無法為此聊天建立分支。請再試一次。",

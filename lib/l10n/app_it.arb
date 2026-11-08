@@ -4470,7 +4470,7 @@
   "hermesSessionHiddenNotice": "Chat nascosta. La trovi in Chat nascoste nelle impostazioni di Hermes.",
   "hermesHiddenChatsTitle": "Chat nascoste",
   "hermesHiddenChatsDescription": "Chat nascoste dall’elenco di Hermes su questo dispositivo. Toccane una per aprirla, oppure mostrala di nuovo per rivederla nell’elenco.",
-  "hermesHiddenChatsEmpty": "Nessuna chat nascosta.",
+  "hermesHiddenChatsEmpty": "Nessuna chat nascosta su questo dispositivo.",
   "hermesHiddenChatsLoadError": "Impossibile caricare le chat nascoste.",
   "hermesBranchFromHere": "Dirama da qui",
   "hermesBranchFailed": "Impossibile diramare questa chat. Riprova.",

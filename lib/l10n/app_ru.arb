@@ -4508,7 +4508,7 @@
   "hermesSessionHiddenNotice": "Чат скрыт. Он находится в разделе «Скрытые чаты» в настройках Hermes.",
   "hermesHiddenChatsTitle": "Скрытые чаты",
   "hermesHiddenChatsDescription": "Чаты, скрытые из списка Hermes на этом устройстве. Нажмите на чат, чтобы открыть его, или покажите его, чтобы он снова появился в списке.",
-  "hermesHiddenChatsEmpty": "Скрытых чатов нет.",
+  "hermesHiddenChatsEmpty": "На этом устройстве нет скрытых чатов.",
   "hermesHiddenChatsLoadError": "Не удалось загрузить скрытые чаты.",
   "hermesBranchFromHere": "Ответвить отсюда",
   "hermesBranchFailed": "Не удалось создать ответвление этого чата. Повторите попытку.",

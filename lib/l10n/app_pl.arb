@@ -8384,7 +8384,7 @@
   "@hermesHiddenChatsDescription": {
     "description": "Footer of the hidden Hermes chats list."
   },
-  "hermesHiddenChatsEmpty": "Brak ukrytych czatów.",
+  "hermesHiddenChatsEmpty": "Brak czatów ukrytych na tym urządzeniu.",
   "@hermesHiddenChatsEmpty": {
     "description": "Shown when no Hermes chats are hidden."
   },

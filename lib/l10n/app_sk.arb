@@ -6393,7 +6393,7 @@
   "hermesSessionHiddenNotice": "Chat je skrytý. Nájdete ho v nastaveniach Hermes v časti Skryté chaty.",
   "hermesHiddenChatsTitle": "Skryté chaty",
   "hermesHiddenChatsDescription": "Chaty skryté v zozname Hermes na tomto zariadení. Klepnutím chat otvoríte, alebo ho zobrazte, aby sa v zozname znova objavil.",
-  "hermesHiddenChatsEmpty": "Žiadne skryté chaty.",
+  "hermesHiddenChatsEmpty": "V tomto zariadení nie sú žiadne skryté chaty.",
   "hermesHiddenChatsLoadError": "Skryté chaty sa nepodarilo načítať.",
   "hermesBranchFromHere": "Rozvetviť odtiaľto",
   "hermesBranchFailed": "Z tohto chatu sa nepodarilo vytvoriť vetvu. Skúste to znova.",

@@ -39,16 +39,25 @@ hermesDesktopRewindTarget({
   final transcript = await service.getCurrentSessionMessages(sessionId);
   // An edit stores its new text once its replacement is sent: until then
   // the session holds [originalText], after it what the chat shows.
-  int? row;
-  for (final text in {?originalText, ?previousText, null}) {
-    row = hermesTranscriptUserRowIndex(
-      transcript: transcript,
-      messages: messages,
-      index: replayedUserIndex,
-      text: text,
+  int? find(String? text) => hermesTranscriptUserRowIndex(
+    transcript: transcript,
+    messages: messages,
+    index: replayedUserIndex,
+    text: text,
+  );
+  // Each text the turn may be stored with is tried: two that match two
+  // rows mean one of them is another turn (one sent later with the text
+  // before the edit), and nothing says which.
+  final found = <int>{
+    for (final text in {?originalText, ?previousText}) ?find(text),
+  };
+  if (found.length > 1) {
+    throw StateError(
+      'This message could not be found in the Hermes chat. Reopen the chat '
+      'and try again.',
     );
-    if (row != null) break;
   }
+  final row = found.isEmpty ? find(null) : found.single;
   // The last row the session held when the cut was chosen: a turn stored
   // after it refuses the cut rather than being cut too.
   int? lastRowId;
@@ -688,6 +697,7 @@ Future<void> regenerateEditedHermesUserMessage(
       hermesOriginalUserContent: storedContent,
       hermesPreviousUserContent: original.content,
     );
+    await forgetReplacedHermesStoredContent(ref, messageId: messageId);
   } catch (_) {
     // Editing is a branch operation, but the original branch must remain
     // intact when the replacement cannot even be started. Restore only while
@@ -702,6 +712,56 @@ Future<void> regenerateEditedHermesUserMessage(
     }
     rethrow;
   }
+}
+
+/// Drops the text a Desktop turn was stored with before an edit
+/// ([kHermesStoredUserContentKey]) once the session stores the edited text:
+/// from then on it names nothing of this turn, and another app may send the
+/// same text as a later one, which an edit would then cut instead. Kept when
+/// the session still holds the old text or cannot be read.
+@visibleForTesting
+Future<void> forgetReplacedHermesStoredContent(
+  dynamic ref, {
+  required String messageId,
+}) async {
+  final service = ref.read(hermesApiServiceProvider);
+  final active = ref.read(activeConversationProvider) as Conversation?;
+  if (service is! HermesDesktopTurnService ||
+      !isNativeHermesConversation(active)) {
+    return;
+  }
+  final sessionId = validateHermesOpaqueIdentifier(
+    active!.metadata['hermesSessionId'],
+  );
+  if (sessionId == null) return;
+  final List<Map<String, dynamic>> transcript;
+  try {
+    transcript = await service.getCurrentSessionMessages(sessionId);
+  } catch (_) {
+    return;
+  }
+  final current = ref.read(activeConversationProvider) as Conversation?;
+  if (current == null || !isSameStoredConversation(current, active)) return;
+  final messages = ref.read(chatMessagesProvider) as List<ChatMessage>;
+  final index = messages.indexWhere(
+    (message) => message.id == messageId && message.role == 'user',
+  );
+  if (index < 0 ||
+      messages[index].metadata?[kHermesStoredUserContentKey] == null ||
+      hermesTranscriptUserRowIndex(
+            transcript: transcript,
+            messages: messages,
+            index: index,
+          ) ==
+          null) {
+    return;
+  }
+  (ref.read(chatMessagesProvider.notifier) as ChatMessagesNotifier)
+      .updateMessageById(messageId, (message) {
+        final metadata = Map<String, dynamic>.from(message.metadata ?? const {})
+          ..remove(kHermesStoredUserContentKey);
+        return message.copyWith(metadata: metadata);
+      });
 }
 
 // Regenerate a message without duplicating its user prompt. Image replay uses

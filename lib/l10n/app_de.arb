@@ -4470,7 +4470,7 @@
   "hermesSessionHiddenNotice": "Chat ausgeblendet. Du findest ihn in den Hermes-Einstellungen unter „Ausgeblendete Chats“.",
   "hermesHiddenChatsTitle": "Ausgeblendete Chats",
   "hermesHiddenChatsDescription": "Auf diesem Gerät aus der Hermes-Liste ausgeblendete Chats. Tippe auf einen, um ihn zu öffnen, oder blende ihn wieder ein, damit er wieder in der Liste erscheint.",
-  "hermesHiddenChatsEmpty": "Keine ausgeblendeten Chats.",
+  "hermesHiddenChatsEmpty": "Keine auf diesem Gerät ausgeblendeten Chats.",
   "hermesHiddenChatsLoadError": "Ausgeblendete Chats konnten nicht geladen werden.",
   "hermesBranchFromHere": "Ab hier abzweigen",
   "hermesBranchFailed": "Von diesem Chat konnte nicht abgezweigt werden. Versuche es erneut.",

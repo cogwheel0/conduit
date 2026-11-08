@@ -4470,7 +4470,7 @@
   "hermesSessionHiddenNotice": "Chat oculto. Lo encontrarás en Chats ocultos, en los ajustes de Hermes.",
   "hermesHiddenChatsTitle": "Chats ocultos",
   "hermesHiddenChatsDescription": "Chats ocultos de la lista de Hermes en este dispositivo. Toca uno para abrirlo o vuelve a mostrarlo para que aparezca en la lista.",
-  "hermesHiddenChatsEmpty": "No hay chats ocultos.",
+  "hermesHiddenChatsEmpty": "No hay chats ocultos en este dispositivo.",
   "hermesHiddenChatsLoadError": "No se pudieron cargar los chats ocultos.",
   "hermesBranchFromHere": "Ramificar desde aquí",
   "hermesBranchFailed": "No se pudo ramificar este chat. Inténtalo de nuevo.",

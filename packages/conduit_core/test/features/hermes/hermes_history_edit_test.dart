@@ -4,7 +4,12 @@ import 'dart:typed_data';
 
 import 'package:checks/checks.dart';
 import 'package:conduit_core/features/chat/providers/chat_providers.dart'
-    show ChatMessagesNotifier, chatMessagesProvider, hermesDesktopRewindTarget;
+    show
+        ChatMessagesNotifier,
+        chatMessagesProvider,
+        forgetReplacedHermesStoredContent,
+        hermesDesktopRewindTarget,
+        kHermesStoredUserContentKey;
 import 'package:conduit_core/features/chat/services/chat_message_actions.dart'
     show undoLastHermesTurn;
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
@@ -421,6 +426,50 @@ ProviderContainer _chatContainer(
 void main() {
   setUp(() => PreferencesStore.debugOverride(InMemoryKeyValueStore()));
   tearDown(PreferencesStore.debugReset);
+
+  group('after an edit', () {
+    List<ChatMessage> edited() => [
+      ..._chat.take(2),
+      _message('u2', 'user', 'Snacks?').copyWith(
+        metadata: const {kHermesStoredUserContentKey: 'And drinks?'},
+      ),
+      _chat[3],
+    ];
+    Object? storedText(ProviderContainer container) => container
+        .read(chatMessagesProvider)
+        .firstWhere((message) => message.id == 'u2')
+        .metadata?[kHermesStoredUserContentKey];
+
+    // Left in place, the text before the edit could later name a turn
+    // another app sent with it, and an edit would cut that one instead.
+    test('the text before it is dropped once the session stores the new one',
+        () async {
+      final stored = [
+        for (final row in _transcript)
+          row['id'] == 15 ? {...row, 'content': 'Snacks?'} : row,
+      ];
+      final container = _chatContainer(
+        _service(_Gateway(), _Rest(stored)),
+        edited(),
+      );
+
+      await forgetReplacedHermesStoredContent(container, messageId: 'u2');
+
+      check(storedText(container)).isNull();
+    });
+
+    test('the text before it stays while the session still stores it',
+        () async {
+      final container = _chatContainer(
+        _service(_Gateway(), _Rest(_transcript)),
+        edited(),
+      );
+
+      await forgetReplacedHermesStoredContent(container, messageId: 'u2');
+
+      check(storedText(container)).equals('And drinks?');
+    });
+  });
 
   group('a chat message in its transcript', () {
     final transcript = [
@@ -944,6 +993,35 @@ void main() {
       check(target).isNotNull()
         ..has((t) => t.rowId, 'rowId').equals(15)
         ..has((t) => t.lastRowId, 'lastRowId').equals(16);
+    });
+
+    // The first text matched a later turn another app sent with it, the
+    // second the edited turn itself: the first match won, and the edit cut
+    // the wrong turn.
+    test('texts that match two turns find neither', () async {
+      final stored = [
+        for (final row in _transcript)
+          row['id'] == 15 ? {...row, 'content': 'Snacks?'} : row,
+        {'id': 17, 'role': 'user', 'content': 'And drinks?'},
+        {'id': 18, 'role': 'assistant', 'content': 'Water.'},
+      ];
+      final service = _service(_Gateway(), _Rest(stored));
+      final edited = [..._chat.take(2), _message('u2', 'user', 'Games?')];
+
+      await check(
+        hermesDesktopRewindTarget(
+          service: service,
+          conversation: conversation,
+          messages: edited,
+          replayedUserIndex: 2,
+          originalText: 'And drinks?',
+          previousText: 'Snacks?',
+        ),
+      ).throws<StateError>(
+        (it) => it
+            .has((error) => error.message, 'message')
+            .contains('could not be found'),
+      );
     });
 
     test('a turn that never reached the session is only sent again', () async {
