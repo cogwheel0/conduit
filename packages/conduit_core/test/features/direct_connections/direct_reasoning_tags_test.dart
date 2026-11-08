@@ -77,7 +77,7 @@ void main() {
     },
   );
 
-  test('keeps leading whitespace of an answer without reasoning', () async {
+  test('passes a stream without tags through delta for delta', () async {
     final events = await splitInlineReasoningTags(
       Stream<DirectStreamEvent>.fromIterable(<DirectStreamEvent>[
         const DirectContentDelta('\n'),
@@ -86,7 +86,11 @@ void main() {
       ]),
     ).toList();
 
-    expect(events.map(_describe), <String>['content:\n  indented', 'done']);
+    expect(events.map(_describe), <String>[
+      'content:\n',
+      'content:  indented',
+      'done',
+    ]);
   });
 }
 

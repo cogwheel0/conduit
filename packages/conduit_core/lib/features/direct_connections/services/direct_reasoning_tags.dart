@@ -20,8 +20,9 @@ import 'package:conduit_markdown/conduit_markdown.dart';
 ///   the closing tag.
 /// - When the run ends (done, error, or the stream closing) everything held
 ///   is released; a block that never closed keeps the rest as reasoning.
-/// - Whitespace between reasoning and the start of the answer is dropped, as
-///   Open WebUI's server drops it around a tag.
+/// - Whitespace right after a closing tag is dropped, as Open WebUI's server
+///   strips the text that follows one. A stream without tags passes through
+///   with its deltas unchanged.
 ///
 /// A turn has one reasoning section. Provider reasoning deltas
 /// (`reasoning_content`, Ollama's `thinking`) and inline tag blocks both feed
@@ -34,15 +35,9 @@ Stream<DirectStreamEvent> splitInlineReasoningTags(
 ) {
   final splitter = StreamingReasoningTagSplitter(ignoreTagsInCode: true);
   var separateNextReasoning = false;
-  var answerStarted = false;
-  var reasoningBeforeAnswer = false;
-  var heldWhitespace = '';
+  var trimAfterClosingTag = false;
 
   void addReasoning(EventSink<DirectStreamEvent> sink, String text) {
-    if (!answerStarted) {
-      reasoningBeforeAnswer = true;
-      heldWhitespace = '';
-    }
     if (separateNextReasoning) {
       separateNextReasoning = false;
       text = '\n\n$text';
@@ -51,20 +46,12 @@ Stream<DirectStreamEvent> splitInlineReasoningTags(
   }
 
   void addAnswer(EventSink<DirectStreamEvent> sink, String text) {
-    if (answerStarted) {
-      sink.add(DirectContentDelta(text));
-      return;
+    if (trimAfterClosingTag) {
+      text = text.trimLeft();
+      if (text.isEmpty) return;
+      trimAfterClosingTag = false;
     }
-    if (text.trim().isEmpty) {
-      heldWhitespace += text;
-      return;
-    }
-    answerStarted = true;
-    final answer = reasoningBeforeAnswer
-        ? text.trimLeft()
-        : '$heldWhitespace$text';
-    heldWhitespace = '';
-    sink.add(DirectContentDelta(answer));
+    sink.add(DirectContentDelta(text));
   }
 
   void emit(EventSink<DirectStreamEvent> sink, List<RawReasoningTagEvent> raw) {
@@ -76,6 +63,7 @@ Stream<DirectStreamEvent> splitInlineReasoningTags(
           addReasoning(sink, text);
         case RawReasoningTagEnd():
           separateNextReasoning = true;
+          trimAfterClosingTag = true;
       }
     }
   }
@@ -87,10 +75,6 @@ Stream<DirectStreamEvent> splitInlineReasoningTags(
 
   void releaseEverything(EventSink<DirectStreamEvent> sink) {
     emit(sink, splitter.flush());
-    if (!answerStarted && !reasoningBeforeAnswer && heldWhitespace.isNotEmpty) {
-      sink.add(DirectContentDelta(heldWhitespace));
-    }
-    heldWhitespace = '';
   }
 
   return events.transform(
