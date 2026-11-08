@@ -3,10 +3,13 @@ import 'dart:math' as math;
 import 'dart:ui' show lerpDouble;
 
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
+import 'package:cupertino_native_better/cupertino_native_better.dart'
+    show CNPopover, CNPopoverContent, CNPopoverToggle;
 import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/physics.dart';
+import 'package:flutter/scheduler.dart' show Ticker;
 import 'package:flutter/services.dart';
 
 import '../theme/theme_extensions.dart';
@@ -795,6 +798,487 @@ class ConduitNativeToolbarActionGroup extends StatelessWidget {
   }
 }
 
+/// Width of one action inside a grouped toolbar capsule. Grouped glyphs sit
+/// a little closer than separate circles, as in an iOS 26 bar button group.
+const double kConduitToolbarClusterSlotExtent = 40;
+
+/// Width of a toolbar cluster holding [count] actions: a single action is a
+/// circle the size of the leading button; more share one capsule.
+double conduitToolbarClusterWidth(BuildContext context, int count) {
+  if (count <= 0) return 0;
+  if (count == 1) return conduitScaledControlExtent(context);
+  return count *
+      kConduitToolbarClusterSlotExtent *
+      conduitSystemControlScaleOf(context);
+}
+
+/// The widest a bar title may be while it stays centred on the screen.
+///
+/// The title keeps the same gap to the screen's centre line on both sides,
+/// so it reserves the wider of the leading and trailing controls on each
+/// side, plus the standard gap between a title and a control.
+double resolveConduitCenteredTitleMaxWidth(
+  BuildContext context, {
+  required double leadingWidth,
+  required double trailingWidth,
+  required double maxWidth,
+  double gap = kConduitAdaptiveToolbarLeadingGap,
+}) {
+  final side = math.max(leadingWidth, trailingWidth);
+  final available =
+      MediaQuery.sizeOf(context).width -
+      2 * (Spacing.inputPadding + side + gap);
+  return available.clamp(0.0, math.max(0.0, maxWidth)).toDouble();
+}
+
+/// Explains a bar toggle whose glyph has no label: the system popover of iOS
+/// 26 and later, pointing at the toggle, with the setting as a labelled
+/// switch and a line on what it does.
+///
+/// Completes with false right away, having shown nothing, where there is no
+/// native popover or the anchor is not laid out.
+Future<bool> showConduitToolbarTogglePopover({
+  required BuildContext context,
+  required GlobalKey anchorKey,
+  required String label,
+  required bool value,
+  required ValueChanged<bool> onChanged,
+  String? detail,
+  String? symbol,
+  Color? tint,
+}) async {
+  if (!PlatformUiCapabilities.usesNativeIOS26) return false;
+  final box = anchorKey.currentContext?.findRenderObject();
+  if (box is! RenderBox || !box.attached || !box.hasSize) return false;
+  await CNPopover.show(
+    context: context,
+    anchorKey: anchorKey,
+    content: CNPopoverContent(
+      toggles: [
+        CNPopoverToggle(
+          id: 'toggle',
+          label: label,
+          subtitle: detail,
+          value: value,
+          symbol: symbol == null ? null : CNSymbol(symbol),
+        ),
+      ],
+    ),
+    // The app's switches are monochrome, not the system green.
+    tint: tint ?? context.conduitTheme.buttonPrimary,
+    onToggleChanged: (_, newValue) => onChanged(newValue),
+  );
+  return true;
+}
+
+/// One action of a [ConduitToolbarActionCluster].
+@immutable
+class ConduitToolbarClusterItem {
+  const ConduitToolbarClusterItem({
+    required this.id,
+    required this.action,
+    this.fallbackIcon,
+    this.onLongPress,
+    this.anchorKey,
+  });
+
+  /// Identifies the action across rebuilds, so a change of the cluster's
+  /// actions fades out only those that leave and fades in only those that
+  /// arrive.
+  final Object id;
+
+  final ConduitNativeToolbarAction action;
+
+  /// Glyph drawn where the platform has no native glass controls.
+  final IconData? fallbackIcon;
+
+  /// Invoked on a long press, for example to explain an unlabeled glyph.
+  final VoidCallback? onLongPress;
+
+  /// Attached to the action's slot, for a popover pointing at it.
+  final GlobalKey? anchorKey;
+}
+
+/// The most one frame may advance the cluster's springs, in seconds.
+const double _kClusterMaxStep = 1 / 30;
+
+/// Where an arriving action's presence starts: below zero, so its fade
+/// begins about 60 ms after the change.
+const double _kClusterArrivalLead = -0.35;
+
+/// Critically damped spring stepped by hand, so several values can share one
+/// ticker and each can be retargeted from its current value and velocity.
+class _ClusterSpring {
+  _ClusterSpring(this.value, {required this.tolerance}) : target = value;
+
+  double value;
+  double velocity = 0;
+  double target;
+  final double tolerance;
+
+  bool get isSettled =>
+      (value - target).abs() < tolerance && velocity.abs() < tolerance * 10;
+
+  void step(double seconds, double omega) {
+    final displacement = value - target;
+    final b = velocity + omega * displacement;
+    final decay = math.exp(-omega * seconds);
+    value = target + (displacement + b * seconds) * decay;
+    velocity = (velocity - omega * b * seconds) * decay;
+    if (isSettled) snap();
+  }
+
+  void snap() {
+    value = target;
+    velocity = 0;
+  }
+}
+
+class _ClusterEntry {
+  _ClusterEntry(
+    this.item, {
+    required double centerFromTrailing,
+    required double presence,
+  }) : centerFromTrailing = _ClusterSpring(centerFromTrailing, tolerance: 0.25),
+       presence = _ClusterSpring(presence, tolerance: 0.01);
+
+  ConduitToolbarClusterItem item;
+
+  /// Distance from the cluster's trailing edge to the action's centre.
+  final _ClusterSpring centerFromTrailing;
+  final _ClusterSpring presence;
+
+  bool get isLeaving => presence.target == 0;
+}
+
+/// Trailing toolbar actions grouped on one Liquid Glass surface, the way an
+/// iOS 26 navigation bar groups its bar button items: one action is a
+/// circle, two or three share one capsule with plain glyphs inside.
+///
+/// The surface is a single glass shape rather than merged per-button glass,
+/// which pinches into a "dumbbell" between buttons on device (#686).
+///
+/// When the set of actions changes (a new chat becoming a real one), the
+/// capsule reshapes once: its width and each glyph's place ride one
+/// critically damped spring, actions that leave fade out where they were and
+/// actions that arrive fade in where they will rest. A change mid-way
+/// retargets from the current values. Reduce Motion keeps only the fades.
+///
+/// The capsule is anchored at its trailing edge, so it grows and shrinks
+/// toward the title.
+class ConduitToolbarActionCluster extends StatefulWidget {
+  const ConduitToolbarActionCluster({super.key, required this.items})
+    : assert(items.length <= 3);
+
+  final List<ConduitToolbarClusterItem> items;
+
+  /// Critically damped, settling in about a third of a second.
+  static final double springOmega = math.sqrt(380);
+
+  @override
+  State<ConduitToolbarActionCluster> createState() =>
+      _ConduitToolbarActionClusterState();
+}
+
+class _ConduitToolbarActionClusterState
+    extends State<ConduitToolbarActionCluster>
+    with SingleTickerProviderStateMixin {
+  final Map<Object, _ClusterEntry> _entries = <Object, _ClusterEntry>{};
+  late final _ClusterSpring _width = _ClusterSpring(0, tolerance: 0.25);
+  late final Ticker _ticker = createTicker(_onTick);
+  Duration? _lastTick;
+  bool _initialized = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // The first layout, and any Dynamic Type change, place everything at
+    // rest: only a change of actions animates.
+    _sync(animate: _initialized);
+    _initialized = true;
+  }
+
+  @override
+  void didUpdateWidget(covariant ConduitToolbarActionCluster oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    _sync(animate: true);
+  }
+
+  @override
+  void dispose() {
+    _ticker.dispose();
+    super.dispose();
+  }
+
+  double _centerFromTrailing(int index, int count) {
+    if (count == 1) return conduitScaledControlExtent(context) / 2;
+    final slot =
+        kConduitToolbarClusterSlotExtent * conduitSystemControlScaleOf(context);
+    return (count - index - 0.5) * slot;
+  }
+
+  void _sync({required bool animate}) {
+    final items = widget.items;
+    final ids = <Object>{};
+    for (var index = 0; index < items.length; index++) {
+      final item = items[index];
+      ids.add(item.id);
+      final center = _centerFromTrailing(index, items.length);
+      final entry = _entries[item.id];
+      if (entry == null) {
+        // Arrives where it will rest; only its opacity moves. It starts a
+        // little below zero, so it shows only once its native control has
+        // been created (a few frames) rather than popping in part-way.
+        _entries[item.id] = _ClusterEntry(
+          item,
+          centerFromTrailing: center,
+          presence: animate ? _kClusterArrivalLead : 1,
+        )..presence.target = 1;
+      } else {
+        entry.item = item;
+        entry.centerFromTrailing.target = center;
+        entry.presence.target = 1;
+      }
+    }
+    for (final entry in _entries.values) {
+      if (!ids.contains(entry.item.id)) entry.presence.target = 0;
+    }
+    _width.target = conduitToolbarClusterWidth(context, items.length);
+
+    final reduceMotion = context.reduceMotion;
+    if (!animate || reduceMotion) {
+      _width.snap();
+      for (final entry in _entries.values) {
+        entry.centerFromTrailing.snap();
+      }
+    }
+    if (!animate) {
+      for (final entry in _entries.values) {
+        entry.presence.snap();
+      }
+      _entries.removeWhere((_, entry) => entry.presence.value == 0);
+    }
+    _startIfNeeded();
+  }
+
+  bool get _isSettled =>
+      _width.isSettled &&
+      _entries.values.every(
+        (entry) =>
+            entry.presence.isSettled && entry.centerFromTrailing.isSettled,
+      );
+
+  void _startIfNeeded() {
+    if (_isSettled || _ticker.isActive) return;
+    _lastTick = null;
+    _ticker.start();
+  }
+
+  void _onTick(Duration elapsed) {
+    final last = _lastTick;
+    _lastTick = elapsed;
+    if (last == null) return;
+    // The step is the spring's exact solution, but a long frame (creating
+    // the arriving glyphs' native views stalls one) advances it by at most
+    // two frames' time, so the reshape slows for a moment instead of
+    // jumping to its end.
+    final seconds = math.min(
+      (elapsed - last).inMicroseconds / Duration.microsecondsPerSecond,
+      _kClusterMaxStep,
+    );
+    final omega = ConduitToolbarActionCluster.springOmega;
+    _width.step(seconds, omega);
+    for (final entry in _entries.values) {
+      entry.centerFromTrailing.step(seconds, omega);
+      entry.presence.step(seconds, omega);
+    }
+    _entries.removeWhere(
+      (_, entry) => entry.isLeaving && entry.presence.isSettled,
+    );
+    if (_isSettled) _ticker.stop();
+    setState(() {});
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final height = conduitScaledControlExtent(context);
+    final width = math.max(0.0, _width.value);
+    final usesNativeGlass = conduitSupportsNativeGlass();
+    final borderRadius = BorderRadius.circular(height / 2);
+    final theme = context.conduitTheme;
+
+    final Widget background = usesNativeGlass
+        ? AdaptiveGlassBackdrop(
+            borderRadius: borderRadius,
+            autoHideOnModal: false,
+          )
+        : DecoratedBox(
+            decoration: BoxDecoration(
+              color: theme.surfaceContainerHighest,
+              borderRadius: borderRadius,
+              border: Border.all(
+                color: theme.cardBorder,
+                width: BorderWidth.thin,
+              ),
+            ),
+          );
+
+    final children = <Widget>[Positioned.fill(child: background)];
+    for (final entry in _entries.values) {
+      final opacity = entry.presence.value.clamp(0.0, 1.0);
+      if (opacity <= 0 && entry.isLeaving) continue;
+      // The same wrappers whether or not there is a long press or anchor,
+      // so a change of either never rebuilds the native control (a blank
+      // frame).
+      final child = KeyedSubtree(
+        key: entry.item.anchorKey,
+        child: GestureDetector(
+          onLongPress: entry.item.onLongPress,
+          child: _buildAction(entry.item, height, usesNativeGlass),
+        ),
+      );
+      children.add(
+        Positioned(
+          key: ValueKey<Object>(entry.item.id),
+          right: entry.centerFromTrailing.value - height / 2,
+          top: 0,
+          width: height,
+          height: height,
+          child: IgnorePointer(
+            ignoring: entry.isLeaving,
+            child: Opacity(opacity: opacity, child: child),
+          ),
+        ),
+      );
+    }
+
+    return _hideNativeToolbarChromeWhileSheetCovered(
+      size: Size(width, height),
+      child: SizedBox(
+        width: width,
+        height: height,
+        child: Stack(clipBehavior: Clip.none, children: children),
+      ),
+    );
+  }
+
+  Widget _buildAction(
+    ConduitToolbarClusterItem item,
+    double extent,
+    bool usesNativeGlass,
+  ) {
+    final action = item.action;
+    final color = ConduitNativeToolbarActionGroup._symbolColor(action);
+    if (!usesNativeGlass) return _buildFallbackAction(item, extent);
+    // The native controls carry the label themselves, as the leading button
+    // does: VoiceOver reads it once, not alongside the symbol's own
+    // generated name ("compose").
+    if (action.menuItems.isEmpty) {
+      return CNButton.icon(
+        icon: CNSymbol(
+          action.iosSymbol,
+          size: kConduitNativeSingleActionSymbolExtent,
+          color: color,
+        ),
+        semanticLabel: action.accessibilityLabel,
+        onPressed: action.onPressed,
+        enabled: action.enabled,
+        tint: action.tintColor,
+        config: CNButtonConfig(
+          width: extent,
+          minHeight: extent,
+          padding: EdgeInsets.zero,
+          style: CNButtonStyle.plain,
+        ),
+      );
+    }
+    return AdaptivePopupMenuButton.icon<int>(
+      icon: action.iosSymbol,
+      semanticLabel: action.accessibilityLabel,
+      iconSize: kConduitNativeSingleActionSymbolExtent,
+      iconColor: color,
+      tint: action.tintColor,
+      size: extent,
+      enabled: action.enabled,
+      buttonStyle: PopupButtonStyle.plain,
+      items: _menuEntries(action),
+      onSelected: (index, entry) => _onMenuSelected(action, entry),
+    );
+  }
+
+  List<AdaptivePopupMenuEntry> _menuEntries(ConduitNativeToolbarAction action) {
+    return [
+      for (var index = 0; index < action.menuItems.length; index++)
+        AdaptivePopupMenuItem<int>(
+          label: action.menuItems[index].label,
+          icon: action.menuItems[index].iosSymbol,
+          enabled: action.menuItems[index].enabled,
+          isDestructive: action.menuItems[index].isDestructive,
+          checked: action.menuItems[index].isChecked,
+          value: index,
+        ),
+    ];
+  }
+
+  void _onMenuSelected(
+    ConduitNativeToolbarAction action,
+    AdaptivePopupMenuItem<int> entry,
+  ) {
+    if (!action.enabled) return;
+    final selected = entry.value;
+    if (selected != null &&
+        selected >= 0 &&
+        selected < action.menuItems.length) {
+      action.menuItems[selected].onSelected();
+    }
+  }
+
+  Widget _buildFallbackAction(ConduitToolbarClusterItem item, double extent) {
+    final action = item.action;
+    final color =
+        ConduitNativeToolbarActionGroup._symbolColor(action) ??
+        context.conduitTheme.textPrimary;
+    final glyph = SizedBox.square(
+      dimension: extent,
+      child: Center(
+        child: ConduitSystemAdaptiveIcon(
+          item.fallbackIcon ?? CupertinoIcons.ellipsis,
+          size: conduitScaledIconExtent(context, IconSize.appBar),
+          color: color,
+        ),
+      ),
+    );
+    if (action.menuItems.isNotEmpty) {
+      return Semantics(
+        label: action.accessibilityLabel,
+        button: true,
+        enabled: action.enabled,
+        excludeSemantics: true,
+        child: IgnorePointer(
+          ignoring: !action.enabled,
+          child: AdaptivePopupMenuButton.widget<int>(
+            items: _menuEntries(action),
+            onSelected: (index, entry) => _onMenuSelected(action, entry),
+            child: glyph,
+          ),
+        ),
+      );
+    }
+    return Semantics(
+      label: action.accessibilityLabel,
+      button: true,
+      enabled: action.enabled,
+      excludeSemantics: true,
+      child: CupertinoButton(
+        onPressed: action.enabled ? action.onPressed : null,
+        padding: EdgeInsets.zero,
+        minimumSize: Size.square(extent),
+        child: glyph,
+      ),
+    );
+  }
+}
+
 double resolveConduitNativeModelTitleFontSize(TextScaler textScaler) {
   final scaledSize = textScaler.scale(_kConduitNativeModelTitleStyle.fontSize!);
   if (!scaledSize.isFinite || scaledSize <= 0) {
@@ -1282,7 +1766,7 @@ class _ConduitTitledModelSelector extends StatefulWidget {
 final SpringDescription _kConduitTitleSpring =
     SpringDescription.withDampingRatio(mass: 1, stiffness: 300, ratio: 1);
 
-const double _kConduitTitledPillInset = 16;
+const double _kConduitTitledPillInset = 14;
 const double _kConduitTitledPillDrift = 7;
 const double _kConduitTitledPillTitleSize = 15;
 const double _kConduitTitledPillSubtitleSize = 12;
