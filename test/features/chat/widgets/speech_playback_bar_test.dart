@@ -316,6 +316,7 @@ void main() {
         expect(compactWidth, lessThan(floatingIslandGlass(tester).width));
         for (final key in [
           'speech-playback-collapse',
+          'speech-playback-speed',
           'speech-playback-backward',
           'speech-playback-toggle',
           'speech-playback-forward',

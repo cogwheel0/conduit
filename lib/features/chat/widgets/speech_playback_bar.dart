@@ -32,9 +32,9 @@ const double _barScrubberHeight = 28;
 /// Extent of the leading waveform glyph.
 const double _glyphExtent = 20;
 
-/// The most controls the expanded island's row shows: speed, back,
-/// play/pause, forward and stop.
-const int _maxPanelActions = 5;
+/// The most controls the expanded island's row shows: back, play/pause,
+/// forward and stop.
+const int _maxPanelActions = 4;
 
 /// How long a scrub rests before the reading seeks there. The native slider
 /// reports each move but not the release.
@@ -185,29 +185,26 @@ class _SpeechPlaybackBarState extends ConsumerState<SpeechPlaybackBar> {
     ];
     final speed = ref.watch(appSettingsProvider.select((s) => s.ttsSpeed));
     // The setting changes the reading under way, cloud and device voices
-    // alike, and is the one Voice settings shows. The menu takes only the
-    // room the fixed controls leave, so large text cannot overflow the row.
-    Widget speedMenu({required double height, Color? tint}) => Flexible(
-      child: Semantics(
-        label: l10n.ttsPlaybackSpeed,
-        child: AdaptivePopupMenuButton.text<double>(
-          key: const ValueKey('speech-playback-speed'),
-          label: l10n.ttsSpeedValue(speed),
-          items: [
-            for (final preset in ttsSpeedPresets)
-              AdaptivePopupMenuItem<double>(
-                label: l10n.ttsSpeedValue(preset),
-                value: preset,
-                checked: preset == nearestTtsSpeed(speed),
-              ),
-          ],
-          onSelected: (_, entry) => ref
-              .read(appSettingsProvider.notifier)
-              .setTtsSpeed(entry.value ?? speed),
-          tint: tint,
-          height: height,
-          shrinkWrap: true,
-        ),
+    // alike, and is the one Voice settings shows.
+    Widget speedMenu({required double height, Color? tint}) => Semantics(
+      label: l10n.ttsPlaybackSpeed,
+      child: AdaptivePopupMenuButton.text<double>(
+        key: const ValueKey('speech-playback-speed'),
+        label: l10n.ttsSpeedValue(speed),
+        items: [
+          for (final preset in ttsSpeedPresets)
+            AdaptivePopupMenuItem<double>(
+              label: l10n.ttsSpeedValue(preset),
+              value: preset,
+              checked: preset == nearestTtsSpeed(speed),
+            ),
+        ],
+        onSelected: (_, entry) => ref
+            .read(appSettingsProvider.notifier)
+            .setTtsSpeed(entry.value ?? speed),
+        tint: tint,
+        height: height,
+        shrinkWrap: true,
       ),
     );
 
@@ -218,7 +215,14 @@ class _SpeechPlaybackBarState extends ConsumerState<SpeechPlaybackBar> {
         track: scrubbable
             ? SizedBox(height: _barScrubberHeight, child: track)
             : track,
-        speed: speedMenu(height: conduitScaledControlExtent(context)),
+        // The bar's row is tight at large text, so its speed shrinks to fit
+        // rather than wrapping or overflowing.
+        speed: Flexible(
+          child: FittedBox(
+            fit: BoxFit.scaleDown,
+            child: speedMenu(height: conduitScaledControlExtent(context)),
+          ),
+        ),
         actions: actions,
       );
     }
@@ -272,8 +276,8 @@ class _SpeechPlaybackBarState extends ConsumerState<SpeechPlaybackBar> {
             rowHeight,
           );
 
-          // The panel: the time and the progress on one row, every control
-          // on the next.
+          // The panel: the time, the progress and the speed on one row,
+          // every other control on the next.
           final panelWidth = AdaptiveFloatingIsland.expandedPadding
               .deflateSize(Size(constraints.maxWidth, 0))
               .width;
@@ -352,6 +356,10 @@ class _SpeechPlaybackBarState extends ConsumerState<SpeechPlaybackBar> {
                       ),
                       const SizedBox(width: Spacing.sm),
                       Expanded(child: track),
+                      // The speed reads with the time, at its own width,
+                      // and leaves the next row to the controls.
+                      const SizedBox(width: Spacing.sm),
+                      speedMenu(height: rowHeight, tint: theme.textPrimary),
                     ],
                   ),
                 ),
@@ -359,10 +367,6 @@ class _SpeechPlaybackBarState extends ConsumerState<SpeechPlaybackBar> {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                   children: [
-                    speedMenu(
-                      height: panelControlExtent,
-                      tint: theme.textPrimary,
-                    ),
                     for (final action in actions)
                       _IslandButton(action: action, extent: panelControlExtent),
                   ],
