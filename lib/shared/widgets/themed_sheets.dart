@@ -8,6 +8,7 @@ import 'package:stupid_simple_sheet/stupid_simple_sheet.dart';
 
 import '../theme/theme_extensions.dart';
 import '../utils/adaptive_glass.dart';
+import '../utils/platform_page_route.dart';
 import 'modal_safe_area.dart';
 import 'sheet_handle.dart';
 
@@ -83,6 +84,33 @@ class ThemedSheets {
 
   /// Prevents compact sheets from stretching across tablet and desktop widths.
   static const double maxSheetWidth = 640;
+
+  /// Presents a full-screen workspace above every pane, removing covered
+  /// UIKit chrome before entry and restoring it after the exit transition.
+  static Future<T?> showFullscreenPage<T>({
+    required BuildContext context,
+    required WidgetBuilder builder,
+  }) {
+    FocusManager.instance.primaryFocus?.unfocus();
+    return _showTracked<T>(
+      context: context,
+      useRootNavigator: true,
+      present: (coverage) async {
+        final route = buildPlatformPageRoute<T>(
+          builder: (_) => _SheetCoverageBoundary(
+            coverage: coverage,
+            child: Builder(builder: builder),
+          ),
+        );
+        final result = await Navigator.of(
+          context,
+          rootNavigator: true,
+        ).push(route);
+        await route.completed;
+        return result;
+      },
+    );
+  }
 
   static const ShapeBorder roundedShape = RoundedRectangleBorder(
     borderRadius: BorderRadius.vertical(
@@ -463,7 +491,10 @@ class _SheetCoverageBoundary extends StatefulWidget {
 class _SheetCoverageBoundaryState extends State<_SheetCoverageBoundary> {
   @override
   void dispose() {
-    widget.coverage.close();
+    // Restoring covered platform views rebuilds their widgets. Disposal runs
+    // while the tree is locked, so notify surviving routes after this frame.
+    final coverage = widget.coverage;
+    WidgetsBinding.instance.addPostFrameCallback((_) => coverage.close());
     super.dispose();
   }
 

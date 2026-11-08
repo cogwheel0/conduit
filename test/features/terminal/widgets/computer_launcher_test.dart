@@ -6,6 +6,7 @@ import 'package:conduit/features/terminal/widgets/computer_launcher.dart';
 import 'package:conduit/features/terminal/widgets/computer_page.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/l10n/conduit_localizations.dart';
+import 'package:conduit/shared/widgets/themed_sheets.dart';
 import 'package:conduit_core/features/terminal/models/computer_models.dart';
 import 'package:conduit_core/features/terminal/providers/computer_providers.dart';
 import 'package:conduit_core/features/terminal/services/computer_service.dart';
@@ -222,6 +223,8 @@ void main() {
     });
     final root = GlobalKey<NavigatorState>();
     final pane = GlobalKey<NavigatorState>();
+    final inputFocus = FocusNode();
+    addTearDown(inputFocus.dispose);
     final service = _Service();
     when(() => service.open(any())).thenAnswer((_) async => connection);
     when(() => service.screenshot(connection)).thenAnswer((_) async => png);
@@ -248,10 +251,19 @@ void main() {
                 child: Navigator(
                   key: pane,
                   onGenerateRoute: (_) => MaterialPageRoute<void>(
-                    builder: (_) => const Scaffold(
-                      body: Align(
-                        alignment: Alignment.bottomCenter,
-                        child: ComputerLauncher(),
+                    builder: (_) => Scaffold(
+                      body: Column(
+                        children: [
+                          TextField(focusNode: inputFocus),
+                          ThemedSheets.hideNativeChromeWhileCovered(
+                            child: const SizedBox(
+                              key: ValueKey('native-composer-chrome'),
+                              height: 40,
+                            ),
+                          ),
+                          const Spacer(),
+                          const ComputerLauncher(),
+                        ],
                       ),
                     ),
                   ),
@@ -265,20 +277,37 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('Computer'));
     await tester.pumpAndSettle();
+    inputFocus.requestFocus();
+    await tester.pump();
+    expect(inputFocus.hasFocus, isTrue);
     await tester.tap(find.text('Open live'));
+    await tester.pump();
+    expect(
+      find.byKey(const ValueKey('native-composer-chrome'), skipOffstage: false),
+      findsNothing,
+    );
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 500));
     expect(tester.getSize(find.byType(ComputerPage)).width, 800);
     expect(pane.currentState!.canPop(), isFalse);
     expect(root.currentState!.canPop(), isTrue);
     expect(
+      find.byKey(const ValueKey('native-composer-chrome'), skipOffstage: false),
+      findsNothing,
+    );
+    expect(
       ProviderScope.containerOf(tester.element(find.byType(ComputerPage)))
           .read(computerOpenedProvider),
       isTrue,
     );
     root.currentState!.pop();
+    await tester.pump();
+    expect(ThemedSheets.hasActiveSheet, isTrue);
     await tester.pumpAndSettle();
+    expect(ThemedSheets.hasActiveSheet, isFalse);
     expect(find.text('Computer'), findsOneWidget);
+    expect(inputFocus.hasFocus, isFalse);
+    expect(find.byKey(const ValueKey('native-composer-chrome')), findsOneWidget);
     await tester.pumpWidget(const SizedBox());
   });
 

@@ -12,7 +12,7 @@ import '../../../shared/widgets/platform_ui/vocabulary.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/platform_ui/platform_ui.dart';
-import '../../../shared/utils/platform_page_route.dart';
+import '../../../shared/widgets/themed_sheets.dart';
 import 'computer_page.dart';
 import 'computer_mode_selector.dart';
 
@@ -23,11 +23,9 @@ Future<void> openComputerWorkspace(BuildContext context, WidgetRef ref) async {
   final capabilities = ref.read(computerCapabilitiesProvider).value;
   if (service == null || capabilities == null) return;
   ref.read(computerOpenedProvider.notifier).open();
-  await Navigator.of(context, rootNavigator: true).push(
-    buildPlatformPageRoute<void>(
-      builder: (_) =>
-          ComputerPage(service: service, capabilities: capabilities),
-    ),
+  await ThemedSheets.showFullscreenPage<void>(
+    context: context,
+    builder: (_) => ComputerPage(service: service, capabilities: capabilities),
   );
 }
 
@@ -143,14 +141,13 @@ class _ComputerCardState extends State<_ComputerCard>
 
   Future<void> _open() async {
     widget.onOpen();
-    await Navigator.of(context, rootNavigator: true).push(
-      buildPlatformPageRoute<void>(
-        builder: (_) => ComputerPage(
-          service: widget.service,
-          capabilities: widget.capabilities,
-          initialConnection: _connection,
-          initialSurface: _selected,
-        ),
+    await ThemedSheets.showFullscreenPage<void>(
+      context: context,
+      builder: (_) => ComputerPage(
+        service: widget.service,
+        capabilities: widget.capabilities,
+        initialConnection: _connection,
+        initialSurface: _selected,
       ),
     );
     if (mounted && _expanded) unawaited(_load());
