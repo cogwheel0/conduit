@@ -1,4 +1,7 @@
+import 'dart:async';
 import 'dart:io' show Platform;
+
+import 'package:flutter/gestures.dart' show PointerDeviceKind, kTouchSlop;
 
 import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:material_ui/material_ui.dart';
@@ -12,26 +15,55 @@ const double kConversationTileHorizontalGutter = Spacing.sm;
 const EdgeInsets kConversationTileMargin = EdgeInsets.only(
   left: kConversationTileHorizontalGutter,
   right: kConversationTileHorizontalGutter,
-  top: Spacing.xxs,
-  bottom: Spacing.xxs,
+  top: 1,
+  bottom: 1,
 );
+
+/// Where a sidebar row's text starts: the row's gutter plus its padding.
+/// Section headers start here too, so a list has one leading edge.
+const double kSidebarRowContentInset =
+    kConversationTileHorizontalGutter + Spacing.md;
+
+/// Least height of a single-line chat row, inside [kConversationTileMargin].
+const double kConversationTileMinHeight = TouchTarget.minimum;
+
+/// How long a finger rests on a sidebar row before it highlights. Like a
+/// UIKit list in a scroll view, a row the finger starts scrolling from never
+/// flashes; a quicker tap still highlights briefly when it lifts.
+const Duration kSidebarRowPressDelay = Duration(milliseconds: 80);
+
+/// How long a tap shorter than [kSidebarRowPressDelay] keeps its highlight.
+const Duration kSidebarRowTapFlash = Duration(milliseconds: 120);
+
+/// The fill of a selected or pressed sidebar row: a wash of the text colour,
+/// so it stays neutral in every palette and never borrows an accent. A press
+/// reads darker than a selection, as in UIKit lists.
+Color sidebarRowHighlightColor(
+  ConduitThemeExtension theme, {
+  required bool selected,
+  bool pressed = false,
+}) {
+  if (!selected && !pressed) return theme.surfaceBackground;
+  final alpha = pressed
+      ? (theme.isDark ? 0.19 : 0.13)
+      : (theme.isDark ? 0.13 : 0.08);
+  return Color.alphaBlend(
+    theme.textPrimary.withValues(alpha: alpha),
+    theme.surfaceBackground,
+  );
+}
 
 BoxDecoration conduitConversationTileDecoration(
   ConduitThemeExtension theme, {
   required bool selected,
   bool pressed = false,
 }) {
-  final background = selected
-      ? Color.alphaBlend(
-          theme.buttonPrimary.withValues(alpha: 0.1),
-          theme.surfaceBackground,
-        )
-      : pressed
-      ? theme.surfaceContainer
-      : theme.surfaceBackground;
-
   return BoxDecoration(
-    color: background,
+    color: sidebarRowHighlightColor(
+      theme,
+      selected: selected,
+      pressed: pressed,
+    ),
     borderRadius: BorderRadius.circular(AppBorderRadius.md),
   );
 }
@@ -136,20 +168,77 @@ class _ChatStyleSidebarTileState extends State<ChatStyleSidebarTile> {
   bool _pressed = false;
   bool _hovered = false;
   bool _focused = false;
+  Timer? _pressTimer;
+  Timer? _flashTimer;
+  Offset? _downPosition;
 
   void _setPressed(bool pressed) {
-    if (_pressed == pressed) return;
+    if (!mounted || _pressed == pressed) return;
     setState(() => _pressed = pressed);
+  }
+
+  void _handlePointerDown(PointerDownEvent event) {
+    _cancelTimers();
+    _downPosition = event.position;
+    // A mouse never scrolls by dragging, so it highlights at once.
+    if (event.kind == PointerDeviceKind.mouse) {
+      _setPressed(true);
+      return;
+    }
+    _pressTimer = Timer(kSidebarRowPressDelay, () => _setPressed(true));
+  }
+
+  void _handlePointerMove(PointerMoveEvent event) {
+    final origin = _downPosition;
+    if (origin == null) return;
+    if ((event.position - origin).distance > kTouchSlop) {
+      // The finger is scrolling the list, not choosing this row.
+      _release();
+    }
+  }
+
+  void _handlePointerUp(PointerUpEvent event) {
+    final tappedBeforeHighlight = _pressTimer?.isActive ?? false;
+    final stayedPut = _downPosition != null;
+    _cancelTimers();
+    _downPosition = null;
+    if (tappedBeforeHighlight && stayedPut) {
+      _setPressed(true);
+      _flashTimer = Timer(kSidebarRowTapFlash, () => _setPressed(false));
+      return;
+    }
+    _setPressed(false);
+  }
+
+  void _release() {
+    _cancelTimers();
+    _downPosition = null;
+    _setPressed(false);
+  }
+
+  void _cancelTimers() {
+    _pressTimer?.cancel();
+    _pressTimer = null;
+    _flashTimer?.cancel();
+    _flashTimer = null;
   }
 
   @override
   void didUpdateWidget(covariant ChatStyleSidebarTile oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (!widget.enabled || widget.onTap == null) {
+      _cancelTimers();
+      _downPosition = null;
       _pressed = false;
       _hovered = false;
       _focused = false;
     }
+  }
+
+  @override
+  void dispose() {
+    _cancelTimers();
+    super.dispose();
   }
 
   @override
@@ -197,11 +286,10 @@ class _ChatStyleSidebarTileState extends State<ChatStyleSidebarTile> {
             },
             child: Listener(
               behavior: HitTestBehavior.opaque,
-              onPointerDown: effectiveEnabled ? (_) => _setPressed(true) : null,
-              onPointerUp: effectiveEnabled ? (_) => _setPressed(false) : null,
-              onPointerCancel: effectiveEnabled
-                  ? (_) => _setPressed(false)
-                  : null,
+              onPointerDown: effectiveEnabled ? _handlePointerDown : null,
+              onPointerMove: effectiveEnabled ? _handlePointerMove : null,
+              onPointerUp: effectiveEnabled ? _handlePointerUp : null,
+              onPointerCancel: effectiveEnabled ? (_) => _release() : null,
               child: GestureDetector(
                 behavior: HitTestBehavior.opaque,
                 onTap: effectiveEnabled ? widget.onTap : null,
@@ -248,7 +336,7 @@ class SidebarListTileContent extends StatelessWidget {
     final titleIsPrimary = selected || emphasizeTitle;
 
     return ConstrainedBox(
-      constraints: const BoxConstraints(minHeight: TouchTarget.listItem),
+      constraints: const BoxConstraints(minHeight: kConversationTileMinHeight),
       child: Padding(
         padding: const EdgeInsets.symmetric(
           horizontal: Spacing.md,
@@ -449,7 +537,8 @@ class ConversationTileContent extends StatelessWidget {
         const SizedBox(width: Spacing.sm),
         Icon(
           Platform.isIOS ? CupertinoIcons.pin_fill : Icons.push_pin_rounded,
-          color: theme.textTertiary,
+          key: const ValueKey<String>('conversation-pinned-indicator'),
+          color: theme.textSecondary,
           size: IconSize.sm - 2,
         ),
       ]);
@@ -505,30 +594,57 @@ class ConversationTileContent extends StatelessWidget {
       semanticsLabel: title,
     );
 
+    // The unread dot hangs in the row's leading padding, as Mail marks
+    // unread mail, so every title keeps the list's one leading edge.
+    final titleWithDot = unread
+        ? Stack(
+            clipBehavior: Clip.none,
+            alignment: AlignmentDirectional.centerStart,
+            children: [
+              titleWidget,
+              PositionedDirectional(
+                start: -(_kUnreadDotExtent + _kUnreadDotGap),
+                top: 0,
+                bottom: 0,
+                width: _kUnreadDotExtent,
+                child: Semantics(
+                  // Read after the title, as VoiceOver announces unread
+                  // mail.
+                  label: AppLocalizations.of(context)?.chatUnreadState,
+                  child: Center(
+                    child: Container(
+                      key: const ValueKey<String>(
+                        'conversation-unread-indicator',
+                      ),
+                      width: _kUnreadDotExtent,
+                      height: _kUnreadDotExtent,
+                      decoration: BoxDecoration(
+                        color: theme.textPrimary,
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          )
+        : titleWidget;
+
     return Row(
       mainAxisSize: shrinkWrap ? MainAxisSize.min : MainAxisSize.max,
       children: [
-        if (unread) ...[
-          Container(
-            key: const ValueKey<String>('conversation-unread-indicator'),
-            width: 6,
-            height: 6,
-            decoration: BoxDecoration(
-              color: theme.buttonPrimary,
-              shape: BoxShape.circle,
-            ),
-          ),
-          const SizedBox(width: Spacing.sm),
-        ],
         if (shrinkWrap)
-          Flexible(fit: FlexFit.loose, child: titleWidget)
+          Flexible(fit: FlexFit.loose, child: titleWithDot)
         else
-          Expanded(child: titleWidget),
+          Expanded(child: titleWithDot),
         ...trailingWidgets,
       ],
     );
   }
 }
+
+const double _kUnreadDotExtent = 8;
+const double _kUnreadDotGap = 5;
 
 /// A tappable conversation tile with hover and selection states.
 class ConversationTile extends StatelessWidget {
@@ -582,7 +698,9 @@ class ConversationTile extends StatelessWidget {
       tintKey: const ValueKey<String>('conversation-tile-active-tint'),
       pressedKey: const ValueKey<String>('conversation-tile-pressed-tint'),
       child: ConstrainedBox(
-        constraints: const BoxConstraints(minHeight: TouchTarget.listItem),
+        constraints: const BoxConstraints(
+          minHeight: kConversationTileMinHeight,
+        ),
         child: Padding(
           padding: const EdgeInsets.symmetric(
             horizontal: Spacing.md,

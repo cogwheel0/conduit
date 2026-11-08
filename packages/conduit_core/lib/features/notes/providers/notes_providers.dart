@@ -21,6 +21,7 @@ import 'package:conduit_core/sync/chat_locks.dart';
 import 'package:conduit_core/sync/sync_api_client.dart';
 import 'package:conduit_core/sync/sync_engine.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
+import 'package:conduit_core/utils/recency_sections.dart';
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
 
 part 'notes_providers.g.dart';
@@ -795,28 +796,17 @@ enum TimeRange {
   older,
 }
 
-/// Determine which time range a timestamp belongs to.
-/// Uses `!isBefore` instead of `isAfter` to include boundary timestamps
-/// (e.g., exactly midnight) in the correct range.
-TimeRange getTimeRangeForTimestamp(DateTime timestamp) {
-  final now = DateTime.now();
-  final today = DateTime(now.year, now.month, now.day);
-  final yesterday = today.subtract(const Duration(days: 1));
-  final sevenDaysAgo = today.subtract(const Duration(days: 7));
-  final thirtyDaysAgo = today.subtract(const Duration(days: 30));
-
-  if (!timestamp.isBefore(today)) {
-    return TimeRange.today;
-  } else if (!timestamp.isBefore(yesterday)) {
-    return TimeRange.yesterday;
-  } else if (!timestamp.isBefore(sevenDaysAgo)) {
-    return TimeRange.previousSevenDays;
-  } else if (!timestamp.isBefore(thirtyDaysAgo)) {
-    return TimeRange.previousThirtyDays;
-  } else {
-    return TimeRange.older;
-  }
-}
+/// Determine which time range a timestamp belongs to, on the same calendar
+/// days as the chat list's [recencySectionFor] sections; every month older
+/// than 30 days is [TimeRange.older].
+TimeRange getTimeRangeForTimestamp(DateTime timestamp, {DateTime? now}) =>
+    switch (recencySectionFor(timestamp, now: now ?? DateTime.now()).kind) {
+      RecencySectionKind.today => TimeRange.today,
+      RecencySectionKind.yesterday => TimeRange.yesterday,
+      RecencySectionKind.previous7Days => TimeRange.previousSevenDays,
+      RecencySectionKind.previous30Days => TimeRange.previousThirtyDays,
+      RecencySectionKind.month => TimeRange.older,
+    };
 
 /// Provider that returns notes grouped by time range.
 @Riverpod(keepAlive: true)

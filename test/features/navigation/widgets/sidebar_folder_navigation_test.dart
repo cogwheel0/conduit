@@ -313,7 +313,7 @@ void main() {
 
     final row = find.byKey(const ValueKey<String>('folder-open-parent-folder'));
     final gesture = await tester.startGesture(tester.getCenter(row));
-    await tester.pump();
+    await tester.pump(kSidebarRowPressDelay);
 
     final pressedFinder = find.byKey(
       const ValueKey<String>('folder-pressed-tint-parent-folder'),
@@ -367,9 +367,9 @@ void main() {
     final folderRect = tester.getRect(
       find.byKey(const ValueKey<String>('folder-surface-parent-folder')),
     );
-    final sectionLeadingLeft = tester
-        .getRect(find.byKey(const ValueKey<String>('folders-section-leading')))
-        .left;
+    final sectionTitleLeft = tester
+        .getTopLeft(find.text(AppLocalizationsEn().folders))
+        .dx;
     final folderIconLeft = tester
         .getRect(
           find.byKey(const ValueKey<String>('folder-icon-parent-folder')),
@@ -379,12 +379,11 @@ void main() {
     expect(chatRect.left, 0);
     expect(chatRect.left, folderRect.left);
     expect(chatRect.right, folderRect.right);
+    // Section titles, folder icons and chat titles share one leading edge.
     expect(tester.getTopLeft(find.text('Active Chat')).dx, Spacing.lg);
-    expect(
-      tester.getTopLeft(find.text('Active Chat')).dx,
-      sectionLeadingLeft + Spacing.sm,
-    );
-    expect(folderIconLeft, sectionLeadingLeft + Spacing.sm);
+    expect(sectionTitleLeft, kSidebarRowContentInset);
+    expect(tester.getTopLeft(find.text('Active Chat')).dx, sectionTitleLeft);
+    expect(folderIconLeft, sectionTitleLeft);
 
     NavigationService.router.go('/folder/parent-folder');
     await tester.pumpAndSettle();

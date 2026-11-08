@@ -24,6 +24,7 @@ import 'package:conduit_core/features/direct_connections/providers/direct_connec
 import 'package:conduit_core/features/hermes/models/hermes_model.dart';
 import 'package:conduit_core/features/hermes/services/hermes_session_provenance.dart';
 import 'package:conduit/features/chat/widgets/chat_share_sheet.dart';
+import 'package:conduit/features/navigation/widgets/create_folder_dialog.dart';
 import 'package:conduit/features/navigation/widgets/folder_tree_guides.dart';
 
 /// Defines an action for use in Conduit context menus.
@@ -274,11 +275,10 @@ List<ConduitContextMenuAction> buildConversationActionsWithFolders({
   final bool isOnDevice = isDirectLocalConversation(conversation);
   final selectionId = conversationScopedId(conversation);
   final currentFolderId = _conversationFolderId(conversation);
-  final canMove =
-      !isOnDevice &&
-      foldersEnabled &&
-      (folders.any((folder) => folder.id != currentFolderId) ||
-          currentFolderId != null);
+  // Move is offered even with no folder to move to: its sheet starts with
+  // New Folder, which is also how the first folder gets made once the
+  // sidebar hides an empty Folders group.
+  final canMove = !isOnDevice && foldersEnabled;
   final showMarkUnread =
       canMarkUnread &&
       !isOnDevice &&
@@ -448,10 +448,22 @@ String? _conversationFolderId(dynamic conversation) {
   return null;
 }
 
+/// Long enough for a native sheet's dismissal animation to finish, with
+/// room for a busy device. The native options selector reports a choice as
+/// its sheet starts to close and has no signal for when it is gone.
+const Duration _kNativeSheetDismissalAllowance = Duration(milliseconds: 800);
+
 class _ConversationMoveTarget {
-  const _ConversationMoveTarget({required this.folderId});
+  const _ConversationMoveTarget({required this.folderId})
+    : createsFolder = false;
+
+  /// Into a folder the user names next.
+  const _ConversationMoveTarget.newFolder()
+    : folderId = null,
+      createsFolder = true;
 
   final String? folderId;
+  final bool createsFolder;
 }
 
 Future<void> _moveConversation(
@@ -468,13 +480,24 @@ Future<void> _moveConversation(
     currentFolderId: currentFolderId,
   );
   if (!context.mounted || target == null) return;
-  if (target.folderId == currentFolderId) return;
+  var folderId = target.folderId;
+  if (target.createsFolder) {
+    final created = await CreateFolderDialog.show(
+      context,
+      ref,
+      onError: (message) => _showConversationError(context, message),
+    );
+    if (!context.mounted || created == null) return;
+    folderId = created.id;
+  }
+  if (folderId == currentFolderId) return;
+  final destination = folderId;
 
   final l10n = AppLocalizations.of(context)!;
   try {
     final api = ref.read(apiServiceProvider);
     if (api == null) throw Exception('No API service');
-    await api.moveConversationToFolder(rawConversationId, target.folderId);
+    await api.moveConversationToFolder(rawConversationId, destination);
     if (!context.mounted) return;
 
     ConduitHaptics.selectionClick();
@@ -485,9 +508,9 @@ Future<void> _moveConversation(
           // The move keeps the chat's last activity: Open WebUI 0.12.5 leaves
           // its date alone, and the refresh below brings the date of an older
           // server, which still moves it.
-          (conversation) => conversation.copyWith(folderId: target.folderId),
+          (conversation) => conversation.copyWith(folderId: destination),
           trustFolderConversation:
-              target.folderId != null && target.folderId!.isNotEmpty,
+              destination != null && destination.isNotEmpty,
         );
 
     final activeConversation = ref.read(activeConversationProvider);
@@ -495,9 +518,7 @@ Future<void> _moveConversation(
         conversationMatchesScopedId(activeConversation, conversationId)) {
       ref
           .read(activeConversationProvider.notifier)
-          .set(
-            activeConversation.copyWith(folderId: target.folderId),
-          );
+          .set(activeConversation.copyWith(folderId: destination));
     }
     refreshConversationsCache(ref, includeFolders: true);
   } catch (_) {
@@ -520,11 +541,17 @@ Future<_ConversationMoveTarget?> _showConversationMoveSheet(
 
   if (Theme.of(context).platform == TargetPlatform.iOS) {
     const noFolderId = '__no_folder__';
+    const newFolderId = '__new_folder__';
     try {
       final selectedId = await NativeSheetBridge.instance
           .presentOptionsSelector(
             title: l10n.moveToFolder,
             options: [
+              NativeSheetOptionConfig(
+                id: newFolderId,
+                label: l10n.newFolder,
+                sfSymbol: 'folder.badge.plus',
+              ),
               if (currentFolderId != null)
                 NativeSheetOptionConfig(
                   id: noFolderId,
@@ -548,6 +575,12 @@ Future<_ConversationMoveTarget?> _showConversationMoveSheet(
       }
       if (selectedId == noFolderId) {
         return const _ConversationMoveTarget(folderId: null);
+      }
+      if (selectedId == newFolderId) {
+        // The selector answers as it starts to close, and UIKit refuses to
+        // present the folder name editor over a sheet still animating away.
+        await Future<void>.delayed(_kNativeSheetDismissalAllowance);
+        return const _ConversationMoveTarget.newFolder();
       }
       return _ConversationMoveTarget(folderId: selectedId);
     } catch (_) {
@@ -587,6 +620,15 @@ Future<_ConversationMoveTarget?> _showConversationMoveSheet(
               physics: const ClampingScrollPhysics(),
               padding: EdgeInsets.zero,
               children: [
+                _MoveTargetTile(
+                  icon: PlatformInfo.isIOS
+                      ? CupertinoIcons.folder_badge_plus
+                      : Icons.create_new_folder_outlined,
+                  label: l10n.newFolder,
+                  onTap: () =>
+                      Navigator.of(sheetContext)
+                          .pop(const _ConversationMoveTarget.newFolder()),
+                ),
                 if (currentFolderId != null)
                   _MoveTargetTile(
                     icon: PlatformInfo.isIOS

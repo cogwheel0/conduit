@@ -47,6 +47,8 @@ import 'package:conduit_core/utils/debug_logger.dart';
 import '../../../core/utils/native_sheet_utils.dart';
 import '../../../core/utils/account_display.dart' show AccountCardKind;
 
+import 'package:conduit_core/utils/profile_avatar.dart'
+    show extractAvatarInitials, isDefaultProfileImageUrl;
 import 'package:conduit_core/utils/user_avatar_utils.dart';
 
 import 'package:conduit_core/utils/user_display_name.dart';
@@ -65,6 +67,7 @@ import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart
 
 import '../../workspace/providers/workspace_capabilities_provider.dart';
 import '../providers/sidebar_providers.dart';
+import 'sidebar_monogram_avatar.dart';
 
 part 'sidebar_user_pill.g.dart';
 
@@ -385,7 +388,14 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
         : displayName.isEmpty
         ? 'U'
         : displayName.characters.first.toUpperCase();
-    final avatarUrl = hermesOnly || user == null
+    // Open WebUI gives a user without a photo a grey silhouette; show their
+    // initials on a neutral disc instead, as iOS does for a contact.
+    final showsMonogram =
+        !hermesOnly &&
+        user != null &&
+        isDefaultProfileImageUrl(deriveUserProfileImage(user));
+    final monogram = extractAvatarInitials(displayName);
+    final avatarUrl = hermesOnly || user == null || showsMonogram
         ? null
         : resolveUserAvatarUrlForUser(api, user);
     final iconColor = context.conduitTheme.textPrimary;
@@ -411,7 +421,22 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
                         )
                         .asData
                         ?.value);
-    final nativeAvatarBytes = rawNativeAvatarBytes == null
+    final nativeAvatarBytes = supportsNativeGlass && showsMonogram
+        ? ref
+              .watch(
+                sidebarMonogramRasterProvider((
+                  initials: monogram,
+                  canvasExtent: TouchTarget.minimum,
+                  diameter: _sidebarNativeProfileAvatarSize,
+                  devicePixelRatio: MediaQuery.devicePixelRatioOf(context),
+                  brightness: context.conduitTheme.isDark
+                      ? Brightness.dark
+                      : Brightness.light,
+                )),
+              )
+              .asData
+              ?.value
+        : rawNativeAvatarBytes == null
         ? null
         : ref
               .watch(
@@ -536,7 +561,7 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
     // Exclude the native glass button's own node so VoiceOver announces one
     // labelled control instead of an unlabelled avatar image.
     return Semantics(
-      label: l10n.manage,
+      label: l10n.account,
       button: true,
       excludeSemantics: true,
       onTap: openProfile,
@@ -547,14 +572,20 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
         fallbackColor: useOpaqueFallback ? iconColor : null,
         nativeSymbolColor: iconColor,
         nativeAvatarBytes: nativeAvatarBytes,
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(AppBorderRadius.avatar),
-          child: UserAvatar(
-            size: _sidebarProfileAvatarSize,
-            imageUrl: avatarUrl,
-            fallbackText: initial,
-          ),
-        ),
+        child: showsMonogram
+            ? SidebarMonogramAvatar(
+                key: const ValueKey<String>('sidebar-profile-monogram'),
+                initials: monogram,
+                size: _sidebarProfileAvatarSize,
+              )
+            : ClipRRect(
+                borderRadius: BorderRadius.circular(AppBorderRadius.avatar),
+                child: UserAvatar(
+                  size: _sidebarProfileAvatarSize,
+                  imageUrl: avatarUrl,
+                  fallbackText: initial,
+                ),
+              ),
       ),
     );
   }

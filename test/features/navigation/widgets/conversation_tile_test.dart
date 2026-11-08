@@ -79,15 +79,16 @@ void main() {
       final gesture = await tester.startGesture(
         tester.getCenter(find.text('Press me')),
       );
-      await tester.pump();
+      await tester.pump(kSidebarRowPressDelay);
 
       final pressedSurface = tester.widget<DecoratedBox>(
         find.byKey(pressedKey),
       );
       final decoration = pressedSurface.decoration as BoxDecoration;
+      final theme = tester.element(find.text('Press me')).conduitTheme;
       expect(
         decoration.color,
-        tester.element(find.text('Press me')).conduitTheme.surfaceContainer,
+        sidebarRowHighlightColor(theme, selected: false, pressed: true),
       );
 
       await gesture.up();
@@ -158,11 +159,132 @@ void main() {
       tester.getCenter(find.text('Flat row')),
     );
     await tester.pump();
+    // Like a UIKit list, a resting finger highlights after a beat, so a row
+    // a scroll starts from never flashes.
+    expect(find.byKey(pressedKey), findsNothing);
+    await tester.pump(kSidebarRowPressDelay);
     expect(find.byKey(pressedKey), findsOneWidget);
 
     await gesture.cancel();
     await tester.pump();
     expect(find.byKey(pressedKey), findsNothing);
+  });
+
+  testWidgets('a quick tap still flashes the row highlight', (tester) async {
+    const pressedKey = ValueKey<String>('tap-row-pressed');
+    var taps = 0;
+    await tester.pumpWidget(
+      _harness(
+        ChatStyleSidebarTile(
+          selected: false,
+          onTap: () => taps++,
+          pressedKey: pressedKey,
+          child: const Padding(
+            padding: EdgeInsets.all(16),
+            child: Text('Tap row'),
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('Tap row'));
+    await tester.pump();
+    expect(taps, 1);
+    expect(find.byKey(pressedKey), findsOneWidget);
+
+    await tester.pump(kSidebarRowTapFlash);
+    expect(find.byKey(pressedKey), findsNothing);
+  });
+
+  testWidgets('a row the finger scrolls from never highlights', (tester) async {
+    const pressedKey = ValueKey<String>('scroll-row-pressed');
+    await tester.pumpWidget(
+      _harness(
+        ChatStyleSidebarTile(
+          selected: false,
+          onTap: () {},
+          pressedKey: pressedKey,
+          child: const Padding(
+            padding: EdgeInsets.all(16),
+            child: Text('Scroll row'),
+          ),
+        ),
+      ),
+    );
+
+    final gesture = await tester.startGesture(
+      tester.getCenter(find.text('Scroll row')),
+    );
+    await gesture.moveBy(const Offset(0, kTouchSlop + 4));
+    await tester.pump(kSidebarRowPressDelay * 2);
+    expect(find.byKey(pressedKey), findsNothing);
+
+    await gesture.up();
+    await tester.pump(kSidebarRowTapFlash);
+    expect(find.byKey(pressedKey), findsNothing);
+  });
+
+  test('row highlights are neutral and a press reads stronger', () {
+    for (final theme in [
+      AppTheme.light(TweakcnThemes.t3Chat).extension<ConduitThemeExtension>()!,
+      AppTheme.dark(TweakcnThemes.t3Chat).extension<ConduitThemeExtension>()!,
+    ]) {
+      final selected = sidebarRowHighlightColor(theme, selected: true);
+      final pressed = sidebarRowHighlightColor(
+        theme,
+        selected: false,
+        pressed: true,
+      );
+      // A wash of the text colour over the surface, not an accent.
+      expect(
+        selected,
+        Color.alphaBlend(
+          theme.textPrimary.withValues(alpha: theme.isDark ? 0.13 : 0.08),
+          theme.surfaceBackground,
+        ),
+      );
+      double contrast(Color color) =>
+          (color.computeLuminance() -
+                  theme.surfaceBackground.computeLuminance())
+              .abs();
+      expect(contrast(pressed), greaterThan(contrast(selected)));
+      expect(contrast(selected), greaterThan(0));
+    }
+  });
+
+  testWidgets('the unread dot hangs outside the shared title edge', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      _harness(
+        const Column(
+          children: [
+            ConversationTile(
+              title: 'Unread chat',
+              pinned: false,
+              selected: false,
+              unread: true,
+              isLoading: false,
+              onTap: null,
+            ),
+            ConversationTile(
+              title: 'Read chat',
+              pinned: false,
+              selected: false,
+              isLoading: false,
+              onTap: null,
+            ),
+          ],
+        ),
+      ),
+    );
+
+    final unreadLeft = tester.getTopLeft(find.text('Unread chat')).dx;
+    expect(unreadLeft, tester.getTopLeft(find.text('Read chat')).dx);
+    final dot = tester.getRect(
+      find.byKey(const ValueKey<String>('conversation-unread-indicator')),
+    );
+    expect(dot.right, lessThan(unreadLeft));
   });
 
   testWidgets('chat-style sidebar rows highlight under a mouse pointer', (

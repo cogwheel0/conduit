@@ -1185,7 +1185,7 @@
   "@failedToUpdateArchive": {
     "description": "Error notice when archiving/unarchiving fails."
   },
-  "markAsUnread": "Mark as unread",
+  "markAsUnread": "Mark as Unread",
   "@markAsUnread": {
     "description": "Context action that marks a chat unread so it shows the unread dot again."
   },
@@ -3543,7 +3543,7 @@
       }
     }
   },
-  "shareChat": "Share chat",
+  "shareChat": "Share Chat",
   "@shareChat": {
     "description": "Dialog title and action label for sharing a chat."
   },
@@ -4285,7 +4285,7 @@
   "@move": {
     "description": "Context action to move an item."
   },
-  "moveToFolder": "Move to folder",
+  "moveToFolder": "Move to Folder",
   "@moveToFolder": {
     "description": "Title for choosing a destination folder for a chat."
   },
@@ -9126,5 +9126,9 @@
   "citationPreviewOpen": "Open",
   "@citationPreviewOpen": {
     "description": "Button in a citation's preview popover that opens the cited page in the browser."
+  },
+  "chatUnreadState": "Unread",
+  "@chatUnreadState": {
+    "description": "VoiceOver value of a chat in the sidebar list whose newest reply the user has not read yet."
   }
 }

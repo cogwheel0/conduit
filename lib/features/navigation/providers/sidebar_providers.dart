@@ -82,3 +82,19 @@ final sidebarSelectedHistoryTabProvider = Provider<SidebarTabId>((ref) {
           (tab) => tab == SidebarTabId.chats || tab == SidebarTabId.hermes,
         );
 });
+
+/// Whether the chat list has scrolled its large "Chats" title under the
+/// toolbar, which then shows the title small, as iOS lists do.
+final sidebarChatsTitleCollapsedProvider =
+    NotifierProvider<SidebarChatsTitleCollapsed, bool>(
+      SidebarChatsTitleCollapsed.new,
+    );
+
+class SidebarChatsTitleCollapsed extends Notifier<bool> {
+  @override
+  bool build() => false;
+
+  void set(bool collapsed) {
+    if (state != collapsed) state = collapsed;
+  }
+}

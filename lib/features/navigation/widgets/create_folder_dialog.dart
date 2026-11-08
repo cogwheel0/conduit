@@ -20,7 +20,10 @@ class CreateFolderDialog {
   /// [ref] is used for reading providers (API service, folders).
   /// [onError] is called with an error message if creation fails.
   /// [parentId] optionally nests the new folder beneath an existing folder.
-  static Future<void> show(
+  ///
+  /// Returns the created folder, or null when the user cancels or creation
+  /// fails.
+  static Future<Folder?> show(
     BuildContext context,
     WidgetRef ref, {
     required Future<void> Function(String message) onError,
@@ -35,9 +38,9 @@ class CreateFolderDialog {
       cancelText: l10n.cancel,
     );
 
-    if (name == null) return;
+    if (name == null) return null;
     final trimmedName = name.trim();
-    if (trimmedName.isEmpty) return;
+    if (trimmedName.isEmpty) return null;
     try {
       final api = ref.read(apiServiceProvider);
       if (api == null) throw Exception('No API service');
@@ -49,6 +52,7 @@ class CreateFolderDialog {
       ConduitHaptics.lightImpact();
       ref.read(foldersProvider.notifier).upsertFolderFromRemote(folder);
       refreshConversationsCache(ref, includeFolders: true);
+      return folder;
     } catch (e, stackTrace) {
       DebugLogger.error(
         'create-folder-failed',
@@ -57,6 +61,7 @@ class CreateFolderDialog {
         stackTrace: stackTrace,
       );
       await onError(l10n.failedToCreateFolder);
+      return null;
     }
   }
 }
