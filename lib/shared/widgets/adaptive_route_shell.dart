@@ -72,6 +72,7 @@ class AdaptiveRouteShell extends StatelessWidget {
 
     final scaffold = AdaptiveScaffold(
       appBar: appBar,
+      backgroundColor: backgroundColor,
       body: content,
       extendBodyBehindAppBar: extendBodyBehindAppBar,
       floatingActionButton: floatingActionButton,
