@@ -118,8 +118,9 @@ class ConduitChromeGradientFade extends StatelessWidget {
 }
 
 /// How far past floating chrome the soft scroll edge reaches before the
-/// content under it is clear and sharp.
-const double kConduitScrollEdgeSoftExtent = 28.0;
+/// content under it is clear and sharp. A first message resting under the
+/// chat header starts about 22 pt below its buttons, just clear of it.
+const double kConduitScrollEdgeSoftExtent = 24.0;
 
 /// The heaviest blur of the soft scroll edge, in logical pixels, reached
 /// where the strip meets the covered band.

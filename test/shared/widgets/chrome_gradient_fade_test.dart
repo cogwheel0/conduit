@@ -138,16 +138,18 @@ void main() {
       // A first message resting 22 pt under the buttons is untouched.
       expect(resting.tintOpacityAt(130), 0);
       expect(resting.sigmaAt(130), 0);
+      // Fully engaged, it would be all but untouched too.
+      expect(top.tintOpacityAt(130), lessThan(0.03));
       // The cover itself never moves.
       expect(resting.tintOpacityAt(108), 1);
     });
 
     test('a scroll toward the edge meets the strip at its clear end', () {
-      // Scrolled 10 pt: the strip is 10/28 of its length, and a line that
-      // has moved from 130 to 120 is still clear.
+      // Scrolled 10 pt: the strip is 10 pt long, and a line that has moved
+      // from 130 to 120 is still clear.
       const engaged = ConduitScrollEdgeEffect.top(
         coverExtent: 108,
-        engagement: 10 / 28,
+        engagement: 10 / kConduitScrollEdgeSoftExtent,
       );
       expect(engaged.stripExtent, closeTo(10, 1e-9));
       expect(engaged.tintOpacityAt(120), 0);
