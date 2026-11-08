@@ -1113,6 +1113,25 @@ void main() {
     expect(indices, <int>[4, 5, 3]);
   });
 
+  test('markdown prewarm stays near visible rows in a sparse long history', () {
+    final messages = List.generate(
+      10000,
+      (index) => ChatMessage(
+        id: 'synthetic-$index',
+        role: index == 4999 || index == 9000 ? 'assistant' : 'user',
+        content: 'A synthetic shape has four sides.',
+        timestamp: DateTime(2026),
+      ),
+    );
+    expect(
+      debugSelectMarkdownPrewarmCandidateIndicesForTesting(
+        messages,
+        visibleMessageIds: const ['synthetic-5000'],
+      ),
+      [4999],
+    );
+  });
+
   test('markdown prewarm returns no candidates without visible IDs', () {
     final messages = <ChatMessage>[
       ChatMessage(

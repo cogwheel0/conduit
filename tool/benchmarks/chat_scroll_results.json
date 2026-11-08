@@ -1,5 +1,5 @@
 {
-  "baselineCommit": "030a1823ee753e76bbdb930a6e67fad325395b59",
+  "baselineCommit": "0e2e000ba6d1bca418aba9fc956b689757d536f0",
   "environment": {
     "flutter": "3.47.9",
     "dart": "3.13.7",
@@ -19,86 +19,86 @@
         {
           "phase": "1000-cold",
           "buildMs": {
-            "samples": 723,
-            "p50": 0.467,
-            "p95": 1.893,
-            "p99": 3.272,
-            "max": 5.946
+            "samples": 722,
+            "p50": 0.334,
+            "p95": 1.995,
+            "p99": 3.738,
+            "max": 16.661
           },
           "rasterMs": {
-            "samples": 723,
-            "p50": 16.402,
-            "p95": 19.019,
-            "p99": 22.0,
-            "max": 32.372
+            "samples": 722,
+            "p50": 16.448,
+            "p95": 18.54,
+            "p99": 21.25,
+            "max": 43.802
           },
-          "over16ms": 284,
-          "estimates": 352142,
+          "over16ms": 266,
+          "estimates": 352174,
           "rowsBuilt": 69,
-          "rssBytes": 313040896
+          "rssBytes": 313315328
         },
         {
           "phase": "1000-warm",
           "buildMs": {
-            "samples": 721,
-            "p50": 0.502,
-            "p95": 1.849,
-            "p99": 2.831,
-            "max": 6.439
+            "samples": 723,
+            "p50": 0.351,
+            "p95": 1.61,
+            "p99": 2.952,
+            "max": 4.298
           },
           "rasterMs": {
-            "samples": 721,
-            "p50": 1.543,
-            "p95": 2.288,
-            "p99": 3.232,
-            "max": 9.832
+            "samples": 723,
+            "p50": 15.944,
+            "p95": 18.192,
+            "p99": 21.107,
+            "max": 23.381
           },
-          "over16ms": 0,
-          "estimates": 351237,
+          "over16ms": 195,
+          "estimates": 352163,
           "rowsBuilt": 69,
-          "rssBytes": 313249792
+          "rssBytes": 313692160
         },
         {
           "phase": "10000-cold",
           "buildMs": {
             "samples": 724,
-            "p50": 1.75,
-            "p95": 2.881,
-            "p99": 4.46,
-            "max": 10.433
+            "p50": 0.799,
+            "p95": 2.174,
+            "p99": 4.048,
+            "max": 10.784
           },
           "rasterMs": {
             "samples": 724,
-            "p50": 1.213,
-            "p95": 1.633,
-            "p99": 2.153,
-            "max": 4.534
+            "p50": 16.37,
+            "p95": 19.322,
+            "p99": 21.391,
+            "max": 24.322
           },
-          "over16ms": 0,
+          "over16ms": 271,
           "estimates": 3718636,
           "rowsBuilt": 69,
-          "rssBytes": 327598080
+          "rssBytes": 327671808
         },
         {
           "phase": "10000-warm",
           "buildMs": {
-            "samples": 724,
-            "p50": 1.771,
-            "p95": 2.74,
-            "p99": 3.48,
-            "max": 7.862
+            "samples": 719,
+            "p50": 0.812,
+            "p95": 2.085,
+            "p99": 3.232,
+            "max": 8.575
           },
           "rasterMs": {
-            "samples": 724,
-            "p50": 1.219,
-            "p95": 1.664,
-            "p99": 2.437,
-            "max": 10.464
+            "samples": 719,
+            "p50": 1.446,
+            "p95": 1.944,
+            "p99": 2.738,
+            "max": 57.65
           },
-          "over16ms": 0,
-          "estimates": 3723598,
+          "over16ms": 2,
+          "estimates": 3693811,
           "rowsBuilt": 69,
-          "rssBytes": 327659520
+          "rssBytes": 327831552
         }
       ]
     },
@@ -109,86 +109,86 @@
         {
           "phase": "1000-cold",
           "buildMs": {
-            "samples": 724,
-            "p50": 0.331,
-            "p95": 1.866,
-            "p99": 3.836,
-            "max": 5.91
+            "samples": 725,
+            "p50": 0.291,
+            "p95": 1.821,
+            "p99": 3.138,
+            "max": 6.343
           },
           "rasterMs": {
-            "samples": 724,
-            "p50": 1.674,
-            "p95": 2.31,
-            "p99": 3.218,
-            "max": 5.587
+            "samples": 725,
+            "p50": 1.671,
+            "p95": 2.241,
+            "p99": 2.821,
+            "max": 6.547
           },
           "over16ms": 0,
           "estimates": 995,
           "rowsBuilt": 69,
-          "rssBytes": 313999360
+          "rssBytes": 314593280
         },
         {
           "phase": "1000-warm",
           "buildMs": {
-            "samples": 723,
-            "p50": 0.329,
-            "p95": 1.601,
-            "p99": 2.85,
-            "max": 6.933
+            "samples": 724,
+            "p50": 0.314,
+            "p95": 1.526,
+            "p99": 2.687,
+            "max": 3.276
           },
           "rasterMs": {
-            "samples": 723,
-            "p50": 1.743,
-            "p95": 16.733,
-            "p99": 18.249,
-            "max": 24.011
+            "samples": 724,
+            "p50": 1.715,
+            "p95": 2.264,
+            "p99": 2.817,
+            "max": 3.443
           },
-          "over16ms": 40,
+          "over16ms": 0,
           "estimates": 995,
           "rowsBuilt": 69,
-          "rssBytes": 314261504
+          "rssBytes": 315179008
         },
         {
           "phase": "10000-cold",
           "buildMs": {
-            "samples": 721,
-            "p50": 0.332,
-            "p95": 1.82,
-            "p99": 4.344,
-            "max": 7.918
+            "samples": 723,
+            "p50": 0.331,
+            "p95": 2.012,
+            "p99": 4.042,
+            "max": 7.639
           },
           "rasterMs": {
-            "samples": 721,
-            "p50": 1.699,
-            "p95": 2.29,
-            "p99": 2.758,
-            "max": 12.252
+            "samples": 723,
+            "p50": 10.856,
+            "p95": 19.0,
+            "p99": 22.234,
+            "max": 80.216
           },
-          "over16ms": 0,
+          "over16ms": 149,
           "estimates": 9995,
           "rowsBuilt": 69,
-          "rssBytes": 328298496
+          "rssBytes": 329093120
         },
         {
           "phase": "10000-warm",
           "buildMs": {
-            "samples": 724,
-            "p50": 0.353,
-            "p95": 1.585,
-            "p99": 2.808,
-            "max": 7.218
+            "samples": 723,
+            "p50": 0.328,
+            "p95": 1.662,
+            "p99": 2.995,
+            "max": 5.216
           },
           "rasterMs": {
-            "samples": 724,
-            "p50": 1.872,
-            "p95": 17.543,
-            "p99": 19.626,
-            "max": 23.703
+            "samples": 723,
+            "p50": 1.791,
+            "p95": 16.934,
+            "p99": 19.005,
+            "max": 24.526
           },
-          "over16ms": 111,
+          "over16ms": 52,
           "estimates": 9995,
           "rowsBuilt": 69,
-          "rssBytes": 328536064
+          "rssBytes": 330051584
         }
       ]
     },
@@ -199,86 +199,86 @@
         {
           "phase": "1000-cold",
           "buildMs": {
-            "samples": 724,
-            "p50": 0.333,
-            "p95": 1.787,
-            "p99": 3.844,
-            "max": 4.64
+            "samples": 717,
+            "p50": 0.321,
+            "p95": 1.957,
+            "p99": 3.758,
+            "max": 18.546
           },
           "rasterMs": {
-            "samples": 724,
-            "p50": 1.702,
-            "p95": 2.389,
-            "p99": 3.023,
-            "max": 5.717
+            "samples": 717,
+            "p50": 1.685,
+            "p95": 2.362,
+            "p99": 3.901,
+            "max": 26.09
           },
-          "over16ms": 0,
+          "over16ms": 2,
           "estimates": 995,
           "rowsBuilt": 69,
-          "rssBytes": 314470400
+          "rssBytes": 313892864
         },
         {
           "phase": "1000-warm",
           "buildMs": {
-            "samples": 724,
-            "p50": 0.343,
-            "p95": 1.676,
-            "p99": 2.836,
-            "max": 5.462
+            "samples": 722,
+            "p50": 0.328,
+            "p95": 1.626,
+            "p99": 2.884,
+            "max": 3.301
           },
           "rasterMs": {
-            "samples": 724,
-            "p50": 1.733,
-            "p95": 2.37,
-            "p99": 2.981,
-            "max": 8.396
+            "samples": 722,
+            "p50": 1.734,
+            "p95": 2.272,
+            "p99": 2.863,
+            "max": 4.416
           },
           "over16ms": 0,
           "estimates": 995,
           "rowsBuilt": 69,
-          "rssBytes": 314863616
+          "rssBytes": 314413056
         },
         {
           "phase": "10000-cold",
           "buildMs": {
             "samples": 724,
-            "p50": 0.349,
-            "p95": 1.897,
-            "p99": 4.026,
-            "max": 6.194
+            "p50": 0.331,
+            "p95": 1.916,
+            "p99": 3.805,
+            "max": 7.655
           },
           "rasterMs": {
             "samples": 724,
-            "p50": 1.77,
-            "p95": 2.35,
-            "p99": 2.865,
-            "max": 4.441
+            "p50": 1.703,
+            "p95": 2.208,
+            "p99": 3.002,
+            "max": 5.545
           },
           "over16ms": 0,
           "estimates": 9995,
           "rowsBuilt": 69,
-          "rssBytes": 328314880
+          "rssBytes": 329326592
         },
         {
           "phase": "10000-warm",
           "buildMs": {
-            "samples": 725,
-            "p50": 0.365,
-            "p95": 1.47,
-            "p99": 3.01,
-            "max": 3.825
+            "samples": 724,
+            "p50": 0.321,
+            "p95": 1.64,
+            "p99": 2.712,
+            "max": 5.151
           },
           "rasterMs": {
-            "samples": 725,
-            "p50": 1.728,
-            "p95": 2.374,
-            "p99": 3.417,
-            "max": 9.364
+            "samples": 724,
+            "p50": 2.113,
+            "p95": 17.587,
+            "p99": 19.868,
+            "max": 23.088
           },
-          "over16ms": 0,
+          "over16ms": 143,
           "estimates": 9995,
           "rowsBuilt": 69,
-          "rssBytes": 328548352
+          "rssBytes": 330149888
         }
       ]
     },
@@ -289,86 +289,86 @@
         {
           "phase": "1000-cold",
           "buildMs": {
-            "samples": 724,
-            "p50": 0.484,
-            "p95": 1.906,
-            "p99": 4.345,
-            "max": 5.66
+            "samples": 725,
+            "p50": 0.361,
+            "p95": 1.759,
+            "p99": 3.294,
+            "max": 5.052
           },
           "rasterMs": {
-            "samples": 724,
-            "p50": 1.647,
-            "p95": 2.381,
-            "p99": 3.346,
-            "max": 5.749
+            "samples": 725,
+            "p50": 1.66,
+            "p95": 2.364,
+            "p99": 2.918,
+            "max": 5.103
           },
           "over16ms": 0,
-          "estimates": 353645,
+          "estimates": 353596,
           "rowsBuilt": 69,
-          "rssBytes": 313180160
+          "rssBytes": 313143296
         },
         {
           "phase": "1000-warm",
           "buildMs": {
-            "samples": 722,
-            "p50": 0.487,
-            "p95": 1.826,
-            "p99": 3.071,
-            "max": 5.461
+            "samples": 723,
+            "p50": 0.335,
+            "p95": 1.546,
+            "p99": 2.673,
+            "max": 3.802
           },
           "rasterMs": {
-            "samples": 722,
-            "p50": 1.757,
-            "p95": 17.391,
-            "p99": 19.363,
-            "max": 29.534
+            "samples": 723,
+            "p50": 16.187,
+            "p95": 19.048,
+            "p99": 22.688,
+            "max": 26.708
           },
-          "over16ms": 84,
-          "estimates": 352721,
+          "over16ms": 236,
+          "estimates": 352620,
           "rowsBuilt": 69,
-          "rssBytes": 313966592
+          "rssBytes": 313434112
         },
         {
           "phase": "10000-cold",
           "buildMs": {
             "samples": 724,
-            "p50": 1.79,
-            "p95": 2.848,
-            "p99": 4.5,
-            "max": 8.775
+            "p50": 0.82,
+            "p95": 2.074,
+            "p99": 3.147,
+            "max": 6.515
           },
           "rasterMs": {
             "samples": 724,
-            "p50": 1.288,
-            "p95": 1.703,
-            "p99": 2.465,
-            "max": 5.433
+            "p50": 1.145,
+            "p95": 2.003,
+            "p99": 2.861,
+            "max": 3.803
           },
           "over16ms": 0,
           "estimates": 3718636,
           "rowsBuilt": 69,
-          "rssBytes": 327598080
+          "rssBytes": 327340032
         },
         {
           "phase": "10000-warm",
           "buildMs": {
-            "samples": 725,
-            "p50": 1.818,
-            "p95": 2.698,
-            "p99": 3.605,
-            "max": 9.619
+            "samples": 724,
+            "p50": 0.991,
+            "p95": 1.879,
+            "p99": 3.058,
+            "max": 3.875
           },
           "rasterMs": {
-            "samples": 725,
-            "p50": 15.668,
-            "p95": 18.224,
-            "p99": 20.165,
-            "max": 22.067
+            "samples": 724,
+            "p50": 1.42,
+            "p95": 1.794,
+            "p99": 2.226,
+            "max": 2.764
           },
-          "over16ms": 113,
-          "estimates": 3728596,
+          "over16ms": 0,
+          "estimates": 3718636,
           "rowsBuilt": 69,
-          "rssBytes": 328290304
+          "rssBytes": 327733248
         }
       ]
     }
@@ -380,56 +380,57 @@
       "kind": "baseline",
       "phase": "10000-cold",
       "presentIntervalMs": {
-        "p50": 16.670791,
-        "p95": 19.790875,
-        "p99": 21.600292,
-        "max": 43.21675,
-        "samples": 494
-      },
-      "intervalsOver25ms": 2,
-      "displayedFrames": 495
-    },
-    {
-      "run": 2,
-      "kind": "candidate",
-      "phase": "10000-cold",
-      "presentIntervalMs": {
-        "p50": 16.64875,
-        "p95": 19.278667,
-        "p99": 20.993708,
-        "max": 22.52225,
+        "p50": 16.676208,
+        "p95": 18.647083,
+        "p99": 21.318833,
+        "max": 23.562,
         "samples": 496
       },
       "intervalsOver25ms": 0,
       "displayedFrames": 497
     },
     {
+      "run": 2,
+      "kind": "candidate",
+      "phase": "10000-cold",
+      "presentIntervalMs": {
+        "p50": 16.691375,
+        "p95": 19.5855,
+        "p99": 21.213958,
+        "max": 36.225625,
+        "samples": 497
+      },
+      "intervalsOver25ms": 1,
+      "displayedFrames": 498
+    },
+    {
       "run": 3,
       "kind": "candidate",
       "phase": "10000-cold",
       "presentIntervalMs": {
-        "p50": 16.707666,
-        "p95": 20.106292,
-        "p99": 21.735209,
-        "max": 23.855584,
-        "samples": 491
+        "p50": 16.647458,
+        "p95": 20.755,
+        "p99": 23.1945,
+        "max": 49.160625,
+        "samples": 493
       },
-      "intervalsOver25ms": 0,
-      "displayedFrames": 492
+      "intervalsOver25ms": 4,
+      "displayedFrames": 494
     },
     {
       "run": 4,
       "kind": "baseline",
       "phase": "10000-cold",
       "presentIntervalMs": {
-        "p50": 16.638667,
-        "p95": 19.331459,
-        "p99": 21.387416,
-        "max": 49.225208,
-        "samples": 489
+        "p50": 16.677875,
+        "p95": 19.504083,
+        "p99": 23.035834,
+        "max": 51.123833,
+        "samples": 493
       },
       "intervalsOver25ms": 2,
-      "displayedFrames": 490
+      "displayedFrames": 494
     }
-  ]
+  ],
+  "candidateCommit": "669948334a86723a2fc31a6db7ed81df762bf738"
 }

@@ -3510,9 +3510,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     List<ChatMessage> messages, {
     required _ChatListStableLayoutMetadata layoutMetadata,
   }) {
-    // Twelve rows is roughly the visible window plus one fling of history in
-    // each direction. Prewarm work runs on worker isolates in bounded
-    // batches, so the wider net costs background time, not frames.
+    // Prewarm at most twelve nearby rows in bounded worker batches.
     final candidateIndices = _selectMarkdownPrewarmCandidatesFromVisibleIds(
       messages: messages,
       layoutMetadata: layoutMetadata,
@@ -6129,8 +6127,14 @@ List<int> _selectMarkdownPrewarmCandidatesFromVisibleIds({
 
   var before = visibleIndices.first - 1;
   var after = visibleIndices.last + 1;
-  while (indices.length < maxCount &&
-      (before >= 0 || after < messages.length)) {
+  // Sparse eligible rows must not turn each scroll update into a history scan.
+  for (
+    var distance = 0;
+    distance < maxCount &&
+        indices.length < maxCount &&
+        (before >= 0 || after < messages.length);
+    distance += 1
+  ) {
     if (after < messages.length) addIndex(after++);
     if (indices.length >= maxCount) break;
     if (before >= 0) addIndex(before--);

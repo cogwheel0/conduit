@@ -20,44 +20,48 @@ network latency or every part of the chat page.
 
 ## Results
 
-[Full measurements](chat_scroll_results.json) compare upstream `030a1823`
-with this change on a 60 Hz Android arm64 emulator using hardware graphics and
+[Full measurements](chat_scroll_results.json) compare upstream `0e2e000b`
+with `66994833` on a 60 Hz Android arm64 emulator using hardware graphics and
 Impeller OpenGLES, Flutter 3.47.9 / Dart 3.13.7. Run order was baseline,
 candidate, candidate, baseline. No recording or other builds ran concurrently.
 The ranges below are the two per-run measurements, in milliseconds.
 
 | Warm scroll | Metric | Baseline | Candidate |
 | --- | --- | --- | --- |
-| 1,000 messages | Build p50 | 0.487–0.502 | 0.329–0.343 |
-| 1,000 messages | Build p95 | 1.826–1.849 | 1.601–1.676 |
-| 1,000 messages | Build p99 | 2.831–3.071 | 2.836–2.850 |
-| 10,000 messages | Build p50 | 1.771–1.818 | 0.353–0.365 |
-| 10,000 messages | Build p95 | 2.698–2.740 | 1.470–1.585 |
-| 10,000 messages | Build p99 | 3.480–3.605 | 2.808–3.010 |
+| 1,000 messages | Build p50 | 0.335–0.351 | 0.314–0.328 |
+| 1,000 messages | Build p95 | 1.546–1.610 | 1.526–1.626 |
+| 1,000 messages | Build p99 | 2.673–2.952 | 2.687–2.884 |
+| 10,000 messages | Build p50 | 0.812–0.991 | 0.321–0.328 |
+| 10,000 messages | Build p95 | 1.879–2.085 | 1.640–1.662 |
+| 10,000 messages | Build p99 | 3.058–3.232 | 2.712–2.995 |
 
-The 10,000-message warm scroll made 3.72–3.73 million height-estimation calls
+The 10,000-message warm scroll made 3.69–3.72 million height-estimation calls
 before this change and 9,995 afterward. The remaining calls initialize the
 extent index once following the harness's phase-header rebuild. A separate
 steady-scroll regression test measures **373,640 → 0 calls** across 60 frames.
 Both builds constructed 69 row widgets per benchmark phase. Resident memory
-at the end of the warm 10,000-message phase was 312.5–313.1 MiB for baseline
-and 313.3 MiB for candidate.
+at the end of the warm 10,000-message phase was 312.6 MiB for baseline
+and 314.8–314.9 MiB for candidate.
 
 The CPU improvement does not establish a higher display frame rate. Emulator
-raster timing varied widely in both builds, including values near one refresh
-interval. Separate SurfaceFlinger actual-presentation measurements found:
+raster timing varied widely in both builds: the 1,000-message warm phases had
+195/236 frames over 16.67 ms in baseline runs 1/4 versus 0/0 in candidate runs
+2/3, while the 10,000-message warm phases had 2/0 in baseline versus 52/143 in
+candidate. Raster p95 ranged from 1.794 to 19.048 ms across these warm phases.
+Separate SurfaceFlinger actual-presentation measurements found:
 
 | 10,000-message cold scroll | Baseline | Candidate |
 | --- | --- | --- |
-| Present interval p50 | 16.639–16.671 ms | 16.649–16.708 ms |
-| Present interval p95 | 19.331–19.791 ms | 19.279–20.106 ms |
-| Present interval p99 | 21.387–21.600 ms | 20.994–21.735 ms |
-| Maximum interval | 43.217–49.225 ms | 22.522–23.856 ms |
-| Intervals over 25 ms | 2 in each run | 0 in each run |
+| Present interval p50 | 16.676–16.678 ms | 16.647–16.691 ms |
+| Present interval p95 | 18.647–19.504 ms | 19.585–20.755 ms |
+| Present interval p99 | 21.319–23.036 ms | 21.214–23.195 ms |
+| Maximum interval | 23.562–51.124 ms | 36.226–49.161 ms |
+| Intervals over 25 ms | 0 / 2 | 1 / 4 |
 
-Presentation cadence and p95/p99 were broadly comparable; the candidate avoided
-the baseline's longest stalls in these samples. These are emulator measurements,
-not a guarantee about physical-device frame rates. The JSON includes every run's
+Median and p99 presentation intervals overlap; candidate p95 is slightly higher
+and maximum intervals are mixed. These samples do not demonstrate a sustained
+frame-rate improvement. They are emulator measurements, not physical-device
+guarantees. The JSON includes every run's
 raster timings, maxima, and counts. The device was visually checked before the
 runs, and no Android ANR events occurred during any reported run.
 
