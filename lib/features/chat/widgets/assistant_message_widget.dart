@@ -1181,7 +1181,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
             isVoiceReply
                 ? (Platform.isIOS ? CupertinoIcons.waveform : Icons.graphic_eq)
                 : Icons.auto_awesome,
-            color: theme.textTertiary,
+            color: theme.textSecondary,
             size: IconSize.sm - 2,
           );
 
@@ -1197,8 +1197,9 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
               maxLines: 1,
               softWrap: false,
               overflow: TextOverflow.ellipsis,
+              // Secondary, not tertiary: a 13 pt label needs 4.5:1 to read.
               style: AppTypography.bodySmallStyle.copyWith(
-                color: theme.textTertiary,
+                color: theme.textSecondary,
                 fontWeight: FontWeight.w400,
                 letterSpacing: AppTypography.letterSpacingNormal,
               ),
@@ -1455,7 +1456,9 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
 
     final content = Container(
       width: double.infinity,
-      margin: const EdgeInsets.only(bottom: 16, right: Spacing.xs),
+      // The reply runs to the same trailing margin as the bubbles, composer
+      // and header, so a table or code card ends where they do.
+      margin: const EdgeInsets.only(bottom: 16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
