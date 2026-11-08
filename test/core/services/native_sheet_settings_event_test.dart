@@ -617,11 +617,12 @@ void main() {
 
       check(await service.refreshProfileRoot()).isTrue();
       final rebuilt = patches.lastWhere((p) => p.detailId == 'profile-menu');
-      // Still Ada's: her card first, her own rows after it.
+      // Still Ada's: her card first, opening her profile, her own rows
+      // after it.
       final card = rebuilt.sections.first.items.first;
-      check(card.id).equals(nativeAccountsDetailId);
+      check(card.id).equals(NativeSheetRoutes.profile);
       check(card.title).equals('Ada');
-      check(rootRows(rebuilt)).contains(NativeSheetRoutes.profile);
+      check(rootRows(rebuilt)).contains(NativeSheetRoutes.notificationSettings);
 
       patches.clear();
       container

@@ -2077,7 +2077,7 @@
   "settingsCategorySupport": "支援",
   "settingsDataAndConnection": "資料與連線",
   "slidingSidebar": "滑動側邊欄",
-  "slidingSidebarDescription": "開啟後，筆記、終端機和頻道會在側邊欄旁開啟，側邊欄繼續顯示您的聊天。關閉後，它們會在側邊欄內開啟。",
+  "slidingSidebarDescription": "筆記、終端機和頻道會在您的聊天旁開啟。",
   "settingsAppearance": "外觀",
   "settingsAppearanceSubtitle": "主題、調色盤和語言",
   "settingsChatSubtitle": "聊天行為、快速操作和進階提示詞",

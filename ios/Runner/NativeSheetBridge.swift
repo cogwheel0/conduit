@@ -3623,10 +3623,15 @@ private final class NativeProfileMenuTableViewController: UITableViewController 
     }
 }
 
+/// A row whose choice is a segmented control: its symbol and title on one
+/// line, as every other settings row has them, and the control under the
+/// title, so the title and the control share the titles' leading edge.
 private final class NativeSheetSegmentTableViewCell: UITableViewCell {
     static let reuseId = "NativeSheetSegmentTableViewCell"
 
-    private let stack = UIStackView()
+    private let headerStack = UIStackView()
+    private let iconView = UIImageView()
+    private let textStack = UIStackView()
     private let titleLabel = UILabel()
     private let subtitleLabel = UILabel()
     private let segmentedControl = UISegmentedControl()
@@ -3637,9 +3642,14 @@ private final class NativeSheetSegmentTableViewCell: UITableViewCell {
         super.init(style: style, reuseIdentifier: reuseIdentifier)
         selectionStyle = .none
         NativeSheetSettingsStyle.applyCellStyle(self)
-        stack.axis = .vertical
-        stack.spacing = 8
-        stack.translatesAutoresizingMaskIntoConstraints = false
+        headerStack.axis = .horizontal
+        headerStack.alignment = .center
+        headerStack.spacing = NativeSheetSettingsStyle.iconSpacing
+        headerStack.translatesAutoresizingMaskIntoConstraints = false
+        textStack.axis = .vertical
+        textStack.spacing = 2
+        iconView.contentMode = .center
+        iconView.setContentHuggingPriority(.required, for: .horizontal)
         titleLabel.font = .preferredFont(forTextStyle: .body)
         titleLabel.adjustsFontForContentSizeCategory = true
         titleLabel.numberOfLines = 0
@@ -3648,15 +3658,22 @@ private final class NativeSheetSegmentTableViewCell: UITableViewCell {
         subtitleLabel.adjustsFontForContentSizeCategory = true
         subtitleLabel.numberOfLines = 0
         applyNativeSheetSegmentedControlTheme(segmentedControl)
-        contentView.addSubview(stack)
-        stack.addArrangedSubview(titleLabel)
-        stack.addArrangedSubview(subtitleLabel)
-        stack.addArrangedSubview(segmentedControl)
+        segmentedControl.translatesAutoresizingMaskIntoConstraints = false
+        contentView.addSubview(headerStack)
+        contentView.addSubview(segmentedControl)
+        headerStack.addArrangedSubview(iconView)
+        headerStack.addArrangedSubview(textStack)
+        textStack.addArrangedSubview(titleLabel)
+        textStack.addArrangedSubview(subtitleLabel)
         NSLayoutConstraint.activate([
-            stack.leadingAnchor.constraint(equalTo: contentView.layoutMarginsGuide.leadingAnchor),
-            stack.trailingAnchor.constraint(equalTo: contentView.layoutMarginsGuide.trailingAnchor),
-            stack.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 11),
-            stack.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -11),
+            headerStack.leadingAnchor.constraint(equalTo: contentView.layoutMarginsGuide.leadingAnchor),
+            headerStack.trailingAnchor.constraint(equalTo: contentView.layoutMarginsGuide.trailingAnchor),
+            headerStack.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 11),
+            iconView.widthAnchor.constraint(equalToConstant: NativeSheetSettingsStyle.iconColumnWidth),
+            segmentedControl.leadingAnchor.constraint(equalTo: textStack.leadingAnchor),
+            segmentedControl.trailingAnchor.constraint(equalTo: contentView.layoutMarginsGuide.trailingAnchor),
+            segmentedControl.topAnchor.constraint(equalTo: headerStack.bottomAnchor, constant: 10),
+            segmentedControl.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -12),
         ])
         segmentedControl.addAction(UIAction { [weak self] _ in
             guard let self else { return }
@@ -3683,6 +3700,15 @@ private final class NativeSheetSegmentTableViewCell: UITableViewCell {
         applyNativeSheetSegmentedControlTheme(segmentedControl)
         titleLabel.textColor = NativeSheetTheme.shared.foreground
         subtitleLabel.textColor = NativeSheetTheme.shared.secondaryForeground
+        // The symbol at the size, weight and tint of every row's.
+        iconView.tintColor = NativeSheetSettingsStyle.iconForeground
+        iconView.image = UIImage(systemName: item.sfSymbol)?.withConfiguration(
+            UIImage.SymbolConfiguration(
+                pointSize: NativeSheetSettingsStyle.symbolPointSize,
+                weight: .regular,
+                scale: .medium
+            )
+        )
         titleLabel.text = item.title
         if let subtitle = item.subtitle, !subtitle.isEmpty {
             subtitleLabel.text = subtitle

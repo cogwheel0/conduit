@@ -25,6 +25,7 @@ import 'package:conduit/core/services/native_sheet_bridge.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/l10n/conduit_localizations.dart';
 import 'package:conduit/shared/theme/theme_extensions.dart';
+import 'package:conduit/shared/theme/theme_providers.dart';
 import 'package:conduit/shared/utils/conversation_context_menu.dart';
 import 'package:conduit/shared/widgets/user_avatar.dart';
 import 'package:conduit/features/notes/widgets/notes_list_tab.dart';
@@ -390,6 +391,8 @@ void main() {
           currentUserProvider2.overrideWithValue(null),
           currentUserProvider.overrideWith((ref) async => null),
           apiServiceProvider.overrideWithValue(null),
+          // The Settings root names the app's language.
+          appLocaleProvider.overrideWithValue(null),
           hermesOnlyModeProvider.overrideWithValue(true),
         ],
         child: MaterialApp(
@@ -417,6 +420,8 @@ void main() {
           currentUserProvider2.overrideWithValue(null),
           currentUserProvider.overrideWith((ref) async => null),
           apiServiceProvider.overrideWithValue(null),
+          // The Settings root names the app's language.
+          appLocaleProvider.overrideWithValue(null),
           hermesOnlyModeProvider.overrideWithValue(true),
           hermesActiveConnectionNameProvider.overrideWithValue('Home Lab'),
         ],
@@ -462,6 +467,8 @@ void main() {
           currentUserProvider2.overrideWithValue(null),
           currentUserProvider.overrideWith((ref) async => null),
           apiServiceProvider.overrideWithValue(null),
+          // The Settings root names the app's language.
+          appLocaleProvider.overrideWithValue(null),
           hermesOnlyModeProvider.overrideWithValue(false),
           preferredBackendProvider.overrideWith(
             SidebarTestDirectPreferredBackendController.new,
@@ -518,6 +525,8 @@ void main() {
         currentUserProvider2.overrideWithValue(user),
         currentUserProvider.overrideWith((ref) async => user),
         apiServiceProvider.overrideWithValue(null),
+        // The Settings root names the app's language.
+        appLocaleProvider.overrideWithValue(null),
         hermesOnlyModeProvider.overrideWithValue(false),
         accountProfileProvider.overrideWith(_ServerAccountProfile.new),
         sidebarNativeProfilePresenterProvider.overrideWithValue((config) async {
@@ -575,6 +584,8 @@ void main() {
             currentUserProvider2.overrideWithValue(user),
             currentUserProvider.overrideWith((ref) async => user),
             apiServiceProvider.overrideWithValue(null),
+            // The Settings root names the app's language.
+            appLocaleProvider.overrideWithValue(null),
             hermesOnlyModeProvider.overrideWithValue(false),
             accountProfileProvider.overrideWith(_ServerAccountProfile.new),
             personalConnectionsEntryVisibleProvider.overrideWithValue(visible),
@@ -643,6 +654,8 @@ void main() {
             currentUserProvider2.overrideWithValue(user),
             currentUserProvider.overrideWith((ref) async => user),
             apiServiceProvider.overrideWithValue(null),
+            // The Settings root names the app's language.
+            appLocaleProvider.overrideWithValue(null),
             hermesOnlyModeProvider.overrideWithValue(false),
             accountProfileProvider.overrideWith(_ServerAccountProfile.new),
             scheduledTasksEntryVisibleProvider.overrideWithValue(visible),
@@ -711,6 +724,8 @@ void main() {
             currentUserProvider2.overrideWithValue(user),
             currentUserProvider.overrideWith((ref) async => user),
             apiServiceProvider.overrideWithValue(null),
+            // The Settings root names the app's language.
+            appLocaleProvider.overrideWithValue(null),
             hermesOnlyModeProvider.overrideWithValue(false),
             accountProfileProvider.overrideWith(_ServerAccountProfile.new),
             calendarAvailableProvider.overrideWithValue(visible),
@@ -779,6 +794,8 @@ void main() {
             currentUserProvider2.overrideWithValue(user),
             currentUserProvider.overrideWith((ref) async => user),
             apiServiceProvider.overrideWithValue(null),
+            // The Settings root names the app's language.
+            appLocaleProvider.overrideWithValue(null),
             hermesOnlyModeProvider.overrideWithValue(false),
             accountProfileProvider.overrideWith(_ServerAccountProfile.new),
             chatDataControlsEntryVisibleProvider.overrideWithValue(visible),
@@ -843,6 +860,8 @@ void main() {
         currentUserProvider2.overrideWithValue(user),
         currentUserProvider.overrideWith((ref) async => user),
         apiServiceProvider.overrideWithValue(null),
+        // The Settings root names the app's language.
+        appLocaleProvider.overrideWithValue(null),
         hermesOnlyModeProvider.overrideWithValue(false),
         accountProfileProvider.overrideWith(_UnreachableAccountProfile.new),
         sidebarNativeProfilePresenterProvider.overrideWithValue((config) async {
@@ -911,6 +930,8 @@ void main() {
           currentUserProvider2.overrideWithValue(user),
           currentUserProvider.overrideWith((ref) async => user),
           apiServiceProvider.overrideWithValue(null),
+          // The Settings root names the app's language.
+          appLocaleProvider.overrideWithValue(null),
           hermesOnlyModeProvider.overrideWithValue(false),
           // Never loaded, and the refresh fails: no profile to edit.
           accountProfileProvider.overrideWith(_UnloadedAccountProfile.new),

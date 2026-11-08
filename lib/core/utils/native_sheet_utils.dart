@@ -150,13 +150,21 @@ class NativeProfileRootAccount {
 }
 
 /// The sections of the native Settings root, in the order the Flutter
-/// Settings page uses: the account card -- whom Settings is for, leading to
-/// every account and connection, with Add account under it -- then the
-/// signed-in account's own rows, the everyday settings, places, and an
+/// Settings page uses: the account card -- whom Settings is for -- with the
+/// way to every account and connection and to add another under it, then
+/// the signed-in account's own rows, the everyday settings, places, and an
 /// Advanced group that only exists while it has a row.
 ///
+/// With an Open WebUI account the card opens that account's profile, as the
+/// Settings app's card opens its account, and an Accounts row under it
+/// leads to every account and connection, so the two never read as two ways
+/// to one page. Without one there is no profile, and the card itself leads
+/// to the connections.
+///
 /// Pure, so the open sheet can be rebuilt with the same rows when a setting
-/// it depends on (Advanced) changes while it is up.
+/// it depends on (Advanced, the language) changes while it is up.
+///
+/// [appLanguageTag] is the language the app is set to, or `system`.
 ///
 /// [otherAccountCount] counts the saved Open WebUI accounts besides the
 /// active one, and is null when they could not be read in time. There may
@@ -167,32 +175,38 @@ List<NativeSheetSectionConfig> buildNativeProfileRootSections(
   required NativeProfileRootAccount? account,
   required NativeProfileRootVisibility visibility,
   required ({String title, String? subtitle}) card,
+  required String appLanguageTag,
   int? otherAccountCount = 0,
 }) {
   final hasAccount = account != null;
   final cardItems = <NativeSheetItemConfig>[
     NativeSheetItemConfig(
-      id: nativeAccountsDetailId,
+      id: hasAccount ? NativeSheetRoutes.profile : nativeAccountsDetailId,
       title: card.title,
       subtitle: card.subtitle,
       sfSymbol: 'person.crop.circle',
       usesProfileAvatar: true,
     ),
+    if (hasAccount)
+      NativeSheetItemConfig(
+        id: nativeAccountsDetailId,
+        title: l10n.accountsTitle,
+        sfSymbol: 'person.2',
+      ),
     _nativeAddItem(
       nativeAccountAddActionId,
       title: l10n.accountsAddAccount,
       kind: null,
     ),
   ];
-  // What belongs to the Open WebUI account signed in.
+  // What belongs to the Open WebUI account signed in; its profile is the
+  // card above.
+  //
+  // Every root symbol is an outline drawn at one size and weight, chosen to
+  // carry about the same ink: a single bubble rather than the wider pair,
+  // sparkles rather than the sparse wand.
   final accountItems = <NativeSheetItemConfig>[
     if (hasAccount) ...[
-      NativeSheetItemConfig(
-        id: NativeSheetRoutes.profile,
-        title: l10n.profileTitle,
-        // Outlined, like every other symbol in the list.
-        sfSymbol: 'person',
-      ),
       NativeSheetItemConfig(
         id: NativeSheetRoutes.notificationSettings,
         title: l10n.notificationsTitle,
@@ -201,27 +215,29 @@ List<NativeSheetSectionConfig> buildNativeProfileRootSections(
       NativeSheetItemConfig(
         id: NativeSheetRoutes.aiMemory,
         title: nativeAiMemoryTitle(l10n),
-        sfSymbol: 'wand.and.stars',
+        sfSymbol: 'sparkles',
       ),
       NativeSheetItemConfig(
         id: NativeSheetRoutes.dataConnection,
         title: nativeDataConnectionTitle(l10n),
-        sfSymbol: 'network',
+        sfSymbol: 'antenna.radiowaves.left.and.right',
       ),
     ],
   ];
   // Single-line settings rows, so each title and its symbol carry the
-  // meaning without a descriptive subtitle.
+  // meaning without a descriptive subtitle. The language is the app's, not
+  // a look, so it sits beside Appearance rather than inside it.
   final appItems = <NativeSheetItemConfig>[
     NativeSheetItemConfig(
       id: NativeSheetRoutes.appearance,
       title: nativeAppearanceTitle(l10n),
-      sfSymbol: 'paintpalette',
+      sfSymbol: 'paintbrush',
     ),
+    buildNativeAppLanguageItem(l10n, languageTag: appLanguageTag),
     NativeSheetItemConfig(
       id: NativeSheetRoutes.chats,
       title: nativeChatsTitle(l10n),
-      sfSymbol: 'bubble.left.and.bubble.right',
+      sfSymbol: 'bubble.left',
     ),
     NativeSheetItemConfig(
       id: NativeSheetRoutes.voice,
@@ -1482,6 +1498,25 @@ String nativeLanguageLabel(AppLocalizations l10n, String code) {
       return l10n.system;
   }
 }
+
+/// Id of the App Language picker row.
+const nativeAppLanguageId = 'language';
+
+/// The App Language row: the language the app is set to ([languageTag], or
+/// `system`), picked from every language the app speaks.
+NativeSheetItemConfig buildNativeAppLanguageItem(
+  AppLocalizations l10n, {
+  required String languageTag,
+}) => NativeSheetItemConfig(
+  id: nativeAppLanguageId,
+  title: l10n.appLanguage,
+  sfSymbol: 'globe',
+  kind: NativeSheetItemKind.searchablePicker,
+  value: languageTag,
+  options: nativeLanguageDropdownOptions(l10n),
+  // It opens the list of languages, so it says so wherever it sits.
+  showsDisclosure: true,
+);
 
 List<NativeSheetOptionConfig> nativeLanguageDropdownOptions(
   AppLocalizations l10n,

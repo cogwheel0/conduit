@@ -72,13 +72,13 @@ void main() {
     expect(find.text(l10n.recent), findsNothing);
   });
 
-  testWidgets('section headers start on the rows\' leading edge', (
-    tester,
-  ) async {
+  testWidgets('section headers start on the toolbar\'s leading edge and '
+      'chat titles after their unread column', (tester) async {
     final now = DateTime.now();
     await tester.pumpWidget(
       sidebarTestBuildHarness(
         controllers: SidebarTestSidebarHarnessControllers(),
+        slidingSidebarEnabled: false,
         conversations: [
           _chat('Pinned chat', now, pinned: true),
           _chat('Dated chat', now.subtract(const Duration(minutes: 3))),
@@ -87,10 +87,22 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    for (final text in [l10n.pinned, l10n.today, 'Pinned chat', 'Dated chat']) {
+    final largeTitle = find.descendant(
+      of: find.byKey(const ValueKey<String>('chats-large-title')),
+      matching: find.text(l10n.sidebarChatsTab),
+    );
+    expect(tester.getTopLeft(largeTitle).dx, kSidebarRowContentInset);
+    for (final text in [l10n.pinned, l10n.today]) {
       expect(
         tester.getTopLeft(find.text(text)).dx,
         kSidebarRowContentInset,
+        reason: text,
+      );
+    }
+    for (final text in ['Pinned chat', 'Dated chat']) {
+      expect(
+        tester.getTopLeft(find.text(text)).dx,
+        kSidebarRowTitleInset,
         reason: text,
       );
     }

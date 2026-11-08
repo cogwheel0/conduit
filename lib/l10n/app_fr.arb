@@ -2077,7 +2077,7 @@
   "settingsCategorySupport": "Assistance",
   "settingsDataAndConnection": "Données et connexion",
   "slidingSidebar": "Barre latérale coulissante",
-  "slidingSidebarDescription": "Si l’option est activée, Notes, Terminal et Canaux s’ouvrent à côté de la barre latérale, qui continue d’afficher vos discussions. Sinon, ils s’ouvrent dans la barre latérale.",
+  "slidingSidebarDescription": "Notes, Terminal et Canaux s’ouvrent à côté de vos discussions.",
   "settingsAppearance": "Apparence",
   "settingsAppearanceSubtitle": "Thème, palette de couleurs et langue",
   "settingsChatSubtitle": "Comportement du chat, actions rapides et prompts avancés",

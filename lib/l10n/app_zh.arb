@@ -2077,7 +2077,7 @@
   "settingsCategorySupport": "支持",
   "settingsDataAndConnection": "数据与连接",
   "slidingSidebar": "滑动侧边栏",
-  "slidingSidebarDescription": "开启后，笔记、终端和频道会在侧边栏旁打开，侧边栏继续显示您的聊天。关闭后，它们会在侧边栏内打开。",
+  "slidingSidebarDescription": "笔记、终端和频道会在您的聊天旁打开。",
   "settingsAppearance": "外观",
   "settingsAppearanceSubtitle": "主题、调色板和语言",
   "settingsChatSubtitle": "聊天行为、快捷操作和高级提示词",

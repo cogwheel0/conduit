@@ -779,6 +779,7 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
       account: rootAccount,
       visibility: visibility,
       card: (title: card.title, subtitle: card.subtitle),
+      appLanguageTag: readNativeAppLanguageTag(ref.read),
       otherAccountCount: readNativeOtherAccountCount(ref.read),
     );
     final supportItems = buildNativeSupportItems(l10n);

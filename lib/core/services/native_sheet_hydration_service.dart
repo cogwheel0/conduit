@@ -129,7 +129,8 @@ NativeProfileRootVisibility readNativeProfileRootVisibility(
 );
 
 /// Whom the account card atop the native Settings root is for, and what it
-/// says, read now.
+/// says, read now. An Open WebUI account's card opens its profile, with
+/// Accounts in a row of its own, so it does not count the others.
 ({AccountCardKind kind, String title, String? subtitle}) readNativeAccountCard(
   NativeSheetProviderReader read,
   AppLocalizations l10n, {
@@ -144,8 +145,14 @@ NativeProfileRootVisibility readNativeProfileRootVisibility(
     hermesInUseId: read(hermesEnabledProvider)
         ? read(hermesActiveConnectionIdProvider)
         : null,
+    countsOthers: account == null,
   );
 }
+
+/// The language the app is set to, as the App Language row names it: a
+/// language tag, or `system`.
+String readNativeAppLanguageTag(NativeSheetProviderReader read) =>
+    read(appLocaleProvider)?.toLanguageTag() ?? 'system';
 
 /// The saved Open WebUI accounts besides the active one, read now; null
 /// when they could not be read.
@@ -230,10 +237,12 @@ class NativeSheetHydrationService {
     _ref.onDispose(sheetEvents.cancel);
     // The native sheet keeps the rows it was handed, so a language chosen
     // inside it left every label in the old language until the sheet was
-    // reopened. Hand it rows built in the new language.
+    // reopened. Hand it rows built in the new language: the root, where the
+    // language is picked, and Appearance when it was opened.
     _ref.listen<Locale?>(appLocaleProvider, (previous, next) {
-      if (previous == next || !_appearanceDetailPresented) return;
-      unawaited(_rehydrateAppearanceAfterLocaleChange());
+      if (previous == next) return;
+      if (!_appearanceDetailPresented && _profileRoot == null) return;
+      unawaited(_rehydrateAfterLocaleChange());
     });
   }
 
@@ -297,6 +306,7 @@ class NativeSheetHydrationService {
             subtitle: subtitle,
           ),
         },
+        appLanguageTag: readNativeAppLanguageTag(_ref.read),
         otherAccountCount: readNativeOtherAccountCount(_ref.read),
       ),
     );
@@ -644,10 +654,12 @@ class NativeSheetHydrationService {
 
   /// The rows read their strings from the app's localizations, which switch on
   /// the frame that follows the locale change, so wait for that frame first.
-  Future<void> _rehydrateAppearanceAfterLocaleChange() async {
+  Future<void> _rehydrateAfterLocaleChange() async {
     try {
       await WidgetsBinding.instance.endOfFrame;
-      await hydrateDetail(NativeSheetRoutes.appearance);
+      if (_appearanceDetailPresented) {
+        await hydrateDetail(NativeSheetRoutes.appearance);
+      }
       await refreshProfileRoot();
     } catch (error, stackTrace) {
       DebugLogger.error(
@@ -1286,21 +1298,12 @@ class NativeSheetHydrationService {
   Future<void> _applyNativeAppearanceDetail(AppLocalizations l10n) async {
     try {
       final themeMode = _ref.read(appThemeModeProvider);
-      final appLocale = _ref.read(appLocaleProvider);
       final activePalette = _ref.read(appThemePaletteProvider);
-      final currentLanguageTag = appLocale?.toLanguageTag() ?? 'system';
       final appSettings = _ref.read(appSettingsProvider);
-      final languageItem = NativeSheetItemConfig(
-        id: 'language',
-        title: l10n.appLanguage,
-        sfSymbol: 'globe',
-        kind: NativeSheetItemKind.searchablePicker,
-        value: currentLanguageTag,
-        options: nativeLanguageDropdownOptions(l10n),
-      );
-      // How the app looks, in three groups. A toggle that needs explaining is
-      // explained in its group's footer, as Settings does, rather than in a
-      // second line under its title.
+      // How the app looks, in two groups; its language is a row of the
+      // Settings root. A toggle that needs explaining is explained in its
+      // group's footer, as Settings does, rather than in a second line under
+      // its title.
       await _applyNativeDetail(
         NativeSheetDetailConfig(
           id: NativeSheetRoutes.appearance,
@@ -1359,7 +1362,6 @@ class NativeSheetHydrationService {
                 ),
               ],
             ),
-            NativeSheetSectionConfig(items: [languageItem]),
           ],
         ),
       );
@@ -1383,7 +1385,7 @@ class NativeSheetHydrationService {
   ) async {
     // Appearance reads only local settings, so it is applied before anything
     // that waits on the server, and a failed models or tools request cannot
-    // replace it (and the language picker) with an error row.
+    // replace it with an error row.
     await _applyNativeAppearanceDetail(l10n);
     try {
       final hasOpenWebUiAccount = _ref.read(openWebUiAccountAvailableProvider);

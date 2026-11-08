@@ -114,9 +114,9 @@
   "@slidingSidebar": {
     "description": "Appearance setting that opts into the sliding sidebar layout."
   },
-  "slidingSidebarDescription": "When on, Notes, Terminal and Channels open beside the sidebar, which keeps showing your chats. When off, they open inside the sidebar.",
+  "slidingSidebarDescription": "Notes, Terminal and Channels open beside your chats.",
   "@slidingSidebarDescription": {
-    "description": "Footer under the Sliding Sidebar toggle in Appearance (and subtitle on Android): where Notes, Terminal and Channels open with the toggle on and off."
+    "description": "One-line footer under the Sliding Sidebar toggle in Appearance (and subtitle on Android): with the toggle on, Notes, Terminal and Channels open beside the chat list instead of inside the sidebar. Keep it short enough for one line."
   },
   "settingsAppearance": "Appearance",
   "@settingsAppearance": {
