@@ -398,9 +398,11 @@ class _AuthGroupedRowState extends State<AuthGroupedRow> {
     required bool stacked,
   }) {
     final lead = <Widget>[
-      ?leading,
+      if (leading != null) ExcludeSemantics(child: leading),
       if (leading != null) const SizedBox(width: Spacing.sm + Spacing.xs),
     ];
+    texts = ExcludeSemantics(child: texts);
+    if (value != null) value = ExcludeSemantics(child: value);
     final end = <Widget>[
       if (chevron != null) ...[
         const SizedBox(width: Spacing.sm + Spacing.xxs),
@@ -429,14 +431,39 @@ class _AuthGroupedRowState extends State<AuthGroupedRow> {
         ],
       );
     }
+    if (value != null) {
+      // The title keeps its natural width, up to a little over half the
+      // row, and the value takes the rest at the trailing edge, as in iOS
+      // Settings.
+      final valueText = value;
+      return LayoutBuilder(
+        builder: (context, constraints) => Row(
+          children: [
+            ...lead,
+            ConstrainedBox(
+              constraints: BoxConstraints(maxWidth: constraints.maxWidth * 0.55),
+              child: texts,
+            ),
+            const SizedBox(width: Spacing.sm),
+            Expanded(
+              child: Align(
+                alignment: AlignmentDirectional.centerEnd,
+                child: valueText,
+              ),
+            ),
+            if (trailing != null) ...[
+              const SizedBox(width: Spacing.sm),
+              trailing,
+            ],
+            ...end,
+          ],
+        ),
+      );
+    }
     return Row(
       children: [
         ...lead,
         Expanded(child: texts),
-        if (value != null) ...[
-          const SizedBox(width: Spacing.sm),
-          Flexible(child: value),
-        ],
         if (trailing != null) ...[
           const SizedBox(width: Spacing.sm),
           trailing,
@@ -463,12 +490,16 @@ class _AuthGroupedRowState extends State<AuthGroupedRow> {
           if (value != null && value.isNotEmpty) value,
         ].join('. ');
 
+    // The row reads as one element; an interactive trailing control, such
+    // as Change or Remove, stays reachable as its own.
     return Semantics(
+      container: true,
       button: _interactive,
       expanded: expanded,
       label: label,
       onTap: _interactive ? _handleTap : null,
-      excludeSemantics: true,
+      excludeSemantics: trailing == null,
+      explicitChildNodes: trailing != null,
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
         onTapDown: _interactive ? (_) => _setPressed(true) : null,

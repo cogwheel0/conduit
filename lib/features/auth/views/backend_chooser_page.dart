@@ -214,12 +214,7 @@ class _WelcomeHero extends StatelessWidget {
     final l10n = AppLocalizations.of(context)!;
     final theme = context.conduitTheme;
     return Padding(
-      padding: const EdgeInsets.only(
-        top: Spacing.sm,
-        bottom: Spacing.xl,
-        left: Spacing.md,
-        right: Spacing.md,
-      ),
+      padding: const EdgeInsets.only(top: Spacing.md, bottom: Spacing.xl),
       child: Column(
         children: [
           Image.asset(
@@ -230,7 +225,7 @@ class _WelcomeHero extends StatelessWidget {
             filterQuality: FilterQuality.medium,
             excludeFromSemantics: true,
           ),
-          const SizedBox(height: Spacing.md + Spacing.xs),
+          const SizedBox(height: Spacing.md),
           Semantics(
             header: true,
             child: Text(
@@ -255,7 +250,7 @@ class _WelcomeHero extends StatelessWidget {
   }
 }
 
-const double _heroIconSize = 72;
+const double _heroIconSize = 64;
 
 @visibleForTesting
 bool debugShowAllAppleBackends = kDebugMode;

@@ -5,6 +5,7 @@ import 'package:conduit/shared/services/navigation_service.dart';
 import 'package:conduit/shared/widgets/adaptive_toolbar_components.dart';
 import 'package:conduit/shared/widgets/conduit_components.dart';
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
+import 'package:conduit/shared/theme/theme_extensions.dart';
 import 'package:conduit/shared/widgets/utility_components.dart';
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit_core/models/backend_config.dart';
@@ -118,6 +119,20 @@ void main() {
       findsOneWidget,
     );
     expect(find.text('Allow Unverified Certificate'), findsOneWidget);
+    // Row values sit at the trailing edge, next to their chevron.
+    final certificateRow = find.byKey(
+      const ValueKey<String>('mtls-certificate-row'),
+    );
+    final chooseValue = find.descendant(
+      of: certificateRow,
+      matching: find.text('Choose…'),
+    );
+    final chevron = find.descendant(
+      of: certificateRow,
+      matching: find.byType(AuthChevron),
+    );
+    check(tester.getTopLeft(chevron).dx - tester.getTopRight(chooseValue).dx)
+        .isLessThan(Spacing.md);
     final addHeader = tester.widget<AuthGroupedRow>(
       find.byKey(const ValueKey<String>('add-custom-header-button')),
     );
@@ -172,6 +187,13 @@ void main() {
     await tester.testTextInput.receiveAction(TextInputAction.next);
     await tester.pump();
     check(password.focusNode!.hasFocus).isTrue();
+
+    // The row reads as one element and Change stays its own button.
+    final semantics = tester.ensureSemantics();
+    expect(find.bySemanticsLabel('Open WebUI. https://open-webui.example'),
+        findsOneWidget);
+    expect(find.bySemanticsLabel('Change'), findsOneWidget);
+    semantics.dispose();
 
     await tester.tap(
       find.byKey(const ValueKey<String>('authentication-change-server')),

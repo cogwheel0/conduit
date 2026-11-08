@@ -136,6 +136,11 @@ class _UtilityPageScaffoldState extends State<UtilityPageScaffold> {
   double _largeTitleTop = 0;
   bool _inlineTitleShown = false;
 
+  /// Whether content has scrolled under the bar. A large-title page shows
+  /// its scroll-edge fade only then, as iOS does, so the fade never washes
+  /// over the large title at rest.
+  bool _scrolledUnderBar = false;
+
   @override
   void initState() {
     super.initState();
@@ -149,14 +154,20 @@ class _UtilityPageScaffoldState extends State<UtilityPageScaffold> {
     super.dispose();
   }
 
-  /// The bar's title appears once most of the large title has scrolled
+  /// The bar's title appears once half the large title has scrolled
   /// under the bar, as a native large title collapses into it.
   void _syncInlineTitle() {
     if (!_largeTitleActive(context) || !_controller.hasClients) return;
     final box = _largeTitleKey.currentContext?.findRenderObject();
     final height = box is RenderBox && box.hasSize ? box.size.height : 0.0;
-    final shown = _controller.offset > _largeTitleTop + height * 0.6;
-    if (shown != _inlineTitleShown) setState(() => _inlineTitleShown = shown);
+    final shown = _controller.offset > _largeTitleTop + height * 0.5;
+    final scrolled = _controller.offset > 0.5;
+    if (shown != _inlineTitleShown || scrolled != _scrolledUnderBar) {
+      setState(() {
+        _inlineTitleShown = shown;
+        _scrolledUnderBar = scrolled;
+      });
+    }
   }
 
   bool _largeTitleActive(BuildContext context) =>
@@ -212,7 +223,7 @@ class _UtilityPageScaffoldState extends State<UtilityPageScaffold> {
                         Spacing.pagePadding,
                       )))
             .resolve(Directionality.of(context));
-    if (largeTitleActive && widget.largeTitleHeader == null) {
+    if (largeTitleActive) {
       // A large title sits right under the bar, as on iOS.
       basePadding = basePadding.copyWith(top: Spacing.xs);
     }
@@ -374,12 +385,18 @@ class _UtilityPageScaffoldState extends State<UtilityPageScaffold> {
               left: 0,
               right: 0,
               top: 0,
-              child: ConduitChromeGradientFade.top(
-                contentHeight:
-                    mediaQuery.viewPadding.top +
-                    conduitAdaptiveToolbarHeightOf(context),
-                // Settings titles sit over scrolling rows; keep them legible.
-                solidBehindChrome: true,
+              child: AnimatedOpacity(
+                opacity: !largeTitleActive || _scrolledUnderBar ? 1 : 0,
+                duration: context.motionDuration(AnimationDuration.fast),
+                curve: Curves.easeOut,
+                child: ConduitChromeGradientFade.top(
+                  contentHeight:
+                      mediaQuery.viewPadding.top +
+                      conduitAdaptiveToolbarHeightOf(context),
+                  // Settings titles sit over scrolling rows; keep them
+                  // legible.
+                  solidBehindChrome: true,
+                ),
               ),
             ),
         ],
