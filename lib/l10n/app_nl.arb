@@ -4353,5 +4353,6 @@
   "terminalPortPreviewReload": "Opnieuw laden",
   "terminalPortPreviewLoadFailed": "Deze pagina kan niet worden geladen.",
   "modelMenuAllModels": "Alle modellen…",
-  "citationPreviewOpen": "Openen"
+  "citationPreviewOpen": "Openen",
+  "chatUnreadState": "Ongelezen"
 }

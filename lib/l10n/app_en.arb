@@ -9126,5 +9126,9 @@
   "citationPreviewOpen": "Open",
   "@citationPreviewOpen": {
     "description": "Button in a citation's preview popover that opens the cited page in the browser."
+  },
+  "chatUnreadState": "Unread",
+  "@chatUnreadState": {
+    "description": "VoiceOver value of a chat in the sidebar list whose newest reply the user has not read yet."
   }
 }
