@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:cupertino_native_better/cupertino_native_better.dart';
 import 'package:flutter/widgets.dart';
 
@@ -21,19 +19,19 @@ const double _nativeHeadroom = 16;
 /// Callers that keep their own design below iOS 26 check
 /// `PlatformUiCapabilities.usesNativeIOS26` first.
 ///
-/// The native glass reads its sizes once, when its view is created
-/// (https://github.com/gunumdogdu/cupertino_native_better/issues/128), so the
-/// island has one fixed size per state, and [collapsedSize] fits within
+/// The island has one size per state, and [collapsedSize] fits within
 /// [expandedSize]. The content is laid out in that size less
 /// [collapsedPadding] or [expandedPadding], which keeps it on the glass. A
-/// new size creates a new native view, so derive the sizes from the
-/// available width and the text size, not from content that changes while
-/// the island is shown.
+/// new [expandedSize] resizes the native view as well, and SwiftUI draws the
+/// glass out of place for a frame or two while it does, so derive the sizes
+/// from the available width and the text size, not from content that changes
+/// while the island is shown.
 ///
-/// A change of [isExpanded] morphs the glass with a spring, or at once under
-/// Reduce Motion, and crossfades the content. Taps on the glass outside the
+/// A change of [isExpanded] morphs the glass with a spring and crossfades the
+/// content; a change of either size reshapes the glass with the same spring.
+/// Under Reduce Motion both happen at once. Taps on the glass outside the
 /// content go to [onTap] and never reach what is behind the island.
-class AdaptiveFloatingIsland extends StatefulWidget {
+class AdaptiveFloatingIsland extends StatelessWidget {
   const AdaptiveFloatingIsland({
     super.key,
     required this.collapsed,
@@ -71,34 +69,13 @@ class AdaptiveFloatingIsland extends StatefulWidget {
   /// Called for a tap on the glass outside the content.
   final VoidCallback? onTap;
 
-  @override
-  State<AdaptiveFloatingIsland> createState() => _AdaptiveFloatingIslandState();
-}
-
-class _AdaptiveFloatingIslandState extends State<AdaptiveFloatingIsland> {
-  final _controller = CNFloatingIslandController();
-  bool _animate = true;
-
-  @override
-  void didUpdateWidget(AdaptiveFloatingIsland oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    // The package's `isExpanded` swaps only the Flutter content; the native
-    // glass changes its shape when the controller tells it to.
-    if (widget.isExpanded != oldWidget.isExpanded) {
-      final change = widget.isExpanded
-          ? _controller.expand(animated: _animate)
-          : _controller.collapse(animated: _animate);
-      // The view may be gone, e.g. while it is created again.
-      unawaited(change.catchError((Object _) {}));
-    }
-  }
+  /// How long the native glass's spring takes to settle, roughly: the
+  /// package's own. A spring of no length moves the glass at once.
+  static const double _springResponse = 0.4;
 
   @override
   Widget build(BuildContext context) {
-    _animate = !context.reduceMotion;
-    final collapsedSize = widget.collapsedSize;
-    final expandedSize = widget.expandedSize;
-    final size = widget.isExpanded ? expandedSize : collapsedSize;
+    final size = isExpanded ? expandedSize : collapsedSize;
     // The native view is sized by the content and keeps one size in both
     // states. SwiftUI animates the glass within the view, so a view that
     // changed size with the content would first move the glass with its
@@ -120,20 +97,20 @@ class _AdaptiveFloatingIslandState extends State<AdaptiveFloatingIsland> {
             key: const ValueKey('adaptive-floating-island-glass'),
             behavior: HitTestBehavior.opaque,
             excludeFromSemantics: true,
-            onTap: widget.onTap,
+            onTap: onTap,
             child: SizedBox.fromSize(size: size),
           ),
           CNFloatingIsland(
-            // The native view keeps the sizes it was created with.
-            key: ValueKey((collapsedSize, expandedSize)),
-            controller: _controller,
-            isExpanded: widget.isExpanded,
+            isExpanded: isExpanded,
             position: CNFloatingIslandPosition.bottom,
             margin: EdgeInsets.zero,
             collapsedWidth: collapsedSize.width,
             collapsedHeight: collapsedSize.height,
             expandedWidth: expandedSize.width,
             expandedHeight: expandedSize.height,
+            // SwiftUI's spring of no length is infinitely stiff: the glass
+            // takes its new shape at once.
+            springResponse: context.reduceMotion ? 0 : _springResponse,
             // Callers remove the island while a sheet covers it; under other
             // modals the package clips its glow instead of dropping its
             // content.
@@ -145,7 +122,7 @@ class _AdaptiveFloatingIslandState extends State<AdaptiveFloatingIsland> {
               size: AdaptiveFloatingIsland.collapsedPadding.deflateSize(
                 collapsedSize,
               ),
-              child: widget.collapsed,
+              child: collapsed,
             ),
             expanded: _content(
               view: AdaptiveFloatingIsland.expandedPadding.deflateSize(
@@ -154,7 +131,7 @@ class _AdaptiveFloatingIslandState extends State<AdaptiveFloatingIsland> {
               size: AdaptiveFloatingIsland.expandedPadding.deflateSize(
                 expandedSize,
               ),
-              child: widget.expanded,
+              child: expanded,
             ),
           ),
         ],

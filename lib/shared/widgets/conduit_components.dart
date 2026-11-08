@@ -350,10 +350,10 @@ class FloatingAppBarAction extends StatelessWidget {
 /// A search field on a glass pill.
 ///
 /// On iOS 26 and later it is the system search bar
-/// ([AdaptiveNativeSearchBar]) unless [nativeOnIOS26] is false or a
-/// [focusNode] is given. The system bar cannot be focused, unfocused or given
-/// text from code: a caller that needs any of that, including a list that
-/// hides the keyboard when it is dragged, keeps the Flutter field.
+/// ([AdaptiveNativeSearchBar]) unless [nativeOnIOS26] is false. Like the
+/// Flutter field, it takes text set in [controller] and focus requested
+/// through [focusNode], and a list that hides the keyboard when it is
+/// dragged hides its keyboard too.
 class ConduitGlassSearchField extends StatelessWidget {
   const ConduitGlassSearchField({
     super.key,
@@ -371,6 +371,9 @@ class ConduitGlassSearchField extends StatelessWidget {
   final String hintText;
   final ValueChanged<String> onChanged;
   final String query;
+
+  /// Called by the clear button of the Material field. The iOS fields report
+  /// clearing through [onChanged], with the empty text.
   final VoidCallback onClear;
 
   /// Whether iOS 26 and later may use the system search bar.
@@ -378,16 +381,13 @@ class ConduitGlassSearchField extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (nativeOnIOS26 &&
-        focusNode == null &&
-        PlatformUiCapabilities.usesNativeIOS26) {
+    if (nativeOnIOS26 && PlatformUiCapabilities.usesNativeIOS26) {
       return AdaptiveNativeSearchBar(
         controller: controller,
+        focusNode: focusNode,
         placeholder: hintText,
         onChanged: onChanged,
-        onClear: onClear,
         height: TouchTarget.minimum,
-        fallbackBuilder: _buildFlutterField,
       );
     }
     return _buildFlutterField(context);

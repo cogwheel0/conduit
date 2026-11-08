@@ -107,12 +107,11 @@ class ChatVoiceModeOverlay extends ConsumerWidget {
 /// and the panel. The panel leaves the transcript and the reply to the chat,
 /// which shows both sides of the call.
 ///
-/// The native island keeps the sizes it was created with
-/// (https://github.com/gunumdogdu/cupertino_native_better/issues/128), so
-/// the panel cannot grow with the call as it does elsewhere. It keeps room
-/// for its tallest content at the current text size instead, and the island
-/// is created again only when that room changes, such as with the text size
-/// or the width.
+/// The panel keeps room for its tallest content at the current text size, an
+/// error included, rather than growing with the call as it does elsewhere:
+/// the native view grows with the glass, and SwiftUI then draws the glass
+/// out of place for a few frames. Its size changes only with the text size
+/// or the width, and the island follows without being created again.
 class _VoiceIsland extends StatelessWidget {
   const _VoiceIsland({required this.snapshot});
 

@@ -39,45 +39,34 @@ void main() {
   final searchBar = find.byType(CNSearchBar);
   final flutterField = find.byType(EditableText);
   CNSearchBar bar(WidgetTester tester) => tester.widget<CNSearchBar>(searchBar);
-  String flutterText(WidgetTester tester) =>
-      tester.widget<EditableText>(flutterField).controller.text;
 
   testWidgets('iOS 26 uses the system search bar, set up to keep its text', (
     tester,
   ) async {
     final controller = TextEditingController();
     addTearDown(controller.dispose);
-    await show(tester, _field(controller));
+    final focusNode = FocusNode();
+    addTearDown(focusNode.dispose);
+    await show(tester, _field(controller, focus: focusNode));
 
     expect(bar(tester).placeholder, 'Search things');
     expect(bar(tester).expandable, isFalse);
     expect(bar(tester).expandedHeight, TouchTarget.minimum);
+    // The app's text and focus reach the field through its controller.
+    expect(bar(tester).controller, isNotNull);
     // Cancel would collapse a bar that cannot expand again, and a bar hidden
     // under a modal comes back without its text.
     expect(bar(tester).showCancelButton, isFalse);
     expect(bar(tester).autoHideOnModal, isFalse);
   }, variant: ios);
 
-  testWidgets('focus, an opt-out, a saved query or older iOS keep Flutter', (
-    tester,
-  ) async {
+  testWidgets('an opt-out or older iOS keep the Flutter field', (tester) async {
     final controller = TextEditingController();
     addTearDown(controller.dispose);
-    final focusNode = FocusNode();
-    addTearDown(focusNode.dispose);
-    final saved = TextEditingController(text: 'saved query');
-    addTearDown(saved.dispose);
 
-    for (final field in [
-      _field(controller, focus: focusNode),
-      _field(controller, native: false),
-      _field(saved),
-    ]) {
-      await show(tester, field);
-      expect(searchBar, findsNothing);
-      expect(flutterField, findsOneWidget);
-    }
-    expect(flutterText(tester), 'saved query');
+    await show(tester, _field(controller, native: false));
+    expect(searchBar, findsNothing);
+    expect(flutterField, findsOneWidget);
 
     PlatformUiCapabilities.debugIOSMajorVersionOverride = 25;
     PlatformUiCapabilities.debugNativeIOS26Override = false;
@@ -85,7 +74,7 @@ void main() {
     expect(searchBar, findsNothing);
   }, variant: ios);
 
-  testWidgets('typing fills the controller and clearing calls onClear once', (
+  testWidgets('each edit fills the controller and is reported, clearing too', (
     tester,
   ) async {
     final controller = TextEditingController();
@@ -101,35 +90,118 @@ void main() {
     bar(tester).onChanged!('ab');
     expect(controller.text, 'ab');
     expect(controller.selection, const TextSelection.collapsed(offset: 2));
-    expect(changes, ['a', 'ab']);
 
-    // The native clear button reports the empty text twice.
-    bar(tester).onChanged!('');
+    // The clear button empties the field; as the iOS Flutter field does, the
+    // empty text is reported as an edit.
     bar(tester).onChanged!('');
     expect(controller.text, isEmpty);
-    expect(clears, 1);
-    expect(changes, ['a', 'ab']);
+    expect(changes, ['a', 'ab', '']);
+    expect(clears, 0);
   }, variant: ios);
 
-  testWidgets('the app can clear the bar; other text it sets falls back', (
+  testWidgets('text the app sets goes to the field and is not reported back', (
+    tester,
+  ) async {
+    final saved = TextEditingController(text: 'saved query');
+    addTearDown(saved.dispose);
+    final changes = <String>[];
+    await show(tester, _field(saved, onChanged: changes.add));
+
+    // A saved query no longer needs the Flutter field.
+    expect(searchBar, findsOneWidget);
+    // The field reports the text it was given; the app knows it already.
+    bar(tester).onChanged!('saved query');
+    expect(changes, isEmpty);
+    // What the person types from there is theirs.
+    bar(tester).onChanged!('saved query 2');
+    expect(changes, ['saved query 2']);
+    expect(saved.text, 'saved query 2');
+
+    saved.clear();
+    await tester.pump();
+    bar(tester).onChanged!('');
+    expect(changes, ['saved query 2']);
+  }, variant: ios);
+
+  testWidgets(
+    'the focus node stands for the field, and a dragged list takes it away',
+    (tester) async {
+      final controller = TextEditingController();
+      addTearDown(controller.dispose);
+      final focusNode = FocusNode();
+      addTearDown(focusNode.dispose);
+      await show(
+        tester,
+        Column(
+          children: [
+            _field(controller, focus: focusNode),
+            Expanded(
+              child: ListView(
+                key: const ValueKey('results'),
+                keyboardDismissBehavior:
+                    ScrollViewKeyboardDismissBehavior.onDrag,
+                children: [
+                  for (var i = 0; i < 40; i++)
+                    SizedBox(height: 48, child: Text('Result $i')),
+                ],
+              ),
+            ),
+          ],
+        ),
+      );
+
+      // Asking for focus asks the native field for its keyboard, which a
+      // caller can do only once the node is in the tree.
+      expect(focusNode.context, isNotNull);
+      focusNode.requestFocus();
+      await tester.pump();
+      expect(focusNode.hasFocus, isTrue);
+
+      // Dragging the results takes focus from the node, which tells the
+      // native field to put its keyboard away.
+      await tester.drag(
+        find.byKey(const ValueKey('results')),
+        const Offset(0, -200),
+      );
+      await tester.pump();
+      expect(focusNode.hasFocus, isFalse);
+
+      // A tap on the field, which focuses it natively, focuses the node
+      // too, so the next drag reaches the field as well.
+      await tester.tap(searchBar);
+      await tester.pump();
+      expect(focusNode.hasFocus, isTrue);
+      await tester.drag(
+        find.byKey(const ValueKey('results')),
+        const Offset(0, 200),
+      );
+      await tester.pump();
+      expect(focusNode.hasFocus, isFalse);
+    },
+    variant: ios,
+  );
+
+  testWidgets('a new placeholder replaces the field and keeps the query', (
     tester,
   ) async {
     final controller = TextEditingController();
     addTearDown(controller.dispose);
-    await show(tester, _field(controller));
-    bar(tester).onChanged!('ab');
-    await tester.pump();
+    final changes = <String>[];
+    await show(tester, _field(controller, onChanged: changes.add));
+    bar(tester).onChanged!('ada');
     final typedInto = tester.state(searchBar);
 
-    // A new native field starts empty.
-    controller.clear();
-    await tester.pump();
+    // The native placeholder is fixed when the field is created.
+    await show(
+      tester,
+      _field(controller, onChanged: changes.add, hint: 'Search groups'),
+    );
     expect(tester.state(searchBar), isNot(same(typedInto)));
-
-    controller.text = 'set by the app';
-    await tester.pump();
-    expect(searchBar, findsNothing);
-    expect(flutterText(tester), 'set by the app');
+    expect(bar(tester).placeholder, 'Search groups');
+    expect(controller.text, 'ada');
+    // The new field reports the query it was given; it is not an edit.
+    bar(tester).onChanged!('ada');
+    expect(changes, ['ada']);
   }, variant: ios);
 }
 
@@ -137,12 +209,13 @@ ConduitGlassSearchField _field(
   TextEditingController controller, {
   FocusNode? focus,
   bool native = true,
+  String hint = 'Search things',
   ValueChanged<String>? onChanged,
   VoidCallback? onClear,
 }) => ConduitGlassSearchField(
   controller: controller,
   focusNode: focus,
-  hintText: 'Search things',
+  hintText: hint,
   query: controller.text,
   onChanged: onChanged ?? (_) {},
   onClear: onClear ?? () {},

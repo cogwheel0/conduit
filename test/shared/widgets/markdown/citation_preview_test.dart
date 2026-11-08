@@ -91,9 +91,7 @@ void main() {
       {'id': 'open', 'label': 'Open', 'style': 'default'},
       {'label': 'Close', 'style': 'cancel'},
     ]);
-    // UIKit refuses the browser while the popover is still animating away.
-    expect(browser.opened, isEmpty);
-    await tester.pump(AdaptivePreviewPopover.dismissalDuration);
+    // The popover answers once it has gone, so the link opens with no wait.
     expect(browser.opened, ['https://www.harbour.example/tides']);
   }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
 

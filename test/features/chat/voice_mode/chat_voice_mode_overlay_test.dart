@@ -353,8 +353,7 @@ void main() {
         expect(panel.width, 402 - 2 * Spacing.inputPadding);
 
         // Heard and spoken text never shows, and an error fits without
-        // resizing the island, whose native view keeps the size it was
-        // created with.
+        // resizing the island.
         for (final snapshot in [listening, speaking]) {
           controller.update(snapshot);
           await tester.pumpAndSettle();
@@ -388,8 +387,8 @@ void main() {
     );
 
     testWidgets(
-      'a text size change mid-call creates the island again with room for '
-      'the larger error',
+      'a text size change mid-call resizes the same island for the larger '
+      'error',
       (tester) async {
         useNativeIOS26();
         final container = ProviderContainer(
@@ -416,13 +415,37 @@ void main() {
         );
         await tester.pumpAndSettle();
 
-        expect(tester.state(find.byType(CNFloatingIsland)), isNot(island));
+        expect(tester.state(find.byType(CNFloatingIsland)), same(island));
         expect(floatingIsland(tester).expandedHeight, greaterThan(height));
         expectErrorFitsWithoutCallText(tester, l10n);
         expect(tester.takeException(), isNull);
       },
       variant: TargetPlatformVariant.only(TargetPlatform.iOS),
     );
+
+    testWidgets('under Reduce Motion the glass takes each new shape at once', (
+      tester,
+    ) async {
+      useNativeIOS26();
+      final container = ProviderContainer(
+        overrides: [
+          chatVoiceModeControllerProvider.overrideWith(
+            () => _TestVoiceModeController(quiet),
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+      await tester.pumpWidget(_buildActiveHarness(container));
+      await tester.pumpAndSettle();
+      expect(floatingIsland(tester).springResponse, greaterThan(0));
+
+      await tester.pumpWidget(
+        _buildActiveHarness(container, disableAnimations: true),
+      );
+      await tester.pumpAndSettle();
+      // SwiftUI's spring of no length is infinitely stiff.
+      expect(floatingIsland(tester).springResponse, 0);
+    }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
   });
 }
 
