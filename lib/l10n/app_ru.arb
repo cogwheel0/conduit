@@ -4393,7 +4393,24 @@
   "modelMenuAllModels": "Все модели…",
   "citationPreviewOpen": "Открыть",
   "thinkingElapsedSeconds": "{seconds} с",
+  "@thinkingElapsedSeconds": {
+    "placeholders": {
+      "seconds": {
+        "type": "int"
+      }
+    }
+  },
   "thinkingElapsedMinutes": "{minutes} мин {seconds} с",
+  "@thinkingElapsedMinutes": {
+    "placeholders": {
+      "minutes": {
+        "type": "int"
+      },
+      "seconds": {
+        "type": "String"
+      }
+    }
+  },
   "copied": "Скопировано",
   "composerAddAttachment": "Добавить вложение",
   "composerShowKeyboard": "Показать клавиатуру",

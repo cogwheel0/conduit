@@ -4355,7 +4355,24 @@
   "modelMenuAllModels": "Alle modellen…",
   "citationPreviewOpen": "Openen",
   "thinkingElapsedSeconds": "{seconds} s",
+  "@thinkingElapsedSeconds": {
+    "placeholders": {
+      "seconds": {
+        "type": "int"
+      }
+    }
+  },
   "thinkingElapsedMinutes": "{minutes} min {seconds} s",
+  "@thinkingElapsedMinutes": {
+    "placeholders": {
+      "minutes": {
+        "type": "int"
+      },
+      "seconds": {
+        "type": "String"
+      }
+    }
+  },
   "copied": "Gekopieerd",
   "composerAddAttachment": "Bijlage toevoegen",
   "composerShowKeyboard": "Toetsenbord tonen",

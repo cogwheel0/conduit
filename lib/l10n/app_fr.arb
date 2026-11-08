@@ -4355,7 +4355,24 @@
   "modelMenuAllModels": "Tous les modèles…",
   "citationPreviewOpen": "Ouvrir",
   "thinkingElapsedSeconds": "{seconds} s",
+  "@thinkingElapsedSeconds": {
+    "placeholders": {
+      "seconds": {
+        "type": "int"
+      }
+    }
+  },
   "thinkingElapsedMinutes": "{minutes} min {seconds} s",
+  "@thinkingElapsedMinutes": {
+    "placeholders": {
+      "minutes": {
+        "type": "int"
+      },
+      "seconds": {
+        "type": "String"
+      }
+    }
+  },
   "copied": "Copié",
   "composerAddAttachment": "Ajouter une pièce jointe",
   "composerShowKeyboard": "Afficher le clavier",

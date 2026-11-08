@@ -6278,7 +6278,24 @@
   "modelMenuAllModels": "Všechny modely…",
   "citationPreviewOpen": "Otevřít",
   "thinkingElapsedSeconds": "{seconds} s",
+  "@thinkingElapsedSeconds": {
+    "placeholders": {
+      "seconds": {
+        "type": "int"
+      }
+    }
+  },
   "thinkingElapsedMinutes": "{minutes} min {seconds} s",
+  "@thinkingElapsedMinutes": {
+    "placeholders": {
+      "minutes": {
+        "type": "int"
+      },
+      "seconds": {
+        "type": "String"
+      }
+    }
+  },
   "copied": "Zkopírováno",
   "composerAddAttachment": "Přidat přílohu",
   "composerShowKeyboard": "Zobrazit klávesnici",

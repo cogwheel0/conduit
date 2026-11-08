@@ -8163,7 +8163,24 @@
     "description": "Button in a citation's preview popover that opens the cited page in the browser."
   },
   "thinkingElapsedSeconds": "{seconds} s",
+  "@thinkingElapsedSeconds": {
+    "placeholders": {
+      "seconds": {
+        "type": "int"
+      }
+    }
+  },
   "thinkingElapsedMinutes": "{minutes} min {seconds} s",
+  "@thinkingElapsedMinutes": {
+    "placeholders": {
+      "minutes": {
+        "type": "int"
+      },
+      "seconds": {
+        "type": "String"
+      }
+    }
+  },
   "copied": "Skopiowano",
   "composerAddAttachment": "Dodaj załącznik",
   "composerShowKeyboard": "Pokaż klawiaturę",

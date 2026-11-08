@@ -4127,7 +4127,24 @@
   "modelMenuAllModels": "모든 모델…",
   "citationPreviewOpen": "열기",
   "thinkingElapsedSeconds": "{seconds}초",
+  "@thinkingElapsedSeconds": {
+    "placeholders": {
+      "seconds": {
+        "type": "int"
+      }
+    }
+  },
   "thinkingElapsedMinutes": "{minutes}분 {seconds}초",
+  "@thinkingElapsedMinutes": {
+    "placeholders": {
+      "minutes": {
+        "type": "int"
+      },
+      "seconds": {
+        "type": "String"
+      }
+    }
+  },
   "copied": "복사됨",
   "composerAddAttachment": "첨부 파일 추가",
   "composerShowKeyboard": "키보드 보기",

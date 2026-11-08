@@ -5972,7 +5972,24 @@
   "modelMenuAllModels": "すべてのモデル…",
   "citationPreviewOpen": "開く",
   "thinkingElapsedSeconds": "{seconds}秒",
+  "@thinkingElapsedSeconds": {
+    "placeholders": {
+      "seconds": {
+        "type": "int"
+      }
+    }
+  },
   "thinkingElapsedMinutes": "{minutes}分{seconds}秒",
+  "@thinkingElapsedMinutes": {
+    "placeholders": {
+      "minutes": {
+        "type": "int"
+      },
+      "seconds": {
+        "type": "String"
+      }
+    }
+  },
   "copied": "コピーしました",
   "composerAddAttachment": "添付ファイルを追加",
   "composerShowKeyboard": "キーボードを表示",

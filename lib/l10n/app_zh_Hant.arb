@@ -4355,7 +4355,24 @@
   "modelMenuAllModels": "所有模型…",
   "citationPreviewOpen": "開啟",
   "thinkingElapsedSeconds": "{seconds} 秒",
+  "@thinkingElapsedSeconds": {
+    "placeholders": {
+      "seconds": {
+        "type": "int"
+      }
+    }
+  },
   "thinkingElapsedMinutes": "{minutes} 分 {seconds} 秒",
+  "@thinkingElapsedMinutes": {
+    "placeholders": {
+      "minutes": {
+        "type": "int"
+      },
+      "seconds": {
+        "type": "String"
+      }
+    }
+  },
   "copied": "已複製",
   "composerAddAttachment": "加入附件",
   "composerShowKeyboard": "顯示鍵盤",
