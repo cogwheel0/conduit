@@ -9,11 +9,13 @@ import 'chat_send_motion.dart';
 
 /// Suggested next prompts under a finished reply.
 ///
-/// A small "Suggestions" heading leads a short stack of rounded buttons on a
-/// quiet fill, each as wide as its words and led by a follow-up arrow. The
-/// 15 pt text, the fill and the glyph set them apart from the 17 pt answer
-/// above, so they read as choices rather than more of the reply. A suggestion
-/// is never cut short: what a tap sends is what the button shows.
+/// A small "Suggestions" heading leads a short stack of full-width rounded
+/// rows on a quiet fill, 8 pt apart, each led by a follow-up arrow. Their
+/// 15 pt secondary text, the fill and the glyph keep them clearly below the
+/// 17 pt answer, so they read as choices rather than more of the reply, and
+/// one shared width keeps their edges even. A long suggestion shows its
+/// first two lines, ending on a whole word and an ellipsis; VoiceOver reads,
+/// and a tap sends, all of it.
 class FollowUpSuggestionBar extends StatelessWidget {
   const FollowUpSuggestionBar({
     super.key,
@@ -90,12 +92,12 @@ class FollowUpSuggestionBar extends StatelessWidget {
   }
 }
 
-/// One suggestion: a rounded button as wide as its words, led by a
-/// follow-up arrow, that darkens the moment a finger lands.
+/// One suggestion: a full-width rounded row led by a follow-up arrow, that
+/// darkens the moment a finger lands.
 ///
-/// It hugs its text rather than spanning the column, so it reads as a
-/// control and not as a quoted message, and it shows the whole prompt,
-/// wrapping as needed: a tap sends all of it, so all of it is shown.
+/// It shows at most [maxLines] lines of the prompt, cut at a word boundary
+/// with an ellipsis, never mid-word; its accessibility label and what a tap
+/// sends are always the whole prompt.
 @visibleForTesting
 class FollowUpSuggestionRow extends StatefulWidget {
   const FollowUpSuggestionRow({super.key, required this.label, this.onPressed});
@@ -105,18 +107,22 @@ class FollowUpSuggestionRow extends StatefulWidget {
 
   static const double minHeight = 44;
 
-  /// Inner padding: one 15 pt line (20 pt leading) plus 12 pt above and
-  /// below makes 44 pt; the leading inset clears the glyph's curve.
+  /// Lines of the prompt a row shows.
+  static const int maxLines = 2;
+
+  /// Inner padding: one 15 pt line (20 pt leading) plus 10 pt above and
+  /// below, centred in the 44 pt minimum; the leading inset clears the
+  /// glyph's curve.
   static const EdgeInsetsDirectional padding = EdgeInsetsDirectional.fromSTEB(
     12,
-    12,
-    16,
-    12,
+    10,
+    14,
+    10,
   );
 
-  /// Half the one-line height, so a one-line suggestion is a capsule and a
-  /// longer one a softly rounded block.
-  static const double cornerRadius = minHeight / 2;
+  /// One radius for one- and two-line rows alike, so the stack reads as a
+  /// set of equal cards.
+  static const double cornerRadius = 14;
 
   /// The leading arrow, at the 15 pt text's optical size.
   static const String sfSymbol = 'arrow.turn.down.right';
@@ -167,12 +173,11 @@ class _FollowUpSuggestionRowState extends State<FollowUpSuggestionRow> {
     final pressedFill = theme.textPrimary.withValues(
       alpha: isDark ? 0.22 : 0.12,
     );
+    // Secondary text: a step below the answer, still clearly legible.
     final foreground = _enabled
-        ? theme.textPrimary
-        : theme.textPrimary.withValues(alpha: 0.38);
-    final glyphColor = _enabled
         ? theme.textSecondary
         : theme.textSecondary.withValues(alpha: 0.38);
+    final glyphColor = foreground;
     final textStyle = AppTypography.titleMediumStyle.copyWith(
       color: foreground,
     );
@@ -198,67 +203,144 @@ class _FollowUpSuggestionRowState extends State<FollowUpSuggestionRow> {
             color: glyphColor,
           );
 
-    return Align(
-      alignment: AlignmentDirectional.centerStart,
-      child: Semantics(
-        container: true,
-        button: true,
-        enabled: _enabled,
-        label: widget.label,
+    return Semantics(
+      container: true,
+      button: true,
+      enabled: _enabled,
+      // The whole prompt, however much of it the row shows.
+      label: widget.label,
+      onTap: _enabled ? _handleTap : null,
+      excludeSemantics: true,
+      child: GestureDetector(
+        key: ValueKey<String>('follow-up-row:${widget.label}'),
+        behavior: HitTestBehavior.opaque,
+        onTapDown: _enabled ? (_) => _setPressed(true) : null,
+        onTapUp: _enabled ? (_) => _setPressed(false) : null,
+        onTapCancel: _enabled ? () => _setPressed(false) : null,
         onTap: _enabled ? _handleTap : null,
-        excludeSemantics: true,
-        child: GestureDetector(
-          key: ValueKey<String>('follow-up-row:${widget.label}'),
-          behavior: HitTestBehavior.opaque,
-          onTapDown: _enabled ? (_) => _setPressed(true) : null,
-          onTapUp: _enabled ? (_) => _setPressed(false) : null,
-          onTapCancel: _enabled ? () => _setPressed(false) : null,
-          onTap: _enabled ? _handleTap : null,
-          // A colour change rather than a fade: the row never runs an
-          // opacity transition, so it can't read as entrance motion.
-          child: AnimatedContainer(
-            key: ValueKey<String>('follow-up-highlight:${widget.label}'),
-            // Instant on touch-down; a short ease back on release.
-            duration: _isPressed
-                ? Duration.zero
-                : context.motionDuration(const Duration(milliseconds: 180)),
-            curve: Curves.easeOut,
-            constraints: const BoxConstraints(
-              minHeight: FollowUpSuggestionRow.minHeight,
-            ),
-            padding: FollowUpSuggestionRow.padding,
-            decoration: ShapeDecoration(
-              color: _isPressed ? pressedFill : restFill,
-              shape: RoundedSuperellipseBorder(
-                borderRadius: BorderRadius.circular(
-                  FollowUpSuggestionRow.cornerRadius,
-                ),
+        // A colour change rather than a fade: the row never runs an
+        // opacity transition, so it can't read as entrance motion.
+        child: AnimatedContainer(
+          key: ValueKey<String>('follow-up-highlight:${widget.label}'),
+          // Instant on touch-down; a short ease back on release.
+          duration: _isPressed
+              ? Duration.zero
+              : context.motionDuration(const Duration(milliseconds: 180)),
+          curve: Curves.easeOut,
+          constraints: const BoxConstraints(
+            minHeight: FollowUpSuggestionRow.minHeight,
+          ),
+          alignment: AlignmentDirectional.centerStart,
+          padding: FollowUpSuggestionRow.padding,
+          decoration: ShapeDecoration(
+            color: _isPressed ? pressedFill : restFill,
+            shape: RoundedSuperellipseBorder(
+              borderRadius: BorderRadius.circular(
+                FollowUpSuggestionRow.cornerRadius,
               ),
             ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                SizedBox(
-                  height: firstLineHeight,
-                  child: Center(child: glyph),
-                ),
-                const SizedBox(width: FollowUpSuggestionRow.glyphGap),
-                Flexible(
-                  child: Text(
-                    widget.label,
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              SizedBox(
+                height: firstLineHeight,
+                child: Center(child: glyph),
+              ),
+              const SizedBox(width: FollowUpSuggestionRow.glyphGap),
+              Expanded(
+                child: LayoutBuilder(
+                  builder: (context, constraints) => Text(
+                    followUpSuggestionClampedText(
+                      widget.label,
+                      style: textStyle,
+                      maxWidth: constraints.maxWidth,
+                      maxLines: FollowUpSuggestionRow.maxLines,
+                      textScaler: textScaler,
+                      textDirection: Directionality.of(context),
+                      locale: Localizations.maybeLocaleOf(context),
+                    ),
                     key: _textKey,
                     style: textStyle,
-                    // The whole prompt: a tap sends all of it.
-                    softWrap: true,
-                    textWidthBasis: TextWidthBasis.longestLine,
+                    maxLines: FollowUpSuggestionRow.maxLines,
+                    // Only for a single word longer than two lines; any
+                    // other cut is made on a word boundary above.
+                    overflow: TextOverflow.ellipsis,
                   ),
                 ),
-              ],
-            ),
+              ),
+            ],
           ),
         ),
       ),
     );
+  }
+}
+
+/// Characters a shortened suggestion should not end on before its ellipsis.
+final RegExp _danglingTail = RegExp(r'[\s,;:.\-–—/(\[{"“‘]+$');
+
+/// [text] as it fits in [maxLines] lines of [maxWidth]: whole, or cut after
+/// the last whole word that leaves room for an ellipsis (and without a
+/// dangling comma, dash or opening bracket before it). Words are found the
+/// way the text engine breaks them, so languages written without spaces cut
+/// cleanly too. A single word too long for the lines comes back whole, for
+/// the text's own ellipsis.
+@visibleForTesting
+String followUpSuggestionClampedText(
+  String text, {
+  required TextStyle style,
+  required double maxWidth,
+  required int maxLines,
+  TextScaler textScaler = TextScaler.noScaling,
+  TextDirection textDirection = TextDirection.ltr,
+  Locale? locale,
+}) {
+  if (!maxWidth.isFinite || maxWidth <= 0 || text.isEmpty) return text;
+  TextPainter painterFor(String value, {int? lines}) => TextPainter(
+    text: TextSpan(text: value, style: style),
+    textDirection: textDirection,
+    textScaler: textScaler,
+    locale: locale,
+    maxLines: lines,
+  )..layout(maxWidth: maxWidth);
+
+  bool fits(String value) {
+    final painter = painterFor(value, lines: maxLines);
+    final fits = !painter.didExceedMaxLines;
+    painter.dispose();
+    return fits;
+  }
+
+  if (fits(text)) return text;
+
+  final full = painterFor(text);
+  try {
+    final lines = full.computeLineMetrics();
+    if (lines.length <= maxLines) return text;
+    final lastShown = lines[maxLines - 1];
+    // Where the last shown line ends in the text.
+    final lineEnd = full
+        .getLineBoundary(
+          full.getPositionForOffset(
+            Offset(lastShown.left + lastShown.width / 2, lastShown.baseline),
+          ),
+        )
+        .end;
+    var cut = lineEnd;
+    while (cut > 0) {
+      // The word (or run of spaces) just before the cut.
+      final word = full.getWordBoundary(TextPosition(offset: cut - 1));
+      final wordStart = word.start < cut ? word.start : cut - 1;
+      if (word.end == cut) {
+        final kept = text.substring(0, cut).replaceFirst(_danglingTail, '');
+        if (kept.isNotEmpty && fits('$kept…')) return '$kept…';
+      }
+      // Mid-word, or no room for the ellipsis: drop that word and retry.
+      cut = wordStart;
+    }
+    return text;
+  } finally {
+    full.dispose();
   }
 }

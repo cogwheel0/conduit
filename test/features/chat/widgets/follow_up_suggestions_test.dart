@@ -184,8 +184,9 @@ void main() {
     semantics.dispose();
   });
 
-  testWidgets('rows are at least 44 pt tall, smaller than the reply text, '
-      'and show the whole prompt a tap would send', (tester) async {
+  testWidgets('rows are at least 44 pt tall, secondary to the reply, and '
+      'show two lines ending on a whole word while VoiceOver and a tap get '
+      'the whole prompt', (tester) async {
     const long =
         'Give me a 30-minute wind-down routine I can follow nightly, with '
         'step-by-step timings, what to skip on busy evenings, and how to '
@@ -207,35 +208,44 @@ void main() {
     final shortRow = find.byKey(const ValueKey<String>('follow-up-row:Short'));
     expect(tester.getSize(shortRow).height, greaterThanOrEqualTo(44));
 
-    final longText = tester.widget<Text>(find.text(long));
-    // Never cut short: no line limit, no ellipsis.
-    expect(longText.maxLines, isNull);
-    expect(longText.overflow, isNot(TextOverflow.ellipsis));
+    final longRow = find.byKey(ValueKey<String>('follow-up-row:$long'));
+    final longText = tester.widget<Text>(
+      find.descendant(of: longRow, matching: find.byType(Text)),
+    );
+    final shown = longText.data!;
+    // Two lines at most, cut after a whole word of the prompt.
+    expect(longText.maxLines, FollowUpSuggestionRow.maxLines);
+    expect(shown, endsWith('…'));
+    final kept = shown.substring(0, shown.length - 1);
+    expect(long.startsWith(kept), isTrue);
+    expect(long[kept.length], anyOf(' ', ','));
+    final paragraph = tester.renderObject<RenderParagraph>(
+      find.descendant(
+        of: find.descendant(of: longRow, matching: find.byType(Text)),
+        matching: find.byType(RichText),
+      ),
+    );
+    expect(paragraph.didExceedMaxLines, isFalse);
     // Secondary to the 17 pt answer above it.
     expect(longText.style!.fontSize, lessThan(17));
     final lineHeight = longText.style!.fontSize! * (longText.style!.height!);
-    expect(
-      tester.getSize(find.text(long)).height,
-      greaterThan(lineHeight * 2 + 1),
-    );
-    final paragraph = tester.renderObject<RenderParagraph>(find.text(long));
-    expect(paragraph.didExceedMaxLines, isFalse);
+    expect(tester.getSize(longRow).height, lessThan(lineHeight * 3 + 24));
 
     // VoiceOver hears, and a tap sends, the whole suggestion.
     expect(find.bySemanticsLabel(long), findsOneWidget);
-    await tester.tap(find.text(long));
+    await tester.tap(longRow);
     await tester.pump();
     expect(selected, long);
   });
 
-  testWidgets('a suggestion is a button as wide as its words, led by a '
-      'follow-up arrow', (tester) async {
+  testWidgets('suggestions are full-width rows led by a follow-up arrow, '
+      'with even edges', (tester) async {
     await tester.pumpWidget(
       _buildHarness(
         SizedBox(
           width: 360,
           child: FollowUpSuggestionBar(
-            suggestions: const ['Short'],
+            suggestions: const ['Short', 'A somewhat longer suggestion'],
             onSelected: (_) {},
             isBusy: false,
           ),
@@ -244,13 +254,15 @@ void main() {
     );
 
     final row = find.byKey(const ValueKey<String>('follow-up-row:Short'));
-    // It hugs its text rather than spanning the column like a quote block.
-    expect(tester.getSize(row).width, lessThan(200));
-    expect(
-      tester.getTopLeft(row).dx,
-      tester.getTopLeft(find.byType(FollowUpSuggestionBar)).dx,
+    final other = find.byKey(
+      const ValueKey<String>('follow-up-row:A somewhat longer suggestion'),
     );
-    // A one-line suggestion is a capsule.
+    final bar = tester.getRect(find.byType(FollowUpSuggestionBar));
+    // Every row spans the column, so their edges line up.
+    expect(tester.getRect(row).left, bar.left);
+    expect(tester.getRect(row).right, bar.right);
+    expect(tester.getRect(other).right, bar.right);
+    // One radius for every row: a set of equal cards.
     final decoration =
         tester
                 .widget<AnimatedContainer>(
@@ -263,7 +275,7 @@ void main() {
     final shape = decoration.shape as RoundedSuperellipseBorder;
     expect(
       (shape.borderRadius as BorderRadius).topLeft.x,
-      tester.getSize(row).height / 2,
+      FollowUpSuggestionRow.cornerRadius,
     );
     // The glyph leads the words.
     final glyph = find.descendant(of: row, matching: find.byType(Icon));
@@ -271,6 +283,36 @@ void main() {
     expect(
       tester.getCenter(glyph).dx,
       lessThan(tester.getTopLeft(find.text('Short')).dx),
+    );
+  });
+
+  test('a long suggestion is cut on a word boundary, never mid-word', () {
+    const style = TextStyle(fontSize: 15, height: 20 / 15);
+    const prompt =
+        'Compare the trail options by elevation gain, shade, and water stops '
+        'for a family hike with two small children in late summer';
+    final clamped = followUpSuggestionClampedText(
+      prompt,
+      style: style,
+      maxWidth: 200,
+      maxLines: 2,
+    );
+    expect(clamped, endsWith('…'));
+    final kept = clamped.substring(0, clamped.length - 1);
+    expect(prompt.startsWith(kept), isTrue);
+    // The next character in the prompt starts a new word.
+    expect(prompt[kept.length], anyOf(' ', ','));
+    // No dangling comma before the ellipsis.
+    expect(kept, isNot(endsWith(',')));
+    // What fits is left alone.
+    expect(
+      followUpSuggestionClampedText(
+        'Pack list?',
+        style: style,
+        maxWidth: 200,
+        maxLines: 2,
+      ),
+      'Pack list?',
     );
   });
 
