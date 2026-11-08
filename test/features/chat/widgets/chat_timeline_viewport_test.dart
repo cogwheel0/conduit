@@ -7,6 +7,7 @@ import 'package:conduit_core/services/settings_service.dart';
 import 'package:conduit_core/features/chat/providers/chat_providers.dart';
 import 'package:conduit/features/chat/providers/text_to_speech_provider.dart';
 import 'package:conduit/features/chat/widgets/assistant_message_widget.dart';
+import 'package:conduit/features/chat/widgets/chat_motion_spring.dart';
 import 'package:conduit/features/chat/widgets/chat_timeline_viewport.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/l10n/conduit_localizations.dart';
@@ -1843,6 +1844,137 @@ void main() {
       check(controller.distanceFromLatest).isLessThan(1);
     },
   );
+
+  _viewportTest(
+    'a sent turn springs up to the top with the reply above in view',
+    (tester) async {
+      final controller = _controller(tester);
+      final history = List<String>.generate(12, (index) => 'history-$index');
+      var ids = history;
+      String? pinned;
+      late StateSetter rebuild;
+      await tester.pumpWidget(
+        _viewportHost(
+          StatefulBuilder(
+            builder: (context, setState) {
+              rebuild = setState;
+              return _viewport(
+                controller: controller,
+                ids: ids,
+                pinnedUserMessageId: pinned,
+                pinAutomatic: pinned != null,
+                followLatest: pinned == null,
+                rowHeight: (id) => id == 'assistant' ? 72 : 52,
+              );
+            },
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final viewportTop = tester.getTopLeft(find.byType(CustomScrollView)).dy;
+      bool visible(String id) {
+        final rect = controller.rowRect(id);
+        return rect != null && rect.bottom > viewportTop && rect.top < 600;
+      }
+
+      final replyTop = controller.rowRect('history-11')!.top;
+      // The turn arrives: the reply above stays exactly where it was, in
+      // the very frame the turn is added.
+      rebuild(() {
+        ids = [...history, 'user', 'assistant'];
+        pinned = 'user';
+      });
+      await tester.pump();
+      check(_transcriptOpacity(tester)).equals(1);
+      check(controller.rowRect('history-11')!.top).isCloseTo(replyTop, 0.5);
+      check(visible('user')).isTrue();
+
+      final arrival = controller.springMessageToTop(
+        'user',
+        spring: const CriticallyDampedSpring(0.35),
+      );
+      final tops = <double>[controller.rowRect('user')!.top];
+      var replyStayedInView = true;
+      for (var frame = 0; frame < 60; frame += 1) {
+        await tester.pump(const Duration(milliseconds: 16));
+        tops.add(controller.rowRect('user')!.top);
+        if (frame < 6) replyStayedInView &= visible('history-11');
+      }
+      check(await arrival).isTrue();
+
+      // It eases out of rest and in to its place: no step is a jump, the
+      // first frames are the gentlest, and it never turns back.
+      final steps = [
+        for (var index = 1; index < tops.length; index += 1)
+          tops[index - 1] - tops[index],
+      ];
+      check(steps.first).isLessThan(30);
+      for (final step in steps) {
+        check(step).isGreaterOrEqual(-0.5);
+        check(step).isLessThan(60);
+      }
+      check(replyStayedInView).isTrue();
+      check(tops.last).isCloseTo(viewportTop + _topContentInset, 0.5);
+    },
+  );
+
+  _viewportTest('a turn sent from deep history is headed for before it is '
+      'built and lands on its row', (tester) async {
+    final controller = _controller(tester);
+    final history = List<String>.generate(80, (index) => 'message-$index');
+    var ids = history;
+    String? pinned;
+    late StateSetter rebuild;
+    await tester.pumpWidget(
+      _viewportHost(
+        StatefulBuilder(
+          builder: (context, setState) {
+            rebuild = setState;
+            return _viewport(
+              controller: controller,
+              ids: ids,
+              initialAnchor: const ChatScrollAnchor(
+                messageId: 'message-4',
+                offsetWithinMessage: 0,
+                loadedCount: 80,
+              ),
+              pinnedUserMessageId: pinned,
+              pinAutomatic: pinned != null,
+              followLatest: false,
+            );
+          },
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    rebuild(() {
+      ids = [...history, 'user', 'assistant'];
+      pinned = 'user';
+    });
+    await tester.pump();
+    check(controller.rowRect('user')).isNull();
+
+    final position = tester
+        .state<ScrollableState>(find.byType(Scrollable))
+        .position;
+    final arrival = controller.springMessageToTop(
+      'user',
+      spring: const CriticallyDampedSpring(0.35),
+    );
+    final offsets = <double>[position.pixels];
+    for (var frame = 0; frame < 90; frame += 1) {
+      await tester.pump(const Duration(milliseconds: 16));
+      offsets.add(position.pixels);
+    }
+    check(await arrival).isTrue();
+    // One motion all the way: never a step back once the row is found.
+    for (var index = 1; index < offsets.length; index += 1) {
+      check(offsets[index]).isGreaterOrEqual(offsets[index - 1] - 0.5);
+    }
+    final viewportTop = tester.getTopLeft(find.byType(CustomScrollView)).dy;
+    check(controller.rowRect('user')!.top)
+        .isCloseTo(viewportTop + _topContentInset, 0.5);
+  });
 
   _viewportTest('pinned latest distance follows the prompt target', (
     tester,

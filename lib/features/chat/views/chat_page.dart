@@ -137,7 +137,8 @@ import 'package:conduit_core/features/chat/views/chat_turn_render_state.dart';
 import '../widgets/streaming_turn_footer.dart';
 import '../widgets/openwebui_prompt_overlay.dart';
 import '../widgets/openwebui_task_list.dart';
-import '../widgets/chat_send_motion.dart' show ChatGreetingExit;
+import '../widgets/chat_send_motion.dart'
+    show ChatGreetingExit, ChatSendEntrance;
 import '../widgets/chat_timeline_viewport.dart';
 import '../widgets/chat_scroll_to_latest_button.dart';
 import '../../../platform/frame_profiler.dart';
@@ -529,7 +530,6 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   static const int _pinScrollMaxAttempts = 12;
   static const double _scrollCorrectionEpsilon = 1.0;
   static const double _pinnedMeasurementEpsilon = 0.5;
-  static const Duration _pinTransitionDuration = Duration(milliseconds: 220);
 
   final ChatTimelineViewportController _timelineViewportController =
       ChatTimelineViewportController();
@@ -2836,6 +2836,14 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         );
         return;
       }
+      if (!context.reduceMotion && !_pinShouldSettleImmediately) {
+        _springPinnedTurnIntoPlace(
+          targetId: targetId,
+          generation: generation,
+          attempt: attempt,
+        );
+        return;
+      }
       final targetRowMounted =
           _timelineViewportController.rowRect(targetId) != null;
       final geometryReady = _pinGeometryReady && targetRowMounted;
@@ -2876,44 +2884,9 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         return;
       }
 
-      if (context.reduceMotion || _pinShouldSettleImmediately) {
-        unawaited(
-          _timelineViewportController
-              .jumpMessageToTop(targetId)
-              .then(
-                (moved) {
-                  if (moved) {
-                    _markPinToTopPositionSettled(generation);
-                  } else {
-                    _cancelFailedPinToTopSettlement(
-                      generation: generation,
-                      reason: 'target-not-visible',
-                    );
-                  }
-                },
-                onError: (Object error, StackTrace stackTrace) {
-                  DebugLogger.error(
-                    'pin-jump-failed',
-                    scope: 'chat/scroll',
-                    error: error,
-                    stackTrace: stackTrace,
-                  );
-                  _cancelFailedPinToTopSettlement(
-                    generation: generation,
-                    reason: 'jump-failed',
-                  );
-                },
-              ),
-        );
-        return;
-      }
       unawaited(
         _timelineViewportController
-            .animateMessageToTop(
-              targetId,
-              duration: _pinTransitionDuration,
-              curve: Curves.easeOutCubic,
-            )
+            .jumpMessageToTop(targetId)
             .then(
               (moved) {
                 if (moved) {
@@ -2927,19 +2900,72 @@ class _ChatPageState extends ConsumerState<ChatPage> {
               },
               onError: (Object error, StackTrace stackTrace) {
                 DebugLogger.error(
-                  'pin-animation-failed',
+                  'pin-jump-failed',
                   scope: 'chat/scroll',
                   error: error,
                   stackTrace: stackTrace,
                 );
                 _cancelFailedPinToTopSettlement(
                   generation: generation,
-                  reason: 'animation-failed',
+                  reason: 'jump-failed',
                 );
               },
             ),
       );
     });
+  }
+
+  /// Brings a sent turn up to its pinned place on the sent message's own
+  /// spring, from the frame of the send: the previous reply stays in view and
+  /// slides up as the new turn takes the top, and the flying message aims at
+  /// where its row will rest, so the two arrive together. The row needs no
+  /// measuring first; the viewport aims at its estimated place until it is
+  /// built and corrects course each frame.
+  void _springPinnedTurnIntoPlace({
+    required String targetId,
+    required int generation,
+    required int attempt,
+  }) {
+    if (!_timelineViewportController.hasClients) {
+      if (attempt < _pinScrollMaxAttempts) {
+        _scrollToUserMessage(generation: generation, attempt: attempt + 1);
+        WidgetsBinding.instance.scheduleFrame();
+      } else {
+        _cancelFailedPinToTopSettlement(
+          generation: generation,
+          reason: 'controller-not-attached',
+        );
+      }
+      return;
+    }
+    unawaited(
+      _timelineViewportController
+          .springMessageToTop(targetId, spring: ChatSendEntrance.spring)
+          .then(
+            (moved) {
+              if (moved) {
+                _markPinToTopPositionSettled(generation);
+              } else {
+                _cancelFailedPinToTopSettlement(
+                  generation: generation,
+                  reason: 'target-not-visible',
+                );
+              }
+            },
+            onError: (Object error, StackTrace stackTrace) {
+              DebugLogger.error(
+                'pin-animation-failed',
+                scope: 'chat/scroll',
+                error: error,
+                stackTrace: stackTrace,
+              );
+              _cancelFailedPinToTopSettlement(
+                generation: generation,
+                reason: 'animation-failed',
+              );
+            },
+          ),
+    );
   }
 
   void _cancelFailedPinToTopSettlement({
