@@ -923,7 +923,7 @@ class ComposerAttachmentKey extends StatefulWidget {
   final String label;
   final VoidCallback? onTap;
 
-  static const double keyHeight = 52;
+  static const double keyHeight = 56;
   static const double cornerRadius = 14;
 
   @override
@@ -960,6 +960,10 @@ class _ComposerAttachmentKeyState extends State<ComposerAttachmentKey> {
     // The labelled node replaces the gesture's, so it must carry the tap.
     return Semantics(
       container: true,
+  /// Cupertino and Material glyphs draw a little inside their box; at 24 pt
+  /// they match the native panel's 22 pt (Title 2) SF Symbols.
+  static const double glyphSize = 24;
+
       button: true,
       enabled: _enabled,
       label: widget.label,
@@ -995,7 +999,13 @@ class _ComposerAttachmentKeyState extends State<ComposerAttachmentKey> {
                   ),
                 ),
                 alignment: Alignment.center,
-                child: Icon(widget.icon, color: foreground, size: 22),
+                child: Icon(
+                  widget.icon,
+                  color: foreground,
+                  size: MediaQuery.textScalerOf(
+                    context,
+                  ).scale(ComposerAttachmentKey.glyphSize),
+                ),
               ),
               const SizedBox(height: 6),
               // A long localized name wraps instead of truncating, so every
