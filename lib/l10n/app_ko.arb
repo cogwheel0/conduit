@@ -586,7 +586,17 @@
   },
   "ttsSettings": "텍스트 음성 변환",
   "ttsVoice": "음성",
-  "ttsSpeechRate": "말하기 속도",
+  "ttsPlaybackSpeed": "재생 속도",
+  "ttsSpeedValue": "{speed}×",
+  "@ttsSpeedValue": {
+    "placeholders": {
+      "speed": {
+        "type": "double",
+        "format": "decimalPattern",
+        "example": "1.25"
+      }
+    }
+  },
   "ttsPitch": "음높이",
   "ttsVolume": "볼륨",
   "ttsPreview": "음성 미리보기",

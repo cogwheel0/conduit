@@ -95,7 +95,7 @@ abstract interface class VoiceModeSpeech {
   Future<bool> initialize({
     String? deviceVoice,
     String? serverVoice,
-    double speechRate = 0.5,
+    double speed = 1.0,
     double pitch = 1.0,
     double volume = 1.0,
     TtsEngine engine = TtsEngine.device,
@@ -296,7 +296,7 @@ class SilentVoiceModeSpeech implements VoiceModeSpeech {
   Future<bool> initialize({
     String? deviceVoice,
     String? serverVoice,
-    double speechRate = 0.5,
+    double speed = 1.0,
     double pitch = 1.0,
     double volume = 1.0,
     TtsEngine engine = TtsEngine.device,

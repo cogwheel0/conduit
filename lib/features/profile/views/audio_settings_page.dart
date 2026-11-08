@@ -400,48 +400,51 @@ class AudioSettingsPage extends ConsumerWidget {
             onTap: () => _showVoicePickerSheet(context, ref, settings),
           ),
         ],
-        if (settings.ttsEngine == TtsEngine.device) ...[
-          const SizedBox(height: Spacing.sm),
-          InsetGroupedSection(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  l10n.ttsSpeechRate,
-                  style: theme.bodyMedium?.copyWith(
-                    color: theme.textPrimary,
-                    fontWeight: FontWeight.w600,
+        // One speed for cloud and device voices, the one read-aloud's menu
+        // sets, in its steps.
+        const SizedBox(height: Spacing.sm),
+        InsetGroupedSection(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                l10n.ttsPlaybackSpeed,
+                style: theme.bodyMedium?.copyWith(
+                  color: theme.textPrimary,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              Row(
+                children: [
+                  Expanded(
+                    child: AdaptiveSlider(
+                      value: ttsSpeedPresets
+                          .indexOf(nearestTtsSpeed(settings.ttsSpeed))
+                          .toDouble(),
+                      max: (ttsSpeedPresets.length - 1).toDouble(),
+                      divisions: ttsSpeedPresets.length - 1,
+                      semanticLabel: l10n.ttsPlaybackSpeed,
+                      semanticValue: l10n.ttsSpeedValue(settings.ttsSpeed),
+                      onChanged: (value) {
+                        ref
+                            .read(appSettingsProvider.notifier)
+                            .setTtsSpeed(ttsSpeedPresets[value.round()]);
+                      },
+                    ),
                   ),
-                ),
-                Row(
-                  children: [
-                    Expanded(
-                      child: AdaptiveSlider(
-                        value: settings.ttsSpeechRate,
-                        min: 0.25,
-                        max: 2.0,
-                        divisions: 35,
-                        onChanged: (value) {
-                          ref
-                              .read(appSettingsProvider.notifier)
-                              .setTtsSpeechRate(value);
-                        },
-                      ),
+                  const SizedBox(width: Spacing.sm),
+                  Text(
+                    l10n.ttsSpeedValue(settings.ttsSpeed),
+                    style: theme.bodyMedium?.copyWith(
+                      color: theme.buttonPrimary,
+                      fontWeight: FontWeight.w600,
                     ),
-                    const SizedBox(width: Spacing.sm),
-                    Text(
-                      '${(settings.ttsSpeechRate * 100).round()}%',
-                      style: theme.bodyMedium?.copyWith(
-                        color: theme.buttonPrimary,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
+                  ),
+                ],
+              ),
+            ],
           ),
-        ],
+        ),
         const SizedBox(height: Spacing.sm),
         CustomizationTile(
           leading: SettingsIconBadge(

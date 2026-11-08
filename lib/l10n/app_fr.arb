@@ -466,7 +466,17 @@
     }
   },
   "ttsVoice": "Voix",
-  "ttsSpeechRate": "Vitesse de parole",
+  "ttsPlaybackSpeed": "Vitesse de lecture",
+  "ttsSpeedValue": "{speed}×",
+  "@ttsSpeedValue": {
+    "placeholders": {
+      "speed": {
+        "type": "double",
+        "format": "decimalPattern",
+        "example": "1.25"
+      }
+    }
+  },
   "ttsPitch": "Hauteur",
   "ttsVolume": "Volume",
   "ttsPreview": "Aperçu de la voix",

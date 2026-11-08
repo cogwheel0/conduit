@@ -104,7 +104,8 @@ class ChatVoiceModeOverlay extends ConsumerWidget {
 }
 
 /// The call on iOS 26: one Liquid Glass island that morphs between the pill
-/// and the panel.
+/// and the panel. The panel leaves the transcript and the reply to the chat,
+/// which shows both sides of the call.
 ///
 /// The native island keeps the sizes it was created with
 /// (https://github.com/gunumdogdu/cupertino_native_better/issues/128), so
@@ -164,9 +165,8 @@ class _VoiceIslandMetrics {
   /// The pill's height.
   final double pillHeight;
 
-  /// The panel's height inside its glass: room for the header, the tallest
-  /// text (three transcript lines or the two-line reply, then a two-line
-  /// error) and the controls.
+  /// The panel's height inside its glass: room for the header, a two-line
+  /// error and the controls.
   final double panelHeight;
 
   /// The metrics last measured, with what they were measured for. The
@@ -182,15 +182,7 @@ class _VoiceIslandMetrics {
       fontWeight: FontWeight.w700,
     );
     final smallStyle = AppTypography.small;
-    final bodyStyle = AppTypography.bodyMediumStyle;
-    final key = (
-      scaler,
-      direction,
-      l10n.localeName,
-      labelStyle,
-      smallStyle,
-      bodyStyle,
-    );
+    final key = (scaler, direction, l10n.localeName, labelStyle, smallStyle);
     if (_last case (final lastKey, final metrics) when lastKey == key) {
       return metrics;
     }
@@ -248,19 +240,9 @@ class _VoiceIslandMetrics {
       labelLine + smallLine,
       TouchTarget.micro,
     ].reduce(math.max);
-    final text = [
-      linesHeight(bodyStyle, _VoiceText.transcriptMaxLines),
-      linesHeight(
-            _KaraokeResponseBar.baseStyleOf(bodyStyle),
-            _KaraokeResponseBar.maxLines,
-          ) +
-          _KaraokeResponseBar.padding.vertical,
-      _VoiceText.emptyReplyHeight,
-      _VoiceText.emptyTranscriptHeight,
-    ].reduce(math.max);
-    final error = Spacing.xs + linesHeight(smallStyle, _errorMaxLines);
+    final error = linesHeight(smallStyle, _errorMaxLines);
     final panelHeight =
-        header + Spacing.sm + text + error + Spacing.md + TouchTarget.medium;
+        header + Spacing.sm + error + Spacing.md + TouchTarget.medium;
 
     final metrics = _VoiceIslandMetrics(
       pillWidth: pillWidth,
@@ -293,8 +275,8 @@ class _ExpandedVoicePanel extends ConsumerWidget {
 
   final ChatVoiceModeSnapshot snapshot;
 
-  /// Whether the panel is the island's content, which keeps one height: its
-  /// text then sits under the header, above room for its tallest text.
+  /// Whether the panel is the island's content, which keeps one height and
+  /// shows no transcript or reply: room for an error sits under the header.
   final bool onGlass;
 
   @override
@@ -339,25 +321,21 @@ class _ExpandedVoicePanel extends ConsumerWidget {
         ),
       ],
     );
-    final voiceText = <Widget>[
-      _VoiceText(snapshot: snapshot),
-      if (snapshot.errorMessage != null) ...[
-        const SizedBox(height: Spacing.xs),
-        Text(
-          voiceModeErrorText(
-                l10n,
-                kind: snapshot.errorKind,
-                message: snapshot.errorMessage,
-              ) ??
-              snapshot.errorMessage!,
-          style: AppTypography.small.copyWith(
-            color: Theme.of(context).colorScheme.error,
-          ),
-          maxLines: _errorMaxLines,
-          overflow: TextOverflow.ellipsis,
-        ),
-      ],
-    ];
+    final error = snapshot.errorMessage == null
+        ? null
+        : Text(
+            voiceModeErrorText(
+                  l10n,
+                  kind: snapshot.errorKind,
+                  message: snapshot.errorMessage,
+                ) ??
+                snapshot.errorMessage!,
+            style: AppTypography.small.copyWith(
+              color: Theme.of(context).colorScheme.error,
+            ),
+            maxLines: _errorMaxLines,
+            overflow: TextOverflow.ellipsis,
+          );
     final controls = Row(
       children: [
         // The three toggles draw native SF Symbols on iOS 26, which
@@ -432,20 +410,16 @@ class _ExpandedVoicePanel extends ConsumerWidget {
         children: [
           header,
           const SizedBox(height: Spacing.sm),
-          // The panel keeps room for its tallest text, so shorter text sits
-          // under the header with the room below it. Text taller than
-          // measured, such as in a script with taller lines, is clipped
+          // The chat already shows both sides of the call, so the island
+          // keeps only room for an error under the header. An error taller
+          // than measured, such as in a script with taller lines, is clipped
           // rather than pushing the controls.
           Expanded(
             child: ClipRect(
               child: OverflowBox(
                 alignment: AlignmentDirectional.topStart,
                 maxHeight: double.infinity,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: voiceText,
-                ),
+                child: error ?? const SizedBox.shrink(),
               ),
             ),
           ),
@@ -471,7 +445,8 @@ class _ExpandedVoicePanel extends ConsumerWidget {
           children: [
             header,
             const SizedBox(height: Spacing.sm),
-            ...voiceText,
+            _VoiceText(snapshot: snapshot),
+            if (error != null) ...[const SizedBox(height: Spacing.xs), error],
             const SizedBox(height: Spacing.md),
             controls,
           ],
@@ -632,29 +607,20 @@ class _VoiceText extends StatelessWidget {
 
   final ChatVoiceModeSnapshot snapshot;
 
-  /// The lines the transcript may take.
-  static const int transcriptMaxLines = 3;
-
-  /// The room kept while the reply has not started.
-  static const double emptyReplyHeight = 36;
-
-  /// The room kept while nothing has been heard.
-  static const double emptyTranscriptHeight = 20;
-
   @override
   Widget build(BuildContext context) {
     if (snapshot.phase == ChatVoiceModePhase.speaking ||
         snapshot.phase == ChatVoiceModePhase.sending) {
       final spoken = snapshot.spokenResponse.trim();
       if (spoken.isEmpty) {
-        return const SizedBox(height: emptyReplyHeight);
+        return const SizedBox(height: 36);
       }
       return _KaraokeResponseBar(snapshot: snapshot);
     }
 
     final text = snapshot.transcript;
     if (text.trim().isEmpty) {
-      return const SizedBox(height: emptyTranscriptHeight);
+      return const SizedBox(height: 20);
     }
 
     return Text(
@@ -662,7 +628,7 @@ class _VoiceText extends StatelessWidget {
       style: AppTypography.bodyMediumStyle.copyWith(
         color: context.conduitTheme.textPrimary,
       ),
-      maxLines: transcriptMaxLines,
+      maxLines: 3,
       overflow: TextOverflow.ellipsis,
     );
   }
@@ -672,19 +638,6 @@ class _KaraokeResponseBar extends StatelessWidget {
   const _KaraokeResponseBar({required this.snapshot});
 
   final ChatVoiceModeSnapshot snapshot;
-
-  /// The lines the reply may take.
-  static const int maxLines = 2;
-
-  /// The room around the reply inside its box.
-  static const EdgeInsets padding = EdgeInsets.symmetric(
-    horizontal: Spacing.sm,
-    vertical: Spacing.xs,
-  );
-
-  /// The reply's style, before its colour, from the body style [body].
-  static TextStyle baseStyleOf(TextStyle body) =>
-      body.copyWith(fontWeight: FontWeight.w500, height: 1.25);
 
   @override
   Widget build(BuildContext context) {
@@ -698,8 +651,11 @@ class _KaraokeResponseBar extends StatelessWidget {
     final adjustedEnd = snapshot.spokenWordEnd == null
         ? null
         : snapshot.spokenWordEnd! - leadingTrim;
-    final baseStyle = baseStyleOf(AppTypography.bodyMediumStyle)
-        .copyWith(color: theme.textPrimary.withValues(alpha: Alpha.strong));
+    final baseStyle = AppTypography.bodyMediumStyle.copyWith(
+      color: theme.textPrimary.withValues(alpha: Alpha.strong),
+      fontWeight: FontWeight.w500,
+      height: 1.25,
+    );
     final highlightStyle = baseStyle.copyWith(
       color: theme.buttonPrimaryText,
       backgroundColor: theme.buttonPrimary,
@@ -718,7 +674,10 @@ class _KaraokeResponseBar extends StatelessWidget {
           ),
         ),
         child: Padding(
-          padding: padding,
+          padding: const EdgeInsets.symmetric(
+            horizontal: Spacing.sm,
+            vertical: Spacing.xs,
+          ),
           child: RichText(
             text: _karaokeTextSpan(
               text: text,
@@ -727,7 +686,7 @@ class _KaraokeResponseBar extends StatelessWidget {
               start: adjustedStart,
               end: adjustedEnd,
             ),
-            maxLines: maxLines,
+            maxLines: 2,
             overflow: TextOverflow.ellipsis,
             textScaler: MediaQuery.textScalerOf(context),
           ),

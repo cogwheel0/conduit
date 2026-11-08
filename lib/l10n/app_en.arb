@@ -2110,9 +2110,20 @@
   "@ttsVoice": {
     "description": "Title for voice selection tile."
   },
-  "ttsSpeechRate": "Speech rate",
-  "@ttsSpeechRate": {
-    "description": "Title for speech rate slider."
+  "ttsPlaybackSpeed": "Playback speed",
+  "@ttsPlaybackSpeed": {
+    "description": "Title of the control that sets how fast read-aloud and spoken replies play, cloud and device voices alike."
+  },
+  "ttsSpeedValue": "{speed}×",
+  "@ttsSpeedValue": {
+    "description": "A playback speed as a multiple of the voice's own pace, such as 1.25×.",
+    "placeholders": {
+      "speed": {
+        "type": "double",
+        "format": "decimalPattern",
+        "example": "1.25"
+      }
+    }
   },
   "ttsPitch": "Pitch",
   "@ttsPitch": {
