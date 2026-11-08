@@ -412,6 +412,10 @@ class ModernChatInput extends ConsumerStatefulWidget {
     void Function(ChatSendPlaceholderHandle) onPrepared,
   )?
   onCompareSend;
+
+  /// Told the moment Send is tapped on a message that will be sent, before
+  /// the turn is admitted, so the page can clear the way for it at once.
+  final VoidCallback? onSendStarted;
   final bool enabled;
   final double? bottomPadding;
 
@@ -454,6 +458,7 @@ class ModernChatInput extends ConsumerStatefulWidget {
     required this.onSendMessage,
     this.onSendDraft,
     this.onCompareSend,
+    this.onSendStarted,
     this.enabled = true,
     this.bottomPadding,
     this.managesSystemKeyboardInset = false,
@@ -1085,6 +1090,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       _queueDraft();
       return;
     }
+    widget.onSendStarted?.call();
     // The bubble for this message rises from where its text is now.
     ChatSendOrigin.recordFrom(_focusNode.context);
     // A project draft that starts with two saved models sends to both, through

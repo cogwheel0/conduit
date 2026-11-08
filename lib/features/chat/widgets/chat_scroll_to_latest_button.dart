@@ -39,10 +39,19 @@ class ChatScrollToLatestButton extends StatefulWidget {
     required this.dimension,
     required this.child,
     this.presence,
+    this.quickExit = false,
   });
 
   /// Whether the button is wanted. The widget animates toward this.
   final bool visible;
+
+  /// Whether a hide happening now should be quick: a short fade of
+  /// [quickExitDuration] instead of the spring, for when the user has just
+  /// sent a message and the transcript is about to move under the button.
+  final bool quickExit;
+
+  /// How long a [quickExit] takes.
+  static const Duration quickExitDuration = Duration(milliseconds: 100);
 
   /// The button's diameter.
   final double dimension;
@@ -97,6 +106,14 @@ class _ChatScrollToLatestButtonState extends State<ChatScrollToLatestButton>
     }
     if (oldWidget.visible == widget.visible) return;
     final target = widget.visible ? 1.0 : 0.0;
+    if (!widget.visible && widget.quickExit) {
+      _presence.animateTo(
+        0,
+        duration: ChatScrollToLatestButton.quickExitDuration,
+        curve: Curves.easeOut,
+      );
+      return;
+    }
     if (context.reduceMotion) {
       _presence.animateTo(
         target,
