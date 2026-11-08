@@ -175,57 +175,60 @@ class _ScrollBenchmarkState extends State<_ScrollBenchmark> {
   }
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: Text(_phase)),
-    body: ChatTimelineViewport(
-      key: _viewportKey,
-      controller: _controller,
-      ownerGeneration: _ids.length,
-      messageIds: _ids,
-      rowRebuildKeys: _ids,
-      initialAnchor: _ids.isEmpty
-          ? null
-          : ChatScrollAnchor(
-              messageId: _ids[_ids.length ~/ 2],
-              offsetWithinMessage: 0,
-              loadedCount: _ids.length,
+  Widget build(BuildContext context) {
+    final viewportWidth = MediaQuery.sizeOf(context).width;
+    return Scaffold(
+      appBar: AppBar(title: Text(_phase)),
+      body: ChatTimelineViewport(
+        key: _viewportKey,
+        controller: _controller,
+        ownerGeneration: _ids.length,
+        messageIds: _ids,
+        rowRebuildKeys: _ids,
+        initialAnchor: _ids.isEmpty
+            ? null
+            : ChatScrollAnchor(
+                messageId: _ids[_ids.length ~/ 2],
+                offsetWithinMessage: 0,
+                loadedCount: _ids.length,
+              ),
+        estimateRowExtent: (index) {
+          _estimates++;
+          return estimateChatRowExtent(
+            text: _text[index],
+            viewportWidth: viewportWidth,
+          );
+        },
+        rowBuilder: (context, index) {
+          _rowsBuilt++;
+          return Padding(
+            padding: const EdgeInsets.symmetric(vertical: 12),
+            child: StreamingMarkdownWidget(
+              key: ValueKey(_ids[index]),
+              stateScopeId: _ids[index],
+              content: _text[index],
+              isStreaming: false,
             ),
-      estimateRowExtent: (index) {
-        _estimates++;
-        return estimateChatRowExtent(
-          text: _text[index],
-          viewportWidth: MediaQuery.sizeOf(context).width,
-        );
-      },
-      rowBuilder: (context, index) {
-        _rowsBuilt++;
-        return Padding(
-          padding: const EdgeInsets.symmetric(vertical: 12),
-          child: StreamingMarkdownWidget(
-            key: ValueKey(_ids[index]),
-            stateScopeId: _ids[index],
-            content: _text[index],
-            isStreaming: false,
-          ),
-        );
-      },
-      topContentInset: 16,
-      bottomPadding: 24,
-      horizontalPadding: 16,
-      cacheExtent: 600,
-      physics: const ClampingScrollPhysics(),
-      isLoadingOlder: false,
-      maintainVisibleAnchor: false,
-      followLatest: false,
-      pinAutomatic: false,
-      onPointerDown: () {},
-      onUserDragStart: () {},
-      onUserDragEnd: () {},
-      onMetricsChanged: (_) {},
-      onPinEndSpaceChanged: (_) {},
-      onOldestThresholdReached: () {},
-      onTrailingRefresh: () async {},
-      onNativeScrollToTop: () async {},
-    ),
-  );
+          );
+        },
+        topContentInset: 16,
+        bottomPadding: 24,
+        horizontalPadding: 16,
+        cacheExtent: 600,
+        physics: const ClampingScrollPhysics(),
+        isLoadingOlder: false,
+        maintainVisibleAnchor: false,
+        followLatest: false,
+        pinAutomatic: false,
+        onPointerDown: () {},
+        onUserDragStart: () {},
+        onUserDragEnd: () {},
+        onMetricsChanged: (_) {},
+        onPinEndSpaceChanged: (_) {},
+        onOldestThresholdReached: () {},
+        onTrailingRefresh: () async {},
+        onNativeScrollToTop: () async {},
+      ),
+    );
+  }
 }

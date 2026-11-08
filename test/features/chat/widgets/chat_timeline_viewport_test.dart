@@ -233,6 +233,52 @@ void main() {
   );
 
   for (final platform in [TargetPlatform.android, TargetPlatform.iOS]) {
+    _viewportTest('$platform mouse wheel reaches keyboard-dismiss ancestors', (
+      tester,
+    ) async {
+      PlatformUiCapabilities.debugPlatformOverride = platform;
+      addTearDown(PlatformUiCapabilities.resetDebugOverrides);
+      final controller = _controller(tester);
+      final focus = FocusNode();
+      addTearDown(focus.dispose);
+      final directions = <ScrollDirection>[];
+      await tester.pumpWidget(
+        _viewportHost(
+          NotificationListener<UserScrollNotification>(
+            onNotification: (notification) {
+              directions.add(notification.direction);
+              if (notification.direction != ScrollDirection.idle) {
+                focus.unfocus();
+              }
+              return false;
+            },
+            child: Focus(
+              focusNode: focus,
+              child: _viewport(
+                controller: controller,
+                ids: List.generate(100, (i) => 'synthetic-$i'),
+                followLatest: false,
+                rowHeight: (_) => 100,
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      focus.requestFocus();
+      await tester.pump();
+      expect(focus.hasFocus, isTrue);
+      await tester.sendEventToBinding(
+        PointerScrollEvent(
+          position: tester.getCenter(find.byType(ChatTimelineViewport)),
+          scrollDelta: const Offset(0, -100),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(directions, contains(ScrollDirection.forward));
+      expect(focus.hasFocus, isFalse);
+    });
+
     _viewportTest('$platform switching chats cancels a held scrollbar', (
       tester,
     ) async {

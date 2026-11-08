@@ -88,6 +88,12 @@ class _AdaptiveMappedScrollbarState extends State<AdaptiveMappedScrollbar>
 
   bool _scrollNotification(ScrollNotification notification) {
     if (notification.depth != 0) return false;
+    if (notification is UserScrollNotification) {
+      // Keep ancestor keyboard-dismiss listeners informed without sending
+      // physical content metrics through the mapped scrollbar.
+      notification.dispatch(context);
+      return true;
+    }
     _notifications.add(notification);
     _scheduleUpdate();
     return true;
