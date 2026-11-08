@@ -136,6 +136,18 @@ void main() {
         await tester.pump(const Duration(milliseconds: 150));
         expect(actions, ['seek:30']);
         await tester.pumpAndSettle();
+
+        // A tap seeks to its point, which UIKit's slider would ignore; the
+        // slider then reports the position it was showing, unmoved.
+        final track = tester.getRect(scrubber);
+        final shown = tester.widget<AdaptiveSlider>(scrubber).value;
+        await tester.tapAt(
+          Offset(track.left + track.width * .75, track.center.dy),
+        );
+        tester.widget<AdaptiveSlider>(scrubber).onChanged!(shown);
+        await tester.pump(const Duration(milliseconds: 250));
+        expect(actions, ['seek:30', 'seek:45']);
+        await tester.pumpAndSettle();
       },
       variant: nativeIOS26
           ? TargetPlatformVariant.only(TargetPlatform.iOS)

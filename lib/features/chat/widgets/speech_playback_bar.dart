@@ -3,6 +3,7 @@ import 'dart:math' as math;
 
 import 'package:conduit_core/services/settings_service.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter/gestures.dart' show kTouchSlop;
 import 'package:flutter/widgets.dart';
 
 import '../../../shared/widgets/platform_ui/platform_ui.dart';
@@ -459,8 +460,8 @@ class _SpeechPlaybackBarState extends ConsumerState<SpeechPlaybackBar> {
   }
 }
 
-/// The reading's progress as a scrubber: dragging or tapping it moves the
-/// reading there.
+/// The reading's progress as a scrubber: dragging along it or tapping a
+/// point on it moves the reading there.
 ///
 /// The reader's position is held while they scrub and until the seek lands,
 /// so playback updates neither fight their finger nor jump back.
@@ -488,6 +489,14 @@ class _ReadAloudScrubberState extends State<_ReadAloudScrubber> {
   double? _held;
   Timer? _commit;
 
+  /// Where a press began, to tell a tap from a drag. UIKit's slider ignores
+  /// taps, so a tap seeks from here; drags stay with the slider.
+  Offset? _pressedAt;
+
+  /// The position the slider was last given. UIKit's slider reports it back
+  /// when a touch ends without moving it, which must not undo a tap.
+  double _shown = 0;
+
   void _scrub(double value) {
     setState(() => _held = value);
     _commit?.cancel();
@@ -505,14 +514,40 @@ class _ReadAloudScrubberState extends State<_ReadAloudScrubber> {
 
   @override
   Widget build(BuildContext context) {
-    final value = _held ?? widget.progress;
-    return AdaptiveSlider(
-      value: value,
-      onChanged: _scrub,
-      thumbless: true,
-      activeColor: widget.color,
-      semanticLabel: widget.label,
-      semanticValue: '${(value * 100).round()}%',
+    final value = _shown = _held ?? widget.progress;
+    return LayoutBuilder(
+      builder: (context, constraints) => Listener(
+        // Raw pointer events reach this listener even though the native
+        // slider claims the gesture.
+        onPointerDown: (event) => _pressedAt = event.localPosition,
+        onPointerCancel: (_) => _pressedAt = null,
+        onPointerUp: (event) {
+          final pressedAt = _pressedAt;
+          _pressedAt = null;
+          if (pressedAt == null ||
+              (event.localPosition - pressedAt).distance > kTouchSlop ||
+              constraints.maxWidth <= 0) {
+            return;
+          }
+          final along = (event.localPosition.dx / constraints.maxWidth).clamp(
+            0.0,
+            1.0,
+          );
+          _scrub(
+            Directionality.of(context) == TextDirection.rtl ? 1 - along : along,
+          );
+        },
+        child: AdaptiveSlider(
+          value: value,
+          onChanged: (reported) {
+            if ((reported - _shown).abs() > 1e-6) _scrub(reported);
+          },
+          thumbless: true,
+          activeColor: widget.color,
+          semanticLabel: widget.label,
+          semanticValue: '${(value * 100).round()}%',
+        ),
+      ),
     );
   }
 }
