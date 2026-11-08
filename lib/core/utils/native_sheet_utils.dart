@@ -646,7 +646,11 @@ NativeSheetItemConfig _nativeRootPageItem(
 );
 
 /// The sections of the native Profile page. [accountProfile] supplies the
-/// About text; with none loaded the rows show it as not set.
+/// About text, gender and birthday; with none loaded the rows show them as
+/// not set.
+///
+/// The photo and every field share one group, each row saying what it holds
+/// now, as a contact card does; the password is the account's, below.
 List<NativeSheetSectionConfig> buildNativeProfileDetailSections(
   AppLocalizations l10n, {
   required String displayName,
@@ -660,48 +664,73 @@ List<NativeSheetSectionConfig> buildNativeProfileDetailSections(
         NativeSheetItemConfig(
           id: 'profile-photo',
           title: l10n.editPhoto,
-          sfSymbol: 'person.crop.circle',
+          sfSymbol: 'camera',
           showsDisclosure: true,
         ),
-      ],
-    ),
-    NativeSheetSectionConfig(
-      items: [
         NativeSheetItemConfig(
           id: 'profile-name',
           title: l10n.name,
-          subtitle: [displayName, if (hasBio) bio].join(' · '),
-          sfSymbol: 'person.text.rectangle',
+          subtitle: displayName,
+          sfSymbol: 'person',
           showsDisclosure: true,
         ),
         NativeSheetItemConfig(
           id: 'profile-about',
           title: l10n.bioLabel,
           subtitle: hasBio ? bio : l10n.notSet,
-          sfSymbol: 'text.bubble',
+          sfSymbol: 'text.quote',
           showsDisclosure: true,
         ),
         NativeSheetItemConfig(
           id: 'profile-details',
           title: l10n.profileDetails,
-          subtitle: l10n.profileDetailsSummary,
-          sfSymbol: 'person.crop.circle',
+          subtitle:
+              nativeProfileDetailsSummary(l10n, accountProfile) ??
+              l10n.profileDetailsSummary,
+          sfSymbol: 'calendar',
           showsDisclosure: true,
         ),
       ],
     ),
     NativeSheetSectionConfig(
-      title: l10n.accountSettingsTitle,
       items: [
         NativeSheetItemConfig(
           id: 'password',
           title: l10n.changePasswordTitle,
-          subtitle: l10n.passwordChangeDescription,
           sfSymbol: 'lock',
         ),
       ],
     ),
   ];
+}
+
+/// What the Profile details row holds now -- the gender and birthday set,
+/// "Female · Mar 12, 1990" -- or null when neither is.
+String? nativeProfileDetailsSummary(
+  AppLocalizations l10n,
+  AccountMetadata? profile,
+) {
+  final gender = profile?.gender?.trim() ?? '';
+  final genderLabel = switch (gender) {
+    '' => null,
+    'male' => l10n.genderMale,
+    'female' => l10n.genderFemale,
+    _ => gender,
+  };
+  final birth = DateTime.tryParse(profile?.dateOfBirth?.trim() ?? '');
+  final birthLabel = birth == null ? null : _formatBirthday(l10n, birth);
+  final parts = [?genderLabel, ?birthLabel];
+  return parts.isEmpty ? null : parts.join(' · ');
+}
+
+/// [date] as the app's language writes a date, or the default locale's way
+/// when that language's date data is not loaded.
+String _formatBirthday(AppLocalizations l10n, DateTime date) {
+  try {
+    return DateFormat.yMMMd(l10n.localeName).format(date);
+  } on Exception {
+    return DateFormat.yMMMd().format(date);
+  }
 }
 
 String? resolveNativeSheetModelName(List<Model> models, String? modelId) {

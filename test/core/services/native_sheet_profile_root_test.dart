@@ -535,10 +535,42 @@ void main() {
       id,
     );
 
-    expect(row(profile(' Hello '), 'profile-name').subtitle, 'Ada · Hello');
+    // The name row holds the name; the About text has a row of its own.
+    expect(row(profile(' Hello '), 'profile-name').subtitle, 'Ada');
     expect(row(profile(' Hello '), 'profile-about').subtitle, 'Hello');
     expect(row(profile(''), 'profile-name').subtitle, 'Ada');
     expect(row(null, 'profile-about').subtitle, _l10n.notSet);
+  });
+
+  test('the profile details row says the gender and birthday set, else '
+      'what it holds', () {
+    AccountMetadata profile({String? gender, String? dateOfBirth}) =>
+        AccountMetadata(
+          id: 'user-1',
+          email: 'ada@example.com',
+          name: 'Ada',
+          role: 'user',
+          isActive: true,
+          gender: gender,
+          dateOfBirth: dateOfBirth,
+        );
+    String? details(AccountMetadata? profile) => _item(
+      buildNativeProfileDetailSections(
+        _l10n,
+        displayName: 'Ada',
+        accountProfile: profile,
+      ),
+      'profile-details',
+    ).subtitle;
+
+    expect(
+      details(profile(gender: 'female', dateOfBirth: '1990-03-12')),
+      '${_l10n.genderFemale} · Mar 12, 1990',
+    );
+    expect(details(profile(gender: 'Nonbinary')), 'Nonbinary');
+    expect(details(profile(dateOfBirth: '1990-03-12')), 'Mar 12, 1990');
+    expect(details(profile()), _l10n.profileDetailsSummary);
+    expect(details(null), _l10n.profileDetailsSummary);
   });
 
   test('a refreshed profile reaches the sheet only when an edited field '
@@ -574,7 +606,10 @@ void main() {
     );
 
     expect(nativeProfileSheetFieldsDiffer(shown, copy()), isFalse);
-    expect(nativeProfileSheetFieldsDiffer(shown, copy(timezone: 'CET')), isFalse);
+    expect(
+      nativeProfileSheetFieldsDiffer(shown, copy(timezone: 'CET')),
+      isFalse,
+    );
     expect(nativeProfileSheetFieldsDiffer(shown, copy(bio: 'New')), isTrue);
     expect(nativeProfileSheetFieldsDiffer(shown, copy(gender: null)), isTrue);
     expect(

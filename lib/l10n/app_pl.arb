@@ -111,7 +111,7 @@
     "description": "Settings destination for transport, connectivity, and related server data options."
   },
   "slidingSidebar": "Wysuwany panel boczny",
-  "slidingSidebarDescription": "Otwieraj Notatki, Terminal i Kanały obok historii czatów.",
+  "slidingSidebarDescription": "Gdy włączone, Notatki, Terminal i Kanały otwierają się obok paska bocznego, który nadal pokazuje czaty. Gdy wyłączone, otwierają się w pasku bocznym.",
   "settingsAppearance": "Wygląd",
   "@settingsAppearance": {
     "description": "Settings destination for app appearance options."
@@ -1765,7 +1765,7 @@
     "description": "Label shown after code interpreter has finished."
   },
   "showComposerNotesButton": "Pokaż przycisk notatek",
-  "showComposerNotesButtonDescription": "Pokaż przycisk tworzenia notatki w polu wiadomości.",
+  "showComposerNotesButtonDescription": "Podczas pisania pokazuje przycisk, który zapisuje wiadomość jako notatkę zamiast ją wysyłać.",
   "appCustomization": "Personalizacja",
   "@appCustomization": {
     "description": "Title of the customization settings page."
@@ -1825,7 +1825,7 @@
     "description": "Subtitle for the setting that suppresses assistant response streaming haptics."
   },
   "citationBackground": "Tło cytowań",
-  "citationBackgroundDescription": "Wyłącz, aby cytowania w tekście miały przezroczyste tło",
+  "citationBackgroundDescription": "Wyświetla cytowania w odpowiedziach na cieniowanym tle. Wyłącz, aby pokazywać je bez tła.",
   "citationShowTitles": "Pokazuj tytuły stron w cytowaniach",
   "@citationShowTitles": {
     "description": "Toggle title for labeling inline citation badges with page titles instead of domains."
@@ -3821,7 +3821,7 @@
   "@passwordChangeDescription": {
     "description": "Subtitle for the action that updates the account password."
   },
-  "profileDetailsSummary": "Bio, płeć i data urodzenia",
+  "profileDetailsSummary": "Płeć i data urodzenia",
   "@profileDetailsSummary": {
     "description": "Subtitle for the profile details editor."
   },
@@ -8163,5 +8163,6 @@
     "description": "Button in a citation's preview popover that opens the cited page in the browser."
   },
   "chatUnreadState": "Nieprzeczytany",
-  "supportConduitFooter": "Conduit jest darmowy i open source. Twoje wsparcie pomaga, by tak zostało."
+  "supportConduitFooter": "Conduit jest darmowy i open source. Twoje wsparcie pomaga, by tak zostało.",
+  "aiMemoryFooter": "Twój prompt systemowy kieruje każdym czatem. Pamięć pozwala asystentowi zapamiętywać informacje z rozmów."
 }

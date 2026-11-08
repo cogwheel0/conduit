@@ -39,7 +39,7 @@ void main() {
       final session = await _pump(tester, settings: const AppSettings());
 
       expect(find.text('Webhook destinations'), findsNothing);
-      expect(find.text('Enable notifications'), findsOneWidget);
+      expect(find.text('Allow Notifications'), findsOneWidget);
       // Hidden, not deleted: nothing is sent, so server delivery is untouched.
       expect(session.wire.requests, isEmpty);
     });
@@ -55,7 +55,7 @@ void main() {
       );
 
       expect(find.text('Webhook destinations'), findsNothing);
-      expect(find.text('Enable notifications'), findsOneWidget);
+      expect(find.text('Allow Notifications'), findsOneWidget);
       expect(session.wire.requests, isEmpty);
     });
 

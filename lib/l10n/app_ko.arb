@@ -493,7 +493,7 @@
   "analyzing": "분석 중…",
   "analyzed": "분석 완료",
   "showComposerNotesButton": "Show Notes button",
-  "showComposerNotesButtonDescription": "Show Create note in the chat composer.",
+  "showComposerNotesButtonDescription": "입력하는 동안 메시지를 보내는 대신 메모로 저장하는 버튼을 표시합니다.",
   "appCustomization": "사용자 정의",
   "appCustomizationSubtitle": "테마, 언어, 음성 및 빠른 액션",
   "quickActionsDescription": "채팅의 빠른 액션",
@@ -1855,7 +1855,7 @@
   "settingsCategorySupport": "지원",
   "settingsDataAndConnection": "데이터 및 연결",
   "slidingSidebar": "슬라이딩 사이드바",
-  "slidingSidebarDescription": "채팅 기록 옆에서 메모, 터미널, 채널을 엽니다.",
+  "slidingSidebarDescription": "켜면 메모, 터미널, 채널이 사이드바 옆에 열리고 사이드바에는 채팅이 계속 표시됩니다. 끄면 사이드바 안에서 열립니다.",
   "settingsAppearance": "모양",
   "settingsAppearanceSubtitle": "테마, 색상 팔레트 및 언어",
   "settingsChatSubtitle": "채팅 동작, 빠른 작업 및 고급 프롬프트",
@@ -3187,7 +3187,7 @@
   "colorScheme": "색상 구성",
   "channelEmptyHint": "채널을 만들어 그룹 대화를 시작하세요.",
   "passwordChangeDescription": "계정 비밀번호 업데이트",
-  "profileDetailsSummary": "소개, 성별 및 생일",
+  "profileDetailsSummary": "성별 및 생일",
   "notificationRequiresMaster": "이 설정을 변경하려면 알림을 켜세요.",
   "notificationRequiresSound": "이 설정을 변경하려면 소리를 켜세요.",
   "enabled": "켜짐",
@@ -3300,7 +3300,7 @@
   "backendChooserModelApisSectionTitle": "모델 API",
   "backendChooserSelfHostedSectionTitle": "자체 호스팅 서비스",
   "citationBackground": "인용 배경",
-  "citationBackgroundDescription": "끄면 본문의 인용 배경이 투명해집니다",
+  "citationBackgroundDescription": "답변의 인용에 음영 배경을 표시합니다. 끄면 배경 없이 표시됩니다.",
   "citationShowTitles": "인용에 페이지 제목 표시",
   "citationShowTitlesDescription": "인용 배지에 웹사이트 도메인 대신 페이지 제목 사용",
   "directContextCompactionDescription": "이 모델은 컨텍스트 창을 알려주지 않습니다. Conduit은 요청이 너무 커지기 전에 선택한 한도를 사용해 오래된 메시지를 압축합니다.",
@@ -4127,5 +4127,6 @@
   "modelMenuAllModels": "모든 모델…",
   "citationPreviewOpen": "열기",
   "chatUnreadState": "읽지 않음",
-  "supportConduitFooter": "Conduit는 무료 오픈 소스입니다. 여러분의 후원이 이를 지켜 줍니다."
+  "supportConduitFooter": "Conduit는 무료 오픈 소스입니다. 여러분의 후원이 이를 지켜 줍니다.",
+  "aiMemoryFooter": "시스템 프롬프트는 모든 채팅에 적용됩니다. 메모리를 사용하면 어시스턴트가 알려 준 내용을 기억합니다."
 }

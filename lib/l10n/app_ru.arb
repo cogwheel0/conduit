@@ -393,7 +393,7 @@
   "analyzing": "Анализирую…",
   "analyzed": "Проанализировано",
   "showComposerNotesButton": "Show Notes button",
-  "showComposerNotesButtonDescription": "Show Create note in the chat composer.",
+  "showComposerNotesButtonDescription": "Во время ввода показывает кнопку, которая сохраняет сообщение как заметку вместо отправки.",
   "appCustomization": "Настройка",
   "appCustomizationSubtitle": "Тема, язык, голос и quick actions",
   "quickActionsDescription": "Быстрые клавиши в чате",
@@ -2091,7 +2091,7 @@
   "settingsCategorySupport": "Поддержка",
   "settingsDataAndConnection": "Данные и подключение",
   "slidingSidebar": "Выдвижная боковая панель",
-  "slidingSidebarDescription": "Открывать заметки, терминал и каналы рядом с историей чатов.",
+  "slidingSidebarDescription": "Если включено, заметки, терминал и каналы открываются рядом с боковой панелью, где по-прежнему видны ваши чаты. Если выключено — внутри боковой панели.",
   "settingsAppearance": "Оформление",
   "settingsAppearanceSubtitle": "Тема, цветовая палитра и язык",
   "settingsChatSubtitle": "Поведение чата, быстрые действия и расширенные промпты",
@@ -3450,7 +3450,7 @@
   "colorScheme": "Цветовая схема",
   "channelEmptyHint": "Создайте канал, чтобы начать групповой разговор.",
   "passwordChangeDescription": "Обновить пароль учётной записи",
-  "profileDetailsSummary": "О себе, пол и дата рождения",
+  "profileDetailsSummary": "Пол и дата рождения",
   "notificationRequiresMaster": "Включите уведомления, чтобы изменить эту настройку.",
   "notificationRequiresSound": "Включите звук, чтобы изменить эту настройку.",
   "enabled": "Вкл.",
@@ -3568,7 +3568,7 @@
   "directBearerDescription": "Отправляет учётные данные в заголовке Authorization: Bearer. Большинство OpenAI-совместимых серверов (llama.cpp, vLLM, LM Studio, Ollama) ожидают именно это.",
   "directApiKeyHeaderAzureOnlyDescription": "Отправляет учётные данные в заголовке api-key. Используйте только для Azure OpenAI; другие OpenAI-совместимые серверы ожидают токен Bearer.",
   "citationBackground": "Фон ссылок на источники",
-  "citationBackgroundDescription": "Отключите, чтобы ссылки в тексте были с прозрачным фоном",
+  "citationBackgroundDescription": "Показывает ссылки на источники в ответах на затенённом фоне. Отключите, чтобы показывать их без фона.",
   "citationShowTitles": "Показывать заголовки страниц в источниках",
   "citationShowTitlesDescription": "Использовать заголовки страниц вместо доменов сайтов в значках источников",
   "notificationSystemSettingsDescription": "Измените разрешения, звук и параметры баннеров для Conduit.",
@@ -4393,5 +4393,6 @@
   "modelMenuAllModels": "Все модели…",
   "citationPreviewOpen": "Открыть",
   "chatUnreadState": "Непрочитанный",
-  "supportConduitFooter": "Conduit — бесплатное приложение с открытым исходным кодом. Ваша поддержка помогает ему таким оставаться."
+  "supportConduitFooter": "Conduit — бесплатное приложение с открытым исходным кодом. Ваша поддержка помогает ему таким оставаться.",
+  "aiMemoryFooter": "Ваш системный промпт задаёт тон каждому чату. Память позволяет ассистенту помнить то, что вы ему рассказали."
 }

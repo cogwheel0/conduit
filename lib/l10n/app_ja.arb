@@ -1519,7 +1519,7 @@
     "description": "Label shown after code interpreter has finished."
   },
   "showComposerNotesButton": "Show Notes button",
-  "showComposerNotesButtonDescription": "Show Create note in the chat composer.",
+  "showComposerNotesButtonDescription": "入力中に、メッセージを送信せずにノートとして保存するボタンを表示します。",
   "appCustomization": "カスタマイズ",
   "@appCustomization": {
     "description": "Title of the customization settings page."
@@ -3694,7 +3694,7 @@
   "settingsCategorySupport": "サポート",
   "settingsDataAndConnection": "データと接続",
   "slidingSidebar": "スライド式サイドバー",
-  "slidingSidebarDescription": "チャット履歴の横でノート、ターミナル、チャンネルを開きます。",
+  "slidingSidebarDescription": "オンにすると、ノート、ターミナル、チャンネルはサイドバーの横に開き、サイドバーにはチャットが表示されたままになります。オフにするとサイドバー内で開きます。",
   "settingsAppearance": "外観",
   "settingsAppearanceSubtitle": "テーマ、カラーパレット、言語",
   "settingsChatSubtitle": "チャットの動作、クイックアクション、高度なプロンプト",
@@ -5026,7 +5026,7 @@
   "colorScheme": "カラースキーム",
   "channelEmptyHint": "チャンネルを作成してグループ会話を始めましょう。",
   "passwordChangeDescription": "アカウントのパスワードを更新",
-  "profileDetailsSummary": "自己紹介、性別、生年月日",
+  "profileDetailsSummary": "性別、生年月日",
   "notificationRequiresMaster": "この設定を変更するには通知をオンにしてください。",
   "notificationRequiresSound": "この設定を変更するにはサウンドをオンにしてください。",
   "enabled": "オン",
@@ -5139,7 +5139,7 @@
   "backendChooserModelApisSectionTitle": "モデル API",
   "backendChooserSelfHostedSectionTitle": "セルフホストのサービス",
   "citationBackground": "引用の背景",
-  "citationBackgroundDescription": "オフにすると文中の引用の背景が透明になります",
+  "citationBackgroundDescription": "回答内の引用に背景色を付けます。オフにすると背景なしで表示されます。",
   "citationShowTitles": "引用にページタイトルを表示",
   "citationShowTitlesDescription": "引用バッジにサイトのドメインではなくページタイトルを使用します",
   "directContextCompactionDescription": "これらのモデルはコンテキストウィンドウを報告しません。Conduit はリクエストが大きくなりすぎる前に、選択した上限を使って古いメッセージを圧縮します。",
@@ -5972,5 +5972,6 @@
   "modelMenuAllModels": "すべてのモデル…",
   "citationPreviewOpen": "開く",
   "chatUnreadState": "未読",
-  "supportConduitFooter": "Conduit は無料のオープンソースです。ご支援がその継続を支えます。"
+  "supportConduitFooter": "Conduit は無料のオープンソースです。ご支援がその継続を支えます。",
+  "aiMemoryFooter": "システムプロンプトはすべてのチャットに適用されます。メモリを使うと、アシスタントが伝えた内容を覚えておけます。"
 }

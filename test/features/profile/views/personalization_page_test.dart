@@ -40,12 +40,12 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('Default model'), findsWidgets);
-    expect(find.text('Your system prompt'), findsNothing);
+    expect(find.text('Default Model'), findsWidgets);
+    expect(find.text('System Prompt'), findsNothing);
     expect(find.text('Memory'), findsNothing);
-    expect(find.text('Prompt overrides'), findsNothing);
+    expect(find.text('Prompt Overrides'), findsNothing);
 
-    await tester.tap(find.text('Default model').last);
+    await tester.tap(find.text('Default Model').last);
     await tester.pumpAndSettle();
 
     expect(find.text('Direct Alpha'), findsOneWidget);
@@ -444,7 +444,7 @@ void main() {
         expect(find.text('Memory'), findsNothing);
         expect(find.text('Manage memories'), findsNothing);
         expect(
-          find.text('Your system prompt', skipOffstage: false),
+          find.text('System Prompt', skipOffstage: false),
           findsOneWidget,
         );
       },

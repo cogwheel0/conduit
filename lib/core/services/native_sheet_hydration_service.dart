@@ -982,6 +982,7 @@ class NativeSheetHydrationService {
           title: nativeAiMemoryTitle(l10n),
           sections: [
             NativeSheetSectionConfig(
+              footer: memoriesPermitted ? l10n.aiMemoryFooter : null,
               items: [
                 NativeSheetItemConfig(
                   id: 'system-prompt',
@@ -1073,13 +1074,18 @@ class NativeSheetHydrationService {
     final masterItem = NativeSheetItemConfig(
       id: 'notifications-enabled',
       title: l10n.notificationsEnabledTitle,
-      subtitle: s.notificationsEnabled
-          ? l10n.notificationsEnabledDescription
-          : l10n.notificationRequiresMaster,
       sfSymbol: 'bell',
       kind: NativeSheetItemKind.toggle,
       value: s.notificationsEnabled,
     );
+    final masterSection = NativeSheetSectionConfig(
+      footer: l10n.notificationsEnabledDescription,
+      items: [masterItem],
+    );
+    // With notifications off the rest cannot do anything, so it is not
+    // shown, as Settings hides an app's alert options until they are
+    // allowed. Turning them on redraws the page with every option.
+    if (!s.notificationsEnabled) return [masterSection];
     final deliveryItems = <NativeSheetItemConfig>[
       NativeSheetItemConfig(
         id: 'notification-in-app-banner',
@@ -1149,7 +1155,7 @@ class NativeSheetHydrationService {
       ),
     ];
     return [
-      NativeSheetSectionConfig(items: [masterItem]),
+      masterSection,
       NativeSheetSectionConfig(items: deliveryItems),
       NativeSheetSectionConfig(items: soundItems),
       NativeSheetSectionConfig(items: contentItems),
@@ -1278,39 +1284,7 @@ class NativeSheetHydrationService {
       final appLocale = _ref.read(appLocaleProvider);
       final activePalette = _ref.read(appThemePaletteProvider);
       final currentLanguageTag = appLocale?.toLanguageTag() ?? 'system';
-      final themeItems = <NativeSheetItemConfig>[
-        NativeSheetItemConfig(
-          id: 'theme-light',
-          title: l10n.colorScheme,
-          sfSymbol: 'moon.stars',
-          kind: NativeSheetItemKind.segment,
-          value: themeMode.name,
-          options: [
-            NativeSheetOptionConfig(id: 'system', label: l10n.system),
-            NativeSheetOptionConfig(id: 'light', label: l10n.themeLight),
-            NativeSheetOptionConfig(id: 'dark', label: l10n.themeDark),
-          ],
-        ),
-        NativeSheetItemConfig(
-          id: 'theme-palette',
-          title: l10n.themePalette,
-          sfSymbol: 'paintpalette',
-          kind: NativeSheetItemKind.searchablePicker,
-          value: activePalette.id,
-          options: [
-            for (final theme in TweakcnThemes.all)
-              NativeSheetOptionConfig(id: theme.id, label: theme.label(l10n)),
-          ],
-        ),
-        NativeSheetItemConfig(
-          id: nativeCitationBackgroundId,
-          title: l10n.citationBackground,
-          subtitle: l10n.citationBackgroundDescription,
-          sfSymbol: 'quote.bubble',
-          kind: NativeSheetItemKind.toggle,
-          value: _ref.read(appSettingsProvider).citationBackground,
-        ),
-      ];
+      final appSettings = _ref.read(appSettingsProvider);
       final languageItem = NativeSheetItemConfig(
         id: 'language',
         title: l10n.appLanguage,
@@ -1319,37 +1293,68 @@ class NativeSheetHydrationService {
         value: currentLanguageTag,
         options: nativeLanguageDropdownOptions(l10n),
       );
+      // How the app looks, in three groups. A toggle that needs explaining is
+      // explained in its group's footer, as Settings does, rather than in a
+      // second line under its title.
       await _applyNativeDetail(
         NativeSheetDetailConfig(
           id: NativeSheetRoutes.appearance,
           title: nativeAppearanceTitle(l10n),
           sections: [
-            NativeSheetSectionConfig(items: themeItems),
             NativeSheetSectionConfig(
+              footer: l10n.citationBackgroundDescription,
               items: [
                 NativeSheetItemConfig(
-                  id: 'composer-notes-button',
-                  title: l10n.showComposerNotesButton,
-                  subtitle: l10n.showComposerNotesButtonDescription,
-                  sfSymbol: 'note.text.badge.plus',
+                  id: 'theme-light',
+                  title: l10n.colorScheme,
+                  sfSymbol: 'circle.lefthalf.filled',
+                  kind: NativeSheetItemKind.segment,
+                  value: themeMode.name,
+                  options: [
+                    NativeSheetOptionConfig(id: 'system', label: l10n.system),
+                    NativeSheetOptionConfig(
+                      id: 'light',
+                      label: l10n.themeLight,
+                    ),
+                    NativeSheetOptionConfig(id: 'dark', label: l10n.themeDark),
+                  ],
+                ),
+                NativeSheetItemConfig(
+                  id: 'theme-palette',
+                  title: l10n.themePalette,
+                  sfSymbol: 'paintpalette',
+                  kind: NativeSheetItemKind.searchablePicker,
+                  value: activePalette.id,
+                  options: [
+                    for (final theme in TweakcnThemes.all)
+                      NativeSheetOptionConfig(
+                        id: theme.id,
+                        label: theme.label(l10n),
+                      ),
+                  ],
+                ),
+                NativeSheetItemConfig(
+                  id: nativeCitationBackgroundId,
+                  title: l10n.citationBackground,
+                  sfSymbol: 'quote.bubble',
                   kind: NativeSheetItemKind.toggle,
-                  value: _ref.read(appSettingsProvider).showComposerNotesButton,
+                  value: appSettings.citationBackground,
                 ),
               ],
             ),
-            NativeSheetSectionConfig(items: [languageItem]),
             NativeSheetSectionConfig(
+              footer: l10n.slidingSidebarDescription,
               items: [
                 NativeSheetItemConfig(
                   id: nativeSlidingSidebarId,
                   title: l10n.slidingSidebar,
-                  subtitle: l10n.slidingSidebarDescription,
                   sfSymbol: 'sidebar.left',
                   kind: NativeSheetItemKind.toggle,
-                  value: _ref.read(appSettingsProvider).slidingSidebarEnabled,
+                  value: appSettings.slidingSidebarEnabled,
                 ),
               ],
             ),
+            NativeSheetSectionConfig(items: [languageItem]),
           ],
         ),
       );
@@ -1437,8 +1442,8 @@ class NativeSheetHydrationService {
             subtitle: quickPillsSubtitle,
             sfSymbol: 'bolt',
           ),
+        _nativeMessageActionsItem(l10n),
       ];
-      final behaviorItems = _nativeChatBehaviorItems(l10n, appSettings);
       final promptOverridesItem = hasOpenWebUiAccount
           ? NativeSheetItemConfig(
               id: 'advanced-prompt-overrides',
@@ -1453,7 +1458,7 @@ class NativeSheetHydrationService {
           title: nativeChatsTitle(l10n),
           sections: [
             NativeSheetSectionConfig(items: modelItems),
-            NativeSheetSectionConfig(items: behaviorItems),
+            ..._nativeChatBehaviorSections(l10n, appSettings),
             if (promptOverridesItem != null)
               NativeSheetSectionConfig(items: [promptOverridesItem]),
             // Advanced stays last and on its own, as on the Flutter page: it
@@ -1526,14 +1531,6 @@ class NativeSheetHydrationService {
                 sfSymbol: 'network',
                 kind: NativeSheetItemKind.info,
               ),
-            NativeSheetItemConfig(
-              id: 'disable-haptics-streaming',
-              title: l10n.disableHapticsWhileStreaming,
-              subtitle: l10n.disableHapticsWhileStreamingDescription,
-              sfSymbol: 'waveform.path',
-              kind: NativeSheetItemKind.toggle,
-              value: appSettings.disableHapticsWhileStreaming,
-            ),
             if (socketService != null)
               NativeSheetItemConfig(
                 id: 'socket-health',
@@ -1573,11 +1570,10 @@ class NativeSheetHydrationService {
           id: NativeSheetRoutes.chats,
           title: nativeChatsTitle(l10n),
           sections: [
-            NativeSheetSectionConfig(
-              items: _nativeChatBehaviorItems(
-                l10n,
-                _ref.read(appSettingsProvider),
-              ),
+            NativeSheetSectionConfig(items: [_nativeMessageActionsItem(l10n)]),
+            ..._nativeChatBehaviorSections(
+              l10n,
+              _ref.read(appSettingsProvider),
             ),
             NativeSheetSectionConfig(
               items: [
@@ -1603,40 +1599,72 @@ class NativeSheetHydrationService {
     }
   }
 
-  List<NativeSheetItemConfig> _nativeChatBehaviorItems(
+  /// The Message actions row: a page of its own, which explains itself.
+  NativeSheetItemConfig _nativeMessageActionsItem(AppLocalizations l10n) =>
+      NativeSheetItemConfig(
+        id: 'message-actions',
+        title: l10n.messageActionsTitle,
+        sfSymbol: 'ellipsis.circle',
+      );
+
+  /// The Chats page's toggles: how the message field behaves, then how
+  /// chats and replies behave. They read only local settings.
+  List<NativeSheetSectionConfig> _nativeChatBehaviorSections(
     AppLocalizations l10n,
     AppSettings appSettings,
   ) {
     return [
-      NativeSheetItemConfig(
-        id: 'message-actions',
-        title: l10n.messageActionsTitle,
-        subtitle: l10n.messageActionsDescription,
-        sfSymbol: 'ellipsis.circle',
+      NativeSheetSectionConfig(
+        items: [
+          NativeSheetItemConfig(
+            id: 'send-on-enter',
+            title: l10n.sendOnEnter,
+            subtitle: l10n.sendOnEnterDescription,
+            sfSymbol: 'paperplane',
+            kind: NativeSheetItemKind.toggle,
+            value: appSettings.sendOnEnter,
+          ),
+          // A button in the message field, so it sits with the other
+          // message field setting rather than under Appearance.
+          NativeSheetItemConfig(
+            id: 'composer-notes-button',
+            title: l10n.showComposerNotesButton,
+            subtitle: l10n.showComposerNotesButtonDescription,
+            sfSymbol: 'note.text.badge.plus',
+            kind: NativeSheetItemKind.toggle,
+            value: appSettings.showComposerNotesButton,
+          ),
+        ],
       ),
-      NativeSheetItemConfig(
-        id: 'send-on-enter',
-        title: l10n.sendOnEnter,
-        subtitle: l10n.sendOnEnterDescription,
-        sfSymbol: 'paperplane',
-        kind: NativeSheetItemKind.toggle,
-        value: appSettings.sendOnEnter,
-      ),
-      NativeSheetItemConfig(
-        id: 'temporary-chat-default',
-        title: l10n.temporaryChatByDefault,
-        subtitle: l10n.temporaryChatByDefaultDescription,
-        sfSymbol: 'clock.arrow.circlepath',
-        kind: NativeSheetItemKind.toggle,
-        value: appSettings.temporaryChatByDefault,
-      ),
-      NativeSheetItemConfig(
-        id: nativeCitationShowTitlesId,
-        title: l10n.citationShowTitles,
-        subtitle: l10n.citationShowTitlesDescription,
-        sfSymbol: 'link',
-        kind: NativeSheetItemKind.toggle,
-        value: appSettings.citationShowTitles,
+      NativeSheetSectionConfig(
+        items: [
+          NativeSheetItemConfig(
+            id: 'temporary-chat-default',
+            title: l10n.temporaryChatByDefault,
+            subtitle: l10n.temporaryChatByDefaultDescription,
+            sfSymbol: 'clock.arrow.circlepath',
+            kind: NativeSheetItemKind.toggle,
+            value: appSettings.temporaryChatByDefault,
+          ),
+          NativeSheetItemConfig(
+            id: nativeCitationShowTitlesId,
+            title: l10n.citationShowTitles,
+            subtitle: l10n.citationShowTitlesDescription,
+            sfSymbol: 'link',
+            kind: NativeSheetItemKind.toggle,
+            value: appSettings.citationShowTitles,
+          ),
+          // How a streaming reply feels, so it belongs with chats, not with
+          // the connection it streams over.
+          NativeSheetItemConfig(
+            id: 'disable-haptics-streaming',
+            title: l10n.disableHapticsWhileStreaming,
+            subtitle: l10n.disableHapticsWhileStreamingDescription,
+            sfSymbol: 'waveform.path',
+            kind: NativeSheetItemKind.toggle,
+            value: appSettings.disableHapticsWhileStreaming,
+          ),
+        ],
       ),
     ];
   }

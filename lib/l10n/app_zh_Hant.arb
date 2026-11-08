@@ -387,7 +387,7 @@
   "analyzing": "分析中…",
   "analyzed": "已分析",
   "showComposerNotesButton": "Show Notes button",
-  "showComposerNotesButtonDescription": "Show Create note in the chat composer.",
+  "showComposerNotesButtonDescription": "輸入時顯示一個按鈕，可將訊息存為筆記而不傳送。",
   "appCustomization": "自定義",
   "appCustomizationSubtitle": "主題、語言、語音和 quick actions",
   "quickActionsDescription": "聊天快捷方式",
@@ -2077,7 +2077,7 @@
   "settingsCategorySupport": "支援",
   "settingsDataAndConnection": "資料與連線",
   "slidingSidebar": "滑動側邊欄",
-  "slidingSidebarDescription": "在聊天記錄旁開啟筆記、終端機和頻道。",
+  "slidingSidebarDescription": "開啟後，筆記、終端機和頻道會在側邊欄旁開啟，側邊欄繼續顯示您的聊天。關閉後，它們會在側邊欄內開啟。",
   "settingsAppearance": "外觀",
   "settingsAppearanceSubtitle": "主題、調色盤和語言",
   "settingsChatSubtitle": "聊天行為、快速操作和進階提示詞",
@@ -3409,7 +3409,7 @@
   "colorScheme": "配色方案",
   "channelEmptyHint": "建立頻道以開始群組對話。",
   "passwordChangeDescription": "更新帳號密碼",
-  "profileDetailsSummary": "個人簡介、性別和生日",
+  "profileDetailsSummary": "性別和生日",
   "notificationRequiresMaster": "請開啟通知以變更此設定。",
   "notificationRequiresSound": "請開啟聲音以變更此設定。",
   "enabled": "開啟",
@@ -3522,7 +3522,7 @@
   "backendChooserModelApisSectionTitle": "模型 API",
   "backendChooserSelfHostedSectionTitle": "自行架設的服務",
   "citationBackground": "引用背景",
-  "citationBackgroundDescription": "關閉後，文內引用的背景將透明",
+  "citationBackgroundDescription": "為回覆中的引用加上陰影背景。關閉後，引用將不帶背景顯示。",
   "citationShowTitles": "顯示引用頁面標題",
   "citationShowTitlesDescription": "在引用標記中使用頁面標題，而非網站網域",
   "directContextCompactionDescription": "這些模型不會回報上下文視窗。Conduit 會在請求過大之前，使用所選上限壓縮較早的訊息。",
@@ -4355,5 +4355,6 @@
   "modelMenuAllModels": "所有模型…",
   "citationPreviewOpen": "開啟",
   "chatUnreadState": "未讀",
-  "supportConduitFooter": "Conduit 免費且開源。您的支持讓它得以延續。"
+  "supportConduitFooter": "Conduit 免費且開源。您的支持讓它得以延續。",
+  "aiMemoryFooter": "您的系統提示詞會作用於每個聊天。記憶讓助手記住您告訴過它的內容。"
 }

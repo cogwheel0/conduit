@@ -387,7 +387,7 @@
   "analyzing": "Analisi…",
   "analyzed": "Analizzato",
   "showComposerNotesButton": "Show Notes button",
-  "showComposerNotesButtonDescription": "Show Create note in the chat composer.",
+  "showComposerNotesButtonDescription": "Mentre scrivi, mostra un pulsante che salva il messaggio come nota invece di inviarlo.",
   "appCustomization": "Personalizzazione",
   "appCustomizationSubtitle": "Tema, lingua, voce e quick actions",
   "quickActionsDescription": "Scorciatoie nella chat",
@@ -2077,7 +2077,7 @@
   "settingsCategorySupport": "Supporto",
   "settingsDataAndConnection": "Dati e connessione",
   "slidingSidebar": "Barra laterale scorrevole",
-  "slidingSidebarDescription": "Apri Note, Terminale e Canali accanto alla cronologia delle chat.",
+  "slidingSidebarDescription": "Se attivo, Note, Terminale e Canali si aprono accanto alla barra laterale, che continua a mostrare le tue chat. Se disattivo, si aprono al suo interno.",
   "settingsAppearance": "Aspetto",
   "settingsAppearanceSubtitle": "Tema, tavolozza colori e lingua",
   "settingsChatSubtitle": "Comportamento chat, azioni rapide e prompt avanzati",
@@ -3409,7 +3409,7 @@
   "colorScheme": "Schema colori",
   "channelEmptyHint": "Crea un canale per avviare una conversazione di gruppo.",
   "passwordChangeDescription": "Aggiorna la password dell'account",
-  "profileDetailsSummary": "Biografia, genere e data di nascita",
+  "profileDetailsSummary": "Genere e data di nascita",
   "notificationRequiresMaster": "Attiva le notifiche per modificare questa impostazione.",
   "notificationRequiresSound": "Attiva l'audio per modificare questa impostazione.",
   "enabled": "Attivo",
@@ -3522,7 +3522,7 @@
   "backendChooserModelApisSectionTitle": "API dei modelli",
   "backendChooserSelfHostedSectionTitle": "Servizi self-hosted",
   "citationBackground": "Sfondo delle citazioni",
-  "citationBackgroundDescription": "Disattiva per rendere trasparenti le citazioni nel testo",
+  "citationBackgroundDescription": "Mostra le citazioni nelle risposte su uno sfondo ombreggiato. Disattivalo per citazioni senza sfondo.",
   "citationShowTitles": "Mostra i titoli delle pagine citate",
   "citationShowTitlesDescription": "Usa i titoli delle pagine invece dei domini nei badge delle citazioni",
   "directContextCompactionDescription": "Questi modelli non indicano la finestra di contesto. Conduit usa il limite selezionato per compattare i messaggi meno recenti prima che le richieste diventino troppo grandi.",
@@ -4355,5 +4355,6 @@
   "modelMenuAllModels": "Tutti i modelli…",
   "citationPreviewOpen": "Apri",
   "chatUnreadState": "Non letta",
-  "supportConduitFooter": "Conduit è gratuito e open source. Il tuo supporto aiuta a mantenerlo tale."
+  "supportConduitFooter": "Conduit è gratuito e open source. Il tuo supporto aiuta a mantenerlo tale.",
+  "aiMemoryFooter": "Il tuo prompt di sistema guida ogni chat. La memoria permette all'assistente di ricordare ciò che gli hai detto."
 }

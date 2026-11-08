@@ -61,7 +61,7 @@ void main() {
     final licenses = items.singleWhere(
       (item) => item.id == NativeSheetRoutes.openSourceLicenses,
     );
-    check(licenses.title).equals('Open source licenses');
+    check(licenses.title).equals('Open Source Licenses');
     check(items.map((item) => item.id)).contains('server-version');
   });
 
