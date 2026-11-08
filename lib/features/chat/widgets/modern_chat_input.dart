@@ -110,6 +110,8 @@ import 'chat_input_intents.dart';
 import 'expanded_text_editor.dart';
 import 'chat_comparison_widgets.dart';
 import 'chat_send_motion.dart';
+import 'composer_prominent_button.dart';
+import '../../../shared/widgets/chat_action_button.dart' show NativeSymbolGlyph;
 import 'composer_overflow_items.dart';
 import 'composer_overflow_menu.dart';
 import 'mention_text_controller.dart';
@@ -482,6 +484,18 @@ TextStyle _composerInputTextStyle(bool isRecording) =>
 
 const double _maxCompactComposerControlScale = 1.25;
 const double _cupertinoComposerOverflowIconExtent = IconSize.large;
+
+/// Point size of an SF Symbol that sits beside the composer's 24 pt
+/// Cupertino glyphs (plus, mic) at the same optical size.
+const double _composerSecondarySymbolPointSize = 19;
+
+/// Glyphs for the composer's SF Symbols where the system lacks one.
+const Map<String, IconData> _composerSymbolFallbacks = <String, IconData>{
+  'arrow.up': CupertinoIcons.arrow_up,
+  'stop.fill': CupertinoIcons.stop_fill,
+  'waveform': CupertinoIcons.waveform,
+  'note.text.badge.plus': CupertinoIcons.doc_text,
+};
 const double _materialComposerOverflowIconExtent = 28;
 
 /// The account and the chat a comparison send was started in.
@@ -646,6 +660,12 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
   String _observedText = '';
   ComposerDraftBinding? _draftBinding;
   ChatSendPlaceholderHandle? _draftSendOwner;
+
+  /// The draft being sent already shows as its bubble, rising from here:
+  /// the field stops drawing it, so the text is never on screen twice. The
+  /// controller keeps it until the turn is admitted, and a refused send
+  /// shows it again untouched.
+  bool _draftHandedOff = false;
   bool _sendingDraft = false;
   ProviderSubscription<ComposerDraftContext>? _draftSubscription;
   StreamSubscription<String>? _voiceStreamSubscription;
@@ -1522,6 +1542,9 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     } finally {
       _sendingDraft = false;
       _draftSendOwner = null;
+      if (_draftHandedOff && mounted) {
+        setState(() => _draftHandedOff = false);
+      }
     }
   }
 
@@ -1563,7 +1586,10 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     }
     final committed = await send(
       wireText,
-      (handle) => _draftSendOwner = handle,
+      (handle) {
+        _draftSendOwner = handle;
+        if (mounted) setState(() => _draftHandedOff = true);
+      },
     );
     if (committed != null) {
       await _draftBinding?.markSent(originDraft, sentSnapshot);
@@ -1764,6 +1790,10 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     if (_controller.text != _observedText) {
       _observedText = _controller.text;
       _editGeneration++;
+      // Clearing the sent draft, or any edit, shows the field's text again.
+      if (_draftHandedOff && mounted && !_isDeactivated) {
+        setState(() => _draftHandedOff = false);
+      }
     }
     if (!mounted || _isDeactivated) return;
     _lastEditTime = DateTime.now();
@@ -4521,11 +4551,13 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                 factor,
               )!;
               final textLabel = context.conduitTheme.inputText;
-              final Color animatedTextColor = Color.lerp(
-                textLabel.withValues(alpha: 0.88),
-                textLabel,
-                factor,
-              )!;
+              final Color animatedTextColor = _draftHandedOff
+                  ? textLabel.withValues(alpha: 0)
+                  : Color.lerp(
+                      textLabel.withValues(alpha: 0.88),
+                      textLabel,
+                      factor,
+                    )!;
 
               final TextStyle baseChatStyle = _composerInputTextStyle(
                 _isRecording,
@@ -4548,7 +4580,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                 return CupertinoTextField(
                   controller: _controller,
                   focusNode: _focusNode,
-                  placeholder: inputPlaceholder,
+                  placeholder: placeholderClearOfCaret(inputPlaceholder),
                   placeholderStyle: baseChatStyle.copyWith(
                     color: animatedPlaceholder,
                   ),
@@ -4565,7 +4597,9 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                   cursorOpacityAnimates: composerCursorOpacityAnimates(
                     usesNativePlatformView: usesNativePlatformView,
                   ),
-                  cursorColor: Theme.of(context).textSelectionTheme.cursorColor,
+                  cursorColor: _draftHandedOff
+                      ? const Color(0x00000000)
+                      : Theme.of(context).textSelectionTheme.cursorColor,
                   magnifierConfiguration: usesNativePlatformView
                       ? IosTextMagnifier.configuration
                       : null,
@@ -4814,9 +4848,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
         : (Platform.isIOS ? CupertinoIcons.mic : Icons.mic);
     final Color iconColor = active
         ? theme.buttonPrimaryText
-        : theme.textSecondary.withValues(
-            alpha: enabledMic ? Alpha.strong : Alpha.disabled,
-          );
+        : _composerSecondaryGlyphColor(enabled: enabledMic);
     final icon = AnimatedSwitcher(
       duration: context.motionDuration(const Duration(milliseconds: 160)),
       switchInCurve: Curves.easeOutCubic,
@@ -4887,6 +4919,10 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     );
   }
 
+  /// "Create Note" from the draft, in the slot the mic holds while the
+  /// composer is empty: the same 44 pt target, the glyph centred in it at the
+  /// mic's size and tone, so typing swaps one quiet glyph for another and
+  /// Send keeps its own room.
   Widget _buildCreateDraftNoteButton({required bool isLoading}) {
     final l10n = AppLocalizations.of(context)!;
     final bool enabled = widget.enabled && !isLoading && !_isRecording;
@@ -4894,44 +4930,63 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       context,
       baseExtent: _composerControlSize,
     );
-    final iconSize = conduitScaledIconExtent(context, IconSize.medium);
-    final visualSize = conduitScaledControlExtent(
-      context,
-      baseExtent: _composerPrimaryVisualSize,
-    );
-    final iconColor = enabled
-        ? context.conduitTheme.textSecondary.withValues(alpha: Alpha.strong)
-        : context.conduitTheme.textSecondary.withValues(alpha: Alpha.disabled);
+    final iconSize = conduitScaledIconExtent(context, IconSize.large);
+    final iconColor = _composerSecondaryGlyphColor(enabled: enabled);
+    final Widget glyph;
+    if (isLoading) {
+      glyph = SizedBox(
+        width: iconSize,
+        height: iconSize,
+        child: AdaptiveProgressIndicator(
+          strokeWidth: 2.5,
+          color: context.conduitTheme.textSecondary,
+        ),
+      );
+    } else if (NativeSymbolGlyph.isAvailable) {
+      glyph = NativeSymbolGlyph(
+        symbol: 'note.text.badge.plus',
+        fallbackIcon: CupertinoIcons.doc_text,
+        pointSize: conduitScaledIconExtent(
+          context,
+          _composerSecondarySymbolPointSize,
+        ),
+        color: iconColor,
+      );
+    } else {
+      glyph = ConduitSystemAdaptiveIcon(
+        Platform.isIOS ? CupertinoIcons.doc_text : Icons.note_add_outlined,
+        size: iconSize,
+        color: iconColor,
+      );
+    }
 
     return AdaptiveTooltip(
       message: l10n.createNote,
-      child: _buildComposerIconButton(
+      excludeFromSemantics: true,
+      child: Semantics(
         key: const ValueKey('create-draft-note-button'),
-        onPressed: enabled ? _createNoteFromDraft : null,
-        size: buttonSize,
-        visualSize: visualSize,
-        visualAlignment: AlignmentDirectional.centerEnd,
-        forcePlain: true,
-        iosSymbol: isLoading ? null : 'doc.text',
-        iosSymbolColor: iconColor,
-        child: isLoading
-            ? SizedBox(
-                width: iconSize,
-                height: iconSize,
-                child: AdaptiveProgressIndicator(
-                  strokeWidth: 2.5,
-                  color: context.conduitTheme.textSecondary,
-                ),
-              )
-            : ConduitSystemAdaptiveIcon(
-                Platform.isIOS
-                    ? CupertinoIcons.doc_text
-                    : Icons.note_add_outlined,
-                size: iconSize,
-                color: iconColor,
-              ),
+        button: true,
+        enabled: enabled,
+        label: l10n.createNote,
+        onTap: enabled ? _createNoteFromDraft : null,
+        excludeSemantics: true,
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: enabled ? _createNoteFromDraft : null,
+          child: SizedBox.square(
+            dimension: buttonSize,
+            child: Center(child: glyph),
+          ),
+        ),
       ),
     );
+  }
+
+  /// The tone of the composer's quiet trailing glyphs (dictation, Create
+  /// Note): secondary text, dimmed when unavailable.
+  Color _composerSecondaryGlyphColor({required bool enabled}) {
+    final secondary = context.conduitTheme.textSecondary;
+    return enabled ? secondary : secondary.withValues(alpha: Alpha.disabled);
   }
 
   Widget _buildPrimaryButton(
@@ -5229,7 +5284,10 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     // iOS glass buttons are UIKit platform views. Remove them while another
     // route covers the composer so their compositor layer cannot bleed
     // through an opaque Flutter modal sheet.
-    if (conduitSupportsNativeGlass() && !forcePlain && !_isRouteVisible) {
+    if (conduitSupportsNativeGlass() &&
+        !forcePlain &&
+        !isProminent &&
+        !_isRouteVisible) {
       return SizedBox.square(dimension: size);
     }
 
@@ -5289,6 +5347,36 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
           visualSize: effectiveVisualSize,
           visualAlignment: visualAlignment,
           control: loadingButton,
+        );
+      }
+      if (isProminent) {
+        // Send, Stop and voice: a Flutter disc. UIKit's prominent glass
+        // highlight took the system accent (a blue flash on a black button).
+        final glyph = NativeSymbolGlyph.isAvailable
+            ? NativeSymbolGlyph(
+                symbol: iosSymbol,
+                fallbackIcon:
+                    _composerSymbolFallbacks[iosSymbol] ??
+                    CupertinoIcons.circle,
+                pointSize: iosSymbolSize ?? kCupertinoNativeControlSymbolExtent,
+                color: iosSymbolColor ?? theme.buttonPrimaryText,
+              )
+            : child;
+        return Semantics(
+          key: key,
+          button: true,
+          enabled: onPressed != null,
+          label: semanticLabel,
+          onTap: onPressed,
+          excludeSemantics: true,
+          child: ComposerProminentButton(
+            onPressed: onPressed,
+            targetSize: size,
+            visualSize: effectiveVisualSize,
+            alignment: visualAlignment,
+            fill: buttonColor,
+            glyph: glyph,
+          ),
         );
       }
       final nativeButton = SizedBox.square(

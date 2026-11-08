@@ -8,6 +8,7 @@ import '../../../theme/color_tokens.dart';
 import '../../../theme/theme_extensions.dart';
 import 'adaptive_glass_controls.dart';
 import 'platform_ui_capabilities.dart';
+import 'placeholder_caret_gap.dart';
 import 'ios_text_magnifier.dart';
 
 enum AdaptiveSnackBarType { info, success, warning, error }
@@ -429,7 +430,7 @@ class AdaptiveAlertDialog {
                 CupertinoTextField(
                   magnifierConfiguration: nativeIosTextMagnifierConfiguration,
                   controller: controller,
-                  placeholder: input.placeholder,
+                  placeholder: placeholderClearOfCaret(input.placeholder),
                   keyboardType: input.keyboardType,
                   obscureText: input.obscureText,
                   maxLength: input.maxLength,

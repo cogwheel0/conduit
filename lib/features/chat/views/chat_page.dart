@@ -137,6 +137,7 @@ import 'package:conduit_core/features/chat/views/chat_turn_render_state.dart';
 import '../widgets/streaming_turn_footer.dart';
 import '../widgets/openwebui_prompt_overlay.dart';
 import '../widgets/openwebui_task_list.dart';
+import '../widgets/chat_send_motion.dart' show ChatGreetingExit;
 import '../widgets/chat_timeline_viewport.dart';
 import '../widgets/chat_scroll_to_latest_button.dart';
 import '../../../platform/frame_profiler.dart';
@@ -536,6 +537,9 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   List<Object?> _rowRebuildKeysMemo = const <Object?>[];
   String? _cachedGreetingName;
   bool _greetingReady = false;
+
+  /// The greeting is fading out under a new chat's first message.
+  bool _greetingExiting = false;
   ProviderSubscription<String?>? _screenContextSub;
   ProviderSubscription<bool>? _conversationLoadingSub;
   ProviderSubscription<bool>? _reviewerModeSub;
@@ -1253,6 +1257,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     _pinLifecycleReconciliationGeneration = null;
     _timelineScrollMode = _ChatTimelineScrollMode.anchoringNewTurn;
     setState(() {
+      // A new chat's first message: the greeting leaves as it arrives.
+      if (settleImmediately) _greetingExiting = true;
       _pinToTopState = _PinToTopState.active(
         userMessageId: userMessageId,
         streamingMessageId: handle.assistantMessageId,
@@ -3013,6 +3019,15 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       settleImmediately: _pinShouldSettleImmediately,
       positionSettled: _pinToTopPositionSettled,
     );
+    // A first message rises from the composer on its own spring, which
+    // follows its row wherever the settling position puts it, so the
+    // transcript shows from the first frame instead of going blank. Reduce
+    // Motion keeps the cover and cross-fades the message in once it lands.
+    final revealWhileSettling = debugShouldRevealSettlingFirstTurnForTesting(
+      settleImmediately: _pinShouldSettleImmediately,
+      positionSettled: _pinToTopPositionSettled,
+      reduceMotion: context.reduceMotion,
+    );
 
     final viewportWidth = MediaQuery.sizeOf(context).width;
     final textScale = MediaQuery.textScalerOf(context).scale(1);
@@ -3070,7 +3085,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       extentMemory.record(extentKeyFor(message), extent);
     }
 
-    return ChatTimelineViewport(
+    final timelineViewport = ChatTimelineViewport(
       controller: _timelineViewportController,
       ownerGeneration: _conversationOwnerGeneration,
       messageIds: messageIds,
@@ -3107,6 +3122,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
           _timelineScrollMode == _ChatTimelineScrollMode.followingLatest,
       pinAutomatic: _shouldAutoFollowPinnedTurn,
       hideUntilSettled: hideForInitialPin,
+      revealWhileSettling: revealWhileSettling,
       onPointerDown: () {
         // Ramp the ProMotion panel before the drag even clears touch slop;
         // waiting for drag-start leaves the fling's first stretch at 40 Hz.
@@ -3161,6 +3177,24 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       onTrailingRefresh: _refreshActiveConversation,
       onNativeScrollToTop: _handleNativeScrollToTop,
       rowBuilder: rowBuilder,
+    );
+    // One stable shape with or without the leaving greeting, so the viewport
+    // keeps its element when the greeting goes.
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        timelineViewport,
+        if (_greetingExiting)
+          ChatGreetingExit(
+            key: const ValueKey('chat-greeting-exit'),
+            onDone: () {
+              if (mounted && _greetingExiting) {
+                setState(() => _greetingExiting = false);
+              }
+            },
+            child: _buildEmptyState(Theme.of(context)),
+          ),
+      ],
     );
   }
 
@@ -3692,6 +3726,11 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   /// A one-line composer pill, unscaled.
   static const double _emptyStateSingleLineComposerHeight = 48;
 
+  /// The new-chat greeting: Title 1 size and tracking, semibold.
+  static const double _emptyStateGreetingFontSize = 28;
+  static const double _emptyStateGreetingLineHeight = 34;
+  static const double _emptyStateGreetingTracking = 0.38;
+
   /// How far the composer may grow past one line before the greeting makes
   /// room for it.
   static const double _emptyStateComposerGrowthAllowance = 120;
@@ -3722,12 +3761,19 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         });
       });
     }
-    final baseGreetingStyle =
-        theme.textTheme.displaySmall ?? AppTypography.displaySmallStyle;
-    final greetingStyle = baseGreetingStyle.copyWith(
-      fontWeight: FontWeight.w600,
-      color: context.conduitTheme.textPrimary,
-    );
+    // A title, not a caption: 28 pt semibold with Title 1 tracking, so the
+    // one line on an empty screen reads as deliberate. The theme's display
+    // style keeps the display cut of the system font at this size.
+    final greetingStyle =
+        (theme.textTheme.displaySmall ?? AppTypography.displaySmallStyle)
+            .copyWith(
+              fontSize: _emptyStateGreetingFontSize,
+              height:
+                  _emptyStateGreetingLineHeight / _emptyStateGreetingFontSize,
+              letterSpacing: _emptyStateGreetingTracking,
+              fontWeight: FontWeight.w600,
+              color: context.conduitTheme.textPrimary,
+            );
     final textScaler = MediaQuery.textScalerOf(context);
     final greetingHeight =
         textScaler.scale(greetingStyle.fontSize ?? 24) *
@@ -3756,6 +3802,11 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     final bottomPadding = _emptyStateBottomReserve(context);
     return LayoutBuilder(
       builder: (context, constraints) {
+        // Sit at the optical centre between the header and the composer, a
+        // little above the geometric one.
+        final opticalLift = debugChatEmptyStateOpticalLiftForTesting(
+          availableHeight: constraints.maxHeight - topPadding - bottomPadding,
+        );
         final greetingDisplay = greetingText;
         final temporaryChatNotice = Column(
           mainAxisSize: MainAxisSize.min,
@@ -3790,7 +3841,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                 Spacing.lg,
                 topPadding,
                 Spacing.lg,
-                bottomPadding,
+                bottomPadding + 2 * opticalLift,
               ),
               children: [
                 if (pendingFolder != null) ...[
@@ -5694,6 +5745,24 @@ bool debugShouldHideTranscriptForInitialPinForTesting({
   required bool settleImmediately,
   required bool positionSettled,
 }) => settleImmediately && !positionSettled;
+
+/// How far the empty chat's greeting sits above the geometric centre of
+/// [availableHeight] (between the header and the composer): 4 %, the usual
+/// optical-centre correction, so it does not read as sagging.
+@visibleForTesting
+double debugChatEmptyStateOpticalLiftForTesting({
+  required double availableHeight,
+}) => availableHeight <= 0 ? 0 : availableHeight * 0.04;
+
+/// Whether a new chat's first turn shows while its position settles: yes
+/// unless Reduce Motion is on, since the sent message's own spring absorbs
+/// the settling.
+@visibleForTesting
+bool debugShouldRevealSettlingFirstTurnForTesting({
+  required bool settleImmediately,
+  required bool positionSettled,
+  required bool reduceMotion,
+}) => settleImmediately && !positionSettled && !reduceMotion;
 
 @visibleForTesting
 bool debugShouldApplyDeferredConversationMutationForTesting({

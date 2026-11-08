@@ -2394,6 +2394,44 @@ void main() {
     check(tester.widget<IgnorePointer>(interaction).ignoring).isFalse();
   });
 
+  _viewportTest(
+    'a first turn entering on its own motion shows while it settles',
+    (tester) async {
+      final controller = _controller(tester);
+      var reveal = true;
+      late StateSetter rebuild;
+
+      await tester.pumpWidget(
+        _viewportHost(
+          StatefulBuilder(
+            builder: (context, setState) {
+              rebuild = setState;
+              return _viewport(
+                controller: controller,
+                ids: const ['user', 'assistant'],
+                hideUntilSettled: true,
+                revealWhileSettling: reveal,
+              );
+            },
+          ),
+        ),
+      );
+      // Painted from the very first frame: no blank frame while the initial
+      // position and the pin resolve.
+      check(_transcriptOpacity(tester)).equals(1);
+      final interaction = find.byKey(
+        const ValueKey<String>('sliver-transcript-interaction'),
+      );
+      check(tester.widget<IgnorePointer>(interaction).ignoring).isFalse();
+
+      // Once revealed it stays revealed for this owner, even when the caller
+      // stops asking before the settle cover would have lifted.
+      rebuild(() => reveal = false);
+      await tester.pump();
+      check(_transcriptOpacity(tester)).equals(1);
+    },
+  );
+
   _viewportTest('composer padding alone is not real transcript overflow', (
     tester,
   ) async {
@@ -2861,6 +2899,7 @@ Widget _viewport({
   Widget? liveFooter,
   Widget? trailingContent,
   bool hideUntilSettled = false,
+  bool revealWhileSettling = false,
   double Function(String id)? rowHeight,
   double? Function(int index)? estimateRowExtent,
   void Function(int index, double extent)? onRowExtentMeasured,
@@ -2896,6 +2935,7 @@ Widget _viewport({
     followLatest: followLatest ?? !maintainVisibleAnchor,
     pinAutomatic: pinAutomatic,
     hideUntilSettled: hideUntilSettled,
+    revealWhileSettling: revealWhileSettling,
     onPointerDown: onPointerDown ?? () {},
     onUserDragStart: onUserDragStart ?? () {},
     onUserDragEnd: onUserDragEnd ?? () {},

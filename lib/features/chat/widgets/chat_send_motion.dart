@@ -138,16 +138,80 @@ class _RenderFirstPaintListener extends RenderProxyBox {
   }
 }
 
+/// The new-chat greeting leaving as the first message is sent: it fades out
+/// over [duration] while the message rises from the composer, so the two
+/// share one motion and no frame goes blank. Reduce Motion makes the same
+/// fade the cross-fade. It never takes touches or VoiceOver focus, and
+/// calls [onDone] once it has gone.
+class ChatGreetingExit extends StatefulWidget {
+  const ChatGreetingExit({
+    super.key,
+    required this.child,
+    required this.onDone,
+  });
+
+  final Widget child;
+  final VoidCallback onDone;
+
+  static const Duration duration = Duration(milliseconds: 180);
+
+  @override
+  State<ChatGreetingExit> createState() => _ChatGreetingExitState();
+}
+
+class _ChatGreetingExitState extends State<ChatGreetingExit>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller = AnimationController(
+    vsync: this,
+    duration: ChatGreetingExit.duration,
+  );
+  late final Animation<double> _opacity = ReverseAnimation(
+    CurvedAnimation(parent: _controller, curve: Curves.easeOut),
+  );
+
+  @override
+  void initState() {
+    super.initState();
+    // Start the clock after the first frame that shows the greeting leaving,
+    // as the rising message does: a slow first frame (the new chat's
+    // transcript mounting) then delays both together instead of spending
+    // the fade before the message has moved.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _controller.forward().whenCompleteOrCancel(() {
+        if (mounted) widget.onDone();
+      });
+    });
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return IgnorePointer(
+      child: ExcludeSemantics(
+        child: FadeTransition(opacity: _opacity, child: widget.child),
+      ),
+    );
+  }
+}
+
 /// A just-sent message rising into place from where it was written.
 ///
 /// It moves on a critically damped spring (0.35 s response, damping 1.0,
-/// so no overshoot) from the send origin to its place in the thread,
-/// tracking that place live, so a scroll that settles the new turn at the
-/// same time folds into one motion. It fades in over the first 120 ms as
-/// the composer clears. Without an origin (a message from elsewhere) it
-/// rises a short way instead. Only a message created in the last few
-/// seconds, mounting for the first time, animates; Reduce Motion shows it in
-/// place.
+/// so no overshoot) from the send origin to its place in the thread. The
+/// spring chases that place live, keeping its own position and velocity, so
+/// whatever the timeline does meanwhile (a new chat settling its first turn,
+/// a scroll bringing the turn up) folds into one continuous motion with no
+/// jump. It is visible from its first frame and fades the rest of the way in
+/// as the composer clears, so the hand-off never shows an empty frame.
+/// Without an origin (a message from elsewhere) it rises a short way
+/// instead. Only a message created in the last few seconds, mounting for the
+/// first time, animates; Reduce Motion fades it in where it lands.
 class ChatSendEntrance extends StatefulWidget {
   const ChatSendEntrance({
     super.key,
@@ -164,21 +228,55 @@ class ChatSendEntrance extends StatefulWidget {
   /// Whether to rise from [ChatSendOrigin]; false rises a short way.
   final bool useSendOrigin;
 
-  /// Spring response (seconds) and the time it takes to settle within half
-  /// a pixel over a full-screen travel.
+  /// Spring response in seconds (critically damped: damping ratio 1.0).
   static const double springResponse = 0.35;
-  static const Duration settleDuration = Duration(milliseconds: 560);
-  static const Duration fadeDuration = Duration(milliseconds: 120);
+
+  /// Upper bound on the motion. A full-screen travel settles within half a
+  /// pixel in about 0.56 s; the rest is headroom for a target that keeps
+  /// moving for a while (a scroll bringing the turn into place).
+  static const Duration settleDuration = Duration(milliseconds: 1400);
+
+  /// The bubble starts this opaque, so its first frame already shows the
+  /// message, and reaches full opacity over [fadeDuration].
+  static const double initialOpacity = 0.45;
+  static const Duration fadeDuration = Duration(milliseconds: 150);
+
+  /// Reduce Motion: no travel, a plain fade in place.
+  static const Duration reducedMotionFadeDuration = Duration(milliseconds: 200);
 
   /// The rise without a known origin.
   static const double fallbackRise = 14;
 
+  /// Within this many points and points per second of its place, at rest.
+  static const double restDistance = 0.25;
+  static const double restSpeed = 6;
+
+  static double get _omega => 2 * math.pi / springResponse;
+
   /// Displacement left at [t] seconds for a critically damped spring with
-  /// [springResponse], as a fraction of the starting distance.
+  /// [springResponse] released at rest, as a fraction of the starting
+  /// distance.
   static double remainingAt(double t) {
     if (t <= 0) return 1;
-    final omega = 2 * math.pi / springResponse;
+    final omega = _omega;
     return (1 + omega * t) * math.exp(-omega * t);
+  }
+
+  /// Advances the spring [dt] seconds from [displacement] (points from its
+  /// target) moving at [velocity] (points per second).
+  static ({double displacement, double velocity}) step({
+    required double displacement,
+    required double velocity,
+    required double dt,
+  }) {
+    if (dt <= 0) return (displacement: displacement, velocity: velocity);
+    final omega = _omega;
+    final decay = math.exp(-omega * dt);
+    final b = velocity + omega * displacement;
+    return (
+      displacement: (displacement + b * dt) * decay,
+      velocity: (velocity - omega * b * dt) * decay,
+    );
   }
 
   @override
@@ -190,6 +288,7 @@ class _ChatSendEntranceState extends State<ChatSendEntrance>
   AnimationController? _controller;
   Rect? _origin;
   bool _decided = false;
+  bool _fadeOnly = false;
 
   @override
   void didChangeDependencies() {
@@ -197,13 +296,15 @@ class _ChatSendEntranceState extends State<ChatSendEntrance>
     if (_decided) return;
     _decided = true;
     if (!isChatEntranceAvailable(widget.messageId) ||
-        context.reduceMotion ||
         !isFreshChatContent(widget.timestamp)) {
       return;
     }
+    _fadeOnly = context.reduceMotion;
     _controller = AnimationController(
       vsync: this,
-      duration: ChatSendEntrance.settleDuration,
+      duration: _fadeOnly
+          ? ChatSendEntrance.reducedMotionFadeDuration
+          : ChatSendEntrance.settleDuration,
     );
   }
 
@@ -211,7 +312,20 @@ class _ChatSendEntranceState extends State<ChatSendEntrance>
   /// send origin; a mount replaced before it was ever seen leaves both.
   Rect? _beginOnScreen() {
     markChatEntranceShown(widget.messageId);
+    if (_fadeOnly) {
+      // The origin belongs to this send either way; spend it.
+      ChatSendOrigin.take();
+      return null;
+    }
     return _origin ??= widget.useSendOrigin ? ChatSendOrigin.take() : null;
+  }
+
+  /// The spring came to rest before the clock ran out; stop asking for
+  /// frames.
+  void _settled() {
+    final controller = _controller;
+    if (controller == null || !controller.isAnimating) return;
+    controller.value = 1;
   }
 
   @override
@@ -226,7 +340,9 @@ class _ChatSendEntranceState extends State<ChatSendEntrance>
     if (controller == null) return widget.child;
     return _SendEntranceMotion(
       controller: controller,
+      fadeOnly: _fadeOnly,
       beginOnScreen: _beginOnScreen,
+      onSettled: _settled,
       child: widget.child,
     );
   }
@@ -235,18 +351,27 @@ class _ChatSendEntranceState extends State<ChatSendEntrance>
 class _SendEntranceMotion extends SingleChildRenderObjectWidget {
   const _SendEntranceMotion({
     required this.controller,
+    required this.fadeOnly,
     required this.beginOnScreen,
+    required this.onSettled,
     required super.child,
   });
 
   final AnimationController controller;
+  final bool fadeOnly;
 
   /// Called at the first paint; returns the send origin, if any.
   final Rect? Function() beginOnScreen;
+  final VoidCallback onSettled;
 
   @override
   _RenderSendEntrance createRenderObject(BuildContext context) =>
-      _RenderSendEntrance(controller: controller, beginOnScreen: beginOnScreen);
+      _RenderSendEntrance(
+        controller: controller,
+        fadeOnly: fadeOnly,
+        beginOnScreen: beginOnScreen,
+        onSettled: onSettled,
+      );
 
   @override
   void updateRenderObject(
@@ -255,21 +380,29 @@ class _SendEntranceMotion extends SingleChildRenderObjectWidget {
   ) {
     renderObject
       ..controller = controller
-      ..beginOnScreen = beginOnScreen;
+      ..fadeOnly = fadeOnly
+      ..beginOnScreen = beginOnScreen
+      ..onSettled = onSettled;
   }
 }
 
-/// Paints its child displaced towards the send origin. The displacement is
-/// decided at paint time from the child's live position, which only paint
-/// knows; the first paint starts the clock, so a row laid out but not yet
-/// shown (an initial scroll settling behind a cover) still enters fully.
+/// Paints its child displaced towards where the spring has carried it. The
+/// spring's state is its painted global top and velocity; each paint aims
+/// it at the child's live laid-out top, which only paint knows. A target
+/// that jumps (the timeline settling) changes where the spring is heading,
+/// never where it is, so the bubble moves continuously. The first paint
+/// starts the clock, so a row laid out but not yet shown still enters fully.
 class _RenderSendEntrance extends RenderProxyBox {
   _RenderSendEntrance({
     required AnimationController controller,
+    required this.fadeOnly,
     required this.beginOnScreen,
+    required this.onSettled,
   }) : _controller = controller;
 
+  bool fadeOnly;
   Rect? Function() beginOnScreen;
+  VoidCallback onSettled;
 
   AnimationController _controller;
   set controller(AnimationController value) {
@@ -279,13 +412,16 @@ class _RenderSendEntrance extends RenderProxyBox {
     if (attached) _controller.addListener(markNeedsPaint);
   }
 
-  Rect? _origin;
+  /// Global top the spring has carried the child to, and its velocity.
+  double? _visualTop;
+  double _velocity = 0;
 
-  /// Global top the child starts from, fixed at the first paint.
-  double? _startTop;
+  /// Clock reading (seconds) the spring state was last advanced to.
+  double _advancedTo = 0;
   double _offsetY = 0;
   double _opacity = 1;
   bool _started = false;
+  bool _settled = false;
 
   @override
   void attach(PipelineOwner owner) {
@@ -299,7 +435,17 @@ class _RenderSendEntrance extends RenderProxyBox {
     super.detach();
   }
 
-  bool get _finished => _started && _controller.isCompleted;
+  bool get _finished => _settled || (_started && _controller.isCompleted);
+
+  double get _clockSeconds {
+    final duration = _controller.duration ?? Duration.zero;
+    return _controller.value *
+        duration.inMicroseconds /
+        Duration.microsecondsPerSecond;
+  }
+
+  double _secondsOf(Duration duration) =>
+      duration.inMicroseconds / Duration.microsecondsPerSecond;
 
   void _resolveFrame() {
     if (_finished) {
@@ -307,22 +453,55 @@ class _RenderSendEntrance extends RenderProxyBox {
       _opacity = 1;
       return;
     }
+    final elapsed = _clockSeconds;
+    if (fadeOnly) {
+      _offsetY = 0;
+      final t =
+          (elapsed / _secondsOf(ChatSendEntrance.reducedMotionFadeDuration))
+              .clamp(0.0, 1.0);
+      _opacity = Curves.easeOut.transform(t);
+      return;
+    }
     final layoutTop = localToGlobal(Offset.zero).dy;
-    final origin = _origin;
-    _startTop ??= origin == null
-        ? layoutTop + ChatSendEntrance.fallbackRise
-        // The message's last line starts where the field's last line was.
-        : origin.bottom - size.height;
-    final elapsed =
-        _controller.value *
-        ChatSendEntrance.settleDuration.inMicroseconds /
-        Duration.microsecondsPerSecond;
-    final remaining = ChatSendEntrance.remainingAt(elapsed);
-    _offsetY = (_startTop! - layoutTop) * remaining;
-    final fadeSeconds =
-        ChatSendEntrance.fadeDuration.inMicroseconds /
-        Duration.microsecondsPerSecond;
-    _opacity = (elapsed / fadeSeconds).clamp(0.0, 1.0);
+    var visualTop = _visualTop;
+    if (visualTop == null) {
+      final origin = beginOnScreen();
+      visualTop = origin == null
+          ? layoutTop + ChatSendEntrance.fallbackRise
+          // The message's last line starts where the field's last line was.
+          : origin.bottom - size.height;
+      _velocity = 0;
+      _advancedTo = elapsed;
+    } else if (elapsed > _advancedTo) {
+      final next = ChatSendEntrance.step(
+        displacement: visualTop - layoutTop,
+        velocity: _velocity,
+        dt: elapsed - _advancedTo,
+      );
+      visualTop = layoutTop + next.displacement;
+      _velocity = next.velocity;
+      _advancedTo = elapsed;
+    }
+    _visualTop = visualTop;
+    _offsetY = visualTop - layoutTop;
+    final fade = (elapsed / _secondsOf(ChatSendEntrance.fadeDuration)).clamp(
+      0.0,
+      1.0,
+    );
+    _opacity =
+        ChatSendEntrance.initialOpacity +
+        (1 - ChatSendEntrance.initialOpacity) * Curves.easeOut.transform(fade);
+    if (fade >= 1 &&
+        _offsetY.abs() < ChatSendEntrance.restDistance &&
+        _velocity.abs() < ChatSendEntrance.restSpeed) {
+      _settled = true;
+      _offsetY = 0;
+      _opacity = 1;
+      // Never change state from inside paint.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (attached) onSettled();
+      });
+    }
   }
 
   @override
@@ -331,10 +510,12 @@ class _RenderSendEntrance extends RenderProxyBox {
     if (child == null) return;
     if (!_started) {
       _started = true;
-      _origin = beginOnScreen();
+      if (fadeOnly) beginOnScreen();
       // The clock starts with the first frame that shows the row.
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (attached && !_controller.isAnimating) _controller.forward();
+        if (attached && !_controller.isAnimating && !_settled) {
+          _controller.forward();
+        }
       });
     }
     _resolveFrame();

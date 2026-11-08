@@ -87,7 +87,6 @@ class _StreamingTurnFooterState extends ConsumerState<StreamingTurnFooter>
   }
 
   static const Duration _switchDuration = Duration(milliseconds: 200);
-  static const Duration _labelSwitchDuration = Duration(milliseconds: 160);
 
   bool _disableAnimations = false;
   bool _didTriggerRunningHaptic = false;
@@ -199,60 +198,33 @@ class _StreamingTurnFooterState extends ConsumerState<StreamingTurnFooter>
                         // glyphs will sit, so the swap moves nothing.
                         child: SizedBox(
                           height: kStreamingTurnFooterRowHeight,
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              RepaintBoundary(
+                          // While the reply has shown nothing, "Thinking…"
+                          // stands in its first line (ReplyFirstLineThinking)
+                          // and the orbit stays out of sight, keeping its
+                          // place so nothing moves when it fades in under
+                          // the first words.
+                          child: Align(
+                            alignment: AlignmentDirectional.centerStart,
+                            widthFactor: 1,
+                            child: AnimatedOpacity(
+                              key: const ValueKey(
+                                'streaming-turn-orbit-opacity',
+                              ),
+                              opacity: showThinkingLabel ? 0 : 1,
+                              duration: _disableAnimations
+                                  ? Duration.zero
+                                  : _switchDuration,
+                              curve: Curves.easeOut,
+                              child: RepaintBoundary(
                                 child: ConduitStreamingOrbit(
                                   size: 28,
                                   color: context.conduitTheme.textSecondary
                                       .withValues(alpha: 0.75),
-                                  animate: !_disableAnimations,
+                                  animate:
+                                      !_disableAnimations && !showThinkingLabel,
                                 ),
                               ),
-                              // Until the reply shows anything, the orbit alone is
-                              // too quiet for a wait of several seconds. The label
-                              // leaves as soon as text, a status, or a streamed
-                              // reasoning block (with its own "Thinking…") appears;
-                              // the orbit stays put, so nothing shifts.
-                              Flexible(
-                                child: AnimatedSwitcher(
-                                  duration: _disableAnimations
-                                      ? Duration.zero
-                                      : _labelSwitchDuration,
-                                  switchInCurve: Curves.easeOut,
-                                  switchOutCurve: Curves.easeIn,
-                                  layoutBuilder:
-                                      (currentChild, previousChildren) => Stack(
-                                        alignment:
-                                            AlignmentDirectional.centerStart,
-                                        children: [
-                                          ...previousChildren,
-                                          ?currentChild,
-                                        ],
-                                      ),
-                                  child: showThinkingLabel
-                                      ? Padding(
-                                          key: const ValueKey(
-                                            'streaming-turn-thinking-label',
-                                          ),
-                                          padding:
-                                              const EdgeInsetsDirectional.only(
-                                                start: Spacing.xs,
-                                              ),
-                                          child: ThinkingStatusLabel(
-                                            startedAt: widget.message.timestamp,
-                                            animate: !_disableAnimations,
-                                          ),
-                                        )
-                                      : const SizedBox.shrink(
-                                          key: ValueKey(
-                                            'streaming-turn-thinking-label-empty',
-                                          ),
-                                        ),
-                                ),
-                              ),
-                            ],
+                            ),
                           ),
                         ),
                       ),
@@ -289,4 +261,71 @@ bool shouldShowThinkingLabel({
   if (message.files?.isNotEmpty ?? false) return false;
   if (message.codeExecutions.isNotEmpty) return false;
   return true;
+}
+
+/// Whether a reply shows "Thinking…" in place of its first line: while its
+/// turn runs and it has shown nothing yet (see [shouldShowThinkingLabel]).
+bool shouldShowReplyFirstLineThinking({
+  required ChatMessage message,
+  required String displayedContent,
+}) =>
+    shouldShowStreamingTurnFooter(message: message) &&
+    shouldShowThinkingLabel(
+      message: message,
+      hasStreamedContent: displayedContent.trim().isNotEmpty,
+    );
+
+/// "Thinking…" holding the place of a reply's first line until the reply
+/// shows anything, then cross-fading with that line where it stands.
+///
+/// The label is set in the reply's own body type and line height and sits at
+/// the top of the body, so the first words appear exactly where it was:
+/// nothing shifts when the answer starts. The body below is [child], which
+/// fades in on its own; this only fades the label out over it. Reduce Motion
+/// swaps them at once.
+class ReplyFirstLineThinking extends StatelessWidget {
+  const ReplyFirstLineThinking({
+    super.key,
+    required this.startedAt,
+    required this.showing,
+    required this.child,
+  });
+
+  /// When the reply was requested; the label's elapsed time counts from here.
+  final DateTime startedAt;
+  final bool showing;
+  final Widget child;
+
+  static const Duration fadeDuration = Duration(milliseconds: 150);
+  static const Key labelKey = ValueKey('reply-first-line-thinking');
+
+  @override
+  Widget build(BuildContext context) {
+    final reduceMotion = context.reduceMotion;
+    return Stack(
+      alignment: AlignmentDirectional.topStart,
+      children: [
+        child,
+        AnimatedSwitcher(
+          duration: reduceMotion ? Duration.zero : fadeDuration,
+          switchInCurve: Curves.easeOut,
+          switchOutCurve: Curves.easeIn,
+          layoutBuilder: (currentChild, previousChildren) => Stack(
+            alignment: AlignmentDirectional.topStart,
+            children: [...previousChildren, ?currentChild],
+          ),
+          child: showing
+              ? ThinkingStatusLabel(
+                  key: labelKey,
+                  startedAt: startedAt,
+                  animate: !reduceMotion,
+                  style: ConduitMarkdownStyle.fromTheme(context).body,
+                )
+              : const SizedBox.shrink(
+                  key: ValueKey('reply-first-line-thinking-empty'),
+                ),
+        ),
+      ],
+    );
+  }
 }

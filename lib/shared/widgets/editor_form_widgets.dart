@@ -57,7 +57,7 @@ class CodeEntryField extends StatelessWidget {
     if (PlatformInfo.isIOS) {
       input = CupertinoTextField(
         controller: controller,
-        placeholder: hint,
+        placeholder: maybePlaceholderClearOfCaret(hint),
         placeholderStyle: hintStyle,
         magnifierConfiguration: nativeIosTextMagnifierConfiguration,
         style: style,

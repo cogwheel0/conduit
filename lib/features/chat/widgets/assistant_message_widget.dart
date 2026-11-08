@@ -37,6 +37,8 @@ import 'package:conduit_core/features/chat/providers/reasoning_effort_provider.d
     show kAutomaticReasoningEffort, reasoningEffortForModel;
 
 import 'chat_send_motion.dart';
+import 'streaming_turn_footer.dart'
+    show ReplyFirstLineThinking, shouldShowReplyFirstLineThinking;
 import 'enhanced_image_attachment.dart';
 import 'enhanced_video_attachment.dart';
 import 'image_gallery_scope.dart';
@@ -1010,10 +1012,24 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
         final fade = _canFadeStreamingContent(displayedContent)
             ? _streamingContentFade
             : const AlwaysStoppedAnimation<double>(1.0);
-        return FadeTransition(
-          key: const ValueKey('assistant-streaming-content-fade'),
-          opacity: fade,
-          child: body,
+        final message = _chatMessage;
+        // Until the reply shows anything, "Thinking…" holds its first line,
+        // and the first words cross-fade in right there. Always wrapped, so
+        // the content keeps its element when the label goes.
+        return ReplyFirstLineThinking(
+          startedAt: message?.timestamp ?? DateTime.now(),
+          showing:
+              message != null &&
+              _activeVersionIndex < 0 &&
+              shouldShowReplyFirstLineThinking(
+                message: message,
+                displayedContent: displayedContent,
+              ),
+          child: FadeTransition(
+            key: const ValueKey('assistant-streaming-content-fade'),
+            opacity: fade,
+            child: body,
+          ),
         );
       },
     );

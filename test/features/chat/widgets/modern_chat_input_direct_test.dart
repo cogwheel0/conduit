@@ -11,6 +11,7 @@ import 'package:conduit_core/features/chat/providers/chat_providers.dart';
 import 'package:conduit/features/chat/services/voice_input_service.dart';
 import 'package:conduit/features/chat/widgets/composer_overflow_menu.dart';
 import 'package:conduit/features/chat/widgets/composer_overflow_items.dart';
+import 'package:conduit/features/chat/widgets/composer_prominent_button.dart';
 import 'package:conduit/features/chat/widgets/modern_chat_input.dart';
 import 'package:conduit_core/features/direct_connections/direct_connections.dart';
 import 'package:conduit_core/features/direct_connections/providers/direct_mcp_providers.dart';
@@ -1340,13 +1341,14 @@ void main() {
     );
   });
 
-  testWidgets('iOS 26 native primary control ignores unrelated rebuilds', (
+  testWidgets('iOS 26 Send is a monochrome Flutter disc, not tinted glass', (
     tester,
   ) async {
     PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.iOS;
     PlatformUiCapabilities.debugIOSMajorVersionOverride = 26;
     PlatformUiCapabilities.debugNativeIOS26Override = true;
     addTearDown(PlatformUiCapabilities.resetDebugOverrides);
+    final sent = <String>[];
 
     await tester.pumpWidget(
       ProviderScope(
@@ -1354,7 +1356,7 @@ void main() {
         child: MaterialApp(
           localizationsDelegates: conduitLocalizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,
-          home: Scaffold(body: ModernChatInput(onSendMessage: (_) {})),
+          home: Scaffold(body: ModernChatInput(onSendMessage: sent.add)),
         ),
       ),
     );
@@ -1362,16 +1364,28 @@ void main() {
     await tester.enterText(find.byType(TextField), '/');
     await tester.pump();
 
-    Finder nativePrimary() => find.descendant(
-      of: find.byKey(const ValueKey<String>('primary-btn-send')),
-      matching: find.byType(AdaptiveButton),
+    final send = find.byKey(const ValueKey<String>('primary-btn-send'));
+    Finder disc() => find.descendant(
+      of: send,
+      matching: find.byType(ComposerProminentButton),
     );
+    // UIKit's prominent glass highlight took the system accent; the disc is
+    // drawn in Flutter, in the theme's monochrome primary.
+    expect(
+      find.descendant(of: send, matching: find.byType(AdaptiveButton)),
+      findsNothing,
+    );
+    final state = tester.state(disc());
+    check(tester.getSize(send)).equals(const Size.square(TouchTarget.minimum));
 
-    final nativeButton = tester.widget<AdaptiveButton>(nativePrimary());
-    await tester.enterText(find.byType(TextField), '/a');
+    // Unrelated rebuilds keep the same control.
+    await tester.enterText(find.byType(TextField), 'Hello there');
     await tester.pump();
+    expect(tester.state(disc()), same(state));
 
-    expect(tester.widget<AdaptiveButton>(nativePrimary()), same(nativeButton));
+    await tester.tap(send);
+    await tester.pump();
+    check(sent).deepEquals(['Hello there']);
   });
 
   testWidgets('pre-iOS 26 composer uses 24pt Cupertino add and close glyphs', (
@@ -1783,26 +1797,23 @@ void main() {
     await tester.pump();
     await tester.pump();
 
-    expect(
-      actionButton(find.byKey(const ValueKey('create-draft-note-button')))
-          .style,
-      AdaptiveButtonStyle.plain,
+    // Create Note takes the mic's slot: a full 44 pt target with its glyph
+    // centred at the mic's size, so it is not squeezed against Send.
+    final noteTarget = tester.getRect(
+      find.byKey(const ValueKey('create-draft-note-button')),
     );
-    final noteVisualRect = tester.getRect(
-      find.descendant(
-        of: find.byKey(const ValueKey('create-draft-note-button')),
-        matching: find.byType(AdaptiveButton),
-      ),
-    );
-    final noteGlyphRect = tester.getRect(find.byIcon(Icons.note_add_outlined));
+    final noteGlyph = find.byIcon(Icons.note_add_outlined);
+    final noteGlyphRect = tester.getRect(noteGlyph);
     final sendVisualRect = tester.getRect(
       find.descendant(
         of: find.byKey(const ValueKey('primary-btn-send')),
         matching: find.byType(AdaptiveButton),
       ),
     );
-    expect(noteVisualRect.size, const Size.square(32));
-    expect(sendVisualRect.left - noteGlyphRect.right, 12);
+    expect(noteTarget.size, const Size.square(TouchTarget.minimum));
+    expect(tester.widget<Icon>(noteGlyph).size, IconSize.large);
+    expect(noteGlyphRect.center, noteTarget.center);
+    expect(sendVisualRect.left - noteGlyphRect.right, greaterThanOrEqualTo(16));
   });
 
   testWidgets('composer controls use the standard icon extent', (tester) async {

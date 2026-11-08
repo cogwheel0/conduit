@@ -86,36 +86,122 @@ void main() {
     expect(find.byKey(const ValueKey('typing')), findsOneWidget);
   });
 
-  testWidgets('spells out the wait until the reply shows anything', (
+  testWidgets(
+    'keeps the orbit out of sight while the first line says Thinking',
+    (tester) async {
+      final container = _buildContainer();
+      addTearDown(container.dispose);
+      final empty = ChatMessage(
+        id: 'assistant-live',
+        role: 'assistant',
+        content: '',
+        timestamp: DateTime.now(),
+        isStreaming: true,
+      );
+      double orbitOpacity() => tester
+          .widget<AnimatedOpacity>(
+            find.byKey(const ValueKey('streaming-turn-orbit-opacity')),
+          )
+          .opacity;
+
+      await tester.pumpWidget(
+        _buildHarness(container: container, message: empty),
+      );
+      await tester.pump();
+      // "Thinking…" lives in the reply's first line now, not here; the
+      // orbit keeps its place but stays hidden, so nothing moves later.
+      expect(find.byType(ThinkingStatusLabel), findsNothing);
+      expect(find.byType(ConduitStreamingOrbit), findsOneWidget);
+      expect(orbitOpacity(), 0);
+      final rowHeight = tester
+          .getSize(find.byKey(const ValueKey('typing')))
+          .height;
+
+      await tester.pumpWidget(
+        _buildHarness(
+          container: container,
+          message: empty.copyWith(content: 'Hello'),
+        ),
+      );
+      await tester.pump();
+      expect(orbitOpacity(), 1);
+      expect(
+        tester.getSize(find.byKey(const ValueKey('typing'))).height,
+        rowHeight,
+      );
+    },
+  );
+
+  testWidgets('Thinking holds the first line and cross-fades in place', (
     tester,
   ) async {
-    final container = _buildContainer();
-    addTearDown(container.dispose);
+    final startedAt = DateTime.now();
+    const lineKey = ValueKey('first-line');
+    Widget harness({required bool showing, required String content}) =>
+        MaterialApp(
+          theme: AppTheme.light(TweakcnThemes.t3Chat),
+          home: Scaffold(
+            body: Align(
+              alignment: Alignment.topLeft,
+              child: ReplyFirstLineThinking(
+                startedAt: startedAt,
+                showing: showing,
+                child: content.isEmpty
+                    ? const SizedBox.shrink()
+                    : Text(content, key: lineKey),
+              ),
+            ),
+          ),
+        );
+
+    await tester.pumpWidget(harness(showing: true, content: ''));
+    final label = find.byKey(ReplyFirstLineThinking.labelKey);
+    expect(label, findsOneWidget);
+    final labelTop = tester.getTopLeft(label);
+    final heightWhileThinking = tester
+        .getSize(find.byType(ReplyFirstLineThinking))
+        .height;
+    // Set in the reply's body type: one line of the answer's own height.
+    expect(heightWhileThinking, closeTo(24, 0.5));
+
+    await tester.pumpWidget(harness(showing: false, content: 'Hello'));
+    await tester.pump(const Duration(milliseconds: 16));
+    // The first words start where the label stood; the label fades out over
+    // them instead of moving.
+    expect(tester.getTopLeft(find.byKey(lineKey)), labelTop);
+    expect(tester.getTopLeft(label), labelTop);
+    expect(
+      tester.getSize(find.byType(ReplyFirstLineThinking)).height,
+      greaterThanOrEqualTo(tester.getSize(find.byKey(lineKey)).height),
+    );
+    await tester.pumpAndSettle();
+    expect(label, findsNothing);
+  });
+
+  test('a reply shows Thinking in its first line only until it shows '
+      'anything', () {
     final empty = ChatMessage(
       id: 'assistant-live',
       role: 'assistant',
       content: '',
-      timestamp: DateTime.now(),
+      timestamp: DateTime(2026),
       isStreaming: true,
     );
-
-    await tester.pumpWidget(
-      _buildHarness(container: container, message: empty),
+    expect(
+      shouldShowReplyFirstLineThinking(message: empty, displayedContent: ''),
+      isTrue,
     );
-    await tester.pump();
-    expect(find.byType(ThinkingStatusLabel), findsOneWidget);
-    expect(find.byType(ConduitStreamingOrbit), findsOneWidget);
-
-    await tester.pumpWidget(
-      _buildHarness(
-        container: container,
-        message: empty.copyWith(content: 'Hello'),
+    expect(
+      shouldShowReplyFirstLineThinking(message: empty, displayedContent: 'Hi'),
+      isFalse,
+    );
+    expect(
+      shouldShowReplyFirstLineThinking(
+        message: empty.copyWith(isStreaming: false),
+        displayedContent: '',
       ),
+      isFalse,
     );
-    await tester.pump();
-    // The label leaves; the orbit stays where it was.
-    expect(find.byType(ThinkingStatusLabel), findsNothing);
-    expect(find.byType(ConduitStreamingOrbit), findsOneWidget);
   });
 
   test('the thinking label yields to anything the reply shows', () {

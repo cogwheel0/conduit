@@ -511,6 +511,40 @@ void main() {
     );
   });
 
+  test('a first turn shows while it settles unless Reduce Motion is on', () {
+    expect(
+      debugShouldRevealSettlingFirstTurnForTesting(
+        settleImmediately: true,
+        positionSettled: false,
+        reduceMotion: false,
+      ),
+      isTrue,
+    );
+    // Reduce Motion keeps the settle cover and cross-fades instead.
+    expect(
+      debugShouldRevealSettlingFirstTurnForTesting(
+        settleImmediately: true,
+        positionSettled: false,
+        reduceMotion: true,
+      ),
+      isFalse,
+    );
+    expect(
+      debugShouldRevealSettlingFirstTurnForTesting(
+        settleImmediately: false,
+        positionSettled: false,
+        reduceMotion: false,
+      ),
+      isFalse,
+    );
+  });
+
+  test('the empty chat greeting sits at the optical centre', () {
+    expect(debugChatEmptyStateOpticalLiftForTesting(availableHeight: 400), 16);
+    expect(debugChatEmptyStateOpticalLiftForTesting(availableHeight: 0), 0);
+    expect(debugChatEmptyStateOpticalLiftForTesting(availableHeight: -20), 0);
+  });
+
   test('deep-history pin prepositions once after the controller attaches', () {
     check(
       debugShouldPrepositionPinnedTurnForTesting(

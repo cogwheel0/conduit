@@ -286,6 +286,7 @@ class ChatTimelineViewport extends StatefulWidget {
     this.liveFooter,
     this.trailingContent,
     this.hideUntilSettled = false,
+    this.revealWhileSettling = false,
     this.rowRebuildKeys = const <Object?>[],
     this.estimateRowExtent,
     this.onRowExtentMeasured,
@@ -328,6 +329,13 @@ class ChatTimelineViewport extends StatefulWidget {
   final bool followLatest;
   final bool pinAutomatic;
   final bool hideUntilSettled;
+
+  /// Shows the transcript at once instead of hiding it until its initial
+  /// position (and [hideUntilSettled]) resolve. For a turn whose rows enter
+  /// with their own motion (a first message rising from the composer), so
+  /// no frame goes blank while the position settles. Once set, it holds for
+  /// this owner generation, even after the caller stops asking.
+  final bool revealWhileSettling;
   final VoidCallback onPointerDown;
   final VoidCallback onUserDragStart;
   final VoidCallback onUserDragEnd;
@@ -409,6 +417,7 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
   bool _initialPositionResolved = false;
   bool _initialPositionCallbackScheduled = false;
   bool _initialEmptyFallbackVisible = false;
+  bool _revealedWhileSettling = false;
   bool _oldestThresholdVisible = false;
   bool _refreshTriggered = false;
   bool _refreshActive = false;
@@ -551,6 +560,7 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
     _anchorCorrectionAttempts = 0;
     _initialPositionResolved = false;
     _initialEmptyFallbackVisible = false;
+    _revealedWhileSettling = false;
     _oldestThresholdVisible = false;
     _initialPositionAttempts = 0;
     _pinEndSpace = 0;
@@ -1919,9 +1929,11 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
   @override
   Widget build(BuildContext context) {
     final centerIndex = _centerIndex;
+    if (widget.revealWhileSettling) _revealedWhileSettling = true;
     final shouldHide =
-        (!_initialPositionResolved && !_initialEmptyFallbackVisible) ||
-        widget.hideUntilSettled;
+        !_revealedWhileSettling &&
+        ((!_initialPositionResolved && !_initialEmptyFallbackVisible) ||
+            widget.hideUntilSettled);
     return LayoutBuilder(
       builder: (context, constraints) {
         final viewportHeight = constraints.maxHeight;
