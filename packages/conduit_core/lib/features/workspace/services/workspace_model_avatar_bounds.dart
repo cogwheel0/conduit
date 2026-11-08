@@ -168,12 +168,12 @@ abstract final class WorkspaceModelAvatarBounds {
         return bytes;
       case _Resized(:final png):
         return png;
-      case _Undecodable():
+      case _Undecodable(:final requireHostBounds):
         // The host returns the bytes themselves when the image already fits,
         // which is a valid avatar in a format only it can read.
         final resized = await _hostResize(bytes, platformResize);
         if (resized != null) return resized;
-        if (bytes.length > maxKeptBytes) {
+        if (requireHostBounds || bytes.length > maxKeptBytes) {
           throw const WorkspaceAvatarTooLargeException();
         }
         return bytes;
@@ -245,9 +245,9 @@ abstract final class WorkspaceModelAvatarBounds {
         }
       }
     } on img.ImageException {
-      // Decoders can reject oversized headers before returning dimensions.
-      // A rejected header must not fall through to keeping the original bytes.
-      return const _TooLarge();
+      // A rejected header can be oversized. Keep the original only when the
+      // host confirms its dimensions fit, not merely because its file is small.
+      return const _Undecodable(requireHostBounds: true);
     } catch (_) {
       return const _Undecodable();
     }
@@ -299,7 +299,9 @@ final class _TooLarge extends _BoundResult {
 }
 
 final class _Undecodable extends _BoundResult {
-  const _Undecodable();
+  const _Undecodable({this.requireHostBounds = false});
+
+  final bool requireHostBounds;
 }
 
 final class _Resized extends _BoundResult {

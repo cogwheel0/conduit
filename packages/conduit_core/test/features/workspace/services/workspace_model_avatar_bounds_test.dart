@@ -83,6 +83,27 @@ void main() {
     },
   );
 
+  test(
+    'a rejected header requires host confirmation before keeping bytes',
+    () async {
+      final bytes = Uint8List.fromList(_png(8, 8));
+      bytes[29] ^= 1; // A small PNG with a rejected IHDR checksum.
+      check(() => img.findDecoderForData(bytes)!.startDecode(bytes))
+          .throws<img.ImageException>();
+      await check(WorkspaceModelAvatarBounds.bound(bytes))
+          .throws<WorkspaceAvatarTooLargeException>();
+
+      final bounded = await WorkspaceModelAvatarBounds.bound(
+        bytes,
+        platformResize: (given, edge) async {
+          check(edge).equals(WorkspaceModelAvatarBounds.maxEdge);
+          return given;
+        },
+      );
+      check(identical(bounded, bytes)).isTrue();
+    },
+  );
+
   test('a failing platform decoder keeps the original bytes', () async {
     final bytes = Uint8List.fromList(utf8.encode('heic stand-in'));
 

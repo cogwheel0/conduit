@@ -13,7 +13,7 @@ environment:
 dependencies:
   # `QueryExecutor` is part of the DatabaseOpener port's signature. The core
   # owns the schema, so drift belongs here rather than in the front-ends.
-  archive: ^4.0.9
+  archive: ^4.6.0
   xml: ^7.0.1
   mcp_dart: ^2.4.0
   parchment: ^1.27.0
@@ -33,7 +33,7 @@ dependencies:
   # and the workspace model avatar bounding
   # (features/workspace/services/workspace_model_avatar_bounds.dart), so the
   # core needs no widget raster path.
-  image: ^4.9.0
+  image: ^4.12.0
   conduit_markdown:
     path: ../conduit_markdown
   # On-device web search for Direct models (vendored `ddgs`, see its
