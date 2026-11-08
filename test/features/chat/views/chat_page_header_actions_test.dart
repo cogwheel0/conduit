@@ -328,11 +328,51 @@ void main() {
     expect(_barActions(tester), ['new-chat', 'more']);
     expect(tester.getCenter(pill).dx, closeTo(201, 0.5));
     // It may grow to the same distance from either side of the centre
-    // line: 402 - 2 * (16 + 80 + 8).
-    expect(
-      tester.widget<ConduitAdaptiveAppBarModelSelector>(pill).maxWidth,
-      194,
+    // line, 12 pt clear of the wider side: 402 - 2 * (16 + 80 + 12).
+    final maxWidth = tester
+        .widget<ConduitAdaptiveAppBarModelSelector>(pill)
+        .maxWidth;
+    expect(maxWidth, 186);
+    // At its widest it still keeps 12 pt from New Chat and More, and more
+    // from the sidebar button.
+    final actions = tester.getRect(
+      find.byKey(const ValueKey('chat-toolbar-actions')),
     );
+    final sidebar = tester.getRect(
+      find.byKey(const ValueKey('chat-sidebar-toggle')),
+    );
+    expect(actions.left - (201 + maxWidth / 2), greaterThanOrEqualTo(12));
+    expect((201 - maxWidth / 2) - sidebar.right, greaterThanOrEqualTo(12));
+    await _tearDown(tester);
+  });
+
+  testWidgets('a tap on the Temporary Chat glyph explains it before it '
+      'changes anything', (tester) async {
+    final container = await _pumpChatPage(tester);
+    final toggle = tester
+        .widget<ConduitToolbarActionCluster>(
+          find.byType(ConduitToolbarActionCluster),
+        )
+        .items
+        .single;
+    expect(toggle.id, 'temporary-chat');
+
+    toggle.action.onPressed!();
+    await tester.pumpAndSettle();
+    // The popover names the setting and says what it does; the tap alone
+    // leaves the chat as it was.
+    expect(find.text('Temporary Chat'), findsOneWidget);
+    expect(find.text("This chat won't appear in history"), findsOneWidget);
+    expect(container.read(temporaryChatEnabledProvider), isFalse);
+
+    // The popover's switch (Flutter's own where there is no native side).
+    await tester.tap(
+      find.byWidgetPredicate(
+        (widget) => widget.runtimeType.toString() == 'CupertinoSwitch',
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(container.read(temporaryChatEnabledProvider), isTrue);
     await _tearDown(tester);
   });
 }

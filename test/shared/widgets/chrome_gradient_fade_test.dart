@@ -88,25 +88,30 @@ void main() {
   });
 
   group('soft scroll edge', () {
-    // An iPhone header: status bar 62, bar 48 (buttons 44 tall, 2 below).
-    const top = ConduitScrollEdgeEffect.top(
-      chromeExtent: 110,
-      chromeThickness: 48,
-      solidExtent: 56,
-    );
+    // An iPhone header: status bar 62, buttons 44 tall centred in a 48 pt
+    // bar, so their bottom edge is 108 pt down.
+    const top = ConduitScrollEdgeEffect.top(coverExtent: 108);
 
-    test('covers the status bar, hazes the chrome, clears past it', () {
-      expect(top.extent, 110 + kConduitScrollEdgeSoftExtent);
-      // Fully covered behind the clock.
-      for (final d in [0.0, 20.0, 56.0]) {
+    test('covers the status bar and the buttons, then eases out', () {
+      expect(top.extent, 108 + kConduitScrollEdgeSoftExtent);
+      // The page background, fully, down to the buttons' bottom edge: no
+      // text, sharp or blurred, behind or beside the glass.
+      for (final d in [0.0, 30.0, 62.0, 86.0, 108.0]) {
         expect(top.tintOpacityAt(d), 1);
       }
-      // Mostly washed out behind the buttons, never fully opaque there, so
-      // the edge reads as a dissolve rather than a band.
-      expect(top.tintOpacityAt(86), closeTo(0.85, 0.001));
-      expect(top.tintOpacityAt(110), closeTo(0.7, 0.001));
-      // Clear at the end, with no step anywhere on the way.
+      // Text right beside the glass has already settled into the
+      // background, blurred out, rather than half-legible.
+      expect(top.settledExtent, greaterThan(108 + 6));
+      for (final d in [110.0, 114.0]) {
+        expect(top.tintOpacityAt(d), 1);
+        expect(top.sigmaAt(d), kConduitScrollEdgeMaxSigma);
+      }
+      // Then it eases out: clear at the end, with no step on the way.
       expect(top.tintOpacityAt(top.extent), 0);
+      expect(
+        top.tintOpacityAt((top.settledExtent + top.extent) / 2),
+        closeTo(0.5, 1e-9),
+      );
       var previous = 1.0;
       for (var d = 0.0; d <= top.extent; d += 0.5) {
         final alpha = top.tintOpacityAt(d);
@@ -116,14 +121,17 @@ void main() {
       }
     });
 
-    test('blurs hardest behind the chrome and eases out to sharp', () {
-      expect(top.sigmaAt(0), kConduitScrollEdgeMaxSigma);
-      expect(top.sigmaAt(top.fullBlurExtent), kConduitScrollEdgeMaxSigma);
+    test('the strip spans 24 to 32 pt below the chrome', () {
+      expect(kConduitScrollEdgeSoftExtent, inInclusiveRange(24, 32));
+    });
+
+    test('blurs hardest at the cover and eases out to sharp', () {
+      expect(top.sigmaAt(108), kConduitScrollEdgeMaxSigma);
       expect(top.sigmaAt(top.extent), 0);
-      // Text just past the buttons is soft but not smeared.
-      expect(top.sigmaAt(118), lessThan(1.5));
-      var previous = top.sigmaAt(top.fullBlurExtent);
-      for (var d = top.fullBlurExtent; d <= top.extent; d += 0.5) {
+      // Text just inside the strip is soft but not smeared.
+      expect(top.sigmaAt(top.extent - 4), lessThan(1.5));
+      var previous = top.sigmaAt(108);
+      for (var d = 108.0; d <= top.extent; d += 0.5) {
         final sigma = top.sigmaAt(d);
         expect(sigma, lessThanOrEqualTo(previous + 1e-9));
         expect(previous - sigma, lessThan(0.5), reason: 'no visible band');
@@ -131,7 +139,38 @@ void main() {
       }
     });
 
-    testWidgets('lays its tint from the chrome edge, ignoring touches', (
+    test('with nothing under the edge the strip is gone', () {
+      const resting = ConduitScrollEdgeEffect.top(
+        coverExtent: 108,
+        engagement: 0,
+      );
+      expect(resting.extent, 108);
+      // A first message resting 22 pt under the buttons is untouched.
+      expect(resting.tintOpacityAt(130), 0);
+      expect(resting.sigmaAt(130), 0);
+      // Fully engaged (a message pinned there after a send), it is all but
+      // untouched too.
+      expect(top.tintOpacityAt(130), lessThan(0.05));
+      // The cover itself never moves.
+      expect(resting.tintOpacityAt(108), 1);
+    });
+
+    test('a scroll toward the edge meets the strip at its clear end', () {
+      // Scrolled 10 pt: the strip is 10 pt long, and a line that has moved
+      // from 130 to 120 is still clear.
+      const engaged = ConduitScrollEdgeEffect.top(
+        coverExtent: 108,
+        engagement: 10 / kConduitScrollEdgeSoftExtent,
+      );
+      expect(engaged.stripExtent, closeTo(10, 1e-9));
+      expect(engaged.tintOpacityAt(120), 0);
+      expect(
+        engaged.tintOpacityAt((engaged.settledExtent + engaged.extent) / 2),
+        closeTo(0.5, 1e-9),
+      );
+    });
+
+    testWidgets('lays its tint from the screen edge, ignoring touches', (
       tester,
     ) async {
       await tester.pumpWidget(
@@ -145,11 +184,7 @@ void main() {
                   left: 0,
                   right: 0,
                   bottom: 0,
-                  child: ConduitScrollEdgeEffect.bottom(
-                    chromeExtent: 90,
-                    chromeThickness: 48,
-                    solidExtent: 42,
-                  ),
+                  child: ConduitScrollEdgeEffect.bottom(coverExtent: 90),
                 ),
               ],
             ),
@@ -168,7 +203,12 @@ void main() {
       final gradient =
           (box.decoration as BoxDecoration).gradient! as LinearGradient;
       expect(gradient.begin, Alignment.bottomCenter);
-      expect(gradient.colors.first.a, 1);
+      // Opaque from the screen's bottom past the composer's top.
+      expect(gradient.colors[1].a, 1);
+      expect(
+        gradient.stops![1],
+        greaterThan(90 / (90 + kConduitScrollEdgeSoftExtent)),
+      );
       expect(gradient.colors.last.a, 0);
     });
   });

@@ -285,13 +285,6 @@ const double _kChatChromeFadeHeight = 28.0;
 /// composer.
 const double _kChatComposerFadeHeight = 24.0;
 
-/// How far above the status bar's bottom the top scroll edge stops being
-/// fully covered, so the haze starts above the header's buttons.
-const double _kChatStatusBarEdgeOverlap = 6.0;
-
-/// A one-line composer pill, unscaled, for the scroll edge behind it.
-const double _kChatComposerEdgeThickness = 48.0;
-
 const double _kScrollToLatestButtonSize = 40.0;
 
 @visibleForTesting
@@ -555,6 +548,12 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     0,
   );
 
+  /// How much of the transcript lies under the header, and under the
+  /// composer (0 to 1): the soft strip at each edge grows with it, so a
+  /// transcript resting at either end is never washed out.
+  final ValueNotifier<double> _topEdgeEngagement = ValueNotifier<double>(0);
+  final ValueNotifier<double> _bottomEdgeEngagement = ValueNotifier<double>(0);
+
   /// The Temporary Chat toggle, for the popover that explains it.
   final GlobalKey _temporaryChatToggleKey = GlobalKey(
     debugLabel: 'temporary-chat-toggle',
@@ -700,11 +699,19 @@ class _ChatPageState extends ConsumerState<ChatPage> {
 
   void _handleViewportMetricsChanged(ChatTimelineViewportMetrics metrics) {
     if (!mounted || _isDeactivated) return;
+    final hasOlderMessages = ref.read(chatTranscriptPagingProvider).hasOlder;
     _headerShowsTitle.value = chatHeaderShowsTitle(
       scrolledFromTop: metrics.pixels - metrics.minScrollExtent,
-      hasOlderMessages: ref.read(chatTranscriptPagingProvider).hasOlder,
+      hasOlderMessages: hasOlderMessages,
       currentlyShowing: _headerShowsTitle.value,
       contentOverflowsViewport: metrics.hasRealContentOverflow,
+    );
+    _topEdgeEngagement.value = chatScrollEdgeEngagement(
+      distanceUnderEdge: metrics.pixels - metrics.minScrollExtent,
+      moreBeyondEdge: hasOlderMessages,
+    );
+    _bottomEdgeEngagement.value = chatScrollEdgeEngagement(
+      distanceUnderEdge: metrics.distanceFromLatest,
     );
     if (_isUserInteractingWithScroll &&
         metrics.distanceFromLatest > _scrollButtonHideThreshold) {
@@ -1051,6 +1058,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     _headerShowsTitle.dispose();
     _newChatActionsHoldTimer?.cancel();
     _scrollToLatestPresence.dispose();
+    _topEdgeEngagement.dispose();
+    _bottomEdgeEngagement.dispose();
     super.dispose();
   }
 
@@ -2311,38 +2320,37 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       ? math.max(0, _inputHeight - Spacing.xl)
       : MediaQuery.viewPaddingOf(context).bottom + Spacing.xxl;
 
-  /// The soft scroll edge under the header (iOS); elsewhere the opaque band
-  /// with a short fade below it.
+  /// The scroll edge under the header: on iOS the page background covers
+  /// the status bar and the header's buttons to their bottom edge, then the
+  /// transcript blurs and fades into it over a short strip, so no text,
+  /// sharp or blurred, ever sits behind or beside the glass. Elsewhere the
+  /// opaque band with a short fade below it.
   Widget _buildHeaderScrollEdge(BuildContext context) {
-    final chromeExtent =
-        MediaQuery.viewPaddingOf(context).top +
-        conduitAdaptiveToolbarHeightOf(context);
+    final topInset = MediaQuery.viewPaddingOf(context).top;
+    final toolbarHeight = conduitAdaptiveToolbarHeightOf(context);
     if (!PlatformInfo.isIOS) {
       return ConduitChromeGradientFade.top(
-        contentHeight: chromeExtent,
+        contentHeight: topInset + toolbarHeight,
         fadeHeight: _kChatChromeFadeHeight,
         solidBehindChrome: true,
       );
     }
-    return ConduitScrollEdgeEffect.top(
-      chromeExtent: chromeExtent,
-      chromeThickness: conduitAdaptiveToolbarHeightOf(context),
-      solidExtent: math.max(
-        0,
-        MediaQuery.viewPaddingOf(context).top - _kChatStatusBarEdgeOverlap,
+    // The buttons sit centred in the bar.
+    final buttonsBottom =
+        topInset + (toolbarHeight + conduitScaledControlExtent(context)) / 2;
+    return ValueListenableBuilder<double>(
+      valueListenable: _topEdgeEngagement,
+      builder: (context, engagement, _) => ConduitScrollEdgeEffect.top(
+        coverExtent: buttonsBottom,
+        engagement: engagement,
       ),
     );
   }
 
-  /// The soft scroll edge above the composer: covered from the screen's
-  /// bottom (or the keyboard) to the composer, a haze behind the pill's own
-  /// glass, and clear a line above it.
+  /// The same edge above the composer: covered from the screen's bottom (or
+  /// the keyboard) to the composer's top, then the strip above it.
   Widget _buildComposerScrollEdge(BuildContext context) {
     final composerTop = _composerTopInset(context);
-    final thickness = math.min(
-      composerTop,
-      MediaQuery.textScalerOf(context).scale(_kChatComposerEdgeThickness),
-    );
     if (!PlatformInfo.isIOS) {
       return ConduitChromeGradientFade.bottom(
         contentHeight: composerTop,
@@ -2350,20 +2358,23 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         solidBehindChrome: true,
       );
     }
-    // While the jump-to-latest button shows, the edge rises with it: the
-    // button floats over a haze too, and the text dissolves above it.
+    // While the jump-to-latest button shows, the cover rises with it to the
+    // button's top, so its glass floats over the page background too and
+    // the text dissolves above it rather than behind it.
     return ValueListenableBuilder<double>(
       valueListenable: _scrollToLatestPresence,
       builder: (context, presence, _) {
         final raise =
             presence *
             (kChatScrollToLatestComposerGap + _kScrollToLatestButtonSize);
-        return ConduitScrollEdgeEffect.bottom(
-          chromeExtent: composerTop + raise,
-          chromeThickness: thickness + raise,
-          solidExtent: composerTop - thickness,
-          chromeEdgeOpacity: 0.65,
-          chromeMiddleOpacity: 0.9,
+        return ValueListenableBuilder<double>(
+          valueListenable: _bottomEdgeEngagement,
+          builder: (context, engagement, _) => ConduitScrollEdgeEffect.bottom(
+            coverExtent: composerTop + raise,
+            // The button only shows away from the latest message, where
+            // there is always text under the edge.
+            engagement: math.max(engagement, presence),
+          ),
         );
       },
     );
@@ -4987,6 +4998,24 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       }
     }
 
+    // The glyph has no label, so a tap names it first: a popover from the
+    // button with the setting as a labelled switch and a line on what it
+    // does. Where there is no such popover, a tap flips it.
+    Future<void> presentToggle() async {
+      final shown = await showConduitToolbarTogglePopover(
+        context: context,
+        anchorKey: _temporaryChatToggleKey,
+        label: l10n.temporaryChat,
+        detail: l10n.temporaryChatTooltip,
+        symbol: temporaryChatToolbarSymbol(isTemporary: false),
+        value: ref.read(temporaryChatEnabledProvider),
+        onChanged: setTemporary,
+      );
+      if (!shown && mounted) {
+        setTemporary(!ref.read(temporaryChatEnabledProvider));
+      }
+    }
+
     return _buildChatToolbarIconAction(
       id: 'temporary-chat',
       icon: isTemporary
@@ -5003,27 +5032,13 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       // While the first message is on its way the toggle stays in place but
       // no longer changes the chat (it keeps looking enabled, so the bar
       // does not flicker before it changes to the chat's actions).
-      onPressed: held
-          ? () {}
-          : () => setTemporary(!ref.read(temporaryChatEnabledProvider)),
-      // The glyph has no label: a long press names it, says what it does
-      // and offers it as a switch.
+      onPressed: held ? () {} : () => unawaited(presentToggle()),
       anchorKey: _temporaryChatToggleKey,
       onLongPress: held
           ? null
           : () {
               ConduitHaptics.lightImpact();
-              unawaited(
-                showConduitToolbarTogglePopover(
-                  context: context,
-                  anchorKey: _temporaryChatToggleKey,
-                  label: l10n.temporaryChat,
-                  detail: l10n.temporaryChatTooltip,
-                  symbol: 'circle.dashed',
-                  value: ref.read(temporaryChatEnabledProvider),
-                  onChanged: setTemporary,
-                ),
-              );
+              unawaited(presentToggle());
             },
     );
   }
@@ -5320,6 +5335,21 @@ bool chatHeaderShowsTitle({
   if (hasOlderMessages) return true;
   if (!contentOverflowsViewport) return false;
   return scrolledFromTop > (currentlyShowing ? 8.0 : 20.0);
+}
+
+/// How much of the transcript lies under a scroll edge, from 0 (it rests at
+/// that end) to 1, given how far it has scrolled past the end
+/// ([distanceUnderEdge]) and whether more waits beyond it unloaded.
+@visibleForTesting
+double chatScrollEdgeEngagement({
+  required double distanceUnderEdge,
+  bool moreBeyondEdge = false,
+}) {
+  if (moreBeyondEdge) return 1;
+  if (!distanceUnderEdge.isFinite || distanceUnderEdge <= 0) return 0;
+  return (distanceUnderEdge / kConduitScrollEdgeSoftExtent)
+      .clamp(0.0, 1.0)
+      .toDouble();
 }
 
 ({String? displayName, Model? matchedModel}) _resolveChatModelPresentation({
