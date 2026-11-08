@@ -95,7 +95,7 @@ class _ScheduledTasksListState extends ConsumerState<_ScheduledTasksList> {
     // Reopening shows the server's current list. A first open has no list yet,
     // and reading the provider below is what loads it, so only a provider that
     // already existed is refreshed.
-    final reopened = ref.exists(automationsProvider);
+    final reopened = ref.read(automationsProvider.exists);
     _query = ref.read(automationsProvider).asData?.value.query ?? '';
     _search.text = _query;
     if (reopened) {

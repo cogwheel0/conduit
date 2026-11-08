@@ -72,7 +72,7 @@ class _CalendarAgendaState extends ConsumerState<_CalendarAgenda> {
     // Reopening shows what the server holds now. A first open has no agenda
     // yet, and reading the provider below is what loads it, so only a provider
     // that already existed is refreshed.
-    if (ref.exists(calendarAgendaProvider)) {
+    if (ref.read(calendarAgendaProvider.exists)) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted || ref.read(calendarAgendaProvider).isLoading) return;
         _refresh();

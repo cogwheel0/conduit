@@ -195,7 +195,7 @@ Future<void> _startNewChat(BuildContext context, WidgetRef ref) async {
 /// Messages the person has sent in the open transcript. Without one there is
 /// nothing a late New Chat could clear.
 int _userMessageCount(WidgetRef ref) {
-  if (!ref.exists(chat.chatMessagesProvider)) return 0;
+  if (!ref.read(chat.chatMessagesProvider.exists)) return 0;
   return ref
       .read(chat.chatMessagesProvider)
       .where((message) => message.role == 'user')
