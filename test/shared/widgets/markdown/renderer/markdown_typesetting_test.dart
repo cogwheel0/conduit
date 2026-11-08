@@ -8,6 +8,7 @@ import 'package:conduit/shared/widgets/markdown/renderer/horizontal_overflow_fad
 import 'package:conduit/shared/widgets/markdown/renderer/markdown_style.dart';
 import 'package:conduit/shared/widgets/markdown/streaming_markdown_widget.dart';
 import 'package:flutter/rendering.dart' show RenderParagraph, RenderTable;
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
@@ -537,5 +538,110 @@ void main() {
       final widths = solve([240, 60], [300, 400]);
       expect(widths[0], greaterThanOrEqualTo(240));
     });
+  });
+
+  group('number ranges', () {
+    testWidgets('a range never breaks after its dash', (tester) async {
+      await pump(tester, 'x');
+      final glyph = style.body.fontSize!;
+      // Wide enough for "Doubles within 4–" but not for "4–6".
+      await pump(tester, 'Doubles within 4–6 hours', width: glyph * 17.5);
+
+      final paragraph = paragraphStartingWith(tester, 'Doubles');
+      final text = paragraph.text.toPlainText();
+      final four = text.indexOf('4');
+      final six = text.indexOf('6');
+      double lineOf(int offset) => paragraph
+          .getOffsetForCaret(TextPosition(offset: offset), Rect.zero)
+          .dy;
+      expect(lineOf(four), greaterThan(lineOf(0)), reason: 'range wraps');
+      expect(lineOf(six), lineOf(four), reason: '4–6 stays on one line');
+      // The joiners take no room.
+      final range = paragraph
+          .getBoxesForSelection(
+            TextSelection(baseOffset: four, extentOffset: six + 1),
+          )
+          .map((box) => box.toRect().width)
+          .reduce((a, b) => a + b);
+      expect(range, closeTo(glyph * 3, 0.5));
+    });
+
+    testWidgets('copied text keeps the range as written', (tester) async {
+      await pump(tester, '| Day | Note |\n| --- | --- |\n| 4–6 | Doubles |');
+
+      final copied = <String>[];
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        (call) async {
+          if (call.method == 'Clipboard.setData') {
+            copied.add((call.arguments as Map)['text'] as String);
+          }
+          return null;
+        },
+      );
+      addTearDown(
+        () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+          SystemChannels.platform,
+          null,
+        ),
+      );
+
+      expect(
+        paragraphStartingWith(tester, '4').text.toPlainText(),
+        contains('\u2060'),
+      );
+      final region = tester.state<SelectableRegionState>(
+        find.byType(SelectableRegion),
+      );
+      region.selectAll(SelectionChangedCause.keyboard);
+      await tester.pump();
+      // The Copy item of the selection menu.
+      region.contextMenuButtonItems
+          .singleWhere((item) => item.type == ContextMenuButtonType.copy)
+          .onPressed!();
+      await tester.pump();
+
+      expect(copied, isNotEmpty);
+      expect(copied.last, contains('4–6'));
+      expect(copied.last, isNot(contains('\u2060')));
+      await tester.pumpAndSettle();
+    }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
+
+    testWidgets('copied text keeps the range as written on Android', (
+      tester,
+    ) async {
+      await pump(tester, 'Doubles within 4–6 hours');
+
+      final copied = <String>[];
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        (call) async {
+          if (call.method == 'Clipboard.setData') {
+            copied.add((call.arguments as Map)['text'] as String);
+          }
+          return null;
+        },
+      );
+      addTearDown(
+        () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+          SystemChannels.platform,
+          null,
+        ),
+      );
+
+      final region = tester.state<SelectableRegionState>(
+        find.byType(SelectableRegion),
+      );
+      region.selectAll(SelectionChangedCause.keyboard);
+      await tester.pump();
+      // The Copy item of the selection menu.
+      region.contextMenuButtonItems
+          .singleWhere((item) => item.type == ContextMenuButtonType.copy)
+          .onPressed!();
+      await tester.pump();
+
+      expect(copied.last, 'Doubles within 4–6 hours');
+      await tester.pumpAndSettle();
+    }, variant: TargetPlatformVariant.only(TargetPlatform.android));
   });
 }

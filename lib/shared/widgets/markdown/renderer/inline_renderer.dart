@@ -590,7 +590,9 @@ class InlineRenderer {
     final startOffset = _visibleTextOffset;
     final endOffset = startOffset + text.length;
     _visibleTextOffset = endOffset;
-    final span = TextSpan(text: text, style: currentStyle);
+    // Offsets stay in source coordinates; only the painted text gains the
+    // joiners that keep a range like "4–6" on one line.
+    final span = TextSpan(text: joinNumberRanges(text), style: currentStyle);
     _recordedRanges?[span] = FadableSpanRange(
       start: startOffset,
       end: endOffset,
@@ -716,13 +718,17 @@ class InlineRenderer {
     }
 
     // Straddling leaf: split at the fade boundary using the same offset math as
-    // the original walk. [fade.startOffset] is already surrogate-snapped.
+    // the original walk. [fade.startOffset] is already surrogate-snapped; the
+    // index moves past any word joiners added before it.
     //
     // Mirror the original walk, which emitted two sibling spans and attached the
     // link recognizer to EACH of them: a TextSpan's recognizer only applies to
     // its own `text`, so the recognizer is carried onto both child halves (and
     // their per-span metadata) rather than a text-less parent wrapper.
-    final splitIndex = fade.startOffset - range.start;
+    final sourceIndex = fade.startOffset - range.start;
+    final splitIndex = text.length == range.end - range.start
+        ? sourceIndex
+        : joinedTextIndex(text, sourceIndex);
     return TextSpan(
       children: [
         TextSpan(
