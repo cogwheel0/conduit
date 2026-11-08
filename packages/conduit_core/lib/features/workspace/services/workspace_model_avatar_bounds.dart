@@ -244,6 +244,10 @@ abstract final class WorkspaceModelAvatarBounds {
           return const _TooLarge();
         }
       }
+    } on img.ImageException {
+      // Decoders can reject oversized headers before returning dimensions.
+      // A rejected header must not fall through to keeping the original bytes.
+      return const _TooLarge();
     } catch (_) {
       return const _Undecodable();
     }

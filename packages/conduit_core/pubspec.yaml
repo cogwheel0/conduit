@@ -19,13 +19,13 @@ dependencies:
   parchment: ^1.27.0
   http: ^1.5.0
   http_parser: ^4.0.2
-  ollama_dart: ^2.4.0
+  ollama_dart: ^4.1.0
   web_socket_channel: ^3.0.3
   clock: ^1.1.2
   collection: ^1.19.1
   hive_ce: ^2.14.0
   intl: ^0.20.2
-  openai_dart: ^8.1.0
+  openai_dart: ^12.0.0
   socket_io_client: ^3.1.2
   synchronized: ^3.4.1
   web_socket: ^1.0.1
@@ -57,7 +57,7 @@ dependencies:
   # `riverpod` is pure Dart -- no Flutter, no web restriction -- so this does
   # not weaken the portability the package exists for. `flutter_riverpod`
   # stays in the app.
-  riverpod: ^3.4.3
+  riverpod: ^3.5.0
   riverpod_annotation: ^4.0.7
   uuid: ^4.6.0
   # Chat tool servers may publish their OpenAPI spec as YAML.

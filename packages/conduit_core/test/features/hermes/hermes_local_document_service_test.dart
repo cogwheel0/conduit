@@ -589,7 +589,7 @@ void main() {
     );
 
     test(
-      'bounds DOCX expansion even when ZIP metadata understates it',
+      'rejects DOCX expansion even when ZIP metadata understates it',
       () async {
         final xml =
             '<w:document xmlns:w="urn:w"><w:body><w:p><w:r><w:t>'
@@ -615,7 +615,9 @@ void main() {
           ),
         );
 
-        check(error.code).equals(HermesLocalDocumentError.sourceTooLarge);
+        // archive rejects output exceeding the declared entry size before
+        // Conduit's larger document-expansion limit is reached.
+        check(error.code).equals(HermesLocalDocumentError.malformedDocument);
       },
     );
 

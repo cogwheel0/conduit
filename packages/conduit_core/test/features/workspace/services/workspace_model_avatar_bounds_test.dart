@@ -159,13 +159,10 @@ void main() {
       return bytes;
     }
 
-    test('the oversized fixture really declares its size to the decoder', () {
-      final info = img
-          .findDecoderForData(declaredSize(20000, 20000))!
-          .startDecode(declaredSize(20000, 20000))!;
-
-      check(info.width).equals(20000);
-      check(info.height).equals(20000);
+    test('the decoder rejects the oversized fixture before allocating', () {
+      final bytes = declaredSize(20000, 20000);
+      check(() => img.findDecoderForData(bytes)!.startDecode(bytes))
+          .throws<img.ImageException>();
     });
 
     test('an image declaring too many pixels is never decoded', () async {
