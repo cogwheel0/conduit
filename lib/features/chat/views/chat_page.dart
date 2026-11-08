@@ -167,15 +167,63 @@ Widget debugBuildArchivedAssistantPlaceholderForTesting({Key? key}) =>
 
 class _ChatToolbarActionDescriptor {
   const _ChatToolbarActionDescriptor({
+    required this.id,
     required this.widget,
     required this.nativeAction,
     this.icon,
+    this.onLongPress,
+    this.anchorKey,
   });
 
+  /// Stable identity of the action, so the bar's grouped actions fade only
+  /// the ones that change.
+  final String id;
   final Widget widget;
   final ConduitNativeToolbarAction nativeAction;
   final IconData? icon;
+  final VoidCallback? onLongPress;
+  final GlobalKey? anchorKey;
+
+  ConduitToolbarClusterItem get clusterItem => ConduitToolbarClusterItem(
+    id: id,
+    action: nativeAction,
+    fallbackIcon: icon,
+    onLongPress: onLongPress,
+    anchorKey: anchorKey,
+  );
 }
+
+/// How long a new chat's bar actions wait, after its first send, for the
+/// conversation to exist before showing a chat's actions anyway.
+const Duration kChatHeaderNewChatActionsHold = Duration(milliseconds: 1200);
+
+/// Whether the header keeps a new chat's actions (the Temporary Chat toggle)
+/// for now: the first message is on its way but the conversation it creates
+/// does not exist yet, or exists only as the local placeholder the server's
+/// chat will replace.
+///
+/// Its bar actions depend on that conversation (More needs it), so without
+/// the hold the trailing glass stepped through every state in between:
+/// toggle, toggle and New Chat, New Chat alone, then New Chat and More.
+/// Holding lets them change once, to their final set. [holdExpired] ends the
+/// hold should the conversation take unusually long (offline, say).
+@visibleForTesting
+bool chatHeaderHoldsNewChatActions({
+  required bool hasMessages,
+  required bool hasSettledConversation,
+  required bool holdExpired,
+}) => hasMessages && !hasSettledConversation && !holdExpired;
+
+/// Whether [conversation] is the chat's own: a server chat, or a local one
+/// the user chose to keep temporary. A local placeholder for a chat that is
+/// being saved is not settled yet.
+@visibleForTesting
+bool chatHeaderConversationSettled({
+  required Conversation? conversation,
+  required bool temporaryChatEnabled,
+}) =>
+    conversation != null &&
+    (temporaryChatEnabled || !isTemporaryChat(conversation.id));
 
 @visibleForTesting
 Widget debugBuildChatEmptyStateViewportForTesting({
@@ -228,12 +276,20 @@ class _ScrollableCenteredEmptyState extends StatelessWidget {
 // off-screen instead of inside the visible fling.
 const double _chatMessageScrollCachePixels = 1200.0;
 
-/// Soft strip below the opaque band behind the status bar and header.
+/// Elsewhere than iOS: the soft strip below the opaque band behind the
+/// status bar and header.
 const double _kChatChromeFadeHeight = 28.0;
 
-/// Soft strip above the opaque band behind the composer. Short enough that
-/// the last reply, resting a line above the composer, stays fully legible.
+/// Elsewhere than iOS: the soft strip above the opaque band behind the
+/// composer.
 const double _kChatComposerFadeHeight = 24.0;
+
+/// How far above the status bar's bottom the top scroll edge stops being
+/// fully covered, so the haze starts above the header's buttons.
+const double _kChatStatusBarEdgeOverlap = 6.0;
+
+/// A one-line composer pill, unscaled, for the scroll edge behind it.
+const double _kChatComposerEdgeThickness = 48.0;
 
 const double _kScrollToLatestButtonSize = 40.0;
 
@@ -486,6 +542,22 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   /// Whether the transcript has scrolled under the header, so the header
   /// names the chat above its model.
   final ValueNotifier<bool> _headerShowsTitle = ValueNotifier<bool>(false);
+
+  /// Ends the hold that keeps a new chat's bar actions while its first send
+  /// creates the conversation (see [chatHeaderHoldsNewChatActions]).
+  Timer? _newChatActionsHoldTimer;
+  bool _newChatActionsHoldExpired = false;
+
+  /// How far in the jump-to-latest button is (0 to 1), so the soft edge
+  /// above the composer rises to hold it.
+  final ValueNotifier<double> _scrollToLatestPresence = ValueNotifier<double>(
+    0,
+  );
+
+  /// The Temporary Chat toggle, for the popover that explains it.
+  final GlobalKey _temporaryChatToggleKey = GlobalKey(
+    debugLabel: 'temporary-chat-toggle',
+  );
   bool _scrollToBottomVisibilitySyncScheduled = false;
   bool _scrollToBottomPrewarmPending = false;
   bool _hasUserScrolled = false;
@@ -973,6 +1045,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     }
     _timelineViewportController.dispose();
     _headerShowsTitle.dispose();
+    _newChatActionsHoldTimer?.cancel();
+    _scrollToLatestPresence.dispose();
     super.dispose();
   }
 
@@ -2206,6 +2280,64 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   double _composerTopInset(BuildContext context) => _inputHeight > 0
       ? math.max(0, _inputHeight - Spacing.xl)
       : MediaQuery.viewPaddingOf(context).bottom + Spacing.xxl;
+
+  /// The soft scroll edge under the header (iOS); elsewhere the opaque band
+  /// with a short fade below it.
+  Widget _buildHeaderScrollEdge(BuildContext context) {
+    final chromeExtent =
+        MediaQuery.viewPaddingOf(context).top +
+        conduitAdaptiveToolbarHeightOf(context);
+    if (!PlatformInfo.isIOS) {
+      return ConduitChromeGradientFade.top(
+        contentHeight: chromeExtent,
+        fadeHeight: _kChatChromeFadeHeight,
+        solidBehindChrome: true,
+      );
+    }
+    return ConduitScrollEdgeEffect.top(
+      chromeExtent: chromeExtent,
+      chromeThickness: conduitAdaptiveToolbarHeightOf(context),
+      solidExtent: math.max(
+        0,
+        MediaQuery.viewPaddingOf(context).top - _kChatStatusBarEdgeOverlap,
+      ),
+    );
+  }
+
+  /// The soft scroll edge above the composer: covered from the screen's
+  /// bottom (or the keyboard) to the composer, a haze behind the pill's own
+  /// glass, and clear a line above it.
+  Widget _buildComposerScrollEdge(BuildContext context) {
+    final composerTop = _composerTopInset(context);
+    final thickness = math.min(
+      composerTop,
+      MediaQuery.textScalerOf(context).scale(_kChatComposerEdgeThickness),
+    );
+    if (!PlatformInfo.isIOS) {
+      return ConduitChromeGradientFade.bottom(
+        contentHeight: composerTop,
+        fadeHeight: _kChatComposerFadeHeight,
+        solidBehindChrome: true,
+      );
+    }
+    // While the jump-to-latest button shows, the edge rises with it: the
+    // button floats over a haze too, and the text dissolves above it.
+    return ValueListenableBuilder<double>(
+      valueListenable: _scrollToLatestPresence,
+      builder: (context, presence, _) {
+        final raise =
+            presence *
+            (kChatScrollToLatestComposerGap + _kScrollToLatestButtonSize);
+        return ConduitScrollEdgeEffect.bottom(
+          chromeExtent: composerTop + raise,
+          chromeThickness: thickness + raise,
+          solidExtent: composerTop - thickness,
+          chromeEdgeOpacity: 0.65,
+          chromeMiddleOpacity: 0.9,
+        );
+      },
+    );
+  }
 
   /// User-initiated scroll to bottom (e.g. button tap).
   void _userScrollToBottom() {
@@ -3683,9 +3815,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     if (ref.read(chatVoiceModeControllerProvider).isActive) return measured;
     final singleLine =
         math.max(MediaQuery.paddingOf(context).bottom, Spacing.sm) +
-        MediaQuery.textScalerOf(
-          context,
-        ).scale(_emptyStateSingleLineComposerHeight);
+        MediaQuery.textScalerOf(context)
+            .scale(_emptyStateSingleLineComposerHeight);
     return math.max(singleLine, measured - _emptyStateComposerGrowthAllowance);
   }
 
@@ -4218,27 +4349,19 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                 left: 0,
                 right: 0,
                 top: 0,
-                // Opaque behind the status bar and the glass buttons, so
-                // neither the clock nor Liquid Glass sits over crisp text.
-                child: ConduitChromeGradientFade.top(
-                  contentHeight:
-                      MediaQuery.viewPaddingOf(context).top +
-                      conduitAdaptiveToolbarHeightOf(context),
-                  fadeHeight: _kChatChromeFadeHeight,
-                  solidBehindChrome: true,
-                ),
+                // Covered behind the status bar; behind the glass buttons
+                // the transcript blurs into a haze, so neither the clock nor
+                // Liquid Glass sits over crisp text; just past them it
+                // dissolves to sharp instead of being cut by a line.
+                child: _buildHeaderScrollEdge(context),
               ),
               Positioned(
                 left: 0,
                 right: 0,
                 bottom: 0,
-                // Opaque up to the composer's top edge, around its rounded
-                // ends included, then a soft fade above it.
-                child: ConduitChromeGradientFade.bottom(
-                  contentHeight: _composerTopInset(context),
-                  fadeHeight: _kChatComposerFadeHeight,
-                  solidBehindChrome: true,
-                ),
+                // The same edge above the composer: covered under it, a haze
+                // behind its glass, sharp a line above it.
+                child: _buildComposerScrollEdge(context),
               ),
               Positioned(
                 bottom: _composerTopInset(context),
@@ -4259,6 +4382,10 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                         key: const ValueKey('scroll_to_bottom'),
                         visible: visible,
                         dimension: _kScrollToLatestButtonSize,
+                        // iOS raises its soft scroll edge to hold the button.
+                        presence: PlatformInfo.isIOS
+                            ? _scrollToLatestPresence
+                            : null,
                         child: AdaptiveTooltip(
                           message: l10n.scrollToBottom,
                           child: _buildScrollToBottomButton(context),
@@ -4370,8 +4497,21 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     final activeConversation = ref.watch(activeConversationProvider);
     final isTemporary = ref.watch(temporaryChatEnabledProvider);
     final hasMessages = ref.watch(hasChatMessagesProvider);
-    final showNewChatAction = activeConversation != null || hasMessages;
+    // Through a first send the bar keeps the new chat's actions until the
+    // conversation exists, then changes once to the chat's own.
+    final holdsNewChatActions = _syncNewChatActionsHold(
+      hasMessages: hasMessages,
+      hasSettledConversation: chatHeaderConversationSettled(
+        conversation: activeConversation,
+        temporaryChatEnabled: isTemporary,
+      ),
+    );
+    // While held, the actions are a new chat's: no conversation, no messages.
+    final actionsConversation = holdsNewChatActions ? null : activeConversation;
+    final actionsSeeMessages = hasMessages && !holdsNewChatActions;
+    final showNewChatAction = actionsConversation != null || actionsSeeMessages;
     final tintColor = context.conduitTheme.textPrimary;
+    final controlExtent = conduitScaledControlExtent(context);
     final selectedModel = ref.watch(selectedModelProvider);
     final isHermes =
         (selectedModel != null && isHermesModel(selectedModel)) ||
@@ -4383,24 +4523,61 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     List<_ChatToolbarActionDescriptor> buildActions({bool compact = false}) =>
         _buildAdaptiveToolbarActions(
           context: context,
-          activeConversation: activeConversation,
+          activeConversation: actionsConversation,
           isHermes: isHermes,
           isTemporary: isTemporary,
-          hasMessages: hasMessages,
+          hasMessages: actionsSeeMessages,
           showNewChatAction: showNewChatAction,
+          newChatActionsHeld: holdsNewChatActions,
           compact: compact,
           overflowModel: overflowModel,
         );
     var actionDescriptors = buildActions();
-    double modelWidth() => resolveConduitAdaptiveLeadingPillWidth(
-      context,
-      trailingActionCount:
-          actionDescriptors.length + (showConnectionIssue ? 1 : 0),
-      maxWidth: kConduitAdaptiveToolbarMaxModelSelectorWidth,
-    );
+    // On iOS 26 the trailing actions share one glass capsule, as the
+    // sidebar's do.
+    bool groupsActions() =>
+        conduitSupportsNativeGlass() &&
+        actionDescriptors.isNotEmpty &&
+        actionDescriptors.length <= 3;
+    double trailingWidth() {
+      final count = actionDescriptors.length;
+      final actionsWidth = count == 0
+          ? 0.0
+          : groupsActions()
+          ? conduitToolbarClusterWidth(context, count)
+          : count * controlExtent + (count - 1) * Spacing.sm;
+      final connectionWidth = showConnectionIssue
+          ? controlExtent + (count > 0 ? Spacing.sm : 0)
+          : 0.0;
+      return actionsWidth + connectionWidth;
+    }
+
+    // iOS keeps the pill on the screen's centre line whatever it says, so it
+    // may use the same width on both sides. A bar too crowded for that
+    // (large text on a narrow phone) falls back to the room the buttons
+    // leave, off centre, rather than lose the picker; Material titles sit at
+    // the leading edge and always take that room.
+    double modelWidth() {
+      if (PlatformInfo.isIOS) {
+        final centered = resolveConduitCenteredTitleMaxWidth(
+          context,
+          leadingWidth: controlExtent,
+          trailingWidth: trailingWidth(),
+          maxWidth: kConduitAdaptiveToolbarMaxModelSelectorWidth,
+        );
+        if (centered >= 2 * controlExtent) return centered;
+      }
+      return resolveConduitAdaptiveLeadingPillWidth(
+        context,
+        trailingActionCount:
+            actionDescriptors.length + (showConnectionIssue ? 1 : 0),
+        maxWidth: kConduitAdaptiveToolbarMaxModelSelectorWidth,
+      );
+    }
+
     var maxModelWidth = modelWidth();
     // Keep the model picker while preserving secondary actions in More.
-    if (maxModelWidth < conduitScaledControlExtent(context)) {
+    if (maxModelWidth < controlExtent) {
       actionDescriptors = buildActions(compact: true);
       maxModelWidth = modelWidth();
     }
@@ -4432,19 +4609,18 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       if (showConnectionIssue) const LiveConnectionButton(),
       for (final action in actionDescriptors) action.widget,
     ]);
-    final useNativeActionGroup =
-        Platform.isIOS &&
-        conduitSupportsNativeGlass() &&
-        actionDescriptors.isNotEmpty &&
-        actionDescriptors.length <= 3;
-    final cupertinoTrailing = useNativeActionGroup
+    final cupertinoTrailing = groupsActions()
         ? Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              if (showConnectionIssue) const LiveConnectionButton(),
-              ConduitNativeToolbarActionGroup(
-                actions: [
-                  for (final action in actionDescriptors) action.nativeAction,
+              if (showConnectionIssue) ...[
+                const LiveConnectionButton(),
+                const SizedBox(width: Spacing.sm),
+              ],
+              ConduitToolbarActionCluster(
+                key: const ValueKey('chat-toolbar-actions'),
+                items: [
+                  for (final action in actionDescriptors) action.clusterItem,
                 ],
               ),
             ],
@@ -4455,8 +4631,10 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       tintColor: tintColor,
       leading: ConduitAdaptiveAppBarIconButton(
         key: const ValueKey('chat-sidebar-toggle'),
-        icon: Platform.isIOS ? CupertinoIcons.line_horizontal_3 : Icons.menu,
-        iosSymbol: 'line.3.horizontal',
+        // iOS shows a sidebar with "sidebar.left"; three lines read as a
+        // web menu. Material keeps its own menu glyph.
+        icon: Platform.isIOS ? CupertinoIcons.sidebar_left : Icons.menu,
+        iosSymbol: 'sidebar.left',
         semanticLabel: AppLocalizations.of(context)!.sidebarButtonLabel,
         onPressed: () => _toggleResponsiveDrawer(context),
         iconColor: tintColor,
@@ -4464,9 +4642,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       title: title,
       actions: actionWidgets,
       cupertinoTrailing: cupertinoTrailing,
-      // iOS centres the bar's identity between its buttons; it shifts
-      // toward the leading edge only when a long title needs the room.
-      centerTitle: Platform.isIOS,
+      // iOS keeps the bar's identity on the screen's centre line.
+      centerTitle: PlatformInfo.isIOS,
     );
   }
 
@@ -4568,6 +4745,29 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     return false;
   }
 
+  /// Whether the bar keeps a new chat's actions through its first send, and
+  /// starts or ends the hold's deadline to match. Called from build.
+  bool _syncNewChatActionsHold({
+    required bool hasMessages,
+    required bool hasSettledConversation,
+  }) {
+    if (!hasMessages || hasSettledConversation) {
+      _newChatActionsHoldTimer?.cancel();
+      _newChatActionsHoldTimer = null;
+      _newChatActionsHoldExpired = false;
+      return false;
+    }
+    _newChatActionsHoldTimer ??= Timer(kChatHeaderNewChatActionsHold, () {
+      if (!mounted) return;
+      setState(() => _newChatActionsHoldExpired = true);
+    });
+    return chatHeaderHoldsNewChatActions(
+      hasMessages: hasMessages,
+      hasSettledConversation: hasSettledConversation,
+      holdExpired: _newChatActionsHoldExpired,
+    );
+  }
+
   List<_ChatToolbarActionDescriptor> _buildAdaptiveToolbarActions({
     required BuildContext context,
     required Conversation? activeConversation,
@@ -4575,6 +4775,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     required bool isTemporary,
     required bool hasMessages,
     required bool showNewChatAction,
+    bool newChatActionsHeld = false,
     bool compact = false,
     ({String label, bool enabled})? overflowModel,
   }) {
@@ -4588,6 +4789,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       isTemporary: isTemporary,
       hasMessages: hasMessages,
       tintColor: defaultTint,
+      held: newChatActionsHeld,
     );
     if (temporaryAction != null) {
       actions.add(temporaryAction);
@@ -4596,6 +4798,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     if (showNewChatAction) {
       actions.add(
         _buildChatToolbarIconAction(
+          id: 'new-chat',
           icon: Platform.isIOS ? CupertinoIcons.create : Icons.add_comment,
           accessibilityLabel: AppLocalizations.of(context)!.newChat,
           tintColor: defaultTint,
@@ -4620,16 +4823,22 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   }
 
   _ChatToolbarActionDescriptor _buildChatToolbarIconAction({
+    required String id,
     required IconData icon,
     required String accessibilityLabel,
     required Color tintColor,
     required VoidCallback? onPressed,
     String? iosSymbol,
+    VoidCallback? onLongPress,
+    GlobalKey? anchorKey,
   }) {
     iosSymbol = conduitToolbarSfSymbolForIcon(icon, iosSymbol: iosSymbol);
     assert(iosSymbol != null);
     return _ChatToolbarActionDescriptor(
+      id: id,
       icon: icon,
+      onLongPress: onLongPress,
+      anchorKey: anchorKey,
       widget: ConduitAdaptiveAppBarIconButton(
         icon: icon,
         iosSymbol: iosSymbol,
@@ -4653,6 +4862,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     required bool isTemporary,
     required bool hasMessages,
     required Color tintColor,
+    bool held = false,
   }) {
     final showTemporaryAction = shouldShowTemporaryChatAction(
       isHermes: isHermes,
@@ -4665,6 +4875,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
 
     if (isTemporary && hasMessages && activeConversation != null) {
       return _buildChatToolbarIconAction(
+        id: 'save-chat',
         icon: Platform.isIOS ? CupertinoIcons.arrow_down_doc : Icons.save_alt,
         accessibilityLabel: AppLocalizations.of(context)!.saveChat,
         tintColor: tintColor,
@@ -4673,7 +4884,23 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     }
 
     final l10n = AppLocalizations.of(context)!;
+    void setTemporary(bool value) {
+      final current = ref.read(temporaryChatEnabledProvider);
+      if (value == current) return;
+      ConduitHaptics.selectionClick();
+      ref.read(temporaryChatEnabledProvider.notifier).set(value);
+      if (value) {
+        // The empty state explains it on screen; say it aloud too.
+        SemanticsService.sendAnnouncement(
+          View.of(context),
+          l10n.temporaryChatTooltip,
+          Directionality.of(context),
+        );
+      }
+    }
+
     return _buildChatToolbarIconAction(
+      id: 'temporary-chat',
       icon: isTemporary
           ? (Platform.isIOS ? CupertinoIcons.eye_slash : Icons.visibility_off)
           : (Platform.isIOS ? CupertinoIcons.eye : Icons.visibility_outlined),
@@ -4685,19 +4912,31 @@ class _ChatPageState extends ConsumerState<ChatPage> {
           ? '${l10n.temporaryChat}, ${l10n.enabled}'
           : l10n.temporaryChat,
       tintColor: tintColor,
-      onPressed: () {
-        ConduitHaptics.selectionClick();
-        final current = ref.read(temporaryChatEnabledProvider);
-        ref.read(temporaryChatEnabledProvider.notifier).set(!current);
-        if (!current) {
-          // The empty state explains it on screen; say it aloud too.
-          SemanticsService.sendAnnouncement(
-            View.of(context),
-            l10n.temporaryChatTooltip,
-            Directionality.of(context),
-          );
-        }
-      },
+      // While the first message is on its way the toggle stays in place but
+      // no longer changes the chat (it keeps looking enabled, so the bar
+      // does not flicker before it changes to the chat's actions).
+      onPressed: held
+          ? () {}
+          : () => setTemporary(!ref.read(temporaryChatEnabledProvider)),
+      // The glyph has no label: a long press names it, says what it does
+      // and offers it as a switch.
+      anchorKey: _temporaryChatToggleKey,
+      onLongPress: held
+          ? null
+          : () {
+              ConduitHaptics.lightImpact();
+              unawaited(
+                showConduitToolbarTogglePopover(
+                  context: context,
+                  anchorKey: _temporaryChatToggleKey,
+                  label: l10n.temporaryChat,
+                  detail: l10n.temporaryChatTooltip,
+                  symbol: 'circle.dashed',
+                  value: ref.read(temporaryChatEnabledProvider),
+                  onChanged: setTemporary,
+                ),
+              );
+            },
     );
   }
 
@@ -4849,6 +5088,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     }
 
     return _ChatToolbarActionDescriptor(
+      id: 'more',
       widget: ConduitAdaptiveToolbarOverflowButton<int>(
         tintColor: tintColor,
         materialIcon: Icons.more_vert,
