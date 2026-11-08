@@ -521,6 +521,40 @@ void main() {
       ).not((it) => it.equals(HermesDesktopTurnState.running));
     });
 
+    // Sent again after a lost answer, the submit came back as a stop phrase
+    // or a prompt a restart cut off, and the reply waited for good.
+    for (final (name, answer) in [
+      ('only ended a voice chat', <String, Object?>{'voice_stopped': true}),
+      (
+        'a restart cut off',
+        <String, Object?>{'admission_id': 'adm-1', 'status': 'unknown'},
+      ),
+    ]) {
+      test('a resent prompt that $name ends its reply', () async {
+        var submits = 0;
+        gateway.handler = (method, params) {
+          if (method == 'prompt.submit' && submits++ == 0) {
+            scheduleMicrotask(
+              () => gateway.incoming.addError(StateError('dropped')),
+            );
+            return _Authority.silent;
+          }
+          if (method == 'prompt.submit') return answer;
+          return gateway.defaults(method, params);
+        };
+        final events = await stream(() {});
+
+        check(gateway.calls('prompt.submit')).length.equals(2);
+        check(events.last).isA<HermesRunDone>();
+        if (answer['status'] == 'unknown') {
+          check(events.whereType<HermesRunError>().single.message)
+              .contains('does not know how far it got');
+        } else {
+          check(events.whereType<HermesRunError>()).isEmpty();
+        }
+      });
+    }
+
     test('a queued prompt cancelled elsewhere ends its reply', () async {
       final events = await stream(() {
         // Hermes settles a queued admission with only this completion: no
@@ -875,6 +909,25 @@ void main() {
       service.steer('local-1', 'be brief'),
     ).throws<HermesSteerUncertain>();
     check(gateway.calls('session.steer')).length.equals(1);
+    check(gateway.calls('prompt.submit')).isEmpty();
+  });
+
+  // A stop phrase sent as a steer ends the voice chat; it was reported as an
+  // unconfirmed steer and kept in the composer.
+  test('a steer that only ended a voice chat is done', () async {
+    final gateway = _Authority();
+    gateway.handler = (method, params) => method == 'session.steer'
+        ? {'voice_stopped': true}
+        : gateway.defaults(method, params);
+    final service = _service(
+      gateway,
+      rest: _Rest({
+        'GET /api/sessions/local-1/messages': (_) => (200, {'messages': []}),
+      }),
+    );
+    await service.createDesktopSession();
+
+    check(await service.steer('local-1', 'stop')).isTrue();
     check(gateway.calls('prompt.submit')).isEmpty();
   });
 

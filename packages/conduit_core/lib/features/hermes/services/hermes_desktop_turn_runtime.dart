@@ -23,6 +23,12 @@ Map<String, Object?> hermesPromptSubmitParams({
   },
 };
 
+/// A turn whose admission a restart cut off (receipt `unknown`): Hermes does
+/// not resume it.
+const String _kHermesUnknownAdmissionMessage =
+    'Hermes restarted while this message ran and does not know how far it '
+    'got. Check the chat for its reply.';
+
 extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
   Future<HermesResponseStream> _runtimeStreamDesktopResponse(
     HermesChatInput input, {
@@ -390,11 +396,7 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
             // `unknown`: a restart cut the run off, and Hermes does not know
             // how far it got.
             if (status == 'unknown') {
-              finish(
-                error:
-                    'Hermes restarted while this message ran and does not '
-                    'know how far it got. Check the chat for its reply.',
-              );
+              finish(error: _kHermesUnknownAdmissionMessage);
               _emitTranscriptChange(storedId);
               return;
             }
@@ -559,6 +561,15 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
           final reconciled = await _resumeSnapshot(storedId, refresh: true);
           binding = reconciled.binding;
           final submitted = await submitPrompt();
+          // A typed stop phrase ended the voice chat: nothing was admitted.
+          if (submitted is Map && submitted['voice_stopped'] == true) {
+            await _detachStaged(binding.runtimeId, stagedPaths);
+            finish();
+            return HermesResponseStream(
+              events: controller.stream,
+              sessionId: storedId,
+            );
+          }
           adoptAdmission(submitted);
           promptAcknowledged = true;
           if (cancelToken?.isCancelled == true) {
@@ -568,6 +579,10 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
             // It ran while the socket was down: its reply is stored. The
             // session may be running another prompt now.
             finish(authoritativeIdle: reconciled.running != true);
+            _emitTranscriptChange(storedId);
+          } else if (submitted is Map && submitted['status'] == 'unknown') {
+            // A restart cut it off; Hermes will not resume it.
+            finish(error: _kHermesUnknownAdmissionMessage);
             _emitTranscriptChange(storedId);
           } else {
             if (hasAuthoritativeState()) {
@@ -1161,6 +1176,8 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
       }
       rethrow;
     }
+    // A typed stop phrase ended the session's voice chat: done as asked.
+    if (result['voice_stopped'] == true) return true;
     final status = result['status'];
     if (status == 'queued') return true;
     if (canonical) {
