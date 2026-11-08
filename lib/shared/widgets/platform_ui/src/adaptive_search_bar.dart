@@ -69,6 +69,11 @@ class _AdaptiveNativeSearchBarState extends State<AdaptiveNativeSearchBar> {
   /// Text the app set that the native field has not reported yet.
   String? _pendingText;
 
+  /// Every text the app has set that the field has not reported back yet,
+  /// oldest first. The field reports each one, in order, as it takes it;
+  /// those reports are the app's own writes, not edits.
+  final List<String> _sent = [];
+
   /// Whether the app asked for the keyboard and focus requests are still
   /// being sent.
   bool _pendingFocus = false;
@@ -122,6 +127,9 @@ class _AdaptiveNativeSearchBarState extends State<AdaptiveNativeSearchBar> {
       _nativeText = '';
       final text = widget.controller.text;
       _pendingText = text.isEmpty ? null : text;
+      _sent
+        ..clear()
+        ..addAll([if (text.isNotEmpty) text]);
       _pendingFocus = _focusNode.hasFocus;
       _focusSends = 0;
       _retriesLeft = _maxRetries;
@@ -146,6 +154,7 @@ class _AdaptiveNativeSearchBarState extends State<AdaptiveNativeSearchBar> {
 
   void _setText(String text) {
     _pendingText = text;
+    _sent.add(text);
     _retriesLeft = _maxRetries;
     _send();
   }
@@ -189,12 +198,21 @@ class _AdaptiveNativeSearchBarState extends State<AdaptiveNativeSearchBar> {
   }
 
   void _onNativeChanged(String text) {
+    // A text sent again that the field and the app already had changes
+    // nothing. A new field starts empty while the app may still hold text,
+    // so an empty report can still be an edit.
+    if (text == _nativeText && text == widget.controller.text) return;
     _nativeText = text;
-    final took = text == _pendingText;
-    // Either the field took the app's text, or the person has edited it
-    // since: nothing is left to send.
+    final echoed = _sent.indexOf(text);
+    if (echoed >= 0) {
+      // The field took text the app set, and every write before it.
+      _sent.removeRange(0, echoed + 1);
+      if (text == _pendingText) _pendingText = null;
+      return;
+    }
+    // The person edited the field: that wins over anything still on its way.
+    _sent.clear();
     _pendingText = null;
-    if (took) return;
     if (widget.controller.text != text) {
       widget.controller.value = TextEditingValue(
         text: text,

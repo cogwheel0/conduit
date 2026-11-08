@@ -181,6 +181,33 @@ void main() {
     variant: ios,
   );
 
+  testWidgets(
+    'texts the app sets in quick succession are not reported as edits',
+    (tester) async {
+      final query = TextEditingController();
+      addTearDown(query.dispose);
+      final changes = <String>[];
+      await show(tester, _field(query, onChanged: changes.add));
+
+      // A second text before the field has reported the first.
+      query.text = 'alpha';
+      query.text = 'beta';
+      await tester.pump();
+      bar(tester).onChanged!('alpha');
+      bar(tester).onChanged!('beta');
+      // A text sent again reports nothing new.
+      bar(tester).onChanged!('beta');
+      expect(changes, isEmpty);
+      expect(query.text, 'beta');
+
+      // An edit is still the person's.
+      bar(tester).onChanged!('beta 2');
+      expect(changes, ['beta 2']);
+      expect(query.text, 'beta 2');
+    },
+    variant: ios,
+  );
+
   testWidgets('a new placeholder replaces the field and keeps the query', (
     tester,
   ) async {
