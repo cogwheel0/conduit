@@ -1,6 +1,7 @@
 import 'package:checks/checks.dart';
 import 'package:conduit_core/auth/auth_state_manager.dart';
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
+import 'package:conduit_core/features/librechat/providers/librechat_providers.dart';
 import 'package:conduit_core/features/workspace/models/workspace_capabilities.dart';
 import 'package:conduit_core/features/workspace/providers/workspace_capabilities_provider.dart';
 import 'package:conduit_core/models/server_config.dart';
@@ -99,6 +100,8 @@ void main() {
       check(container.read(primaryAccountKindProvider))
           .equals(PrimaryAccountKind.libreChat);
       check(container.read(primaryUserProvider)).isNull();
+      // No LibreChat account is saved: once that is read, it needs sign-in.
+      await container.read(libreChatSessionProvider.future);
       check(container.read(primaryAuthNavigationStateProvider))
           .equals(AuthNavigationState.needsLogin);
       // Chat waits for the LibreChat sign-in, not Open WebUI's.

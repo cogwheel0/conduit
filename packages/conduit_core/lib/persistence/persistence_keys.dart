@@ -171,6 +171,10 @@ final class PreferenceKeys {
   /// one has settled. Found at start, the change is finished or undone.
   static const String primarySwitchIntent = 'primary_switch_intent_v1';
 
+  /// Set when a full sign-out could not forget the LibreChat accounts and
+  /// their sessions. The next start forgets them before any can open.
+  static const String libreChatClearPending = 'librechat_clear_pending_v1';
+
   /// Non-secret boot hint only. Direct profile contents and credentials live
   /// exclusively in SecureCredentialStorage.
   static const String directConnectionsConfigured =

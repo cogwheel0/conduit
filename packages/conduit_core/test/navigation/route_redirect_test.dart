@@ -16,6 +16,7 @@ import 'package:conduit_core/providers/chat_entry_readiness_providers.dart';
 import 'package:conduit_core/providers/openwebui_accounts_controller.dart';
 import 'package:conduit_core/providers/openwebui_route_resolver.dart';
 import 'package:conduit_core/providers/primary_account_providers.dart';
+import 'package:conduit_core/providers/primary_account_switcher.dart';
 import 'package:riverpod/misc.dart';
 import 'package:riverpod/riverpod.dart';
 import 'package:test/test.dart';
@@ -43,6 +44,7 @@ ProviderRead _reader({
   String? settledAccount,
   bool proxySignInForRouteEditing = false,
   AuthNavigationState? primaryAuth,
+  bool bootRecovering = false,
 }) {
   final values = <ProviderListenable<Object?>, Object?>{
     // Read only with LibreChat in charge; an Open WebUI case leaves it unset,
@@ -52,6 +54,7 @@ ProviderRead _reader({
     settledActiveAccountIdProvider: settledAccount,
     proxySignInForRouteEditingProvider: proxySignInForRouteEditing,
     reviewerModeProvider: reviewerMode,
+    primaryBootRecoveryPendingProvider: bootRecovering,
     activeServerProvider: activeServer,
     authNavigationStateProvider: auth,
     preferredBackendProvider: preferred,
@@ -111,6 +114,27 @@ Future<AsyncValue<ServerConfig?>> _refreshing(ServerConfig server) async {
 }
 
 void main() {
+  test('a change of the primary account cut short holds the splash until '
+      'startup settles it', () {
+    // Open WebUI parked by a switch to LibreChat that never finished.
+    final read = _reader(
+      activeServer: const AsyncData(null),
+      auth: AuthNavigationState.needsLogin,
+      bootRecovering: true,
+    );
+    for (final location in [
+      Routes.chat,
+      Routes.backendChooser,
+      Routes.authentication,
+    ]) {
+      check(
+        because: location,
+        resolveRouteRedirect(location, read),
+      ).equals(Routes.splash);
+    }
+    check(resolveRouteRedirect(Routes.splash, read)).isNull();
+  });
+
   group('with a LibreChat account in charge', () {
     // Open WebUI is parked: no active server, signed out. None of its rules
     // may decide where a LibreChat user goes.

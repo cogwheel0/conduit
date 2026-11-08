@@ -12,6 +12,8 @@ import 'package:conduit_core/providers/openwebui_accounts_controller.dart';
 import 'package:conduit_core/providers/openwebui_route_resolver.dart'
     show proxySignInForRouteEditingProvider;
 import 'package:conduit_core/providers/primary_account_providers.dart';
+import 'package:conduit_core/providers/primary_account_switcher.dart'
+    show primaryBootRecoveryPendingProvider;
 import 'package:riverpod/misc.dart';
 import 'package:riverpod/riverpod.dart';
 
@@ -27,6 +29,8 @@ final List<ProviderListenable<Object?>> routeRedirectDependencies = [
   authNavigationStateProvider,
   // The primary account's sign-in, LibreChat's when it is in charge.
   primaryAuthNavigationStateProvider,
+  // Startup finishing a change of the primary account cut short.
+  primaryBootRecoveryPendingProvider,
   workspaceCapabilitiesProvider,
   // Hermes-only routing: re-evaluate when the preferred backend changes or
   // the Hermes config becomes usable (secrets finish loading).
@@ -110,6 +114,12 @@ String? resolveRouteRedirect(String location, ProviderRead read) {
     // Stay on whatever route if already in chat; otherwise go to chat.
     if (location == Routes.chat) return null;
     return Routes.chat;
+  }
+
+  // A change of the primary account that the last run left unfinished is
+  // settled first: until then, which account is in charge is not known.
+  if (read(primaryBootRecoveryPendingProvider)) {
+    return location == Routes.splash ? null : Routes.splash;
   }
 
   final activeServerAsync = read(activeServerProvider);
