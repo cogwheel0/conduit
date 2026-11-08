@@ -35,7 +35,9 @@ void main() {
       sidebarTestBuildHarness(
         controllers: SidebarTestSidebarHarnessControllers(),
         conversations: [
-          _chat('Fresh chat', now.subtract(const Duration(minutes: 1))),
+          // The start of today is Today whatever the time, even in the
+          // first minutes after midnight.
+          _chat('Fresh chat', today),
           _chat('Last night chat', today.subtract(const Duration(hours: 2))),
           _chat('Last week chat', today.subtract(const Duration(days: 4))),
           _chat('Old chat', old),
@@ -75,13 +77,14 @@ void main() {
   testWidgets('section headers start on the toolbar\'s leading edge and '
       'chat titles after their unread column', (tester) async {
     final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
     await tester.pumpWidget(
       sidebarTestBuildHarness(
         controllers: SidebarTestSidebarHarnessControllers(),
         slidingSidebarEnabled: false,
         conversations: [
           _chat('Pinned chat', now, pinned: true),
-          _chat('Dated chat', now.subtract(const Duration(minutes: 3))),
+          _chat('Dated chat', today),
         ],
       ),
     );

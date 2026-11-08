@@ -183,7 +183,10 @@ void main() {
     tester,
   ) async {
     final controllers = SidebarTestSidebarHarnessControllers();
-    final timestamp = DateTime.now().subtract(const Duration(minutes: 5));
+    // The start of today: dated Today at any time of day, even just after
+    // midnight, when "five minutes ago" would be yesterday.
+    final now = DateTime.now();
+    final timestamp = DateTime(now.year, now.month, now.day);
 
     await tester.pumpWidget(
       sidebarTestBuildHarness(
