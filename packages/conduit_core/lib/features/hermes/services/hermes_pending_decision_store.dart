@@ -526,6 +526,13 @@ List<HermesClarifyQuestion> _sanitizeQuestions(
   return List.unmodifiable(result);
 }
 
+/// [text] as a saved decision keeps it: [sensitiveValues] and credentials
+/// redacted from the whole of it, then bounded. Null when nothing is left.
+String? hermesRedactPendingDecisionText(
+  String text,
+  Iterable<String> sensitiveValues,
+) => _sanitizePrompt(text, sensitiveValues);
+
 String? _sanitizePrompt(String? value, Iterable<String> sensitiveValues) {
   if (value == null || value.trim().isEmpty) return null;
   final secrets =

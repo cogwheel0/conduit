@@ -316,7 +316,10 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
                     kind == HermesDecisionKind.clarification &&
                     payload['multi_select'] == true,
                 questions: kind == HermesDecisionKind.clarification
-                    ? hermesClarifyQuestionsFromPayload(payload)
+                    ? hermesClarifyQuestionsFromPayload(
+                        payload,
+                        redact: _redactClarifyText,
+                      )
                     : const [],
               ),
             );
@@ -911,12 +914,20 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
       choices: _desktopDecisionChoices(event.payload['choices']),
       multiSelect: event.payload['multi_select'] == true,
       questions: kind == HermesPendingDesktopDecisionKind.clarification
-          ? hermesClarifyQuestionsFromPayload(event.payload)
+          ? hermesClarifyQuestionsFromPayload(
+              event.payload,
+              redact: _redactClarifyText,
+            )
           : const [],
       sensitiveValues: config.sensitiveValues,
       profile: _sessionProfiles[storedId],
     );
   }
+
+  /// A clarify question's text, or a locked answer, redacted whole before
+  /// the form is parsed, which shortens it.
+  String? _redactClarifyText(String text) =>
+      hermesRedactPendingDecisionText(text, config.sensitiveValues);
 
   Future<void> _rememberPendingDecision(
     HermesSessionBinding binding, {

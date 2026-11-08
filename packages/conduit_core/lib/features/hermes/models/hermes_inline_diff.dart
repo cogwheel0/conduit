@@ -16,8 +16,12 @@ const int kMaxHermesInlineDiffCharacters = 32768;
 const int kMaxHermesInlineDiffLines = 2000;
 const int kMaxHermesInlineDiffFiles = 50;
 
+// U+FFFD stands in for ESC in rows stored by earlier versions (see
+// `_persistedHermesToolDetail`), so those are still read as colour codes. It
+// is written as an escape: a literal would look like damage and could be
+// changed unseen.
 final RegExp _ansiEscape = RegExp(
-  r'(?:\x1B|�)\[[0-9;?]*[A-Za-z]|\x1B\][^\x07\x1B]*(?:\x07|\x1B\\)',
+  r'(?:\x1B|\uFFFD)\[[0-9;?]*[A-Za-z]|\x1B\][^\x07\x1B]*(?:\x07|\x1B\\)',
 );
 final RegExp _otherControls = RegExp(
   r'[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F]',

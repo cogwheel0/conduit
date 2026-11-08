@@ -76,7 +76,7 @@ void main() {
     expect(find.text('1. Which colour?'), findsOneWidget);
     expect(find.text('2. Which sizes?'), findsOneWidget);
     expect(find.text('3. Anything else?'), findsOneWidget);
-    expect(find.text('0 of 3 answered'), findsOneWidget);
+    expect(find.text('0 of 3 done'), findsOneWidget);
     // The recommendation is a badge; the choice itself is bare.
     expect(find.textContaining('Recommended'), findsOneWidget);
     expect(find.textContaining('(Recommended)'), findsNothing);
@@ -91,7 +91,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('Large'));
     await tester.pump();
-    expect(find.text('2 of 3 answered'), findsOneWidget);
+    expect(find.text('2 of 3 done'), findsOneWidget);
 
     // Not every question is settled yet: the button does nothing.
     await tester.tap(_submit(), warnIfMissed: false);
@@ -103,7 +103,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(skip);
     await tester.pump();
-    expect(find.text('3 of 3 answered'), findsOneWidget);
+    expect(find.text('3 of 3 done'), findsOneWidget);
     expect(find.text('Answer or skip each question.'), findsNothing);
 
     await tester.tap(_submit());
@@ -128,7 +128,7 @@ void main() {
 
     // A lone question has no number and no counter.
     expect(find.text('Which colour?'), findsOneWidget);
-    expect(find.textContaining('answered'), findsNothing);
+    expect(find.textContaining(' done'), findsNothing);
     await tester.tap(find.text('Amber'));
     await tester.pump();
     await tester.enterText(
@@ -171,7 +171,7 @@ void main() {
 
     expect(find.text('Small, Large'), findsOneWidget);
     expect(find.text('Skipped'), findsOneWidget);
-    expect(find.text('2 of 3 answered'), findsOneWidget);
+    expect(find.text('2 of 3 done'), findsOneWidget);
     expect(
       find.byKey(const ValueKey('hermes-clarify-q1-skip')),
       findsNothing,

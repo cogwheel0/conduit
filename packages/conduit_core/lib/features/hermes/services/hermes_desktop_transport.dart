@@ -199,19 +199,35 @@ List<HermesDesktopEvent> hermesDesktopEventsForServerRequest({
         ),
       ];
     case 'clarify':
-      final questions = hermesClarifyQuestions(
-        params['questions'],
-        answers: params['answers'],
-      );
-      if (questions.isEmpty) return const [];
+      final raw = params['questions'];
+      final answers = params['answers'];
+      final questions = hermesClarifyQuestions(raw, answers: answers);
+      if (raw is! List || questions.isEmpty) return const [];
+      // Each question keeps its whole text and locked answer, not shortened:
+      // each reader redacts the whole text before it shortens it, and a
+      // secret cut here could no longer be matched there.
+      Map<String, Object?> whole(HermesClarifyQuestion question) {
+        final sent = raw.whereType<Map>().firstWhere(
+          (candidate) => candidate['qid'] == question.id,
+        );
+        final answer = answers is Map ? answers[question.id] : null;
+        return {
+          ...question.toJson(),
+          'question': sent['question'],
+          if (question.lockedAnswer != null && answer is String)
+            'answer': answer,
+        };
+      }
+
+      final forms = [for (final question in questions) whole(question)];
       return [
         HermesDesktopEvent(
           type: 'clarify.request',
           sessionId: sessionId,
           payload: {
             'request_id': requestId,
-            'question': questions.first.text,
-            'questions': [for (final question in questions) question.toJson()],
+            'question': forms.first['question'],
+            'questions': forms,
             'server_request': requestId,
           },
         ),

@@ -9873,7 +9873,7 @@
   "@hermesArchivedLoadError": {
     "description": "Shown in the Hermes sessions list when its archived chats could not be loaded; a Retry button follows."
   },
-  "hermesClarifyProgress": "{answered} of {total} answered",
+  "hermesClarifyProgress": "{answered} of {total} done",
   "@hermesClarifyProgress": {
     "description": "Counter on a Hermes question form: how many of its questions have an answer or were skipped, out of all of them.",
     "placeholders": {
@@ -9943,9 +9943,9 @@
       }
     }
   },
-  "hermesApprovalSpentOfLimit": "Used {spent} of {limit}",
+  "hermesApprovalSpentOfLimit": "Used about {spent} of {limit}",
   "@hermesApprovalSpentOfLimit": {
-    "description": "Chip on a Hermes approval for a paid tool: what this chat spent on the tool's server and its spend limit there. spent includes the unit, for example 20 credits.",
+    "description": "Chip on a Hermes approval for a paid tool: what this chat spent on the tool's server, which Hermes gives as an estimate, and its spend limit there. spent includes the unit, for example 20 credits.",
     "placeholders": {
       "spent": {
         "type": "String"
@@ -9955,9 +9955,9 @@
       }
     }
   },
-  "hermesApprovalSpent": "Used {spent}",
+  "hermesApprovalSpent": "Used about {spent}",
   "@hermesApprovalSpent": {
-    "description": "Chip on a Hermes approval for a paid tool: what this chat spent on the tool's server, which has no spend limit.",
+    "description": "Chip on a Hermes approval for a paid tool: what this chat spent on the tool's server, which Hermes gives as an estimate; the server has no spend limit.",
     "placeholders": {
       "spent": {
         "type": "String"

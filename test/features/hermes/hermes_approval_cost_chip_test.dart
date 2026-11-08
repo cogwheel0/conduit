@@ -43,7 +43,10 @@ void main() {
     );
 
     expect(find.text('≈ 5 credits'), findsOneWidget);
-    expect(find.text('Used 48 credits of 50 · mesh-studio'), findsOneWidget);
+    expect(
+      find.text('Used about 48 credits of 50 · mesh-studio'),
+      findsOneWidget,
+    );
     expect(
       find.byKey(const ValueKey('hermes-approval-over-limit')),
       findsOneWidget,

@@ -294,6 +294,7 @@ HermesDesktopApiService _service(
   _Rest? rest,
   HermesDesktopAuthKind authKind = HermesDesktopAuthKind.legacyToken,
   List<Duration> retryDelays = const [Duration.zero],
+  String legacyToken = 'session-token',
 }) {
   final service = HermesDesktopApiService(
     config: HermesConfig(
@@ -302,7 +303,7 @@ HermesDesktopApiService _service(
       mode: HermesBackendMode.desktopGateway,
       desktopAuthKind: authKind,
       desktopCredentials: HermesDesktopCredentials(
-        legacyToken: 'session-token',
+        legacyToken: legacyToken,
       ),
     ),
     dio: Dio()..httpClientAdapter = rest ?? _Rest(),
@@ -1293,6 +1294,30 @@ void main() {
         'answer': 'Amber',
       });
       check(gateway.calls('clarify.lock')).isEmpty();
+    });
+
+    // The transport shortened the question before anything redacted it, so
+    // a configured secret cut by the limit was saved in part.
+    test('a saved question shows no part of a secret its limit cuts',
+        () async {
+      // Shown from character 505, past the card's limit, and cut by the
+      // parser's limit at 600.
+      final secret = 'synthetic-secret-${'0123456789' * 9}';
+      final gateway = _Authority();
+      final service = _service(gateway, legacyToken: secret);
+      await service.createDesktopSession();
+      gateway.serverRequest('srq-f7', 'clarify', {
+        'session_id': 'local-1',
+        'questions': [
+          {'qid': 'q0', 'question': '${'w' * 504} $secret?'},
+        ],
+      });
+      await _settle();
+
+      final saved = await service.pendingDecisionsForSession('local-1');
+      final record = saved.singleWhere((d) => d.requestId == 'srq-f7');
+      check(record.questions.single.text).not((it) => it.contains('synth'));
+      check(record.prompt ?? '').not((it) => it.contains('synth'));
     });
 
     test('answers a whole question form with its response frame', () async {

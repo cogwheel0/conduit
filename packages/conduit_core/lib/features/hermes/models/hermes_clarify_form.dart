@@ -61,13 +61,22 @@ final class HermesClarifyQuestion {
 
   /// A question as Hermes sends it (`{qid, question, choices,
   /// multi_select}`) or as [toJson] stored it; null when malformed.
+  ///
+  /// [redact] runs on the question and its locked answer whole, before
+  /// they are shortened: a secret the limit cuts could no longer be matched.
   static HermesClarifyQuestion? fromJson(
     Object? raw, {
     Map<Object?, Object?> lockedAnswers = const {},
+    HermesClarifyRedact? redact,
   }) {
     if (raw is! Map) return null;
+    Object? whole(Object? text) =>
+        text is String && redact != null ? redact(text) : text;
     final id = validateHermesOpaqueIdentifier(raw['qid']);
-    final text = _bounded(raw['question'], kMaxHermesClarifyQuestionCharacters);
+    final text = _bounded(
+      whole(raw['question']),
+      kMaxHermesClarifyQuestionCharacters,
+    );
     if (id == null || text == null) return null;
     final rawChoices = raw['choices'];
     final choices = <String>[
@@ -88,24 +97,33 @@ final class HermesClarifyQuestion {
           (choices.isNotEmpty || raw[_kMultiSelectWithoutChoices] == true),
       locked: locked,
       lockedAnswer: locked
-          ? _bounded(answer, kMaxHermesClarifyAnswerCharacters)
+          ? _bounded(whole(answer), kMaxHermesClarifyAnswerCharacters)
           : null,
     );
   }
 }
+
+/// Redacts a question's text, or a locked answer, whole: null when nothing
+/// is left to show.
+typedef HermesClarifyRedact = String? Function(String text);
 
 /// The questions of a clarify request: `questions` with the `answers`
 /// Hermes already locked (a reconnect replay). Empty when malformed.
 List<HermesClarifyQuestion> hermesClarifyQuestions(
   Object? questions, {
   Object? answers,
+  HermesClarifyRedact? redact,
 }) {
   if (questions is! List) return const [];
   final locked = answers is Map ? answers : const <Object?, Object?>{};
   final parsed = <HermesClarifyQuestion>[];
   final ids = <String>{};
   for (final raw in questions.take(kMaxHermesClarifyQuestions)) {
-    final question = HermesClarifyQuestion.fromJson(raw, lockedAnswers: locked);
+    final question = HermesClarifyQuestion.fromJson(
+      raw,
+      lockedAnswers: locked,
+      redact: redact,
+    );
     if (question == null || !ids.add(question.id)) continue;
     parsed.add(question);
   }
@@ -120,13 +138,18 @@ const String kHermesSingleClarifyQuestionId = 'q0';
 /// question a `clarify.request` names (`question`, `choices`,
 /// `multi_select`).
 List<HermesClarifyQuestion> hermesClarifyQuestionsFromPayload(
-  Map<Object?, Object?> payload,
-) {
+  Map<Object?, Object?> payload, {
+  HermesClarifyRedact? redact,
+}) {
   final questions = payload['questions'];
   if (questions is List) {
-    return hermesClarifyQuestions(questions, answers: payload['answers']);
+    return hermesClarifyQuestions(
+      questions,
+      answers: payload['answers'],
+      redact: redact,
+    );
   }
-  return hermesClarifyQuestions([
+  return hermesClarifyQuestions(redact: redact, [
     {
       'qid': kHermesSingleClarifyQuestionId,
       'question': payload['question'] ?? payload['prompt'],

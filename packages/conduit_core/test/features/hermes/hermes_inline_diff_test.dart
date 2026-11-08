@@ -260,7 +260,8 @@ void main() {
     test('rows stored before the marker are still diffs', () {
       const old = ChatStatusItem(
         title: kHermesInlineDiffTitle,
-        snippet: '�[32m+x�[0m',
+        // U+FFFD in place of ESC, as earlier versions stored it.
+        snippet: '\uFFFD[32m+x\uFFFD[0m',
         presentation: ChatStatusItemPresentation.detail,
       );
       check(isHermesInlineDiffItem(old)).isTrue();

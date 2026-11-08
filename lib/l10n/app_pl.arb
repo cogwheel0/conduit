@@ -8561,7 +8561,7 @@
   "@hermesArchivedLoadError": {
     "description": "Shown in the Hermes sessions list when its archived chats could not be loaded; a Retry button follows."
   },
-  "hermesClarifyProgress": "Odpowiedzi: {answered} z {total}",
+  "hermesClarifyProgress": "Gotowe: {answered} z {total}",
   "@hermesClarifyProgress": {
     "description": "Counter on a Hermes question form: how many of its questions have an answer or were skipped, out of all of them.",
     "placeholders": {
@@ -8631,7 +8631,7 @@
       }
     }
   },
-  "hermesApprovalSpentOfLimit": "Wykorzystano {spent} z {limit}",
+  "hermesApprovalSpentOfLimit": "Wykorzystano około {spent} z {limit}",
   "@hermesApprovalSpentOfLimit": {
     "description": "Chip on a Hermes approval for a paid tool: what this chat spent on the tool's server and its spend limit there. spent includes the unit, for example 20 credits.",
     "placeholders": {
@@ -8643,7 +8643,7 @@
       }
     }
   },
-  "hermesApprovalSpent": "Wykorzystano {spent}",
+  "hermesApprovalSpent": "Wykorzystano około {spent}",
   "@hermesApprovalSpent": {
     "description": "Chip on a Hermes approval for a paid tool: what this chat spent on the tool's server, which has no spend limit.",
     "placeholders": {
