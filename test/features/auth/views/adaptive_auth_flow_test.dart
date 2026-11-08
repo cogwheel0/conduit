@@ -125,7 +125,7 @@ void main() {
         ),
       );
       check(adaptiveSelector.labels)
-          .deepEquals(['Password', 'SSO', 'LDAP', 'Token']);
+          .deepEquals(['Password', 'SSO', 'LDAP', 'Session Token']);
       for (final field in tester.widgetList<AccessibleFormField>(
         find.byType(AccessibleFormField),
       )) {
@@ -171,7 +171,7 @@ void main() {
       }
 
       await tester.tap(
-        find.descendant(of: selectorFinder, matching: find.text('Token')),
+        find.descendant(of: selectorFinder, matching: find.text('Session Token')),
       );
       await tester.pump();
 
@@ -249,7 +249,7 @@ void main() {
     final selector = tester.widget<AdaptiveSegmentedControl>(
       find.byType(AdaptiveSegmentedControl),
     );
-    check(selector.labels).deepEquals(['LDAP', 'Token']);
+    check(selector.labels).deepEquals(['LDAP', 'Session Token']);
     expect(find.byKey(const ValueKey('ldap_form')), findsOneWidget);
 
     await harness.unmount(tester);
@@ -549,7 +549,7 @@ void main() {
       check(actions.ldapAttempts).isNotEmpty();
 
       tester.testTextInput.log.clear();
-      await tester.tap(find.text('Token'));
+      await tester.tap(find.text('Session Token'));
       await tester.pumpAndSettle();
 
       expect(find.byKey(const ValueKey('ldap_form')), findsNothing);
@@ -579,7 +579,7 @@ void main() {
     final selector = tester.widget<AdaptiveSegmentedControl>(
       find.byType(AdaptiveSegmentedControl),
     );
-    check(selector.labels).deepEquals(['Password', 'SSO', 'Token']);
+    check(selector.labels).deepEquals(['Password', 'SSO', 'Session Token']);
 
     await harness.unmount(tester);
   });
@@ -646,7 +646,7 @@ void main() {
       findsNothing,
     );
     expect(find.byKey(const ValueKey('api_key_form')), findsOneWidget);
-    expect(find.text('Token'), findsOneWidget);
+    expect(find.text('Session Token'), findsOneWidget);
 
     await harness.unmount(tester);
   });

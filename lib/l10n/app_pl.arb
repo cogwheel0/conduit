@@ -436,11 +436,11 @@
   "@apiKey": {
     "description": "Label for API key input field."
   },
-  "token": "Token",
+  "token": "Token sesji",
   "@token": {
     "description": "Label for JWT token input field."
   },
-  "jwt": "Token",
+  "jwt": "Token sesji",
   "@jwt": {
     "description": "Authentication method label for JWT token sign-in."
   },

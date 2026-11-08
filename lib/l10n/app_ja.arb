@@ -241,11 +241,11 @@
   "@apiKey": {
     "description": "Label for API key input field."
   },
-  "token": "トークン",
+  "token": "セッショントークン",
   "@token": {
     "description": "Label for JWT token input field."
   },
-  "jwt": "JWT",
+  "jwt": "セッショントークン",
   "usernameOrEmail": "ユーザー名またはメール",
   "@usernameOrEmail": {
     "description": "Label for username/email input field."

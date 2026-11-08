@@ -445,13 +445,13 @@
   "@apiKey": {
     "description": "Label for API key input field."
   },
-  "token": "Token",
+  "token": "Session Token",
   "@token": {
-    "description": "Label for JWT token input field."
+    "description": "Label of the field where the user pastes an Open WebUI session token (a JWT from a signed-in browser)."
   },
-  "jwt": "Token",
+  "jwt": "Session Token",
   "@jwt": {
-    "description": "Authentication method label for JWT token sign-in."
+    "description": "Sign-in method segment for signing in with an Open WebUI session token."
   },
   "usernameOrEmail": "Email or Username",
   "@usernameOrEmail": {
