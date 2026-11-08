@@ -86,4 +86,90 @@ void main() {
       );
     }
   });
+
+  group('soft scroll edge', () {
+    // An iPhone header: status bar 62, bar 48 (buttons 44 tall, 2 below).
+    const top = ConduitScrollEdgeEffect.top(
+      chromeExtent: 110,
+      chromeThickness: 48,
+      solidExtent: 56,
+    );
+
+    test('covers the status bar, hazes the chrome, clears past it', () {
+      expect(top.extent, 110 + kConduitScrollEdgeSoftExtent);
+      // Fully covered behind the clock.
+      for (final d in [0.0, 20.0, 56.0]) {
+        expect(top.tintOpacityAt(d), 1);
+      }
+      // Mostly washed out behind the buttons, never fully opaque there, so
+      // the edge reads as a dissolve rather than a band.
+      expect(top.tintOpacityAt(86), closeTo(0.85, 0.001));
+      expect(top.tintOpacityAt(110), closeTo(0.7, 0.001));
+      // Clear at the end, with no step anywhere on the way.
+      expect(top.tintOpacityAt(top.extent), 0);
+      var previous = 1.0;
+      for (var d = 0.0; d <= top.extent; d += 0.5) {
+        final alpha = top.tintOpacityAt(d);
+        expect(alpha, lessThanOrEqualTo(previous + 1e-9));
+        expect(previous - alpha, lessThan(0.05));
+        previous = alpha;
+      }
+    });
+
+    test('blurs hardest behind the chrome and eases out to sharp', () {
+      expect(top.sigmaAt(0), kConduitScrollEdgeMaxSigma);
+      expect(top.sigmaAt(top.fullBlurExtent), kConduitScrollEdgeMaxSigma);
+      expect(top.sigmaAt(top.extent), 0);
+      // Text just past the buttons is soft but not smeared.
+      expect(top.sigmaAt(118), lessThan(1.5));
+      var previous = top.sigmaAt(top.fullBlurExtent);
+      for (var d = top.fullBlurExtent; d <= top.extent; d += 0.5) {
+        final sigma = top.sigmaAt(d);
+        expect(sigma, lessThanOrEqualTo(previous + 1e-9));
+        expect(previous - sigma, lessThan(0.5), reason: 'no visible band');
+        previous = sigma;
+      }
+    });
+
+    testWidgets('lays its tint from the chrome edge, ignoring touches', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: AppTheme.light(TweakcnThemes.t3Chat),
+          home: const Scaffold(
+            body: Stack(
+              children: [
+                Text('Scrolling content'),
+                Positioned(
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  child: ConduitScrollEdgeEffect.bottom(
+                    chromeExtent: 90,
+                    chromeThickness: 48,
+                    solidExtent: 42,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+      final edge = find.byType(ConduitScrollEdgeEffect);
+      expect(tester.getSize(edge).height, 90 + kConduitScrollEdgeSoftExtent);
+      expect(
+        find.descendant(of: edge, matching: find.byType(IgnorePointer)),
+        findsWidgets,
+      );
+      final box = tester.widget<DecoratedBox>(
+        find.descendant(of: edge, matching: find.byType(DecoratedBox)),
+      );
+      final gradient =
+          (box.decoration as BoxDecoration).gradient! as LinearGradient;
+      expect(gradient.begin, Alignment.bottomCenter);
+      expect(gradient.colors.first.a, 1);
+      expect(gradient.colors.last.a, 0);
+    });
+  });
 }

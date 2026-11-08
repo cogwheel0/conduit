@@ -194,6 +194,9 @@ flutter:
     - assets/flutter_tex.css
     - assets/vad/
 
+  shaders:
+    - shaders/scroll_edge_blur.frag
+
 flutter_native_splash:
   # Splash background matches the light theme; `color_dark` handles dark mode.
   color: "#FFFFFF"
