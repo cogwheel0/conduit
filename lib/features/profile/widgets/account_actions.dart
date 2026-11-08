@@ -72,7 +72,8 @@ class SavedAccountRow extends ConsumerWidget {
     final l10n = AppLocalizations.of(context)!;
     final theme = context.conduitTheme;
     final name = accountDisplayName(entry, l10n);
-    void signOut() => signOutOfSavedAccount(context, ref, entry);
+    void signOut() =>
+        signOutOfSavedAccount(context, ref, entry, anchorContext: context);
     return Semantics(
       customSemanticsActions: {
         CustomSemanticsAction(label: l10n.accountsSignOutOf(name)): signOut,
@@ -306,12 +307,14 @@ Future<bool> _confirmSwitchStopsReply(BuildContext context) {
 
 /// Signs out of [entry] after confirming, and again when that would stop a
 /// reply that is still being written. When the account that takes over
-/// needs a sign-in, opens it.
+/// needs a sign-in, opens it. The questions appear over [anchorContext], the
+/// row or button the sign-out came from, when there is one.
 Future<void> signOutOfSavedAccount(
   BuildContext context,
   WidgetRef ref,
-  OpenWebUiAccountEntry entry,
-) async {
+  OpenWebUiAccountEntry entry, {
+  BuildContext? anchorContext,
+}) async {
   final l10n = AppLocalizations.of(context)!;
   final name = accountDisplayName(entry, l10n);
   final confirmed = await ThemedDialogs.confirm(
@@ -320,6 +323,7 @@ Future<void> signOutOfSavedAccount(
     message: l10n.accountsSignOutConfirmMessage,
     confirmText: l10n.signOut,
     isDestructive: true,
+    anchorContext: anchorContext,
   );
   if (!confirmed || !context.mounted) return;
   // The row this began on goes with the account it showed.
@@ -336,6 +340,7 @@ Future<void> signOutOfSavedAccount(
         message: l10n.accountsSignOutStopsReply,
         confirmText: l10n.accountsSignOutAnyway,
         isDestructive: true,
+        anchorContext: anchorContext,
       );
       if (!stopReply) return;
       result = await controller.signOut(entry.id, force: true);

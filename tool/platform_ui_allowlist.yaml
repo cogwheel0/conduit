@@ -2488,7 +2488,7 @@ exceptions:
     removal: platform-ui-migration
   - path: lib/shared/widgets/themed_dialogs.dart
     symbol: "AlertDialog"
-    count: 6
+    count: 5
     owner: shared-widgets
     reason: "Existing use awaiting migration to the platform UI seam"
     removal: platform-ui-migration

@@ -165,12 +165,16 @@ class _CalendarEventEditorState extends ConsumerState<CalendarEventEditor> {
     }
   }
 
-  /// Closes the editor, asking first when that would throw edits away.
-  Future<void> _close() async {
+  /// Closes the editor, asking first when that would throw edits away. The
+  /// question appears over [anchorContext], the button that asked to close.
+  Future<void> _close({BuildContext? anchorContext}) async {
     // A save on its way can't be called back, and its result closes the
     // editor; a discard question asked meanwhile would be answered by it.
     if (_saving) return;
-    if (_dirty && !await confirmDiscardChanges(context)) return;
+    if (_dirty &&
+        !await confirmDiscardChanges(context, anchorContext: anchorContext)) {
+      return;
+    }
     if (mounted && !_saving) Navigator.of(context).pop();
   }
 
@@ -440,12 +444,16 @@ class _CalendarEventEditorState extends ConsumerState<CalendarEventEditor> {
             Row(
               mainAxisAlignment: MainAxisAlignment.end,
               children: [
-                ConduitButton(
-                  key: const Key('calendar-editor-cancel'),
-                  text: l10n.cancel,
-                  isSecondary: true,
-                  isCompact: true,
-                  onPressed: _saving ? null : _close,
+                Builder(
+                  builder: (cancelContext) => ConduitButton(
+                    key: const Key('calendar-editor-cancel'),
+                    text: l10n.cancel,
+                    isSecondary: true,
+                    isCompact: true,
+                    onPressed: _saving
+                        ? null
+                        : () => _close(anchorContext: cancelContext),
+                  ),
                 ),
                 const SizedBox(width: Spacing.sm),
                 ConduitButton(

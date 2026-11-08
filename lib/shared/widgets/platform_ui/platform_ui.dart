@@ -20,6 +20,8 @@ export 'src/platform_ui_capabilities.dart';
 
 export 'package:cupertino_native_better/cupertino_native_better.dart'
     show
+        CNActionSheet,
+        CNActionSheetAction,
         CNBottomSheet,
         CNButton,
         CNButtonConfig,

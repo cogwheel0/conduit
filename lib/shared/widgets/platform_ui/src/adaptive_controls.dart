@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../../../../core/services/haptic_service.dart';
+import '../../../../core/services/ios_native_dropdown_bridge.dart';
 import 'platform_ui_capabilities.dart';
 import 'sf_symbols.dart';
 
@@ -708,14 +709,83 @@ class AdaptivePopupMenuButton<T> {
             ? onTap
             : () {
                 onTap?.call();
-                _showFlutterMenu<T>(context, null, items, onSelected);
+                _showWidgetMenu<T>(context, items, onSelected);
               },
         onLongPress: triggerOnLongPress
-            ? () => _showFlutterMenu<T>(context, null, items, onSelected)
+            ? () => _showWidgetMenu<T>(context, items, onSelected)
             : null,
         child: child,
       ),
     );
+  }
+
+  /// From iOS 26 the menu is the system's, anchored to [context]. A menu
+  /// with an item the system one cannot show, such as an image, or one the
+  /// system fails to present, opens the Flutter menu instead.
+  static Future<void> _showWidgetMenu<T>(
+    BuildContext context,
+    List<AdaptivePopupMenuEntry> items,
+    void Function(int index, AdaptivePopupMenuItem<T> entry) onSelected,
+  ) async {
+    final flat = _flatEntries<T>(items);
+    final options = PlatformUiCapabilities.usesNativeIOS26
+        ? _dropdownOptions<T>(flat)
+        : null;
+    if (options != null) {
+      final String? selected;
+      try {
+        selected = await IosNativeDropdownBridge.instance.showFromContext(
+          context: context,
+          options: options,
+          cancelLabel: CupertinoLocalizations.of(context).cancelButtonLabel,
+          rethrowErrors: true,
+        );
+      } catch (_) {
+        // Only a failed presentation falls back. An error from the chosen
+        // item's handler, below, is the feature's to report.
+        if (context.mounted) {
+          await _showFlutterMenu<T>(context, null, items, onSelected);
+        }
+        return;
+      }
+      final position = int.tryParse(selected ?? '');
+      if (position != null) _dispatch<T>(flat, position, onSelected);
+      return;
+    }
+    return _showFlutterMenu<T>(context, null, items, onSelected);
+  }
+
+  /// [flat] as system menu options identified by their position in [flat],
+  /// or null when one cannot be shown there. A checked item sends the check
+  /// mark in place of its icon. The bridge's sheet draws the label, the check
+  /// mark, the destructive red and the disabled state; a `UIAlertAction` has
+  /// no image or subtitle, so it leaves out icons and subtitles.
+  static List<IosNativeDropdownOption>? _dropdownOptions<T>(
+    List<({int index, AdaptivePopupMenuItem<T>? item})> flat,
+  ) {
+    final options = <IosNativeDropdownOption>[];
+    for (final (position, (index: _, item: entry)) in flat.indexed) {
+      if (entry == null) continue;
+      if (entry.imageBytes != null || entry.label.isEmpty) return null;
+      final subtitle = entry.subtitle;
+      options.add(
+        IosNativeDropdownOption(
+          id: '$position',
+          label: entry.label,
+          subtitle: subtitle == null || subtitle.isEmpty ? null : subtitle,
+          sfSymbol: entry.checked
+              ? 'checkmark'
+              : switch (entry.icon) {
+                  final String symbol => symbol,
+                  final IconData icon => conduitSfSymbolForIcon(icon),
+                  _ => null,
+                },
+          enabled: entry.enabled,
+          destructive: entry.isDestructive,
+        ),
+      );
+    }
+    return options.isEmpty ? null : options;
   }
 
   static bool _canUseNative<T>(List<AdaptivePopupMenuEntry> items) {

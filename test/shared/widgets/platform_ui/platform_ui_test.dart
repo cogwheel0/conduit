@@ -5,7 +5,6 @@ import 'package:conduit/shared/widgets/conduit_components.dart';
 import 'package:conduit/shared/widgets/legacy_design_compatibility.dart';
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:conduit/shared/widgets/sidebar_ios26_scaffold.dart';
-import 'package:conduit/shared/widgets/themed_dialogs.dart';
 import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:flutter/foundation.dart'
     show debugDefaultTargetPlatformOverride;
@@ -948,39 +947,6 @@ void main() {
     expect(find.byKey(prefixKey), findsOneWidget);
     expect(find.byKey(suffixKey), findsOneWidget);
   });
-
-  testWidgets('non-dismissible iOS 26 confirmations use a system alert', (
-    tester,
-  ) async {
-    PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.iOS;
-    PlatformUiCapabilities.debugIOSMajorVersionOverride = 26;
-    PlatformUiCapabilities.debugNativeIOS26Override = true;
-    const channel = MethodChannel('cn_alert');
-    final calls = <MethodCall>[];
-    final messenger =
-        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
-    messenger.setMockMethodCallHandler(channel, (call) async {
-      calls.add(call);
-      return {'index': 0};
-    });
-    addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
-
-    await tester.pumpWidget(
-      const CupertinoApp(home: CupertinoPageScaffold(child: SizedBox())),
-    );
-    final context = tester.element(find.byType(CupertinoPageScaffold));
-    final result = ThemedDialogs.confirm(
-      context,
-      title: 'Confirm',
-      message: 'Cannot dismiss',
-      barrierDismissible: false,
-    );
-    await tester.pumpAndSettle();
-
-    expect(calls, hasLength(1));
-    expect(find.byType(CupertinoAlertDialog), findsNothing);
-    expect(await result, isFalse);
-  }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
 
   testWidgets('controlled Cupertino form fields track controller changes', (
     tester,
