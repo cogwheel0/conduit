@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:conduit/shared/theme/theme_extensions.dart';
 import 'package:conduit/shared/widgets/conduit_components.dart';
+import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:conduit_core/features/calendar/providers/calendar_providers.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -425,7 +426,12 @@ void main() {
         tester,
         configureWire: (wire) => wire.events = [
           eventJson('ev-day', 'cal-mine', title: 'Offsite', allDay: true),
-          eventJson('ev-weekly', 'cal-mine', title: 'Sync', rrule: 'FREQ=WEEKLY'),
+          eventJson(
+            'ev-weekly',
+            'cal-mine',
+            title: 'Sync',
+            rrule: 'FREQ=WEEKLY',
+          ),
         ],
       );
 
@@ -506,6 +512,34 @@ void main() {
       await tapSave(tester);
 
       // 17:09 and 18:09 on Oct 8 at UTC-4: the minute chosen, no seconds.
+      expect(session.wire.writes.single.data, {
+        'start_at': 1791493740000000000,
+        'end_at': 1791497340000000000,
+      });
+    });
+
+    testWidgets('on iOS 26 the dates are system pills edited in place', (
+      tester,
+    ) async {
+      PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.iOS;
+      PlatformUiCapabilities.debugIOSMajorVersionOverride = 26;
+      PlatformUiCapabilities.debugNativeIOS26Override = true;
+      addTearDown(PlatformUiCapabilities.resetDebugOverrides);
+      final session = await pumpCalendar(tester);
+      await openEdit(tester);
+      AdaptiveCompactDatePicker pill(String key) =>
+          tester.widget<AdaptiveCompactDatePicker>(find.byKey(Key(key)));
+
+      final start = pill('calendar-editor-start-date');
+      expect(pill('calendar-editor-start-time').value, start.value);
+      // UIKit answers in the value's zone, keeping the time of day.
+      start.onChanged!(
+        DateTime.utc(2026, 10, 8, start.value.hour, start.value.minute),
+      );
+      await tester.pumpAndSettle();
+      await tapSave(tester);
+
+      // As with the picker sheet: the end moves along to keep the length.
       expect(session.wire.writes.single.data, {
         'start_at': 1791493740000000000,
         'end_at': 1791497340000000000,

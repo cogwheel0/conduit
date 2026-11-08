@@ -210,6 +210,7 @@
   "folderName": "Имя папки",
   "newChat": "Новый чат",
   "more": "Еще",
+  "done": "Готово",
   "clear": "Очистить",
   "searchConversations": "Поиск разговоров...",
   "create": "Создать",
@@ -471,7 +472,17 @@
     }
   },
   "ttsVoice": "Голос",
-  "ttsSpeechRate": "Скорость речи",
+  "ttsPlaybackSpeed": "Скорость воспроизведения",
+  "ttsSpeedValue": "{speed}×",
+  "@ttsSpeedValue": {
+    "placeholders": {
+      "speed": {
+        "type": "double",
+        "format": "decimalPattern",
+        "example": "1.25"
+      }
+    }
+  },
   "ttsPitch": "Высота тона",
   "ttsVolume": "Громкость",
   "ttsPreview": "Предпросмотр голоса",
@@ -1025,6 +1036,24 @@
   "usageQueueTime": "Время в очереди",
   "usageReasoningTokens": "Токены рассуждений",
   "usageTotalTokens": "Всего токенов",
+  "usageContextWindow": "Контекстное окно",
+  "usageContextWindowValue": "{percent} · {used} из {total}",
+  "@usageContextWindowValue": {
+    "placeholders": {
+      "percent": {
+        "type": "String",
+        "example": "62%"
+      },
+      "used": {
+        "type": "String",
+        "example": "79K"
+      },
+      "total": {
+        "type": "String",
+        "example": "128K"
+      }
+    }
+  },
   "proxyAuthentication": "Аутентификация через прокси",
   "proxyAuthPlatformNotSupported": "Аутентификация через прокси требует мобильное устройство. Пожалуйста, сначала авторизуйтесь через браузер.",
   "proxyAuthLoading": "Загрузка страницы аутентификации...",
@@ -3405,6 +3434,7 @@
   "hermesTurnSendNext": "Отправить следующее",
   "hermesTurnControlsUnsupported": "Обновите Hermes, чтобы включить безопасное управление ходами.",
   "sidebarHermesTab": "Hermes",
+  "sidebarBackendSwitcher": "Бэкенд",
   "markdownShowMoreLines": "Показать ещё {count, plural, one{{count} строку} few{{count} строки} many{{count} строк} other{{count} строк}}",
   "@markdownShowMoreLines": {
     "placeholders": {
@@ -4229,7 +4259,7 @@
   "calendarRemoveEnd": "Убрать время окончания",
   "calendarEventReadOnlyNotInvited": "Вы не можете изменить это событие.",
   "calendarFieldOrganizer": "Организатор",
-  "calendarColorName": "{color, select, blue{Синий} green{Зелёный} amber{Янтарный} red{Красный} purple{Фиолетовый} teal{Бирюзовый} other{Цвет}}",
+  "calendarColorName": "{color, select, blue{Синий} green{Зелёный} amber{Янтарный} red{Красный} purple{Фиолетовый} teal{Бирюзовый} custom{Свой цвет} other{Цвет}}",
   "calendarVisibilityFooter": "Показываются события из отмеченных календарей. Нажмите на календарь, чтобы показать или скрыть его события.",
   "personalizationMemoryTypeUserDescription": "Предпочтение, факт или указание о вас.",
   "personalizationMemoryTypeContextDescription": "Контекст, который нужно учитывать в будущих чатах.",
@@ -4361,5 +4391,7 @@
   "terminalPortPreviewForward": "Вперёд",
   "terminalPortPreviewReload": "Обновить",
   "terminalPortPreviewLoadFailed": "Не удалось загрузить эту страницу.",
+  "modelMenuAllModels": "Все модели…",
+  "citationPreviewOpen": "Открыть",
   "workspacePromptHistoryDiffTooLarge": "Эти версии слишком длинные для сравнения."
 }

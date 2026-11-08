@@ -54,6 +54,9 @@ class AdaptiveDropdownField<T> extends StatelessWidget {
   final String? cancelLabel;
   final bool isExpanded;
 
+  /// The native pop-up button's value while no option is selected.
+  static const _noSelection = -1;
+
   @override
   Widget build(BuildContext context) {
     if (!PlatformInfo.isIOS) {
@@ -100,18 +103,13 @@ class AdaptiveDropdownField<T> extends StatelessWidget {
           enabled: onChanged != null,
           errorText: state.errorText,
         );
+        // UIKit's pop-up button has no item subtitles; those lists keep the
+        // native single-choice sheet below.
         if (PlatformUiCapabilities.usesNativeIOS26 &&
             options.isNotEmpty &&
             options.every((option) => option.subtitle?.isNotEmpty != true)) {
-          final label = selected?.label ?? decoration.hintText ?? '';
           final fieldName =
               semanticLabel ?? decoration.labelText ?? nativeTitle;
-          String? accessibleLabel;
-          if (fieldName != null && fieldName.isNotEmpty) {
-            accessibleLabel = label.isEmpty || label == fieldName
-                ? fieldName
-                : '$fieldName, $label';
-          }
           return InputDecorator(
             // Keep the form decoration; UIKit presents the anchored menu.
             decoration: effectiveDecoration.copyWith(
@@ -120,35 +118,35 @@ class AdaptiveDropdownField<T> extends StatelessWidget {
             isEmpty: false,
             child: SizedBox(
               width: double.infinity,
-              child: onChanged == null
-                  ? CNButton(
-                      label: label,
-                      semanticLabel: accessibleLabel,
+              child: CNPopUpButton<int>(
+                // Options are matched by index: T need not be a valid
+                // platform value, and a null T can still be chosen.
+                value: selected == null ? _noSelection : selectedIndex,
+                items: [
+                  // With nothing chosen, the button shows the hint; UIKit
+                  // titles a pop-up button with its selected item, so the
+                  // hint is that item, dimmed so it can't be chosen back.
+                  if (selected == null) ...[
+                    CNPopUpButtonItem<int>(
+                      value: _noSelection,
+                      label: decoration.hintText ?? '',
                       enabled: false,
-                      tint: context.conduitTheme.inputText,
-                      config: const CNButtonConfig(
-                        style: CNButtonStyle.plain,
-                        minHeight: 44,
-                      ),
-                    )
-                  : CNPopupMenuButton(
-                      buttonLabel: label,
-                      semanticLabel: accessibleLabel,
-                      height: 44,
-                      tint: context.conduitTheme.inputText,
-                      buttonStyle: CNButtonStyle.plain,
-                      items: [
-                        for (final option in options)
-                          CNPopupMenuItem(
-                            label: option.label,
-                            enabled: option.enabled,
-                            checked: option.value == state.value,
-                            icon: option.iosSymbol == null
-                                ? null
-                                : CNSymbol(option.iosSymbol!),
-                          ),
-                      ],
-                      onSelected: (index) {
+                    ),
+                    const CNPopUpButtonDivider<int>(),
+                  ],
+                  for (final (index, option) in options.indexed)
+                    CNPopUpButtonItem<int>(
+                      value: index,
+                      label: option.label,
+                      enabled: option.enabled,
+                      icon: option.iosSymbol == null
+                          ? null
+                          : CNSymbol(option.iosSymbol!),
+                    ),
+                ],
+                onChanged: onChanged == null
+                    ? null
+                    : (index) {
                         if (!state.mounted ||
                             !state.widget.enabled ||
                             index < 0 ||
@@ -160,7 +158,13 @@ class AdaptiveDropdownField<T> extends StatelessWidget {
                         state.didChange(option.value);
                         onChanged?.call(option.value);
                       },
-                    ),
+                tint: context.conduitTheme.inputText,
+                height: 44,
+                // VoiceOver reads the field name, then the selected label.
+                semanticLabel: fieldName == null || fieldName.isEmpty
+                    ? null
+                    : fieldName,
+              ),
             ),
           );
         }

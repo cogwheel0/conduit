@@ -157,12 +157,14 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    expect(
-      tester
-          .widget<CNPopupMenuButton>(find.byType(CNPopupMenuButton))
-          .buttonLabel,
-      'Choose a shape',
+    // UIKit titles the pop-up button with this dimmed placeholder item.
+    final button = tester.widget<CNPopUpButton<int>>(
+      find.byType(CNPopUpButton<int>),
     );
+    final title = button.items.whereType<CNPopUpButtonItem<int>>().singleWhere(
+      (item) => item.value == button.value,
+    );
+    expect(title.label, 'Choose a shape');
   }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
 
   for (final enabled in [true, false]) {
@@ -187,22 +189,26 @@ void main() {
             ),
           );
           await tester.pumpAndSettle();
+          // What VoiceOver speaks for each node: its label, then its value.
+          // The pop-up button's Flutter fallback reads the choice as its value.
           final label = tester.semantics
               .simulatedAccessibilityTraversal()
-              .map((node) => node.getSemanticsData().label)
+              .map((node) {
+                final data = node.getSemanticsData();
+                return '${data.label}\n${data.value}';
+              })
               .join('\n');
           final nativeView = find.byType(UiKitView);
           expect(
             'Kite'.allMatches(label),
             hasLength(nativeView.evaluate().isEmpty ? 1 : 0),
           );
+          // UIKit reads the selected choice as the pop-up button's value.
           expect(
-            enabled
-                ? tester
-                      .widget<CNPopupMenuButton>(find.byType(CNPopupMenuButton))
-                      .semanticLabel
-                : tester.widget<CNButton>(find.byType(CNButton)).semanticLabel,
-            'Shape, Kite',
+            tester
+                .widget<CNPopUpButton<int>>(find.byType(CNPopUpButton<int>))
+                .semanticLabel,
+            'Shape',
           );
           // The form caption is separate from the control's complete name.
           // UIKit's name is outside Flutter's tree; its fallback is inside it.

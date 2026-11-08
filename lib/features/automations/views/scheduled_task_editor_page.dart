@@ -402,7 +402,8 @@ class _EditorState extends ConsumerState<_Editor> {
       searchHint: l10n.searchChannels,
       selectedId: current.target.channelId,
       options: [
-        for (final c in channels) (id: c.id, label: '#${c.name}', subtitle: null),
+        for (final c in channels)
+          (id: c.id, label: '#${c.name}', subtitle: null),
       ],
     );
     if (picked == null) return;
@@ -474,40 +475,80 @@ class _EditorState extends ConsumerState<_Editor> {
       context,
       initial: TimeOfDay(hour: hour, minute: minute),
     );
+    if (picked == null) return;
+    _setTime(picked.hour, picked.minute);
+  }
+
+  /// Moves the schedule to [hour]:[minute], keeping its kind and day(s).
+  void _setTime(int hour, int minute) {
     final draft = _draft;
-    if (picked == null || draft == null) return;
+    if (draft == null) return;
     _setSchedule(switch (draft.schedule) {
       final OnceAutomationSchedule once => OnceAutomationSchedule(
         year: once.year,
         month: once.month,
         day: once.day,
-        hour: picked.hour,
-        minute: picked.minute,
+        hour: hour,
+        minute: minute,
       ),
       final WeeklyAutomationSchedule weekly => WeeklyAutomationSchedule(
-        hour: picked.hour,
-        minute: picked.minute,
+        hour: hour,
+        minute: minute,
         days: weekly.days,
       ),
-      _ => DailyAutomationSchedule(hour: picked.hour, minute: picked.minute),
+      _ => DailyAutomationSchedule(hour: hour, minute: minute),
     });
   }
 
-  Future<void> _pickDate(OnceAutomationSchedule once) async {
+  /// The days a one-time run can be moved to: from today (or its current day,
+  /// if that has passed) to five years ahead.
+  ({DateTime first, DateTime last}) _dateRange(OnceAutomationSchedule once) {
     final today = DateUtils.dateOnly(DateTime.now());
     final current = DateUtils.dateOnly(once.wallClock);
-    final picked = await showAdaptiveDatePicker(
-      context,
-      initial: current,
+    return (
       first: current.isBefore(today) ? current : today,
       last: today.add(const Duration(days: 365 * 5)),
     );
+  }
+
+  Future<void> _pickDate(OnceAutomationSchedule once) async {
+    final range = _dateRange(once);
+    final picked = await showAdaptiveDatePicker(
+      context,
+      initial: DateUtils.dateOnly(once.wallClock),
+      first: range.first,
+      last: range.last,
+    );
     if (picked == null) return;
+    _setDate(once, picked);
+  }
+
+  /// The day of a one-time run as the system's compact date pill (iOS 26+).
+  Widget _nativeDateRow(OnceAutomationSchedule once, AppLocalizations l10n) {
+    final range = _dateRange(once);
+    return UtilityRow(
+      key: const Key('scheduled-task-date'),
+      title: l10n.scheduledTaskDateLabel,
+      preserveTrailingSemantics: true,
+      trailing: AdaptiveCompactDatePicker(
+        key: const Key('scheduled-task-date-picker'),
+        value: once.wallClock,
+        mode: AdaptiveCompactDatePickerMode.date,
+        minimumDate: range.first,
+        maximumDate: range.last,
+        semanticLabel: l10n.scheduledTaskDateLabel,
+        onChanged: _saving ? null : (picked) => _setDate(once, picked),
+      ),
+    );
+  }
+
+  /// Moves a one-time run to the day of [day], at its time.
+  void _setDate(OnceAutomationSchedule once, DateTime day) {
     _setSchedule(
       OnceAutomationSchedule(
-        year: picked.year,
-        month: picked.month,
-        day: picked.day,
+        year: day.year,
+        month: day.month,
+        day: day.day,
         hour: once.hour,
         minute: once.minute,
       ),
@@ -634,8 +675,7 @@ class _EditorState extends ConsumerState<_Editor> {
                   iosSettingsRow: PlatformInfo.isIOS,
                   textInputAction: TextInputAction.next,
                   errorText: issue(const {AutomationDraftIssue.nameRequired}),
-                  onChanged: (value) =>
-                      _update(_draft!.copyWith(name: value)),
+                  onChanged: (value) => _update(_draft!.copyWith(name: value)),
                 ),
               ),
               UtilityRow(
@@ -647,8 +687,7 @@ class _EditorState extends ConsumerState<_Editor> {
                   semanticLabel: l10n.scheduledTaskActiveLabel,
                   onChanged: _saving
                       ? null
-                      : (value) =>
-                            _update(_draft!.copyWith(isActive: value)),
+                      : (value) => _update(_draft!.copyWith(isActive: value)),
                 ),
                 preserveTrailingSemantics: true,
               ),
@@ -675,7 +714,8 @@ class _EditorState extends ConsumerState<_Editor> {
                 key: const Key('scheduled-task-model'),
                 title: l10n.scheduledTaskModelLabel,
                 titleFontWeight: PlatformInfo.isIOS ? FontWeight.w400 : null,
-                subtitle: modelIssue ?? _modelLabel(l10n, draft, options.models),
+                subtitle:
+                    modelIssue ?? _modelLabel(l10n, draft, options.models),
                 foregroundColor: modelIssue == null ? null : theme.error,
                 showChevron: true,
                 onTap: _saving || options.models == null
@@ -814,22 +854,41 @@ class _EditorState extends ConsumerState<_Editor> {
               subtitleMaxLines: 4,
             ),
           if (schedule is OnceAutomationSchedule)
-            UtilityRow(
-              key: const Key('scheduled-task-date'),
-              title: l10n.scheduledTaskDateLabel,
-              subtitle: MaterialLocalizations.of(context)
-                  .formatMediumDate(schedule.wallClock),
-              showChevron: true,
-              onTap: _saving ? null : () => _pickDate(schedule),
-            ),
+            if (AdaptiveCompactDatePicker.isSupported)
+              _nativeDateRow(schedule, l10n)
+            else
+              UtilityRow(
+                key: const Key('scheduled-task-date'),
+                title: l10n.scheduledTaskDateLabel,
+                subtitle: MaterialLocalizations.of(context)
+                    .formatMediumDate(schedule.wallClock),
+                showChevron: true,
+                onTap: _saving ? null : () => _pickDate(schedule),
+              ),
           if (hour != null && minute != null)
-            UtilityRow(
-              key: const Key('scheduled-task-time'),
-              title: l10n.scheduledTaskTimeLabel,
-              subtitle: formatWallClockTime(context, hour, minute),
-              showChevron: true,
-              onTap: _saving ? null : () => _pickTime(hour, minute),
-            ),
+            if (AdaptiveCompactDatePicker.isSupported)
+              UtilityRow(
+                key: const Key('scheduled-task-time'),
+                title: l10n.scheduledTaskTimeLabel,
+                preserveTrailingSemantics: true,
+                trailing: AdaptiveCompactDatePicker(
+                  key: const Key('scheduled-task-time-picker'),
+                  value: DateTime.utc(2000, 1, 1, hour, minute),
+                  mode: AdaptiveCompactDatePickerMode.time,
+                  semanticLabel: l10n.scheduledTaskTimeLabel,
+                  onChanged: _saving
+                      ? null
+                      : (picked) => _setTime(picked.hour, picked.minute),
+                ),
+              )
+            else
+              UtilityRow(
+                key: const Key('scheduled-task-time'),
+                title: l10n.scheduledTaskTimeLabel,
+                subtitle: formatWallClockTime(context, hour, minute),
+                showChevron: true,
+                onTap: _saving ? null : () => _pickTime(hour, minute),
+              ),
           if (schedule is WeeklyAutomationSchedule)
             Padding(
               padding: const EdgeInsets.all(Spacing.md),

@@ -206,6 +206,9 @@ class _ChannelMembersSheetState extends ConsumerState<ChannelMembersSheet> {
                 _searchController.clear();
                 _onQueryChanged('');
               },
+              // The member list hides the keyboard when dragged, which the
+              // system search bar's keyboard ignores.
+              nativeOnIOS26: false,
             ),
           ],
           if (_actionError != null)

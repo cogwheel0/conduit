@@ -204,6 +204,7 @@
   "folderName": "Nome cartella",
   "newChat": "Nuova chat",
   "more": "Altro",
+  "done": "Fatto",
   "clear": "Pulisci",
   "searchConversations": "Cerca conversazioni...",
   "create": "Crea",
@@ -465,7 +466,17 @@
     }
   },
   "ttsVoice": "Voce",
-  "ttsSpeechRate": "Velocità di sintesi vocale",
+  "ttsPlaybackSpeed": "Velocità di riproduzione",
+  "ttsSpeedValue": "{speed}×",
+  "@ttsSpeedValue": {
+    "placeholders": {
+      "speed": {
+        "type": "double",
+        "format": "decimalPattern",
+        "example": "1.25"
+      }
+    }
+  },
   "ttsPitch": "Tonalità",
   "ttsVolume": "Volume",
   "ttsPreview": "Anteprima voce",
@@ -1019,6 +1030,24 @@
   "usageQueueTime": "Tempo in coda",
   "usageReasoningTokens": "Token di ragionamento",
   "usageTotalTokens": "Token totali",
+  "usageContextWindow": "Finestra di contesto",
+  "usageContextWindowValue": "{percent} · {used} di {total}",
+  "@usageContextWindowValue": {
+    "placeholders": {
+      "percent": {
+        "type": "String",
+        "example": "62%"
+      },
+      "used": {
+        "type": "String",
+        "example": "79K"
+      },
+      "total": {
+        "type": "String",
+        "example": "128K"
+      }
+    }
+  },
   "proxyAuthentication": "Autenticazione Proxy",
   "proxyAuthPlatformNotSupported": "L'autenticazione proxy richiede un dispositivo mobile. Si prega di autenticarsi prima tramite un browser.",
   "proxyAuthLoading": "Caricamento della pagina di autenticazione...",
@@ -3370,6 +3399,7 @@
   "hermesTurnSendNext": "Invia successivo",
   "hermesTurnControlsUnsupported": "Aggiorna Hermes per abilitare i controlli di turno sicuri.",
   "sidebarHermesTab": "Hermes",
+  "sidebarBackendSwitcher": "Backend",
   "markdownShowMoreLines": "{count, plural, =1{Mostra 1 riga in più} other{Mostra {count} righe in più}}",
   "@markdownShowMoreLines": {"placeholders":{"count":{"type":"int"}}},
   "markdownShowLess": "Mostra meno",
@@ -4191,7 +4221,7 @@
   "calendarRemoveEnd": "Rimuovi l'ora di fine",
   "calendarEventReadOnlyNotInvited": "Non puoi modificare questo evento.",
   "calendarFieldOrganizer": "Organizzatore",
-  "calendarColorName": "{color, select, blue{Blu} green{Verde} amber{Ambra} red{Rosso} purple{Viola} teal{Verde acqua} other{Colore}}",
+  "calendarColorName": "{color, select, blue{Blu} green{Verde} amber{Ambra} red{Rosso} purple{Viola} teal{Verde acqua} custom{Colore personalizzato} other{Colore}}",
   "calendarVisibilityFooter": "Vengono mostrati gli eventi dei calendari selezionati. Tocca un calendario per mostrarne o nasconderne gli eventi.",
   "personalizationMemoryTypeUserDescription": "Una preferenza, un fatto o un'istruzione che ti riguarda.",
   "personalizationMemoryTypeContextDescription": "Contesto da tenere presente nelle chat future.",
@@ -4323,5 +4353,7 @@
   "terminalPortPreviewForward": "Avanti",
   "terminalPortPreviewReload": "Ricarica",
   "terminalPortPreviewLoadFailed": "Impossibile caricare questa pagina.",
+  "modelMenuAllModels": "Tutti i modelli…",
+  "citationPreviewOpen": "Apri",
   "workspacePromptHistoryDiffTooLarge": "Queste versioni sono troppo lunghe per essere confrontate."
 }

@@ -967,6 +967,7 @@ class _SlidingSidebarBottomBar extends ConsumerWidget {
       key: const ValueKey<String>('sidebar-backend-selector'),
       tabsKey: const ValueKey<String>('sidebar-backend-tabs'),
       actionKey: const ValueKey<String>('sidebar-create-button'),
+      tabsSemanticLabel: l10n.sidebarBackendSwitcher,
       tabs: [
         if (tabs.length > 1)
           for (final tab in tabs)
@@ -978,7 +979,6 @@ class _SlidingSidebarBottomBar extends ConsumerWidget {
                       size: _kOpenWebUiTabIconSize,
                     ),
                     nativeAsset: _kOpenWebUiTabIcon,
-                    nativeIconSize: _kOpenWebUiTabIconSize,
                   )
                 : AdaptiveFloatingTab(
                     label: tab.label(l10n),
@@ -987,7 +987,6 @@ class _SlidingSidebarBottomBar extends ConsumerWidget {
                       size: tab.assetIconSize ?? IconSize.tabBar,
                     ),
                     nativeAsset: tab.assetName!,
-                    nativeIconSize: _kHermesNativeBackendIconSize,
                   ),
       ],
       selectedIndex: selectedIndex,
@@ -1024,5 +1023,3 @@ class _SlidingSidebarBottomBar extends ConsumerWidget {
 /// tinted as a template.
 const String _kOpenWebUiTabIcon = 'assets/icons/open_webui_tab.png';
 const double _kOpenWebUiTabIconSize = 22;
-const double _kHermesNativeBackendIconSize = 26;
-

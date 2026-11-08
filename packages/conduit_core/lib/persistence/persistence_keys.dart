@@ -90,7 +90,10 @@ final class PreferenceKeys {
       'server_version_warning_dismissed_v1';
   static const String ttsVoice = 'tts_voice';
   static const String ttsVoiceName = 'tts_voice_name';
+  /// The device engine's rate saved before [ttsSpeed] replaced it; read once
+  /// to carry an older install's pace over.
   static const String ttsSpeechRate = 'tts_speech_rate';
+  static const String ttsSpeed = 'tts_speed';
   static const String ttsPitch = 'tts_pitch';
   static const String ttsVolume = 'tts_volume';
   static const String ttsEngine = 'tts_engine'; // 'device' | 'server'

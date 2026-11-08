@@ -347,6 +347,13 @@ class FloatingAppBarAction extends StatelessWidget {
   }
 }
 
+/// A search field on a glass pill.
+///
+/// On iOS 26 and later it is the system search bar
+/// ([AdaptiveNativeSearchBar]) unless [nativeOnIOS26] is false or a
+/// [focusNode] is given. The system bar cannot be focused, unfocused or given
+/// text from code: a caller that needs any of that, including a list that
+/// hides the keyboard when it is dragged, keeps the Flutter field.
 class ConduitGlassSearchField extends StatelessWidget {
   const ConduitGlassSearchField({
     super.key,
@@ -356,6 +363,7 @@ class ConduitGlassSearchField extends StatelessWidget {
     required this.query,
     required this.onClear,
     this.focusNode,
+    this.nativeOnIOS26 = true,
   });
 
   final TextEditingController controller;
@@ -365,8 +373,27 @@ class ConduitGlassSearchField extends StatelessWidget {
   final String query;
   final VoidCallback onClear;
 
+  /// Whether iOS 26 and later may use the system search bar.
+  final bool nativeOnIOS26;
+
   @override
   Widget build(BuildContext context) {
+    if (nativeOnIOS26 &&
+        focusNode == null &&
+        PlatformUiCapabilities.usesNativeIOS26) {
+      return AdaptiveNativeSearchBar(
+        controller: controller,
+        placeholder: hintText,
+        onChanged: onChanged,
+        onClear: onClear,
+        height: TouchTarget.minimum,
+        fallbackBuilder: _buildFlutterField,
+      );
+    }
+    return _buildFlutterField(context);
+  }
+
+  Widget _buildFlutterField(BuildContext context) {
     final textColor = context.conduitTheme.textPrimary;
     final hintColor = context.conduitTheme.iconSecondary;
 
@@ -984,7 +1011,8 @@ class ConduitIconButton extends StatelessWidget {
   final bool isCompact;
   final bool isCircular;
 
-  /// Uses system glass for controls floating over full-screen iOS content.
+  /// Uses system glass for controls floating over full-screen iOS media: the
+  /// clear variant, which lets the photo or video through.
   final bool useGlass;
 
   const ConduitIconButton({
@@ -1043,7 +1071,7 @@ class ConduitIconButton extends StatelessWidget {
                 iconSize: isCompact ? IconSize.small : IconSize.medium,
                 iconColor: effectiveIconColor,
                 semanticLabel: semanticLabel,
-                style: AdaptiveButtonStyle.glass,
+                style: AdaptiveButtonStyle.clearGlass,
                 minSize: Size.square(size),
                 padding: EdgeInsets.zero,
                 useSmoothRectangleBorder: !isCircular,
