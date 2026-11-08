@@ -146,21 +146,68 @@ void main() {
       );
     });
 
-    test('raw <think> text in the answer', () async {
-      // Direct adapters do not split inline think tags; the live chat shows
-      // them as escaped answer text, and a reload must show the same.
-      const raw = '<think>Check the almanac.</think>Low tide is at 08:12.';
-      final turn = await _sendAndReload(
-        adapter: _ScriptedAdapter(const <DirectStreamEvent>[
-          DirectContentDelta(raw),
-          DirectStreamDone(),
-        ]),
-      );
+    test('an OpenAI-compatible stream with an inline <think> block', () async {
+      final turn = await _sendAndReloadOpenAi(<String>[
+        '<thi',
+        'nk>Check the',
+        ' almanac.</th',
+        'ink>\n\nLow tide is at 08:12.',
+      ]);
 
+      expect(_detailsTypes(turn.live.content), <String>['reasoning']);
+      expect(turn.live.content, contains('&gt; Check the almanac.'));
+      expect(turn.live.content, contains('duration="'));
+      expect(turn.live.content, isNot(contains('think&gt;')));
+      expect(turn.reloaded.content, turn.live.content);
+      // The provider-facing copies keep the split: the answer alone replays
+      // as content, the reasoning as reasoning.
+      expect(
+        turn.reloaded.metadata?[kDirectRawAssistantContentMetadataKey],
+        'Low tide is at 08:12.',
+      );
+      expect(
+        turn.reloaded.metadata?[kDirectRawAssistantReasoningMetadataKey],
+        'Check the almanac.',
+      );
+      expect(
+        parseConduitDirectReplayOutput(turn.reloaded.output!)?.text,
+        'Low tide is at 08:12.',
+      );
+    });
+
+    test('an inline <think> block that never closes', () async {
+      final turn = await _sendAndReloadOpenAi(<String>[
+        '<think>Weighing the spring',
+        ' and neap tables',
+      ]);
+
+      expect(_detailsTypes(turn.live.content), <String>['reasoning']);
+      expect(turn.live.content, contains('&gt; Weighing the spring and neap'));
+      expect(turn.reloaded.content, turn.live.content);
+      expect(
+        turn.reloaded.content,
+        isNot(contains(kConduitDirectIncompleteAnswerReplayText)),
+      );
+    });
+
+    test('a literal <think> in code stays answer text', () async {
+      const answer =
+          'Some models wrap reasoning in `<think>` tags:\n'
+          '\n'
+          '```\n'
+          '<think>a draft</think>\n'
+          '```';
+      final turn = await _sendAndReloadOpenAi(<String>[
+        answer.substring(0, 31),
+        answer.substring(31, 60),
+        answer.substring(60),
+      ]);
+
+      expect(_detailsTypes(turn.live.content), isEmpty);
       expect(turn.reloaded.content, turn.live.content);
       expect(
         turn.reloaded.metadata?[kDirectRawAssistantContentMetadataKey],
-        raw,
+        answer,
       );
     });
 
@@ -378,6 +425,29 @@ Future<_Turn> _sendAndReload({
     (message) => message.id == live.id,
   );
   return (live: live, reloaded: reloaded);
+}
+
+/// [_sendAndReload] through the real OpenAI-compatible adapter, streaming
+/// each of [contentDeltas] as one Chat Completions delta.
+Future<_Turn> _sendAndReloadOpenAi(List<String> contentDeltas) {
+  final http = _SseAdapter(<String>[
+    for (final content in contentDeltas)
+      'data: ${jsonEncode({
+        'choices': [
+          {
+            'delta': {'content': content},
+          },
+        ],
+      })}',
+    'data: [DONE]',
+  ]);
+  return _sendAndReload(
+    adapter: OpenAiCompatibleAdapter(
+      dioFactory: (_) => Dio()..httpClientAdapter = http,
+      closeClients: false,
+    ),
+    adapterKey: kOpenAiCompatibleAdapterKey,
+  );
 }
 
 /// Stores a finished direct answer the way builds before this fix did for
