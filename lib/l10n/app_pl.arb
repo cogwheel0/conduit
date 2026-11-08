@@ -7722,7 +7722,7 @@
   "calendarRemoveEnd": "Usuń godzinę zakończenia",
   "calendarEventReadOnlyNotInvited": "Nie możesz zmienić tego wydarzenia.",
   "calendarFieldOrganizer": "Organizator",
-  "calendarColorName": "{color, select, blue{Niebieski} green{Zielony} amber{Bursztynowy} red{Czerwony} purple{Fioletowy} teal{Morski} other{Kolor}}",
+  "calendarColorName": "{color, select, blue{Niebieski} green{Zielony} amber{Bursztynowy} red{Czerwony} purple{Fioletowy} teal{Morski} custom{Własny kolor} other{Kolor}}",
   "@calendarColorName": {
     "placeholders": {
       "color": {

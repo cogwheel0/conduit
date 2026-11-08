@@ -4191,7 +4191,7 @@
   "calendarRemoveEnd": "移除結束時間",
   "calendarEventReadOnlyNotInvited": "您無法變更此活動。",
   "calendarFieldOrganizer": "主辦人",
-  "calendarColorName": "{color, select, blue{藍色} green{綠色} amber{琥珀色} red{紅色} purple{紫色} teal{青色} other{顏色}}",
+  "calendarColorName": "{color, select, blue{藍色} green{綠色} amber{琥珀色} red{紅色} purple{紫色} teal{青色} custom{自訂顏色} other{顏色}}",
   "calendarVisibilityFooter": "會顯示已勾選行事曆中的活動。輕點行事曆可顯示或隱藏其活動。",
   "personalizationMemoryTypeUserDescription": "關於你的偏好、事實或指示。",
   "personalizationMemoryTypeContextDescription": "在之後的聊天中需要記住的背景資訊。",

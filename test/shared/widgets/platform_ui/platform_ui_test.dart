@@ -701,7 +701,7 @@ void main() {
       find.byType(CNPopupMenuButton),
     );
     expect(popup.items, hasLength(1));
-    popup.onSelected(0);
+    popup.onSelected!(0);
     expect(selectionCount, 1);
     final buttonRect = tester.getRect(find.byType(CNButton));
     final popupRect = tester.getRect(find.byType(CNPopupMenuButton));
@@ -805,7 +805,7 @@ void main() {
         find.byType(CNPopupMenuButton),
       );
       expect(popup.items, hasLength(1));
-      popup.onSelected(0);
+      popup.onSelected!(0);
       expect(deleteCount, 1);
       await tester.pump(const Duration(milliseconds: 500));
     },

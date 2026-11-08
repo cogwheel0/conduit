@@ -8436,9 +8436,9 @@
   "@calendarFieldOrganizer": {
     "description": "Event detail row label for the person who organized the event."
   },
-  "calendarColorName": "{color, select, blue{Blue} green{Green} amber{Amber} red{Red} purple{Purple} teal{Teal} other{Color}}",
+  "calendarColorName": "{color, select, blue{Blue} green{Green} amber{Amber} red{Red} purple{Purple} teal{Teal} custom{Custom color} other{Color}}",
   "@calendarColorName": {
-    "description": "Accessibility name of a colour a new calendar can take.",
+    "description": "Accessibility name of a colour a new calendar can take; custom names the colour well that opens the system colour picker.",
     "placeholders": {
       "color": {
         "type": "String",

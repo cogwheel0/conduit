@@ -508,6 +508,9 @@ class _CalendarEventEditorState extends ConsumerState<CalendarEventEditor> {
                   allDay: draft.allDay,
                   onPickDate: _saving ? null : () => _pickDate(end: false),
                   onPickTime: _saving ? null : () => _pickTime(end: false),
+                  onChanged: _saving
+                      ? null
+                      : (wall) => _setBoundary(wall, end: false),
                 ),
                 if (end == null)
                   UtilityRow(
@@ -534,6 +537,9 @@ class _CalendarEventEditorState extends ConsumerState<CalendarEventEditor> {
                     invalid: endBeforeStart,
                     onPickDate: _saving ? null : () => _pickDate(end: true),
                     onPickTime: _saving ? null : () => _pickTime(end: true),
+                    onChanged: _saving
+                        ? null
+                        : (wall) => _setBoundary(wall, end: true),
                   ),
                   UtilityRow(
                     key: const Key('calendar-editor-remove-end'),
@@ -720,6 +726,7 @@ class _BoundaryRow extends StatelessWidget {
     required this.allDay,
     required this.onPickDate,
     required this.onPickTime,
+    required this.onChanged,
     this.invalid = false,
   });
 
@@ -733,38 +740,75 @@ class _BoundaryRow extends StatelessWidget {
   final VoidCallback? onPickDate;
   final VoidCallback? onPickTime;
 
+  /// The new boundary, from the native pills edited in place (iOS 26+).
+  final ValueChanged<CalendarWallTime>? onChanged;
+
   @override
   Widget build(BuildContext context) {
-    final day = formatCalendarDay(context, wall);
-    final clock = formatCalendarClock(context, wall);
+    final native = AdaptiveCompactDatePicker.isSupported;
     return UtilityRow(
       title: label,
       semanticLabel: label,
-      titleFlex: 2,
-      statusFlex: 5,
+      // The system pills are wider than Flutter's: give them the room to keep
+      // a two-digit day and the time on one line, as Calendar does.
+      titleFlex: native ? 1 : 2,
+      statusFlex: native ? 4 : 5,
       preserveTrailingSemantics: true,
       status: Wrap(
         alignment: WrapAlignment.end,
         spacing: Spacing.xs,
-        children: [
-          _PickerButton(
-            key: dateKey,
-            text: day,
-            semanticLabel: '$label, $day',
-            invalid: invalid,
-            onTap: onPickDate,
-          ),
-          if (!allDay)
-            _PickerButton(
-              key: timeKey,
-              text: clock,
-              semanticLabel: '$timeLabel, $clock',
-              invalid: invalid,
-              onTap: onPickTime,
-            ),
-        ],
+        children: native ? _nativePills() : _pickerButtons(context),
       ),
     );
+  }
+
+  /// The system's own pills, as in Calendar. An end before the start is
+  /// reported below the rows, as the pills can't be tinted red.
+  List<Widget> _nativePills() {
+    final onChanged = this.onChanged;
+    void change(DateTime picked) =>
+        onChanged?.call(CalendarWallTime.fromFields(picked));
+    return [
+      AdaptiveCompactDatePicker(
+        key: dateKey,
+        value: wall.fields,
+        mode: AdaptiveCompactDatePickerMode.date,
+        minimumDate: DateTime.utc(2000),
+        maximumDate: DateTime.utc(2100, 1, 1, 23, 59),
+        semanticLabel: label,
+        onChanged: onChanged == null ? null : change,
+      ),
+      if (!allDay)
+        AdaptiveCompactDatePicker(
+          key: timeKey,
+          value: wall.fields,
+          mode: AdaptiveCompactDatePickerMode.time,
+          semanticLabel: timeLabel,
+          onChanged: onChanged == null ? null : change,
+        ),
+    ];
+  }
+
+  List<Widget> _pickerButtons(BuildContext context) {
+    final day = formatCalendarDay(context, wall);
+    final clock = formatCalendarClock(context, wall);
+    return [
+      _PickerButton(
+        key: dateKey,
+        text: day,
+        semanticLabel: '$label, $day',
+        invalid: invalid,
+        onTap: onPickDate,
+      ),
+      if (!allDay)
+        _PickerButton(
+          key: timeKey,
+          text: clock,
+          semanticLabel: '$timeLabel, $clock',
+          invalid: invalid,
+          onTap: onPickTime,
+        ),
+    ];
   }
 }
 

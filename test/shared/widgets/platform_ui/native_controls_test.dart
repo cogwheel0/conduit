@@ -11,6 +11,8 @@ import 'package:conduit/shared/widgets/adaptive_toolbar_components.dart';
 import 'package:conduit/shared/widgets/legacy_design_compatibility.dart';
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:conduit/shared/widgets/themed_sheets.dart';
+import 'package:cupertino_native_better/cupertino_native_better.dart'
+    show CNProgressIndicator, CNSliderStyle;
 import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -166,6 +168,134 @@ void main() {
     );
     semantics.dispose();
   }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
+
+  testWidgets('iOS 26 linear progress is native only with a known value', (
+    tester,
+  ) async {
+    final semantics = tester.ensureSemantics();
+    await tester.pumpWidget(
+      host(
+        const SizedBox(
+          width: 200,
+          child: AdaptiveProgressIndicator.linear(
+            value: 0.4,
+            color: CupertinoColors.systemRed,
+            minHeight: 2,
+            semanticLabel: 'Listening',
+          ),
+        ),
+      ),
+    );
+    final bar = tester.widget<CNProgressIndicator>(
+      find.byType(CNProgressIndicator),
+    );
+    expect((bar.value, bar.tint), (0.4, CupertinoColors.systemRed));
+    expect(
+      tester.getSemantics(find.bySemanticsLabel('Listening')).value,
+      '40%',
+    );
+    // UIKit has no indeterminate bar and no track colour: those stay Flutter.
+    for (final flutterBar in const [
+      AdaptiveProgressIndicator.linear(minHeight: 2),
+      AdaptiveProgressIndicator.linear(
+        value: 0.4,
+        backgroundColor: CupertinoColors.systemGrey,
+      ),
+    ]) {
+      await tester.pumpWidget(host(SizedBox(width: 200, child: flutterBar)));
+      expect(find.byType(CNProgressIndicator), findsNothing);
+      expect(find.byType(LinearProgressIndicator), findsOneWidget);
+    }
+    semantics.dispose();
+  }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
+
+  testWidgets('iOS 26 sliders mark each step only when the steps are few', (
+    tester,
+  ) async {
+    for (final (divisions, ticks) in <(int?, int?)>[
+      (4, 5),
+      (12, 13),
+      (13, null),
+      (47, null),
+      (null, null),
+    ]) {
+      await tester.pumpWidget(
+        host(
+          SizedBox(
+            width: 300,
+            child: AdaptiveSlider(
+              value: 0,
+              divisions: divisions,
+              onChanged: (_) {},
+            ),
+          ),
+        ),
+      );
+      expect(
+        tester.widget<CNSlider>(find.byType(CNSlider)).numberOfTicks,
+        ticks,
+        reason: 'divisions: $divisions',
+      );
+    }
+  }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
+
+  testWidgets('iOS 26 media scrubbers use the thumbless system slider', (
+    tester,
+  ) async {
+    for (final thumbless in [true, false]) {
+      await tester.pumpWidget(
+        host(
+          SizedBox(
+            width: 300,
+            child: AdaptiveSlider(
+              value: 0.3,
+              thumbless: thumbless,
+              onChanged: (_) {},
+            ),
+          ),
+        ),
+      );
+      expect(
+        tester.widget<CNSlider>(find.byType(CNSlider)).style,
+        thumbless ? CNSliderStyle.thumbless : CNSliderStyle.standard,
+      );
+    }
+  }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
+
+  for (final native in [true, false]) {
+    testWidgets('segmented controls carry their field name (native: $native)', (
+      tester,
+    ) async {
+      PlatformUiCapabilities.debugIOSMajorVersionOverride = native ? 27 : 18;
+      PlatformUiCapabilities.debugNativeIOS26Override = native;
+      final semantics = tester.ensureSemantics();
+      await tester.pumpWidget(
+        host(
+          SizedBox(
+            width: 240,
+            child: AdaptiveSegmentedControl(
+              labels: const ['Edit', 'Preview'],
+              selectedIndex: 0,
+              onValueChanged: (_) {},
+              semanticLabel: 'Sketch content',
+            ),
+          ),
+        ),
+      );
+      if (native) {
+        // UIKit reads it; the native view's own tree is outside Flutter's.
+        expect(
+          tester
+              .widget<CNSegmentedControl>(find.byType(CNSegmentedControl))
+              .semanticLabel,
+          'Sketch content',
+        );
+      } else {
+        expect(find.bySemanticsLabel('Sketch content'), findsOneWidget);
+      }
+      semantics.dispose();
+    }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
+  }
 
   testWidgets('diagram glass controls retain zoom, reset and pan locking', (
     tester,
@@ -478,7 +608,7 @@ void main() {
   );
 
   testWidgets(
-    'floating media icons use native glass without changing inline defaults',
+    'floating media icons use clear glass without changing inline defaults',
     (tester) async {
       var taps = 0;
       await tester.pumpWidget(
@@ -507,7 +637,8 @@ void main() {
         ),
         findsNothing,
       );
-      expect(button.config.style, CNButtonStyle.glass);
+      // Clear glass lets the photo or video behind it through.
+      expect(button.config.style, CNButtonStyle.clearGlass);
       expect(
         tester.getSize(find.byType(ConduitIconButton)),
         Size.square(TouchTarget.comfortable),

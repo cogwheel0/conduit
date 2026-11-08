@@ -5803,7 +5803,7 @@
   "calendarRemoveEnd": "終了時刻を削除",
   "calendarEventReadOnlyNotInvited": "この予定は変更できません。",
   "calendarFieldOrganizer": "主催者",
-  "calendarColorName": "{color, select, blue{青} green{緑} amber{琥珀色} red{赤} purple{紫} teal{ティール} other{色}}",
+  "calendarColorName": "{color, select, blue{青} green{緑} amber{琥珀色} red{赤} purple{紫} teal{ティール} custom{カスタムカラー} other{色}}",
   "calendarVisibilityFooter": "チェックしたカレンダーの予定が表示されます。カレンダーをタップすると、その予定の表示/非表示を切り替えられます。",
   "personalizationMemoryTypeUserDescription": "あなたに関する好み、事実、または指示。",
   "personalizationMemoryTypeContextDescription": "今後のチャットで念頭に置く背景情報。",

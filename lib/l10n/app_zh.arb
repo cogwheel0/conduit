@@ -4191,7 +4191,7 @@
   "calendarRemoveEnd": "移除结束时间",
   "calendarEventReadOnlyNotInvited": "您无法更改此日程。",
   "calendarFieldOrganizer": "组织者",
-  "calendarColorName": "{color, select, blue{蓝色} green{绿色} amber{琥珀色} red{红色} purple{紫色} teal{青色} other{颜色}}",
+  "calendarColorName": "{color, select, blue{蓝色} green{绿色} amber{琥珀色} red{红色} purple{紫色} teal{青色} custom{自定义颜色} other{颜色}}",
   "calendarVisibilityFooter": "将显示已勾选日历中的日程。轻点日历可显示或隐藏其日程。",
   "personalizationMemoryTypeUserDescription": "关于你的偏好、事实或指示。",
   "personalizationMemoryTypeContextDescription": "在以后的聊天中需要记住的背景信息。",

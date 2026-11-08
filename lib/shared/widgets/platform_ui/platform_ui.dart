@@ -23,11 +23,15 @@ export 'package:cupertino_native_better/cupertino_native_better.dart'
         CNButtonDataConfig,
         CNButtonDataPopupItem,
         CNButtonStyle,
+        CNColorWell,
         CNGlassButtonGroup,
         CNGlassEffect,
         CNGlassEffectShape,
         CNImageAsset,
         CNImagePlacement,
+        CNPopUpButton,
+        CNPopUpButtonDivider,
+        CNPopUpButtonItem,
         CNPopupMenuButton,
         CNPopupMenuItem,
         CNSegmentedControl,
@@ -42,6 +46,7 @@ export 'package:cupertino_native_better/cupertino_native_better.dart'
         LiquidGlassContainer;
 
 export 'src/adaptive_chip.dart';
+export 'src/adaptive_compact_date_picker.dart';
 export 'src/native_context_menu.dart';
 
 export 'src/adaptive_progress.dart';

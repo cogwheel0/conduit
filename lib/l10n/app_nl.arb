@@ -4191,7 +4191,7 @@
   "calendarRemoveEnd": "Eindtijd verwijderen",
   "calendarEventReadOnlyNotInvited": "Je kunt deze afspraak niet wijzigen.",
   "calendarFieldOrganizer": "Organisator",
-  "calendarColorName": "{color, select, blue{Blauw} green{Groen} amber{Amber} red{Rood} purple{Paars} teal{Groenblauw} other{Kleur}}",
+  "calendarColorName": "{color, select, blue{Blauw} green{Groen} amber{Amber} red{Rood} purple{Paars} teal{Groenblauw} custom{Aangepaste kleur} other{Kleur}}",
   "calendarVisibilityFooter": "Afspraken uit aangevinkte agenda's worden getoond. Tik op een agenda om de afspraken ervan te tonen of te verbergen.",
   "personalizationMemoryTypeUserDescription": "Een voorkeur, feit of instructie over jou.",
   "personalizationMemoryTypeContextDescription": "Achtergrond om in toekomstige chats rekening mee te houden.",

@@ -4191,7 +4191,7 @@
   "calendarRemoveEnd": "Endzeit entfernen",
   "calendarEventReadOnlyNotInvited": "Du kannst diesen Termin nicht ändern.",
   "calendarFieldOrganizer": "Organisator",
-  "calendarColorName": "{color, select, blue{Blau} green{Grün} amber{Bernstein} red{Rot} purple{Lila} teal{Türkis} other{Farbe}}",
+  "calendarColorName": "{color, select, blue{Blau} green{Grün} amber{Bernstein} red{Rot} purple{Lila} teal{Türkis} custom{Eigene Farbe} other{Farbe}}",
   "calendarVisibilityFooter": "Termine aus markierten Kalendern werden angezeigt. Tippe auf einen Kalender, um seine Termine ein- oder auszublenden.",
   "personalizationMemoryTypeUserDescription": "Eine Vorliebe, Tatsache oder Anweisung über dich.",
   "personalizationMemoryTypeContextDescription": "Hintergrund, der in künftigen Chats berücksichtigt wird.",

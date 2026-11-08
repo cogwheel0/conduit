@@ -7,6 +7,7 @@ import 'package:conduit_core/navigation/routes.dart';
 import 'package:conduit_core/services/settings_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'calendar_harness.dart';
@@ -1033,6 +1034,40 @@ void main() {
       });
       // The form folds away again once the calendar exists.
       expect(find.byKey(const Key('calendar-new-name')), findsNothing);
+    });
+
+    testWidgets('on iOS 26 a colour from the system picker is written like '
+        'the presets', (tester) async {
+      PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.iOS;
+      PlatformUiCapabilities.debugIOSMajorVersionOverride = 26;
+      PlatformUiCapabilities.debugNativeIOS26Override = true;
+      addTearDown(PlatformUiCapabilities.resetDebugOverrides);
+      final session = await pumpCalendar(tester);
+      await openCalendars(tester);
+      await tester.tap(find.byKey(const Key('calendar-new-calendar')));
+      await tester.pumpAndSettle();
+
+      final well = find.byKey(const Key('calendar-new-color-custom'));
+      // The picker reports an opaque sRGB colour; it may be any one.
+      tester.widget<CNColorWell>(well).onChanged(const Color(0xFF0A7B3C));
+      await tester.pump();
+      expect(
+        tester.getSemantics(
+          find.byKey(const Key('calendar-new-color-#3b82f6')),
+        ),
+        isSemantics(isSelected: false, hasSelectedState: true),
+      );
+      expect(tester.widget<CNColorWell>(well).color, const Color(0xFF0A7B3C));
+
+      await tester.enterText(find.byKey(const Key('calendar-new-name')), 'Gym');
+      await tester.pump();
+      await tester.tap(find.byKey(const Key('calendar-create-calendar')));
+      await tester.pumpAndSettle();
+
+      expect(session.wire.writes.single.data, {
+        'name': 'Gym',
+        'color': '#0a7b3c',
+      });
     });
   });
 }

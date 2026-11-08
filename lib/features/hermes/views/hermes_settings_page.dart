@@ -27,6 +27,9 @@ import 'package:conduit_core/features/hermes/services/hermes_connection_service.
 import 'hermes_desktop_connection_section.dart';
 import 'hermes_settings_sections.dart';
 
+/// Heading of the backend mode section, also the mode selector's name.
+const _connectionModeTitle = 'Hermes connection mode';
+
 /// Editor for one saved Hermes connection: name, server URL, credentials, and
 /// a connection test. For the active connection it also shows the server's
 /// capabilities and management sections.
@@ -554,11 +557,12 @@ class _HermesSettingsPageState extends ConsumerState<HermesSettingsPage> {
         gap,
       ],
       InsetGroupedSection(
-        title: 'Hermes connection mode',
+        title: _connectionModeTitle,
         flat: true,
         padding: EdgeInsets.zero,
         child: AdaptiveSegmentedControl(
           key: const ValueKey<String>('hermes-backend-mode-selector'),
+          semanticLabel: _connectionModeTitle,
           labels: const ['Responses API', 'Desktop Gateway'],
           selectedIndex: controller.mode == HermesBackendMode.responsesApi
               ? 0
