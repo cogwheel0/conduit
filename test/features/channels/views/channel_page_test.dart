@@ -532,16 +532,24 @@ void main() {
     check(tester.takeException()).isNull();
 
     final reaction = find.widgetWithText(ActionChip, '🎉 1');
+    final threadScrollable = find
+        .descendant(
+          of: find.byType(ThreadPanel),
+          matching: find.byType(Scrollable),
+        )
+        .first;
     await tester.scrollUntilVisible(
       reaction,
       400,
-      scrollable: find
-          .descendant(
-            of: find.byType(ThreadPanel),
-            matching: find.byType(Scrollable),
-          )
-          .first,
+      scrollable: threadScrollable,
     );
+    // Reaching the reply can leave it under the floating composer, wherever
+    // the last step landed; the end of the thread clears it.
+    final position = tester
+        .state<ScrollableState>(threadScrollable)
+        .position;
+    position.jumpTo(position.maxScrollExtent);
+    await tester.pump();
 
     check(tester.takeException()).isNull();
     expect(reaction.hitTestable(), findsOneWidget);
