@@ -1518,8 +1518,8 @@
   "@analyzed": {
     "description": "Label shown after code interpreter has finished."
   },
-  "showComposerNotesButton": "Show Notes button",
-  "showComposerNotesButtonDescription": "入力中に、メッセージを送信せずにノートとして保存するボタンを表示します。",
+  "showComposerNotesButton": "下書きをメモとして保存",
+  "showComposerNotesButtonDescription": "入力中は＋メニューに「メモとして保存」が表示され、メッセージを送信せずにメモとして残せます。",
   "appCustomization": "カスタマイズ",
   "@appCustomization": {
     "description": "Title of the customization settings page."
@@ -6008,5 +6008,7 @@
   "followUpSuggestionsHeading": "提案",
   "codeBlockPlainText": "プレーンテキスト",
   "codeBlockWrapLines": "行を折り返す",
-  "workspacePromptHistoryDiffTooLarge": "これらのバージョンは長すぎるため比較できません。"
+  "workspacePromptHistoryDiffTooLarge": "これらのバージョンは長すぎるため比較できません。",
+  "composerSaveDraftAsNote": "メモとして保存",
+  "composerSaveDraftAsNoteDescription": "このメッセージを送信せずに、新しいメモとして残します。"
 }

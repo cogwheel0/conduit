@@ -32,6 +32,7 @@ class ComposerOverflowActionIds {
   static const codeInterpreter = 'codeInterpreter';
   static const toolSettings = 'toolSettings';
   static const compareModels = 'compareModels';
+  static const saveDraftAsNote = 'saveDraftAsNote';
   static const _filterPrefix = 'filter:';
   static const _toolPrefix = 'tool:';
   static const _terminalPrefix = 'terminal:';
@@ -172,6 +173,7 @@ List<ComposerOverflowItem> buildComposerOverflowItems({
   bool toolSettingsAvailable = false,
   bool compareModelsAvailable = false,
   bool hasMessage = true,
+  bool draftNoteAvailable = false,
   CodeInterpreterOffer? codeInterpreter,
 }) {
   return <ComposerOverflowItem>[
@@ -191,6 +193,10 @@ List<ComposerOverflowItem> buildComposerOverflowItems({
       l10n: l10n,
       available: compareModelsAvailable,
       hasMessage: hasMessage,
+    ),
+    ...buildComposerOverflowDraftNoteItems(
+      l10n: l10n,
+      available: draftNoteAvailable,
     ),
     ...buildComposerOverflowToolItems(
       availableTools: availableTools,
@@ -630,6 +636,29 @@ List<ComposerOverflowItem> buildComposerOverflowComparisonItems({
       cupertinoIcon: CupertinoIcons.square_split_2x1,
       materialIcon: Icons.vertical_split_outlined,
       sfSymbol: 'rectangle.split.2x1',
+    ),
+  ];
+}
+
+/// "Save as Note": keeps the message being written as a new note, and opens
+/// it, instead of sending it. It is about the draft, so it is offered only
+/// while there is one ([available]), beside Compare Models in the features
+/// section, which both the native iOS panel and the Flutter panel render.
+List<ComposerOverflowItem> buildComposerOverflowDraftNoteItems({
+  required AppLocalizations l10n,
+  required bool available,
+}) {
+  if (!available) return const <ComposerOverflowItem>[];
+  return <ComposerOverflowItem>[
+    ComposerOverflowItem(
+      id: ComposerOverflowActionIds.saveDraftAsNote,
+      kind: ComposerOverflowItemKind.action,
+      section: ComposerOverflowSection.features,
+      label: l10n.composerSaveDraftAsNote,
+      subtitle: l10n.composerSaveDraftAsNoteDescription,
+      cupertinoIcon: CupertinoIcons.doc_text,
+      materialIcon: Icons.note_add_outlined,
+      sfSymbol: 'note.text.badge.plus',
     ),
   ];
 }

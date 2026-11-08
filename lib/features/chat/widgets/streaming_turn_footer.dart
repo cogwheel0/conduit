@@ -155,9 +155,9 @@ class _StreamingTurnFooterState extends ConsumerState<StreamingTurnFooter>
         (content) => content != null && content.trim().isNotEmpty,
       ),
     );
-    final showThinkingLabel =
+    final showOrbit =
         shouldShow &&
-        shouldShowThinkingLabel(
+        shouldShowStreamingOrbit(
           message: widget.message,
           hasStreamedContent: hasStreamedContent,
         );
@@ -198,11 +198,14 @@ class _StreamingTurnFooterState extends ConsumerState<StreamingTurnFooter>
                         // glyphs will sit, so the swap moves nothing.
                         child: SizedBox(
                           height: kStreamingTurnFooterRowHeight,
-                          // While the reply has shown nothing, "Thinking…"
-                          // stands in its first line (ReplyFirstLineThinking)
-                          // and the orbit stays out of sight, keeping its
-                          // place so nothing moves when it fades in under
-                          // the first words.
+                          // The row keeps its place for the action row that
+                          // replaces it; the orbit in it shows only while the
+                          // reply works with nothing to read (see
+                          // shouldShowStreamingOrbit). Before the first words
+                          // "Thinking…" stands in the reply's first line, and
+                          // once text streams the text itself, with Stop in
+                          // the composer, says the reply is still coming: a
+                          // spinner a line below it would float unattached.
                           child: Align(
                             alignment: AlignmentDirectional.centerStart,
                             widthFactor: 1,
@@ -210,7 +213,7 @@ class _StreamingTurnFooterState extends ConsumerState<StreamingTurnFooter>
                               key: const ValueKey(
                                 'streaming-turn-orbit-opacity',
                               ),
-                              opacity: showThinkingLabel ? 0 : 1,
+                              opacity: showOrbit ? 1 : 0,
                               duration: _disableAnimations
                                   ? Duration.zero
                                   : _switchDuration,
@@ -220,8 +223,7 @@ class _StreamingTurnFooterState extends ConsumerState<StreamingTurnFooter>
                                   size: 28,
                                   color: context.conduitTheme.textSecondary
                                       .withValues(alpha: 0.75),
-                                  animate:
-                                      !_disableAnimations && !showThinkingLabel,
+                                  animate: !_disableAnimations && showOrbit,
                                 ),
                               ),
                             ),
@@ -261,6 +263,23 @@ bool shouldShowThinkingLabel({
   if (message.files?.isNotEmpty ?? false) return false;
   if (message.codeExecutions.isNotEmpty) return false;
   return true;
+}
+
+/// Whether the running footer shows its orbit: only while the reply works
+/// with no text on screen and no "Thinking…" label, such as while a visible
+/// status row, files or a code run stand in for the answer. Once any text
+/// shows, the growing text and the composer's Stop already say the reply is
+/// still coming.
+@visibleForTesting
+bool shouldShowStreamingOrbit({
+  required ChatMessage message,
+  required bool hasStreamedContent,
+}) {
+  if (hasStreamedContent || message.content.trim().isNotEmpty) return false;
+  return !shouldShowThinkingLabel(
+    message: message,
+    hasStreamedContent: hasStreamedContent,
+  );
 }
 
 /// Whether a reply shows "Thinking…" in place of its first line: while its

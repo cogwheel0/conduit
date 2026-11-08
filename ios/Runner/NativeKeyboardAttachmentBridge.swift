@@ -444,7 +444,9 @@ private final class NativeKeyboardAttachmentInputView: UIInputView {
     static let defaultHeight: CGFloat = 300
     static let minimumHeight: CGFloat = 170
     private static let panelCornerRadius: CGFloat = 26
-    private static let bottomContentInset: CGFloat = 16
+    /// The last row's own 8 pt padding plus this sits just above the home
+    /// indicator's inset, so the panel ends with its content.
+    private static let bottomContentInset: CGFloat = 6
 
     private let onSelect: (NativeKeyboardAttachmentAction) -> Void
     private var currentActions: [NativeKeyboardAttachmentAction] = []
@@ -691,8 +693,9 @@ private final class NativeKeyboardAttachmentInputView: UIInputView {
     }
 
     /// Attach tiles: a flat rounded key holding the icon, its name below.
+    /// Tall enough to hold a 22 pt symbol with the key's air around it.
     private var attachmentTileHeight: CGFloat {
-        traitCollection.verticalSizeClass == .compact ? 44 : 52
+        traitCollection.verticalSizeClass == .compact ? 48 : 56
     }
 
     private static let attachmentTileSpacing: CGFloat = 8
@@ -947,8 +950,10 @@ private final class NativeKeyboardAttachmentTile: UIControl {
 
         let icon = UIImageView(image: UIImage(systemName: action.sfSymbol))
         icon.translatesAutoresizingMaskIntoConstraints = false
+        // Title 2 (22 pt, following Dynamic Type): the glyph should hold its
+        // key the way a keyboard key's letter does, not float small in it.
         icon.preferredSymbolConfiguration = UIImage.SymbolConfiguration(
-            textStyle: .title3,
+            textStyle: .title2,
             scale: .medium
         )
         icon.tintColor = foreground

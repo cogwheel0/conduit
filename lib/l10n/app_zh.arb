@@ -386,8 +386,8 @@
   },
   "analyzing": "分析中…",
   "analyzed": "已分析",
-  "showComposerNotesButton": "Show Notes button",
-  "showComposerNotesButtonDescription": "输入时显示一个按钮，可将消息存为笔记而不发送。",
+  "showComposerNotesButton": "将草稿存为笔记",
+  "showComposerNotesButtonDescription": "输入时，“+”菜单会提供“存为笔记”，可将您的消息存为笔记而不发送。",
   "appCustomization": "自定义",
   "appCustomizationSubtitle": "主题、语言、语音和 quick actions",
   "quickActionsDescription": "聊天快捷方式",
@@ -4391,5 +4391,7 @@
   "followUpSuggestionsHeading": "建议",
   "codeBlockPlainText": "纯文本",
   "codeBlockWrapLines": "自动换行",
-  "workspacePromptHistoryDiffTooLarge": "这些版本过长，无法比较。"
+  "workspacePromptHistoryDiffTooLarge": "这些版本过长，无法比较。",
+  "composerSaveDraftAsNote": "存为笔记",
+  "composerSaveDraftAsNoteDescription": "将此消息存为新笔记，而不发送。"
 }

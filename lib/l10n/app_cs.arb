@@ -1518,8 +1518,8 @@
   "@analyzed": {
     "description": "Label shown after code interpreter has finished."
   },
-  "showComposerNotesButton": "Show Notes button",
-  "showComposerNotesButtonDescription": "Při psaní zobrazí tlačítko, které zprávu místo odeslání uloží jako poznámku.",
+  "showComposerNotesButton": "Ukládat koncepty jako poznámky",
+  "showComposerNotesButtonDescription": "Při psaní nabídne nabídka + volbu Uložit jako poznámku, která zprávu místo odeslání ponechá jako poznámku.",
   "appCustomization": "Přizpůsobení",
   "@appCustomization": {
     "description": "Title of the customization settings page."
@@ -6314,5 +6314,7 @@
   "followUpSuggestionsHeading": "Návrhy",
   "codeBlockPlainText": "Prostý text",
   "codeBlockWrapLines": "Zalamovat řádky",
-  "workspacePromptHistoryDiffTooLarge": "Tyto verze jsou příliš dlouhé na porovnání."
+  "workspacePromptHistoryDiffTooLarge": "Tyto verze jsou příliš dlouhé na porovnání.",
+  "composerSaveDraftAsNote": "Uložit jako poznámku",
+  "composerSaveDraftAsNoteDescription": "Ponechat tuto zprávu jako novou poznámku místo odeslání."
 }

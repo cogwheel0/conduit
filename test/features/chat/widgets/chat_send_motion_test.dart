@@ -338,6 +338,91 @@ void main() {
     expect(ChatSendOrigin.take(), isNull);
   });
 
+  testWidgets('a text message leaves from the typed words, above the '
+      'composer, and hands over to its row when it lands', (tester) async {
+    const flightText = ValueKey('flight-text');
+    final morphs = <double>[];
+    Animation<double>? morph;
+    ChatSendOrigin.record(const Rect.fromLTWH(20, 700, 360, 44));
+    await tester.pumpWidget(
+      _harness(
+        ChatSendEntrance(
+          messageId: 'sent-text',
+          timestamp: DateTime.now(),
+          flightBuilder: (context, animation) {
+            morph = animation;
+            return const Align(
+              alignment: Alignment.topRight,
+              child: Text('Picnic plans', key: flightText),
+            );
+          },
+          child: _bubble(),
+        ),
+      ),
+    );
+    // First frame: the stand-in's words sit exactly where the typed words
+    // were, fully drawn, and the row itself paints nothing yet.
+    expect(find.byKey(flightText), findsOneWidget);
+    expect(tester.getTopLeft(find.byKey(flightText)), const Offset(20, 700));
+    expect(_bubblePaints, 0);
+    morphs.add(morph!.value);
+    expect(morphs.single, 0);
+
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+    // On its way up, its bubble growing out from the words.
+    final midway = tester.getTopLeft(find.byKey(flightText));
+    expect(midway.dy, inExclusiveRange(0, 700));
+    expect(morph!.value, inExclusiveRange(0, 1));
+    expect(_bubblePaints, 0);
+
+    await tester.pumpAndSettle();
+    // Landed: the stand-in is gone and the row shows itself in its place.
+    expect(find.byKey(flightText), findsNothing);
+    expect(_bubblePaints, greaterThan(0));
+    expect(_paintedTop(tester), closeTo(0, 0.01));
+    expect(ChatSendOrigin.take(), isNull);
+  });
+
+  testWidgets('without a send origin the row moves itself', (tester) async {
+    const flightText = ValueKey('flight-text');
+    await tester.pumpWidget(
+      _harness(
+        ChatSendEntrance(
+          messageId: 'from-elsewhere',
+          timestamp: DateTime.now(),
+          flightBuilder: (context, animation) =>
+              const Text('Picnic plans', key: flightText),
+          child: _bubble(),
+        ),
+      ),
+    );
+    expect(find.byKey(flightText), findsNothing);
+    expect(_bubblePaints, greaterThan(0));
+    await tester.pumpAndSettle();
+    expect(_paintedTop(tester), closeTo(0, 0.01));
+  });
+
+  testWidgets('the leaving greeting holds still while the page changes', (
+    tester,
+  ) async {
+    Widget page(String greeting) => MaterialApp(
+      home: ChatGreetingExit(onDone: () {}, child: Text(greeting)),
+    );
+    await tester.pumpWidget(page('Hello, Avery'));
+    // A rebuild (a new composer height, the keyboard leaving) would place a
+    // fresh greeting elsewhere; the leaving one stays as it was.
+    await tester.pumpWidget(page('Hello again'));
+    expect(find.text('Hello, Avery'), findsOneWidget);
+    expect(find.text('Hello again'), findsNothing);
+    // Quick and front-loaded: nearly gone by the time a rising message
+    // could reach its line.
+    expect(
+      ChatGreetingExit.duration,
+      lessThanOrEqualTo(const Duration(milliseconds: 150)),
+    );
+  });
+
   testWidgets('the greeting fades out as the first message arrives', (
     tester,
   ) async {

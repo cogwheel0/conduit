@@ -386,8 +386,8 @@
   },
   "analyzing": "Analyseren…",
   "analyzed": "Geanalyseerd",
-  "showComposerNotesButton": "Show Notes button",
-  "showComposerNotesButtonDescription": "Toont tijdens het typen een knop die je bericht als notitie bewaart in plaats van het te versturen.",
+  "showComposerNotesButton": "Concepten als notities bewaren",
+  "showComposerNotesButtonDescription": "Terwijl je typt, biedt het +-menu Bewaar als notitie, waarmee je je bericht als notitie bewaart in plaats van het te versturen.",
   "appCustomization": "Aanpassing",
   "appCustomizationSubtitle": "Thema, taal, stem en quick actions",
   "quickActionsDescription": "Snelkoppelingen in chat",
@@ -4391,5 +4391,7 @@
   "followUpSuggestionsHeading": "Suggesties",
   "codeBlockPlainText": "Platte tekst",
   "codeBlockWrapLines": "Regels afbreken",
-  "workspacePromptHistoryDiffTooLarge": "Deze versies zijn te lang om te vergelijken."
+  "workspacePromptHistoryDiffTooLarge": "Deze versies zijn te lang om te vergelijken.",
+  "composerSaveDraftAsNote": "Bewaar als notitie",
+  "composerSaveDraftAsNoteDescription": "Bewaar dit bericht als nieuwe notitie in plaats van het te versturen."
 }

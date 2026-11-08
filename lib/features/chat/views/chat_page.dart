@@ -2235,9 +2235,33 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       bottomAnchorDetached: _bottomAnchorController.isUserDetachedFromBottom,
       currentlyShowing: _showScrollToBottom,
       distanceFromLatest: distanceFromLatest,
+      pinnedTurnPlaced: _pinnedTurnPlaced,
+      contentBelowPinnedTurn:
+          _timelineViewportController.liveDistanceFromLatest,
       showThreshold: _scrollButtonShowThreshold,
       hideThreshold: _scrollButtonHideThreshold,
     );
+  }
+
+  /// A pinned turn that has reached its place at the top (or stopped
+  /// following, e.g. the user touched the transcript mid-move). Before that
+  /// the transcript is still moving to it, and what lies below is not yet
+  /// meaningful.
+  bool get _pinnedTurnPlaced =>
+      _wantsPinToTop &&
+      (_pinToTopPositionSettled || !_shouldAutoFollowPinnedTurn);
+
+  /// While a turn is pinned, the live distance to the end of the transcript
+  /// can change with no scroll (a reply streaming on under the composer), so
+  /// the button is re-decided whenever it moves; this is a single comparison
+  /// until the decision actually flips.
+  void _handleLatestDistanceChanged(double distance) {
+    if (!mounted || _isDeactivated || !_pinnedTurnPlaced) return;
+    final threshold = _showScrollToBottom
+        ? _scrollButtonHideThreshold
+        : _scrollButtonShowThreshold;
+    if ((distance > threshold) == _showScrollToBottom) return;
+    _scheduleScrollToBottomVisibilitySync();
   }
 
   int _renderedTranscriptCount(
@@ -2898,6 +2922,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       return;
     }
     setState(() => _pinToTopPositionSettled = true);
+    // A reply already longer than the screen now runs on under the composer.
+    _scheduleScrollToBottomVisibilitySync();
   }
 
   void _clearPinToTopAnchor({
@@ -3304,6 +3330,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         _maybeLoadOlderMessages();
       },
       onMetricsChanged: _handleViewportMetricsChanged,
+      onLatestDistanceChanged: _handleLatestDistanceChanged,
       onPinEndSpaceChanged: _handlePinEndSpaceChanged,
       onOldestThresholdReached: _maybeLoadOlderMessages,
       onTrailingRefresh: _refreshActiveConversation,
@@ -3876,7 +3903,11 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     );
     String? greetingName;
     if (user != null) {
-      final derived = deriveUserDisplayName(user, fallback: '').trim();
+      // "Hello, Robin", not a form letter's full name; the whole name when
+      // it has no clear first name.
+      final derived = deriveGreetingName(
+        deriveUserDisplayName(user, fallback: ''),
+      );
       if (derived.isNotEmpty) {
         greetingName = derived;
         _cachedGreetingName = derived;
@@ -4325,7 +4356,13 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     final overlayStyle = theme.appBarTheme.systemOverlayStyle;
 
     // Whether the messages list can actually scroll (avoids showing button when not needed)
-    final canScroll = _hasScrollableTranscriptContent();
+    // A pinned reply that runs on under the composer is scrollable content
+    // even before the next full measurement says so.
+    final canScroll =
+        _hasScrollableTranscriptContent() ||
+        (_pinnedTurnPlaced &&
+            _timelineViewportController.liveDistanceFromLatest >
+                _scrollButtonHideThreshold);
 
     // Focus composer on app startup once (minimal delay for layout to settle)
     if (!_didStartupFocus) {
@@ -5947,18 +5984,28 @@ bool debugShouldExposeScrollToLatestForTesting({
   required bool bottomAnchorDetached,
   required bool currentlyShowing,
   required double distanceFromLatest,
+  bool pinnedTurnPlaced = false,
+  double contentBelowPinnedTurn = 0,
   double showThreshold = 48,
   double hideThreshold = 12,
 }) {
+  bool beyond(double distance) =>
+      currentlyShowing ? distance > hideThreshold : distance > showThreshold;
+  // A turn pinned to the top is its own "latest" presentation, but a reply
+  // longer than the screen runs on under the composer: whenever text lies
+  // below, offer the way down to it, streaming or finished. The pinned
+  // turn's text only grows, so the distance only grows and the button never
+  // flickers while it streams.
+  if (pinnedTurnPlaced) {
+    return contentBelowPinnedTurn > 0 && beyond(contentBelowPinnedTurn);
+  }
   // Scroll mode is the ownership source. The bottom-anchor flag is a derived
   // metric hint and can briefly clear against stale pin-support dimensions.
   final hasDetachedPresentation = freeScrolling;
   if (!hasScrollableContent || pinAutoFollowing || !hasDetachedPresentation) {
     return false;
   }
-  return currentlyShowing
-      ? distanceFromLatest > hideThreshold
-      : distanceFromLatest > showThreshold;
+  return beyond(distanceFromLatest);
 }
 
 @visibleForTesting

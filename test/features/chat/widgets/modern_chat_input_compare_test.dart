@@ -343,6 +343,59 @@ void main() {
     },
   );
 
+  composerTest('a sent draft leaves the composer one line at once, before '
+      'the turn is admitted, and takes the keyboard down', (tester) async {
+    final admission = Completer<void>();
+    late ProviderContainer container;
+    container = await pump(
+      tester,
+      draftHost: (text, onPrepared) async {
+        ChatSendPlaceholderHandle? committed;
+        await durableSend(
+          container,
+          text,
+          null,
+          onAssistantPlaceholderCreated: (handle) {
+            onPrepared(handle);
+            committed = handle;
+          },
+        );
+        await admission.future;
+        return committed;
+      },
+    );
+    const typed = 'First line\nSecond line\nThird line';
+    await tester.tap(find.byType(TextField));
+    await tester.enterText(find.byType(TextField), typed);
+    await tester.pump();
+    await tester.pump();
+    expect(
+      find.byKey(const ValueKey('expanded-composer-shell')),
+      findsOneWidget,
+    );
+    final shell = find.byKey(const ValueKey('composer-native-shell'));
+    final draftHeight = tester.getSize(shell).height;
+    expect(tester.testTextInput.isVisible, isTrue);
+
+    await tester.tap(find.byKey(const ValueKey('primary-btn-send')));
+    await settle(tester);
+
+    // Handed off but not yet admitted: the draft is still the composer's
+    // (a refusal would show it again), yet the composer already lays out
+    // as empty, one line high, and the keyboard has gone.
+    expect(composerText(tester), typed);
+    expect(
+      find.byKey(const ValueKey('compact-composer-shell')),
+      findsOneWidget,
+    );
+    expect(tester.getSize(shell).height, lessThan(draftHeight));
+    expect(tester.testTextInput.isVisible, isFalse);
+
+    admission.complete();
+    await settle(tester);
+    expect(composerText(tester), isEmpty);
+  });
+
   composerTest('a screen that cannot admit a comparison offers no Compare '
       'models command', (tester) async {
     await pump(tester, hostsComparison: false);

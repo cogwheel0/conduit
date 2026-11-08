@@ -492,8 +492,8 @@
   },
   "analyzing": "분석 중…",
   "analyzed": "분석 완료",
-  "showComposerNotesButton": "Show Notes button",
-  "showComposerNotesButtonDescription": "입력하는 동안 메시지를 보내는 대신 메모로 저장하는 버튼을 표시합니다.",
+  "showComposerNotesButton": "초안을 메모로 저장",
+  "showComposerNotesButtonDescription": "입력하는 동안 + 메뉴에 ‘메모로 저장’이 표시되어, 메시지를 보내지 않고 메모로 남길 수 있습니다.",
   "appCustomization": "사용자 정의",
   "appCustomizationSubtitle": "테마, 언어, 음성 및 빠른 액션",
   "quickActionsDescription": "채팅의 빠른 액션",
@@ -4163,5 +4163,7 @@
   "followUpSuggestionsHeading": "제안",
   "codeBlockPlainText": "일반 텍스트",
   "codeBlockWrapLines": "줄 바꿈",
-  "workspacePromptHistoryDiffTooLarge": "이 버전들은 너무 길어서 비교할 수 없습니다."
+  "workspacePromptHistoryDiffTooLarge": "이 버전들은 너무 길어서 비교할 수 없습니다.",
+  "composerSaveDraftAsNote": "메모로 저장",
+  "composerSaveDraftAsNoteDescription": "이 메시지를 보내지 않고 새 메모로 남깁니다."
 }

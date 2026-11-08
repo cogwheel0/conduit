@@ -87,7 +87,7 @@ void main() {
   });
 
   testWidgets(
-    'keeps the orbit out of sight while the first line says Thinking',
+    'shows the orbit only while the reply works with nothing to read',
     (tester) async {
       final container = _buildContainer();
       addTearDown(container.dispose);
@@ -117,6 +117,24 @@ void main() {
           .getSize(find.byKey(const ValueKey('typing')))
           .height;
 
+      // A visible status row stands in for the answer: the orbit says the
+      // turn is still working.
+      await tester.pumpWidget(
+        _buildHarness(
+          container: container,
+          message: empty.copyWith(
+            statusHistory: const [
+              ChatStatusUpdate(action: 'web_search', description: 'Searching'),
+            ],
+          ),
+        ),
+      );
+      await tester.pump();
+      expect(orbitOpacity(), 1);
+
+      // Once text streams, the text itself (and Stop in the composer) says
+      // the reply is still coming; a spinner a line below would float
+      // unattached. The row keeps its height for the action row.
       await tester.pumpWidget(
         _buildHarness(
           container: container,
@@ -124,13 +142,41 @@ void main() {
         ),
       );
       await tester.pump();
-      expect(orbitOpacity(), 1);
+      expect(orbitOpacity(), 0);
       expect(
         tester.getSize(find.byKey(const ValueKey('typing'))).height,
         rowHeight,
       );
     },
   );
+
+  test('the orbit never shows beside reply text', () {
+    final message = ChatMessage(
+      id: 'assistant-live',
+      role: 'assistant',
+      content: '',
+      timestamp: DateTime(2026),
+      isStreaming: true,
+    );
+    check(shouldShowStreamingOrbit(message: message, hasStreamedContent: false))
+        .isFalse(); // "Thinking…" holds the first line instead.
+    check(shouldShowStreamingOrbit(message: message, hasStreamedContent: true))
+        .isFalse();
+    check(
+      shouldShowStreamingOrbit(
+        message: message.copyWith(content: 'Partial answer'),
+        hasStreamedContent: false,
+      ),
+    ).isFalse();
+    check(
+      shouldShowStreamingOrbit(
+        message: message.copyWith(
+          statusHistory: const [ChatStatusUpdate(description: 'Reading')],
+        ),
+        hasStreamedContent: false,
+      ),
+    ).isTrue();
+  });
 
   testWidgets('Thinking holds the first line and cross-fades in place', (
     tester,

@@ -197,6 +197,7 @@ class ComposerAttachmentKeyboard extends ConsumerStatefulWidget {
     this.onToolSettings,
     this.onCompareModels,
     this.compareModelsHasMessage = true,
+    this.onSaveDraftAsNote,
   });
 
   /// Restricts the sheet to device-local attachment actions supplied by the
@@ -222,6 +223,10 @@ class ComposerAttachmentKeyboard extends ConsumerStatefulWidget {
   /// Whether the composer holds a message to compare. Until it does, the
   /// command stays visible but off and says why.
   final bool compareModelsHasMessage;
+
+  /// Keeps the typed message as a new note instead of sending it. Null hides
+  /// the command (no message, notes off, or the Chats setting turned off).
+  final VoidCallback? onSaveDraftAsNote;
 
   @override
   ConsumerState<ComposerAttachmentKeyboard> createState() =>
@@ -543,6 +548,7 @@ class _ComposerAttachmentKeyboardState
       ],
       if (!restrictedMode && widget.onCompareModels != null)
         ..._buildCompareModelsTiles(l10n),
+      if (widget.onSaveDraftAsNote != null) ..._buildSaveDraftAsNoteTiles(l10n),
       if (!widget.localAttachmentsOnly) ...[
         const SizedBox(height: Spacing.sm),
         _buildSectionLabel(l10n.tools),
@@ -687,6 +693,34 @@ class _ComposerAttachmentKeyboardState
             isAction: true,
             enabled: item.enabled,
             onToggle: widget.onCompareModels!,
+            theme: theme,
+          ),
+        ),
+    ];
+  }
+
+  /// "Save as Note", built from the same item the native iOS panel renders.
+  List<Widget> _buildSaveDraftAsNoteTiles(AppLocalizations l10n) {
+    final theme = context.conduitTheme;
+    return [
+      for (final item in buildComposerOverflowDraftNoteItems(
+        l10n: l10n,
+        available: true,
+      ))
+        Padding(
+          padding: const EdgeInsets.only(top: Spacing.xxs),
+          child: ToggleTile(
+            key: const ValueKey<String>('composer-save-draft-as-note'),
+            glyph: _buildIconGlyph(
+              icon: item.iconFor(useCupertino: Platform.isIOS),
+              selected: false,
+              theme: theme,
+            ),
+            title: item.label,
+            subtitle: item.subtitle,
+            selected: false,
+            isAction: true,
+            onToggle: widget.onSaveDraftAsNote!,
             theme: theme,
           ),
         ),
@@ -923,8 +957,12 @@ class ComposerAttachmentKey extends StatefulWidget {
   final String label;
   final VoidCallback? onTap;
 
-  static const double keyHeight = 52;
+  static const double keyHeight = 56;
   static const double cornerRadius = 14;
+
+  /// Cupertino and Material glyphs draw a little inside their box; at 24 pt
+  /// they match the native panel's 22 pt (Title 2) SF Symbols.
+  static const double glyphSize = 24;
 
   @override
   State<ComposerAttachmentKey> createState() => _ComposerAttachmentKeyState();
@@ -995,7 +1033,13 @@ class _ComposerAttachmentKeyState extends State<ComposerAttachmentKey> {
                   ),
                 ),
                 alignment: Alignment.center,
-                child: Icon(widget.icon, color: foreground, size: 22),
+                child: Icon(
+                  widget.icon,
+                  color: foreground,
+                  size: MediaQuery.textScalerOf(
+                    context,
+                  ).scale(ComposerAttachmentKey.glyphSize),
+                ),
               ),
               const SizedBox(height: 6),
               // A long localized name wraps instead of truncating, so every

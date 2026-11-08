@@ -33,6 +33,14 @@ class ChatSendOrigin {
     record(box.localToGlobal(Offset.zero) & box.size);
   }
 
+  /// Whether a fresh origin is waiting, without spending it.
+  static bool get hasFresh {
+    final at = _recordedAt;
+    return _rect != null &&
+        at != null &&
+        DateTime.now().difference(at) <= maxAge;
+  }
+
   /// Returns the recorded origin once, if it is still fresh.
   static Rect? take({DateTime? now}) {
     final rect = _rect;
@@ -60,8 +68,10 @@ const int _enteredMessageIdCapacity = 512;
 void debugResetChatSendEntrances() => _enteredMessageIds.clear();
 
 /// How long a new reply's placeholder (model label, "Thinking…") waits
-/// before fading in, so the sent message rising above it lands first.
-const Duration chatReplyEntranceDelay = Duration(milliseconds: 160);
+/// before fading in, so the sent message rising above it lands first: by
+/// then the message's spring has under a tenth of its travel left, so it no
+/// longer crosses the label's line.
+const Duration chatReplyEntranceDelay = Duration(milliseconds: 220);
 
 /// Content created this long ago or less still animates in; anything older
 /// is history and appears in place.
@@ -139,9 +149,12 @@ class _RenderFirstPaintListener extends RenderProxyBox {
 }
 
 /// The new-chat greeting leaving as the first message is sent: it fades out
-/// over [duration] while the message rises from the composer, so the two
-/// share one motion and no frame goes blank. Reduce Motion makes the same
-/// fade the cross-fade. It never takes touches or VoiceOver focus, and
+/// where it stands over [duration], opacity only, while the message rises
+/// from the composer. The fade is quick and front-loaded, so the greeting is
+/// all but gone before the rising message reaches its line, and the two never
+/// cross. Its first [child] is kept as it was, so the keyboard going down or
+/// the composer shrinking meanwhile never moves it. Reduce Motion makes the
+/// same fade the cross-fade. It never takes touches or VoiceOver focus, and
 /// calls [onDone] once it has gone.
 class ChatGreetingExit extends StatefulWidget {
   const ChatGreetingExit({
@@ -153,7 +166,7 @@ class ChatGreetingExit extends StatefulWidget {
   final Widget child;
   final VoidCallback onDone;
 
-  static const Duration duration = Duration(milliseconds: 180);
+  static const Duration duration = Duration(milliseconds: 120);
 
   @override
   State<ChatGreetingExit> createState() => _ChatGreetingExitState();
@@ -166,8 +179,13 @@ class _ChatGreetingExitState extends State<ChatGreetingExit>
     duration: ChatGreetingExit.duration,
   );
   late final Animation<double> _opacity = ReverseAnimation(
-    CurvedAnimation(parent: _controller, curve: Curves.easeOut),
+    CurvedAnimation(parent: _controller, curve: Curves.easeOutCubic),
   );
+
+  /// The greeting as it stood when the send began. Rebuilds of the page
+  /// (a new composer height) would re-centre a fresh copy; the leaving one
+  /// holds still.
+  late final Widget _frozenChild = widget.child;
 
   @override
   void initState() {
@@ -194,10 +212,54 @@ class _ChatGreetingExitState extends State<ChatGreetingExit>
   Widget build(BuildContext context) {
     return IgnorePointer(
       child: ExcludeSemantics(
-        child: FadeTransition(opacity: _opacity, child: widget.child),
+        child: FadeTransition(
+          opacity: _opacity,
+          // The page grows as the keyboard goes down; laid out as it first
+          // was, the greeting stays on its line instead of sliding with it.
+          child: _FirstLayoutHold(child: _frozenChild),
+        ),
       ),
     );
   }
+}
+
+/// Builds the stand-in that flies up from where a message was written. It
+/// lays out exactly like the message's row and draws the words alone at
+/// [morph] 0 and the finished bubble at 1.
+typedef ChatSendFlightBuilder = Widget Function(
+  BuildContext context,
+  Animation<double> morph,
+);
+
+/// Lays its child out with the constraints it first had, at the top-left,
+/// whatever its parent offers later.
+class _FirstLayoutHold extends SingleChildRenderObjectWidget {
+  const _FirstLayoutHold({required super.child});
+
+  @override
+  RenderObject createRenderObject(BuildContext context) =>
+      _RenderFirstLayoutHold();
+}
+
+class _RenderFirstLayoutHold extends RenderProxyBox {
+  BoxConstraints? _first;
+
+  @override
+  void performLayout() {
+    final first = _first ??= constraints;
+    final child = this.child;
+    if (child == null) {
+      size = constraints.smallest;
+      return;
+    }
+    child.layout(first, parentUsesSize: true);
+    size = constraints.constrain(child.size);
+  }
+
+  @override
+  Size computeDryLayout(BoxConstraints constraints) => constraints.constrain(
+    child?.getDryLayout(_first ?? constraints) ?? Size.zero,
+  );
 }
 
 /// A just-sent message rising into place from where it was written.
@@ -207,8 +269,15 @@ class _ChatGreetingExitState extends State<ChatGreetingExit>
 /// spring chases that place live, keeping its own position and velocity, so
 /// whatever the timeline does meanwhile (a new chat settling its first turn,
 /// a scroll bringing the turn up) folds into one continuous motion with no
-/// jump. It is visible from its first frame and fades the rest of the way in
-/// as the composer clears, so the hand-off never shows an empty frame.
+/// jump.
+///
+/// With a [flightBuilder] (a plain text message), the message leaves from
+/// the words themselves: a stand-in drawn above everything, the composer
+/// included, starts with its text exactly where the typed text was, fully
+/// opaque, and its bubble grows out from around the words (position and size
+/// on the same spring) while it travels. The row in the thread stays hidden
+/// until the stand-in lands on it, then takes its place in the same frame.
+/// Without one it rises from the origin and fades the rest of the way in.
 /// Without an origin (a message from elsewhere) it rises a short way
 /// instead. Only a message created in the last few seconds, mounting for the
 /// first time, animates; Reduce Motion fades it in where it lands.
@@ -219,6 +288,7 @@ class ChatSendEntrance extends StatefulWidget {
     required this.timestamp,
     required this.child,
     this.useSendOrigin = true,
+    this.flightBuilder,
   });
 
   final String messageId;
@@ -227,6 +297,10 @@ class ChatSendEntrance extends StatefulWidget {
 
   /// Whether to rise from [ChatSendOrigin]; false rises a short way.
   final bool useSendOrigin;
+
+  /// The stand-in that flies from the origin above the composer, or null to
+  /// move the row itself.
+  final ChatSendFlightBuilder? flightBuilder;
 
   /// Spring response in seconds (critically damped: damping ratio 1.0).
   static const double springResponse = 0.35;
@@ -262,6 +336,10 @@ class ChatSendEntrance extends StatefulWidget {
     return (1 + omega * t) * math.exp(-omega * t);
   }
 
+  /// How far a flying message has grown from its words into its bubble at
+  /// [t] seconds: the travel's own spring, so size and place arrive together.
+  static double morphAt(double t) => 1 - remainingAt(t);
+
   /// Advances the spring [dt] seconds from [displacement] (points from its
   /// target) moving at [velocity] (points per second).
   static ({double displacement, double velocity}) step({
@@ -290,6 +368,11 @@ class _ChatSendEntranceState extends State<ChatSendEntrance>
   bool _decided = false;
   bool _fadeOnly = false;
 
+  /// The stand-in's flight, when this message leaves from its words.
+  _SendFlight? _flight;
+  Animation<double>? _morph;
+  final OverlayPortalController _portal = OverlayPortalController();
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
@@ -300,12 +383,46 @@ class _ChatSendEntranceState extends State<ChatSendEntrance>
       return;
     }
     _fadeOnly = context.reduceMotion;
-    _controller = AnimationController(
+    final controller = _controller = AnimationController(
       vsync: this,
       duration: _fadeOnly
           ? ChatSendEntrance.reducedMotionFadeDuration
           : ChatSendEntrance.settleDuration,
     );
+    if (!_fadeOnly &&
+        widget.useSendOrigin &&
+        widget.flightBuilder != null &&
+        ChatSendOrigin.hasFresh &&
+        Overlay.maybeOf(context) != null) {
+      _flight = _SendFlight(onEnd: _endFlight);
+      _morph = CurvedAnimation(
+        parent: controller,
+        curve: const _SpringMorphCurve(),
+      );
+      // Shown from the first frame, so the stand-in is laid out and ready
+      // the moment the row is first painted.
+      _portal.show();
+      // A stand-in that never got to paint must not keep the row hidden.
+      controller.addStatusListener((status) {
+        if (status == AnimationStatus.completed) _endFlight();
+      });
+    }
+  }
+
+  /// The stand-in landed (or could not fly): the row shows itself in the
+  /// next frame and the stand-in goes.
+  void _endFlight() {
+    final flight = _flight;
+    if (flight == null || flight.ended) return;
+    flight.ended = true;
+    if (!mounted) return;
+    _portal.hide();
+    final controller = _controller;
+    if (controller != null) {
+      controller.stop();
+      // Completing the clock repaints the row, now at rest in its place.
+      controller.value = 1;
+    }
   }
 
   /// The first frame that shows the bubble spends its entrance and takes the
@@ -338,13 +455,271 @@ class _ChatSendEntranceState extends State<ChatSendEntrance>
   Widget build(BuildContext context) {
     final controller = _controller;
     if (controller == null) return widget.child;
-    return _SendEntranceMotion(
+    final flight = _flight;
+    final motion = _SendEntranceMotion(
       controller: controller,
       fadeOnly: _fadeOnly,
       beginOnScreen: _beginOnScreen,
       onSettled: _settled,
+      flight: flight,
       child: widget.child,
     );
+    final flightBuilder = widget.flightBuilder;
+    final morph = _morph;
+    if (flight == null || flightBuilder == null || morph == null) {
+      return motion;
+    }
+    return OverlayPortal.overlayChildLayoutBuilder(
+      controller: _portal,
+      overlayChildBuilder: (context, info) => IgnorePointer(
+        child: ExcludeSemantics(
+          child: _SendFlightLayer(
+            flight: flight,
+            controller: controller,
+            rowWidth: info.childSize.width,
+            child: flightBuilder(context, morph),
+          ),
+        ),
+      ),
+      child: motion,
+    );
+  }
+}
+
+/// [ChatSendEntrance.morphAt] over the entrance's clock.
+class _SpringMorphCurve extends Curve {
+  const _SpringMorphCurve();
+
+  @override
+  double transformInternal(double t) {
+    final seconds =
+        t *
+        ChatSendEntrance.settleDuration.inMicroseconds /
+        Duration.microsecondsPerSecond;
+    return ChatSendEntrance.morphAt(seconds);
+  }
+}
+
+/// The state a flying stand-in shares with the row it lands on.
+class _SendFlight {
+  _SendFlight({required this.onEnd});
+
+  /// Ends the flight; never called from inside paint.
+  final VoidCallback onEnd;
+
+  /// Where the typed text was, in global coordinates; null until the row is
+  /// first painted (or for good, if this send had none).
+  Rect? origin;
+
+  /// The row in the thread the stand-in flies to.
+  RenderBox? row;
+
+  /// Whether the row's first paint has decided the flight.
+  bool decided = false;
+
+  /// Whether the row shows itself again.
+  bool ended = false;
+
+  /// The stand-in's painted top-left in its layer, and its velocity.
+  Offset? position;
+  Offset velocity = Offset.zero;
+
+  /// Clock reading (seconds) the spring was last advanced to.
+  double advancedTo = 0;
+
+  bool _endScheduled = false;
+
+  bool get flying => origin != null && !ended;
+
+  void scheduleEnd() {
+    if (_endScheduled || ended) return;
+    _endScheduled = true;
+    // Never change state from inside paint.
+    WidgetsBinding.instance.addPostFrameCallback((_) => onEnd());
+    WidgetsBinding.instance.scheduleFrame();
+  }
+}
+
+class _SendFlightLayer extends SingleChildRenderObjectWidget {
+  const _SendFlightLayer({
+    required this.flight,
+    required this.controller,
+    required this.rowWidth,
+    required super.child,
+  });
+
+  final _SendFlight flight;
+  final AnimationController controller;
+  final double rowWidth;
+
+  @override
+  _RenderSendFlightLayer createRenderObject(BuildContext context) =>
+      _RenderSendFlightLayer(
+        flight: flight,
+        controller: controller,
+        rowWidth: rowWidth,
+      );
+
+  @override
+  void updateRenderObject(
+    BuildContext context,
+    _RenderSendFlightLayer renderObject,
+  ) {
+    renderObject
+      ..flight = flight
+      ..controller = controller
+      ..rowWidth = rowWidth;
+  }
+}
+
+/// Fills the overlay and paints the stand-in where its spring has carried it,
+/// aiming each frame at the row's live place in the thread. It starts with
+/// its text's top-left on the typed text's, and settles on the row exactly,
+/// so the row can take over in the next frame.
+class _RenderSendFlightLayer extends RenderProxyBox {
+  _RenderSendFlightLayer({
+    required _SendFlight flight,
+    required AnimationController controller,
+    required double rowWidth,
+  }) : _flight = flight,
+       _controller = controller,
+       _rowWidth = rowWidth;
+
+  _SendFlight _flight;
+  set flight(_SendFlight value) {
+    if (identical(value, _flight)) return;
+    _flight = value;
+    markNeedsPaint();
+  }
+
+  AnimationController _controller;
+  set controller(AnimationController value) {
+    if (identical(value, _controller)) return;
+    if (attached) _controller.removeListener(markNeedsPaint);
+    _controller = value;
+    if (attached) _controller.addListener(markNeedsPaint);
+  }
+
+  double _rowWidth;
+  set rowWidth(double value) {
+    if (value == _rowWidth) return;
+    _rowWidth = value;
+    markNeedsLayout();
+  }
+
+  @override
+  void attach(PipelineOwner owner) {
+    super.attach(owner);
+    _controller.addListener(markNeedsPaint);
+  }
+
+  @override
+  void detach() {
+    _controller.removeListener(markNeedsPaint);
+    super.detach();
+  }
+
+  @override
+  bool get sizedByParent => true;
+
+  @override
+  Size computeDryLayout(BoxConstraints constraints) => constraints.biggest;
+
+  @override
+  void performLayout() {
+    final width = _rowWidth.isFinite && _rowWidth > 0
+        ? _rowWidth
+        : constraints.maxWidth;
+    child?.layout(
+      BoxConstraints(minWidth: width, maxWidth: width),
+      parentUsesSize: true,
+    );
+  }
+
+  @override
+  bool hitTestChildren(BoxHitTestResult result, {required Offset position}) =>
+      false;
+
+  @override
+  void applyPaintTransform(RenderBox child, Matrix4 transform) {
+    final position = _flight.position ?? Offset.zero;
+    transform.translateByDouble(position.dx, position.dy, 0, 1);
+  }
+
+  double get _clockSeconds {
+    final duration = _controller.duration ?? Duration.zero;
+    return _controller.value *
+        duration.inMicroseconds /
+        Duration.microsecondsPerSecond;
+  }
+
+  /// Where the stand-in's words start inside it: its first paragraph.
+  static Offset? _textOffsetIn(RenderBox root) {
+    RenderParagraph? found;
+    void visit(RenderObject node) {
+      if (found != null) return;
+      if (node is RenderParagraph) {
+        found = node;
+        return;
+      }
+      node.visitChildren(visit);
+    }
+
+    root.visitChildren(visit);
+    final paragraph = found;
+    if (paragraph == null || !paragraph.hasSize) return null;
+    return paragraph.localToGlobal(Offset.zero, ancestor: root);
+  }
+
+  @override
+  void paint(PaintingContext context, Offset offset) {
+    final child = this.child;
+    final flight = _flight;
+    final origin = flight.origin;
+    final row = flight.row;
+    if (child == null ||
+        !flight.flying ||
+        origin == null ||
+        row == null ||
+        !row.attached ||
+        !row.hasSize) {
+      return;
+    }
+    final target = globalToLocal(row.localToGlobal(Offset.zero));
+    final elapsed = _clockSeconds;
+    var position = flight.position;
+    if (position == null) {
+      // The words leave from where they were typed.
+      final textOffset = _textOffsetIn(child) ?? Offset.zero;
+      position = globalToLocal(origin.topLeft) - textOffset;
+      flight.velocity = Offset.zero;
+      flight.advancedTo = elapsed;
+    } else if (elapsed > flight.advancedTo) {
+      final dt = elapsed - flight.advancedTo;
+      final x = ChatSendEntrance.step(
+        displacement: position.dx - target.dx,
+        velocity: flight.velocity.dx,
+        dt: dt,
+      );
+      final y = ChatSendEntrance.step(
+        displacement: position.dy - target.dy,
+        velocity: flight.velocity.dy,
+        dt: dt,
+      );
+      position = target + Offset(x.displacement, y.displacement);
+      flight.velocity = Offset(x.velocity, y.velocity);
+      flight.advancedTo = elapsed;
+    }
+    final settled =
+        ChatSendEntrance.morphAt(elapsed) >= 0.999 &&
+        (position - target).distance < ChatSendEntrance.restDistance &&
+        flight.velocity.distance < ChatSendEntrance.restSpeed;
+    if (settled) {
+      position = target;
+      flight.scheduleEnd();
+    }
+    flight.position = position;
+    context.paintChild(child, offset + position);
   }
 }
 
@@ -354,11 +729,13 @@ class _SendEntranceMotion extends SingleChildRenderObjectWidget {
     required this.fadeOnly,
     required this.beginOnScreen,
     required this.onSettled,
+    required this.flight,
     required super.child,
   });
 
   final AnimationController controller;
   final bool fadeOnly;
+  final _SendFlight? flight;
 
   /// Called at the first paint; returns the send origin, if any.
   final Rect? Function() beginOnScreen;
@@ -371,6 +748,7 @@ class _SendEntranceMotion extends SingleChildRenderObjectWidget {
         fadeOnly: fadeOnly,
         beginOnScreen: beginOnScreen,
         onSettled: onSettled,
+        flight: flight,
       );
 
   @override
@@ -382,7 +760,8 @@ class _SendEntranceMotion extends SingleChildRenderObjectWidget {
       ..controller = controller
       ..fadeOnly = fadeOnly
       ..beginOnScreen = beginOnScreen
-      ..onSettled = onSettled;
+      ..onSettled = onSettled
+      ..flight = flight;
   }
 }
 
@@ -398,11 +777,15 @@ class _RenderSendEntrance extends RenderProxyBox {
     required this.fadeOnly,
     required this.beginOnScreen,
     required this.onSettled,
+    required this.flight,
   }) : _controller = controller;
 
   bool fadeOnly;
   Rect? Function() beginOnScreen;
   VoidCallback onSettled;
+
+  /// A stand-in flying to this row; while it flies, the row paints nothing.
+  _SendFlight? flight;
 
   AnimationController _controller;
   set controller(AnimationController value) {
@@ -435,7 +818,10 @@ class _RenderSendEntrance extends RenderProxyBox {
     super.detach();
   }
 
-  bool get _finished => _settled || (_started && _controller.isCompleted);
+  bool get _finished =>
+      _settled ||
+      (_started && _controller.isCompleted) ||
+      (flight?.ended ?? false);
 
   double get _clockSeconds {
     final duration = _controller.duration ?? Duration.zero;
@@ -517,6 +903,25 @@ class _RenderSendEntrance extends RenderProxyBox {
           _controller.forward();
         }
       });
+    }
+    final flight = this.flight;
+    if (flight != null && !flight.decided) {
+      // The first frame that shows the row decides whether the stand-in
+      // flies: it needs the send origin, which this spends.
+      flight.decided = true;
+      final origin = beginOnScreen();
+      if (origin != null) {
+        flight
+          ..origin = origin
+          ..row = this;
+      } else {
+        flight.scheduleEnd();
+      }
+    }
+    if (flight != null && flight.flying) {
+      // The stand-in above the composer is this row until it lands.
+      _opacityLayer.layer = null;
+      return;
     }
     _resolveFrame();
     if (_finished || (_offsetY.abs() < 0.25 && _opacity >= 1)) {

@@ -388,8 +388,8 @@
   },
   "analyzing": "Analysiere…",
   "analyzed": "Analysiert",
-  "showComposerNotesButton": "Show Notes button",
-  "showComposerNotesButtonDescription": "Zeigt beim Tippen eine Schaltfläche, die deine Nachricht als Notiz speichert, statt sie zu senden.",
+  "showComposerNotesButton": "Entwürfe als Notizen sichern",
+  "showComposerNotesButtonDescription": "Beim Tippen bietet das +-Menü „Als Notiz sichern“ an, das deine Nachricht als Notiz behält, statt sie zu senden.",
   "appCustomization": "Anpassung",
   "appCustomizationSubtitle": "Design, Sprache, Stimme und Quick Pills",
   "quickActionsDescription": "Schnellzugriffe im Chat",
@@ -4391,5 +4391,7 @@
   "followUpSuggestionsHeading": "Vorschläge",
   "codeBlockPlainText": "Nur Text",
   "codeBlockWrapLines": "Zeilen umbrechen",
-  "workspacePromptHistoryDiffTooLarge": "Diese Versionen sind zu lang zum Vergleichen."
+  "workspacePromptHistoryDiffTooLarge": "Diese Versionen sind zu lang zum Vergleichen.",
+  "composerSaveDraftAsNote": "Als Notiz sichern",
+  "composerSaveDraftAsNoteDescription": "Behalte diese Nachricht als neue Notiz, statt sie zu senden."
 }

@@ -386,8 +386,8 @@
   },
   "analyzing": "分析中…",
   "analyzed": "已分析",
-  "showComposerNotesButton": "Show Notes button",
-  "showComposerNotesButtonDescription": "輸入時顯示一個按鈕，可將訊息存為筆記而不傳送。",
+  "showComposerNotesButton": "將草稿儲存為筆記",
+  "showComposerNotesButtonDescription": "輸入時，「+」選單會提供「儲存為筆記」，可將您的訊息存為筆記而不傳送。",
   "appCustomization": "自定義",
   "appCustomizationSubtitle": "主題、語言、語音和 quick actions",
   "quickActionsDescription": "聊天快捷方式",
@@ -4391,5 +4391,7 @@
   "followUpSuggestionsHeading": "建議",
   "codeBlockPlainText": "純文字",
   "codeBlockWrapLines": "自動換行",
-  "workspacePromptHistoryDiffTooLarge": "這些版本過長，無法比較。"
+  "workspacePromptHistoryDiffTooLarge": "這些版本過長，無法比較。",
+  "composerSaveDraftAsNote": "儲存為筆記",
+  "composerSaveDraftAsNoteDescription": "將此訊息儲存為新筆記，而不傳送。"
 }

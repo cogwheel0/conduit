@@ -386,8 +386,8 @@
   },
   "analyzing": "Analizando…",
   "analyzed": "Analizado",
-  "showComposerNotesButton": "Show Notes button",
-  "showComposerNotesButtonDescription": "Mientras escribes, muestra un botón que guarda tu mensaje como nota en lugar de enviarlo.",
+  "showComposerNotesButton": "Guardar borradores como notas",
+  "showComposerNotesButtonDescription": "Mientras escribes, el menú + ofrece Guardar como nota, que conserva tu mensaje como nota en lugar de enviarlo.",
   "appCustomization": "Personalización",
   "appCustomizationSubtitle": "Tema, idioma, voz y quick actions",
   "quickActionsDescription": "Accesos directos en chat",
@@ -4391,5 +4391,7 @@
   "followUpSuggestionsHeading": "Sugerencias",
   "codeBlockPlainText": "Texto sin formato",
   "codeBlockWrapLines": "Ajustar líneas",
-  "workspacePromptHistoryDiffTooLarge": "Estas versiones son demasiado largas para compararlas."
+  "workspacePromptHistoryDiffTooLarge": "Estas versiones son demasiado largas para compararlas.",
+  "composerSaveDraftAsNote": "Guardar como nota",
+  "composerSaveDraftAsNoteDescription": "Conserva este mensaje como una nota nueva en lugar de enviarlo."
 }

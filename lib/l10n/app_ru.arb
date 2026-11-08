@@ -392,8 +392,8 @@
   },
   "analyzing": "Анализирую…",
   "analyzed": "Проанализировано",
-  "showComposerNotesButton": "Show Notes button",
-  "showComposerNotesButtonDescription": "Во время ввода показывает кнопку, которая сохраняет сообщение как заметку вместо отправки.",
+  "showComposerNotesButton": "Сохранять черновики как заметки",
+  "showComposerNotesButtonDescription": "Во время ввода меню + предлагает «Сохранить как заметку», чтобы сохранить сообщение как заметку вместо отправки.",
   "appCustomization": "Настройка",
   "appCustomizationSubtitle": "Тема, язык, голос и quick actions",
   "quickActionsDescription": "Быстрые клавиши в чате",
@@ -4429,5 +4429,7 @@
   "followUpSuggestionsHeading": "Предложения",
   "codeBlockPlainText": "Обычный текст",
   "codeBlockWrapLines": "Переносить строки",
-  "workspacePromptHistoryDiffTooLarge": "Эти версии слишком длинные для сравнения."
+  "workspacePromptHistoryDiffTooLarge": "Эти версии слишком длинные для сравнения.",
+  "composerSaveDraftAsNote": "Сохранить как заметку",
+  "composerSaveDraftAsNoteDescription": "Сохранить это сообщение как новую заметку вместо отправки."
 }
