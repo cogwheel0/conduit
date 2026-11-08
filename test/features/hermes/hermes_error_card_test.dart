@@ -360,6 +360,45 @@ void main() {
     );
   });
 
+  // The card read the connection and chat once: a chat switched under it
+  // kept offering the action it had before.
+  testWidgets('the action follows the open chat while the card shows', (
+    tester,
+  ) async {
+    final elsewhere = markNativeHermesConversation(
+      Conversation(
+        id: 'local:hermes_pending',
+        title: 'Not saved yet',
+        createdAt: DateTime.utc(2026, 11, 7),
+        updatedAt: DateTime.utc(2026, 11, 7),
+        metadata: const {'backend': 'hermes'},
+      ),
+    );
+    await tester.pumpWidget(
+      _app(
+        _overrides(_desktop(), conversation: elsewhere),
+        const HermesErrorCard(
+          surface: HermesErrorSurface(
+            layer: HermesErrorLayer.provider,
+            code: 'context_overflow',
+            retryable: false,
+          ),
+          errorText: 'Synthetic provider error',
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    // No session of its own yet: nothing to compact.
+    expect(find.text(_l10n.hermesErrorCompact), findsNothing);
+
+    ProviderScope.containerOf(
+      tester.element(find.byType(HermesErrorCard)),
+    ).read(activeConversationProvider.notifier).set(_hermesChat());
+    await tester.pumpAndSettle();
+
+    expect(find.text(_l10n.hermesErrorCompact), findsOneWidget);
+  });
+
   testWidgets('a new chat stays on the Hermes model', (tester) async {
     final container = await _pumpCard(
       tester,

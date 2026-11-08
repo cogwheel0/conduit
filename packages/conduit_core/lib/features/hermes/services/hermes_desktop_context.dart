@@ -102,26 +102,51 @@ extension _HermesDesktopContext on HermesDesktopApiService {
 
   /// A compaction Hermes finishes in the background (a turn-isolated
   /// session's host outlasting the wait) ends with a `compacted` status,
-  /// or an error: its chat and report are read again then. Other session
-  /// info (an owner relay, a service-tier change) says nothing about it.
+  /// or with its own error ("compression failed: …"). Compacted, its chat
+  /// and report are read again; failed, or not heard from by the deadline,
+  /// only its report is, and a shorter read of the chat is not taken. Other
+  /// session info, and an ordinary turn's error, say nothing about it.
   void _watchPendingCompaction(
     HermesSessionBinding binding,
     String storedId,
   ) {
     final runtimeId = binding.runtimeId;
     unawaited(_pendingCompactions.remove(runtimeId)?.cancel());
-    _pendingCompactions[runtimeId] = _rpc.events
+    late final _PendingCompaction watch;
+    void end() {
+      if (identical(_pendingCompactions[runtimeId], watch)) {
+        _pendingCompactions.remove(runtimeId);
+      }
+      unawaited(watch.cancel());
+    }
+
+    final subscription = _rpc.events
         .where(
           (event) =>
               event.sessionId == runtimeId &&
-              (event.type == 'error' ||
+              ((event.type == 'error' &&
+                      '${event.payload['message']}'.startsWith(
+                        'compression failed',
+                      )) ||
                   (event.type == 'status.update' &&
                       event.payload['kind'] == 'compacted')),
         )
-        .listen((_) {
-          unawaited(_pendingCompactions.remove(runtimeId)?.cancel());
-          _compactedTranscript(binding, storedId);
+        .listen((event) {
+          end();
+          if (event.type == 'status.update') {
+            _compactedTranscript(binding, storedId);
+          } else {
+            _emitTranscriptChange(storedId);
+          }
         });
+    watch = _PendingCompaction(
+      subscription,
+      Timer(pendingCompactionDeadline, () {
+        end();
+        _emitTranscriptChange(storedId);
+      }),
+    );
+    _pendingCompactions[runtimeId] = watch;
   }
 
   /// Turns on a window plan's "Keep going on credits"; false when Hermes
@@ -143,5 +168,19 @@ extension _HermesDesktopContext on HermesDesktopApiService {
       return false;
     }
     return result['ok'] != false && result['error'] == null;
+  }
+}
+
+/// A compaction Hermes is finishing in the background: its watch and its
+/// deadline.
+final class _PendingCompaction {
+  _PendingCompaction(this._subscription, this._deadline);
+
+  final StreamSubscription<HermesDesktopEvent> _subscription;
+  final Timer _deadline;
+
+  Future<void> cancel() {
+    _deadline.cancel();
+    return _subscription.cancel();
   }
 }

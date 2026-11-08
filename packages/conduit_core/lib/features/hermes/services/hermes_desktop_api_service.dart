@@ -245,6 +245,8 @@ final class HermesDesktopApiService
       Duration(seconds: 1),
       Duration(seconds: 3),
     ],
+    @visibleForTesting
+    this.pendingCompactionDeadline = const Duration(minutes: 15),
   }) : _openExternalUrl = openExternalUrl ?? const NullOpenExternalUrlPort(),
        _dashboardBridgeFactory = dashboardBridgeFactory,
        _nativeTokens = config.desktopCredentials?.nativeTokens,
@@ -284,6 +286,11 @@ final class HermesDesktopApiService
   /// prompt, after a reconnect, when Hermes could not give it.
   final List<Duration> receiptRetryDelays;
 
+  /// How long a compaction Hermes finishes in the background is waited for:
+  /// past Hermes' own wait (about ten minutes) its end may never be seen (a
+  /// socket down at the time, a runtime id that changed).
+  final Duration pendingCompactionDeadline;
+
   /// Supplies the WebView-backed dashboard bridge, when the host has one.
   final HermesDashboardBridgeFactory? _dashboardBridgeFactory;
 
@@ -321,9 +328,8 @@ final class HermesDesktopApiService
   final Set<String> _compactedTranscripts = {};
 
   /// Compactions still running on the server, by runtime id, until their
-  /// session reports in.
-  final Map<String, StreamSubscription<HermesDesktopEvent>>
-  _pendingCompactions = {};
+  /// session reports in or [pendingCompactionDeadline] passes.
+  final Map<String, _PendingCompaction> _pendingCompactions = {};
 
   /// Connection targets (operation/target card ids) the user approved on
   /// this device, whose authorization link this device then opens.
@@ -560,6 +566,12 @@ final class HermesDesktopApiService
   /// keeping [focus] in view.
   Future<HermesCompactResult> compactSession(String id, {String? focus}) =>
       _compactSession(id, focus: focus);
+
+  /// Whether a compaction of [storedId] is still running on the server.
+  bool compactionPending(String storedId) {
+    final runtimeId = _bindings[storedId]?.runtimeId;
+    return runtimeId != null && _pendingCompactions.containsKey(runtimeId);
+  }
 
   /// Whether a compaction rewrote session [id]'s transcript since the chat
   /// last took it; true once, so that read may replace a longer one.

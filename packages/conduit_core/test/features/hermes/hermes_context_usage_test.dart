@@ -479,6 +479,7 @@ void main() {
       await _settle();
 
       check(result.outcome).equals(HermesCompactOutcome.pending);
+      check(service.compactionPending('stored-1')).isTrue();
       // Nothing changed yet: the chat keeps what it shows.
       check(changes).isEmpty();
       check(service.takeCompactedTranscript('stored-1')).isFalse();
@@ -499,11 +500,61 @@ void main() {
 
       check(changes).deepEquals(['stored-1']);
       check(service.takeCompactedTranscript('stored-1')).isTrue();
+      check(service.compactionPending('stored-1')).isFalse();
 
       // Only once: a later status is the session's own business.
       gateway.emit('status.update', {'kind': 'compacted'});
       await _settle();
       check(changes).deepEquals(['stored-1']);
+    });
+
+    // Any error ended the wait and counted as compacted, which let a
+    // shorter read replace what the chat shows.
+    test('a background compaction ends on its own failure, not a turn\'s',
+        () async {
+      final gateway = _Gateway()
+        ..answers['session.compress'] = {
+          'status': 'pending',
+          'turn_isolation': true,
+        };
+      final service = _service(gateway);
+      final changes = <String>[];
+      final subscription = service.transcriptChanges.listen(changes.add);
+      addTearDown(subscription.cancel);
+      await service.compactSession('stored-1');
+      await _settle();
+
+      gateway.emit('error', {'message': 'Model overloaded'});
+      await _settle();
+      check(service.compactionPending('stored-1')).isTrue();
+
+      gateway.emit('error', {'message': 'compression failed: host lost'});
+      await _settle();
+      check(service.compactionPending('stored-1')).isFalse();
+      check(service.takeCompactedTranscript('stored-1')).isFalse();
+      check(changes).deepEquals(['stored-1']);
+    });
+
+    // Its end could go unseen (a socket down then, a new runtime id), and
+    // the wait, and the sheet's disabled Compact, lasted until close.
+    test('a background compaction is waited for until its deadline', () async {
+      final gateway = _Gateway()
+        ..answers['session.compress'] = {
+          'status': 'pending',
+          'turn_isolation': true,
+        };
+      final service = _service(
+        gateway,
+        pendingCompactionDeadline: const Duration(milliseconds: 20),
+      );
+      await service.compactSession('stored-1');
+      await _settle();
+      check(service.compactionPending('stored-1')).isTrue();
+
+      await Future<void>.delayed(const Duration(milliseconds: 60));
+
+      check(service.compactionPending('stored-1')).isFalse();
+      check(service.takeCompactedTranscript('stored-1')).isFalse();
     });
 
     test('leaves the chat alone when nothing was compacted', () async {
@@ -749,7 +800,10 @@ final class _Rest implements HttpClientAdapter {
   }
 }
 
-HermesDesktopApiService _service(_Gateway gateway) {
+HermesDesktopApiService _service(
+  _Gateway gateway, {
+  Duration pendingCompactionDeadline = const Duration(minutes: 15),
+}) {
   final service = HermesDesktopApiService(
     config: HermesConfig(
       enabled: true,
@@ -765,6 +819,7 @@ HermesDesktopApiService _service(_Gateway gateway) {
       channelFactory: (_, _, {httpClient}) => gateway.channel,
     ),
     gatewayStartRetryDelays: const [Duration.zero],
+    pendingCompactionDeadline: pendingCompactionDeadline,
   );
   addTearDown(() async {
     service.close();

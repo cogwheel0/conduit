@@ -317,6 +317,46 @@ void main() {
     expect(find.text(_l10n.hermesContextCompactPending), findsNothing);
     expect(loads, 2);
   });
+
+  // Opened again while one ran, the sheet forgot it: Compact came back,
+  // and a second compaction took over the first one's watch.
+  testWidgets('a sheet opened again keeps Compact off while one runs', (
+    tester,
+  ) async {
+    _tall(tester);
+    final gateway = _Gateway()
+      ..answers['session.compress'] = {
+        'status': 'pending',
+        'turn_isolation': true,
+      };
+    final service = _service(gateway);
+    Widget sheet() =>
+        _sheet(_withReport(() async => _desktopReport, service: service));
+    ConduitButton compact() => tester.widget<ConduitButton>(
+      find.byKey(const ValueKey<String>('hermes-context-compact')),
+    );
+    await tester.pumpWidget(sheet());
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text(_l10n.hermesContextCompactNow));
+    await tester.tap(find.text(_l10n.hermesContextCompactNow));
+    for (var i = 0; i < 20; i++) {
+      await tester.pump(const Duration(milliseconds: 20));
+    }
+    await tester.pumpAndSettle();
+
+    // Closed, then opened again.
+    await tester.pumpWidget(const SizedBox());
+    await tester.pumpWidget(sheet());
+    await tester.pumpAndSettle();
+    expect(compact().onPressed, isNull);
+
+    gateway.emit('status.update', {'kind': 'compacted'});
+    for (var i = 0; i < 10; i++) {
+      await tester.pump(const Duration(milliseconds: 20));
+    }
+    await tester.pumpAndSettle();
+    expect(compact().onPressed, isNotNull);
+  });
 }
 
 final class _MockWebSocketChannel extends Mock implements WebSocketChannel {}

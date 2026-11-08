@@ -69,6 +69,9 @@ class _HermesContextUsageSheetState
   HermesCompactResult? _result;
   String? _compactError;
 
+  /// Whether the last build showed a compaction still running.
+  bool _shownPending = false;
+
   @override
   void dispose() {
     _focus.dispose();
@@ -77,9 +80,14 @@ class _HermesContextUsageSheetState
 
   /// A compaction Hermes is still finishing in the background: another
   /// would replace its result, and its completion would no longer refresh
-  /// the report.
-  bool get _compactionPending =>
-      _result?.outcome == HermesCompactOutcome.pending;
+  /// the report. The service knows of it after the sheet was closed and
+  /// opened again.
+  bool get _compactionPending {
+    if (_result?.outcome == HermesCompactOutcome.pending) return true;
+    final service = ref.read(hermesApiServiceProvider);
+    return service is HermesDesktopApiService &&
+        service.compactionPending(widget.sessionId);
+  }
 
   Future<void> _compact() async {
     if (_compactionPending) return;
@@ -131,14 +139,15 @@ class _HermesContextUsageSheetState
     final l10n = AppLocalizations.of(context)!;
     // A compaction still running when it answered is done once the chat's
     // transcript changes: the report is read again and the note goes.
+    // Also after the sheet was opened again while one ran.
     ref.listen(hermesDesktopTranscriptChangesProvider, (_, next) {
-      if (_result?.outcome != HermesCompactOutcome.pending ||
-          next.asData?.value.storedId != widget.sessionId) {
+      if (!_shownPending || next.asData?.value.storedId != widget.sessionId) {
         return;
       }
       setState(() => _result = null);
       ref.invalidate(hermesContextReportProvider(widget.sessionId));
     });
+    _shownPending = _compactionPending;
     final report = ref.watch(hermesContextReportProvider(widget.sessionId));
     final model = report.asData?.value.model;
     return Column(

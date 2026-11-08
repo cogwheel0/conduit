@@ -11,8 +11,10 @@ import 'package:conduit_core/features/chat/providers/chat_providers.dart'
 import 'package:conduit_core/features/hermes/models/hermes_error_surface.dart';
 import 'package:conduit_core/features/hermes/models/hermes_model.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
+import 'package:conduit_core/features/hermes/services/hermes_backend_service.dart';
 import 'package:conduit_core/features/hermes/services/hermes_desktop_api_service.dart';
 import 'package:conduit_core/features/hermes/services/hermes_session_provenance.dart';
+import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/models/model.dart';
 import 'package:conduit_core/providers/app_providers.dart'
     show
@@ -58,30 +60,35 @@ class _HermesErrorCardState extends ConsumerState<HermesErrorCard> {
   HermesErrorSurface get _surface => widget.surface;
 
   /// The open chat's stored Hermes session, for Compact.
-  String? get _sessionId {
-    final conversation = ref.read(activeConversationProvider);
+  String? get _sessionId =>
+      _sessionIdOf(ref.read(activeConversationProvider));
+
+  static String? _sessionIdOf(Conversation? conversation) {
     if (!isNativeHermesConversation(conversation)) return null;
     final id = conversation?.metadata['hermesSessionId']?.toString();
     return id == null || id.isEmpty ? null : id;
   }
 
-  /// Whether this card can perform [action] here.
-  bool _canPerform(HermesErrorAction action) => switch (action) {
+  /// Whether this card can perform [action] with [service] in
+  /// [conversation], which [build] watches: a reconnect or a switched chat
+  /// changes the action it offers.
+  bool _canPerform(
+    HermesErrorAction action, {
+    required HermesBackendService? service,
+    required Conversation? conversation,
+  }) => switch (action) {
     HermesErrorAction.retry => widget.onRetry != null,
     HermesErrorAction.continueReply => widget.onContinue != null,
     HermesErrorAction.compact =>
-      _sessionId != null &&
-          ref.read(hermesApiServiceProvider) is HermesDesktopApiService,
+      _sessionIdOf(conversation) != null && service is HermesDesktopApiService,
     // A Bot Chat runs on its bot's model: the picker's choice never
     // reaches its retry.
     HermesErrorAction.switchModel =>
       widget.onRetry != null &&
           _surface.suggestions.isNotEmpty &&
-          chatHermesBotPresentation(ref.read(activeConversationProvider)) ==
-              null,
+          chatHermesBotPresentation(conversation) == null,
     HermesErrorAction.useCredits =>
-      widget.onRetry != null &&
-          ref.read(hermesApiServiceProvider) is HermesDesktopApiService,
+      widget.onRetry != null && service is HermesDesktopApiService,
     HermesErrorAction.openProviderSettings ||
     HermesErrorAction.openBilling ||
     HermesErrorAction.newChat => true,
@@ -196,7 +203,18 @@ class _HermesErrorCardState extends ConsumerState<HermesErrorCard> {
     final blocking = surface.severityAt(now) == HermesErrorSeverity.blocking;
     // The best fix this screen can perform: when it cannot compact (no
     // Hermes session of its own), the second option shows instead.
-    final action = surface.actionsAt(now).where(_canPerform).firstOrNull;
+    final service = ref.watch(hermesApiServiceProvider);
+    final conversation = ref.watch(activeConversationProvider);
+    final action = surface
+        .actionsAt(now)
+        .where(
+          (action) => _canPerform(
+            action,
+            service: service,
+            conversation: conversation,
+          ),
+        )
+        .firstOrNull;
     final reset = surface.upcomingResetAt(now);
     final accent = blocking ? theme.error : theme.textSecondary;
     final body = surface.message ?? widget.errorText;
