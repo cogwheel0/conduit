@@ -4110,7 +4110,8 @@ Tail keeps growing
       await tester.pumpWidget(buildHarness(content));
 
       expect(find.text('Preview'), findsOneWidget);
-      expect(find.text('html'), findsAtLeastNWidgets(1));
+      // The header names the language properly.
+      expect(find.text('HTML'), findsAtLeastNWidgets(1));
       expect(find.text('HTML Preview'), findsNothing);
       expect(
         find.text('Embedded content preview is unavailable in widget tests.'),

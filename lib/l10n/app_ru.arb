@@ -4425,5 +4425,7 @@
   "supportConduitFooter": "Conduit — бесплатное приложение с открытым исходным кодом. Ваша поддержка помогает ему таким оставаться.",
   "aiMemoryFooter": "Ваш системный промпт задаёт тон каждому чату. Память позволяет ассистенту помнить то, что вы ему рассказали.",
   "composerAttachServerFiles": "Файлы на сервере",
-  "followUpSuggestionsHeading": "Предложения"
+  "followUpSuggestionsHeading": "Предложения",
+  "codeBlockPlainText": "Обычный текст",
+  "codeBlockWrapLines": "Переносить строки"
 }

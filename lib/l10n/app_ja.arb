@@ -6004,5 +6004,7 @@
   "supportConduitFooter": "Conduit は無料のオープンソースです。ご支援がその継続を支えます。",
   "aiMemoryFooter": "システムプロンプトはすべてのチャットに適用されます。メモリを使うと、アシスタントが伝えた内容を覚えておけます。",
   "composerAttachServerFiles": "サーバーのファイル",
-  "followUpSuggestionsHeading": "提案"
+  "followUpSuggestionsHeading": "提案",
+  "codeBlockPlainText": "プレーンテキスト",
+  "codeBlockWrapLines": "行を折り返す"
 }

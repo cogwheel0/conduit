@@ -33,12 +33,25 @@ class HorizontalFadeEdges {
 /// [fadeExtent]), so the fade eases away as the user reaches either end and
 /// is absent when nothing overflows. Scrolling only repaints the mask; it
 /// never rebuilds [builder]'s subtree.
+///
+/// With a [scrollIndicatorColor], a slim indicator also stays visible along
+/// the bottom while the content overflows. It sits outside the fade, so it
+/// reads at full strength at either end.
 class HorizontalOverflowFade extends StatefulWidget {
   const HorizontalOverflowFade({
     required this.builder,
     this.fadeExtent = 24,
+    this.scrollIndicatorColor,
+    this.scrollIndicatorInset = 0,
+    this.onOverflowChanged,
     super.key,
   });
+
+  /// Thickness of the scroll indicator.
+  static const double scrollIndicatorThickness = 3;
+
+  /// Gap between the scroll indicator and the bottom edge.
+  static const double scrollIndicatorBottomGap = 3;
 
   /// Builds the horizontal scroll view; it must use the given controller.
   final Widget Function(BuildContext context, ScrollController controller)
@@ -46,6 +59,16 @@ class HorizontalOverflowFade extends StatefulWidget {
 
   /// Width of each edge fade.
   final double fadeExtent;
+
+  /// Colour of the persistent scroll indicator, or null for none.
+  final Color? scrollIndicatorColor;
+
+  /// How far the indicator's track stays from the leading and trailing edges,
+  /// e.g. to clear rounded corners.
+  final double scrollIndicatorInset;
+
+  /// Called when the content starts or stops being wider than the view.
+  final ValueChanged<bool>? onOverflowChanged;
 
   @override
   State<HorizontalOverflowFade> createState() => _HorizontalOverflowFadeState();
@@ -56,6 +79,7 @@ class _HorizontalOverflowFadeState extends State<HorizontalOverflowFade> {
   final ValueNotifier<HorizontalFadeEdges> _edges = ValueNotifier(
     HorizontalFadeEdges.none,
   );
+  bool _overflows = false;
 
   /// Current fade strengths, for tests.
   @visibleForTesting
@@ -92,10 +116,38 @@ class _HorizontalOverflowFadeState extends State<HorizontalOverflowFade> {
       left: reversed ? after : before,
       right: reversed ? before : after,
     );
+    final overflows = position.maxScrollExtent > position.minScrollExtent;
+    if (overflows != _overflows) {
+      _overflows = overflows;
+      widget.onOverflowChanged?.call(overflows);
+    }
   }
 
   @override
   Widget build(BuildContext context) {
+    Widget content = _EdgeFade(
+      edges: _edges,
+      fadeExtent: widget.fadeExtent,
+      child: widget.builder(context, _controller),
+    );
+    final indicatorColor = widget.scrollIndicatorColor;
+    if (indicatorColor != null) {
+      // Paints nothing until the content is wider than the view.
+      content = RawScrollbar(
+        controller: _controller,
+        thumbVisibility: true,
+        interactive: false,
+        thickness: HorizontalOverflowFade.scrollIndicatorThickness,
+        radius: const Radius.circular(
+          HorizontalOverflowFade.scrollIndicatorThickness / 2,
+        ),
+        thumbColor: indicatorColor,
+        mainAxisMargin: widget.scrollIndicatorInset,
+        crossAxisMargin: HorizontalOverflowFade.scrollIndicatorBottomGap,
+        padding: EdgeInsets.zero,
+        child: content,
+      );
+    }
     return NotificationListener<ScrollMetricsNotification>(
       onNotification: (notification) {
         if (notification.metrics.axis == Axis.horizontal &&
@@ -104,11 +156,7 @@ class _HorizontalOverflowFadeState extends State<HorizontalOverflowFade> {
         }
         return false;
       },
-      child: _EdgeFade(
-        edges: _edges,
-        fadeExtent: widget.fadeExtent,
-        child: widget.builder(context, _controller),
-      ),
+      child: content,
     );
   }
 }

@@ -6310,5 +6310,7 @@
   "supportConduitFooter": "Conduit je zdarma a open source. Vaše podpora pomáhá, aby to tak zůstalo.",
   "aiMemoryFooter": "Váš systémový prompt řídí každý chat. Paměť umožňuje asistentovi pamatovat si, co jste mu sdělili.",
   "composerAttachServerFiles": "Soubory na serveru",
-  "followUpSuggestionsHeading": "Návrhy"
+  "followUpSuggestionsHeading": "Návrhy",
+  "codeBlockPlainText": "Prostý text",
+  "codeBlockWrapLines": "Zalamovat řádky"
 }

@@ -3,7 +3,6 @@ import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../../conduit_loading.dart';
-import '../../horizontal_gesture_ownership.dart';
 import '../../../theme/theme_extensions.dart';
 import '../compiled_markdown_document.dart';
 import '../markdown_compile_service.dart';
@@ -12,12 +11,14 @@ import '../streaming_markdown_widget.dart';
 import 'conduit_markdown_widget.dart';
 import 'details_block_widget.dart';
 import 'details_group_widget.dart';
-import 'horizontal_overflow_fade.dart';
 import 'inline_renderer.dart';
 import 'latex_preprocessor.dart';
 import 'markdown_style.dart';
+import 'markdown_table_frame.dart';
 import 'markdown_text.dart';
 import 'pdf_inline_view.dart';
+
+export 'markdown_table_frame.dart' show MarkdownTableFrame;
 
 /// Signature for a builder that creates image widgets.
 typedef ImageBuilder = Widget Function(String src, String? alt, String? title);
@@ -1802,100 +1803,6 @@ class _ExpandableMarkdownTableState extends State<_ExpandableMarkdownTable> {
             ),
           ),
       ],
-    );
-  }
-}
-
-/// A markdown table set inside the text column: a rounded, hairline-bordered
-/// card that keeps the page margins, fills the column when the data is narrow,
-/// and scrolls horizontally (with an edge fade hinting at hidden columns)
-/// when it is wide. Long cells wrap at a readable column width instead of
-/// stretching the table.
-class MarkdownTableFrame extends StatelessWidget {
-  const MarkdownTableFrame({
-    required this.header,
-    required this.rows,
-    required this.style,
-    super.key,
-  });
-
-  /// Widest a column grows (cell padding included) before its text wraps,
-  /// in points at 100% text size: roughly 30 characters of table text.
-  static const double maxColumnWidth = 240;
-
-  /// Inner padding of every cell.
-  static const EdgeInsets cellPadding = EdgeInsets.symmetric(
-    horizontal: Spacing.md - Spacing.xs,
-    vertical: Spacing.sm + 1,
-  );
-
-  final List<Widget> header;
-  final List<List<Widget>> rows;
-  final ConduitMarkdownStyle style;
-
-  @override
-  Widget build(BuildContext context) {
-    final radius = BorderRadius.circular(style.tableRadius);
-    final fontSize = style.tableCell.fontSize ?? 15;
-    final textScale =
-        MediaQuery.textScalerOf(context).scale(fontSize) / fontSize;
-    final columnCap = maxColumnWidth * textScale;
-    final rule = BorderSide(
-      color: style.tableBorderColor,
-      width: BorderWidth.thin,
-    );
-
-    Widget cell(Widget child) => Padding(padding: cellPadding, child: child);
-    // Column heads sit on the rule above their data, so a short head next to
-    // one that wraps lines up with the head's last line, not its first.
-    Widget headerCell(Widget child) => TableCell(
-      verticalAlignment: TableCellVerticalAlignment.bottom,
-      child: cell(child),
-    );
-
-    final table = Table(
-      defaultColumnWidth: MinColumnWidth(
-        const IntrinsicColumnWidth(),
-        FixedColumnWidth(columnCap),
-      ),
-      defaultVerticalAlignment: TableCellVerticalAlignment.top,
-      border: TableBorder(horizontalInside: rule),
-      children: [
-        TableRow(
-          decoration: BoxDecoration(color: style.tableHeaderBackground),
-          children: header.map(headerCell).toList(growable: false),
-        ),
-        for (final row in rows)
-          TableRow(children: row.map(cell).toList(growable: false)),
-      ],
-    );
-
-    return DecoratedBox(
-      position: DecorationPosition.foreground,
-      decoration: BoxDecoration(
-        borderRadius: radius,
-        border: Border.all(
-          color: style.tableBorderColor,
-          width: BorderWidth.regular,
-        ),
-      ),
-      child: ClipRRect(
-        borderRadius: radius,
-        child: LayoutBuilder(
-          builder: (context, constraints) => HorizontalOverflowFade(
-            builder: (context, controller) => HorizontalScrollGestureBoundary(
-              child: SingleChildScrollView(
-                controller: controller,
-                scrollDirection: Axis.horizontal,
-                child: ConstrainedBox(
-                  constraints: BoxConstraints(minWidth: constraints.maxWidth),
-                  child: table,
-                ),
-              ),
-            ),
-          ),
-        ),
-      ),
     );
   }
 }

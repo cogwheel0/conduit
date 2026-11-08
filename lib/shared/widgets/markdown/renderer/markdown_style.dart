@@ -1,6 +1,8 @@
+import 'package:flutter/foundation.dart' show defaultTargetPlatform;
 import 'package:material_ui/material_ui.dart';
 
 import '../../../theme/theme_extensions.dart';
+import 'code_syntax_theme.dart';
 
 /// Centralized per-element style configuration for the
 /// custom markdown renderer.
@@ -90,10 +92,11 @@ class ConduitMarkdownStyle {
       height: readingLineHeight / bodyFontSize,
     );
 
-    // Monospace base for code elements.
-    final monoBase =
-        theme.code?.copyWith(color: theme.codeText) ??
-        AppTypography.codeStyle.copyWith(color: theme.codeText);
+    // Monospace base for code elements, in the platform's code typeface.
+    final monoBase = CodeSyntaxTheme.monospace(
+      theme.code ?? AppTypography.codeStyle,
+      defaultTargetPlatform,
+    ).copyWith(color: theme.codeText);
 
     // Inline code reads as part of the sentence: label colour, monospace at
     // ~0.9em, on a quiet neutral chip (no web-style red).
@@ -149,7 +152,14 @@ class ConduitMarkdownStyle {
         fontSize: bodyFontSize * inlineCodeScale,
         height: 1.2,
       ),
-      codeBlock: monoBase.copyWith(color: theme.codeText),
+      // Code reads at 13/19 in regular weight: quieter than the 17pt prose
+      // around it, with room between lines for long listings.
+      codeBlock: monoBase.copyWith(
+        color: theme.codeText,
+        fontSize: CodeSyntaxTheme.fontSize,
+        fontWeight: FontWeight.w400,
+        height: CodeSyntaxTheme.lineHeight / CodeSyntaxTheme.fontSize,
+      ),
       blockquoteText: bodyStyle.copyWith(color: theme.textSecondary),
       tableHeader: tableBase.copyWith(
         color: theme.textPrimary,

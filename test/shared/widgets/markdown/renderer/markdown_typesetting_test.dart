@@ -7,7 +7,7 @@ import 'package:conduit/shared/widgets/markdown/renderer/block_renderer.dart';
 import 'package:conduit/shared/widgets/markdown/renderer/horizontal_overflow_fade.dart';
 import 'package:conduit/shared/widgets/markdown/renderer/markdown_style.dart';
 import 'package:conduit/shared/widgets/markdown/streaming_markdown_widget.dart';
-import 'package:flutter/rendering.dart' show RenderParagraph;
+import 'package:flutter/rendering.dart' show RenderParagraph, RenderTable;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
@@ -314,7 +314,98 @@ void main() {
       expect(rowHeight, inInclusiveRange(36, 40));
     });
 
-    testWidgets('a wide table scrolls, wraps long headers and fades its edge', (
+    Finder chrome() => find.byWidgetPredicate(
+      (widget) => widget.runtimeType.toString() == '_TableChrome',
+    );
+    Finder indicator() => find.descendant(
+      of: find.byType(MarkdownTableFrame),
+      matching: find.byType(RawScrollbar),
+    );
+    Color indicatorColor() =>
+        style.textPrimary.withValues(alpha: style.isDark ? 0.34 : 0.26);
+
+    testWidgets('a long column takes the room its narrow neighbour leaves', (
+      tester,
+    ) async {
+      await pump(
+        tester,
+        '| Day | Note |\n| --- | --- |\n'
+        '| 1 | Mix flour and water then cover loosely |',
+      );
+
+      final frame = globalRect(
+        tester.renderObject(find.byType(MarkdownTableFrame)),
+      );
+      final table = globalRect(tester.renderObject(find.byType(Table)));
+      expect(table.width, closeTo(frame.width, 0.5));
+      // The narrow column keeps its natural one-line width; the long one
+      // wraps across everything else instead of scrolling.
+      final day = paragraphStartingWith(tester, 'Day');
+      expect(day.size.height, closeTo(style.tableHeader.fontSize!, 6));
+      final note = paragraphStartingWith(tester, 'Mix flour');
+      expect(note.size.height, greaterThan(style.tableCell.fontSize! * 2));
+      final fade = tester.state(find.byType(HorizontalOverflowFade)) as dynamic;
+      expect((fade.edges as HorizontalFadeEdges).isFading, isFalse);
+      expect(indicator(), isNot(paints..rrect(color: indicatorColor())));
+    });
+
+    testWidgets('competing columns share the frame without scrolling', (
+      tester,
+    ) async {
+      await pump(
+        tester,
+        '| Day | Feed ratio (starter : flour : water) | What to look for |\n'
+        '| --- | --- | --- |\n'
+        '| 1 | 0 : 50 g : 50 g | Just mix and cover loosely |\n'
+        '| 4-6 | 25 : 50 : 50, twice a day | Rises and falls predictably |',
+        width: 600,
+      );
+
+      final frame = globalRect(
+        tester.renderObject(find.byType(MarkdownTableFrame)),
+      );
+      final renderTable = tester.renderObject<RenderTable>(find.byType(Table));
+      expect(renderTable.size.width, closeTo(frame.width, 0.5));
+      // No scroll track under a table that fits.
+      expect(renderTable.size.height, closeTo(frame.height, 0.5));
+      final widths = [
+        for (var x = 0; x < renderTable.columns; x++)
+          renderTable.column(x).first.size.width,
+      ];
+      // The short column is exactly as wide as its content.
+      expect(
+        widths[0],
+        closeTo(
+          paragraphStartingWith(tester, '4-6').size.width +
+              MarkdownTableFrame.cellPadding.horizontal,
+          0.5,
+        ),
+      );
+      // Neither long column crowds out the other.
+      for (final width in widths.skip(1)) {
+        expect(
+          width,
+          lessThanOrEqualTo(frame.width * MarkdownTableFrame.maxColumnFraction),
+        );
+      }
+      // Nothing is clipped: every cell's text fits inside its column.
+      for (final paragraph in tester.renderObjectList<RenderParagraph>(
+        find.descendant(
+          of: find.byType(Table),
+          matching: find.byType(RichText),
+        ),
+      )) {
+        expect(
+          paragraph.size.width,
+          lessThanOrEqualTo(paragraph.constraints.maxWidth),
+        );
+        expect(paragraph.didExceedMaxLines, isFalse);
+      }
+      final fade = tester.state(find.byType(HorizontalOverflowFade)) as dynamic;
+      expect((fade.edges as HorizontalFadeEdges).isFading, isFalse);
+    });
+
+    testWidgets('a table too wide to fit scrolls inside an intact frame', (
       tester,
     ) async {
       await pump(tester, wideTable);
@@ -327,20 +418,51 @@ void main() {
       );
       // The frame keeps the column's margins; the table scrolls inside it.
       expect(frame.right, closeTo(column.right, 0.5));
-      final table = globalRect(tester.renderObject(find.byType(Table)));
-      expect(table.width, greaterThan(frame.width));
+      final renderTable = tester.renderObject<RenderTable>(find.byType(Table));
+      expect(renderTable.size.width, greaterThan(frame.width));
 
-      // The long header wraps at the column cap instead of stretching.
+      // The long header wraps instead of stretching its column.
       final header = paragraphStartingWith(tester, 'Days to harvest');
-      expect(
-        header.size.width,
-        lessThanOrEqualTo(MarkdownTableFrame.maxColumnWidth),
-      );
       expect(header.size.height, greaterThan(style.tableHeader.fontSize! * 2));
       // Short heads sit on the same last line as the wrapped one.
       expect(
         paragraphRect(tester, 'Crop').bottom,
         closeTo(globalRect(header).bottom, 0.5),
+      );
+
+      // The border is drawn over the scrolling content, outside the fade.
+      expect(
+        find.ancestor(
+          of: find.byType(HorizontalOverflowFade),
+          matching: find.byWidgetPredicate(
+            (widget) =>
+                widget is DecoratedBox &&
+                widget.position == DecorationPosition.foreground &&
+                (widget.decoration as BoxDecoration).border != null,
+          ),
+        ),
+        findsOneWidget,
+      );
+      final headerBand = Rect.fromLTWH(
+        0,
+        0,
+        frame.width,
+        renderTable.getRowBox(0).bottom,
+      );
+      expect(
+        chrome(),
+        paints..rect(rect: headerBand, color: style.tableHeaderBackground),
+      );
+      expect(indicator(), paints..rrect(color: indicatorColor()));
+      // The indicator runs in its own track below the last row.
+      final lastRowBottom = renderTable.getRowBox(renderTable.rows - 1).bottom;
+      expect(
+        frame.height - lastRowBottom,
+        closeTo(
+          HorizontalOverflowFade.scrollIndicatorThickness +
+              HorizontalOverflowFade.scrollIndicatorBottomGap,
+          0.5,
+        ),
       );
 
       final fade = tester.state(find.byType(HorizontalOverflowFade)) as dynamic;
@@ -351,6 +473,69 @@ void main() {
       await tester.pumpAndSettle();
       expect((fade.edges as HorizontalFadeEdges).right, 0);
       expect((fade.edges as HorizontalFadeEdges).left, 1);
+      // Scrolled to the end, the header band and rules still span the frame.
+      expect(
+        chrome(),
+        paints..rect(rect: headerBand, color: style.tableHeaderBackground),
+      );
+      expect(indicator(), paints..rrect(color: indicatorColor()));
+    });
+  });
+
+  group('table column widths', () {
+    List<double> solve(
+      List<double> minWidths,
+      List<double> maxWidths, {
+      double available = 352,
+    }) => MarkdownTableFrame.solveColumnWidths(
+      minWidths: minWidths,
+      maxWidths: maxWidths,
+      availableWidth: available,
+    );
+    double sum(List<double> values) => values.fold(0, (a, b) => a + b);
+
+    test('content that fits fills the width in proportion', () {
+      final widths = solve([40, 60], [60, 120]);
+      expect(sum(widths), closeTo(352, 0.01));
+      expect(widths[1] / widths[0], closeTo(2, 0.01));
+    });
+
+    test('a narrow column keeps its natural width', () {
+      final widths = solve([52, 82, 104], [52, 264, 209]);
+      expect(widths[0], 52);
+      expect(sum(widths), closeTo(352, 0.01));
+      expect(widths[1], lessThanOrEqualTo(352 * 0.45));
+      expect(widths[2], lessThanOrEqualTo(352 * 0.45));
+      expect(widths[1], greaterThanOrEqualTo(112));
+      expect(widths[2], greaterThanOrEqualTo(112));
+    });
+
+    test('one long column grows past the cap when nothing competes', () {
+      final widths = solve([52, 80], [52, 600]);
+      expect(widths, [52, 300]);
+    });
+
+    test('capped columns share leftover room by how much more they want', () {
+      // Both long columns start at the cap (270) with 20pt to spare; the one
+      // that wants 130pt more gets more of it than the one that wants 30pt.
+      final widths = solve([40, 60, 60], [40, 400, 300], available: 600);
+      expect(sum(widths), closeTo(600, 0.01));
+      expect(widths[1] - 270, closeTo(20 * 130 / 160, 0.01));
+      expect(widths[2] - 270, closeTo(20 * 30 / 160, 0.01));
+    });
+
+    test('columns that cannot fit readably scroll, wrapping less', () {
+      final widths = solve([60, 60, 60, 60], [100, 150, 200, 300]);
+      expect(sum(widths), greaterThan(352));
+      // Narrower than the scrolling cap: natural width, on one line.
+      expect(widths.take(3), [100, 150, 200]);
+      // Longer: capped at 60% of the frame, wrapping inside it.
+      expect(widths[3], closeTo(352 * 0.6, 0.01));
+    });
+
+    test('a column is never narrower than its longest word', () {
+      final widths = solve([240, 60], [300, 400]);
+      expect(widths[0], greaterThanOrEqualTo(240));
     });
   });
 }

@@ -4387,5 +4387,7 @@
   "supportConduitFooter": "Conduit ist kostenlos und Open Source. Deine Unterstützung hilft, dass es so bleibt.",
   "aiMemoryFooter": "Dein System-Prompt leitet jeden Chat. Mit Erinnerung merkt sich der Assistent, was du ihm erzählt hast.",
   "composerAttachServerFiles": "Server-Dateien",
-  "followUpSuggestionsHeading": "Vorschläge"
+  "followUpSuggestionsHeading": "Vorschläge",
+  "codeBlockPlainText": "Nur Text",
+  "codeBlockWrapLines": "Zeilen umbrechen"
 }

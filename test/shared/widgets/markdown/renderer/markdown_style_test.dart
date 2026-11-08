@@ -2,6 +2,7 @@ import 'package:checks/checks.dart';
 import 'package:conduit/shared/theme/app_theme.dart';
 import 'package:conduit/shared/theme/theme_extensions.dart';
 import 'package:conduit/shared/theme/tweakcn_themes.dart';
+import 'package:conduit/shared/widgets/markdown/renderer/code_syntax_theme.dart';
 import 'package:conduit/shared/widgets/markdown/renderer/markdown_style.dart';
 import 'package:flutter/foundation.dart';
 import 'package:material_ui/material_ui.dart';
@@ -88,7 +89,10 @@ void main() {
       debugDefaultTargetPlatformOverride = null;
 
       expect(android.codeBlock.fontFamily, 'monospace');
-      expect(ios.codeBlock.fontFamily, 'Menlo');
+      expect(ios.codeBlock.fontFamily, CodeSyntaxTheme.appleFamily);
+      expect(ios.codeBlock.fontFamilyFallback, contains('Menlo'));
+      expect(ios.codeBlock.fontSize, 13);
+      expect(ios.codeBlock.fontWeight, FontWeight.w400);
       expect(android.codeBlock.fontSize, ios.codeBlock.fontSize);
       expect(android.h1.fontSize, 24);
       expect(android.h2.fontSize, 22);
@@ -100,7 +104,7 @@ void main() {
       expect(ios.body.fontSize, 17);
       expect(ios.body.fontSize! * ios.body.height!, closeTo(24, 1e-9));
       // Inline code is monospace at ~0.9em in the label colour.
-      expect(ios.codeSpan.fontFamily, 'Menlo');
+      expect(ios.codeSpan.fontFamily, CodeSyntaxTheme.appleFamily);
       expect(ios.codeSpan.fontSize, closeTo(17 * 0.88, 0.01));
       expect(ios.codeSpanTextColor, ios.textPrimary);
     });

@@ -4159,5 +4159,7 @@
   "supportConduitFooter": "Conduit는 무료 오픈 소스입니다. 여러분의 후원이 이를 지켜 줍니다.",
   "aiMemoryFooter": "시스템 프롬프트는 모든 채팅에 적용됩니다. 메모리를 사용하면 어시스턴트가 알려 준 내용을 기억합니다.",
   "composerAttachServerFiles": "서버 파일",
-  "followUpSuggestionsHeading": "제안"
+  "followUpSuggestionsHeading": "제안",
+  "codeBlockPlainText": "일반 텍스트",
+  "codeBlockWrapLines": "줄 바꿈"
 }
