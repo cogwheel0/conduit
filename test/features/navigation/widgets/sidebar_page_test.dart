@@ -20,8 +20,6 @@ import 'package:conduit/l10n/app_localizations_en.dart';
 import 'package:conduit/shared/theme/app_theme.dart';
 import 'package:conduit/shared/theme/theme_extensions.dart';
 import 'package:conduit/shared/theme/tweakcn_themes.dart';
-import 'package:cupertino_native_better/cupertino_native_better.dart'
-    show CNToolbar, CNToolbarSegmentedGroup;
 import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
@@ -414,26 +412,22 @@ void main() {
         ),
       );
       await tester.pump(const Duration(milliseconds: 500));
-      expect(find.byType(CNTabBar), findsNothing);
-      expect(find.byType(CupertinoTabBar), findsNothing);
       for (final label in ['Notes', 'Terminal', 'Channels']) {
         expect(sidebarTestDestinationLabel(label), findsOneWidget);
       }
+      // The only native tab bar holds the backends, not the destinations.
       final bar = find.byKey(
         const ValueKey<String>('sidebar-backend-selector'),
       );
-      final tabs = tester
-          .widget<CNToolbar>(
-            find.descendant(of: bar, matching: find.byType(CNToolbar)),
-          )
-          .items
-          .whereType<CNToolbarSegmentedGroup>()
-          .single;
+      expect(find.byType(CNTabBar), findsOneWidget);
+      final tabs = tester.widget<CNTabBar>(
+        find.descendant(of: bar, matching: find.byType(CNTabBar)),
+      );
       expect(
-        [for (final s in tabs.segments) s.label],
+        [for (final item in tabs.items) item.label],
         ['Open WebUI', 'Hermes'],
       );
-      expect(tabs.selectedIndices, {0});
+      expect(tabs.currentIndex, 0);
       await tester.pumpWidget(const SizedBox.shrink());
       await tester.pumpAndSettle();
     },

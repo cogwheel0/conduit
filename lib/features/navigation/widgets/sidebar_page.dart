@@ -1003,11 +1003,7 @@ class _SlidingSidebarBottomBar extends ConsumerWidget {
       itemWidth: _kSlidingSidebarBackendWidth,
       selectedItemColor: theme.buttonPrimary,
       unselectedItemColor: theme.textSecondary,
-      // The glass action before iOS 26 has no fill of its own; the others
-      // are filled with buttonPrimary.
-      actionForegroundColor:
-          PlatformUiCapabilities.isIOS &&
-              !PlatformUiCapabilities.usesNativeIOS26
+      actionForegroundColor: PlatformUiCapabilities.isIOS
           ? theme.textPrimary
           : theme.buttonPrimaryText,
       actionBackgroundColor: theme.buttonPrimary,

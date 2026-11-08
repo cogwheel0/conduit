@@ -1,13 +1,5 @@
 import 'package:conduit/shared/widgets/legacy_design_compatibility.dart';
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
-import 'package:cupertino_native_better/cupertino_native_better.dart'
-    show
-        CNToolbar,
-        CNToolbarButton,
-        CNToolbarItemStyle,
-        CNToolbarSegmentedGroup,
-        CNToolbarSelectionMode,
-        CNToolbarSpace;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
 
@@ -62,8 +54,8 @@ Widget _bar(
   ),
 );
 
-/// Draws the bar as on iOS 26. The package itself picks its native toolbar
-/// or its Flutter one from the real platform, so tests read the toolbar's
+/// Draws the bar as on iOS 26. The package itself picks its native tab bar
+/// or its Flutter one from the real platform, so tests read the tab bar's
 /// configuration rather than the view it creates.
 void _simulateIOS26() {
   stubNativePlatformViews();
@@ -72,8 +64,29 @@ void _simulateIOS26() {
   PlatformUiCapabilities.debugNativeIOS26Override = true;
 }
 
-CNToolbar _toolbar(WidgetTester tester) =>
-    tester.widget<CNToolbar>(find.byType(CNToolbar));
+/// A phone window, where UIKit stacks each tab's icon above its label, with
+/// the home indicator's safe area.
+void _phoneWindow(WidgetTester tester) {
+  tester.view.physicalSize = const Size(402, 874) * 3;
+  tester.view.devicePixelRatio = 3;
+  tester.view.viewPadding = const FakeViewPadding(bottom: 34 * 3);
+  addTearDown(tester.view.reset);
+}
+
+/// A full-width iPad window, where UIKit puts each tab's icon beside its
+/// label.
+void _tabletWindow(WidgetTester tester) {
+  tester.view.physicalSize = const Size(834, 1210) * 2;
+  tester.view.devicePixelRatio = 2;
+  tester.view.viewPadding = const FakeViewPadding(bottom: 20 * 2);
+  addTearDown(tester.view.reset);
+}
+
+CNTabBar _tabBar(WidgetTester tester) =>
+    tester.widget<CNTabBar>(find.byType(CNTabBar));
+
+NativeGlassIconButton _action(WidgetTester tester) =>
+    tester.widget<NativeGlassIconButton>(find.byType(NativeGlassIconButton));
 
 /// Removes the bar and lets the timers its controls started run out, on the
 /// native toolbar and the package's Flutter one alike.
@@ -175,137 +188,138 @@ void main() {
     setUp(_simulateIOS26);
     tearDown(PlatformUiCapabilities.resetDebugOverrides);
 
+    testWidgets('the tabs are the system tab bar and New Chat a glass button', (
+      tester,
+    ) async {
+      _phoneWindow(tester);
+      const tint = Color(0xFF3366FF);
+      const glyph = Color(0xFF202020);
+      await tester.pumpWidget(
+        _bar(
+          const [_openWebUi, _hermes],
+          selectedIndex: 1,
+          tint: tint,
+          actionForeground: glyph,
+        ),
+      );
+      expect(find.byType(NavigationBar), findsNothing);
+      expect(find.byType(FloatingActionButton), findsNothing);
+
+      final tabBar = _tabBar(tester);
+      expect(
+        [for (final item in tabBar.items) item.label],
+        ['Open WebUI', 'Hermes'],
+      );
+      // The brand marks, not symbols, so each backend keeps its own.
+      expect(
+        [for (final item in tabBar.items) item.imageAsset?.assetPath],
+        ['assets/icons/open_webui_tab.png', 'assets/icons/hermes_agent.png'],
+      );
+      expect(tabBar.currentIndex, 1);
+      expect(tabBar.tint, tint);
+      // One capsule of tabs: New Chat is not one of them.
+      expect(tabBar.split, isFalse);
+      expect(tabBar.iconSize, isNull);
+
+      final action = _action(tester);
+      expect(action.symbol.name, 'square.and.pencil');
+      expect(action.symbol.color, glyph);
+      // As tall as the tab bar's platter, with a symbol scaled to match.
+      expect(action.dimension, 62);
+      expect(action.symbol.size, 18 * 62 / 44);
+      await _unmount(tester);
+    }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
+
     testWidgets(
-      'the bar is the system toolbar: a segmented group and a prominent action',
+      'a tab reports its index, and New Chat runs without selecting',
       (tester) async {
-        const tint = Color(0xFF3366FF);
-        const fill = Color(0xFF112233);
-        const glyph = Color(0xFFFAFAFA);
+        _phoneWindow(tester);
+        final semantics = tester.ensureSemantics();
+        final taps = <int>[];
+        var actions = 0;
         await tester.pumpWidget(
           _bar(
             const [_openWebUi, _hermes],
-            selectedIndex: 1,
-            tint: tint,
-            actionBackground: fill,
-            actionForeground: glyph,
+            onTap: taps.add,
+            onAction: () => actions++,
           ),
         );
-        expect(find.byType(NavigationBar), findsNothing);
-        expect(find.byType(FloatingActionButton), findsNothing);
+        _tabBar(tester).onTap(1);
+        expect(taps, [1]);
 
-        final toolbar = _toolbar(tester);
-        expect(toolbar.tint, tint);
-        expect(toolbar.items, hasLength(3));
-        final [tabs, space, action] = toolbar.items;
-
-        tabs as CNToolbarSegmentedGroup;
-        expect(tabs.id, isNotNull);
-        expect(tabs.selectionMode, CNToolbarSelectionMode.selectOne);
+        _action(tester).onPressed();
+        await tester.pump();
+        expect(actions, 1);
+        expect(taps, [1]);
+        expect(_tabBar(tester).currentIndex, 0);
+        // A button of its own, read as one control.
         expect(
-          [for (final s in tabs.segments) s.label],
-          ['Open WebUI', 'Hermes'],
+          tester.getSemantics(
+            find.byWidget(_action(tester)).hitTestable().first,
+          ),
+          matchesSemantics(
+            label: 'New Chat',
+            isButton: true,
+            hasTapAction: true,
+          ),
         );
-        // The brand marks, not symbols, so each backend keeps its own.
-        expect(
-          [for (final s in tabs.segments) s.imageAsset?.assetPath],
-          ['assets/icons/open_webui_tab.png', 'assets/icons/hermes_agent.png'],
-        );
-        expect([for (final s in tabs.segments) s.icon], [null, null]);
-        expect(tabs.selectedIndices, {1});
-
-        expect(space, isA<CNToolbarSpace>());
-        expect((space as CNToolbarSpace).flexible, isTrue);
-
-        action as CNToolbarButton;
-        expect(action.id, isNotNull);
-        expect(action.label, 'New Chat');
-        expect(action.icon?.name, 'square.and.pencil');
-        expect(action.icon?.color, glyph);
-        expect(action.style, CNToolbarItemStyle.prominent);
-        expect(action.tint, fill);
-        expect(
-          {for (final item in toolbar.items) item.id},
-          hasLength(3),
-          reason: 'each item keeps its own id across updates',
-        );
+        semantics.dispose();
         await _unmount(tester);
       },
       variant: TargetPlatformVariant.only(TargetPlatform.iOS),
     );
 
-    testWidgets('one backend leaves only the action', (tester) async {
+    testWidgets('one backend leaves only New Chat', (tester) async {
+      _phoneWindow(tester);
       await tester.pumpWidget(_bar(const [_openWebUi]));
-      final items = _toolbar(tester).items;
-      expect(items.whereType<CNToolbarSegmentedGroup>(), isEmpty);
-      expect(items.whereType<CNToolbarButton>().single.label, 'New Chat');
+      expect(find.byType(CNTabBar), findsNothing);
+      expect(_action(tester).dimension, 62);
 
-      // A second backend appears in the same toolbar.
+      // A second backend brings the tab bar in beside it.
       await tester.pumpWidget(_bar(const [_openWebUi, _hermes]));
-      expect(find.byType(CNToolbar), findsOneWidget);
-      expect(
-        _toolbar(tester).items.whereType<CNToolbarSegmentedGroup>(),
-        hasLength(1),
-      );
+      expect(find.byType(CNTabBar), findsOneWidget);
       await _unmount(tester);
     }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
 
-    testWidgets('a segment reports its tab and the button runs the action', (
+    testWidgets('on a phone New Chat sits on the platter UIKit lays out', (
       tester,
     ) async {
-      final taps = <int>[];
-      var actions = 0;
+      _phoneWindow(tester);
       await tester.pumpWidget(
-        _bar(
-          const [_openWebUi, _hermes],
-          onTap: taps.add,
-          onAction: () => actions++,
-        ),
+        _bar(const [_openWebUi], controlExtent: 66, minimumBottomInset: 8),
       );
-      final items = _toolbar(tester).items;
-      items.whereType<CNToolbarSegmentedGroup>().single.onSelected!(1);
-      expect(taps, [1]);
-      items.whereType<CNToolbarButton>().single.onPressed!();
-      expect(actions, 1);
+      final window = tester.getSize(find.byType(Scaffold));
+      final action = find.byType(NativeGlassIconButton);
+      // UIKit leaves 21 points under a phone's 62 point platter, at every
+      // text size and in landscape.
+      expect(tester.getBottomRight(action).dy, window.height - 21);
+      expect(tester.getBottomRight(action).dx, window.width - 16);
+      expect(tester.getSize(action), const Size.square(62));
+      expect(
+        AdaptiveFloatingTabBar.extentOf(
+          tester.element(action),
+          controlExtent: 66,
+          minimumBottomInset: 8,
+        ),
+        62 + 21,
+      );
       await _unmount(tester);
     }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
 
     testWidgets(
-      'the toolbar sits on the safe area or the least gap, 44 points high',
+      'in an iPad window the platter is shorter and the marks smaller',
       (tester) async {
-        addTearDown(tester.view.reset);
-        await tester.pumpWidget(
-          _bar(
-            const [_openWebUi, _hermes],
-            minimumBottomInset: 8,
-            controlExtent: 66,
-          ),
-        );
-        final window = tester.getSize(find.byType(Scaffold)).height;
-        final toolbar = find.byType(CNToolbar);
-        expect(tester.getBottomLeft(toolbar).dy, window - 8);
-        // The toolbar keeps its height at every text size.
-        expect(tester.getSize(toolbar).height, 44);
+        _tabletWindow(tester);
+        await tester.pumpWidget(_bar(const [_openWebUi, _hermes]));
+        final window = tester.getSize(find.byType(Scaffold));
+        final action = find.byType(NativeGlassIconButton);
+        expect(tester.getBottomRight(action).dy, window.height - 20);
+        expect(tester.getSize(action), const Size.square(44));
+        expect(_action(tester).symbol.size, 18);
+        expect(_tabBar(tester).iconSize, 20);
         expect(
-          AdaptiveFloatingTabBar.extentOf(
-            tester.element(toolbar),
-            minimumBottomInset: 8,
-            controlExtent: 66,
-          ),
-          8 + 44,
-        );
-
-        tester.view.viewPadding = FakeViewPadding(
-          bottom: 34 * tester.view.devicePixelRatio,
-        );
-        await tester.pump();
-        expect(tester.getBottomLeft(toolbar).dy, window - 34);
-        expect(
-          AdaptiveFloatingTabBar.extentOf(
-            tester.element(toolbar),
-            minimumBottomInset: 8,
-            controlExtent: 66,
-          ),
-          34 + 44,
+          AdaptiveFloatingTabBar.extentOf(tester.element(action)),
+          44 + 20,
         );
         await _unmount(tester);
       },
