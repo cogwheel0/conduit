@@ -314,5 +314,94 @@ void main() {
         'text:end',
       ]);
     });
+
+    group('ignoreTagsInCode', () {
+      String answerOf(
+        StreamingReasoningTagSplitter splitter,
+        List<String> chunks,
+      ) {
+        final events = <RawReasoningTagEvent>[
+          for (final chunk in chunks) ...splitter.feed(chunk),
+          ...splitter.flush(),
+        ];
+        check(events.whereType<RawReasoningTagReasoning>()).isEmpty();
+        return events
+            .whereType<RawReasoningTagText>()
+            .map((event) => event.text)
+            .join();
+      }
+
+      test('leaves tags in inline code spans as text', () {
+        const text = 'Use `<think>` or `` <thinking> `` there.';
+        check(
+          answerOf(StreamingReasoningTagSplitter(ignoreTagsInCode: true), [
+            text,
+          ]),
+        ).equals(text);
+      });
+
+      test('leaves tags in backtick and tilde fences as text', () {
+        const text =
+            'Example:\n'
+            '   ```xml\n'
+            '<think>draft</think>\n'
+            '```\n'
+            '~~~~\n'
+            '<thought>x</thought>\n'
+            '~~~\n'
+            '~~~~\n';
+        check(
+          answerOf(StreamingReasoningTagSplitter(ignoreTagsInCode: true), [
+            text,
+          ]),
+        ).equals(text);
+      });
+
+      test('reads backtick runs and tags cut across chunks', () {
+        const text = 'A ```` `` <think> ```` span, then\n``\n`<think>`';
+        final chunks = <String>[];
+        for (var index = 0; index < text.length; index++) {
+          chunks.add(text[index]);
+        }
+        check(
+          answerOf(
+            StreamingReasoningTagSplitter(ignoreTagsInCode: true),
+            chunks,
+          ),
+        ).equals(text);
+      });
+
+      test('splits tags outside code, before and after it', () {
+        final splitter = StreamingReasoningTagSplitter(ignoreTagsInCode: true);
+        final events = <RawReasoningTagEvent>[
+          ...splitter.feed('<think>first</think>`<think>` and\n'),
+          ...splitter.feed('```\n<think>\n```\n<think>second</think>end'),
+        ];
+        check(collect(events)).deepEquals([
+          'reason:first',
+          'end',
+          'text:`<think>',
+          'text:` and\n',
+          'text:```\n<think>',
+          'text:\n```\n',
+          'reason:second',
+          'end',
+          'text:end',
+        ]);
+      });
+
+      test('ends an unclosed inline span at a blank line', () {
+        final splitter = StreamingReasoningTagSplitter(ignoreTagsInCode: true);
+        final events = splitter.feed('a stray ` tick\n\n<think>real</think>');
+        check(collect(events))
+            .deepEquals(['text:a stray ` tick\n\n', 'reason:real', 'end']);
+      });
+
+      test('is off by default, as Open WebUI splits tags anywhere', () {
+        final splitter = StreamingReasoningTagSplitter();
+        check(collect(splitter.feed('`<think>x</think>`')))
+            .deepEquals(['text:`', 'reason:x', 'end', 'text:`']);
+      });
+    });
   });
 }
