@@ -92,7 +92,7 @@ class UiUtils {
       platformIcon(ios: CupertinoIcons.tag, android: Icons.label);
 
   static IconData get copyIcon =>
-      platformIcon(ios: CupertinoIcons.doc_on_doc, android: Icons.copy);
+      platformIcon(ios: CupertinoIcons.square_on_square, android: Icons.copy);
 
   static IconData get pinIcon =>
       platformIcon(ios: CupertinoIcons.pin_fill, android: Icons.push_pin);
