@@ -255,9 +255,9 @@ void _forEachFirstPartyModel(
 /// Display names for bare model ids (`gpt-5-mini` → `GPT-5 Mini`), shown
 /// when a server names a model by its raw id.
 ///
-/// A lab's own listing wins. Otherwise a canonical id takes the name most
-/// resellers give it, ignoring names that just repeat an id or carry a
-/// reseller's parenthetical (`GPT OSS 20B (Groq)`).
+/// A lab's own listing wins. Otherwise a canonical id takes a reseller's
+/// name for it, ignoring names that just repeat an id or carry a reseller's
+/// parenthetical (`GPT OSS 20B (Groq)`) or "Maker: " prefix.
 Map<String, String> _modelNames(
   Map<String, dynamic> catalog,
   Map<String, String> logos,
@@ -291,6 +291,8 @@ Map<String, String> _modelNames(
       if (display == null ||
           display.contains('(') ||
           display.contains('/') ||
+          // A reseller's "Maker: Model" label.
+          display.contains(':') ||
           display.toLowerCase() == key) {
         continue;
       }
@@ -298,10 +300,24 @@ Map<String, String> _modelNames(
       counts[display] = (counts[display] ?? 0) + 1;
     }
   }
+  // Prefer a name that spells the id's own words as a display name
+  // (`kimi-k2` → `Kimi K2`, not a reseller's dated `Kimi K2 0711`), then
+  // the most common one.
+  List<String> words(String value) => value
+      .toLowerCase()
+      .split(RegExp(r'[^a-z0-9]+'))
+      .where((word) => word.isNotEmpty)
+      .toList();
   for (final MapEntry(key: key, value: counts) in resold.entries) {
     if (names.containsKey(key)) continue;
+    final idWords = words(key).join(' ');
+    int rank(String name) =>
+        (words(name).join(' ') == idWords ? 2 : 0) +
+        (name.contains(' ') ? 1 : 0);
     final ranked = counts.entries.toList()
       ..sort((a, b) {
+        final byRank = rank(b.key).compareTo(rank(a.key));
+        if (byRank != 0) return byRank;
         final byCount = b.value.compareTo(a.value);
         if (byCount != 0) return byCount;
         final byLength = a.key.length.compareTo(b.key.length);
