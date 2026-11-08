@@ -660,6 +660,12 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
   int _lastHandledFocusTick = 0;
   bool _showPromptOverlay = false;
   bool _showExpandButton = false;
+
+  /// The draft being sent already shows as its bubble, rising from here:
+  /// the field stops drawing it, so the text is never on screen twice. The
+  /// controller keeps it until the turn is admitted, and a refused send
+  /// shows it again untouched.
+  bool _draftHandedOff = false;
   bool _expandModalOpen = false;
   String _currentPromptCommand = '';
   TextRange? _currentPromptRange;
@@ -1536,6 +1542,9 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     bool sameAccount() =>
         mounted &&
         !_isDeactivated &&
+      if (_draftHandedOff && mounted) {
+        setState(() => _draftHandedOff = false);
+      }
         identical(ref.read(apiServiceProvider), owner.api) &&
         identical(ref.read(openWebUiAuthSessionEpochProvider), owner.epoch);
     // The turn goes to whichever chat is active when it is sent, so the chat
@@ -1563,7 +1572,10 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     }
     final committed = await send(
       wireText,
-      (handle) => _draftSendOwner = handle,
+      (handle) {
+        _draftSendOwner = handle;
+        if (mounted) setState(() => _draftHandedOff = true);
+      },
     );
     if (committed != null) {
       await _draftBinding?.markSent(originDraft, sentSnapshot);
@@ -1778,6 +1790,10 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
         ? l10n.transcribingAudio
         : _isRecording
         ? l10n.recordingAudio
+      // Clearing the sent draft, or any edit, shows the field's text again.
+      if (_draftHandedOff && mounted && !_isDeactivated) {
+        setState(() => _draftHandedOff = false);
+      }
         : widget.placeholder ?? l10n.messageHintText;
     final int lineCount = _composerTextLineCount(layoutText);
     final bool isMultiline = lineCount > 1;
@@ -4521,11 +4537,13 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                 factor,
               )!;
               final textLabel = context.conduitTheme.inputText;
-              final Color animatedTextColor = Color.lerp(
-                textLabel.withValues(alpha: 0.88),
-                textLabel,
-                factor,
-              )!;
+              final Color animatedTextColor = _draftHandedOff
+                  ? textLabel.withValues(alpha: 0)
+                  : Color.lerp(
+                      textLabel.withValues(alpha: 0.88),
+                      textLabel,
+                      factor,
+                    )!;
 
               final TextStyle baseChatStyle = _composerInputTextStyle(
                 _isRecording,
@@ -4565,7 +4583,9 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                   cursorOpacityAnimates: composerCursorOpacityAnimates(
                     usesNativePlatformView: usesNativePlatformView,
                   ),
-                  cursorColor: Theme.of(context).textSelectionTheme.cursorColor,
+                  cursorColor: _draftHandedOff
+                      ? const Color(0x00000000)
+                      : Theme.of(context).textSelectionTheme.cursorColor,
                   magnifierConfiguration: usesNativePlatformView
                       ? IosTextMagnifier.configuration
                       : null,
