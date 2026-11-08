@@ -286,6 +286,9 @@ class HermesSubagentTailController extends Notifier<HermesSubagentTailView> {
   int _failures = 0;
   int _generation = 0;
 
+  /// Whether the last read found the chat not attached on this socket.
+  bool _detached = false;
+
   /// The newest read started: an older one answering late is stale.
   int _reads = 0;
 
@@ -297,6 +300,7 @@ class HermesSubagentTailController extends Notifier<HermesSubagentTailView> {
     _timer = null;
     _failures = 0;
     _finished = false;
+    _detached = false;
     ref.onDispose(() {
       _timer?.cancel();
       _timer = null;
@@ -314,12 +318,22 @@ class HermesSubagentTailController extends Notifier<HermesSubagentTailView> {
       if (!_paused) _schedule(service, generation, Duration.zero);
     });
     ref.onDispose(phases.cancel);
+    // The chat attaching (a send or a resume reattaches it): read again if
+    // the last read found it detached and none is due. A finished child's
+    // reads stop, so its output would otherwise never load.
+    final turns = service.turnStatesFor(subagent.storedId).listen((_) {
+      if (generation != _generation || !_detached || _timer != null) return;
+      _schedule(service, generation, Duration.zero);
+    });
+    ref.onDispose(turns.cancel);
     // Once the chat's list no longer runs it, read a last time and stop;
-    // that includes one already finished when its output is opened.
+    // that includes one already finished when its output is opened. That
+    // read gets its own tries, whatever failed while the child ran.
     ref.listen(hermesBackgroundWorkProvider, (_, work) {
       if (generation != _generation || work == null || _finished) return;
       if (work.subagent(subagent.subagentId)?.running ?? false) return;
       _finished = true;
+      _failures = 0;
       _schedule(service, generation, Duration.zero);
     }, fireImmediately: true);
     _schedule(service, generation, Duration.zero);
@@ -354,6 +368,7 @@ class HermesSubagentTailController extends Notifier<HermesSubagentTailView> {
       );
       if (stale()) return;
       _failures = 0;
+      _detached = tail == null;
       final kept = state.tail;
       // Null while the chat is not attached: keep what was read. A
       // finished child's transcript is cleaned up: keep what was read.
@@ -363,6 +378,7 @@ class HermesSubagentTailController extends Notifier<HermesSubagentTailView> {
       }
     } catch (_) {
       if (stale()) return;
+      _detached = false;
       if (++_failures >= _kMaxFailures) {
         if (state.tail == null) {
           state = const HermesSubagentTailView(failed: true);

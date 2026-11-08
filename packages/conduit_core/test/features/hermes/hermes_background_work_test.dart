@@ -47,7 +47,22 @@ final class _Gateway {
     when(() => channel.ready).thenAnswer((_) async {});
     when(() => channel.stream).thenAnswer((_) {
       scheduleMicrotask(_ready);
-      return incoming.stream;
+      // One stream per connection, as a socket's: a reconnect cancels the
+      // dropped one, and that cancel must complete under fake time, which
+      // a broadcast subscription's does not.
+      late final StreamSubscription<dynamic> forward;
+      final socket = StreamController<dynamic>(
+        onCancel: () {
+          unawaited(forward.cancel());
+          return Future<void>.value();
+        },
+      );
+      forward = incoming.stream.listen(
+        socket.add,
+        onError: socket.addError,
+        onDone: socket.close,
+      );
+      return socket.stream;
     });
     when(() => channel.sink).thenReturn(sink);
     when(() => sink.close()).thenAnswer((_) async {});
@@ -1018,6 +1033,91 @@ void main() {
 
         check(reads).equals(3);
         check(container.read(tail).failed).isTrue();
+        sub.close();
+        stop(async);
+      });
+    });
+
+    // Reads that failed while it ran counted against its last read, which
+    // then stopped after one try and showed the output as failed.
+    test('a subagent that finishes gets its last read\'s full tries', () {
+      fakeAsync((async) {
+        start(async);
+        var failing = 0;
+        gateway
+          ..subagents = [_child('sa-1')]
+          ..handler = (method, params) {
+            if (method != 'subagent.tail') return null;
+            if (failing > 0) {
+              failing--;
+              throw const _Refusal(5000, 'busy');
+            }
+            return {'subagent_id': 'sa-1', 'available': true, 'text': 'done'};
+          };
+        container.listen(hermesBackgroundWorkProvider, (_, _) {});
+        final tail = hermesSubagentTailProvider((
+          storedId: 'local-1',
+          subagentId: 'sa-1',
+        ));
+        // Reads at 0, 2, 4 and 8 seconds fail while it runs.
+        failing = 4;
+        final sub = container.listen(tail, (_, _) {});
+        async.elapse(const Duration(seconds: 10));
+        check(failing).equals(0);
+        check(container.read(tail).failed).isTrue();
+
+        // It finishes; its last read fails twice more, then answers.
+        failing = 2;
+        gateway.subagents = [_child('sa-1', status: 'completed')];
+        async.elapse(const Duration(seconds: 30));
+
+        check(failing).equals(0);
+        check(container.read(tail).tail?.text).equals('done');
+        check(container.read(tail).failed).isFalse();
+        sub.close();
+        stop(async);
+      });
+    });
+
+    // Its last read found the chat detached (the socket dropped and came
+    // back) and reads stopped: the output never loaded, even once the chat
+    // attached again.
+    test('a finished subagent\'s output is read once its chat attaches', () {
+      fakeAsync((async) {
+        start(async);
+        var reads = 0;
+        gateway
+          ..subagents = [_child('sa-1', status: 'completed')]
+          ..handler = (method, params) {
+            if (method != 'subagent.tail') return null;
+            reads++;
+            return {'subagent_id': 'sa-1', 'available': true, 'text': 'done'};
+          };
+        container.listen(hermesBackgroundWorkProvider, (_, _) {});
+        async.elapse(Duration.zero);
+        check(container.read(hermesBackgroundWorkProvider)!.active).isFalse();
+
+        gateway.incoming.addError(StateError('gone'));
+        async.elapse(Duration.zero);
+        final tail = hermesSubagentTailProvider((
+          storedId: 'local-1',
+          subagentId: 'sa-1',
+        ));
+        final sub = container.listen(tail, (_, _) {});
+        async.elapse(const Duration(minutes: 1));
+        check(reads).equals(0);
+        check(container.read(tail).tail).isNull();
+
+        // Sending or reopening reattaches it.
+        unawaited(service.pendingDecisionsForSession('local-1'));
+        async.elapse(const Duration(seconds: 1));
+        check(reads).equals(1);
+        check(container.read(tail).tail!.text).equals('done');
+
+        // Read, it is not read again: a later turn says nothing new.
+        gateway.event('session.info', {'running': true});
+        async.elapse(const Duration(minutes: 1));
+        check(reads).equals(1);
         sub.close();
         stop(async);
       });
