@@ -20,6 +20,7 @@ export 'src/message_segmenter.dart'
         segmentAssistantMessage,
         stripTrailingIncompleteToolCallDetails;
 export 'src/message_segments.dart';
+export 'src/plain_markdown.dart';
 export 'src/reasoning_parser.dart';
 export 'src/semantic_details.dart';
 export 'src/speech_text.dart';
