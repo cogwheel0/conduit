@@ -4438,5 +4438,6 @@
   "authFieldRequired": "Обязательно",
   "authFieldOptional": "Необязательно",
   "authEmailPlaceholder": "name@example.com",
-  "authTokenFieldLabel": "Токен"
+  "authTokenFieldLabel": "Токен",
+  "composerAttachPhotos": "Фото"
 }

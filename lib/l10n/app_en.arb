@@ -9259,5 +9259,9 @@
   "authTokenFieldLabel": "Token",
   "@authTokenFieldLabel": {
     "description": "Leading label of the session token field on the iOS sign-in form. One short word; the method control above already says Session Token."
+  },
+  "composerAttachPhotos": "Photos",
+  "@composerAttachPhotos": {
+    "description": "Attachment panel tile that opens the photo library to pick photos. Plural, as iOS names the Photos app and its picker."
   }
 }

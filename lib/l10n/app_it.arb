@@ -4400,5 +4400,6 @@
   "authFieldRequired": "Obbligatorio",
   "authFieldOptional": "Facoltativo",
   "authEmailPlaceholder": "name@example.com",
-  "authTokenFieldLabel": "Token"
+  "authTokenFieldLabel": "Token",
+  "composerAttachPhotos": "Foto"
 }

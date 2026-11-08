@@ -4400,5 +4400,6 @@
   "authFieldRequired": "必填",
   "authFieldOptional": "選填",
   "authEmailPlaceholder": "name@example.com",
-  "authTokenFieldLabel": "權杖"
+  "authTokenFieldLabel": "權杖",
+  "composerAttachPhotos": "照片"
 }

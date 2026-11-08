@@ -63,13 +63,13 @@ void main() {
     );
     expect(sheet.localAttachmentsOnly, isTrue);
     expect(find.text('Files'), findsOneWidget);
-    expect(find.text('Photo'), findsOneWidget);
+    expect(find.text('Photos'), findsOneWidget);
     expect(find.text('Camera'), findsOneWidget);
     expect(find.text('Server Files'), findsNothing);
     expect(find.text('Web Page'), findsNothing);
     expect(find.text('Tools'), findsNothing);
 
-    await tester.tap(find.text('Photo'));
+    await tester.tap(find.text('Photos'));
     await tester.pumpAndSettle();
     expect(photoCalls, 1);
   });
@@ -110,7 +110,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('Files'), findsOneWidget);
-      expect(find.text('Photo'), findsNothing);
+      expect(find.text('Photos'), findsNothing);
       expect(find.text('Camera'), findsNothing);
 
       capabilities.complete(const HermesCapabilities(inputImages: true));

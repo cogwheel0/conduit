@@ -708,7 +708,7 @@ void main() {
       expect(sheet.onImageAttachment, isNotNull);
       expect(sheet.onCameraCapture, isNotNull);
       expect(find.text('Files'), findsOneWidget);
-      expect(find.text('Photo'), findsOneWidget);
+      expect(find.text('Photos'), findsOneWidget);
       expect(find.text('Camera'), findsOneWidget);
       expect(find.text('Server Files'), findsNothing);
       expect(find.text('Web Page'), findsNothing);
@@ -834,7 +834,7 @@ void main() {
     for (final label in [
       'Files',
       'Server Files',
-      'Photo',
+      'Photos',
       'Camera',
       'Web Page',
     ]) {
@@ -915,7 +915,7 @@ void main() {
     expect(sheet.onImageAttachment, isNull);
     expect(sheet.onCameraCapture, isNull);
     expect(find.text('Files'), findsOneWidget);
-    expect(find.text('Photo'), findsNothing);
+    expect(find.text('Photos'), findsNothing);
     expect(find.text('Camera'), findsNothing);
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pump(const Duration(milliseconds: 1));
@@ -980,7 +980,7 @@ void main() {
 
       expect(find.byType(ComposerAttachmentKeyboard), findsOneWidget);
       expect(find.text('Files'), findsOneWidget);
-      expect(find.text('Photo'), findsNothing);
+      expect(find.text('Photos'), findsNothing);
       expect(find.text('Camera'), findsNothing);
       expect(find.text('Web Search'), findsOneWidget);
       // Toggle rows show their state with a trailing switch.

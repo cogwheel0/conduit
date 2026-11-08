@@ -6323,5 +6323,6 @@
   "authFieldRequired": "Povinné",
   "authFieldOptional": "Volitelné",
   "authEmailPlaceholder": "name@example.com",
-  "authTokenFieldLabel": "Token"
+  "authTokenFieldLabel": "Token",
+  "composerAttachPhotos": "Fotky"
 }

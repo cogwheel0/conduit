@@ -4172,5 +4172,6 @@
   "authFieldRequired": "필수",
   "authFieldOptional": "선택 사항",
   "authEmailPlaceholder": "name@example.com",
-  "authTokenFieldLabel": "토큰"
+  "authTokenFieldLabel": "토큰",
+  "composerAttachPhotos": "사진"
 }

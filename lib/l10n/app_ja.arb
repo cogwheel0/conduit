@@ -6017,5 +6017,6 @@
   "authFieldRequired": "必須",
   "authFieldOptional": "任意",
   "authEmailPlaceholder": "name@example.com",
-  "authTokenFieldLabel": "トークン"
+  "authTokenFieldLabel": "トークン",
+  "composerAttachPhotos": "写真"
 }
