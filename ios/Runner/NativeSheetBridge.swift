@@ -1303,6 +1303,8 @@ final class NativeSheetBridge: ConduitBridge, NativeSheetHostApi {
         }
     }
 
+    /// Presents Settings once; an already-open profile menu also counts as
+    /// success, without adding another navigation stack.
     func presentProfileMenu(
         config: PlatformNativeProfileSheetConfig,
         completion: @escaping (Result<Bool, Error>) -> Void
