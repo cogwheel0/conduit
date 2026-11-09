@@ -1502,7 +1502,7 @@
   "@enterToken": {
     "description": "Hint text for JWT token input."
   },
-  "tokenHint": "Wklej token JWT z Open WebUI w przeglądarce, z Ustawienia › Konto › Klucze API. Kluczy API (sk-…) nie można tu użyć.",
+  "tokenHint": "Skopiuj token sesji JWT z Open WebUI w przeglądarce i wklej go tutaj. Administratorzy znajdą go w Ustawienia › Konto › Klucze API. Klucze API (sk-…) nie zadziałają.",
   "@tokenHint": {
     "description": "Help text explaining what type of token to use."
   },

@@ -289,7 +289,7 @@
   "usernameOrEmailHint": "輸入您的用戶名或電子郵件",
   "passwordHint": "輸入您的密碼",
   "enterToken": "輸入您的 JWT 令牌",
-  "tokenHint": "請貼上網頁版 Open WebUI「設定 › 帳號 › API 密鑰」中的 JWT 令牌。此處無法使用 API 密鑰 (sk-…)。",
+  "tokenHint": "從網頁版 Open WebUI 複製 JWT 工作階段令牌並貼到此處。管理員可在「設定 › 帳號 › API 密鑰」中找到。無法使用 API 密鑰 (sk-…)。",
   "apiKeyNotSupported": "API 密鑰 (sk-…) 無法用於登入。請改為貼上 JWT 令牌。",
   "apiKeyNoLongerSupported": "由於不再支援 API 密鑰，您已被登出。請使用 Open WebUI 設定中的 JWT 令牌登入。",
   "tokenTooShort": "令牌太短",

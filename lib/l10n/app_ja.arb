@@ -1260,7 +1260,7 @@
   "@enterToken": {
     "description": "Hint text for JWT token input."
   },
-  "tokenHint": "Web 版 Open WebUI の「設定 › アカウント › API キー」にある JWT トークンを貼り付けてください。API キー (sk-…) はここでは使用できません。",
+  "tokenHint": "Web 版 Open WebUI から JWT セッショントークンをコピーして、ここに貼り付けてください。管理者は「設定 › アカウント › API キー」で確認できます。API キー (sk-…) は使用できません。",
   "@tokenHint": {
     "description": "Help text explaining what type of token to use."
   },
@@ -6003,7 +6003,7 @@
   "composerShowKeyboard": "キーボードを表示",
   "composerAttachUploads": "アップロード済み",
   "supportConduitFooter": "Conduit は無料のオープンソースです。ご支援がその継続を支えます。",
-  "aiMemoryFooter": "システムプロンプトはすべてのチャットに適用されます。メモリを使うと、アシスタントが伝えた内容を覚えておけます。",
+  "aiMemoryFooter": "システムプロンプトはすべてのチャットに適用されます。メモリを使うと、あなたが伝えた内容をアシスタントが覚えておけます。",
   "composerAttachServerFiles": "サーバーのファイル",
   "followUpSuggestionsHeading": "提案",
   "codeBlockPlainText": "プレーンテキスト",

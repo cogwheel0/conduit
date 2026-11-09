@@ -289,7 +289,7 @@
   "usernameOrEmailHint": "Inserisci il tuo username o e‑mail",
   "passwordHint": "Inserisci la password",
   "enterToken": "Inserisci il tuo token JWT",
-  "tokenHint": "Incolla il token JWT di Open WebUI sul web, in Impostazioni › Account › Chiavi API. Le chiavi API (sk-…) qui non funzionano.",
+  "tokenHint": "Copia un token di sessione JWT da Open WebUI sul web e incollalo qui. Gli amministratori lo trovano in Impostazioni › Account › Chiavi API. Le chiavi API (sk-…) non funzionano.",
   "apiKeyNotSupported": "Le chiavi API (sk-…) non servono per accedere. Incolla invece un token JWT.",
   "apiKeyNoLongerSupported": "Sei stato disconnesso perché le chiavi API non sono più supportate. Per favore accedi con un token JWT dalle impostazioni di Open WebUI.",
   "tokenTooShort": "Il token è troppo corto",

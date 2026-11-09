@@ -1529,9 +1529,9 @@
   "@enterToken": {
     "description": "Hint text for JWT token input."
   },
-  "tokenHint": "Paste the JWT token from Open WebUI on the web, in Settings › Account › API Keys. API keys (sk-…) can't be used here.",
+  "tokenHint": "Copy a JWT session token from Open WebUI on the web and paste it here. Admins find it in Settings › Account › API Keys. API keys (sk-…) won't work.",
   "@tokenHint": {
-    "description": "Footer under the token field: where to find the JWT token in Open WebUI on the web, and that API keys (sk-...) cannot be used. Keep the Settings › Account › API Keys path in the words Open WebUI uses in that language."
+    "description": "Footer under the token field: copy a JWT session token from Open WebUI on the web and paste it here; admins find it in Settings › Account › API Keys (Open WebUI shows it only to admins); API keys (sk-...) cannot be used. Keep the path in the words Open WebUI uses in that language."
   },
   "apiKeyNotSupported": "API keys (sk-…) can't be used to sign in. Paste a JWT token instead.",
   "@apiKeyNotSupported": {

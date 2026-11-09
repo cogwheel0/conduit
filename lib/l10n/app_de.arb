@@ -291,7 +291,7 @@
   "usernameOrEmailHint": "Gib deinen Benutzernamen oder deine E‑Mail ein",
   "passwordHint": "Gib dein Passwort ein",
   "enterToken": "Gib dein JWT-Token ein",
-  "tokenHint": "Füge das JWT-Token aus Open WebUI im Browser ein, unter Einstellungen › Konto › API-Schlüssel. API-Schlüssel (sk-…) funktionieren hier nicht.",
+  "tokenHint": "Kopiere ein JWT-Sitzungstoken aus Open WebUI im Browser und füge es hier ein. Admins finden es unter Einstellungen › Konto › API-Schlüssel. API-Schlüssel (sk-…) funktionieren nicht.",
   "apiKeyNotSupported": "Mit API-Schlüsseln (sk-…) kannst du dich nicht anmelden. Füge stattdessen ein JWT-Token ein.",
   "apiKeyNoLongerSupported": "Du wurdest abgemeldet, da API-Schlüssel nicht mehr unterstützt werden. Bitte melde dich mit einem JWT-Token aus den Open WebUI-Einstellungen an.",
   "tokenTooShort": "Token ist zu kurz",
