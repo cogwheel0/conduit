@@ -1167,6 +1167,26 @@ class HermesConfigController extends Notifier<HermesConfig> {
           }
         }
       }
+      // The edit has gone through. Copies' earlier messages saved under the
+      // old endpoint or principal can no longer be opened, so they go, and
+      // an open still in flight for them keeps nothing.
+      final previousIdentity = previousProfile == null
+          ? null
+          : connectionIdentityFor(previousProfile);
+      if (previousIdentity != null &&
+          previousIdentity != connectionIdentityFor(nextProfile)) {
+        try {
+          await ref
+              .read(hermesCopiedHistoryStoreProvider)
+              .forgetConnection(previousIdentity);
+        } catch (error) {
+          DebugLogger.warning(
+            'copied-history-cleanup-failed',
+            scope: 'hermes/config',
+            data: {'errorType': error.runtimeType.toString()},
+          );
+        }
+      }
     }
 
     if (serviceWillRotate) {

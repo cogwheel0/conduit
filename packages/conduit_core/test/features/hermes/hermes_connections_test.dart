@@ -1013,6 +1013,92 @@ void main() {
       check(HermesConnectionStore.readActiveId()).equals(_a);
     });
 
+    // Copies saved under an edited connection's old address were left
+    // behind, unreachable, and still pushed live copies out of the store.
+    test('an address change drops copies saved under the old one', () async {
+      _seedConnections([
+        _profile(_a, 'Alpha', 'https://alpha.example'),
+        _profile(_b, 'Beta', 'https://beta.example'),
+      ], active: _a);
+      final database = AppDatabase(NativeDatabase.memory());
+      addTearDown(database.close);
+      final container = await _ready(
+        _Secrets({
+          'hermes_api_key_v1:$_a': 'alpha-key',
+          'hermes_api_key_v1:$_b': 'beta-key',
+        }),
+        database: database,
+      );
+      addTearDown(container.dispose);
+      final controller = container.read(hermesConfigProvider.notifier);
+      final alphaIdentity = _identityFor(_a, 'https://alpha.example');
+      final betaIdentity = _identityFor(_b, 'https://beta.example');
+      for (final identity in [alphaIdentity, betaIdentity]) {
+        await _saveCopy(container, identity);
+      }
+
+      // A rename keeps the address and principal, and with them the copy.
+      await controller.saveConnection(
+        connectionId: _b,
+        baseUrl: 'https://beta.example',
+        name: 'Renamed',
+      );
+      check(await _hasCopy(container, betaIdentity)).isTrue();
+
+      await controller.saveConnection(
+        connectionId: _b,
+        baseUrl: 'https://gamma.example',
+        apiKeyChanged: true,
+        apiKey: 'gamma-key',
+      );
+
+      check(await _hasCopy(container, betaIdentity)).isFalse();
+      check(await _hasCopy(container, alphaIdentity)).isTrue();
+      // An open that began before the edit saves nothing back.
+      await _saveCopy(container, betaIdentity);
+      check(await _hasCopy(container, betaIdentity)).isFalse();
+    });
+
+    test('an address change that is undone keeps its copies', () async {
+      _seedConnections([
+        _profile(_a, 'Alpha', 'https://alpha.example'),
+        _profile(_b, 'Beta', 'https://beta.example'),
+      ], active: _a);
+      final database = AppDatabase(NativeDatabase.memory());
+      addTearDown(database.close);
+      final container = await _ready(
+        _Secrets({
+          'hermes_api_key_v1:$_a': 'alpha-key',
+          'hermes_api_key_v1:$_b': 'beta-key',
+        }),
+        // The old address's dashboard sign-in stays, so the edit is undone.
+        cookies: _RecordingCookieJar(clears: false),
+        database: database,
+      );
+      addTearDown(container.dispose);
+      final betaIdentity = _identityFor(_b, 'https://beta.example');
+      await _saveCopy(container, betaIdentity);
+
+      await check(
+        container
+            .read(hermesConfigProvider.notifier)
+            .saveConnection(
+              connectionId: _b,
+              baseUrl: 'https://gamma.example',
+              apiKeyChanged: true,
+              apiKey: 'gamma-key',
+            ),
+      ).throws<StateError>();
+
+      check(
+        container
+            .read(hermesConnectionsProvider)
+            .singleWhere((profile) => profile.id == _b)
+            .baseUrl,
+      ).equals('https://beta.example');
+      check(await _hasCopy(container, betaIdentity)).isTrue();
+    });
+
     test('a stale client cannot undo a token rotation', () async {
       _seedConnections([
         _profile(_a, 'Alpha', 'https://alpha.example'),
@@ -1686,6 +1772,23 @@ String _identityFor(String id, String baseUrl) =>
       endpointIdentity: HermesConfig.connectionEndpoint(baseUrl)!,
       principalId: _principalFor(id),
     );
+
+Future<void> _saveCopy(ProviderContainer container, String identity) =>
+    container
+        .read(hermesCopiedHistoryStoreProvider)
+        .save(
+          connectionIdentity: identity,
+          sessionId: 'copy',
+          messages: const [
+            <String, dynamic>{'role': 'user', 'content': 'Tide tables'},
+          ],
+        );
+
+Future<bool> _hasCopy(ProviderContainer container, String identity) async =>
+    await container
+        .read(hermesCopiedHistoryStoreProvider)
+        .load(connectionIdentity: identity, sessionId: 'copy') !=
+    null;
 
 const _envelope = '<<<BEGIN_HERMES_UNTRUSTED_REFERENCE_1>>>notes';
 

@@ -43,8 +43,14 @@ final class HermesCopiedHistoryStore {
   // zone alive.
   Future<void>? _writes;
 
+  // Key prefixes of the connection identities [forgetConnection] dropped.
+  // A save begun for one before then (an open still in flight) keeps
+  // nothing: no connection can reach it again.
+  final Set<String> _forgottenConnections = <String>{};
+
   /// Saves [messages] as the earlier messages of copy [sessionId], replacing
   /// any it had, and returns what was kept: the newest messages that fit.
+  /// Nothing is stored for a connection identity that has been forgotten.
   Future<List<Map<String, dynamic>>> save({
     required String connectionIdentity,
     required String sessionId,
@@ -55,6 +61,7 @@ final class HermesCopiedHistoryStore {
     final bounded = _bound(messages);
     await _serialize(() async {
       final dao = _database.appCacheDao;
+      if (_forgottenConnections.any(key.startsWith)) return;
       if (bounded.messages.isEmpty) {
         await dao.deleteKey(key);
         return;
@@ -114,12 +121,18 @@ final class HermesCopiedHistoryStore {
     await _serialize(() => _database.appCacheDao.deleteKey(key));
   }
 
-  /// Drops every copy's earlier messages for [connectionIdentity], e.g. when
-  /// its saved connection is deleted.
+  /// Drops every copy's earlier messages for [connectionIdentity] once no
+  /// saved connection has it: the connection was deleted, or edited to
+  /// another endpoint or principal. Unreachable, they would still count
+  /// toward [maxCopies] and push out copies a connection can still open.
+  ///
+  /// Identities are never reused, so a save still in flight for this one
+  /// stores nothing afterwards.
   Future<void> forgetConnection(String connectionIdentity) async {
     final connection = connectionIdentity.trim();
     if (connection.isEmpty) return;
     final prefix = '$_keyPrefix${_digest(connection)}:';
+    _forgottenConnections.add(prefix);
     await _serialize(() => _database.appCacheDao.deleteKeysWithPrefix(prefix));
   }
 
