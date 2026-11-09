@@ -293,7 +293,14 @@ void main() {
 
     // `abc` of `Token abc` was too short to look for, and showed alone.
     test('a short part of a secret shown alone refuses the diff', () {
-      for (final line in ['+key = abc', '+theme = "dark"']) {
+      // `+` and `=` open an added line and an assignment's value.
+      for (final line in [
+        '+key = abc',
+        '+theme = "dark"',
+        '+key=abc',
+        '+abc',
+        ' unchanged\n-abc',
+      ]) {
         check(
           sanitizeHermesInlineDiff(
             line,
@@ -317,6 +324,29 @@ void main() {
           sensitiveValues: const ['Token abc'],
         ),
       ).isNotNull().not((it) => it.contains('abc'));
+    });
+
+    // The `=` a split leaves of Base64 padding counted as a short part, so
+    // any diff with an assignment was refused.
+    test('Base64 padding is no part of a secret', () {
+      for (final secret in [
+        'aGFyYm9yOmtlbHA3Nw==',
+        'Basic aGFyYm9yOmtlbHA3Nw==',
+      ]) {
+        check(
+          sanitizeHermesInlineDiff('+x = 1', sensitiveValues: [secret]),
+        ).equals('+x = 1');
+        check(
+          sanitizeHermesInlineDiff(
+            '+auth = aGFyYm9yOmtlbHA3Nw==',
+            sensitiveValues: [secret],
+          ),
+        ).isNotNull().not((it) => it.contains('aGFyYm9y'));
+      }
+      // A cookie whose value is `=` is still looked for.
+      check(
+        sanitizeHermesInlineDiff('+x = 1', sensitiveValues: const ['flag==']),
+      ).isNull();
     });
 
     test('a secret with too many parts to search for refuses the diff', () {

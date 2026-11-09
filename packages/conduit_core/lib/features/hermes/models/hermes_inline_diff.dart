@@ -39,12 +39,28 @@ const int _kMaxRedactedSecretVariants = 32;
 const int _kMinRedactedSecretPartLength = 6;
 
 /// Whether [part] shows in [text] on its own, not inside a longer word or
-/// token (the characters a credential is made of).
+/// token. A line's diff marker (`+abc`, `-abc`) and an assignment's `=`
+/// (`key=abc`) end one too, and so does `+` anywhere: a part next to it
+/// counts as alone, even inside a Base64 token.
 bool _showsAlone(String text, String part) => RegExp(
-  r'(?<![A-Za-z0-9._~+/=-])' +
+  r'(?:(?<=^[-+ ])|(?<![A-Za-z0-9._~/-]))' +
       RegExp.escape(part) +
-      r'(?![A-Za-z0-9._~+/=-])',
+      r'(?![A-Za-z0-9._~/-])',
+  multiLine: true,
 ).hasMatch(text);
+
+/// Whether [part] is only what a split at `=` leaves of the `==` padding
+/// that ends a Base64 token of [secret] (the `=` of `Basic aGVsbG8hIQ==`).
+/// It is no part of the credential, and every diff has one on its own
+/// (`x = 1`). A cookie whose value is `=` (`flag==`) is no Base64 token, so
+/// its value is still looked for.
+bool _isBase64Padding(String secret, String part) =>
+    part == '=' &&
+    secret
+        .split(RegExp(r'[\s;,]+'))
+        .any((token) => token.length % 4 == 0 && _paddedBase64.hasMatch(token));
+
+final RegExp _paddedBase64 = RegExp(r'^[A-Za-z0-9+/_-]{2,}==$');
 
 final RegExp _hunkHeader = RegExp(
   r'^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@',
@@ -75,7 +91,11 @@ String? sanitizeHermesInlineDiff(
     if (parts == null) return null;
     found.add(secret);
     for (final part in parts) {
-      (part.length >= _kMinRedactedSecretPartLength ? found : short).add(part);
+      if (part.length >= _kMinRedactedSecretPartLength) {
+        found.add(part);
+      } else if (!_isBase64Padding(secret, part)) {
+        short.add(part);
+      }
     }
   }
   final secrets = found.toList(growable: false)
