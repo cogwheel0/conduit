@@ -132,7 +132,9 @@ final librarySearchPageProvider = FutureProvider.autoDispose
               hasMore: rows.length == pageSize,
             );
           }
-          final userId = ref.watch(currentUserProvider2)?.id;
+          final userId = ref.watch(
+            currentUserProvider2.select((user) => user?.id),
+          );
           if (userId == null || userId.isEmpty) {
             return (items: <LibrarySearchResult>[], hasMore: false);
           }
