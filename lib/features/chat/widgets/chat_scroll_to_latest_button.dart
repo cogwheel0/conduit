@@ -45,13 +45,14 @@ class ChatScrollToLatestButton extends StatefulWidget {
   /// Whether the button is wanted. The widget animates toward this.
   final bool visible;
 
-  /// Whether a hide happening now should be quick: a short fade of
-  /// [quickExitDuration] instead of the spring, for when the user has just
-  /// sent a message and the transcript is about to move under the button.
+  /// Whether a hide happening now should be immediate rather than on the
+  /// spring, for when the user has just sent a message: the transcript is
+  /// about to move under the button and the message to fly up across where
+  /// it is. The button is a native glass view, and Flutter draws what passes
+  /// over such a view in a layer of its own; one still fading out under the
+  /// flying message showed through it as a hole. So it goes in the frame the
+  /// send is shown in.
   final bool quickExit;
-
-  /// How long a [quickExit] takes.
-  static const Duration quickExitDuration = Duration(milliseconds: 100);
 
   /// The button's diameter.
   final double dimension;
@@ -85,6 +86,10 @@ class _ChatScrollToLatestButtonState extends State<ChatScrollToLatestButton>
     value: widget.visible ? 1 : 0,
   )..addListener(_reportPresence);
 
+  /// A send took the button away at once (see
+  /// [ChatScrollToLatestButton.quickExit]).
+  bool _droppedForSend = false;
+
   @override
   void initState() {
     super.initState();
@@ -106,12 +111,15 @@ class _ChatScrollToLatestButtonState extends State<ChatScrollToLatestButton>
     }
     if (oldWidget.visible == widget.visible) return;
     final target = widget.visible ? 1.0 : 0.0;
+    _droppedForSend = false;
     if (!widget.visible && widget.quickExit) {
-      _presence.animateTo(
-        0,
-        duration: ChatScrollToLatestButton.quickExitDuration,
-        curve: Curves.easeOut,
-      );
+      _presence.stop();
+      _droppedForSend = true;
+      // The host hears of it after this frame: never change its state from
+      // inside a build.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && !widget.visible) _presence.value = 0;
+      });
       return;
     }
     if (context.reduceMotion) {
@@ -219,7 +227,7 @@ class _ChatScrollToLatestButtonState extends State<ChatScrollToLatestButton>
         animation: _presence,
         builder: (context, _) {
           final presence = _presence.value.clamp(0.0, 1.0);
-          if (presence <= 0.001 && !widget.visible) {
+          if ((presence <= 0.001 || _droppedForSend) && !widget.visible) {
             // Fully gone: drop the native button rather than keep an
             // invisible platform view in the scene.
             return const SizedBox.shrink();
