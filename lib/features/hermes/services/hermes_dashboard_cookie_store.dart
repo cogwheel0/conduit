@@ -25,6 +25,7 @@ final class HermesDashboardCookieStore {
       current: await snapshot(origin),
       baseline: baseline,
       retainedNames: retainedNames,
+      recorded: HermesDashboardCookieRegistry.identitiesFor(origin),
     );
     await HermesDashboardCookieRegistry.record(
       origin,

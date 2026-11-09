@@ -5294,6 +5294,7 @@
   "hermesMcpServers": "Servery MCP",
   "hermesSignOut": "Odhlásit se z Hermes",
   "hermesActionFailed": "Akce Hermes selhala.",
+  "hermesSignOutFailed": "Z nástěnky Hermes se nepodařilo odhlásit. Zkontrolujte připojení a zkuste to znovu.",
   "hermesToolsetUpdateFailed": "Aktualizace sady nástrojů Hermes selhala.",
   "hermesJobStateLabel": "Stav",
   "hermesJobDeliveryLabel": "Doručení",
@@ -5318,6 +5319,7 @@
   "hermesFastTierOff": "Vypnuto",
   "hermesTurnSteer": "Nasměrovat",
   "hermesTurnSendNext": "Odeslat další",
+  "hermesSteerUncertain": "Hermes nepotvrdil vaše nasměrování. Než nasměrování odešlete znovu, zkontrolujte odpověď.",
   "hermesTurnControlsUnsupported": "Aktualizujte Hermes, abyste povolili bezpečné ovládání tahů.",
   "sidebarHermesTab": "Hermes",
   "sidebarBackendSwitcher": "Backend",
@@ -6398,5 +6400,13 @@
   "libreChatMemoryKeyLabel": "Klíč",
   "libreChatMemoryKeyHint": "např. preference",
   "libreChatMemoryKeyRequired": "Zadejte klíč vzpomínky.",
-  "libreChatMemoryUsage": "Využito {used} z {limit} tokenů"
+  "libreChatMemoryUsage": "Využito {used} z {limit} tokenů",
+  "hermesReadOnlySessionNotice": "Tento chat začal v jiné aplikaci Hermes. Můžete si ho tu přečíst, ale Hermes dovoluje Conduitu odpovídat jen v chatech, které Conduit začal.",
+  "hermesReadOnlySessionNoticeFrom": "Tento chat začal v aplikaci: {source}. Můžete si ho tu přečíst, ale Hermes dovoluje Conduitu odpovídat jen v chatech, které Conduit začal.",
+  "@hermesReadOnlySessionNoticeFrom": {"placeholders": {"source": {"type": "String"}}},
+  "hermesContinueInCopy": "Pokračovat v kopii",
+  "hermesContinueInCopyFailed": "Tento chat se nepodařilo zkopírovat. Zkuste to znovu.",
+  "hermesContinueHere": "Pokračovat zde",
+  "hermesContinueHereFailed": "V tomto chatu se nepodařilo pokračovat zde. Zkuste to znovu.",
+  "hermesContinueChoiceExplanation": "Pokračováním zde se tento chat v druhé aplikaci ukončí a ta při další zprávě začne nový. Kopie ten chat ponechá beze změny, ale dřívější zprávy uloží jen v tomto zařízení. Uchová nejvýše 1 000 nejnovějších zpráv (1 MB), a to u 32 naposledy otevřených kopií."
 }

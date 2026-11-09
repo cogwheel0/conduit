@@ -7,8 +7,31 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
     return _connecting ??= _connect().whenComplete(() => _connecting = null);
   }
 
+  /// Connects, waiting out a gateway that is starting or draining: its
+  /// listener refuses everything until it is ready, so the attempt is
+  /// repeated a few times before Conduit reports it.
   Future<void> _connect() async {
     _emitTurnState(HermesDesktopTurnState.reconnecting);
+    for (var attempt = 0; ; attempt++) {
+      try {
+        return await _connectOnce();
+      } catch (error) {
+        if (_closed || !hermesDesktopGatewayNotReady(error)) rethrow;
+        if (attempt >= gatewayStartRetryDelays.length) {
+          throw const HermesDesktopGatewayStartingException();
+        }
+        DebugLogger.warning(
+          'gateway-not-ready',
+          scope: 'hermes/desktop/ws',
+          data: {'attempt': attempt + 1},
+        );
+        await Future<void>.delayed(gatewayStartRetryDelays[attempt]);
+        if (_closed) throw StateError('Hermes service is closed.');
+      }
+    }
+  }
+
+  Future<void> _connectOnce() async {
     final status = await statusProbe(refresh: true);
     if (_closed) throw StateError('Hermes service is closed.');
     final query = <String, String>{};
@@ -43,6 +66,7 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
       return;
     }
     _stateSubscription ??= _rpc.events.listen((event) {
+      if (_rpc.sessionAuthority) _observeCanonicalEvent(event);
       final startedBuffering = _eventBuffer.add(event);
       // Buffered: no turn shows this session's events, so a restored chat
       // re-reads its cards once the saved decisions changed. Only a change
@@ -235,9 +259,13 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
     'profile': _sessionProfiles[storedId] ?? config.desktopProfile,
   };
 
+  /// Attaches [storedId] on this socket and reads its state. With [byTitle]
+  /// a session authority looks [storedId] up as a title (a bot's Bot Chat);
+  /// earlier gateways resolve titles from `session_id` itself.
   Future<({HermesSessionBinding binding, bool? running})> _resumeSnapshot(
     String storedId, {
     bool refresh = false,
+    bool byTitle = false,
   }) async {
     final existing = _bindings[storedId];
     if (!refresh &&
@@ -248,11 +276,16 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
     }
     await _ensureConnected();
     _emitTurnState(HermesDesktopTurnState.synchronizing);
+    // A prompt settled from here on is stale in the snapshot asked for now.
+    final settleMark = _rpc.canonicalSettleMark;
     final result = _object(
       await _rpc.request<Object?>(
         'session.resume',
         params: {
-          'session_id': storedId,
+          if (byTitle && _canonical)
+            'title': storedId
+          else
+            'session_id': storedId,
           'omit_messages': true,
           ..._sessionScope(storedId),
         },
@@ -293,6 +326,14 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
     // Questions asked while no socket of ours was attached. Replayed as
     // events: the events listener persists them, and an open turn shows
     // them once it adopts this runtime id.
+    if (_canonical) {
+      _adoptCanonicalSnapshot(runtime, result, settledSince: settleMark);
+      await _settleUnlistedCanonicalDecisions(
+        binding,
+        result['prompts'],
+        settledSince: settleMark,
+      );
+    }
     _rpc.replayOpenRequests(result['open_requests']);
     _rpc.replayPendingConnection(result['pending_connection'], runtime);
     return (binding: binding, running: running is bool ? running : null);
@@ -327,22 +368,65 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
       fast: options.fast,
     );
     await _ensureConnected();
-    final result = _object(
-      await _rpc.request<Object?>(
-        'session.create',
-        params: {
-          'source': 'mobile',
-          'close_on_disconnect': false,
-          'model': ?normalized.model,
-          'provider': ?normalized.provider,
-          'reasoning_effort': ?normalized.reasoningEffort,
-          'fast': ?normalized.fast,
-          'profile': ?profile,
-          if (hidden) 'hidden': true,
-          if (title != null && title.trim().isNotEmpty) 'title': title.trim(),
-        },
-      ),
-    );
+    final trimmedTitle = title?.trim();
+    final Map<String, Object?> params;
+    String? createKey;
+    if (_canonical) {
+      // A session authority treats a titled create as "open the session
+      // with this title, or make it": only a bot's Bot Chat wants that.
+      // Other chats are titled by Hermes from their first prompt.
+      final canonicalTitle = hidden && trimmedTitle?.isNotEmpty == true
+          ? trimmedTitle
+          : null;
+      final identity = hermesCanonicalCreateParams(
+        requestId: '',
+        model: normalized.model,
+        provider: normalized.provider,
+        reasoning: normalized.reasoningEffort,
+        fast: normalized.fast,
+        profile: profile,
+        hidden: hidden,
+        title: canonicalTitle,
+      );
+      createKey = jsonEncode(identity);
+      params = {
+        ...identity,
+        // Claimed by one create only: another chat's create with the same
+        // options gets its own id, and so its own session.
+        'request_id':
+            _canonicalCreateIds.remove(createKey) ?? const Uuid().v4(),
+      };
+    } else {
+      params = {
+        'source': 'mobile',
+        'close_on_disconnect': false,
+        'model': ?normalized.model,
+        'provider': ?normalized.provider,
+        'reasoning_effort': ?normalized.reasoningEffort,
+        'fast': ?normalized.fast,
+        'profile': ?profile,
+        if (hidden) 'hidden': true,
+        if (trimmedTitle != null && trimmedTitle.isNotEmpty)
+          'title': trimmedTitle,
+      };
+    }
+    final Map<String, dynamic> result;
+    try {
+      result = _object(
+        await _rpc.request<Object?>('session.create', params: params),
+      );
+    } on HermesDesktopRpcException catch (error) {
+      // A create whose answer was lost may have made the session: the same
+      // request id makes the next attempt answer with that session.
+      if (createKey != null && error.deliveryAmbiguous) {
+        if (_canonicalCreateIds.length >= 16) {
+          _canonicalCreateIds.remove(_canonicalCreateIds.keys.first);
+        }
+        _canonicalCreateIds[createKey] = '${params['request_id']}';
+      }
+      rethrow;
+    }
+    if (createKey != null) _canonicalCreateIds.remove(createKey);
     if (cancelToken?.isCancelled == true) throw cancelToken!.cancelError!;
     final runtime = validateHermesOpaqueIdentifier(result['session_id']);
     final stored = validateHermesOpaqueIdentifier(result['stored_session_id']);
@@ -357,6 +441,7 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
     _appliedSessionOptions[stored] = normalized.fingerprint;
     final info = _object(result['info']);
     _recordDesktopContract(info);
+    if (_canonical) _adoptCanonicalSnapshot(runtime, result);
     final running = result['running'] ?? info['running'];
     if (running is bool) {
       _applyAuthoritativeRunning(running, storedId: stored, runtimeId: runtime);
@@ -520,6 +605,12 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
 
   Future<void> _runtimeRenameSession(String id, String title) async {
     final binding = await _resume(id);
+    if (_canonical) {
+      await _canonicalMutate(binding, 'rename', {
+        'title': title,
+      }, fenceGeneration: false);
+      return;
+    }
     await _rpc.request<Object?>(
       'session.title',
       params: {
@@ -538,13 +629,19 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
     if (binding != null) {
       try {
         binding = await _resume(id);
-        await _rpc.request<Object?>(
-          'session.close',
-          params: {
-            'session_id': binding.runtimeId,
-            ..._sessionScope(binding.storedId),
-          },
-        );
+        if (_canonical) {
+          // A session authority has no close: this socket leaves the
+          // session's events, and the delete below ends it.
+          await _canonicalDetach(binding);
+        } else {
+          await _rpc.request<Object?>(
+            'session.close',
+            params: {
+              'session_id': binding.runtimeId,
+              ..._sessionScope(binding.storedId),
+            },
+          );
+        }
       } catch (error) {
         DebugLogger.warning(
           'session-close-before-delete-failed',
@@ -552,6 +649,13 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
           data: {'errorType': error.runtimeType.toString()},
         );
       }
+      // This socket left the session, or may have (a detach whose answer was
+      // lost): should the delete below fail, the chat's next use resumes
+      // (and attaches) it again.
+      final closed = binding;
+      _bindingSocketGenerations.removeWhere(
+        (alias, _) => identical(_bindings[alias], closed),
+      );
     }
     await _deleteStoredSession(
       binding?.storedId ?? id,
@@ -565,9 +669,11 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
       );
       _lastTranscripts.remove(binding.storedId);
       _sessionProfiles.remove(binding.storedId);
+      _canonicalSessions.remove(binding.runtimeId);
     }
     _lastTranscripts.remove(id);
     _sessionProfiles.remove(id);
+    _canonicalSessions.remove(id);
     await HermesPendingDecisionStore.clearSession(
       origin: _origin,
       connectionId: config.connectionId,
@@ -623,15 +729,24 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
 
   Future<String> _runtimeForkSession(String id) async {
     final binding = await _resume(id);
-    final result = _object(
-      await _rpc.request<Object?>(
-        'session.branch',
-        params: {
-          'session_id': binding.runtimeId,
-          ..._sessionScope(binding.storedId),
-        },
-      ),
-    );
+    final Map<String, dynamic> result;
+    if (_canonical) {
+      // A session authority branches as an edit of the parent, and attaches
+      // the branch to this socket; its id names it on both sides.
+      final receipt = await _canonicalMutate(binding, 'branch', const {});
+      final branch = receipt['branched_session_id'];
+      result = {'session_id': branch, 'stored_session_id': branch};
+    } else {
+      result = _object(
+        await _rpc.request<Object?>(
+          'session.branch',
+          params: {
+            'session_id': binding.runtimeId,
+            ..._sessionScope(binding.storedId),
+          },
+        ),
+      );
+    }
     final runtime = validateHermesOpaqueIdentifier(result['session_id']);
     final stored = validateHermesOpaqueIdentifier(result['stored_session_id']);
     if (runtime == null || stored == null) {
@@ -646,6 +761,9 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
     // every later call for the fork would target the configured profile.
     final profile = _sessionProfiles[binding.storedId];
     if (profile != null) _sessionProfiles[stored] = profile;
+    // The branch's receipt names only its id: its state, fences and this
+    // socket's subscription come from its own snapshot.
+    if (_canonical) await _resumeSnapshot(stored, refresh: true);
     return stored;
   }
 }

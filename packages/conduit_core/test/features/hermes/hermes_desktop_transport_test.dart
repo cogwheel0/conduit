@@ -1008,6 +1008,130 @@ void main() {
     });
   });
 
+  group('session authority', () {
+    late _SocketHarness socket;
+    late HermesDesktopRpcClient client;
+    late List<HermesDesktopEvent> events;
+
+    setUp(() async {
+      socket = _SocketHarness();
+      client = HermesDesktopRpcClient(
+        channelFactory: (_, _, {httpClient}) => socket.channel,
+      )..setDefaultParams({'profile': 'work'});
+      events = [];
+      client.events.listen(events.add);
+      final connecting = client.connect(Uri.parse('ws://localhost/api/ws'));
+      socket.ready({'session_authority': true});
+      await connecting;
+      await socket.answerCapabilities();
+    });
+
+    tearDown(() async {
+      await client.close();
+      await socket.dispose();
+    });
+
+    void stamped(String type, Map<String, Object?> payload, int seq) =>
+        socket.incoming.add(
+          jsonEncode({
+            'jsonrpc': '2.0',
+            'method': 'event',
+            'params': {
+              'type': type,
+              'session_id': 'local-1',
+              'payload': payload,
+              'replay_epoch': 'epoch-1',
+              'seq': seq,
+              'execution_generation': 4,
+              'admission_id': 'adm-1',
+            },
+          }),
+        );
+
+    test('keeps the stream position its events are stamped with', () async {
+      stamped('message.delta', {'text': 'Hi'}, 12);
+      await Future<void>.delayed(Duration.zero);
+
+      final delta = events.last;
+      check(client.sessionAuthority).isTrue();
+      check(delta.seq).equals(12);
+      check(delta.replayEpoch).equals('epoch-1');
+      check(delta.executionGeneration).equals(4);
+      check(delta.admissionId).equals('adm-1');
+    });
+
+    test('shows an approval event by its prompt id until settled', () async {
+      stamped('approval.request', {
+        'kind': 'approval',
+        'prompt_id': 'prompt-a',
+        'execution_generation': 4,
+        'command': 'rm -rf build',
+        'choices': ['once', 'deny'],
+      }, 13);
+      await Future<void>.delayed(Duration.zero);
+
+      check(events.last.payload['request_id']).equals('prompt-a');
+      check(client.canonicalPrompt('prompt-a')).equals((
+        sessionId: 'local-1',
+        generation: 4,
+        kind: 'approval',
+      ));
+
+      stamped('approval.settled', {
+        'prompt_id': 'prompt-a',
+        'execution_generation': 4,
+      }, 14);
+      await Future<void>.delayed(Duration.zero);
+
+      final expired = events.last;
+      check(expired.type).equals('approval.expire');
+      check(expired.sessionId).equals('local-1');
+      check(expired.payload['request_id']).equals('prompt-a');
+      check(client.canonicalPrompt('prompt-a')).isNull();
+    });
+
+    test('a snapshot re-shows open questions and closes settled ones',
+        () async {
+      client.replayCanonicalPrompts('local-1', [
+        {
+          'kind': 'clarify',
+          'prompt_id': 'prompt-q',
+          'execution_generation': 4,
+          'question': 'Which colour?',
+          'choices': ['Teal'],
+          'multi_select': false,
+        },
+      ]);
+      await Future<void>.delayed(Duration.zero);
+      check(events.last.type).equals('clarify.request');
+      check(events.last.payload['request_id']).equals('prompt-q');
+
+      client.replayCanonicalPrompts('local-1', const []);
+      await Future<void>.delayed(Duration.zero);
+      check(events.last.type).equals('clarify.expire');
+      check(events.last.payload['request_id']).equals('prompt-q');
+      check(client.canonicalPrompt('prompt-q')).isNull();
+    });
+
+    test('never answers a request it does not show', () async {
+      socket.serverRequest('srq-t1', 'tour', {'session_id': 'local-1'});
+      await Future<void>.delayed(Duration.zero);
+
+      // Any error, a decline included, settles it for every viewer.
+      check(socket.frames.where((frame) => frame['id'] == 'srq-t1')).isEmpty();
+    });
+
+    test('answers a request with its response frame', () async {
+      check(client.answerServerRequest('srq-s1', {'value': 'pw'})).isTrue();
+
+      check(socket.frames.last).deepEquals({
+        'jsonrpc': '2.0',
+        'id': 'srq-s1',
+        'result': {'value': 'pw'},
+      });
+    });
+  });
+
   group('reply segments', () {
     test('drop a re-sent segment and keep only new text', () {
       final segments = HermesDeltaSegments();
@@ -1190,5 +1314,21 @@ void main() {
 
     await client.connect(Uri.parse('ws://127.0.0.1:${server.port}/api/ws'));
     check(client.isReady).isTrue();
+  });
+
+  test('a gateway closing with 1013 before ready is not ready yet', () async {
+    final socket = _SocketHarness();
+    when(() => socket.channel.closeCode).thenReturn(1013);
+    final client = HermesDesktopRpcClient(
+      channelFactory: (_, _, {httpClient}) => socket.channel,
+    );
+    addTearDown(client.close);
+
+    final connecting = client.connect(Uri.parse('ws://localhost/api/ws'));
+    await socket.dispose();
+
+    await check(connecting).throws<HermesDesktopRpcException>(
+      (error) => error.has((e) => e.notReady, 'notReady').isTrue(),
+    );
   });
 }

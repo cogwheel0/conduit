@@ -494,6 +494,9 @@ void main() {
                       accessHeaders: accessHeaders,
                     ),
           ),
+          hostHermesDashboardSignOutProvider.overrideWithValue(
+            HermesDashboardRestBridge.signOutOf,
+          ),
           clipboardPortProvider.overrideWithValue(const FlutterClipboardPort()),
           uiRequestPortProvider.overrideWithValue(const FlutterUiRequests()),
           hermesConnectionSwitchPromptProvider.overrideWith(

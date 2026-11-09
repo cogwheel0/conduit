@@ -1719,6 +1719,7 @@ String chatErrorContentForException(Object e) {
     return TemporaryChatUnavailable.userMessage;
   }
   if (e is HermesAttachmentsUnsupportedException) return e.message;
+  if (e is HermesDesktopGatewayStartingException) return e.message;
   if (e is HermesChatInputException) return e.message;
   if (e is HermesLocalDocumentException) return e.message;
   if (e is DirectChatInputException) return e.message;

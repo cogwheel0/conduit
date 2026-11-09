@@ -3371,6 +3371,7 @@
   "hermesMcpServers": "MCP-servers",
   "hermesSignOut": "Afmelden bij Hermes",
   "hermesActionFailed": "Hermes-actie mislukt.",
+  "hermesSignOutFailed": "Afmelden bij het Hermes-dashboard is mislukt. Controleer je verbinding en probeer het opnieuw.",
   "hermesToolsetUpdateFailed": "Bijwerken van Hermes-toolset mislukt.",
   "hermesJobStateLabel": "Status",
   "hermesJobDeliveryLabel": "Levering",
@@ -3395,6 +3396,7 @@
   "hermesFastTierOff": "Uit",
   "hermesTurnSteer": "Bijsturen",
   "hermesTurnSendNext": "Volgende verzenden",
+  "hermesSteerUncertain": "Hermes heeft je bijsturing niet bevestigd. Controleer het antwoord voordat je je bijsturing opnieuw verzendt.",
   "hermesTurnControlsUnsupported": "Werk Hermes bij om veilige beurtbediening in te schakelen.",
   "sidebarHermesTab": "Hermes",
   "sidebarBackendSwitcher": "Backend",
@@ -4475,5 +4477,13 @@
   "libreChatMemoryKeyLabel": "Sleutel",
   "libreChatMemoryKeyHint": "bijv. voorkeuren",
   "libreChatMemoryKeyRequired": "Geef de herinnering een sleutel.",
-  "libreChatMemoryUsage": "{used} van {limit} tokens gebruikt"
+  "libreChatMemoryUsage": "{used} van {limit} tokens gebruikt",
+  "hermesReadOnlySessionNotice": "Deze chat is gestart in een andere Hermes-app. Je kunt hem hier lezen, maar Hermes laat Conduit alleen antwoorden in chats die Conduit zelf is begonnen.",
+  "hermesReadOnlySessionNoticeFrom": "Deze chat is gestart in {source}. Je kunt hem hier lezen, maar Hermes laat Conduit alleen antwoorden in chats die Conduit zelf is begonnen.",
+  "@hermesReadOnlySessionNoticeFrom": {"placeholders": {"source": {"type": "String"}}},
+  "hermesContinueInCopy": "Doorgaan in een kopie",
+  "hermesContinueInCopyFailed": "Deze chat kon niet worden gekopieerd. Probeer het opnieuw.",
+  "hermesContinueHere": "Hier doorgaan",
+  "hermesContinueHereFailed": "Deze chat kon hier niet worden voortgezet. Probeer het opnieuw.",
+  "hermesContinueChoiceExplanation": "Als je hier doorgaat, eindigt deze chat in de andere app, die bij het volgende bericht een nieuwe begint. Een kopie laat die chat ongemoeid, maar bewaart de eerdere berichten alleen op dit apparaat. Ze bewaart maximaal de nieuwste 1.000 berichten (1 MB), voor de 32 kopieën die het laatst zijn geopend."
 }

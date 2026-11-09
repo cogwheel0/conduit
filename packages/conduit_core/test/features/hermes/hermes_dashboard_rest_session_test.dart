@@ -12,6 +12,7 @@ final class _FakePage implements HermesDashboardPage {
   final Map<String, String> headers;
   final Completer<void> load = Completer<void>();
   final List<Map<String, Object?>> calls = [];
+  final List<String> scripts = [];
   final List<String> log = [];
   Object? Function(Map<String, Object?> arguments)? answer;
   List<String> readyStates = ['complete'];
@@ -32,7 +33,11 @@ final class _FakePage implements HermesDashboardPage {
     String functionBody,
     Map<String, Object?> arguments,
   ) async {
-    check(functionBody).equals(kHermesDashboardFetchScript);
+    check([
+      kHermesDashboardFetchScript,
+      kHermesDashboardSignOutScript,
+    ]).contains(functionBody);
+    scripts.add(functionBody);
     calls.add(arguments);
     log.add('call ${arguments['url']}');
     await Future<void>.delayed(Duration.zero);
@@ -155,6 +160,42 @@ void main() {
     );
     check(next.body).equals('https://hermes.example/api/c');
     check(pages).length.equals(2);
+  });
+
+  test('signs out from the dashboard page it opened', () async {
+    final bridge = session();
+    await bridge.request('GET', Uri.parse('https://hermes.example/api/a'));
+    final page = pages.single;
+    page.answer = (arguments) => true;
+
+    check(await bridge.signOut()).isTrue();
+    check(page.scripts).deepEquals([
+      kHermesDashboardFetchScript,
+      kHermesDashboardSignOutScript,
+    ]);
+    // Only the logout URL: the page's header script adds the access
+    // headers, and nothing about the cookies goes to the page.
+    check(page.calls.last).deepEquals({
+      'url': 'https://hermes.example/auth/logout',
+    });
+    // No cookies are recorded for a sign-out.
+    check(events).deepEquals(['baseline', 'open', 'record']);
+  });
+
+  test('a sign-out Hermes refused, or off the dashboard, is not one',
+      () async {
+    final bridge = session();
+    await bridge.request('GET', Uri.parse('https://hermes.example/api/a'));
+    final page = pages.single;
+    page.answer = (arguments) => false;
+    check(await bridge.signOut()).isFalse();
+
+    page.current = Uri.parse('https://identity.example/login');
+    await check(bridge.signOut()).throws<StateError>();
+    check(page.scripts.where((s) => s == kHermesDashboardSignOutScript))
+        .length
+        .equals(1);
+    check(page.disposed).isTrue();
   });
 
   test('runs requests one at a time, in order', () async {

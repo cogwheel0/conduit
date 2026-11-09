@@ -12,12 +12,14 @@ import 'package:conduit_core/auth/webview_origin.dart';
 
 /// The dashboard's session cookies. They are kept in the sign-in registry
 /// even when the WebView held them before the sign-in began (an automatic
-/// sign-in refreshes them in place).
+/// sign-in refreshes them in place). A gateway's Webapp listener names them
+/// with a `_<16 hex>` suffix, and binds its sign-in with one more.
 const Set<String> kHermesDashboardRetainedCookieNames = {
   'hermes_session_at',
   'hermes_session_pkce',
   'hermes_session_rt',
   'hermes_session_provider',
+  'hermes_webapp_signin',
 };
 
 /// The dashboard root for a configured Hermes base URL: the base URL
@@ -37,6 +39,11 @@ Uri hermesDashboardLoginUrl(Uri root) => hermesDashboardUrl(root, '/login');
 /// The endpoint that answers 2xx only for a signed-in dashboard session.
 Uri hermesDashboardAuthCheckUrl(Uri root) =>
     hermesDashboardUrl(root, '/api/auth/me');
+
+/// The dashboard's sign-out: it ends the session on the server and deletes
+/// the session cookies it set, and only those.
+Uri hermesDashboardLogoutUrl(Uri root) =>
+    hermesDashboardUrl(root, '/auth/logout');
 
 /// Whether [target] has the dashboard's exact scheme, host and port.
 bool hermesDashboardIsExactOrigin(Uri target, Uri root) =>
@@ -141,6 +148,22 @@ const String kHermesDashboardSignInCheckScript = '''
     redirect: 'error'
   });
   return response.ok;
+''';
+
+/// Body of an async JavaScript function (argument `url`, the dashboard's
+/// [hermesDashboardLogoutUrl]) that signs the page's session out and answers
+/// whether Hermes did. It answers a sign-out with a redirect to its sign-in
+/// page that carries the deletions of its own cookies, which the WebView
+/// applies; a refused one (another page's write) is an ordinary response.
+/// The redirect is not followed. The access headers are never arguments:
+/// the page's header script adds them to this POST.
+const String kHermesDashboardSignOutScript = '''
+  const response = await fetch(url, {
+    method: 'POST',
+    credentials: 'include',
+    redirect: 'manual'
+  });
+  return response.type === 'opaqueredirect';
 ''';
 
 /// Body of an async JavaScript function (arguments `url`, `method`, `headers`,

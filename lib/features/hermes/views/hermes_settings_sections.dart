@@ -338,7 +338,12 @@ class _HermesDesktopManagementSectionState
     extends ConsumerState<HermesDesktopManagementSection> {
   bool _pending = false;
 
-  Future<void> _run(Future<void> Function() action) async {
+  /// Runs [action], and shows [failureMessage] (else a generic one) when it
+  /// fails.
+  Future<void> _run(
+    Future<void> Function() action, {
+    String? failureMessage,
+  }) async {
     if (_pending) return;
     setState(() => _pending = true);
     try {
@@ -352,7 +357,9 @@ class _HermesDesktopManagementSectionState
       if (mounted) {
         AdaptiveSnackBar.show(
           context,
-          message: AppLocalizations.of(context)!.hermesActionFailed,
+          message:
+              failureMessage ??
+              AppLocalizations.of(context)!.hermesActionFailed,
         );
       }
     } finally {
@@ -398,6 +405,7 @@ class _HermesDesktopManagementSectionState
               : () => _run(
                   () =>
                       ref.read(hermesConfigProvider.notifier).signOutDesktop(),
+                  failureMessage: l10n.hermesSignOutFailed,
                 ),
         ),
       ],

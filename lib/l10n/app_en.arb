@@ -6686,6 +6686,10 @@
   "@hermesActionFailed": {
     "description": "Generic error when a Hermes settings action fails."
   },
+  "hermesSignOutFailed": "Couldn't sign out of the Hermes dashboard. Check your connection and try again.",
+  "@hermesSignOutFailed": {
+    "description": "Shown when signing out of the Hermes Desktop Gateway failed, for example because Hermes could not be reached to end the dashboard session."
+  },
   "hermesToolsetUpdateFailed": "Hermes toolset update failed.",
   "@hermesToolsetUpdateFailed": {
     "description": "Error shown when updating Hermes toolsets fails."
@@ -6781,6 +6785,10 @@
   "hermesTurnSendNext": "Send Next",
   "@hermesTurnSendNext": {
     "description": "Chat-input action that sends the next Hermes turn."
+  },
+  "hermesSteerUncertain": "Hermes didn't confirm your steer. Check the reply before you send the steer again.",
+  "@hermesSteerUncertain": {
+    "description": "Warning when Hermes rejected a steer without saying whether the running turn already received it; the draft is kept."
   },
   "hermesTurnControlsUnsupported": "Upgrade Hermes to enable safe turn controls.",
   "@hermesTurnControlsUnsupported": {
@@ -9505,5 +9513,38 @@
         "type": "int"
       }
     }
+  },
+  "hermesReadOnlySessionNotice": "This chat started in another Hermes app. You can read it here, but Hermes only lets Conduit reply in chats it started.",
+  "@hermesReadOnlySessionNotice": {
+    "description": "Shown instead of the composer for a Hermes chat that another Hermes app owns, so Conduit can read it but not reply."
+  },
+  "hermesReadOnlySessionNoticeFrom": "This chat started in {source}. You can read it here, but Hermes only lets Conduit reply in chats it started.",
+  "@hermesReadOnlySessionNoticeFrom": {
+    "description": "Shown instead of the composer for a Hermes chat that another Hermes app owns. source is the name of that app, for example Telegram or Hermes CLI.",
+    "placeholders": {
+      "source": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesContinueInCopy": "Continue in a copy",
+  "@hermesContinueInCopy": {
+    "description": "Button that copies a read-only Hermes chat into a new chat Conduit can continue."
+  },
+  "hermesContinueInCopyFailed": "Couldn't copy this chat. Try again.",
+  "@hermesContinueInCopyFailed": {
+    "description": "Error shown when copying a read-only Hermes chat fails."
+  },
+  "hermesContinueHere": "Continue here",
+  "@hermesContinueHere": {
+    "description": "Button that continues a read-only Hermes chat in Conduit through Hermes' fork, which ends the chat in the app that started it."
+  },
+  "hermesContinueHereFailed": "Couldn't continue this chat here. Try again.",
+  "@hermesContinueHereFailed": {
+    "description": "Error shown when continuing a read-only Hermes chat in Conduit fails."
+  },
+  "hermesContinueChoiceExplanation": "Continuing here ends this chat in the other app, which starts a new one on its next message. A copy leaves that chat untouched but keeps the earlier messages on this device only. Up to the newest 1,000 messages (1 MB) are kept, for the 32 copies opened most recently.",
+  "@hermesContinueChoiceExplanation": {
+    "description": "Explains, under the read-only Hermes chat notice, the difference between continuing the chat here and continuing it in a copy."
   }
 }

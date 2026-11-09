@@ -3503,7 +3503,7 @@ void main() {
           isA<HermesChatInputException>().having(
             (error) => error.message,
             'message',
-            contains('Responses file input'),
+            contains("Hermes can't read PDF attachments"),
           ),
         ),
       );

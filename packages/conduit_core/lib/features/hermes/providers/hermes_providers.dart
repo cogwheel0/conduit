@@ -44,6 +44,7 @@ import 'package:conduit_core/features/hermes/models/hermes_toolset.dart';
 import 'package:conduit_core/features/hermes/services/hermes_api_service.dart';
 import 'package:conduit_core/features/hermes/services/hermes_backend_service.dart';
 import 'package:conduit_core/features/hermes/services/hermes_connection_store.dart';
+import 'package:conduit_core/features/hermes/services/hermes_copied_history_store.dart';
 import 'package:conduit_core/features/hermes/services/hermes_desktop_api_service.dart';
 import 'package:conduit_core/features/hermes/services/hermes_desktop_connection_coordinator.dart';
 import 'package:conduit_core/features/hermes/services/hermes_identifier.dart';
@@ -55,6 +56,8 @@ import 'package:conduit_core/features/hermes/services/hermes_session_provenance.
 import 'package:conduit_core/providers/host_ports.dart';
 
 import 'package:conduit_core/features/hermes/services/hermes_dashboard_bridge.dart';
+import 'package:conduit_core/features/hermes/services/hermes_dashboard_cookie_registry.dart';
+import 'package:conduit_core/features/hermes/services/hermes_dashboard_webview_rules.dart';
 
 final class _HermesCredentialRollbackFailure implements Exception {
   const _HermesCredentialRollbackFailure({
@@ -589,6 +592,63 @@ class HermesConfigController extends Notifier<HermesConfig> {
     });
   }
 
+  /// How long clearing an origin's dashboard cookies waits for Hermes to
+  /// sign its session out.
+  static const _dashboardSignOutTimeout = Duration(seconds: 20);
+
+  /// Clears [baseUrl]'s dashboard cookies ([CookieJarPort.clearForOrigin]),
+  /// first asking Hermes to sign out a session the origin's record cannot
+  /// account for ([hermesDashboardHasUnrecordedSession]). Cookies ignore
+  /// ports, so only the gateway tells its own session from another
+  /// gateway's on the host, and its sign-out deletes exactly its own
+  /// cookies. [accessHeaders] is read only when Hermes is asked.
+  ///
+  /// The record's deletion runs either way. With [requireSignOut] (an
+  /// explicit Sign Out), a session Hermes was not seen to sign out makes the
+  /// clear fail, as the session may still open the dashboard. Without it
+  /// (a deleted connection, a changed address) the sign-out is best effort,
+  /// so a gateway that cannot be reached blocks neither.
+  Future<bool> _clearDashboardCookies(
+    String baseUrl,
+    Future<Map<String, String>> Function() accessHeaders, {
+    bool requireSignOut = false,
+  }) async {
+    final cookieJar = ref.read(cookieJarProvider);
+    final signOut = ref.read(hostHermesDashboardSignOutProvider);
+    var signedOut = true;
+    if (signOut != null && cookieJar.isSupported) {
+      try {
+        // Unknown until the WebView's cookies are read.
+        signedOut = false;
+        final root = hermesDashboardRoot(baseUrl);
+        final unrecorded = hermesDashboardHasUnrecordedSession(
+          current: await cookieJar.identitiesFor(root.toString()),
+          recorded: HermesDashboardCookieRegistry.identitiesFor(baseUrl),
+        );
+        signedOut =
+            !unrecorded ||
+            await signOut(
+              root: root,
+              accessHeaders: await accessHeaders(),
+            ).timeout(_dashboardSignOutTimeout);
+        if (!signedOut) {
+          DebugLogger.warning(
+            'dashboard-sign-out-refused',
+            scope: 'hermes/config',
+          );
+        }
+      } catch (error) {
+        DebugLogger.warning(
+          'dashboard-sign-out-failed',
+          scope: 'hermes/config',
+          data: {'errorType': error.runtimeType.toString()},
+        );
+      }
+    }
+    final cleared = await cookieJar.clearForOrigin(baseUrl);
+    return cleared && (signedOut || !requireSignOut);
+  }
+
   Future<void> signOutDesktop() => _serializeMutation(() async {
     await _secretsHydration;
     _throwIfSecretsUnavailable();
@@ -599,9 +659,12 @@ class HermesConfigController extends Notifier<HermesConfig> {
       // An explicit sign-out clears the origin's dashboard cookies even when
       // another saved connection shares the origin: the WebView cookie store
       // is process-global, so that connection was using the same session.
-      final cleared = await ref
-          .read(cookieJarProvider)
-          .clearForOrigin(state.baseUrl);
+      final accessHeaders = state.accessHeaders;
+      final cleared = await _clearDashboardCookies(
+        state.baseUrl,
+        () async => accessHeaders,
+        requireSignOut: true,
+      );
       if (!cleared) {
         throw StateError('Hermes dashboard cookies could not be cleared.');
       }
@@ -1027,9 +1090,10 @@ class HermesConfigController extends Notifier<HermesConfig> {
       if (originChanged &&
           previousBaseUrl.trim().isNotEmpty &&
           !_originSharedByAnotherConnection(previousBaseUrl, connectionId)) {
-        final cleared = await ref
-            .read(cookieJarProvider)
-            .clearForOrigin(previousBaseUrl);
+        final cleared = await _clearDashboardCookies(
+          previousBaseUrl,
+          () async => previous.accessHeaders,
+        );
         if (!cleared) {
           try {
             // As on the way in, the endpoint goes before the credentials
@@ -1227,9 +1291,12 @@ class HermesConfigController extends Notifier<HermesConfig> {
             StackTrace? clearStackTrace;
             var cleared = false;
             try {
-              cleared = await ref
-                  .read(cookieJarProvider)
-                  .clearForOrigin(target.baseUrl);
+              cleared = await _clearDashboardCookies(
+                target.baseUrl,
+                () async =>
+                    (await _readSecrets(target.id)).desktop?.accessHeaders ??
+                    const {},
+              );
             } catch (error, stackTrace) {
               clearError = error;
               clearStackTrace = stackTrace;
@@ -1307,6 +1374,12 @@ class HermesConfigController extends Notifier<HermesConfig> {
             HermesMixedSessionBindingTrustStore.forgetConnectionIdentity(
               identity,
             ),
+      );
+      await attempt(
+        'deleted-connection-copied-history-cleanup-failed',
+        () => ref
+            .read(hermesCopiedHistoryStoreProvider)
+            .forgetConnection(identity),
       );
     }
     // Records from before saved connections carry no id and match by origin
@@ -1961,6 +2034,12 @@ final hermesSecretsErrorProvider =
 final hostHermesDashboardBridgeFactoryProvider =
     Provider<HermesDashboardBridgeFactory?>((ref) => null);
 
+/// The host's WebView-backed dashboard sign-out, if it has one. It signs a
+/// session out from the gateway's own page, so Hermes deletes exactly its
+/// own cookies; [CookieJarPort] can delete only the cookies on record.
+final hostHermesDashboardSignOutProvider =
+    Provider<HermesDashboardSignOut?>((ref) => null);
+
 /// Asks the user whether to switch to the saved Hermes connection named
 /// [connectionName]. Resolves false when declined or when nobody can be asked.
 typedef HermesConnectionSwitchPrompt =
@@ -2233,6 +2312,100 @@ class HermesActiveSession extends Notifier<String?> {
 final hermesActiveSessionProvider =
     NotifierProvider<HermesActiveSession, String?>(HermesActiveSession.new);
 
+/// Hermes sessions Conduit may read but not continue over REST, mapped to the
+/// surface that owns them (empty when unknown).
+///
+/// Hermes v0.22.1+ refuses API turns into a session started elsewhere
+/// (`409 permission_denied`). Opening such a session, or a send refused that
+/// way, records it here; the chat then offers to continue in a copy.
+class HermesReadOnlySessions extends Notifier<Map<String, String>> {
+  @override
+  Map<String, String> build() {
+    // Session ids belong to one connection.
+    ref.watch(hermesApiServiceProvider);
+    return const <String, String>{};
+  }
+
+  /// Records [sessionId] as read-only, owned by [source]. A mark without a
+  /// source (a refused send) keeps the owner an earlier one named.
+  void mark(String sessionId, {String? source}) {
+    final existing = state[sessionId];
+    var label = source?.trim() ?? '';
+    if (label.isEmpty && existing != null) label = existing;
+    if (existing == label) return;
+    state = <String, String>{...state, sessionId: label};
+  }
+
+  void clear(String sessionId) {
+    if (!state.containsKey(sessionId)) return;
+    state = <String, String>{...state}..remove(sessionId);
+  }
+}
+
+final hermesReadOnlySessionsProvider =
+    NotifierProvider<HermesReadOnlySessions, Map<String, String>>(
+      HermesReadOnlySessions.new,
+    );
+
+/// Whether the open chat is a Hermes session Conduit may only read
+/// ([hermesReadOnlySessionsProvider]). Its messages can then be neither
+/// edited, regenerated nor deleted here, as none can be sent.
+final activeHermesSessionReadOnlyProvider = Provider<bool>((ref) {
+  final sessionId = ref.watch(
+    activeConversationProvider.select(
+      (conversation) => isNativeHermesConversation(conversation)
+          ? conversation!.metadata['hermesSessionId']
+          : null,
+    ),
+  );
+  if (sessionId is! String || sessionId.isEmpty) return false;
+  return ref.watch(
+    hermesReadOnlySessionsProvider.select(
+      (sessions) => sessions.containsKey(sessionId),
+    ),
+  );
+});
+
+/// The last `/v1/runs` turn that ended in an error, per Hermes session.
+///
+/// A crash can leave such a run `unknown`, and Hermes then holds every later
+/// turn in its session until a client acknowledges it. A chat reopened from
+/// Hermes has no run ids (session messages never carry them), so the next
+/// send looks the run up here.
+class HermesUnsettledRuns extends Notifier<Map<String, String>> {
+  /// Sessions remembered at once; the oldest go first.
+  static const int maxSessions = 64;
+
+  @override
+  Map<String, String> build() {
+    // Run and session ids belong to one connection.
+    ref.watch(hermesApiServiceProvider);
+    return const <String, String>{};
+  }
+
+  void remember(String sessionId, String runId) {
+    if (state[sessionId] == runId) return;
+    final next = <String, String>{...state}..remove(sessionId);
+    next[sessionId] = runId;
+    while (next.length > maxSessions) {
+      next.remove(next.keys.first);
+    }
+    state = next;
+  }
+
+  /// Forgets [sessionId]'s run, or only [runId] when given.
+  void forget(String sessionId, {String? runId}) {
+    final current = state[sessionId];
+    if (current == null || (runId != null && current != runId)) return;
+    state = <String, String>{...state}..remove(sessionId);
+  }
+}
+
+final hermesUnsettledRunsProvider =
+    NotifierProvider<HermesUnsettledRuns, Map<String, String>>(
+      HermesUnsettledRuns.new,
+    );
+
 /// Invalidates asynchronous Hermes-session opens whenever navigation changes.
 class HermesSessionNavigationEpoch extends Notifier<int> {
   @override
@@ -2243,6 +2416,11 @@ class HermesSessionNavigationEpoch extends Notifier<int> {
     return state;
   }
 }
+
+/// Earlier messages of REST copies of other apps' chats, saved on this device.
+final hermesCopiedHistoryStoreProvider = Provider<HermesCopiedHistoryStore>(
+  (ref) => HermesCopiedHistoryStore(ref.watch(directLocalDatabaseProvider)),
+);
 
 final hermesSessionNavigationEpochProvider =
     NotifierProvider<HermesSessionNavigationEpoch, int>(
@@ -2378,6 +2556,23 @@ class HermesSessionsController
             scope: 'hermes/sessions',
           );
         }
+        // Earlier messages saved for the fork go with it, and free their
+        // slot.
+        if (service is HermesApiService) {
+          try {
+            await ref
+                .read(hermesCopiedHistoryStoreProvider)
+                .forgetSession(
+                  connectionIdentity: connectionIdentity,
+                  sessionId: newId,
+                );
+          } catch (_) {
+            DebugLogger.warning(
+              'copied-history-stale-fork-purge-failed',
+              scope: 'hermes/sessions',
+            );
+          }
+        }
       }
       try {
         await service.deleteSession(newId);
@@ -2435,6 +2630,33 @@ class HermesSessionsController
         }
       }
     }
+    if (connectionIdentity != null && service is HermesApiService) {
+      // A REST copy's earlier messages live only on this device, and Hermes
+      // forks only the copy's own turns: the fork keeps them too.
+      final copiedHistory = ref.read(hermesCopiedHistoryStoreProvider);
+      try {
+        final saved = await copiedHistory.load(
+          connectionIdentity: connectionIdentity,
+          sessionId: sourceSessionId,
+        );
+        if (saved != null) {
+          await copiedHistory.save(
+            connectionIdentity: connectionIdentity,
+            sessionId: newId,
+            messages: saved,
+          );
+        }
+      } catch (error) {
+        DebugLogger.warning(
+          'copied-history-fork-failed',
+          scope: 'hermes/sessions',
+          data: {'errorType': error.runtimeType.toString()},
+        );
+        // Without them the fork would open as a stranger to its own chat.
+        await discardStaleFork();
+        rethrow;
+      }
+    }
     if (!forkContextIsCurrent()) {
       await discardStaleFork();
       return null;
@@ -2484,6 +2706,9 @@ class HermesSessionsController
     final draftDatabase = connectionIdentity == null
         ? null
         : ref.read(directLocalDatabaseProvider);
+    final copiedHistory = connectionIdentity == null
+        ? null
+        : ref.read(hermesCopiedHistoryStoreProvider);
     if (connectionIdentity != null) {
       // Revoke durable provenance before the destructive request. A process
       // kill or lost response after the server commits deletion must not let a
@@ -2509,6 +2734,20 @@ class HermesSessionsController
       } catch (error) {
         DebugLogger.warning(
           'hermes-draft-cleanup-failed',
+          scope: 'hermes/sessions',
+          data: {'errorType': error.runtimeType.toString()},
+        );
+      }
+      // Kept until the server has deleted the copy, so a failed delete leaves
+      // it whole.
+      try {
+        await copiedHistory!.forgetSession(
+          connectionIdentity: connectionIdentity,
+          sessionId: id,
+        );
+      } catch (error) {
+        DebugLogger.warning(
+          'hermes-copied-history-cleanup-failed',
           scope: 'hermes/sessions',
           data: {'errorType': error.runtimeType.toString()},
         );

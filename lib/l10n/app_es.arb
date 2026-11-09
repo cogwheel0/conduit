@@ -3371,6 +3371,7 @@
   "hermesMcpServers": "Servidores MCP",
   "hermesSignOut": "Cerrar sesión en Hermes",
   "hermesActionFailed": "La acción de Hermes falló.",
+  "hermesSignOutFailed": "No se pudo cerrar la sesión del panel de Hermes. Comprueba tu conexión e inténtalo de nuevo.",
   "hermesToolsetUpdateFailed": "Error al actualizar el conjunto de herramientas de Hermes.",
   "hermesJobStateLabel": "Estado",
   "hermesJobDeliveryLabel": "Entrega",
@@ -3395,6 +3396,7 @@
   "hermesFastTierOff": "Desactivado",
   "hermesTurnSteer": "Guiar",
   "hermesTurnSendNext": "Enviar siguiente",
+  "hermesSteerUncertain": "Hermes no confirmó tu indicación. Revisa la respuesta antes de enviar la indicación de nuevo.",
   "hermesTurnControlsUnsupported": "Actualiza Hermes para habilitar controles de turno seguros.",
   "sidebarHermesTab": "Hermes",
   "sidebarBackendSwitcher": "Backend",
@@ -4475,5 +4477,13 @@
   "libreChatMemoryKeyLabel": "Clave",
   "libreChatMemoryKeyHint": "p. ej. preferencias",
   "libreChatMemoryKeyRequired": "Ponle una clave al recuerdo.",
-  "libreChatMemoryUsage": "{used} de {limit} tokens usados"
+  "libreChatMemoryUsage": "{used} de {limit} tokens usados",
+  "hermesReadOnlySessionNotice": "Este chat empezó en otra app de Hermes. Puedes leerlo aquí, pero Hermes solo deja que Conduit responda en los chats que inició.",
+  "hermesReadOnlySessionNoticeFrom": "Este chat empezó en {source}. Puedes leerlo aquí, pero Hermes solo deja que Conduit responda en los chats que inició.",
+  "@hermesReadOnlySessionNoticeFrom": {"placeholders": {"source": {"type": "String"}}},
+  "hermesContinueInCopy": "Continuar en una copia",
+  "hermesContinueInCopyFailed": "No se pudo copiar este chat. Inténtalo de nuevo.",
+  "hermesContinueHere": "Continuar aquí",
+  "hermesContinueHereFailed": "No se pudo continuar este chat aquí. Inténtalo de nuevo.",
+  "hermesContinueChoiceExplanation": "Si continúas aquí, este chat termina en la otra app, que empezará uno nuevo con su próximo mensaje. Una copia deja ese chat intacto, pero guarda los mensajes anteriores solo en este dispositivo. Conserva hasta los 1000 mensajes más recientes (1 MB), en las 32 copias abiertas más recientemente."
 }

@@ -2110,7 +2110,8 @@ class MediaUploadController {
           !isHermesLocalDocumentFileNameSupported(fileName)) {
         throw HermesChatInputException(
           isHermesResponsesPdfFileNameSupported(fileName)
-              ? 'This Hermes server does not advertise Responses file input.'
+              ? "Hermes can't read PDF attachments over this connection. "
+                    'Attach text or DOCX files instead.'
               : 'Hermes supports local UTF-8 text and DOCX documents.',
         );
       }

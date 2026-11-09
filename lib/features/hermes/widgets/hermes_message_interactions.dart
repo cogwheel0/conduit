@@ -18,6 +18,7 @@ import 'package:conduit_core/features/chat/providers/chat_providers.dart'
 
 import 'package:conduit_core/features/hermes/models/hermes_run_event.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
+import 'package:conduit_core/features/hermes/services/hermes_api_service.dart';
 import 'package:conduit_core/features/hermes/services/hermes_desktop_api_service.dart';
 import 'package:conduit_core/features/hermes/services/hermes_run_transport.dart';
 
@@ -32,6 +33,8 @@ typedef _HermesApprovalBinding = ({
   String runId,
   String approvalId,
   String? storedSessionId,
+  int? executionGeneration,
+  List<String> choices,
 });
 
 String? _nonEmptyString(Object? value) {
@@ -211,6 +214,10 @@ class _HermesComposerPromptOverlayState
       runId: runId,
       approvalId: approvalId,
       storedSessionId: storedSessionId,
+      executionGeneration: approval['executionGeneration'] is int
+          ? approval['executionGeneration'] as int
+          : null,
+      choices: choices,
     );
 
     final capabilities = ref.watch(hermesCapabilitiesProvider).asData?.value;
@@ -537,6 +544,16 @@ class _HermesComposerPromptOverlayState
           approvalId: approvalId,
           choice: choice,
         );
+      } else if (service is HermesApiService) {
+        await service.resolveApproval(
+          runId,
+          approvalId: approvalId,
+          approved: approved,
+          executionGeneration: binding.executionGeneration,
+          // The scope the user picked (`session`, `always`), when the
+          // approval offered it; otherwise once or deny.
+          choice: binding.choices.contains(choice) ? choice : null,
+        );
       } else {
         await service.resolveApproval(
           runId,
@@ -544,12 +561,21 @@ class _HermesComposerPromptOverlayState
           approved: approved,
         );
       }
-    } catch (_) {
+    } catch (error) {
       DebugLogger.error(
         'approval-resolve-failed',
         scope: 'chat/hermes_approval',
       );
-      setApprovalState('pending', expectedState: 'resolving');
+      // The prompt was answered elsewhere, timed out, or belongs to an older
+      // execution: offering it again could only fail the same way.
+      final settled =
+          error is HermesApiException &&
+          (error.code == HermesApiErrorCode.approvalNotPending ||
+              error.code == HermesApiErrorCode.staleGeneration);
+      setApprovalState(
+        settled ? 'settled' : 'pending',
+        expectedState: 'resolving',
+      );
       return;
     }
     setApprovalState(

@@ -3371,6 +3371,7 @@
   "hermesMcpServers": "MCP 伺服器",
   "hermesSignOut": "登出 Hermes",
   "hermesActionFailed": "Hermes 操作失敗。",
+  "hermesSignOutFailed": "無法登出 Hermes 儀表板。請檢查網路連線後再試一次。",
   "hermesToolsetUpdateFailed": "Hermes 工具組更新失敗。",
   "hermesJobStateLabel": "狀態",
   "hermesJobDeliveryLabel": "傳遞",
@@ -3395,6 +3396,7 @@
   "hermesFastTierOff": "關閉",
   "hermesTurnSteer": "引導",
   "hermesTurnSendNext": "傳送下一則",
+  "hermesSteerUncertain": "Hermes 未確認你的引導。再次傳送引導前請先查看回覆。",
   "hermesTurnControlsUnsupported": "請升級 Hermes 以啟用安全的回合控制。",
   "sidebarHermesTab": "Hermes",
   "sidebarBackendSwitcher": "後端",
@@ -4475,5 +4477,13 @@
   "libreChatMemoryKeyLabel": "鍵",
   "libreChatMemoryKeyHint": "例如 preferences",
   "libreChatMemoryKeyRequired": "請為記憶指定一個鍵。",
-  "libreChatMemoryUsage": "已使用 {used} / {limit} 個 token"
+  "libreChatMemoryUsage": "已使用 {used} / {limit} 個 token",
+  "hermesReadOnlySessionNotice": "此聊天始於另一個 Hermes 應用程式。你可以在這裡閱讀，但 Hermes 只允許 Conduit 在它發起的聊天中回覆。",
+  "hermesReadOnlySessionNoticeFrom": "此聊天始於 {source}。你可以在這裡閱讀，但 Hermes 只允許 Conduit 在它發起的聊天中回覆。",
+  "@hermesReadOnlySessionNoticeFrom": {"placeholders": {"source": {"type": "String"}}},
+  "hermesContinueInCopy": "在副本中繼續",
+  "hermesContinueInCopyFailed": "無法複製此聊天。請再試一次。",
+  "hermesContinueHere": "在此繼續",
+  "hermesContinueHereFailed": "無法在此繼續此聊天。請再試一次。",
+  "hermesContinueChoiceExplanation": "在此繼續會結束另一個應用程式中的這個聊天，該應用程式會在下一則訊息時開始新聊天。副本會保持那個聊天不變，但先前的訊息只儲存在此裝置上。最多保留最新的 1,000 則訊息（1 MB），且僅限最近開啟的 32 個副本。"
 }

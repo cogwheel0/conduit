@@ -5294,6 +5294,7 @@
   "hermesMcpServers": "Servery MCP",
   "hermesSignOut": "Odhlásiť sa z Hermes",
   "hermesActionFailed": "Akcia Hermes zlyhala.",
+  "hermesSignOutFailed": "Z nástenky Hermes sa nepodarilo odhlásiť. Skontrolujte pripojenie a skúste to znova.",
   "hermesToolsetUpdateFailed": "Aktualizácia sady nástrojov Hermes zlyhala.",
   "hermesJobStateLabel": "Stav",
   "hermesJobDeliveryLabel": "Doručenie",
@@ -5318,6 +5319,7 @@
   "hermesFastTierOff": "Vypnuté",
   "hermesTurnSteer": "Nasmerovať",
   "hermesTurnSendNext": "Odoslať ďalšie",
+  "hermesSteerUncertain": "Hermes nepotvrdil vaše nasmerovanie. Pred opätovným odoslaním nasmerovania skontrolujte odpoveď.",
   "hermesTurnControlsUnsupported": "Aktualizujte Hermes, aby ste povolili bezpečné ovládanie ťahov.",
   "sidebarHermesTab": "Hermes",
   "sidebarBackendSwitcher": "Backend",
@@ -6398,5 +6400,13 @@
   "libreChatMemoryKeyLabel": "Kľúč",
   "libreChatMemoryKeyHint": "napr. preferencie",
   "libreChatMemoryKeyRequired": "Zadajte kľúč spomienky.",
-  "libreChatMemoryUsage": "Využité {used} z {limit} tokenov"
+  "libreChatMemoryUsage": "Využité {used} z {limit} tokenov",
+  "hermesReadOnlySessionNotice": "Tento chat sa začal v inej aplikácii Hermes. Môžete si ho tu prečítať, ale Hermes dovoľuje Conduitu odpovedať iba v chatoch, ktoré Conduit začal.",
+  "hermesReadOnlySessionNoticeFrom": "Tento chat sa začal v aplikácii: {source}. Môžete si ho tu prečítať, ale Hermes dovoľuje Conduitu odpovedať iba v chatoch, ktoré Conduit začal.",
+  "@hermesReadOnlySessionNoticeFrom": {"placeholders": {"source": {"type": "String"}}},
+  "hermesContinueInCopy": "Pokračovať v kópii",
+  "hermesContinueInCopyFailed": "Tento chat sa nepodarilo skopírovať. Skúste to znova.",
+  "hermesContinueHere": "Pokračovať tu",
+  "hermesContinueHereFailed": "V tomto chate sa nepodarilo pokračovať tu. Skúste to znova.",
+  "hermesContinueChoiceExplanation": "Pokračovaním tu sa tento chat v druhej aplikácii ukončí a tá pri ďalšej správe začne nový. Kópia ten chat ponechá bez zmeny, ale staršie správy uloží iba v tomto zariadení. Uchová najviac 1 000 najnovších správ (1 MB), a to pri 32 naposledy otvorených kópiách."
 }

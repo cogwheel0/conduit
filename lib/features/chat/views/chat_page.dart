@@ -73,6 +73,7 @@ import 'package:conduit_core/features/librechat/models/librechat_model.dart'
 
 import '../../hermes/widgets/hermes_bot_avatar.dart';
 import '../../hermes/widgets/hermes_message_interactions.dart';
+import '../../hermes/widgets/hermes_read_only_session_notice.dart';
 import '../widgets/live_connection_button.dart';
 import '../../librechat/widgets/librechat_prompt_overlay.dart';
 import '../../navigation/providers/chat_back_provider.dart';
@@ -3862,7 +3863,9 @@ class _ChatPageState extends ConsumerState<ChatPage>
           final bubble = UserMessageBubble(
             message: latestMessage,
             isUser: true,
-            readOnly: rowRef.watch(activeConversationReadOnlyProvider),
+            readOnly:
+                rowRef.watch(activeConversationReadOnlyProvider) ||
+                rowRef.watch(activeHermesSessionReadOnlyProvider),
             isStreaming: latestMessage.isStreaming,
             modelName: rowMetadata.displayModelName,
             onCopy: () {
@@ -3934,7 +3937,11 @@ class _ChatPageState extends ConsumerState<ChatPage>
     required bool suppressStreamingHaptics,
   }) {
     final groupIds = rowMetadata.groupMessageIds;
-    final readOnly = rowRef.watch(activeConversationReadOnlyProvider);
+    // A shared chat of another user's, or a Hermes session another Hermes
+    // app owns: its messages are read here, never changed.
+    final readOnly =
+        rowRef.watch(activeConversationReadOnlyProvider) ||
+        rowRef.watch(activeHermesSessionReadOnlyProvider);
     final displayedMessage = groupIds.length > 1
         ? _messageWithGroupedHermesToolStatuses(rowRef, latestMessage, groupIds)
         : latestMessage;
@@ -4562,6 +4569,15 @@ class _ChatPageState extends ConsumerState<ChatPage>
                     ),
                   )) {
                     return _buildReadOnlyNotice(context);
+                  }
+                  final readOnlyHermesSource = watchHermesReadOnlySessionSource(
+                    composerRef,
+                    activeConversation,
+                  );
+                  if (readOnlyHermesSource != null) {
+                    return HermesReadOnlySessionNotice(
+                      source: readOnlyHermesSource,
+                    );
                   }
                   return ModernChatInput(
                     onSendMessage: _handleMessageSend,

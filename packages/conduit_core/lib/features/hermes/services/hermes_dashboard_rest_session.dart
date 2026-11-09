@@ -95,14 +95,7 @@ final class HermesDashboardRestSession implements HermesDashboardBridge {
     final completer = Completer<({int status, String body})>();
     _tail = _tail.then((_) async {
       try {
-        final page = await _ensureReady();
-        // The page refuses main-frame navigations off the dashboard; this
-        // also catches one that got through, before a request runs there.
-        final current = await page.currentUrl();
-        if (current == null || !hermesDashboardIsExactOrigin(current, _root)) {
-          await _discard(page);
-          throw StateError('Hermes dashboard page left the dashboard.');
-        }
+        final page = await _readyOnDashboard();
         final Object? value;
         try {
           value = await page
@@ -134,6 +127,48 @@ final class HermesDashboardRestSession implements HermesDashboardBridge {
       }
     });
     return completer.future;
+  }
+
+  /// Signs the page's session out on the server
+  /// ([kHermesDashboardSignOutScript]), in turn with the requests; true when
+  /// Hermes signed it out.
+  Future<bool> signOut() {
+    final completer = Completer<bool>();
+    _tail = _tail.then((_) async {
+      try {
+        final page = await _readyOnDashboard();
+        final Object? value;
+        try {
+          value = await page
+              .callAsyncJavaScript(kHermesDashboardSignOutScript, {
+                'url': hermesDashboardLogoutUrl(_root).toString(),
+              })
+              .timeout(requestTimeout);
+        } on TimeoutException {
+          // As for a request: the page that may still be signing out is
+          // closed rather than reused.
+          await _discard(page);
+          rethrow;
+        }
+        completer.complete(value == true);
+      } catch (error, stackTrace) {
+        completer.completeError(error, stackTrace);
+      }
+    });
+    return completer.future;
+  }
+
+  /// The open page, once it is on the dashboard's exact origin. The page
+  /// refuses main-frame navigations off the dashboard; this also catches one
+  /// that got through, before anything runs there.
+  Future<HermesDashboardPage> _readyOnDashboard() async {
+    final page = await _ensureReady();
+    final current = await page.currentUrl();
+    if (current == null || !hermesDashboardIsExactOrigin(current, _root)) {
+      await _discard(page);
+      throw StateError('Hermes dashboard page left the dashboard.');
+    }
+    return page;
   }
 
   Future<HermesDashboardPage> _ensureReady() async {

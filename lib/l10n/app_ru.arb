@@ -3406,6 +3406,7 @@
   "hermesMcpServers": "Серверы MCP",
   "hermesSignOut": "Выйти из Hermes",
   "hermesActionFailed": "Не удалось выполнить действие Hermes.",
+  "hermesSignOutFailed": "Не удалось выйти из панели Hermes. Проверьте подключение и повторите попытку.",
   "hermesToolsetUpdateFailed": "Не удалось обновить набор инструментов Hermes.",
   "hermesJobStateLabel": "Состояние",
   "hermesJobDeliveryLabel": "Доставка",
@@ -3430,6 +3431,7 @@
   "hermesFastTierOff": "Выкл.",
   "hermesTurnSteer": "Направить",
   "hermesTurnSendNext": "Отправить следующее",
+  "hermesSteerUncertain": "Hermes не подтвердил ваше указание. Проверьте ответ, прежде чем отправлять указание снова.",
   "hermesTurnControlsUnsupported": "Обновите Hermes, чтобы включить безопасное управление ходами.",
   "sidebarHermesTab": "Hermes",
   "sidebarBackendSwitcher": "Бэкенд",
@@ -4513,5 +4515,13 @@
   "libreChatMemoryKeyLabel": "Ключ",
   "libreChatMemoryKeyHint": "например, preferences",
   "libreChatMemoryKeyRequired": "Укажите ключ воспоминания.",
-  "libreChatMemoryUsage": "Использовано {used} из {limit} токенов"
+  "libreChatMemoryUsage": "Использовано {used} из {limit} токенов",
+  "hermesReadOnlySessionNotice": "Этот чат начат в другом приложении Hermes. Здесь его можно читать, но Hermes разрешает Conduit отвечать только в чатах, которые начал Conduit.",
+  "hermesReadOnlySessionNoticeFrom": "Этот чат начат в приложении: {source}. Здесь его можно читать, но Hermes разрешает Conduit отвечать только в чатах, которые начал Conduit.",
+  "@hermesReadOnlySessionNoticeFrom": {"placeholders": {"source": {"type": "String"}}},
+  "hermesContinueInCopy": "Продолжить в копии",
+  "hermesContinueInCopyFailed": "Не удалось скопировать этот чат. Повторите попытку.",
+  "hermesContinueHere": "Продолжить здесь",
+  "hermesContinueHereFailed": "Не удалось продолжить этот чат здесь. Повторите попытку.",
+  "hermesContinueChoiceExplanation": "Если продолжить здесь, этот чат в другом приложении завершится, и при следующем сообщении оно начнёт новый. Копия оставит тот чат без изменений, но предыдущие сообщения сохранятся только на этом устройстве. Она хранит до 1000 последних сообщений (1 МБ) — для 32 копий, открытых последними."
 }

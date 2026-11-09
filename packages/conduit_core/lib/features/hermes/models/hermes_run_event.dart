@@ -26,9 +26,13 @@ final class HermesTokenDelta extends HermesRunEvent {
 
 /// Incremental reasoning/thinking text, when the agent exposes it.
 final class HermesReasoningDelta extends HermesRunEvent {
-  const HermesReasoningDelta(this.content);
+  const HermesReasoningDelta(this.content, {this.terminal = false});
 
   final String content;
+
+  /// Whether this is the whole reasoning repeated by a terminal response,
+  /// which duplicates any reasoning already streamed as deltas.
+  final bool terminal;
 }
 
 /// A tool the agent is running (started / progressing / completed).
@@ -70,18 +74,37 @@ final class HermesApprovalRequested extends HermesRunEvent {
     required this.approvalId,
     this.summary,
     this.choices = const <String>[],
+    this.executionGeneration,
     this.raw = const {},
   });
 
-  /// Identifier passed back to `POST /v1/runs/{id}/approval`.
+  /// Identifier passed back to `POST /v1/runs/{id}/approval`. On Hermes
+  /// v0.22.1+ this is the prompt's `prompt_id`.
   final String approvalId;
 
   /// Human-readable description of what is being approved.
   final String? summary;
   final List<String> choices;
 
+  /// The session execution generation that owns the prompt. Present only on
+  /// servers that require the exact `{request_id, execution_generation,
+  /// choice}` approval body.
+  final int? executionGeneration;
+
   /// The raw approval payload, preserved for forward-compatibility.
   final Map<String, dynamic> raw;
+}
+
+/// An approval or clarify prompt was answered, timed out, or was withdrawn.
+///
+/// The card for [promptId] must close and never come back for this prompt.
+final class HermesPromptSettled extends HermesRunEvent {
+  const HermesPromptSettled({required this.promptId, required this.kind});
+
+  final String promptId;
+
+  /// `approval` or `clarify`.
+  final String kind;
 }
 
 enum HermesDecisionKind { clarification, sudo, secret, mcpSetup }
@@ -99,6 +122,14 @@ final class HermesDecisionRequested extends HermesRunEvent {
   final String requestId;
   final String? prompt;
   final Map<String, dynamic> raw;
+}
+
+/// A non-error note about how a run ended, such as a wrap-up after Hermes
+/// ran out of steps. The answer so far is kept and shown with the note.
+final class HermesRunNotice extends HermesRunEvent {
+  const HermesRunNotice(this.message);
+
+  final String message;
 }
 
 /// A lifecycle transition (created / completed / failed / cancelled / stopping).
