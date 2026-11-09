@@ -29,6 +29,7 @@ import 'package:conduit/features/navigation/widgets/drawer_shell_page.dart';
 import 'package:conduit/features/navigation/widgets/responsive_drawer_layout.dart';
 import 'package:conduit_core/features/navigation/providers/drawer_section_notifiers.dart';
 import 'package:conduit/features/navigation/widgets/sidebar_page.dart';
+import 'package:conduit/features/navigation/widgets/sidebar_user_pill.dart';
 import 'package:conduit/features/navigation/widgets/sidebar_destination_page.dart';
 import 'package:conduit/features/navigation/widgets/sidebar_tab_registry.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
@@ -181,6 +182,8 @@ Widget sidebarTestBuildHarness({
   // its drawer.
   Widget? shellChat,
   Widget? appearancePage,
+  Widget? profilePage,
+  SidebarNativeProfilePresenter? profilePresenter,
   Widget? noteEditor,
   String? initialLocation,
   // Applied after the rig's own, for what a test needs beyond them.
@@ -194,6 +197,12 @@ Widget sidebarTestBuildHarness({
         sidebarTabDescriptor(controllers.activeTabNotifier.initialValue)
             .location,
     routes: [
+      if (profilePage != null)
+        GoRoute(
+          path: Routes.profile,
+          name: RouteNames.profile,
+          builder: (_, _) => profilePage,
+        ),
       if (appearancePage != null)
         GoRoute(
           path: Routes.appearanceSettings,
@@ -261,6 +270,10 @@ Widget sidebarTestBuildHarness({
 
   return ProviderScope(
     overrides: [
+      if (profilePage != null)
+        sidebarNativeProfilePresenterProvider.overrideWithValue(
+          profilePresenter,
+        ),
       ...openWebUiStorageOpenOverrides(open: openWebUiStorageOpen),
       if (noteEditor != null)
         connectivityStatusProvider.overrideWithValue(ConnectivityStatus.online),

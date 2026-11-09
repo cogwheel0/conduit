@@ -8,6 +8,42 @@ import XCTest
 @testable import Runner
 
 class RunnerTests: XCTestCase {
+  @MainActor
+  func testNativeProfilePresentationIsSingleUntilDismissed() throws {
+    let presenter = ProfilePresentationTestController()
+    let host = SelectionMenuTestHost(
+      messenger: SelectionMenuTestMessenger(), controller: presenter)
+    let bridge = NativeSheetBridge.shared
+    bridge.attach(to: host)
+    defer { _ = try? bridge.dismiss() }
+    let config = PlatformNativeProfileSheetConfig(
+      profile: PlatformNativeProfileSheetUser(
+        displayName: "Test Account", email: "", initials: "TA",
+        avatarIsTemplate: false, avatarHeaders: [:]),
+      editProfileLabel: "Edit Profile", menuItems: [], supportItems: [],
+      sections: [], detailSheets: [])
+
+    let burst = expectation(description: "All presentation requests finish")
+    burst.expectedFulfillmentCount = 8
+    for _ in 0..<8 {
+      bridge.presentProfileMenu(config: config) { result in
+        XCTAssertEqual(try? result.get(), true)
+        burst.fulfill()
+      }
+    }
+    waitForExpectations(timeout: 2)
+    XCTAssertEqual(presenter.presentations.count, 1)
+
+    XCTAssertTrue(try bridge.dismiss())
+    let reopened = expectation(description: "Settings can reopen after dismissal")
+    bridge.presentProfileMenu(config: config) { result in
+      XCTAssertEqual(try? result.get(), true)
+      reopened.fulfill()
+    }
+    waitForExpectations(timeout: 2)
+    XCTAssertEqual(presenter.presentations.count, 2)
+  }
+
   /// Verifies coordinate scaling and rejects malformed channel payloads.
   func testTextMagnifierMapsFullViewCoordinates() throws {
     let payload: [String: Any] = [
@@ -4491,6 +4527,18 @@ private final class LinkedImageStubProtocol: URLProtocol {
   }
 
   override func stopLoading() {}
+}
+
+private final class ProfilePresentationTestController: UIViewController {
+  var presentations: [UIViewController] = []
+
+  override func present(
+    _ viewControllerToPresent: UIViewController, animated: Bool,
+    completion: (() -> Void)? = nil
+  ) {
+    presentations.append(viewControllerToPresent)
+    completion?()
+  }
 }
 
 private final class SelectionMenuTestMessenger: NSObject, FlutterBinaryMessenger {

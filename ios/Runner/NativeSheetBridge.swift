@@ -1305,12 +1305,18 @@ final class NativeSheetBridge: ConduitBridge, NativeSheetHostApi {
         }
     }
 
+    /// Presents Settings once; an already-open profile menu also counts as
+    /// success, without adding another navigation stack.
     func presentProfileMenu(
         config: PlatformNativeProfileSheetConfig,
         completion: @escaping (Result<Bool, Error>) -> Void
     ) {
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
+            if self.activeProfileMenuController != nil {
+                completion(.success(true))
+                return
+            }
             guard let configuration = NativeSheetConfiguration(config.asPayload())
             else {
                 completion(.failure(PigeonError(
