@@ -52,6 +52,9 @@ double _paintedOpacity(WidgetTester tester) {
 
 const _flightText = ValueKey('flight-text');
 
+/// The shape animation the latest timeline stand-in was built with.
+Animation<double>? _timelineMorph;
+
 /// A transcript of [historyCount] 52 pt rows in a 400 × 600 view, at its end
 /// or scrolled to its top, whose [send] appends a user turn that leaves
 /// from its typed words.
@@ -88,10 +91,13 @@ _pumpTimeline(
       return ChatSendEntrance(
         messageId: 'sent-into-chat',
         timestamp: DateTime.now(),
-        flightBuilder: (context, morph) => const Align(
-          alignment: Alignment.topRight,
-          child: Text('Picnic plans', key: _flightText),
-        ),
+        flightBuilder: (context, morph, typed) {
+          _timelineMorph = morph;
+          return const Align(
+            alignment: Alignment.topRight,
+            child: Text('Picnic plans', key: _flightText),
+          );
+        },
         child: _bubble(),
       );
     }
@@ -468,7 +474,7 @@ void main() {
         ChatSendEntrance(
           messageId: 'sent-text',
           timestamp: DateTime.now(),
-          flightBuilder: (context, animation) {
+          flightBuilder: (context, animation, typed) {
             morph = animation;
             return const Align(
               alignment: Alignment.topRight,
@@ -510,7 +516,7 @@ void main() {
         ChatSendEntrance(
           messageId: 'from-elsewhere',
           timestamp: DateTime.now(),
-          flightBuilder: (context, animation) =>
+          flightBuilder: (context, animation, typed) =>
               const Text('Picnic plans', key: flightText),
           child: _bubble(),
         ),
@@ -633,7 +639,13 @@ void main() {
       anchorId: 'history-3',
       lastReplyHeight: 1000,
     );
-    ChatSendOrigin.record(const Rect.fromLTWH(24, 540, 352, 24));
+    var liftedOff = false;
+    ChatSendOrigin.record(
+      const Rect.fromLTWH(24, 540, 352, 24),
+      // The composer's top edge, just above the typed words.
+      clearanceTop: 528,
+      departure: ChatSendDeparture(() {}, onLiftOff: () => liftedOff = true),
+    );
     await timeline.send();
     // Its row is still below the screen, so the stand-in counts as off
     // stage for finders; it is painted all the same.
@@ -643,6 +655,7 @@ void main() {
     expect(tester.getTopLeft(flight).dy, closeTo(540, 0.5));
     expect(timeline.rowTop('user'), greaterThan(600));
     final writtenAt = tester.getTopLeft(flight).dx;
+    var waited = 0;
 
     final arrival = timeline.controller.springMessageToTop(
       'user',
@@ -656,11 +669,20 @@ void main() {
       expect(message, greaterThanOrEqualTo((row < 540 ? row : 540) - 0.5));
       expect(message, lessThanOrEqualTo(540.5));
       // Waiting for its row, it waits as a whole: it never slides along
-      // the composer towards its buttons.
+      // the composer towards its buttons, and keeps the typed words' shape.
       if (message > 539.5) {
         expect(tester.getTopLeft(flight).dx, closeTo(writtenAt, 0.5));
+        expect(_timelineMorph!.value, 0);
+        // The composer keeps its shape around words that wait in it.
+        expect(liftedOff, isFalse);
+        waited += 1;
+      } else if (message < 530) {
+        // On their way up: the composer has been told to close behind them.
+        expect(liftedOff, isTrue);
       }
     }
+    expect(waited, greaterThan(2));
+    expect(liftedOff, isTrue);
     expect(await arrival, isTrue);
     await tester.pumpAndSettle();
     expect(flight, findsNothing);
@@ -714,7 +736,7 @@ void main() {
         ChatSendEntrance(
           messageId: 'last-line',
           timestamp: DateTime.now(),
-          flightBuilder: (context, morph) => const Align(
+          flightBuilder: (context, morph, typed) => const Align(
             alignment: Alignment.topRight,
             child: SizedBox(
               width: 120,
@@ -739,7 +761,11 @@ void main() {
   testWidgets('the composer hears that the words have left once they have '
       'risen above its top edge, before they land', (tester) async {
     var departed = 0;
-    final departure = ChatSendDeparture(() => departed++);
+    var liftedOff = 0;
+    final departure = ChatSendDeparture(
+      () => departed++,
+      onLiftOff: () => liftedOff++,
+    );
     ChatSendOrigin.record(
       const Rect.fromLTWH(20, 700, 360, 44),
       clearanceTop: 680,
@@ -750,7 +776,7 @@ void main() {
         ChatSendEntrance(
           messageId: 'leaves-composer',
           timestamp: DateTime.now(),
-          flightBuilder: (context, morph) => const Align(
+          flightBuilder: (context, morph, typed) => const Align(
             alignment: Alignment.topRight,
             child: Text('Picnic plans', key: _flightText),
           ),
@@ -758,8 +784,12 @@ void main() {
         ),
       ),
     );
-    // Still inside the composer: it keeps its shape.
+    // Still inside the composer: no departure yet. Free to rise, the words
+    // lift off as their clock starts, so the composer closes with them.
     await tester.pump();
+    expect(departed, 0);
+    await tester.pump(const Duration(milliseconds: 16));
+    expect(liftedOff, 1);
     expect(departed, 0);
     var frames = 0;
     while (departed == 0 && frames < 30) {
@@ -767,6 +797,7 @@ void main() {
       frames++;
     }
     expect(departed, 1);
+    expect(liftedOff, 1);
     // Told while still on the way, not on landing.
     expect(find.byKey(_flightText), findsOneWidget);
     expect(
@@ -865,5 +896,96 @@ void main() {
     expect(taps, 0);
     await tester.pumpAndSettle();
     expect(find.byKey(leaving), findsNothing);
+  });
+
+  testWidgets('the typed words are carried as their field wrapped them', (
+    tester,
+  ) async {
+    final controller = TextEditingController(
+      text: '\n  Pack a light jacket and some snacks for the trail\n\nBring water\n',
+    );
+    addTearDown(controller.dispose);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Align(
+            alignment: Alignment.topLeft,
+            child: SizedBox(
+              width: 220,
+              child: TextField(
+                controller: controller,
+                maxLines: 8,
+                style: const TextStyle(fontSize: 17, height: 1.3),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    final typed = chatSendTypedTextOf(
+      tester.renderObject(find.byType(EditableText)),
+    )!;
+    // The long line wraps on screen, so it is several lines here too; the
+    // blank lines around the words are gone, the one between them is not.
+    expect(typed.lines.length, greaterThan(3));
+    expect(typed.lines.last, 'Bring water');
+    expect(typed.lines[typed.lines.length - 2], '');
+    expect(
+      typed.lines.take(typed.lines.length - 2).join(' '),
+      '  Pack a light jacket and some snacks for the trail',
+    );
+    expect(typed.style.fontSize, 17);
+
+    // More lines than the field shows: it has scrolled, so no stand-in.
+    controller.text = List.generate(12, (i) => 'Line $i').join('\n');
+    await tester.pump();
+    expect(
+      chatSendTypedTextOf(tester.renderObject(find.byType(EditableText))),
+      isNull,
+    );
+  });
+
+  testWidgets('the words follow the composer, not its field, when the '
+      'composer re-lays its rows out', (tester) async {
+    const field = ValueKey('field');
+    const shell = ValueKey('shell');
+    Widget page({required double fieldTop, required double bottom}) =>
+        MaterialApp(
+          home: Stack(
+            children: [
+              Positioned(
+                left: 16,
+                right: 16,
+                bottom: bottom,
+                height: 100,
+                child: Stack(
+                  key: shell,
+                  children: [
+                    Positioned(
+                      left: 8,
+                      top: fieldTop,
+                      width: 200,
+                      height: 24,
+                      child: const Text('Picnic plans', key: field),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        );
+    await tester.pumpWidget(page(fieldTop: 8, bottom: 300));
+    ChatSendOrigin.recordFrom(
+      tester.element(find.byKey(field)),
+      clearOf: tester.element(find.byKey(shell)),
+    );
+    final taken = ChatSendOrigin.takeFollowing()!;
+    // The field drops into a one-line row inside the composer: the words
+    // stay where they were.
+    await tester.pumpWidget(page(fieldTop: 68, bottom: 300));
+    expect(taken.drift(), Offset.zero);
+    // The keyboard takes the whole composer down: the words go with it.
+    await tester.pumpWidget(page(fieldTop: 68, bottom: 0));
+    expect(taken.drift(), const Offset(0, 300));
   });
 }

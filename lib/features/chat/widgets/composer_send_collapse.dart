@@ -12,27 +12,36 @@ import 'chat_send_motion.dart';
 /// the last frame down to whatever its content now needs, the content held
 /// at the bottom edge so the buttons stay put while the empty space above
 /// them closes. While [holding], it keeps the height it had when the hold
-/// began, however its content shrinks meanwhile (the sent words are still
-/// flying out of it); the next [token] then collapses from there. Every
+/// began, however its content shrinks meanwhile (the sent words are still in
+/// it, waiting to rise); the next [token] then collapses from there. Every
 /// other height change (typing a line, deleting one) stays direct, so the
-/// composer never trails the user's typing. Reduce Motion makes the
-/// collapse immediate. [onDone] runs once it has finished.
+/// composer never trails the user's typing. Reduce Motion makes the collapse
+/// immediate. [onNearlyClosed] runs once the composer is within
+/// [nearlyClosedSlack] of its new height (at once when there is nothing to
+/// close), so what belongs to a one-line composer (its placeholder) can come
+/// in as it gets there; [onDone] runs once it has finished.
 class ComposerSendCollapse extends StatefulWidget {
   const ComposerSendCollapse({
     super.key,
     required this.token,
     required this.child,
     this.holding = false,
+    this.onNearlyClosed,
     this.onDone,
   });
 
   final int token;
   final Widget child;
   final bool holding;
+  final VoidCallback? onNearlyClosed;
   final VoidCallback? onDone;
 
   /// Long enough for the spring to come within a fraction of a point.
   static const Duration duration = Duration(milliseconds: 600);
+
+  /// How much taller than its content the composer may still be for
+  /// [onNearlyClosed]: a sliver of a line.
+  static const double nearlyClosedSlack = 10;
 
   @override
   State<ComposerSendCollapse> createState() => _ComposerSendCollapseState();
@@ -49,10 +58,30 @@ class _ComposerSendCollapseState extends State<ComposerSendCollapse>
   /// runs.
   double? _from;
 
+  /// Whether this collapse has reported [ComposerSendCollapse.onNearlyClosed].
+  bool _nearlyClosedReported = true;
+
   void _handleStatus(AnimationStatus status) {
     if (status != AnimationStatus.completed || widget.holding) return;
+    _reportNearlyClosed();
     if (mounted) setState(() => _from = null);
     widget.onDone?.call();
+  }
+
+  /// Called by the box once it is within the slack of its content's height.
+  void _reportNearlyClosed() {
+    if (_nearlyClosedReported) return;
+    _nearlyClosedReported = true;
+    widget.onNearlyClosed?.call();
+  }
+
+  /// Reports [ComposerSendCollapse.onNearlyClosed] after this frame, for
+  /// calls from inside layout or build.
+  void _reportNearlyClosedAfterFrame() {
+    if (_nearlyClosedReported) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _reportNearlyClosed();
+    });
   }
 
   double? get _currentHeight {
@@ -78,6 +107,7 @@ class _ComposerSendCollapseState extends State<ComposerSendCollapse>
       }
       return;
     }
+    _nearlyClosedReported = false;
     final height = _currentHeight;
     if (height != null && !context.reduceMotion) {
       _from = height;
@@ -86,6 +116,7 @@ class _ComposerSendCollapseState extends State<ComposerSendCollapse>
     }
     _from = null;
     // Never change the parent's state from inside its build.
+    _reportNearlyClosedAfterFrame();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) widget.onDone?.call();
     });
@@ -103,6 +134,7 @@ class _ComposerSendCollapseState extends State<ComposerSendCollapse>
       from: _from,
       holding: widget.holding,
       animation: _controller,
+      onNearlyClosed: _reportNearlyClosedAfterFrame,
       child: widget.child,
     );
   }
@@ -113,23 +145,31 @@ class _CollapseBox extends SingleChildRenderObjectWidget {
     required this.from,
     required this.holding,
     required this.animation,
+    required this.onNearlyClosed,
     required super.child,
   });
 
   final double? from;
   final bool holding;
   final AnimationController animation;
+  final VoidCallback onNearlyClosed;
 
   @override
   _RenderCollapseBox createRenderObject(BuildContext context) =>
-      _RenderCollapseBox(from: from, holding: holding, animation: animation);
+      _RenderCollapseBox(
+        from: from,
+        holding: holding,
+        animation: animation,
+        onNearlyClosed: onNearlyClosed,
+      );
 
   @override
   void updateRenderObject(BuildContext context, _RenderCollapseBox render) {
     render
       ..from = from
       ..holding = holding
-      ..animation = animation;
+      ..animation = animation
+      ..onNearlyClosed = onNearlyClosed;
   }
 }
 
@@ -138,10 +178,15 @@ class _RenderCollapseBox extends RenderShiftedBox {
     required double? from,
     required bool holding,
     required AnimationController animation,
+    required this.onNearlyClosed,
   }) : _from = from,
        _holding = holding,
        _animation = animation,
        super(null);
+
+  /// Told (it defers past the frame itself) whenever a layout finds the box
+  /// within [ComposerSendCollapse.nearlyClosedSlack] of its content.
+  VoidCallback onNearlyClosed;
 
   double? _from;
   set from(double? value) {
@@ -204,6 +249,9 @@ class _RenderCollapseBox extends RenderShiftedBox {
             childHeight +
             (from - childHeight) * ChatSendEntrance.remainingAt(seconds);
       }
+    }
+    if (height - childHeight <= ComposerSendCollapse.nearlyClosedSlack) {
+      onNearlyClosed();
     }
     size = constraints.constrain(Size(child.size.width, height));
     // The content keeps to the bottom edge: the buttons stay where they were
