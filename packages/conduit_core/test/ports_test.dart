@@ -24,7 +24,7 @@ void main() {
 
   group('AppLifecyclePhase', () {
     test('mirrors the host lifecycle enum exactly', () {
-      // The adapters map Flutter's AppLifecycleState and Electron's window
+      // The adapters map Flutter's AppLifecycleState and other hosts' window
       // events onto this one for one. Adding or renaming a value silently
       // breaks that mapping, so pin the shape.
       expect(AppLifecyclePhase.values.map((p) => p.name).toList(), <String>[

@@ -3,7 +3,7 @@
 /// Only mobile needs this, and only mobile can do it: iOS grants a bounded
 /// background task on request, Android holds a foreground service, and the
 /// `conduitd` sidecar has no foreground to leave -- it runs for as long as
-/// Electron does, whether or not a window is visible.
+/// its host does, whether or not a window is visible.
 ///
 /// A port rather than a `Platform.isIOS` check inside the streaming code,
 /// which is what it was. That check was correct and still dragged the mobile
