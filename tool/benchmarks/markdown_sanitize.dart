@@ -17,6 +17,7 @@ void main(List<String> args) {
     'reasoning-and-code': '$reasoning$code',
     'tools-and-code': '$tool$code',
     'literal-markup-in-code': '```html\n$reasoning$tool```\n\n',
+    'literal-openers-in-code': '```html\n${'<think>\n' * 32}```\n\n',
   };
   for (final size in [8192, 131072, 1048576]) {
     for (final fixture in fixtures.entries) {

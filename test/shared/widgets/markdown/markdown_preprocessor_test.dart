@@ -58,6 +58,12 @@ void main() {
     ).isTrue();
   });
 
+  test('clipboard sanitization preserves repeated literal openers in code', () {
+    final content = '```html\n${'<think>\n' * 2048}```';
+    check(ConduitMarkdownPreprocessor.sanitizeForClipboard(content))
+        .equals(content);
+  });
+
   group('ConduitMarkdownPreprocessor.normalize', () {
     test('empty string returns empty', () {
       check(ConduitMarkdownPreprocessor.normalize('')).equals('');

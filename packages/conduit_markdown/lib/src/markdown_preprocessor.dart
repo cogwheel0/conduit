@@ -222,11 +222,13 @@ class ConduitMarkdownPreprocessor {
     // Raw model output can attach Open WebUI's tool-call block directly to
     // answer text. Put it on a Markdown block boundary without rewriting
     // literal examples inside code spans or fences.
-    output = _replaceMatchesOutsideCode(
-      output,
-      _attachedToolCallDetailsOpen,
-      (match) => '${match[1]}\n\n${match[2]}',
-    );
+    if (_attachedToolCallDetailsOpen.hasMatch(output)) {
+      output = _replaceMarkupOutsideCode(
+        output,
+        _attachedToolCallDetailsOpen,
+        (match) => '${match[1]}\n\n${match[2]}',
+      );
+    }
 
     return output;
   }
@@ -255,7 +257,7 @@ class ConduitMarkdownPreprocessor {
         .transform(_stripLinkReferenceDefinitions)
         .transform(
           (content) =>
-              _replaceMatchesOutsideCode(content, _reasoningBlocks, (_) => ''),
+              _replaceMarkupOutsideCode(content, _reasoningBlocks, (_) => ''),
         )
         .replaceAll(_multipleNewlines, '\n\n')
         .trim();
@@ -291,7 +293,7 @@ class ConduitMarkdownPreprocessor {
     if (input.isEmpty) return input;
 
     final sanitized = sanitize(input);
-    return _replaceMatchesOutsideCode(sanitized, _toolCallBlocks, (_) => '')
+    return _replaceMarkupOutsideCode(sanitized, _toolCallBlocks, (_) => '')
         // Stored assistant content is HTML-escaped for the renderer; the
         // clipboard needs the literal text back (`"` not `&quot;`). API
         // replay deliberately does NOT decode — it cannot distinguish
@@ -347,7 +349,7 @@ class ConduitMarkdownPreprocessor {
   static String removeAllDetails(String input) {
     if (input.isEmpty) return input;
 
-    return _replaceMatchesOutsideCode(input, _allDetailsBlocks, (_) => '');
+    return _replaceMarkupOutsideCode(input, _allDetailsBlocks, (_) => '');
   }
 
   /// Breaks long inline code spans for better wrapping.
@@ -444,14 +446,14 @@ class ConduitMarkdownPreprocessor {
     return _openWebUiRemoveFormattings(_removeEmojis(input.trim()));
   }
 
-  static String _replaceMatchesOutsideCode(
+  static String _replaceMarkupOutsideCode(
     String input,
     RegExp pattern,
     String Function(Match) replace,
   ) {
-    // No removal candidates means code spans need neither masking nor copying.
-    // Matches inside code still take the protected path below.
-    if (!pattern.hasMatch(input)) return input;
+    // These rules require a markup opener. Probe only for its marker: matching
+    // a full block before masking would also scan literal tags inside code.
+    if (!input.contains('<') && !input.contains('◁')) return input;
     return _maskCodeAndTransform(
       input,
       (content) => content.replaceAllMapped(pattern, replace),
