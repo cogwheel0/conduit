@@ -2102,6 +2102,16 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
     );
   }
 
+  /// Whether the scroll indicator reacts to [notification]. Like UIKit's,
+  /// it shows only while the user scrolls (a drag, a fling after it, or a
+  /// wheel): the app's own moves — pinning a sent message, following a
+  /// streaming reply, restoring a position — happen without it. Every
+  /// scroll end still reaches it so an indicator on screen fades out.
+  bool _scrollbarFollows(ScrollNotification notification) {
+    if (notification.depth != 0) return false;
+    return _userDragging || notification is ScrollEndNotification;
+  }
+
   bool _handleScrollNotification(ScrollNotification notification) {
     if (notification.depth != 0) return false;
     if (notification is ScrollStartNotification &&
@@ -2380,9 +2390,14 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
       child: PlatformInfo.isIOS
           ? CupertinoScrollbar(
               controller: _scrollController,
+              notificationPredicate: _scrollbarFollows,
               child: insetTranscript,
             )
-          : Scrollbar(controller: _scrollController, child: insetTranscript),
+          : Scrollbar(
+              controller: _scrollController,
+              notificationPredicate: _scrollbarFollows,
+              child: insetTranscript,
+            ),
     );
 
     return Stack(
