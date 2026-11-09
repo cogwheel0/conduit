@@ -1164,6 +1164,10 @@ class HermesApiService implements HermesBackendService, HermesTurnService {
     } on HermesStreamGuardException {
       _signalHermesStreamCancellation(cancelToken);
       rethrow;
+    } on HermesApiException {
+      // Hermes refused in time, even if reading why took the rest of the
+      // deadline: the refusal keeps its status, headers and code.
+      rethrow;
     } on DioException catch (error) {
       if (recoveryBudget.remainingDuration <= Duration.zero ||
           (deadlineConstrainsReceive &&

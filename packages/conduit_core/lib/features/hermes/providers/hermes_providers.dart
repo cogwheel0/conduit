@@ -38,7 +38,9 @@ import 'package:conduit_core/features/hermes/models/hermes_capabilities.dart';
 import 'package:conduit_core/features/hermes/models/hermes_config.dart';
 import 'package:conduit_core/features/hermes/models/hermes_connection_profile.dart';
 import 'package:conduit_core/features/hermes/models/hermes_job.dart';
+import 'package:conduit_core/features/hermes/models/hermes_job_delivery.dart';
 import 'package:conduit_core/features/hermes/models/hermes_model.dart';
+import 'package:conduit_core/features/hermes/models/hermes_room.dart';
 import 'package:conduit_core/features/hermes/models/hermes_session.dart';
 import 'package:conduit_core/features/hermes/models/hermes_toolset.dart';
 import 'package:conduit_core/features/hermes/services/hermes_api_service.dart';
@@ -46,6 +48,8 @@ import 'package:conduit_core/features/hermes/services/hermes_backend_service.dar
 import 'package:conduit_core/features/hermes/services/hermes_connection_store.dart';
 import 'package:conduit_core/features/hermes/services/hermes_copied_history_store.dart';
 import 'package:conduit_core/features/hermes/services/hermes_desktop_api_service.dart';
+import 'package:conduit_core/features/hermes/services/hermes_desktop_transport.dart'
+    show HermesDesktopRpcException;
 import 'package:conduit_core/features/hermes/services/hermes_desktop_connection_coordinator.dart';
 import 'package:conduit_core/features/hermes/services/hermes_identifier.dart';
 import 'package:conduit_core/features/hermes/services/hermes_local_document_trust_store.dart';
@@ -920,7 +924,9 @@ class HermesConfigController extends Notifier<HermesConfig> {
     );
 
     // Endpoint and identity changes rotate this connection's trust principal
-    // so earlier session bindings and document trust stop matching.
+    // so earlier session bindings and document trust stop matching. A new
+    // principal is minted every time, never an earlier one: the copied
+    // history store refuses saves for identities it has forgotten.
     final nextPrincipal =
         previousProfile == null || endpointChanged || identityChanged
         ? const Uuid().v4()
@@ -1161,6 +1167,26 @@ class HermesConfigController extends Notifier<HermesConfig> {
               data: {'errorType': error.runtimeType.toString()},
             );
           }
+        }
+      }
+      // The edit has gone through. Copies' earlier messages saved under the
+      // old endpoint or principal can no longer be opened, so they go, and
+      // an open still in flight for them keeps nothing.
+      final previousIdentity = previousProfile == null
+          ? null
+          : connectionIdentityFor(previousProfile);
+      if (previousIdentity != null &&
+          previousIdentity != connectionIdentityFor(nextProfile)) {
+        try {
+          await ref
+              .read(hermesCopiedHistoryStoreProvider)
+              .forgetConnection(previousIdentity);
+        } catch (error) {
+          DebugLogger.warning(
+            'copied-history-cleanup-failed',
+            scope: 'hermes/config',
+            data: {'errorType': error.runtimeType.toString()},
+          );
         }
       }
     }
@@ -2863,11 +2889,38 @@ final hermesServerStatusProvider = FutureProvider<Map<String, dynamic>>((
 
 /// The user's scheduled Hermes jobs (`/api/jobs`).
 class HermesJobsController extends AsyncNotifier<List<HermesJob>> {
+  /// Bumped by every rebuild and by each change made here (as it starts and
+  /// once it is answered): a quiet refresh read before a change must not
+  /// put the list from before it back.
+  int _generation = 0;
+
   @override
   Future<List<HermesJob>> build() async {
+    _generation++;
     final service = ref.watch(hermesApiServiceProvider);
     if (service == null) return const [];
-    final raw = await service.listJobs();
+    return _load(service);
+  }
+
+  /// Runs [change], marking the list read before it and while it runs as
+  /// stale.
+  Future<T> _changing<T>(Future<T> Function() change) async {
+    _generation++;
+    try {
+      return await change();
+    } finally {
+      _generation++;
+    }
+  }
+
+  /// A [live] read is the quiet poll of a page watching runs.
+  static Future<List<HermesJob>> _load(
+    HermesBackendService service, {
+    bool live = false,
+  }) async {
+    final raw = service is HermesDesktopApiService
+        ? await service.listJobs(live: live)
+        : await service.listJobs();
     final jobs = <HermesJob>[];
     for (final item in raw) {
       final job = HermesJob.fromJson(item);
@@ -2880,45 +2933,147 @@ class HermesJobsController extends AsyncNotifier<List<HermesJob>> {
       ref.read(hermesApiServiceProvider) ??
       (throw StateError('Hermes is not configured'));
 
+  /// The quiet refresh in flight and the connection it reads. A rebuild
+  /// for another connection keeps this notifier, so a request still pending
+  /// for the previous one must not be shared with the new one.
+  ({
+    HermesBackendService service,
+    int generation,
+    Future<List<HermesJob>> jobs,
+  })?
+  _refreshing;
+
+  /// Reloads the list in place, without a loading state, for watching a run
+  /// that is in flight. Overlapping calls for the same connection share one
+  /// request; a failure keeps the current list.
+  Future<List<HermesJob>?> refreshQuietly() async {
+    final service = ref.read(hermesApiServiceProvider);
+    if (service == null) return null;
+    final shared = _refreshing;
+    final refresh =
+        shared != null &&
+            identical(shared.service, service) &&
+            shared.generation == _generation
+        ? shared
+        : _refreshing = (
+            service: service,
+            generation: _generation,
+            jobs: _load(service, live: true),
+          );
+    final pending = refresh.jobs;
+    try {
+      final jobs = await pending;
+      if (!ref.mounted ||
+          !identical(ref.read(hermesApiServiceProvider), service) ||
+          refresh.generation != _generation) {
+        return null;
+      }
+      state = AsyncData(jobs);
+      return jobs;
+    } catch (_) {
+      return null;
+    } finally {
+      if (identical(_refreshing?.jobs, pending)) _refreshing = null;
+    }
+  }
+
+  /// [deliver] and [catchUp] apply on the Desktop Gateway; the API server
+  /// keeps its default (`local`, Hermes' catch-up policy).
   Future<void> create({
     required String name,
     required String prompt,
     required String schedule,
+    String? deliver,
+    HermesJobCatchUp catchUp = HermesJobCatchUp.hermesDefault,
   }) async {
     final service = _service;
-    await service.createJob(name: name, prompt: prompt, schedule: schedule);
+    await _changing(() async {
+      if (service is HermesDesktopApiService) {
+        await service.createJob(
+          name: name,
+          prompt: prompt,
+          schedule: schedule,
+          deliver: deliver ?? kHermesLocalDeliveryTarget,
+          catchUp: catchUp,
+        );
+      } else {
+        await service.createJob(
+          name: name,
+          prompt: prompt,
+          schedule: schedule,
+        );
+      }
+    });
     ref.invalidateSelf();
   }
 
+  /// A null [deliver] or [catchUp] leaves the job's value as stored.
   Future<void> edit(
     String id, {
     String? name,
     String? prompt,
     String? schedule,
+    String? deliver,
+    HermesJobCatchUp? catchUp,
   }) async {
     final service = _service;
-    await service.updateJob(id, name: name, prompt: prompt, schedule: schedule);
+    await _changing(() async {
+      if (service is HermesDesktopApiService) {
+        await service.updateJob(
+          id,
+          name: name,
+          prompt: prompt,
+          schedule: schedule,
+          deliver: deliver,
+          catchUp: catchUp,
+        );
+      } else {
+        await service.updateJob(
+          id,
+          name: name,
+          prompt: prompt,
+          schedule: schedule,
+        );
+      }
+    });
     ref.invalidateSelf();
+  }
+
+  /// Stops the job's running run. Only the Desktop Gateway can; the API
+  /// server has no cancel route.
+  Future<HermesJobStopResult> stopRun(String id) async {
+    final service = _service;
+    if (service is! HermesDesktopApiService) {
+      throw const HermesJobStopUnsupportedException();
+    }
+    // A poll read before the cancel must not settle the Stop with a list
+    // from before it.
+    final result = await _changing(() => service.stopJobRun(id));
+    ref.invalidate(hermesJobRunsProvider(id));
+    return result;
   }
 
   Future<void> setEnabled(String id, bool enabled) async {
     final service = _service;
-    if (enabled) {
-      await service.resumeJob(id);
-    } else {
-      await service.pauseJob(id);
-    }
+    await _changing(
+      () => enabled ? service.resumeJob(id) : service.pauseJob(id),
+    );
     ref.invalidateSelf();
   }
 
   Future<void> runNow(String id) async {
-    await _service.runJob(id);
+    try {
+      await _service.runJob(id);
+    } on HermesDashboardRequestWithdrawn {
+      // A Stop withdrew it before it was sent: the job did not run.
+      return;
+    }
     ref.invalidate(hermesJobRunsProvider(id));
   }
 
   Future<void> delete(String id) async {
     final service = _service;
-    await service.deleteJob(id);
+    await _changing(() => service.deleteJob(id));
     ref.invalidateSelf();
   }
 }
@@ -2927,6 +3082,64 @@ final hermesJobsProvider =
     AsyncNotifierProvider<HermesJobsController, List<HermesJob>>(
       HermesJobsController.new,
     );
+
+/// How long the delivery picker waits for each of its lists. Rooms come over
+/// the gateway socket, whose connect has no deadline of its own.
+const Duration _kHermesDeliveryLookupTimeout = Duration(seconds: 10);
+
+/// How soon a picker that had to do without a list asks again, while the
+/// page that shows it keeps it alive.
+@visibleForTesting
+const Duration kHermesDeliveryRetryDelay = Duration(seconds: 30);
+
+/// Where the connection's jobs can deliver: local, messaging platforms, Bot
+/// Chats, and Group Chats. Null on the API server, which lists no targets.
+final hermesJobDeliveryOptionsProvider =
+    FutureProvider.autoDispose<HermesDeliveryOptions?>((ref) async {
+      final service = ref.watch(hermesApiServiceProvider);
+      if (service is! HermesDesktopApiService) return null;
+      var partial = false;
+      Future<T> orElse<T>(Future<T> future, T fallback) async {
+        try {
+          return await future.timeout(_kHermesDeliveryLookupTimeout);
+        } catch (_) {
+          partial = true;
+          return fallback;
+        }
+      }
+
+      // Read here rather than through hermesBotsProvider, which answers a
+      // failed lookup with an empty roster: a failure must count as partial
+      // and be asked again.
+      Future<List<HermesBot>> listBots() async {
+        try {
+          return await service.listBots();
+        } on HermesDesktopRpcException catch (error) {
+          // A gateway without Bot Mode has no profiles.list: no Bot Chats.
+          if (error.code == -32601) return const [];
+          rethrow;
+        }
+      }
+
+      final (targets, bots, rooms) = await (
+        orElse(service.listJobDeliveryTargets(), <Map<String, dynamic>>[]),
+        orElse(listBots(), <HermesBot>[]),
+        orElse(service.listRooms(), <HermesRoom>[]),
+      ).wait;
+      // A provider closed during the lookup has nothing left to retry.
+      if (partial && ref.mounted) {
+        // A list that failed or stalled is asked for again rather than kept
+        // missing for as long as the job cards hold this provider.
+        final retry = Timer(kHermesDeliveryRetryDelay, ref.invalidateSelf);
+        ref.onDispose(retry.cancel);
+      }
+      return HermesDeliveryOptions.build(
+        targets: targets,
+        bots: bots,
+        rooms: rooms,
+        roomProfile: service.config.desktopProfile,
+      );
+    });
 
 /// Desktop cron runs are ordinary Hermes sessions, newest first.
 final hermesJobRunsProvider = FutureProvider.autoDispose

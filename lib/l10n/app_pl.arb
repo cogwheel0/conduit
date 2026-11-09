@@ -6900,6 +6900,51 @@
   "hermesJobLastLabel": "Ostatnie",
   "hermesJobNextLabel": "Następne",
   "hermesJobRunHistory": "Historia uruchomień",
+  "hermesJobStop": "Zatrzymaj",
+  "hermesJobStopping": "Zatrzymywanie…",
+  "hermesJobStopped": "Zatrzymano uruchomienie.",
+  "hermesJobFinishedBeforeStop": "Uruchomienie zakończyło się, zanim udało się je zatrzymać.",
+  "hermesJobNothingToStop": "Żadne uruchomienie nie trwa.",
+  "hermesJobStopFailed": "Nie można zatrzymać uruchomienia.",
+  "hermesJobStopUnsupported": "Zaktualizuj Hermes, aby zatrzymywać trwające zadania.",
+  "hermesJobRunning": "Trwa teraz",
+  "hermesJobLastCancelled": "Ostatnie uruchomienie zatrzymane: {reason}",
+  "@hermesJobLastCancelled": {
+    "placeholders": {
+      "reason": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesJobLastCancelledNoReason": "Ostatnie uruchomienie zatrzymane",
+  "hermesJobCatchUpLabel": "Pominięte uruchomienia",
+  "hermesJobCatchUpHint": "Co zrobić z uruchomieniami pominiętymi, gdy Hermes nie działał.",
+  "hermesJobCatchUpDefault": "Domyślne ustawienie Hermes",
+  "hermesJobCatchUpRunOnce": "Uruchom raz po pominięciu",
+  "hermesJobCatchUpSkip": "Pomijaj zaległe uruchomienia",
+  "hermesJobDeliverLabel": "Dostarczaj do",
+  "hermesJobDeliverLocal": "Zapisz w Hermes",
+  "hermesJobDeliverMessaging": "Komunikatory",
+  "hermesJobDeliverBotChats": "Czaty botów",
+  "hermesJobDeliverGroupChats": "Czaty grupowe",
+  "hermesJobDeliverBotChat": "Czat bota: {name}",
+  "@hermesJobDeliverBotChat": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesJobDeliverGroupChat": "Czat grupowy: {name}",
+  "@hermesJobDeliverGroupChat": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesJobDeliverNeedsHomeChannel": "Najpierw ustaw kanał domowy w Hermes.",
+  "hermesJobDeliverRoomHint": "Czaty grupowe budzą tylko boty, które zadanie oznaczy przez @.",
   "hermesApprovalAllowOnce": "Zezwól raz",
   "hermesApprovalAllowSession": "Zezwól w sesji",
   "hermesApprovalAlwaysAllow": "Zawsze zezwalaj",

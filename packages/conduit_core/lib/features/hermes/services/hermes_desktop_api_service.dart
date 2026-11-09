@@ -19,8 +19,11 @@ import 'package:conduit_core/network/upload_timeout.dart';
 import 'package:conduit_core/features/hermes/models/hermes_bot.dart';
 import 'package:conduit_core/features/hermes/models/hermes_chat_input.dart';
 import 'package:conduit_core/features/hermes/models/hermes_config.dart';
+import 'package:conduit_core/features/hermes/models/hermes_job.dart';
+import 'package:conduit_core/features/hermes/models/hermes_job_delivery.dart';
 import 'package:conduit_core/features/hermes/models/hermes_mcp.dart';
 import 'package:conduit_core/features/hermes/models/hermes_model.dart';
+import 'package:conduit_core/features/hermes/models/hermes_room.dart';
 import 'package:conduit_core/features/hermes/models/hermes_run_event.dart';
 import 'package:conduit_core/features/hermes/services/hermes_backend_service.dart';
 import 'package:conduit_core/features/hermes/services/hermes_http_transport.dart';
@@ -273,6 +276,11 @@ final class HermesDesktopApiService
   final HermesDesktopRpcClient _rpc;
   late final _HermesDesktopAdministration _administration;
   HermesDashboardBridge? _dashboardBridge;
+
+  /// Run now triggers not yet answered, by job: on a dashboard sign-in they
+  /// can still wait in the request queue, where a Stop withdraws them. A
+  /// job has several when Run now was chosen again, as from another card.
+  final Map<String, Set<_QueuedJobTrigger>> _jobTriggers = {};
   final HermesDesktopCredentialsWriter? onCredentialsChanged;
   HermesDesktopTokenSet? _nativeTokens;
   bool _closed = false;
@@ -545,15 +553,23 @@ final class HermesDesktopApiService
   Future<Map<String, dynamic>> healthDetailed() => _authDetailedStatus();
 
   @override
-  Future<List<Map<String, dynamic>>> listJobs() => _administration.listJobs();
+  Future<List<Map<String, dynamic>>> listJobs({bool live = false}) =>
+      _administration.listJobs(live: live);
 
   @override
   Future<Map<String, dynamic>> createJob({
     required String name,
     required String prompt,
     required String schedule,
-  }) =>
-      _administration.createJob(name: name, prompt: prompt, schedule: schedule);
+    String deliver = kHermesLocalDeliveryTarget,
+    HermesJobCatchUp catchUp = HermesJobCatchUp.hermesDefault,
+  }) => _administration.createJob(
+    name: name,
+    prompt: prompt,
+    schedule: schedule,
+    deliver: deliver,
+    catchUp: catchUp,
+  );
 
   @override
   Future<void> updateJob(
@@ -562,13 +578,30 @@ final class HermesDesktopApiService
     String? prompt,
     String? schedule,
     bool? enabled,
+    String? deliver,
+    HermesJobCatchUp? catchUp,
   }) => _administration.updateJob(
     id,
     name: name,
     prompt: prompt,
     schedule: schedule,
     enabled: enabled,
+    deliver: deliver,
+    catchUp: catchUp,
   );
+
+  /// Stops the job's running run (`POST /api/cron/jobs/{id}/cancel`).
+  /// Throws [HermesJobStopUnsupportedException] on Hermes before 0.22.6.
+  Future<HermesJobStopResult> stopJobRun(String id) =>
+      _administration.cancelJobRun(id);
+
+  /// Where a job can deliver (`GET /api/cron/delivery-targets`).
+  Future<List<Map<String, dynamic>>> listJobDeliveryTargets() =>
+      _administration.listJobDeliveryTargets();
+
+  /// Group Chats hosted by this gateway (`groups.list`); empty without rooms.
+  Future<List<HermesRoom>> listRooms({bool includeDisbanded = false}) =>
+      _administration.listRooms(includeDisbanded: includeDisbanded);
 
   @override
   Future<void> deleteJob(String id) =>
@@ -579,9 +612,10 @@ final class HermesDesktopApiService
   @override
   Future<void> resumeJob(String id) =>
       _administration.mutateJob(id, "POST", "/resume");
+  /// Throws [HermesDashboardRequestWithdrawn] when a Stop withdrew it
+  /// before it reached Hermes: the job did not run.
   @override
-  Future<void> runJob(String id) =>
-      _administration.mutateJob(id, "POST", "/trigger");
+  Future<void> runJob(String id) => _administration.runJob(id);
 
   Future<List<Map<String, dynamic>>> listJobRuns(String id) =>
       _administration.listJobRuns(id);

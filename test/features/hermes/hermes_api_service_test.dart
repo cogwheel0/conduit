@@ -1593,6 +1593,37 @@ void main() {
         ..has((e) => e.code, 'code').isNull();
     });
 
+    test('a refusal read past the request deadline stays a refusal', () async {
+      const window = Duration(seconds: 30);
+      final clock = _MutableRecoveryClock();
+      final refusal = _LateRefusalInterceptor(
+        clock: clock,
+        advance: window - const Duration(seconds: 1),
+      );
+      // The whole envelope arrives, but reading it uses up the deadline.
+      refusal.body.onListen = () {
+        clock.advance(const Duration(seconds: 2));
+        refusal.body
+          ..add(utf8.encode(_hermesError('permission_denied')))
+          ..close();
+      };
+      final service = _service(
+        refusal,
+        streamLimits: const HermesStreamLimits(
+          idleTimeout: window,
+          maxDuration: window,
+        ),
+        recoveryClock: clock.call,
+      );
+
+      final error = await service
+          .stopRun('r1')
+          .then<Object?>((_) => null, onError: (Object error) => error);
+      check(error).isA<HermesApiException>()
+        ..has((e) => e.statusCode, 'status').equals(409)
+        ..has((e) => e.code, 'code').equals('permission_denied');
+    });
+
     test('resolveUnknownRun sends exactly the admission identity', () async {
       final capture = _CaptureInterceptor({
         'admission_id': 'adm_31',
