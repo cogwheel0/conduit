@@ -2,7 +2,7 @@
   "computerEnabledDescription": "在聊天中檢視及控制桌面與瀏覽器工作階段。",
   "computerTrackpadHint": "滑動以移動游標。輕點以點擊，按住以拖曳，雙指捲動。",
   "computerShortcut": "鍵盤快捷鍵",
-  "computerInputFailed": "無法傳送輸入。請檢查快捷鍵後重試。",
+  "computerInputFailed": "無法傳送到電腦。請重試。",
   "computerQualityLow": "減少數據用量",
   "computerDesktopSite": "電腦版網站",
   "computerAudioUnavailable": "此連線或裝置無法播放桌面音訊。",

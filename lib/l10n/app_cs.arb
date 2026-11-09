@@ -2,7 +2,7 @@
   "computerEnabledDescription": "Sledujte a ovládejte plochu a prohlížeč v chatech.",
   "computerTrackpadHint": "Posunutím pohybujte kurzorem. Klepnutím klikněte, podržením táhněte; dvěma prsty posouvejte.",
   "computerShortcut": "Klávesová zkratka",
-  "computerInputFailed": "Vstup se nepodařilo odeslat. Zkontrolujte zkratku a zkuste to znovu.",
+  "computerInputFailed": "Nepodařilo se to odeslat do počítače. Zkuste to znovu.",
   "computerQualityLow": "Nižší spotřeba dat",
   "computerDesktopSite": "Web pro počítače",
   "computerAudioUnavailable": "Zvuk plochy není v tomto připojení nebo zařízení dostupný.",

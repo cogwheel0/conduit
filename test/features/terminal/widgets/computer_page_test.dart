@@ -105,9 +105,29 @@ Future<void> _frames(WidgetTester tester) async {
 ComputerSurfaceView _view(WidgetTester tester) =>
     tester.widget<ComputerSurfaceView>(find.byType(ComputerSurfaceView));
 
+/// Rejects the first command, as a viewer replaced mid-send does.
+class _DroppingWeb extends ComputerTestWebController {
+  var _dropped = false;
+
+  @override
+  Future<dynamic> evaluateJavascript({
+    required String source,
+    ContentWorld? contentWorld,
+  }) async {
+    if (!_dropped && source.startsWith('window.computer?.command(')) {
+      _dropped = true;
+      throw PlatformException(code: 'viewer-gone');
+    }
+    return super.evaluateJavascript(source: source, contentWorld: contentWorld);
+  }
+}
+
 /// Mounts the viewer's WebView controller and reports the stream live.
-Future<ComputerTestWebController> _live(WidgetTester tester) async {
-  final web = ComputerTestWebController();
+Future<ComputerTestWebController> _live(
+  WidgetTester tester, {
+  ComputerTestWebController? controller,
+}) async {
+  final web = controller ?? ComputerTestWebController();
   tester
       .widget<InAppWebView>(find.byType(InAppWebView))
       .platform
@@ -181,6 +201,12 @@ void main() {
       'http://192.168.1.4:8080',
     );
     expect(computerAddressUrl('about:blank'), 'about:blank');
+    // A host and port is an address, not a scheme.
+    expect(computerAddressUrl('localhost:3000'), 'https://localhost:3000');
+    expect(
+      computerAddressUrl('example.com:8080/board'),
+      'https://example.com:8080/board',
+    );
   });
 
   for (final accepted in [true, false]) {
@@ -297,6 +323,27 @@ void main() {
       await tester.pumpWidget(const SizedBox());
     },
   );
+
+  testWidgets('a keystroke the viewer drops does not stop later typing', (
+    tester,
+  ) async {
+    final service = _Service();
+    when(() => service.open(any()))
+        .thenAnswer((_) async => _connection(ComputerSurface.desktop));
+    await tester.pumpWidget(_harness(service));
+    await _frames(tester);
+    final web = await _live(tester, controller: _DroppingWeb());
+    await tester.tap(find.byKey(const ValueKey('computer-keyboard-button')));
+    await _frames(tester);
+    await tester.tap(find.text('esc'));
+    await tester.pump();
+    await tester.tap(find.text('tab'));
+    await tester.pump();
+    expect(_commands(web), [
+      {'type': 'shortcut', 'key': 'Tab'},
+    ]);
+    await tester.pumpWidget(const SizedBox());
+  });
 
   testWidgets('keyboard shortcuts preserve literal input', (tester) async {
     final service = _Service();

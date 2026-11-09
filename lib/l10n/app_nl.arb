@@ -2,7 +2,7 @@
   "computerEnabledDescription": "Bekijk en bedien desktop- en browsersessies in chats.",
   "computerTrackpadHint": "Veeg om de cursor te bewegen. Tik om te klikken, houd vast om te slepen; scroll met twee vingers.",
   "computerShortcut": "Sneltoets",
-  "computerInputFailed": "Invoer kon niet worden verzonden. Controleer de sneltoets en probeer opnieuw.",
+  "computerInputFailed": "Kon niet naar de computer worden verzonden. Probeer het opnieuw.",
   "computerQualityLow": "Minder dataverbruik",
   "computerDesktopSite": "Desktopwebsite",
   "computerAudioUnavailable": "Desktopaudio is niet beschikbaar op deze verbinding of dit apparaat.",

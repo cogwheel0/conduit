@@ -2,7 +2,7 @@
   "computerEnabledDescription": "Observez et contrôlez le bureau et le navigateur dans les discussions.",
   "computerTrackpadHint": "Glissez pour déplacer le curseur. Touchez pour cliquer, maintenez pour faire glisser ; défilez avec deux doigts.",
   "computerShortcut": "Raccourci clavier",
-  "computerInputFailed": "Impossible d’envoyer la saisie. Vérifiez le raccourci et réessayez.",
+  "computerInputFailed": "Impossible d’envoyer à l’ordinateur. Réessayez.",
   "computerQualityLow": "Moins de données",
   "computerDesktopSite": "Version pour ordinateur",
   "computerAudioUnavailable": "L’audio du bureau n’est pas disponible sur cette connexion ou cet appareil.",

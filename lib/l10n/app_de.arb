@@ -2,7 +2,7 @@
   "computerEnabledDescription": "Desktop- und Browsersitzungen in Chats ansehen und steuern.",
   "computerTrackpadHint": "Wischen bewegt den Zeiger. Tippen klickt, Halten zieht; zwei Finger scrollen.",
   "computerShortcut": "Tastenkombination",
-  "computerInputFailed": "Eingabe konnte nicht gesendet werden. Prüfe die Tastenkombination und versuche es erneut.",
+  "computerInputFailed": "Konnte nicht an den Computer gesendet werden. Versuche es erneut.",
   "computerQualityLow": "Weniger Datenverbrauch",
   "computerDesktopSite": "Desktop-Website",
   "computerAudioUnavailable": "Desktop-Audio ist auf dieser Verbindung oder diesem Gerät nicht verfügbar.",

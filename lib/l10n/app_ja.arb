@@ -2,7 +2,7 @@
   "computerEnabledDescription": "チャットでデスクトップとブラウザのセッションを表示・操作します。",
   "computerTrackpadHint": "スライドでカーソル移動。タップでクリック、長押しでドラッグ、2本指でスクロール。",
   "computerShortcut": "キーボードショートカット",
-  "computerInputFailed": "入力を送信できませんでした。ショートカットを確認して再試行してください。",
+  "computerInputFailed": "コンピュータに送信できませんでした。もう一度お試しください。",
   "computerQualityLow": "データ使用量を抑える",
   "computerDesktopSite": "デスクトップ用サイト",
   "computerAudioUnavailable": "この接続またはデバイスではデスクトップ音声を利用できません。",

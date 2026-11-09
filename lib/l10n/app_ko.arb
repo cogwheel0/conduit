@@ -2,7 +2,7 @@
   "computerEnabledDescription": "채팅에서 데스크톱 및 브라우저 세션을 보고 제어합니다.",
   "computerTrackpadHint": "밀어서 커서를 이동하세요. 탭하면 클릭, 길게 누르면 드래그, 두 손가락으로 스크롤합니다.",
   "computerShortcut": "키보드 단축키",
-  "computerInputFailed": "입력을 전송하지 못했습니다. 단축키를 확인하고 다시 시도하세요.",
+  "computerInputFailed": "컴퓨터로 보내지 못했습니다. 다시 시도하세요.",
   "computerQualityLow": "데이터 사용량 줄이기",
   "computerDesktopSite": "데스크톱 사이트",
   "computerAudioUnavailable": "이 연결 또는 기기에서 데스크톱 오디오를 사용할 수 없습니다.",

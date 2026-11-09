@@ -33,12 +33,17 @@ Future<void> openComputerWorkspace(BuildContext context, WidgetRef ref) async {
 }
 
 /// What the address dialog navigates to: typed text without a scheme, such
-/// as `example.com`, is an https address, as in a browser's address bar.
+/// as `example.com` or `localhost:3000`, is an https address, as in a
+/// browser's address bar. A host and port is not a scheme.
 String computerAddressUrl(String typed) {
   final address = typed.trim();
-  return RegExp(r'^[a-zA-Z][a-zA-Z0-9+.-]*:').hasMatch(address)
-      ? address
-      : 'https://$address';
+  final hasScheme =
+      RegExp(r'^[a-zA-Z][a-zA-Z0-9+.-]*://').hasMatch(address) ||
+      RegExp(
+        r'^(about|data|blob|view-source|mailto):',
+        caseSensitive: false,
+      ).hasMatch(address);
+  return hasScheme ? address : 'https://$address';
 }
 
 /// Menu commands of the Computer viewer's More button.
@@ -729,8 +734,7 @@ class _ComputerPageState extends ConsumerState<ComputerPage>
         if (line.isNotEmpty) {'type': 'paste', 'text': line},
       ],
     ];
-    // One queue keeps keystrokes in typing order across quick edits.
-    _keystrokes = _keystrokes.then((_) async {
+    _enqueue(() async {
       for (final command in commands) {
         if (!mounted || !_controlling) return;
         await _surface.command(command);
@@ -740,11 +744,18 @@ class _ComputerPageState extends ConsumerState<ComputerPage>
 
   void _sendKey(String key) {
     if (!_controlling) return;
-    _keystrokes = _keystrokes.then((_) async {
+    _enqueue(() async {
       if (mounted && _controlling) {
         await _surface.command({'type': 'shortcut', 'key': key});
       }
     });
+  }
+
+  /// One queue keeps keystrokes in typing order across quick edits. A send
+  /// that fails, as when the viewer is replaced mid-send, drops only itself;
+  /// later keystrokes still go out.
+  void _enqueue(Future<void> Function() send) {
+    _keystrokes = _keystrokes.then((_) => send()).catchError((Object _) {});
   }
 
   // Build ---------------------------------------------------------------------

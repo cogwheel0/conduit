@@ -2,7 +2,7 @@
   "computerEnabledDescription": "Observa y controla sesiones de escritorio y navegador en los chats.",
   "computerTrackpadHint": "Desliza para mover el cursor. Toca para hacer clic, mantén para arrastrar; desplaza con dos dedos.",
   "computerShortcut": "Atajo de teclado",
-  "computerInputFailed": "No se pudo enviar la entrada. Revisa el atajo e inténtalo de nuevo.",
+  "computerInputFailed": "No se pudo enviar al ordenador. Inténtalo de nuevo.",
   "computerQualityLow": "Menor uso de datos",
   "computerDesktopSite": "Sitio de escritorio",
   "computerAudioUnavailable": "El audio del escritorio no está disponible en esta conexión o dispositivo.",

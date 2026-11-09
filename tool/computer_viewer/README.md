@@ -121,8 +121,8 @@ test/features/terminal/computer_tabs_integration_test.dart` after the setup belo
 
 `computer_webui_integration_test.dart` additionally exercises an unmodified,
 disposable Open WebUI 0.13 installation: authenticated terminal discovery,
-saved-chat scope, desktop screenshot and WebSocket authentication, signed browser
-viewer tickets, tab selection, shortcuts, screenshots and cleanup. Supply
+saved-chat scope, desktop WebSocket authentication, signed browser viewer
+tickets, proxy-tab activation, tab selection, keep-alive, shortcuts and cleanup. Supply
 `COMPUTER_WEBUI_REVIEW=true` and `COMPUTER_WEBUI_REVIEW_CONFIG` pointing to a local
 JSON file with `url`, `token` and `server_id`. Use a fresh synthetic account and
 terminal; never commit that configuration. The test creates and deletes its own

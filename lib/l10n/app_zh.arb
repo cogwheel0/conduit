@@ -2,7 +2,7 @@
   "computerEnabledDescription": "在聊天中查看和控制桌面与浏览器会话。",
   "computerTrackpadHint": "滑动以移动光标。轻点以点击，按住以拖动，双指滚动。",
   "computerShortcut": "键盘快捷键",
-  "computerInputFailed": "无法发送输入。请检查快捷键后重试。",
+  "computerInputFailed": "无法发送到电脑。请重试。",
   "computerQualityLow": "减少流量使用",
   "computerDesktopSite": "桌面版网站",
   "computerAudioUnavailable": "此连接或设备无法播放桌面音频。",

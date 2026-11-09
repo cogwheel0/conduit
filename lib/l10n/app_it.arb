@@ -2,7 +2,7 @@
   "computerEnabledDescription": "Guarda e controlla sessioni desktop e browser nelle chat.",
   "computerTrackpadHint": "Scorri per muovere il cursore. Tocca per fare clic, tieni premuto per trascinare; scorri con due dita.",
   "computerShortcut": "Scorciatoia da tastiera",
-  "computerInputFailed": "Impossibile inviare l’input. Controlla la scorciatoia e riprova.",
+  "computerInputFailed": "Impossibile inviare al computer. Riprova.",
   "computerQualityLow": "Minore consumo di dati",
   "computerDesktopSite": "Sito desktop",
   "computerAudioUnavailable": "L’audio del desktop non è disponibile su questa connessione o dispositivo.",

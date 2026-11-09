@@ -2,7 +2,7 @@
   "computerEnabledDescription": "Obserwuj i kontroluj sesje pulpitu i przeglądarki w czatach.",
   "computerTrackpadHint": "Przesuń, aby poruszyć kursorem. Stuknij, aby kliknąć, przytrzymaj, aby przeciągnąć; przewijaj dwoma palcami.",
   "computerShortcut": "Skrót klawiaturowy",
-  "computerInputFailed": "Nie udało się wysłać danych. Sprawdź skrót i spróbuj ponownie.",
+  "computerInputFailed": "Nie udało się wysłać do komputera. Spróbuj ponownie.",
   "computerQualityLow": "Mniejsze zużycie danych",
   "computerDesktopSite": "Wersja na komputer",
   "computerAudioUnavailable": "Dźwięk pulpitu jest niedostępny dla tego połączenia lub urządzenia.",
