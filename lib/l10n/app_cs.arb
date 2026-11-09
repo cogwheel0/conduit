@@ -1260,7 +1260,7 @@
   "@enterToken": {
     "description": "Hint text for JWT token input."
   },
-  "tokenHint": "Zkopírujte token relace JWT z webového Open WebUI a vložte ho sem. Správci ho najdou v Nastavení › Účet › Klíče API. Klíče API (sk-…) fungovat nebudou.",
+  "tokenHint": "Zkopírujte token relace JWT z webového Open WebUI a vložte ho sem. Správci ho najdou v Nastavení › Účet › API klíče. Klíče API (sk-…) fungovat nebudou.",
   "@tokenHint": {
     "description": "Help text explaining what type of token to use."
   },

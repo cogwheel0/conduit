@@ -289,7 +289,7 @@
   "usernameOrEmailHint": "Entrez votre nom d'utilisateur ou e‑mail",
   "passwordHint": "Entrez votre mot de passe",
   "enterToken": "Entrez votre jeton JWT",
-  "tokenHint": "Copiez un jeton de session JWT depuis Open WebUI sur le web et collez-le ici. Les administrateurs le trouvent dans Paramètres › Compte › Clés API. Les clés API (sk-…) ne fonctionnent pas.",
+  "tokenHint": "Copiez un jeton de session JWT depuis Open WebUI sur le web et collez-le ici. Les administrateurs le trouvent dans Réglages › Compte › Clés API. Les clés API (sk-…) ne fonctionnent pas.",
   "apiKeyNotSupported": "Les clés API (sk-…) ne permettent pas de se connecter. Collez plutôt un jeton JWT.",
   "apiKeyNoLongerSupported": "Vous avez été déconnecté car les clés API ne sont plus prises en charge. Veuillez vous connecter avec un jeton JWT depuis les paramètres d'Open WebUI.",
   "tokenTooShort": "Le jeton est trop court",
