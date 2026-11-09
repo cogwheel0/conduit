@@ -919,14 +919,15 @@ double conduitToolbarClusterWidth(BuildContext context, int count) {
 /// title capsule never crowds the glass next to it.
 const double kConduitCenteredTitleClearance = 12;
 
-/// The widest a centred bar title may be: all the room between the leading
-/// and trailing controls, less [gap] of clear space beside each.
+/// The widest a centred bar title may be: twice the room between the
+/// screen's centre line and the nearer of the leading and trailing
+/// controls, less [gap] of clear space beside each.
 ///
-/// As UINavigationBar places a title, the bar keeps it on the screen's
-/// centre line while it fits there with [gap] to spare; a longer one moves
-/// toward the side with room, off centre, until it has [gap] on both sides
-/// (see [ConduitAdaptiveCupertinoNavigationBar]). Only past that does it
-/// need to shorten.
+/// As UINavigationBar sets a title, the title stays on the screen's centre
+/// line in every page, whatever the controls beside it, and one too long
+/// for that room is shortened rather than moved aside. A bar with a narrow
+/// button on one side and a wider group on the other therefore gives its
+/// title the wider side's limit on both.
 double resolveConduitBarTitleMaxWidth(
   BuildContext context, {
   required double leadingWidth,
@@ -934,13 +935,12 @@ double resolveConduitBarTitleMaxWidth(
   required double maxWidth,
   double gap = kConduitCenteredTitleClearance,
 }) {
-  final available =
-      MediaQuery.sizeOf(context).width -
-      2 * Spacing.inputPadding -
-      leadingWidth -
-      trailingWidth -
-      2 * gap;
-  return available.clamp(0.0, math.max(0.0, maxWidth)).toDouble();
+  final halfRoom =
+      MediaQuery.sizeOf(context).width / 2 -
+      Spacing.inputPadding -
+      math.max(leadingWidth, trailingWidth) -
+      gap;
+  return (2 * halfRoom).clamp(0.0, math.max(0.0, maxWidth)).toDouble();
 }
 
 /// Explains a bar toggle whose glyph has no label: the system popover of iOS

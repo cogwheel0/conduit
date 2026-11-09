@@ -4853,13 +4853,13 @@ class _ChatPageState extends ConsumerState<ChatPage>
       return actionsWidth + connectionWidth;
     }
 
-    // On iOS the pill may take all the room between the buttons, 12 pt clear
-    // of each: the bar keeps it on the screen's centre line while it fits
-    // there and moves it toward the side with room once it is longer, as
-    // UINavigationBar does, so a long title shortens only when it must. A
-    // bar too crowded even for that (large text on a narrow phone) falls
-    // back to the room the buttons leave rather than lose the picker;
-    // Material titles sit at the leading edge and always take that room.
+    // On iOS the pill stays on the screen's centre line in every chat, as a
+    // UINavigationBar title does: it may be as wide as twice the room from
+    // the centre to the nearer control, 12 pt clear of it, and a longer
+    // title shortens. A bar too crowded even for that (large text on a
+    // narrow phone) falls back to the room the buttons leave rather than
+    // lose the picker; Material titles sit at the leading edge and always
+    // take that room.
     double modelWidth() {
       if (PlatformInfo.isIOS) {
         final room = resolveConduitBarTitleMaxWidth(

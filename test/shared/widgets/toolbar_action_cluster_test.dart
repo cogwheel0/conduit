@@ -89,9 +89,8 @@ void main() {
     expect(conduitToolbarClusterWidth(context, 3), 120);
   });
 
-  testWidgets('a bar title may take the room between the controls', (
-    tester,
-  ) async {
+  testWidgets('a bar title gets the same room on both sides of the centre '
+      'line', (tester) async {
     tester.view.physicalSize = const Size(402, 874);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
@@ -106,9 +105,9 @@ void main() {
         ),
       ),
     );
-    // 402 - 2 * 16 - 44 - 80 - 2 * 12: everything between the sidebar
-    // button and the group, 12 pt clear of each, not only what would keep
-    // it on the centre line (186).
+    // 2 * (201 - 16 - 80 - 12): the wider group sets the limit on both
+    // sides, so the title stays centred (not 222, all the room between the
+    // sidebar button and the group).
     expect(
       resolveConduitBarTitleMaxWidth(
         context,
@@ -116,17 +115,55 @@ void main() {
         trailingWidth: 80,
         maxWidth: 320,
       ),
-      222,
+      186,
+    );
+    // Whichever side is wider.
+    expect(
+      resolveConduitBarTitleMaxWidth(
+        context,
+        leadingWidth: 66,
+        trailingWidth: 44,
+        maxWidth: 320,
+      ),
+      214,
     );
     expect(
       resolveConduitBarTitleMaxWidth(
         context,
         leadingWidth: 44,
         trailingWidth: 80,
-        maxWidth: 200,
+        maxWidth: 150,
       ),
-      200,
+      150,
     );
+  });
+
+  testWidgets('a title as wide as its room stays on the centre line', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(402, 874);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: Scaffold(
+          appBar: ConduitAdaptiveCupertinoNavigationBar(
+            textScaler: TextScaler.noScaling,
+            leading: SizedBox(width: 44, height: 44),
+            middle: SizedBox(key: ValueKey('middle'), width: 186, height: 44),
+            trailing: SizedBox(
+              key: ValueKey('trailing'),
+              width: 80,
+              height: 44,
+            ),
+          ),
+        ),
+      ),
+    );
+    final middle = tester.getRect(find.byKey(const ValueKey('middle')));
+    final trailing = tester.getRect(find.byKey(const ValueKey('trailing')));
+    expect(middle.center.dx, closeTo(201, 0.01));
+    expect(trailing.left - middle.right, closeTo(12, 0.01));
   });
 
   testWidgets('a title that needs all the room sits 12 pt from both sides', (
