@@ -328,7 +328,7 @@ void main() {
 
     // The `=` a split leaves of Base64 padding counted as a short part, so
     // any diff with an assignment was refused.
-    test('Base64 padding is no part of a secret', () {
+    test('a part that is only `=` is no part of a secret', () {
       for (final secret in [
         'aGFyYm9yOmtlbHA3Nw==',
         'Basic aGFyYm9yOmtlbHA3Nw==',
@@ -343,9 +343,13 @@ void main() {
           ),
         ).isNotNull().not((it) => it.contains('aGFyYm9y'));
       }
-      // A cookie whose value is `=` is still looked for.
+      // `foobar==` may be a cookie whose value is `=`: nothing to show.
       check(
-        sanitizeHermesInlineDiff('+x = 1', sensitiveValues: const ['flag==']),
+        sanitizeHermesInlineDiff('+x = 1', sensitiveValues: const ['foobar==']),
+      ).equals('+x = 1');
+      // A short value of other punctuation is still looked for.
+      check(
+        sanitizeHermesInlineDiff('+x = !!', sensitiveValues: const ['flag=!!']),
       ).isNull();
     });
 

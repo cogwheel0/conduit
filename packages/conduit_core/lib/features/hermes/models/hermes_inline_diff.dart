@@ -49,18 +49,14 @@ bool _showsAlone(String text, String part) => RegExp(
   multiLine: true,
 ).hasMatch(text);
 
-/// Whether [part] is only what a split at `=` leaves of the `==` padding
-/// that ends a Base64 token of [secret] (the `=` of `Basic aGVsbG8hIQ==`).
-/// It is no part of the credential, and every diff has one on its own
-/// (`x = 1`). A cookie whose value is `=` (`flag==`) is no Base64 token, so
-/// its value is still looked for.
-bool _isBase64Padding(String secret, String part) =>
-    part == '=' &&
-    secret
-        .split(RegExp(r'[\s;,]+'))
-        .any((token) => token.length % 4 == 0 && _paddedBase64.hasMatch(token));
+/// Whether [part] is only `=`: what a split at `=` leaves of Base64 padding
+/// (the `=` of `Basic aGVsbG8hIQ==`), or a cookie whose value is `=`. The
+/// two cannot be told apart (`foobar==` is either), and neither holds
+/// anything of a credential to show, while every diff has an `=` on its own
+/// (`x = 1`). Any other short part, punctuation too, is still looked for.
+bool _isOnlyEquals(String part) => _onlyEquals.hasMatch(part);
 
-final RegExp _paddedBase64 = RegExp(r'^[A-Za-z0-9+/_-]{2,}==$');
+final RegExp _onlyEquals = RegExp(r'^=+$');
 
 final RegExp _hunkHeader = RegExp(
   r'^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@',
@@ -93,7 +89,7 @@ String? sanitizeHermesInlineDiff(
     for (final part in parts) {
       if (part.length >= _kMinRedactedSecretPartLength) {
         found.add(part);
-      } else if (!_isBase64Padding(secret, part)) {
+      } else if (!_isOnlyEquals(part)) {
         short.add(part);
       }
     }
