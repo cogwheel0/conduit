@@ -26,7 +26,6 @@ import 'package:conduit_core/auth/token_validator.dart';
 import 'package:conduit_core/auth/openwebui_two_step.dart';
 import 'package:conduit_core/auth/sign_in_failure.dart';
 import 'package:conduit_core/models/browser_sign_in_config.dart';
-import 'package:conduit_core/models/browser_sign_in_session.dart';
 
 import 'package:conduit_core/auth/auth_cache_manager.dart';
 
@@ -43,19 +42,14 @@ import 'package:conduit_core/database/database_provider.dart';
 import 'package:conduit_core/providers/host_ports.dart';
 import 'package:conduit_core/features/push/providers/push_providers.dart';
 
+export 'package:conduit_core/auth/browser_sign_in/browser_sign_in_service.dart'
+    show BrowserSessionRevocation;
+
 part 'auth_state_manager.g.dart';
 
 typedef SavedCredentialAuthApiFactory = ApiService Function({
   required ServerConfig serverConfig,
   required WorkerManager workerManager,
-});
-
-/// A browser sign-in session to revoke, and the address its account was
-/// reached through, whose TLS settings an identity provider on exactly that
-/// origin shares.
-typedef BrowserSessionRevocation = ({
-  BrowserSignInSession session,
-  ServerConfig? route,
 });
 
 const _newerAuthAttemptSettleGrace = Duration(milliseconds: 500);
@@ -1430,10 +1424,18 @@ class AuthStateManager extends _$AuthStateManager {
       throw StateError('That account is no longer saved.');
     }
     final routes = await _accountRoutes(storage);
-    final ended = await storage.setServerBrowserSignIn(
-      account.serverId,
-      config,
-    );
+    // A renewal saving a rotated refresh token meanwhile would keep it
+    // from the sessions ended here, and from their revocation.
+    final release = await _holdBrowserRenewals([
+      for (final onServer in registry.accountsOn(account.serverId))
+        onServer.id,
+    ]);
+    final List<StoredBrowserSignInSession> ended;
+    try {
+      ended = await storage.setServerBrowserSignIn(account.serverId, config);
+    } finally {
+      release();
+    }
     if (!ref.mounted) return;
     ref.invalidate(serverConfigsProvider);
     if (ended.isNotEmpty) {
@@ -1460,6 +1462,13 @@ class AuthStateManager extends _$AuthStateManager {
     if (!current.isAuthenticated ||
         token == null ||
         !browserSessionNeedsRenewal(token)) {
+      return;
+    }
+    // Only a browser sign-in with its session renews here. Any other sign-in
+    // is left for the server to judge: the device clock is no refusal.
+    if (!await _canRenewBrowserSignIn() ||
+        !ref.mounted ||
+        _current.token != token) {
       return;
     }
     try {
@@ -1819,6 +1828,9 @@ class AuthStateManager extends _$AuthStateManager {
   /// Returns whether an account is signed in afterwards.
   Future<bool> signOutAccount(String accountId, {String? thenActivate}) async {
     _activeLogoutOperations++;
+    // Released once the account is removed, and before anything settles on
+    // the account in use next.
+    void Function() releaseRenewals = () {};
     try {
       final storage = ref.read(optimizedStorageServiceProvider);
       // Before anything is removed: once the account is gone, only this
@@ -1847,7 +1859,9 @@ class AuthStateManager extends _$AuthStateManager {
         _retryableBrowserGrant = null;
       }
       // Read before storage deletes it with the account, and revoked once
-      // the account is gone.
+      // the account is gone. No renewal runs between: one would rotate the
+      // refresh token after this read, leaving the new one unrevoked.
+      releaseRenewals = await _holdBrowserRenewals([accountId]);
       final browserSession = await _browserSessionForRevocation(
         storage,
         accountId,
@@ -1883,6 +1897,7 @@ class AuthStateManager extends _$AuthStateManager {
         removedInactive = await storage.removeInactiveAccount(accountId);
       }
       if (removedInactive) {
+        releaseRenewals();
         ref.invalidate(serverConfigsProvider);
         signedIn = _current.isAuthenticated;
       } else {
@@ -1894,6 +1909,7 @@ class AuthStateManager extends _$AuthStateManager {
             thenActivate: thenActivate,
           );
         } catch (error, stackTrace) {
+          releaseRenewals();
           _logAuthenticationFailure(
             'account-sign-out-failed',
             error,
@@ -1904,6 +1920,7 @@ class AuthStateManager extends _$AuthStateManager {
           if (!_authAttemptSuperseded(attemptRevision)) await refresh();
           Error.throwWithStackTrace(error, stackTrace);
         }
+        releaseRenewals();
         // Storage decides "active" again under its own lock. If a switch got
         // in first, it removed an inactive account and left the live session
         // alone; settle on that session rather than publishing it signed out.
@@ -1923,6 +1940,7 @@ class AuthStateManager extends _$AuthStateManager {
       await _purgeRemovedAccount(accountId);
       return signedIn;
     } finally {
+      releaseRenewals();
       _activeLogoutOperations--;
     }
   }
@@ -1996,17 +2014,10 @@ class AuthStateManager extends _$AuthStateManager {
     required String expectedSourceAccountId,
     String? expectedToken,
   }) async {
-    final storage = ref.read(optimizedStorageServiceProvider);
-    // A renewal of the source has spent its refresh token by the time it
-    // saves the rotated one: the session moves only once that is saved, or
-    // the target would get the spent one.
-    await ref
-        .read(browserSignInServiceProvider)
-        .renewalSettled(expectedSourceAccountId);
-    if (!ref.mounted) return false;
-    // Taken before anything else is awaited: a sign-in started meanwhile
-    // owns what comes next, and the boundary below would cancel it.
+    // Taken before anything is awaited: a sign-in started meanwhile owns
+    // what comes next, and the boundary below would cancel it.
     final revision = _authAttemptRevision;
+    final storage = ref.read(optimizedStorageServiceProvider);
     final sourceAccountId = await storage.getActiveServerId();
     if (sourceAccountId == null ||
         sourceAccountId != expectedSourceAccountId ||
@@ -2029,24 +2040,35 @@ class AuthStateManager extends _$AuthStateManager {
     }
     if (!ref.mounted || _authAttemptRevision != revision) return false;
 
-    final attemptRevision = _enterAccountBoundary();
-    final bool merged;
+    // A renewal of the source has spent its refresh token by the time it
+    // saves the rotated one: the session moves only once that is saved, and
+    // no renewal starts until it has moved, or the target would get a spent
+    // one.
+    final releaseRenewals = await _holdBrowserRenewals([sourceAccountId]);
     try {
-      merged = await storage.mergeActiveAccountInto(
-        targetAccountId,
-        expectedSourceAccountId: expectedSourceAccountId,
-        expectedToken: expectedToken,
-      );
+      if (!ref.mounted || _authAttemptRevision != revision) return false;
+      final attemptRevision = _enterAccountBoundary();
+      final bool merged;
+      try {
+        merged = await storage.mergeActiveAccountInto(
+          targetAccountId,
+          expectedSourceAccountId: expectedSourceAccountId,
+          expectedToken: expectedToken,
+        );
+      } finally {
+        releaseRenewals();
+        _invalidateServerProviders();
+        if (!_authAttemptSuperseded(attemptRevision)) await refresh();
+      }
+      // Storage declines when something changed since the check above -- a
+      // switch, or the target signed out of. The source then still exists,
+      // and may be the active account; its data stays.
+      if (!merged) return false;
+      await _purgeRemovedAccount(sourceAccountId);
+      return true;
     } finally {
-      _invalidateServerProviders();
-      if (!_authAttemptSuperseded(attemptRevision)) await refresh();
+      releaseRenewals();
     }
-    // Storage declines when something changed since the check above -- a
-    // switch, or the target signed out of. The source then still exists, and
-    // may be the active account; its data stays.
-    if (!merged) return false;
-    await _purgeRemovedAccount(sourceAccountId);
-    return true;
   }
 
   /// Deletes the local data of [accountId], which storage has just removed.
@@ -2151,10 +2173,22 @@ class AuthStateManager extends _$AuthStateManager {
   /// is reached through, so signing out of all accounts can revoke their
   /// refresh tokens once the local wipe has committed (after it, they are
   /// gone). Empty when they cannot be read.
-  Future<List<BrowserSessionRevocation>>
-  browserSignInSessionsForRevocation() async {
+  ///
+  /// With [holdRenewalsUntil], no renewal runs from before the read until
+  /// it completes, so none rotates a refresh token after the read and
+  /// before the wipe, leaving the new one unrevoked.
+  Future<List<BrowserSessionRevocation>> browserSignInSessionsForRevocation({
+    Future<void>? holdRenewalsUntil,
+  }) async {
     try {
       final storage = ref.read(optimizedStorageServiceProvider);
+      if (holdRenewalsUntil != null) {
+        final accounts = (await storage.getOpenWebUiRegistryStrict()).accounts;
+        final release = await _holdBrowserRenewals([
+          for (final account in accounts) account.id,
+        ]);
+        holdRenewalsUntil.whenComplete(release).ignore();
+      }
       final stored = await storage.browserSignInSessionsForRevocation();
       if (stored.isEmpty) return const <BrowserSessionRevocation>[];
       final routes = await _accountRoutes(storage);
@@ -2174,21 +2208,35 @@ class AuthStateManager extends _$AuthStateManager {
     List<BrowserSessionRevocation> sessions,
   ) => _revokeBrowserSessions(sessions);
 
+  /// Revokes [sessions] once nothing stored shares their grants
+  /// ([BrowserSignInService.revokeEnded]): every revocation goes through
+  /// here.
   Future<void> _revokeBrowserSessions(
     List<BrowserSessionRevocation> sessions,
   ) async {
     if (sessions.isEmpty || !ref.mounted) return;
     final BrowserSignInService service;
+    final OptimizedStorageService storage;
     try {
       service = ref.read(browserSignInServiceProvider);
+      storage = ref.read(optimizedStorageServiceProvider);
     } catch (error) {
       _logAuthenticationFailure('browser-session-revoke-failed', error);
       return;
     }
-    await Future.wait([
-      for (final entry in sessions)
-        service.revokeBestEffort(entry.session, route: entry.route),
-    ]);
+    await service.revokeEnded(sessions, storage: storage);
+  }
+
+  /// Holds renewals of [accountIds] ([BrowserSignInService.holdRenewalsOf]),
+  /// for an operation that reads their sessions to move or end them. A
+  /// manager whose service cannot be read holds nothing.
+  Future<void Function()> _holdBrowserRenewals(Iterable<String> accountIds) {
+    try {
+      return ref.read(browserSignInServiceProvider).holdRenewalsOf(accountIds);
+    } catch (error) {
+      _logAuthenticationFailure('browser-renewal-hold-failed', error);
+      return Future.value(() {});
+    }
   }
 
   /// [accountId]'s browser sign-in session, for a sign-out to revoke; null
@@ -4267,6 +4315,21 @@ class AuthStateManager extends _$AuthStateManager {
     }
   }
 
+  /// Whether the active account's saved sign-in is a browser sign-in with a
+  /// session to renew it with. False when either cannot be read.
+  Future<bool> _canRenewBrowserSignIn() async {
+    final storage = ref.read(optimizedStorageServiceProvider);
+    final saved = await _savedBrowserSignIn(storage);
+    final accountId = saved?['serverId'];
+    if (accountId == null || accountId.isEmpty) return false;
+    try {
+      return await storage.browserSignInSessionFor(accountId) != null;
+    } catch (error) {
+      _logAuthenticationFailure('browser-session-read-failed', error);
+      return false;
+    }
+  }
+
   /// The active account's saved sign-in when it is a browser sign-in, or
   /// null, also when it cannot be read.
   Future<Map<String, String>?> _savedBrowserSignIn(
@@ -4722,12 +4785,27 @@ class AuthStateManager extends _$AuthStateManager {
     // before anything clears it, and revoke it once the logout has. Signing
     // out of every account revokes them all itself.
     _retryableBrowserGrant = null;
-    final browserSessionRead = clearAllAppData || loggedOutAccountId == null
+    // Renewals of the account wait until the logout ends: one between the
+    // read and the clear would rotate the refresh token, leaving the new one
+    // unrevoked. The clear waits for the read.
+    final browserRenewalsHeld = clearAllAppData || loggedOutAccountId == null
         ? null
-        : _browserSessionForRevocation(
-            ref.read(optimizedStorageServiceProvider),
-            loggedOutAccountId,
-          );
+        : _holdBrowserRenewals([loggedOutAccountId]);
+    final browserSessionStorage = ref.read(optimizedStorageServiceProvider);
+    final browserSessionRead = browserRenewalsHeld?.then(
+      (_) => _browserSessionForRevocation(
+        browserSessionStorage,
+        loggedOutAccountId!,
+      ),
+    );
+    Future<void> browserSessionReadSettled() async {
+      try {
+        await browserSessionRead;
+      } catch (_) {
+        // Unread, there is nothing to revoke.
+      }
+    }
+
     void revokeBrowserSession() {
       final read = browserSessionRead;
       if (read == null) return;
@@ -4928,6 +5006,7 @@ class AuthStateManager extends _$AuthStateManager {
         }
       }
 
+      await browserSessionReadSettled();
       durableAuthDataCleared = await clearAuthDataForCurrentOwnership();
       if (!durableAuthDataCleared) {
         DebugLogger.auth('Logout cleanup yielded to a committed newer session');
@@ -4953,6 +5032,7 @@ class AuthStateManager extends _$AuthStateManager {
       } else {
         // Even if logout fails, clear local state where possible.
         try {
+          await browserSessionReadSettled();
           durableAuthDataCleared = await clearAuthDataForCurrentOwnership();
           if (!durableAuthDataCleared) {
             DebugLogger.auth(
@@ -4968,6 +5048,9 @@ class AuthStateManager extends _$AuthStateManager {
         }
       }
     } finally {
+      if (browserRenewalsHeld != null) {
+        unawaited(browserRenewalsHeld.then((release) => release()));
+      }
       // A host with no browser surface has nothing to clear, so it is
       // trivially clean; only a real surface can fail to purge.
       var webViewDataCleared = !cookieJar.isSupported;

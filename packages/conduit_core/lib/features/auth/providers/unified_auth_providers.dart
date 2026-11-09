@@ -5,11 +5,9 @@ import 'package:conduit_core/auth/browser_sign_in/browser_sign_in_failure.dart';
 import 'package:conduit_core/auth/browser_sign_in/browser_sign_in_service.dart';
 import 'package:conduit_core/auth/openwebui_two_step.dart';
 
-import 'package:conduit_core/models/backend_config.dart';
 import 'package:conduit_core/models/browser_sign_in_config.dart';
 import 'package:conduit_core/models/user.dart';
 import 'package:conduit_core/models/server_config.dart';
-import 'package:conduit_core/providers/host_ports.dart';
 import 'package:conduit_core/providers/backend_mode_providers.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
 
@@ -150,14 +148,10 @@ class AuthActions {
     BrowserSignInConfig? config,
   }) => _auth.saveBrowserSignInConfig(accountId: accountId, config: config);
 
-  /// Whether a browser sign-in can be set up for a server reporting
-  /// [backendConfig], and with which of its providers.
-  BrowserSignInAvailability browserSignInAvailability(
-    BackendConfig? backendConfig,
-  ) => browserSignInAvailabilityFor(
-    port: _ref.read(browserAuthPortProvider),
-    backendConfig: backendConfig,
-  );
+  /// Ends the browser sign-in waiting on the browser, if any: its
+  /// [loginWithBrowser] returns false, as when the browser is closed.
+  Future<void> cancelBrowserSignIn() =>
+      _ref.read(browserSignInServiceProvider).cancel();
 
   Future<bool> ldapLogin(
     String username,

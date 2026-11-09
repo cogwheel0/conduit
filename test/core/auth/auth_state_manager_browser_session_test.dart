@@ -693,6 +693,50 @@ void main() {
       },
     );
 
+    test('on resume, a session that is no browser sign-in is left to the '
+        'server, even past its expiry by the device clock', () async {
+      final token = _jwt(const Duration(seconds: 2), tag: 'password');
+      final rig = await _Rig.start(
+        storedToken: token,
+        saved: const {
+          'serverId': 'account-a',
+          'username': 'a@example.test',
+          'password': 'pw',
+          'authType': 'credentials',
+        },
+      );
+      check(rig.state.status).equals(AuthStatus.authenticated);
+      // The app sat in the background past the token's expiry.
+      await Future<void>.delayed(const Duration(milliseconds: 2500));
+      final renewals = rig.service.renewals;
+      rig.statuses.clear();
+
+      await rig.auth.renewBrowserSessionIfExpiring();
+      await pumpEventQueue();
+
+      check(rig.statuses).isEmpty();
+      check(rig.state.status).equals(AuthStatus.authenticated);
+      check(rig.service.renewals).equals(renewals);
+    });
+
+    test('on resume, a browser sign-in without its session is left alone',
+        () async {
+      final token = _jwt(const Duration(minutes: 8), tag: 'expiring');
+      final rig = await _Rig.start(
+        storedToken: token,
+        saved: _savedBrowserSignIn(token),
+        renew: () async => (token: _renewed, session: _session),
+      );
+      when(() => rig.storage.browserSignInSessionFor('account-a'))
+          .thenAnswer((_) async => null);
+      rig.statuses.clear();
+
+      await rig.auth.renewBrowserSessionIfExpiring();
+
+      check(rig.statuses).isEmpty();
+      check(rig.service.renewals).equals(0);
+    });
+
     test('on resume, a session with time left is left alone', () async {
       final token = _jwt(const Duration(days: 2), tag: 'fresh');
       final rig = await _Rig.start(
@@ -824,23 +868,28 @@ void main() {
       check(rig.service.revoked).deepEquals([_session]);
     });
 
-    test('a merge waits for a renewal of the account it folds away', () async {
+    test('a merge waits for a renewal of the account it folds away, and '
+        'holds off new ones until the session moved', () async {
       final rig = await _Rig.start();
       rig.service.renewalInFlight = Completer<void>();
+      var heldDuringMerge = false;
       when(
         () => rig.storage.mergeActiveAccountInto(
           'account-b',
           expectedSourceAccountId: 'account-a',
           expectedToken: any(named: 'expectedToken'),
         ),
-      ).thenAnswer((_) async => false);
+      ).thenAnswer((_) async {
+        heldDuringMerge =
+            rig.service.held.length == 1 && rig.service.released.isEmpty;
+        return false;
+      });
 
       final merge = rig.auth.mergeActiveAccountInto(
         'account-b',
         expectedSourceAccountId: 'account-a',
       );
       await pumpEventQueue();
-      check(rig.service.settling).deepEquals(['account-a']);
       verifyNever(
         () => rig.storage.mergeActiveAccountInto(
           any(),
@@ -851,13 +900,153 @@ void main() {
 
       rig.service.renewalInFlight!.complete();
       await merge;
-      verify(
+      check(heldDuringMerge).isTrue();
+      check(rig.service.held).deepEquals([
+        ['account-a'],
+      ]);
+      check(rig.service.released).deepEquals([
+        ['account-a'],
+      ]);
+    });
+
+    test('a sign-in started while a merge waits on a renewal is not '
+        'cancelled by it', () async {
+      final rig = await _Rig.start();
+      rig.service.renewalInFlight = Completer<void>();
+      when(
         () => rig.storage.mergeActiveAccountInto(
-          'account-b',
-          expectedSourceAccountId: 'account-a',
+          any(),
+          expectedSourceAccountId: any(named: 'expectedSourceAccountId'),
           expectedToken: any(named: 'expectedToken'),
         ),
-      ).called(1);
+      ).thenAnswer((_) async => true);
+
+      final merge = rig.auth.mergeActiveAccountInto(
+        'account-b',
+        expectedSourceAccountId: 'account-a',
+      );
+      await pumpEventQueue();
+      // A sign-in begins meanwhile, and owns what comes next.
+      unawaited(rig.auth.refresh());
+      rig.service.renewalInFlight!.complete();
+
+      check(await merge).isFalse();
+      verifyNever(
+        () => rig.storage.mergeActiveAccountInto(
+          any(),
+          expectedSourceAccountId: any(named: 'expectedSourceAccountId'),
+          expectedToken: any(named: 'expectedToken'),
+        ),
+      );
+      check(rig.service.released).length.equals(1);
+    });
+
+    test('signing out of an account revokes the refresh token a renewal in '
+        'flight rotated, not the spent one', () async {
+      final rig = await _Rig.start();
+      const rotated = BrowserSignInSession(
+        serverId: 'server-1',
+        provider: 'oidc',
+        clientId: 'conduit',
+        issuer: 'https://id.example',
+        tokenEndpoint: 'https://id.example/token',
+        revocationEndpoint: 'https://id.example/revoke',
+        refreshToken: 'idp-refresh-rotated',
+        owuiUserId: 'user-a',
+      );
+      var stored = _session;
+      when(
+        () => rig.storage.browserSignInSessionFor('account-b'),
+      ).thenAnswer((_) async => stored);
+      when(() => rig.storage.vaultedSessions(accountIds: {'account-b'}))
+          .thenAnswer((_) async => const []);
+      when(() => rig.storage.removeInactiveAccount('account-b'))
+          .thenAnswer((_) async => true);
+      rig.service.renewalInFlight = Completer<void>();
+      // The renewal saves the rotated refresh token as it ends.
+      rig.service.onRenewalLanded = () => stored = rotated;
+
+      final signOut = rig.auth.signOutAccount('account-b');
+      await pumpEventQueue();
+      verifyNever(() => rig.storage.removeInactiveAccount(any()));
+      rig.service.renewalInFlight!.complete();
+      await signOut;
+      await pumpEventQueue();
+
+      check(rig.service.revoked).deepEquals([rotated]);
+      check(rig.service.held).deepEquals([
+        ['account-b'],
+      ]);
+      check(rig.service.released).length.equals(1);
+    });
+
+    test('a plain logout holds renewals from the session read through the '
+        'clear', () async {
+      final rig = await _Rig.start(clears: true);
+      when(() => rig.storage.browserSignInSessionFor('account-a'))
+          .thenAnswer((_) async => _session);
+      var heldDuringClear = false;
+      when(
+        () => rig.storage.clearActiveAccountAuthDataIf(
+          canClear: any(named: 'canClear'),
+        ),
+      ).thenAnswer((invocation) async {
+        heldDuringClear =
+            rig.service.held.length == 1 && rig.service.released.isEmpty;
+        return (invocation.namedArguments[#canClear] as bool Function())();
+      });
+
+      await rig.auth.logout();
+      await pumpEventQueue();
+
+      check(heldDuringClear).isTrue();
+      check(rig.service.held).deepEquals([
+        ['account-a'],
+      ]);
+      check(rig.service.released).length.equals(1);
+      check(rig.service.revoked).deepEquals([_session]);
+    });
+
+    test('a refresh token is not revoked while a session of the same grant '
+        'is still stored', () async {
+      final rig = await _Rig.start();
+      // The same user signed in again: the new session replaced the old.
+      rig.storage.storedSessions = [
+        (
+          accountId: 'account-a',
+          session: _session.copyWith(refreshToken: 'idp-refresh-new'),
+        ),
+      ];
+
+      rig.storage.dropped.add(const [
+        (accountId: 'account-a', session: _session),
+      ]);
+      await pumpEventQueue();
+
+      check(rig.service.revoked).isEmpty();
+    });
+
+    test('saving browser sign-in settings holds renewals of the server\'s '
+        'accounts while it ends their sessions', () async {
+      final rig = await _Rig.start(registry: _registry(secondAccount: true));
+      var heldDuringSave = false;
+      when(() => rig.storage.setServerBrowserSignIn('server-1', null))
+          .thenAnswer((_) async {
+            heldDuringSave =
+                rig.service.held.length == 1 && rig.service.released.isEmpty;
+            return const [(accountId: 'account-b', session: _session)];
+          });
+
+      await rig.auth.saveBrowserSignInConfig(accountId: 'account-a');
+      await pumpEventQueue();
+
+      check(heldDuringSave).isTrue();
+      check(rig.service.held.single).unorderedEquals([
+        'account-a',
+        'account-b',
+      ]);
+      check(rig.service.released).length.equals(1);
+      check(rig.service.revoked).deepEquals([_session]);
     });
 
     test('sessions left behind by an interrupted operation are swept and '
@@ -951,8 +1140,9 @@ final class _Rig {
     when(() => storage.getServerConfigs()).thenAnswer((_) async => [_server]);
     when(() => storage.sweepOrphanBrowserSignInSessions())
         .thenAnswer((_) async => swept);
+    // Every account holds the session of its browser sign-in.
     when(() => storage.browserSignInSessionFor(any()))
-        .thenAnswer((_) async => null);
+        .thenAnswer((_) async => _session);
     when(
       () => storage.clearActiveAccountAuthDataIf(
         canClear: any(named: 'canClear'),
@@ -1010,6 +1200,14 @@ final class _Rig {
 
 final class _Storage extends Mock implements OptimizedStorageService {
   late OpenWebUiRegistry registry;
+
+  /// The browser sign-in sessions still stored, which revocation spares a
+  /// grant they share.
+  List<StoredBrowserSignInSession> storedSessions = const [];
+
+  @override
+  Future<List<StoredBrowserSignInSession>>
+  browserSignInSessionsForRevocation() async => storedSessions;
   final dropped =
       StreamController<List<StoredBrowserSignInSession>>.broadcast();
 
@@ -1095,14 +1293,27 @@ final class _Service extends BrowserSignInService {
     return const BrowserSignInDiagnosis(issuer: 'https://id.example');
   }
 
-  /// Holds [renewalSettled] until completed, as a renewal in flight would.
+  /// Holds every hold's start until completed, as a renewal in flight would.
   Completer<void>? renewalInFlight;
-  final settling = <String>[];
+
+  /// Runs once [renewalInFlight] completes, before the hold is taken: what
+  /// that renewal left.
+  void Function()? onRenewalLanded;
+  final held = <List<String>>[];
+  final released = <List<String>>[];
 
   @override
-  Future<void> renewalSettled(String accountId) async {
-    settling.add(accountId);
+  Future<void Function()> holdRenewalsOf(Iterable<String> accountIds) async {
+    final ids = accountIds.toList();
     await renewalInFlight?.future;
+    onRenewalLanded?.call();
+    held.add(ids);
+    var done = false;
+    return () {
+      if (done) return;
+      done = true;
+      released.add(ids);
+    };
   }
 
   @override

@@ -112,6 +112,7 @@ final class BrowserSignInGrant {
     required this.accessToken,
     this.refreshToken,
     this.scope = '',
+    this.subject,
   });
 
   /// The registry server of the account signing in.
@@ -130,6 +131,9 @@ final class BrowserSignInGrant {
   final String? refreshToken;
   final String scope;
 
+  /// The identity provider's user, when its ID token named one.
+  final String? subject;
+
   /// What the account keeps once Open WebUI signed it in as [owuiUserId];
   /// null without a refresh token.
   BrowserSignInSession? session({required String owuiUserId}) {
@@ -145,6 +149,7 @@ final class BrowserSignInGrant {
       refreshToken: refresh,
       scope: scope,
       owuiUserId: owuiUserId,
+      subject: subject,
     );
   }
 
@@ -209,6 +214,14 @@ final class BrowserSignInDiagnosis {
       'exchange: ${exchangeFailure?.name ?? 'ok'})';
 }
 
+/// A browser sign-in session to revoke, and the address its account was
+/// reached through, whose TLS settings an identity provider on exactly that
+/// origin shares.
+typedef BrowserSessionRevocation = ({
+  BrowserSignInSession session,
+  ServerConfig? route,
+});
+
 /// Builds the client for one sign-in's requests to its identity provider;
 /// [route] is the Open WebUI address in use, whose TLS settings an identity
 /// provider on exactly its origin shares.
@@ -241,7 +254,71 @@ class BrowserSignInService {
   /// than spending the refresh token again.
   final Map<String, Future<BrowserSignInRenewal>> _renewals = {};
 
+  /// Holds on renewals, by account: each completes when the last hold taken
+  /// on the account ends ([holdRenewals]).
+  final Map<String, Future<void>> _holds = {};
+
   bool get isSupported => _port.isSupported;
+
+  /// Ends the browser sign-in in progress, if any, as cancelled: the
+  /// [authorize] waiting on it returns null.
+  Future<void> cancel() => _port.cancel();
+
+  /// Runs [action] while no renewal of [accountIds] runs.
+  ///
+  /// Waits for the renewals of those accounts already running, which have
+  /// spent their refresh tokens and save the rotated ones before they end;
+  /// a renewal asked for meanwhile waits until [action] is done, and then
+  /// finds whatever [action] left. For anything that reads an account's
+  /// session to move, replace or revoke it.
+  ///
+  /// [action] must not wait for a renewal of those accounts, which would
+  /// wait for it in turn.
+  Future<T> holdRenewals<T>(
+    Iterable<String> accountIds,
+    Future<T> Function() action,
+  ) async {
+    final release = await holdRenewalsOf(accountIds);
+    try {
+      return await action();
+    } finally {
+      release();
+    }
+  }
+
+  /// [holdRenewals], for a hold that outlives one call: holds renewals of
+  /// [accountIds] from now until the function it completes with is called.
+  /// The hold is taken at once; what it completes with only waits for the
+  /// renewals already running, and holds taken before it, to end.
+  Future<void Function()> holdRenewalsOf(Iterable<String> accountIds) async {
+    final ids = accountIds.toSet();
+    final released = Completer<void>();
+    // Taken before anything is awaited: a renewal asked for from here on
+    // waits for this hold, and is not one this hold waits for.
+    final before = <Future<void>>[
+      for (final id in ids) ?_holds[id],
+      for (final id in ids)
+        if (_renewals[id] case final running?)
+          running.then<void>((_) {}, onError: (Object _, StackTrace _) {}),
+    ];
+    for (final id in ids) {
+      _holds[id] = released.future;
+    }
+    void release() {
+      if (released.isCompleted) return;
+      released.complete();
+      for (final id in ids) {
+        if (identical(_holds[id], released.future)) _holds.remove(id);
+      }
+    }
+
+    try {
+      await Future.wait(before);
+    } catch (_) {
+      // A renewal's failure is its caller's to handle.
+    }
+    return release;
+  }
 
   /// Steps 1 to 5 of a sign-in, through [api], the account's client on the
   /// address in use: asks Open WebUI where [config]'s provider signs in,
@@ -315,6 +392,7 @@ class BrowserSignInService {
         accessToken: tokens.accessToken,
         refreshToken: tokens.refreshToken,
         scope: tokens.scope ?? request.scope,
+        subject: tokens.subject,
       );
     } on OidcException catch (error) {
       throw _oidcFailure(error, step: 'authorize');
@@ -385,7 +463,12 @@ class BrowserSignInService {
   }) {
     final running = _renewals[accountId];
     if (running != null) return running;
-    final renewal = _renew(accountId: accountId, api: api, storage: storage);
+    final renewal = _renew(
+      accountId: accountId,
+      api: api,
+      storage: storage,
+      hold: _holds[accountId],
+    );
     _renewals[accountId] = renewal;
     return renewal.whenComplete(() {
       if (identical(_renewals[accountId], renewal)) {
@@ -394,23 +477,20 @@ class BrowserSignInService {
     });
   }
 
-  /// Completes once no renewal of [accountId] is running: one that is has
-  /// spent its refresh token, and saves the rotated one before it ends.
-  Future<void> renewalSettled(String accountId) async {
-    final running = _renewals[accountId];
-    if (running == null) return;
-    try {
-      await running;
-    } catch (_) {
-      // Its caller handles how it ended.
-    }
-  }
-
   Future<BrowserSignInRenewal> _renew({
     required String accountId,
     required ApiService api,
     required OptimizedStorageService storage,
+    Future<void>? hold,
   }) async {
+    if (hold != null) {
+      // Something was moving, replacing or ending the session: whatever it
+      // left is what renews, and none left means it ended on purpose.
+      await hold;
+      if (await storage.browserSignInSessionFor(accountId) == null) {
+        throw const BrowserSignInException(BrowserSignInFailure.accountChanged);
+      }
+    }
     final session = await storage.browserSignInSessionFor(accountId);
     if (session == null) {
       throw const BrowserSignInException(BrowserSignInFailure.refreshExpired);
@@ -457,6 +537,16 @@ class BrowserSignInService {
         expected: session,
         next: rotated,
       )) {
+        // Something replaced or ended the session meanwhile. The rotated
+        // refresh token is in this renewal's hands only: revoke it, unless a
+        // session still stored would go with it.
+        if (rotated.refreshToken != session.refreshToken) {
+          unawaited(
+            revokeEnded([
+              (session: rotated, route: api.serverConfig),
+            ], storage: storage),
+          );
+        }
         throw const BrowserSignInException(BrowserSignInFailure.accountChanged);
       }
       current = rotated;
@@ -486,47 +576,12 @@ class BrowserSignInService {
     required ApiService api,
     required BrowserSignInConfig config,
   }) async {
-    String? issuer;
-    BrowserSignInFailure? discoveryFailure;
-    if (oidcRedirectUriFor(
-          provider: config.provider,
-          clientId: config.clientId,
-        ) ==
-        null) {
-      discoveryFailure = BrowserSignInFailure.invalidClientId;
-    } else {
-      try {
-        final probe = await _probe(api, config.provider);
-        final http = _http(api.serverConfig);
-        try {
-          issuer = (await _discover(http, config, probe)).issuer;
-        } on OidcException catch (error) {
-          discoveryFailure = browserSignInFailureForOidc(error);
-        } finally {
-          http.close();
-        }
-      } on BrowserSignInException catch (error) {
-        discoveryFailure = error.failure;
-      }
-    }
-
-    // A token no provider issued: an exchange that is on refuses it once the
-    // provider has, while one that is off, or only trusts listed clients,
-    // refuses it before asking.
-    BrowserSignInFailure? exchangeFailure;
-    try {
-      await api.exchangeOAuthToken(
-        config.provider,
-        'conduit-browser-sign-in-check',
-      );
-    } on DioException catch (error) {
-      final failure = browserSignInFailureForExchange(error);
-      exchangeFailure = failure == BrowserSignInFailure.tokenRejectedByServer
-          ? null
-          : failure;
-    } on FormatException {
-      exchangeFailure = BrowserSignInFailure.failed;
-    }
+    // Independent of each other, so asked at once.
+    final (discovery, exchangeFailure) = await (
+      _diagnoseDiscovery(api, config),
+      _diagnoseExchange(api, config),
+    ).wait;
+    final (issuer, discoveryFailure) = discovery;
 
     final diagnosis = BrowserSignInDiagnosis(
       issuer: issuer,
@@ -544,9 +599,98 @@ class BrowserSignInService {
     return diagnosis;
   }
 
+  /// The identity provider [config] finds through [api]'s server, or why
+  /// none is found.
+  Future<(String?, BrowserSignInFailure?)> _diagnoseDiscovery(
+    ApiService api,
+    BrowserSignInConfig config,
+  ) async {
+    if (oidcRedirectUriFor(
+          provider: config.provider,
+          clientId: config.clientId,
+        ) ==
+        null) {
+      return (null, BrowserSignInFailure.invalidClientId);
+    }
+    try {
+      final probe = await _probe(api, config.provider);
+      final http = _http(api.serverConfig);
+      try {
+        return ((await _discover(http, config, probe)).issuer, null);
+      } on OidcException catch (error) {
+        return (null, browserSignInFailureForOidc(error));
+      } finally {
+        http.close();
+      }
+    } on BrowserSignInException catch (error) {
+      return (null, error.failure);
+    }
+  }
+
+  /// Why Open WebUI's token exchange would refuse [config]'s provider, or
+  /// null when it is on and checks tokens with the provider.
+  ///
+  /// It is asked with a token no provider issued: an exchange that is on
+  /// refuses it once the provider has, while one that is off, or only trusts
+  /// listed clients, refuses it before asking.
+  Future<BrowserSignInFailure?> _diagnoseExchange(
+    ApiService api,
+    BrowserSignInConfig config,
+  ) async {
+    try {
+      await api.exchangeOAuthToken(
+        config.provider,
+        'conduit-browser-sign-in-check',
+      );
+    } on DioException catch (error) {
+      final failure = browserSignInFailureForExchange(error);
+      return failure == BrowserSignInFailure.tokenRejectedByServer
+          ? null
+          : failure;
+    } on FormatException {
+      return BrowserSignInFailure.failed;
+    }
+    return null;
+  }
+
+  /// Revokes [sessions], which this device no longer keeps, at their
+  /// identity providers: best effort, never throws.
+  ///
+  /// One whose grant a session still stored shares
+  /// ([BrowserSignInSession.sharesGrantWith]) is left alone: a provider that
+  /// ends the whole grant would end that one too. So is everything when what
+  /// is stored cannot be read.
+  Future<void> revokeEnded(
+    List<BrowserSessionRevocation> sessions, {
+    required OptimizedStorageService storage,
+  }) async {
+    if (sessions.isEmpty) return;
+    final List<StoredBrowserSignInSession> stored;
+    try {
+      stored = await storage.browserSignInSessionsForRevocation();
+    } catch (_) {
+      DebugLogger.auth('browser-session-revoke-skipped');
+      return;
+    }
+    final revocable = [
+      for (final entry in sessions)
+        if (!stored.any((kept) => kept.session.sharesGrantWith(entry.session)))
+          entry,
+    ];
+    if (revocable.length < sessions.length) {
+      DebugLogger.auth('browser-session-revoke-shared-grant-kept');
+    }
+    await Future.wait([
+      for (final entry in revocable)
+        revokeBestEffort(entry.session, route: entry.route),
+    ]);
+  }
+
   /// Asks the identity provider to revoke [session]'s refresh token, when it
   /// has a revocation endpoint. Best effort, within [revocationTimeout]:
   /// never throws. [route] is the address the account was reached through.
+  ///
+  /// Revokes whatever it is given: [revokeEnded] decides what may be.
   Future<void> revokeBestEffort(
     BrowserSignInSession session, {
     ServerConfig? route,

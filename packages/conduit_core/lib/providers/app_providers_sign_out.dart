@@ -167,11 +167,6 @@ final class SignOutCoordinator {
     final inactiveSessions = await _ref
         .read(authStateManagerProvider.notifier)
         .inactiveAccountSessions();
-    // And their browser sign-ins' refresh tokens, active account's included,
-    // revoked at the identity provider once the wipe has committed.
-    final browserSessions = await _ref
-        .read(authStateManagerProvider.notifier)
-        .browserSignInSessionsForRevocation();
     // LibreChat's sessions live in the storage the clear empties; read them
     // first so their servers can be told too.
     final libreChatAccounts = await _ref
@@ -199,13 +194,23 @@ final class SignOutCoordinator {
       libreChatRegistry.finishAppDataClear();
     }
 
+    // And their browser sign-ins' refresh tokens, active account's included,
+    // revoked at the identity provider once the wipe has committed. No
+    // renewal runs from this read until the wipe is done: one would rotate a
+    // refresh token the read missed.
+    final wipeDone = Completer<void>();
+    final browserSessions = await _ref
+        .read(authStateManagerProvider.notifier)
+        .browserSignInSessionsForRevocation(holdRenewalsUntil: wipeDone.future);
+
     try {
       outcome = await _ref
           .read(authStateManagerProvider.notifier)
           .logoutAndClearAppData(
             keepServerDetails: keepServerDetails,
             beforeClear: prepareForClear,
-          );
+          )
+          .whenComplete(wipeDone.complete);
       switch (outcome) {
         case FullAppDataClearOutcome.cleared ||
             FullAppDataClearOutcome.localDataClearedSessionCleanupIncomplete:
