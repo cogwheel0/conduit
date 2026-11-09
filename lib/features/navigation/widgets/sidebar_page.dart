@@ -525,6 +525,7 @@ class _SidebarPageState extends ConsumerState<SidebarPage>
         AdaptiveAppBarAction(
           iosSymbol: 'xmark',
           icon: UiUtils.closeIcon,
+          semanticLabel: localizations.closeButtonSemantic,
           tintColor: defaultTint,
           onPressed: () => closeSidebarSearch(ref),
         ),
@@ -541,6 +542,7 @@ class _SidebarPageState extends ConsumerState<SidebarPage>
       AdaptiveAppBarAction(
         iosSymbol: 'magnifyingglass',
         icon: Icons.search,
+        semanticLabel: MaterialLocalizations.of(context).searchFieldLabel,
         tintColor: defaultTint,
         onPressed: () => openSidebarSearch(ref),
       ),
@@ -549,6 +551,7 @@ class _SidebarPageState extends ConsumerState<SidebarPage>
         AdaptiveAppBarAction(
           iosSymbol: createAction.sfSymbol,
           icon: createAction.icon,
+          semanticLabel: createAction.label(localizations),
           tintColor: defaultTint,
           onPressed: () => createAction.run(context, ref),
         ),

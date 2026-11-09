@@ -21,7 +21,12 @@ const double kConduitAdaptiveToolbarLeadingGap = Spacing.sm;
 const double kConduitAdaptiveToolbarMaxPillWidth = 220;
 const double kConduitAdaptiveToolbarMaxModelSelectorWidth = 320;
 const double kConduitModelSelectorChevronExtent = 13;
-const double kConduitNativeSingleActionSymbolExtent = 18;
+
+/// Point size of every glass bar button's SF Symbol. UIKit draws the native
+/// glass and plain buttons' symbols at the large scale, so this matches a
+/// UIBarButtonItem's glyph on iOS 26 (17 pt, large: the Files bar's "…" is
+/// 19.7 pt wide, as ours now is).
+const double kConduitNativeSingleActionSymbolExtent = 17;
 const double kConduitMaximumSystemControlScale = 1.5;
 
 const double _kConduitNativeButtonHorizontalInsets = 32;

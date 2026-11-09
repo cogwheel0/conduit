@@ -4,6 +4,7 @@ import 'package:conduit/shared/theme/app_theme.dart';
 import 'package:conduit/shared/theme/tweakcn_themes.dart';
 import 'package:conduit/shared/widgets/adaptive_toolbar_components.dart';
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
+import 'package:conduit/shared/widgets/sidebar_ios26_scaffold.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
 
@@ -488,5 +489,58 @@ void main() {
     expect(sawFadeIn, isTrue);
     await tester.pumpAndSettle();
     expect(_opacityOf(tester, 'more'), 1);
+  });
+
+  group('sidebarToolbarClusterItems', () {
+    test('icon actions become the same glass group as the chat header', () {
+      final items = sidebarToolbarClusterItems([
+        AdaptiveAppBarAction(
+          iosSymbol: 'magnifyingglass',
+          semanticLabel: 'Search',
+          onPressed: () {},
+        ),
+        AdaptiveAppBarAction(
+          iosSymbol: 'square.and.pencil',
+          semanticLabel: 'New Chat',
+          onPressed: () {},
+        ),
+      ]);
+      expect(items, isNotNull);
+      expect(
+        [for (final item in items!) item.id],
+        ['magnifyingglass', 'square.and.pencil'],
+      );
+      expect(
+        [for (final item in items) item.action.accessibilityLabel],
+        ['Search', 'New Chat'],
+      );
+    });
+
+    test('a disabled action stays, dimmed', () {
+      final items = sidebarToolbarClusterItems([
+        const AdaptiveAppBarAction(iosSymbol: 'xmark', semanticLabel: 'Close'),
+      ]);
+      expect(items!.single.action.enabled, isFalse);
+    });
+
+    test('a titled or prominent action keeps the separate buttons', () {
+      expect(
+        sidebarToolbarClusterItems([
+          AdaptiveAppBarAction(title: 'Done', onPressed: () {}),
+        ]),
+        isNull,
+      );
+      expect(
+        sidebarToolbarClusterItems([
+          AdaptiveAppBarAction(
+            iosSymbol: 'plus',
+            prominent: true,
+            onPressed: () {},
+          ),
+        ]),
+        isNull,
+      );
+      expect(sidebarToolbarClusterItems(const []), isNull);
+    });
   });
 }
