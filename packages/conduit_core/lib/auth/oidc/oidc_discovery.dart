@@ -120,12 +120,18 @@ final class OidcDiscoveryClient {
   /// With an [issuer] entered by hand, only its document is read. Otherwise
   /// [oidcDiscoveryCandidates] are read in turn, and the first document
   /// accepted wins. A document is accepted only when it sits under its own
-  /// issuer and names [authorizationEndpoint].
+  /// issuer and names [authorizationEndpoint] -- or, for Microsoft, when it
+  /// is Microsoft's own document for the tenant the endpoint names
+  /// ([_isMicrosoftTenantDocument]).
+  ///
+  /// The candidates are all on the endpoint's host, so the first that cannot
+  /// be reached (a network failure, a timeout, an untrusted certificate)
+  /// ends the search: the others would only take as long to fail.
   ///
   /// Throws [OidcException]: [OidcFailureKind.discoveryNotFound] when no
   /// document was accepted, [OidcFailureKind.endpointMismatch] when the
   /// document of an [issuer] entered by hand names another endpoint, or the
-  /// transient failure that kept every document from being read.
+  /// failure that kept the provider from being reached.
   Future<OidcProviderMetadata> discover({
     required String provider,
     required Uri authorizationEndpoint,
@@ -135,11 +141,23 @@ final class OidcDiscoveryClient {
     if (authorizationEndpoint.scheme != 'https') {
       throw const OidcException(OidcFailureKind.insecureEndpoint);
     }
+    final microsoft = provider.toLowerCase() == 'microsoft';
+    bool microsoftTenant(OidcProviderMetadata metadata, Uri url) =>
+        microsoft &&
+        _isMicrosoftTenantDocument(
+          metadata,
+          documentUrl: url,
+          authorizationEndpoint: authorizationEndpoint,
+        );
 
     final manual = issuer?.trim();
     if (manual != null && manual.isNotEmpty) {
       final url = oidcDiscoveryUrlForInput(manual);
-      final metadata = await fetch(url);
+      final metadata = await _read(url);
+      if (microsoftTenant(metadata, url)) return metadata;
+      if (!metadata.isDiscoveredAt(url)) {
+        throw const OidcException(OidcFailureKind.invalidMetadata);
+      }
       if (!oidcEndpointsMatch(
         metadata.authorizationEndpoint,
         authorizationEndpoint,
@@ -157,18 +175,27 @@ final class OidcDiscoveryClient {
       clientId: clientId,
     )) {
       try {
-        final metadata = await fetch(url);
-        if (oidcEndpointsMatch(
-          metadata.authorizationEndpoint,
-          authorizationEndpoint,
-        )) {
+        final metadata = await _read(url);
+        if (microsoftTenant(metadata, url) ||
+            (metadata.isDiscoveredAt(url) &&
+                oidcEndpointsMatch(
+                  metadata.authorizationEndpoint,
+                  authorizationEndpoint,
+                ))) {
           return metadata;
         }
       } on OidcException catch (error) {
-        if (error.kind == OidcFailureKind.insecureEndpoint) {
-          insecure ??= error;
-        } else if (error.isTransient) {
-          transient ??= error;
+        switch (error.kind) {
+          case OidcFailureKind.network ||
+              OidcFailureKind.timeout ||
+              OidcFailureKind.tls:
+            rethrow;
+          case OidcFailureKind.insecureEndpoint:
+            insecure ??= error;
+          case _ when error.isTransient:
+            transient ??= error;
+          case _:
+            break;
         }
       }
     }
@@ -179,10 +206,94 @@ final class OidcDiscoveryClient {
 
   /// The document at [url], accepted only when it sits under its own issuer.
   Future<OidcProviderMetadata> fetch(Uri url) async {
-    final metadata = OidcProviderMetadata.fromJson(await _http.getJson(url));
+    final metadata = await _read(url);
     if (!metadata.isDiscoveredAt(url)) {
       throw const OidcException(OidcFailureKind.invalidMetadata);
     }
     return metadata;
   }
+
+  Future<OidcProviderMetadata> _read(Uri url) async =>
+      OidcProviderMetadata.fromJson(await _http.getJson(url));
+}
+
+/// The login hosts of Microsoft's clouds.
+const Set<String> _microsoftLoginHosts = {
+  'login.microsoftonline.com',
+  'login.microsoftonline.us',
+  'login.chinacloudapi.cn',
+  'login.partner.microsoftonline.cn',
+};
+
+final RegExp _tenantId = RegExp(
+  r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-'
+  r'[0-9a-fA-F]{12}$',
+);
+
+/// Whether [metadata], read from [documentUrl], is Microsoft's document for
+/// the tenant [authorizationEndpoint] signs in to.
+///
+/// Microsoft serves a tenant's document at `/{tenant}/v2.0` under any name
+/// for the tenant -- its ID, a domain such as `contoso.onmicrosoft.com`,
+/// `consumers` -- but names the issuer by the tenant's ID (or the
+/// `{tenantid}` template of the multi-tenant documents), and its endpoints
+/// by the name asked for or by the ID. Such a document does not sit under
+/// its own issuer, and may name the authorization endpoint differently from
+/// Open WebUI's redirect; read from Microsoft's own host at the tenant that
+/// redirect named, it is Microsoft's answer for that tenant all the same.
+bool _isMicrosoftTenantDocument(
+  OidcProviderMetadata metadata, {
+  required Uri documentUrl,
+  required Uri authorizationEndpoint,
+}) {
+  final host = documentUrl.host.toLowerCase();
+  if (!_microsoftLoginHosts.contains(host)) return false;
+  List<String>? pathOf(Uri uri) {
+    if (uri.scheme != 'https' ||
+        uri.host.toLowerCase() != host ||
+        uri.port != 443 ||
+        uri.userInfo.isNotEmpty) {
+      return null;
+    }
+    final segments = [...uri.pathSegments];
+    while (segments.isNotEmpty && segments.last.isEmpty) {
+      segments.removeLast();
+    }
+    return segments;
+  }
+
+  bool isAuthorize(List<String>? path) =>
+      path != null &&
+      path.length == 4 &&
+      path[1] == 'oauth2' &&
+      path[2] == 'v2.0' &&
+      path[3] == 'authorize';
+
+  final document = pathOf(documentUrl);
+  final probed = pathOf(authorizationEndpoint);
+  if (document == null ||
+      document.length != 4 ||
+      document[1] != 'v2.0' ||
+      document[2] != '.well-known' ||
+      document[3] != 'openid-configuration' ||
+      !isAuthorize(probed) ||
+      probed![0].toLowerCase() != document[0].toLowerCase()) {
+    return false;
+  }
+  final tenant = document[0].toLowerCase();
+
+  final issuer = pathOf(
+    Uri.parse(metadata.issuer.replaceAll('{tenantid}', 'common')),
+  );
+  if (issuer == null || issuer.length != 2 || issuer[1] != 'v2.0') {
+    return false;
+  }
+  final issuerTenant = metadata.hasTenantTemplate ? null : issuer[0];
+  if (issuerTenant != null && !_tenantId.hasMatch(issuerTenant)) return false;
+
+  final authorize = pathOf(metadata.authorizationEndpoint);
+  if (!isAuthorize(authorize)) return false;
+  final named = authorize![0].toLowerCase();
+  return (named == tenant || named == issuerTenant?.toLowerCase()) &&
+      pathOf(metadata.tokenEndpoint) != null;
 }
