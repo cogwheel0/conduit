@@ -5,6 +5,19 @@ const int kMaxHermesSessionTitleCharacters = 512;
 const int kMaxHermesSessionPreviewCharacters = 4096;
 const int kMaxHermesSessionSourceCharacters = 128;
 
+/// Session sources the Hermes API server owns and may add turns to.
+const Set<String> kHermesApiOwnedSessionSources = {'api_server', 'bot_room'};
+
+/// Whether a session came from another Hermes surface (CLI, desktop, a
+/// messaging platform, cron). Unknown sources count as API-owned so older
+/// servers, which do not report one, keep working.
+bool isForeignHermesSessionSource(String? source) {
+  final normalized = source?.trim().toLowerCase();
+  return normalized != null &&
+      normalized.isNotEmpty &&
+      !kHermesApiOwnedSessionSources.contains(normalized);
+}
+
 /// Lightweight summary of a Hermes server-side session, for the sessions list.
 class HermesSessionSummary {
   const HermesSessionSummary({

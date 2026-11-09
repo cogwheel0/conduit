@@ -4428,5 +4428,13 @@
   "libreChatMemoryKeyLabel": "键",
   "libreChatMemoryKeyHint": "例如 preferences",
   "libreChatMemoryKeyRequired": "请为记忆指定一个键。",
-  "libreChatMemoryUsage": "已使用 {used} / {limit} 个 token"
+  "libreChatMemoryUsage": "已使用 {used} / {limit} 个 token",
+  "hermesReadOnlySessionNotice": "此聊天始于另一个 Hermes 应用。你可以在这里阅读，但 Hermes 只允许 Conduit 在它发起的聊天中回复。",
+  "hermesReadOnlySessionNoticeFrom": "此聊天始于 {source}。你可以在这里阅读，但 Hermes 只允许 Conduit 在它发起的聊天中回复。",
+  "@hermesReadOnlySessionNoticeFrom": {"placeholders": {"source": {"type": "String"}}},
+  "hermesContinueInCopy": "在副本中继续",
+  "hermesContinueInCopyFailed": "无法复制此聊天。请重试。",
+  "hermesContinueHere": "在此继续",
+  "hermesContinueHereFailed": "无法在此继续此聊天。请重试。",
+  "hermesContinueChoiceExplanation": "在此继续会结束另一个应用中的这个聊天，该应用会在下一条消息时开始新聊天。副本会保持那个聊天不变，但之前的消息只保存在此设备上。最多保留最新的 1,000 条消息（1 MB），且仅限最近打开的 32 个副本。"
 }

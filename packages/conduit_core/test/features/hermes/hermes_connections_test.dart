@@ -4,6 +4,8 @@ import 'dart:io';
 
 import 'package:checks/checks.dart';
 import 'package:conduit_core/conduit_core.dart';
+import 'package:conduit_core/database/app_database.dart';
+import 'package:conduit_core/database/database_provider.dart';
 import 'package:conduit_core/features/hermes/models/hermes_config.dart';
 import 'package:conduit_core/features/hermes/models/hermes_connection_contract.dart';
 import 'package:conduit_core/features/hermes/models/hermes_connection_profile.dart';
@@ -23,6 +25,7 @@ import 'package:conduit_core/providers/app_providers.dart'
     show selectedModelProvider;
 import 'package:conduit_core/providers/host_ports.dart';
 import 'package:conduit_core/providers/storage_providers.dart';
+import 'package:drift/native.dart';
 import 'package:riverpod/riverpod.dart';
 import 'package:test/test.dart';
 
@@ -371,13 +374,25 @@ void main() {
           'hermes_api_key_v1:$_b': 'beta-key',
           'hermes_api_key_v1:$_c': 'gamma-key',
         });
-        final container = await _ready(secrets);
+        final database = AppDatabase(NativeDatabase.memory());
+        addTearDown(database.close);
+        final container = await _ready(secrets, database: database);
         addTearDown(container.dispose);
         final alphaIdentity = _identityFor(_a, 'https://alpha.example');
         final betaIdentity = _identityFor(_b, 'https://beta.example');
         await _rememberDocumentTrust(alphaIdentity);
         await _rememberDocumentTrust(betaIdentity);
         await _rememberSessionBinding(alphaIdentity);
+        final copiedHistory = container.read(hermesCopiedHistoryStoreProvider);
+        for (final identity in [alphaIdentity, betaIdentity]) {
+          await copiedHistory.save(
+            connectionIdentity: identity,
+            sessionId: 'copy',
+            messages: const [
+              <String, dynamic>{'role': 'user', 'content': 'Tide tables'},
+            ],
+          );
+        }
         final run = container
             .read(hermesRunRegistryProvider)
             .registerPending(
@@ -416,6 +431,18 @@ void main() {
           ),
         ).isNotEmpty();
         check(_sessionBindingTrusted(alphaIdentity)).isFalse();
+        check(
+          await copiedHistory.load(
+            connectionIdentity: alphaIdentity,
+            sessionId: 'copy',
+          ),
+        ).isNull();
+        check(
+          await copiedHistory.load(
+            connectionIdentity: betaIdentity,
+            sessionId: 'copy',
+          ),
+        ).isNotNull();
 
         await controller.deleteConnection(_c);
         check(container.read(hermesConfigProvider).connectionId).equals(_b);
@@ -1700,6 +1727,7 @@ Future<ProviderContainer> _ready(
   SecureKeyValueStore secrets, {
   CookieJarPort cookies = const NullCookieJarPort(),
   HermesDashboardSignOut? signOut,
+  AppDatabase? database,
 }) async {
   final container = ProviderContainer(
     overrides: [
@@ -1707,6 +1735,8 @@ Future<ProviderContainer> _ready(
       cookieJarProvider.overrideWithValue(cookies),
       if (signOut != null)
         hostHermesDashboardSignOutProvider.overrideWithValue(signOut),
+      if (database != null)
+        directLocalDatabaseProvider.overrideWithValue(database),
     ],
   );
   container.read(hermesConfigProvider);

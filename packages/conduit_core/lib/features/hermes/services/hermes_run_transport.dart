@@ -39,6 +39,12 @@ const int kMaxHermesToolNameCharacters = 80;
 const int kMaxHermesStatusDetailCharacters = 120;
 const int kMaxHermesApprovalSummaryCharacters = 512;
 const int _maxHermesRecoveryStatusCharacters = 64;
+const String _hermesRunQueuedAction = 'hermes_run_queued';
+
+/// Shown while a run Hermes saved during a restart waits for it to return.
+const String kHermesRunQueuedMessage =
+    'Hermes is restarting. Your message is saved and will run once Hermes '
+    'is back, so there is no need to send it again.';
 
 /// Maximum number of status-history rows one Hermes turn may introduce.
 ///
@@ -65,6 +71,88 @@ typedef HermesResponseRecoverer =
       Duration pollInterval,
     );
 
+/// The recovery status of a turn that ran out of steps and ended with its
+/// wrap-up answer: shown with a note, never as a failure.
+const String kHermesWrappedUpStatus = 'wrapped_up';
+
+/// Whether a `failed` run [record] (`GET /v1/runs/{id}`) is a turn that ran
+/// out of steps and wrote its wrap-up answer, with no error.
+bool hermesRunEndedOnBudget(Map<String, dynamic> record) {
+  // The stream's rule: `False`, `None`, `0` and `{}` are no error.
+  if (hermesErrorIsTruthy(record['error'])) return false;
+  final reason = record['turn_exit_reason'];
+  return reason is String &&
+      (reason.startsWith('budget_exhausted') ||
+          reason.startsWith('max_iterations_reached('));
+}
+
+/// The status action of a note shown with an answer (a wrap-up, a response
+/// that stopped short).
+const String kHermesRunNoticeAction = 'hermes_run_notice';
+
+/// Marks a reply whose run Hermes saved during a restart and had not run
+/// when polling for it ended: reopening the chat asks for its answer again.
+const String kHermesRunAwaitingAnswerKey = 'hermesRunAwaitingAnswer';
+
+/// The status action of the note on such a reply.
+const String kHermesRunAwaitingAction = 'hermes_run_awaiting';
+
+/// That note.
+const String kHermesRunAwaitingNotice =
+    "Hermes hasn't run this message yet. Reopen this chat later to get its "
+    'answer.';
+
+/// The note a recovered answer with [status] is shown with: a wrap-up or a
+/// stopped-short answer is still the answer. Null for any other status.
+String? hermesRecoveredRunNotice(String status) => switch (status) {
+  kHermesWrappedUpStatus => kHermesBudgetExhaustedNotice,
+  'incomplete' => kHermesIncompleteNotice,
+  _ => null,
+};
+
+/// The error a recovered run with [status] ended with; null for an answer,
+/// including one shown with a note ([hermesRecoveredRunNotice]).
+String? hermesRecoveredRunError(String status) =>
+    status == 'completed' || hermesRecoveredRunNotice(status) != null
+    ? null
+    : switch (status) {
+        'cancelled' || 'canceled' => 'Hermes run was cancelled.',
+        'stopped' => 'Hermes run was stopped.',
+        'interrupted' => kHermesRunInterruptedMessage,
+        _ => 'Hermes run failed.',
+      };
+
+/// How much streamed reasoning a turn keeps to compare with the terminal
+/// copy; past it, the terminal copy is not shown.
+const int _kMaxReconciledHermesReasoning = 65536;
+
+/// What a terminal response's [terminal] reasoning adds to the [streamed]
+/// deltas: the part after them. Items are joined by a newline in the
+/// terminal copy and not in the stream, so whitespace is not compared.
+/// Null when the stream is not a prefix of it (another projection, such as
+/// a summary): nothing is added, rather than repeating what was shown.
+@visibleForTesting
+String? hermesUnstreamedReasoning(String streamed, String terminal) {
+  bool blank(int unit) =>
+      unit == 0x20 || unit == 0x0A || unit == 0x0D || unit == 0x09;
+  var i = 0;
+  var j = 0;
+  while (j < streamed.length) {
+    final s = streamed.codeUnitAt(j);
+    if (i < terminal.length && terminal.codeUnitAt(i) == s) {
+      i++;
+      j++;
+    } else if (blank(s)) {
+      j++;
+    } else if (i < terminal.length && blank(terminal.codeUnitAt(i))) {
+      i++;
+    } else {
+      return null;
+    }
+  }
+  return terminal.substring(i);
+}
+
 HermesResponseRecoverer hermesResponseRecoverer(HermesApiService service) =>
     (responseId, cancelToken, maxPolls, pollInterval) => _recoverResponseOutput(
       service,
@@ -87,6 +175,7 @@ Future<bool> dispatchHermesTurn({
   Duration recoveryPollInterval = const Duration(seconds: 1),
   FutureOr<void> Function(String? sessionId)? onSessionEstablished,
   FutureOr<void> Function()? onCompletedSuccessfully,
+  void Function(String code)? onSessionRefused,
   required void Function(String content) appendContent,
   void Function(String content)? replaceContent,
   required void Function(ChatStatusUpdate update) appendStatus,
@@ -143,10 +232,11 @@ Future<bool> dispatchHermesTurn({
         scope: 'hermes/transport',
         data: {'errorType': error.runtimeType.toString()},
       );
-      updateMessage(
-        (message) => message.copyWith(
-          error: ChatMessageError(content: _friendlyError(error)),
-        ),
+      _reportHermesStartFailure(
+        error,
+        appendStatus: appendStatus,
+        updateMessage: updateMessage,
+        onSessionRefused: onSessionRefused,
       );
     }
     finishStreaming();
@@ -212,6 +302,9 @@ Future<bool> dispatchHermesTurn({
   var sawTerminal = false;
   var completedSuccessfully = false;
   var gotContent = false;
+  // Reasoning streamed as deltas, bounded: a terminal response repeats it.
+  final streamedReasoning = StringBuffer();
+  var streamedReasoningOverflowed = false;
   final streamedText = StringBuffer();
   String? finalOutput;
   String? responseId;
@@ -224,6 +317,27 @@ Future<bool> dispatchHermesTurn({
       // the owner has cancelled this token, transport teardown is silent and
       // no later provider event may turn that user action into a message error.
       if (sawTerminal || responseCancelToken.isCancelled) return;
+      // A terminal response repeats its reasoning items: only what the
+      // deltas did not already show is added.
+      if (event is HermesReasoningDelta) {
+        if (!event.terminal) {
+          if (streamedReasoning.length + event.content.length >
+              _kMaxReconciledHermesReasoning) {
+            streamedReasoningOverflowed = true;
+          } else {
+            streamedReasoning.write(event.content);
+          }
+        } else if (streamedReasoningOverflowed) {
+          return;
+        } else if (streamedReasoning.isNotEmpty) {
+          final rest = hermesUnstreamedReasoning(
+            streamedReasoning.toString(),
+            event.content,
+          );
+          if (rest == null || rest.trim().isEmpty) return;
+          event = HermesReasoningDelta(rest);
+        }
+      }
       switch (event) {
         case HermesTokenDelta(:final content):
           gotContent = true;
@@ -356,15 +470,22 @@ Future<bool> dispatchHermesTurn({
             replaceContent: replaceContent,
           );
         }
-        completedSuccessfully = recovered.status == 'completed';
-        if (!completedSuccessfully) {
+        // Hermes marks a turn that stopped short as incomplete; its text is
+        // still the answer, shown with a note rather than as a failure.
+        final incomplete = recovered.status == 'incomplete';
+        completedSuccessfully = recovered.status == 'completed' || incomplete;
+        if (incomplete) {
+          statusAccumulator.appendStatus(
+            const ChatStatusUpdate(
+              action: kHermesRunNoticeAction,
+              description: kHermesIncompleteNotice,
+              done: true,
+            ),
+          );
+        } else if (!completedSuccessfully) {
           updateMessage(
             (message) => message.copyWith(
-              error: ChatMessageError(
-                content: recovered.status == 'incomplete'
-                    ? 'Hermes stopped this response before it completed.'
-                    : 'Hermes response failed.',
-              ),
+              error: const ChatMessageError(content: 'Hermes response failed.'),
             ),
           );
         }
@@ -427,12 +548,19 @@ Future<void> dispatchHermesRun({
   Duration remoteStopTimeout = const Duration(seconds: 5),
   int maxRecoveryPolls = 120,
   Duration recoveryPollInterval = const Duration(seconds: 1),
+  int maxQueuedPolls = 180,
+  Duration queuedPollInterval = const Duration(seconds: 10),
+  int maxStreamResumes = 3,
+  Duration streamResumeDelay = const Duration(seconds: 1),
+  int maxExtendedRecoveryPolls = 300,
+  Duration extendedRecoveryPollInterval = const Duration(seconds: 5),
   required void Function(String content) appendContent,
   void Function(String content)? replaceContent,
   required void Function(ChatStatusUpdate update) appendStatus,
   required void Function(ChatMessage Function(ChatMessage) updater)
   updateMessage,
   void Function(ChatMessageError error)? reportStopError,
+  void Function(String code)? onSessionRefused,
   required void Function() finishStreaming,
   required void Function() completeStreamingUi,
 }) async {
@@ -505,8 +633,11 @@ Future<void> dispatchHermesRun({
       return;
     }
     DebugLogger.error('create-run-failed', scope: 'hermes/transport');
-    updateMessage(
-      (m) => m.copyWith(error: ChatMessageError(content: _friendlyError(e))),
+    _reportHermesStartFailure(
+      e,
+      appendStatus: appendStatus,
+      updateMessage: updateMessage,
+      onSessionRefused: onSessionRefused,
     );
     finishStreaming();
     completeStreamingUi();
@@ -552,14 +683,23 @@ Future<void> dispatchHermesRun({
 
   var sawTerminal = false;
   var gotContent = false;
+  // Hermes v0.23 sends `run.queued` and closes the stream when it restarts
+  // before the run starts; the input is saved and runs once it is back.
+  var queuedForRestart = false;
   final streamedText = StringBuffer();
   String? finalOutput;
   Object? streamError;
 
   late final StreamSubscription<HermesRunEvent> sub;
-  sub = service
-      .runEvents(runId, sessionId: sessionId, cancelToken: eventCancelToken)
-      .listen(
+  sub =
+      _resumableHermesRunEvents(
+        service,
+        runId,
+        sessionId: sessionId,
+        cancelToken: eventCancelToken,
+        maxResumes: maxStreamResumes,
+        resumeDelay: streamResumeDelay,
+      ).listen(
         (event) {
           // A queued run.cancelled/run.stopped frame may race Conduit's own
           // Stop. The cancelled owner is authoritative, so discard all later
@@ -571,6 +711,9 @@ Future<void> dispatchHermesRun({
             streamedText.write(event.content);
           }
           if (event is HermesFinalOutput) finalOutput = event.text;
+          if (event is HermesLifecycle) {
+            queuedForRestart = event.status == 'queued';
+          }
           if (event is HermesRunDone || event is HermesRunError) {
             sawTerminal = true;
             if (!completer.isCompleted) completer.complete();
@@ -652,16 +795,115 @@ Future<void> dispatchHermesRun({
             !allowsCheckpointRecovery) {
           throw guardedError!;
         }
-        final recovered = await _recoverRunOutput(
-          service,
-          runId,
-          cancelToken: runCancelToken,
-          maxPolls: allowsCheckpointRecovery ? 1 : maxRecoveryPolls,
-          pollInterval: allowsCheckpointRecovery
-              ? Duration.zero
-              : recoveryPollInterval,
+        final waitingForRestart = queuedForRestart && guardedError == null;
+        void showQueued({required bool done}) {
+          statusAccumulator.appendStatus(
+            ChatStatusUpdate(
+              action: _hermesRunQueuedAction,
+              description: kHermesRunQueuedMessage,
+              done: done,
+            ),
+          );
+        }
+
+        // A run saved during a restart cannot resume its stream: the
+        // approval it asks once Hermes is back is listed by the poll. One
+        // card at a time; a shown one that is no longer listed (answered
+        // here or elsewhere, timed out, or the run ended) is closed, which
+        // makes room for the next. None is shown twice.
+        String? shownApproval;
+        final closedApprovals = <String>{};
+        void handle(HermesRunEvent event) => _handleEvent(
+          event,
+          runId: runId,
+          storedSessionId: null,
+          sensitiveValues: sensitiveProviderValues,
+          appendContent: appendContent,
+          appendStatus: statusAccumulator.appendStatus,
+          appendReasoning: statusAccumulator.appendReasoning,
+          updateMessage: updateMessage,
         );
-        if (recovered == null) return;
+        void showPendingControls(List<HermesRunEvent> events) {
+          if (runCancelToken.isCancelled) return;
+          final listed = {
+            for (final event in events)
+              if (event case HermesApprovalRequested(:final approvalId))
+                approvalId,
+          };
+          final shown = shownApproval;
+          if (shown != null && !listed.contains(shown)) {
+            shownApproval = null;
+            closedApprovals.add(shown);
+            handle(HermesPromptSettled(promptId: shown, kind: 'approval'));
+          }
+          for (final event in events) {
+            if (shownApproval != null) break;
+            if (event case HermesApprovalRequested(:final approvalId)
+                when !closedApprovals.contains(approvalId)) {
+              shownApproval = approvalId;
+              handle(event);
+            }
+          }
+        }
+
+        ({String text, String status})? recovered;
+        if (waitingForRestart) {
+          // Not an error: poll slowly, tolerating the restart's outage. If
+          // Hermes stays away, the saved input still runs once it is back.
+          showQueued(done: false);
+          try {
+            recovered = await _recoverRunOutput(
+              service,
+              runId,
+              cancelToken: runCancelToken,
+              maxPolls: maxQueuedPolls,
+              pollInterval: queuedPollInterval,
+              maxConsecutiveErrors: maxQueuedPolls,
+              onPendingControls: showPendingControls,
+            );
+          } catch (error) {
+            if (_isHermesProtocolFailure(error)) rethrow;
+            recovered = null;
+          }
+          if (!runCancelToken.isCancelled) showQueued(done: true);
+        } else {
+          recovered = await _recoverRunOutput(
+            service,
+            runId,
+            cancelToken: runCancelToken,
+            maxPolls: allowsCheckpointRecovery ? 1 : maxRecoveryPolls,
+            pollInterval: allowsCheckpointRecovery
+                ? Duration.zero
+                : recoveryPollInterval,
+            // A long tool-heavy run can outlive the quick polling budget;
+            // keep checking, more slowly, while Hermes says it is active.
+            maxExtendedPolls: allowsCheckpointRecovery
+                ? 0
+                : maxExtendedRecoveryPolls,
+            extendedPollInterval: extendedRecoveryPollInterval,
+          );
+        }
+        if (recovered == null) {
+          // Still saved for after the restart: the reply keeps its run, and
+          // reopening the chat asks for the answer again.
+          if (waitingForRestart && !runCancelToken.isCancelled) {
+            updateMessage((m) {
+              final metadata = Map<String, dynamic>.from(
+                m.metadata ?? const {},
+              );
+              metadata[kHermesRunAwaitingAnswerKey] = true;
+              return m.copyWith(metadata: metadata);
+            });
+            statusAccumulator.appendStatus(
+              const ChatStatusUpdate(
+                action: kHermesRunAwaitingAction,
+                description: kHermesRunAwaitingNotice,
+                done: true,
+              ),
+            );
+          }
+          return;
+        }
         if (runCancelToken.isCancelled) return;
         if (recovered.text.isNotEmpty) {
           _appendAuthoritativeOutput(
@@ -672,13 +914,19 @@ Future<void> dispatchHermesRun({
             replaceContent: replaceContent,
           );
         }
-        if (recovered.status != 'completed') {
-          final errorMessage = switch (recovered.status) {
-            'cancelled' || 'canceled' => 'Hermes run was cancelled.',
-            'stopped' => 'Hermes run was stopped.',
-            'incomplete' => 'Hermes stopped this response before it completed.',
-            _ => 'Hermes run failed.',
-          };
+        // A wrap-up or a stopped-short answer is still the answer: shown with
+        // a note, as its stream would have.
+        final notice = hermesRecoveredRunNotice(recovered.status);
+        final errorMessage = hermesRecoveredRunError(recovered.status);
+        if (notice != null) {
+          statusAccumulator.appendStatus(
+            ChatStatusUpdate(
+              action: kHermesRunNoticeAction,
+              description: notice,
+              done: true,
+            ),
+          );
+        } else if (errorMessage != null) {
           updateMessage(
             (m) => m.copyWith(error: ChatMessageError(content: errorMessage)),
           );
@@ -710,6 +958,43 @@ Future<void> dispatchHermesRun({
     if (owned) {
       finishStreaming();
       completeStreamingUi();
+    }
+  }
+}
+
+/// Shows why Hermes refused to start a turn. A saved-and-queued input is not
+/// an error: it runs once Hermes is back and must not be resent.
+void _reportHermesStartFailure(
+  Object error, {
+  required void Function(ChatStatusUpdate update) appendStatus,
+  required void Function(ChatMessage Function(ChatMessage) updater)
+  updateMessage,
+  void Function(String code)? onSessionRefused,
+}) {
+  if (error is HermesApiException &&
+      error.code == HermesApiErrorCode.admissionQueued) {
+    appendStatus(
+      ChatStatusUpdate(
+        action: _hermesRunQueuedAction,
+        description: hermesApiRefusalMessage(error),
+        done: true,
+      ),
+    );
+    return;
+  }
+  updateMessage(
+    (m) => m.copyWith(error: ChatMessageError(content: _friendlyError(error))),
+  );
+  final code = error is HermesApiException ? error.code : null;
+  if (code == HermesApiErrorCode.permissionDenied ||
+      code == HermesApiErrorCode.notFound) {
+    try {
+      onSessionRefused?.call(code!);
+    } catch (_) {
+      DebugLogger.error(
+        'session-refusal-callback-failed',
+        scope: 'hermes/transport',
+      );
     }
   }
 }
@@ -878,17 +1163,26 @@ Future<({String text, String status})?> _recoverRunOutput(
   required CancelToken cancelToken,
   required int maxPolls,
   required Duration pollInterval,
+  int maxConsecutiveErrors = 3,
+  int maxExtendedPolls = 0,
+  Duration extendedPollInterval = const Duration(seconds: 5),
+  void Function(List<HermesRunEvent> events)? onPendingControls,
 }) async {
   if (maxPolls <= 0) {
     throw ArgumentError.value(maxPolls, 'maxPolls', 'Must be positive');
   }
   var consecutiveErrors = 0;
+  var resolveErrors = 0;
   var malformedResponses = 0;
   var polls = 0;
+  var pollBudget = maxPolls;
+  var resolvedUnknown = false;
+  var lastStatusActive = false;
   while (!cancelToken.isCancelled) {
-    if (polls >= maxPolls) {
+    if (polls >= pollBudget &&
+        (!lastStatusActive || polls >= pollBudget + maxExtendedPolls)) {
       throw TimeoutException(
-        'Hermes run did not reach a terminal state after $maxPolls polls',
+        'Hermes run did not reach a terminal state after $polls polls',
       );
     }
     polls++;
@@ -904,7 +1198,7 @@ Future<({String text, String status})?> _recoverRunOutput(
       if (_isHermesProtocolFailure(error)) rethrow;
       if (cancelToken.isCancelled) return null;
       consecutiveErrors++;
-      if (consecutiveErrors >= 3) rethrow;
+      if (consecutiveErrors >= maxConsecutiveErrors) rethrow;
       await Future<void>.delayed(pollInterval);
       continue;
     }
@@ -919,20 +1213,74 @@ Future<({String text, String status})?> _recoverRunOutput(
         status == 'cancelled' ||
         status == 'canceled' ||
         status == 'stopped' ||
-        status == 'incomplete';
-    if (terminal) return (text: text, status: status!);
+        status == 'incomplete' ||
+        status == 'interrupted';
+    if (terminal) {
+      // A finished run asks nothing more: a card still open closes.
+      onPendingControls?.call(const <HermesRunEvent>[]);
+      // A turn that ran out of steps is `failed` with its wrap-up answer and
+      // no error, as its stream's `run.failed` is: a note, not a failure.
+      if (status == 'failed' && hermesRunEndedOnBudget(run)) {
+        return (text: text, status: kHermesWrappedUpStatus);
+      }
+      return (text: text, status: status!);
+    }
+    // Approvals asked while no stream was attached.
+    onPendingControls?.call(
+      hermesPendingControlEvents(run['pending_controls']),
+    );
+    if (status == 'unknown' && !resolvedUnknown) {
+      // An unclean Hermes restart left this run's outcome unknown, and the
+      // session's later turns wait behind it until a client acknowledges it.
+      final Map<String, dynamic>? receipt;
+      try {
+        receipt = await _resolveUnknownHermesRun(
+          service,
+          runId,
+          run,
+          cancelToken: cancelToken,
+        );
+      } catch (error) {
+        if (_isHermesProtocolFailure(error)) rethrow;
+        if (cancelToken.isCancelled) return null;
+        // Hermes replays the receipt to an exact retry, so a dropped
+        // acknowledgement is retried on the next poll that still sees it.
+        resolveErrors++;
+        if (resolveErrors >= maxConsecutiveErrors || polls >= pollBudget) {
+          rethrow;
+        }
+        await Future<void>.delayed(pollInterval);
+        continue;
+      }
+      if (cancelToken.isCancelled) return null;
+      if (receipt != null) {
+        resolvedUnknown = true;
+        // A turn that finished before the restart commits its own answer;
+        // the next poll reads it, even past the last one. Anything else was
+        // interrupted.
+        if (receipt['outcome'] != 'completed') {
+          return (text: text, status: 'interrupted');
+        }
+        if (polls >= pollBudget) pollBudget = polls + 1;
+        continue;
+      }
+    }
     const nonTerminalStatuses = {
       'created',
       'queued',
       'pending',
+      'started',
       'running',
       'in_progress',
       'requires_action',
       'waiting',
+      'waiting_for_approval',
       'stopping',
+      'unknown',
     };
     if (status == null || !nonTerminalStatuses.contains(status)) {
       malformedResponses++;
+      lastStatusActive = false;
       if (malformedResponses >= 3) {
         throw StateError(
           'Hermes getRun returned an unknown status: ${status ?? '(missing)'}',
@@ -940,10 +1288,242 @@ Future<({String text, String status})?> _recoverRunOutput(
       }
     } else {
       malformedResponses = 0;
+      lastStatusActive = status != 'unknown';
     }
-    await Future<void>.delayed(pollInterval);
+    if (polls < pollBudget) {
+      await Future<void>.delayed(pollInterval);
+    } else if (lastStatusActive && polls < pollBudget + maxExtendedPolls) {
+      await Future<void>.delayed(
+        extendedPollInterval > pollInterval
+            ? extendedPollInterval
+            : pollInterval,
+      );
+    }
   }
   return null;
+}
+
+/// Follows a run's event stream across drops.
+///
+/// Hermes v0.21.7+ numbers run events (`seq`) and detaches a slow subscriber
+/// by simply ending its stream. When a stream ends early, or a connection
+/// error cuts it, this reconnects with `Last-Event-ID` and Hermes replays the
+/// missed events. Servers without `seq`, a run Hermes no longer streams
+/// (404), a run saved during a restart (`run.queued`), and [maxResumes]
+/// attempts without new events all end the stream so the caller polls.
+Stream<HermesRunEvent> _resumableHermesRunEvents(
+  HermesApiService service,
+  String runId, {
+  required String? sessionId,
+  required CancelToken cancelToken,
+  required int maxResumes,
+  required Duration resumeDelay,
+}) {
+  // A controller rather than `await for`: cancelling the returned stream must
+  // reach the live connection at once (Stop, account revocation), not at the
+  // connection's next event.
+  late final StreamController<HermesRunEvent> controller;
+  StreamSubscription<HermesRunEvent>? connection;
+  int? lastSeq;
+  var attemptsWithoutProgress = 0;
+  var totalResumes = 0;
+  var closed = false;
+
+  void close() {
+    if (closed) return;
+    closed = true;
+    unawaited(controller.close());
+  }
+
+  late void Function() connect;
+
+  void connectionEnded({
+    required int? resumeFrom,
+    required HermesRunEvent? lastEvent,
+    Object? error,
+    StackTrace? stackTrace,
+  }) {
+    connection = null;
+    if (closed) return;
+    if (error != null) {
+      // Hermes forgets a run's stream a while after it ends (404); polling
+      // still reads the run.
+      final gone = error is DioException && error.response?.statusCode == 404;
+      final protocolFailure = _isHermesProtocolFailure(error);
+      final resumable =
+          !gone &&
+          !protocolFailure &&
+          !cancelToken.isCancelled &&
+          lastSeq != null;
+      if (!resumable) {
+        // A failed resume falls back to polling; the first connection's own
+        // failure keeps its existing handling.
+        if (resumeFrom == null || protocolFailure) {
+          controller.addError(error, stackTrace);
+        }
+        close();
+        return;
+      }
+    }
+    final seq = lastSeq;
+    if (cancelToken.isCancelled ||
+        seq == null ||
+        (lastEvent is HermesLifecycle && lastEvent.status == 'queued')) {
+      close();
+      return;
+    }
+    attemptsWithoutProgress = seq == resumeFrom
+        ? attemptsWithoutProgress + 1
+        : 0;
+    totalResumes++;
+    if (attemptsWithoutProgress >= maxResumes ||
+        totalResumes > _maxHermesRunStreamResumes) {
+      close();
+      return;
+    }
+    unawaited(
+      Future<void>.delayed(resumeDelay).then((_) {
+        if (closed || cancelToken.isCancelled) {
+          close();
+        } else {
+          connect();
+        }
+      }),
+    );
+  }
+
+  connect = () {
+    final resumeFrom = lastSeq;
+    HermesRunEvent? lastEvent;
+    try {
+      connection = service
+          .runEvents(
+            runId,
+            sessionId: sessionId,
+            cancelToken: cancelToken,
+            lastEventId: resumeFrom,
+            onSequence: (seq) {
+              final current = lastSeq;
+              if (current == null || seq > current) lastSeq = seq;
+            },
+          )
+          .listen(
+            (event) {
+              if (closed) return;
+              lastEvent = event;
+              controller.add(event);
+              if (event is HermesRunDone || event is HermesRunError) {
+                final finished = connection;
+                connection = null;
+                if (finished != null) {
+                  _cancelHermesTransportSubscription(
+                    finished,
+                    message: 'run-subscription-cleanup-failed',
+                  );
+                }
+                close();
+              }
+            },
+            onError: (Object error, StackTrace stackTrace) => connectionEnded(
+              resumeFrom: resumeFrom,
+              lastEvent: lastEvent,
+              error: error,
+              stackTrace: stackTrace,
+            ),
+            onDone: () =>
+                connectionEnded(resumeFrom: resumeFrom, lastEvent: lastEvent),
+            cancelOnError: true,
+          );
+      if (controller.isPaused) connection?.pause();
+    } catch (error, stackTrace) {
+      connectionEnded(
+        resumeFrom: resumeFrom,
+        lastEvent: lastEvent,
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+  };
+
+  controller = StreamController<HermesRunEvent>(
+    onListen: () => connect(),
+    onPause: () => connection?.pause(),
+    onResume: () => connection?.resume(),
+    onCancel: () {
+      closed = true;
+      final live = connection;
+      connection = null;
+      return live?.cancel();
+    },
+  );
+  return controller.stream;
+}
+
+const int _maxHermesRunStreamResumes = 50;
+
+/// Sends `resolve-unknown` for [run] when it reports the exact admission
+/// identity Hermes requires. Returns the receipt, or null when [run] does not
+/// carry that identity (older servers never report `unknown`).
+Future<Map<String, dynamic>?> _resolveUnknownHermesRun(
+  HermesApiService service,
+  String runId,
+  Map<String, dynamic> run, {
+  required CancelToken cancelToken,
+}) async {
+  final admissionId = validateHermesOpaqueIdentifier(
+    run['admission_id'],
+    sensitiveValues: _hermesSensitiveValues(service),
+  );
+  final generation = run['execution_generation'];
+  if (admissionId == null || generation is! int || generation < 0) {
+    return null;
+  }
+  return service.resolveUnknownRun(
+    runId,
+    admissionId: admissionId,
+    executionGeneration: generation,
+    cancelToken: cancelToken,
+  );
+}
+
+/// Before a new turn joins a session, acknowledges the session's previous
+/// run when a Hermes restart left its outcome unknown. Hermes v0.22.1+ holds
+/// every later turn in that session until this is done.
+///
+/// Best effort: returns whether a run was acknowledged and never throws.
+Future<bool> settleUnknownHermesRun(
+  HermesApiService service,
+  String runId, {
+  CancelToken? cancelToken,
+}) async {
+  final safeRunId = _validatedHermesOpaqueIdentifier(
+    runId,
+    sensitiveValues: _hermesSensitiveValues(service),
+  );
+  if (safeRunId == null) return false;
+  // getRun shares a recovery deadline per token; keep this check's own.
+  final checkToken = CancelToken();
+  void cancelCheck(Object? _) {
+    if (!checkToken.isCancelled) checkToken.cancel('Hermes turn cancelled');
+  }
+
+  unawaited(cancelToken?.whenCancel.then<void>(cancelCheck));
+  try {
+    final run = await service.getRun(safeRunId, cancelToken: checkToken);
+    if (_hermesRecoveryStatus(run['status']) != 'unknown') return false;
+    final receipt = await _resolveUnknownHermesRun(
+      service,
+      safeRunId,
+      run,
+      cancelToken: checkToken,
+    );
+    return receipt != null;
+  } catch (_) {
+    DebugLogger.warning('settle-unknown-run-failed', scope: 'hermes/transport');
+    return false;
+  } finally {
+    _signalHermesTransportCancellation(checkToken);
+  }
 }
 
 Future<({String text, String status})?> _recoverResponseOutput(
@@ -984,7 +1564,9 @@ Future<({String text, String status})?> _recoverResponseOutput(
     String status;
     String text;
     try {
-      final decoded = OpenAiResponsesCodec.decodeResponse(response);
+      final decoded = OpenAiResponsesCodec.decodeResponse(
+        withoutHermesCommentary(response),
+      );
       status = decoded.status.toJson();
       text = _requireHermesRecoveryTextWithinLimit(
         OpenAiResponsesCodec.content(decoded).text,
@@ -1329,6 +1911,7 @@ void _handleEvent(
       :final approvalId,
       :final summary,
       :final choices,
+      :final executionGeneration,
       :final raw,
     ):
       final safeApprovalId = _validatedHermesOpaqueIdentifier(
@@ -1371,8 +1954,43 @@ void _handleEvent(
           'storedSessionId': ?safeStoredSessionId,
           'summary': ?safeSummary,
           if (safeChoices.isNotEmpty) 'choices': safeChoices,
+          'executionGeneration': ?executionGeneration,
         };
         return m.copyWith(metadata: meta);
+      });
+
+    case HermesPromptSettled(:final promptId):
+      // The prompt was answered (here or elsewhere), timed out, or was
+      // withdrawn. Close its card for good; an answer already recorded as
+      // approved/denied keeps that outcome.
+      updateMessage((m) {
+        final meta = m.metadata;
+        if (meta == null) return m;
+        final approval = meta[kHermesApprovalMeta];
+        final decision = meta[kHermesDecisionMeta];
+        final settlesApproval =
+            approval is Map &&
+            approval['approvalId'] == promptId &&
+            const {null, 'pending', 'resolving'}.contains(approval['state']);
+        final settlesDecision =
+            decision is Map &&
+            decision['requestId'] == promptId &&
+            decision['state'] == 'pending';
+        if (!settlesApproval && !settlesDecision) return m;
+        final next = Map<String, dynamic>.from(meta);
+        if (settlesApproval) {
+          next[kHermesApprovalMeta] = <String, dynamic>{
+            ...approval.cast<String, dynamic>(),
+            'state': 'settled',
+          };
+        }
+        if (settlesDecision) {
+          next[kHermesDecisionMeta] = <String, dynamic>{
+            ...decision.cast<String, dynamic>(),
+            'state': 'resolved',
+          };
+        }
+        return m.copyWith(metadata: next);
       });
 
     case HermesDecisionRequested(
@@ -1459,6 +2077,18 @@ void _handleEvent(
               sensitiveValues: sensitiveValues,
             ),
           ),
+        ),
+      );
+
+    case HermesRunNotice(:final message):
+      appendStatus(
+        ChatStatusUpdate(
+          action: kHermesRunNoticeAction,
+          description: sanitizeHermesProviderErrorMessage(
+            message,
+            sensitiveValues: sensitiveValues,
+          ),
+          done: true,
         ),
       );
 
@@ -1585,12 +2215,49 @@ String _friendlyError(Object e) {
   if (e is HermesModelSwitchHeld) return e.message;
   if (e is HermesDesktopGatewayStartingException) return e.message;
   if (e is FormatException) return 'Hermes returned an invalid response.';
+  if (e is HermesApiException) {
+    final refusal = hermesApiRefusalMessage(e);
+    if (refusal != null) return refusal;
+  }
   if (e is DioException) {
     final code = e.response?.statusCode;
     if (code != null) return 'Hermes request failed (HTTP $code).';
     return 'Could not reach the Hermes agent. Check the server URL and that it is reachable.';
   }
   return 'Hermes run failed.';
+}
+
+/// The chat-facing explanation for a coded Hermes refusal, or null when the
+/// code is not one Conduit can explain better than the HTTP status.
+String? hermesApiRefusalMessage(HermesApiException error) {
+  switch (error.code) {
+    case HermesApiErrorCode.permissionDenied:
+      return 'This chat belongs to another Hermes app, so Conduit can only '
+          'read it. Continue in a copy to keep chatting.';
+    case HermesApiErrorCode.notFound:
+      return 'This Hermes session was deleted. Start a new chat to continue.';
+    case HermesApiErrorCode.admissionConflict:
+    case HermesApiErrorCode.idempotencyKeyConflict:
+      return 'Hermes refused this message because it conflicts with another '
+          'request for this chat.';
+    case HermesApiErrorCode.staleGeneration:
+    case HermesApiErrorCode.approvalNotPending:
+      return 'This Hermes request was already answered or has expired.';
+    case HermesApiErrorCode.unknownExecution:
+      return 'Hermes cannot tell whether its last run finished.';
+    case HermesApiErrorCode.admissionQueued:
+      return 'Hermes saved your message and will run it when it is back. '
+          'Don\'t send it again.';
+    case 'runtime_draining':
+    case 'gateway_draining':
+    case 'storage_unavailable':
+    case 'chain_moved':
+      return 'Hermes is restarting or busy. Try again in a moment.';
+  }
+  if (error.statusCode == 429) {
+    return 'Hermes is handling too many requests. Try again in a moment.';
+  }
+  return null;
 }
 
 bool _isHermesProtocolFailure(Object? error) =>

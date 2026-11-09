@@ -284,9 +284,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
           _syncStreamingProfileWithState();
           final restoredHermesCheckpoint =
               nextMessages.isNotEmpty &&
-                  nextMessages.last.role == 'assistant' &&
-                  nextMessages.last.isStreaming &&
-                  nextMessages.last.metadata?['transport'] == kHermesTransport
+                  _isColdHermesCheckpoint(nextMessages.last)
               ? nextMessages.last
               : null;
           if (restoredHermesCheckpoint != null) {
@@ -365,9 +363,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     );
     final initialHermesCheckpoint =
         initialMessages.isNotEmpty &&
-            initialMessages.last.role == 'assistant' &&
-            initialMessages.last.isStreaming &&
-            initialMessages.last.metadata?['transport'] == kHermesTransport
+            _isColdHermesCheckpoint(initialMessages.last)
         ? initialMessages.last
         : null;
     if (activeConversation != null && initialHermesCheckpoint != null) {
@@ -1659,18 +1655,21 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     }
   }
 
+  /// Whether [message] is a Hermes reply cold recovery asks after: one still
+  /// streaming, or one whose run was saved during a restart and had not run
+  /// when its stream ended.
+  static bool _isColdHermesCheckpoint(ChatMessage message) =>
+      message.role == 'assistant' &&
+      (message.isStreaming ||
+          message.metadata?[kHermesRunAwaitingAnswerKey] == true) &&
+      message.metadata?['transport'] == kHermesTransport;
+
+  /// What a recovered checkpoint with [status] ends with, as the live
+  /// recovery shows it: an error, or a note beside a wrap-up or a
+  /// stopped-short answer, which is still the answer.
   ChatMessageError? _coldHermesTerminalError(String status) {
-    return switch (status) {
-      'completed' => null,
-      'cancelled' || 'canceled' => const ChatMessageError(
-        content: 'Hermes run was cancelled.',
-      ),
-      'stopped' => const ChatMessageError(content: 'Hermes run was stopped.'),
-      'incomplete' => const ChatMessageError(
-        content: 'Hermes stopped this response before it completed.',
-      ),
-      _ => const ChatMessageError(content: 'Hermes run failed.'),
-    };
+    final message = hermesRecoveredRunError(status);
+    return message == null ? null : ChatMessageError(content: message);
   }
 
   void _settleColdHermesCheckpoint(
@@ -1678,21 +1677,61 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     ChatMessage checkpoint, {
     String? authoritativeContent,
     ChatMessageError? error,
+    String? notice,
   }) {
     if (!owner.isActive(ref)) return;
+    final streaming = state.any(
+      (message) => message.id == checkpoint.id && message.isStreaming,
+    );
     updateMessageById(checkpoint.id, (current) {
       if (current.metadata?['transport'] != kHermesTransport) return current;
+      // Settled: no longer waiting for its answer.
+      final metadata = Map<String, dynamic>.from(current.metadata!)
+        ..remove(kHermesRunAwaitingAnswerKey);
+      final history = [
+        for (final status in current.statusHistory)
+          if (status.action != kHermesRunAwaitingAction) status,
+      ];
+      final noted =
+          notice == null ||
+              history.any(
+                (status) =>
+                    status.action == kHermesRunNoticeAction &&
+                    status.description == notice,
+              )
+          ? history
+          : [
+              ...history,
+              ChatStatusUpdate(
+                action: kHermesRunNoticeAction,
+                description: notice,
+                done: true,
+                occurredAt: DateTime.now(),
+              ),
+            ];
       return current.copyWith(
         content: authoritativeContent != null && authoritativeContent.isNotEmpty
             ? authoritativeContent
             : current.content,
         error: error,
+        statusHistory: noted,
+        metadata: metadata,
       );
     });
-    finishStreamingMessage(
-      checkpoint.id,
-      ownerConversationId: owner.scopedConversationId,
-      requireConversationOwner: true,
+    if (streaming) {
+      finishStreamingMessage(
+        checkpoint.id,
+        ownerConversationId: owner.scopedConversationId,
+        requireConversationOwner: true,
+      );
+      return;
+    }
+    // A reply waiting for its saved run had stopped streaming, so finishing
+    // it does nothing: its answer is put in the chat and saved here, or a
+    // reload would bring back the empty reply and ask again.
+    _syncConversationStateAfterStreamingUpdate();
+    _persistCompletedTurnForMessage(
+      state.indexWhere((message) => message.id == checkpoint.id),
     );
   }
 
@@ -1703,9 +1742,12 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
   }) async {
     if (_disposed || state.isEmpty) return;
     final checkpoint = state.last;
+    // A reply whose run was saved during a restart and had not run yet is
+    // asked after again, though its stream ended.
+    final awaiting = checkpoint.metadata?[kHermesRunAwaitingAnswerKey] == true;
     if (checkpoint.role != 'assistant' ||
         (expectedMessageId != null && checkpoint.id != expectedMessageId) ||
-        !checkpoint.isStreaming ||
+        !(checkpoint.isStreaming || awaiting) ||
         isRestoredHermesDesktopRunningMessage(checkpoint) ||
         checkpoint.metadata?['transport'] != kHermesTransport ||
         _hasLiveHermesProjection(conversation, checkpoint) ||
@@ -1716,7 +1758,9 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     final owner = _HermesConversationOwner.capture(ref, conversation);
     final service = ref.read(hermesApiServiceProvider);
     if (service == null) {
-      if (settleUnrecoverable) {
+      // No service yet (its credentials may still be loading): a reply
+      // waiting for its saved run keeps waiting, so a later one can ask.
+      if (settleUnrecoverable && !awaiting) {
         _settleColdHermesCheckpoint(
           owner,
           checkpoint,
@@ -1840,9 +1884,13 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
         checkpoint,
         authoritativeContent: recovered.text,
         error: _coldHermesTerminalError(recovered.status),
+        notice: hermesRecoveredRunNotice(recovered.status),
       );
     } catch (_) {
-      if (!cancelToken.isCancelled &&
+      // A reply still waiting for its answer keeps waiting: the next open
+      // asks again.
+      if (!awaiting &&
+          !cancelToken.isCancelled &&
           !_disposed &&
           generation == _coldHermesRecoveryGeneration &&
           identical(ref.read(hermesApiServiceProvider), service) &&

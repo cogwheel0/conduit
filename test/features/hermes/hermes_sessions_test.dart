@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:checks/checks.dart';
+import 'package:conduit_core/database/app_database.dart';
 import 'package:conduit_core/persistence/persistence_keys.dart';
 import 'package:conduit_core/persistence/preferences_store.dart';
 import 'package:conduit_core/features/chat/providers/chat_providers.dart';
@@ -9,11 +10,13 @@ import 'package:conduit_core/features/hermes/models/hermes_config.dart';
 import 'package:conduit_core/features/hermes/models/hermes_session.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 import 'package:conduit_core/features/hermes/services/hermes_api_service.dart';
+import 'package:conduit_core/features/hermes/services/hermes_copied_history_store.dart';
 import 'package:conduit_core/features/hermes/services/hermes_local_document_service.dart';
 import 'package:conduit_core/features/hermes/services/hermes_local_document_trust_store.dart';
 import 'package:conduit_core/features/hermes/services/hermes_message_mapper.dart';
 import 'package:conduit_core/features/hermes/utils/hermes_time_parsing.dart';
 import 'package:dio/dio.dart';
+import 'package:drift/native.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -227,6 +230,8 @@ void main() {
       final id = await _service(capture).forkSession('s1');
       check(capture.requests.single.path)
           .equals('http://host:8642/api/sessions/s1/fork');
+      // Hermes parses the fork body as JSON; an empty body is a 400.
+      check(capture.requests.single.data as Map).isEmpty();
       check(id).equals('s2');
     });
 
@@ -951,6 +956,105 @@ void main() {
         sessionId: 'fork-source',
       ),
     ).isNotEmpty();
+  });
+
+  group('a fork of a copy', () {
+    const config = HermesConfig(
+      enabled: true,
+      baseUrl: 'https://hermes.example/v1',
+      apiKey: 'test-key',
+    );
+    const earlier = [
+      {'id': 'earlier-1', 'role': 'user', 'content': 'Sort the books.'},
+      {'id': 'earlier-2', 'role': 'assistant', 'content': 'By colour?'},
+    ];
+    late AppDatabase database;
+    late HermesCopiedHistoryStore copiedHistory;
+    late String connectionIdentity;
+    late _FailingForkHistoryService service;
+    late ProviderContainer container;
+
+    setUp(() async {
+      const principalId = '66666666-6666-4666-8666-666666666666';
+      SharedPreferences.setMockInitialValues(<String, Object>{
+        PreferenceKeys.hermesLocalDocumentTrustPrincipal: principalId,
+      });
+      PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
+      HermesLocalDocumentTrustStore.debugResetRuntimeState();
+      addTearDown(() {
+        HermesLocalDocumentTrustStore.debugResetRuntimeState();
+        PreferencesStore.debugReset();
+      });
+      database = AppDatabase(NativeDatabase.memory());
+      addTearDown(database.close);
+      copiedHistory = HermesCopiedHistoryStore(database);
+      connectionIdentity = HermesLocalDocumentTrustStore.connectionIdentity(
+        endpointIdentity: HermesConfigController.connectionEndpoint(
+          config.baseUrl,
+        )!,
+        principalId: principalId,
+      );
+      // The copy's earlier messages live only on this device.
+      await copiedHistory.save(
+        connectionIdentity: connectionIdentity,
+        sessionId: 'fork-source',
+        messages: earlier,
+      );
+      service = _FailingForkHistoryService(config: config);
+      container = ProviderContainer(
+        overrides: [
+          hermesConfigProvider.overrideWith(
+            () => _FixedHermesConfigController(config),
+          ),
+          hermesApiServiceProvider.overrideWithValue(service),
+          hermesCopiedHistoryStoreProvider.overrideWithValue(copiedHistory),
+        ],
+      );
+      addTearDown(container.dispose);
+    });
+
+    test('keeps its earlier messages', () async {
+      check(
+        await container
+            .read(hermesSessionsProvider.notifier)
+            .fork('fork-source'),
+      ).equals('fork-target');
+
+      final carried = await copiedHistory.load(
+        connectionIdentity: connectionIdentity,
+        sessionId: 'fork-target',
+      );
+      check(
+        carried?.map((message) => message['content']).toList(),
+      ).isNotNull().deepEquals(['Sort the books.', 'By colour?']);
+    });
+
+    test('is removed when they cannot be kept', () async {
+      // Saving the fork's earlier messages is the step that fails: a new
+      // record is refused, while reading (which touches one) still works.
+      await database.customStatement(
+        'CREATE TRIGGER refuse_new_copy BEFORE INSERT ON app_cache '
+        "BEGIN SELECT RAISE(ABORT, 'disk full'); END",
+      );
+
+      await check(
+        container.read(hermesSessionsProvider.notifier).fork('fork-source'),
+      ).throws<SqliteException>();
+      check(service.deleteCalls).equals(1);
+      check(
+        await copiedHistory.load(
+          connectionIdentity: connectionIdentity,
+          sessionId: 'fork-target',
+        ),
+      ).isNull();
+      // The copy's own record is untouched.
+      check(
+        await copiedHistory.load(
+          connectionIdentity: connectionIdentity,
+          sessionId: 'fork-source',
+        ),
+      ).isNotNull();
+    });
   });
 
   test('fork fails closed when stale target trust cannot be purged', () async {

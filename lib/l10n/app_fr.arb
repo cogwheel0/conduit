@@ -4428,5 +4428,13 @@
   "libreChatMemoryKeyLabel": "Clé",
   "libreChatMemoryKeyHint": "ex. preferences",
   "libreChatMemoryKeyRequired": "Donnez une clé au souvenir.",
-  "libreChatMemoryUsage": "{used} jetons utilisés sur {limit}"
+  "libreChatMemoryUsage": "{used} jetons utilisés sur {limit}",
+  "hermesReadOnlySessionNotice": "Cette conversation a commencé dans une autre app Hermes. Vous pouvez la lire ici, mais Hermes ne laisse Conduit répondre que dans les conversations qu'il a lancées.",
+  "hermesReadOnlySessionNoticeFrom": "Cette conversation a commencé dans {source}. Vous pouvez la lire ici, mais Hermes ne laisse Conduit répondre que dans les conversations qu'il a lancées.",
+  "@hermesReadOnlySessionNoticeFrom": {"placeholders": {"source": {"type": "String"}}},
+  "hermesContinueInCopy": "Continuer dans une copie",
+  "hermesContinueInCopyFailed": "Impossible de copier cette conversation. Réessayez.",
+  "hermesContinueHere": "Continuer ici",
+  "hermesContinueHereFailed": "Impossible de continuer cette conversation ici. Réessayez.",
+  "hermesContinueChoiceExplanation": "Continuer ici met fin à cette conversation dans l'autre app, qui en commencera une nouvelle à son prochain message. Une copie laisse cette conversation intacte, mais conserve les messages précédents uniquement sur cet appareil. Elle conserve jusqu'aux 1 000 messages les plus récents (1 Mo), pour les 32 copies ouvertes le plus récemment."
 }

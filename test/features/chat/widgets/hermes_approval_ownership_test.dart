@@ -70,6 +70,8 @@ class _GatedApprovalService extends HermesApiService {
     String runId, {
     String? sessionId,
     CancelToken? cancelToken,
+    int? lastEventId,
+    void Function(int seq)? onSequence,
   }) {
     if (!runEventsStarted.isCompleted) runEventsStarted.complete();
     return events.stream;
@@ -80,6 +82,8 @@ class _GatedApprovalService extends HermesApiService {
     String runId, {
     required String approvalId,
     required bool approved,
+    int? executionGeneration,
+    String? choice,
   }) async {
     decisions.add((runId, approvalId, approved));
     await gate.future;
