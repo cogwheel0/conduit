@@ -517,7 +517,8 @@ class ChatPage extends ConsumerStatefulWidget {
   ConsumerState<ChatPage> createState() => _ChatPageState();
 }
 
-class _ChatPageState extends ConsumerState<ChatPage> {
+class _ChatPageState extends ConsumerState<ChatPage>
+    with SingleTickerProviderStateMixin {
   static const double _scrollButtonShowThreshold = 48.0;
   static const double _scrollButtonHideThreshold = 12.0;
   static const int _pinScrollMaxAttempts = 12;
@@ -538,6 +539,21 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   /// through), and leaves quickly.
   bool _sendHidesScrollToLatest = false;
   Timer? _sendScrollToLatestHideTimer;
+
+  /// The new chat's greeting while its first message is sent: it fades out
+  /// as Send is tapped, gone well before the message rising from the
+  /// composer could reach its line, and comes back if the send does not go
+  /// through. The leaving greeting ([ChatGreetingExit]) shares it, so the
+  /// fade carries on unbroken when the transcript takes over.
+  late final AnimationController _greetingSendPresence = AnimationController(
+    vsync: this,
+    value: 1,
+  );
+  Timer? _greetingSendHideTimer;
+
+  /// How quickly the greeting goes when Send is tapped, and comes back.
+  static const Duration _greetingSendFade = Duration(milliseconds: 100);
+  static const Duration _greetingReturnFade = Duration(milliseconds: 200);
 
   /// Whether the transcript has scrolled under the header, so the header
   /// names the chat above its model.
@@ -1066,6 +1082,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     _headerShowsTitle.dispose();
     _newChatActionsHoldTimer?.cancel();
     _sendScrollToLatestHideTimer?.cancel();
+    _greetingSendHideTimer?.cancel();
+    _greetingSendPresence.dispose();
     _scrollToLatestPresence.dispose();
     _topEdgeEngagement.dispose();
     _bottomEdgeEngagement.dispose();
@@ -1415,8 +1433,55 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     } finally {
       _releaseMessageSendAdmission(sendOwner);
       _endSendScrollToLatestHide();
+      _endSendGreetingHide();
     }
     return (admitted: true, dispatched: dispatched);
+  }
+
+  /// Send was tapped: what the new turn will take the place of clears the
+  /// way at once.
+  void _handleSendStarted() {
+    _hideScrollToLatestForSend();
+    _hideGreetingForSend();
+  }
+
+  /// A new chat's first message is on its way: its greeting fades out now,
+  /// before the message leaves the composer, so the two never cross.
+  void _hideGreetingForSend() {
+    if (!mounted || ref.read(chatMessagesProvider).isNotEmpty) return;
+    _greetingSendPresence.animateTo(
+      0,
+      duration: _greetingSendFade,
+      curve: Curves.easeOut,
+    );
+    // A send the composer gives up on before it reaches the page must not
+    // keep the greeting away for good.
+    _greetingSendHideTimer?.cancel();
+    _greetingSendHideTimer = Timer(const Duration(seconds: 2), () {
+      if (!_messageSendAdmission.isHeld) _endSendGreetingHide();
+    });
+  }
+
+  /// The send has gone through or did not: a chat still empty shows its
+  /// greeting again; otherwise it is ready for the next new chat once the
+  /// leaving greeting has gone.
+  void _endSendGreetingHide() {
+    _greetingSendHideTimer?.cancel();
+    _greetingSendHideTimer = null;
+    if (!mounted || _greetingExiting) return;
+    if (_greetingSendPresence.value >= 1 &&
+        !_greetingSendPresence.isAnimating) {
+      return;
+    }
+    if (ref.read(chatMessagesProvider).isEmpty) {
+      _greetingSendPresence.animateTo(
+        1,
+        duration: _greetingReturnFade,
+        curve: Curves.easeOut,
+      );
+    } else {
+      _greetingSendPresence.value = 1;
+    }
   }
 
   /// Hides the scroll-to-latest button from the tap on Send until the new
@@ -3248,7 +3313,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     required bool isStreaming,
   }) {
     if (messages.isEmpty) {
-      return _buildEmptyState(Theme.of(context));
+      return _buildFadingEmptyState();
     }
 
     final apiService = watchRef.watch(apiServiceProvider);
@@ -3469,9 +3534,11 @@ class _ChatPageState extends ConsumerState<ChatPage> {
             onDone: () {
               if (mounted && _greetingExiting) {
                 setState(() => _greetingExiting = false);
+                // Gone with the leaving greeting; the next new chat greets.
+                _greetingSendPresence.value = 1;
               }
             },
-            child: _buildEmptyState(Theme.of(context)),
+            child: _buildFadingEmptyState(),
           ),
       ],
     );
@@ -4004,7 +4071,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   /// A one-line composer pill, unscaled.
   static const double _emptyStateSingleLineComposerHeight = 48;
 
-  /// The new-chat greeting: Title 1 size and tracking, semibold.
+  /// The new-chat greeting: Title 1 size and tracking, bold, as the large
+  /// titles are.
   static const double _emptyStateGreetingFontSize = 28;
   static const double _emptyStateGreetingLineHeight = 34;
   static const double _emptyStateGreetingTracking = 0.38;
@@ -4012,6 +4080,13 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   /// How far the composer may grow past one line before the greeting makes
   /// room for it.
   static const double _emptyStateComposerGrowthAllowance = 120;
+
+  /// The empty state as it shows, fading out when its first message is
+  /// sent (see [_greetingSendPresence]).
+  Widget _buildFadingEmptyState() => FadeTransition(
+    opacity: _greetingSendPresence,
+    child: _buildEmptyState(Theme.of(context)),
+  );
 
   Widget _buildEmptyState(ThemeData theme) {
     final l10n = AppLocalizations.of(context)!;
@@ -4043,9 +4118,10 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         });
       });
     }
-    // A title, not a caption: 28 pt semibold with Title 1 tracking, so the
-    // one line on an empty screen reads as deliberate. The theme's display
-    // style keeps the display cut of the system font at this size.
+    // A title, not a caption: 28 pt bold with Title 1 tracking, the weight
+    // of the app's large titles, so the one line on an empty screen reads as
+    // deliberate. The theme's display style keeps the display cut of the
+    // system font at this size.
     final greetingStyle =
         (theme.textTheme.displaySmall ?? AppTypography.displaySmallStyle)
             .copyWith(
@@ -4053,7 +4129,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
               height:
                   _emptyStateGreetingLineHeight / _emptyStateGreetingFontSize,
               letterSpacing: _emptyStateGreetingTracking,
-              fontWeight: FontWeight.w600,
+              fontWeight: FontWeight.w700,
               color: context.conduitTheme.textPrimary,
             );
     final textScaler = MediaQuery.textScalerOf(context);
@@ -4366,7 +4442,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                   return ModernChatInput(
                     onSendMessage: _handleMessageSend,
                     onSendDraft: _handleDraftSend,
-                    onSendStarted: _hideScrollToLatestForSend,
+                    onSendStarted: _handleSendStarted,
                     onCompareSend: _handleCompareSend,
                     enabled: debugCanSubmitChatMessageForTesting(
                       isLoadingConversation: isLoadingConversation,
