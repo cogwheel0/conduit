@@ -301,7 +301,6 @@ void main() {
         theme: ThemeData(
           scrollbarTheme: const ScrollbarThemeData(
             thumbVisibility: WidgetStatePropertyAll(true),
-            interactive: true,
             thickness: WidgetStatePropertyAll(8),
           ),
         ),
@@ -403,7 +402,6 @@ void main() {
             theme: ThemeData(
               scrollbarTheme: const ScrollbarThemeData(
                 thumbVisibility: WidgetStatePropertyAll(true),
-                interactive: true,
                 thickness: WidgetStatePropertyAll(8),
               ),
             ),
@@ -465,7 +463,6 @@ void main() {
             theme: ThemeData(
               scrollbarTheme: const ScrollbarThemeData(
                 thumbVisibility: WidgetStatePropertyAll(true),
-                interactive: true,
                 thickness: WidgetStatePropertyAll(8),
               ),
             ),
@@ -568,7 +565,6 @@ void main() {
             theme: ThemeData(
               scrollbarTheme: const ScrollbarThemeData(
                 thumbVisibility: WidgetStatePropertyAll(true),
-                interactive: true,
                 thickness: WidgetStatePropertyAll(8),
               ),
             ),

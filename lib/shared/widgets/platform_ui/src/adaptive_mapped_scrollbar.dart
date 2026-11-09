@@ -166,7 +166,7 @@ class _AdaptiveMappedScrollbarState extends State<AdaptiveMappedScrollbar>
     );
     return PlatformInfo.isIOS
         ? CupertinoScrollbar(controller: _controller, child: content)
-        : Scrollbar(controller: _controller, child: content);
+        : Scrollbar(controller: _controller, interactive: true, child: content);
   }
 
   @override
