@@ -25,6 +25,7 @@ import '../../../shared/widgets/themed_sheets.dart';
 import '../providers/sidebar_providers.dart';
 import '../providers/sidebar_tab_scroll_registry.dart';
 import '../utils/sidebar_create_action.dart';
+import '../../search/views/library_search_page.dart';
 import 'sidebar_user_pill.dart';
 import 'sidebar_tab_registry.dart';
 import 'chats_drawer.dart';
@@ -708,7 +709,6 @@ class _SlidingSidebarPage extends ConsumerWidget {
     ];
     final historyTab = ref.watch(sidebarSelectedHistoryTabProvider);
     final chatTab = historyTabs.firstWhere((tab) => tab.id == historyTab);
-    final isSearching = ref.watch(sidebarHeaderSearchExpandedProvider);
     final composeChrome = DrawerChromeCompositionScope.shouldCompose(context);
     final display = View.of(context).display.size;
     final viewport =
@@ -802,34 +802,21 @@ class _SlidingSidebarPage extends ConsumerWidget {
                       Expanded(
                         child: Align(
                           alignment: AlignmentDirectional.centerStart,
-                          child: isSearching
-                              ? SidebarSearchAppBarLeading(
-                                  hintText: l10n.searchConversations,
-                                  maxWidth:
-                                      constraints.maxWidth -
-                                      controlExtent -
-                                      Spacing.sm,
-                                )
-                              : composeChrome
+                          child: composeChrome
                               ? const SidebarProfileAppBarLeading()
                               : SizedBox.square(dimension: controlExtent),
                         ),
                       ),
                       const SizedBox(width: Spacing.sm),
-                      // Search filters the Open WebUI history only.
                       if (chatTab.id == SidebarTabId.hermes)
                         const SizedBox.shrink()
                       else if (composeChrome)
                         ConduitAdaptiveAppBarIconButton(
                           key: const ValueKey<String>('sidebar-search-button'),
-                          icon: isSearching ? UiUtils.closeIcon : Icons.search,
-                          iosSymbol: isSearching ? 'xmark' : 'magnifyingglass',
-                          semanticLabel: isSearching
-                              ? l10n.close
-                              : l10n.searchConversations,
-                          onPressed: () => isSearching
-                              ? closeSidebarSearch(ref)
-                              : openSidebarSearch(ref),
+                          icon: Icons.search,
+                          iosSymbol: 'magnifyingglass',
+                          semanticLabel: l10n.librarySearchTitle,
+                          onPressed: () => openLibrarySearch(context, ref),
                           iconColor: theme.textPrimary,
                         )
                       else

@@ -25,6 +25,7 @@ import '../../../shared/widgets/sidebar_layout_contract.dart';
 import 'sidebar_page.dart';
 import 'sidebar_tab_registry.dart';
 import '../../terminal/providers/terminal_providers.dart';
+import '../../search/views/library_search_page.dart';
 
 /// Shell widget that wraps child routes with a persistent
 /// [ResponsiveDrawerLayout] + [SidebarPage] drawer.
@@ -192,6 +193,10 @@ class MacDesktopShortcuts extends ConsumerWidget {
     }
 
     void focusSidebarSearch() {
+      if (ref.read(appSettingsProvider).slidingSidebarEnabled) {
+        unawaited(openLibrarySearch(context, ref));
+        return;
+      }
       final drawer = SidebarDrawerControllerScope.maybeOf(context);
       if (drawer?.isOpen == false) drawer?.open();
       openSidebarSearch(ref);

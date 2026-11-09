@@ -6359,5 +6359,12 @@
   "hermesContinueInCopyFailed": "Tento chat se nepodařilo zkopírovat. Zkuste to znovu.",
   "hermesContinueHere": "Pokračovat zde",
   "hermesContinueHereFailed": "V tomto chatu se nepodařilo pokračovat zde. Zkuste to znovu.",
-  "hermesContinueChoiceExplanation": "Pokračováním zde se tento chat v druhé aplikaci ukončí a ta při další zprávě začne nový. Kopie ten chat ponechá beze změny, ale dřívější zprávy uloží jen v tomto zařízení. Uchová nejvýše 1 000 nejnovějších zpráv (1 MB), a to u 32 naposledy otevřených kopií."
+  "hermesContinueChoiceExplanation": "Pokračováním zde se tento chat v druhé aplikaci ukončí a ta při další zprávě začne nový. Kopie ten chat ponechá beze změny, ale dřívější zprávy uloží jen v tomto zařízení. Uchová nejvýše 1 000 nejnovějších zpráv (1 MB), a to u 32 naposledy otevřených kopií.",
+  "librarySearchTitle": "Prohledat knihovnu",
+  "librarySearchHint": "Najděte chaty, složky a text ve zprávách a poznámkách.",
+  "librarySearchAll": "Vše",
+  "librarySearchOnDevice": "Chaty v zařízení",
+  "librarySearchMore": "Zobrazit více",
+  "librarySearching": "Vyhledávání…",
+  "librarySearchFailed": "Vyhledávání se nezdařilo"
 }

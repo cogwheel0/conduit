@@ -4436,5 +4436,12 @@
   "hermesContinueInCopyFailed": "无法复制此聊天。请重试。",
   "hermesContinueHere": "在此继续",
   "hermesContinueHereFailed": "无法在此继续此聊天。请重试。",
-  "hermesContinueChoiceExplanation": "在此继续会结束另一个应用中的这个聊天，该应用会在下一条消息时开始新聊天。副本会保持那个聊天不变，但之前的消息只保存在此设备上。最多保留最新的 1,000 条消息（1 MB），且仅限最近打开的 32 个副本。"
+  "hermesContinueChoiceExplanation": "在此继续会结束另一个应用中的这个聊天，该应用会在下一条消息时开始新聊天。副本会保持那个聊天不变，但之前的消息只保存在此设备上。最多保留最新的 1,000 条消息（1 MB），且仅限最近打开的 32 个副本。",
+  "librarySearchTitle": "搜索资料库",
+  "librarySearchHint": "查找聊天、文件夹以及消息和笔记中的文本。",
+  "librarySearchAll": "全部",
+  "librarySearchOnDevice": "设备上的聊天",
+  "librarySearchMore": "显示更多",
+  "librarySearching": "正在搜索…",
+  "librarySearchFailed": "搜索失败"
 }

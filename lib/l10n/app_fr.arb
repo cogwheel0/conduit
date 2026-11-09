@@ -4436,5 +4436,12 @@
   "hermesContinueInCopyFailed": "Impossible de copier cette conversation. Réessayez.",
   "hermesContinueHere": "Continuer ici",
   "hermesContinueHereFailed": "Impossible de continuer cette conversation ici. Réessayez.",
-  "hermesContinueChoiceExplanation": "Continuer ici met fin à cette conversation dans l'autre app, qui en commencera une nouvelle à son prochain message. Une copie laisse cette conversation intacte, mais conserve les messages précédents uniquement sur cet appareil. Elle conserve jusqu'aux 1 000 messages les plus récents (1 Mo), pour les 32 copies ouvertes le plus récemment."
+  "hermesContinueChoiceExplanation": "Continuer ici met fin à cette conversation dans l'autre app, qui en commencera une nouvelle à son prochain message. Une copie laisse cette conversation intacte, mais conserve les messages précédents uniquement sur cet appareil. Elle conserve jusqu'aux 1 000 messages les plus récents (1 Mo), pour les 32 copies ouvertes le plus récemment.",
+  "librarySearchTitle": "Rechercher dans la bibliothèque",
+  "librarySearchHint": "Trouvez des discussions, des dossiers et du texte dans les messages et les notes.",
+  "librarySearchAll": "Tout",
+  "librarySearchOnDevice": "Discussions sur cet appareil",
+  "librarySearchMore": "Afficher plus",
+  "librarySearching": "Recherche…",
+  "librarySearchFailed": "Échec de la recherche"
 }

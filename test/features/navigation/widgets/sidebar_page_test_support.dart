@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:ui' show Tristate;
 
+import 'package:dio/dio.dart';
+
 import 'package:checks/checks.dart';
 import 'package:conduit_core/database/database_provider.dart';
 import 'package:conduit_core/providers/app_providers.dart';
@@ -275,6 +277,7 @@ Widget sidebarTestBuildHarness({
           profilePresenter,
         ),
       ...openWebUiStorageOpenOverrides(open: openWebUiStorageOpen),
+      isOnlineProvider.overrideWithValue(true),
       if (noteEditor != null)
         connectivityStatusProvider.overrideWithValue(ConnectivityStatus.online),
       if (syncStatus != null)
@@ -454,6 +457,13 @@ class SidebarTestSidebarApiService extends Mock implements ApiService {
 
   @override
   Future<String?> getDefaultModel() async => loadServerDefaultModel?.call();
+
+  @override
+  Future<List<Conversation>> searchChatPage({
+    required String query,
+    required int page,
+    CancelToken? cancelToken,
+  }) async => [];
 
   @override
   Future<List<Conversation>> searchConversations(String query) async =>
