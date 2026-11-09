@@ -3440,7 +3440,7 @@
   "hermesJobCatchUpRunOnce": "Rattraper une seule fois",
   "hermesJobCatchUpSkip": "Ignorer les exécutions manquées",
   "hermesJobDeliverLabel": "Livrer à",
-  "hermesJobDeliverLocal": "Enregistrer uniquement dans Hermes",
+  "hermesJobDeliverLocal": "Enregistrer dans Hermes",
   "hermesJobDeliverMessaging": "Applications de messagerie",
   "hermesJobDeliverBotChats": "Chats des bots",
   "hermesJobDeliverGroupChats": "Chats de groupe",

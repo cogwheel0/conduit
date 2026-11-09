@@ -451,6 +451,46 @@ void main() {
     ]);
   });
 
+  // Run now chosen again for the same job (a card opened again while the
+  // first waited): the Stop withdrew only the newer one, said the job
+  // stopped before starting, and the older one was sent after it.
+  test('a Stop withdraws every Run now of the job still queued', () async {
+    final bridge = _QueueBridge();
+    final service = HermesDesktopApiService(
+      config: HermesConfig(
+        enabled: true,
+        baseUrl: 'https://hermes.example',
+        mode: HermesBackendMode.desktopGateway,
+        desktopAuthKind: HermesDesktopAuthKind.dashboardCookie,
+      ),
+      dashboardBridgeFactory: ({required root, required accessHeaders}) =>
+          bridge,
+    );
+    addTearDown(service.close);
+
+    final runA = service.runJob('job-a');
+    final first = check(
+      service.runJob('job-b'),
+    ).throws<HermesDashboardRequestWithdrawn>();
+    final second = check(
+      service.runJob('job-b'),
+    ).throws<HermesDashboardRequestWithdrawn>();
+    await pumpEventQueue();
+    final stop = await service.stopJobRun('job-b');
+    await first;
+    await second;
+    bridge.release();
+    await runA;
+
+    check(stop)
+      ..has((r) => r.cancelled, 'cancelled').isTrue()
+      ..has((r) => r.beforeStart, 'beforeStart').isTrue();
+    check(bridge.sent).deepEquals([
+      'POST /api/cron/jobs/job-a/trigger',
+      'POST /api/cron/jobs/job-b/cancel',
+    ]);
+  });
+
   // Withdrawn already, the job could not run, but a cancel that failed
   // without an HTTP status reported the Stop as failed.
   test('a withdrawn Run now reads stopped however its cancel fails',

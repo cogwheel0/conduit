@@ -277,9 +277,10 @@ final class HermesDesktopApiService
   late final _HermesDesktopAdministration _administration;
   HermesDashboardBridge? _dashboardBridge;
 
-  /// Run now triggers not yet answered, by job: on a dashboard sign-in one
-  /// can still wait in the request queue, where a Stop withdraws it.
-  final Map<String, _QueuedJobTrigger> _jobTriggers = {};
+  /// Run now triggers not yet answered, by job: on a dashboard sign-in they
+  /// can still wait in the request queue, where a Stop withdraws them. A
+  /// job has several when Run now was chosen again, as from another card.
+  final Map<String, Set<_QueuedJobTrigger>> _jobTriggers = {};
   final HermesDesktopCredentialsWriter? onCredentialsChanged;
   HermesDesktopTokenSet? _nativeTokens;
   bool _closed = false;

@@ -5363,7 +5363,7 @@
   "hermesJobCatchUpRunOnce": "Po zmeškaní spustiť raz",
   "hermesJobCatchUpSkip": "Zmeškané preskočiť",
   "hermesJobDeliverLabel": "Doručiť do",
-  "hermesJobDeliverLocal": "Uložiť len v Hermes",
+  "hermesJobDeliverLocal": "Uložiť v Hermes",
   "hermesJobDeliverMessaging": "Aplikácie na správy",
   "hermesJobDeliverBotChats": "Chaty s botmi",
   "hermesJobDeliverGroupChats": "Skupinové chaty",

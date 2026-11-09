@@ -6879,9 +6879,9 @@
   "@hermesJobDeliverLabel": {
     "description": "Label for where a Hermes scheduled job sends its output."
   },
-  "hermesJobDeliverLocal": "Save in Hermes only",
+  "hermesJobDeliverLocal": "Save in Hermes",
   "@hermesJobDeliverLocal": {
-    "description": "Delivery choice that keeps a Hermes scheduled job's output in Hermes without sending it anywhere."
+    "description": "Delivery choice that keeps a Hermes scheduled job's output in Hermes. It can be chosen together with other targets."
   },
   "hermesJobDeliverMessaging": "Messaging apps",
   "@hermesJobDeliverMessaging": {

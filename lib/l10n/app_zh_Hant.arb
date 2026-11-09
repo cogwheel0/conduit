@@ -3440,7 +3440,7 @@
   "hermesJobCatchUpRunOnce": "補執行一次",
   "hermesJobCatchUpSkip": "略過錯過的執行",
   "hermesJobDeliverLabel": "傳遞到",
-  "hermesJobDeliverLocal": "僅儲存在 Hermes",
+  "hermesJobDeliverLocal": "儲存在 Hermes",
   "hermesJobDeliverMessaging": "訊息應用程式",
   "hermesJobDeliverBotChats": "機器人聊天",
   "hermesJobDeliverGroupChats": "群組聊天",

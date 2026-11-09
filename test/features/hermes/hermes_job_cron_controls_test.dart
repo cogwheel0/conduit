@@ -429,7 +429,7 @@ void main() {
 
       expect(
         find.text(
-          'Delivery: Save in Hermes only, Bot Chat: research, '
+          'Delivery: Save in Hermes, Bot Chat: research, '
           'Group Chat: standup',
         ),
         findsOneWidget,

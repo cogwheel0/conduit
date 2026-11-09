@@ -3475,7 +3475,7 @@
   "hermesJobCatchUpRunOnce": "Нагнать одним запуском",
   "hermesJobCatchUpSkip": "Не выполнять пропущенные запуски",
   "hermesJobDeliverLabel": "Доставлять в",
-  "hermesJobDeliverLocal": "Сохранять только в Hermes",
+  "hermesJobDeliverLocal": "Сохранять в Hermes",
   "hermesJobDeliverMessaging": "Мессенджеры",
   "hermesJobDeliverBotChats": "Чаты ботов",
   "hermesJobDeliverGroupChats": "Групповые чаты",

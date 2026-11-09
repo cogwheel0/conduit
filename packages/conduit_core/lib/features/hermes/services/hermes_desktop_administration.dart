@@ -477,11 +477,14 @@ final class _HermesDesktopAdministration {
   /// queue until its run ends, so a queued Stop would wait for the very run
   /// it stops.
   ///
-  /// A Run now of this job still queued behind another request is
-  /// withdrawn first, so it cannot start after the Stop: Hermes, which never
-  /// saw it, would answer that nothing runs.
+  /// Every Run now of this job still queued behind another request is
+  /// withdrawn first, so none can start after the Stop: Hermes, which never
+  /// saw them, would answer that nothing runs.
   Future<HermesJobStopResult> cancelJobRun(String id) async {
-    final withdrew = _owner._jobTriggers[id]?.withdraw() ?? false;
+    var withdrew = false;
+    for (final trigger in [...?_owner._jobTriggers[id]]) {
+      if (trigger.withdraw()) withdrew = true;
+    }
     try {
       final result = HermesJobStopResult.fromJson(
         await _owner._requestJson(
@@ -570,7 +573,8 @@ final class _HermesDesktopAdministration {
       return;
     }
     final trigger = _QueuedJobTrigger();
-    _owner._jobTriggers[id] = trigger;
+    final triggers = _owner._jobTriggers.putIfAbsent(id, () => {})
+      ..add(trigger);
     try {
       // A Stop that withdraws it ends this at once: the request still waits
       // its turn in the queue, only to be dropped there unsent.
@@ -581,7 +585,8 @@ final class _HermesDesktopAdministration {
         ),
       ]);
     } finally {
-      if (identical(_owner._jobTriggers[id], trigger)) {
+      triggers.remove(trigger);
+      if (triggers.isEmpty && identical(_owner._jobTriggers[id], triggers)) {
         _owner._jobTriggers.remove(id);
       }
     }

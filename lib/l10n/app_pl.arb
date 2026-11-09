@@ -6974,7 +6974,7 @@
   "hermesJobCatchUpRunOnce": "Uruchom raz po pominięciu",
   "hermesJobCatchUpSkip": "Pomijaj zaległe uruchomienia",
   "hermesJobDeliverLabel": "Dostarczaj do",
-  "hermesJobDeliverLocal": "Zapisz tylko w Hermes",
+  "hermesJobDeliverLocal": "Zapisz w Hermes",
   "hermesJobDeliverMessaging": "Komunikatory",
   "hermesJobDeliverBotChats": "Czaty botów",
   "hermesJobDeliverGroupChats": "Czaty grupowe",

@@ -8,7 +8,7 @@ import '../../../l10n/app_localizations.dart';
 import '../../../l10n/app_localizations_en.dart';
 import '../../../shared/theme/theme_extensions.dart';
 
-/// A delivery target's label on its own: "Save in Hermes only", a platform,
+/// A delivery target's label on its own: "Save in Hermes", a platform,
 /// bot, or room name, or the stored token for anything unrecognised.
 String hermesDeliveryOptionLabel(
   AppLocalizations l10n,

@@ -3440,7 +3440,7 @@
   "hermesJobCatchUpRunOnce": "Eén keer inhalen",
   "hermesJobCatchUpSkip": "Gemiste uitvoeringen overslaan",
   "hermesJobDeliverLabel": "Bezorgen bij",
-  "hermesJobDeliverLocal": "Alleen in Hermes opslaan",
+  "hermesJobDeliverLocal": "In Hermes opslaan",
   "hermesJobDeliverMessaging": "Berichtenapps",
   "hermesJobDeliverBotChats": "Botchats",
   "hermesJobDeliverGroupChats": "Groepschats",

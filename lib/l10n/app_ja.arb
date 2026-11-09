@@ -5057,7 +5057,7 @@
   "hermesJobCatchUpRunOnce": "見逃した分を1回実行",
   "hermesJobCatchUpSkip": "見逃した分をスキップ",
   "hermesJobDeliverLabel": "配信先",
-  "hermesJobDeliverLocal": "Hermes にのみ保存",
+  "hermesJobDeliverLocal": "Hermes に保存",
   "hermesJobDeliverMessaging": "メッセージアプリ",
   "hermesJobDeliverBotChats": "ボットチャット",
   "hermesJobDeliverGroupChats": "グループチャット",
