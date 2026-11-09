@@ -499,6 +499,66 @@ void main() {
       check(completed).isTrue();
     });
 
+    // A Desktop turn that streamed its error copy before failing showed the
+    // copy as a reply above the card that explains it.
+    test('a classified failure clears the copy streamed before it', () async {
+      Future<ChatMessage> run(HermesErrorSurface? surface) async {
+        final fake = _FakeHermesApiService(
+          const [],
+          responseEvents: [
+            const HermesTokenDelta('Synthetic copy'),
+            HermesRunError('Synthetic failure', surface: surface),
+            const HermesRunDone(),
+          ],
+        );
+        var message = ChatMessage(
+          id: 'm',
+          role: 'assistant',
+          content: '',
+          timestamp: DateTime.fromMillisecondsSinceEpoch(0),
+        );
+        await _dispatchFakeHermesResponse(
+          service: fake,
+          registry: HermesRunRegistry(),
+          assistantMessageId: message.id,
+          input: HermesChatInput.text('hi'),
+          appendContent: (text) =>
+              message = message.copyWith(content: message.content + text),
+          replaceContent: (text) => message = message.copyWith(content: text),
+          appendStatus: (_) {},
+          updateMessage: (updater) => message = updater(message),
+          finishStreaming: () {},
+          completeStreamingUi: () {},
+        );
+        return message;
+      }
+
+      final failed = await run(
+        const HermesErrorSurface(
+          layer: HermesErrorLayer.provider,
+          code: 'context_overflow',
+          retryable: false,
+        ),
+      );
+      check(failed.content).isEmpty();
+      check(failed.error?.content).equals('Synthetic failure');
+      check(
+        hermesErrorSurfaceOf(failed)?.kind,
+      ).equals(HermesErrorKind.contextOverflow);
+
+      // A partial answer, and a failure without a card, keep their text.
+      final partial = await run(
+        const HermesErrorSurface(
+          layer: HermesErrorLayer.provider,
+          code: 'truncated',
+          retryable: true,
+          partial: true,
+        ),
+      );
+      check(partial.content).equals('Synthetic copy');
+      check((await run(null)).content).equals('Synthetic copy');
+    });
+
     test('pre-cancelled response reports no successful dispatch', () async {
       final fake = _FakeHermesApiService(
         const [],

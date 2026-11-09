@@ -368,8 +368,16 @@ Future<bool> dispatchHermesTurn({
           sawTerminal = true;
           completedSuccessfully = true;
           if (!completer.isCompleted) completer.complete();
-        case HermesRunError():
+        case HermesRunError(:final surface):
           sawTerminal = true;
+          // A classified failure that is not a partial answer: what streamed
+          // before it was its error copy, which its card shows, not a reply.
+          // A partial answer, or a failure without a card, keeps its text.
+          if (gotContent && surface != null && !surface.partial) {
+            gotContent = false;
+            streamedText.clear();
+            replaceContent?.call('');
+          }
           if (!completer.isCompleted) completer.complete();
         default:
           break;
