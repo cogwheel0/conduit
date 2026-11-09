@@ -10,6 +10,7 @@ Widget _harness({
   required double contentHeight,
   bool disableAnimations = false,
   bool holding = false,
+  VoidCallback? onNearlyClosed,
   VoidCallback? onDone,
 }) {
   return MediaQuery(
@@ -22,6 +23,7 @@ Widget _harness({
           key: _box,
           token: token,
           holding: holding,
+          onNearlyClosed: onNearlyClosed,
           onDone: onDone,
           child: SizedBox(key: _content, width: 300, height: contentHeight),
         ),
@@ -68,30 +70,79 @@ void main() {
     expect(done, 1);
   });
 
-  testWidgets('while the sent words are still in it, it keeps its height '
-      'even as its field clears, then closes from there', (tester) async {
-    await tester.pumpWidget(_harness(token: 0, contentHeight: 96));
-    await tester.pumpWidget(
-      _harness(token: 0, contentHeight: 96, holding: true),
+  testWidgets('while the sent words wait in it, it keeps its height even '
+      'as its field clears, then closes from there', (tester) async {
+    var nearly = 0;
+    Widget page(int token, double height, {bool holding = false}) => _harness(
+      token: token,
+      contentHeight: height,
+      holding: holding,
+      onNearlyClosed: () => nearly++,
     );
-    // The field clears under the flying words: the composer holds.
-    await tester.pumpWidget(
-      _harness(token: 0, contentHeight: 44, holding: true),
-    );
+    await tester.pumpWidget(page(0, 96));
+    await tester.pumpWidget(page(0, 96, holding: true));
+    // The field clears under the waiting words: the composer holds.
+    await tester.pumpWidget(page(0, 44, holding: true));
     await tester.pump(const Duration(milliseconds: 200));
     expect(tester.getSize(find.byKey(_box)).height, 96);
     expect(
       tester.getBottomLeft(find.byKey(_content)).dy,
       tester.getBottomLeft(find.byKey(_box)).dy,
     );
+    expect(nearly, 0);
 
-    // The words have left: it closes on the spring from the held height.
-    await tester.pumpWidget(_harness(token: 1, contentHeight: 44));
+    // The words rise: it closes on the spring from the held height.
+    await tester.pumpWidget(page(1, 44));
     expect(tester.getSize(find.byKey(_box)).height, 96);
     await tester.pump(const Duration(milliseconds: 80));
     expect(tester.getSize(find.byKey(_box)).height, inExclusiveRange(44, 96));
     await tester.pumpAndSettle();
     expect(tester.getSize(find.byKey(_box)).height, 44);
+    expect(nearly, 1);
+  });
+
+  testWidgets('it says when it is about one line tall, once per send, and '
+      'at once when there is nothing to close', (tester) async {
+    var nearly = 0;
+    await tester.pumpWidget(
+      _harness(token: 0, contentHeight: 96, onNearlyClosed: () => nearly++),
+    );
+    // Typing and layout alone never report.
+    await tester.pumpWidget(
+      _harness(token: 0, contentHeight: 66, onNearlyClosed: () => nearly++),
+    );
+    await tester.pump();
+    expect(nearly, 0);
+
+    await tester.pumpWidget(
+      _harness(token: 1, contentHeight: 44, onNearlyClosed: () => nearly++),
+    );
+    var frames = 0;
+    while (nearly == 0 && frames < 60) {
+      await tester.pump(const Duration(milliseconds: 16));
+      frames++;
+      if (nearly == 0) {
+        // Not yet: still more than a sliver of a line too tall.
+        expect(
+          tester.getSize(find.byKey(_box)).height - 44,
+          greaterThan(ComposerSendCollapse.nearlyClosedSlack),
+        );
+      }
+    }
+    expect(nearly, 1);
+    // Reported well before the spring's last fraction of a point.
+    expect(frames * 16, lessThan(ComposerSendCollapse.duration.inMilliseconds));
+    await tester.pumpAndSettle();
+    expect(nearly, 1);
+
+    // A one-line composer has nothing to close: it reports straight away.
+    await tester.pumpWidget(
+      _harness(token: 2, contentHeight: 44, onNearlyClosed: () => nearly++),
+    );
+    await tester.pump();
+    expect(nearly, 2);
+    await tester.pumpAndSettle();
+    expect(nearly, 2);
   });
 
   testWidgets('typing changes the height directly', (tester) async {
@@ -123,5 +174,21 @@ void main() {
     expect(tester.getSize(find.byKey(_box)).height, 44);
     await tester.pump();
     expect(done, 1);
+  });
+
+  testWidgets('Reduce Motion reports it is one line tall at once', (
+    tester,
+  ) async {
+    var nearly = 0;
+    Widget page(int token, double height) => _harness(
+      token: token,
+      contentHeight: height,
+      disableAnimations: true,
+      onNearlyClosed: () => nearly++,
+    );
+    await tester.pumpWidget(page(0, 96));
+    await tester.pumpWidget(page(1, 44));
+    await tester.pump();
+    expect(nearly, 1);
   });
 }

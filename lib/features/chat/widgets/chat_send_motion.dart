@@ -8,34 +8,63 @@ import '../../../shared/theme/theme_extensions.dart';
 import 'chat_motion_spring.dart';
 import 'chat_timeline_viewport.dart' show ChatScrollDestination;
 
-/// Tells the place a message was sent from (the composer) when the message's
-/// words have left it, so it can close up behind them: until then it keeps
-/// its shape and shows nothing where the words still are. Called at most
-/// once, and always eventually: when the flying words clear the place, when
+/// Tells the place a message was sent from (the composer) how the message's
+/// words are leaving it. [onLiftOff] hears when they start to rise, so it can
+/// close up behind them on the same spring; until then it keeps its shape
+/// around them. The departure itself ([depart]) comes once they have risen
+/// clear of it, so it can show what belongs there (its placeholder) without
+/// the two ever being drawn over each other. Each is called at most once,
+/// lift-off first, and always eventually: as the flying words move, when
 /// they cannot fly at all, or when the flight ends early.
 class ChatSendDeparture {
-  ChatSendDeparture(VoidCallback onDeparted) : _onDeparted = onDeparted;
+  ChatSendDeparture(VoidCallback onDeparted, {VoidCallback? onLiftOff})
+    : _onDeparted = onDeparted,
+      _onLiftOff = onLiftOff;
 
   VoidCallback? _onDeparted;
+  VoidCallback? _onLiftOff;
 
   /// Whether [depart] has run.
   bool get departed => _onDeparted == null;
 
-  /// Reports the departure, once. Changes the source's state, so never call
-  /// it from inside layout or paint (see [departAfterFrame]).
+  /// Whether [liftOff] (or [depart]) has run.
+  bool get liftedOff => _onLiftOff == null;
+
+  /// Reports that the words have started to rise, once. Changes the
+  /// source's state, so never call it from inside layout or paint (see
+  /// [liftOffAfterFrame]).
+  void liftOff() {
+    final onLiftOff = _onLiftOff;
+    _onLiftOff = null;
+    onLiftOff?.call();
+  }
+
+  /// Reports the departure, once, and the lift-off with it if that has not
+  /// been reported. Changes the source's state, so never call it from inside
+  /// layout or paint (see [departAfterFrame]).
   void depart() {
+    liftOff();
     final onDeparted = _onDeparted;
     _onDeparted = null;
     onDeparted?.call();
   }
 
   bool _scheduled = false;
+  bool _liftOffScheduled = false;
 
   /// [depart] after the current frame, for callers inside layout or paint.
   void departAfterFrame() {
     if (departed || _scheduled) return;
     _scheduled = true;
     WidgetsBinding.instance.addPostFrameCallback((_) => depart());
+    WidgetsBinding.instance.scheduleFrame();
+  }
+
+  /// [liftOff] after the current frame, for callers inside layout or paint.
+  void liftOffAfterFrame() {
+    if (liftedOff || _liftOffScheduled) return;
+    _liftOffScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) => liftOff());
     WidgetsBinding.instance.scheduleFrame();
   }
 }
@@ -45,6 +74,17 @@ class ChatSendDeparture {
 /// flying message puts the same line of its own text exactly there, so its
 /// first frame draws the words where they were, whatever the line heights.
 typedef ChatSendTextLine = ({double y, bool last});
+
+/// The words a message was typed as, wrapped the way their field showed
+/// them: one entry per line on screen, set in the field's own style. The
+/// flying message starts as exactly these lines and dissolves into its
+/// bubble's own wrap only once it is on its way, so the text never re-wraps
+/// while it is still where it was written.
+typedef ChatSendTypedText = ({
+  List<String> lines,
+  TextStyle style,
+  TextScaler textScaler,
+});
 
 /// Where the text of the message being sent was on screen: the composer's
 /// field, or the follow-up row that was tapped. The new bubble rises from
@@ -57,9 +97,10 @@ class ChatSendOrigin {
   static ChatSendTextLine? _line;
   static double? _clearanceTop;
   static ChatSendDeparture? _departure;
+  static ChatSendTypedText? _typed;
 
-  /// The box [_rect] was measured from, to follow it if it has moved since
-  /// (the keyboard going down carries the composer with it).
+  /// The box the words follow if it has moved since recording (the keyboard
+  /// going down carries the composer with it), and its bottom-left then.
   static RenderBox? _box;
   static Offset? _boxBottomLeft;
 
@@ -70,12 +111,13 @@ class ChatSendOrigin {
   /// Records [globalRect] (logical pixels in the view) as the next bubble's
   /// origin. With a [line], the flying words line up on it; with a
   /// [clearanceTop] (the composer's top edge), [departure] is told once the
-  /// words have risen above it.
+  /// words have risen above it. With [typed], they start as those lines.
   static void record(
     Rect globalRect, {
     ChatSendTextLine? line,
     double? clearanceTop,
     ChatSendDeparture? departure,
+    ChatSendTypedText? typed,
   }) {
     // A newer send replaces one whose words never left: let it go.
     final replaced = _departure;
@@ -84,6 +126,7 @@ class ChatSendOrigin {
     _line = line;
     _clearanceTop = clearanceTop;
     _departure = departure;
+    _typed = typed;
     _box = null;
     _boxBottomLeft = null;
     if (replaced != null && !identical(replaced, departure)) replaced.depart();
@@ -99,13 +142,21 @@ class ChatSendOrigin {
   /// may have scrolled, or that wraps wider than the bubble: the words then
   /// grow upwards, the way they are about to travel, never down over the
   /// composer's buttons). With [clearOf], [departure] hears when the words
-  /// have risen above that box's top edge. When nothing can be recorded,
+  /// have risen above that box's top edge, and the words follow that box
+  /// rather than [context]'s: the composer may re-lay its rows out the moment
+  /// the words leave (the field moving into a one-line row), but only the
+  /// keyboard moves the composer itself. With [carryTypedLines], the words
+  /// start wrapped as the field inside the box wraps them (see
+  /// [ChatSendTypedText]) when it shows them all, lined up on its first
+  /// line, which both wraps begin alike: the bubble's extra lines then only
+  /// come in below once the words have risen. When nothing can be recorded,
   /// [departure] is told at once.
   static void recordFrom(
     BuildContext? context, {
     bool alignLastLine = false,
     BuildContext? clearOf,
     ChatSendDeparture? departure,
+    bool carryTypedLines = false,
   }) {
     final box = context?.findRenderObject();
     if (box is! RenderBox || !box.hasSize || !box.attached) {
@@ -113,11 +164,13 @@ class ChatSendOrigin {
       return;
     }
     final rect = box.localToGlobal(Offset.zero) & box.size;
-    final extent = chatTextLineExtent(box, last: alignLastLine);
-    final clearBox = clearOf?.findRenderObject();
-    final clearanceTop =
-        clearBox is RenderBox && clearBox.hasSize && clearBox.attached
-        ? clearBox.localToGlobal(Offset.zero).dy
+    final typed = carryTypedLines ? chatSendTypedTextOf(box) : null;
+    final last = typed == null && alignLastLine;
+    final extent = chatTextLineExtent(box, last: last);
+    final clearObject = clearOf?.findRenderObject();
+    final clearBox =
+        clearObject is RenderBox && clearObject.hasSize && clearObject.attached
+        ? clearObject
         : null;
     record(
       rect,
@@ -125,17 +178,17 @@ class ChatSendOrigin {
           ? null
           : (
               y: box
-                  .localToGlobal(
-                    Offset(0, alignLastLine ? extent.bottom : extent.top),
-                  )
+                  .localToGlobal(Offset(0, last ? extent.bottom : extent.top))
                   .dy,
-              last: alignLastLine,
+              last: last,
             ),
-      clearanceTop: clearanceTop,
+      clearanceTop: clearBox?.localToGlobal(Offset.zero).dy,
       departure: departure,
+      typed: typed,
     );
-    _box = box;
-    _boxBottomLeft = rect.bottomLeft;
+    final followed = clearBox ?? box;
+    _box = followed;
+    _boxBottomLeft = followed.localToGlobal(Offset(0, followed.size.height));
   }
 
   /// Whether a fresh origin is waiting, without spending it.
@@ -145,6 +198,9 @@ class ChatSendOrigin {
         at != null &&
         DateTime.now().difference(at) <= maxAge;
   }
+
+  /// The typed lines of the fresh origin, without spending it.
+  static ChatSendTypedText? get freshTypedText => hasFresh ? _typed : null;
 
   /// Whether [departure]'s origin is still waiting for a message to take it.
   static bool isWaiting(ChatSendDeparture departure) =>
@@ -180,6 +236,7 @@ class ChatSendOrigin {
     _line = null;
     _clearanceTop = null;
     _departure = null;
+    _typed = null;
     if (rect == null || at == null) return null;
     if ((now ?? DateTime.now()).difference(at) > maxAge) {
       departure?.departAfterFrame();
@@ -209,6 +266,7 @@ class ChatSendOrigin {
     _line = null;
     _clearanceTop = null;
     _departure = null;
+    _typed = null;
   }
 }
 
@@ -291,6 +349,75 @@ RenderBox? _firstTextBox(RenderObject root) {
   ).dy;
   if (!top.isFinite || !bottom.isFinite) return null;
   return (top: top, bottom: bottom);
+}
+
+/// The lines of the editable text under [root] as they are wrapped on
+/// screen, with its style, or null when they cannot stand in for it exactly:
+/// no laid out left-to-right field, hidden or embedded content, or more
+/// lines than it shows (it has scrolled). Blank lines before the first and
+/// after the last words are left out, as a sent message leaves them out.
+ChatSendTypedText? chatSendTypedTextOf(RenderObject root) {
+  RenderEditable? editable;
+  void visit(RenderObject node) {
+    if (editable != null) return;
+    if (node is RenderEditable) {
+      editable = node;
+      return;
+    }
+    node.visitChildren(visit);
+  }
+
+  visit(root);
+  final field = editable;
+  if (field == null ||
+      !field.hasSize ||
+      field.obscureText ||
+      field.textDirection != TextDirection.ltr) {
+    return null;
+  }
+  final style = field.text?.style;
+  final plain = field.plainText;
+  // An embedded widget (U+FFFC) has no glyphs to copy.
+  if (style == null || plain.trim().isEmpty || plain.contains('\uFFFC')) {
+    return null;
+  }
+  final lines = <String>[];
+  var start = 0;
+  while (start < plain.length) {
+    if (plain[start] == '\n') {
+      lines.add('');
+      start++;
+      continue;
+    }
+    final line = field.getLineAtOffset(TextPosition(offset: start));
+    if (line.start > start || line.end <= start) {
+      // Whitespace the line boundaries leave out sits at the end of the
+      // line before it, where it draws nothing.
+      start++;
+      continue;
+    }
+    lines.add(plain.substring(start, line.end).trimRight());
+    start = line.end;
+    if (start < plain.length && plain[start] == '\n') {
+      // The break ends this line; a line follows it, even an empty last one.
+      start++;
+      if (start == plain.length) lines.add('');
+    }
+  }
+  final maxLines = field.maxLines;
+  if (maxLines != null && lines.length > maxLines) return null;
+  while (lines.isNotEmpty && lines.first.trim().isEmpty) {
+    lines.removeAt(0);
+  }
+  while (lines.isNotEmpty && lines.last.trim().isEmpty) {
+    lines.removeLast();
+  }
+  if (lines.isEmpty) return null;
+  return (
+    lines: List<String>.unmodifiable(lines),
+    style: style,
+    textScaler: field.textScaler,
+  );
 }
 
 /// Messages whose entrance has been decided, so a remount (scrolling away
@@ -594,10 +721,15 @@ class _RenderLeavingLayout extends RenderProxyBox {
 
 /// Builds the stand-in that flies up from where a message was written. It
 /// lays out exactly like the message's row and draws the words alone at
-/// [morph] 0 and the finished bubble at 1.
+/// [morph] 0 and the finished bubble at 1. With [typed], the words at 0 are
+/// those lines, as the field wrapped them, and give way to the bubble's own
+/// wrap as [morph] runs. [morph] only moves while the stand-in rises (see
+/// [ChatSendEntrance.shapeRise]), so nothing about the words changes while
+/// they still sit where they were written; read it at paint time.
 typedef ChatSendFlightBuilder = Widget Function(
   BuildContext context,
   Animation<double> morph,
+  ChatSendTypedText? typed,
 );
 
 /// Lays its child out with the constraints it first had, at the top-left,
@@ -738,6 +870,13 @@ class ChatSendEntrance extends StatefulWidget {
   /// [t] seconds.
   static double morphAt(double t) => 1 - morphSpring.remainingAt(t);
 
+  /// A flying message takes its bubble's shape only as it rises: no further
+  /// than its share of this many points (or of its whole way up, if that is
+  /// shorter) that it has risen so far. Rising fast from the composer, the
+  /// spring above sets the pace; held with the composer while its row comes
+  /// up, it keeps the shape of the typed words until it moves.
+  static const double shapeRise = 48;
+
   /// Advances the spring [dt] seconds from [displacement] (points from its
   /// target) moving at [velocity] (points per second).
   static ({double displacement, double velocity}) step({
@@ -760,6 +899,7 @@ class _ChatSendEntranceState extends State<ChatSendEntrance>
   /// The stand-in's flight, when this message leaves from its words.
   _SendFlight? _flight;
   Animation<double>? _morph;
+  ChatSendTypedText? _typed;
   final OverlayPortalController _portal = OverlayPortalController();
 
   @override
@@ -783,11 +923,11 @@ class _ChatSendEntranceState extends State<ChatSendEntrance>
         widget.flightBuilder != null &&
         ChatSendOrigin.hasFresh &&
         Overlay.maybeOf(context) != null) {
-      _flight = _SendFlight(onEnd: _endFlight);
-      _morph = CurvedAnimation(
-        parent: controller,
-        curve: const _SpringMorphCurve(),
-      );
+      final flight = _flight = _SendFlight(onEnd: _endFlight);
+      _morph = _FlightShape(controller, flight);
+      // The words this send was typed as, if the field could say; the
+      // origin itself is taken when the row is first laid out.
+      _typed = ChatSendOrigin.freshTypedText;
       // Shown from the first frame, so the stand-in is laid out and ready
       // the moment the row is first painted.
       _portal.show();
@@ -883,7 +1023,7 @@ class _ChatSendEntranceState extends State<ChatSendEntrance>
             flight: flight,
             controller: controller,
             rowWidth: info.childSize.width,
-            child: flightBuilder(context, morph),
+            child: flightBuilder(context, morph, _typed),
           ),
         ),
       ),
@@ -892,18 +1032,18 @@ class _ChatSendEntranceState extends State<ChatSendEntrance>
   }
 }
 
-/// [ChatSendEntrance.morphAt] over the entrance's clock.
-class _SpringMorphCurve extends Curve {
-  const _SpringMorphCurve();
+/// How far a flying stand-in has taken its bubble's shape ([_SendFlight.shape],
+/// set as its layer paints), ticking with the entrance's clock.
+class _FlightShape extends Animation<double>
+    with AnimationWithParentMixin<double> {
+  _FlightShape(this.parent, this._flight);
 
   @override
-  double transformInternal(double t) {
-    final seconds =
-        t *
-        ChatSendEntrance.settleDuration.inMicroseconds /
-        Duration.microsecondsPerSecond;
-    return ChatSendEntrance.morphAt(seconds);
-  }
+  final Animation<double> parent;
+  final _SendFlight _flight;
+
+  @override
+  double get value => _flight.shape;
 }
 
 /// The state a flying stand-in shares with the row it lands on.
@@ -978,6 +1118,11 @@ class _SendFlight {
 
   /// Clock reading (seconds) the spring was last advanced to.
   double advancedTo = 0;
+
+  /// How far the stand-in has taken its bubble's shape, 0 to 1: the morph
+  /// spring's progress, held back to what the rise so far allows (see
+  /// [ChatSendEntrance.shapeRise]). Never goes back.
+  double shape = 0;
 
   bool _endScheduled = false;
 
@@ -1181,12 +1326,15 @@ class _RenderSendFlightLayer extends RenderProxyBox {
     }
     var painted = position;
     final start = flight.start;
-    if (flight.ridesTurn && start != null) {
+    // Where the words were written, wherever the composer is now.
+    final waiting = start == null
+        ? null
+        : start + (flight.originDrift?.call() ?? Offset.zero);
+    if (flight.ridesTurn && waiting != null) {
       // Never above its row while the row is still on its way: it waits
       // where it was written (with the composer, as the keyboard goes down)
       // until the row rises to meet it, then goes up on it. A row already
       // above it changes nothing.
-      final waiting = start + (flight.originDrift?.call() ?? Offset.zero);
       final floor = math.min(live.dy, waiting.dy);
       if (painted.dy < floor) {
         // Held back, it is held as a whole: it moves across only as far as
@@ -1203,21 +1351,66 @@ class _RenderSendFlightLayer extends RenderProxyBox {
         );
       }
     }
+    _reportLiftOff(painted, waiting, live);
     _reportDeparture(painted);
+    _advanceShape(elapsed, painted: painted, start: start, target: target);
     // It hands over only on the row itself, once the scroll has landed too.
     final settled =
-        ChatSendEntrance.morphAt(elapsed) >= 0.999 &&
+        flight.shape >= 0.999 &&
         (position - target).distance < ChatSendEntrance.restDistance &&
         (target - live).distance < ChatSendEntrance.restDistance &&
         flight.velocity.distance < ChatSendEntrance.restSpeed;
     if (settled) {
       position = target;
       painted = target;
+      flight.shape = 1;
       flight.scheduleEnd();
     }
     flight.position = position;
     flight.painted = painted;
     context.paintChild(child, offset + painted);
+  }
+
+  /// Tells the composer once the words are on their way up, so it closes up
+  /// behind them on the same spring: in the frame they are handed over when
+  /// their row is already above them (nothing can hold them back, so the
+  /// composer's spring starts with theirs), or once words that waited for
+  /// their row have started to move. Words still waiting where they were
+  /// written keep the composer's shape around them.
+  void _reportLiftOff(Offset painted, Offset? waiting, Offset live) {
+    final flight = _flight;
+    final departure = flight.departure;
+    if (departure == null || departure.liftedOff || waiting == null) return;
+    final moved = painted.dy < waiting.dy - ChatSendEntrance.restDistance;
+    final free = !flight.ridesTurn && live.dy < waiting.dy;
+    if (moved || free) departure.liftOffAfterFrame();
+  }
+
+  /// Lets the stand-in take its bubble's shape as far as the morph spring
+  /// has run and its rise on screen so far allows: a stand-in still sitting
+  /// where the words were written (its row not yet come up to carry it, even
+  /// as the composer drops away below it) keeps their shape, wrap and all,
+  /// and only changes once it moves.
+  void _advanceShape(
+    double elapsed, {
+    required Offset painted,
+    required Offset? start,
+    required Offset target,
+  }) {
+    final flight = _flight;
+    var allowed = 1.0;
+    if (start != null) {
+      final way = start.dy - target.dy;
+      if (way > ChatSendEntrance.restDistance) {
+        final rise = start.dy - painted.dy;
+        allowed = (rise / math.min(ChatSendEntrance.shapeRise, way)).clamp(
+          0.0,
+          1.0,
+        );
+      }
+    }
+    final next = math.min(ChatSendEntrance.morphAt(elapsed), allowed);
+    if (next > flight.shape) flight.shape = next;
   }
 
   /// Tells the composer once the words (their last line of letters) are
