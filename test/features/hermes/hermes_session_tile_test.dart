@@ -626,7 +626,7 @@ void main() {
         ];
       final container = ownershipContainer(service);
       await openForeignChat(tester, container);
-      check(find.text('Continue here').evaluate()).isNotEmpty();
+      check(find.text('Continue Here').evaluate()).isNotEmpty();
       check(
         find.textContaining('ends this chat in the other app').evaluate(),
       ).isNotEmpty();

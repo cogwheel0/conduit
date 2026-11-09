@@ -9527,7 +9527,7 @@
       }
     }
   },
-  "hermesContinueInCopy": "Continue in a copy",
+  "hermesContinueInCopy": "Continue in a Copy",
   "@hermesContinueInCopy": {
     "description": "Button that copies a read-only Hermes chat into a new chat Conduit can continue."
   },
@@ -9535,7 +9535,7 @@
   "@hermesContinueInCopyFailed": {
     "description": "Error shown when copying a read-only Hermes chat fails."
   },
-  "hermesContinueHere": "Continue here",
+  "hermesContinueHere": "Continue Here",
   "@hermesContinueHere": {
     "description": "Button that continues a read-only Hermes chat in Conduit through Hermes' fork, which ends the chat in the app that started it."
   },
