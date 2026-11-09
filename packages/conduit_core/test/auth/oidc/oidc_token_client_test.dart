@@ -82,6 +82,8 @@ void main() {
       check(tokens.refreshToken).equals('refresh-1');
       check(tokens.scope).equals('openid email profile offline_access');
       check(tokens.expiresAt).equals(_now.add(const Duration(minutes: 5)));
+      // Who signed in, from the ID token, which is not kept.
+      check(tokens.subject).equals('ada');
       final sent = endpoint.requests.single;
       check(sent.url.toString()).equals('https://id.example.com/token');
       check(sent.headers['content-type'])
@@ -104,6 +106,7 @@ void main() {
       final tokens = await endpoint.client.exchangeCode(_request(), 'code-1');
       check(tokens.refreshToken).isNull();
       check(tokens.expiresAt).equals(_now.add(const Duration(hours: 1)));
+      check(tokens.subject).isNull();
     });
 
     test('refuses an ID token without the sign-in nonce', () async {
@@ -237,6 +240,7 @@ void main() {
         'id_token': _idToken({'sub': 'ada'}),
       });
       check(tokens.accessToken).equals('access-2');
+      check(tokens.subject).isNull();
     });
 
     test('reports a refresh token that is no longer good', () async {

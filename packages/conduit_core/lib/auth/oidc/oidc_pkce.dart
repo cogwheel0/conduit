@@ -6,7 +6,7 @@ import 'package:crypto/crypto.dart';
 /// [byteCount] random bytes, base64url-encoded without padding: 32 bytes give
 /// the 43 characters RFC 7636 asks of a code verifier.
 ///
-/// The same algorithm as the MCP and Hermes sign-ins use.
+/// The MCP and Hermes sign-ins use it too, for their state and verifiers.
 String oidcRandomToken({int byteCount = 32, Random? random}) {
   final source = random ?? Random.secure();
   return base64UrlEncode(

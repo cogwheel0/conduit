@@ -1,6 +1,6 @@
 import 'dart:async';
-import 'dart:convert';
 
+import 'package:conduit_core/auth/jwt_claims.dart';
 import 'package:conduit_core/auth/oidc/oidc_authorization.dart';
 import 'package:conduit_core/auth/oidc/oidc_exception.dart';
 import 'package:conduit_core/auth/oidc/oidc_http.dart';
@@ -9,13 +9,14 @@ import 'package:conduit_core/auth/oidc/oidc_http.dart';
 ///
 /// The access token is for Open WebUI's token exchange and nothing else: it
 /// is kept in memory only. An ID token, when one came, has been checked and
-/// dropped.
+/// dropped; only the user it names is kept, as [subject].
 final class OidcTokenSet {
   const OidcTokenSet({
     required this.accessToken,
     this.refreshToken,
     this.scope,
     this.expiresAt,
+    this.subject,
   });
 
   final String accessToken;
@@ -30,6 +31,10 @@ final class OidcTokenSet {
 
   /// When [accessToken] expires, when the provider said.
   final DateTime? expiresAt;
+
+  /// The user the provider signed in (the ID token's `sub`), when a code
+  /// exchange came with an ID token that named one.
+  final String? subject;
 
   @override
   String toString() =>
@@ -140,9 +145,10 @@ final class OidcTokenClient {
         (scope != null && scope is! String)) {
       throw const OidcException(OidcFailureKind.invalidResponse);
     }
-    if (nonce != null && json.containsKey('id_token')) {
-      _requireNonce(json['id_token'], nonce);
-    }
+    final idClaims = nonce != null && json.containsKey('id_token')
+        ? _requireNonce(json['id_token'], nonce)
+        : null;
+    final subject = idClaims?['sub'];
 
     final expiresIn = _seconds(json['expires_in']);
     final issuedRefreshToken = refreshToken as String?;
@@ -158,34 +164,24 @@ final class OidcTokenClient {
       expiresAt: expiresIn == null
           ? null
           : _now().toUtc().add(Duration(seconds: expiresIn)),
+      subject: subject is String && subject.isNotEmpty ? subject : null,
     );
   }
 }
 
-/// Checks that [idToken] carries [nonce]. Only the payload is read: the token
-/// is not used for anything, so its signature is not checked, and it is not
-/// kept.
-void _requireNonce(Object? idToken, String nonce) {
-  final parts = idToken is String ? idToken.split('.') : const <String>[];
-  if (parts.length != 3) {
-    throw const OidcException(OidcFailureKind.invalidResponse);
-  }
-  Object? claims;
-  try {
-    claims = jsonDecode(utf8.decode(base64Url.decode(_padded(parts[1]))));
-  } on FormatException {
-    throw const OidcException(OidcFailureKind.invalidResponse);
-  }
-  if (claims is! Map<String, dynamic>) {
+/// Checks that [idToken] carries [nonce], and returns its claims. Only the
+/// payload is read: the token is not used for anything but naming the user,
+/// so its signature is not checked, and it is not kept.
+Map<String, dynamic> _requireNonce(Object? idToken, String nonce) {
+  final claims = idToken is String ? jwtClaims(idToken) : null;
+  if (claims == null) {
     throw const OidcException(OidcFailureKind.invalidResponse);
   }
   if (claims['nonce'] != nonce) {
     throw const OidcException(OidcFailureKind.nonceMismatch);
   }
+  return claims;
 }
-
-String _padded(String base64) =>
-    base64.padRight(base64.length + (4 - base64.length % 4) % 4, '=');
 
 /// A lifetime in seconds, as a number or numeric string (as some providers
 /// send it), or null when it is missing or not a plausible lifetime.

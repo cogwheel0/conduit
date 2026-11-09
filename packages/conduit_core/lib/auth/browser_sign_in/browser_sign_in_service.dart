@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:convert';
 import 'dart:math';
 
 import 'package:dio/dio.dart';
@@ -7,6 +6,7 @@ import 'package:meta/meta.dart';
 import 'package:riverpod/riverpod.dart';
 
 import 'package:conduit_core/auth/browser_sign_in/browser_sign_in_failure.dart';
+import 'package:conduit_core/auth/jwt_claims.dart';
 import 'package:conduit_core/auth/oidc/oidc.dart';
 import 'package:conduit_core/auth/openwebui_two_step.dart';
 import 'package:conduit_core/models/backend_config.dart';
@@ -65,7 +65,7 @@ BrowserSignInAvailability browserSignInAvailabilityFor({
 /// used again: it expires within ten minutes, or within the last tenth of
 /// its lifetime. A token that does not say when it expires is left alone.
 bool browserSessionNeedsRenewal(String token, {DateTime? now}) {
-  final claims = _jwtClaims(token);
+  final claims = jwtClaims(token);
   final exp = claims?['exp'];
   if (exp is! num) return false;
   final current = (now ?? DateTime.now()).millisecondsSinceEpoch / 1000;
@@ -79,7 +79,7 @@ bool browserSessionNeedsRenewal(String token, {DateTime? now}) {
 /// Whether an Open WebUI session [token] has expired. One that does not say
 /// when it expires has not.
 bool browserSessionExpired(String token, {DateTime? now}) {
-  final exp = _jwtClaims(token)?['exp'];
+  final exp = jwtClaims(token)?['exp'];
   if (exp is! num) return false;
   return exp <= (now ?? DateTime.now()).millisecondsSinceEpoch / 1000;
 }
@@ -95,22 +95,6 @@ bool browserSignInConfigsMatch(BrowserSignInConfig a, BrowserSignInConfig? b) {
   if (issuerA == null || issuerB == null) return issuerA == issuerB;
   return normalizeBrowserSignInIssuer(issuerA) ==
       normalizeBrowserSignInIssuer(issuerB);
-}
-
-Map<String, dynamic>? _jwtClaims(String token) {
-  final parts = token.split('.');
-  if (parts.length != 3) return null;
-  try {
-    final payload = parts[1];
-    final padded = payload.padRight(
-      payload.length + (4 - payload.length % 4) % 4,
-      '=',
-    );
-    final decoded = jsonDecode(utf8.decode(base64Url.decode(padded)));
-    return decoded is Map<String, dynamic> ? decoded : null;
-  } on FormatException {
-    return null;
-  }
 }
 
 /// What a browser sign-in got from the identity provider, for Open WebUI's
