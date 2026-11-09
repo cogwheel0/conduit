@@ -341,7 +341,10 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
       );
     }
     _adoptTodoState(stored, result['todo_state']);
-    _rpc.replayOpenRequests(result['open_requests']);
+    _rpc.replayOpenRequests(
+      result['open_requests'],
+      settledSince: settleMark,
+    );
     _rpc.replayPendingConnection(result['pending_connection'], runtime);
     return (binding: binding, running: running is bool ? running : null);
   }

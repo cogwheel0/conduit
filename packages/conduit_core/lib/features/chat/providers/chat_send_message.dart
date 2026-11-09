@@ -563,8 +563,9 @@ Future<void> _sendMessageInternal(
       pendingRunHandedOff = true;
       databaseLeaseHandedOff = true;
       // The turn is in the chat and goes to its run, which this send waits
-      // out to the end, approvals and questions included.
-      onTurnStarted?.call();
+      // out to the end, approvals and questions included. Its words leave
+      // the composer once it passed its preflight: a new session that could
+      // not be made leaves them there.
       await _dispatchHermesRunFromChat(
         ref,
         assistantMessageId: assistantMessageId,
@@ -590,6 +591,7 @@ Future<void> _sendMessageInternal(
         preRegisteredCancelToken: pendingCancelToken,
         reasoningEffort: reasoningEffortAtSendStart,
         voiceContext: voice?.spokenContext,
+        onRunStarting: onTurnStarted,
       );
     } catch (error) {
       final visible = hermesOwner.isActive(ref)

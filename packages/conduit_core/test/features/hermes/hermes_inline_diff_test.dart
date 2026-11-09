@@ -272,6 +272,36 @@ void main() {
       ).isNotNull();
     });
 
+    // Only whole secrets were looked for: an access header's credential
+    // stored without its scheme, or one cookie of several, stayed.
+    test('redact the parts of an access header too', () {
+      final safe = sanitizeHermesInlineDiff(
+        [
+          '+key = synthetic-header-token-51',
+          '+session = synthetic-cookie-52',
+          '+theme = dark',
+        ].join('\n'),
+        sensitiveValues: const [
+          'Token synthetic-header-token-51',
+          'theme=dark; session=synthetic-cookie-52',
+        ],
+      )!;
+
+      check(safe.split('\n')).deepEquals([
+        '+key = [REDACTED]',
+        '+session = [REDACTED]',
+        // Too short to be a credential of its own.
+        '+theme = dark',
+      ]);
+    });
+
+    test('a secret with too many parts to search for refuses the diff', () {
+      final secret = [for (var i = 0; i < 40; i++) 'part$i=value-$i'].join(';');
+      check(
+        sanitizeHermesInlineDiff('+x = value-7', sensitiveValues: [secret]),
+      ).isNull();
+    });
+
     test('rows stored before the marker are still diffs', () {
       const old = ChatStatusItem(
         title: kHermesInlineDiffTitle,

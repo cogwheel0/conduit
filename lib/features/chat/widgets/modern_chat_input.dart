@@ -1047,10 +1047,17 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     // While a reply runs the send button is Stop, and no other way to send
     // starts a second turn over it either: a Hermes or Direct turn gives up
     // its text as soon as it is handed to its run, so nothing else holds the
-    // next send back. A Desktop Gateway takes a busy turn's messages itself.
-    if (ref.read(isChatStreamingProvider) && !_isDesktopHermesComposer) {
+    // next send back. A Desktop Gateway takes a busy turn's messages itself,
+    // as the next message, as Enter sends them.
+    final streaming = ref.read(isChatStreamingProvider);
+    if (_isDesktopHermesComposer &&
+        (streaming ||
+            ref.read(hermesDesktopTurnStateProvider).asData?.value ==
+                HermesDesktopTurnState.running)) {
+      unawaited(_sendDesktopBusyMessage(steer: false));
       return;
     }
+    if (streaming) return;
     // A project draft that starts with two saved models sends to both, through
     // the same committed-turn path as the Compare command. A host that cannot
     // admit a comparison sends the message the ordinary way.

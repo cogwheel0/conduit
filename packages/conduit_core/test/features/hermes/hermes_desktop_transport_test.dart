@@ -777,6 +777,45 @@ void main() {
       check(shown.last.payload['prompt']).equals('apt update');
     });
 
+    // A request withdrawn after the snapshot was asked for is still listed
+    // in it; its replay reopened a form Hermes no longer takes answers for.
+    test('a request withdrawn since the snapshot was asked stays closed',
+        () async {
+      await socket.answerCapabilities();
+      final mark = client.canonicalSettleMark;
+      socket.event('request.cancel', {
+        'id': 'srq-w1',
+        'method': 'clarify',
+        'reason': 'timeout',
+      }, session: 'runtime-3');
+      await Future<void>.delayed(Duration.zero);
+
+      client.replayOpenRequests([
+        {
+          'id': 'srq-w1',
+          'method': 'clarify',
+          'params': {
+            'session_id': 'runtime-3',
+            'questions': [
+              {'qid': 'q0', 'question': 'Keep the drafts?'},
+            ],
+          },
+        },
+        {
+          'id': 'srq-w2',
+          'method': 'sudo',
+          'params': {'session_id': 'runtime-3', 'command': 'apt update'},
+        },
+      ], settledSince: mark);
+      await Future<void>.delayed(Duration.zero);
+
+      check(
+        events
+            .where((event) => event.type.endsWith('.request'))
+            .map((event) => '${event.type} ${event.payload['request_id']}'),
+      ).deepEquals(['sudo.request srq-w2']);
+    });
+
     test('a clarify request without usable questions is not shown', () async {
       await socket.answerCapabilities();
       socket.serverRequest('srq-c3', 'clarify', {

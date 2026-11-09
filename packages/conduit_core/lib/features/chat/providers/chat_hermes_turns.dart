@@ -1149,6 +1149,10 @@ Future<void> _dispatchHermesRunFromChat(
   Duration lateSessionCleanupDeadline = _hermesLateSessionCleanupDeadline,
   String? voiceContext,
 
+  /// Runs once the turn passed its preflight (a new session made, its
+  /// history read) and goes to its run.
+  void Function()? onRunStarting,
+
   /// Cuts a Desktop session's transcript before this user row first (an
   /// edit or a regenerate sent into the session it replaces), if the session
   /// still ends at [truncateSeenThroughRowId], as it did when it was chosen.
@@ -1206,6 +1210,7 @@ Future<void> _dispatchHermesRunFromChat(
         allowCapturedDatabasePersistence: allowCapturedDatabasePersistence,
         lateSessionCleanupDeadline: lateSessionCleanupDeadline,
         voiceContext: voiceContext,
+        onRunStarting: onRunStarting,
         truncateBeforeRowId: truncateBeforeRowId,
         truncateSeenThroughRowId: truncateSeenThroughRowId,
       );
@@ -1237,6 +1242,7 @@ Future<void> _dispatchOwnedHermesRunFromChat(
   required bool allowCapturedDatabasePersistence,
   required Duration lateSessionCleanupDeadline,
   required String? voiceContext,
+  required void Function()? onRunStarting,
   required int? truncateBeforeRowId,
   required int? truncateSeenThroughRowId,
 }) async {
@@ -1466,6 +1472,7 @@ Future<void> _dispatchOwnedHermesRunFromChat(
       trackLatePersistence: latePersistence.add,
       lateSessionCleanupDeadline: lateSessionCleanupDeadline,
       voiceContext: voiceContext,
+      onRunStarting: onRunStarting,
       truncateBeforeRowId: truncateBeforeRowId,
       truncateSeenThroughRowId: truncateSeenThroughRowId,
     );
@@ -1647,6 +1654,7 @@ Future<void> _dispatchRegisteredHermesRunFromChat(
   required void Function(Future<void> persistence) trackLatePersistence,
   required Duration lateSessionCleanupDeadline,
   required String? voiceContext,
+  required void Function()? onRunStarting,
   required int? truncateBeforeRowId,
   required int? truncateSeenThroughRowId,
 }) async {
@@ -2033,6 +2041,8 @@ Future<void> _dispatchRegisteredHermesRunFromChat(
       // prepared below before the known-empty history baseline is recorded.
     }
     if (cancelled()) return;
+    // Past its preflight, the turn goes to its run.
+    onRunStarting?.call();
     await dispatchHermesTurn(
       startTurn: (turnCancelToken) => switch (service) {
         HermesDesktopTurnService() => service.streamDesktopResponse(
@@ -2239,6 +2249,8 @@ Future<void> _dispatchRegisteredHermesRunFromChat(
     }
   }
 
+  // Past its preflight, the turn goes to its run.
+  onRunStarting?.call();
   await dispatchHermesRun(
     service: service,
     registry: registry,

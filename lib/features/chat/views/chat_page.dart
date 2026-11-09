@@ -1485,11 +1485,12 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         );
       } else {
         var admissionConfirmed = false;
-        final usesOutbox =
-            hasDurableOutbox &&
-            !isHermesModel(selectedModel) &&
-            ref.read(directModelRegistryProvider).resolve(selectedModel) ==
+        // A Hermes or Direct turn says when it goes to its run.
+        final signalsTurnStart =
+            isHermesModel(selectedModel) ||
+            ref.read(directModelRegistryProvider).resolve(selectedModel) !=
                 null;
+        final usesOutbox = hasDurableOutbox && !signalsTurnStart;
         await durableSend(
           ref,
           text,
@@ -1521,8 +1522,10 @@ class _ChatPageState extends ConsumerState<ChatPage> {
           },
         );
         // Inline backends have no outbox receipt. Keep their draft until
-        // the existing send path has accepted it successfully.
-        if (!admissionConfirmed && pendingSend != null) {
+        // the existing send path has accepted it successfully. A Hermes or
+        // Direct turn that never went to its run (a new session that could
+        // not be made) keeps it too.
+        if (!admissionConfirmed && pendingSend != null && !signalsTurnStart) {
           onDraftCommitted?.call(pendingSend!);
         }
       }

@@ -849,10 +849,10 @@ final class HermesDesktopRpcClient {
       ? null
       : _canonicalPrompts[promptId];
 
-  /// How many canonical prompts this client saw open live or settle, and
-  /// when each of the latest did: a snapshot asked for before then must
-  /// neither reopen a prompt settled since nor close one opened since
-  /// ([canonicalSettleMark]).
+  /// How many canonical prompts and server requests this client saw open
+  /// live or settle, and when each of the latest did: a snapshot asked for
+  /// before then must neither reopen a prompt settled since nor close one
+  /// opened since ([canonicalSettleMark]).
   int _canonicalSettles = 0;
   final Map<String, int> _canonicalSettledAt = {};
   final Map<String, int> _canonicalOpenedAt = {};
@@ -992,9 +992,20 @@ final class HermesDesktopRpcClient {
   /// Re-shows the requests a `session.resume` snapshot lists as still open
   /// (`open_requests`), for a socket that was not attached when they were
   /// sent. Their ids are unchanged, so answers made now still count.
-  void replayOpenRequests(Object? openRequests) {
+  ///
+  /// [settledSince] is the [canonicalSettleMark] taken before the snapshot
+  /// was asked for: a request withdrawn after it is stale in the snapshot
+  /// and stays closed.
+  void replayOpenRequests(Object? openRequests, {int? settledSince}) {
     if (openRequests is! List) return;
     for (final entry in openRequests.whereType<Map>().take(32)) {
+      final id = validateHermesOpaqueIdentifier(entry['id']);
+      final withdrawnAt = id == null ? null : _canonicalSettledAt[id];
+      if (settledSince != null &&
+          withdrawnAt != null &&
+          withdrawnAt > settledSince) {
+        continue;
+      }
       _showServerRequest(entry['id'], entry['method'], entry['params']);
     }
   }
@@ -1139,6 +1150,9 @@ final class HermesDesktopRpcClient {
     final id = validateHermesOpaqueIdentifier(payload['id']?.toString());
     final method = payload['method']?.toString();
     if (id == null || !kHermesAnsweredServerRequests.contains(method)) return;
+    // A snapshot read before now still lists it: its replay must not reopen
+    // it.
+    _noteCanonicalSettled(id);
     _events.add(
       HermesDesktopEvent(
         type: '$method.expire',

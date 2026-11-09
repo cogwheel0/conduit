@@ -14,6 +14,12 @@ import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart
 import 'package:conduit_core/features/chat/providers/chat_providers.dart';
 import 'package:conduit_core/features/direct_connections/models/direct_connection_profile.dart';
 import 'package:conduit_core/features/direct_connections/providers/direct_connection_providers.dart';
+import 'package:conduit_core/features/hermes/models/hermes_chat_input.dart';
+import 'package:conduit_core/features/hermes/models/hermes_config.dart';
+import 'package:conduit_core/features/hermes/models/hermes_model.dart';
+import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
+import 'package:conduit_core/features/hermes/services/hermes_api_service.dart';
+import 'package:conduit_core/features/hermes/services/hermes_backend_service.dart';
 import 'package:conduit_core/features/tools/providers/tools_providers.dart';
 import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit_core/models/conversation.dart';
@@ -31,9 +37,11 @@ import 'package:conduit_core/services/optimized_storage_service.dart';
 import 'package:conduit_core/services/settings_service.dart';
 import 'package:conduit_core/services/worker_manager.dart';
 import 'package:conduit_core/sync/sync_engine.dart';
+import 'package:dio/dio.dart';
 import 'package:drift/drift.dart' show Value;
 import 'package:drift/native.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/misc.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter/services.dart';
 import 'package:material_ui/material_ui.dart';
@@ -75,6 +83,9 @@ void main() {
     AppDatabase? db,
     bool ordinarySend = false,
     bool holdDrain = false,
+    bool newChat = false,
+    Model? model,
+    List<Override> overrides = const <Override>[],
   }) async {
     final originalErrorWidgetBuilder = ErrorWidget.builder;
     final originalFlutterErrorOnError = FlutterError.onError;
@@ -118,8 +129,10 @@ void main() {
         syncEngineProvider.overrideWith(() => _NoDrainEngine(hold: holdDrain)),
         isAuthenticatedProvider2.overrideWithValue(true),
         reviewerModeProvider.overrideWithValue(false),
-        selectedModelProvider.overrideWith(_Selected.new),
-        activeConversationProvider.overrideWith(() => _Active(chat)),
+        selectedModelProvider.overrideWith(() => _Selected(model)),
+        activeConversationProvider.overrideWith(
+          () => _Active(newChat ? null : chat),
+        ),
         chatMessagesProvider.overrideWith(_Messages.new),
         optimizedStorageServiceProvider.overrideWithValue(_Storage()),
         isChatStreamingProvider.overrideWith((ref) => false),
@@ -139,6 +152,7 @@ void main() {
             role: 'user',
           ),
         ),
+        ...overrides,
       ],
     );
     await tester.pumpWidget(
@@ -274,6 +288,30 @@ void main() {
       }
     },
   );
+
+  // A Hermes turn gives up its words once it goes to its run. One whose new
+  // session could not be made never did, and the page cleared them anyway.
+  testWidgets('a Hermes send whose session cannot be made keeps its draft', (
+    tester,
+  ) async {
+    final db = AppDatabase(NativeDatabase.memory());
+    final hermes = _NoNewSessionDesktopApi();
+    await compareOnPage(
+      tester,
+      db: db,
+      ordinarySend: true,
+      newChat: true,
+      model: hermesSyntheticModel(),
+      overrides: [
+        hermesConfigProvider.overrideWith(_DesktopHermesConfig.new),
+        hermesApiServiceProvider.overrideWithValue(hermes),
+      ],
+    );
+
+    expect(hermes.sessionsAsked, 1);
+    expect(hermes.turns, 0);
+    expect(composerText(tester), 'compare this');
+  });
 }
 
 class _Conversations extends Conversations {
@@ -299,8 +337,68 @@ class _Tools extends ToolsList {
 }
 
 class _Selected extends SelectedModel {
+  _Selected(this.model);
+
+  final Model? model;
+
   @override
-  Model? build() => const Model(id: 'alpha', name: 'Alpha');
+  Model? build() => model ?? const Model(id: 'alpha', name: 'Alpha');
+}
+
+class _DesktopHermesConfig extends HermesConfigController {
+  @override
+  HermesConfig build() => const HermesConfig(
+    enabled: true,
+    baseUrl: 'https://hermes.example.test',
+    mode: HermesBackendMode.desktopGateway,
+  );
+}
+
+/// A Desktop Gateway whose new sessions cannot be made: the turn fails
+/// before Hermes has its words.
+class _NoNewSessionDesktopApi extends HermesApiService
+    implements HermesDesktopTurnService {
+  _NoNewSessionDesktopApi()
+    : super(
+        config: const HermesConfig(
+          enabled: true,
+          baseUrl: 'https://hermes.example.test',
+          mode: HermesBackendMode.desktopGateway,
+        ),
+        dio: Dio(),
+      );
+
+  var sessionsAsked = 0;
+  var turns = 0;
+
+  @override
+  Future<List<Map<String, dynamic>>> getCurrentSessionMessages(
+    String id,
+  ) async => const [];
+
+  @override
+  Future<String> createDesktopSession({
+    String? title,
+    required HermesDesktopSessionOptions options,
+    CancelToken? cancelToken,
+  }) async {
+    sessionsAsked++;
+    throw StateError('Hermes could not open a session.');
+  }
+
+  @override
+  Future<HermesResponseStream> streamDesktopResponse(
+    HermesChatInput input, {
+    String? sessionId,
+    required HermesDesktopSessionOptions options,
+    CancelToken? cancelToken,
+    String? voiceContext,
+    int? truncateBeforeRowId,
+    int? truncateSeenThroughRowId,
+  }) async {
+    turns++;
+    return const HermesResponseStream(events: Stream.empty());
+  }
 }
 
 class _Active extends ActiveConversationNotifier {

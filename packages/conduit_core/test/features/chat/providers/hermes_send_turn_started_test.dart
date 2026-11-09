@@ -5,11 +5,13 @@ import 'package:conduit_core/conduit_core.dart';
 import 'package:conduit_core/database/app_database.dart';
 import 'package:conduit_core/database/database_provider.dart';
 import 'package:conduit_core/features/chat/providers/chat_providers.dart';
+import 'package:conduit_core/features/hermes/models/hermes_chat_input.dart';
 import 'package:conduit_core/features/hermes/models/hermes_config.dart';
 import 'package:conduit_core/features/hermes/models/hermes_model.dart';
 import 'package:conduit_core/features/hermes/models/hermes_run_event.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 import 'package:conduit_core/features/hermes/services/hermes_api_service.dart';
+import 'package:conduit_core/features/hermes/services/hermes_backend_service.dart';
 import 'package:conduit_core/features/hermes/services/hermes_local_document_trust_store.dart';
 import 'package:conduit_core/features/hermes/services/hermes_session_provenance.dart';
 import 'package:conduit_core/models/model.dart';
@@ -78,6 +80,49 @@ final class _WaitingHermesApi extends HermesApiService {
     int? lastEventId,
     void Function(int seq)? onSequence,
   }) => events;
+}
+
+/// A Desktop Gateway whose new sessions cannot be made: the turn fails its
+/// preflight, before Hermes has its words.
+final class _NoNewSessionDesktopApi extends HermesApiService
+    implements HermesDesktopTurnService {
+  _NoNewSessionDesktopApi()
+    : super(
+        config: const HermesConfig(
+          enabled: true,
+          baseUrl: 'https://hermes.example',
+          apiKey: 'key',
+        ),
+        dio: Dio(),
+      );
+
+  var turns = 0;
+
+  @override
+  Future<List<Map<String, dynamic>>> getCurrentSessionMessages(
+    String id,
+  ) async => const [];
+
+  @override
+  Future<String> createDesktopSession({
+    String? title,
+    required HermesDesktopSessionOptions options,
+    CancelToken? cancelToken,
+  }) async => throw StateError('Hermes could not open a session.');
+
+  @override
+  Future<HermesResponseStream> streamDesktopResponse(
+    HermesChatInput input, {
+    String? sessionId,
+    required HermesDesktopSessionOptions options,
+    CancelToken? cancelToken,
+    String? voiceContext,
+    int? truncateBeforeRowId,
+    int? truncateSeenThroughRowId,
+  }) async {
+    turns++;
+    return const HermesResponseStream(events: Stream.empty());
+  }
 }
 
 final class _SelectedHermesModel extends SelectedModel {
@@ -161,5 +206,46 @@ void main() {
     await events.close();
     await send;
     check(steps).deepEquals(['placeholder', 'started']);
+  });
+
+  // The words left the composer as the send began, so a turn whose new
+  // session could not be made lost them: Hermes never had them, and a new
+  // chat had nothing to keep them in.
+  test('a Hermes send whose preflight fails never says its turn started',
+      () async {
+    final service = _NoNewSessionDesktopApi();
+    final container = ProviderContainer(
+      overrides: [
+        openWebUiDatabaseAccessProvider.overrideWith(_OpenDatabaseAccess.new),
+        appDatabaseProvider.overrideWith((ref) {
+          final database = AppDatabase(NativeDatabase.memory());
+          ref.onDispose(() => unawaited(database.close()));
+          return database;
+        }),
+        apiServiceProvider.overrideWithValue(null),
+        socketServiceProvider.overrideWithValue(null),
+        hermesConfigProvider.overrideWith(_FixedHermesConfig.new),
+        hermesApiServiceProvider.overrideWithValue(service),
+        selectedModelProvider.overrideWith(_SelectedHermesModel.new),
+        reviewerModeProvider.overrideWithValue(false),
+        webSearchEnabledProvider.overrideWith(_NoWebSearch.new),
+        imageGenerationEnabledProvider.overrideWith(_NoImageGeneration.new),
+        codeInterpreterEnabledProvider.overrideWith(_NoCodeInterpreter.new),
+      ],
+    );
+    addTearDown(container.dispose);
+    container.read(hermesConfigProvider);
+
+    final steps = <String>[];
+    await durableSend(
+      container,
+      'Remove the scratch folder',
+      null,
+      onAssistantPlaceholderCreated: (_) => steps.add('placeholder'),
+      onTurnStarted: () => steps.add('started'),
+    );
+
+    check(service.turns).equals(0);
+    check(steps).deepEquals(['placeholder']);
   });
 }

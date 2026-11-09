@@ -29,25 +29,45 @@ final RegExp _otherControls = RegExp(
 /// The longest connection secret a diff is searched for.
 const int _kMaxRedactedSecretLength = 8192;
 
+/// The most parts one secret is looked for as
+/// ([boundedSensitiveValueVariants]).
+const int _kMaxRedactedSecretVariants = 32;
+
+/// The shortest part of a secret looked for on its own: shorter ones (a
+/// cookie's `theme=dark`) are words a diff holds anyway.
+const int _kMinRedactedSecretPartLength = 6;
+
 final RegExp _hunkHeader = RegExp(
   r'^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@',
 );
 
 /// An edit's diff as Conduit keeps it: terminal colours removed, connection
 /// secrets and credential values (`password=`, `api_key:`, `Authorization:`,
-/// Bearer tokens) redacted, line breaks kept, bounded. Null when nothing is
-/// left, or when a connection secret is too long to look for: the diff could
-/// hold it, unredacted.
+/// Bearer tokens) redacted, line breaks kept, bounded. Each secret is looked
+/// for with its parts too: an access header's `Token abc123` can be shown as
+/// `abc123` alone, a cookie's as one of its pairs. Null when nothing is left,
+/// or when a connection secret is too long, or has too many parts, to look
+/// for: the diff could hold it, unredacted.
 String? sanitizeHermesInlineDiff(
   String raw, {
   Iterable<String> sensitiveValues = const <String>[],
   int maxCharacters = kMaxHermesInlineDiffCharacters,
 }) {
-  final given = sensitiveValues.where((secret) => secret.isNotEmpty);
-  if (given.any((secret) => secret.length > _kMaxRedactedSecretLength)) {
-    return null;
+  final found = <String>{};
+  for (final secret in sensitiveValues) {
+    if (secret.isEmpty) continue;
+    final parts = boundedSensitiveValueVariants(
+      secret,
+      maxCharacters: _kMaxRedactedSecretLength,
+      maxVariants: _kMaxRedactedSecretVariants,
+    );
+    if (parts == null) return null;
+    found.add(secret);
+    for (final part in parts) {
+      if (part.length >= _kMinRedactedSecretPartLength) found.add(part);
+    }
   }
-  final secrets = given.toSet().toList(growable: false)
+  final secrets = found.toList(growable: false)
     ..sort((a, b) => b.length.compareTo(a.length));
   final redacted = redactSensitiveValuesInUnicodePrefix(
     raw,
