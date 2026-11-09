@@ -101,8 +101,15 @@ final class _Idp {
   /// Runs before the token endpoint answers a refresh.
   FutureOr<void> Function()? onRefresh;
 
+  /// The ID token a code exchange answers with, if any.
+  String? idToken;
+
+  /// Holds every answer until it completes, when set.
+  Future<void>? answerAfter;
+
   late final MockClient client = MockClient((request) async {
     requests.add(request);
+    await answerAfter;
     if (unreachable) throw http.ClientException('offline');
     final url = request.url.toString();
     if (url == '$_issuer/.well-known/openid-configuration') {
@@ -128,6 +135,8 @@ final class _Idp {
         'token_type': 'Bearer',
         'scope': 'openid email profile offline_access',
         'expires_in': 300,
+        if (request.bodyFields['grant_type'] == 'authorization_code')
+          'id_token': ?idToken,
       });
     }
     if (url == _revocation) return http.Response('', 200);
@@ -156,9 +165,6 @@ final class _Browser implements BrowserAuthPort {
   bool get isSupported => supported;
 
   @override
-  Uri get defaultRedirectUri => Uri.parse(browserAuthDefaultRedirect);
-
-  @override
   Future<BrowserAuthResult> authorize(
     Uri url, {
     required Uri redirectUri,
@@ -168,9 +174,17 @@ final class _Browser implements BrowserAuthPort {
     return answer(url, redirectUri);
   }
 
+  int cancels = 0;
+
   @override
-  Future<void> cancel() async {}
+  Future<void> cancel() async => cancels++;
 }
+
+/// An unsigned JWT carrying [claims].
+String _jwt(Map<String, Object?> claims) =>
+    'eyJhbGciOiJub25lIn0.'
+    '${base64Url.encode(utf8.encode(jsonEncode(claims))).replaceAll('=', '')}'
+    '.sig';
 
 /// The identity provider signing the user in and sending them back.
 BrowserAuthResult _signedIn(Uri url, Uri redirectUri) => BrowserAuthResult(
@@ -197,6 +211,23 @@ BrowserSignInSession _session({String refreshToken = 'saved-refresh'}) =>
       scope: 'openid email profile offline_access',
       owuiUserId: 'user-a',
     );
+
+BrowserSignInSession _subjectSession(
+  String subject, {
+  required String refreshToken,
+  String serverId = 'server-1',
+  String owuiUserId = 'user-a',
+}) => BrowserSignInSession(
+  serverId: serverId,
+  provider: 'oidc',
+  clientId: 'conduit',
+  issuer: _issuer,
+  tokenEndpoint: _tokenEndpoint,
+  revocationEndpoint: _revocation,
+  refreshToken: refreshToken,
+  owuiUserId: owuiUserId,
+  subject: subject,
+);
 
 OpenWebUiRegistry _registry({BrowserSignInConfig? config = _config}) =>
     OpenWebUiRegistry(
@@ -334,6 +365,26 @@ void main() {
         check(grant.toString()).not((s) => s.contains('idp-access'));
       },
     );
+
+    test('the session it keeps names the provider\'s user', () async {
+      browser.answer = (url, redirectUri) {
+        idp.idToken = _jwt({
+          'nonce': url.queryParameters['nonce'],
+          'sub': 'idp-user-1',
+        });
+        return _signedIn(url, redirectUri);
+      };
+      final grant = (await authorize())!;
+      check(grant.subject).equals('idp-user-1');
+      check(
+        grant.session(owuiUserId: 'user-a')?.subject,
+      ).equals('idp-user-1');
+    });
+
+    test('cancelling ends the sign-in waiting on the browser', () async {
+      await service.cancel();
+      check(browser.cancels).equals(1);
+    });
 
     test('a grant without a refresh token keeps no session', () {
       final grant = BrowserSignInGrant(
@@ -624,12 +675,40 @@ void main() {
     });
 
     test('a session something else replaced meanwhile stops the renewal '
-        'before the exchange', () async {
+        'before the exchange, and the rotated refresh token is revoked', () async {
       idp.refreshTokenIssued = 'rotated-refresh';
       saves(() async => false);
+      when(
+        () => storage.browserSignInSessionsForRevocation(),
+      ).thenAnswer((_) async => const []);
       check(await failureOf(renew()))
           .equals(BrowserSignInFailure.accountChanged);
       check(openWebUi.requests).isEmpty();
+      await pumpEventQueue();
+      final revoked = idp.requests.where(
+        (request) => request.url.toString() == _revocation,
+      );
+      check(
+        revoked.single.bodyFields['token'],
+      ).equals('rotated-refresh');
+    });
+
+    test('a rotated refresh token is kept from revocation while a session '
+        'of the same grant is stored', () async {
+      idp.refreshTokenIssued = 'rotated-refresh';
+      saves(() async => false);
+      // A new sign-in of the same user replaced the session meanwhile.
+      when(() => storage.browserSignInSessionsForRevocation()).thenAnswer(
+        (_) async => [
+          (accountId: 'account-a', session: _session(refreshToken: 'newer')),
+        ],
+      );
+      check(await failureOf(renew()))
+          .equals(BrowserSignInFailure.accountChanged);
+      await pumpEventQueue();
+      check(
+        idp.requests.where((r) => r.url.toString() == _revocation),
+      ).isEmpty();
     });
 
     test('an account without a session', () async {
@@ -738,22 +817,76 @@ void main() {
       check(failure.isTerminal).isTrue();
     });
 
-    test('settling waits for a renewal in flight', () async {
+    test('a hold waits for a renewal in flight to save its rotated refresh '
+        'token', () async {
+      idp.refreshTokenIssued = 'rotated-refresh';
       final release = Completer<void>();
       idp.onRefresh = () => release.future;
       final renewal = renew();
-      var settled = false;
-      final waiting = service
-          .renewalSettled('account-a')
-          .then((_) => settled = true);
-      await Future<void>.delayed(Duration.zero);
-      check(settled).isFalse();
+      var held = false;
+      final hold = service.holdRenewals(['account-a'], () async {
+        held = true;
+        // By now the rotated one is saved.
+        verify(
+          () => storage.replaceBrowserSignInSessionIfCurrent(
+            'account-a',
+            expected: any(named: 'expected'),
+            next: any(named: 'next'),
+          ),
+        ).called(1);
+      });
+      await pumpEventQueue();
+      check(held).isFalse();
 
       release.complete();
       await renewal;
-      await waiting;
-      check(settled).isTrue();
-      await service.renewalSettled('account-a');
+      await hold;
+      check(held).isTrue();
+    });
+
+    test('a renewal asked for during a hold waits, then finds what the hold '
+        'left', () async {
+      final holding = Completer<void>();
+      final hold = service.holdRenewals(['account-a'], () => holding.future);
+      await pumpEventQueue();
+      final renewal = renew();
+      await pumpEventQueue();
+      // Nothing is refreshed while the hold lasts.
+      check(idp.tokenRequests).isEmpty();
+
+      // The hold ended the session: the account was signed out of.
+      when(() => storage.browserSignInSessionFor('account-a'))
+          .thenAnswer((_) async => null);
+      holding.complete();
+      await hold;
+      final failure = await failureOf(renewal);
+      check(failure).equals(BrowserSignInFailure.accountChanged);
+      check(failure.isSilent).isTrue();
+      check(idp.tokenRequests).isEmpty();
+    });
+
+    test('a renewal after a hold that kept the session goes ahead', () async {
+      final holding = Completer<void>();
+      final hold = service.holdRenewals(['account-a'], () => holding.future);
+      final renewal = renew();
+      holding.complete();
+      await hold;
+      check((await renewal).token).equals(_owuiToken);
+    });
+
+    test('holds of other accounts are no wait', () async {
+      final holding = Completer<void>();
+      final hold = service.holdRenewals(['account-b'], () => holding.future);
+      check((await renew()).token).equals(_owuiToken);
+      holding.complete();
+      await hold;
+    });
+
+    test('a hold is released when its action fails', () async {
+      await check(
+        service.holdRenewals(['account-a'], () async => throw StateError('x')),
+      ).throws<StateError>();
+      check((await renew()).token).equals(_owuiToken);
     });
 
     test('a second step cannot be taken without the user', () async {
@@ -803,6 +936,96 @@ void main() {
       final diagnosis = await service.diagnose(api: api, config: _config);
       check(diagnosis.issuer).isNull();
       check(diagnosis.discoveryFailure).equals(BrowserSignInFailure.network);
+    });
+  });
+
+  test('the Test button asks the exchange while it looks for the provider',
+      () async {
+    final discoveryAnswered = Completer<void>();
+    var exchangeAskedFirst = false;
+    // The provider answers only once the exchange has been asked.
+    idp.answerAfter = discoveryAnswered.future;
+    exchangeAnswer = () {
+      exchangeAskedFirst = !discoveryAnswered.isCompleted;
+      discoveryAnswered.complete();
+      return _json(400, {
+        'detail': 'Invalid token or unable to validate with provider',
+      });
+    };
+    final diagnosis = await service.diagnose(api: api, config: _config);
+    check(exchangeAskedFirst).isTrue();
+    check(diagnosis.ready).isTrue();
+  });
+
+  group('revoking what this device no longer keeps', () {
+    late _Storage storage;
+
+    setUp(() {
+      storage = _Storage();
+    });
+
+    List<BrowserSessionRevocation> ended(BrowserSignInSession session) => [
+      (session: session, route: null),
+    ];
+
+    Iterable<String> revokedTokens() => idp.requests
+        .where((request) => request.url.toString() == _revocation)
+        .map((request) => request.bodyFields['token']!);
+
+    test('revokes a session nothing stored shares a grant with', () async {
+      when(() => storage.browserSignInSessionsForRevocation()).thenAnswer(
+        (_) async => [
+          // Another user of the same client.
+          (
+            accountId: 'account-b',
+            session: _session(refreshToken: 'other').copyWith(
+              serverId: 'server-2',
+            ),
+          ),
+        ],
+      );
+      await service.revokeEnded(ended(_session()), storage: storage);
+      check(revokedTokens()).deepEquals(['saved-refresh']);
+    });
+
+    test('keeps one whose user still has a session of the same client, by '
+        'the provider\'s user', () async {
+      final mine = _subjectSession('idp-user', refreshToken: 'dropped');
+      when(() => storage.browserSignInSessionsForRevocation()).thenAnswer(
+        (_) async => [
+          // Another server's account, the same person at the provider.
+          (
+            accountId: 'account-b',
+            session: _subjectSession(
+              'idp-user',
+              refreshToken: 'live',
+              serverId: 'server-2',
+              owuiUserId: 'user-z',
+            ),
+          ),
+        ],
+      );
+      await service.revokeEnded(ended(mine), storage: storage);
+      check(revokedTokens()).isEmpty();
+    });
+
+    test('keeps one whose Open WebUI user still has a session there, when the '
+        'provider\'s user is not known', () async {
+      when(() => storage.browserSignInSessionsForRevocation()).thenAnswer(
+        (_) async => [
+          (accountId: 'account-a', session: _session(refreshToken: 'live')),
+        ],
+      );
+      await service.revokeEnded(ended(_session()), storage: storage);
+      check(revokedTokens()).isEmpty();
+    });
+
+    test('revokes nothing when what is stored cannot be read', () async {
+      when(
+        () => storage.browserSignInSessionsForRevocation(),
+      ).thenThrow(StateError('keychain locked'));
+      await service.revokeEnded(ended(_session()), storage: storage);
+      check(idp.requests).isEmpty();
     });
   });
 

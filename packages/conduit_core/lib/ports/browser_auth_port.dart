@@ -1,6 +1,10 @@
-/// The redirect a browser sign-in ends on unless a provider needs its own.
-/// Android's callback activity is registered for exactly this.
-const String browserAuthDefaultRedirect = 'conduit://oauth/callback';
+import 'package:conduit_core/auth/oidc/oidc_authorization.dart'
+    show oidcConduitRedirect, oidcConduitRedirectUri;
+
+/// The redirect a browser sign-in ends on unless a provider needs its own
+/// ([oidcConduitRedirect]). Android's callback activity is registered for
+/// exactly this.
+const String browserAuthDefaultRedirect = oidcConduitRedirect;
 
 /// Whether [uri] is a browser sign-in redirect that reached the app outside
 /// its browser session: on scheme, host and path, the default redirect.
@@ -9,9 +13,9 @@ const String browserAuthDefaultRedirect = 'conduit://oauth/callback';
 /// one that opens the app (as a cold launch's URL does on iOS, where the
 /// scene's connection options can't be filtered) is stale or forged.
 bool isStrayBrowserAuthCallback(Uri uri) =>
-    uri.scheme.toLowerCase() == 'conduit' &&
-    uri.host.toLowerCase() == 'oauth' &&
-    uri.path == '/callback';
+    uri.scheme.toLowerCase() == oidcConduitRedirectUri.scheme &&
+    uri.host.toLowerCase() == oidcConduitRedirectUri.host &&
+    uri.path == oidcConduitRedirectUri.path;
 
 /// Runs a sign-in page in the system browser and returns the redirect it
 /// ends on.
@@ -26,10 +30,6 @@ abstract interface class BrowserAuthPort {
   ///
   /// False hides the browser sign-in entry points.
   bool get isSupported;
-
-  /// The redirect a sign-in ends on unless a provider needs its own:
-  /// [browserAuthDefaultRedirect].
-  Uri get defaultRedirectUri;
 
   /// Opens [url] and completes once the browser reaches [redirectUri]
   /// (matched exactly on scheme, host and path), is dismissed, or fails.
@@ -151,9 +151,6 @@ class NullBrowserAuthPort implements BrowserAuthPort {
 
   @override
   bool get isSupported => false;
-
-  @override
-  Uri get defaultRedirectUri => Uri.parse(browserAuthDefaultRedirect);
 
   @override
   Future<BrowserAuthResult> authorize(

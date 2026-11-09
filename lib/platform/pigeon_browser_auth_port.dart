@@ -21,9 +21,6 @@ class PigeonBrowserAuthPort implements BrowserAuthPort {
   bool get isSupported => true;
 
   @override
-  Uri get defaultRedirectUri => Uri.parse(browserAuthDefaultRedirect);
-
-  @override
   Future<BrowserAuthResult> authorize(
     Uri url, {
     required Uri redirectUri,

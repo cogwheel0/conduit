@@ -96,6 +96,25 @@ void main() {
         owuiUserId: 'user-1',
       );
       check(BrowserSignInSession.tryDecode(minimal.encode())).equals(minimal);
+      final named = session.copyWith(refreshToken: 'named');
+      final withSubject = BrowserSignInSession.tryDecode(
+        jsonEncode({...named.toJson(), 'subject': 'idp-user'}),
+      );
+      check(withSubject).isNotNull()
+        ..has((s) => s.subject, 'subject').equals('idp-user')
+        ..has((s) => s.copyWith(scope: 'openid').subject, 'kept').equals(
+          'idp-user',
+        );
+      check(
+        BrowserSignInSession.tryDecode(withSubject!.encode()),
+      ).equals(withSubject);
+    });
+
+    test('saved before it named the provider\'s user, still reads', () {
+      final saved = session.toJson()..remove('subject');
+      check(
+        BrowserSignInSession.tryDecode(jsonEncode(saved)),
+      ).isNotNull().has((s) => s.subject, 'subject').isNull();
     });
 
     test('reads another version, or anything broken, as none', () {
@@ -111,6 +130,7 @@ void main() {
         jsonEncode({...json, 'owuiUserId': ''}),
         jsonEncode({...json, 'provider': 'Nope!'}),
         jsonEncode({...json, 'revocationEndpoint': 3}),
+        jsonEncode({...json, 'subject': 3}),
       ]) {
         check(
           because: '$broken',
@@ -128,6 +148,65 @@ void main() {
 
       check(rotated.refreshToken).equals('rotated');
       check(rotated.copyWith(refreshToken: 'refresh-secret')).equals(session);
+    });
+
+    group('shares a grant', () {
+      BrowserSignInSession of({
+        String? subject,
+        String serverId = 'server-1',
+        String owuiUserId = 'user-1',
+        String clientId = 'conduit',
+        String issuer = 'https://id.example.com/realms/main',
+      }) => BrowserSignInSession(
+        serverId: serverId,
+        provider: 'oidc',
+        clientId: clientId,
+        issuer: issuer,
+        tokenEndpoint: '$issuer/token',
+        refreshToken: 'refresh-$serverId-$owuiUserId',
+        owuiUserId: owuiUserId,
+        subject: subject,
+      );
+
+      test('with the same provider user of the same client', () {
+        check(
+          of(subject: 'ada').sharesGrantWith(
+            of(subject: 'ada', serverId: 'server-2', owuiUserId: 'user-9'),
+          ),
+        ).isTrue();
+        // The issuer put another way is the same provider.
+        check(
+          of(subject: 'ada').sharesGrantWith(
+            of(
+              subject: 'ada',
+              issuer: 'https://ID.example.com:443/realms/main/',
+            ),
+          ),
+        ).isTrue();
+      });
+
+      test('by the Open WebUI user on the server, when a provider user is '
+          'not known', () {
+        check(of().sharesGrantWith(of(subject: 'ada'))).isTrue();
+        check(of().sharesGrantWith(of(owuiUserId: 'user-2'))).isFalse();
+        check(of().sharesGrantWith(of(serverId: 'server-2'))).isFalse();
+      });
+
+      test('not with another provider user, client or provider', () {
+        check(
+          of(subject: 'ada').sharesGrantWith(of(subject: 'grace')),
+        ).isFalse();
+        check(
+          of(subject: 'ada').sharesGrantWith(
+            of(subject: 'ada', clientId: 'other'),
+          ),
+        ).isFalse();
+        check(
+          of(subject: 'ada').sharesGrantWith(
+            of(subject: 'ada', issuer: 'https://other.example.com'),
+          ),
+        ).isFalse();
+      });
     });
 
     group('matches the settings it was issued under', () {

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:checks/checks.dart';
@@ -127,11 +128,34 @@ final class _BrowserSignedInAuthStateManager extends _ClearedAuthStateManager {
 
   final revoked = <BrowserSignInSession>[];
 
+  /// Completes once the sign-out lets renewals run again.
+  Future<void>? renewalsHeldUntil;
+
+  /// Whether the wipe ran while renewals were held.
+  bool? clearedWhileHeld;
+
   @override
-  Future<List<BrowserSessionRevocation>>
-  browserSignInSessionsForRevocation() async => const [
-    (session: _browserSession, route: null),
-  ];
+  Future<List<BrowserSessionRevocation>> browserSignInSessionsForRevocation({
+    Future<void>? holdRenewalsUntil,
+  }) async {
+    renewalsHeldUntil = holdRenewalsUntil;
+    return const [(session: _browserSession, route: null)];
+  }
+
+  @override
+  Future<FullAppDataClearOutcome> logoutAndClearAppData({
+    required bool keepServerDetails,
+    required Future<void> Function() beforeClear,
+  }) async {
+    var released = false;
+    unawaited(renewalsHeldUntil?.then((_) => released = true));
+    await pumpEventQueue();
+    clearedWhileHeld = renewalsHeldUntil != null && !released;
+    return super.logoutAndClearAppData(
+      keepServerDetails: keepServerDetails,
+      beforeClear: beforeClear,
+    );
+  }
 
   @override
   Future<void> revokeBrowserSignInSessions(
@@ -438,6 +462,12 @@ void main() {
       await pumpEventQueue();
 
       check(auth.revoked).deepEquals(revokes ? [_browserSession] : []);
+      // No renewal rotated a refresh token between the read and the wipe,
+      // and renewals run again once it is done.
+      check(auth.clearedWhileHeld).equals(true);
+      var released = false;
+      await auth.renewalsHeldUntil!.then((_) => released = true);
+      check(released).isTrue();
     });
   }
 

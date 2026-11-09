@@ -5,12 +5,13 @@ import 'package:conduit_core/auth/oidc/oidc_exception.dart';
 import 'package:conduit_core/auth/oidc/oidc_metadata.dart';
 import 'package:conduit_core/auth/oidc/oidc_pkce.dart';
 
-/// The redirect URI a browser sign-in comes back to, but for Google's.
-final Uri oidcConduitRedirectUri = Uri(
-  scheme: 'conduit',
-  host: 'oauth',
-  path: '/callback',
-);
+/// The redirect URI a browser sign-in comes back to, but for Google's: the
+/// one place it is spelled out. The app's Android callback activity is
+/// registered for exactly this.
+const String oidcConduitRedirect = 'conduit://oauth/callback';
+
+/// [oidcConduitRedirect], parsed.
+final Uri oidcConduitRedirectUri = Uri.parse(oidcConduitRedirect);
 
 final RegExp _googleClientId = RegExp(
   r'^([0-9]+-[a-z0-9]+)\.apps\.googleusercontent\.com$',
