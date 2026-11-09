@@ -1,4 +1,3 @@
-import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/shared/widgets/platform_ui/vocabulary.dart';
 import 'package:flutter/widgets.dart';
 
@@ -9,16 +8,16 @@ import 'chat_send_motion.dart';
 
 /// Suggested next prompts under a finished reply.
 ///
-/// A small "Suggestions" heading leads a short stack of full-width rounded
-/// rows, 8 pt apart, each led by a secondary follow-up arrow. A row is an
-/// outline with no fill, so it reads as an option to tap rather than as a
-/// message already sent (sent messages sit on a fill); its text is in the
-/// label colour, at 15 pt under the 17 pt answer, and one shared width keeps
-/// the edges even. A suggestion shows up to [FollowUpSuggestionRow.maxLines]
-/// lines, which most server suggestions fit, and ends a longer one with an
-/// ellipsis, so three of them stay a short list under the reply rather
-/// than outweighing it; a tap still sends, and VoiceOver still reads, the
-/// whole prompt.
+/// A short list of plain rows under the reply's actions, each led by a
+/// secondary follow-up arrow on the reply's leading edge: no heading and no
+/// card, so they read as next steps of the conversation rather than as
+/// another block of content. The text is regular weight in a lighter tone
+/// of the button colour, so it reads as an offer rather than as more of the
+/// reply. A suggestion shows up to
+/// [FollowUpSuggestionRow.maxLines] lines, which most server suggestions
+/// fit, and ends a longer one with an ellipsis, so three of them stay a
+/// short list under the reply rather than outweighing it; a tap still
+/// sends, and VoiceOver still reads, the whole prompt.
 class FollowUpSuggestionBar extends StatelessWidget {
   const FollowUpSuggestionBar({
     super.key,
@@ -30,19 +29,6 @@ class FollowUpSuggestionBar extends StatelessWidget {
   final List<String> suggestions;
   final ValueChanged<String> onSelected;
   final bool isBusy;
-
-  /// Space between the action row above and the heading. The action row's
-  /// 44 pt targets already leave about 13 pt of air under its glyphs; with
-  /// the reply's own small gap this puts the heading about 24 pt below the
-  /// glyphs: apart from the actions, which group with their reply, and
-  /// still closer to the suggestions it names.
-  static const double headingTopGap = Spacing.xs;
-
-  /// Space between the heading and the first suggestion.
-  static const double headingBottomGap = Spacing.sm;
-
-  /// Space between suggestions.
-  static const double rowGap = Spacing.sm;
 
   @override
   Widget build(BuildContext context) {
@@ -56,50 +42,26 @@ class FollowUpSuggestionBar extends StatelessWidget {
       return const SizedBox.shrink();
     }
 
-    final theme = context.conduitTheme;
-    final l10n = AppLocalizations.of(context)!;
-
+    // Each row's own padding spaces the list, so the rows' 44 pt targets
+    // meet without a gap between them.
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       mainAxisSize: MainAxisSize.min,
       children: [
-        Padding(
-          padding: const EdgeInsets.only(
-            top: headingTopGap,
-            bottom: headingBottomGap,
-          ),
-          // Its own node, so VoiceOver reads it as a heading rather than as
-          // the last line of the reply it follows.
-          child: Semantics(
-            container: true,
-            header: true,
-            child: Text(
-              l10n.followUpSuggestionsHeading,
-              key: const ValueKey<String>('follow-up-heading'),
-              style: AppTypography.labelMediumStyle.copyWith(
-                color: theme.textSecondary,
-              ),
-            ),
-          ),
-        ),
-        for (var index = 0; index < trimmedSuggestions.length; index++) ...[
-          if (index > 0) const SizedBox(height: rowGap),
+        for (final suggestion in trimmedSuggestions)
           FollowUpSuggestionRow(
-            label: trimmedSuggestions[index],
-            onPressed: isBusy
-                ? null
-                : () => onSelected(trimmedSuggestions[index]),
+            label: suggestion,
+            onPressed: isBusy ? null : () => onSelected(suggestion),
           ),
-        ],
       ],
     );
   }
 }
 
-/// One suggestion: a full-width outlined row led by a follow-up arrow, that
-/// fills the moment a finger lands. It shows up to [maxLines] lines of the
-/// prompt, with an ellipsis after a longer one, and reads to VoiceOver and
-/// sends the whole prompt.
+/// One suggestion: a plain full-width row led by a follow-up arrow, whose
+/// text dims the moment a finger lands, as a plain iOS button does. It shows
+/// up to [maxLines] lines of the prompt, with an ellipsis after a longer
+/// one, and reads to VoiceOver and sends the whole prompt.
 @visibleForTesting
 class FollowUpSuggestionRow extends StatefulWidget {
   const FollowUpSuggestionRow({super.key, required this.label, this.onPressed});
@@ -115,27 +77,25 @@ class FollowUpSuggestionRow extends StatefulWidget {
   /// that fits.
   static const int maxLines = 3;
 
-  /// The outline's width: a full point, so the edge holds up against the
-  /// page as clearly as a fill would, without being one.
-  static const double outlineWidth = 1;
-
-  /// Inner padding: one 15 pt line (20 pt leading) plus 10 pt above and
-  /// below, centred in the 44 pt minimum; the leading inset clears the
-  /// glyph's curve.
-  static const EdgeInsetsDirectional padding = EdgeInsetsDirectional.fromSTEB(
-    12,
-    10,
-    14,
-    10,
+  /// Space above and below a suggestion's text: a one-line suggestion (a
+  /// 20 pt line) sits centred in the 44 pt minimum, and the text of one
+  /// suggestion is about 20 pt from the next. No leading or trailing inset:
+  /// the arrow starts on the reply's own edge.
+  static const EdgeInsetsDirectional padding = EdgeInsetsDirectional.symmetric(
+    vertical: 10,
   );
 
-  /// One radius for rows of any height, so the stack reads as a set.
-  static const double cornerRadius = 14;
-
-  /// The leading arrow, at the 15 pt text's optical size.
+  /// The leading arrow, a little under the text's size.
   static const String sfSymbol = 'arrow.turn.down.right';
   static const double glyphSize = 14;
   static const double glyphGap = 8;
+
+  /// How much of its colour the text and arrow keep while pressed.
+  static const double pressedOpacity = 0.35;
+
+  /// The button colour's share in the text, and in the arrow, at rest.
+  static const double textTone = 0.75;
+  static const double glyphTone = 0.7;
 
   @override
   State<FollowUpSuggestionRow> createState() => _FollowUpSuggestionRowState();
@@ -174,49 +134,17 @@ class _FollowUpSuggestionRowState extends State<FollowUpSuggestionRow> {
   @override
   Widget build(BuildContext context) {
     final theme = context.conduitTheme;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    // A monochrome outline at rest, the label colour at a low opacity; a
-    // touch fills the row as a list row highlights. Busy (a reply is
-    // running), the outline fades with the text.
-    final outline = theme.textPrimary.withValues(
-      alpha: (isDark ? 0.24 : 0.16) * (_enabled ? 1 : 0.5),
-    );
-    final restFill = theme.textPrimary.withValues(alpha: 0);
-    final pressedFill = theme.textPrimary.withValues(
-      alpha: isDark ? 0.14 : 0.07,
-    );
-    // Label-colour text, so the row reads as a live choice rather than as
-    // disabled; the arrow stays secondary. Busy, both dim together.
-    final foreground = _enabled
-        ? theme.textPrimary
-        : theme.textPrimary.withValues(alpha: 0.3);
-    final glyphColor = _enabled
-        ? theme.textSecondary
-        : theme.textSecondary.withValues(alpha: 0.38);
-    final textStyle = AppTypography.titleMediumStyle.copyWith(
-      color: foreground,
-    );
     final textScaler = MediaQuery.textScalerOf(context);
     final glyphSize = textScaler.scale(FollowUpSuggestionRow.glyphSize);
+    // A step under the reply's size, at regular weight.
+    final baseStyle = AppTypography.titleMediumStyle.copyWith(
+      fontWeight: FontWeight.w400,
+    );
     // Centre the glyph on the first line, so it stays with the start of a
     // suggestion that wraps.
     final firstLineHeight = textScaler.scale(
-      (textStyle.fontSize ?? 15) * (textStyle.height ?? 1.3),
+      (baseStyle.fontSize ?? 15) * (baseStyle.height ?? 1.3),
     );
-    final glyph = NativeSymbolGlyph.isAvailable
-        ? NativeSymbolGlyph(
-            symbol: FollowUpSuggestionRow.sfSymbol,
-            fallbackIcon: CupertinoIcons.arrow_turn_down_right,
-            pointSize: glyphSize,
-            color: glyphColor,
-          )
-        : Icon(
-            Theme.of(context).platform == TargetPlatform.iOS
-                ? CupertinoIcons.arrow_turn_down_right
-                : Icons.subdirectory_arrow_right_rounded,
-            size: glyphSize,
-            color: glyphColor,
-          );
 
     return Semantics(
       container: true,
@@ -233,63 +161,96 @@ class _FollowUpSuggestionRowState extends State<FollowUpSuggestionRow> {
         onTapUp: _enabled ? (_) => _setPressed(false) : null,
         onTapCancel: _enabled ? () => _setPressed(false) : null,
         onTap: _enabled ? _handleTap : null,
-        // A colour change rather than a fade: the row never runs an
-        // opacity transition, so it can't read as entrance motion.
-        child: AnimatedContainer(
+        // A colour change rather than a fade of the row: it never runs an
+        // opacity transition, so it can't read as entrance motion. Instant
+        // on touch-down; a short ease back on release.
+        child: TweenAnimationBuilder<double>(
           key: ValueKey<String>('follow-up-highlight:${widget.label}'),
-          // Instant on touch-down; a short ease back on release.
+          tween: Tween<double>(end: _isPressed ? 1 : 0),
           duration: _isPressed
               ? Duration.zero
               : context.motionDuration(const Duration(milliseconds: 180)),
           curve: Curves.easeOut,
-          constraints: const BoxConstraints(
-            minHeight: FollowUpSuggestionRow.minHeight,
-          ),
-          alignment: AlignmentDirectional.centerStart,
-          padding: FollowUpSuggestionRow.padding,
-          decoration: ShapeDecoration(
-            color: _isPressed ? pressedFill : restFill,
-            shape: RoundedSuperellipseBorder(
-              side: BorderSide(
-                color: outline,
-                width: FollowUpSuggestionRow.outlineWidth,
+          builder: (context, pressed, _) {
+            final keep =
+                1 - pressed * (1 - FollowUpSuggestionRow.pressedOpacity);
+            // A lighter tone of the button colour, so the row reads as an
+            // offer beside the reply's own text. Busy (a reply is running),
+            // both fade further.
+            final foreground = _enabled
+                ? theme.buttonPrimary.withValues(
+                    alpha:
+                        theme.buttonPrimary.a *
+                        FollowUpSuggestionRow.textTone *
+                        keep,
+                  )
+                : theme.textSecondary.withValues(alpha: 0.45);
+            final glyphColor = _enabled
+                ? theme.buttonPrimary.withValues(
+                    alpha:
+                        theme.buttonPrimary.a *
+                        FollowUpSuggestionRow.glyphTone *
+                        keep,
+                  )
+                : theme.textSecondary.withValues(alpha: 0.4);
+            final textStyle = baseStyle.copyWith(color: foreground);
+            final glyph = NativeSymbolGlyph.isAvailable
+                ? NativeSymbolGlyph(
+                    symbol: FollowUpSuggestionRow.sfSymbol,
+                    fallbackIcon: CupertinoIcons.arrow_turn_down_right,
+                    pointSize: glyphSize,
+                    color: glyphColor,
+                  )
+                : Icon(
+                    Theme.of(context).platform == TargetPlatform.iOS
+                        ? CupertinoIcons.arrow_turn_down_right
+                        : Icons.subdirectory_arrow_right_rounded,
+                    size: glyphSize,
+                    color: glyphColor,
+                  );
+            return ConstrainedBox(
+              constraints: const BoxConstraints(
+                minHeight: FollowUpSuggestionRow.minHeight,
               ),
-              borderRadius: BorderRadius.circular(
-                FollowUpSuggestionRow.cornerRadius,
-              ),
-            ),
-          ),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              SizedBox(
-                height: firstLineHeight,
-                child: Center(child: glyph),
-              ),
-              const SizedBox(width: FollowUpSuggestionRow.glyphGap),
-              Expanded(
-                child: LayoutBuilder(
-                  builder: (context, constraints) => Text(
-                    followUpSuggestionClampedText(
-                      widget.label,
-                      style: textStyle,
-                      maxWidth: constraints.maxWidth,
-                      maxLines: FollowUpSuggestionRow.maxLines,
-                      textScaler: textScaler,
-                      textDirection: Directionality.of(context),
-                      locale: Localizations.maybeLocaleOf(context),
-                    ),
-                    key: _textKey,
-                    style: textStyle,
-                    maxLines: FollowUpSuggestionRow.maxLines,
-                    // Only for a single word longer than the lines; any
-                    // other cut is made on a word boundary above.
-                    overflow: TextOverflow.ellipsis,
+              child: Align(
+                alignment: AlignmentDirectional.centerStart,
+                child: Padding(
+                  padding: FollowUpSuggestionRow.padding,
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      SizedBox(
+                        height: firstLineHeight,
+                        child: Center(child: glyph),
+                      ),
+                      const SizedBox(width: FollowUpSuggestionRow.glyphGap),
+                      Expanded(
+                        child: LayoutBuilder(
+                          builder: (context, constraints) => Text(
+                            followUpSuggestionClampedText(
+                              widget.label,
+                              style: textStyle,
+                              maxWidth: constraints.maxWidth,
+                              maxLines: FollowUpSuggestionRow.maxLines,
+                              textScaler: textScaler,
+                              textDirection: Directionality.of(context),
+                              locale: Localizations.maybeLocaleOf(context),
+                            ),
+                            key: _textKey,
+                            style: textStyle,
+                            maxLines: FollowUpSuggestionRow.maxLines,
+                            // Only for a single word longer than the lines;
+                            // any other cut is made on a word boundary above.
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ),
-            ],
-          ),
+            );
+          },
         ),
       ),
     );

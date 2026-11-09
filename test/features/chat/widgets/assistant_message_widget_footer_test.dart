@@ -1793,21 +1793,20 @@ void main() {
           matching: find.byType(Wrap),
         )
         .first;
-    Finder heading() => find.byKey(const ValueKey<String>('follow-up-heading'));
+    Finder heading() =>
+        find.byKey(const ValueKey<String>('follow-up-row:Ask again'));
 
     await tester.pumpWidget(
       _buildAssistantHarness(message, showFollowUps: true),
     );
     await tester.pumpAndSettle();
 
-    // The heading is a short gap below the row's 44 pt targets: with the
-    // air those leave under the glyphs, about 24 pt from glyph to heading.
+    // The first suggestion is a short gap below the row's 44 pt targets:
+    // with the air those leave under the glyphs and its own centred line,
+    // about 28 pt from glyph to suggestion text.
     final rowRect = tester.getRect(actionRow());
     final headingTop = tester.getTopLeft(heading()).dy;
-    expect(
-      headingTop - rowRect.bottom,
-      closeTo(Spacing.xs + FollowUpSuggestionBar.headingTopGap, 0.5),
-    );
+    expect(headingTop - rowRect.bottom, closeTo(Spacing.xs, 0.5));
 
     // A send: the suggestions dissolve where they are, not pushed down by
     // the gap that takes their place under the row.

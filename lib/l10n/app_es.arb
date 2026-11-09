@@ -4390,7 +4390,6 @@
   "supportConduitFooter": "Conduit es gratuito y de código abierto. Tu apoyo ayuda a que siga así.",
   "aiMemoryFooter": "Tu prompt del sistema guía cada chat. La memoria permite al asistente recordar lo que le has contado.",
   "composerAttachServerFiles": "Archivos del servidor",
-  "followUpSuggestionsHeading": "Sugerencias",
   "codeBlockPlainText": "Texto sin formato",
   "codeBlockWrapLines": "Ajustar líneas",
   "workspacePromptHistoryDiffTooLarge": "Estas versiones son demasiado largas para compararlas.",

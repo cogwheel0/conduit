@@ -4390,7 +4390,6 @@
   "supportConduitFooter": "Conduit est gratuit et open source. Votre soutien l’aide à le rester.",
   "aiMemoryFooter": "Votre prompt système guide chaque discussion. La mémoire permet à l’assistant de se souvenir de ce que vous lui avez dit.",
   "composerAttachServerFiles": "Fichiers du serveur",
-  "followUpSuggestionsHeading": "Suggestions",
   "codeBlockPlainText": "Texte brut",
   "codeBlockWrapLines": "Renvoyer à la ligne",
   "workspacePromptHistoryDiffTooLarge": "Ces versions sont trop longues pour être comparées.",

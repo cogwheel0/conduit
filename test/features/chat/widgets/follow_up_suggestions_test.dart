@@ -106,7 +106,9 @@ void main() {
     );
   });
 
-  testWidgets('highlights on press-down and clears on release', (tester) async {
+  testWidgets('dims its text on press-down and restores it on release', (
+    tester,
+  ) async {
     await tester.pumpWidget(
       _buildHarness(
         FollowUpSuggestionBar(
@@ -117,75 +119,56 @@ void main() {
       ),
     );
 
-    final highlightFinder = find.byKey(
-      const ValueKey<String>('follow-up-highlight:First'),
-    );
-    ShapeDecoration decoration() =>
-        tester.widget<AnimatedContainer>(highlightFinder).decoration!
-            as ShapeDecoration;
-    double fillAlpha() => decoration().color!.a;
-    final restAlpha = fillAlpha();
-    // At rest the row is an outline with no fill: an option to tap, not a
-    // sent message, which sits on a fill.
-    expect(restAlpha, 0);
-    final side = (decoration().shape as RoundedSuperellipseBorder).side;
-    expect(side.width, FollowUpSuggestionRow.outlineWidth);
-    expect(side.color.a, greaterThan(0));
+    double textAlpha() =>
+        tester.widget<Text>(find.text('First')).style!.color!.a;
+    final restAlpha = textAlpha();
 
     final gesture = await tester.startGesture(
       tester.getCenter(find.text('First')),
     );
-    await tester.pump();
-    expect(fillAlpha(), greaterThan(restAlpha));
     // Feedback lands with the finger, not after an animation.
+    await tester.pump();
     expect(
-      tester.widget<AnimatedContainer>(highlightFinder).duration,
-      Duration.zero,
+      textAlpha(),
+      closeTo(restAlpha * FollowUpSuggestionRow.pressedOpacity, 0.01),
     );
 
     await gesture.up();
-    await tester.pump();
-    expect(fillAlpha(), restAlpha);
+    await tester.pumpAndSettle();
+    expect(textAlpha(), restAlpha);
   });
 
-  testWidgets('a heading names the group and reads as a heading', (
+  testWidgets('plain rows under the reply: no heading and no card', (
     tester,
   ) async {
-    final semantics = tester.ensureSemantics();
     await tester.pumpWidget(
       _buildHarness(
-        // Inside a reply's own node, as in the chat, the heading still
-        // stands alone instead of joining the reply's text.
-        Semantics(
-          container: true,
-          label: 'The reply',
-          child: FollowUpSuggestionBar(
-            suggestions: const ['First'],
-            onSelected: (_) {},
-            isBusy: false,
-          ),
+        FollowUpSuggestionBar(
+          suggestions: const ['First', 'Second'],
+          onSelected: (_) {},
+          isBusy: false,
         ),
       ),
     );
 
-    expect(find.text('Suggestions'), findsOneWidget);
-    final data = tester
-        .getSemantics(find.text('Suggestions'))
-        .getSemanticsData();
-    expect(data.label, 'Suggestions');
-    expect(data.flagsCollection.isHeader, isTrue);
-    // The heading sits above the first suggestion, not beside it.
+    final bar = find.byType(FollowUpSuggestionBar);
+    expect(find.text('Suggestions'), findsNothing);
+    // The first suggestion starts the list.
     expect(
-      tester.getBottomLeft(find.text('Suggestions')).dy,
-      lessThanOrEqualTo(
-        tester
-            .getTopLeft(
-              find.byKey(const ValueKey<String>('follow-up-row:First')),
-            )
-            .dy,
-      ),
+      tester
+          .getTopLeft(find.byKey(const ValueKey<String>('follow-up-row:First')))
+          .dy,
+      tester.getTopLeft(bar).dy,
     );
-    semantics.dispose();
+    // Nothing is drawn behind or around the rows.
+    expect(
+      find.descendant(of: bar, matching: find.byType(DecoratedBox)),
+      findsNothing,
+    );
+    expect(
+      find.descendant(of: bar, matching: find.byType(Container)),
+      findsNothing,
+    );
   });
 
   testWidgets('rows are at least 44 pt tall, secondary to the reply, and '
@@ -237,13 +220,11 @@ void main() {
     expect(longText.style!.fontSize, lessThan(17));
     final lineHeight = longText.style!.fontSize! * (longText.style!.height!);
     expect((paragraph.size.height / lineHeight).round(), 3);
-    // The row hugs its three lines: padding and outline around them.
+    // The row hugs its three lines, with its padding around them.
     expect(
       tester.getSize(longRow).height,
       closeTo(
-        paragraph.size.height +
-            FollowUpSuggestionRow.padding.vertical +
-            FollowUpSuggestionRow.outlineWidth * 2,
+        paragraph.size.height + FollowUpSuggestionRow.padding.vertical,
         0.5,
       ),
     );
@@ -285,8 +266,9 @@ void main() {
     );
   });
 
-  testWidgets('suggestions are full-width rows led by a follow-up arrow, '
-      'with even edges', (tester) async {
+  testWidgets('suggestions are full-width rows led by a follow-up arrow', (
+    tester,
+  ) async {
     await tester.pumpWidget(
       _buildHarness(
         SizedBox(
@@ -309,32 +291,20 @@ void main() {
     expect(tester.getRect(row).left, bar.left);
     expect(tester.getRect(row).right, bar.right);
     expect(tester.getRect(other).right, bar.right);
-    // One radius for every row: a set of equal cards.
-    final decoration =
-        tester
-                .widget<AnimatedContainer>(
-                  find.byKey(
-                    const ValueKey<String>('follow-up-highlight:Short'),
-                  ),
-                )
-                .decoration!
-            as ShapeDecoration;
-    final shape = decoration.shape as RoundedSuperellipseBorder;
-    expect(
-      (shape.borderRadius as BorderRadius).topLeft.x,
-      FollowUpSuggestionRow.cornerRadius,
-    );
-    // The glyph leads the words.
+    // The glyph leads the words, on the reply's own leading edge.
     final glyph = find.descendant(of: row, matching: find.byType(Icon));
     expect(glyph, findsOneWidget);
+    expect(tester.getTopLeft(glyph).dx, bar.left);
     expect(
       tester.getCenter(glyph).dx,
       lessThan(tester.getTopLeft(find.text('Short')).dx),
     );
   });
 
-  testWidgets('suggestions read as live buttons: label-colour text and a '
-      'secondary arrow, both dimmed while a reply runs', (tester) async {
+  testWidgets('suggestions read as offers: regular-weight text in a lighter '
+      'tone of the button colour, fading further while a reply runs', (
+    tester,
+  ) async {
     Future<void> pumpBar({required bool isBusy}) => tester.pumpWidget(
       _buildHarness(
         SizedBox(
@@ -360,22 +330,36 @@ void main() {
 
     await pumpBar(isBusy: false);
     final theme = tester.element(row).conduitTheme;
-    expect(textColor(), theme.textPrimary);
-    expect(glyphColor(), theme.textSecondary);
-    // The heading stays a quieter, smaller label above the rows.
-    final heading = tester.widget<Text>(find.text('Suggestions'));
-    expect(heading.style!.color, theme.textSecondary);
     expect(
-      heading.style!.fontWeight!.value,
-      greaterThan(FontWeight.w500.value),
+      textColor(),
+      theme.buttonPrimary.withValues(
+        alpha: theme.buttonPrimary.a * FollowUpSuggestionRow.textTone,
+      ),
+    );
+    expect(
+      glyphColor(),
+      theme.buttonPrimary.withValues(
+        alpha: theme.buttonPrimary.a * FollowUpSuggestionRow.glyphTone,
+      ),
+    );
+    expect(
+      tester
+          .widget<Text>(find.descendant(of: row, matching: find.byType(Text)))
+          .style!
+          .fontWeight,
+      FontWeight.w400,
     );
 
+    final restText = textColor().a;
+    final restGlyph = glyphColor().a;
     await pumpBar(isBusy: true);
-    expect(textColor().a, lessThan(theme.textPrimary.a));
-    expect(glyphColor().a, lessThan(theme.textSecondary.a));
+    expect(textColor().a, lessThan(restText));
+    expect(glyphColor().a, lessThan(restGlyph));
   });
 
-  testWidgets('suggestions keep an even gap between them', (tester) async {
+  testWidgets('rows meet, so their 44 pt targets leave no dead gap', (
+    tester,
+  ) async {
     await tester.pumpWidget(
       _buildHarness(
         FollowUpSuggestionBar(
@@ -390,7 +374,7 @@ void main() {
         tester.getRect(find.byKey(ValueKey<String>('follow-up-row:$label')));
     final gap1 = rowRect('Second').top - rowRect('First').bottom;
     final gap2 = rowRect('Third').top - rowRect('Second').bottom;
-    expect(gap1, FollowUpSuggestionBar.rowGap);
-    expect(gap2, FollowUpSuggestionBar.rowGap);
+    expect(gap1, 0);
+    expect(gap2, 0);
   });
 }
