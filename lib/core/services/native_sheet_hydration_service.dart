@@ -1731,7 +1731,7 @@ class NativeSheetHydrationService {
             id: 'computer-enabled',
             title: l10n.computerTitle,
             subtitle: l10n.computerEnabledDescription,
-            sfSymbol: 'desktopcomputer',
+            sfSymbol: 'display',
             kind: NativeSheetItemKind.toggle,
             value: appSettings.computerEnabled,
           ),

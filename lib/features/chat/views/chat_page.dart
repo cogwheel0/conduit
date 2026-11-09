@@ -5310,7 +5310,9 @@ class _ChatPageState extends ConsumerState<ChatPage>
       icon: Platform.isIOS
           ? CupertinoIcons.desktopcomputer
           : Icons.desktop_windows_outlined,
-      iosSymbol: 'desktopcomputer',
+      // The outline display, in the header glyphs' one outline family; the
+      // filled desktopcomputer screen read heavier than its neighbours.
+      iosSymbol: 'display',
       accessibilityLabel: AppLocalizations.of(context)!.computerTitle,
       labelFlutterButton: true,
       tintColor: tintColor,
