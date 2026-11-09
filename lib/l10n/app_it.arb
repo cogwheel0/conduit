@@ -4451,7 +4451,7 @@
   "libreChatTitle": "LibreChat",
   "libreChatBetaLabel": "Beta",
   "libreChatChooserSubtitle": "Accedi al tuo server LibreChat per chat sincronizzate, agenti e altro.",
-  "libreChatAddAccount": "Aggiungi un account LibreChat",
+  "libreChatAddAccount": "Aggiungi account LibreChat",
   "libreChatFileSearch": "Ricerca nei file",
   "libreChatFileSearchDescription": "Cerca risposte nei file caricati.",
   "libreChatMcpConnect": "Connetti in LibreChat",

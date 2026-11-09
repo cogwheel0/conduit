@@ -315,6 +315,22 @@ void main() {
             '$nativeLibreChatUseActionId|false',
         'accounts-librechat-add|$nativeAccountAddActionId|false',
       ]);
+      // Named as Add Account and Add Connection are.
+      final add = [
+        for (final section in buildNativeAccountsDetail(
+          l10n,
+          accounts: const [],
+          hermesConnections: const [],
+          hermesInUseId: null,
+          directProfiles: const [],
+          libreChatEnabled: true,
+          libreChatAccounts: const [],
+          libreChatInChargeId: null,
+          libreChatInChargeSignedIn: true,
+        ).sections)
+          ...section.items,
+      ].singleWhere((item) => item.id == 'accounts-librechat-add');
+      check(add.title).equals('Add LibreChat Account');
     });
 
     test('the account in charge can be signed out of, and LibreChat\'s '
