@@ -1,6 +1,6 @@
 import 'package:conduit/l10n/app_localizations.dart';
-import 'package:cupertino_ui/cupertino_ui.dart' show CupertinoIcons;
-import 'package:material_ui/material_ui.dart';
+import 'package:conduit/shared/widgets/platform_ui/vocabulary.dart';
+import 'package:flutter/widgets.dart';
 
 import '../../../core/services/haptic_service.dart';
 import '../../../shared/theme/theme_extensions.dart';

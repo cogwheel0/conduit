@@ -1,10 +1,11 @@
-import 'package:cupertino_ui/cupertino_ui.dart';
-import 'package:material_ui/material_ui.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter/widgets.dart';
 
 import '../../../core/services/haptic_service.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/chat_action_button.dart' show NativeSymbolGlyph;
 import '../../../shared/widgets/platform_ui/platform_ui.dart';
+import '../../../shared/widgets/platform_ui/vocabulary.dart';
 import '../../../shared/widgets/utility_components.dart';
 
 /// Inset-grouped form pieces for the iOS sign-in flow: the server address and
@@ -150,7 +151,7 @@ class AuthGroupedCard extends StatelessWidget {
       decoration: ShapeDecoration(color: theme.groupedSurface, shape: shape),
       child: ClipRSuperellipse(
         borderRadius: shape.borderRadius.resolve(Directionality.of(context)),
-        child: Material(type: MaterialType.transparency, child: rows),
+        child: AdaptiveTransparentLayer(child: rows),
       ),
     );
   }
@@ -371,7 +372,7 @@ class _AuthGroupedTextFieldState extends State<AuthGroupedTextField> {
         autofillHints: widget.autofillHints,
         style: authGroupedRowStyle(context),
         padding: const EdgeInsets.symmetric(vertical: 15),
-        cupertinoDecoration: const BoxDecoration(color: Colors.transparent),
+        cupertinoDecoration: const BoxDecoration(color: Color(0x00000000)),
         decoration: const InputDecoration(
           border: InputBorder.none,
           enabledBorder: InputBorder.none,

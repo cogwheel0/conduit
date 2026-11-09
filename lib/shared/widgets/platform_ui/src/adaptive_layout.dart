@@ -1038,3 +1038,16 @@ class _AdaptiveExpansionTileState extends State<AdaptiveExpansionTile> {
     );
   }
 }
+
+/// A layer that paints nothing, for a surface that draws its own background:
+/// text fields and switch ink inside it then draw on that surface instead of
+/// on the page beneath it.
+class AdaptiveTransparentLayer extends StatelessWidget {
+  const AdaptiveTransparentLayer({super.key, required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) =>
+      Material(type: MaterialType.transparency, child: child);
+}

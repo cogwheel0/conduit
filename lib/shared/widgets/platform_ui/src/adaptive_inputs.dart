@@ -6,7 +6,7 @@ import 'platform_ui_capabilities.dart';
 import 'ios_text_magnifier.dart';
 import 'placeholder_caret_gap.dart';
 
-export 'package:material_ui/material_ui.dart' show InputDecoration;
+export 'package:material_ui/material_ui.dart' show InputBorder, InputDecoration;
 
 class AdaptiveTextField extends StatelessWidget {
   const AdaptiveTextField({

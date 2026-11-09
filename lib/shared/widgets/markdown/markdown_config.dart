@@ -37,7 +37,7 @@ import 'package:conduit_markdown/conduit_markdown.dart'
 import 'package:conduit/shared/services/raster_media_policy.dart';
 import 'package:conduit/shared/utils/platform_utils.dart';
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
-import 'package:cupertino_ui/cupertino_ui.dart';
+import 'package:conduit/shared/widgets/platform_ui/vocabulary.dart';
 
 typedef MarkdownLinkTapCallback = void Function(String url, String title);
 

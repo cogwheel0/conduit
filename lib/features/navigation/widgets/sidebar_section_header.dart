@@ -1,4 +1,5 @@
-import 'package:material_ui/material_ui.dart';
+import 'package:flutter/widgets.dart';
+import 'package:conduit/shared/widgets/platform_ui/vocabulary.dart';
 
 import '../../../core/services/haptic_service.dart';
 import '../../../shared/theme/color_tokens.dart';

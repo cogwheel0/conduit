@@ -426,6 +426,23 @@ TextStyle conduitAdaptiveToolbarLeadingTitleTextStyle(BuildContext context) {
       );
 }
 
+/// A bar control without its own chrome that dims while pressed, as bar
+/// buttons do on iOS.
+Widget _toolbarPressable({
+  required VoidCallback? onPressed,
+  required Size minimumSize,
+  BorderRadius? borderRadius,
+  required Widget child,
+}) {
+  return CupertinoButton(
+    onPressed: onPressed,
+    padding: EdgeInsets.zero,
+    minimumSize: minimumSize,
+    borderRadius: borderRadius,
+    child: child,
+  );
+}
+
 Widget buildConduitAdaptiveToolbarPillSurface({
   required double width,
   required Widget child,
@@ -453,9 +470,8 @@ Widget buildConduitAdaptiveToolbarPillSurface({
   final borderRadius = BorderRadius.circular(height / 2);
   Widget content = sizedChild;
   if (onPressed != null) {
-    content = CupertinoButton(
+    content = _toolbarPressable(
       onPressed: onPressed,
-      padding: EdgeInsets.zero,
       minimumSize: Size(width, height),
       borderRadius: borderRadius,
       child: sizedChild,
@@ -1636,9 +1652,8 @@ class _ConduitToolbarActionClusterState
       button: true,
       enabled: action.enabled,
       excludeSemantics: true,
-      child: CupertinoButton(
+      child: _toolbarPressable(
         onPressed: action.enabled ? action.onPressed : null,
-        padding: EdgeInsets.zero,
         minimumSize: Size.square(extent),
         child: glyph,
       ),

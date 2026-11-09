@@ -5,7 +5,7 @@ import 'package:conduit_core/features/librechat/models/librechat_account.dart';
 import 'package:conduit_core/features/librechat/models/librechat_server_info.dart';
 import 'package:conduit_core/features/librechat/providers/librechat_providers.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
-import 'package:cupertino_ui/cupertino_ui.dart' show CupertinoIcons;
+import 'package:conduit/shared/widgets/platform_ui/vocabulary.dart';
 import 'package:flutter/services.dart' show TextInputAction, TextInputType;
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';

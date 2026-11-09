@@ -1,7 +1,8 @@
 import 'dart:math' as math;
 
 import 'package:flutter/physics.dart';
-import 'package:material_ui/material_ui.dart';
+import 'package:flutter/widgets.dart';
+import 'package:conduit/shared/widgets/platform_ui/vocabulary.dart';
 
 import '../../../shared/theme/theme_extensions.dart';
 
