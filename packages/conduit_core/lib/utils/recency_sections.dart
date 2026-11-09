@@ -91,6 +91,29 @@ RecencySection recencySectionFor(DateTime timestamp, {required DateTime now}) {
   return RecencySection.month(zoned.year, zoned.month);
 }
 
+/// How a list row dates its item after the title, as Mail dates a message:
+/// the time of day for today, "Yesterday", the weekday within the last
+/// week, else the date.
+enum RecencyStampKind { time, yesterday, weekday, date }
+
+/// The stamp a row shows for [timestamp] when it is [now].
+///
+/// Days are calendar days in the zone of [now], as [recencySectionFor]
+/// counts them. Two to six days ago is a weekday; from seven days the name
+/// would repeat today's, so the date is shown instead. A [timestamp] later
+/// than [now], from clock skew, counts as today.
+RecencyStampKind recencyStampKindFor(
+  DateTime timestamp, {
+  required DateTime now,
+}) {
+  final zoned = now.isUtc ? timestamp.toUtc() : timestamp.toLocal();
+  final days = calendarDaysBetween(zoned, now);
+  if (days <= 0) return RecencyStampKind.time;
+  if (days == 1) return RecencyStampKind.yesterday;
+  if (days < 7) return RecencyStampKind.weekday;
+  return RecencyStampKind.date;
+}
+
 /// Whole calendar days from [from]'s date to [to]'s date, each read in its
 /// own zone; negative when [from] is later.
 @visibleForTesting

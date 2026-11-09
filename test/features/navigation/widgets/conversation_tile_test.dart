@@ -515,6 +515,160 @@ void main() {
     expect(tester.getSize(find.text(badge)).width, lessThanOrEqualTo(104));
     expect(tester.takeException(), isNull);
   });
+  group('when a chat last changed', () {
+    const stampKey = ValueKey<String>('conversation-updated-stamp');
+    final now = DateTime.now();
+    // Always today, whenever the test runs.
+    final earlyToday = DateTime(now.year, now.month, now.day, 0, 1);
+
+    final stampText = find.descendant(
+      of: find.byKey(stampKey),
+      matching: find.byType(Text),
+    );
+
+    testWidgets('ends the row on the title baseline, after a cut title', (
+      tester,
+    ) async {
+      const title =
+          'A chat title long enough that it has to stop before the time';
+      await tester.pumpWidget(
+        _harness(
+          SizedBox(
+            width: 360,
+            child: ConversationTile(
+              title: title,
+              pinned: false,
+              selected: false,
+              unread: true,
+              isLoading: false,
+              timestamp: earlyToday,
+              onTap: null,
+            ),
+          ),
+        ),
+      );
+
+      final stamp = stampText;
+      expect(tester.widget<Text>(stamp).data, matches(RegExp(r'^12:01\sAM$')));
+      final titleFinder = find.text(title);
+      expect(tester.widget<Text>(titleFinder).overflow, TextOverflow.ellipsis);
+      final theme = tester.element(stamp).conduitTheme;
+      expect(tester.widget<Text>(stamp).style?.color, theme.textSecondary);
+      // The title stops a gap short of the date, which keeps the trailing
+      // edge every row's content ends on.
+      final titleRect = tester.getRect(titleFinder);
+      final stampRect = tester.getRect(stamp);
+      expect(stampRect.left - titleRect.right, closeTo(Spacing.sm, 0.01));
+      final row = tester.getRect(find.byType(ConversationTile));
+      expect(
+        row.right - stampRect.right,
+        closeTo(kSidebarRowContentInset, 0.01),
+      );
+      // The smaller date takes the title's line as its strut, so in the
+      // centred row both have one line box, and so one baseline.
+      final strut = tester.widget<Text>(stamp).strutStyle!;
+      final titleStyle = tester.widget<Text>(titleFinder).style!;
+      expect(strut.forceStrutHeight, isTrue);
+      expect(strut.fontSize, titleStyle.fontSize);
+      expect(strut.height, titleStyle.height);
+      expect(stampRect.height, closeTo(titleRect.height, 0.01));
+      expect(stampRect.center.dy, closeTo(titleRect.center.dy, 0.01));
+    });
+
+    testWidgets('follows the device 24-hour setting', (tester) async {
+      await tester.pumpWidget(
+        _harness(
+          MediaQuery(
+            data: const MediaQueryData(alwaysUse24HourFormat: true),
+            child: ConversationTile(
+              title: 'Night owl',
+              pinned: false,
+              selected: false,
+              isLoading: false,
+              timestamp: earlyToday,
+              onTap: null,
+            ),
+          ),
+        ),
+      );
+      expect(tester.widget<Text>(stampText).data, '00:01');
+    });
+
+    testWidgets('VoiceOver reads the title, its state, then the date', (
+      tester,
+    ) async {
+      final semantics = tester.ensureSemantics();
+      await tester.pumpWidget(
+        _harness(
+          ConversationTile(
+            title: 'Old chat',
+            pinned: false,
+            selected: false,
+            unread: true,
+            isLoading: false,
+            timestamp: DateTime(2020, 1, 15, 10),
+            onTap: () {},
+          ),
+        ),
+      );
+
+      expect(tester.widget<Text>(stampText).data, '1/15/20');
+      expect(
+        find.bySemanticsLabel('Old chat\nUnread\nJanuary 15, 2020'),
+        findsOneWidget,
+      );
+      semantics.dispose();
+    });
+
+    testWidgets('gives way to the spinner while the chat works', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        _harness(
+          ConversationTile(
+            title: 'Busy chat',
+            pinned: false,
+            selected: false,
+            isLoading: false,
+            isGenerating: true,
+            timestamp: earlyToday,
+            onTap: null,
+          ),
+        ),
+      );
+      expect(find.byKey(stampKey), findsNothing);
+      expect(find.byType(CircularProgressIndicator), findsOneWidget);
+    });
+
+    testWidgets('drops under the title at the accessibility text sizes', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        _harness(
+          MediaQuery(
+            data: const MediaQueryData(textScaler: TextScaler.linear(2)),
+            child: SizedBox(
+              width: 360,
+              child: ConversationTile(
+                title: 'Large type',
+                pinned: false,
+                selected: false,
+                isLoading: false,
+                timestamp: earlyToday,
+                onTap: null,
+              ),
+            ),
+          ),
+        ),
+      );
+
+      final titleRect = tester.getRect(find.text('Large type'));
+      final stampRect = tester.getRect(find.byKey(stampKey));
+      expect(stampRect.top, greaterThanOrEqualTo(titleRect.bottom - 0.01));
+      expect(stampRect.left, closeTo(titleRect.left, 0.01));
+      expect(tester.takeException(), isNull);
+    });
+  });
 }
 
 Widget _localizedHarness(Widget child) {

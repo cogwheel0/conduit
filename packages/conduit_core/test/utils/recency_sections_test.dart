@@ -226,4 +226,37 @@ void main() {
       ).isEmpty();
     });
   });
+
+  group('recencyStampKindFor', () {
+    // Wednesday 11 November 2026, just after midnight.
+    final now = DateTime(2026, 11, 11, 0, 30);
+
+    RecencyStampKind at(DateTime timestamp) =>
+        recencyStampKindFor(timestamp, now: now);
+
+    test('dates today by its time and the day before as yesterday', () {
+      check(at(DateTime(2026, 11, 11))).equals(RecencyStampKind.time);
+      check(at(DateTime(2026, 11, 10, 23, 59)))
+          .equals(RecencyStampKind.yesterday);
+    });
+
+    test('names the weekday for two to six days ago', () {
+      check(at(DateTime(2026, 11, 9))).equals(RecencyStampKind.weekday);
+      check(at(DateTime(2026, 11, 5))).equals(RecencyStampKind.weekday);
+    });
+
+    test('dates anything from a week ago, whose weekday is today\'s', () {
+      check(at(DateTime(2026, 11, 4, 23, 59))).equals(RecencyStampKind.date);
+      check(at(DateTime(2025, 12, 24))).equals(RecencyStampKind.date);
+    });
+
+    test('a timestamp ahead of now, from clock skew, is today', () {
+      check(at(DateTime(2026, 11, 12, 9))).equals(RecencyStampKind.time);
+    });
+
+    test('reads a UTC instant on the local calendar day', () {
+      final instant = DateTime(2026, 11, 10, 23, 59).toUtc();
+      check(at(instant)).equals(RecencyStampKind.yesterday);
+    });
+  });
 }
