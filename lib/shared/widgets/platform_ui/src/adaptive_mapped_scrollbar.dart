@@ -44,10 +44,9 @@ class _AdaptiveMappedScrollbarState extends State<AdaptiveMappedScrollbar>
   @override
   void initState() {
     super.initState();
-    _position = ScrollPositionWithSingleContext(
-      physics: const ClampingScrollPhysics(),
+    _position = _MappedScrollPosition(
       context: this,
-      keepScrollOffset: false,
+      onPageActivity: _interactionChanged,
     );
     _controller.attach(_position);
     _position.addListener(_seek);
@@ -68,7 +67,12 @@ class _AdaptiveMappedScrollbarState extends State<AdaptiveMappedScrollbar>
   void _seek() => widget.onSeek(_position.pixels);
 
   void _activityChanged() {
-    if (_position.isScrollingNotifier.value) {
+    _interactionChanged(_position.isScrollingNotifier.value);
+  }
+
+  void _interactionChanged(bool active) {
+    if (!mounted) return;
+    if (active) {
       widget.onDragStart();
     } else {
       widget.onDragEnd();
@@ -207,4 +211,37 @@ class _AdaptiveMappedScrollbarState extends State<AdaptiveMappedScrollbar>
   void setSemanticsActions(Set<SemanticsAction> actions) {}
   @override
   void saveOffset(double offset) {}
+}
+
+class _MappedScrollPosition extends ScrollPositionWithSingleContext {
+  _MappedScrollPosition({required super.context, required this.onPageActivity})
+    : super(physics: const ClampingScrollPhysics(), keepScrollOffset: false);
+
+  final ValueChanged<bool> onPageActivity;
+  int _pageGeneration = 0;
+
+  @override
+  Future<void> moveTo(
+    double to, {
+    Duration? duration,
+    Curve? curve,
+    bool? clamp = true,
+  }) async {
+    // Native track taps supply a physical page increment. Animate the content
+    // position: mapped units change scale as differently sized rows enter view.
+    final content = Scrollable.of(context.notificationContext!).position;
+    final target = content.pixels + to - pixels;
+    final generation = ++_pageGeneration;
+    onPageActivity(true);
+    try {
+      await content.moveTo(
+        target,
+        duration: duration,
+        curve: curve,
+        clamp: clamp,
+      );
+    } finally {
+      if (generation == _pageGeneration) onPageActivity(false);
+    }
+  }
 }

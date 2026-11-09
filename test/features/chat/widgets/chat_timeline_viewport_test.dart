@@ -277,6 +277,94 @@ void main() {
     expect(position.pixels, lessThan(50));
   });
 
+  _viewportTest('track paging stays physical across mixed message heights', (
+    tester,
+  ) async {
+    PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.android;
+    addTearDown(PlatformUiCapabilities.resetDebugOverrides);
+    final controller = _controller(tester);
+    final ids = List.generate(100, (index) => 'synthetic-$index');
+    var starts = 0;
+    var ends = 0;
+    double height(int index) => index.isEven ? 80 : 4000;
+    await tester.pumpWidget(
+      _viewportHost(
+        _viewport(
+          controller: controller,
+          ids: ids,
+          followLatest: false,
+          initialAnchor: ChatScrollAnchor(
+            messageId: ids[20],
+            offsetWithinMessage: 0,
+            loadedCount: ids.length,
+          ),
+          rowBuilder: (_, index) => SizedBox(height: height(index)),
+          onUserDragStart: () => starts++,
+          onUserDragEnd: () => ends++,
+        ),
+        theme: ThemeData(
+          platform: TargetPlatform.android,
+          scrollbarTheme: const ScrollbarThemeData(
+            thumbVisibility: WidgetStatePropertyAll(true),
+            thickness: WidgetStatePropertyAll(8),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    double contentOffset() {
+      final anchor = controller.captureTopVisibleAnchor(
+        loadedCount: ids.length,
+      )!;
+      final index = ids.indexOf(anchor.messageId);
+      return List.generate(index, height).fold(0.0, (a, b) => a + b) -
+          anchor.offsetWithinMessage;
+    }
+
+    final position = tester
+        .state<ScrollableState>(find.byType(Scrollable))
+        .position;
+    position.jumpTo(position.pixels + 1);
+    await tester.pump(const Duration(milliseconds: 100));
+    await tester.pump(const Duration(milliseconds: 100));
+    await tester.pump(const Duration(milliseconds: 100));
+    final before = contentOffset();
+    await tester.tapAt(const Offset(796, 500));
+    var previous = before;
+    for (var frame = 0; frame < 8; frame++) {
+      await tester.pump(const Duration(milliseconds: 16));
+      final current = contentOffset();
+      expect(current, greaterThanOrEqualTo(previous - .01));
+      previous = current;
+    }
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+    expect(
+      contentOffset() - before,
+      closeTo(position.viewportDimension * .8, 1),
+    );
+    await tester.tapAt(const Offset(796, 34), kind: PointerDeviceKind.mouse);
+    for (var frame = 0; frame < 8; frame++) {
+      await tester.pump(const Duration(milliseconds: 16));
+      final current = contentOffset();
+      expect(current, lessThanOrEqualTo(previous + .01));
+      previous = current;
+    }
+    await tester.pumpAndSettle();
+    expect(contentOffset(), closeTo(before, 1));
+    expect(starts, 2);
+    expect(ends, 2);
+    await tester.tapAt(const Offset(796, 500));
+    await tester.pump(const Duration(milliseconds: 32));
+    await tester.tapAt(const Offset(796, 500));
+    await tester.pump(const Duration(milliseconds: 32));
+    expect(ends, 2);
+    await tester.pumpAndSettle();
+    expect(starts, 3);
+    expect(ends, 3);
+    expect(tester.takeException(), isNull);
+  });
+
   for (final platform in [TargetPlatform.android, TargetPlatform.iOS]) {
     _viewportTest('$platform mouse wheel reaches keyboard-dismiss ancestors', (
       tester,
