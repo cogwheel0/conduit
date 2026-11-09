@@ -36,9 +36,6 @@ import 'package:conduit_core/features/chat/providers/streaming_haptic_memory.dar
 import 'package:conduit_core/features/chat/providers/reasoning_effort_provider.dart'
     show kAutomaticReasoningEffort, reasoningEffortForModel;
 
-import 'chat_send_motion.dart';
-import 'streaming_turn_footer.dart'
-    show ReplyFirstLineThinking, shouldShowReplyFirstLineThinking;
 import 'enhanced_image_attachment.dart';
 import 'enhanced_video_attachment.dart';
 import 'image_gallery_scope.dart';
@@ -155,6 +152,7 @@ class AssistantMessageWidget extends ConsumerStatefulWidget {
   final bool suppressStreamingHaptics;
   final VoidCallback? onCopy;
   final VoidCallback? onRegenerate;
+
   /// Deletes the response; null where messages cannot be deleted.
   final VoidCallback? onDelete;
   final VoidCallback? onLike;
@@ -202,18 +200,12 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
   final _overflowButtonKey = GlobalKey();
   final _inlineShareButtonKey = GlobalKey();
 
-  Timer? _mountFadeTimer;
-
   /// Copy shows a checkmark, read as "Copied", for a moment after it runs.
   bool _showCopied = false;
   Timer? _copiedTimer;
   static const Duration _copiedConfirmationDuration = Duration(
     milliseconds: 1200,
   );
-
-  /// New reply content fades in over this, quick enough to read as arrival
-  /// rather than as a transition.
-  static const Duration _contentFadeDuration = Duration(milliseconds: 200);
 
   /// Reply actions: one SF Symbol weight, scale and colour for every glyph,
   /// inline or in More, inside a 44 pt target, at 17 pt unless a glyph's
@@ -288,38 +280,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
       ref.read(streamingHapticMemoryProvider);
 
   bool get _shouldAnimateOnMount =>
-      widget.animateOnMount && !_disableAnimations && _isNewThisSession;
-
-  /// Whether this reply was created moments ago and has not appeared before:
-  /// only then does the row fade in. A reply mounting again (scrolled back
-  /// into view, a rebuilt timeline) or loaded from history appears in place.
-  late final bool _isNewThisSession = () {
-    final message = _chatMessage;
-    if (message == null) return true;
-    return isFreshChatContent(message.timestamp) &&
-        isChatEntranceAvailable(_rowEntranceKey);
-  }();
-
-  String get _rowEntranceKey => 'row:${_chatMessage?.id ?? ''}';
-
-  /// Starts the row's fade once it is first on screen (not while the
-  /// timeline hides a settling turn), after the sent message has had a
-  /// moment to rise above it.
-  void _startMountFadeOnScreen() {
-    if (_mountFadeTimer != null || _fadeController.value >= 1) return;
-    markChatEntranceShown(_rowEntranceKey);
-    _mountFadeTimer = startChatReplyEntrance(() {
-      if (mounted) _fadeController.forward();
-    });
-  }
-
-  /// The first text of a reply fades in once per message, not again when the
-  /// row remounts mid-stream.
-  bool _claimStreamingContentFade() {
-    final id = _chatMessage?.id;
-    if (id == null || id.isEmpty) return true;
-    return claimChatEntrance('content:$id');
-  }
+      widget.animateOnMount && !_disableAnimations;
 
   ChatMessage? get _chatMessage =>
       widget.message is ChatMessage ? widget.message as ChatMessage : null;
@@ -393,12 +354,12 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
         .disableAnimations;
     final shouldAnimateOnMount = _shouldAnimateOnMount;
     _fadeController = AnimationController(
-      duration: _contentFadeDuration,
+      duration: const Duration(milliseconds: 300),
       vsync: this,
       value: shouldAnimateOnMount ? 0.0 : 1.0,
     );
     _streamingContentFadeController = AnimationController(
-      duration: _contentFadeDuration,
+      duration: const Duration(milliseconds: 260),
       vsync: this,
       value: 1.0,
     );
@@ -619,8 +580,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
   }
 
   void _primeInitialStreamingContentFade() {
-    if (!_canFadeStreamingContent(_displayedContent) ||
-        !_claimStreamingContentFade()) {
+    if (!_canFadeStreamingContent(_displayedContent)) {
       return;
     }
     _streamingContentFadeController.value = 0.0;
@@ -634,8 +594,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
 
   bool _shouldFadeInStreamingContent(String nextRaw) {
     return _canFadeStreamingContent(nextRaw) &&
-        _displayedContent.trim().isEmpty &&
-        _claimStreamingContentFade();
+        _displayedContent.trim().isEmpty;
   }
 
   bool _canFadeStreamingContent(String nextRaw) {
@@ -1038,24 +997,10 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
         final fade = _canFadeStreamingContent(displayedContent)
             ? _streamingContentFade
             : const AlwaysStoppedAnimation<double>(1.0);
-        final message = _chatMessage;
-        // Until the reply shows anything, "Thinking…" holds its first line,
-        // and the first words cross-fade in right there. Always wrapped, so
-        // the content keeps its element when the label goes.
-        return ReplyFirstLineThinking(
-          startedAt: message?.timestamp ?? DateTime.now(),
-          showing:
-              message != null &&
-              _activeVersionIndex < 0 &&
-              shouldShowReplyFirstLineThinking(
-                message: message,
-                displayedContent: displayedContent,
-              ),
-          child: FadeTransition(
-            key: const ValueKey('assistant-streaming-content-fade'),
-            opacity: fade,
-            child: body,
-          ),
+        return FadeTransition(
+          key: const ValueKey('assistant-streaming-content-fade'),
+          opacity: fade,
+          child: body,
         );
       },
     );
@@ -1343,7 +1288,6 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _copiedTimer?.cancel();
-    _mountFadeTimer?.cancel();
     _streamingContentSub?.close();
     _resetTtsPlainTextState();
     _fadeController.dispose();
@@ -1643,14 +1587,10 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     // Animate on first appearance only, not on every streaming rebuild
     if (!_hasAnimated) {
       _hasAnimated = true;
+      _fadeController.forward();
     }
 
-    // A new reply waits for the sent message to rise into place above it,
-    // so the two arrive in order rather than on top of each other.
-    return ChatFirstPaintListener(
-      onFirstPaint: _startMountFadeOnScreen,
-      child: FadeTransition(opacity: _fadeController, child: content),
-    );
+    return FadeTransition(opacity: _fadeController, child: content);
   }
 
   /// Builds the keyed child for the footer [AnimatedSwitcher]: the action row
@@ -1668,32 +1608,16 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
         // of air over the glyphs), and the block's usual gap follows it.
         children.add(footer);
       }
-      // A send makes the suggestions obsolete; they dissolve under the rising
-      // message instead of vanishing, and give up their room at once.
-      children.add(
-        ChatLeavingContent(
-          key: const ValueKey('follow-ups-slot'),
-          child: hasFollowUps
-              ? Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    // With the targets' air under the glyphs, about 24 pt
-                    // from the action glyphs to the heading: clearly apart
-                    // from the actions, closer to the suggestions it names.
-                    const SizedBox(height: Spacing.xs),
-                    _buildFollowUpSuggestions(activeFollowUps),
-                  ],
-                )
-              : null,
-        ),
-      );
+      if (hasFollowUps) {
+        // The action row's 44 pt targets and each suggestion's own 44 pt row
+        // already leave air; a wider gap detached the suggestions.
+        children.add(const SizedBox(height: Spacing.xs));
+        children.add(_buildFollowUpSuggestions(activeFollowUps));
+      }
       if (footer != null && !hasFollowUps) {
         // The block's gap under the row, which suggestions replace with
-        // their own. After them, so suggestions leaving on a send stay
-        // where they were as they dissolve. With it, the row and the typing
-        // indicator it replaces (a gap, then a 44 pt row) take the same
-        // height.
+        // their own. With it, the row and the typing indicator it replaces
+        // (a gap, then a 44 pt row) take the same height.
         children.add(
           SizedBox(
             height: ConduitMarkdownStyle.fromTheme(context).paragraphSpacing,
@@ -3309,26 +3233,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
       key: _overflowButtonKey,
       message: l10n.more,
       waitDuration: const Duration(milliseconds: 600),
-      child: Semantics(
-        button: true,
-        label: l10n.more,
-        child: PlatformUiCapabilities.isIOS
-            ? _StandAsideWhileSending(
-                size: _footerActionTarget,
-                // The same glyph, drawn by Flutter, while a sent message
-                // flies over the transcript (see [ChatSendFlights]).
-                placeholder: NativeSymbolGlyph(
-                  symbol: 'ellipsis',
-                  fallbackIcon: CupertinoIcons.ellipsis,
-                  // 17 pt at the medium scale: how the native button's
-                  // 13 pt large-scale ellipsis draws (see [_footerMoreGlyph]).
-                  pointSize: _footerActionGlyph,
-                  color: _footerActionColor,
-                ),
-                child: menu,
-              )
-            : menu,
-      ),
+      child: Semantics(button: true, label: l10n.more, child: menu),
     );
   }
 
@@ -3386,45 +3291,4 @@ String _buildTtsPlainTextFromRaw(String raw) {
   final sanitized = ConduitMarkdownPreprocessor.sanitize(raw);
   final withoutDetails = sanitized.replaceAll(_ttsDetailsPattern, '');
   return ConduitMarkdownPreprocessor.cleanText(withoutDetails).trim();
-}
-
-/// A native control (a platform view) in the transcript that steps aside
-/// while a sent message flies over the transcript ([ChatSendFlights.inAir]):
-/// it stays alive, laid out but not drawn, with [placeholder] (kept built,
-/// so it is ready) drawn in its place, and comes back as the message lands.
-/// Flutter draws what passes over a native view in a layer of its own, and
-/// a bubble crossing one that scrolls with the transcript showed a hole for
-/// a frame where it was.
-class _StandAsideWhileSending extends StatelessWidget {
-  const _StandAsideWhileSending({
-    required this.size,
-    required this.placeholder,
-    required this.child,
-  });
-
-  final double size;
-  final Widget placeholder;
-  final Widget child;
-
-  @override
-  Widget build(BuildContext context) {
-    return ValueListenableBuilder<bool>(
-      valueListenable: ChatSendFlights.inAir,
-      child: child,
-      builder: (context, inAir, child) => SizedBox.square(
-        dimension: size,
-        child: Stack(
-          alignment: Alignment.center,
-          children: [
-            Offstage(offstage: inAir, child: child),
-            // Always built, so its glyph is ready before the first flight.
-            Offstage(
-              offstage: !inAir,
-              child: IgnorePointer(child: ExcludeSemantics(child: placeholder)),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
 }

@@ -1779,7 +1779,7 @@ void main() {
   });
 
   testWidgets('the action row groups with its reply, the suggestions sit '
-      'apart, and on a send they leave from where they were', (tester) async {
+      'apart, and on a send they go and the row stays', (tester) async {
     final message = ChatMessage(
       id: 'assistant-follow-up-spacing',
       role: 'assistant',
@@ -1808,14 +1808,12 @@ void main() {
     final headingTop = tester.getTopLeft(heading()).dy;
     expect(headingTop - rowRect.bottom, closeTo(Spacing.xs, 0.5));
 
-    // A send: the suggestions dissolve where they are, not pushed down by
-    // the gap that takes their place under the row.
+    // A send: the suggestions go, and the action row stays where it was.
     await tester.pumpWidget(
       _buildAssistantHarness(message, showFollowUps: false),
     );
-    await tester.pump(const Duration(milliseconds: 16));
-    expect(heading(), findsOneWidget);
-    expect(tester.getTopLeft(heading()).dy, closeTo(headingTop, 0.5));
+    await tester.pump();
+    expect(heading(), findsNothing);
     expect(tester.getRect(actionRow()), rowRect);
     await tester.pumpAndSettle();
     expect(heading(), findsNothing);

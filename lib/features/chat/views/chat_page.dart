@@ -86,7 +86,6 @@ import 'package:conduit_core/utils/model_display_name.dart';
 import 'package:conduit_core/utils/user_display_name.dart'
     show deriveGreetingName;
 
-
 import '../../../core/utils/model_icon_utils.dart';
 import '../../../shared/widgets/markdown/markdown_compile_service.dart';
 
@@ -145,8 +144,6 @@ import 'package:conduit_core/features/chat/views/chat_turn_render_state.dart';
 import '../widgets/streaming_turn_footer.dart';
 import '../widgets/openwebui_prompt_overlay.dart';
 import '../widgets/openwebui_task_list.dart';
-import '../widgets/chat_send_motion.dart'
-    show ChatGreetingExit, ChatSendEntrance;
 import '../widgets/chat_timeline_viewport.dart';
 import '../widgets/chat_scroll_to_latest_button.dart';
 import '../../../platform/frame_profiler.dart';
@@ -287,16 +284,6 @@ class _ScrollableCenteredEmptyState extends StatelessWidget {
 const double _chatMessageScrollCachePixels = 1200.0;
 
 const double _kScrollToLatestButtonSize = 40.0;
-
-/// How far below the top of the transcript a just-sent message rests, so
-/// the end of the reply it follows up on stays in view above it rather than
-/// the new turn starting over a blank screen: the reply's action row, clear,
-/// and above it the reply's last line of text, passing under the header the
-/// way any text does. An action row alone, with none of its reply, would
-/// read as stray buttons. It also keeps the message itself below the
-/// header's soft edge, crisp from its first line.
-@visibleForTesting
-const double kChatPinnedTurnPeek = 92.0;
 
 @visibleForTesting
 bool shouldShowChatModelDropdown({
@@ -534,13 +521,13 @@ class ChatPage extends ConsumerStatefulWidget {
   ConsumerState<ChatPage> createState() => _ChatPageState();
 }
 
-class _ChatPageState extends ConsumerState<ChatPage>
-    with SingleTickerProviderStateMixin {
+class _ChatPageState extends ConsumerState<ChatPage> {
   static const double _scrollButtonShowThreshold = 48.0;
   static const double _scrollButtonHideThreshold = 12.0;
   static const int _pinScrollMaxAttempts = 12;
   static const double _scrollCorrectionEpsilon = 1.0;
   static const double _pinnedMeasurementEpsilon = 0.5;
+  static const Duration _pinTransitionDuration = Duration(milliseconds: 220);
 
   final ChatTimelineViewportController _timelineViewportController =
       ChatTimelineViewportController();
@@ -550,29 +537,6 @@ class _ChatPageState extends ConsumerState<ChatPage>
         hideThreshold: _scrollButtonHideThreshold,
       );
   bool _showScrollToBottom = false;
-
-  /// A send is on its way: the scroll-to-latest button stays hidden until
-  /// the new turn takes over the transcript (or the send does not go
-  /// through), and leaves quickly.
-  bool _sendHidesScrollToLatest = false;
-  Timer? _sendScrollToLatestHideTimer;
-
-  /// The new chat's greeting while its first message is sent: it starts to
-  /// fade as Send is tapped and goes on the beat of the message rising from
-  /// the composer, front-loaded so it is all but gone before the message
-  /// reaches its line, and comes back if the send does not go through. The
-  /// leaving greeting ([ChatGreetingExit]) shares it, so the fade carries on
-  /// unbroken when the transcript takes over.
-  late final AnimationController _greetingSendPresence = AnimationController(
-    vsync: this,
-    value: 1,
-  );
-  Timer? _greetingSendHideTimer;
-
-  /// How quickly the greeting goes when Send is tapped (the leaving
-  /// greeting's beat), and comes back.
-  static const Duration _greetingSendFade = ChatGreetingExit.duration;
-  static const Duration _greetingReturnFade = Duration(milliseconds: 200);
 
   /// Whether the transcript has scrolled under the header, so the header
   /// names the chat above its model.
@@ -641,9 +605,6 @@ class _ChatPageState extends ConsumerState<ChatPage>
   // Whose name [_cachedGreetingName] is: it never greets another account.
   PrimaryAccountRef? _greetingAccount;
   bool _greetingReady = false;
-
-  /// The greeting is fading out under a new chat's first message.
-  bool _greetingExiting = false;
   ProviderSubscription<String?>? _screenContextSub;
   ProviderSubscription<bool>? _conversationLoadingSub;
   ProviderSubscription<bool>? _reviewerModeSub;
@@ -822,7 +783,6 @@ class _ChatPageState extends ConsumerState<ChatPage>
     ref.read(chatTranscriptPagingProvider.notifier).reset(totalMessages: 0);
     _cancelPendingViewportNavigation();
     _clearPinToTopAnchor();
-    _resetGreetingForConversationBoundary();
     _invalidateChatListStableLayoutMetadata();
     _isAnchoredToBottom = true;
 
@@ -1094,9 +1054,6 @@ class _ChatPageState extends ConsumerState<ChatPage>
     _timelineViewportController.dispose();
     _headerShowsTitle.dispose();
     _newChatActionsHoldTimer?.cancel();
-    _sendScrollToLatestHideTimer?.cancel();
-    _greetingSendHideTimer?.cancel();
-    _greetingSendPresence.dispose();
     super.dispose();
   }
 
@@ -1368,7 +1325,7 @@ class _ChatPageState extends ConsumerState<ChatPage>
         Spacing.md;
     _pinToTopEndSpaceExtent = math.max(
       0,
-      MediaQuery.sizeOf(context).height - topInset - kChatPinnedTurnPeek,
+      MediaQuery.sizeOf(context).height - topInset,
     );
     _pinGeometryReady = false;
     _pinShouldSettleImmediately = settleImmediately;
@@ -1376,11 +1333,7 @@ class _ChatPageState extends ConsumerState<ChatPage>
     _pinPrepositionAttempted = false;
     _pinLifecycleReconciliationGeneration = null;
     _timelineScrollMode = _ChatTimelineScrollMode.anchoringNewTurn;
-    // The pinned turn keeps the button hidden from here until it is placed.
-    _sendHidesScrollToLatest = false;
     setState(() {
-      // A new chat's first message: the greeting leaves as it arrives.
-      if (settleImmediately) _greetingExiting = true;
       _pinToTopState = _PinToTopState.active(
         userMessageId: userMessageId,
         streamingMessageId: handle.assistantMessageId,
@@ -1425,9 +1378,6 @@ class _ChatPageState extends ConsumerState<ChatPage>
     }
     final sendOwner = _messageSendAdmission.tryAcquire();
     if (sendOwner == null) return (admitted: false, dispatched: false);
-    // The transcript is about to bring the new turn up, so the way down to
-    // the latest goes at once, before the message rises past it.
-    _hideScrollToLatestForSend();
     if (mounted) setState(() {});
     late final bool dispatched;
     try {
@@ -1442,92 +1392,8 @@ class _ChatPageState extends ConsumerState<ChatPage>
       );
     } finally {
       _releaseMessageSendAdmission(sendOwner);
-      _endSendScrollToLatestHide();
-      _endSendGreetingHide();
     }
     return (admitted: true, dispatched: dispatched);
-  }
-
-  /// Send was tapped: what the new turn will take the place of clears the
-  /// way at once.
-  void _handleSendStarted() {
-    _hideScrollToLatestForSend();
-    _hideGreetingForSend();
-  }
-
-  /// A new chat's first message is on its way: its greeting fades out now,
-  /// before the message leaves the composer, so the two never cross.
-  void _hideGreetingForSend() {
-    if (!mounted || ref.read(chatMessagesProvider).isNotEmpty) return;
-    _greetingSendPresence.animateTo(
-      0,
-      duration: _greetingSendFade,
-      curve: ChatGreetingExit.curve,
-    );
-    // A send the composer gives up on before it reaches the page must not
-    // keep the greeting away for good.
-    _greetingSendHideTimer?.cancel();
-    _greetingSendHideTimer = Timer(const Duration(seconds: 2), () {
-      if (!_messageSendAdmission.isHeld) _endSendGreetingHide();
-    });
-  }
-
-  /// Another chat drops a greeting still leaving the last one: its exit,
-  /// which would have restored the greeting when done, goes with that chat,
-  /// so the next empty chat greets at once.
-  void _resetGreetingForConversationBoundary() {
-    _greetingSendHideTimer?.cancel();
-    _greetingSendHideTimer = null;
-    _greetingExiting = false;
-    _greetingSendPresence.stop();
-    _greetingSendPresence.value = 1;
-  }
-
-  /// The send has gone through or did not: a chat still empty shows its
-  /// greeting again; otherwise it is ready for the next new chat once the
-  /// leaving greeting has gone.
-  void _endSendGreetingHide() {
-    _greetingSendHideTimer?.cancel();
-    _greetingSendHideTimer = null;
-    if (!mounted || _greetingExiting) return;
-    if (_greetingSendPresence.value >= 1 &&
-        !_greetingSendPresence.isAnimating) {
-      return;
-    }
-    if (ref.read(chatMessagesProvider).isEmpty) {
-      _greetingSendPresence.animateTo(
-        1,
-        duration: _greetingReturnFade,
-        curve: Curves.easeOut,
-      );
-    } else {
-      _greetingSendPresence.value = 1;
-    }
-  }
-
-  /// Hides the scroll-to-latest button from the tap on Send until the new
-  /// turn takes over the transcript (it keeps the button hidden while it
-  /// comes up), with a quick fade rather than its usual spring.
-  void _hideScrollToLatestForSend() {
-    if (!mounted) return;
-    _sendHidesScrollToLatest = true;
-    if (_showScrollToBottom) setState(() => _showScrollToBottom = false);
-    // A send the composer gives up on before it reaches the page must not
-    // keep the button away for good.
-    _sendScrollToLatestHideTimer?.cancel();
-    _sendScrollToLatestHideTimer = Timer(const Duration(seconds: 2), () {
-      if (!_messageSendAdmission.isHeld) _endSendScrollToLatestHide();
-    });
-  }
-
-  /// The send has taken over the transcript or did not go through: the
-  /// button follows the transcript again.
-  void _endSendScrollToLatestHide() {
-    _sendScrollToLatestHideTimer?.cancel();
-    _sendScrollToLatestHideTimer = null;
-    if (!_sendHidesScrollToLatest) return;
-    _sendHidesScrollToLatest = false;
-    if (mounted) _scheduleScrollToBottomVisibilitySync();
   }
 
   Future<bool> _sendMessageAfterAdmission(
@@ -2390,7 +2256,6 @@ class _ChatPageState extends ConsumerState<ChatPage>
     required double distanceFromLatest,
   }) {
     if (!_timelineViewportController.hasClients) return false;
-    if (_sendHidesScrollToLatest) return false;
     return debugShouldExposeScrollToLatestForTesting(
       hasScrollableContent: hasScrollableContent,
       pinAutoFollowing: _shouldAutoFollowPinnedTurn,
@@ -2778,7 +2643,6 @@ class _ChatPageState extends ConsumerState<ChatPage>
     _hasPrewarmedAttachedViewport = false;
     _lastVisibleMessageIds = const <String>{};
     _clearPinToTopAnchor();
-    _resetGreetingForConversationBoundary();
     _invalidateChatListStableLayoutMetadata();
     _hasUserScrolled = false;
     final totalMessages = ref.read(chatMessagesProvider).length;
@@ -2966,14 +2830,6 @@ class _ChatPageState extends ConsumerState<ChatPage>
         );
         return;
       }
-      if (!context.reduceMotion && !_pinShouldSettleImmediately) {
-        _springPinnedTurnIntoPlace(
-          targetId: targetId,
-          generation: generation,
-          attempt: attempt,
-        );
-        return;
-      }
       final targetRowMounted =
           _timelineViewportController.rowRect(targetId) != null;
       final geometryReady = _pinGeometryReady && targetRowMounted;
@@ -3014,9 +2870,44 @@ class _ChatPageState extends ConsumerState<ChatPage>
         return;
       }
 
+      if (context.reduceMotion || _pinShouldSettleImmediately) {
+        unawaited(
+          _timelineViewportController
+              .jumpMessageToTop(targetId)
+              .then(
+                (moved) {
+                  if (moved) {
+                    _markPinToTopPositionSettled(generation);
+                  } else {
+                    _cancelFailedPinToTopSettlement(
+                      generation: generation,
+                      reason: 'target-not-visible',
+                    );
+                  }
+                },
+                onError: (Object error, StackTrace stackTrace) {
+                  DebugLogger.error(
+                    'pin-jump-failed',
+                    scope: 'chat/scroll',
+                    error: error,
+                    stackTrace: stackTrace,
+                  );
+                  _cancelFailedPinToTopSettlement(
+                    generation: generation,
+                    reason: 'jump-failed',
+                  );
+                },
+              ),
+        );
+        return;
+      }
       unawaited(
         _timelineViewportController
-            .jumpMessageToTop(targetId)
+            .animateMessageToTop(
+              targetId,
+              duration: _pinTransitionDuration,
+              curve: Curves.easeOutCubic,
+            )
             .then(
               (moved) {
                 if (moved) {
@@ -3030,72 +2921,19 @@ class _ChatPageState extends ConsumerState<ChatPage>
               },
               onError: (Object error, StackTrace stackTrace) {
                 DebugLogger.error(
-                  'pin-jump-failed',
+                  'pin-animation-failed',
                   scope: 'chat/scroll',
                   error: error,
                   stackTrace: stackTrace,
                 );
                 _cancelFailedPinToTopSettlement(
                   generation: generation,
-                  reason: 'jump-failed',
+                  reason: 'animation-failed',
                 );
               },
             ),
       );
     });
-  }
-
-  /// Brings a sent turn up to its pinned place on the sent message's own
-  /// spring, from the frame of the send: the previous reply stays in view and
-  /// slides up as the new turn takes the top, and the flying message aims at
-  /// where its row will rest, so the two arrive together. The row needs no
-  /// measuring first; the viewport aims at its estimated place until it is
-  /// built and corrects course each frame.
-  void _springPinnedTurnIntoPlace({
-    required String targetId,
-    required int generation,
-    required int attempt,
-  }) {
-    if (!_timelineViewportController.hasClients) {
-      if (attempt < _pinScrollMaxAttempts) {
-        _scrollToUserMessage(generation: generation, attempt: attempt + 1);
-        WidgetsBinding.instance.scheduleFrame();
-      } else {
-        _cancelFailedPinToTopSettlement(
-          generation: generation,
-          reason: 'controller-not-attached',
-        );
-      }
-      return;
-    }
-    unawaited(
-      _timelineViewportController
-          .springMessageToTop(targetId, spring: ChatSendEntrance.spring)
-          .then(
-            (moved) {
-              if (moved) {
-                _markPinToTopPositionSettled(generation);
-              } else {
-                _cancelFailedPinToTopSettlement(
-                  generation: generation,
-                  reason: 'target-not-visible',
-                );
-              }
-            },
-            onError: (Object error, StackTrace stackTrace) {
-              DebugLogger.error(
-                'pin-animation-failed',
-                scope: 'chat/scroll',
-                error: error,
-                stackTrace: stackTrace,
-              );
-              _cancelFailedPinToTopSettlement(
-                generation: generation,
-                reason: 'animation-failed',
-              );
-            },
-          ),
-    );
   }
 
   void _cancelFailedPinToTopSettlement({
@@ -3328,7 +3166,7 @@ class _ChatPageState extends ConsumerState<ChatPage>
     required bool isStreaming,
   }) {
     if (messages.isEmpty) {
-      return _buildFadingEmptyState();
+      return _buildEmptyState(Theme.of(context));
     }
 
     final apiService = watchRef.watch(apiServiceProvider);
@@ -3376,15 +3214,6 @@ class _ChatPageState extends ConsumerState<ChatPage>
     final hideForInitialPin = debugShouldHideTranscriptForInitialPinForTesting(
       settleImmediately: _pinShouldSettleImmediately,
       positionSettled: _pinToTopPositionSettled,
-    );
-    // A first message rises from the composer on its own spring, which
-    // follows its row wherever the settling position puts it, so the
-    // transcript shows from the first frame instead of going blank. Reduce
-    // Motion keeps the cover and cross-fades the message in once it lands.
-    final revealWhileSettling = debugShouldRevealSettlingFirstTurnForTesting(
-      settleImmediately: _pinShouldSettleImmediately,
-      positionSettled: _pinToTopPositionSettled,
-      reduceMotion: context.reduceMotion,
     );
 
     final viewportWidth = MediaQuery.sizeOf(context).width;
@@ -3443,7 +3272,7 @@ class _ChatPageState extends ConsumerState<ChatPage>
       extentMemory.record(extentKeyFor(message), extent);
     }
 
-    final timelineViewport = ChatTimelineViewport(
+    return ChatTimelineViewport(
       controller: _timelineViewportController,
       ownerGeneration: _conversationOwnerGeneration,
       messageIds: messageIds,
@@ -3469,7 +3298,6 @@ class _ChatPageState extends ConsumerState<ChatPage>
               },
             ),
       topContentInset: topPadding,
-      pinnedTurnPeek: kChatPinnedTurnPeek,
       bottomPadding: bottomPadding,
       horizontalPadding: Spacing.inputPadding,
       cacheExtent: _chatMessageScrollCachePixels,
@@ -3481,7 +3309,6 @@ class _ChatPageState extends ConsumerState<ChatPage>
           _timelineScrollMode == _ChatTimelineScrollMode.followingLatest,
       pinAutomatic: _shouldAutoFollowPinnedTurn,
       hideUntilSettled: hideForInitialPin,
-      revealWhileSettling: revealWhileSettling,
       onPointerDown: () {
         // Ramp the ProMotion panel before the drag even clears touch slop;
         // waiting for drag-start leaves the fling's first stretch at 40 Hz.
@@ -3537,26 +3364,6 @@ class _ChatPageState extends ConsumerState<ChatPage>
       onTrailingRefresh: _refreshActiveConversation,
       onNativeScrollToTop: _handleNativeScrollToTop,
       rowBuilder: rowBuilder,
-    );
-    // One stable shape with or without the leaving greeting, so the viewport
-    // keeps its element when the greeting goes.
-    return Stack(
-      fit: StackFit.expand,
-      children: [
-        timelineViewport,
-        if (_greetingExiting)
-          ChatGreetingExit(
-            key: const ValueKey('chat-greeting-exit'),
-            onDone: () {
-              if (mounted && _greetingExiting) {
-                setState(() => _greetingExiting = false);
-                // Gone with the leaving greeting; the next new chat greets.
-                _greetingSendPresence.value = 1;
-              }
-            },
-            child: _buildFadingEmptyState(),
-          ),
-      ],
     );
   }
 
@@ -4116,13 +3923,6 @@ class _ChatPageState extends ConsumerState<ChatPage>
   /// room for it.
   static const double _emptyStateComposerGrowthAllowance = 120;
 
-  /// The empty state as it shows, fading out when its first message is
-  /// sent (see [_greetingSendPresence]).
-  Widget _buildFadingEmptyState() => FadeTransition(
-    opacity: _greetingSendPresence,
-    child: _buildEmptyState(Theme.of(context)),
-  );
-
   Widget _buildEmptyState(ThemeData theme) {
     final l10n = AppLocalizations.of(context)!;
     // Whoever owns the Chats tab: an Open WebUI or a LibreChat user.
@@ -4512,7 +4312,6 @@ class _ChatPageState extends ConsumerState<ChatPage>
                   return ModernChatInput(
                     onSendMessage: _handleMessageSend,
                     onSendDraft: _handleDraftSend,
-                    onSendStarted: _handleSendStarted,
                     onCompareSend: _handleCompareSend,
                     enabled: debugCanSubmitChatMessageForTesting(
                       isLoadingConversation: isLoadingConversation,
@@ -4732,9 +4531,7 @@ class _ChatPageState extends ConsumerState<ChatPage>
                         visible: visible,
                         // Sending: gone in a blink, before the message
                         // rises past it.
-                        quickExit:
-                            _sendHidesScrollToLatest ||
-                            (_wantsPinToTop && !_pinnedTurnPlaced),
+                        quickExit: _wantsPinToTop && !_pinnedTurnPlaced,
                         dimension: _kScrollToLatestButtonSize,
                         child: AdaptiveTooltip(
                           message: l10n.scrollToBottom,
@@ -6386,16 +6183,6 @@ bool debugShouldHideTranscriptForInitialPinForTesting({
 double debugChatEmptyStateOpticalLiftForTesting({
   required double availableHeight,
 }) => availableHeight <= 0 ? 0 : availableHeight * 0.04;
-
-/// Whether a new chat's first turn shows while its position settles: yes
-/// unless Reduce Motion is on, since the sent message's own spring absorbs
-/// the settling.
-@visibleForTesting
-bool debugShouldRevealSettlingFirstTurnForTesting({
-  required bool settleImmediately,
-  required bool positionSettled,
-  required bool reduceMotion,
-}) => settleImmediately && !positionSettled && !reduceMotion;
 
 @visibleForTesting
 bool debugShouldApplyDeferredConversationMutationForTesting({

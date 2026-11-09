@@ -30,12 +30,9 @@ class ChatScrollToLatestButton extends StatefulWidget {
   final bool visible;
 
   /// Whether a hide happening now should be immediate rather than on the
-  /// spring, for when the user has just sent a message: the transcript is
-  /// about to move under the button and the message to fly up across where
-  /// it is. The button is a native glass view, and Flutter draws what passes
-  /// over such a view in a layer of its own; one still fading out under the
-  /// flying message showed through it as a hole. So it goes in the frame the
-  /// send is shown in.
+  /// spring, for when the user has just sent a message and the transcript is
+  /// about to move under the button to bring the new turn up. So it goes in
+  /// the frame the send is shown in.
   final bool quickExit;
 
   /// The button's diameter.

@@ -7,7 +7,6 @@ import 'package:conduit_core/services/settings_service.dart';
 import 'package:conduit_core/features/chat/providers/chat_providers.dart';
 import 'package:conduit/features/chat/providers/text_to_speech_provider.dart';
 import 'package:conduit/features/chat/widgets/assistant_message_widget.dart';
-import 'package:conduit/features/chat/widgets/chat_motion_spring.dart';
 import 'package:conduit/features/chat/widgets/chat_timeline_viewport.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/l10n/conduit_localizations.dart';
@@ -1879,224 +1878,6 @@ void main() {
     },
   );
 
-  _viewportTest(
-    'a sent turn springs up to the top with the reply above in view',
-    (tester) async {
-      final controller = _controller(tester);
-      final history = List<String>.generate(12, (index) => 'history-$index');
-      var ids = history;
-      String? pinned;
-      late StateSetter rebuild;
-      await tester.pumpWidget(
-        _viewportHost(
-          StatefulBuilder(
-            builder: (context, setState) {
-              rebuild = setState;
-              return _viewport(
-                controller: controller,
-                ids: ids,
-                pinnedUserMessageId: pinned,
-                pinAutomatic: pinned != null,
-                followLatest: pinned == null,
-                rowHeight: (id) => id == 'assistant' ? 72 : 52,
-              );
-            },
-          ),
-        ),
-      );
-      await tester.pumpAndSettle();
-      final viewportTop = tester.getTopLeft(find.byType(CustomScrollView)).dy;
-      bool visible(String id) {
-        final rect = controller.rowRect(id);
-        return rect != null && rect.bottom > viewportTop && rect.top < 600;
-      }
-
-      final replyTop = controller.rowRect('history-11')!.top;
-      // The turn arrives: the reply above stays exactly where it was, in
-      // the very frame the turn is added.
-      rebuild(() {
-        ids = [...history, 'user', 'assistant'];
-        pinned = 'user';
-      });
-      await tester.pump();
-      check(_transcriptOpacity(tester)).equals(1);
-      check(controller.rowRect('history-11')!.top).isCloseTo(replyTop, 0.5);
-      check(visible('user')).isTrue();
-
-      final arrival = controller.springMessageToTop(
-        'user',
-        spring: const CriticallyDampedSpring(0.35),
-      );
-      final tops = <double>[controller.rowRect('user')!.top];
-      var replyStayedInView = true;
-      for (var frame = 0; frame < 60; frame += 1) {
-        await tester.pump(const Duration(milliseconds: 16));
-        tops.add(controller.rowRect('user')!.top);
-        if (frame < 6) replyStayedInView &= visible('history-11');
-      }
-      check(await arrival).isTrue();
-
-      // It eases out of rest and in to its place: no step is a jump, the
-      // first frames are the gentlest, and it never turns back.
-      final steps = [
-        for (var index = 1; index < tops.length; index += 1)
-          tops[index - 1] - tops[index],
-      ];
-      check(steps.first).isLessThan(30);
-      for (final step in steps) {
-        check(step).isGreaterOrEqual(-0.5);
-        check(step).isLessThan(60);
-      }
-      check(replyStayedInView).isTrue();
-      check(tops.last).isCloseTo(viewportTop + _topContentInset, 0.5);
-    },
-  );
-
-  _viewportTest('a turn sent from deep history is headed for before it is '
-      'built and lands on its row', (tester) async {
-    final controller = _controller(tester);
-    final history = List<String>.generate(80, (index) => 'message-$index');
-    var ids = history;
-    String? pinned;
-    late StateSetter rebuild;
-    await tester.pumpWidget(
-      _viewportHost(
-        StatefulBuilder(
-          builder: (context, setState) {
-            rebuild = setState;
-            return _viewport(
-              controller: controller,
-              ids: ids,
-              initialAnchor: const ChatScrollAnchor(
-                messageId: 'message-4',
-                offsetWithinMessage: 0,
-                loadedCount: 80,
-              ),
-              pinnedUserMessageId: pinned,
-              pinAutomatic: pinned != null,
-              followLatest: false,
-            );
-          },
-        ),
-      ),
-    );
-    await tester.pumpAndSettle();
-    rebuild(() {
-      ids = [...history, 'user', 'assistant'];
-      pinned = 'user';
-    });
-    await tester.pump();
-    check(controller.rowRect('user')).isNull();
-
-    final position = tester
-        .state<ScrollableState>(find.byType(Scrollable))
-        .position;
-    final arrival = controller.springMessageToTop(
-      'user',
-      spring: const CriticallyDampedSpring(0.35),
-    );
-    final offsets = <double>[position.pixels];
-    for (var frame = 0; frame < 90; frame += 1) {
-      await tester.pump(const Duration(milliseconds: 16));
-      offsets.add(position.pixels);
-    }
-    check(await arrival).isTrue();
-    // One motion all the way: never a step back once the row is found.
-    for (var index = 1; index < offsets.length; index += 1) {
-      check(offsets[index]).isGreaterOrEqual(offsets[index - 1] - 0.5);
-    }
-    final viewportTop = tester.getTopLeft(find.byType(CustomScrollView)).dy;
-    check(controller.rowRect('user')!.top)
-        .isCloseTo(viewportTop + _topContentInset, 0.5);
-  });
-
-  group('a sent turn with a peek', () {
-    const peek = 56.0;
-    final ids = [
-      ...List<String>.generate(18, (index) => 'history-$index'),
-      'user',
-      'assistant',
-    ];
-
-    Future<({double endSpace, double viewportTop})> settle(
-      WidgetTester tester,
-      ChatTimelineViewportController controller, {
-      required double pinnedTurnPeek,
-      List<String>? rows,
-    }) async {
-      var endSpace = -1.0;
-      await tester.pumpWidget(
-        _viewportHost(
-          _viewport(
-            controller: controller,
-            ids: rows ?? ids,
-            pinnedUserMessageId: 'user',
-            pinnedTurnPeek: pinnedTurnPeek,
-            pinAutomatic: true,
-            followLatest: false,
-            onPinEndSpaceChanged: (value) => endSpace = value,
-          ),
-        ),
-      );
-      await tester.pumpAndSettle();
-      final arrival = controller.springMessageToTop(
-        'user',
-        spring: const CriticallyDampedSpring(0.35),
-      );
-      await tester.pumpAndSettle();
-      check(await arrival).isTrue();
-      return (
-        endSpace: endSpace,
-        viewportTop: tester.getTopLeft(find.byType(CustomScrollView)).dy,
-      );
-    }
-
-    _viewportTest('rests below the top inset, the turn before in view', (
-      tester,
-    ) async {
-      final controller = _controller(tester);
-      final settled = await settle(tester, controller, pinnedTurnPeek: peek);
-
-      final inset = settled.viewportTop + _topContentInset;
-      check(controller.rowRect('user')!.top).isCloseTo(inset + peek, 0.5);
-      check(controller.distanceFromMessageTop('user')!).isLessThan(1);
-      // The end of the row before it shows above it, under the inset.
-      final previous = controller.rowRect('history-17')!;
-      check(previous.bottom).isCloseTo(inset + peek, 0.5);
-      check(previous.bottom).isGreaterThan(inset);
-    });
-
-    _viewportTest(
-      'the end space shrinks by the peek, so nothing over-scrolls',
-      (tester) async {
-        final flush = await settle(
-          tester,
-          _controller(tester),
-          pinnedTurnPeek: 0,
-        );
-        await tester.pumpWidget(const SizedBox());
-        final peeking = await settle(
-          tester,
-          _controller(tester),
-          pinnedTurnPeek: peek,
-        );
-        check(peeking.endSpace).isCloseTo(flush.endSpace - peek, 1);
-      },
-    );
-
-    _viewportTest('a first message keeps its own place', (tester) async {
-      final controller = _controller(tester);
-      final settled = await settle(
-        tester,
-        controller,
-        pinnedTurnPeek: peek,
-        rows: const ['user', 'assistant'],
-      );
-      check(controller.rowRect('user')!.top)
-          .isCloseTo(settled.viewportTop + _topContentInset, 0.5);
-    });
-  });
-
   _viewportTest('pinned latest distance follows the prompt target', (
     tester,
   ) async {
@@ -2647,44 +2428,6 @@ void main() {
     check(tester.widget<IgnorePointer>(interaction).ignoring).isFalse();
   });
 
-  _viewportTest(
-    'a first turn entering on its own motion shows while it settles',
-    (tester) async {
-      final controller = _controller(tester);
-      var reveal = true;
-      late StateSetter rebuild;
-
-      await tester.pumpWidget(
-        _viewportHost(
-          StatefulBuilder(
-            builder: (context, setState) {
-              rebuild = setState;
-              return _viewport(
-                controller: controller,
-                ids: const ['user', 'assistant'],
-                hideUntilSettled: true,
-                revealWhileSettling: reveal,
-              );
-            },
-          ),
-        ),
-      );
-      // Painted from the very first frame: no blank frame while the initial
-      // position and the pin resolve.
-      check(_transcriptOpacity(tester)).equals(1);
-      final interaction = find.byKey(
-        const ValueKey<String>('sliver-transcript-interaction'),
-      );
-      check(tester.widget<IgnorePointer>(interaction).ignoring).isFalse();
-
-      // Once revealed it stays revealed for this owner, even when the caller
-      // stops asking before the settle cover would have lifted.
-      rebuild(() => reveal = false);
-      await tester.pump();
-      check(_transcriptOpacity(tester)).equals(1);
-    },
-  );
-
   _viewportTest('composer padding alone is not real transcript overflow', (
     tester,
   ) async {
@@ -3143,7 +2886,6 @@ Widget _viewport({
   int ownerGeneration = 1,
   ChatScrollAnchor? initialAnchor,
   String? pinnedUserMessageId,
-  double pinnedTurnPeek = 0,
   bool pinAutomatic = false,
   bool isLoadingOlder = false,
   bool maintainVisibleAnchor = false,
@@ -3153,7 +2895,6 @@ Widget _viewport({
   Widget? liveFooter,
   Widget? trailingContent,
   bool hideUntilSettled = false,
-  bool revealWhileSettling = false,
   double Function(String id)? rowHeight,
   double? Function(int index)? estimateRowExtent,
   void Function(int index, double extent)? onRowExtentMeasured,
@@ -3177,7 +2918,6 @@ Widget _viewport({
     onRowExtentMeasured: onRowExtentMeasured,
     initialAnchor: initialAnchor,
     pinnedUserMessageId: pinnedUserMessageId,
-    pinnedTurnPeek: pinnedTurnPeek,
     liveFooter: liveFooter,
     trailingContent: trailingContent,
     topContentInset: _topContentInset,
@@ -3190,7 +2930,6 @@ Widget _viewport({
     followLatest: followLatest ?? !maintainVisibleAnchor,
     pinAutomatic: pinAutomatic,
     hideUntilSettled: hideUntilSettled,
-    revealWhileSettling: revealWhileSettling,
     onPointerDown: onPointerDown ?? () {},
     onUserDragStart: onUserDragStart ?? () {},
     onUserDragEnd: onUserDragEnd ?? () {},

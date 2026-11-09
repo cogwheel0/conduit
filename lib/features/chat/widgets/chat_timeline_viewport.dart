@@ -13,14 +13,12 @@ import 'package:flutter/rendering.dart'
         RenderObject,
         ScrollCacheExtent,
         ScrollDirection;
-import 'package:flutter/scheduler.dart' show Ticker;
 
 import 'package:conduit_core/database/models/chat_transcript_window.dart';
 
 import 'package:conduit_core/utils/debug_logger.dart';
 
 import '../../../shared/widgets/sidebar_layout_contract.dart';
-import 'chat_motion_spring.dart';
 
 @visibleForTesting
 const int debugChatTimelineInitialPositionMaxAttempts = 12;
@@ -42,16 +40,6 @@ typedef ChatTimelineRowBuilder = Widget Function(
 
 class _TimelineRowKey extends ValueKey<String> {
   const _TimelineRowKey(super.value);
-}
-
-/// A scroll position that can say where the programmatic scroll it is
-/// running will come to rest, so something drawn above the transcript (a
-/// sent message flying into its row) can head for where its row will be
-/// rather than chase where it is.
-abstract interface class ChatScrollDestination {
-  /// The scroll offset the running spring scroll is heading for, or null
-  /// when none is running (the user scrolls, or the transcript is at rest).
-  double? get restingPixels;
 }
 
 /// Keeps an attached forward timeline on its trailing edge during layout.
@@ -84,8 +72,7 @@ class _ChatTimelineScrollController extends ScrollController {
   }
 }
 
-class _ChatTimelineScrollPosition extends ScrollPositionWithSingleContext
-    implements ChatScrollDestination {
+class _ChatTimelineScrollPosition extends ScrollPositionWithSingleContext {
   _ChatTimelineScrollPosition({
     required super.physics,
     required super.context,
@@ -99,32 +86,6 @@ class _ChatTimelineScrollPosition extends ScrollPositionWithSingleContext
   static const double _latestEpsilon = 0.5;
 
   final bool Function() shouldMaintainLatest;
-
-  @override
-  double? get restingPixels => switch (activity) {
-    final _SpringScrollActivity spring => spring.target,
-    _ => null,
-  };
-
-  /// Scrolls on [spring] towards [target], asking [resolveTarget] for a
-  /// fresh target every frame. Completes true once it comes to rest there,
-  /// false when a drag, a jump or another scroll takes over first.
-  Future<bool> springTo({
-    required double target,
-    required double? Function() resolveTarget,
-    required CriticallyDampedSpring spring,
-  }) {
-    final activity = _SpringScrollActivity(
-      this,
-      position: this,
-      vsync: context.vsync,
-      spring: spring,
-      target: target,
-      resolveTarget: resolveTarget,
-    );
-    beginActivity(activity);
-    return activity.done;
-  }
 
   @override
   bool correctForNewDimensions(
@@ -141,102 +102,6 @@ class _ChatTimelineScrollPosition extends ScrollPositionWithSingleContext
       return false;
     }
     return super.correctForNewDimensions(oldPosition, newPosition);
-  }
-}
-
-/// Moves the transcript on a critically damped spring towards a target that
-/// may move while it runs (rows settling their heights, the keyboard going
-/// down, the pinned turn's end space arriving). Each frame aims at the
-/// latest target from where the spring is and how fast it is going, so a
-/// retarget bends the motion instead of restarting it. It runs on a
-/// [ChatMotionClock], as the sent message flying into the turn does, so a
-/// slow frame holds both back alike.
-class _SpringScrollActivity extends ScrollActivity {
-  _SpringScrollActivity(
-    super.delegate, {
-    required this.position,
-    required TickerProvider vsync,
-    required this.spring,
-    required double target,
-    required this.resolveTarget,
-  }) : _target = target {
-    _ticker = vsync.createTicker(_tick)..start();
-  }
-
-  /// Within this many points and points per second of the target, at rest.
-  static const double restDistance = 0.5;
-  static const double restSpeed = 8;
-
-  final ScrollPosition position;
-  final CriticallyDampedSpring spring;
-  final double? Function() resolveTarget;
-  late final Ticker _ticker;
-  final Completer<bool> _completer = Completer<bool>();
-  double _target;
-  double _velocity = 0;
-  final ChatMotionClock _clock = ChatMotionClock();
-  bool _arrived = false;
-
-  /// Where the spring is heading now.
-  double get target => _target;
-
-  Future<bool> get done => _completer.future;
-
-  void _tick(Duration elapsed) {
-    final dt = _clock.advanceTo(
-      elapsed.inMicroseconds / Duration.microsecondsPerSecond,
-    );
-    _target = resolveTarget() ?? _target;
-    final next = spring.step(
-      displacement: position.pixels - _target,
-      velocity: _velocity,
-      dt: dt,
-    );
-    _velocity = next.velocity;
-    final atRest =
-        next.displacement.abs() < restDistance && _velocity.abs() < restSpeed;
-    final pixels = atRest ? _target : _target + next.displacement;
-    if (delegate.setPixels(pixels) != 0.0) {
-      // An edge stopped it; let the physics settle from here.
-      _arrived = (position.pixels - _target).abs() < 1;
-      delegate.goBallistic(0);
-      return;
-    }
-    if (atRest) {
-      _arrived = true;
-      _velocity = 0;
-      delegate.goBallistic(0);
-    }
-  }
-
-  @override
-  void dispatchOverscrollNotification(
-    ScrollMetrics metrics,
-    BuildContext context,
-    double overscroll,
-  ) {
-    OverscrollNotification(
-      metrics: metrics,
-      context: context,
-      overscroll: overscroll,
-      velocity: velocity,
-    ).dispatch(context);
-  }
-
-  @override
-  bool get shouldIgnorePointer => true;
-
-  @override
-  bool get isScrolling => true;
-
-  @override
-  double get velocity => _velocity;
-
-  @override
-  void dispose() {
-    if (!_completer.isCompleted) _completer.complete(_arrived);
-    _ticker.dispose();
-    super.dispose();
   }
 }
 
@@ -365,21 +230,6 @@ class ChatTimelineViewportController {
         false;
   }
 
-  /// Brings [messageId]'s row to its resting place under the top content
-  /// inset (with [ChatTimelineViewport.pinnedTurnPeek]) on [spring], aiming
-  /// afresh every frame, so rows settling their heights or a turn's end
-  /// space arriving bend the motion instead of making it jump. A row that is
-  /// not built yet (a send from far up the history) is headed for by its
-  /// estimated place until it is. Completes true once the row is at rest
-  /// there.
-  Future<bool> springMessageToTop(
-    String messageId, {
-    required CriticallyDampedSpring spring,
-  }) async {
-    return await _state?._springMessageToTop(messageId, spring: spring) ??
-        false;
-  }
-
   void cancelProgrammaticNavigation() =>
       _state?._cancelProgrammaticNavigation();
 
@@ -440,11 +290,9 @@ class ChatTimelineViewport extends StatefulWidget {
     required this.onNativeScrollToTop,
     this.initialAnchor,
     this.pinnedUserMessageId,
-    this.pinnedTurnPeek = 0,
     this.liveFooter,
     this.trailingContent,
     this.hideUntilSettled = false,
-    this.revealWhileSettling = false,
     this.rowRebuildKeys = const <Object?>[],
     this.estimateRowExtent,
     this.onRowExtentMeasured,
@@ -479,12 +327,6 @@ class ChatTimelineViewport extends StatefulWidget {
   final Widget? liveFooter;
   final Widget? trailingContent;
   final double topContentInset;
-
-  /// Room left above a message brought to the top (a sent turn) beyond
-  /// [topContentInset], so the end of the turn before it stays in view
-  /// above it. A turn that starts the transcript cannot rest lower than
-  /// its own place, so it ignores this.
-  final double pinnedTurnPeek;
   final double bottomPadding;
   final double horizontalPadding;
   final double cacheExtent;
@@ -494,13 +336,6 @@ class ChatTimelineViewport extends StatefulWidget {
   final bool followLatest;
   final bool pinAutomatic;
   final bool hideUntilSettled;
-
-  /// Shows the transcript at once instead of hiding it until its initial
-  /// position (and [hideUntilSettled]) resolve. For a turn whose rows enter
-  /// with their own motion (a first message rising from the composer), so
-  /// no frame goes blank while the position settles. Once set, it holds for
-  /// this owner generation, even after the caller stops asking.
-  final bool revealWhileSettling;
   final VoidCallback onPointerDown;
   final VoidCallback onUserDragStart;
   final VoidCallback onUserDragEnd;
@@ -540,7 +375,6 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
   static const int _maxInitialPositionAttempts =
       debugChatTimelineInitialPositionMaxAttempts;
   static const int _oldestRowProbeCount = 3;
-  static const double _fallbackRowExtent = 120;
   static const Key _liveFooterSliverKey = ValueKey<String>(
     'chat-timeline-live-footer-sliver',
   );
@@ -591,7 +425,6 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
   bool _initialPositionResolved = false;
   bool _initialPositionCallbackScheduled = false;
   bool _initialEmptyFallbackVisible = false;
-  bool _revealedWhileSettling = false;
   bool _oldestThresholdVisible = false;
   bool _refreshTriggered = false;
   bool _refreshActive = false;
@@ -734,7 +567,6 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
     _anchorCorrectionAttempts = 0;
     _initialPositionResolved = false;
     _initialEmptyFallbackVisible = false;
-    _revealedWhileSettling = false;
     _oldestThresholdVisible = false;
     _initialPositionAttempts = 0;
     _pinEndSpace = 0;
@@ -1395,13 +1227,6 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
       return;
     }
     final viewport = _viewportRect;
-    // The support only needs the viewport: in place before the pinned row is
-    // even built, it lets a scroll from far up the history head for the
-    // row's place without stopping short at the old end of the transcript.
-    if (viewport != null &&
-        (viewport.height - _pinSupportSpace.value).abs() > _geometryEpsilon) {
-      _pinSupportSpace.value = viewport.height;
-    }
     final pinned = _rowRect(pinnedId);
     final sentinel = _globalRectFor(_endSentinelKey);
     if (viewport == null || pinned == null || sentinel == null) {
@@ -1415,6 +1240,9 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
       return;
     }
     _pinGeometryAttempts = 0;
+    if ((viewport.height - _pinSupportSpace.value).abs() > _geometryEpsilon) {
+      _pinSupportSpace.value = viewport.height;
+    }
     final pinnedTarget = _targetOffsetForMessageTop(pinnedId);
     if (pinnedTarget != null) {
       _cachedPinnedMessageId = pinnedId;
@@ -1425,7 +1253,7 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
         .max(
           0,
           viewport.height -
-              _messageTopInset -
+              widget.topContentInset -
               activeTurnExtent -
               widget.bottomPadding,
         )
@@ -1784,67 +1612,6 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
     return mounted && generation == _navigationGeneration;
   }
 
-  Future<bool> _springMessageToTop(
-    String messageId, {
-    required CriticallyDampedSpring spring,
-  }) async {
-    final position = _dimensionedPosition;
-    if (!_messageIdSet.contains(messageId) ||
-        position is! _ChatTimelineScrollPosition) {
-      return false;
-    }
-    if (_programmaticNavigationActive) {
-      _cancelProgrammaticNavigation();
-    }
-    final generation = ++_navigationGeneration;
-    _programmaticNavigationActive = true;
-    _freeAnchor = null;
-    try {
-      final arrived = await position.springTo(
-        target: _springTargetForMessageTop(messageId) ?? position.pixels,
-        resolveTarget: () => _springTargetForMessageTop(messageId),
-        spring: spring,
-      );
-      return arrived && mounted && generation == _navigationGeneration;
-    } finally {
-      if (mounted && generation == _navigationGeneration) {
-        _programmaticNavigationActive = false;
-        _freeAnchor = null;
-        _scheduleLayoutMaintenance();
-      }
-    }
-  }
-
-  /// The offset that puts [messageId]'s row at the top content inset:
-  /// measured when the row is laid out, else estimated from the rows after
-  /// it, which is close enough to head for until it is built.
-  double? _springTargetForMessageTop(String messageId) {
-    if (!mounted) return null;
-    final position = _dimensionedPosition;
-    if (position == null) return null;
-    final measured = _targetOffsetForMessageTop(messageId);
-    if (measured != null) return measured;
-    final index = _messageIndexById[messageId];
-    if (index == null) return null;
-    // At the latest offset the end of the transcript sits on the composer,
-    // so the row's top is the rows from it to the end above that.
-    var tail = 0.0;
-    for (var row = index; row < _timelineEntries.length; row += 1) {
-      final entry = _timelineEntries[row];
-      tail +=
-          _rowExtents[entry.id] ??
-          widget.estimateRowExtent?.call(entry.sourceIndex) ??
-          _fallbackRowExtent;
-    }
-    return (_contentLatestOffset(position) +
-            position.viewportDimension -
-            widget.bottomPadding -
-            tail -
-            _messageTopInset)
-        .clamp(position.minScrollExtent, position.maxScrollExtent)
-        .toDouble();
-  }
-
   Future<bool> _jumpMessageToTop(String messageId) async {
     if (!_messageIdSet.contains(messageId) || _dimensionedPosition == null) {
       return false;
@@ -1998,18 +1765,15 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
     return targetIndex < _centerIndex ? -1 : 1;
   }
 
-  /// Where a message brought to the top rests, below the viewport's top:
-  /// the content inset plus the peek at the turn before it.
-  double get _messageTopInset =>
-      widget.topContentInset + math.max(0.0, widget.pinnedTurnPeek);
-
   double? _targetOffsetForMessageTop(String messageId) {
     final position = _dimensionedPosition;
     if (position == null) return null;
     final rect = _rowRect(messageId);
     final viewport = _viewportRect;
     if (rect == null || viewport == null) return null;
-    return (position.pixels + rect.top - (viewport.top + _messageTopInset))
+    return (position.pixels +
+            rect.top -
+            (viewport.top + widget.topContentInset))
         .clamp(position.minScrollExtent, position.maxScrollExtent)
         .toDouble();
   }
@@ -2208,11 +1972,9 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
   @override
   Widget build(BuildContext context) {
     final centerIndex = _centerIndex;
-    if (widget.revealWhileSettling) _revealedWhileSettling = true;
     final shouldHide =
-        !_revealedWhileSettling &&
-        ((!_initialPositionResolved && !_initialEmptyFallbackVisible) ||
-            widget.hideUntilSettled);
+        (!_initialPositionResolved && !_initialEmptyFallbackVisible) ||
+        widget.hideUntilSettled;
     return LayoutBuilder(
       builder: (context, constraints) {
         final viewportHeight = constraints.maxHeight;

@@ -1,13 +1,9 @@
-import 'package:conduit/features/chat/providers/text_to_speech_provider.dart';
 import 'package:conduit/features/chat/views/chat_page.dart';
-import 'package:conduit/features/chat/widgets/chat_send_motion.dart';
-import 'package:conduit/features/chat/widgets/modern_chat_input.dart';
-import 'package:conduit/features/chat/voice_mode/chat_voice_mode_controller.dart';
 import 'package:conduit/l10n/app_localizations.dart';
+import 'package:conduit/l10n/app_localizations_en.dart';
 import 'package:conduit/l10n/conduit_localizations.dart';
 import 'package:conduit/shared/theme/app_theme.dart';
 import 'package:conduit/shared/theme/tweakcn_themes.dart';
-import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:conduit_core/database/database_provider.dart';
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit_core/features/chat/providers/chat_providers.dart';
@@ -16,52 +12,56 @@ import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/models/folder.dart';
 import 'package:conduit_core/models/model.dart';
+import 'package:conduit_core/models/openwebui_chat_settings.dart';
 import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/models/tool.dart';
 import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/providers/primary_account_providers.dart';
 import 'package:conduit_core/services/api_service.dart';
-import 'package:conduit_core/services/connectivity_service.dart';
 import 'package:conduit_core/services/optimized_storage_service.dart';
+import 'package:conduit_core/services/settings_service.dart';
 import 'package:conduit_core/services/worker_manager.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
 
-class _Messages extends ChatMessagesNotifier {
+final _en = AppLocalizationsEn();
+
+class _Conversations extends Conversations {
   @override
-  List<ChatMessage> build() => const <ChatMessage>[];
+  Future<List<Conversation>> build() async => const <Conversation>[];
 }
 
 class _Models extends Models {
   @override
   Future<List<Model>> build() async => const [
-    Model(id: 'fixture-model', name: 'Fixture model'),
+    Model(id: 'model-1', name: 'Model 1'),
   ];
-}
-
-class _SelectedModel extends SelectedModel {
-  @override
-  Model? build() => const Model(id: 'fixture-model', name: 'Fixture model');
-}
-
-class _Conversations extends Conversations {
-  @override
-  Future<List<Conversation>> build() async => const [];
 }
 
 class _Folders extends Folders {
   @override
-  Future<List<Folder>> build() async => const [];
+  Future<List<Folder>> build() async => const <Folder>[];
 }
 
 class _Tools extends ToolsList {
   @override
-  Future<List<Tool>> build() async => const [];
+  Future<List<Tool>> build() async => const <Tool>[];
 }
 
-class _Speech extends TextToSpeechController {
+class _SelectedModel extends SelectedModel {
   @override
-  TextToSpeechState build() => const TextToSpeechState();
+  Model? build() => const Model(id: 'model-1', name: 'Model 1');
+}
+
+class _Active extends ActiveConversationNotifier {
+  @override
+  Conversation? build() => null;
+}
+
+class _Messages extends ChatMessagesNotifier {
+  @override
+  List<ChatMessage> build() => const <ChatMessage>[];
 }
 
 class _Storage extends Fake implements OptimizedStorageService {
@@ -69,56 +69,59 @@ class _Storage extends Fake implements OptimizedStorageService {
   Future<void> saveLocalDefaultModel(Model? model) async {}
 }
 
-class _Connectivity extends Fake implements ConnectivityService {
+class _Settings extends AppSettingsNotifier {
   @override
-  Stream<ConnectivityStatus> get statusStream => const Stream.empty();
-  @override
-  ConnectivityStatus get currentStatus => ConnectivityStatus.online;
-  @override
-  bool get isOnline => true;
-  @override
-  bool get isAppForeground => true;
-  @override
-  int get lastLatencyMs => 0;
+  AppSettings build() => const AppSettings();
 }
 
-class _Voice extends ChatVoiceModeController {
+/// Who owns the Chats tab, and who is signed in to it, as a test sets them.
+typedef _Primary = ({PrimaryAccountRef account, PrimaryUserSummary? user});
+
+class _PrimaryController extends Notifier<_Primary> {
   @override
-  ChatVoiceModeSnapshot build() => const ChatVoiceModeSnapshot(
-    phase: ChatVoiceModePhase.idle,
-    isCollapsed: true,
+  _Primary build() => (
+    account: const PrimaryAccountRef(PrimaryAccountKind.openWebUi, 'owui'),
+    user: const PrimaryUserSummary(
+      kind: PrimaryAccountKind.openWebUi,
+      id: 'root',
+      displayName: 'Root',
+    ),
   );
+
+  void set(_Primary next) => state = next;
 }
+
+final _primary = NotifierProvider<_PrimaryController, _Primary>(
+  _PrimaryController.new,
+);
+
+ApiService _api() => ApiService(
+  serverConfig: const ServerConfig(
+    id: 'page',
+    name: 'page',
+    url: 'https://page.example.test',
+  ),
+  workerManager: WorkerManager(),
+);
 
 void main() {
-  testWidgets('the new chat greets with a bold Title 1 line that fades out '
-      'the moment Send is tapped, and comes back if nothing is sent', (
-    tester,
-  ) async {
-    tester.view.physicalSize = const Size(402, 874);
-    tester.view.devicePixelRatio = 1;
-    tester.view.padding = const FakeViewPadding(bottom: 34);
-    addTearDown(tester.view.reset);
-    PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.iOS;
-    PlatformUiCapabilities.debugIOSMajorVersionOverride = 25;
-    addTearDown(PlatformUiCapabilities.resetDebugOverrides);
+  Future<ProviderContainer> mountPage(WidgetTester tester) async {
+    final originalErrorWidgetBuilder = ErrorWidget.builder;
+    final originalFlutterErrorOnError = FlutterError.onError;
+    addTearDown(() async {
+      await tester.pumpWidget(const SizedBox.shrink());
+      ErrorWidget.builder = originalErrorWidgetBuilder;
+      FlutterError.onError = originalFlutterErrorOnError;
+    });
     final container = ProviderContainer(
       overrides: [
-        apiServiceProvider.overrideWithValue(
-          ApiService(
-            serverConfig: const ServerConfig(
-              id: 'greeting',
-              name: 'Example server',
-              url: 'https://greeting.example.test',
-            ),
-            workerManager: WorkerManager(),
-          ),
-        ),
+        appSettingsProvider.overrideWith(_Settings.new),
+        apiServiceProvider.overrideWithValue(_api()),
         appDatabaseProvider.overrideWith((ref) => null),
-        connectivityServiceProvider.overrideWithValue(_Connectivity()),
         isAuthenticatedProvider2.overrideWithValue(false),
         reviewerModeProvider.overrideWithValue(false),
         selectedModelProvider.overrideWith(_SelectedModel.new),
+        activeConversationProvider.overrideWith(_Active.new),
         chatMessagesProvider.overrideWith(_Messages.new),
         optimizedStorageServiceProvider.overrideWithValue(_Storage()),
         isChatStreamingProvider.overrideWith((ref) => false),
@@ -126,18 +129,22 @@ void main() {
         modelsProvider.overrideWith(_Models.new),
         foldersProvider.overrideWith(_Folders.new),
         toolsListProvider.overrideWith(_Tools.new),
-        textToSpeechControllerProvider.overrideWith(_Speech.new),
-        chatVoiceModeControllerProvider.overrideWith(_Voice.new),
+        primaryAccountProvider.overrideWith(
+          (ref) => ref.watch(_primary).account,
+        ),
+        primaryUserProvider.overrideWith((ref) => ref.watch(_primary).user),
+        openWebUiChatSettingsAccessProvider.overrideWith(
+          (ref) async => OpenWebUiChatSettingsAccess.all,
+        ),
       ],
     );
     addTearDown(container.dispose);
-    addTearDown(() async => tester.pumpWidget(const SizedBox.shrink()));
+
     await tester.pumpWidget(
       UncontrolledProviderScope(
         container: container,
         child: MaterialApp(
-          theme: AppTheme.light(TweakcnThemes.t3Chat)
-              .copyWith(platform: TargetPlatform.iOS),
+          theme: AppTheme.light(TweakcnThemes.t3Chat),
           localizationsDelegates: conduitLocalizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,
           home: const ChatPage(),
@@ -145,44 +152,50 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
+    return container;
+  }
 
-    final emptyState = find.byKey(
-      const ValueKey('chat-empty-state-scroll-view'),
-    );
-    expect(emptyState, findsOneWidget);
-    // Title 1: 28 pt, bold, as the large titles are.
-    final greeting = tester
-        .widgetList<Text>(
-          find.descendant(of: emptyState, matching: find.byType(Text)),
-        )
-        .firstWhere((text) => text.style?.fontSize == 28);
-    expect(greeting.style!.fontWeight, FontWeight.w700);
+  testWidgets('greets in a bold Title 1 line, as the large titles are', (
+    tester,
+  ) async {
+    await mountPage(tester);
+    final greeting = tester.widget<Text>(find.text(_en.greetingTitle('Root')));
+    expect(greeting.style?.fontSize, 28);
+    expect(greeting.style?.fontWeight, FontWeight.w700);
+  });
 
-    double presence() => tester
-        .widget<FadeTransition>(
-          find
-              .ancestor(of: emptyState, matching: find.byType(FadeTransition))
-              .first,
-        )
-        .opacity
-        .value;
-    expect(presence(), 1);
+  testWidgets('keeps the name while the same account reloads its user', (
+    tester,
+  ) async {
+    final container = await mountPage(tester);
+    expect(find.text(_en.greetingTitle('Root')), findsOneWidget);
 
-    // Send is tapped: the greeting starts to go at once, on the beat of the
-    // message rising from the composer, front-loaded so it is mostly gone
-    // before the message could reach its line, and gone as it lands.
-    tester
-        .widget<ModernChatInput>(find.byType(ModernChatInput))
-        .onSendStarted!();
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 90));
-    expect(presence(), inExclusiveRange(0, 0.45));
-    await tester.pump(ChatGreetingExit.duration);
-    expect(presence(), 0);
-
-    // Nothing was sent after all: the greeting comes back.
-    await tester.pump(const Duration(seconds: 2));
+    container
+        .read(_primary.notifier)
+        .set((account: container.read(_primary).account, user: null));
     await tester.pumpAndSettle();
-    expect(presence(), 1);
+
+    expect(find.text(_en.greetingTitle('Root')), findsOneWidget);
+  });
+
+  testWidgets('never greets another account by the last one\'s name', (
+    tester,
+  ) async {
+    final container = await mountPage(tester);
+    expect(find.text(_en.greetingTitle('Root')), findsOneWidget);
+
+    // LibreChat takes the Chats tab before its user is known.
+    container
+        .read(_primary.notifier)
+        .set((
+          account: const PrimaryAccountRef(
+            PrimaryAccountKind.libreChat,
+            'librechat:account',
+          ),
+          user: null,
+        ));
+    await tester.pumpAndSettle();
+
+    expect(find.text(_en.greetingTitle('Root')), findsNothing);
   });
 }

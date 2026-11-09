@@ -5,7 +5,6 @@ import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:conduit/core/services/haptic_service.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:cupertino_ui/cupertino_ui.dart';
-import 'package:flutter/rendering.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -13,7 +12,6 @@ import '../../../shared/services/navigation_service.dart';
 
 import 'package:conduit_core/features/chat/providers/chat_providers.dart'
     show LibreChatReplyRunningException;
-import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
 
 import '../../../shared/theme/conduit_input_styles.dart';
@@ -25,7 +23,6 @@ import '../../../shared/utils/locale_display_formatters.dart';
 import 'package:conduit_core/features/chat/services/chat_message_actions.dart';
 import 'package:conduit_core/features/chat/utils/file_utils.dart';
 
-import 'chat_send_motion.dart';
 import 'enhanced_attachment.dart';
 import 'enhanced_image_attachment.dart';
 import 'image_gallery_scope.dart';
@@ -809,26 +806,7 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
 
   @override
   Widget build(BuildContext context) {
-    final message = widget.message;
-    if (message is! ChatMessage) return _buildUserMessage();
-    // A plain text message leaves from the typed words themselves: a
-    // stand-in of its bubble flies up from them above the composer.
-    final textOnly =
-        message.content.isNotEmpty &&
-        !_isEditing &&
-        (message.attachmentIds?.isEmpty ?? true) &&
-        !(_currentFilePartitions()?.hasRenderableFiles ?? false);
-    final text = message.content;
-    // A message just sent rises from the composer into place, once.
-    return ChatSendEntrance(
-      messageId: message.id,
-      timestamp: message.timestamp,
-      flightBuilder: textOnly
-          ? (context, morph, typed) =>
-                UserMessageFlightBubble(text: text, morph: morph, typed: typed)
-          : null,
-      child: _buildUserMessage(),
-    );
+    return _buildUserMessage();
   }
 
   Widget _buildUserMessage() {
@@ -842,7 +820,10 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
     // Prefer input/textPrimary colors during inline editing to avoid low contrast
     final inlineEditTextColor = theme.textPrimary;
     final inlineEditFill = theme.surfaceContainer.withValues(alpha: 0.92);
-    final bubbleMaxWidth = _userBubbleMaxWidth(context);
+    final bubbleMaxWidth = math.min(
+      MediaQuery.sizeOf(context).width * 0.78,
+      640.0,
+    );
     // Tail-less, borderless fill: the neutral tone alone separates the turn.
     const bubbleBorderRadius = BorderRadius.all(
       Radius.circular(AppBorderRadius.chatBubble),
@@ -856,7 +837,7 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
 
     return Container(
       width: double.infinity,
-      margin: _userMessageRowMargin,
+      margin: const EdgeInsets.only(bottom: Spacing.lg, left: Spacing.xxl),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
@@ -885,7 +866,10 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
                       useNativeMenu: true,
                       child: Container(
                         key: const Key('user-message-bubble-surface'),
-                        padding: _userBubblePadding,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: Spacing.md,
+                          vertical: Spacing.sm + Spacing.xxs,
+                        ),
                         decoration: BoxDecoration(
                           color: theme.chatBubbleUser,
                           borderRadius: bubbleBorderRadius,
@@ -930,7 +914,21 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
                                   ),
                                 ),
                               )
-                            : _UserMessageText(widget.message.content),
+                            : Text(
+                                widget.message.content,
+                                style: AppTypography.chatMessageStyle.copyWith(
+                                  color: theme.chatBubbleUserText,
+                                ),
+                                softWrap: true,
+                                textAlign: TextAlign.left,
+                                textWidthBasis: TextWidthBasis.longestLine,
+                                textHeightBehavior: const TextHeightBehavior(
+                                  applyHeightToFirstAscent: false,
+                                  applyHeightToLastDescent: false,
+                                  leadingDistribution:
+                                      TextLeadingDistribution.even,
+                                ),
+                              ),
                       ),
                     ),
                   ),
@@ -1116,624 +1114,5 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
         _editFocusNode.unfocus();
       }
     }
-  }
-}
-
-/// The row around a user message: full width, inset from the leading edge so
-/// it reads as the user's side, and a gap before the reply.
-const EdgeInsets _userMessageRowMargin = EdgeInsets.only(
-  bottom: Spacing.lg,
-  left: Spacing.xxl,
-);
-
-/// Inside a user text bubble, around its words.
-const EdgeInsets _userBubblePadding = EdgeInsets.symmetric(
-  horizontal: Spacing.md,
-  vertical: Spacing.sm + Spacing.xxs,
-);
-
-double _userBubbleMaxWidth(BuildContext context) =>
-    math.min(MediaQuery.sizeOf(context).width * 0.78, 640.0);
-
-/// How a user bubble sets its lines: no extra space above the first line or
-/// below the last.
-const TextHeightBehavior _userMessageTextHeightBehavior = TextHeightBehavior(
-  applyHeightToFirstAscent: false,
-  applyHeightToLastDescent: false,
-  leadingDistribution: TextLeadingDistribution.even,
-);
-
-/// A user message's words, as its bubble sets them.
-class _UserMessageText extends StatelessWidget {
-  const _UserMessageText(this.text);
-
-  final String text;
-
-  @override
-  Widget build(BuildContext context) {
-    return Text(
-      text,
-      style: AppTypography.chatMessageStyle.copyWith(
-        color: context.conduitTheme.chatBubbleUserText,
-      ),
-      softWrap: true,
-      textAlign: TextAlign.left,
-      textWidthBasis: TextWidthBasis.longestLine,
-      textHeightBehavior: _userMessageTextHeightBehavior,
-    );
-  }
-}
-
-/// A sent text message on its way up from the composer.
-///
-/// It lays out exactly like [UserMessageBubble]'s text bubble, without the
-/// menus, so it can land on the real row and hand over without a seam. It
-/// is a bubble from the frame it leaves in: its fill, at full tone, already
-/// sits around the words where they were written, and fill and words travel
-/// as one.
-///
-/// With [typed] (the lines as the composer wrapped them, which is wider than
-/// a bubble), it starts as exactly those lines, first line on the bubble's
-/// first line, inside a fill sized to them, and changes shape as [morph]
-/// (how far it has travelled) runs: the fill first takes in the bubble's
-/// own lines while the typed ones dissolve into them, then narrows to the
-/// bubble. The words never re-wrap where they were written, nothing reflows
-/// in a jump, and nothing is ever drawn outside the fill. The words both
-/// wraps begin with stay solid through the dissolve.
-class UserMessageFlightBubble extends StatelessWidget {
-  const UserMessageFlightBubble({
-    super.key,
-    required this.text,
-    required this.morph,
-    this.typed,
-  });
-
-  final String text;
-  final Animation<double> morph;
-  final ChatSendTypedText? typed;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      margin: _userMessageRowMargin,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.end,
-        children: [
-          const SizedBox(height: Spacing.xs),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.end,
-            children: [
-              Flexible(
-                child: ConstrainedBox(
-                  constraints: BoxConstraints(
-                    maxWidth: _userBubbleMaxWidth(context),
-                  ),
-                  child: _FlightBubble(
-                    key: const Key('user-message-flight-bubble'),
-                    morph: morph,
-                    color: context.conduitTheme.chatBubbleUser,
-                    typed: typed,
-                    child: _UserMessageText(text),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-/// The flying bubble: its words inside [_userBubblePadding] and, under
-/// them, its fill at full tone in every frame. Without [typed] it is the
-/// finished bubble throughout. With [typed], the words start as those lines
-/// in a fill sized to them (see [UserMessageFlightBubble]) and become the
-/// bubble as [morph] runs.
-class _FlightBubble extends SingleChildRenderObjectWidget {
-  const _FlightBubble({
-    super.key,
-    required this.morph,
-    required this.color,
-    required this.typed,
-    required super.child,
-  });
-
-  final Animation<double> morph;
-  final Color color;
-  final ChatSendTypedText? typed;
-
-  @override
-  _RenderFlightBubble createRenderObject(BuildContext context) =>
-      _RenderFlightBubble(morph: morph, color: color, typed: typed);
-
-  @override
-  void updateRenderObject(
-    BuildContext context,
-    _RenderFlightBubble renderObject,
-  ) {
-    renderObject
-      ..morph = morph
-      ..color = color
-      ..typed = typed;
-  }
-}
-
-/// One word of a sent message: where the typed lines set it and where the
-/// bubble's own wrap does, each the word's box in its own layout, and
-/// whether both put it on the same line (counted from the first).
-typedef _FlightWord = ({Rect typed, Rect bubble, bool sameLine});
-
-class _RenderFlightBubble extends RenderShiftedBox {
-  _RenderFlightBubble({
-    required Animation<double> morph,
-    required Color color,
-    required ChatSendTypedText? typed,
-  }) : _morph = morph,
-       _color = color,
-       _typed = typed,
-       super(null);
-
-  static const double _radius = AppBorderRadius.chatBubble;
-
-  /// Words that flow one by one into the bubble's wrap; a longer message
-  /// dissolves from one wrap into the other instead.
-  static const int _maxFlowingWords = 160;
-
-  // The re-flow, over [morph] (which reaches 1 well before the message
-  // lands): words the narrower wrap moves to another line first fade out
-  // where they were typed, the words that keep their line then slide along
-  // it to their places, and the moved words fade in at theirs once the way
-  // is clear. No word ever travels across another, and none is drawn twice.
-
-  /// Words leaving their typed line fade out where they were.
-  static const Interval reflowOut = Interval(0, 0.2, curve: Curves.easeOut);
-
-  /// Words keeping their line slide along it; the fill's edges that close in
-  /// move with them, so every word stays inside it.
-  static const Interval reflowSlide = Interval(
-    0.1,
-    0.5,
-    curve: Curves.easeInOut,
-  );
-
-  /// The fill's edges that open out (a line more below) do so first, ahead
-  /// of the words that will need the room.
-  static const Interval reflowOpen = Interval(
-    0.2,
-    0.45,
-    curve: Curves.easeInOut,
-  );
-
-  /// Words arriving on a new line fade in there, once the way is clear.
-  static const Interval reflowIn = Interval(0.45, 0.75, curve: Curves.easeOut);
-
-  /// The stretch of [morph] over which the fill grows from the typed lines
-  /// to take in the bubble's own lines too, ahead of their dissolving in
-  /// (when the words cannot flow one by one).
-  static const Interval grow = Interval(0, 0.2, curve: Curves.easeOut);
-
-  /// The stretch of [morph] over which the typed lines dissolve into the
-  /// bubble's wrap: early, while the message is rising fastest.
-  static const Interval dissolve = Interval(
-    0.15,
-    0.45,
-    curve: Curves.easeInOut,
-  );
-
-  /// The stretch of [morph] over which the fill, holding the bubble's words
-  /// alone by then, narrows to the bubble.
-  static const Interval narrow = Interval(0.45, 1, curve: Curves.easeInOut);
-
-  Animation<double> _morph;
-  set morph(Animation<double> value) {
-    if (identical(value, _morph)) return;
-    if (attached) _morph.removeListener(markNeedsPaint);
-    _morph = value;
-    if (attached) _morph.addListener(markNeedsPaint);
-    markNeedsPaint();
-  }
-
-  Color _color;
-  set color(Color value) {
-    if (value == _color) return;
-    _color = value;
-    markNeedsPaint();
-  }
-
-  ChatSendTypedText? _typed;
-  set typed(ChatSendTypedText? value) {
-    if (identical(value, _typed)) return;
-    _typed = value;
-    _typedPainter?.dispose();
-    _typedPainter = null;
-    markNeedsLayout();
-  }
-
-  /// The typed lines, set as their field set them (in the bubble's text
-  /// colour, so the words hand over to the row without a change of tone),
-  /// and where they sit in this box: [_typedOffset] lays their first line of
-  /// letters on the bubble's first line; [_typedGlyphTop] is that line's top
-  /// inside the painter.
-  TextPainter? _typedPainter;
-  Offset _typedOffset = Offset.zero;
-  double _typedGlyphTop = 0;
-
-  /// The words, matched one to one between the two wraps, or null when they
-  /// cannot flow (the texts differ, a word breaks across lines, too many).
-  List<_FlightWord>? _words;
-
-  @override
-  void attach(PipelineOwner owner) {
-    super.attach(owner);
-    _morph.addListener(markNeedsPaint);
-  }
-
-  @override
-  void detach() {
-    _morph.removeListener(markNeedsPaint);
-    super.detach();
-  }
-
-  @override
-  void dispose() {
-    _typedPainter?.dispose();
-    super.dispose();
-  }
-
-  @override
-  double computeMinIntrinsicWidth(double height) =>
-      (child?.getMinIntrinsicWidth(
-            math.max(0, height - _userBubblePadding.vertical),
-          ) ??
-          0) +
-      _userBubblePadding.horizontal;
-
-  @override
-  double computeMaxIntrinsicWidth(double height) =>
-      (child?.getMaxIntrinsicWidth(
-            math.max(0, height - _userBubblePadding.vertical),
-          ) ??
-          0) +
-      _userBubblePadding.horizontal;
-
-  @override
-  double computeMinIntrinsicHeight(double width) =>
-      (child?.getMinIntrinsicHeight(
-            math.max(0, width - _userBubblePadding.horizontal),
-          ) ??
-          0) +
-      _userBubblePadding.vertical;
-
-  @override
-  double computeMaxIntrinsicHeight(double width) =>
-      (child?.getMaxIntrinsicHeight(
-            math.max(0, width - _userBubblePadding.horizontal),
-          ) ??
-          0) +
-      _userBubblePadding.vertical;
-
-  @override
-  Size computeDryLayout(BoxConstraints constraints) {
-    final inner = constraints.deflate(_userBubblePadding);
-    final childSize = child?.getDryLayout(inner) ?? Size.zero;
-    return constraints.constrain(_userBubblePadding.inflateSize(childSize));
-  }
-
-  @override
-  void performLayout() {
-    final child = this.child;
-    if (child == null) {
-      size = constraints.constrain(_userBubblePadding.inflateSize(Size.zero));
-      return;
-    }
-    child.layout(constraints.deflate(_userBubblePadding), parentUsesSize: true);
-    (child.parentData! as BoxParentData).offset = _userBubblePadding.topLeft;
-    size = constraints.constrain(_userBubblePadding.inflateSize(child.size));
-    _layoutTyped(child);
-  }
-
-  /// The bubble's own words: the paragraph inside [root], if laid out.
-  static RenderParagraph? _paragraphIn(RenderObject root) {
-    RenderParagraph? found;
-    void visit(RenderObject node) {
-      if (found != null) return;
-      if (node is RenderParagraph) {
-        found = node;
-        return;
-      }
-      node.visitChildren(visit);
-    }
-
-    visit(root);
-    final paragraph = found;
-    return paragraph != null && paragraph.hasSize ? paragraph : null;
-  }
-
-  /// Lays the typed lines out with their first line of letters on the
-  /// bubble's first line, as the flight lines the bubble up on the field's,
-  /// and matches their words with the bubble's.
-  void _layoutTyped(RenderBox child) {
-    final typed = _typed;
-    _words = null;
-    if (typed == null) {
-      _typedPainter?.dispose();
-      _typedPainter = null;
-      return;
-    }
-    final paragraph = _paragraphIn(child);
-    final painter = _typedPainter ??= TextPainter(
-      text: TextSpan(
-        text: typed.lines.join('\n'),
-        style: typed.style.copyWith(
-          color: paragraph?.text.style?.color ?? typed.style.color,
-        ),
-      ),
-      textDirection: TextDirection.ltr,
-      textScaler: typed.textScaler,
-      textHeightBehavior: _userMessageTextHeightBehavior,
-    );
-    painter.layout();
-    final plain = painter.plainText;
-    var first = 0;
-    while (first < plain.length && plain[first].trim().isEmpty) {
-      first++;
-    }
-    final boxes = first >= plain.length
-        ? const <TextBox>[]
-        : painter.getBoxesForSelection(
-            TextSelection(baseOffset: first, extentOffset: first + 1),
-          );
-    final bubbleLine = chatTextLineExtent(child, last: false);
-    _typedGlyphTop = boxes.isEmpty ? 0 : boxes.first.top;
-    final dy = boxes.isEmpty || bubbleLine == null
-        ? 0.0
-        : bubbleLine.top - boxes.first.top;
-    _typedOffset = _userBubblePadding.topLeft + Offset(0, dy);
-    if (paragraph != null) _words = _matchWords(painter, paragraph, child);
-  }
-
-  /// Each word's box in the typed lines and in the bubble's paragraph (in
-  /// this box's coordinates), when the two hold the same words in the same
-  /// order and no word breaks across lines in either.
-  List<_FlightWord>? _matchWords(
-    TextPainter typed,
-    RenderParagraph paragraph,
-    RenderBox child,
-  ) {
-    final words = RegExp(r'\S+');
-    final typedWords = words.allMatches(typed.plainText).toList();
-    final bubbleText = paragraph.text.toPlainText(
-      includeSemanticsLabels: false,
-    );
-    final bubbleWords = words.allMatches(bubbleText).toList();
-    if (typedWords.isEmpty ||
-        typedWords.length != bubbleWords.length ||
-        typedWords.length > _maxFlowingWords) {
-      return null;
-    }
-    Rect? wordBox(List<TextBox> boxes) {
-      if (boxes.isEmpty) return null;
-      var rect = boxes.first.toRect();
-      for (final box in boxes.skip(1)) {
-        // A word on two lines cannot move as one.
-        if ((box.top - boxes.first.top).abs() > 1) return null;
-        rect = rect.expandToInclude(box.toRect());
-      }
-      return rect;
-    }
-
-    final paragraphOffset = MatrixUtils.transformPoint(
-      paragraph.getTransformTo(this),
-      Offset.zero,
-    );
-    final pairs = <(Rect, Rect)>[];
-    for (var i = 0; i < typedWords.length; i++) {
-      final a = typedWords[i];
-      final b = bubbleWords[i];
-      if (a.group(0) != b.group(0)) return null;
-      final from = wordBox(
-        typed.getBoxesForSelection(
-          TextSelection(baseOffset: a.start, extentOffset: a.end),
-        ),
-      );
-      final to = wordBox(
-        paragraph.getBoxesForSelection(
-          TextSelection(baseOffset: b.start, extentOffset: b.end),
-        ),
-      );
-      if (from == null || to == null) return null;
-      pairs.add((from, to.shift(paragraphOffset)));
-    }
-    // Lines counted from the top of each layout.
-    List<int> linesOf(Iterable<Rect> boxes) {
-      final tops = <double>[];
-      return [
-        for (final box in boxes)
-          () {
-            final index = tops.indexWhere((top) => (top - box.top).abs() < 1);
-            if (index >= 0) return index;
-            tops.add(box.top);
-            return tops.length - 1;
-          }(),
-      ];
-    }
-
-    final typedLines = linesOf(pairs.map((pair) => pair.$1));
-    final bubbleLines = linesOf(pairs.map((pair) => pair.$2));
-    return [
-      for (var i = 0; i < pairs.length; i++)
-        (
-          typed: pairs[i].$1,
-          bubble: pairs[i].$2,
-          sameLine: typedLines[i] == bubbleLines[i],
-        ),
-    ];
-  }
-
-  /// Where the typed lines' text starts in this box: their own column when
-  /// the flight keeps the bubble in its own (the typed words then start on
-  /// screen where the field had them), else the bubble's.
-  Offset _typedOrigin() {
-    final left = _typed?.left;
-    if (left == null || !attached) return _typedOffset;
-    final globalLeft = localToGlobal(Offset.zero).dx;
-    if (!globalLeft.isFinite) return _typedOffset;
-    return Offset(left - globalLeft, _typedOffset.dy);
-  }
-
-  /// The fill around the typed lines where they were written: the bubble's
-  /// padding around them, kept inside the composer they are still in.
-  Rect _typedFill(Offset origin) {
-    final painter = _typedPainter!;
-    final words = origin & painter.size;
-    final fill = _userBubblePadding.inflateRect(words);
-    final room = _typed?.room;
-    if (room == null) return fill;
-    final inside = room
-        .shift(Offset(origin.dx, origin.dy + _typedGlyphTop))
-        .expandToInclude(words);
-    return fill.intersect(inside);
-  }
-
-  /// The fill at [progress] of the morph, in this box's coordinates, while
-  /// typed lines are drawn. Words that flow one by one move inside a fill
-  /// that goes from around the typed lines to the bubble on the same
-  /// progress, so every word stays inside it. Lines that dissolve instead
-  /// are held in a fill around the typed lines at 0, then around both wraps
-  /// (so neither ever shows outside it while they dissolve), then the
-  /// bubble alone.
-  Rect fillRect(double progress) {
-    final bubble = Offset.zero & size;
-    final typed = _typedPainter;
-    if (typed == null) return bubble;
-    final origin = _typedOrigin();
-    final start = _typedFill(origin);
-    if (_words != null) {
-      final t = progress.clamp(0.0, 1.0);
-      final open = reflowOpen.transform(t);
-      final close = reflowSlide.transform(t);
-      double edge(double from, double to, {required bool opens}) =>
-          from + (to - from) * (opens ? open : close);
-      return Rect.fromLTRB(
-        edge(start.left, bubble.left, opens: bubble.left < start.left),
-        edge(start.top, bubble.top, opens: bubble.top < start.top),
-        edge(start.right, bubble.right, opens: bubble.right > start.right),
-        edge(start.bottom, bubble.bottom, opens: bubble.bottom > start.bottom),
-      );
-    }
-    final both = start.expandToInclude(bubble);
-    if (progress <= grow.end) {
-      return Rect.lerp(start, both, grow.transform(progress))!;
-    }
-    return Rect.lerp(both, bubble, narrow.transform(progress))!;
-  }
-
-  @override
-  void paint(PaintingContext context, Offset offset) {
-    final child = this.child;
-    if (child == null) return;
-    final progress = _morph.value.clamp(0.0, 1.0);
-    final childOffset = (child.parentData! as BoxParentData).offset;
-    final typed = _typedPainter;
-    final bubble = Offset.zero & size;
-    final rect = typed == null || progress >= 1 ? bubble : fillRect(progress);
-    context.canvas.drawRRect(
-      RRect.fromRectAndRadius(
-        rect.shift(offset),
-        Radius.circular(math.min(_radius, rect.shortestSide / 2)),
-      ),
-      Paint()..color = _color,
-    );
-    if (typed == null || progress >= 1) {
-      context.paintChild(child, offset + childOffset);
-      return;
-    }
-    final origin = _typedOrigin();
-    final words = _words;
-    if (words != null) {
-      if (progress <= 0) {
-        typed.paint(context.canvas, offset + origin);
-        return;
-      }
-      // The lines re-flow into the bubble's wrap word by word (see
-      // [reflowOut]): no frame snaps from one wrap to the other.
-      final canvas = context.canvas;
-      final slide = reflowSlide.transform(progress);
-      final out = 1 - reflowOut.transform(progress);
-      final arrive = reflowIn.transform(progress);
-      void drawWord(Rect from, Offset at, double opacity) {
-        if (opacity <= 0.002) return;
-        final clip = Rect.fromLTRB(
-          from.left - 1.5,
-          from.top - 0.5,
-          from.right + 1.5,
-          from.bottom + 0.5,
-        );
-        canvas
-          ..save()
-          ..translate(
-            offset.dx + at.dx - from.left,
-            offset.dy + at.dy - from.top,
-          );
-        if (opacity < 1) {
-          canvas.saveLayer(
-            clip,
-            Paint()..color = Color.fromRGBO(0, 0, 0, opacity),
-          );
-        }
-        canvas.clipRect(clip);
-        typed.paint(canvas, origin);
-        if (opacity < 1) canvas.restore();
-        canvas.restore();
-      }
-
-      for (final word in words) {
-        final from = word.typed.shift(origin);
-        if (word.sameLine) {
-          drawWord(
-            from,
-            Offset.lerp(from.topLeft, word.bubble.topLeft, slide)!,
-            1,
-          );
-        } else {
-          drawWord(from, from.topLeft, out);
-          drawWord(from, word.bubble.topLeft, arrive);
-        }
-      }
-      return;
-    }
-    final mix = dissolve.transform(progress);
-    if (mix <= 0) {
-      typed.paint(context.canvas, offset + origin);
-      return;
-    }
-    if (mix >= 1 || child.needsCompositing) {
-      context.paintChild(child, offset + childOffset);
-      return;
-    }
-    // A true dissolve: each wrap at its share, added together, so a glyph
-    // both wraps draw in the same place stays at full strength throughout.
-    final canvas = context.canvas;
-    final lineHeight = typed.preferredLineHeight;
-    final bounds = bubble
-        .expandToInclude(origin & typed.size)
-        .inflate(lineHeight)
-        .shift(offset);
-    canvas.saveLayer(bounds, Paint());
-    canvas.saveLayer(bounds, Paint()..color = Color.fromRGBO(0, 0, 0, 1 - mix));
-    typed.paint(canvas, offset + origin);
-    canvas.restore();
-    canvas.saveLayer(
-      bounds,
-      Paint()
-        ..color = Color.fromRGBO(0, 0, 0, mix)
-        ..blendMode = BlendMode.plus,
-    );
-    context.paintChild(child, offset + childOffset);
-    canvas.restore();
-    canvas.restore();
   }
 }

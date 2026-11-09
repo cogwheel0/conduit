@@ -4,7 +4,6 @@ import 'package:flutter/widgets.dart';
 import '../../../core/services/haptic_service.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/widgets/chat_action_button.dart' show NativeSymbolGlyph;
-import 'chat_send_motion.dart';
 
 /// Suggested next prompts under a finished reply.
 ///
@@ -104,9 +103,6 @@ class FollowUpSuggestionRow extends StatefulWidget {
 class _FollowUpSuggestionRowState extends State<FollowUpSuggestionRow> {
   bool _isPressed = false;
 
-  /// The suggestion's words, where the sent message rises from.
-  final GlobalKey _textKey = GlobalKey(debugLabel: 'follow-up-text');
-
   bool get _enabled => widget.onPressed != null;
 
   @override
@@ -126,8 +122,6 @@ class _FollowUpSuggestionRowState extends State<FollowUpSuggestionRow> {
     final onPressed = widget.onPressed;
     if (onPressed == null) return;
     ConduitHaptics.selectionClick();
-    // The sent message rises from the words that were tapped.
-    ChatSendOrigin.recordFrom(_textKey.currentContext ?? context);
     onPressed();
   }
 
@@ -236,7 +230,6 @@ class _FollowUpSuggestionRowState extends State<FollowUpSuggestionRow> {
                               textDirection: Directionality.of(context),
                               locale: Localizations.maybeLocaleOf(context),
                             ),
-                            key: _textKey,
                             style: textStyle,
                             maxLines: FollowUpSuggestionRow.maxLines,
                             // Only for a single word longer than the lines;
