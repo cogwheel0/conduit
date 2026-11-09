@@ -23,6 +23,11 @@ class ChatActionButton extends StatelessWidget {
   /// The glyph's point size.
   final double iconSize;
 
+  /// The SF Symbol's scale at [iconSize]: [NativeSymbolScale.small] draws a
+  /// glyph that fills more of its box than its neighbours at their ink size
+  /// without thinning its strokes.
+  final NativeSymbolScale symbolScale;
+
   /// The glyph's colour; defaults to the label colour at 80%.
   final Color? color;
 
@@ -38,6 +43,7 @@ class ChatActionButton extends StatelessWidget {
     this.sfSymbol,
     this.size = 32,
     this.iconSize = IconSize.sm + 2,
+    this.symbolScale = NativeSymbolScale.medium,
     this.color,
     this.hapticFeedback = true,
   });
@@ -62,6 +68,7 @@ class ChatActionButton extends StatelessWidget {
             symbol: symbol,
             fallbackIcon: icon,
             pointSize: iconSize,
+            symbolScale: symbolScale,
             color: foreground,
           )
         : Icon(icon, size: iconSize, color: foreground);
@@ -108,9 +115,9 @@ class ChatActionButton extends StatelessWidget {
   }
 }
 
-/// An SF Symbol drawn by UIKit at [pointSize] and regular weight, cached as
-/// an image and tinted with [color]. Shows [fallbackIcon] where the system
-/// has no such symbol.
+/// An SF Symbol drawn by UIKit at [pointSize], [symbolScale] and regular
+/// weight, cached as an image and tinted with [color]. Shows [fallbackIcon]
+/// where the system has no such symbol.
 class NativeSymbolGlyph extends StatefulWidget {
   const NativeSymbolGlyph({
     super.key,
@@ -118,12 +125,14 @@ class NativeSymbolGlyph extends StatefulWidget {
     required this.fallbackIcon,
     required this.pointSize,
     required this.color,
+    this.symbolScale = NativeSymbolScale.medium,
   });
 
   final String symbol;
   final IconData fallbackIcon;
   final double pointSize;
   final Color color;
+  final NativeSymbolScale symbolScale;
 
   /// Whether this platform rasterizes SF Symbols (iOS, with the host
   /// renderer installed at startup).
@@ -151,7 +160,8 @@ class NativeSymbolGlyph extends StatefulWidget {
 class _NativeSymbolGlyphState extends State<NativeSymbolGlyph> {
   Uint8List? _bytes;
   bool _failed = false;
-  ({String name, double size, double scale})? _requested;
+  ({String name, double size, double scale, NativeSymbolScale symbolScale})?
+  _requested;
 
   @override
   void didChangeDependencies() {
@@ -163,14 +173,20 @@ class _NativeSymbolGlyphState extends State<NativeSymbolGlyph> {
   void didUpdateWidget(covariant NativeSymbolGlyph oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.symbol != widget.symbol ||
-        oldWidget.pointSize != widget.pointSize) {
+        oldWidget.pointSize != widget.pointSize ||
+        oldWidget.symbolScale != widget.symbolScale) {
       _resolve();
     }
   }
 
   void _resolve() {
     final scale = MediaQuery.maybeDevicePixelRatioOf(context) ?? 3;
-    final request = (name: widget.symbol, size: widget.pointSize, scale: scale);
+    final request = (
+      name: widget.symbol,
+      size: widget.pointSize,
+      scale: scale,
+      symbolScale: widget.symbolScale,
+    );
     if (request == _requested) return;
     _requested = request;
     final service = NativeSymbolImageService.instance;
@@ -178,12 +194,14 @@ class _NativeSymbolGlyphState extends State<NativeSymbolGlyph> {
       request.name,
       pointSize: request.size,
       scale: request.scale,
+      symbolScale: request.symbolScale,
     );
     if (cached != null ||
         service.isResolved(
           request.name,
           pointSize: request.size,
           scale: request.scale,
+          symbolScale: request.symbolScale,
         )) {
       _bytes = cached;
       _failed = cached == null;
@@ -192,7 +210,12 @@ class _NativeSymbolGlyphState extends State<NativeSymbolGlyph> {
     _bytes = null;
     _failed = false;
     service
-        .load(request.name, pointSize: request.size, scale: request.scale)
+        .load(
+          request.name,
+          pointSize: request.size,
+          scale: request.scale,
+          symbolScale: request.symbolScale,
+        )
         .then((bytes) {
           // A newer request owns the glyph now.
           if (!mounted || _requested != request) return;

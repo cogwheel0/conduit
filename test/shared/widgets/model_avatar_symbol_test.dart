@@ -65,7 +65,8 @@ void main() {
       final pendingBytes = Uint8List.fromList(_pngBytes);
       final currentBytes = Uint8List.fromList(_pngBytes);
       NativeSymbolImageService.debugInstance = NativeSymbolImageService(
-        renderer: (name, pointSize, scale) => name == 'pending.symbol'
+        renderer: (name, pointSize, scale, symbolScale) =>
+            name == 'pending.symbol'
             ? slowGlyph.future
             : Future.value(currentBytes),
       );

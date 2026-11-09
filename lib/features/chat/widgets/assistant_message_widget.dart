@@ -15,6 +15,8 @@ import '../../../shared/widgets/markdown/renderer/markdown_style.dart';
 
 import 'package:conduit_core/services/structured_output.dart'
     show displayedChatFiles;
+import 'package:conduit_core/services/native_symbol_image_service.dart'
+    show NativeSymbolScale;
 import 'package:conduit_core/utils/usage_summary.dart';
 import 'package:conduit_core/utils/model_display_name.dart';
 import 'package:conduit_core/features/direct_connections/services/model_logo_catalog.dart'
@@ -213,18 +215,22 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
   /// rather than as a transition.
   static const Duration _contentFadeDuration = Duration(milliseconds: 200);
 
-  /// Reply actions: one SF Symbol size and colour for every glyph, inline or
-  /// in More, inside a 44 pt target.
+  /// Reply actions: one SF Symbol point size, weight and colour for every
+  /// glyph, inline or in More, inside a 44 pt target.
   static const double _footerActionTarget = 44;
   static const double _footerActionGlyph = 17;
 
   /// Copy's two overlapping squares fill more of their box than a speaker or
-  /// an arrow; a point smaller, they match the row's ink height and weight.
+  /// an arrow. At the row's 17 pt in SF Symbols' small scale they match the
+  /// others' ink and keep the same stroke, where a smaller point size thinned
+  /// the stroke and still left the squares the largest glyph in the row.
   static const String _copySymbol = 'square.on.square';
-  static const Map<String, double> _footerGlyphOpticalSizes = {_copySymbol: 16};
+  static const Map<String, NativeSymbolScale> _footerGlyphScales = {
+    _copySymbol: NativeSymbolScale.small,
+  };
 
-  static double _footerGlyphSizeFor(String? sfSymbol) =>
-      _footerGlyphOpticalSizes[sfSymbol] ?? _footerActionGlyph;
+  static NativeSymbolScale _footerGlyphScaleFor(String? sfSymbol) =>
+      _footerGlyphScales[sfSymbol] ?? NativeSymbolScale.medium;
   final _inlineUsageButtonKey = GlobalKey();
   late AnimationController _fadeController;
   late AnimationController _streamingContentFadeController;
@@ -1181,7 +1187,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
             isVoiceReply
                 ? (Platform.isIOS ? CupertinoIcons.waveform : Icons.graphic_eq)
                 : Icons.auto_awesome,
-            color: theme.textTertiary,
+            color: theme.textSecondary,
             size: IconSize.sm - 2,
           );
 
@@ -1197,8 +1203,9 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
               maxLines: 1,
               softWrap: false,
               overflow: TextOverflow.ellipsis,
+              // Secondary, not tertiary: a 13 pt label needs 4.5:1 to read.
               style: AppTypography.bodySmallStyle.copyWith(
-                color: theme.textTertiary,
+                color: theme.textSecondary,
                 fontWeight: FontWeight.w400,
                 letterSpacing: AppTypography.letterSpacingNormal,
               ),
@@ -1455,7 +1462,9 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
 
     final content = Container(
       width: double.infinity,
-      margin: const EdgeInsets.only(bottom: 16, right: Spacing.xs),
+      // The reply runs to the same trailing margin as the bubbles, composer
+      // and header, so a table or code card ends where they do.
+      margin: const EdgeInsets.only(bottom: 16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -2471,6 +2480,14 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
       crossAxisAlignment: WrapCrossAlignment.center,
       children: actionButtons,
     );
+    // The shift assumes a 44 pt target leads the row; Material's More button
+    // is narrower, so a row it leads stays where it is.
+    final leadingInset =
+        versionPager != null ||
+            visibleActions.isNotEmpty ||
+            PlatformUiCapabilities.isIOS
+        ? _footerLeadingGlyphInset
+        : 0.0;
     return Wrap(
       spacing: Spacing.sm,
       runSpacing: Spacing.sm,
@@ -2484,8 +2501,8 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
               ? Transform.translate(
                   offset: Offset(
                     Directionality.of(context) == TextDirection.rtl
-                        ? _footerLeadingGlyphInset
-                        : -_footerLeadingGlyphInset,
+                        ? leadingInset
+                        : -leadingInset,
                     0,
                   ),
                   child: buttonRow,
@@ -2496,9 +2513,12 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     );
   }
 
-  /// Half of a target's spare width around its glyph.
+  /// Half of a target's spare width around its glyph's ink: Copy, Regenerate
+  /// and More each draw about 14 pt wide at the row's size, so the leading
+  /// glyph starts on the reply's text margin.
+  static const double _footerLeadingGlyphInk = 14;
   static const double _footerLeadingGlyphInset =
-      (_footerActionTarget - _footerActionGlyph - 4) / 2;
+      (_footerActionTarget - _footerLeadingGlyphInk) / 2;
 
   /// The id of the alternative response being previewed, when the chat can
   /// continue from it: it must be a stored same-role sibling of this response,
@@ -3115,7 +3135,8 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
       onTap: onTap,
       sfSymbol: sfSymbol,
       size: _footerActionTarget,
-      iconSize: _footerGlyphSizeFor(sfSymbol),
+      iconSize: _footerActionGlyph,
+      symbolScale: _footerGlyphScaleFor(sfSymbol),
       color: _footerActionColor,
       hapticFeedback: !playsOwnFeedback,
     );

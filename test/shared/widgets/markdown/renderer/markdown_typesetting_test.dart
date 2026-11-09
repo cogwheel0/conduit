@@ -4,6 +4,7 @@ import 'package:conduit/shared/theme/app_theme.dart';
 import 'package:conduit/shared/theme/tweakcn_themes.dart';
 import 'package:conduit/shared/widgets/markdown/markdown_config.dart';
 import 'package:conduit/shared/widgets/markdown/renderer/horizontal_overflow_fade.dart';
+import 'package:conduit/shared/widgets/markdown/renderer/inline_renderer.dart';
 import 'package:conduit/shared/widgets/markdown/renderer/markdown_style.dart';
 import 'package:conduit/shared/widgets/markdown/renderer/markdown_table_frame.dart';
 import 'package:conduit/shared/widgets/markdown/streaming_markdown_widget.dart';
@@ -116,6 +117,38 @@ void main() {
       final code = tester.widget<Text>(find.text('csv.DictReader'));
       expect(code.style?.color, style.textPrimary);
       expect(code.style?.fontSize, lessThan(style.body.fontSize!));
+    });
+
+    testWidgets('a chip that starts a line keeps the text margin', (
+      tester,
+    ) async {
+      await pump(tester, '`csv.DictReader` streams the rows one at a time.');
+
+      final chip = find.byType(InlineCodeChip);
+      final column = globalRect(
+        tester.renderObject(find.byType(StreamingMarkdownWidget)),
+      );
+      final chipRect = tester.getRect(chip);
+      expect(chipRect.left, closeTo(column.left, 0.5));
+      // The fill covers the chip's own place in the line and no more, so it
+      // never hangs into the margin...
+      final fill = find
+          .descendant(of: chip, matching: find.byType(CustomPaint))
+          .first;
+      expect(
+        fill,
+        paints..rrect(
+          rrect: RRect.fromRectAndRadius(
+            Rect.fromLTRB(0, -1, chipRect.width, chipRect.height + 1),
+            Radius.circular(style.codeSpanRadius),
+          ),
+        ),
+      );
+      // ...and the code sits inside it by the chip's padding.
+      expect(
+        tester.getRect(find.text('csv.DictReader')).left - chipRect.left,
+        closeTo(InlineCodeChip.horizontalPadding, 0.01),
+      );
     });
   });
 
@@ -429,25 +462,36 @@ void main() {
       // The long header wraps instead of stretching its column.
       final header = paragraphStartingWith(tester, 'Days to harvest');
       expect(header.size.height, greaterThan(style.tableHeader.fontSize! * 2));
-      // Short heads sit on the same last line as the wrapped one.
+      // Short heads start on the wrapped one's first line, as body cells do.
       expect(
-        paragraphRect(tester, 'Crop').bottom,
-        closeTo(globalRect(header).bottom, 0.5),
+        paragraphRect(tester, 'Crop').top,
+        closeTo(globalRect(header).top, 0.5),
+      );
+      expect(
+        paragraphRect(tester, 'Radish').top,
+        closeTo(paragraphRect(tester, 'Full sun').top, 0.5),
       );
 
-      // The border is drawn over the scrolling content, outside the fade.
-      expect(
-        find.ancestor(
-          of: find.byType(HorizontalOverflowFade),
-          matching: find.byWidgetPredicate(
-            (widget) =>
-                widget is DecoratedBox &&
-                widget.position == DecorationPosition.foreground &&
-                (widget.decoration as BoxDecoration).border != null,
-          ),
+      // The border is drawn over the scrolling content, outside the fade:
+      // a one-device-pixel line in the table's rule colour.
+      final border = find.ancestor(
+        of: find.byType(HorizontalOverflowFade),
+        matching: find.byWidgetPredicate(
+          (widget) =>
+              widget is DecoratedBox &&
+              widget.position == DecorationPosition.foreground &&
+              (widget.decoration as BoxDecoration).border != null,
         ),
-        findsOneWidget,
       );
+      expect(border, findsOneWidget);
+      final outline =
+          ((tester.widget<DecoratedBox>(border).decoration as BoxDecoration)
+                      .border!
+                  as Border)
+              .top;
+      final dpr = tester.view.devicePixelRatio;
+      expect(outline.width, closeTo(1 / dpr, 0.001));
+      expect(outline.color, style.tableBorderColor);
       final headerBand = Rect.fromLTWH(
         0,
         0,

@@ -34,6 +34,9 @@ import 'package:conduit/features/chat/widgets/sources/openwebui_sources.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/l10n/conduit_localizations.dart';
 import 'package:conduit/shared/theme/app_theme.dart';
+import 'package:conduit/shared/theme/theme_extensions.dart';
+import 'package:conduit_core/services/native_symbol_image_service.dart'
+    show NativeSymbolScale;
 import 'package:conduit/shared/theme/tweakcn_themes.dart';
 import 'package:conduit/shared/widgets/chat_action_button.dart';
 import 'package:conduit/shared/widgets/markdown/streaming_markdown_widget.dart';
@@ -532,6 +535,27 @@ void main() {
       expect(size.width, greaterThanOrEqualTo(44));
       expect(size.height, greaterThanOrEqualTo(44));
     }
+
+    // One point size and weight for every glyph; Copy's squares, which fill
+    // more of their box, draw at SF Symbols' small scale to match the
+    // others' ink without a thinner stroke.
+    final actions = tester
+        .widgetList<ChatActionButton>(buttons)
+        .toList(growable: false);
+    expect(actions.map((button) => button.iconSize).toSet(), {17.0});
+    for (final button in actions) {
+      expect(
+        button.symbolScale,
+        button.sfSymbol == 'square.on.square'
+            ? NativeSymbolScale.small
+            : NativeSymbolScale.medium,
+        reason: button.label,
+      );
+    }
+    expect(
+      actions.where((button) => button.sfSymbol == 'square.on.square'),
+      hasLength(1),
+    );
   });
 
   group('copying a previewed version', () {
@@ -1511,6 +1535,36 @@ void main() {
 
     expect(find.text('Model B'), findsOneWidget);
     expect(find.text('Model A'), findsNothing);
+  });
+
+  testWidgets('the speaker label reads in the secondary tone and the reply '
+      'runs to the trailing edge', (tester) async {
+    final message = ChatMessage(
+      id: 'label-tone',
+      role: 'assistant',
+      content: 'Rinse the lentils before simmering them.',
+      timestamp: DateTime(2026, 1, 1),
+      model: 'Model B',
+    );
+    // A phone-width column, narrower than the reply's reading-width cap.
+    tester.view
+      ..physicalSize = const Size(1206, 2622)
+      ..devicePixelRatio = 3;
+    addTearDown(tester.view.reset);
+
+    await tester.pumpWidget(_buildAssistantHarness(message));
+    await tester.pumpAndSettle();
+
+    final label = find.text('Model B');
+    final theme = tester.element(label).conduitTheme;
+    // Tertiary measured about 3:1 at 13 pt; a label needs 4.5:1.
+    expect(tester.widget<Text>(label).style!.color, theme.textSecondary);
+
+    // No trailing inset of its own: tables and code cards end on the same
+    // margin as the bubbles and the composer.
+    final reply = tester.getRect(find.byType(AssistantMessageWidget));
+    final body = tester.getRect(find.byType(StreamingMarkdownWidget));
+    expect(body.right, closeTo(reply.right, 0.5));
   });
 
   testWidgets('archived version stays settled when the live version resumes', (

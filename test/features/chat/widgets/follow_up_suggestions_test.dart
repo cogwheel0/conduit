@@ -3,6 +3,7 @@ import 'dart:ui' show Tristate;
 import 'package:conduit/features/chat/widgets/follow_up_suggestions.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/shared/theme/app_theme.dart';
+import 'package:conduit/shared/theme/theme_extensions.dart';
 import 'package:conduit/shared/theme/tweakcn_themes.dart';
 import 'package:flutter/rendering.dart' show RenderParagraph;
 import 'package:material_ui/material_ui.dart';
@@ -284,6 +285,48 @@ void main() {
       tester.getCenter(glyph).dx,
       lessThan(tester.getTopLeft(find.text('Short')).dx),
     );
+  });
+
+  testWidgets('suggestions read as live buttons: label-colour text and a '
+      'secondary arrow, both dimmed while a reply runs', (tester) async {
+    Future<void> pumpBar({required bool isBusy}) => tester.pumpWidget(
+      _buildHarness(
+        SizedBox(
+          width: 360,
+          child: FollowUpSuggestionBar(
+            suggestions: const ['Plan a week of dinners'],
+            onSelected: (_) {},
+            isBusy: isBusy,
+          ),
+        ),
+      ),
+    );
+    final row = find.byKey(
+      const ValueKey<String>('follow-up-row:Plan a week of dinners'),
+    );
+    Color textColor() => tester
+        .widget<Text>(find.descendant(of: row, matching: find.byType(Text)))
+        .style!
+        .color!;
+    Color glyphColor() => tester
+        .widget<Icon>(find.descendant(of: row, matching: find.byType(Icon)))
+        .color!;
+
+    await pumpBar(isBusy: false);
+    final theme = tester.element(row).conduitTheme;
+    expect(textColor(), theme.textPrimary);
+    expect(glyphColor(), theme.textSecondary);
+    // The heading stays a quieter, smaller label above the rows.
+    final heading = tester.widget<Text>(find.text('Suggestions'));
+    expect(heading.style!.color, theme.textSecondary);
+    expect(
+      heading.style!.fontWeight!.value,
+      greaterThan(FontWeight.w500.value),
+    );
+
+    await pumpBar(isBusy: true);
+    expect(textColor().a, lessThan(theme.textPrimary.a));
+    expect(glyphColor().a, lessThan(theme.textSecondary.a));
   });
 
   test('a long suggestion is cut on a word boundary, never mid-word', () {

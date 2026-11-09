@@ -1,5 +1,7 @@
 import 'package:flutter/services.dart';
 
+import 'package:conduit_core/services/native_symbol_image_service.dart'
+    show NativeSymbolScale;
 import 'package:conduit_core/utils/debug_logger.dart';
 
 // The cache moved to conduit_core behind a host renderer; re-exported for
@@ -14,12 +16,17 @@ Future<Uint8List?> renderNativeSymbolThroughChannel(
   String name,
   double pointSize,
   double scale,
+  NativeSymbolScale symbolScale,
 ) async {
   try {
     return await _channel.invokeMethod<Uint8List>('render', <String, Object>{
       'name': name,
       'pointSize': pointSize,
       'scale': scale,
+      // Medium is UIKit's default; leaving it out keeps those renders as
+      // they were.
+      if (symbolScale != NativeSymbolScale.medium)
+        'symbolScale': symbolScale.name,
     });
   } catch (error, stackTrace) {
     DebugLogger.error(
