@@ -308,6 +308,9 @@ class OptimizedStorageService {
   /// to revoke them. Each change is told once it is committed, never while
   /// it could still be rolled back.
   ///
+  /// Also told: sessions of accounts whose server moved, as a save of the
+  /// server configs drops them.
+  ///
   /// Not told: a sign-out, the sweep, and [setServerBrowserSignIn], which
   /// return the sessions they end to their callers instead.
   Stream<List<StoredBrowserSignInSession>> get droppedBrowserSessions =>
@@ -1408,7 +1411,20 @@ class OptimizedStorageService {
   // ---------------------------------------------------------------------------
   // Preference helpers (Hive-backed)
   // ---------------------------------------------------------------------------
-  Future<void> saveServerConfigs(List<ServerConfig> configs) {
+  Future<void> saveServerConfigs(List<ServerConfig> configs) async {
+    // Dropped for good once dropped, whatever becomes of the save.
+    final droppedBrowserSessions = <StoredBrowserSignInSession>[];
+    try {
+      await _saveServerConfigsLocked(configs, droppedBrowserSessions);
+    } finally {
+      _notifyBrowserSessionsDropped(droppedBrowserSessions);
+    }
+  }
+
+  Future<void> _saveServerConfigsLocked(
+    List<ServerConfig> configs,
+    List<StoredBrowserSignInSession> droppedBrowserSessions,
+  ) {
     return _authStateLock.synchronized(
       () => _serverConfigsLock.synchronized(() async {
         final currentConfigs = await _getServerConfigsStrictUnlocked();
@@ -1491,6 +1507,7 @@ class OptimizedStorageService {
         await _dropVaultedSessionsOfMovedAccountsUnlocked(
           current: currentConfigs,
           next: nextConfigs,
+          dropped: droppedBrowserSessions,
         );
         await _saveServerConfigsUnlocked(sanitizedConfigs);
         if (rawActiveServerId != nextActiveId) {
@@ -1510,11 +1527,16 @@ class OptimizedStorageService {
   /// old bearer to the new origin. [next] is what the save will store, not
   /// what was passed to it, since accounts on one server share its endpoint.
   /// [skip] keeps its vault; [undo] records what went, for a rollback.
+  ///
+  /// Without [undo] the drop is final: each browser sign-in session it
+  /// drops is added to [dropped], for the caller to tell of
+  /// ([droppedBrowserSessions]) however the rest of its change goes.
   Future<void> _dropVaultedSessionsOfMovedAccountsUnlocked({
     required List<ServerConfig> current,
     required List<ServerConfig> next,
     String? skip,
     _VaultUndo? undo,
+    List<StoredBrowserSignInSession>? dropped,
   }) async {
     for (final account in current) {
       if (account.id == skip) continue;
@@ -1526,6 +1548,8 @@ class OptimizedStorageService {
         continue;
       }
       if (undo == null) {
+        final session = await _takeBrowserSessionUnlocked(account.id);
+        if (session != null) dropped?.add(session);
         await _deleteVaultedSessionUnlocked(account.id);
       } else {
         await _deleteVaultedSessionUndoablyUnlocked(account.id, undo);
@@ -3339,6 +3363,9 @@ class OptimizedStorageService {
   /// and cannot renew under the new. Their saved sign-ins stay until those
   /// expire. The sessions ended are returned for the caller to revoke at the
   /// identity provider. Settings equal to the stored ones change nothing.
+  ///
+  /// Throws only when the settings could not be saved. A session that could
+  /// not be ended once they were is left to the sweep.
   Future<List<StoredBrowserSignInSession>> setServerBrowserSignIn(
     String serverId,
     BrowserSignInConfig? config,
@@ -3373,9 +3400,10 @@ class OptimizedStorageService {
           ownershipChanged: false,
         );
 
+        // Saved: from here on, ending the sessions is best effort. One that
+        // stays is no longer renewable under these settings, and the sweep
+        // ([sweepOrphanBrowserSignInSessions]) takes it next time.
         final ended = <StoredBrowserSignInSession>[];
-        Object? firstError;
-        StackTrace? firstStackTrace;
         for (final account in registry.accountsOn(serverId)) {
           BrowserSignInSession? session;
           try {
@@ -3400,17 +3428,17 @@ class OptimizedStorageService {
               ),
               scope: 'storage/optimized/browser-sign-in',
             );
-          } catch (error, stackTrace) {
-            firstError ??= error;
-            firstStackTrace ??= stackTrace;
+          } catch (error) {
+            DebugLogger.warning(
+              'browser-session-end-failed',
+              scope: 'storage/optimized/browser-sign-in',
+              data: {'errorType': error.runtimeType.toString()},
+            );
             continue;
           }
           if (session != null) {
             ended.add((accountId: account.id, session: session));
           }
-        }
-        if (firstError != null) {
-          Error.throwWithStackTrace(firstError, firstStackTrace!);
         }
         return ended;
       }),
@@ -3490,9 +3518,10 @@ class OptimizedStorageService {
   }
 
   /// Deletes the browser sign-in sessions nothing can renew any more: one
-  /// whose account is gone, one this build cannot read, and one whose
-  /// account's saved sign-in -- live for the account the live slots belong
-  /// to, in the vault for the others -- is not a browser sign-in.
+  /// whose account is gone, one this build cannot read, one its server's
+  /// browser sign-in settings no longer describe, and one whose account's
+  /// saved sign-in -- live for the account the live slots belong to, in the
+  /// vault for the others -- is not a browser sign-in.
   ///
   /// Every operation that ends a saved sign-in ends its session too; this
   /// catches what one interrupted part-way left behind. Run once per
@@ -3532,7 +3561,13 @@ class OptimizedStorageService {
         final swept = <StoredBrowserSignInSession>[];
         for (final MapEntry(key: accountId, value: payload) in stored.entries) {
           final session = BrowserSignInSession.tryDecode(payload);
-          if (session != null && registry.account(accountId) != null) {
+          final account = registry.account(accountId);
+          if (session != null &&
+              account != null &&
+              session.matches(
+                serverId: account.serverId,
+                config: registry.server(account.serverId)?.browserSignIn,
+              )) {
             final credentials = liveOwner == accountId
                 ? live
                 : await _retrySecureStorageRead(
@@ -4870,14 +4905,29 @@ class OptimizedStorageService {
   /// Its live token and saved sign-in go, along with anything vaulted under
   /// its id and its captured proxy cookies. Every other account stays signed
   /// in: their sessions are in the vault, untouched.
+  ///
+  /// The account's browser sign-in session goes too. A sign-out revokes it
+  /// itself; [tellDroppedBrowserSession] tells of it on
+  /// [droppedBrowserSessions] instead, for a clear that is not one.
   Future<bool> clearActiveAccountAuthDataIf({
     required bool Function() canClear,
+    bool tellDroppedBrowserSession = false,
   }) async {
-    final cleared = await _authStateLock.synchronized(() async {
-      if (!canClear()) return false;
-      await _clearActiveAccountAuthDataUnlocked();
-      return true;
-    });
+    StoredBrowserSignInSession? droppedBrowserSession;
+    final bool cleared;
+    try {
+      cleared = await _authStateLock.synchronized(() async {
+        if (!canClear()) return false;
+        await _clearActiveAccountAuthDataUnlocked(
+          onBrowserSessionDropped: (session) => droppedBrowserSession = session,
+        );
+        return true;
+      });
+    } finally {
+      if (tellDroppedBrowserSession) {
+        _notifyBrowserSessionsDropped([?droppedBrowserSession]);
+      }
+    }
     if (cleared) {
       DebugLogger.log(
         'Active account auth data conditionally cleared',
@@ -4887,7 +4937,9 @@ class OptimizedStorageService {
     return cleared;
   }
 
-  Future<void> _clearActiveAccountAuthDataUnlocked() async {
+  Future<void> _clearActiveAccountAuthDataUnlocked({
+    void Function(StoredBrowserSignInSession session)? onBrowserSessionDropped,
+  }) async {
     Object? firstError;
     StackTrace? firstStackTrace;
 
@@ -4937,6 +4989,10 @@ class OptimizedStorageService {
       await attempt(() async {
         final (_, activeId) = await activeAccount();
         if (activeId == null) return;
+        await attempt(() async {
+          final session = await _takeBrowserSessionUnlocked(activeId);
+          if (session != null) onBrowserSessionDropped?.call(session);
+        });
         await attempt(() => _deleteVaultedSessionUnlocked(activeId));
         await attempt(
           () => _scrubServerConfigAuthArtifactsUnlocked(accountId: activeId),

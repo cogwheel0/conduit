@@ -181,6 +181,31 @@ void main() {
       );
     });
 
+    test('changed, are saved even when a session cannot be ended, which '
+        'the sweep takes later', () async {
+      await saveAccounts(['a', 'b']);
+      final sessionA = await signInWithBrowser('a');
+      final sessionB = await signInWithBrowser('b');
+      secure.undeletableKey = 'browser_sign_in_session_v1:b';
+      const another = BrowserSignInConfig(provider: 'oidc', clientId: 'x');
+
+      final ended = await storage.setServerBrowserSignIn(
+        await serverOf('a'),
+        another,
+      );
+
+      // What it ended, it says, so it is revoked.
+      check(ended).deepEquals([(accountId: 'a', session: sessionA)]);
+      check(await storage.browserSignInConfigForAccount('b')).equals(another);
+      check(await storedSession('b')).equals(sessionB);
+
+      secure.undeletableKey = null;
+      check(
+        await storage.sweepOrphanBrowserSignInSessions(),
+      ).deepEquals([(accountId: 'b', session: sessionB)]);
+      check(await storedSession('b')).isNull();
+    });
+
     test('removed, end the sessions too', () async {
       await saveAccounts(['a']);
       final session = await signInWithBrowser('a');
@@ -652,6 +677,52 @@ void main() {
       check(dropped).deepEquals([(accountId: 'existing', session: existing)]);
     });
 
+    test('when the account\'s server moves', () async {
+      await saveAccounts(['a', 'b']);
+      final sessionA = await signInWithBrowser('a');
+      final sessionB = await signInWithBrowser('b');
+
+      final dropped = await droppedBy(
+        () => storage.saveServerConfigs([
+          account('a', url: 'https://elsewhere.test'),
+          account('b', url: 'https://elsewhere.test'),
+        ]),
+      );
+
+      check(dropped).unorderedEquals([
+        (accountId: 'a', session: sessionA),
+        (accountId: 'b', session: sessionB),
+      ]);
+    });
+
+    test('when the active account\'s sign-in is cleared other than by a '
+        'sign-out', () async {
+      await saveAccounts(['a']);
+      final session = await signInWithBrowser('a');
+
+      final dropped = await droppedBy(
+        () => storage.clearActiveAccountAuthDataIf(
+          canClear: () => true,
+          tellDroppedBrowserSession: true,
+        ),
+      );
+
+      check(dropped).deepEquals([(accountId: 'a', session: session)]);
+      check(await storedSession('a')).isNull();
+    });
+
+    test('but not when a sign-out clears it, which revokes its own', () async {
+      await saveAccounts(['a']);
+      await signInWithBrowser('a');
+
+      final dropped = await droppedBy(
+        () => storage.clearActiveAccountAuthDataIf(canClear: () => true),
+      );
+
+      check(dropped).isEmpty();
+      check(await storedSession('a')).isNull();
+    });
+
     test('never for a sign-out, which revokes its own', () async {
       await saveAccounts(['a', 'b']);
       await signInWithBrowser('a');
@@ -1102,7 +1173,14 @@ final class _RefusingSecureStore extends InMemorySecureKeyValueStore {
   String? refusedKey;
   String? refusedOnceKey;
   String? unreadableKey;
+  String? undeletableKey;
   bool Function(String key, String? value)? refuseWhen;
+
+  @override
+  Future<void> delete({required String key}) {
+    if (key == undeletableKey) throw StateError('keychain refused $key');
+    return super.delete(key: key);
+  }
 
   @override
   Future<void> write({required String key, required String? value}) {
