@@ -64,17 +64,21 @@ void main() {
     expect(sheet.onImageAttachment, isNotNull);
     expect(sheet.onServerFileAttachment, isNull);
     expect(sheet.onWebAttachment, isNull);
-    expect(find.text('File'), findsOneWidget);
-    expect(find.text('Photo'), findsOneWidget);
+    expect(find.text('Files'), findsOneWidget);
+    expect(find.text('Photos'), findsOneWidget);
     expect(find.text('Web Page'), findsNothing);
     expect(find.text('Web Search'), findsOneWidget);
-    expect(find.text('File search'), findsOneWidget);
-    expect(find.text('Code interpreter'), findsNothing);
+    expect(find.text('File Search'), findsOneWidget);
+    expect(find.text('Code Interpreter'), findsNothing);
     expect(find.text('github'), findsOneWidget);
     expect(find.text('jira'), findsOneWidget);
     expect(find.text('Connect in LibreChat'), findsOneWidget);
 
     await tester.tap(find.text('Web Search'));
+    await tester.pumpAndSettle();
+    // The attachment tiles leave the tool rows partly below the panel's
+    // edge in this viewport: scroll each into view before tapping it.
+    await tester.ensureVisible(find.text('github'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('github'));
     await tester.pumpAndSettle();
@@ -84,6 +88,8 @@ void main() {
     ]);
 
     // A server that needs signing in opens LibreChat instead of switching on.
+    await tester.ensureVisible(find.text('jira'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('jira'));
     await tester.pumpAndSettle();
     expect(
@@ -106,10 +112,10 @@ void main() {
     await tester.tap(find.byIcon(Icons.add));
     await tester.pumpAndSettle();
 
-    expect(find.text('File'), findsOneWidget);
+    expect(find.text('Files'), findsOneWidget);
     expect(find.text('Web Search'), findsNothing);
-    expect(find.text('Code interpreter'), findsNothing);
-    expect(find.text('File search'), findsNothing);
+    expect(find.text('Code Interpreter'), findsNothing);
+    expect(find.text('File Search'), findsNothing);
   });
 
   testWidgets('no uploads and no tools leave no overflow button', (
@@ -260,7 +266,7 @@ void main() {
       kLibreChatCodeToolId,
       '${kLibreChatMcpToolIdPrefix}github',
     ]);
-    expect(tools.last.meta?['description'], 'MCP server');
+    expect(tools.last.meta?['description'], 'MCP Server');
   });
 
   test('file search says it searches files, not the web', () async {

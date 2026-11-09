@@ -213,7 +213,7 @@ void main() {
     check(find.text('Add Account').evaluate()).isEmpty();
     // The other accounts are on the Accounts page, not listed here.
     check(find.text('Alex (work)').evaluate()).isEmpty();
-    check(find.text('Manage accounts').evaluate()).isEmpty();
+    check(find.text('Manage Accounts').evaluate()).isEmpty();
 
     await tester.tap(find.byKey(const Key('settings-accounts')));
     await tester.pumpAndSettle();
@@ -301,8 +301,8 @@ void main() {
 
     await tester.fling(find.byType(ListView), const Offset(0, -2000), 3000);
     await tester.pump();
-    check(find.text('Sign out of all accounts').evaluate()).isNotEmpty();
-    check(find.text('Sign out').evaluate()).isEmpty();
+    check(find.text('Sign Out of All Accounts').evaluate()).isNotEmpty();
+    check(find.text('Sign Out').evaluate()).isEmpty();
   });
 
   testWidgets('with LibreChat in charge, Sign out signs out of its account', (
@@ -323,7 +323,7 @@ void main() {
     final signOut = find.byKey(const Key('settings-sign-out-librechat'));
     check(signOut.evaluate()).isNotEmpty();
     check(
-      find.descendant(of: signOut, matching: find.text('Sign out')).evaluate(),
+      find.descendant(of: signOut, matching: find.text('Sign Out')).evaluate(),
     ).isNotEmpty();
     // No Open WebUI user: its own sign-out is not offered.
     check(find.byKey(const Key('settings-sign-out')).evaluate()).isEmpty();

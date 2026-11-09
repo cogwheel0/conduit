@@ -194,8 +194,8 @@ final class _InCharge extends Notifier<LibreChatAccount?> {
 }
 
 Future<void> _openManager(WidgetTester tester) async {
-  await tester.ensureVisible(find.text('Manage memories'));
-  await tester.tap(find.text('Manage memories'));
+  await tester.ensureVisible(find.text('Manage Memories'));
+  await tester.tap(find.text('Manage Memories'));
   await tester.pumpAndSettle();
 }
 
@@ -235,7 +235,7 @@ void main() {
       expect(find.text('work'), findsOneWidget);
       expect(find.text('Engineer'), findsOneWidget);
 
-      await tester.tap(find.text('Add memory').last);
+      await tester.tap(find.text('Add Memory').last);
       await tester.pumpAndSettle();
       await tester.enterText(_keyField(), 'tone');
       final content = find.byType(TextField).evaluate().firstWhere(
@@ -383,7 +383,7 @@ void main() {
       );
       await tester.pumpAndSettle();
       expect(find.byKey(const Key('librechat-memories')), findsNothing);
-      expect(find.text('Manage memories'), findsNothing);
+      expect(find.text('Manage Memories'), findsNothing);
     });
   });
 
@@ -443,14 +443,14 @@ void main() {
         tester,
         const LibreChatCapabilities(sharedLinks: true),
       );
-      expect(allowed, contains('Share chat'));
-      expect(allowed, contains('Duplicate chat'));
+      expect(allowed, contains('Share Chat'));
+      expect(allowed, contains('Duplicate Chat'));
       expect(allowed, isNot(contains('Move')));
     });
 
     testWidgets('hides sharing when the server refuses links', (tester) async {
       final refused = await labels(tester, const LibreChatCapabilities());
-      expect(refused, isNot(contains('Share chat')));
+      expect(refused, isNot(contains('Share Chat')));
     });
 
     testWidgets('a chat with a link keeps sharing, to delete it', (
@@ -461,7 +461,7 @@ void main() {
         const LibreChatCapabilities(),
         chat: conversation.copyWith(shareId: 'web'),
       );
-      expect(refused, contains('Share chat'));
+      expect(refused, contains('Share Chat'));
     });
 
     Future<void> duplicate(
@@ -494,7 +494,7 @@ void main() {
                   conversation: conversation,
                   foldersEnabled: true,
                   folders: const [],
-                ).firstWhere((action) => action.label == 'Duplicate chat');
+                ).firstWhere((action) => action.label == 'Duplicate Chat');
                 return const SizedBox();
               },
             ),
@@ -540,7 +540,7 @@ void main() {
         const LibreChatCapabilities(sharedLinks: true),
         online: false,
       );
-      expect(offline, isNot(contains('Duplicate chat')));
+      expect(offline, isNot(contains('Duplicate Chat')));
     });
   });
 }

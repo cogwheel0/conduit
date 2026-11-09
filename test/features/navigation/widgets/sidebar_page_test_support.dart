@@ -927,6 +927,11 @@ class SidebarTestFakeOptimizedStorageService extends Fake
 
   @override
   Future<void> saveLocalDefaultModel(Model? model) async {}
+
+  // The native Settings root names the app's language in its App Language
+  // row: none saved follows the system.
+  @override
+  String? getLocaleCode() => null;
 }
 
 class SidebarTestTestShowPinnedNotifier extends ShowPinnedNotifier {

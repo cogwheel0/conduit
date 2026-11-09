@@ -238,6 +238,27 @@ void main() {
       check(card.subtitle).equals('Team Chat +2');
     });
 
+    test('tells a LibreChat account by its email, as Open WebUI\'s is', () {
+      final withEmail = LibreChatAccount.forUser(
+        const LibreChatServer(baseUrl: 'https://chat.example.com'),
+        const LibreChatUser(id: 'u3', name: 'Dev', email: 'dev@example.com'),
+        serverTitle: 'Team Chat',
+      );
+      final card = accountCardSummary(
+        l10n,
+        signedInName: null,
+        accounts: const [],
+        hermesConnections: const [],
+        hermesInUseId: null,
+        libreChatPrimary: withEmail,
+        libreChatAccounts: [withEmail],
+        countsOthers: false,
+      );
+      check(card.kind).equals(AccountCardKind.libreChat);
+      check(card.title).equals('Dev');
+      check(card.subtitle).equals('dev@example.com');
+    });
+
     test('LibreChat accounts count as others behind another backend', () {
       final card = accountCardSummary(
         l10n,
@@ -624,7 +645,7 @@ void main() {
       Future<void> signOut({required String thenAnswer}) async {
         await tester.tap(find.text('leave'));
         await tester.pumpAndSettle();
-        await tester.tap(find.text('Sign out'));
+        await tester.tap(find.text('Sign Out'));
         await tester.pumpAndSettle();
         expect(find.text('Signing out stops it.'), findsOneWidget);
         await tester.tap(find.text(thenAnswer));
@@ -642,7 +663,7 @@ void main() {
         PrimaryAccountRef(PrimaryAccountKind.libreChat, leaving.id),
       );
 
-      await signOut(thenAnswer: 'Sign out anyway');
+      await signOut(thenAnswer: 'Sign Out Anyway');
       check(stops).isGreaterThan(0);
       check(container.read(primaryAccountProvider)).equals(
         PrimaryAccountRef(PrimaryAccountKind.libreChat, staying.id),
@@ -821,7 +842,7 @@ void main() {
     // The row goes while the question is up.
     showRow.value = false;
     await tester.pump();
-    await tester.tap(find.text('Switch anyway'));
+    await tester.tap(find.text('Switch Anyway'));
     await tester.pumpAndSettle();
 
     expect(tester.takeException(), isNull);

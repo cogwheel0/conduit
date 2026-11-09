@@ -328,7 +328,7 @@ void main() {
       await tapPill(tester);
 
       final entries = menus.single['menu']! as Map<Object?, Object?>;
-      expect(entries['labels'], ['otter-mini', '', 'All models…']);
+      expect(entries['labels'], ['otter-mini', '', 'All Models…']);
       await closeChat(tester);
     },
     variant: TargetPlatformVariant.only(TargetPlatform.iOS),
