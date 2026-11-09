@@ -253,9 +253,8 @@ void main() {
     expect(actions[0].materialIcon, isNot(Icons.check_rounded));
   });
 
-  testWidgets('note rows show last-edited metadata instead of descriptions', (
-    tester,
-  ) async {
+  testWidgets('note rows are titles only: no date, no description, and '
+      'no Notes title over the list', (tester) async {
     final controllers = SidebarTestSidebarHarnessControllers(
       initialTab: SidebarTabId.notes,
     );
@@ -287,42 +286,31 @@ void main() {
     final tileContent = tester.widget<SidebarListTileContent>(
       find.descendant(of: row, matching: find.byType(SidebarListTileContent)),
     );
-    final lastEditedFinder = find.descendant(
-      of: find.descendant(
-        of: row,
-        matching: find.byKey(
-          const ValueKey<String>('note-sidebar-last-edited-hierarchy-note'),
-        ),
-      ),
-      matching: find.byType(Text),
-    );
-    final lastEdited = tester.widget<Text>(lastEditedFinder);
     final theme = tester.element(row).conduitTheme;
 
     expect(title.style?.fontWeight, FontWeight.w400);
     expect(tileContent.titleFontWeight, FontWeight.w400);
     expect(title.style?.color, theme.textPrimary);
-    // Dated as the chat rows are: an edit before last week shows its short
-    // date, in the subheadline size.
-    expect(lastEdited.data, matches(RegExp(r'^\d{1,2}/\d{1,2}/\d{2}$')));
-    expect(lastEdited.style?.fontSize, AppTypography.titleMediumStyle.fontSize);
-    expect(lastEdited.style?.fontSize, lessThan(title.style!.fontSize!));
-    expect(lastEdited.style?.color, theme.textSecondary);
+    // The section headers date the notes; the rows carry only their titles.
+    expect(tileContent.trailing, isNull);
+    expect(tileContent.subtitle, isNull);
     expect(
-      tester.getCenter(lastEditedFinder).dx,
-      greaterThan(
-        tester
-            .getCenter(
-              find.descendant(of: row, matching: find.text('Project brief')),
-            )
-            .dx,
-      ),
+      find.descendant(of: row, matching: find.byType(Text)),
+      findsOneWidget,
     );
     expect(
       find.descendant(
         of: row,
         matching: find.text('Supporting description for the note'),
       ),
+      findsNothing,
+    );
+    expect(
+      find.byKey(const ValueKey<String>('notes-large-title')),
+      findsNothing,
+    );
+    expect(
+      find.byKey(const ValueKey<String>('sidebar-collapsed-title')),
       findsNothing,
     );
   });

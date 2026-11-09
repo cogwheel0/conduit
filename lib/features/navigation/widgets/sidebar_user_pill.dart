@@ -79,10 +79,10 @@ typedef SidebarNativeProfilePresenter = Future<bool> Function(
 
 const double _sidebarProfileAvatarSize = 36;
 
-/// The native profile button's photo or monogram fills the whole 44 pt
-/// glass button, as a bar's account avatar does on iOS 26, rather than
-/// sitting as a smaller disc inside a glass ring.
-const double _sidebarNativeProfileAvatarSize = TouchTarget.minimum;
+/// The native profile button's photo or monogram, inside its 44 pt glass
+/// button with a thin rim of glass around it: it reads as one of the bar's
+/// glass buttons rather than as a heavier disc beside them.
+const double _sidebarNativeProfileAvatarSize = _sidebarProfileAvatarSize;
 const int _sidebarAvatarMaximumSourceDimension = 8192;
 const int _sidebarAvatarMaximumSourcePixels = 32 * 1024 * 1024;
 const double _sidebarAvatarMaximumAspectRatio = 64;
@@ -327,11 +327,9 @@ Widget buildSidebarProfileButton({
           : null,
       imageAsset: avatarBytes == null
           ? null
-          : CNImageAsset(
-              '',
-              imageData: avatarBytes,
-              size: _sidebarNativeProfileAvatarSize,
-            ),
+          // The image is the whole button's canvas, the photo or monogram
+          // centred in it at its own diameter.
+          : CNImageAsset('', imageData: avatarBytes, size: TouchTarget.minimum),
       onPressed: onPressed,
       config: const CNButtonConfig(
         padding: EdgeInsets.zero,

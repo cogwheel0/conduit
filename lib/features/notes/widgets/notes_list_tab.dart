@@ -31,7 +31,6 @@ import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 
 import '../../navigation/providers/sidebar_providers.dart';
 import '../../navigation/utils/recency_section_label.dart';
-import '../../navigation/utils/recency_stamp_label.dart';
 import '../../navigation/widgets/conversation_tile.dart';
 import '../../navigation/widgets/sidebar_section_header.dart';
 import '../../navigation/utils/sidebar_create_action.dart';
@@ -134,11 +133,11 @@ class _NotesListTabState extends ConsumerState<NotesListTab>
     }
   }
 
-  Widget _buildEmptyState(String message, {required bool showLargeTitle}) {
+  Widget _buildEmptyState(String message) {
     final theme = context.conduitTheme;
     final refreshLabel = MaterialLocalizations.of(context)
         .refreshIndicatorSemanticLabel;
-    final emptyState = Center(
+    return Center(
       child: Padding(
         padding: const EdgeInsets.all(Spacing.lg),
         child: Column(
@@ -170,20 +169,6 @@ class _NotesListTabState extends ConsumerState<NotesListTab>
         ),
       ),
     );
-    if (!showLargeTitle) return emptyState;
-    // Keep the list's large title above an empty list, as the Chats tab
-    // keeps its own, so the tab still says where you are.
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        SizedBox(height: sidebarTabContentTopPadding(context)),
-        SidebarLargeTitle(
-          key: const ValueKey<String>('notes-large-title'),
-          title: AppLocalizations.of(context)!.sidebarNotesTab,
-        ),
-        Expanded(child: emptyState),
-      ],
-    );
   }
 
   Widget _buildNoteTile(Note note) {
@@ -213,24 +198,15 @@ class _NotesListTabState extends ConsumerState<NotesListTab>
     );
   }
 
-  /// The rows the list shows, in order: the large title, Pinned, then the
-  /// notes under date sections (Today … then each earlier month), as the
-  /// Chats tab lists chats. Builders keep row construction lazy.
+  /// The rows the list shows, in order: Pinned, then the notes under date
+  /// sections (Today … then each earlier month), as the Chats tab lists
+  /// chats. Builders keep row construction lazy.
   List<Widget Function()> _listEntries({
     required AppLocalizations l10n,
     required List<Note> pinnedNotes,
     required List<Note> otherNotes,
-    required bool showLargeTitle,
   }) {
     final entries = <Widget Function()>[];
-    if (showLargeTitle) {
-      entries.add(
-        () => SidebarLargeTitle(
-          key: const ValueKey<String>('notes-large-title'),
-          title: l10n.sidebarNotesTab,
-        ),
-      );
-    }
     var isFirst = true;
     bool nextIsFirst() {
       final first = isFirst;
@@ -288,17 +264,6 @@ class _NotesListTabState extends ConsumerState<NotesListTab>
     return entries;
   }
 
-  /// Hands the title to the toolbar once the large one scrolls under it.
-  void _syncTitleCollapse({required bool largeTitleShown}) {
-    if (!mounted) return;
-    final collapsed =
-        largeTitleShown &&
-        _scrollController.hasClients &&
-        _scrollController.offset > kSidebarLargeTitleCollapseOffset;
-    if (ref.read(sidebarNotesTitleCollapsedProvider) == collapsed) return;
-    ref.read(sidebarNotesTitleCollapsedProvider.notifier).set(collapsed);
-  }
-
   @override
   Widget build(BuildContext context) {
     super.build(context);
@@ -323,7 +288,6 @@ class _NotesListTabState extends ConsumerState<NotesListTab>
             if (noteList.isEmpty) {
               return _buildEmptyState(
                 query.isEmpty ? l10n.noNotesYet : l10n.noNotesFound,
-                showLargeTitle: query.isEmpty,
               );
             }
             final pinnedNotes = noteList
@@ -332,32 +296,22 @@ class _NotesListTabState extends ConsumerState<NotesListTab>
             final otherNotes = noteList
                 .where((note) => !note.isPinned)
                 .toList(growable: false);
-            final showLargeTitle = query.isEmpty;
             final entries = _listEntries(
               l10n: l10n,
               pinnedNotes: pinnedNotes,
               otherNotes: otherNotes,
-              showLargeTitle: showLargeTitle,
             );
 
-            final list = NotificationListener<ScrollUpdateNotification>(
-              onNotification: (notification) {
-                if (notification.depth == 0) {
-                  _syncTitleCollapse(largeTitleShown: showLargeTitle);
-                }
-                return false;
-              },
-              child: ListView.builder(
-                controller: _scrollController,
-                primary: false,
-                padding: EdgeInsets.only(
-                  top: sidebarTabContentTopPadding(context),
-                  bottom: sidebarTabContentBottomPadding(context),
-                ),
-                physics: platformAlwaysScrollablePhysics(context),
-                itemCount: entries.length,
-                itemBuilder: (context, index) => entries[index](),
+            final list = ListView.builder(
+              controller: _scrollController,
+              primary: false,
+              padding: EdgeInsets.only(
+                top: sidebarTabContentTopPadding(context),
+                bottom: sidebarTabContentBottomPadding(context),
               ),
+              physics: platformAlwaysScrollablePhysics(context),
+              itemCount: entries.length,
+              itemBuilder: (context, index) => entries[index](),
             );
             final refreshable = RefreshIndicator.adaptive(
               edgeOffset: sidebarRefreshIndicatorEdgeOffset(context),
@@ -409,17 +363,6 @@ class _NoteListTile extends StatelessWidget {
     final theme = context.conduitTheme;
     final l10n = AppLocalizations.of(context)!;
     final title = note.title.isEmpty ? l10n.untitled : note.title;
-    // Dated as the chat rows are, so a stamp never goes stale the way
-    // "13h ago" does in a list that is not redrawn.
-    final now = DateTime.now();
-    final edited = recencyStampLabel(
-      note.updatedDateTime,
-      l10n,
-      locale: Localizations.localeOf(context).toString(),
-      now: now,
-      use24HourTime: MediaQuery.alwaysUse24HourFormatOf(context),
-    );
-    final stampStacks = sidebarRowStampStacks(context);
 
     return ConduitContextMenu(
       actions: actions,
@@ -433,44 +376,24 @@ class _NoteListTile extends StatelessWidget {
           if (ownerName case final owner?) l10n.sharedFolderOwner(owner),
           if (readOnly) l10n.readOnly,
           if (note.isPinned) l10n.pinned,
-          edited.spoken,
         ].join('. '),
         tintKey: ValueKey<String>('note-sidebar-selected-${note.id}'),
         pressedKey: ValueKey<String>('note-sidebar-pressed-${note.id}'),
         child: SidebarListTileContent(
           title: title,
-          // At the accessibility text sizes the date joins the lines under
-          // the title, as on chat rows, rather than squeezing the title.
-          subtitle: [
-            if (ownerName case final owner?) l10n.sharedFolderOwner(owner),
-            if (stampStacks) edited.text,
-          ].join('\n'),
-          subtitleMaxLines: 2,
+          subtitle: ownerName == null
+              ? null
+              : l10n.sharedFolderOwner(ownerName!),
           selected: selected,
           titleFontWeight: FontWeight.w400,
-          trailing: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (readOnly) ...[
-                Icon(
+          trailing: readOnly
+              ? Icon(
                   Platform.isIOS ? CupertinoIcons.lock : Icons.lock_outline,
                   key: ValueKey<String>('note-sidebar-read-only-${note.id}'),
                   size: IconSize.xs,
                   color: theme.textSecondary,
-                ),
-                if (!stampStacks) const SizedBox(width: Spacing.xs),
-              ],
-              if (!stampStacks)
-                SidebarRowStamp(
-                  key: ValueKey<String>('note-sidebar-last-edited-${note.id}'),
-                  timestamp: note.updatedDateTime,
-                  now: now,
-                  // A shared note's owner line sits under the title; the
-                  // date stays centred on the pair then.
-                  onTitleLine: ownerName == null,
-                ),
-            ],
-          ),
+                )
+              : null,
         ),
       ),
     );

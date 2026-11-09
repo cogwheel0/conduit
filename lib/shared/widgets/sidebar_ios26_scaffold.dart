@@ -14,7 +14,6 @@ class SidebarIos26Scaffold extends StatelessWidget {
     this.bottomNavigationBar,
     required this.body,
     this.leading,
-    this.middle,
     this.actions,
     this.showNativeView = true,
   });
@@ -23,8 +22,6 @@ class SidebarIos26Scaffold extends StatelessWidget {
   final Widget body;
   final Widget? leading;
 
-  /// A centred title, such as the list title once it scrolls under the bar.
-  final Widget? middle;
   final List<AdaptiveAppBarAction>? actions;
   final bool showNativeView;
 
@@ -72,7 +69,6 @@ class SidebarIos26Scaffold extends StatelessWidget {
           ? ConduitAdaptiveCupertinoNavigationBar(
               textScaler: MediaQuery.textScalerOf(context),
               leading: leading ?? const SizedBox.shrink(),
-              middle: middle,
               trailing: toolbarActions.isEmpty
                   ? null
                   : composeNativeViews && clusterItems != null

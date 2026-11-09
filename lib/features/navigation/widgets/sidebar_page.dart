@@ -29,7 +29,13 @@ import 'sidebar_user_pill.dart';
 import 'sidebar_tab_registry.dart';
 import 'chats_drawer.dart';
 import 'conversation_tile.dart'
-    show kSidebarRowContentInset, kSidebarRowHorizontalPadding;
+    show
+        ChatStyleSidebarTile,
+        kConversationTileMinHeight,
+        kSidebarRowHorizontalPadding,
+        kSidebarRowStatusGutter,
+        sidebarRowTitleLineStyle;
+import '../../../shared/widgets/chat_action_button.dart' show NativeSymbolGlyph;
 import '../../hermes/widgets/hermes_sessions_tab.dart';
 
 /// Compact bottom bar height on Material (default M3 bar is ~80 logical px).
@@ -187,43 +193,6 @@ class _SidebarAssetTabImage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ImageIcon(AssetImage(assetName), size: size);
-  }
-}
-
-/// The chat list's title, small in the toolbar, fading in once the large
-/// title scrolls under the bar and out when it comes back.
-class _SidebarCollapsedTitle extends ConsumerWidget {
-  const _SidebarCollapsedTitle({
-    required this.title,
-    required this.collapsedProvider,
-  });
-
-  final String title;
-
-  /// The list's own collapse state: each tab scrolls its large title away
-  /// on its own.
-  final NotifierProvider<SidebarChatsTitleCollapsed, bool> collapsedProvider;
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final collapsed = ref.watch(collapsedProvider);
-    return ExcludeSemantics(
-      // The large title in the list is the heading VoiceOver reads.
-      child: AnimatedOpacity(
-        key: const ValueKey<String>('sidebar-collapsed-title'),
-        opacity: collapsed ? 1 : 0,
-        duration: context.motionDuration(AnimationDuration.fast),
-        curve: Curves.easeOutCubic,
-        child: Text(
-          title,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: AppTypography.headlineSmallStyle.copyWith(
-            color: context.conduitTheme.textPrimary,
-          ),
-        ),
-      ),
-    );
   }
 }
 
@@ -683,19 +652,6 @@ class _SidebarPageState extends ConsumerState<SidebarPage>
             return SidebarIos26Scaffold(
               bottomNavigationBar: bottomNavigationBar,
               leading: adaptiveAppBarLeading,
-              middle: isSearchExpanded
-                  ? null
-                  : switch (activeTab.id) {
-                      SidebarTabId.chats => _SidebarCollapsedTitle(
-                        title: activeTab.label(localizations),
-                        collapsedProvider: sidebarChatsTitleCollapsedProvider,
-                      ),
-                      SidebarTabId.notes => _SidebarCollapsedTitle(
-                        title: activeTab.label(localizations),
-                        collapsedProvider: sidebarNotesTitleCollapsedProvider,
-                      ),
-                      _ => null,
-                    },
               actions: appBarActions,
               showNativeView: composeNativeIos26Chrome,
               body: sidebarBody,
@@ -788,6 +744,23 @@ class _SlidingSidebarPage extends ConsumerWidget {
         minimumBottomInset: _kSlidingSidebarBarMinimumBottomInset,
       ),
     );
+    final history = KeyedSubtree(
+      key: const ValueKey<String>('sidebar-chat-history'),
+      child: IndexedStack(
+        index: historyTabs.indexOf(chatTab),
+        children: [
+          for (final tab in historyTabs)
+            tab.id == SidebarTabId.chats
+                // Notes, Terminal and Channels are Open WebUI features, so
+                // they lead only its history.
+                ? const SidebarHistoryHeaderScope(
+                    header: _SlidingSidebarDestinations(),
+                    child: ChatsDrawer(),
+                  )
+                : const HermesSessionsTab(showBottomNavigationBar: false),
+        ],
+      ),
+    );
 
     return Material(
       key: const ValueKey<String>('sidebar-page-surface'),
@@ -802,25 +775,7 @@ class _SlidingSidebarPage extends ConsumerWidget {
               parentOwnsHeaderInset: false,
               bottomNavigationVisible: true,
               floatingChromeInsets: chromeInsets,
-              child: KeyedSubtree(
-                key: const ValueKey<String>('sidebar-chat-history'),
-                child: IndexedStack(
-                  index: historyTabs.indexOf(chatTab),
-                  children: [
-                    for (final tab in historyTabs)
-                      tab.id == SidebarTabId.chats
-                          // Notes, Terminal and Channels are Open WebUI
-                          // features, so they lead only its history.
-                          ? const SidebarHistoryHeaderScope(
-                              header: _SlidingSidebarDestinations(),
-                              child: ChatsDrawer(),
-                            )
-                          : const HermesSessionsTab(
-                              showBottomNavigationBar: false,
-                            ),
-                  ],
-                ),
-              ),
+              child: history,
             ),
             Positioned(
               top: 0,
@@ -951,58 +906,111 @@ class _SlidingSidebarDestinations extends ConsumerWidget {
       GoRouterState.of(context).uri.path,
     );
 
+    // The sidebar's own rows: a symbol in the leading column, as folder
+    // and channel rows have, and the same highlight when one is open. The
+    // sections below set themselves apart with their headers.
     return Column(
       key: const ValueKey<String>('sidebar-destinations'),
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: Spacing.sm),
-          child: Column(
-            children: [
-              for (final destination in destinations)
-                ListTile(
-                  key: ValueKey<String>(
-                    'sidebar-destination-${destination.id.name}',
-                  ),
-                  minTileHeight: 48,
-                  // Symbols start on the list's leading edge, with the
-                  // folder symbols and unread dots of the rows below.
-                  contentPadding: const EdgeInsets.symmetric(
-                    horizontal: kSidebarRowHorizontalPadding,
-                  ),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  selected: destination.id == selectedTab,
-                  tileColor: Colors.transparent,
-                  selectedTileColor: theme.textPrimary.withValues(alpha: 0.08),
-                  selectedColor: theme.textPrimary,
-                  iconColor: theme.textSecondary,
-                  textColor: theme.textPrimary,
-                  leading: destination.assetName != null
-                      ? ImageIcon(
-                          AssetImage(destination.assetName!),
-                          size: destination.assetIconSize ?? 22,
-                        )
-                      : Icon(destination.materialIcon, size: 22),
-                  title: Text(destination.label(l10n)),
-                  onTap: () {
-                    ConduitHaptics.selectionClick();
-                    _selectSlidingSidebarTab(
-                      context,
-                      ref,
-                      navigation.tabs.indexOf(destination.id),
-                    );
-                  },
+        for (final destination in destinations)
+          ChatStyleSidebarTile(
+            key: ValueKey<String>('sidebar-destination-${destination.id.name}'),
+            selected: destination.id == selectedTab,
+            onTap: () {
+              ConduitHaptics.selectionClick();
+              _selectSlidingSidebarTab(
+                context,
+                ref,
+                navigation.tabs.indexOf(destination.id),
+              );
+            },
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(
+                minHeight: kConversationTileMinHeight,
+              ),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: kSidebarRowHorizontalPadding,
+                  vertical: Spacing.sm,
                 ),
-            ],
+                child: Row(
+                  children: [
+                    // The symbol starts where chat titles and section
+                    // headers do, past the column chat rows keep for their
+                    // unread dot, and the name follows it.
+                    const SizedBox(width: kSidebarRowStatusGutter),
+                    _SidebarDestinationGlyph(
+                      destination: destination,
+                      color: theme.textPrimary,
+                    ),
+                    const SizedBox(width: _SidebarDestinationGlyph.gap),
+                    Expanded(
+                      child: Text(
+                        destination.label(l10n),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: sidebarRowTitleLineStyle().copyWith(
+                          color: theme.textPrimary,
+                          fontWeight: FontWeight.w400,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
           ),
-        ),
-        const Divider(
-          indent: kSidebarRowContentInset,
-          endIndent: kSidebarRowContentInset,
-        ),
       ],
+    );
+  }
+}
+
+/// A destination's symbol: the SF Symbol its tab shows on iOS, else its
+/// icon, at a row symbol's full size and in the label colour, its ink
+/// starting on the row's leading edge.
+class _SidebarDestinationGlyph extends StatelessWidget {
+  const _SidebarDestinationGlyph({
+    required this.destination,
+    required this.color,
+  });
+
+  final SidebarTabDescriptor destination;
+  final Color color;
+
+  /// The symbol's size: a list row's, a little over the 17 pt title.
+  static const double symbolSize = 20;
+
+  /// The column every symbol takes, so the names after them share an edge.
+  static const double extent = 24;
+
+  /// Between the symbol's column and the name.
+  static const double gap = 12;
+
+  @override
+  Widget build(BuildContext context) {
+    final scaler = MediaQuery.textScalerOf(context);
+    final glyph = NativeSymbolGlyph.isAvailable
+        ? NativeSymbolGlyph(
+            symbol: destination.sfSymbol,
+            fallbackIcon: destination.materialIcon,
+            pointSize: scaler.scale(symbolSize),
+            color: color,
+          )
+        : destination.assetName != null
+        ? ImageIcon(
+            AssetImage(destination.assetName!),
+            size: scaler.scale(extent),
+            color: color,
+          )
+        : Icon(
+            destination.materialIcon,
+            size: scaler.scale(extent),
+            color: color,
+          );
+    return SizedBox(
+      width: scaler.scale(extent),
+      child: Align(alignment: AlignmentDirectional.centerStart, child: glyph),
     );
   }
 }

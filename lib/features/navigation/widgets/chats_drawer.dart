@@ -42,8 +42,6 @@ import 'package:conduit_core/features/navigation/providers/drawer_section_notifi
 
 import 'folder_icon.dart';
 import '../providers/conversation_selection_provider.dart';
-import '../providers/sidebar_providers.dart'
-    show sidebarChatsTitleCollapsedProvider;
 import '../providers/sidebar_search_providers.dart';
 import '../providers/sidebar_tab_scroll_registry.dart';
 
@@ -135,21 +133,6 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
 
   void _onListScrolled() {
     unawaited(_maybeLoadMoreConversations());
-    _syncTitleCollapse();
-  }
-
-  /// Whether the last build opened the list on its large title.
-  bool _largeTitleShown = false;
-
-  /// Hands the title to the toolbar once the large one scrolls under it.
-  void _syncTitleCollapse() {
-    if (!mounted) return;
-    final collapsed =
-        _largeTitleShown &&
-        _listController.hasClients &&
-        _listController.offset > kSidebarLargeTitleCollapseOffset;
-    if (ref.read(sidebarChatsTitleCollapsedProvider) == collapsed) return;
-    ref.read(sidebarChatsTitleCollapsedProvider.notifier).set(collapsed);
   }
 
   void _queuePaginationCheck() {
@@ -288,8 +271,6 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
       ),
     };
 
-    _largeTitleShown =
-        _query.isEmpty && SidebarHistoryHeaderScope.maybeOf(context) == null;
     // Reserve a compact gutter while pulling/refreshing so progress sits in
     // the list flow instead of painting over the first conversation tile.
     // Bottom inset keeps the last row clear of the native bottom tab bar.
@@ -320,15 +301,6 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
         ),
       ),
       ...sidebarHistoryHeaderSlivers(context),
-      // The tabbed sidebar opens on a large "Chats" title; the sliding one
-      // leads with its destinations instead, and search drops the title.
-      if (_largeTitleShown)
-        SliverToBoxAdapter(
-          child: SidebarLargeTitle(
-            key: const ValueKey<String>('chats-large-title'),
-            title: AppLocalizations.of(context)!.sidebarChatsTab,
-          ),
-        ),
       ...slivers,
       // Bottom padding for the tab bar and a little breathing room.
       SliverToBoxAdapter(
@@ -489,14 +461,12 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
     if (query.isEmpty) {
       if (mounted && _query.isNotEmpty) {
         setState(() => _query = '');
-        _syncTitleCollapse();
       }
       return;
     }
     _debounce = Timer(const Duration(milliseconds: 250), () {
       if (!mounted) return;
       setState(() => _query = query);
-      _syncTitleCollapse();
     });
   }
 
@@ -777,10 +747,6 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
   Widget _buildConversationList(BuildContext context) {
     final theme = context.conduitTheme;
     _hasVisiblePaginatedRows = false;
-    // Empty, loading and error states have no large title to collapse.
-    _largeTitleShown = false;
-    // A list restored to a scrolled offset starts with its title collapsed.
-    WidgetsBinding.instance.addPostFrameCallback((_) => _syncTitleCollapse());
 
     if (_query.isEmpty) {
       final conversationsAsync = ref.watch(conversationsProvider);
@@ -1796,7 +1762,6 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
       badge: isDirectLocalConversation(conversation)
           ? AppLocalizations.of(context)!.onDevice
           : null,
-      timestamp: conversation.updatedAt,
       onTap: () => _selectConversation(conversation),
     );
 

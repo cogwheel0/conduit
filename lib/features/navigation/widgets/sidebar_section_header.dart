@@ -255,39 +255,3 @@ class _ChevronPainter extends CustomPainter {
       oldDelegate.strokeWidth != strokeWidth ||
       oldDelegate.height != height;
 }
-
-/// Scroll offset past which the list's large title has gone under the
-/// toolbar and the toolbar shows it small instead.
-const double kSidebarLargeTitleCollapseOffset = 36;
-
-/// The list's large title, as iOS opens a top-level list: it scrolls away
-/// with the rows and starts on their leading edge.
-class SidebarLargeTitle extends StatelessWidget {
-  const SidebarLargeTitle({super.key, required this.title});
-
-  final String title;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = context.conduitTheme;
-    return Padding(
-      padding: const EdgeInsetsDirectional.only(
-        start: kSidebarRowContentInset,
-        end: kSidebarRowContentInset,
-        top: Spacing.xxs,
-      ),
-      child: Semantics(
-        header: true,
-        child: Text(
-          title,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: AppTypography.displayLargeStyle.copyWith(
-            color: theme.textPrimary,
-            decoration: TextDecoration.none,
-          ),
-        ),
-      ),
-    );
-  }
-}

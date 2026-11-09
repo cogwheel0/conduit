@@ -34,6 +34,9 @@ void main() {
     await tester.pumpWidget(
       sidebarTestBuildHarness(
         controllers: SidebarTestSidebarHarnessControllers(),
+        // Row dates are the tabbed sidebar's; the combined one leaves them
+        // out of its narrower rows.
+        slidingSidebarEnabled: false,
         conversations: [
           // The start of today is Today whatever the time, even in the
           // first minutes after midnight.
@@ -87,40 +90,15 @@ void main() {
     expect(find.text(l10n.previous30Days), findsNothing);
     expect(find.text(l10n.recent), findsNothing);
 
-    // Each row ends with when its chat last changed, as Mail dates mail.
-    String stampOf(String title) {
-      final row = find.ancestor(
-        of: find.text(title),
-        matching: find.byType(ConversationTile),
-      );
-      return tester
-          .widget<Text>(
-            find.descendant(
-              of: find.descendant(
-                of: row,
-                matching: find.byKey(
-                  const ValueKey<String>('conversation-updated-stamp'),
-                ),
-              ),
-              matching: find.byType(Text),
-            ),
-          )
-          .data!;
-    }
-
-    expect(stampOf('Fresh chat'), DateFormat.jm('en').format(today));
-    expect(stampOf('Last night chat'), l10n.yesterday);
+    // Rows are titles only: the section headers date them.
     expect(
-      stampOf('Last week chat'),
-      DateFormat('cccc', 'en').format(today.subtract(const Duration(days: 4))),
+      find.byKey(const ValueKey<String>('conversation-updated-stamp')),
+      findsNothing,
     );
-    expect(stampOf('Old chat'), DateFormat('M/d/yy', 'en').format(old));
   });
 
-  testWidgets('the large title starts on the toolbar\'s leading edge, and '
-      'section headers with the chat titles after their unread column', (
-    tester,
-  ) async {
+  testWidgets('section headers start with the chat titles, after their '
+      'unread column', (tester) async {
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
     await tester.pumpWidget(
@@ -135,11 +113,6 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    final largeTitle = find.descendant(
-      of: find.byKey(const ValueKey<String>('chats-large-title')),
-      matching: find.text(l10n.sidebarChatsTab),
-    );
-    expect(tester.getTopLeft(largeTitle).dx, kSidebarRowContentInset);
     // One text edge for headers and titles; the unread dot hangs before it.
     for (final text in [l10n.pinned, l10n.today]) {
       expect(
@@ -209,7 +182,7 @@ void main() {
     expect(find.text('Trips'), findsOneWidget);
   });
 
-  testWidgets('the tabbed sidebar opens on a large Chats title', (
+  testWidgets('the tabbed sidebar has no Chats title over its list', (
     tester,
   ) async {
     await tester.pumpWidget(
@@ -221,16 +194,14 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    final title = find.byKey(const ValueKey<String>('chats-large-title'));
-    expect(title, findsOneWidget);
+    expect(find.text('Titled chat'), findsOneWidget);
     expect(
-      find.descendant(of: title, matching: find.text(l10n.sidebarChatsTab)),
-      findsOneWidget,
+      find.byKey(const ValueKey<String>('chats-large-title')),
+      findsNothing,
     );
     expect(
-      tester.getTopLeft(find.text(l10n.today)).dy,
-      greaterThan(tester.getBottomLeft(title).dy),
+      find.byKey(const ValueKey<String>('sidebar-collapsed-title')),
+      findsNothing,
     );
-    expect(find.byType(SidebarLargeTitle), findsOneWidget);
   });
 }
