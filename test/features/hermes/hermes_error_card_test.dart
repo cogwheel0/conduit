@@ -109,7 +109,7 @@ List<Override> _overrides(
   selectedModelProvider.overrideWith(_Selected.new),
   hermesDesktopModelsProvider.overrideWith((ref) async => const []),
   hermesContextReportProvider.overrideWith(
-    (ref, sessionId) async => const HermesContextReport(
+    (ref, key) async => const HermesContextReport(
       contextUsed: 128000,
       contextMax: 131072,
       canCompact: true,

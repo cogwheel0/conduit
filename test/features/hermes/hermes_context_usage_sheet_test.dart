@@ -103,7 +103,7 @@ List<Override> _withReport(
 }) => [
   hermesApiServiceProvider.overrideWithValue(service),
   isChatStreamingProvider.overrideWithValue(streaming),
-  hermesContextReportProvider.overrideWith((ref, sessionId) => load()),
+  hermesContextReportProvider.overrideWith((ref, key) => load()),
 ];
 
 /// A viewport tall enough for the whole sheet: its list builds lazily.
@@ -407,6 +407,83 @@ void main() {
     await tester.pumpAndSettle();
     expect(compact().onPressed, isNotNull);
   });
+
+  // A switch to another connection that landed while the sheet was open:
+  // the sheet read this chat's session id through the new connection, and
+  // its Compact could compact a chat of the same id there.
+  testWidgets('the sheet closes when its connection changes', (tester) async {
+    final first = _Elsewhere();
+    final second = _Elsewhere();
+    var closed = false;
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          hermesApiServiceProvider.overrideWith(
+            (ref) => ref.watch(_connection),
+          ),
+          isChatStreamingProvider.overrideWithValue(false),
+        ],
+        child: MaterialApp(
+          theme: AppTheme.light(TweakcnThemes.t3Chat),
+          localizationsDelegates: conduitLocalizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: Scaffold(
+            body: Builder(
+              builder: (context) => TextButton(
+                onPressed: () async {
+                  await showHermesContextUsageSheet(
+                    context,
+                    sessionId: 'stored-1',
+                  );
+                  closed = true;
+                },
+                child: const Text('Open'),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    final container = ProviderScope.containerOf(
+      tester.element(find.text('Open')),
+    );
+    container.read(_connection.notifier).switchTo(first);
+    await tester.pump();
+    await tester.tap(find.text('Open'));
+    await tester.pumpAndSettle();
+    expect(find.byType(HermesContextUsageSheet), findsOneWidget);
+
+    container.read(_connection.notifier).switchTo(second);
+    await tester.pumpAndSettle();
+
+    expect(find.byType(HermesContextUsageSheet), findsNothing);
+    expect(closed, isTrue);
+    expect(first.read, ['stored-1']);
+    expect(second.read, isEmpty);
+  });
+}
+
+/// The Hermes connection in use, switched by a test.
+final class _Connection extends Notifier<HermesBackendService?> {
+  @override
+  HermesBackendService? build() => null;
+
+  void switchTo(HermesBackendService? service) => state = service;
+}
+
+final _connection = NotifierProvider<_Connection, HermesBackendService?>(
+  _Connection.new,
+);
+
+/// An API server connection that reports a chat's totals.
+final class _Elsewhere extends Fake implements HermesBackendService {
+  final read = <String>[];
+
+  @override
+  Future<Map<String, dynamic>?> getSession(String id) async {
+    read.add(id);
+    return {'input_tokens': 900, 'output_tokens': 300};
+  }
 }
 
 final class _MockWebSocketChannel extends Mock implements WebSocketChannel {}

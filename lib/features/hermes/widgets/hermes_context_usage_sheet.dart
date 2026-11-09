@@ -9,6 +9,7 @@ import 'package:conduit_core/features/chat/providers/chat_providers.dart'
 import 'package:conduit_core/features/hermes/models/hermes_context_usage.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_context_providers.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
+import 'package:conduit_core/features/hermes/services/hermes_backend_service.dart';
 import 'package:conduit_core/features/hermes/services/hermes_desktop_api_service.dart';
 import 'package:conduit_core/features/hermes/services/hermes_desktop_transport.dart';
 
@@ -72,6 +73,31 @@ class _HermesContextUsageSheetState
   /// Whether the last build showed a compaction still running.
   bool _shownPending = false;
 
+  /// The connection the sheet was opened for: its session id names a chat
+  /// there only. Once another connection takes over, the sheet closes
+  /// rather than read or compact that id there.
+  late final HermesBackendService? _service;
+  bool _closing = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _service = ref.read(hermesApiServiceProvider);
+  }
+
+  HermesContextReportKey get _reportKey =>
+      (service: _service, sessionId: widget.sessionId);
+
+  void _closeForConnectionChange() {
+    if (_closing) return;
+    _closing = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final route = ModalRoute.of(context);
+      if (route != null && route.isActive) route.navigator?.removeRoute(route);
+    });
+  }
+
   @override
   void dispose() {
     _focus.dispose();
@@ -84,7 +110,7 @@ class _HermesContextUsageSheetState
   /// opened again.
   bool get _compactionPending {
     if (_result?.outcome == HermesCompactOutcome.pending) return true;
-    final service = ref.read(hermesApiServiceProvider);
+    final service = _service;
     return service is HermesDesktopApiService &&
         service.compactionPending(widget.sessionId);
   }
@@ -92,7 +118,7 @@ class _HermesContextUsageSheetState
   Future<void> _compact() async {
     if (_compactionPending) return;
     final l10n = AppLocalizations.of(context)!;
-    final service = ref.read(hermesApiServiceProvider);
+    final service = _service;
     if (service is! HermesDesktopApiService) return;
     if (ref.read(isChatStreamingProvider)) {
       setState(() {
@@ -115,7 +141,7 @@ class _HermesContextUsageSheetState
       setState(() => _result = result);
       if (result.changed) {
         _focus.clear();
-        ref.invalidate(hermesContextReportProvider(widget.sessionId));
+        ref.invalidate(hermesContextReportProvider(_reportKey));
       }
     } on HermesDesktopRpcException catch (error) {
       if (!mounted) return;
@@ -135,6 +161,11 @@ class _HermesContextUsageSheetState
 
   @override
   Widget build(BuildContext context) {
+    // A connection switch that finished after the sheet opened.
+    if (!identical(ref.watch(hermesApiServiceProvider), _service)) {
+      _closeForConnectionChange();
+      return const SizedBox.shrink();
+    }
     final theme = context.conduitTheme;
     final l10n = AppLocalizations.of(context)!;
     // A compaction still running when it answered is done once the chat's
@@ -145,10 +176,10 @@ class _HermesContextUsageSheetState
         return;
       }
       setState(() => _result = null);
-      ref.invalidate(hermesContextReportProvider(widget.sessionId));
+      ref.invalidate(hermesContextReportProvider(_reportKey));
     });
     _shownPending = _compactionPending;
-    final report = ref.watch(hermesContextReportProvider(widget.sessionId));
+    final report = ref.watch(hermesContextReportProvider(_reportKey));
     final model = report.asData?.value.model;
     return Column(
       mainAxisSize: MainAxisSize.min,
@@ -204,7 +235,7 @@ class _HermesContextUsageSheetState
                     isSecondary: true,
                     isCompact: true,
                     onPressed: () => ref.invalidate(
-                      hermesContextReportProvider(widget.sessionId),
+                      hermesContextReportProvider(_reportKey),
                     ),
                   ),
                 ],

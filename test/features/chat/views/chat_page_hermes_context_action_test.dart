@@ -155,7 +155,7 @@ void main() {
         openWebUiAuthSessionEpochProvider.overrideWith((ref) => Object()),
         hermesApiServiceProvider.overrideWithValue(hermes ? rest : null),
         hermesContextReportProvider.overrideWith(
-          (ref, sessionId) async => const HermesContextReport(
+          (ref, key) async => const HermesContextReport(
             totals: HermesTokenTotals(input: 900, output: 300),
           ),
         ),
