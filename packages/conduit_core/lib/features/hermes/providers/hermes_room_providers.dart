@@ -218,12 +218,14 @@ class HermesRoomController extends Notifier<HermesRoomView> {
       _epoch = room.authorityEpoch;
       _seq = merged.isEmpty ? since : merged.last.seq;
       // A message whose answer was unclear is settled once the log shows
-      // it: the next words start a message of their own.
+      // it: the next words start a message of their own. Words edited since
+      // then were refused, never posted: they stay, as a new message.
       final unsent = _unsent;
-      if (unsent != null &&
-          !state.sending &&
-          _postedText(unsent, merged) != null) {
-        _unsent = null;
+      final posted = unsent == null || state.sending
+          ? null
+          : _postedText(unsent, merged);
+      if (posted != null) {
+        _unsent = posted == unsent!.text ? null : unsent.asNewMessage();
       }
       state = state.copyWith(
         snapshot: snapshot,
@@ -308,9 +310,14 @@ class HermesRoomController extends Notifier<HermesRoomView> {
       if (identical(_unsent, send)) _unsent = null;
     } catch (error) {
       final posted = _postedText(send, state.events);
-      if (identical(_unsent, send) &&
-          (posted != null || hermesRoomSendAdmittedNothing(error))) {
-        _unsent = null;
+      if (identical(_unsent, send)) {
+        if (posted != null) {
+          // Hermes has a message under the id; words other than it posted
+          // stay, as a new message.
+          _unsent = posted == send.text ? null : send.asNewMessage();
+        } else if (hermesRoomSendAdmittedNothing(error)) {
+          _unsent = null;
+        }
       }
       // The log already shows these very words: Hermes has them. Other
       // words under the id are what it refused this send for.

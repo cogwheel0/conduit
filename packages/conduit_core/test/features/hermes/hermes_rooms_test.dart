@@ -657,6 +657,45 @@ void main() {
   });
 
   group('service', () {
+    // Fifteen events of the largest size Hermes keeps did not fit a socket
+    // frame, so the page was dropped; pages are smaller, and there are
+    // enough of them for the whole window.
+    test('reads a long log\'s whole window in small pages', () async {
+      final gateway = _Gateway((method, params) {
+        if (method != 'groups.log') return null;
+        final since = params['since_seq'] as int;
+        final limit = params['limit'] as int;
+        final last = since + limit < 3000 ? since + limit : 3000;
+        return {
+          'events': [
+            for (var seq = since + 1; seq <= last; seq++)
+              {
+                'seq': seq,
+                'kind': 'message.user',
+                'payload': {'text': 'm$seq'},
+              },
+          ],
+          'cursor': last,
+          'latest_seq': 3000,
+          'has_more': last < 3000,
+        };
+      });
+      final service = _service(gateway);
+
+      final events = await service.roomEventsSince(
+        'standup',
+        sinceSeq: 0,
+        latestSeq: 3000,
+      );
+
+      check(events).length.equals(1000);
+      check(events.first.seq).equals(2001);
+      check(events.last.seq).equals(3000);
+      check(
+        gateway.params('groups.log').every((p) => (p['limit'] as int) <= 7),
+      ).isTrue();
+    });
+
     test('reads a room: state, then its newest log pages', () async {
       final gateway = _Gateway((method, params) {
         switch (method) {
@@ -705,7 +744,7 @@ void main() {
         'profile': 'ops',
         'room_id': 'standup',
         'since_seq': 500,
-        'limit': 15,
+        'limit': 7,
       });
       check(logs.map((p) => p['since_seq']).toList()).deepEquals([500, 502]);
       check(
@@ -1086,11 +1125,16 @@ void main() {
       check(ids.toSet().length).equals(1);
       check(log.length).equals(1);
 
-      // The log shows the message, so the next words are a new message.
+      // The log shows the first words under the id. The edit was never
+      // posted, so it stays, and goes out as a message of its own.
       await room.refresh();
-      check(sub.read().unsentText).isNull();
+      check(sub.read().unsentText).equals('Hello');
       await check(room.send('Hello')).throws();
       check(ids.toSet().length).equals(2);
+      check(log.map((event) => (event['payload'] as Map)['text'])).deepEquals([
+        'Helo',
+        'Hello',
+      ]);
     });
 
     test('an unclear message keeps its id across a connection '

@@ -1,11 +1,19 @@
 part of 'hermes_desktop_api_service.dart';
 
 /// Events read per `groups.log` page, and the most a room opens with: the
-/// newest of a long log. A page of replies at the room's 64 KiB text limit
-/// must fit one socket frame (2 MiB) even when every character is escaped
-/// in JSON, or the answer is dropped and the read never catches up.
-const int _kHermesRoomLogPageSize = 15;
+/// newest of a long log. A page must fit one socket frame (2 Mi
+/// characters), or the answer is dropped and the read never catches up.
+/// Hermes keeps an event within 256 KiB and a page within 2 MiB, measured
+/// compact, but answers with spacing and the reply around the page, so a
+/// page it fits to its own budget can still be too large here. Seven events
+/// of the largest size stay within the frame.
+const int _kHermesRoomLogPageSize = 7;
 const int _kHermesRoomLogWindow = 1000;
+
+/// Pages read for the window, and a bound on a log that keeps growing while
+/// it is read.
+const int _kHermesRoomLogMaxPages =
+    _kHermesRoomLogWindow ~/ _kHermesRoomLogPageSize + 16;
 
 /// One send of a room message: the event id Hermes deduplicates it by, so
 /// sending it again after an unclear answer never posts it twice.
@@ -31,6 +39,12 @@ final class HermesRoomSend {
   /// unclear answer can never post next to the words it replaced.
   HermesRoomSend withText(String text) =>
       HermesRoomSend(text: text, eventId: eventId, threadId: _threadId);
+
+  /// [text] as a message of its own, under a new id in the same thread:
+  /// words edited after an unclear answer, once the log shows Hermes posted
+  /// the earlier words under this send's id.
+  HermesRoomSend asNewMessage() =>
+      HermesRoomSend(text: text, threadId: _threadId);
 }
 
 /// The Group Chat calls (`groups.*`). Both Desktop Gateway wires serve
@@ -85,9 +99,7 @@ extension _HermesDesktopRooms on HermesDesktopApiService {
       cursor = max(0, latestSeq - _kHermesRoomLogWindow);
     }
     final events = <HermesRoomEvent>[];
-    // Enough pages for the whole window, and a bound on a log that keeps
-    // growing while it is read.
-    for (var page = 0; page < 100; page++) {
+    for (var page = 0; page < _kHermesRoomLogMaxPages; page++) {
       final result = await _roomLog(roomId, sinceSeq: cursor);
       events.addAll(result.events);
       if (!result.hasMore) break;
