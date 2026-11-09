@@ -227,63 +227,6 @@ class _SidebarCollapsedTitle extends ConsumerWidget {
   }
 }
 
-/// Scroll edge under the floating tab bar: the surface stays nearly opaque
-/// behind the bar, so rows never read through its glass or beside it, and
-/// eases out over [rampHeight] above it.
-@visibleForTesting
-class SidebarBottomScrollEdge extends StatelessWidget {
-  const SidebarBottomScrollEdge({
-    super.key,
-    required this.barHeight,
-    this.rampHeight = kSidebarBottomScrollEdgeRamp,
-  });
-
-  /// From the screen's bottom edge to the top of the bar.
-  final double barHeight;
-
-  /// Above the bar, where the surface eases out to clear.
-  final double rampHeight;
-
-  @override
-  Widget build(BuildContext context) {
-    final surface = context.conduitTheme.surfaceBackground;
-    final height = barHeight + rampHeight;
-    final barTop = height <= 0 ? 0.0 : rampHeight / height;
-    // An ease-in-out ramp, so the edge has no visible band where it starts.
-    const rampAlphas = <double>[0.0, 0.08, 0.3, 0.62, 0.86];
-    return IgnorePointer(
-      child: SizedBox(
-        key: const ValueKey<String>('sidebar-bottom-scroll-edge'),
-        height: height,
-        width: double.infinity,
-        child: DecoratedBox(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-              colors: [
-                for (final alpha in rampAlphas)
-                  surface.withValues(alpha: alpha),
-                surface.withValues(alpha: 0.96),
-                surface,
-              ],
-              stops: [
-                for (var i = 0; i < rampAlphas.length; i++)
-                  barTop * i / rampAlphas.length,
-                barTop,
-                1.0,
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// How far above the floating tab bar the bottom scroll edge eases out.
-const double kSidebarBottomScrollEdgeRamp = 36;
-
 class _SidebarMaterialBottomNavigationBar extends StatelessWidget {
   const _SidebarMaterialBottomNavigationBar({
     required this.navigationItems,
@@ -617,8 +560,8 @@ class _SidebarPageState extends ConsumerState<SidebarPage>
           left: 0,
           right: 0,
           bottom: 0,
-          child: SidebarBottomScrollEdge(
-            barHeight:
+          child: ConduitChromeGradientFade.bottom(
+            contentHeight:
                 MediaQuery.viewPaddingOf(context).bottom +
                 sidebarNativeBottomBarContentHeight,
           ),

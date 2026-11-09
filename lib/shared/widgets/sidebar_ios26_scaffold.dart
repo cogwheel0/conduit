@@ -102,12 +102,9 @@ class SidebarIos26Scaffold extends StatelessWidget {
               left: 0,
               right: 0,
               top: 0,
-              // Rows pass under the status bar and the glass toolbar, so the
-              // edge holds the surface behind them and only softens below.
               child: ConduitChromeGradientFade.top(
                 contentHeight:
                     safePadding.top + conduitAdaptiveToolbarHeightOf(context),
-                solidBehindChrome: true,
               ),
             ),
           if (renderedBottomNavigation != null)
