@@ -1202,32 +1202,24 @@ void main() {
     });
   });
 
-  test(
-    'markdown prewarm reuses trimmed content and follows immutable edits',
-    () {
-      final cache = MarkdownPrewarmContentCache();
-      final message = ChatMessage(
-        id: 'synthetic-prewarm',
-        role: 'assistant',
-        content: '  ${List.filled(4096, 'synthetic paragraph ').join()}  ',
-        timestamp: DateTime(2026),
-      );
-      final content = cache.contentFor(message);
-      expect(content, message.content.trim());
-      expect(identical(cache.contentFor(message), content), isTrue);
-      expect(cache.contentFor(message.copyWith(content: 'edited')), 'edited');
-      expect(cache.contentFor(message.copyWith(isStreaming: true)), isEmpty);
-      expect(cache.contentFor(message.copyWith(role: 'user')), isEmpty);
-      expect(cache.contentFor(message.copyWith(content: '  ')), isEmpty);
-      expect(
-        cache.contentFor(
-          message.copyWith(content: 'data:image/png;base64,synthetic'),
-        ),
-        isEmpty,
-      );
-      expect(cache.contentFor(message), content);
-    },
-  );
+  test('markdown prewarm caches eligibility across immutable edits', () {
+    final cache = MarkdownPrewarmEligibilityCache();
+    final message = ChatMessage(
+      id: 'synthetic-prewarm',
+      role: 'assistant',
+      content: '  ${List.filled(4096, 'synthetic paragraph ').join()}  ',
+      timestamp: DateTime(2026),
+    );
+    expect(cache.isEligible(message), isTrue);
+    expect(cache.isEligible(message), isTrue);
+    expect(cache.isEligible(message.copyWith(isStreaming: true)), isFalse);
+    expect(cache.isEligible(message.copyWith(role: 'user')), isFalse);
+    expect(cache.isEligible(message.copyWith(content: '  ')), isFalse);
+    final image = message.copyWith(content: 'data:image/png;base64,synthetic');
+    expect(cache.isEligible(image), isFalse);
+    expect(cache.isEligible(image.copyWith(content: 'edited')), isTrue);
+    expect(cache.isEligible(message), isTrue);
+  });
 
   test('markdown prewarm skips still-streaming assistant messages', () {
     final messages = <ChatMessage>[

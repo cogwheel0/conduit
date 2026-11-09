@@ -138,29 +138,56 @@ flutter run --profile -t tool/benchmarks/markdown_prewarm.dart
 
 For each payload size, the harness checks twelve immutable assistant messages in
 uncached/cached/cached/uncached order. Each run warms its lookup once, then times
-100 batches. The strings have no surrounding whitespace, so this comparison
-measures repeated image-marker scans without an additional trimming allocation.
+100 batches. It runs both unpadded strings and strings with two spaces at each
+end. The cached path stores only eligibility and still trims selected content.
 `MARKDOWN_PREWARM_RESULT` reports each run's summary;
 `MARKDOWN_PREWARM_SAMPLES` emits the raw batches in chunks indexed by run and
 offset. `MARKDOWN_PREWARM_DONE` marks completion.
 
-[All 1,200 raw batch samples and summaries](markdown_prewarm_results.json) were
+[All 2,400 raw batch samples and summaries](markdown_prewarm_results.json) were
 collected on an Android arm64 emulator with Flutter 3.47.9 / Dart 3.13.7, with no
 recording or concurrent builds. The ranges below span the two runs of each
 variant. All values are **microseconds per twelve-message batch**.
 
-| Payload per message | Uncached p50 | Cached p50 | Uncached p99 | Cached p99 |
-| --- | --- | --- | --- | --- |
-| 8 KiB | 140.125–154.000 | 0.708 | 203.334–565.375 | 0.958–1.084 |
-| 128 KiB | 2,383.500–2,393.875 | 0.459 | 2,913.084–2,972.917 | 0.709–1.083 |
-| 1 MiB | 19,159.917–19,261.833 | 0.459 | 19,930.250–40,619.875 | 1.000–1.125 |
+| Payload per message | Padding | Uncached p50 | Cached p50 | Uncached p99 | Cached p99 |
+| --- | --- | --- | --- | --- | --- |
+| 8 KiB | None | 148.792–154.500 | 0.833–0.875 | 265.959–494.500 | 1.459–2.250 |
+| 128 KiB | None | 2,434.458–2,436.500 | 0.584–0.625 | 3,026.750–3,373.792 | 0.875 |
+| 1 MiB | None | 19,488.167–19,553.167 | 0.667–0.708 | 20,604.125–21,338.667 | 1.209–1.292 |
+| 8 KiB | Two spaces | 170.375–191.459 | 25.792–55.458 | 214.500–583.167 | 70.042–99.125 |
+| 128 KiB | Two spaces | 2,695.042–2,725.625 | 266.917–270.792 | 3,113.708–3,265.542 | 397.208–417.458 |
+| 1 MiB | Two spaces | 22,174.708–22,296.875 | 3,008.584–3,091.875 | 23,484.250–24,459.875 | 3,502.958–3,578.625 |
 
-The final uncached 1 MiB run had a 54,216.584 µs maximum; the preceding uncached
-run's maximum was 20,728.917 µs. The raw values retain these outliers. Percentiles
-use sorted sample indices 49, 94 and 98 for p50, p95 and p99 respectively.
+The padded cases include temporary trimming allocations and GC. The second
+cached 8 KiB run had a 394.083 µs maximum, versus 70.542 µs in its first run;
+the raw samples retain these outliers. Percentiles use sorted sample indices
+49, 94 and 98 for p50, p95 and p99 respectively.
 
-This isolates eligibility and trimmed-content reuse, not Markdown compilation,
-first-use scans, frame timing, or presentation. Every new immutable message still
-pays its first scan; edits and streaming updates create new identities. Weak
-identity keys allow departed messages and their cached contents to be collected.
-These measurements do not establish a display frame-rate improvement.
+This isolates eligibility and trimming, not Markdown compilation, first-use
+scans, frame timing, or presentation. Every new immutable message still pays its
+first scan; edits and streaming updates create new identities. Weak identity
+keys allow departed messages to be collected. These measurements do not
+establish a display frame-rate improvement.
+
+## Prewarm retained memory
+
+```sh
+flutter run --profile -t tool/benchmarks/markdown_prewarm_memory.dart
+```
+
+The fixture creates 64 synthetic messages containing 1 MiB each, warms them,
+and releases the messages. It forces two garbage collections after each phase
+through its own VM service, then records retained Dart heap bytes. Three runs
+cover each combination of padding and cache behavior. The comparison wrapper
+reproduces the earlier cache's strong retention of trimmed strings under weak
+identity keys; both paths use the production eligibility checks.
+
+[Raw phase measurements](markdown_prewarm_memory_results.json) include unpadded
+controls and the heap after releasing the messages. Padded messages previously
+retained approximately **64 MiB** of additional text after warming. The
+eligibility-only cache retains approximately **2.6 KiB** of metadata instead.
+Trimming may still allocate temporarily, as measured above. This benchmark
+measures retained Dart heap, not allocation rate, native memory, RSS, or FPS.
+It connects only to its own process's VM service and never reads persisted chats
+or connects to a server. `PREWARM_MEMORY_RESULT` emits each run;
+`PREWARM_MEMORY_DONE` marks completion.

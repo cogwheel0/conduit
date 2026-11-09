@@ -3522,7 +3522,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
 
     for (final index in candidateIndices) {
       final message = messages[index];
-      final content = _markdownPrewarmContentCache.contentFor(message);
+      final content = message.content.trim();
       rawContents.add(content);
       signatureParts.add(
         '$index:${message.id}:${_cheapMarkdownPrewarmContentSignature(content)}',
@@ -6017,22 +6017,19 @@ bool _visibleMessageIdsGained({
   return current.any((id) => !previousSet.contains(id));
 }
 
-final _markdownPrewarmContentCache = MarkdownPrewarmContentCache();
+final _markdownPrewarmEligibilityCache = MarkdownPrewarmEligibilityCache();
 
-class MarkdownPrewarmContentCache {
-  // Messages are immutable. Weak identity keys avoid rescanning long strings
-  // while scrolling, invalidate on edits, and do not retain departed chats.
-  final _contents = Expando<String>();
+class MarkdownPrewarmEligibilityCache {
+  // Weak identity keys avoid rescanning immutable messages without retaining
+  // trimmed copies that can double a loaded transcript's text heap.
+  final _eligible = Expando<bool>();
 
-  String contentFor(ChatMessage message) {
-    final cached = _contents[message];
-    if (cached != null) return cached;
-    if (message.role != 'assistant' || message.isStreaming) {
-      return _contents[message] = '';
-    }
-    final content = message.content.trim();
-    return _contents[message] = content.contains('data:image/') ? '' : content;
-  }
+  bool isEligible(ChatMessage message) =>
+      _eligible[message] ??=
+          message.role == 'assistant' &&
+          !message.isStreaming &&
+          message.content.trim().isNotEmpty &&
+          !message.content.contains('data:image/');
 }
 
 @visibleForTesting
@@ -6100,7 +6097,7 @@ List<int> _selectMarkdownPrewarmCandidatesFromVisibleIds({
         layoutMetadata.rows[index].isArchivedVariant) {
       return;
     }
-    if (_markdownPrewarmContentCache.contentFor(messages[index]).isEmpty) {
+    if (!_markdownPrewarmEligibilityCache.isEligible(messages[index])) {
       return;
     }
     seen.add(index);

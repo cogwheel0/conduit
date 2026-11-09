@@ -1,0 +1,140 @@
+{
+  "fixture": "64 synthetic assistant messages, each with 1 MiB of text; optional two-space padding at both ends. No server or persisted data access.",
+  "environment": "Android arm64 emulator, profile mode, Flutter 3.47.9 / Dart 3.13.7",
+  "protocol": "Three repetitions per mode and padding choice. Force GC twice after each create/warm/release phase through this process VM service. The baseline wrapper retains trimmed strings in an Expando, reproducing the previous retention rule; both paths use production eligibility checks.",
+  "scope": "Retained Dart heap only; excludes transient allocation, native memory, RSS and frame rate.",
+  "runs": [
+    {
+      "retainStrings": true,
+      "padded": false,
+      "run": 0,
+      "characters": 67109366,
+      "heapBytes": {
+        "create": 71951696,
+        "warm": 71955888,
+        "release": 4835472
+      }
+    },
+    {
+      "retainStrings": true,
+      "padded": false,
+      "run": 1,
+      "characters": 67109366,
+      "heapBytes": {
+        "create": 71951216,
+        "warm": 71956432,
+        "release": 4836016
+      }
+    },
+    {
+      "retainStrings": true,
+      "padded": false,
+      "run": 2,
+      "characters": 67109366,
+      "heapBytes": {
+        "create": 71951264,
+        "warm": 71956432,
+        "release": 4836016
+      }
+    },
+    {
+      "retainStrings": true,
+      "padded": true,
+      "run": 0,
+      "characters": 67109366,
+      "heapBytes": {
+        "create": 71951328,
+        "warm": 139067344,
+        "release": 4836176
+      }
+    },
+    {
+      "retainStrings": true,
+      "padded": true,
+      "run": 1,
+      "characters": 67109366,
+      "heapBytes": {
+        "create": 71951264,
+        "warm": 139067408,
+        "release": 4836080
+      }
+    },
+    {
+      "retainStrings": true,
+      "padded": true,
+      "run": 2,
+      "characters": 67109366,
+      "heapBytes": {
+        "create": 71951328,
+        "warm": 139067344,
+        "release": 4836016
+      }
+    },
+    {
+      "retainStrings": false,
+      "padded": false,
+      "run": 0,
+      "characters": 67109366,
+      "heapBytes": {
+        "create": 71951328,
+        "warm": 71953904,
+        "release": 4833488
+      }
+    },
+    {
+      "retainStrings": false,
+      "padded": false,
+      "run": 1,
+      "characters": 67109366,
+      "heapBytes": {
+        "create": 71951360,
+        "warm": 71953904,
+        "release": 4833488
+      }
+    },
+    {
+      "retainStrings": false,
+      "padded": false,
+      "run": 2,
+      "characters": 67109366,
+      "heapBytes": {
+        "create": 71951264,
+        "warm": 71953904,
+        "release": 4833488
+      }
+    },
+    {
+      "retainStrings": false,
+      "padded": true,
+      "run": 0,
+      "characters": 67109366,
+      "heapBytes": {
+        "create": 71951264,
+        "warm": 71953904,
+        "release": 4833488
+      }
+    },
+    {
+      "retainStrings": false,
+      "padded": true,
+      "run": 1,
+      "characters": 67109366,
+      "heapBytes": {
+        "create": 71951264,
+        "warm": 71953968,
+        "release": 4833488
+      }
+    },
+    {
+      "retainStrings": false,
+      "padded": true,
+      "run": 2,
+      "characters": 67109366,
+      "heapBytes": {
+        "create": 71951264,
+        "warm": 71953904,
+        "release": 4833552
+      }
+    }
+  ]
+}
