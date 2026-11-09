@@ -15,6 +15,13 @@ final class HermesDesktopHttpException implements Exception {
   String toString() => 'Hermes dashboard request failed ($status).';
 }
 
+/// Whether [error] says Hermes' gateway is not ready yet: a gateway's own
+/// listener answers every request with 503 (`gateway_not_ready`) and closes
+/// sockets with 1013 while it starts or drains.
+bool hermesDesktopGatewayNotReady(Object error) =>
+    _hermesDesktopHttpStatus(error) == 503 ||
+    (error is HermesDesktopRpcException && error.notReady);
+
 /// Whether a gated dashboard takes the deployment session token as a bearer
 /// credential (Hermes 0.22.6+ registers its `session-token` auth provider).
 bool hermesDesktopAcceptsSessionToken(Map<String, dynamic> status) {
@@ -77,6 +84,25 @@ extension _HermesDesktopAuthRest on HermesDesktopApiService {
     final data = await _requestJson('GET', '/api/status', authenticated: false);
     if (data is! Map) throw const FormatException('Invalid Hermes status.');
     return _status = Map<String, dynamic>.from(data);
+  }
+
+  /// The server status the status screen lists. A gated Webapp listener
+  /// answers a signed-out caller with only its version, health and sign-in
+  /// options, so it is read signed in when that works.
+  Future<Map<String, dynamic>> _authDetailedStatus() async {
+    final public = await statusProbe(refresh: true);
+    if (public['auth_required'] != true) return public;
+    try {
+      final data = await _requestJson('GET', '/api/status');
+      if (data is Map) return Map<String, dynamic>.from(data);
+    } catch (error) {
+      DebugLogger.warning(
+        'signed-in-status-unavailable',
+        scope: 'hermes/desktop',
+        data: {'errorType': error.runtimeType.toString()},
+      );
+    }
+    return public;
   }
 
   Future<List<String>> _authListProfiles() async {

@@ -6782,6 +6782,10 @@
   "@hermesActionFailed": {
     "description": "Generic error when a Hermes settings action fails."
   },
+  "hermesSignOutFailed": "Couldn't sign out of the Hermes dashboard. Check your connection and try again.",
+  "@hermesSignOutFailed": {
+    "description": "Shown when signing out of the Hermes Desktop Gateway failed, for example because Hermes could not be reached to end the dashboard session."
+  },
   "hermesToolsetUpdateFailed": "Hermes toolset update failed.",
   "@hermesToolsetUpdateFailed": {
     "description": "Error shown when updating Hermes toolsets fails."
@@ -6877,6 +6881,10 @@
   "hermesTurnSendNext": "Send next",
   "@hermesTurnSendNext": {
     "description": "Chat-input action that sends the next Hermes turn."
+  },
+  "hermesSteerUncertain": "Hermes didn't confirm your steer. Check the reply before you send the steer again.",
+  "@hermesSteerUncertain": {
+    "description": "Warning when Hermes rejected a steer without saying whether the running turn already received it; the draft is kept."
   },
   "hermesTurnControlsUnsupported": "Upgrade Hermes to enable safe turn controls.",
   "@hermesTurnControlsUnsupported": {

@@ -1582,6 +1582,8 @@ String sanitizeHermesProviderErrorMessage(
 
 String _friendlyError(Object e) {
   if (e is HermesStreamGuardException) return e.message;
+  if (e is HermesModelSwitchHeld) return e.message;
+  if (e is HermesDesktopGatewayStartingException) return e.message;
   if (e is FormatException) return 'Hermes returned an invalid response.';
   if (e is DioException) {
     final code = e.response?.statusCode;

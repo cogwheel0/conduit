@@ -35,6 +35,7 @@ part 'hermes_desktop_administration.dart';
 part 'hermes_desktop_audio.dart';
 part 'hermes_desktop_auth_rest.dart';
 part 'hermes_desktop_bots.dart';
+part 'hermes_desktop_canonical.dart';
 part 'hermes_desktop_event_projection.dart';
 part 'hermes_desktop_live_runtime.dart';
 part 'hermes_desktop_turn_runtime.dart';
@@ -211,6 +212,17 @@ final class HermesDesktopApiService
     OpenExternalUrlPort? openExternalUrl,
     HermesDashboardBridgeFactory? dashboardBridgeFactory,
     this.onCredentialsChanged,
+    @visibleForTesting
+    this.gatewayStartRetryDelays = const [
+      Duration(seconds: 1),
+      Duration(seconds: 2),
+      Duration(seconds: 4),
+    ],
+    @visibleForTesting
+    this.receiptRetryDelays = const [
+      Duration(seconds: 1),
+      Duration(seconds: 3),
+    ],
   }) : _openExternalUrl = openExternalUrl ?? const NullOpenExternalUrlPort(),
        _dashboardBridgeFactory = dashboardBridgeFactory,
        _nativeTokens = config.desktopCredentials?.nativeTokens,
@@ -242,6 +254,14 @@ final class HermesDesktopApiService
   /// not start rather than waiting for a callback nothing will send.
   final OpenExternalUrlPort _openExternalUrl;
 
+  /// How long to wait before each new attempt to reach a gateway that said
+  /// it is not ready (starting, restarting or draining).
+  final List<Duration> gatewayStartRetryDelays;
+
+  /// How long to wait before asking again for the receipt of a turn's own
+  /// prompt, after a reconnect, when Hermes could not give it.
+  final List<Duration> receiptRetryDelays;
+
   /// Supplies the WebView-backed dashboard bridge, when the host has one.
   final HermesDashboardBridgeFactory? _dashboardBridgeFactory;
 
@@ -269,6 +289,19 @@ final class HermesDesktopApiService
   /// Sessions owned by another profile (Bot Mode chats), keyed by stored id.
   /// Absent means the connection's configured profile owns the session.
   final Map<String, String> _sessionProfiles = {};
+
+  /// What a session authority fences each session's edits and controls
+  /// with (canonical wire only), by session id.
+  final Map<String, _HermesCanonicalSession> _canonicalSessions = {};
+
+  /// Canonical `session.create` request ids whose answer was lost, by the
+  /// create's parameters: a retry of the same create names the same id, so
+  /// Hermes answers it with the session the first attempt made.
+  final Map<String, String> _canonicalCreateIds = {};
+
+  /// Canonical `session.mutate` requests whose answer was lost, by session,
+  /// operation and payload: a retry of the same edit is sent as it was.
+  final Map<String, Map<String, Object?>> _canonicalMutations = {};
   final HermesDesktopEventBuffer _eventBuffer = HermesDesktopEventBuffer();
   final _turnStates = StreamController<HermesDesktopTurnState>.broadcast();
   final _sessionTurnStateChanges = StreamController<String>.broadcast();
@@ -509,7 +542,7 @@ final class HermesDesktopApiService
       _administration.capabilities();
 
   @override
-  Future<Map<String, dynamic>> healthDetailed() => statusProbe(refresh: true);
+  Future<Map<String, dynamic>> healthDetailed() => _authDetailedStatus();
 
   @override
   Future<List<Map<String, dynamic>>> listJobs() => _administration.listJobs();
@@ -637,6 +670,9 @@ final class HermesDesktopApiService
     _lastTranscripts.clear();
     _appliedSessionOptions.clear();
     _sessionTurnStates.clear();
+    _canonicalSessions.clear();
+    _canonicalCreateIds.clear();
+    _canonicalMutations.clear();
   }
 
   void _emitTurnState(HermesDesktopTurnState state) {

@@ -6941,6 +6941,10 @@
   "hermesMcpServers": "Serwery MCP",
   "hermesSignOut": "Wyloguj się z Hermes",
   "hermesActionFailed": "Akcja Hermes nie powiodła się.",
+  "hermesSignOutFailed": "Nie udało się wylogować z panelu Hermes. Sprawdź połączenie i spróbuj ponownie.",
+  "@hermesSignOutFailed": {
+    "description": "Shown when signing out of the Hermes Desktop Gateway failed, for example because Hermes could not be reached to end the dashboard session."
+  },
   "hermesToolsetUpdateFailed": "Aktualizacja zestawu narzędzi Hermes nie powiodła się.",
   "hermesJobStateLabel": "Stan",
   "hermesJobDeliveryLabel": "Dostarczanie",
@@ -6965,6 +6969,7 @@
   "hermesFastTierOff": "Wył.",
   "hermesTurnSteer": "Skieruj",
   "hermesTurnSendNext": "Wyślij następne",
+  "hermesSteerUncertain": "Hermes nie potwierdził instrukcji. Sprawdź odpowiedź, zanim wyślesz ją ponownie.",
   "hermesTurnControlsUnsupported": "Zaktualizuj Hermes, aby włączyć bezpieczne sterowanie turą.",
   "sidebarHermesTab": "Hermes",
   "sidebarBackendSwitcher": "Backend",

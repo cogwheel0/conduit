@@ -33,3 +33,14 @@ typedef HermesDashboardBridgeFactory = HermesDashboardBridge Function({
   required Uri root,
   required Map<String, String> accessHeaders,
 });
+
+/// Signs one Hermes deployment's dashboard session out on the server, from
+/// a page on its dashboard [root], with the gateway [accessHeaders] of the
+/// same configuration: Hermes ends the session and deletes its own cookies,
+/// which only it can tell from another gateway's on the same host. True when
+/// Hermes signed it out. A host with no WebView registers none.
+typedef HermesDashboardSignOut =
+    Future<bool> Function({
+      required Uri root,
+      required Map<String, String> accessHeaders,
+    });

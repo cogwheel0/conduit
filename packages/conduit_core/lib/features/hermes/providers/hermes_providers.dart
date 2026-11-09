@@ -55,6 +55,8 @@ import 'package:conduit_core/features/hermes/services/hermes_session_provenance.
 import 'package:conduit_core/providers/host_ports.dart';
 
 import 'package:conduit_core/features/hermes/services/hermes_dashboard_bridge.dart';
+import 'package:conduit_core/features/hermes/services/hermes_dashboard_cookie_registry.dart';
+import 'package:conduit_core/features/hermes/services/hermes_dashboard_webview_rules.dart';
 
 final class _HermesCredentialRollbackFailure implements Exception {
   const _HermesCredentialRollbackFailure({
@@ -589,6 +591,63 @@ class HermesConfigController extends Notifier<HermesConfig> {
     });
   }
 
+  /// How long clearing an origin's dashboard cookies waits for Hermes to
+  /// sign its session out.
+  static const _dashboardSignOutTimeout = Duration(seconds: 20);
+
+  /// Clears [baseUrl]'s dashboard cookies ([CookieJarPort.clearForOrigin]),
+  /// first asking Hermes to sign out a session the origin's record cannot
+  /// account for ([hermesDashboardHasUnrecordedSession]). Cookies ignore
+  /// ports, so only the gateway tells its own session from another
+  /// gateway's on the host, and its sign-out deletes exactly its own
+  /// cookies. [accessHeaders] is read only when Hermes is asked.
+  ///
+  /// The record's deletion runs either way. With [requireSignOut] (an
+  /// explicit Sign Out), a session Hermes was not seen to sign out makes the
+  /// clear fail, as the session may still open the dashboard. Without it
+  /// (a deleted connection, a changed address) the sign-out is best effort,
+  /// so a gateway that cannot be reached blocks neither.
+  Future<bool> _clearDashboardCookies(
+    String baseUrl,
+    Future<Map<String, String>> Function() accessHeaders, {
+    bool requireSignOut = false,
+  }) async {
+    final cookieJar = ref.read(cookieJarProvider);
+    final signOut = ref.read(hostHermesDashboardSignOutProvider);
+    var signedOut = true;
+    if (signOut != null && cookieJar.isSupported) {
+      try {
+        // Unknown until the WebView's cookies are read.
+        signedOut = false;
+        final root = hermesDashboardRoot(baseUrl);
+        final unrecorded = hermesDashboardHasUnrecordedSession(
+          current: await cookieJar.identitiesFor(root.toString()),
+          recorded: HermesDashboardCookieRegistry.identitiesFor(baseUrl),
+        );
+        signedOut =
+            !unrecorded ||
+            await signOut(
+              root: root,
+              accessHeaders: await accessHeaders(),
+            ).timeout(_dashboardSignOutTimeout);
+        if (!signedOut) {
+          DebugLogger.warning(
+            'dashboard-sign-out-refused',
+            scope: 'hermes/config',
+          );
+        }
+      } catch (error) {
+        DebugLogger.warning(
+          'dashboard-sign-out-failed',
+          scope: 'hermes/config',
+          data: {'errorType': error.runtimeType.toString()},
+        );
+      }
+    }
+    final cleared = await cookieJar.clearForOrigin(baseUrl);
+    return cleared && (signedOut || !requireSignOut);
+  }
+
   Future<void> signOutDesktop() => _serializeMutation(() async {
     await _secretsHydration;
     _throwIfSecretsUnavailable();
@@ -599,9 +658,12 @@ class HermesConfigController extends Notifier<HermesConfig> {
       // An explicit sign-out clears the origin's dashboard cookies even when
       // another saved connection shares the origin: the WebView cookie store
       // is process-global, so that connection was using the same session.
-      final cleared = await ref
-          .read(cookieJarProvider)
-          .clearForOrigin(state.baseUrl);
+      final accessHeaders = state.accessHeaders;
+      final cleared = await _clearDashboardCookies(
+        state.baseUrl,
+        () async => accessHeaders,
+        requireSignOut: true,
+      );
       if (!cleared) {
         throw StateError('Hermes dashboard cookies could not be cleared.');
       }
@@ -1027,9 +1089,10 @@ class HermesConfigController extends Notifier<HermesConfig> {
       if (originChanged &&
           previousBaseUrl.trim().isNotEmpty &&
           !_originSharedByAnotherConnection(previousBaseUrl, connectionId)) {
-        final cleared = await ref
-            .read(cookieJarProvider)
-            .clearForOrigin(previousBaseUrl);
+        final cleared = await _clearDashboardCookies(
+          previousBaseUrl,
+          () async => previous.accessHeaders,
+        );
         if (!cleared) {
           try {
             // As on the way in, the endpoint goes before the credentials
@@ -1227,9 +1290,12 @@ class HermesConfigController extends Notifier<HermesConfig> {
             StackTrace? clearStackTrace;
             var cleared = false;
             try {
-              cleared = await ref
-                  .read(cookieJarProvider)
-                  .clearForOrigin(target.baseUrl);
+              cleared = await _clearDashboardCookies(
+                target.baseUrl,
+                () async =>
+                    (await _readSecrets(target.id)).desktop?.accessHeaders ??
+                    const {},
+              );
             } catch (error, stackTrace) {
               clearError = error;
               clearStackTrace = stackTrace;
@@ -1960,6 +2026,12 @@ final hermesSecretsErrorProvider =
 /// which the auth path reports rather than failing opaquely.
 final hostHermesDashboardBridgeFactoryProvider =
     Provider<HermesDashboardBridgeFactory?>((ref) => null);
+
+/// The host's WebView-backed dashboard sign-out, if it has one. It signs a
+/// session out from the gateway's own page, so Hermes deletes exactly its
+/// own cookies; [CookieJarPort] can delete only the cookies on record.
+final hostHermesDashboardSignOutProvider =
+    Provider<HermesDashboardSignOut?>((ref) => null);
 
 /// Asks the user whether to switch to the saved Hermes connection named
 /// [connectionName]. Resolves false when declined or when nobody can be asked.
