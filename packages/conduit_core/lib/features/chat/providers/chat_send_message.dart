@@ -1622,24 +1622,8 @@ Future<void> _sendMessageInternal(
       );
     }
     // A 401 or 403 here may be a model provider rejecting its API key, which
-    // Open WebUI passes through, or the session ending. Ask the session
-    // endpoint: as everywhere else, the auth interceptor reports its refusal
-    // as the session ending, and a provider's refusal only marks the reply.
-    if (e is ChatCompletionHttpException && e.mayRejectSession) {
-      final ApiService? api = ref.read(apiServiceProvider) as ApiService?;
-      if (api != null) {
-        unawaited(
-          api.getCurrentUser().then<void>(
-            (_) {},
-            onError: (Object error) => DebugLogger.log(
-              'session-check-after-refused-completion',
-              scope: 'chat/providers',
-              data: {'errorType': error.runtimeType.toString()},
-            ),
-          ),
-        );
-      }
-    }
+    // Open WebUI passes through, or the session ending.
+    _checkSessionAfterRefusedCompletion(ref, e);
   }
 }
 
@@ -1735,6 +1719,13 @@ String chatErrorContentForException(Object e) {
       e.detail.trim() == TemporaryChatUnavailable.serverDetail) {
     return TemporaryChatUnavailable.userMessage;
   }
+  // Any other refusal in the server's own words ("Model not found", a
+  // provider's "Incorrect API key provided"), as Open WebUI's client shows
+  // it: only the server knows why it said no.
+  if (e is ChatCompletionHttpException) {
+    final words = _serverRefusalWords(e.detail);
+    if (words != null) return words;
+  }
   if (e is HermesAttachmentsUnsupportedException) return e.message;
   if (e is HermesDesktopGatewayStartingException) return e.message;
   if (e is HermesChatInputException) return e.message;
@@ -1768,6 +1759,39 @@ String chatErrorContentForException(Object e) {
     return 'An unexpected error occurred while processing your request. '
         'Please try again or check your connection.';
   }
+}
+
+/// The text of a refused completion request when it reads as words to a
+/// person: not empty, not a page of HTML from a proxy, not a JSON body (a
+/// validation error's field list) and not a wall of text.
+String? _serverRefusalWords(String detail) {
+  final words = detail.trim();
+  if (words.isEmpty || words.length > 600) return null;
+  if (words.startsWith('<') || words.startsWith('{') || words.startsWith('[')) {
+    return null;
+  }
+  return words;
+}
+
+/// Asks the session endpoint after a completion the server refused with 401
+/// or 403. A model provider's own refusal of its API key comes through as
+/// one, as does the session ending; as everywhere else, the auth interceptor
+/// reports the session endpoint's refusal as the session ending, and a
+/// provider's refusal only marks the reply.
+void _checkSessionAfterRefusedCompletion(dynamic ref, Object error) {
+  if (error is! ChatCompletionHttpException || !error.mayRejectSession) return;
+  final ApiService? api = ref.read(apiServiceProvider) as ApiService?;
+  if (api == null) return;
+  unawaited(
+    api.getCurrentUser().then<void>(
+      (_) {},
+      onError: (Object error) => DebugLogger.log(
+        'session-check-after-refused-completion',
+        scope: 'chat/providers',
+        data: {'errorType': error.runtimeType.toString()},
+      ),
+    ),
+  );
 }
 
 // Save current conversation to OpenWebUI server
