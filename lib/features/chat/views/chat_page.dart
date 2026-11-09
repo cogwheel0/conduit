@@ -2478,11 +2478,11 @@ class _ChatPageState extends ConsumerState<ChatPage>
       ? math.max(0, _inputHeight - Spacing.xl)
       : MediaQuery.viewPaddingOf(context).bottom + Spacing.xxl;
 
-  /// The scroll edge under the header: on iOS the page background covers
-  /// the status bar and the header's buttons to their bottom edge, then the
-  /// transcript fades into it over a short eased strip, so no text ever
-  /// sits behind the glass and no line is cut by its edge. Elsewhere the
-  /// opaque band with a short fade below it.
+  /// The scroll edge under the header: on iOS the transcript dissolves into
+  /// the page background as it passes under the bar, a whole line at a time
+  /// (see [ConduitScrollEdgeEffect]): a faint trace behind the lower part of
+  /// the buttons, gone before the status bar, and clear a little below the
+  /// buttons. Elsewhere the opaque band with a short fade below it.
   Widget _buildHeaderScrollEdge(BuildContext context) {
     final topInset = MediaQuery.viewPaddingOf(context).top;
     final toolbarHeight = conduitAdaptiveToolbarHeightOf(context);
@@ -2506,7 +2506,8 @@ class _ChatPageState extends ConsumerState<ChatPage>
   }
 
   /// The same edge above the composer: covered from the screen's bottom (or
-  /// the keyboard) to the composer's top, then the strip above it.
+  /// the keyboard) to the middle of the composer, then the fade, a trace at
+  /// the composer's top edge.
   Widget _buildComposerScrollEdge(BuildContext context) {
     final composerTop = _composerTopInset(context);
     if (!PlatformInfo.isIOS) {
@@ -4651,17 +4652,17 @@ class _ChatPageState extends ConsumerState<ChatPage>
                 left: 0,
                 right: 0,
                 top: 0,
-                // Covered behind the status bar and the glass buttons, so
-                // neither the clock nor Liquid Glass sits over text; just
-                // past them it fades in instead of being cut by a line.
+                // Covered behind the status bar, then a fade that dims each
+                // line as a whole as it passes under the glass buttons, so
+                // no line is cut at their edge.
                 child: _buildHeaderScrollEdge(context),
               ),
               Positioned(
                 left: 0,
                 right: 0,
                 bottom: 0,
-                // The same edge above the composer: covered under its glass,
-                // clear a line above it.
+                // The same edge above the composer: a trace under the top of
+                // its glass, clear a couple of lines above it.
                 child: _buildComposerScrollEdge(context),
               ),
               Positioned(
@@ -5563,7 +5564,7 @@ double chatScrollEdgeEngagement({
 }) {
   if (moreBeyondEdge) return 1;
   if (!distanceUnderEdge.isFinite || distanceUnderEdge <= 0) return 0;
-  return (distanceUnderEdge / kConduitScrollEdgeSoftExtent)
+  return (distanceUnderEdge / kConduitScrollEdgeEngageDistance)
       .clamp(0.0, 1.0)
       .toDouble();
 }

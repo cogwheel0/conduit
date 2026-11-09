@@ -91,83 +91,95 @@ void main() {
 
   group('soft scroll edge', () {
     // An iPhone header: status bar 62, buttons 44 tall centred in a 48 pt
-    // bar, so their bottom edge is 108 pt down.
+    // bar, so they span 64 to 108 pt down.
     const top = ConduitScrollEdgeEffect.top(coverExtent: 108);
+    double ink(double distance, [ConduitScrollEdgeEffect edge = top]) =>
+        1 - edge.tintOpacityAt(distance);
 
-    test('covers the status bar and the buttons, then eases out', () {
+    test('covers the status bar, leaves a trace behind the buttons and '
+        'clears below them', () {
+      expect(top.solidExtent, 108 - kConduitScrollEdgeCoverInset);
       expect(top.extent, 108 + kConduitScrollEdgeSoftExtent);
-      // The page background, fully, down to the buttons' bottom edge: no
-      // text behind or beside the glass.
-      for (final d in [0.0, 30.0, 62.0, 86.0, 108.0]) {
+      // The page background, fully, over the status bar and the upper part
+      // of the buttons.
+      for (final d in [0.0, 30.0, 62.0, top.solidExtent]) {
         expect(top.tintOpacityAt(d), 1);
       }
-      // Then it eases out: clear at the end, half way at the middle.
+      // Behind the lower part of the buttons the text is at most a trace,
+      // too faint to read through the glass or between the buttons ...
+      expect(ink(92), lessThan(0.01));
+      expect(ink(108), inInclusiveRange(0.02, 0.05));
+      // ... half its ink a little below them, and clear at the end.
+      expect(ink(108 + kConduitScrollEdgeFadeMidpoint), closeTo(0.5, 0.01));
+      expect(ink(108 + 50), greaterThan(0.9));
       expect(top.tintOpacityAt(top.extent), 0);
-      expect(
-        top.tintOpacityAt(108 + kConduitScrollEdgeSoftExtent / 2),
-        closeTo(0.5, 1e-9),
-      );
     });
 
-    test('the fade has no step or crease, even across one line of text', () {
-      // Flat where it meets the cover and where it clears, and never
-      // steeper than a smoothstep across the strip: a 17 pt line under it
-      // fades from the top of its letters to their foot, without a seam.
+    test('the fade has no step or crease', () {
       var previous = 1.0;
       var steepest = 0.0;
-      for (var d = 108.0; d <= top.extent + 1; d += 0.25) {
+      for (var d = top.solidExtent; d <= top.extent + 1; d += 0.25) {
         final alpha = top.tintOpacityAt(d);
         expect(alpha, lessThanOrEqualTo(previous + 1e-9));
         steepest = math.max(steepest, (previous - alpha) / 0.25);
         previous = alpha;
       }
-      expect(
-        steepest,
-        lessThanOrEqualTo(1.5 / kConduitScrollEdgeSoftExtent + 1e-9),
-      );
-      expect(1 - top.tintOpacityAt(108.5), lessThan(0.01));
+      // Gentler than the 44 pt smoothstep it replaces.
+      expect(steepest, lessThan(1.5 / 44));
+      // It eases in from the cover and out to clear.
+      expect(ink(top.solidExtent + 0.5), lessThan(0.01));
       expect(top.tintOpacityAt(top.extent - 0.5), lessThan(0.01));
     });
 
-    test('a line caught across the cover edge dissolves, never sliced', () {
-      // A 17 pt line's letters stand about 16 pt tall. Once half of them or
-      // more are under the cover, what shows below it is under a tenth of
-      // its ink: a fading ghost, not the foot of a cut line.
-      for (var covered = 8.0; covered <= 16; covered += 0.5) {
-        final foot = 108 - covered + 16;
-        expect(1 - top.tintOpacityAt(foot), lessThan(0.1));
+    test('a line under the edge dims as a whole, never cut', () {
+      // A 17 pt line's letters stand about 16 pt tall. Wherever the line
+      // sits, once its foot (the lower half's centre) shows enough to read,
+      // its top (the upper half's centre, 8 pt higher) keeps a good share
+      // of that ink: no line shows a solid foot under a vanished top.
+      for (var t = 40.0; t <= top.extent; t += 0.25) {
+        final foot = ink(t + 8);
+        if (foot < 0.1) continue;
+        expect(ink(t) / foot, greaterThan(0.4), reason: 'line top at $t');
       }
-      // Still short enough to clear a sent message resting under the
-      // header (22 pt under the buttons plus the chat's 56 pt peek).
-      expect(kConduitScrollEdgeSoftExtent, lessThanOrEqualTo(22 + 56));
+      // And when the top of a line's letters is gone, its foot is a trace.
+      for (var t = 40.0; t <= top.extent; t += 0.25) {
+        if (ink(t) >= 0.02) continue;
+        expect(ink(t + 16), lessThan(0.12), reason: 'line top at $t');
+      }
     });
 
-    test('with nothing under the edge the strip is gone', () {
+    test('a sent message resting under the header stays crisp', () {
+      // 92 pt below the transcript's top, which is a few points below the
+      // buttons: well past the fade.
+      expect(108 + kConduitScrollEdgeSoftExtent, lessThan(108 + 92));
+    });
+
+    test('with nothing under the edge the fade stays behind the chrome', () {
       const resting = ConduitScrollEdgeEffect.top(
         coverExtent: 108,
         engagement: 0,
       );
       expect(resting.extent, 108);
-      // A first message resting 22 pt under the buttons is untouched.
+      // A first message resting just under the buttons is untouched.
+      expect(resting.tintOpacityAt(108), 0);
       expect(resting.tintOpacityAt(130), 0);
-      // Fully engaged (a message sent in a longer chat, resting 56 pt lower
-      // so the reply before it peeks out above), its bubble is untouched
-      // too.
-      expect(top.tintOpacityAt(130 + 56), 0);
-      // The cover itself never moves.
-      expect(resting.tintOpacityAt(108), 1);
+      // The covered part never moves.
+      expect(resting.solidExtent, top.solidExtent);
+      expect(resting.tintOpacityAt(top.solidExtent), 1);
     });
 
-    test('a scroll toward the edge meets the strip at its clear end', () {
-      // Scrolled 10 pt: the strip is 10 pt long, and a line that has moved
-      // from 130 to 120 is still clear.
+    test('a scroll toward the edge meets the fade at its clear end', () {
       const engaged = ConduitScrollEdgeEffect.top(
         coverExtent: 108,
-        engagement: 10 / kConduitScrollEdgeSoftExtent,
+        engagement: 0.25,
       );
-      expect(engaged.stripExtent, closeTo(10, 1e-9));
-      expect(engaged.tintOpacityAt(120), 0);
-      expect(engaged.tintOpacityAt(113), closeTo(0.5, 1e-9));
+      expect(engaged.extent, 108 + kConduitScrollEdgeSoftExtent * 0.25);
+      expect(engaged.tintOpacityAt(engaged.extent), 0);
+      expect(engaged.tintOpacityAt(engaged.extent - 0.5), lessThan(0.02));
+      // More content under the edge, more of it faded at any one place.
+      for (final d in [100.0, 108.0, 116.0]) {
+        expect(engaged.tintOpacityAt(d), lessThan(top.tintOpacityAt(d)));
+      }
     });
 
     testWidgets('draws no backdrop filter', (tester) async {
@@ -229,12 +241,16 @@ void main() {
       final gradient =
           (box.decoration as BoxDecoration).gradient! as LinearGradient;
       expect(gradient.begin, Alignment.bottomCenter);
-      // Opaque from the screen's bottom to the composer's top, then easing
-      // out from there without a crease.
+      // Opaque from the screen's bottom to the middle of the composer, then
+      // easing out from there without a crease.
       expect(gradient.colors[1].a, 1);
       expect(
         gradient.stops![1],
-        closeTo(90 / (90 + kConduitScrollEdgeSoftExtent), 1e-9),
+        closeTo(
+          (90 - kConduitScrollEdgeCoverInset) /
+              (90 + kConduitScrollEdgeSoftExtent),
+          1e-9,
+        ),
       );
       expect(gradient.colors[2].a, greaterThan(0.98));
       expect(gradient.colors.last.a, 0);

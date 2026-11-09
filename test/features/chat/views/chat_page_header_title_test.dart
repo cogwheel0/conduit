@@ -122,12 +122,12 @@ void main() {
 
     test('the strip grows with the text scrolled under the edge', () {
       final half = chatScrollEdgeEngagement(
-        distanceUnderEdge: kConduitScrollEdgeSoftExtent / 2,
+        distanceUnderEdge: kConduitScrollEdgeEngageDistance / 2,
       );
       expect(half, closeTo(0.5, 1e-9));
       expect(
         chatScrollEdgeEngagement(
-          distanceUnderEdge: kConduitScrollEdgeSoftExtent * 3,
+          distanceUnderEdge: kConduitScrollEdgeEngageDistance * 3,
         ),
         1,
       );
