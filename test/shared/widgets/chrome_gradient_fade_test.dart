@@ -129,8 +129,17 @@ void main() {
       expect(top.tintOpacityAt(top.extent - 0.5), lessThan(0.01));
     });
 
-    test('the strip spans 24 to 32 pt below the chrome', () {
-      expect(kConduitScrollEdgeSoftExtent, inInclusiveRange(24, 32));
+    test('a line caught across the cover edge dissolves, never sliced', () {
+      // A 17 pt line's letters stand about 16 pt tall. Once half of them or
+      // more are under the cover, what shows below it is under a tenth of
+      // its ink: a fading ghost, not the foot of a cut line.
+      for (var covered = 8.0; covered <= 16; covered += 0.5) {
+        final foot = 108 - covered + 16;
+        expect(1 - top.tintOpacityAt(foot), lessThan(0.1));
+      }
+      // Still short enough to clear a sent message resting under the
+      // header (22 pt under the buttons plus the chat's 56 pt peek).
+      expect(kConduitScrollEdgeSoftExtent, lessThanOrEqualTo(22 + 56));
     });
 
     test('with nothing under the edge the strip is gone', () {
@@ -141,9 +150,10 @@ void main() {
       expect(resting.extent, 108);
       // A first message resting 22 pt under the buttons is untouched.
       expect(resting.tintOpacityAt(130), 0);
-      // Fully engaged (a message pinned there after a send), its bubble's
-      // top edge is all but untouched too.
-      expect(top.tintOpacityAt(130), lessThan(0.15));
+      // Fully engaged (a message sent in a longer chat, resting 56 pt lower
+      // so the reply before it peeks out above), its bubble is untouched
+      // too.
+      expect(top.tintOpacityAt(130 + 56), 0);
       // The cover itself never moves.
       expect(resting.tintOpacityAt(108), 1);
     });
