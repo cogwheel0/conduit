@@ -5,6 +5,8 @@ import 'package:dio/dio.dart';
 import '../network/conduit_user_agent.dart';
 import '../network/same_origin_redirect_interceptor.dart';
 
+import 'package:conduit_core/services/connectivity_service.dart'
+    show answeredWithWebPage;
 import 'package:conduit_core/utils/debug_logger.dart';
 
 /// Immutable authorization value captured for work that must remain bound to
@@ -333,9 +335,13 @@ class ApiAuthInterceptor extends Interceptor {
       _handleAuthorizationError(
         path: path,
         statusCode: code,
-        kind: _answeredWithWebPage(err.response)
-            ? AuthFailureKind.proxyPage
-            : AuthFailureKind.sessionRejected,
+        // Open WebUI answers its API with JSON, its refusals included: a web
+        // page is something in front of it.
+        kind: switch (err.response) {
+          final response? when answeredWithWebPage(response.headers) =>
+            AuthFailureKind.proxyPage,
+          _ => AuthFailureKind.sessionRejected,
+        },
       );
     } else if (statusCode case final code?
         when !suppressAuthFailureNotification &&
@@ -359,13 +365,6 @@ class ApiAuthInterceptor extends Interceptor {
   /// Whether this client carries a reverse-proxy session cookie.
   bool get hasProxyCookieHeader =>
       customHeaders.keys.any((key) => key.toLowerCase() == 'cookie');
-
-  /// Whether [response] is a web page. Open WebUI answers its API with JSON,
-  /// its refusals included.
-  static bool _answeredWithWebPage(Response<dynamic>? response) =>
-      (response?.headers[Headers.contentTypeHeader] ?? const <String>[]).any(
-        (type) => type.toLowerCase().contains('text/html'),
-      );
 
   void _handleAuthorizationError({
     required String path,
