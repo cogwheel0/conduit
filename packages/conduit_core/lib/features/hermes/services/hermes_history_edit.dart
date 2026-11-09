@@ -22,11 +22,15 @@ int? hermesTranscriptRowId(Map<String, dynamic> row) {
 ///
 /// [text] is the message as the transcript stores it, when the chat now
 /// shows something else (an edit replaces the text before it is sent).
+/// With [inPlaceOnly] only a match at the message's place counts: a text
+/// the chat no longer shows cannot be counted against what it shows, and
+/// another app may have sent it as a later turn.
 int? hermesTranscriptUserRowIndex({
   required List<Map<String, dynamic>> transcript,
   required List<ChatMessage> messages,
   required int index,
   String? text,
+  bool inPlaceOnly = false,
 }) {
   if (index < 0 || index >= messages.length) return null;
   final target = messages[index];
@@ -81,7 +85,7 @@ int? hermesTranscriptUserRowIndex({
   // chat shows that text as often as the session stores it, the n-th on
   // screen is the n-th stored. When it shows it more often, one of them
   // never reached Hermes and nothing says which.
-  if (wanted.isEmpty) return null;
+  if (wanted.isEmpty || inPlaceOnly) return null;
   final onScreen = [
     for (final message in userMessages)
       if (typed(message) == wanted) message,

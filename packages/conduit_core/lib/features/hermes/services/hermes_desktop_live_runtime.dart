@@ -915,12 +915,35 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
     return (revision: revision, generation: generation);
   }
 
+  /// The row id of the last turn a user started in session [storedId], as
+  /// the session stores it now.
+  Future<int?> _lastUserRowId(String storedId) async {
+    final transcript = await _runtimeGetSessionMessages(
+      storedId,
+      current: true,
+    );
+    _lastTranscripts.remove(storedId);
+    for (final row in transcript.reversed) {
+      if (hermesTranscriptUserContent(row) != null) {
+        return hermesTranscriptRowId(row);
+      }
+    }
+    return null;
+  }
+
   Future<bool> _runtimeUndoLastTurn(String id, {int? rowId}) async {
     final binding = await _resume(id);
     _lastTranscripts
       ..remove(id)
       ..remove(binding.storedId);
     if (!_canonical) {
+      // The legacy undo names no turn: it drops whichever user turn is last
+      // when it runs, in a session every client attached to it shares.
+      // [rowId] must still be that turn just before the undo is sent, and
+      // gone after it: a turn stored in between was dropped instead.
+      if (rowId != null && await _lastUserRowId(binding.storedId) != rowId) {
+        throw StateError('The Hermes chat changed. Try again.');
+      }
       final result = _object(
         await _rpc.request<Object?>(
           'session.undo',
@@ -931,7 +954,25 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
         ),
       );
       final removed = result['removed'];
-      return removed is int && removed > 0;
+      if (removed is! int || removed <= 0) return false;
+      if (rowId == null) return true;
+      final List<Map<String, dynamic>> after;
+      try {
+        after = await _runtimeGetSessionMessages(
+          binding.storedId,
+          current: true,
+        );
+      } catch (_) {
+        // Most likely the checked turn went. Reported as not undone, it
+        // would be undone again, and the turn before it dropped too.
+        return true;
+      } finally {
+        _lastTranscripts.remove(binding.storedId);
+      }
+      if (after.any((row) => hermesTranscriptRowId(row) == rowId)) {
+        throw StateError('Hermes undid a turn sent after the checked one.');
+      }
+      return true;
     }
     // A session authority has no undo: it rewinds to [rowId], else to the
     // last turn a user started, a row of their own (not a marker Hermes

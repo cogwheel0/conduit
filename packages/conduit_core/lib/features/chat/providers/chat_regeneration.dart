@@ -38,12 +38,17 @@ hermesDesktopRewindTarget({
   // matched, would cut the wrong history.
   final transcript = await service.getCurrentSessionMessages(sessionId);
   // An edit stores its new text once its replacement is sent: until then
-  // the session holds [originalText], after it what the chat shows.
+  // the session holds [originalText], after it what the chat shows. A text
+  // the chat no longer shows (one kept from before an edit, which may not
+  // have been cleared yet) counts only at the turn's place: out of place it
+  // may be a later turn another app sent with it.
+  final shown = messages[replayedUserIndex].content.trim();
   int? find(String? text) => hermesTranscriptUserRowIndex(
     transcript: transcript,
     messages: messages,
     index: replayedUserIndex,
     text: text,
+    inPlaceOnly: text != null && text.trim() != shown,
   );
   // Each text the turn may be stored with is tried: two that match two
   // rows mean one of them is another turn (one sent later with the text
@@ -716,8 +721,8 @@ Future<void> regenerateEditedHermesUserMessage(
 /// [hermesDesktopRewindTarget]. An edit passes both its own. Otherwise (a
 /// regenerate) the text before an edit comes from the turn's metadata,
 /// which an edit may not have cleared yet: the text shown is then tried
-/// too, so a later turn sent with the old text and the edited one itself
-/// match two rows, which refuses the cut instead of cutting the wrong one.
+/// too. A text the chat no longer shows counts only at the turn's place, so
+/// a later turn another app sent with the old text is never the one cut.
 @visibleForTesting
 ({String? originalText, String? previousText}) hermesRewindCandidateTexts({
   required ChatMessage? replayed,

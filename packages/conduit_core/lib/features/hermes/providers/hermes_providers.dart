@@ -2377,6 +2377,10 @@ class HermesReadOnlySessions extends Notifier<Map<String, String>> {
   }
 }
 
+/// Sessions a branch is being made from
+/// ([HermesSessions.branchFromMessage]).
+final Set<String> _hermesBranching = <String>{};
+
 final hermesReadOnlySessionsProvider =
     NotifierProvider<HermesReadOnlySessions, Map<String, String>>(
       HermesReadOnlySessions.new,
@@ -2868,11 +2872,34 @@ class HermesSessionsController
   /// this device here, so a branch left before it opens keeps them; its REST
   /// turns replay them. [transcript] is returned only when they could not be
   /// saved for lack of a connection identity. Null when the connection
-  /// changed meanwhile.
+  /// changed meanwhile, or a branch of [sessionId] is already being made:
+  /// a second one would make a second copy on the server.
   Future<
     ({HermesSessionSummary session, List<Map<String, dynamic>>? transcript})?
   >
   branchFromMessage({
+    required String sessionId,
+    required String title,
+    required List<ChatMessage> messages,
+    required int index,
+  }) async {
+    if (!_hermesBranching.add(sessionId)) return null;
+    try {
+      return await _branchFromMessage(
+        sessionId: sessionId,
+        title: title,
+        messages: messages,
+        index: index,
+      );
+    } finally {
+      _hermesBranching.remove(sessionId);
+    }
+  }
+
+  Future<
+    ({HermesSessionSummary session, List<Map<String, dynamic>>? transcript})?
+  >
+  _branchFromMessage({
     required String sessionId,
     required String title,
     required List<ChatMessage> messages,
@@ -2957,6 +2984,46 @@ class HermesSessionsController
       );
     }
     final copyId = await service.createSession();
+    // Made under a connection the user has left: the copy, and what this
+    // device kept for it, go, as a stale fork's do.
+    Future<void> discardStaleCopy() async {
+      if (connectionIdentity != null) {
+        try {
+          await HermesLocalDocumentTrustStore.forgetSession(
+            connectionIdentity: connectionIdentity,
+            sessionId: copyId,
+          );
+        } catch (_) {
+          DebugLogger.warning(
+            'local-document-trust-stale-branch-purge-failed',
+            scope: 'hermes/sessions',
+          );
+        }
+        try {
+          await ref
+              .read(hermesCopiedHistoryStoreProvider)
+              .forgetSession(
+                connectionIdentity: connectionIdentity,
+                sessionId: copyId,
+              );
+        } catch (_) {
+          DebugLogger.warning(
+            'copied-history-stale-branch-purge-failed',
+            scope: 'hermes/sessions',
+          );
+        }
+      }
+      try {
+        await service.deleteSession(copyId);
+      } catch (_) {
+        // Best effort: the copy stays as an empty session.
+      }
+    }
+
+    if (!current()) {
+      await discardStaleCopy();
+      return null;
+    }
     final kept = transcript.sublist(0, cut.end);
     if (connectionIdentity != null) {
       try {
@@ -3005,7 +3072,10 @@ class HermesSessionsController
         );
       }
     }
-    if (!current()) return null;
+    if (!current()) {
+      await discardStaleCopy();
+      return null;
+    }
     ref.invalidateSelf();
     return (
       session: HermesSessionSummary(

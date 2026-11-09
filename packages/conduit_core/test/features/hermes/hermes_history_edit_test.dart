@@ -119,6 +119,9 @@ final class _Gateway {
   /// Answers a request in place of the defaults; null falls back to them.
   Object? Function(String method, Map<String, dynamic> params)? handler;
 
+  /// The stored transcript an undo shortens, as Hermes does.
+  _Rest? rest;
+
   Object? _answer(String method, Map<String, dynamic> params) {
     switch (method) {
       case 'session.resume':
@@ -150,7 +153,14 @@ final class _Gateway {
           'title': 'Synthetic picnic (branch)',
         };
       case 'session.undo':
-        return {'removed': 2};
+        final stored = rest;
+        final last =
+            stored?.transcript.lastIndexWhere((row) => row['role'] == 'user') ??
+            -1;
+        if (stored == null || last < 0) return {'removed': 2};
+        final removed = stored.transcript.length - last;
+        stored.transcript = stored.transcript.take(last).toList();
+        return {'removed': removed};
       case 'config.get':
         return {'value': 'medium'};
     }
@@ -259,6 +269,7 @@ HermesDesktopApiService _service(_Gateway gateway, _Rest rest) {
     ),
     gatewayStartRetryDelays: const [Duration.zero],
   );
+  gateway.rest = rest;
   addTearDown(() async {
     service.close();
     await gateway.incoming.close();
@@ -344,6 +355,9 @@ class _RestTranscript extends HermesApiService {
   final deleted = <String>[];
   int forks = 0;
 
+  /// Runs once the new session is made, before it is answered.
+  void Function()? onCreated;
+
   @override
   Future<void> deleteSession(String id, {CancelToken? cancelToken}) async {
     deleted.add(id);
@@ -363,6 +377,7 @@ class _RestTranscript extends HermesApiService {
     CancelToken? cancelToken,
   }) async {
     created.add(title);
+    onCreated?.call();
     return 'api_copy';
   }
 
@@ -897,6 +912,33 @@ void main() {
       check(gateway.calls('prompt.submit')).isEmpty();
     });
 
+    // Stopped while the fences were read, the edit still cut the turns it
+    // replaces, and sent nothing in their place.
+    test('an edit stopped while its fences are read cuts nothing', () async {
+      final gateway = _Gateway(authority: true);
+      final cancel = CancelToken();
+      final rest = _Rest(_transcript)
+        ..onRequest = (path) {
+          if (path == '/api/sessions/stored-1/messages') cancel.cancel();
+        };
+      final service = _service(gateway, rest);
+
+      final response = await service.streamDesktopResponse(
+        HermesChatInput.text('And snacks?'),
+        sessionId: 'stored-1',
+        options: const HermesDesktopSessionOptions(),
+        truncateBeforeRowId: 15,
+        truncateSeenThroughRowId: 16,
+        cancelToken: cancel,
+      );
+      await response.events.toList().timeout(const Duration(seconds: 5));
+      await _settle();
+
+      check(cancel.isCancelled).isTrue();
+      check(gateway.calls('session.mutate')).isEmpty();
+      check(gateway.calls('prompt.submit')).isEmpty();
+    });
+
     test('a refused rewind sends no prompt', () async {
       final gateway = _Gateway(authority: true);
       gateway.handler = (method, params) {
@@ -998,8 +1040,10 @@ void main() {
 
     // The first text matched a later turn another app sent with it, the
     // second the edited turn itself: the first match won, and the edit cut
-    // the wrong turn.
-    test('texts that match two turns find neither', () async {
+    // the wrong turn. A text the chat no longer shows now counts only at
+    // the turn's place, so the edited turn is found.
+    test('a text another app sent later counts only at the turn\'s place',
+        () async {
       final stored = [
         for (final row in _transcript)
           row['id'] == 15 ? {...row, 'content': 'Snacks?'} : row,
@@ -1009,20 +1053,18 @@ void main() {
       final service = _service(_Gateway(), _Rest(stored));
       final edited = [..._chat.take(2), _message('u2', 'user', 'Games?')];
 
-      await check(
-        hermesDesktopRewindTarget(
-          service: service,
-          conversation: conversation,
-          messages: edited,
-          replayedUserIndex: 2,
-          originalText: 'And drinks?',
-          previousText: 'Snacks?',
-        ),
-      ).throws<StateError>(
-        (it) => it
-            .has((error) => error.message, 'message')
-            .contains('could not be found'),
+      final target = await hermesDesktopRewindTarget(
+        service: service,
+        conversation: conversation,
+        messages: edited,
+        replayedUserIndex: 2,
+        originalText: 'And drinks?',
+        previousText: 'Snacks?',
       );
+
+      check(target).isNotNull()
+        ..has((t) => t.rowId, 'rowId').equals(15)
+        ..has((t) => t.lastRowId, 'lastRowId').equals(18);
     });
 
     // A plain regenerate passed only the text kept from before an edit: a
@@ -1043,16 +1085,17 @@ void main() {
       check(texts.originalText).equals('And drinks?');
       check(texts.previousText).equals('Snacks?');
 
-      await check(
-        hermesDesktopRewindTarget(
-          service: service,
-          conversation: conversation,
-          messages: [..._chat.take(2), replayed],
-          replayedUserIndex: 2,
-          originalText: texts.originalText,
-          previousText: texts.previousText,
-        ),
-      ).throws<StateError>();
+      // The kept text matches the later turn only out of place, which does
+      // not count; the text shown is at the turn's place.
+      final target = await hermesDesktopRewindTarget(
+        service: service,
+        conversation: conversation,
+        messages: [..._chat.take(2), replayed],
+        replayedUserIndex: 2,
+        originalText: texts.originalText,
+        previousText: texts.previousText,
+      );
+      check(target?.rowId).equals(15);
       // An edit's own texts are kept as given.
       check(
         hermesRewindCandidateTexts(
@@ -1064,6 +1107,39 @@ void main() {
       check(
         hermesRewindCandidateTexts(replayed: _message('u2', 'user', 'X')),
       ).equals((originalText: null, previousText: null));
+    });
+
+    // The text kept from before an edit (its clean-up not yet done) was the
+    // only match once another app replaced the edited turn: a later turn it
+    // sent with that text was cut, with its reply.
+    test('a kept text that matches only a later turn refuses the cut',
+        () async {
+      final stored = [
+        for (final row in _transcript)
+          row['id'] == 15 ? {...row, 'content': 'Snacks from elsewhere?'} : row,
+        {'id': 17, 'role': 'user', 'content': 'And drinks?'},
+        {'id': 18, 'role': 'assistant', 'content': 'Water.'},
+      ];
+      final service = _service(_Gateway(), _Rest(stored));
+      final replayed = _message('u2', 'user', 'Snacks?').copyWith(
+        metadata: const {kHermesStoredUserContentKey: 'And drinks?'},
+      );
+      final texts = hermesRewindCandidateTexts(replayed: replayed);
+
+      await check(
+        hermesDesktopRewindTarget(
+          service: service,
+          conversation: conversation,
+          messages: [..._chat.take(2), replayed],
+          replayedUserIndex: 2,
+          originalText: texts.originalText,
+          previousText: texts.previousText,
+        ),
+      ).throws<StateError>(
+        (it) => it
+            .has((error) => error.message, 'message')
+            .contains('could not be found'),
+      );
     });
 
     test('a turn that never reached the session is only sent again', () async {
@@ -1278,6 +1354,32 @@ void main() {
       check(gateway.calls('session.branch').single['count']).equals(2);
     });
 
+    // A branch chosen again while the first was made created a second
+    // copy on the server, and only one of them opened.
+    test('a second branch while one is made does nothing', () async {
+      final gateway = _Gateway();
+      final rest = _Rest(_transcript);
+      final service = _service(gateway, rest);
+      final container = _chatContainer(service, _chat);
+      final held = rest.hold = Completer<void>();
+      Future<Object?> branch() => container
+          .read(hermesSessionsProvider.notifier)
+          .branchFromMessage(
+            sessionId: 'stored-1',
+            title: 'Synthetic picnic',
+            messages: _chat,
+            index: 1,
+          );
+
+      final first = branch();
+      await _settle();
+      check(await branch()).isNull();
+      held.complete();
+
+      check(await first).isNotNull();
+      check(gateway.calls('session.branch')).length.equals(1);
+    });
+
     test('a branch made while the connection changed is not opened', () async {
       final gateway = _Gateway();
       final rest = _Rest(_transcript);
@@ -1411,6 +1513,53 @@ void main() {
       check(service.created).deepEquals([null]);
       check(service.forks).equals(0);
       check(service.deleted).isEmpty();
+    });
+
+    // A branch whose connection changed once its copy was made returned
+    // nothing, but left the copy on the server and its history here.
+    test('an API server branch made while the connection changed is removed',
+        () async {
+      final service = _RestTranscript();
+      final database = AppDatabase(NativeDatabase.memory());
+      addTearDown(database.close);
+      final copiedHistory = HermesCopiedHistoryStore(database);
+      final connection = NotifierProvider<_Connection, HermesBackendService?>(
+        () => _Connection(service),
+      );
+      final container = _chatContainer(
+        service,
+        _chat,
+        connection: connection,
+        copiedHistory: copiedHistory,
+      );
+      final identity = HermesLocalDocumentTrustStore.connectionIdentity(
+        endpointIdentity: HermesConfigController.connectionEndpoint(
+          'https://hermes.example',
+        )!,
+        principalId: container
+            .read(hermesConfigProvider.notifier)
+            .documentTrustPrincipalId(),
+      );
+      service.onCreated = () =>
+          container.read(connection.notifier).use(_RestTranscript());
+
+      final branch = await container
+          .read(hermesSessionsProvider.notifier)
+          .branchFromMessage(
+            sessionId: 'stored-1',
+            title: 'Synthetic picnic',
+            messages: _chat,
+            index: 1,
+          );
+
+      check(branch).isNull();
+      check(service.deleted).deepEquals(['api_copy']);
+      check(
+        await copiedHistory.load(
+          connectionIdentity: identity,
+          sessionId: 'api_copy',
+        ),
+      ).isNull();
     });
 
     test('an API server branch whose newest reply alone outgrows the '
@@ -1624,6 +1773,89 @@ void main() {
 
       await check(undoLastHermesTurn(container)).throws<StateError>();
       check(container.read(chatMessagesProvider)).length.equals(4);
+    });
+
+    // On the legacy wire Hermes refuses an undo when the turns it stored no
+    // longer match the ones it holds, as when another process stored one.
+    // Its refusal leaves the chat as it was.
+    test('an undo Hermes refuses for a changed history leaves the chat',
+        () async {
+      final gateway = _Gateway();
+      gateway.handler = (method, params) {
+        if (method == 'session.undo') {
+          throw const _Refusal(
+            5008,
+            'undo: session history changed before the rewind could be '
+            'persisted',
+          );
+        }
+        return null;
+      };
+      final service = _service(gateway, _Rest(_transcript));
+      final container = _chatContainer(service, _chat);
+
+      await check(undoLastHermesTurn(container)).throws<Object>();
+      check(
+        container.read(chatMessagesProvider).map((message) => message.id),
+      ).deepEquals(['u1', 'a1', 'u2', 'a2']);
+    });
+
+    // The legacy undo names no turn, and clients attached to one gateway
+    // share its session: a turn another one finished after the chat read
+    // the transcript was the one dropped.
+    test('a turn stored before the legacy undo is sent refuses it', () async {
+      final gateway = _Gateway();
+      final rest = _Rest(_transcript);
+      final service = _service(gateway, rest);
+      final container = _chatContainer(service, _chat);
+      var reads = 0;
+      rest.onRequest = (path) {
+        if (path != '/api/sessions/stored-1/messages' || ++reads != 2) return;
+        rest.transcript = [
+          ..._transcript,
+          {'id': 17, 'role': 'user', 'content': 'Sent from elsewhere'},
+          {'id': 18, 'role': 'assistant', 'content': 'Noted.'},
+        ];
+      };
+
+      await check(undoLastHermesTurn(container)).throws<StateError>();
+      check(gateway.calls('session.undo')).isEmpty();
+      check(container.read(chatMessagesProvider)).length.equals(4);
+    });
+
+    // A turn stored after that last read and dropped in its place: the
+    // chat's own turn is still in the session, so it stays in the chat.
+    test('a legacy undo that dropped another turn keeps the chat\'s', () async {
+      final gateway = _Gateway();
+      gateway.handler = (method, params) =>
+          method == 'session.undo' ? {'removed': 2} : null;
+      final service = _service(gateway, _Rest(_transcript));
+      final container = _chatContainer(service, _chat);
+
+      await check(undoLastHermesTurn(container)).throws<StateError>();
+      check(gateway.calls('session.undo')).length.equals(1);
+      check(container.read(chatMessagesProvider)).length.equals(4);
+    });
+
+    // Reported as not undone, the turn would be undone again, and the one
+    // before it dropped too.
+    test('a legacy undo whose result cannot be read counts as done', () async {
+      final gateway = _Gateway();
+      final rest = _Rest(_transcript);
+      final service = _service(gateway, rest);
+      final container = _chatContainer(service, _chat);
+      var reads = 0;
+      rest.onRequest = (path) {
+        if (path == '/api/sessions/stored-1/messages' && ++reads == 3) {
+          throw StateError('Hermes could not be reached.');
+        }
+      };
+
+      check(await undoLastHermesTurn(container)).isTrue();
+      check(gateway.calls('session.undo')).length.equals(1);
+      check(
+        container.read(chatMessagesProvider).map((message) => message.id),
+      ).deepEquals(['u1', 'a1']);
     });
 
     test('a turn another app already undid leaves only the chat', () async {

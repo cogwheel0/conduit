@@ -581,6 +581,16 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
           binding,
           lastRowId: truncateSeenThroughRowId,
         );
+        // Stopped while the fences or the transcript were read: nothing is
+        // cut yet, so the edit is dropped whole.
+        if (terminal || cancelToken?.isCancelled == true) {
+          await _detachStaged(binding.runtimeId, stagedPaths);
+          finish();
+          return HermesResponseStream(
+            events: controller.stream,
+            sessionId: storedId,
+          );
+        }
         await _canonicalMutate(
           binding,
           'rewind',
