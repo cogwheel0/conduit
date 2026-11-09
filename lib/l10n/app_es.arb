@@ -4403,5 +4403,6 @@
   "authTokenFieldLabel": "Token",
   "composerAttachPhotos": "Fotos",
   "modelPickerAppleOnDeviceSubtitle": "En este dispositivo, sin conexión",
-  "modelPickerApplePccSubtitle": "En los servidores privados de Apple"
+  "modelPickerApplePccSubtitle": "En los servidores privados de Apple",
+  "accountsSavedServers": "Servidores guardados"
 }

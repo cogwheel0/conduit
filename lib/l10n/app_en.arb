@@ -9271,5 +9271,9 @@
   "modelPickerApplePccSubtitle": "On Apple's private servers",
   "@modelPickerApplePccSubtitle": {
     "description": "One-line subtitle under Apple Private Cloud Compute in the model picker (the other rows show a model id there): where the model runs. Sentence case, short; the title already says Private Cloud Compute."
+  },
+  "accountsSavedServers": "Saved Servers",
+  "@accountsSavedServers": {
+    "description": "Header of the group in the Add Account sheet that lists the Open WebUI servers already saved on this device; tapping one signs in to another account on it. Title Case."
   }
 }

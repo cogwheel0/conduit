@@ -106,15 +106,29 @@ void main() {
     await tester.pump();
     check(primaryButton(tester).onPressed).isNotNull();
 
-    // Advanced Settings is a disclosure row inside a grouped card; it opens
-    // grouped sections at once with reduced motion.
+    // Advanced Settings is a disclosure row in the address's own group,
+    // under the field and above the footer; it opens grouped sections at
+    // once with reduced motion.
     final advanced = find.byKey(
       const ValueKey<String>('advanced-settings-toggle'),
     );
     check(tester.widget<AuthGroupedRow>(advanced).expanded).equals(false);
+    final addressCard = find.descendant(
+      of: find.byKey(const ValueKey<String>('server-address-section')),
+      matching: find.byType(AuthGroupedCard),
+    );
     expect(
-      find.ancestor(of: advanced, matching: find.byType(AuthGroupedCard)),
+      find.descendant(of: addressCard, matching: advanced),
       findsOneWidget,
+    );
+    final urlRow = find.byKey(const ValueKey<String>('server-url-field'));
+    expect(find.descendant(of: addressCard, matching: urlRow), findsOneWidget);
+    check(tester.getTopLeft(advanced).dy)
+        .isGreaterThan(tester.getTopLeft(urlRow).dy);
+    check(tester.getTopLeft(advanced).dy).isLessThan(
+      tester
+          .getTopLeft(find.text('Use the address you open in a web browser.'))
+          .dy,
     );
     await tester.tap(advanced);
     await tester.pump();

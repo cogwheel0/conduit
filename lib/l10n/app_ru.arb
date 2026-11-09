@@ -4441,5 +4441,6 @@
   "authTokenFieldLabel": "Токен",
   "composerAttachPhotos": "Фото",
   "modelPickerAppleOnDeviceSubtitle": "На этом устройстве, работает офлайн",
-  "modelPickerApplePccSubtitle": "На частных серверах Apple"
+  "modelPickerApplePccSubtitle": "На частных серверах Apple",
+  "accountsSavedServers": "Сохранённые серверы"
 }

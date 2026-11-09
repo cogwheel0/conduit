@@ -8208,5 +8208,6 @@
   "authTokenFieldLabel": "Token",
   "composerAttachPhotos": "Zdjęcia",
   "modelPickerAppleOnDeviceSubtitle": "Na tym urządzeniu, także offline",
-  "modelPickerApplePccSubtitle": "Na prywatnych serwerach Apple"
+  "modelPickerApplePccSubtitle": "Na prywatnych serwerach Apple",
+  "accountsSavedServers": "Zapisane serwery"
 }

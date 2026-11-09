@@ -4403,5 +4403,6 @@
   "authTokenFieldLabel": "Token",
   "composerAttachPhotos": "Foto's",
   "modelPickerAppleOnDeviceSubtitle": "Op dit apparaat, ook offline",
-  "modelPickerApplePccSubtitle": "Op de privéservers van Apple"
+  "modelPickerApplePccSubtitle": "Op de privéservers van Apple",
+  "accountsSavedServers": "Opgeslagen servers"
 }

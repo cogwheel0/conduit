@@ -4403,5 +4403,6 @@
   "authTokenFieldLabel": "Jeton",
   "composerAttachPhotos": "Photos",
   "modelPickerAppleOnDeviceSubtitle": "Sur cet appareil, même hors ligne",
-  "modelPickerApplePccSubtitle": "Sur les serveurs privés d’Apple"
+  "modelPickerApplePccSubtitle": "Sur les serveurs privés d’Apple",
+  "accountsSavedServers": "Serveurs enregistrés"
 }

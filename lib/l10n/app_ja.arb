@@ -6020,5 +6020,6 @@
   "authTokenFieldLabel": "トークン",
   "composerAttachPhotos": "写真",
   "modelPickerAppleOnDeviceSubtitle": "このデバイス上で動作、オフライン可",
-  "modelPickerApplePccSubtitle": "Appleのプライベートサーバ上で動作"
+  "modelPickerApplePccSubtitle": "Appleのプライベートサーバ上で動作",
+  "accountsSavedServers": "保存済みのサーバー"
 }

@@ -6326,5 +6326,6 @@
   "authTokenFieldLabel": "Token",
   "composerAttachPhotos": "Fotky",
   "modelPickerAppleOnDeviceSubtitle": "Na tomto zařízení, funguje offline",
-  "modelPickerApplePccSubtitle": "Na soukromých serverech Apple"
+  "modelPickerApplePccSubtitle": "Na soukromých serverech Apple",
+  "accountsSavedServers": "Uložené servery"
 }

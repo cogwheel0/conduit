@@ -4175,5 +4175,6 @@
   "authTokenFieldLabel": "토큰",
   "composerAttachPhotos": "사진",
   "modelPickerAppleOnDeviceSubtitle": "이 기기에서 실행, 오프라인 가능",
-  "modelPickerApplePccSubtitle": "Apple의 비공개 서버에서 실행"
+  "modelPickerApplePccSubtitle": "Apple의 비공개 서버에서 실행",
+  "accountsSavedServers": "저장된 서버"
 }
