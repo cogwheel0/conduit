@@ -71,7 +71,14 @@ class BrowserAuthBridge(private val activity: ComponentActivity) : BrowserAuthHo
             request.callbackPath,
         )
         val scheme = url.scheme?.lowercase()
-        if (redirect == null || (scheme != "https" && scheme != "http") || url.host.isNullOrEmpty()) {
+        // The state its redirect must carry, which tells this sign-in's
+        // redirect from a superseded one's.
+        val state = oauthStateOf(request.authorizationUrl)
+        if (redirect == null ||
+            (scheme != "https" && scheme != "http") ||
+            url.host.isNullOrEmpty() ||
+            state == null
+        ) {
             callback(Result.success(resultFor(BrowserAuthEnding.Failed(BrowserAuthErrorCodes.INVALID_REQUEST), null)))
             return
         }
@@ -91,7 +98,7 @@ class BrowserAuthBridge(private val activity: ComponentActivity) : BrowserAuthHo
         }
 
         val channel = start.channel
-        val id = flows.begin(channel, redirect) { ending ->
+        val id = flows.begin(channel, redirect, state) { ending ->
             callback(Result.success(resultFor(ending, channel)))
         }
         try {

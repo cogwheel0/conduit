@@ -52,7 +52,7 @@ class BrowserAuthCallbackActivityTest {
 
     @Test
     fun deliversTheRedirectToTheWaitingSignIn() {
-        flows.begin(BrowserAuthChannel.CUSTOM_TABS, BrowserAuthRedirect.DEFAULT) { endings += it }
+        flows.begin(BrowserAuthChannel.CUSTOM_TABS, BrowserAuthRedirect.DEFAULT, "s") { endings += it }
 
         val activity = launch("conduit://oauth/callback?code=c&state=s")
 
@@ -63,13 +63,37 @@ class BrowserAuthCallbackActivityTest {
 
     @Test
     fun aSecondRedirectIsDropped() {
-        flows.begin(BrowserAuthChannel.EXTERNAL_BROWSER, BrowserAuthRedirect.DEFAULT) { endings += it }
+        flows.begin(BrowserAuthChannel.EXTERNAL_BROWSER, BrowserAuthRedirect.DEFAULT, "s") { endings += it }
 
-        launch("conduit://oauth/callback?code=first")
-        val second = launch("conduit://oauth/callback?code=second")
+        launch("conduit://oauth/callback?code=first&state=s")
+        val second = launch("conduit://oauth/callback?code=second&state=s")
 
         assertEquals(1, endings.size)
         assertReturnedToTheAppWithoutTheRedirect(second)
+    }
+
+    @Test
+    fun aSupersededSignInsRedirectIsDropped() {
+        flows.begin(BrowserAuthChannel.CUSTOM_TABS, BrowserAuthRedirect.DEFAULT, "old") {}
+        flows.begin(BrowserAuthChannel.CUSTOM_TABS, BrowserAuthRedirect.DEFAULT, "new") { endings += it }
+
+        val activity = launch("conduit://oauth/callback?code=c&state=old")
+
+        assertTrue(endings.isEmpty())
+        assertReturnedToTheAppWithoutTheRedirect(activity)
+
+        launch("conduit://oauth/callback?code=c&state=new")
+        assertTrue(endings.single() is BrowserAuthEnding.Success)
+    }
+
+    @Test
+    fun aRedirectWithoutTheSignInsStateIsDropped() {
+        flows.begin(BrowserAuthChannel.EXTERNAL_BROWSER, BrowserAuthRedirect.DEFAULT, "s") { endings += it }
+
+        val activity = launch("conduit://oauth/callback?code=c")
+
+        assertTrue(endings.isEmpty())
+        assertReturnedToTheAppWithoutTheRedirect(activity)
     }
 
     @Test
@@ -82,9 +106,9 @@ class BrowserAuthCallbackActivityTest {
 
     @Test
     fun anAuthTabSignInIgnoresARoutedRedirect() {
-        flows.begin(BrowserAuthChannel.AUTH_TAB, BrowserAuthRedirect.DEFAULT) { endings += it }
+        flows.begin(BrowserAuthChannel.AUTH_TAB, BrowserAuthRedirect.DEFAULT, "s") { endings += it }
 
-        val activity = launch("conduit://oauth/callback?code=forged")
+        val activity = launch("conduit://oauth/callback?code=forged&state=s")
 
         assertTrue(endings.isEmpty())
         assertReturnedToTheAppWithoutTheRedirect(activity)

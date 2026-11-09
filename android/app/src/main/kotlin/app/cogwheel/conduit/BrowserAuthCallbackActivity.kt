@@ -11,8 +11,9 @@ import android.os.Bundle
  * A separate, invisible activity rather than [MainActivity]: the redirect
  * never reaches Flutter's deep links or [MainActivity]'s own intent
  * handling, and the relaunch carries no data. The redirect is delivered at
- * most once, and only to a sign-in waiting for exactly this redirect;
- * PKCE and the state check in Dart cover a link another app forged.
+ * most once, and only to a sign-in waiting for exactly this redirect with
+ * its state, so a superseded sign-in's cannot end a newer one; PKCE and the
+ * state check in Dart cover a link another app forged.
  */
 class BrowserAuthCallbackActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
