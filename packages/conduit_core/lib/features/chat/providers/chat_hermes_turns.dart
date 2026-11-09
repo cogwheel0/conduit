@@ -2042,13 +2042,28 @@ Future<void> _dispatchRegisteredHermesRunFromChat(
             turnSourceSessionId != null &&
             turnSourceSessionId.isNotEmpty &&
             establishedSessionId != turnSourceSessionId) {
-          await _carryHermesCopiedHistory(
-            ref,
-            service,
-            connectionIdentity: documentTrustConnectionIdentity,
-            fromSessionId: turnSourceSessionId,
-            toSessionId: establishedSessionId,
-          );
+          try {
+            await _carryHermesCopiedHistory(
+              ref,
+              service,
+              connectionIdentity: documentTrustConnectionIdentity,
+              fromSessionId: turnSourceSessionId,
+              toSessionId: establishedSessionId,
+            );
+          } catch (_) {
+            // Bound to it, the new session would reopen without the copy's
+            // earlier messages. The turn fails instead and the chat keeps
+            // its session, so a retry carries them again; a new chain's
+            // session is removed (a moved chain's may be an older one).
+            if (responseCreatedSession) {
+              _deleteLateHermesSessionBestEffort(
+                service,
+                establishedSessionId,
+                deadline: lateSessionCleanupDeadline,
+              );
+            }
+            rethrow;
+          }
         }
         sessionId = establishedSessionId;
         _bindHermesSessionToConversation(
@@ -2563,7 +2578,9 @@ void _retryHermesProjectionPersistenceAfterAdoption(
 /// [HermesCopiedHistoryStore]). When the copy moves to another session (a
 /// new Responses chain's, or one Hermes moved its chain to), they follow it
 /// with the turns the copy stored: Hermes gives the new session neither, so
-/// reopening it would drop them.
+/// reopening it would drop them. When those turns are over the bound a copy
+/// may keep, the earlier messages alone follow. Throws when none can be kept
+/// for the new session.
 Future<void> _carryHermesCopiedHistory(
   dynamic ref,
   HermesApiService service, {
@@ -2571,37 +2588,41 @@ Future<void> _carryHermesCopiedHistory(
   required String fromSessionId,
   required String toSessionId,
 }) async {
+  final store =
+      ref.read(hermesCopiedHistoryStoreProvider) as HermesCopiedHistoryStore;
+  final saved = await store.load(
+    connectionIdentity: connectionIdentity,
+    sessionId: fromSessionId,
+  );
+  if (saved == null) return;
+  // The copy's own turns join them when they can be read; without them
+  // the earlier messages still follow, rather than none.
+  List<Map<String, dynamic>> own = const [];
   try {
-    final store =
-        ref.read(hermesCopiedHistoryStoreProvider) as HermesCopiedHistoryStore;
-    final saved = await store.load(
-      connectionIdentity: connectionIdentity,
-      sessionId: fromSessionId,
-    );
-    if (saved == null) return;
-    // The copy's own turns join them when they can be read; without them
-    // the earlier messages still follow, rather than none.
-    List<Map<String, dynamic>> own = const [];
-    try {
-      own = await service.getSessionMessages(fromSessionId);
-    } catch (error) {
-      DebugLogger.warning(
-        'copied-history-carry-read-failed',
-        scope: 'hermes/sessions',
-        data: {'errorType': error.runtimeType.toString()},
-      );
-    }
-    await store.save(
-      connectionIdentity: connectionIdentity,
-      sessionId: toSessionId,
-      messages: mergeHermesCopiedHistory(saved, own),
-    );
+    own = await service.getSessionMessages(fromSessionId);
   } catch (error) {
-    // The turn runs either way; only a later reopen misses the context.
     DebugLogger.warning(
-      'copied-history-carry-failed',
+      'copied-history-carry-read-failed',
       scope: 'hermes/sessions',
       data: {'errorType': error.runtimeType.toString()},
     );
+  }
+  final merged = mergeHermesCopiedHistory(saved, own);
+  final kept = await store.save(
+    connectionIdentity: connectionIdentity,
+    sessionId: toSessionId,
+    messages: merged,
+  );
+  if (kept.isNotEmpty || merged.isEmpty) return;
+  // The newest of the copy's own messages alone is over the bound, so none
+  // was kept: the earlier messages are, without the copy's own turns.
+  DebugLogger.warning('copied-history-carry-trimmed', scope: 'hermes/sessions');
+  final earlier = await store.save(
+    connectionIdentity: connectionIdentity,
+    sessionId: toSessionId,
+    messages: saved,
+  );
+  if (earlier.isEmpty && saved.isNotEmpty) {
+    throw StateError("Hermes could not keep this chat's earlier messages.");
   }
 }

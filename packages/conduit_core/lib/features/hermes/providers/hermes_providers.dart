@@ -2326,9 +2326,13 @@ class HermesReadOnlySessions extends Notifier<Map<String, String>> {
     return const <String, String>{};
   }
 
+  /// Records [sessionId] as read-only, owned by [source]. A mark without a
+  /// source (a refused send) keeps the owner an earlier one named.
   void mark(String sessionId, {String? source}) {
-    final label = source?.trim() ?? '';
-    if (state[sessionId] == label) return;
+    final existing = state[sessionId];
+    var label = source?.trim() ?? '';
+    if (label.isEmpty && existing != null) label = existing;
+    if (existing == label) return;
     state = <String, String>{...state, sessionId: label};
   }
 
@@ -2342,6 +2346,25 @@ final hermesReadOnlySessionsProvider =
     NotifierProvider<HermesReadOnlySessions, Map<String, String>>(
       HermesReadOnlySessions.new,
     );
+
+/// Whether the open chat is a Hermes session Conduit may only read
+/// ([hermesReadOnlySessionsProvider]). Its messages can then be neither
+/// edited, regenerated nor deleted here, as none can be sent.
+final activeHermesSessionReadOnlyProvider = Provider<bool>((ref) {
+  final sessionId = ref.watch(
+    activeConversationProvider.select(
+      (conversation) => isNativeHermesConversation(conversation)
+          ? conversation!.metadata['hermesSessionId']
+          : null,
+    ),
+  );
+  if (sessionId is! String || sessionId.isEmpty) return false;
+  return ref.watch(
+    hermesReadOnlySessionsProvider.select(
+      (sessions) => sessions.containsKey(sessionId),
+    ),
+  );
+});
 
 /// The last `/v1/runs` turn that ended in an error, per Hermes session.
 ///

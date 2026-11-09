@@ -3420,7 +3420,9 @@ class _ChatPageState extends ConsumerState<ChatPage> {
           final bubble = UserMessageBubble(
             message: latestMessage,
             isUser: true,
-            readOnly: rowRef.watch(activeConversationReadOnlyProvider),
+            readOnly:
+                rowRef.watch(activeConversationReadOnlyProvider) ||
+                rowRef.watch(activeHermesSessionReadOnlyProvider),
             isStreaming: latestMessage.isStreaming,
             modelName: rowMetadata.displayModelName,
             onCopy: () {
@@ -3492,7 +3494,11 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     required bool suppressStreamingHaptics,
   }) {
     final groupIds = rowMetadata.groupMessageIds;
-    final readOnly = rowRef.watch(activeConversationReadOnlyProvider);
+    // A shared chat of another user's, or a Hermes session another Hermes
+    // app owns: its messages are read here, never changed.
+    final readOnly =
+        rowRef.watch(activeConversationReadOnlyProvider) ||
+        rowRef.watch(activeHermesSessionReadOnlyProvider);
     final displayedMessage = groupIds.length > 1
         ? _messageWithGroupedHermesToolStatuses(rowRef, latestMessage, groupIds)
         : latestMessage;

@@ -97,9 +97,13 @@ final class _RecordingHermesApi extends HermesApiService {
 /// answers it in a new session holding only that turn.
 final class _ChainingHermesApi extends HermesApiService {
   final List<String?> previousResponseIds = [];
+  final List<String> deletedSessions = [];
 
   /// When set, reading the copy's own turns fails.
   bool failReads = false;
+
+  /// The copy's own turns, when not the default two.
+  List<Map<String, dynamic>>? ownTurns;
 
   _ChainingHermesApi()
     : super(
@@ -136,11 +140,17 @@ final class _ChainingHermesApi extends HermesApiService {
   }) async => failReads
       ? throw StateError('unreachable')
       : id == 'copy-1'
-      ? const [
-          {'id': 'own-1', 'role': 'user', 'content': 'Which shelf?'},
-          {'id': 'own-2', 'role': 'assistant', 'content': 'The top one.'},
-        ]
+      ? ownTurns ??
+            const [
+              {'id': 'own-1', 'role': 'user', 'content': 'Which shelf?'},
+              {'id': 'own-2', 'role': 'assistant', 'content': 'The top one.'},
+            ]
       : const [];
+
+  @override
+  Future<void> deleteSession(String id, {CancelToken? cancelToken}) async {
+    deletedSessions.add(id);
+  }
 }
 
 ChatMessage _assistant(
@@ -383,6 +393,149 @@ void main() {
 
     final carried = await copiedHistory.load(
       connectionIdentity: connection,
+      sessionId: 'chain-2',
+    );
+    check(
+      carried?.map((message) => message['content']).toList(),
+    ).isNotNull().deepEquals(['Sort the books.']);
+  });
+
+  /// A copy with its earlier messages saved, open in the chat, and a turn
+  /// that moves it to a new Responses chain; answers its placeholder.
+  Future<ChatMessage> runCopyTurn(
+    _ChainingHermesApi service,
+    HermesCopiedHistoryStore copiedHistory,
+    ProviderContainer container, {
+    Future<void> Function()? beforeTurn,
+  }) async {
+    await copiedHistory.save(
+      connectionIdentity: _connectionIdentity(container),
+      sessionId: 'copy-1',
+      messages: const [
+        {'id': 'earlier-1', 'role': 'user', 'content': 'Sort the books.'},
+      ],
+    );
+    final placeholder = _assistant(
+      'placeholder',
+      streaming: true,
+      metadata: const <String, dynamic>{'transport': kHermesTransport},
+    );
+    container
+        .read(activeConversationProvider.notifier)
+        .set(
+          markNativeHermesConversation(
+            Conversation(
+              id: 'local:hermes_copy-1',
+              title: 'Copy',
+              createdAt: DateTime.utc(2026, 7, 14),
+              updatedAt: DateTime.utc(2026, 7, 14),
+              messages: <ChatMessage>[placeholder],
+              metadata: const <String, dynamic>{
+                'backend': 'hermes',
+                'hermesSessionId': 'copy-1',
+              },
+            ),
+          ),
+        );
+    container.read(chatMessagesProvider.notifier).setMessages(<ChatMessage>[
+      placeholder,
+    ]);
+    await beforeTurn?.call();
+    await dispatchHermesRunFromChatForTest(
+      container,
+      assistantMessageId: placeholder.id,
+      assistantSeed: placeholder,
+      input: 'Here is the shelf photo.',
+      existingMessages: const <ChatMessage>[],
+      responseInput: HermesChatInput.text('Here is the shelf photo.'),
+      responseHistory: const <Map<String, dynamic>>[],
+    );
+    for (var i = 0; i < 20; i++) {
+      await Future<void>.delayed(Duration.zero);
+    }
+    return container.read(chatMessagesProvider).single;
+  }
+
+  ProviderContainer copyContainer(
+    _ChainingHermesApi service,
+    HermesCopiedHistoryStore copiedHistory,
+  ) {
+    final container = ProviderContainer(
+      overrides: [
+        openWebUiDatabaseAccessProvider.overrideWith(_OpenDatabaseAccess.new),
+        appDatabaseProvider.overrideWith((ref) {
+          final database = AppDatabase(NativeDatabase.memory());
+          ref.onDispose(() => unawaited(database.close()));
+          return database;
+        }),
+        apiServiceProvider.overrideWithValue(null),
+        socketServiceProvider.overrideWithValue(null),
+        hermesConfigProvider.overrideWith(_FixedHermesConfig.new),
+        hermesApiServiceProvider.overrideWithValue(service),
+        hermesCopiedHistoryStoreProvider.overrideWithValue(copiedHistory),
+      ],
+    );
+    addTearDown(container.dispose);
+    return container;
+  }
+
+  // A carry that could not be saved was only logged: the chat moved to the
+  // new session, which reopened without the copy's earlier messages.
+  test('a copy whose earlier messages cannot follow it stays where they are',
+      () async {
+    final service = _ChainingHermesApi();
+    final database = AppDatabase(NativeDatabase.memory());
+    addTearDown(database.close);
+    final copiedHistory = HermesCopiedHistoryStore(database);
+    final container = copyContainer(service, copiedHistory);
+
+    final reply = await runCopyTurn(
+      service,
+      copiedHistory,
+      container,
+      // Saving them for the new session is the step that fails.
+      beforeTurn: () => database.customStatement(
+        'CREATE TRIGGER refuse_new_copy BEFORE INSERT ON app_cache '
+        "BEGIN SELECT RAISE(ABORT, 'disk full'); END",
+      ),
+    );
+
+    check(reply.error).isNotNull();
+    check(service.deletedSessions).deepEquals(['chain-2']);
+    check(
+      container.read(activeConversationProvider)?.metadata['hermesSessionId'],
+    ).equals('copy-1');
+    check(
+      await copiedHistory.load(
+        connectionIdentity: _connectionIdentity(container),
+        sessionId: 'copy-1',
+      ),
+    ).isNotNull();
+  });
+
+  // A copy's own message over the bound left nothing to keep, and the new
+  // session reopened without even the earlier messages.
+  test('a copy whose own turns are too large still carries the earlier ones',
+      () async {
+    final service = _ChainingHermesApi()
+      ..ownTurns = [
+        {'id': 'own-1', 'role': 'user', 'content': 'Which shelf?'},
+        {
+          'id': 'own-2',
+          'role': 'assistant',
+          'content': 'x' * (HermesCopiedHistoryStore.maxCopyBytes + 1),
+        },
+      ];
+    final database = AppDatabase(NativeDatabase.memory());
+    addTearDown(database.close);
+    final copiedHistory = HermesCopiedHistoryStore(database);
+    final container = copyContainer(service, copiedHistory);
+
+    final reply = await runCopyTurn(service, copiedHistory, container);
+
+    check(reply.error).isNull();
+    final carried = await copiedHistory.load(
+      connectionIdentity: _connectionIdentity(container),
       sessionId: 'chain-2',
     );
     check(
