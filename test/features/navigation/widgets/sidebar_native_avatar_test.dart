@@ -6,54 +6,54 @@ import 'package:conduit/features/navigation/widgets/sidebar_user_pill.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  test(
-    'native avatar raster keeps a circular 28pt image inside a 44pt canvas',
-    () async {
-      final source = await _solidPng();
-      final raster = await rasterizeSidebarNativeAvatar(
-        source,
-        devicePixelRatio: 3,
-      );
-      check(raster).isNotNull();
+  test('native avatar raster fills the 44pt button with a circle', () async {
+    final source = await _solidPng();
+    final raster = await rasterizeSidebarNativeAvatar(
+      source,
+      devicePixelRatio: 3,
+    );
+    check(raster).isNotNull();
 
-      final codec = await ui.instantiateImageCodec(raster!);
-      final frame = await codec.getNextFrame();
-      final image = frame.image;
-      check(image.width).equals(132);
-      check(image.height).equals(132);
+    final codec = await ui.instantiateImageCodec(raster!);
+    final frame = await codec.getNextFrame();
+    final image = frame.image;
+    check(image.width).equals(132);
+    check(image.height).equals(132);
 
-      final data = await image.toByteData(format: ui.ImageByteFormat.rawRgba);
-      check(data).isNotNull();
-      final pixels = data!.buffer.asUint8List(
-        data.offsetInBytes,
-        data.lengthInBytes,
-      );
-      var minX = image.width;
-      var minY = image.height;
-      var maxX = -1;
-      var maxY = -1;
-      for (var y = 0; y < image.height; y++) {
-        for (var x = 0; x < image.width; x++) {
-          if (pixels[((y * image.width) + x) * 4 + 3] == 0) continue;
-          if (x < minX) minX = x;
-          if (x > maxX) maxX = x;
-          if (y < minY) minY = y;
-          if (y > maxY) maxY = y;
-        }
+    final data = await image.toByteData(format: ui.ImageByteFormat.rawRgba);
+    check(data).isNotNull();
+    final pixels = data!.buffer.asUint8List(
+      data.offsetInBytes,
+      data.lengthInBytes,
+    );
+    var minX = image.width;
+    var minY = image.height;
+    var maxX = -1;
+    var maxY = -1;
+    for (var y = 0; y < image.height; y++) {
+      for (var x = 0; x < image.width; x++) {
+        if (pixels[((y * image.width) + x) * 4 + 3] == 0) continue;
+        if (x < minX) minX = x;
+        if (x > maxX) maxX = x;
+        if (y < minY) minY = y;
+        if (y > maxY) maxY = y;
       }
-      check(maxX - minX + 1).equals(84);
-      check(maxY - minY + 1).equals(84);
-      check(minX).equals(24);
-      check(minY).equals(24);
+    }
+    // Edge to edge: no ring of glass around a smaller disc.
+    check(maxX - minX + 1).equals(132);
+    check(maxY - minY + 1).equals(132);
+    check(minX).equals(0);
+    check(minY).equals(0);
 
-      int alphaAt(int x, int y) => pixels[((y * image.width) + x) * 4 + 3];
-      check(alphaAt(24, 24)).equals(0);
-      check(alphaAt(66, 66)).equals(255);
+    int alphaAt(int x, int y) => pixels[((y * image.width) + x) * 4 + 3];
+    // Still a circle: the corners stay clear.
+    check(alphaAt(0, 0)).equals(0);
+    check(alphaAt(131, 131)).equals(0);
+    check(alphaAt(66, 66)).equals(255);
 
-      image.dispose();
-      codec.dispose();
-    },
-  );
+    image.dispose();
+    codec.dispose();
+  });
 
   test(
     'native avatar center-crops rectangular sources without stretching',

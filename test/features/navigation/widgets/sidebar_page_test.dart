@@ -113,7 +113,8 @@ void main() {
 
     expect(identical(button.imageAsset?.imageData, bytes), isTrue);
     expect(button.imageAsset?.assetPath, isEmpty);
-    expect(button.imageAsset?.size, 28);
+    // The photo fills the glass button: no ring around a smaller disc.
+    expect(button.imageAsset?.size, TouchTarget.minimum);
     expect(button.config.minHeight, TouchTarget.minimum);
     expect(button.config.width, TouchTarget.minimum);
     expect(button.config.style, CNButtonStyle.glass);

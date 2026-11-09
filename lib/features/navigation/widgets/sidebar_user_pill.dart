@@ -76,7 +76,11 @@ typedef SidebarNativeProfilePresenter = Future<bool> Function(
 );
 
 const double _sidebarProfileAvatarSize = 36;
-const double _sidebarNativeProfileAvatarSize = 28;
+
+/// The native profile button's photo or monogram fills the whole 44 pt
+/// glass button, as a bar's account avatar does on iOS 26, rather than
+/// sitting as a smaller disc inside a glass ring.
+const double _sidebarNativeProfileAvatarSize = TouchTarget.minimum;
 const int _sidebarAvatarMaximumSourceDimension = 8192;
 const int _sidebarAvatarMaximumSourcePixels = 32 * 1024 * 1024;
 const double _sidebarAvatarMaximumAspectRatio = 64;
