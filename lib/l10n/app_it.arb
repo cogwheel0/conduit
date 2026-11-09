@@ -3416,6 +3416,7 @@
   "hermesMcpServers": "Server MCP",
   "hermesSignOut": "Esci da Hermes",
   "hermesActionFailed": "Azione Hermes non riuscita.",
+  "hermesSignOutFailed": "Impossibile uscire dalla dashboard Hermes. Controlla la connessione e riprova.",
   "hermesToolsetUpdateFailed": "Aggiornamento del set di strumenti Hermes non riuscito.",
   "hermesJobStateLabel": "Stato",
   "hermesJobDeliveryLabel": "Consegna",

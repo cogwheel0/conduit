@@ -3194,6 +3194,7 @@
   "hermesMcpServers": "MCP 서버",
   "hermesSignOut": "Hermes에서 로그아웃",
   "hermesActionFailed": "Hermes 작업에 실패했습니다.",
+  "hermesSignOutFailed": "Hermes 대시보드에서 로그아웃하지 못했습니다. 연결을 확인하고 다시 시도하세요.",
   "hermesToolsetUpdateFailed": "Hermes 도구 세트 업데이트에 실패했습니다.",
   "hermesJobStateLabel": "상태",
   "hermesJobDeliveryLabel": "전달",

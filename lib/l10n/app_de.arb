@@ -3416,6 +3416,7 @@
   "hermesMcpServers": "MCP-Server",
   "hermesSignOut": "Von Hermes abmelden",
   "hermesActionFailed": "Hermes-Aktion fehlgeschlagen.",
+  "hermesSignOutFailed": "Die Abmeldung vom Hermes-Dashboard ist fehlgeschlagen. Prüfe deine Verbindung und versuche es erneut.",
   "hermesToolsetUpdateFailed": "Aktualisierung des Hermes-Toolsets fehlgeschlagen.",
   "hermesJobStateLabel": "Status",
   "hermesJobDeliveryLabel": "Zustellung",

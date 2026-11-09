@@ -600,33 +600,41 @@ class HermesConfigController extends Notifier<HermesConfig> {
   /// account for ([hermesDashboardHasUnrecordedSession]). Cookies ignore
   /// ports, so only the gateway tells its own session from another
   /// gateway's on the host, and its sign-out deletes exactly its own
-  /// cookies. That step is best effort: a gateway that cannot be reached
-  /// leaves the record's deletion to do what it can. [accessHeaders] is
-  /// read only when Hermes is asked.
+  /// cookies. [accessHeaders] is read only when Hermes is asked.
+  ///
+  /// The record's deletion runs either way. With [requireSignOut] (an
+  /// explicit Sign Out), a session Hermes was not seen to sign out makes the
+  /// clear fail, as the session may still open the dashboard. Without it
+  /// (a deleted connection, a changed address) the sign-out is best effort,
+  /// so a gateway that cannot be reached blocks neither.
   Future<bool> _clearDashboardCookies(
     String baseUrl,
-    Future<Map<String, String>> Function() accessHeaders,
-  ) async {
+    Future<Map<String, String>> Function() accessHeaders, {
+    bool requireSignOut = false,
+  }) async {
     final cookieJar = ref.read(cookieJarProvider);
     final signOut = ref.read(hostHermesDashboardSignOutProvider);
+    var signedOut = true;
     if (signOut != null && cookieJar.isSupported) {
       try {
+        // Unknown until the WebView's cookies are read.
+        signedOut = false;
         final root = hermesDashboardRoot(baseUrl);
         final unrecorded = hermesDashboardHasUnrecordedSession(
           current: await cookieJar.identitiesFor(root.toString()),
           recorded: HermesDashboardCookieRegistry.identitiesFor(baseUrl),
         );
-        if (unrecorded) {
-          final signedOut = await signOut(
-            root: root,
-            accessHeaders: await accessHeaders(),
-          ).timeout(_dashboardSignOutTimeout);
-          if (!signedOut) {
-            DebugLogger.warning(
-              'dashboard-sign-out-refused',
-              scope: 'hermes/config',
-            );
-          }
+        signedOut =
+            !unrecorded ||
+            await signOut(
+              root: root,
+              accessHeaders: await accessHeaders(),
+            ).timeout(_dashboardSignOutTimeout);
+        if (!signedOut) {
+          DebugLogger.warning(
+            'dashboard-sign-out-refused',
+            scope: 'hermes/config',
+          );
         }
       } catch (error) {
         DebugLogger.warning(
@@ -636,7 +644,8 @@ class HermesConfigController extends Notifier<HermesConfig> {
         );
       }
     }
-    return cookieJar.clearForOrigin(baseUrl);
+    final cleared = await cookieJar.clearForOrigin(baseUrl);
+    return cleared && (signedOut || !requireSignOut);
   }
 
   Future<void> signOutDesktop() => _serializeMutation(() async {
@@ -653,6 +662,7 @@ class HermesConfigController extends Notifier<HermesConfig> {
       final cleared = await _clearDashboardCookies(
         state.baseUrl,
         () async => accessHeaders,
+        requireSignOut: true,
       );
       if (!cleared) {
         throw StateError('Hermes dashboard cookies could not be cleared.');

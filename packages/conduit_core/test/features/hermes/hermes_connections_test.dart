@@ -802,6 +802,108 @@ void main() {
       check(container.read(hermesConnectionsProvider)).length.equals(1);
     });
 
+    // Sign Out logged the failure and reported success, so the credentials
+    // went while the session could still open the dashboard.
+    for (final (name, ends) in [
+      ('refuses', () async => false),
+      ('cannot be reached', () async => throw StateError('unreachable')),
+    ]) {
+      test('Sign Out that Hermes $name fails and keeps the credentials',
+          () async {
+        _seedConnections([
+          _profile(_a, 'Alpha', 'https://alpha.example'),
+        ], active: _a);
+        final secrets = _Secrets(secretsWithHeaders());
+        final log = <String>[];
+        final container = await _ready(
+          secrets,
+          cookies: _HeldCookieJar(log, held: {session}),
+          signOut: ({required root, required accessHeaders}) async {
+            log.add('sign out $root');
+            return ends();
+          },
+        );
+        addTearDown(container.dispose);
+
+        await check(
+          container.read(hermesConfigProvider.notifier).signOutDesktop(),
+        ).throws<StateError>();
+
+        // The record's cookies still go; the rest waits for a retry.
+        check(log).deepEquals([
+          'sign out https://alpha.example',
+          'clear https://alpha.example',
+        ]);
+        check(container.read(hermesConfigProvider).desktopCredentials)
+            .isNotNull();
+        check(await secrets.read(key: 'hermes_desktop_credentials_v1:$_a'))
+            .isNotNull();
+      });
+    }
+
+    test('an address change goes through when Hermes cannot sign out',
+        () async {
+      _seedConnections([
+        _profile(_a, 'Alpha', 'https://alpha.example'),
+        _profile(_b, 'Beta', 'https://beta.example'),
+      ], active: _b);
+      final log = <String>[];
+      final container = await _ready(
+        _Secrets(secretsWithHeaders()),
+        cookies: _HeldCookieJar(log, held: {session}),
+        signOut: ({required root, required accessHeaders}) async {
+          log.add('sign out $root');
+          return false;
+        },
+      );
+      addTearDown(container.dispose);
+
+      await container.read(hermesConfigProvider.notifier).saveConnection(
+        connectionId: _a,
+        baseUrl: 'https://alpha-two.example',
+      );
+
+      check(log).deepEquals([
+        'sign out https://alpha.example',
+        'clear https://alpha.example',
+      ]);
+      check(
+        container
+            .read(hermesConnectionsProvider)
+            .singleWhere((profile) => profile.id == _a)
+            .baseUrl,
+      ).equals('https://alpha-two.example');
+    });
+
+    test('another gateway\'s session leaves a recorded Sign Out alone',
+        () async {
+      _seedConnections([
+        _profile(_a, 'Alpha', 'https://alpha.example'),
+      ], active: _a);
+      await HermesDashboardCookieRegistry.record(
+        'https://alpha.example',
+        identities: {session},
+      );
+      final log = <String>[];
+      final container = await _ready(
+        _Secrets(secretsWithHeaders()),
+        cookies: _HeldCookieJar(
+          log,
+          held: {session, _cookie('hermes_session_rt_bbbbbbbbbbbbbbbb')},
+        ),
+        signOut: ({required root, required accessHeaders}) async {
+          log.add('sign out $root');
+          return false;
+        },
+      );
+      addTearDown(container.dispose);
+
+      await container.read(hermesConfigProvider.notifier).signOutDesktop();
+
+      check(log).deepEquals(['clear https://alpha.example']);
+      check(container.read(hermesConfigProvider).desktopCredentials).isNull();
+    });
+
     test('Sign Out sends the connection\'s gateway headers', () async {
       _seedConnections([
         _profile(_a, 'Alpha', 'https://alpha.example'),

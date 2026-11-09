@@ -159,10 +159,16 @@ void main() {
     final theirs = identity('hermes_session_rt_bbbbbbbbbbbbbbbb');
     final dashboard = identity('__Host-hermes_session_at');
 
-    // The reused session was never recorded.
+    // Nothing on record: any gateway's session could be this one's.
     check(
       hermesDashboardHasUnrecordedSession(
         current: {mine, myRefresh},
+        recorded: const {},
+      ),
+    ).isTrue();
+    check(
+      hermesDashboardHasUnrecordedSession(
+        current: {theirs, dashboard},
         recorded: const {},
       ),
     ).isTrue();
@@ -173,20 +179,6 @@ void main() {
         recorded: {mine, myRefresh},
       ),
     ).isFalse();
-    // Another gateway's session, or the standalone dashboard's, cannot be
-    // told from this gateway's without asking it.
-    check(
-      hermesDashboardHasUnrecordedSession(
-        current: {mine, theirs},
-        recorded: {mine},
-      ),
-    ).isTrue();
-    check(
-      hermesDashboardHasUnrecordedSession(
-        current: {dashboard},
-        recorded: const {},
-      ),
-    ).isTrue();
     // Cookies that hold no session ask nothing.
     check(
       hermesDashboardHasUnrecordedSession(
@@ -198,6 +190,46 @@ void main() {
         recorded: const {},
       ),
     ).isFalse();
+  });
+
+  // Any unrecorded session on the host counted, so a second gateway (or the
+  // standalone dashboard) that could not be reached failed this one's Sign
+  // Out, though its own session was on record.
+  test('a record that names its gateway counts only that gateway', () {
+    final mine = identity('hermes_session_at_aaaaaaaaaaaaaaaa');
+    final myRefresh = identity('hermes_session_rt_aaaaaaaaaaaaaaaa');
+    final theirs = identity('hermes_session_rt_bbbbbbbbbbbbbbbb');
+    final dashboard = identity('hermes_session_at');
+    final dashboardRefresh = identity('__Secure-hermes_session_rt');
+
+    // Another gateway's session, or the standalone dashboard's, is not this
+    // one's to end.
+    check(
+      hermesDashboardHasUnrecordedSession(
+        current: {mine, theirs, dashboard},
+        recorded: {mine},
+      ),
+    ).isFalse();
+    // One of this gateway's own that the record lacks still counts.
+    check(
+      hermesDashboardHasUnrecordedSession(
+        current: {mine, myRefresh, theirs},
+        recorded: {mine},
+      ),
+    ).isTrue();
+    // A record of the standalone dashboard counts only unsuffixed ones.
+    check(
+      hermesDashboardHasUnrecordedSession(
+        current: {dashboard, theirs},
+        recorded: {dashboard},
+      ),
+    ).isFalse();
+    check(
+      hermesDashboardHasUnrecordedSession(
+        current: {dashboard, dashboardRefresh, theirs},
+        recorded: {dashboard},
+      ),
+    ).isTrue();
   });
 
   test('a refreshed session cookie moves to the end of the record', () {

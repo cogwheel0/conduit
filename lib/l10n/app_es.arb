@@ -3416,6 +3416,7 @@
   "hermesMcpServers": "Servidores MCP",
   "hermesSignOut": "Cerrar sesión en Hermes",
   "hermesActionFailed": "La acción de Hermes falló.",
+  "hermesSignOutFailed": "No se pudo cerrar la sesión del panel de Hermes. Comprueba tu conexión e inténtalo de nuevo.",
   "hermesToolsetUpdateFailed": "Error al actualizar el conjunto de herramientas de Hermes.",
   "hermesJobStateLabel": "Estado",
   "hermesJobDeliveryLabel": "Entrega",

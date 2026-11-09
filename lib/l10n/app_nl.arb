@@ -3416,6 +3416,7 @@
   "hermesMcpServers": "MCP-servers",
   "hermesSignOut": "Afmelden bij Hermes",
   "hermesActionFailed": "Hermes-actie mislukt.",
+  "hermesSignOutFailed": "Afmelden bij het Hermes-dashboard is mislukt. Controleer je verbinding en probeer het opnieuw.",
   "hermesToolsetUpdateFailed": "Bijwerken van Hermes-toolset mislukt.",
   "hermesJobStateLabel": "Status",
   "hermesJobDeliveryLabel": "Levering",

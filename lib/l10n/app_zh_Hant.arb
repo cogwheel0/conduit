@@ -3416,6 +3416,7 @@
   "hermesMcpServers": "MCP 伺服器",
   "hermesSignOut": "登出 Hermes",
   "hermesActionFailed": "Hermes 操作失敗。",
+  "hermesSignOutFailed": "無法登出 Hermes 儀表板。請檢查網路連線後再試一次。",
   "hermesToolsetUpdateFailed": "Hermes 工具組更新失敗。",
   "hermesJobStateLabel": "狀態",
   "hermesJobDeliveryLabel": "傳遞",

@@ -53,19 +53,34 @@ Set<String> hermesDashboardCookieIdentityDelta({
 }
 
 /// Whether [current], the WebView's cookies for a dashboard origin's host,
-/// holds a session cookie that [recorded], the origin's record, lacks. The
-/// WebView can hold the gateway's session without a record of it: a
-/// sign-in that reused it creates no cookie, and a record can be lost. As
-/// cookies ignore ports, only the gateway can tell such a session from
-/// another gateway's on the host, so deleting the record alone may leave it.
+/// holds a session cookie that [recorded], the origin's record, lacks and
+/// that could be this gateway's. The WebView can hold the gateway's session
+/// without a record of it: a sign-in that reused it creates no cookie, and a
+/// record can be lost. As cookies ignore ports, only the gateway can tell
+/// such a session from another gateway's on the host, so deleting the record
+/// alone may leave it.
+///
+/// A record that holds a session cookie names its gateway, as
+/// [hermesDashboardCookieIdentityDelta] does at sign-in: its suffix, or none
+/// for the standalone dashboard. Then only session cookies of that gateway
+/// count; another gateway's, or the dashboard's, are not this one's to end.
 bool hermesDashboardHasUnrecordedSession({
   required Set<String> current,
   required Set<String> recorded,
-}) => current.any(
-  (identity) =>
-      !recorded.contains(identity) &&
-      _kSessionCookieNames.contains(_cookieBaseName(identity)),
-);
+}) {
+  bool session(String identity) =>
+      _kSessionCookieNames.contains(_cookieBaseName(identity));
+  final known = {
+    for (final identity in recorded)
+      if (session(identity)) _cookieGateway(identity),
+  };
+  return current.any(
+    (identity) =>
+        !recorded.contains(identity) &&
+        session(identity) &&
+        (known.isEmpty || known.contains(_cookieGateway(identity))),
+  );
+}
 
 /// The cookies that hold a dashboard session (its access and refresh
 /// token), without a gateway's suffix.

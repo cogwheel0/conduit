@@ -6782,6 +6782,10 @@
   "@hermesActionFailed": {
     "description": "Generic error when a Hermes settings action fails."
   },
+  "hermesSignOutFailed": "Couldn't sign out of the Hermes dashboard. Check your connection and try again.",
+  "@hermesSignOutFailed": {
+    "description": "Shown when signing out of the Hermes Desktop Gateway failed, for example because Hermes could not be reached to end the dashboard session."
+  },
   "hermesToolsetUpdateFailed": "Hermes toolset update failed.",
   "@hermesToolsetUpdateFailed": {
     "description": "Error shown when updating Hermes toolsets fails."

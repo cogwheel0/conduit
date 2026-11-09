@@ -5339,6 +5339,7 @@
   "hermesMcpServers": "Servery MCP",
   "hermesSignOut": "Odhlásit se z Hermes",
   "hermesActionFailed": "Akce Hermes selhala.",
+  "hermesSignOutFailed": "Z nástěnky Hermes se nepodařilo odhlásit. Zkontrolujte připojení a zkuste to znovu.",
   "hermesToolsetUpdateFailed": "Aktualizace sady nástrojů Hermes selhala.",
   "hermesJobStateLabel": "Stav",
   "hermesJobDeliveryLabel": "Doručení",
