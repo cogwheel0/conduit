@@ -327,14 +327,13 @@ void main() {
     await tester.pump(const Duration(milliseconds: 500));
     expect(_barActions(tester), ['new-chat', 'more']);
     expect(tester.getCenter(pill).dx, closeTo(201, 0.5));
-    // A longer title may take all the room between the buttons, 12 pt
-    // clear of each (402 - 2 * 16 - 44 - 80 - 2 * 12), moving off the
-    // centre line toward the sidebar button as UINavigationBar's does,
-    // rather than shortening while room is left.
+    // A longer title gets the room the wider group leaves it on both sides
+    // of the centre line, 12 pt clear (2 * (201 - 16 - 80 - 12)), and
+    // shortens beyond that, so it stays centred as UINavigationBar's does.
     final maxWidth = tester
         .widget<ConduitAdaptiveAppBarModelSelector>(pill)
         .maxWidth;
-    expect(maxWidth, 222);
+    expect(maxWidth, 186);
     await _tearDown(tester);
   });
 

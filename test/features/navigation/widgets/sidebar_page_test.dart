@@ -1,6 +1,7 @@
 import 'dart:ui' show Tristate;
 
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
+import 'package:conduit/shared/widgets/adaptive_toolbar_components.dart';
 import 'package:checks/checks.dart';
 import 'package:conduit/shared/services/navigation_service.dart';
 import 'package:conduit_core/sync/sync_engine.dart';
@@ -112,7 +113,8 @@ void main() {
 
     expect(identical(button.imageAsset?.imageData, bytes), isTrue);
     expect(button.imageAsset?.assetPath, isEmpty);
-    expect(button.imageAsset?.size, 28);
+    // The photo fills the glass button: no ring around a smaller disc.
+    expect(button.imageAsset?.size, TouchTarget.minimum);
     expect(button.config.minHeight, TouchTarget.minimum);
     expect(button.config.width, TouchTarget.minimum);
     expect(button.config.style, CNButtonStyle.glass);
@@ -459,7 +461,12 @@ void main() {
       ),
     );
     await tester.pump(const Duration(milliseconds: 500));
-    final toolbar = find.byType(CNGlassButtonGroup, skipOffstage: false);
+    // The chat header's glass group: one capsule of plain glyphs.
+    final toolbar = find.byType(
+      ConduitToolbarActionCluster,
+      skipOffstage: false,
+    );
+    expect(toolbar, findsOneWidget);
     final buttons = tester
         .widgetList<CNButton>(
           find.descendant(

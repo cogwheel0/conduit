@@ -7,8 +7,7 @@ import 'package:cupertino_native_better/cupertino_native_better.dart'
     show CNPopover, CNPopoverContent, CNPopoverToggle;
 import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:material_ui/material_ui.dart';
-import 'package:flutter/foundation.dart' show ValueListenable;
-import 'package:flutter/physics.dart';
+import 'package:flutter/foundation.dart' show ValueListenable, listEquals;
 import 'package:flutter/scheduler.dart' show Ticker;
 import 'package:flutter/services.dart';
 
@@ -22,7 +21,12 @@ const double kConduitAdaptiveToolbarLeadingGap = Spacing.sm;
 const double kConduitAdaptiveToolbarMaxPillWidth = 220;
 const double kConduitAdaptiveToolbarMaxModelSelectorWidth = 320;
 const double kConduitModelSelectorChevronExtent = 13;
-const double kConduitNativeSingleActionSymbolExtent = 18;
+
+/// Point size of every glass bar button's SF Symbol. UIKit draws the native
+/// glass and plain buttons' symbols at the large scale, so this matches a
+/// UIBarButtonItem's glyph on iOS 26 (17 pt, large: the Files bar's "…" is
+/// 19.7 pt wide, as ours now is).
+const double kConduitNativeSingleActionSymbolExtent = 17;
 const double kConduitMaximumSystemControlScale = 1.5;
 
 const double _kConduitNativeButtonHorizontalInsets = 32;
@@ -920,14 +924,15 @@ double conduitToolbarClusterWidth(BuildContext context, int count) {
 /// title capsule never crowds the glass next to it.
 const double kConduitCenteredTitleClearance = 12;
 
-/// The widest a centred bar title may be: all the room between the leading
-/// and trailing controls, less [gap] of clear space beside each.
+/// The widest a centred bar title may be: twice the room between the
+/// screen's centre line and the nearer of the leading and trailing
+/// controls, less [gap] of clear space beside each.
 ///
-/// As UINavigationBar places a title, the bar keeps it on the screen's
-/// centre line while it fits there with [gap] to spare; a longer one moves
-/// toward the side with room, off centre, until it has [gap] on both sides
-/// (see [ConduitAdaptiveCupertinoNavigationBar]). Only past that does it
-/// need to shorten.
+/// As UINavigationBar sets a title, the title stays on the screen's centre
+/// line in every page, whatever the controls beside it, and one too long
+/// for that room is shortened rather than moved aside. A bar with a narrow
+/// button on one side and a wider group on the other therefore gives its
+/// title the wider side's limit on both.
 double resolveConduitBarTitleMaxWidth(
   BuildContext context, {
   required double leadingWidth,
@@ -935,13 +940,12 @@ double resolveConduitBarTitleMaxWidth(
   required double maxWidth,
   double gap = kConduitCenteredTitleClearance,
 }) {
-  final available =
-      MediaQuery.sizeOf(context).width -
-      2 * Spacing.inputPadding -
-      leadingWidth -
-      trailingWidth -
-      2 * gap;
-  return available.clamp(0.0, math.max(0.0, maxWidth)).toDouble();
+  final halfRoom =
+      MediaQuery.sizeOf(context).width / 2 -
+      Spacing.inputPadding -
+      math.max(leadingWidth, trailingWidth) -
+      gap;
+  return (2 * halfRoom).clamp(0.0, math.max(0.0, maxWidth)).toDouble();
 }
 
 /// Explains a bar toggle whose glyph has no label: the system popover of iOS
@@ -1012,39 +1016,46 @@ class ConduitToolbarClusterItem {
   final GlobalKey? anchorKey;
 }
 
-/// The most one frame may advance the cluster's springs, in seconds.
-const double _kClusterMaxStep = 1 / 30;
+/// The critically damped spring every bar reshape rides (the trailing glass
+/// and the title pill): done to the eye in about 200 ms, settled in 270.
+final SpringDescription kConduitBarMorphSpring =
+    SpringDescription.withDampingRatio(mass: 1, stiffness: 600, ratio: 1);
 
-/// Where an arriving action's presence starts when nothing has to clear
-/// first: below zero, so its fade begins about 60 ms after the change, once
-/// its native control exists.
-const double _kClusterArrivalLead = -0.35;
+/// The most one frame may advance a bar morph's springs, in seconds: a long
+/// frame (a send, or creating native views, stalls one) slows the morph for
+/// a moment rather than skipping it.
+const double _kBarMaxStep = 1 / 30;
 
-/// How much faster than the reshape a leaving glyph fades: it is gone about
-/// 100 ms after the change, well before the capsule settles.
-const double _kClusterDepartureSpeed = 2.5;
+/// Share of a change over which a leaving glyph fades out and shrinks.
+const double _kClusterDepartureEnd = 0.45;
 
-/// How fast a leaving glyph fades while an arriving one takes over in
-/// another spot (the circle's glyph as the capsule's leading glyph comes
-/// in): slower than the reshape, so it still shows, at about half, when the
-/// growing edge reaches the newcomer, and the glass never shows empty.
-const double _kClusterHandOffDepartureSpeed = 0.6;
+/// Share of a change over which an arriving glyph fades in and grows. It
+/// overlaps the departures, held back by any leaving glyph it overlaps (see
+/// [_ConduitToolbarActionClusterState._layOut]), so the glass never shows
+/// empty and the two never show at once; its native control has had a
+/// frame or two to come up by the time it shows.
+const double _kClusterArrivalStart = 0.1;
+const double _kClusterArrivalEnd = 0.65;
 
-/// How much of the arriving glyph must show before a leaving one beside it
-/// clears at its usual pace.
-const double _kClusterHandOffShown = 0.6;
+/// The scale a glyph leaves at and arrives from, as SF Symbols' replace
+/// transition draws it.
+const double _kClusterGlyphMinScale = 0.8;
 
-/// How much faster than the reshape an arriving glyph fades in.
-const double _kClusterArrivalSpeed = 1.3;
+/// About the widest a bar glyph draws (square.and.pencil, 17 pt, large
+/// scale): two glyphs nearer than this overlap.
+const double _kClusterGlyphExtent = 22;
 
-/// Below this a leaving glyph counts as gone (it no longer shows on
-/// screen), and the arriving ones start.
-const double _kClusterGoneOpacity = 0.05;
+/// Two glyphs nearer than this stand in one spot: one swapped for the other
+/// in place, which must clear before the other shows.
+const double _kClusterSameSpot = 0.25 * _kClusterGlyphExtent;
+
+double _clusterEase(double from, double to, double x) =>
+    _smoothstep(from, to, x);
 
 /// Critically damped spring stepped by hand, so several values can share one
 /// ticker and each can be retargeted from its current value and velocity.
-class _ClusterSpring {
-  _ClusterSpring(this.value, {required this.tolerance}) : target = value;
+class _BarSpring {
+  _BarSpring(this.value, {required this.tolerance}) : target = value;
 
   double value;
   double velocity = 0;
@@ -1069,21 +1080,73 @@ class _ClusterSpring {
   }
 }
 
+/// Where a glyph rests in the glass: a fixed distance from the glass's
+/// trailing or leading end, or on its centre line. It is resolved against
+/// the glass's width of the moment, so while the glass reshapes each glyph
+/// rides the end it belongs to and never shows outside it.
+@immutable
+class _ClusterAnchor {
+  const _ClusterAnchor._(this.edge, this.inset);
+
+  const _ClusterAnchor.centre() : this._(0, 0);
+
+  /// The anchor of action [index] of [count] in glass of [slot]-wide slots.
+  factory _ClusterAnchor.forSlot(int index, int count, double slot) {
+    if (count <= 1) return const _ClusterAnchor.centre();
+    final width = count * slot;
+    final fromTrailing = (count - index - 0.5) * slot;
+    if ((fromTrailing - width / 2).abs() < 0.5) {
+      return const _ClusterAnchor.centre();
+    }
+    return fromTrailing < width / 2
+        ? _ClusterAnchor._(-1, fromTrailing)
+        : _ClusterAnchor._(1, width - fromTrailing);
+  }
+
+  /// -1 for the trailing end, 1 for the leading end, 0 for the centre.
+  final int edge;
+  final double inset;
+
+  /// Distance from the trailing end of glass [width] wide to the centre.
+  double resolve(double width) => switch (edge) {
+    0 => width / 2,
+    < 0 => inset,
+    _ => width - inset,
+  };
+}
+
 class _ClusterEntry {
   _ClusterEntry(
-    this.item, {
-    required double centerFromTrailing,
-    required double presence,
-  }) : centerFromTrailing = _ClusterSpring(centerFromTrailing, tolerance: 0.25),
-       presence = _ClusterSpring(presence, tolerance: 0.01);
+    this.item,
+    this.anchor, {
+    required this.arrives,
+    required this.opacity,
+    required this.scale,
+  }) : fromOpacity = opacity,
+       fromScale = scale;
 
   ConduitToolbarClusterItem item;
+  _ClusterAnchor anchor;
 
-  /// Distance from the cluster's trailing edge to the action's centre.
-  final _ClusterSpring centerFromTrailing;
-  final _ClusterSpring presence;
+  /// Whether the action left in the latest change.
+  bool leaving = false;
 
-  bool get isLeaving => presence.target == 0;
+  /// Whether the action came in, from nothing, in the latest change.
+  bool arrives;
+
+  /// For an arriving glyph that waited for a leaving one in its very spot,
+  /// the change's progress at which that one was gone and it set out.
+  double? setsOutAt;
+
+  /// The glyph's centre, opacity and scale when the latest change began.
+  double? fromCentre;
+  double fromOpacity;
+  double fromScale;
+
+  /// This frame's centre (from the glass's trailing end), opacity and scale.
+  double centre = 0;
+  double opacity;
+  double scale;
 }
 
 /// Trailing toolbar actions grouped on one Liquid Glass surface, the way an
@@ -1094,15 +1157,15 @@ class _ClusterEntry {
 /// which pinches into a "dumbbell" between buttons on device (#686).
 ///
 /// When the set of actions changes (a new chat becoming a real one), the
-/// glass morphs once: its width and each glyph's place ride one critically
-/// damped spring. Two glyphs never show in one spot: one arriving where a
-/// leaving glyph sits (the circle's glyph and the capsule's trailing one)
-/// fades in only once that glyph is gone. One arriving elsewhere does not
-/// wait, and the leaving glyph then fades slowly, so the glass hands over
-/// from one to the other and never shows empty. A glyph shows only inside
-/// the glass: it fades in once the growing edge has passed it, and out as a
-/// shrinking one reaches it. A change mid-way retargets from the current
-/// values. Reduce Motion keeps only the fades.
+/// glass reshapes and the glyphs change over in one step, on one critically
+/// damped spring ([kConduitBarMorphSpring]): the leaving glyphs fade and
+/// shrink away in the first part of it while the arriving ones grow in from
+/// where they will rest, each riding the end of the glass it belongs to, so
+/// no glyph ever shows outside the glass, the glass never shows empty, and
+/// an arriving glyph shows in a leaving one's spot only as that one clears.
+/// A change mid-way starts again from what is on screen. Reduce Motion
+/// reshapes at once and dissolves the glyphs, the old ones out before the
+/// new ones in.
 ///
 /// The capsule is anchored at its trailing edge, so it grows and shrinks
 /// toward the title.
@@ -1112,8 +1175,10 @@ class ConduitToolbarActionCluster extends StatefulWidget {
 
   final List<ConduitToolbarClusterItem> items;
 
-  /// Critically damped, settling in about a third of a second.
-  static final double springOmega = math.sqrt(380);
+  /// The angular frequency of [kConduitBarMorphSpring].
+  static final double springOmega = math.sqrt(
+    kConduitBarMorphSpring.stiffness / kConduitBarMorphSpring.mass,
+  );
 
   @override
   State<ConduitToolbarActionCluster> createState() =>
@@ -1124,16 +1189,23 @@ class _ConduitToolbarActionClusterState
     extends State<ConduitToolbarActionCluster>
     with SingleTickerProviderStateMixin {
   final Map<Object, _ClusterEntry> _entries = <Object, _ClusterEntry>{};
-  late final _ClusterSpring _width = _ClusterSpring(0, tolerance: 0.25);
+  late final _BarSpring _width = _BarSpring(0, tolerance: 0.25);
+
+  /// How far the latest change has come, from 0 to 1; it times the glyphs'
+  /// fades, and the moving ones' paths, against the glass's reshape.
+  late final _BarSpring _phase = _BarSpring(1, tolerance: 0.002);
   late final Ticker _ticker = createTicker(_onTick);
   Duration? _lastTick;
   bool _initialized = false;
+  List<Object> _ids = const <Object>[];
+  double _controlScale = 1;
+  bool _reduceMotion = false;
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    // The first layout, and any Dynamic Type change, place everything at
-    // rest: only a change of actions animates.
+    // The first layout and a Dynamic Type change place everything at rest:
+    // only a change of actions animates.
     _sync(animate: _initialized);
     _initialized = true;
   }
@@ -1150,101 +1222,175 @@ class _ConduitToolbarActionClusterState
     super.dispose();
   }
 
-  double _centerFromTrailing(int index, int count) {
-    if (count == 1) return conduitScaledControlExtent(context) / 2;
-    final slot =
-        kConduitToolbarClusterSlotExtent * conduitSystemControlScaleOf(context);
-    return (count - index - 0.5) * slot;
-  }
-
-  /// Whether [entry] would show in the spot of a leaving glyph that still
-  /// shows, so it waits for that glyph to be gone.
-  bool _waitsForClearing(_ClusterEntry entry) {
-    final apart =
-        (kConduitNativeSingleActionSymbolExtent + 8) *
-        conduitSystemControlScaleOf(context);
-    return _entries.values.any(
-      (other) =>
-          other.isLeaving &&
-          other.presence.value > _kClusterGoneOpacity &&
-          (other.centerFromTrailing.value - entry.centerFromTrailing.target)
-                  .abs() <
-              apart,
-    );
-  }
-
-  /// Whether an arriving glyph is taking over in a spot of its own but does
-  /// not show much yet, so the leaving ones fade slowly beside it.
-  bool get _handsOver {
-    final width = math.max(0.0, _width.value);
-    return _entries.values.any(
-      (entry) =>
-          !entry.isLeaving &&
-          entry.presence.target == 1 &&
-          !_waitsForClearing(entry) &&
-          entry.presence.value.clamp(0.0, 1.0) *
-                  _containment(entry.centerFromTrailing.value, width) <
-              _kClusterHandOffShown,
-    );
-  }
+  double get _slot =>
+      kConduitToolbarClusterSlotExtent * conduitSystemControlScaleOf(context);
 
   void _sync({required bool animate}) {
     final items = widget.items;
-    final ids = {for (final item in items) item.id};
-    for (final entry in _entries.values) {
-      if (!ids.contains(entry.item.id)) entry.presence.target = 0;
-    }
-    final arrived = <_ClusterEntry>[];
-    for (var index = 0; index < items.length; index++) {
-      final item = items[index];
-      final center = _centerFromTrailing(index, items.length);
-      final entry = _entries[item.id];
-      if (entry == null) {
-        // Arrives where it will rest; only its opacity moves.
-        final arrival = _ClusterEntry(
-          item,
-          centerFromTrailing: center,
-          presence: animate ? _kClusterArrivalLead : 1,
-        )..presence.target = 1;
-        _entries[item.id] = arrival;
-        if (animate) arrived.add(arrival);
-      } else {
-        entry.item = item;
-        entry.centerFromTrailing.target = center;
-        entry.presence.target = 1;
-      }
-    }
-    // An arriving glyph starts a little below zero, so it shows only once
-    // its native control exists rather than popping in part-way. One that
-    // waits for a leaving glyph in its spot starts at zero instead: the
-    // control is created while that glyph fades (about 100 ms).
-    for (final arrival in arrived) {
-      if (_waitsForClearing(arrival)) arrival.presence.value = 0;
-    }
+    final ids = [for (final item in items) item.id];
+    final controlScale = conduitSystemControlScaleOf(context);
+    final reshaped = controlScale != _controlScale;
+    final changed = !listEquals(ids, _ids);
+    _ids = ids;
+    _controlScale = controlScale;
+    _reduceMotion = context.reduceMotion;
     _width.target = conduitToolbarClusterWidth(context, items.length);
 
-    final reduceMotion = context.reduceMotion;
-    if (!animate || reduceMotion) {
-      _width.snap();
-      for (final entry in _entries.values) {
-        entry.centerFromTrailing.snap();
+    if (!changed || !animate) {
+      if (!animate) _entries.clear();
+      for (var index = 0; index < items.length; index++) {
+        final item = items[index];
+        final anchor = _ClusterAnchor.forSlot(index, items.length, _slot);
+        final entry = _entries[item.id];
+        if (entry == null) {
+          _entries[item.id] = _ClusterEntry(
+            item,
+            anchor,
+            arrives: false,
+            opacity: 1,
+            scale: 1,
+          );
+        } else {
+          entry
+            ..item = item
+            ..anchor = anchor;
+        }
+      }
+      if (!animate || reshaped) {
+        _width.snap();
+        _phase.snap();
+        for (final entry in _entries.values) {
+          entry
+            ..fromCentre = null
+            ..arrives = false
+            ..opacity = 1
+            ..scale = 1;
+        }
+        _entries.removeWhere((_, entry) => entry.leaving);
+      }
+      _layOut();
+      _startIfNeeded();
+      return;
+    }
+
+    // A change of actions: everything starts from where it shows now.
+    for (final entry in _entries.values) {
+      entry
+        ..fromCentre = entry.centre
+        ..fromOpacity = entry.opacity
+        ..fromScale = entry.scale
+        ..arrives = false
+        ..setsOutAt = null
+        ..leaving = true;
+    }
+    for (var index = 0; index < items.length; index++) {
+      final item = items[index];
+      final anchor = _ClusterAnchor.forSlot(index, items.length, _slot);
+      final entry = _entries[item.id];
+      if (entry == null) {
+        _entries[item.id] = _ClusterEntry(
+          item,
+          anchor,
+          arrives: true,
+          opacity: 0,
+          scale: _kClusterGlyphMinScale,
+        );
+      } else {
+        entry
+          ..item = item
+          ..anchor = anchor
+          ..leaving = false;
       }
     }
-    if (!animate) {
-      for (final entry in _entries.values) {
-        entry.presence.snap();
-      }
-      _entries.removeWhere((_, entry) => entry.presence.value == 0);
-    }
+    _phase
+      ..value = 0
+      ..velocity = 0
+      ..target = 1;
+    if (_reduceMotion) _width.snap();
+    _layOut();
     _startIfNeeded();
   }
 
-  bool get _isSettled =>
-      _width.isSettled &&
-      _entries.values.every(
-        (entry) =>
-            entry.presence.isSettled && entry.centerFromTrailing.isSettled,
-      );
+  /// Places, fades and scales every glyph for the glass's width and the
+  /// change's progress of this frame.
+  void _layOut() {
+    final width = math.max(0.0, _width.value);
+    final phase = _phase.value.clamp(0.0, 1.0).toDouble();
+    final reduceMotion = _reduceMotion;
+    final departure = _clusterEase(0, _kClusterDepartureEnd, phase);
+    // Under Reduce Motion the new glyphs wait for the old ones to be gone.
+    final arrivalStart = reduceMotion
+        ? _kClusterDepartureEnd
+        : _kClusterArrivalStart;
+    final arrivalEnd = reduceMotion ? 1.0 : _kClusterArrivalEnd;
+    double arrivalOf(_ClusterEntry entry) {
+      final start = math.max(arrivalStart, entry.setsOutAt ?? 0);
+      return _clusterEase(start, math.max(arrivalEnd, start + 0.3), phase);
+    }
+
+    final settle = _clusterEase(
+      0,
+      _kClusterArrivalEnd - _kClusterArrivalStart,
+      phase,
+    );
+
+    for (final entry in _entries.values) {
+      final resting = entry.anchor.resolve(width);
+      final from = entry.fromCentre;
+      if (entry.leaving) {
+        entry
+          ..centre = reduceMotion || from == null
+              ? from ?? resting
+              : lerpDouble(from, resting, phase)!
+          ..opacity = entry.fromOpacity * (1 - departure)
+          ..scale = reduceMotion
+              ? entry.fromScale
+              : lerpDouble(entry.fromScale, _kClusterGlyphMinScale, departure)!;
+      } else if (entry.arrives) {
+        entry.centre = resting;
+      } else {
+        entry
+          ..centre = reduceMotion || from == null
+              ? resting
+              : lerpDouble(from, resting, phase)!
+          ..opacity = entry.fromOpacity + (1 - entry.fromOpacity) * settle
+          ..scale = lerpDouble(entry.fromScale, 1, settle)!;
+      }
+    }
+    // An arriving glyph gives way to a leaving one it overlaps, so together
+    // they never show more than one glyph's worth of ink there; one swapped
+    // in the very spot of a leaving glyph sets out only once that is gone.
+    final controlScale = conduitSystemControlScaleOf(context);
+    final apart = _kClusterGlyphExtent * controlScale;
+    final sameSpot = _kClusterSameSpot * controlScale;
+    for (final entry in _entries.values) {
+      if (!entry.arrives) continue;
+      var clearing = 0.0;
+      var waits = false;
+      for (final other in _entries.values) {
+        if (!other.leaving) continue;
+        final distance = (other.centre - entry.centre).abs();
+        if (distance >= apart) continue;
+        clearing = math.max(clearing, other.opacity);
+        if (distance < sameSpot && other.opacity > 0.001) waits = true;
+      }
+      if (waits) {
+        entry
+          ..setsOutAt = phase
+          ..opacity = 0
+          ..scale = reduceMotion ? 1 : _kClusterGlyphMinScale;
+        continue;
+      }
+      final arrival = arrivalOf(entry);
+      entry
+        ..opacity = arrival * (1 - clearing)
+        ..scale = reduceMotion
+            ? 1
+            : lerpDouble(_kClusterGlyphMinScale, 1, arrival)!;
+    }
+  }
+
+  bool get _isSettled => _width.isSettled && _phase.isSettled;
 
   void _startIfNeeded() {
     if (_isSettled || _ticker.isActive) return;
@@ -1262,51 +1408,31 @@ class _ConduitToolbarActionClusterState
     // jumping to its end.
     final seconds = math.min(
       (elapsed - last).inMicroseconds / Duration.microsecondsPerSecond,
-      _kClusterMaxStep,
+      _kBarMaxStep,
     );
     final omega = ConduitToolbarActionCluster.springOmega;
     _width.step(seconds, omega);
-    // Decided before this frame's fades, so an arriving glyph starts on the
-    // frame after the last leaving one in its spot is gone, never alongside
-    // it.
-    final waiting = {
-      for (final entry in _entries.values)
-        if (!entry.isLeaving && _waitsForClearing(entry)) entry,
-    };
-    final departureSpeed = _handsOver
-        ? _kClusterHandOffDepartureSpeed
-        : _kClusterDepartureSpeed;
-    for (final entry in _entries.values) {
-      entry.centerFromTrailing.step(seconds, omega);
-      if (entry.isLeaving) {
-        entry.presence.step(seconds, omega * departureSpeed);
-      } else if (!waiting.contains(entry) || entry.presence.value > 0) {
-        // One that was already showing (a change reversed mid-way) carries
-        // on; a new one waits for the glyph in its spot to be gone.
-        entry.presence.step(seconds, omega * _kClusterArrivalSpeed);
-      }
-    }
+    _phase.step(seconds, omega);
+    _layOut();
     _entries.removeWhere(
       (_, entry) =>
-          entry.isLeaving &&
-          (entry.presence.isSettled ||
-              entry.presence.value <= _kClusterGoneOpacity),
+          entry.leaving &&
+          (_phase.isSettled || (entry.opacity <= 0.001 && _phase.value > 0)),
     );
-    if (_isSettled) _ticker.stop();
+    if (_isSettled) {
+      for (final entry in _entries.values) {
+        entry
+          ..arrives = false
+          ..setsOutAt = null
+          ..fromCentre = null
+          ..fromOpacity = 1
+          ..fromScale = 1
+          ..opacity = 1
+          ..scale = 1;
+      }
+      _ticker.stop();
+    }
     setState(() {});
-  }
-
-  /// How far the glyph centred [centerFromTrailing] from the trailing edge
-  /// sits inside glass [width] wide: 0 until the edge has passed the whole
-  /// glyph, 1 once it is half a glyph beyond (clear of the capsule's rounded
-  /// end), so no part of a glyph shows outside the glass while it grows or
-  /// shrinks.
-  double _containment(double centerFromTrailing, double width) {
-    final half =
-        kConduitNativeSingleActionSymbolExtent /
-        2 *
-        conduitSystemControlScaleOf(context);
-    return ((width - centerFromTrailing - half) / half).clamp(0.0, 1.0);
   }
 
   @override
@@ -1335,10 +1461,8 @@ class _ConduitToolbarActionClusterState
 
     final children = <Widget>[Positioned.fill(child: background)];
     for (final entry in _entries.values) {
-      final center = entry.centerFromTrailing.value;
-      final opacity =
-          entry.presence.value.clamp(0.0, 1.0) * _containment(center, width);
-      if (opacity <= 0 && entry.isLeaving) continue;
+      final opacity = entry.opacity.clamp(0.0, 1.0).toDouble();
+      if (opacity <= 0 && entry.leaving) continue;
       // The same wrappers whether or not there is a long press or anchor,
       // so a change of either never rebuilds the native control (a blank
       // frame).
@@ -1352,13 +1476,16 @@ class _ConduitToolbarActionClusterState
       children.add(
         Positioned(
           key: ValueKey<Object>(entry.item.id),
-          right: center - height / 2,
+          right: entry.centre - height / 2,
           top: 0,
           width: height,
           height: height,
           child: IgnorePointer(
-            ignoring: entry.isLeaving,
-            child: Opacity(opacity: opacity, child: child),
+            ignoring: entry.leaving,
+            child: Opacity(
+              opacity: opacity,
+              child: Transform.scale(scale: entry.scale, child: child),
+            ),
           ),
         ),
       );
@@ -1942,13 +2069,14 @@ class ConduitAdaptiveAppBarModelSelector extends StatelessWidget {
 /// 26 navigation title with a subtitle, and stays one tap from the model
 /// picker. The pill's width follows its content.
 ///
-/// The change rides one critically damped spring, started from the current
-/// value and velocity, so a scroll that flips back mid-way reverses it
-/// without a jump. The model line never leaves: it shrinks into the
-/// subtitle's place as the capsule grows, and the title fades in above it
-/// only once the capsule can hold it (see [ConduitTitledPillMotion]), so no
-/// frame shows a clipped glyph, two lines over each other or an empty pill.
-/// Reduce Motion resizes the capsule and dissolves between the two states.
+/// The change is one continuous step on [kConduitBarMorphSpring], started
+/// from the current value and velocity, so a scroll that flips back mid-way
+/// reverses it without a jump. The model line never leaves: it shrinks into
+/// the subtitle's place, ahead of the capsule, while the title grows in above
+/// it with the capsule, always as large as the capsule holds it (see
+/// [ConduitTitledPillMotion]), so no frame shows a clipped glyph, two lines
+/// over each other, or a wide pill waiting for its title. Reduce Motion
+/// resizes the capsule and dissolves between the two states.
 class _ConduitTitledModelSelector extends StatefulWidget {
   const _ConduitTitledModelSelector({
     required this.label,
@@ -1977,10 +2105,6 @@ class _ConduitTitledModelSelector extends StatefulWidget {
       _ConduitTitledModelSelectorState();
 }
 
-/// Critically damped; settles in about a third of a second.
-final SpringDescription _kConduitTitleSpring =
-    SpringDescription.withDampingRatio(mass: 1, stiffness: 300, ratio: 1);
-
 const double _kConduitTitledPillInset = 14;
 
 double _smoothstep(double from, double to, double x) {
@@ -1994,12 +2118,15 @@ double _smoothstep(double from, double to, double x) {
 /// model alone) to 1 (the title over the model); a pure function of `t`, so
 /// a change reversed mid-way retraces the same frames.
 ///
-/// The capsule's width rides the spring. The title shows only once the
-/// capsule holds it with [roundedEndClearance] to spare at each end, at
-/// [minTitleScale] or more, and once the model line, dropping into the
-/// subtitle's place, has cleared the title's line ([linesClearAt]). It then
-/// fades and grows the last few percent to its size. Going back, the same
-/// rule fades it out before the capsule can cut into it.
+/// The capsule's width rides the spring. The model line becomes the
+/// subtitle over the first part of it ([modelMorphAt]), so it clears the
+/// title's line early. The title grows in with the capsule: it is drawn as
+/// large as the capsule holds it with [roundedEndClearance] to spare at each
+/// end, up to full size, and fades in from the moment that is at least
+/// [revealScale] and the dropping model line has cleared its line
+/// ([linesClearAt]). So the pill changes in one continuous step: never a wide
+/// capsule waiting for its title, never a title outside the capsule. Going
+/// back retraces the same frames.
 @visibleForTesting
 @immutable
 class ConduitTitledPillMotion {
@@ -2007,17 +2134,26 @@ class ConduitTitledPillMotion {
     required this.modelWidth,
     required this.titledWidth,
     required this.titleWidth,
-    this.linesClearAt = 0.5,
+    this.linesClearAt = 0.3,
     this.reduceMotion = false,
   });
 
-  /// The title is never drawn smaller than this; it grows to full size as
-  /// the capsule makes room.
-  static const double minTitleScale = 0.96;
+  /// The title is never drawn smaller than this.
+  static const double minTitleScale = 0.6;
+
+  /// The title starts to show once the capsule holds it at this scale; above
+  /// [minTitleScale], so a title that shows always fits.
+  static const double revealScale = 0.65;
 
   /// Room kept between the title and each end of the capsule, past the
   /// curve of its rounded ends at the title's line.
   static const double roundedEndClearance = 10;
+
+  /// Share of the change over which the model line becomes the subtitle.
+  static const double modelMorphEnd = 0.6;
+
+  /// Share of the change the title's fade takes.
+  static const double revealSpan = 0.4;
 
   /// Width of the capsule with the model alone.
   final double modelWidth;
@@ -2057,23 +2193,25 @@ class ConduitTitledPillMotion {
   double fitScaleAt(double t) =>
       titleWidth <= 0 ? 1 : (widthAt(t) - 2 * _fitInset) / titleWidth;
 
+  /// The spring value from which the capsule holds the title at
+  /// [revealScale].
+  double get _fitsFrom {
+    final needed = revealScale * titleWidth + 2 * _fitInset;
+    if (needed <= modelWidth) return 0;
+    final growth = titledWidth - modelWidth;
+    if (growth <= 0) return 1;
+    return ((needed - modelWidth) / growth).clamp(0.0, 1.0).toDouble();
+  }
+
   /// The spring value at which the title starts to show.
   double get revealStart {
     if (reduceMotion) return _reducedRevealStart;
-    final growth = titledWidth - modelWidth;
-    final needed = minTitleScale * titleWidth + 2 * _fitInset;
-    final fitsFrom = growth <= 0
-        ? 0.0
-        : ((needed - modelWidth) / growth).clamp(0.0, 1.0).toDouble();
-    return math.max(0.5, math.max(fitsFrom, linesClearAt.clamp(0.0, 1.0)));
+    return math.max(_fitsFrom, linesClearAt.clamp(0.0, 1.0).toDouble());
   }
 
   /// The spring value at which the title is fully shown.
-  double get revealEnd {
-    if (reduceMotion) return 1;
-    final start = revealStart;
-    return start + 0.75 * (1 - start);
-  }
+  double get revealEnd =>
+      reduceMotion ? 1 : math.min(1.0, revealStart + revealSpan);
 
   /// The title's opacity at [t].
   double titleOpacityAt(double t) {
@@ -2083,14 +2221,15 @@ class ConduitTitledPillMotion {
     return _smoothstep(start, end, t);
   }
 
-  /// The title's scale at [t]: as large as the capsule allows, up to full
+  /// The title's scale at [t]: as large as the capsule holds it, up to full
   /// size.
   double titleScaleAt(double t) =>
       reduceMotion ? 1 : fitScaleAt(t).clamp(minTitleScale, 1.0).toDouble();
 
   /// How far the model line has turned into the subtitle at [t]; under
   /// Reduce Motion it does not move, but dissolves (see [modelOpacityAt]).
-  double modelMorphAt(double t) => reduceMotion ? 0 : t.clamp(0.0, 1.0);
+  double modelMorphAt(double t) =>
+      reduceMotion ? 0 : _smoothstep(0, modelMorphEnd, t);
 
   /// The centred model line's opacity at [t]. Without Reduce Motion it is
   /// the subtitle itself and never fades.
@@ -2216,11 +2355,25 @@ const double _kConduitTitledPillMaxTextScale = 1.2;
 class _ConduitTitledModelSelectorState
     extends State<_ConduitTitledModelSelector>
     with SingleTickerProviderStateMixin {
-  late final AnimationController _progress = AnimationController.unbounded(
-    vsync: this,
-    value: _wantsTitle ? 1 : 0,
+  /// The spring's value, from 0 (the model alone) to 1 (the title over
+  /// it), stepped by hand like the trailing glass's, so a long frame slows
+  /// the change instead of skipping it.
+  late final _BarSpring _spring = _BarSpring(
+    _wantsTitle ? 1 : 0,
+    tolerance: 0.001,
   );
-  late double _target = _progress.value;
+  late final ValueNotifier<double> _progress = ValueNotifier<double>(
+    _spring.value,
+  );
+  late final Ticker _ticker = createTicker(_onTick);
+  Duration? _lastTick;
+  late double _target = _spring.value;
+
+  /// Under Reduce Motion the change is a 200 ms ease instead of the spring.
+  static const double _reducedSeconds = 0.2;
+  bool _reduced = false;
+  double _reducedFrom = 0;
+  double _reducedElapsed = 0;
 
   bool get _hasTitle => widget.title?.trim().isNotEmpty ?? false;
   bool get _wantsTitle =>
@@ -2245,6 +2398,7 @@ class _ConduitTitledModelSelectorState
   @override
   void dispose() {
     widget.showsTitle.removeListener(_syncTarget);
+    _ticker.dispose();
     _progress.dispose();
     super.dispose();
   }
@@ -2254,27 +2408,48 @@ class _ConduitTitledModelSelectorState
     final target = _wantsTitle ? 1.0 : 0.0;
     if (target == _target) return;
     _target = target;
-    if (context.reduceMotion) {
-      _progress.animateTo(
-        target,
-        duration: const Duration(milliseconds: 200),
-        curve: Curves.easeInOut,
-      );
-      return;
+    _reduced = context.reduceMotion;
+    if (_reduced) {
+      _reducedFrom = _spring.value;
+      _reducedElapsed = 0;
     }
-    _progress
-        .animateWith(
-          SpringSimulation(
-            _kConduitTitleSpring,
-            _progress.value,
-            target,
-            _progress.velocity,
-          ),
-        )
-        // A spring stops within its tolerance; land exactly on the target.
-        .then((_) {
-          if (mounted && _target == target) _progress.value = target;
-        });
+    // Retargeted from the current value and velocity: no jump on a
+    // reversal mid-way.
+    _spring.target = target;
+    if (!_ticker.isActive) {
+      _lastTick = null;
+      _ticker.start();
+    }
+  }
+
+  void _onTick(Duration elapsed) {
+    final last = _lastTick;
+    _lastTick = elapsed;
+    if (last == null) return;
+    final seconds = math.min(
+      (elapsed - last).inMicroseconds / Duration.microsecondsPerSecond,
+      _kBarMaxStep,
+    );
+    if (_reduced) {
+      _reducedElapsed += seconds;
+      final progress = (_reducedElapsed / _reducedSeconds).clamp(0.0, 1.0);
+      _spring
+        ..value = lerpDouble(
+          _reducedFrom,
+          _target,
+          Curves.easeInOut.transform(progress),
+        )!
+        ..velocity = 0;
+      if (progress >= 1) _spring.snap();
+    } else {
+      _spring.step(seconds, ConduitToolbarActionCluster.springOmega);
+    }
+    _progress.value = _spring.value;
+    if (_spring.isSettled) {
+      _spring.snap();
+      _progress.value = _spring.value;
+      _ticker.stop();
+    }
   }
 
   double _textWidth(String text, TextStyle style, TextScaler scaler) {
@@ -2519,21 +2694,31 @@ class _ConduitTitledModelSelectorState
     final subtitleCentreY =
         blockTop + titleLineHeight + 1 + subtitleLineHeight / 2;
 
-    // The spring value from which the dropping model line's cap height is
-    // below the title line's descenders.
+    final reduceMotion = context.reduceMotion;
+    final shape = ConduitTitledPillMotion(
+      modelWidth: modelWidth,
+      titledWidth: titledWidth,
+      titleWidth: fittedTitle?.width ?? 0,
+      reduceMotion: reduceMotion,
+    );
+
+    // The spring value from which the dropping model line's cap height stays
+    // below the title line's descenders, the title drawn at its scale then.
     double linesClearAt() {
-      final titleBottom = blockTop + titleLineHeight;
-      const steps = 50;
-      for (var step = 0; step <= steps; step++) {
+      const steps = 100;
+      for (var step = steps; step >= 0; step--) {
         final t = step / steps;
-        final fontSize = lerpDouble(modelFontSize, subtitleFontSize, t)!;
-        final height = lerpDouble(modelLineHeight, subtitleLineHeight, t)!;
-        final centre = lerpDouble(centreY, subtitleCentreY, t)!;
+        final morph = shape.modelMorphAt(t);
+        final fontSize = lerpDouble(modelFontSize, subtitleFontSize, morph)!;
+        final height = lerpDouble(modelLineHeight, subtitleLineHeight, morph)!;
+        final centre = lerpDouble(centreY, subtitleCentreY, morph)!;
         // SF Pro's cap height sits about a quarter em below its ascent.
         final capTop = centre - height / 2 + 0.22 * fontSize;
-        if (capTop >= titleBottom) return t;
+        final titleBottom =
+            titleCentreY + titleLineHeight / 2 * shape.titleScaleAt(t);
+        if (capTop < titleBottom) return math.min(1.0, t + 1 / steps);
       }
-      return 1;
+      return 0;
     }
 
     final motion = ConduitTitledPillMotion(
@@ -2541,7 +2726,7 @@ class _ConduitTitledModelSelectorState
       titledWidth: titledWidth,
       titleWidth: fittedTitle?.width ?? 0,
       linesClearAt: title.isEmpty ? 0.5 : linesClearAt(),
-      reduceMotion: context.reduceMotion,
+      reduceMotion: reduceMotion,
     );
 
     final titleContentWidth = contentWidth(
