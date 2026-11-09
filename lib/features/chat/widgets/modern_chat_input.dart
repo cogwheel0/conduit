@@ -292,6 +292,8 @@ double fallbackAttachmentPanelHeight({
 }
 
 /// Shared visibility rule used by both compact and expanded '+' branches.
+/// Save as Note lives only in the '+' panel, so a draft that can be kept
+/// as a note shows the button on any backend.
 bool shouldShowComposerOverflowButton({
   required bool isHermesComposer,
   required bool isDirectComposer,
@@ -300,7 +302,9 @@ bool shouldShowComposerOverflowButton({
   bool hermesHasLocalAttachmentActions = false,
   bool isLibreChatComposer = false,
   bool libreChatHasOverflowActions = false,
+  bool draftNoteAvailable = false,
 }) {
+  if (draftNoteAvailable) return true;
   if (isLibreChatComposer) return libreChatHasOverflowActions;
   if (isHermesComposer) return hermesHasLocalAttachmentActions;
   return !isDirectComposer || directSupportsImages || directHasOverflowActions;
@@ -799,9 +803,13 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     // (which cancel the wait) may keep it up now.
     final waited = _keyboardWaitsForWords;
     _keyboardWaitsForWords = false;
+    final textWhenScheduled = _controller.text;
     _startHandOffTimer(_keyboardHandOffLag, () {
       if (!mounted || _isDeactivated) return;
       if (!waited && !_draftHandedOff) return;
+      // A new draft typed in the meantime keeps the keyboard up for it.
+      final text = _controller.text;
+      if (text != textWhenScheduled && text.trim().isNotEmpty) return;
       _focusNode.unfocus();
       unawaited(_hideAttachmentPanels());
       try {
@@ -4167,6 +4175,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
           attachmentAvailability.photo ||
           attachmentAvailability.camera ||
           availableTools.isNotEmpty,
+      draftNoteAvailable: draftNoteAvailable,
     );
     final compactControls = _compactComposerControls(
       showOverflowButton: showOverflowButton,

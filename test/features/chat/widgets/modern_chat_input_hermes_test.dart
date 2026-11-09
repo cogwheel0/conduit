@@ -36,6 +36,27 @@ void main() {
     );
   });
 
+  test('a draft that can be kept as a note shows + on any backend', () {
+    // Save as Note lives only in the + panel.
+    for (final (hermes, direct, libreChat) in [
+      (true, false, false),
+      (false, true, false),
+      (false, false, true),
+    ]) {
+      expect(
+        shouldShowComposerOverflowButton(
+          isHermesComposer: hermes,
+          isDirectComposer: direct,
+          directSupportsImages: false,
+          isLibreChatComposer: libreChat,
+          draftNoteAvailable: true,
+        ),
+        isTrue,
+        reason: 'hermes: $hermes, direct: $direct, libreChat: $libreChat',
+      );
+    }
+  });
+
   test('LibreChat overflow follows its uploads and tools', () {
     expect(
       shouldShowComposerOverflowButton(
