@@ -93,7 +93,7 @@ class _ChatScrollToLatestButtonState extends State<ChatScrollToLatestButton>
   @override
   void initState() {
     super.initState();
-    _reportPresence();
+    _reportPresenceAfterBuild();
   }
 
   /// Runs while the spring ticks, before the frame builds, so the host may
@@ -102,12 +102,22 @@ class _ChatScrollToLatestButtonState extends State<ChatScrollToLatestButton>
     widget.presence?.value = _presence.value.clamp(0.0, 1.0);
   }
 
+  /// For a mount or a new [ChatScrollToLatestButton.presence], which happen
+  /// while the tree builds: the host hears of it after this frame, since a
+  /// sibling must never be marked dirty from inside a build.
+  void _reportPresenceAfterBuild() {
+    if (widget.presence == null) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _reportPresence();
+    });
+  }
+
   @override
   void didUpdateWidget(covariant ChatScrollToLatestButton oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (!identical(oldWidget.presence, widget.presence)) {
       oldWidget.presence?.value = 0;
-      _reportPresence();
+      _reportPresenceAfterBuild();
     }
     if (oldWidget.visible == widget.visible) return;
     final target = widget.visible ? 1.0 : 0.0;

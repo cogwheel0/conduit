@@ -460,7 +460,9 @@ void main() {
     expect(tooltip.message, 'Waiting for approval');
     // The row reads its title and that it waits.
     expect(
-      find.bySemanticsLabel(RegExp('Paused chat.*Waiting for approval', dotAll: true)),
+      find.bySemanticsLabel(
+        RegExp('Paused chat.*Waiting for approval', dotAll: true),
+      ),
       findsOneWidget,
     );
     semantics.dispose();
@@ -598,26 +600,29 @@ void main() {
       tester,
     ) async {
       final semantics = tester.ensureSemantics();
-      await tester.pumpWidget(
-        _harness(
-          ConversationTile(
-            title: 'Old chat',
-            pinned: false,
-            selected: false,
-            unread: true,
-            isLoading: false,
-            timestamp: DateTime(2020, 1, 15, 10),
-            onTap: () {},
+      try {
+        await tester.pumpWidget(
+          _harness(
+            ConversationTile(
+              title: 'Old chat',
+              pinned: false,
+              selected: false,
+              unread: true,
+              isLoading: false,
+              timestamp: DateTime(2020, 1, 15, 10),
+              onTap: () {},
+            ),
           ),
-        ),
-      );
+        );
 
-      expect(tester.widget<Text>(stampText).data, '1/15/20');
-      expect(
-        find.bySemanticsLabel('Old chat\nUnread\nJanuary 15, 2020'),
-        findsOneWidget,
-      );
-      semantics.dispose();
+        expect(tester.widget<Text>(stampText).data, '1/15/20');
+        expect(
+          find.bySemanticsLabel('Old chat\nUnread\nJanuary 15, 2020'),
+          findsOneWidget,
+        );
+      } finally {
+        semantics.dispose();
+      }
     });
 
     testWidgets('gives way to the spinner while the chat works', (

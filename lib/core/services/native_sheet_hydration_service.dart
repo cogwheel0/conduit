@@ -1165,9 +1165,7 @@ class NativeSheetHydrationService {
         title: l10n.notificationInAppBannerTitle,
         subtitle: l10n.notificationInAppBannerDescription,
         sfSymbol: 'rectangle.topthird.inset.filled',
-        kind: s.notificationsEnabled
-            ? NativeSheetItemKind.toggle
-            : NativeSheetItemKind.info,
+        kind: NativeSheetItemKind.toggle,
         value: s.notificationInAppBanner,
       ),
       NativeSheetItemConfig(
@@ -1175,9 +1173,7 @@ class NativeSheetHydrationService {
         title: l10n.notificationSystemTitle,
         subtitle: l10n.notificationSystemDescription,
         sfSymbol: 'bell.badge',
-        kind: s.notificationsEnabled
-            ? NativeSheetItemKind.toggle
-            : NativeSheetItemKind.info,
+        kind: NativeSheetItemKind.toggle,
         value: s.notificationSystem,
       ),
     ];
@@ -1187,19 +1183,17 @@ class NativeSheetHydrationService {
         title: l10n.notificationSoundTitle,
         subtitle: l10n.notificationSoundDescription,
         sfSymbol: 'speaker.wave.2',
-        kind: s.notificationsEnabled
-            ? NativeSheetItemKind.toggle
-            : NativeSheetItemKind.info,
+        kind: NativeSheetItemKind.toggle,
         value: s.notificationSound,
       ),
       NativeSheetItemConfig(
         id: 'notification-sound-always',
         title: l10n.notificationSoundAlwaysTitle,
-        subtitle: s.notificationsEnabled && !s.notificationSound
+        subtitle: !s.notificationSound
             ? l10n.notificationRequiresSound
             : l10n.notificationSoundAlwaysDescription,
         sfSymbol: 'speaker.wave.3',
-        kind: s.notificationsEnabled && s.notificationSound
+        kind: s.notificationSound
             ? NativeSheetItemKind.toggle
             : NativeSheetItemKind.info,
         value: s.notificationSoundAlways,
@@ -1211,9 +1205,7 @@ class NativeSheetHydrationService {
         title: l10n.notificationChatTitle,
         subtitle: l10n.notificationChatDescription,
         sfSymbol: 'bubble.left.and.bubble.right',
-        kind: s.notificationsEnabled
-            ? NativeSheetItemKind.toggle
-            : NativeSheetItemKind.info,
+        kind: NativeSheetItemKind.toggle,
         value: s.notificationChatEnabled,
       ),
       NativeSheetItemConfig(
@@ -1221,9 +1213,7 @@ class NativeSheetHydrationService {
         title: l10n.notificationChannelTitle,
         subtitle: l10n.notificationChannelDescription,
         sfSymbol: 'number',
-        kind: s.notificationsEnabled
-            ? NativeSheetItemKind.toggle
-            : NativeSheetItemKind.info,
+        kind: NativeSheetItemKind.toggle,
         value: s.notificationChannelEnabled,
       ),
     ];

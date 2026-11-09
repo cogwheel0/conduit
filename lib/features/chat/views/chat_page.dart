@@ -849,6 +849,7 @@ class _ChatPageState extends ConsumerState<ChatPage>
     ref.read(chatTranscriptPagingProvider.notifier).reset(totalMessages: 0);
     _cancelPendingViewportNavigation();
     _clearPinToTopAnchor();
+    _resetGreetingForConversationBoundary();
     _invalidateChatListStableLayoutMetadata();
     _isAnchoredToBottom = true;
 
@@ -1499,6 +1500,17 @@ class _ChatPageState extends ConsumerState<ChatPage>
     _greetingSendHideTimer = Timer(const Duration(seconds: 2), () {
       if (!_messageSendAdmission.isHeld) _endSendGreetingHide();
     });
+  }
+
+  /// Another chat drops a greeting still leaving the last one: its exit,
+  /// which would have restored the greeting when done, goes with that chat,
+  /// so the next empty chat greets at once.
+  void _resetGreetingForConversationBoundary() {
+    _greetingSendHideTimer?.cancel();
+    _greetingSendHideTimer = null;
+    _greetingExiting = false;
+    _greetingSendPresence.stop();
+    _greetingSendPresence.value = 1;
   }
 
   /// The send has gone through or did not: a chat still empty shows its
@@ -2835,6 +2847,7 @@ class _ChatPageState extends ConsumerState<ChatPage>
     _hasPrewarmedAttachedViewport = false;
     _lastVisibleMessageIds = const <String>{};
     _clearPinToTopAnchor();
+    _resetGreetingForConversationBoundary();
     _invalidateChatListStableLayoutMetadata();
     _hasUserScrolled = false;
     final totalMessages = ref.read(chatMessagesProvider).length;

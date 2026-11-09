@@ -2212,7 +2212,10 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
         gap,
         AuthGroupedSection(
           header: l10n.customHeaders,
-          footer: l10n.customHeadersDescription,
+          // At the limit, Add Header is dimmed: the footer says why.
+          footer: _customHeaders.length >= 10
+              ? l10n.maxHeadersReachedDetail
+              : l10n.customHeadersDescription,
           children: [
             for (final entry in _customHeaders.entries)
               AuthGroupedRow(

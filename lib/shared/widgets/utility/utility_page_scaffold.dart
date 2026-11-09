@@ -323,6 +323,7 @@ class _UtilityPageScaffoldState extends State<UtilityPageScaffold> {
         ? scrollbar
         : NotificationListener<ScrollMetricsNotification>(
             onNotification: (notification) =>
+                notification.depth == 0 &&
                 _handleScrollMetrics(notification.metrics),
             child: NotificationListener<ScrollNotification>(
               onNotification: (notification) =>

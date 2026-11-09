@@ -49,6 +49,10 @@ class _StreamingTurnFooterState extends ConsumerState<StreamingTurnFooter>
     duration: _switchDuration,
     value: 1,
   );
+  late final CurvedAnimation _entranceOpacity = CurvedAnimation(
+    parent: _entrance,
+    curve: Curves.easeOut,
+  );
   Timer? _entranceTimer;
 
   @override
@@ -82,6 +86,7 @@ class _StreamingTurnFooterState extends ConsumerState<StreamingTurnFooter>
   @override
   void dispose() {
     _entranceTimer?.cancel();
+    _entranceOpacity.dispose();
     _entrance.dispose();
     super.dispose();
   }
@@ -165,7 +170,7 @@ class _StreamingTurnFooterState extends ConsumerState<StreamingTurnFooter>
     return ChatFirstPaintListener(
       onFirstPaint: _startEntranceOnScreen,
       child: FadeTransition(
-        opacity: CurvedAnimation(parent: _entrance, curve: Curves.easeOut),
+        opacity: _entranceOpacity,
         child: AnimatedSwitcher(
           duration: _disableAnimations ? Duration.zero : _switchDuration,
           reverseDuration: _disableAnimations ? Duration.zero : _switchDuration,

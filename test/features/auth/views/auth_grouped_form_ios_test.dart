@@ -321,7 +321,7 @@ void main() {
       find.byKey(const ValueKey('api_key_form')),
     );
     check(form.footer).isNotNull()
-      ..contains('JWT token')
+      ..contains('JWT session token')
       ..contains('Settings › Account › API Keys')
       ..contains('sk-');
     check(labelledField(tester, 'Token').obscureText).isTrue();

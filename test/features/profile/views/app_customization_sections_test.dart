@@ -365,20 +365,23 @@ void main() {
 
   testWidgets('switch rows announce their state', (tester) async {
     final semantics = tester.ensureSemantics();
-    await tester.pumpWidget(_sectionHarness(AppCustomizationSection.chat));
-    await tester.pumpAndSettle();
-    await tester.scrollUntilVisible(
-      find.byKey(const Key('chat-settings-advanced-toggle')),
-      300,
-    );
-
-    expect(
-      tester.getSemantics(
+    try {
+      await tester.pumpWidget(_sectionHarness(AppCustomizationSection.chat));
+      await tester.pumpAndSettle();
+      await tester.scrollUntilVisible(
         find.byKey(const Key('chat-settings-advanced-toggle')),
-      ),
-      isSemantics(hasToggledState: true, isToggled: false),
-    );
-    semantics.dispose();
+        300,
+      );
+
+      expect(
+        tester.getSemantics(
+          find.byKey(const Key('chat-settings-advanced-toggle')),
+        ),
+        isSemantics(hasToggledState: true, isToggled: false),
+      );
+    } finally {
+      semantics.dispose();
+    }
   });
 
   testWidgets('Chat toggles the persisted Advanced preference', (tester) async {
