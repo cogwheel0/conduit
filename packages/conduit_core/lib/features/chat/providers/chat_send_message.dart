@@ -162,7 +162,7 @@ Future<void> _sendMessageInternal(
   final directSendConversationId = currentConversation == null
       ? null
       : _directRunOwnerScopeForConversation(ref, currentConversation);
-  final directAttachmentContentTypes = _durableAttachmentContentTypesFromState(
+  final directAttachmentFacts = _durableAttachmentFactsFromState(
     ref,
     attachments ?? const <String>[],
   );
@@ -737,7 +737,7 @@ Future<void> _sendMessageInternal(
           sourceApi: directSourceApi,
           sourceAuthSnapshot: directSourceAuthSnapshot,
           cancelToken: preflightCancelToken,
-          capturedContentTypes: directAttachmentContentTypes,
+          capturedFacts: directAttachmentFacts,
           requireSourceContext: () =>
               _requireDirectOwnerSourceAuthSession(ref, runOwner),
         ),
