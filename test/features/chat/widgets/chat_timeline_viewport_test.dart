@@ -232,6 +232,51 @@ void main() {
     },
   );
 
+  _viewportTest('Android track taps page the mapped scrollbar', (tester) async {
+    PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.android;
+    addTearDown(PlatformUiCapabilities.resetDebugOverrides);
+    final controller = _controller(tester);
+    await tester.pumpWidget(
+      _viewportHost(
+        _viewport(
+          controller: controller,
+          ids: const ['synthetic-tall'],
+          followLatest: false,
+          initialAnchor: const ChatScrollAnchor(
+            messageId: 'synthetic-tall',
+            offsetWithinMessage: 0,
+            loadedCount: 1,
+          ),
+          rowBuilder: (_, _) => const SizedBox(height: 10000),
+        ),
+        theme: ThemeData(
+          platform: TargetPlatform.android,
+          scrollbarTheme: const ScrollbarThemeData(
+            thumbVisibility: WidgetStatePropertyAll(true),
+            thickness: WidgetStatePropertyAll(8),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final position = tester
+        .state<ScrollableState>(find.byType(Scrollable))
+        .position;
+    position.jumpTo(1);
+    await tester.pump(const Duration(milliseconds: 100));
+    await tester.pump(const Duration(milliseconds: 100));
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(_paintedThumb(tester).bottom, lessThan(200));
+    await tester.tapAt(const Offset(796, 400));
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+    expect(position.pixels, inExclusiveRange(300, 600));
+    await tester.tapAt(const Offset(796, 34), kind: PointerDeviceKind.mouse);
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+    expect(position.pixels, lessThan(50));
+  });
+
   for (final platform in [TargetPlatform.android, TargetPlatform.iOS]) {
     _viewportTest('$platform mouse wheel reaches keyboard-dismiss ancestors', (
       tester,

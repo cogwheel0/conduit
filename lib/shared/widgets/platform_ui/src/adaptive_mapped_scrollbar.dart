@@ -36,6 +36,7 @@ class _AdaptiveMappedScrollbarState extends State<AdaptiveMappedScrollbar>
   final _controller = ScrollController(keepScrollOffset: false);
   late final ScrollPositionWithSingleContext _position;
   BuildContext? _notificationContext;
+  BuildContext? _scrollableContext;
   final _notifications = <ScrollNotification>[];
   bool _updateScheduled = false;
   bool _metricsChanged = false;
@@ -88,6 +89,7 @@ class _AdaptiveMappedScrollbarState extends State<AdaptiveMappedScrollbar>
 
   bool _scrollNotification(ScrollNotification notification) {
     if (notification.depth != 0) return false;
+    _scrollableContext = notification.context;
     if (notification is UserScrollNotification) {
       // Keep ancestor keyboard-dismiss listeners informed without sending
       // physical content metrics through the mapped scrollbar.
@@ -101,6 +103,7 @@ class _AdaptiveMappedScrollbarState extends State<AdaptiveMappedScrollbar>
 
   bool _metricsNotification(ScrollMetricsNotification notification) {
     if (notification.depth != 0) return false;
+    _scrollableContext = notification.context;
     _metricsChanged = true;
     _scheduleUpdate();
     return true;
@@ -180,7 +183,10 @@ class _AdaptiveMappedScrollbarState extends State<AdaptiveMappedScrollbar>
   }
 
   @override
-  BuildContext? get notificationContext => _notificationContext;
+  // Native track taps resolve the content Scrollable for page increments.
+  BuildContext? get notificationContext => _scrollableContext?.mounted == true
+      ? _scrollableContext
+      : _notificationContext;
   @override
   BuildContext get storageContext => context;
   @override
