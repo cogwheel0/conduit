@@ -1,3 +1,4 @@
+import 'package:conduit/features/chat/widgets/chat_motion_spring.dart';
 import 'package:conduit/features/chat/widgets/chat_send_motion.dart';
 import 'package:conduit/features/chat/widgets/chat_timeline_viewport.dart';
 import 'package:conduit_core/database/models/chat_transcript_window.dart';
@@ -183,13 +184,38 @@ void main() {
   test('a critically damped spring never overshoots and settles', () {
     var previous = ChatSendEntrance.remainingAt(0);
     expect(previous, 1);
-    for (var ms = 10; ms <= 560; ms += 10) {
+    for (var ms = 10; ms <= 640; ms += 10) {
       final value = ChatSendEntrance.remainingAt(ms / 1000);
       expect(value, inInclusiveRange(0, previous));
       previous = value;
     }
     // Under half a pixel left of a full-screen (800 pt) travel.
-    expect(ChatSendEntrance.remainingAt(0.56) * 800, lessThan(0.5));
+    expect(ChatSendEntrance.remainingAt(0.64) * 800, lessThan(0.5));
+    // Apple's pace for moving something to a new place: most of the way in
+    // a fifth of a second, a visible tail to about 0.4 s, never a blink.
+    expect(ChatSendEntrance.remainingAt(0.1), greaterThan(0.5));
+    expect(ChatSendEntrance.remainingAt(0.4), lessThan(0.05));
+  });
+
+  test('a slow frame holds the motion back instead of skipping it', () {
+    final clock = ChatMotionClock();
+    // Frames at 60 Hz keep the ticker's time exactly.
+    for (var frame = 1; frame <= 6; frame += 1) {
+      expect(clock.advanceTo(frame / 60), closeTo(1 / 60, 1e-9));
+    }
+    expect(clock.seconds, closeTo(0.1, 1e-9));
+    // A 300 ms stall advances it by two frames at most, so the spring picks
+    // up where it was rather than jumping most of the way.
+    expect(
+      clock.advanceTo(0.1 + 0.3),
+      closeTo(ChatMotionClock.maxFrameStep, 1e-9),
+    );
+    expect(clock.seconds, closeTo(0.1 + 2 / 60, 1e-9));
+    // Readings that do not move it change nothing.
+    expect(clock.advanceTo(0.4), 0);
+    clock.reset();
+    expect(clock.seconds, 0);
+    expect(clock.advanceTo(1 / 60), closeTo(1 / 60, 1e-9));
   });
 
   test('send origins expire', () {
@@ -509,6 +535,100 @@ void main() {
     expect(ChatSendOrigin.take(), isNull);
   });
 
+  testWidgets('a row built again mid-flight takes the flight over, so the '
+      'message carries on instead of jumping to its place', (tester) async {
+    const flightText = ValueKey('flight-text');
+    final timestamp = DateTime.now();
+    var mount = 0;
+    late StateSetter rebuild;
+    ChatSendOrigin.record(const Rect.fromLTWH(20, 700, 360, 44));
+    await tester.pumpWidget(
+      _harness(
+        StatefulBuilder(
+          builder: (context, setState) {
+            rebuild = setState;
+            return ChatSendEntrance(
+              // A new key: the transcript builds the row again.
+              key: ValueKey('row-$mount'),
+              messageId: 'rebuilt-mid-flight',
+              timestamp: timestamp,
+              flightBuilder: (context, morph, typed) => const Align(
+                alignment: Alignment.topRight,
+                child: Text('Picnic plans', key: flightText),
+              ),
+              child: _bubble(),
+            );
+          },
+        ),
+      ),
+    );
+    await tester.pump();
+    for (var frame = 0; frame < 3; frame += 1) {
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+    final earlier = tester.getTopLeft(find.byKey(flightText)).dy;
+    await tester.pump(const Duration(milliseconds: 16));
+    // In the air: native views in the transcript have been told to step
+    // aside.
+    expect(ChatSendFlights.inAir.value, isTrue);
+    final before = tester.getTopLeft(find.byKey(flightText)).dy;
+    expect(before, inExclusiveRange(1, 700));
+    final frameTravel = earlier - before;
+
+    rebuild(() => mount += 1);
+    await tester.pump(const Duration(milliseconds: 16));
+    // Still flying, from where it was: one frame's travel, neither a jump
+    // nor a pause where it was handed over.
+    expect(find.byKey(flightText), findsOneWidget);
+    final after = tester.getTopLeft(find.byKey(flightText)).dy;
+    expect(before - after, closeTo(frameTravel, frameTravel * 0.5));
+    expect(_bubblePaints, 0);
+
+    var previous = after;
+    for (var frame = 0; frame < 80; frame += 1) {
+      await tester.pump(const Duration(milliseconds: 16));
+      if (find.byKey(flightText).evaluate().isEmpty) break;
+      final top = tester.getTopLeft(find.byKey(flightText)).dy;
+      expect(top, lessThanOrEqualTo(previous + 0.01));
+      previous = top;
+    }
+    await tester.pumpAndSettle();
+    // Landed on the new row, which shows itself; the signal clears.
+    expect(find.byKey(flightText), findsNothing);
+    expect(_paintedTop(tester), closeTo(0, 0.01));
+    expect(ChatSendFlights.inAir.value, isFalse);
+  });
+
+  testWidgets('a row gone mid-flight for good takes its stand-in with it', (
+    tester,
+  ) async {
+    const flightText = ValueKey('flight-text');
+    var departed = 0;
+    ChatSendOrigin.record(
+      const Rect.fromLTWH(20, 700, 360, 44),
+      departure: ChatSendDeparture(() => departed++),
+    );
+    await tester.pumpWidget(
+      _harness(
+        ChatSendEntrance(
+          messageId: 'gone-mid-flight',
+          timestamp: DateTime.now(),
+          flightBuilder: (context, morph, typed) =>
+              const Text('Picnic plans', key: flightText),
+          child: _bubble(),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 16));
+    await tester.pumpWidget(_harness(const SizedBox.shrink()));
+    await tester.pumpAndSettle();
+    expect(find.byKey(flightText), findsNothing);
+    // The composer hears the words have gone; nothing stays in the air.
+    expect(departed, 1);
+    expect(ChatSendFlights.inAir.value, isFalse);
+  });
+
   testWidgets('without a send origin the row moves itself', (tester) async {
     const flightText = ValueKey('flight-text');
     await tester.pumpWidget(
@@ -540,12 +660,16 @@ void main() {
     await tester.pumpWidget(page('Hello again'));
     expect(find.text('Hello, Avery'), findsOneWidget);
     expect(find.text('Hello again'), findsNothing);
-    // Quick and front-loaded: nearly gone by the time a rising message
-    // could reach its line.
+    // On the beat of the rising message (about as long as it takes to come
+    // to rest), and front-loaded: under half left a quarter of the way in,
+    // an eighth by halfway, so it is all but gone before the message
+    // reaches its line.
     expect(
-      ChatGreetingExit.duration,
-      lessThanOrEqualTo(const Duration(milliseconds: 150)),
+      ChatGreetingExit.duration.inMilliseconds,
+      inInclusiveRange(300, 450),
     );
+    expect(1 - ChatGreetingExit.curve.transform(0.25), lessThan(0.45));
+    expect(1 - ChatGreetingExit.curve.transform(0.5), lessThanOrEqualTo(0.125));
   });
 
   testWidgets('the greeting fades out as the first message arrives', (
@@ -594,8 +718,8 @@ void main() {
     expect(done, 1);
   });
 
-  testWidgets('a message sent into a chat rides up with its turn, closing '
-      'the gap to its row and never crossing the reply above', (tester) async {
+  testWidgets('a message sent into a chat flies to where its row will rest, '
+      'on the scroll\'s own spring, and the two land together', (tester) async {
     final timeline = await _pumpTimeline(tester, historyCount: 12);
     // Sent from the composer's field, just under the end of the reply.
     ChatSendOrigin.record(const Rect.fromLTWH(24, 540, 352, 24));
@@ -604,24 +728,25 @@ void main() {
       'user',
       spring: ChatSendEntrance.spring,
     );
-    final gaps = <double>[];
-    for (var frame = 0; frame < 40; frame += 1) {
+    var previous = tester.getTopLeft(find.byKey(_flightText));
+    var previousShape = _timelineMorph!.value;
+    var frames = 0;
+    for (var frame = 0; frame < 60; frame += 1) {
       await tester.pump(const Duration(milliseconds: 16));
       if (find.byKey(_flightText).evaluate().isEmpty) break;
-      final message = tester.getTopLeft(find.byKey(_flightText)).dy;
-      // It never rises into the reply above its row.
-      expect(
-        message,
-        greaterThanOrEqualTo(timeline.rowTop('history-11', bottom: true) - 0.5),
-      );
-      gaps.add(message - timeline.rowTop('user'));
+      frames += 1;
+      final message = tester.getTopLeft(find.byKey(_flightText));
+      // One motion: up and across, never back, never past its place.
+      expect(message.dy, lessThanOrEqualTo(previous.dy + 0.01));
+      expect(message.dx, greaterThanOrEqualTo(previous.dx - 0.01));
+      expect(message.dy, greaterThanOrEqualTo(32 - 0.5));
+      // Its shape follows how far it has come.
+      expect(_timelineMorph!.value, greaterThanOrEqualTo(previousShape));
+      previous = message;
+      previousShape = _timelineMorph!.value;
     }
-    expect(gaps.length, greaterThan(10));
-    // The gap to its row only ever closes: the message moves with the
-    // transcript instead of trailing behind it.
-    for (var index = 1; index < gaps.length; index += 1) {
-      expect(gaps[index], lessThanOrEqualTo(gaps[index - 1] + 0.5));
-    }
+    // About the spring's own time at 60 Hz: neither a blink nor a crawl.
+    expect(frames, inInclusiveRange(18, 50));
     expect(await arrival, isTrue);
     await tester.pumpAndSettle();
     expect(find.byKey(_flightText), findsNothing);
@@ -630,7 +755,7 @@ void main() {
   });
 
   testWidgets('under a reply that runs on below the composer, the words '
-      'stay in view from the send and wait for their row', (tester) async {
+      'leave at once and do not wait for their row', (tester) async {
     // The reply's top is in view and its end is 430 pt below the screen:
     // the new row is laid out there, in the scroll cache, but not painted.
     final timeline = await _pumpTimeline(
@@ -650,39 +775,37 @@ void main() {
     // Its row is still below the screen, so the stand-in counts as off
     // stage for finders; it is painted all the same.
     final flight = find.byKey(_flightText, skipOffstage: false);
-    // The frame of the send already shows the words where they were typed.
+    // The frame of the send shows the words where they were typed, and the
+    // composer is told to close up behind them from the next frame.
     expect(flight, findsOneWidget);
-    expect(tester.getTopLeft(flight).dy, closeTo(540, 0.5));
+    final written = tester.getTopLeft(flight);
+    expect(written.dy, closeTo(540, 0.5));
+    expect(_timelineMorph!.value, 0);
     expect(timeline.rowTop('user'), greaterThan(600));
-    final writtenAt = tester.getTopLeft(flight).dx;
-    var waited = 0;
+    expect(liftedOff, isTrue);
 
     final arrival = timeline.controller.springMessageToTop(
       'user',
       spring: ChatSendEntrance.spring,
     );
+    var previous = written;
+    var aheadOfRow = 0;
     for (var frame = 0; frame < 60; frame += 1) {
       await tester.pump(const Duration(milliseconds: 16));
       if (flight.evaluate().isEmpty) break;
-      final message = tester.getTopLeft(flight).dy;
-      final row = timeline.rowTop('user');
-      expect(message, greaterThanOrEqualTo((row < 540 ? row : 540) - 0.5));
-      expect(message, lessThanOrEqualTo(540.5));
-      // Waiting for its row, it waits as a whole: it never slides along
-      // the composer towards its buttons, and keeps the typed words' shape.
-      if (message > 539.5) {
-        expect(tester.getTopLeft(flight).dx, closeTo(writtenAt, 0.5));
-        expect(_timelineMorph!.value, 0);
-        // The composer keeps its shape around words that wait in it.
-        expect(liftedOff, isFalse);
-        waited += 1;
-      } else if (message < 530) {
-        // On their way up: the composer has been told to close behind them.
-        expect(liftedOff, isTrue);
+      final message = tester.getTopLeft(flight);
+      if (frame >= 1) {
+        // It rises from the first frames on, without waiting at the
+        // composer for its row to come up.
+        expect(message.dy, lessThan(previous.dy));
+        expect(_timelineMorph!.value, greaterThan(0));
       }
+      expect(message.dy, greaterThanOrEqualTo(32 - 0.5));
+      if (message.dy < timeline.rowTop('user') - 1) aheadOfRow += 1;
+      previous = message;
     }
-    expect(waited, greaterThan(2));
-    expect(liftedOff, isTrue);
+    // It flew above the turn while the turn was still coming up.
+    expect(aheadOfRow, greaterThan(3));
     expect(await arrival, isTrue);
     await tester.pumpAndSettle();
     expect(flight, findsNothing);
@@ -690,8 +813,41 @@ void main() {
     await timeline.dispose();
   });
 
-  testWidgets('sent from far up the history, the message waits where it was '
-      'written until its row comes up to carry it', (tester) async {
+  testWidgets('a slow frame mid-flight delays the message and its turn '
+      'alike, without a jump', (tester) async {
+    final timeline = await _pumpTimeline(tester, historyCount: 12);
+    ChatSendOrigin.record(const Rect.fromLTWH(24, 540, 352, 24));
+    await timeline.send();
+    final arrival = timeline.controller.springMessageToTop(
+      'user',
+      spring: ChatSendEntrance.spring,
+    );
+    await tester.pump(const Duration(milliseconds: 16));
+    await tester.pump(const Duration(milliseconds: 16));
+    final before = tester.getTopLeft(find.byKey(_flightText)).dy;
+    final rowBefore = timeline.rowTop('user');
+    // A 400 ms frame: on the ticker's time the spring would be nearly done.
+    await tester.pump(const Duration(milliseconds: 400));
+    final after = tester.getTopLeft(find.byKey(_flightText)).dy;
+    final travel = before - after;
+    final way = before - 32;
+    // It moved by about two frames' worth, not most of the way.
+    expect(travel, greaterThan(0));
+    expect(travel, lessThan(way * 0.4));
+    // The transcript was held back the same way.
+    expect(
+      rowBefore - timeline.rowTop('user'),
+      lessThan((rowBefore - 32) * 0.4),
+    );
+    // Frames have to run for the scroll to land.
+    await tester.pumpAndSettle();
+    expect(await arrival, isTrue);
+    expect(_paintedTop(tester), closeTo(32, 0.5));
+    await timeline.dispose();
+  });
+
+  testWidgets('sent from far up the history, the message leaves once its '
+      'row is built and flies to where the row will rest', (tester) async {
     final timeline = await _pumpTimeline(
       tester,
       historyCount: 60,
@@ -704,16 +860,19 @@ void main() {
       spring: ChatSendEntrance.spring,
     );
     var flew = 0;
+    double? previous;
     for (var frame = 0; frame < 90; frame += 1) {
       await tester.pump(const Duration(milliseconds: 16));
       if (find.byKey(_flightText).evaluate().isEmpty) continue;
       flew += 1;
       final message = tester.getTopLeft(find.byKey(_flightText)).dy;
-      // It holds where it was written until its row comes up to it, and
-      // from then on is never above the row: nothing it passes is crossed.
-      final row = timeline.rowTop('user');
-      expect(message, greaterThanOrEqualTo((row < 540 ? row : 540) - 0.5));
+      // From where it was written, up to its place, never back down.
       expect(message, lessThanOrEqualTo(540.5));
+      expect(message, greaterThanOrEqualTo(32 - 0.5));
+      if (previous != null) {
+        expect(message, lessThanOrEqualTo(previous + 0.01));
+      }
+      previous = message;
     }
     expect(flew, greaterThan(3));
     expect(await arrival, isTrue);

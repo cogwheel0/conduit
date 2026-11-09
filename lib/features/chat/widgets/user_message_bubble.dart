@@ -1134,16 +1134,19 @@ class _UserMessageText extends StatelessWidget {
 /// A sent text message on its way up from the composer.
 ///
 /// It lays out exactly like [UserMessageBubble]'s text bubble, without the
-/// menus, so it can land on the real row and hand over without a seam. As
-/// [morph] runs from 0 to 1 its fill grows out from around the words (from
-/// the words' own frame to the bubble's, its corners rounding as it goes),
-/// so the typed text becomes the bubble rather than a bubble fading in.
+/// menus, so it can land on the real row and hand over without a seam. It
+/// is a bubble from the frame it leaves in: its fill, at full tone, already
+/// sits around the words where they were written, and fill and words travel
+/// as one.
 ///
 /// With [typed] (the lines as the composer wrapped them, which is wider than
 /// a bubble), it starts as exactly those lines, first line on the bubble's
-/// first line, and dissolves into the bubble's own wrap early in its rise:
-/// the words never re-wrap where they were written, and nothing reflows in
-/// a jump. The words both wraps begin with stay solid through the dissolve.
+/// first line, inside a fill sized to them, and changes shape as [morph]
+/// (how far it has travelled) runs: the fill first takes in the bubble's
+/// own lines while the typed ones dissolve into them, then narrows to the
+/// bubble. The words never re-wrap where they were written, nothing reflows
+/// in a jump, and nothing is ever drawn outside the fill. The words both
+/// wraps begin with stay solid through the dissolve.
 class UserMessageFlightBubble extends StatelessWidget {
   const UserMessageFlightBubble({
     super.key,
@@ -1192,11 +1195,10 @@ class UserMessageFlightBubble extends StatelessWidget {
 }
 
 /// The flying bubble: its words inside [_userBubblePadding] and, under
-/// them, its fill, growing from the words' own frame at [morph] 0 to the
-/// whole bubble at 1. The fill is there from the first frame, already a soft
-/// tone around the words, and its tone comes in ahead of its size, so the
-/// message leaves the composer as a bubble rather than as bare text that
-/// gains one on the way. With [typed], the words start as those lines.
+/// them, its fill at full tone in every frame. Without [typed] it is the
+/// finished bubble throughout. With [typed], the words start as those lines
+/// in a fill sized to them (see [UserMessageFlightBubble]) and become the
+/// bubble as [morph] runs.
 class _FlightBubble extends SingleChildRenderObjectWidget {
   const _FlightBubble({
     super.key,
@@ -1238,8 +1240,9 @@ class _RenderFlightBubble extends RenderShiftedBox {
 
   static const double _radius = AppBorderRadius.chatBubble;
 
-  /// The fill's share of its full tone in the frame of the send.
-  static const double initialTone = 0.6;
+  /// The stretch of [morph] over which the fill grows from the typed lines
+  /// to take in the bubble's own lines too, ahead of their dissolving in.
+  static const Interval grow = Interval(0, 0.2, curve: Curves.easeOut);
 
   /// The stretch of [morph] over which the typed lines dissolve into the
   /// bubble's wrap: early, while the message is rising fastest.
@@ -1248,6 +1251,10 @@ class _RenderFlightBubble extends RenderShiftedBox {
     0.45,
     curve: Curves.easeInOut,
   );
+
+  /// The stretch of [morph] over which the fill, holding the bubble's words
+  /// alone by then, narrows to the bubble.
+  static const Interval narrow = Interval(0.45, 1, curve: Curves.easeInOut);
 
   Animation<double> _morph;
   set morph(Animation<double> value) {
@@ -1381,6 +1388,22 @@ class _RenderFlightBubble extends RenderShiftedBox {
     _typedOffset = _userBubblePadding.topLeft + Offset(0, dy);
   }
 
+  /// The fill at [progress] of the morph, in this box's coordinates, while
+  /// typed lines are drawn: around the typed lines at 0, then around both
+  /// wraps (so neither ever shows outside it while they dissolve), then the
+  /// bubble alone.
+  Rect fillRect(double progress) {
+    final bubble = Offset.zero & size;
+    final typed = _typedPainter;
+    if (typed == null) return bubble;
+    final words = _userBubblePadding.inflateRect(_typedOffset & typed.size);
+    final both = words.expandToInclude(bubble);
+    if (progress <= grow.end) {
+      return Rect.lerp(words, both, grow.transform(progress))!;
+    }
+    return Rect.lerp(both, bubble, narrow.transform(progress))!;
+  }
+
   @override
   void paint(PaintingContext context, Offset offset) {
     final child = this.child;
@@ -1388,19 +1411,14 @@ class _RenderFlightBubble extends RenderShiftedBox {
     final progress = _morph.value.clamp(0.0, 1.0);
     final childOffset = (child.parentData! as BoxParentData).offset;
     final typed = _typedPainter;
-    final words = typed == null
-        ? childOffset & child.size
-        : _typedOffset & typed.size;
     final bubble = Offset.zero & size;
-    final rect = Rect.lerp(words, bubble, progress)!;
-    final radius = _radius * (0.4 + 0.6 * progress);
-    final tone =
-        initialTone +
-        (1 - initialTone) *
-            Curves.easeOut.transform((progress * 2).clamp(0.0, 1.0));
+    final rect = typed == null ? bubble : fillRect(progress);
     context.canvas.drawRRect(
-      RRect.fromRectAndRadius(rect.shift(offset), Radius.circular(radius)),
-      Paint()..color = _color.withValues(alpha: _color.a * tone),
+      RRect.fromRectAndRadius(
+        rect.shift(offset),
+        Radius.circular(math.min(_radius, rect.shortestSide / 2)),
+      ),
+      Paint()..color = _color,
     );
     if (typed == null) {
       context.paintChild(child, offset + childOffset);

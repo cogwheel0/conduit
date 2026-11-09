@@ -289,12 +289,15 @@ const double _kChatComposerFadeHeight = 24.0;
 const double _kScrollToLatestButtonSize = 40.0;
 
 /// How far below the top of the transcript a just-sent message rests, so
-/// the end of the reply it follows up on (its action row) stays in view
-/// above it rather than the new turn starting over a blank screen. It also
-/// keeps the message itself below the header's scroll-edge fade
-/// ([kConduitScrollEdgeSoftExtent]), crisp from its first line.
+/// the end of the reply it follows up on stays in view above it rather than
+/// the new turn starting over a blank screen: the reply's action row, clear,
+/// and above it the reply's last line of text, dissolving into the header's
+/// scroll-edge fade ([kConduitScrollEdgeSoftExtent]) the way text passing
+/// under the header does. An action row alone, with none of its reply,
+/// would read as stray buttons. It also keeps the message itself below that
+/// fade, crisp from its first line.
 @visibleForTesting
-const double kChatPinnedTurnPeek = 56.0;
+const double kChatPinnedTurnPeek = 92.0;
 
 @visibleForTesting
 bool shouldShowChatModelDropdown({
@@ -548,19 +551,21 @@ class _ChatPageState extends ConsumerState<ChatPage>
   bool _sendHidesScrollToLatest = false;
   Timer? _sendScrollToLatestHideTimer;
 
-  /// The new chat's greeting while its first message is sent: it fades out
-  /// as Send is tapped, gone well before the message rising from the
-  /// composer could reach its line, and comes back if the send does not go
-  /// through. The leaving greeting ([ChatGreetingExit]) shares it, so the
-  /// fade carries on unbroken when the transcript takes over.
+  /// The new chat's greeting while its first message is sent: it starts to
+  /// fade as Send is tapped and goes on the beat of the message rising from
+  /// the composer, front-loaded so it is all but gone before the message
+  /// reaches its line, and comes back if the send does not go through. The
+  /// leaving greeting ([ChatGreetingExit]) shares it, so the fade carries on
+  /// unbroken when the transcript takes over.
   late final AnimationController _greetingSendPresence = AnimationController(
     vsync: this,
     value: 1,
   );
   Timer? _greetingSendHideTimer;
 
-  /// How quickly the greeting goes when Send is tapped, and comes back.
-  static const Duration _greetingSendFade = Duration(milliseconds: 100);
+  /// How quickly the greeting goes when Send is tapped (the leaving
+  /// greeting's beat), and comes back.
+  static const Duration _greetingSendFade = ChatGreetingExit.duration;
   static const Duration _greetingReturnFade = Duration(milliseconds: 200);
 
   /// Whether the transcript has scrolled under the header, so the header
@@ -1460,7 +1465,7 @@ class _ChatPageState extends ConsumerState<ChatPage>
     _greetingSendPresence.animateTo(
       0,
       duration: _greetingSendFade,
-      curve: Curves.easeOut,
+      curve: ChatGreetingExit.curve,
     );
     // A send the composer gives up on before it reaches the page must not
     // keep the greeting away for good.

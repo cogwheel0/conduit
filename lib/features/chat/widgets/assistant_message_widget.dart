@@ -3270,6 +3270,29 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
   ) {
     final l10n = AppLocalizations.of(context)!;
 
+    final Widget menu = AdaptivePopupMenuButton.icon<String>(
+      key: const ValueKey<String>('assistant-response-overflow-button'),
+      icon: PlatformUiCapabilities.isIOS
+          ? 'ellipsis'
+          : Icons.more_horiz_rounded,
+      items: _overflowMenuSections(overflowActions),
+      onSelected: (_, entry) {
+        final selectedId = entry.value;
+        if (selectedId == null) {
+          return;
+        }
+        for (final action in overflowActions) {
+          if (action.id == selectedId) {
+            action.onTap?.call();
+            return;
+          }
+        }
+      },
+      tint: _footerActionColor,
+      size: _footerActionTarget,
+      iconSize: _footerMoreGlyph,
+      buttonStyle: PopupButtonStyle.plain,
+    );
     return AdaptiveTooltip(
       key: _overflowButtonKey,
       message: l10n.more,
@@ -3277,29 +3300,22 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
       child: Semantics(
         button: true,
         label: l10n.more,
-        child: AdaptivePopupMenuButton.icon<String>(
-          key: const ValueKey<String>('assistant-response-overflow-button'),
-          icon: PlatformUiCapabilities.isIOS
-              ? 'ellipsis'
-              : Icons.more_horiz_rounded,
-          items: _overflowMenuSections(overflowActions),
-          onSelected: (_, entry) {
-            final selectedId = entry.value;
-            if (selectedId == null) {
-              return;
-            }
-            for (final action in overflowActions) {
-              if (action.id == selectedId) {
-                action.onTap?.call();
-                return;
-              }
-            }
-          },
-          tint: _footerActionColor,
-          size: _footerActionTarget,
-          iconSize: _footerMoreGlyph,
-          buttonStyle: PopupButtonStyle.plain,
-        ),
+        child: PlatformUiCapabilities.isIOS
+            ? _StandAsideWhileSending(
+                size: _footerActionTarget,
+                // The same glyph, drawn by Flutter, while a sent message
+                // flies over the transcript (see [ChatSendFlights]).
+                placeholder: NativeSymbolGlyph(
+                  symbol: 'ellipsis',
+                  fallbackIcon: CupertinoIcons.ellipsis,
+                  // 17 pt at the medium scale: how the native button's
+                  // 13 pt large-scale ellipsis draws (see [_footerMoreGlyph]).
+                  pointSize: _footerActionGlyph,
+                  color: _footerActionColor,
+                ),
+                child: menu,
+              )
+            : menu,
       ),
     );
   }
@@ -3358,4 +3374,45 @@ String _buildTtsPlainTextFromRaw(String raw) {
   final sanitized = ConduitMarkdownPreprocessor.sanitize(raw);
   final withoutDetails = sanitized.replaceAll(_ttsDetailsPattern, '');
   return ConduitMarkdownPreprocessor.cleanText(withoutDetails).trim();
+}
+
+/// A native control (a platform view) in the transcript that steps aside
+/// while a sent message flies over the transcript ([ChatSendFlights.inAir]):
+/// it stays alive, laid out but not drawn, with [placeholder] (kept built,
+/// so it is ready) drawn in its place, and comes back as the message lands.
+/// Flutter draws what passes over a native view in a layer of its own, and
+/// a bubble crossing one that scrolls with the transcript showed a hole for
+/// a frame where it was.
+class _StandAsideWhileSending extends StatelessWidget {
+  const _StandAsideWhileSending({
+    required this.size,
+    required this.placeholder,
+    required this.child,
+  });
+
+  final double size;
+  final Widget placeholder;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return ValueListenableBuilder<bool>(
+      valueListenable: ChatSendFlights.inAir,
+      child: child,
+      builder: (context, inAir, child) => SizedBox.square(
+        dimension: size,
+        child: Stack(
+          alignment: Alignment.center,
+          children: [
+            Offstage(offstage: inAir, child: child),
+            // Always built, so its glyph is ready before the first flight.
+            Offstage(
+              offstage: !inAir,
+              child: IgnorePointer(child: ExcludeSemantics(child: placeholder)),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }

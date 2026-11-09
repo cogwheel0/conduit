@@ -1,3 +1,5 @@
+import 'package:conduit/features/chat/widgets/chat_motion_spring.dart';
+import 'package:conduit/features/chat/widgets/chat_send_motion.dart';
 import 'package:conduit/features/chat/widgets/composer_send_collapse.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
@@ -68,6 +70,25 @@ void main() {
     await tester.pumpAndSettle();
     expect(tester.getSize(find.byKey(_box)).height, 44);
     expect(done, 1);
+  });
+
+  testWidgets('a slow frame holds the collapse back with the rising '
+      'message instead of skipping it', (tester) async {
+    await tester.pumpWidget(_harness(token: 0, contentHeight: 96));
+    await tester.pumpWidget(_harness(token: 1, contentHeight: 44));
+    // A 300 ms frame right after the send (a new chat's transcript
+    // mounting): the composer closes by two frames' worth of its spring,
+    // as the message does, not most of the way in one step.
+    await tester.pump(const Duration(milliseconds: 300));
+    final afterStall = tester.getSize(find.byKey(_box)).height;
+    final twoFrames =
+        44 + 52 * ChatSendEntrance.remainingAt(ChatMotionClock.maxFrameStep);
+    expect(afterStall, closeTo(twoFrames, 0.5));
+    // Then it plays on at the display's pace.
+    await tester.pump(const Duration(milliseconds: 16));
+    expect(tester.getSize(find.byKey(_box)).height, lessThan(afterStall));
+    await tester.pumpAndSettle();
+    expect(tester.getSize(find.byKey(_box)).height, 44);
   });
 
   testWidgets('while the sent words wait in it, it keeps its height even '

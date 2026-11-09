@@ -699,9 +699,10 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
   bool _sentWordsLeaving = false;
 
   /// The sent words, drawn by their bubble, have not started to rise yet
-  /// (their row in the thread is still on its way up to carry them): the
-  /// composer keeps the shape it had when Send was tapped (its height, its
-  /// rows, its buttons) around them, so they never hang outside it.
+  /// (their row in the thread has not been laid out, as when sending from
+  /// far up the history): the composer keeps the shape it had when Send was
+  /// tapped (its height, its rows, its buttons) around them, so they never
+  /// hang outside it.
   bool _holdingSentWords = false;
 
   /// Whether the composer had several lines, or its two-row form, when it
@@ -727,11 +728,11 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
 
   /// The message has left the composer: its bubble now draws the words,
   /// and the keyboard goes down, so the whole send is one motion. The moment
-  /// the words start to rise (at once, unless their row is still on its way
-  /// up), the composer lays out as empty (one line, Stop in place of Send)
-  /// and closes up behind them on the same spring, the rising bubble
-  /// carrying the words above it. Its placeholder comes in once the words
-  /// are clear of it and it is about one line tall.
+  /// the words start to rise (in the frame their bubble is first drawn), the
+  /// composer lays out as empty (one line, Stop in place of Send) and closes
+  /// up behind them on the same spring, the rising bubble carrying the words
+  /// above it. Its placeholder comes in once the words are clear of it and
+  /// it is about one line tall.
   void _beginSendHandOff() {
     if (!mounted || _isDeactivated) return;
     final departure = _sendDeparture;

@@ -106,17 +106,24 @@ void main() {
     expect(find.byKey(buttonKey), findsNothing);
   });
 
-  testWidgets('a send takes it away within a tenth of a second', (
+  testWidgets('a send takes it away in the frame it is shown in', (
     tester,
   ) async {
     await pumpButton(tester, visible: true);
     await pumpButton(tester, visible: false, quickExit: true);
-    await tester.pump(const Duration(milliseconds: 50));
-    // Mostly gone by mid-fade, before a rising message could reach it.
-    check(opacity(tester)).isLessThan(0.5);
-    await tester.pump(ChatScrollToLatestButton.quickExitDuration);
-    await tester.pump();
+    // Gone at once: no native button left fading under the message that
+    // flies up across its place.
     expect(find.byKey(buttonKey), findsNothing);
+    await tester.pumpAndSettle();
+    expect(find.byKey(buttonKey), findsNothing);
+
+    // It comes back on its spring when it is wanted again.
+    await pumpButton(tester, visible: true);
+    await tester.pump(const Duration(milliseconds: 60));
+    expect(find.byKey(buttonKey), findsOneWidget);
+    check(opacity(tester)).isGreaterThan(0);
+    await tester.pumpAndSettle();
+    check(opacity(tester)).equals(1);
   });
 
   testWidgets('Reduce Motion only fades it', (tester) async {

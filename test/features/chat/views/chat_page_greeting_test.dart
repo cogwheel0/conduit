@@ -1,5 +1,6 @@
 import 'package:conduit/features/chat/providers/text_to_speech_provider.dart';
 import 'package:conduit/features/chat/views/chat_page.dart';
+import 'package:conduit/features/chat/widgets/chat_send_motion.dart';
 import 'package:conduit/features/chat/widgets/modern_chat_input.dart';
 import 'package:conduit/features/chat/voice_mode/chat_voice_mode_controller.dart';
 import 'package:conduit/l10n/app_localizations.dart';
@@ -167,13 +168,16 @@ void main() {
         .value;
     expect(presence(), 1);
 
-    // Send is tapped: the greeting is gone within a tenth of a second,
-    // before a message leaving the composer could reach it.
+    // Send is tapped: the greeting starts to go at once, on the beat of the
+    // message rising from the composer, front-loaded so it is mostly gone
+    // before the message could reach its line, and gone as it lands.
     tester
         .widget<ModernChatInput>(find.byType(ModernChatInput))
         .onSendStarted!();
     await tester.pump();
-    await tester.pump(const Duration(milliseconds: 100));
+    await tester.pump(const Duration(milliseconds: 90));
+    expect(presence(), inExclusiveRange(0, 0.45));
+    await tester.pump(ChatGreetingExit.duration);
     expect(presence(), 0);
 
     // Nothing was sent after all: the greeting comes back.

@@ -1,12 +1,16 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/rendering.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../../../shared/theme/theme_extensions.dart';
+import 'chat_motion_spring.dart';
 import 'chat_send_motion.dart';
 
 /// Lets the composer shrink after a send on the same spring as the message
-/// rising out of it (critically damped, 0.35 s response), instead of holding
-/// its old height for a few frames and then snapping.
+/// rising out of it (critically damped, [ChatSendEntrance.springResponse]),
+/// on the same kind of clock ([ChatMotionClock]), instead of holding its old
+/// height for a few frames and then snapping.
 ///
 /// Each new [token] arms one collapse: from the height the composer had in
 /// the last frame down to whatever its content now needs, the content held
@@ -36,7 +40,8 @@ class ComposerSendCollapse extends StatefulWidget {
   final VoidCallback? onNearlyClosed;
   final VoidCallback? onDone;
 
-  /// Long enough for the spring to come within a fraction of a point.
+  /// Long enough for the spring to come within a fraction of a point (in
+  /// the motion's time, which slow frames hold back).
   static const Duration duration = Duration(milliseconds: 600);
 
   /// How much taller than its content the composer may still be for
@@ -49,10 +54,15 @@ class ComposerSendCollapse extends StatefulWidget {
 
 class _ComposerSendCollapseState extends State<ComposerSendCollapse>
     with SingleTickerProviderStateMixin {
-  late final AnimationController _controller = AnimationController(
-    vsync: this,
-    duration: ComposerSendCollapse.duration,
-  )..addStatusListener(_handleStatus);
+  late final Ticker _ticker = createTicker(_tick);
+  final ChatMotionClock _clock = ChatMotionClock();
+
+  /// Seconds of the running collapse so far, in the motion's time.
+  final ValueNotifier<double> _seconds = ValueNotifier<double>(0);
+
+  static final double _durationSeconds =
+      ComposerSendCollapse.duration.inMicroseconds /
+      Duration.microsecondsPerSecond;
 
   /// The height the collapse starts from (or the hold keeps), while one
   /// runs.
@@ -61,8 +71,23 @@ class _ComposerSendCollapseState extends State<ComposerSendCollapse>
   /// Whether this collapse has reported [ComposerSendCollapse.onNearlyClosed].
   bool _nearlyClosedReported = true;
 
-  void _handleStatus(AnimationStatus status) {
-    if (status != AnimationStatus.completed || widget.holding) return;
+  void _startCollapse() {
+    _ticker.stop();
+    _clock.reset();
+    _seconds.value = 0;
+    _ticker.start();
+  }
+
+  void _tick(Duration elapsed) {
+    _clock.advanceTo(elapsed.inMicroseconds / Duration.microsecondsPerSecond);
+    _seconds.value = _clock.seconds;
+    if (_clock.seconds < _durationSeconds) return;
+    _ticker.stop();
+    _finish();
+  }
+
+  void _finish() {
+    if (widget.holding) return;
     _reportNearlyClosed();
     if (mounted) setState(() => _from = null);
     widget.onDone?.call();
@@ -95,7 +120,7 @@ class _ComposerSendCollapseState extends State<ComposerSendCollapse>
     if (widget.holding) {
       if (!oldWidget.holding) {
         // Keep the height of the last frame until the hold ends.
-        _controller.stop();
+        _ticker.stop();
         _from = _currentHeight;
       }
       return;
@@ -111,7 +136,7 @@ class _ComposerSendCollapseState extends State<ComposerSendCollapse>
     final height = _currentHeight;
     if (height != null && !context.reduceMotion) {
       _from = height;
-      _controller.forward(from: 0);
+      _startCollapse();
       return;
     }
     _from = null;
@@ -124,7 +149,8 @@ class _ComposerSendCollapseState extends State<ComposerSendCollapse>
 
   @override
   void dispose() {
-    _controller.dispose();
+    _ticker.dispose();
+    _seconds.dispose();
     super.dispose();
   }
 
@@ -133,7 +159,7 @@ class _ComposerSendCollapseState extends State<ComposerSendCollapse>
     return _CollapseBox(
       from: _from,
       holding: widget.holding,
-      animation: _controller,
+      seconds: _seconds,
       onNearlyClosed: _reportNearlyClosedAfterFrame,
       child: widget.child,
     );
@@ -144,14 +170,14 @@ class _CollapseBox extends SingleChildRenderObjectWidget {
   const _CollapseBox({
     required this.from,
     required this.holding,
-    required this.animation,
+    required this.seconds,
     required this.onNearlyClosed,
     required super.child,
   });
 
   final double? from;
   final bool holding;
-  final AnimationController animation;
+  final ValueListenable<double> seconds;
   final VoidCallback onNearlyClosed;
 
   @override
@@ -159,7 +185,7 @@ class _CollapseBox extends SingleChildRenderObjectWidget {
       _RenderCollapseBox(
         from: from,
         holding: holding,
-        animation: animation,
+        seconds: seconds,
         onNearlyClosed: onNearlyClosed,
       );
 
@@ -168,7 +194,7 @@ class _CollapseBox extends SingleChildRenderObjectWidget {
     render
       ..from = from
       ..holding = holding
-      ..animation = animation
+      ..seconds = seconds
       ..onNearlyClosed = onNearlyClosed;
   }
 }
@@ -177,11 +203,11 @@ class _RenderCollapseBox extends RenderShiftedBox {
   _RenderCollapseBox({
     required double? from,
     required bool holding,
-    required AnimationController animation,
+    required ValueListenable<double> seconds,
     required this.onNearlyClosed,
   }) : _from = from,
        _holding = holding,
-       _animation = animation,
+       _seconds = seconds,
        super(null);
 
   /// Told (it defers past the frame itself) whenever a layout finds the box
@@ -202,23 +228,23 @@ class _RenderCollapseBox extends RenderShiftedBox {
     markNeedsLayout();
   }
 
-  AnimationController _animation;
-  set animation(AnimationController value) {
-    if (identical(value, _animation)) return;
-    if (attached) _animation.removeListener(markNeedsLayout);
-    _animation = value;
-    if (attached) _animation.addListener(markNeedsLayout);
+  ValueListenable<double> _seconds;
+  set seconds(ValueListenable<double> value) {
+    if (identical(value, _seconds)) return;
+    if (attached) _seconds.removeListener(markNeedsLayout);
+    _seconds = value;
+    if (attached) _seconds.addListener(markNeedsLayout);
   }
 
   @override
   void attach(PipelineOwner owner) {
     super.attach(owner);
-    _animation.addListener(markNeedsLayout);
+    _seconds.addListener(markNeedsLayout);
   }
 
   @override
   void detach() {
-    _animation.removeListener(markNeedsLayout);
+    _seconds.removeListener(markNeedsLayout);
     super.detach();
   }
 
@@ -241,13 +267,9 @@ class _RenderCollapseBox extends RenderShiftedBox {
       if (_holding) {
         height = from;
       } else {
-        final seconds =
-            _animation.value *
-            ComposerSendCollapse.duration.inMicroseconds /
-            Duration.microsecondsPerSecond;
         height =
             childHeight +
-            (from - childHeight) * ChatSendEntrance.remainingAt(seconds);
+            (from - childHeight) * ChatSendEntrance.remainingAt(_seconds.value);
       }
     }
     if (height - childHeight <= ComposerSendCollapse.nearlyClosedSlack) {

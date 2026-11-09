@@ -37,3 +37,56 @@ class CriticallyDampedSpring {
     );
   }
 }
+
+/// The time a send's motions run on: a ticker's elapsed time, except that
+/// one frame never advances it by more than [maxStep].
+///
+/// A frame the app takes long to draw (a new chat's transcript mounting, a
+/// first run of some code) would otherwise spend that much of a spring in a
+/// single step, and a 0.4 s motion shows as a jump. On this clock the motion
+/// picks up after such a frame where it left off and plays out in full; at
+/// the display's own frame rate it is the ticker's time exactly. Every part
+/// of a send (the rising message, the transcript bringing its turn up, the
+/// composer closing) runs on one, so a slow frame delays them alike and they
+/// stay one motion.
+class ChatMotionClock {
+  ChatMotionClock({this.maxStep = maxFrameStep});
+
+  /// The most one frame may advance the motion: two frames at 60 Hz, so a
+  /// display that drops a frame now and then keeps time, and a long stall
+  /// costs no more than that.
+  static const double maxFrameStep = 2 / 60;
+
+  final double maxStep;
+
+  double _lastWall = 0;
+  double _seconds = 0;
+
+  /// Seconds of motion so far.
+  double get seconds => _seconds;
+
+  /// Moves the clock to the ticker reading [wallSeconds] (seconds since the
+  /// ticker started, as [Ticker] and [AnimationController] count them) and
+  /// returns how far the motion advanced: the time since the last reading,
+  /// at most [maxStep].
+  double advanceTo(double wallSeconds) {
+    final dt = wallSeconds - _lastWall;
+    _lastWall = wallSeconds;
+    if (dt <= 0) return 0;
+    final step = math.min(dt, maxStep);
+    _seconds += step;
+    return step;
+  }
+
+  /// Keeps the motion's time but reads a new ticker from its start, for a
+  /// motion handed over to another ticker mid-way. With a [lead], the first
+  /// reading already advances it that far, so the hand-over frame keeps
+  /// moving rather than holding still.
+  void restartTicker({double lead = 0}) => _lastWall = -lead;
+
+  /// Starts again from zero, for a ticker started again.
+  void reset() {
+    _lastWall = 0;
+    _seconds = 0;
+  }
+}
