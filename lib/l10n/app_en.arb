@@ -110,13 +110,13 @@
   "@settingsDataAndConnection": {
     "description": "Settings destination for transport, connectivity, and related server data options."
   },
-  "slidingSidebar": "Keep Chat in View",
+  "slidingSidebar": "Combine Sidebar Tabs",
   "@slidingSidebar": {
-    "description": "Title Case label of the Appearance toggle that, when on, keeps the chat visible at the sidebar's edge on a phone (the sidebar covers about 84% of the width instead of all of it) and moves Notes, Terminal and Channels from sidebar tabs to rows above the chat list that open as pages. Named for what the user sees on a phone; the footer covers both effects."
+    "description": "Title Case label of the Appearance toggle that, when on, lists Notes, Terminal and Channels as rows above the chat list instead of as sidebar tabs (on every device) and, on a phone, makes the sidebar cover about 84% of the width so part of the chat stays visible. Named for the effect on every device; the footer adds the phone one."
   },
-  "slidingSidebarDescription": "On a phone, the sidebar leaves the chat showing at its edge. Notes, Terminal, and Channels open as pages from the top of your chats instead of as tabs.",
+  "slidingSidebarDescription": "Shows Notes, Terminal, and Channels above your chats instead of as tabs, and on a phone keeps part of the chat in view.",
   "@slidingSidebarDescription": {
-    "description": "Footer under the Keep Chat in View toggle in Appearance (and subtitle on Android). Must be true on phones and tablets: on a phone the sidebar leaves the chat showing at its edge; on every device Notes, Terminal and Channels open as pages from the top of the chat list instead of as sidebar tabs. Keep the feature names as the sidebar tabs write them."
+    "description": "Footer under the Combine Sidebar Tabs toggle in Appearance (and subtitle on Android). One sentence that must be true on phones and tablets: on every device Notes, Terminal and Channels show above the chat list instead of as sidebar tabs; on a phone the sidebar also leaves part of the chat visible. Keep the feature names as the sidebar tabs write them."
   },
   "settingsAppearance": "Appearance",
   "@settingsAppearance": {

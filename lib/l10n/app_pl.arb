@@ -110,8 +110,8 @@
   "@settingsDataAndConnection": {
     "description": "Settings destination for transport, connectivity, and related server data options."
   },
-  "slidingSidebar": "Zostawiaj czat na widoku",
-  "slidingSidebarDescription": "Na telefonie panel boczny zostawia czat widoczny przy krawędzi. Notatki, Terminal i Kanały otwierają się jako strony u góry listy czatów zamiast jako karty.",
+  "slidingSidebar": "Połącz karty panelu bocznego",
+  "slidingSidebarDescription": "Pokazuje Notatki, Terminal i Kanały nad listą czatów zamiast jako karty, a na telefonie zostawia część czatu na widoku.",
   "settingsAppearance": "Wygląd",
   "@settingsAppearance": {
     "description": "Settings destination for app appearance options."
