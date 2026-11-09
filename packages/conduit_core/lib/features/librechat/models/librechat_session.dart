@@ -1,7 +1,6 @@
-import 'dart:convert';
-
 import 'package:meta/meta.dart';
 
+import 'package:conduit_core/auth/jwt_claims.dart';
 import 'package:conduit_core/features/librechat/models/librechat_cookies.dart';
 
 /// The signed-in LibreChat user, as `/api/auth/login`, `/api/auth/refresh`
@@ -137,22 +136,13 @@ final class LibreChatSession {
 
   /// The `exp` claim of [token], or null when it is not a readable JWT.
   static DateTime? jwtExpiry(String token) {
-    final parts = token.split('.');
-    if (parts.length != 3) return null;
-    try {
-      final payload = jsonDecode(
-        utf8.decode(base64Url.decode(base64Url.normalize(parts[1]))),
-      );
-      final exp = payload is Map ? payload['exp'] : null;
-      return exp is num
-          ? DateTime.fromMillisecondsSinceEpoch(
-              (exp * 1000).round(),
-              isUtc: true,
-            )
-          : null;
-    } on FormatException {
-      return null;
-    }
+    final exp = jwtClaims(token)?['exp'];
+    return exp is num
+        ? DateTime.fromMillisecondsSinceEpoch(
+            (exp * 1000).round(),
+            isUtc: true,
+          )
+        : null;
   }
 
   Map<String, dynamic> toJson() => <String, dynamic>{

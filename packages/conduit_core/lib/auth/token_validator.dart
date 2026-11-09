@@ -1,5 +1,4 @@
-import 'dart:convert';
-
+import 'package:conduit_core/auth/jwt_claims.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
 
 /// JWT token validation utilities
@@ -36,7 +35,10 @@ class TokenValidator {
 
       // Try to decode the payload to check expiry
       try {
-        final payload = _decodeJWTPayload(parts[1]);
+        final payload = jwtPayloadClaims(parts[1]);
+        if (payload == null) {
+          throw const FormatException('Not a JWT payload');
+        }
         final exp = payload['exp'] as int?;
 
         if (exp != null) {
@@ -75,21 +77,6 @@ class TokenValidator {
     } catch (_) {
       return TokenValidationResult.invalid('Token validation failed');
     }
-  }
-
-  /// Decode JWT payload (without signature verification)
-  static Map<String, dynamic> _decodeJWTPayload(String base64Payload) {
-    // Add padding if needed
-    String padded = base64Payload;
-    while (padded.length % 4 != 0) {
-      padded += '=';
-    }
-
-    // Decode base64
-    final decoded = base64Url.decode(padded);
-    final jsonString = utf8.decode(decoded);
-
-    return jsonDecode(jsonString) as Map<String, dynamic>;
   }
 }
 

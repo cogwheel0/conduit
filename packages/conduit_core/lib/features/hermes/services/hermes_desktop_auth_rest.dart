@@ -136,15 +136,9 @@ extension _HermesDesktopAuthRest on HermesDesktopApiService {
       );
     }
 
-    final random = Random.secure();
-    String randomValue(int bytes) => base64Url
-        .encode(List<int>.generate(bytes, (_) => random.nextInt(256)))
-        .replaceAll('=', '');
-    final state = randomValue(32);
-    final verifier = randomValue(64);
-    final challenge = base64Url
-        .encode(sha256.convert(utf8.encode(verifier)).bytes)
-        .replaceAll('=', '');
+    final state = oidcRandomToken();
+    final verifier = oidcRandomToken(byteCount: 64);
+    final challenge = oidcS256Challenge(verifier);
     final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
     final redirectUri = Uri.parse('http://127.0.0.1:${server.port}/callback');
     final authorize = _uri('/auth/native/authorize').replace(
