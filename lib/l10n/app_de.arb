@@ -65,8 +65,8 @@
   "enterCredentials": "Gib deine Anmeldedaten ein, um auf deine KI-Unterhaltungen zuzugreifen",
   "credentials": "Zugangsdaten",
   "apiKey": "API-Schlüssel",
-  "token": "Sitzungstoken",
-  "jwt": "Sitzungstoken",
+  "token": "Token",
+  "jwt": "Token",
   "usernameOrEmail": "Benutzername oder E‑Mail",
   "password": "Passwort",
   "signInWithToken": "Mit Token anmelden",
@@ -291,8 +291,8 @@
   "usernameOrEmailHint": "Gib deinen Benutzernamen oder deine E‑Mail ein",
   "passwordHint": "Gib dein Passwort ein",
   "enterToken": "Gib dein JWT-Token ein",
-  "tokenHint": "Hole das JWT-Token aus den Open WebUI-Einstellungen. API-Schlüssel (sk-...) werden für Streaming nicht unterstützt.",
-  "apiKeyNotSupported": "API-Schlüssel (sk-...) werden nicht unterstützt. Bitte verwende stattdessen ein JWT-Token.",
+  "tokenHint": "Füge das JWT-Token aus Open WebUI im Browser ein, unter Einstellungen › Konto › API-Schlüssel. API-Schlüssel (sk-…) funktionieren hier nicht.",
+  "apiKeyNotSupported": "Mit API-Schlüsseln (sk-…) kannst du dich nicht anmelden. Füge stattdessen ein JWT-Token ein.",
   "apiKeyNoLongerSupported": "Du wurdest abgemeldet, da API-Schlüssel nicht mehr unterstützt werden. Bitte melde dich mit einem JWT-Token aus den Open WebUI-Einstellungen an.",
   "tokenTooShort": "Token ist zu kurz",
   "signingIn": "Anmeldung läuft...",
@@ -4403,5 +4403,6 @@
   "authTokenFieldLabel": "Token",
   "composerAttachPhotos": "Fotos",
   "modelPickerAppleOnDeviceSubtitle": "Auf diesem Gerät, auch offline",
-  "modelPickerApplePccSubtitle": "Auf Apples privaten Servern"
+  "modelPickerApplePccSubtitle": "Auf Apples privaten Servern",
+  "accountsSavedServers": "Gespeicherte Server"
 }

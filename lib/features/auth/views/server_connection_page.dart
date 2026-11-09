@@ -394,7 +394,12 @@ class ServerConnectionPage extends ConsumerStatefulWidget {
     this.endpointId,
     this.handoff,
     this.onChecked,
+    this.header,
   });
+
+  /// The address group's header on iOS, when the form shares the account
+  /// sheet with other choices, such as the saved servers.
+  final String? header;
 
   /// What the account sheet checked, to carry on from.
   final ServerConnectionHandoff? handoff;
@@ -1797,14 +1802,24 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
     final reviewerMode = ref.watch(reviewerModeProvider);
     final l10n = AppLocalizations.of(context)!;
     if (_embedded) {
+      // In the account sheet the iOS form is the first-run one: the grouped
+      // address and Advanced Settings, then Connect under them, where the
+      // sheet's form ends rather than pinned over the keyboard.
+      final cupertino = context.usesCupertinoChrome;
       return Form(
         key: _formKey,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            _buildServerForm(),
-            const SizedBox(height: Spacing.lg),
-            _buildConnectButton(),
+            if (cupertino) ...[
+              _buildCupertinoServerForm(),
+              const SizedBox(height: Spacing.lg + Spacing.xs),
+              _buildCupertinoConnectButton(),
+            ] else ...[
+              _buildServerForm(),
+              const SizedBox(height: Spacing.lg),
+              _buildConnectButton(),
+            ],
           ],
         ),
       );
@@ -2049,10 +2064,11 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
     );
   }
 
-  /// The iOS form: an inset-grouped address section whose footer says what
-  /// happens next (or why connecting failed), then Advanced Settings as a
-  /// disclosure row that opens grouped sections of its own. Fields name
-  /// themselves with leading labels, as the sign-in step's do.
+  /// The iOS form: one inset-grouped section holding the address and, under
+  /// it, Advanced Settings as a disclosure row that opens grouped sections
+  /// below the footer, which says which address to use (or why connecting
+  /// failed). Fields name themselves with leading labels, as the sign-in
+  /// step's do.
   Widget _buildCupertinoServerForm() {
     final l10n = AppLocalizations.of(context)!;
     return Column(
@@ -2060,6 +2076,7 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
       children: [
         AuthGroupedSection(
           key: const ValueKey<String>('server-address-section'),
+          header: widget.header,
           footer: _editingRoutes ? null : l10n.serverAddressFooter,
           error: _isConnecting ? null : _connectionError,
           children: [
@@ -2084,7 +2101,9 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
               semanticLabel: l10n.enterServerUrlSemantic,
               keyboardType: TextInputType.url,
               textInputAction: TextInputAction.go,
-              autofocus: !_editingRoutes,
+              // Not in the account sheet: the keyboard would cover the
+              // saved servers, and a hidden tab's field would take it.
+              autofocus: !_editingRoutes && !_embedded,
               autofillHints: const [AutofillHints.url],
               validator: (value) {
                 final v = value ?? _urlController.text;
@@ -2096,11 +2115,6 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
               },
               onSubmitted: (_) => _connectToServer(),
             ),
-          ],
-        ),
-        const SizedBox(height: Spacing.lg + Spacing.xs),
-        AuthGroupedCard(
-          children: [
             AuthGroupedRow(
               key: const ValueKey<String>('advanced-settings-toggle'),
               title: l10n.advancedSettings,
@@ -2274,6 +2288,9 @@ class _ServerConnectionPageState extends ConsumerState<ServerConnectionPage> {
   Widget _buildCupertinoConnectButton() {
     final l10n = AppLocalizations.of(context)!;
     return AuthPrimaryButton(
+      key: _embedded
+          ? const ValueKey<String>('server-connection-continue')
+          : null,
       label: _editingRoutes
           ? l10n.accountsSaveAddress
           : l10n.connectToServerButton,

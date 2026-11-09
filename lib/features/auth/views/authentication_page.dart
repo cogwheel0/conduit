@@ -850,12 +850,14 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
     );
   }
 
+  /// The step's title already says Sign In; the button goes on, as Apple
+  /// Account's sign-in does, rather than repeat it.
   Widget _buildCupertinoSignInButton() {
     final l10n = AppLocalizations.of(context)!;
     final sso = _authMode == AuthMode.sso;
     return AuthPrimaryButton(
       key: const ValueKey<String>('authentication-submit'),
-      label: sso ? l10n.signInContinueWithSso : l10n.signIn,
+      label: sso ? l10n.signInContinueWithSso : l10n.continueButton,
       busyLabel: l10n.signingIn,
       busy: _isSigningIn,
       onPressed: !_canSubmit ? null : (sso ? _navigateToSso : _signIn),
@@ -1263,8 +1265,10 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
   }
 }
 
-/// A small capsule button at the end of the server row, like iOS's bordered
-/// capsule buttons: neutral fill, semibold label, dimmed while pressed.
+/// A plain text button at the end of the server row, as iOS puts an action
+/// in a list row: the label alone, in the regular weight and button colour of
+/// the form's other row actions, dimmed while pressed. Without a fill it
+/// stays quieter than the step's primary action.
 class _ChangeServerButton extends StatefulWidget {
   const _ChangeServerButton({required this.label, required this.onPressed});
 
@@ -1305,35 +1309,25 @@ class _ChangeServerButtonState extends State<_ChangeServerButton> {
                 ConduitHaptics.selectionClick();
                 widget.onPressed!();
               },
+        // The target reaches past the label towards the row's text, so a
+        // tap just short of the word still lands; the label itself ends on
+        // the row's margin.
         child: ConstrainedBox(
           constraints: const BoxConstraints(minHeight: TouchTarget.minimum),
-          child: Center(
-            widthFactor: 1,
-            child: AnimatedOpacity(
-              opacity: !enabled ? 0.4 : (_pressed ? 0.55 : 1),
-              duration: _pressed
-                  ? Duration.zero
-                  : context.motionDuration(AnimationDuration.fast),
-              curve: Curves.easeOut,
-              child: DecoratedBox(
-                decoration: ShapeDecoration(
-                  shape: const StadiumBorder(),
-                  color: theme.textPrimary.withValues(
-                    alpha: theme.isDark ? 0.14 : 0.07,
-                  ),
-                ),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: Spacing.md - Spacing.xxs,
-                    vertical: Spacing.xs + Spacing.xxs,
-                  ),
-                  child: Text(
-                    widget.label,
-                    style: AppTypography.titleMediumStyle.copyWith(
-                      fontWeight: FontWeight.w600,
-                      color: theme.textPrimary,
-                    ),
-                  ),
+          child: Padding(
+            padding: const EdgeInsetsDirectional.only(start: Spacing.sm),
+            child: Center(
+              widthFactor: 1,
+              child: AnimatedOpacity(
+                opacity: !enabled || _pressed ? 0.35 : 1,
+                duration: _pressed
+                    ? Duration.zero
+                    : context.motionDuration(AnimationDuration.fast),
+                curve: Curves.easeOut,
+                child: Text(
+                  widget.label,
+                  style: authGroupedRowStyle(context)
+                      .copyWith(color: theme.buttonPrimary),
                 ),
               ),
             ),

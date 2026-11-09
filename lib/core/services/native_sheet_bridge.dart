@@ -1138,6 +1138,10 @@ enum NativeSheetItemKind {
   dropdown,
   searchablePicker,
   toggle,
+
+  /// One of a few values. On iOS a one-line row whose value at the trailing
+  /// edge opens a menu, as a Settings form's menu picker does; the
+  /// subtitle, if any, runs under the title.
   segment,
   slider,
   info,

@@ -71,8 +71,8 @@
   "enterCredentials": "Введите свои учетные данные для доступа к вашим разговорам с ИИ",
   "credentials": "Учетные данные",
   "apiKey": "API-ключ",
-  "token": "Токен сеанса",
-  "jwt": "Токен сеанса",
+  "token": "Токен",
+  "jwt": "Токен",
   "usernameOrEmail": "Имя пользователя или email",
   "password": "Пароль",
   "signInWithToken": "Войти с помощью токена",
@@ -295,8 +295,8 @@
   "usernameOrEmailHint": "Введите ваше имя пользователя или email",
   "passwordHint": "Введите ваш пароль",
   "enterToken": "Введите ваш JWT-токен",
-  "tokenHint": "Получите JWT-токен в настройках Open WebUI. API-ключи (sk-...) не поддерживаются для потоковой передачи.",
-  "apiKeyNotSupported": "API-ключи (sk-...) не поддерживаются. Пожалуйста, используйте JWT-токен.",
+  "tokenHint": "Вставьте JWT-токен из веб-версии Open WebUI: Настройки › Аккаунт › API-ключи. API-ключи (sk-…) здесь использовать нельзя.",
+  "apiKeyNotSupported": "API-ключи (sk-…) нельзя использовать для входа. Вставьте вместо этого JWT-токен.",
   "apiKeyNoLongerSupported": "Вы были выведены из системы, так как API-ключи больше не поддерживаются. Пожалуйста, войдите с JWT-токеном из настроек Open WebUI.",
   "tokenTooShort": "Токен слишком короткий",
   "signingIn": "Вход...",
@@ -4441,5 +4441,6 @@
   "authTokenFieldLabel": "Токен",
   "composerAttachPhotos": "Фото",
   "modelPickerAppleOnDeviceSubtitle": "На этом устройстве, работает офлайн",
-  "modelPickerApplePccSubtitle": "На частных серверах Apple"
+  "modelPickerApplePccSubtitle": "На частных серверах Apple",
+  "accountsSavedServers": "Сохранённые серверы"
 }

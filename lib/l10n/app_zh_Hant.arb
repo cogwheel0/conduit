@@ -65,8 +65,8 @@
   "enterCredentials": "輸入您的憑據以訪問您的 AI 對話",
   "credentials": "憑據",
   "apiKey": "API 密鑰",
-  "token": "工作階段令牌",
-  "jwt": "工作階段令牌",
+  "token": "令牌",
+  "jwt": "令牌",
   "usernameOrEmail": "用戶名或電子郵件",
   "password": "密碼",
   "signInWithToken": "使用令牌登錄",
@@ -289,8 +289,8 @@
   "usernameOrEmailHint": "輸入您的用戶名或電子郵件",
   "passwordHint": "輸入您的密碼",
   "enterToken": "輸入您的 JWT 令牌",
-  "tokenHint": "從 Open WebUI 設定取得 JWT 令牌。API 密鑰 (sk-...) 不支援串流。",
-  "apiKeyNotSupported": "不支援 API 密鑰 (sk-...)。請改用 JWT 令牌。",
+  "tokenHint": "請貼上網頁版 Open WebUI「設定 › 帳號 › API 密鑰」中的 JWT 令牌。此處無法使用 API 密鑰 (sk-…)。",
+  "apiKeyNotSupported": "API 密鑰 (sk-…) 無法用於登入。請改為貼上 JWT 令牌。",
   "apiKeyNoLongerSupported": "由於不再支援 API 密鑰，您已被登出。請使用 Open WebUI 設定中的 JWT 令牌登入。",
   "tokenTooShort": "令牌太短",
   "signingIn": "正在登錄...",
@@ -4403,5 +4403,6 @@
   "authTokenFieldLabel": "權杖",
   "composerAttachPhotos": "照片",
   "modelPickerAppleOnDeviceSubtitle": "在此裝置上執行，可離線使用",
-  "modelPickerApplePccSubtitle": "在 Apple 的私有伺服器上執行"
+  "modelPickerApplePccSubtitle": "在 Apple 的私有伺服器上執行",
+  "accountsSavedServers": "已儲存的伺服器"
 }

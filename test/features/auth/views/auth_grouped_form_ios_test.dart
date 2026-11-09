@@ -106,15 +106,29 @@ void main() {
     await tester.pump();
     check(primaryButton(tester).onPressed).isNotNull();
 
-    // Advanced Settings is a disclosure row inside a grouped card; it opens
-    // grouped sections at once with reduced motion.
+    // Advanced Settings is a disclosure row in the address's own group,
+    // under the field and above the footer; it opens grouped sections at
+    // once with reduced motion.
     final advanced = find.byKey(
       const ValueKey<String>('advanced-settings-toggle'),
     );
     check(tester.widget<AuthGroupedRow>(advanced).expanded).equals(false);
+    final addressCard = find.descendant(
+      of: find.byKey(const ValueKey<String>('server-address-section')),
+      matching: find.byType(AuthGroupedCard),
+    );
     expect(
-      find.ancestor(of: advanced, matching: find.byType(AuthGroupedCard)),
+      find.descendant(of: addressCard, matching: advanced),
       findsOneWidget,
+    );
+    final urlRow = find.byKey(const ValueKey<String>('server-url-field'));
+    expect(find.descendant(of: addressCard, matching: urlRow), findsOneWidget);
+    check(tester.getTopLeft(advanced).dy)
+        .isGreaterThan(tester.getTopLeft(urlRow).dy);
+    check(tester.getTopLeft(advanced).dy).isLessThan(
+      tester
+          .getTopLeft(find.text('Use the address you open in a web browser.'))
+          .dy,
     );
     await tester.tap(advanced);
     await tester.pump();
@@ -180,7 +194,8 @@ void main() {
     check(username.textInputAction).equals(TextInputAction.next);
     check(password.textInputAction).equals(TextInputAction.go);
     check(password.obscureText).isTrue();
-    check(primaryButton(tester).label).equals('Sign In');
+    // The title says Sign In; the button goes on rather than repeat it.
+    check(primaryButton(tester).label).equals('Continue');
     check(primaryButton(tester).onPressed).isNull();
 
     // The first empty field has the cursor; Next moves on to the password.
@@ -195,6 +210,21 @@ void main() {
     await tester.testTextInput.receiveAction(TextInputAction.next);
     await tester.pump();
     check(password.focusNode!.hasFocus).isTrue();
+
+    // Change is a plain text button: no fill behind it to rival the
+    // step's primary action.
+    final change = find.byKey(
+      const ValueKey<String>('authentication-change-server'),
+    );
+    expect(
+      find.descendant(of: change, matching: find.byType(DecoratedBox)),
+      findsNothing,
+    );
+    final changeLabel = tester.widget<Text>(
+      find.descendant(of: change, matching: find.text('Change')),
+    );
+    check((changeLabel.style?.fontWeight ?? FontWeight.w400).value)
+        .isLessThan(FontWeight.w500.value);
 
     // The row reads as one element and Change stays its own button.
     final semantics = tester.ensureSemantics();
@@ -211,6 +241,46 @@ void main() {
     await tester.pumpAndSettle();
     check(harness.router.routeInformationProvider.value.uri.path)
         .equals(Routes.serverConnection);
+
+    await harness.unmount(tester);
+  });
+
+  testWidgets('the token method is named for what the user has, and its '
+      'footer says where to find it', (tester) async {
+    usePhoneViewport(tester);
+    final harness = AdaptiveAuthHarness(
+      server: _server,
+      platform: TargetPlatform.iOS,
+      backendConfig: const BackendConfig(),
+    );
+    addTearDown(harness.dispose);
+
+    await tester.pumpWidget(
+      harness.build(initialLocation: Routes.authentication),
+    );
+    await tester.pumpAndSettle();
+
+    final selector = tester.widget<AdaptiveSegmentedControl>(
+      find.byType(AdaptiveSegmentedControl),
+    );
+    check(selector.labels).deepEquals(['Password', 'Token']);
+    await tester.tap(
+      find.descendant(
+        of: find.byKey(const ValueKey<String>('authentication-mode-selector')),
+        matching: find.text('Token'),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final form = tester.widget<AuthGroupedSection>(
+      find.byKey(const ValueKey('api_key_form')),
+    );
+    check(form.footer).isNotNull()
+      ..contains('JWT token')
+      ..contains('Settings › Account › API Keys')
+      ..contains('sk-');
+    check(labelledField(tester, 'Token').obscureText).isTrue();
+    check(primaryButton(tester).label).equals('Continue');
 
     await harness.unmount(tester);
   });

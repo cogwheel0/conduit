@@ -106,8 +106,8 @@
   "enterCredentials": "AI 대화에 액세스하려면 자격 증명을 입력하세요",
   "credentials": "자격 증명",
   "apiKey": "API 키",
-  "token": "세션 토큰",
-  "jwt": "세션 토큰",
+  "token": "토큰",
+  "jwt": "토큰",
   "usernameOrEmail": "사용자 이름 또는 이메일",
   "password": "비밀번호",
   "signInWithToken": "토큰으로 로그인",
@@ -390,8 +390,8 @@
   "usernameOrEmailHint": "사용자 이름 또는 이메일을 입력하세요",
   "passwordHint": "비밀번호를 입력하세요",
   "enterToken": "JWT 토큰을 입력하세요",
-  "tokenHint": "Open WebUI 설정에서 JWT 토큰을 가져오세요. API 키(sk-...)는 스트리밍에 지원되지 않습니다.",
-  "apiKeyNotSupported": "API 키(sk-...)는 지원되지 않습니다. JWT 토큰을 사용하세요.",
+  "tokenHint": "웹의 Open WebUI에서 설정 › 계정 › API 키에 있는 JWT 토큰을 붙여넣으세요. API 키(sk-…)는 여기에서 사용할 수 없습니다.",
+  "apiKeyNotSupported": "API 키(sk-…)로는 로그인할 수 없습니다. 대신 JWT 토큰을 붙여넣으세요.",
   "apiKeyNoLongerSupported": "API 키가 더 이상 지원되지 않아 로그아웃되었습니다. Open WebUI 설정에서 JWT 토큰으로 로그인하세요.",
   "tokenTooShort": "토큰이 너무 짧습니다",
   "signingIn": "로그인 중...",
@@ -4175,5 +4175,6 @@
   "authTokenFieldLabel": "토큰",
   "composerAttachPhotos": "사진",
   "modelPickerAppleOnDeviceSubtitle": "이 기기에서 실행, 오프라인 가능",
-  "modelPickerApplePccSubtitle": "Apple의 비공개 서버에서 실행"
+  "modelPickerApplePccSubtitle": "Apple의 비공개 서버에서 실행",
+  "accountsSavedServers": "저장된 서버"
 }

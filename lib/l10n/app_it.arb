@@ -65,8 +65,8 @@
   "enterCredentials": "Inserisci le credenziali per accedere alle conversazioni IA",
   "credentials": "Credenziali",
   "apiKey": "Chiave API",
-  "token": "Token di sessione",
-  "jwt": "Token di sessione",
+  "token": "Token",
+  "jwt": "Token",
   "usernameOrEmail": "Username o e‑mail",
   "password": "Password",
   "signInWithToken": "Accedi con token",
@@ -289,8 +289,8 @@
   "usernameOrEmailHint": "Inserisci il tuo username o e‑mail",
   "passwordHint": "Inserisci la password",
   "enterToken": "Inserisci il tuo token JWT",
-  "tokenHint": "Ottieni il token JWT dalle impostazioni di Open WebUI. Le chiavi API (sk-...) non sono supportate per lo streaming.",
-  "apiKeyNotSupported": "Le chiavi API (sk-...) non sono supportate. Per favore usa un token JWT.",
+  "tokenHint": "Incolla il token JWT di Open WebUI sul web, in Impostazioni › Account › Chiavi API. Le chiavi API (sk-…) qui non funzionano.",
+  "apiKeyNotSupported": "Le chiavi API (sk-…) non servono per accedere. Incolla invece un token JWT.",
   "apiKeyNoLongerSupported": "Sei stato disconnesso perché le chiavi API non sono più supportate. Per favore accedi con un token JWT dalle impostazioni di Open WebUI.",
   "tokenTooShort": "Il token è troppo corto",
   "signingIn": "Accesso in corso...",
@@ -4403,5 +4403,6 @@
   "authTokenFieldLabel": "Token",
   "composerAttachPhotos": "Foto",
   "modelPickerAppleOnDeviceSubtitle": "Su questo dispositivo, anche offline",
-  "modelPickerApplePccSubtitle": "Sui server privati di Apple"
+  "modelPickerApplePccSubtitle": "Sui server privati di Apple",
+  "accountsSavedServers": "Server salvati"
 }

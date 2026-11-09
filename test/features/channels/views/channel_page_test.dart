@@ -999,9 +999,12 @@ void main() {
 
     tester.semantics.tap(find.semantics.byLabel(l10n.attach));
     await tester.pumpAndSettle();
-    for (final item in [l10n.file, l10n.photo, l10n.camera]) {
+    // Named as the chat's attach panel names them: Files and Photos, as the
+    // pickers they open are named.
+    for (final item in [l10n.files, l10n.composerAttachPhotos, l10n.camera]) {
       expect(find.text(item), findsOneWidget);
     }
+    expect(find.text(l10n.photo), findsNothing);
     semantics.dispose();
   });
 

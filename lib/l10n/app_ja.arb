@@ -241,11 +241,11 @@
   "@apiKey": {
     "description": "Label for API key input field."
   },
-  "token": "セッショントークン",
+  "token": "トークン",
   "@token": {
     "description": "Label for JWT token input field."
   },
-  "jwt": "セッショントークン",
+  "jwt": "トークン",
   "usernameOrEmail": "ユーザー名またはメール",
   "@usernameOrEmail": {
     "description": "Label for username/email input field."
@@ -1260,11 +1260,11 @@
   "@enterToken": {
     "description": "Hint text for JWT token input."
   },
-  "tokenHint": "Open WebUI の設定から JWT トークンを取得してください。API キー (sk-...) はストリーミングに対応していません。",
+  "tokenHint": "Web 版 Open WebUI の「設定 › アカウント › API キー」にある JWT トークンを貼り付けてください。API キー (sk-…) はここでは使用できません。",
   "@tokenHint": {
     "description": "Help text explaining what type of token to use."
   },
-  "apiKeyNotSupported": "API キー (sk-...) はサポートされていません。代わりに JWT トークンを使用してください。",
+  "apiKeyNotSupported": "API キー (sk-…) ではサインインできません。代わりに JWT トークンを貼り付けてください。",
   "@apiKeyNotSupported": {
     "description": "Error message when user tries to use an API key instead of JWT token."
   },
@@ -6020,5 +6020,6 @@
   "authTokenFieldLabel": "トークン",
   "composerAttachPhotos": "写真",
   "modelPickerAppleOnDeviceSubtitle": "このデバイス上で動作、オフライン可",
-  "modelPickerApplePccSubtitle": "Appleのプライベートサーバ上で動作"
+  "modelPickerApplePccSubtitle": "Appleのプライベートサーバ上で動作",
+  "accountsSavedServers": "保存済みのサーバー"
 }

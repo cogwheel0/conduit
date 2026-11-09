@@ -65,8 +65,8 @@
   "enterCredentials": "Voer je inloggegevens in om toegang te krijgen tot je AI-gesprekken",
   "credentials": "Inloggegevens",
   "apiKey": "API-sleutel",
-  "token": "Sessietoken",
-  "jwt": "Sessietoken",
+  "token": "Token",
+  "jwt": "Token",
   "usernameOrEmail": "Gebruikersnaam of e-mail",
   "password": "Wachtwoord",
   "signInWithToken": "Inloggen met token",
@@ -289,8 +289,8 @@
   "usernameOrEmailHint": "Voer je gebruikersnaam of e-mail in",
   "passwordHint": "Voer je wachtwoord in",
   "enterToken": "Voer je JWT-token in",
-  "tokenHint": "Haal het JWT-token uit de Open WebUI-instellingen. API-sleutels (sk-...) worden niet ondersteund voor streaming.",
-  "apiKeyNotSupported": "API-sleutels (sk-...) worden niet ondersteund. Gebruik in plaats daarvan een JWT-token.",
+  "tokenHint": "Plak het JWT-token uit Open WebUI op het web, onder Instellingen › Account › API-sleutels. API-sleutels (sk-…) werken hier niet.",
+  "apiKeyNotSupported": "Met API-sleutels (sk-…) kun je niet inloggen. Plak in plaats daarvan een JWT-token.",
   "apiKeyNoLongerSupported": "Je bent uitgelogd omdat API-sleutels niet meer worden ondersteund. Log in met een JWT-token uit de Open WebUI-instellingen.",
   "tokenTooShort": "Token is te kort",
   "signingIn": "Inloggen...",
@@ -4403,5 +4403,6 @@
   "authTokenFieldLabel": "Token",
   "composerAttachPhotos": "Foto's",
   "modelPickerAppleOnDeviceSubtitle": "Op dit apparaat, ook offline",
-  "modelPickerApplePccSubtitle": "Op de privéservers van Apple"
+  "modelPickerApplePccSubtitle": "Op de privéservers van Apple",
+  "accountsSavedServers": "Opgeslagen servers"
 }
