@@ -120,14 +120,17 @@ void main() {
     final highlightFinder = find.byKey(
       const ValueKey<String>('follow-up-highlight:First'),
     );
-    double fillAlpha() =>
-        ((tester.widget<AnimatedContainer>(highlightFinder).decoration!
-                    as ShapeDecoration)
-                .color!)
-            .a;
+    ShapeDecoration decoration() =>
+        tester.widget<AnimatedContainer>(highlightFinder).decoration!
+            as ShapeDecoration;
+    double fillAlpha() => decoration().color!.a;
     final restAlpha = fillAlpha();
-    // At rest the row already sits on a fill, so it reads as a button.
-    expect(restAlpha, greaterThan(0));
+    // At rest the row is an outline with no fill: an option to tap, not a
+    // sent message, which sits on a fill.
+    expect(restAlpha, 0);
+    final side = (decoration().shape as RoundedSuperellipseBorder).side;
+    expect(side.width, FollowUpSuggestionRow.outlineWidth);
+    expect(side.color.a, greaterThan(0));
 
     final gesture = await tester.startGesture(
       tester.getCenter(find.text('First')),
@@ -186,8 +189,7 @@ void main() {
   });
 
   testWidgets('rows are at least 44 pt tall, secondary to the reply, and '
-      'show two lines ending on a whole word while VoiceOver and a tap get '
-      'the whole prompt', (tester) async {
+      'show, read and send the whole prompt', (tester) async {
     const long =
         'Give me a 30-minute wind-down routine I can follow nightly, with '
         'step-by-step timings, what to skip on busy evenings, and how to '
@@ -213,13 +215,9 @@ void main() {
     final longText = tester.widget<Text>(
       find.descendant(of: longRow, matching: find.byType(Text)),
     );
-    final shown = longText.data!;
-    // Two lines at most, cut after a whole word of the prompt.
-    expect(longText.maxLines, FollowUpSuggestionRow.maxLines);
-    expect(shown, endsWith('…'));
-    final kept = shown.substring(0, shown.length - 1);
-    expect(long.startsWith(kept), isTrue);
-    expect(long[kept.length], anyOf(' ', ','));
+    // The whole prompt, on as many lines as it takes: nothing is cut.
+    expect(longText.data, long);
+    expect(longText.maxLines, isNull);
     final paragraph = tester.renderObject<RenderParagraph>(
       find.descendant(
         of: find.descendant(of: longRow, matching: find.byType(Text)),
@@ -230,7 +228,18 @@ void main() {
     // Secondary to the 17 pt answer above it.
     expect(longText.style!.fontSize, lessThan(17));
     final lineHeight = longText.style!.fontSize! * (longText.style!.height!);
-    expect(tester.getSize(longRow).height, lessThan(lineHeight * 3 + 24));
+    final lines = (paragraph.size.height / lineHeight).round();
+    expect(lines, greaterThan(2));
+    // The row grows with its text: padding and outline around it.
+    expect(
+      tester.getSize(longRow).height,
+      closeTo(
+        paragraph.size.height +
+            FollowUpSuggestionRow.padding.vertical +
+            FollowUpSuggestionRow.outlineWidth * 2,
+        0.5,
+      ),
+    );
 
     // VoiceOver hears, and a tap sends, the whole suggestion.
     expect(find.bySemanticsLabel(long), findsOneWidget);
@@ -327,36 +336,6 @@ void main() {
     await pumpBar(isBusy: true);
     expect(textColor().a, lessThan(theme.textPrimary.a));
     expect(glyphColor().a, lessThan(theme.textSecondary.a));
-  });
-
-  test('a long suggestion is cut on a word boundary, never mid-word', () {
-    const style = TextStyle(fontSize: 15, height: 20 / 15);
-    const prompt =
-        'Compare the trail options by elevation gain, shade, and water stops '
-        'for a family hike with two small children in late summer';
-    final clamped = followUpSuggestionClampedText(
-      prompt,
-      style: style,
-      maxWidth: 200,
-      maxLines: 2,
-    );
-    expect(clamped, endsWith('…'));
-    final kept = clamped.substring(0, clamped.length - 1);
-    expect(prompt.startsWith(kept), isTrue);
-    // The next character in the prompt starts a new word.
-    expect(prompt[kept.length], anyOf(' ', ','));
-    // No dangling comma before the ellipsis.
-    expect(kept, isNot(endsWith(',')));
-    // What fits is left alone.
-    expect(
-      followUpSuggestionClampedText(
-        'Pack list?',
-        style: style,
-        maxWidth: 200,
-        maxLines: 2,
-      ),
-      'Pack list?',
-    );
   });
 
   testWidgets('suggestions keep an even gap between them', (tester) async {

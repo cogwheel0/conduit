@@ -10,12 +10,12 @@ import 'chat_send_motion.dart';
 /// Suggested next prompts under a finished reply.
 ///
 /// A small "Suggestions" heading leads a short stack of full-width rounded
-/// rows on a quiet fill, 8 pt apart, each led by a secondary follow-up
-/// arrow. Their text is in the label colour, like a system gray button's, so
-/// they read as live choices; the 15 pt size, the fill and the arrow keep
-/// them apart from the 17 pt answer, and one shared width keeps their edges
-/// even. A long suggestion shows its first two lines, ending on a whole word
-/// and an ellipsis; VoiceOver reads, and a tap sends, all of it.
+/// rows, 8 pt apart, each led by a secondary follow-up arrow. A row is an
+/// outline with no fill, so it reads as an option to tap rather than as a
+/// message already sent (sent messages sit on a fill); its text is in the
+/// label colour, at 15 pt under the 17 pt answer, and one shared width keeps
+/// the edges even. A suggestion shows in full, however many lines it takes,
+/// so what a tap sends is what the row says.
 class FollowUpSuggestionBar extends StatelessWidget {
   const FollowUpSuggestionBar({
     super.key,
@@ -92,12 +92,9 @@ class FollowUpSuggestionBar extends StatelessWidget {
   }
 }
 
-/// One suggestion: a full-width rounded row led by a follow-up arrow, that
-/// darkens the moment a finger lands.
-///
-/// It shows at most [maxLines] lines of the prompt, cut at a word boundary
-/// with an ellipsis, never mid-word; its accessibility label and what a tap
-/// sends are always the whole prompt.
+/// One suggestion: a full-width outlined row led by a follow-up arrow, that
+/// fills the moment a finger lands. It shows, reads to VoiceOver and sends
+/// the whole prompt.
 @visibleForTesting
 class FollowUpSuggestionRow extends StatefulWidget {
   const FollowUpSuggestionRow({super.key, required this.label, this.onPressed});
@@ -107,8 +104,9 @@ class FollowUpSuggestionRow extends StatefulWidget {
 
   static const double minHeight = 44;
 
-  /// Lines of the prompt a row shows.
-  static const int maxLines = 2;
+  /// The outline's width: a full point, so the edge holds up against the
+  /// page as clearly as a fill would, without being one.
+  static const double outlineWidth = 1;
 
   /// Inner padding: one 15 pt line (20 pt leading) plus 10 pt above and
   /// below, centred in the 44 pt minimum; the leading inset clears the
@@ -120,8 +118,7 @@ class FollowUpSuggestionRow extends StatefulWidget {
     10,
   );
 
-  /// One radius for one- and two-line rows alike, so the stack reads as a
-  /// set of equal cards.
+  /// One radius for rows of any height, so the stack reads as a set.
   static const double cornerRadius = 14;
 
   /// The leading arrow, at the 15 pt text's optical size.
@@ -167,15 +164,18 @@ class _FollowUpSuggestionRowState extends State<FollowUpSuggestionRow> {
   Widget build(BuildContext context) {
     final theme = context.conduitTheme;
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    // Monochrome fills, like the system's gray button: the label colour at a
-    // low opacity, a step stronger while pressed.
-    final restFill = theme.textPrimary.withValues(alpha: isDark ? 0.12 : 0.05);
-    final pressedFill = theme.textPrimary.withValues(
-      alpha: isDark ? 0.22 : 0.12,
+    // A monochrome outline at rest, the label colour at a low opacity; a
+    // touch fills the row as a list row highlights. Busy (a reply is
+    // running), the outline fades with the text.
+    final outline = theme.textPrimary.withValues(
+      alpha: (isDark ? 0.24 : 0.16) * (_enabled ? 1 : 0.5),
     );
-    // Label-colour text on the quiet fill, so the row reads as a button
-    // rather than as disabled; the arrow stays secondary. Busy (a reply is
-    // running), both dim together.
+    final restFill = theme.textPrimary.withValues(alpha: 0);
+    final pressedFill = theme.textPrimary.withValues(
+      alpha: isDark ? 0.14 : 0.07,
+    );
+    // Label-colour text, so the row reads as a live choice rather than as
+    // disabled; the arrow stays secondary. Busy, both dim together.
     final foreground = _enabled
         ? theme.textPrimary
         : theme.textPrimary.withValues(alpha: 0.3);
@@ -239,6 +239,10 @@ class _FollowUpSuggestionRowState extends State<FollowUpSuggestionRow> {
           decoration: ShapeDecoration(
             color: _isPressed ? pressedFill : restFill,
             shape: RoundedSuperellipseBorder(
+              side: BorderSide(
+                color: outline,
+                width: FollowUpSuggestionRow.outlineWidth,
+              ),
               borderRadius: BorderRadius.circular(
                 FollowUpSuggestionRow.cornerRadius,
               ),
@@ -253,98 +257,12 @@ class _FollowUpSuggestionRowState extends State<FollowUpSuggestionRow> {
               ),
               const SizedBox(width: FollowUpSuggestionRow.glyphGap),
               Expanded(
-                child: LayoutBuilder(
-                  builder: (context, constraints) => Text(
-                    followUpSuggestionClampedText(
-                      widget.label,
-                      style: textStyle,
-                      maxWidth: constraints.maxWidth,
-                      maxLines: FollowUpSuggestionRow.maxLines,
-                      textScaler: textScaler,
-                      textDirection: Directionality.of(context),
-                      locale: Localizations.maybeLocaleOf(context),
-                    ),
-                    key: _textKey,
-                    style: textStyle,
-                    maxLines: FollowUpSuggestionRow.maxLines,
-                    // Only for a single word longer than two lines; any
-                    // other cut is made on a word boundary above.
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
+                child: Text(widget.label, key: _textKey, style: textStyle),
               ),
             ],
           ),
         ),
       ),
     );
-  }
-}
-
-/// Characters a shortened suggestion should not end on before its ellipsis.
-final RegExp _danglingTail = RegExp(r'[\s,;:.\-–—/(\[{"“‘]+$');
-
-/// [text] as it fits in [maxLines] lines of [maxWidth]: whole, or cut after
-/// the last whole word that leaves room for an ellipsis (and without a
-/// dangling comma, dash or opening bracket before it). Words are found the
-/// way the text engine breaks them, so languages written without spaces cut
-/// cleanly too. A single word too long for the lines comes back whole, for
-/// the text's own ellipsis.
-@visibleForTesting
-String followUpSuggestionClampedText(
-  String text, {
-  required TextStyle style,
-  required double maxWidth,
-  required int maxLines,
-  TextScaler textScaler = TextScaler.noScaling,
-  TextDirection textDirection = TextDirection.ltr,
-  Locale? locale,
-}) {
-  if (!maxWidth.isFinite || maxWidth <= 0 || text.isEmpty) return text;
-  TextPainter painterFor(String value, {int? lines}) => TextPainter(
-    text: TextSpan(text: value, style: style),
-    textDirection: textDirection,
-    textScaler: textScaler,
-    locale: locale,
-    maxLines: lines,
-  )..layout(maxWidth: maxWidth);
-
-  bool fits(String value) {
-    final painter = painterFor(value, lines: maxLines);
-    final fits = !painter.didExceedMaxLines;
-    painter.dispose();
-    return fits;
-  }
-
-  if (fits(text)) return text;
-
-  final full = painterFor(text);
-  try {
-    final lines = full.computeLineMetrics();
-    if (lines.length <= maxLines) return text;
-    final lastShown = lines[maxLines - 1];
-    // Where the last shown line ends in the text.
-    final lineEnd = full
-        .getLineBoundary(
-          full.getPositionForOffset(
-            Offset(lastShown.left + lastShown.width / 2, lastShown.baseline),
-          ),
-        )
-        .end;
-    var cut = lineEnd;
-    while (cut > 0) {
-      // The word (or run of spaces) just before the cut.
-      final word = full.getWordBoundary(TextPosition(offset: cut - 1));
-      final wordStart = word.start < cut ? word.start : cut - 1;
-      if (word.end == cut) {
-        final kept = text.substring(0, cut).replaceFirst(_danglingTail, '');
-        if (kept.isNotEmpty && fits('$kept…')) return '$kept…';
-      }
-      // Mid-word, or no room for the ellipsis: drop that word and retry.
-      cut = wordStart;
-    }
-    return text;
-  } finally {
-    full.dispose();
   }
 }
