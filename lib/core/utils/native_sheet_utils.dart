@@ -198,12 +198,16 @@ List<NativeSheetSectionConfig> buildNativeProfileRootSections(
   // What belongs to the Open WebUI account signed in; its profile is the
   // card above.
   //
-  // Every root symbol is an outline drawn at one size and weight, chosen to
-  // carry about the same ink: a single bubble rather than the wider pair,
-  // the brain rather than sparkles (solid stars, the one glyph that read as
-  // filled) or the sparse wand, the voice waveform in a ring like About's
-  // rather than its thin bars alone. The native sheet draws `calendar` as an
-  // outline too, since the system symbol's header is solid.
+  // Every root symbol is an outline at one weight, chosen to carry about the
+  // same ink in the 29 pt column: a single bubble rather than the wider
+  // pair, a head with its brain rather than the brain alone (as wide as the
+  // column and busier than its neighbours) or sparkles (solid stars, the
+  // one glyph that read as filled), and the bare voice waveform rather than
+  // one in a ring, the only ringed glyph in its group. The native sheet
+  // draws the antenna and the waveform a little larger, since their thin
+  // strokes read light at the shared size (`NativeSheetSettingsStyle
+  // .symbolPointSize(for:)`), and `calendar` as an outline, since the
+  // system symbol's header is solid.
   final accountItems = <NativeSheetItemConfig>[
     if (hasAccount) ...[
       NativeSheetItemConfig(
@@ -214,7 +218,7 @@ List<NativeSheetSectionConfig> buildNativeProfileRootSections(
       NativeSheetItemConfig(
         id: NativeSheetRoutes.aiMemory,
         title: nativeAiMemoryTitle(l10n),
-        sfSymbol: 'brain',
+        sfSymbol: 'brain.head.profile',
       ),
       NativeSheetItemConfig(
         id: NativeSheetRoutes.dataConnection,
@@ -241,7 +245,7 @@ List<NativeSheetSectionConfig> buildNativeProfileRootSections(
     NativeSheetItemConfig(
       id: NativeSheetRoutes.voice,
       title: l10n.voice,
-      sfSymbol: 'waveform.circle',
+      sfSymbol: 'waveform',
     ),
   ];
   // Everyday server places: things to open and use, not to configure.

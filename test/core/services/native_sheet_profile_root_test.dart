@@ -151,12 +151,13 @@ void main() {
         ),
         isEmpty,
       );
-      // Voice's waveform sits in a ring, as About's info mark does: its thin
-      // bars alone drew lighter than the bell and the globe.
+      // Voice's waveform stands bare, like the rows around it: in a ring it
+      // was the one ringed glyph of its group. The native sheet draws its
+      // thin bars a little larger instead.
       final voice = sections
           .expand((section) => section.items)
           .singleWhere((item) => item.id == NativeSheetRoutes.voice);
-      expect(voice.sfSymbol, 'waveform.circle');
+      expect(voice.sfSymbol, 'waveform');
       // One symbol per row, so no two rows read as the same place.
       expect(symbols.toSet(), hasLength(symbols.length));
     });
@@ -190,8 +191,13 @@ void main() {
     test('every root symbol is an outline of one family', () {
       final sections = _root(visibility: _everything);
 
-      // Sparkles are solid stars: the one glyph that read as filled.
-      expect(_item(sections, NativeSheetRoutes.aiMemory).sfSymbol, 'brain');
+      // Sparkles are solid stars, the one glyph that read as filled, and the
+      // brain alone was as wide as the column; the head with its brain sits
+      // in it like its neighbours.
+      expect(
+        _item(sections, NativeSheetRoutes.aiMemory).sfSymbol,
+        'brain.head.profile',
+      );
       final symbols = [
         for (final section in sections)
           for (final item in section.items) item.sfSymbol,

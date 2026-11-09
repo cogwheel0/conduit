@@ -3807,7 +3807,7 @@ private final class NativeSheetChoiceMenuTableViewCell: UITableViewCell {
         iconView.tintColor = NativeSheetSettingsStyle.iconForeground
         iconView.image = nativeSettingsSymbolImage(item.sfSymbol)?.withConfiguration(
             UIImage.SymbolConfiguration(
-                pointSize: NativeSheetSettingsStyle.symbolPointSize,
+                pointSize: NativeSheetSettingsStyle.symbolPointSize(for: item.sfSymbol),
                 weight: .regular,
                 scale: .medium
             )
@@ -4267,7 +4267,7 @@ private final class NativeSheetDropdownTableViewCell: UITableViewCell {
         iconView.contentMode = .center
         iconView.image = nativeSettingsSymbolImage(item.sfSymbol)?.withConfiguration(
             UIImage.SymbolConfiguration(
-                pointSize: NativeSheetSettingsStyle.symbolPointSize,
+                pointSize: NativeSheetSettingsStyle.symbolPointSize(for: item.sfSymbol),
                 weight: .regular,
                 scale: .medium
             )
@@ -7957,7 +7957,7 @@ private func configureNavigationCell(
     } else {
         content.image = nativeSettingsSymbolImage(item.sfSymbol)
     }
-    NativeSheetSettingsStyle.applyContentStyle(&content)
+    NativeSheetSettingsStyle.applyContentStyle(&content, symbol: item.sfSymbol)
     if avatar != nil {
         // A picture keeps its own colors, at the size a symbol takes.
         content.imageProperties.tintColor = nil

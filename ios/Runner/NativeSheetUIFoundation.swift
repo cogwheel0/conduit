@@ -295,8 +295,21 @@ enum NativeSheetSettingsStyle {
     /// icon tiles of the Settings app, so titles start on one line however
     /// wide or narrow a symbol is.
     static let iconColumnWidth: CGFloat = 29
-    /// One size and weight for every settings symbol.
+    /// One size and weight for every settings symbol, except the few that
+    /// `symbolPointSize(for:)` evens out.
     static let symbolPointSize: CGFloat = 19
+
+    /// The point size [name] is drawn at, so every symbol in the column
+    /// carries about the same ink. The antenna's short arcs and the bare
+    /// waveform's hairline bars read lighter than their neighbours at 19 pt,
+    /// so they are drawn a little larger, at the same weight.
+    static func symbolPointSize(for name: String?) -> CGFloat {
+        switch name {
+        case "antenna.radiowaves.left.and.right": return 21
+        case "waveform": return 20
+        default: return symbolPointSize
+        }
+    }
     static let iconSpacing: CGFloat = 12
     static var secondaryForeground: UIColor {
         NativeSheetTheme.shared.secondaryForeground
@@ -334,7 +347,12 @@ enum NativeSheetSettingsStyle {
         }
     }
 
-    static func applyContentStyle(_ content: inout UIListContentConfiguration) {
+    /// Styles a list row; [symbol] names the row's SF Symbol, if it has one,
+    /// so it is drawn at its own optical size.
+    static func applyContentStyle(
+        _ content: inout UIListContentConfiguration,
+        symbol: String? = nil
+    ) {
         content.textProperties.font = .preferredFont(forTextStyle: .body)
         content.textProperties.color = NativeSheetTheme.shared.foreground
         content.textProperties.numberOfLines = 2
@@ -342,7 +360,7 @@ enum NativeSheetSettingsStyle {
         content.secondaryTextProperties.color = secondaryForeground
         content.secondaryTextProperties.numberOfLines = 2
         content.imageProperties.preferredSymbolConfiguration = UIImage.SymbolConfiguration(
-            pointSize: symbolPointSize,
+            pointSize: symbolPointSize(for: symbol),
             weight: .regular,
             scale: .medium
         )
