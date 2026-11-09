@@ -11,6 +11,7 @@ import 'package:conduit_core/features/direct_connections/services/apple_pcc_host
 import 'package:conduit_core/features/direct_connections/services/direct_adapter_helpers.dart';
 import 'package:conduit_core/features/direct_connections/services/direct_provider_adapter.dart';
 import 'package:conduit_core/features/direct_connections/services/direct_reasoning_tags.dart';
+import 'package:conduit_core/utils/debug_logger.dart';
 
 export 'package:conduit_core/features/direct_connections/services/apple_pcc_host.dart';
 
@@ -212,6 +213,14 @@ final class ApplePccAdapter
       cancelToken.whenCancel.then((_) async {
         try {
           await _hostApi.cancel(runId);
+        } catch (error) {
+          // Nobody waits on a cancel: a host that cannot cancel is logged,
+          // and the run is still ended here.
+          DebugLogger.warning(
+            'cancel-failed',
+            scope: 'direct/apple-pcc',
+            data: {'error': error.runtimeType.toString()},
+          );
         } finally {
           await _cancelRun(runId);
         }

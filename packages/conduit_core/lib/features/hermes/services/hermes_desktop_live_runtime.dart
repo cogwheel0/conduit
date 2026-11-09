@@ -99,10 +99,8 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
           event.type == 'sudo.request' ||
           event.type == 'secret.request' ||
           event.type == 'mcp.setup.request') {
-        unawaited(
-          _persistPendingDecisionEvent(
-            event,
-          ).then(refreshRestoredCards, onError: (Object _) {}),
+        _persistPendingQuietly(
+          _persistPendingDecisionEvent(event).then(refreshRestoredCards),
         );
       }
       if (event.type == 'connection.update') {
@@ -123,10 +121,8 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
           event.type == 'sudo.expire' ||
           event.type == 'secret.expire' ||
           event.type == 'mcp.setup.expire') {
-        unawaited(
-          _resolvePendingDecisionEvent(
-            event,
-          ).then(refreshRestoredCards, onError: (Object _) {}),
+        _persistPendingQuietly(
+          _resolvePendingDecisionEvent(event).then(refreshRestoredCards),
         );
       }
       if (startedBuffering &&

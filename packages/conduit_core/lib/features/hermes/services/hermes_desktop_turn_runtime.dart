@@ -273,7 +273,7 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
             final prompt = value('command').isNotEmpty
                 ? value('command')
                 : value('description');
-            unawaited(
+            _persistPendingQuietly(
               _rememberPendingDecision(
                 binding,
                 requestId: requestId,
@@ -313,7 +313,7 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
                 value('reason').isEmpty ? value('server') : value('reason'),
               _ => value('prompt'),
             };
-            unawaited(
+            _persistPendingQuietly(
               _rememberPendingDecision(
                 binding,
                 requestId: requestId,
@@ -367,7 +367,7 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
             payload['request_id'] ?? payload['id'],
           );
           if (requestId != null) {
-            unawaited(
+            _persistPendingQuietly(
               HermesPendingDecisionStore.resolve(
                 origin: _origin,
                 connectionId: config.connectionId,

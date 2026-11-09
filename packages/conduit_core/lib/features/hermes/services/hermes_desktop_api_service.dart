@@ -976,3 +976,19 @@ final class HermesDesktopApiService
     if (!_closed) _desktopContractChanges.add(value);
   }
 }
+
+/// Writes a pending decision down without waiting for it. The store refuses
+/// writes while the app signs out, and a write can fail outright; started
+/// from an event handler, nothing would catch either. Only the error's type
+/// is logged: a decision's prompt may hold what the user typed.
+void _persistPendingQuietly(Future<void> write) {
+  unawaited(
+    write.catchError((Object error) {
+      DebugLogger.warning(
+        'pending-decision-write-failed',
+        scope: 'hermes/desktop',
+        data: {'error': error.runtimeType.toString()},
+      );
+    }),
+  );
+}

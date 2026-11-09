@@ -2,6 +2,8 @@ import 'dart:async';
 
 import 'package:meta/meta.dart';
 
+import 'package:conduit_core/utils/debug_logger.dart';
+
 import '../models/terminal_models.dart';
 import '../services/terminal_port_preview.dart';
 import '../services/terminal_service.dart';
@@ -183,12 +185,19 @@ class TerminalBrowserController with TerminalChangeNotifier {
       _fileEvents?.watchPath(normalizedPath);
 
       if (updateServerCwd) {
+        // Best effort: the listing already shows, and an older server
+        // without the endpoint, or a dropped connection, must not escape.
         unawaited(
-          service.setCwd(
-            server,
-            normalizedPath,
-            sessionScopeId: sessionScopeId,
-          ),
+          service
+              .setCwd(server, normalizedPath, sessionScopeId: sessionScopeId)
+              .catchError((Object error, StackTrace stackTrace) {
+                DebugLogger.error(
+                  'set-cwd-failed',
+                  scope: 'terminal/browser',
+                  error: error,
+                  stackTrace: stackTrace,
+                );
+              }),
         );
       }
     } catch (_) {

@@ -7,6 +7,7 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/services/api_service.dart';
+import 'package:conduit_core/utils/debug_logger.dart';
 import 'package:conduit_core/features/chat/providers/knowledge_cache_provider.dart';
 import 'package:conduit_core/features/workspace/models/workspace_knowledge.dart';
 import 'package:conduit_core/features/workspace/providers/workspace_providers.dart';
@@ -678,6 +679,17 @@ class WorkspaceKnowledgeFiles extends _$WorkspaceKnowledgeFiles {
     ref.invalidate(userFilesProvider);
     // Refresh the owning collection so file counts / updated timestamps track.
     final knowledge = ref.read(workspaceKnowledgeProvider.notifier);
-    unawaited(knowledge.refresh());
+    // Fire and forget, and it re-throws a failed fetch (offline, a 5xx)
+    // after recording it in its own state: nothing may be left to escape.
+    unawaited(
+      knowledge.refresh().catchError((Object error, StackTrace stackTrace) {
+        DebugLogger.error(
+          'collection-refresh-failed',
+          scope: 'workspace/knowledge',
+          error: error,
+          stackTrace: stackTrace,
+        );
+      }),
+    );
   }
 }
