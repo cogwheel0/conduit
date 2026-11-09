@@ -69,6 +69,10 @@ abstract final class HermesApiErrorCode {
   static const approvalNotPending = 'approval_not_pending';
   static const unknownExecution = 'unknown_execution';
 
+  /// A session title Hermes refuses, usually one another session already
+  /// has: titles are unique per Hermes profile.
+  static const invalidTitle = 'invalid_title';
+
   /// Accepted and saved; it runs once Hermes is back. Must not be resent.
   static const admissionQueued = 'admission_queued';
 }
@@ -1350,11 +1354,32 @@ class HermesApiService implements HermesBackendService, HermesTurnService {
     return url;
   }
 
-  Map<String, String> _sessionHeaders({String? sessionId}) {
+  /// The per-turn reasoning choice. Hermes reads it only from
+  /// `model_options` on both `/v1/runs` and `/v1/responses`; a top-level
+  /// `reasoning_effort` or `reasoning` is ignored.
+  static Map<String, dynamic>? _reasoningModelOptions(String? effort) =>
+      effort == null
+      ? null
+      : <String, dynamic>{
+          'reasoning': <String, dynamic>{'effort': effort},
+        };
+
+  /// Session headers for a request about [sessionId].
+  ///
+  /// `X-Hermes-Session-Key` is only a long-term memory scope while the turn
+  /// already names its session: a run's `session_id`, or a Responses
+  /// `previous_response_id`. Without one, Hermes also uses the key to pick
+  /// the session, so every new chat would land in one shared session that
+  /// runs a turn at a time. Callers send the key ([withSessionKey]) only
+  /// when the session is named.
+  Map<String, String> _sessionHeaders({
+    String? sessionId,
+    required bool withSessionKey,
+  }) {
     final validatedSessionId = _validatedOptionalSessionId(sessionId);
     return {
       'X-Hermes-Session-Id': ?validatedSessionId,
-      if ((config.sessionKey ?? '').isNotEmpty)
+      if (withSessionKey && (config.sessionKey ?? '').isNotEmpty)
         'X-Hermes-Session-Key': config.sessionKey!,
     };
   }
@@ -1470,13 +1495,16 @@ class HermesApiService implements HermesBackendService, HermesTurnService {
         'input': input,
         'session_id': ?validatedSessionId,
         'instructions': ?instructions,
-        'reasoning_effort': ?reasoningEffort,
+        'model_options': ?_reasoningModelOptions(reasoningEffort),
         if (conversationHistory != null && conversationHistory.isNotEmpty)
           'conversation_history': conversationHistory
         else
           'previous_response_id': ?previousResponseId,
       },
-      headers: _sessionHeaders(sessionId: validatedSessionId),
+      headers: _sessionHeaders(
+        sessionId: validatedSessionId,
+        withSessionKey: validatedSessionId != null,
+      ),
     );
     return _requireOpaqueIdentifier(data['run_id'] ?? data['id']);
   }
@@ -1506,7 +1534,10 @@ class HermesApiService implements HermesBackendService, HermesTurnService {
         receiveTimeout: streamLimits.idleTimeout,
         headers: {
           'Accept': 'text/event-stream',
-          ..._sessionHeaders(sessionId: sessionId),
+          ..._sessionHeaders(
+            sessionId: sessionId,
+            withSessionKey: sessionId != null,
+          ),
           if (lastEventId != null) 'Last-Event-ID': '$lastEventId',
         },
       ),
@@ -1607,16 +1638,32 @@ class HermesApiService implements HermesBackendService, HermesTurnService {
   // ---------------------------------------------------------------------------
 
   /// Creates a session (`POST /api/sessions`) and returns its id.
+  ///
+  /// Hermes refuses a [title] another session already has (two chats that
+  /// both start with "hi"). The session is then created untitled instead:
+  /// without one, the turn would run outside any session.
   @override
   Future<String> createSession({
     String? title,
     CancelToken? cancelToken,
   }) async {
-    final data = await _postBoundedCreateObject(
-      '$_root/api/sessions',
-      cancelToken: cancelToken,
-      data: {'title': ?title},
-    );
+    Map<String, dynamic> data;
+    try {
+      data = await _postBoundedCreateObject(
+        '$_root/api/sessions',
+        cancelToken: cancelToken,
+        data: {'title': ?title},
+      );
+    } on HermesApiException catch (error) {
+      if (title == null || error.code != HermesApiErrorCode.invalidTitle) {
+        rethrow;
+      }
+      data = await _postBoundedCreateObject(
+        '$_root/api/sessions',
+        cancelToken: cancelToken,
+        data: const <String, dynamic>{},
+      );
+    }
     return _requireOpaqueIdentifier(_sessionId(data));
   }
 
@@ -1803,15 +1850,19 @@ class HermesApiService implements HermesBackendService, HermesTurnService {
         'conversation': ?conversation,
         if (conversationHistory != null && conversationHistory.isNotEmpty)
           'conversation_history': conversationHistory,
-        if (reasoningEffort != null)
-          'reasoning': <String, dynamic>{'effort': reasoningEffort},
+        'model_options': ?_reasoningModelOptions(reasoningEffort),
       },
       options: Options(
         responseType: ResponseType.stream,
         receiveTimeout: streamLimits.idleTimeout,
         headers: {
           'Accept': 'text/event-stream',
-          ..._sessionHeaders(sessionId: sessionId),
+          // Responses reads no session id header: only a chain names the
+          // session.
+          ..._sessionHeaders(
+            sessionId: sessionId,
+            withSessionKey: previousResponseId?.isNotEmpty ?? false,
+          ),
         },
         validateStatus: _acceptEveryHermesStatus,
       ),

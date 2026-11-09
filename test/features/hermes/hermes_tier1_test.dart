@@ -61,6 +61,22 @@ void main() {
       check(caps.inputFiles).isFalse();
     });
 
+    test('job editing follows the jobs surface, not jobs_admin', () {
+      // Every API server advertises this static `jobs_admin: false` while
+      // its /api/jobs writes work with the bearer key.
+      final apiServer = HermesCapabilities.fromJson({
+        'features': {'jobs_admin': false},
+      });
+      final noJobs = HermesCapabilities.fromJson({
+        'features': {'jobs': false, 'jobs_admin': true},
+      });
+
+      check(apiServer.jobs).isTrue();
+      check(apiServer.jobsAdmin).isTrue();
+      check(noJobs.jobs).isFalse();
+      check(noJobs.jobsAdmin).isFalse();
+    });
+
     test('null feature values remain optimistic', () {
       final caps = HermesCapabilities.fromJson({
         'features': {'skills': null},
@@ -99,8 +115,10 @@ void main() {
 
       check(viaFeature.inputImages).isTrue();
       check(viaEndpoint.inputImages).isTrue();
-      check(viaFeature.inputFiles).isTrue();
-      check(viaEndpoint.inputFiles).isTrue();
+      // Hermes's /v1/responses rejects file parts, so Responses streaming
+      // never enables PDF input.
+      check(viaFeature.inputFiles).isFalse();
+      check(viaEndpoint.inputFiles).isFalse();
       check(disabled.inputImages).isFalse();
       check(disabled.inputFiles).isFalse();
       check(conflictingFlags.inputImages).isFalse();

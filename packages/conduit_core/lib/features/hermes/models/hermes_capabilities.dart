@@ -23,8 +23,11 @@ class HermesCapabilities {
   /// Whether scheduled jobs are exposed at all (the list surface).
   final bool jobs;
 
-  /// Whether jobs can be mutated (create/edit/pause/run/delete). Servers can
-  /// expose a read-only job list while disabling admin writes (`jobs_admin`).
+  /// Whether jobs can be mutated (create/edit/pause/run/delete).
+  ///
+  /// The API server always advertises `jobs_admin: false`, a static flag that
+  /// gates nothing: its `/api/jobs` writes work with the bearer key. Editing
+  /// therefore follows [jobs]; the flag is ignored.
   final bool jobsAdmin;
 
   final bool sessions;
@@ -36,7 +39,12 @@ class HermesCapabilities {
   /// remains false when discovery is unavailable or ambiguous.
   final bool inputImages;
 
-  /// Whether the server advertises the streaming Responses path used for files.
+  /// Whether Conduit can send PDFs as Responses `input_file` parts.
+  ///
+  /// Hermes advertises Responses streaming, but its `/v1/responses` accepts
+  /// only text and image parts and answers file parts with 400
+  /// `unsupported_content_type`. No server advertises file input, so
+  /// discovery never sets this.
   final bool inputFiles;
 
   /// Whether the API server may only add turns to sessions it owns (Hermes
@@ -56,6 +64,7 @@ class HermesCapabilities {
 
   factory HermesCapabilities.fromJson(Map<String, dynamic> json) {
     final responsesInput = _resolveResponsesInput(json);
+    final jobs = _resolve(json, const ['jobs', 'cron']);
     return HermesCapabilities(
       runApproval: _resolve(json, const [
         'run_approval_response',
@@ -65,17 +74,15 @@ class HermesCapabilities {
       ]),
       skills: _resolve(json, const ['skills_api', 'skills']),
       toolsets: _resolve(json, const ['toolsets']),
-      // Show the jobs surface unless explicitly disabled; admin writes are
-      // governed separately by `jobs_admin`.
-      jobs: _resolve(json, const ['jobs', 'cron']),
-      jobsAdmin: _resolve(json, const ['jobs_admin']),
+      // Show the jobs surface unless explicitly disabled.
+      jobs: jobs,
+      jobsAdmin: jobs,
       sessions: _resolve(json, const [
         'session_resources',
         'sessions',
         'session_key_header',
       ]),
       inputImages: json['desktop_uploads'] == true || responsesInput,
-      inputFiles: responsesInput,
       apiOwnsSessions: _explicitTrue(json, 'run_unknown_resolution'),
     );
   }

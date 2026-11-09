@@ -177,6 +177,97 @@ void main() {
       check(id).equals('s1');
     });
 
+    test('createSession retries untitled when the title is taken', () async {
+      final requests = <RequestOptions>[];
+      final dio = Dio()
+        ..interceptors.add(
+          InterceptorsWrapper(
+            onRequest: (options, handler) {
+              requests.add(options);
+              final titled = (options.data as Map).containsKey('title');
+              final status = titled ? 400 : 201;
+              handler.resolve(
+                Response<dynamic>(
+                  requestOptions: options,
+                  statusCode: status,
+                  data: ResponseBody.fromString(
+                    jsonEncode(
+                      titled
+                          ? {
+                              'error': {
+                                'message': "Title 'hi' is already in use",
+                                'code': 'invalid_title',
+                              },
+                            }
+                          : {
+                              'session': {'id': 's-untitled'},
+                            },
+                    ),
+                    status,
+                    headers: {
+                      Headers.contentTypeHeader: ['application/json'],
+                    },
+                  ),
+                ),
+              );
+            },
+          ),
+        );
+      final service = HermesApiService(
+        config: const HermesConfig(
+          enabled: true,
+          baseUrl: 'http://host:8642/v1',
+          apiKey: 'k',
+        ),
+        dio: dio,
+      );
+
+      final id = await service.createSession(title: 'hi');
+
+      check(id).equals('s-untitled');
+      check(requests).length.equals(2);
+      check((requests.first.data as Map)['title']).equals('hi');
+      check((requests.last.data as Map).containsKey('title')).isFalse();
+    });
+
+    test('createSession keeps other refusals', () async {
+      final dio = Dio()
+        ..interceptors.add(
+          InterceptorsWrapper(
+            onRequest: (options, handler) => handler.resolve(
+              Response<dynamic>(
+                requestOptions: options,
+                statusCode: 400,
+                data: ResponseBody.fromString(
+                  jsonEncode({
+                    'error': {
+                      'message': 'Invalid session ID',
+                      'code': 'invalid_session_id',
+                    },
+                  }),
+                  400,
+                ),
+              ),
+            ),
+          ),
+        );
+      final service = HermesApiService(
+        config: const HermesConfig(
+          enabled: true,
+          baseUrl: 'http://host:8642/v1',
+          apiKey: 'k',
+        ),
+        dio: dio,
+      );
+
+      await check(service.createSession(title: 'hi'))
+          .throws<HermesApiException>((error) {
+            error.has((value) => value.code, 'code').equals(
+              'invalid_session_id',
+            );
+          });
+    });
+
     test('createSession rejects structured and unsafe identifiers', () async {
       final invalidIds = <Object?>[
         {

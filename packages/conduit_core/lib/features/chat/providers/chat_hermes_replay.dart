@@ -88,7 +88,8 @@ Future<_PreparedHermesTurn> _prepareHermesTurn(
         !desktop && isHermesResponsesPdfFileNameSupported(state.fileName);
     if (responsesPdf && capabilities?.asData?.value.inputFiles != true) {
       throw const HermesChatInputException(
-        'This Hermes server does not advertise Responses file input.',
+        "Hermes can't read PDF attachments over this connection. "
+        'Attach text or DOCX files instead.',
       );
     }
     if (desktop || responsesPdf) {

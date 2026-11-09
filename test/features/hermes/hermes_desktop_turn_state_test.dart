@@ -905,6 +905,187 @@ void main() {
     ).equals('Hello there.');
   });
 
+  test('a PDF Hermes cannot render is sent as a file', () async {
+    // A host without pdftoppm refuses `pdf.attach` (issue #898).
+    final turn = await _streamTurn(
+      input: HermesChatInput.multimodal([
+        HermesInputTextPart('Summarize this.'),
+        HermesInputFilePart(
+          filename: 'report.pdf',
+          mediaType: 'application/pdf',
+          base64Data: 'JVBERi0=',
+        ),
+      ]),
+      desktopContract: 2,
+      errors: {
+        'pdf.attach': {
+          'code': 5028,
+          'message': 'pdftoppm not installed (poppler-utils package required)',
+        },
+      },
+      responses: {
+        'file.attach': {
+          'attached': true,
+          'ref_text': '@file:/staged/report.pdf',
+        },
+      },
+      (harness) {
+        harness.event('runtime-race', 'message.start');
+        harness.event('runtime-race', 'message.complete', {
+          'text': 'It covers the plan.',
+        });
+        harness.sessionInfo('runtime-race', running: false);
+      },
+    );
+
+    Map<String, dynamic> params(String method) => Map<String, dynamic>.from(
+      turn.harness.sent.singleWhere((f) => f['method'] == method)['params']
+          as Map,
+    );
+    check(params('pdf.attach')['filename']).equals('report.pdf');
+    check(params('file.attach')['name']).equals('report.pdf');
+    check(
+      params('file.attach')['data_url'],
+    ).equals('data:application/pdf;base64,JVBERi0=');
+    check(
+      params('prompt.submit')['text'] as String,
+    ).contains('@file:/staged/report.pdf');
+    check(turn.events.whereType<HermesRunError>()).isEmpty();
+    check(
+      turn.events.whereType<HermesFinalOutput>().single.text,
+    ).equals('It covers the plan.');
+  });
+
+  // Every refusal was taken for a render failure, so a PDF Hermes rejected
+  // (or a busy session) went out by another path.
+  test('a PDF Hermes refuses for another reason is not sent as a file',
+      () async {
+    await check(
+      _streamTurn(
+        input: HermesChatInput.multimodal([
+          HermesInputTextPart('Summarize this.'),
+          HermesInputFilePart(
+            filename: 'report.pdf',
+            mediaType: 'application/pdf',
+            base64Data: 'JVBERi0=',
+          ),
+        ]),
+        desktopContract: 2,
+        errors: {
+          'pdf.attach': {
+            'code': 4017,
+            'message': 'payload is not a PDF (missing %PDF- magic bytes)',
+          },
+        },
+        responses: {
+          'file.attach': {
+            'attached': true,
+            'ref_text': '@file:/staged/report.pdf',
+          },
+        },
+        (harness) {},
+      ),
+    ).throws<HermesDesktopRpcException>();
+  });
+
+  test('tool and subagent failures are read from result and status', () async {
+    final turn = await _streamTurn((harness) {
+      harness.event('runtime-race', 'message.start');
+      void tool(String name, Object? result) =>
+          harness.event('runtime-race', 'tool.complete', {
+            'tool_id': 'call-$name',
+            'name': name,
+            'result': result,
+          });
+      // A command the user denied.
+      tool('terminal', {
+        'output': '',
+        'exit_code': -1,
+        'error': 'BLOCKED: Command denied. Do NOT retry.',
+        'status': 'blocked',
+        'user_summary': 'You denied this command.',
+      });
+      tool('terminal', {
+        'output': '',
+        'exit_code': 2,
+        'error': 'No such file or directory',
+      });
+      tool('terminal', {'output': 'done', 'exit_code': 0, 'error': null});
+      tool('web_search', {'success': false, 'error': 'Search quota used up'});
+      // The harness refusing a repeated read is not a failed call.
+      tool('read_file', {
+        'error': 'BLOCKED: You have read this exact file region 3 times.',
+        'guardrail_refusal': true,
+      });
+      tool('write_file', {'bytes_written': 12, 'path': 'notes.txt'});
+      tool('custom_tool', 'Error: the service is offline');
+      void subagent(String id, String status) =>
+          harness.event('runtime-race', 'subagent.complete', {
+            'goal': 'Check the plan',
+            'task_count': 1,
+            'task_index': 0,
+            'subagent_id': id,
+            'status': status,
+            'summary': 'Child $status',
+          });
+      subagent('a', 'failed');
+      subagent('b', 'timeout');
+      subagent('c', 'completed');
+      subagent('d', 'interrupted');
+      harness.event('runtime-race', 'message.complete', {'text': 'Done.'});
+      harness.sessionInfo('runtime-race', running: false);
+    });
+
+    final finished = turn.events
+        .whereType<HermesToolProgress>()
+        .where((event) => event.done)
+        .map((event) => (event.toolName, event.failed, event.detail))
+        .toList();
+    check(finished).deepEquals([
+      ('terminal', true, 'You denied this command.'),
+      ('terminal', true, 'No such file or directory'),
+      ('terminal', false, ''),
+      ('web_search', true, 'Search quota used up'),
+      ('read_file', false, ''),
+      ('write_file', false, ''),
+      ('custom_tool', true, 'Error: the service is offline'),
+      ('subagent: a', true, 'Child failed'),
+      ('subagent: b', true, 'Child timeout'),
+      ('subagent: c', false, 'Child completed'),
+      ('subagent: d', false, 'Child interrupted'),
+    ]);
+  });
+
+  test('tool errors read with Hermes truthiness', () async {
+    final turn = await _streamTurn((harness) {
+      harness.event('runtime-race', 'message.start');
+      void tool(String name, Object? result) =>
+          harness.event('runtime-race', 'tool.complete', {
+            'tool_id': 'call-$name',
+            'name': name,
+            'result': result,
+          });
+      tool('memory', {'error': false});
+      tool('todo', {'error': 0, 'count': 3});
+      // Hermes reads `error or message`, so a null error with a message is
+      // a failure there as well.
+      tool('cronjob', {'error': null, 'message': 'Job not found'});
+      harness.event('runtime-race', 'message.complete', {'text': 'Done.'});
+      harness.sessionInfo('runtime-race', running: false);
+    });
+
+    final finished = turn.events
+        .whereType<HermesToolProgress>()
+        .where((event) => event.done)
+        .map((event) => (event.toolName, event.failed, event.detail))
+        .toList();
+    check(finished).deepEquals([
+      ('memory', false, ''),
+      ('todo', false, ''),
+      ('cronjob', true, 'Job not found'),
+    ]);
+  });
+
   test('a forwarded prompt ends at message.complete', () async {
     final turn = await _streamTurn(
       submitResult: {
@@ -1456,11 +1637,24 @@ final class _RecordingUrlOpener implements OpenExternalUrlPort {
 
 /// Streams one turn on a resumed session: Hermes acknowledges
 /// `prompt.submit` with [submitResult], then [frames] arrive. Returns the
-/// events that reached the caller, and the service.
-Future<({List<HermesRunEvent> events, HermesDesktopApiService service})>
+/// events that reached the caller, the service and the gateway.
+///
+/// [input] defaults to plain text; [responses] and [errors] answer extra
+/// methods, and [desktopContract] is the one the resumed session reports.
+Future<
+  ({
+    List<HermesRunEvent> events,
+    HermesDesktopApiService service,
+    _GatewayHarness harness,
+  })
+>
 _streamTurn(
   void Function(_GatewayHarness harness) frames, {
   Map<String, dynamic> submitResult = const {'status': 'streaming'},
+  HermesChatInput? input,
+  Map<String, Map<String, dynamic>> responses = const {},
+  Map<String, Map<String, dynamic>> errors = const {},
+  int? desktopContract,
 }) async {
   SharedPreferences.setMockInitialValues({});
   PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
@@ -1484,19 +1678,24 @@ _streamTurn(
     service.close();
     await harness.dispose();
   });
-  harness.responder = (method) => switch (method) {
-    'prompt.submit' => submitResult,
-    'session.resume' => {
-      'session_id': 'runtime-race',
-      'stored_session_id': 'stored-race',
-      'running': false,
-    },
-    'config.get' => {'value': 'medium'},
-    _ => const {},
-  };
+  harness.errorResponder = (method) => errors[method];
+  harness.responder = (method) =>
+      responses[method] ??
+      switch (method) {
+        'prompt.submit' => submitResult,
+        'session.resume' => {
+          'session_id': 'runtime-race',
+          'stored_session_id': 'stored-race',
+          'running': false,
+          if (desktopContract != null)
+            'info': {'desktop_contract': desktopContract},
+        },
+        'config.get' => {'value': 'medium'},
+        _ => const {},
+      };
 
   final response = await service.streamDesktopResponse(
-    HermesChatInput.text('hello'),
+    input ?? HermesChatInput.text('hello'),
     sessionId: 'stored-race',
     options: const HermesDesktopSessionOptions(),
   );
@@ -1506,6 +1705,7 @@ _streamTurn(
   return (
     events: await events.timeout(const Duration(seconds: 5)),
     service: service,
+    harness: harness,
   );
 }
 
