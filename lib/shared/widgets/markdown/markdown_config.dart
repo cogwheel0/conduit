@@ -435,8 +435,14 @@ class ConduitMarkdown {
     required String language,
     required ConduitThemeExtension theme,
     VoidCallback? onPreview,
+    String? stateId,
   }) {
-    return CodeBlockCard(code: code, language: language, onPreview: onPreview);
+    return CodeBlockCard(
+      code: code,
+      language: language,
+      onPreview: onPreview,
+      stateId: stateId,
+    );
   }
 
   static bool isPreviewableCodeBlock(String language, String code) {
@@ -1017,28 +1023,74 @@ class ConduitMarkdown {
 /// A fenced code block: a quiet rounded card with a header (the language,
 /// a soft-wrap toggle once a line is too long, and Copy) above the code.
 ///
-/// Long lines scroll sideways by default, fading out at the edge that hides
-/// more, with a thin indicator while they move; the toggle wraps them inside
-/// the card instead.
+/// In a compact window (an iPhone, or a narrow iPad split) long lines wrap
+/// inside the card, each continuation hanging under its line's indentation;
+/// in a wide one they scroll sideways, fading out at the edge that hides
+/// more, with a thin indicator while they move. The toggle switches one
+/// block between the two, and the block keeps that choice while its page
+/// lives.
 class CodeBlockCard extends StatefulWidget {
   const CodeBlockCard({
     super.key,
     required this.code,
     required this.language,
     this.onPreview,
+    this.stateId,
   });
 
   final String code;
   final String language;
   final VoidCallback? onPreview;
 
+  /// Identifies this block on its page, so a wrap choice survives the block
+  /// scrolling out of a list and back. Null keeps the choice in the widget.
+  final String? stateId;
+
+  /// Windows narrower than this are compact (every iPhone in portrait, an
+  /// iPad split to a third or half): code wraps there by default.
+  static const double compactWindowWidth = 600;
+
+  /// Whether long code lines wrap by default in [context]'s window.
+  static bool wrapsByDefault(BuildContext context) =>
+      MediaQuery.sizeOf(context).width < compactWindowWidth;
+
   @override
   State<CodeBlockCard> createState() => _CodeBlockCardState();
 }
 
 class _CodeBlockCardState extends State<CodeBlockCard> {
-  bool _softWrap = false;
+  /// The reader's choice for this block; null follows the window's default.
+  bool? _chosenSoftWrap;
+  String? _restoredStateId;
+
+  /// Whether a line is too long to show unwrapped: measured by the scroll
+  /// view while lines scroll, or by the wrapped lines while they wrap.
   bool _overflows = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final stateId = widget.stateId;
+    if (stateId != null && stateId != _restoredStateId) {
+      _restoredStateId = stateId;
+      final restored = PageStorage.maybeOf(context)
+          ?.readState(context, identifier: stateId);
+      if (restored is bool) _chosenSoftWrap = restored;
+    }
+  }
+
+  bool _softWrap(BuildContext context) =>
+      _chosenSoftWrap ?? CodeBlockCard.wrapsByDefault(context);
+
+  void _toggleSoftWrap() {
+    final next = !_softWrap(context);
+    setState(() => _chosenSoftWrap = next);
+    final stateId = widget.stateId;
+    if (stateId != null) {
+      PageStorage.maybeOf(context)
+          ?.writeState(context, next, identifier: stateId);
+    }
+  }
 
   void _handleOverflowChanged(bool overflows) {
     if (!mounted || overflows == _overflows) return;
@@ -1063,6 +1115,7 @@ class _CodeBlockCardState extends State<CodeBlockCard> {
     final codeBackground = ink.withValues(alpha: isDark ? 0.09 : 0.04);
     final borderColor = ink.withValues(alpha: isDark ? 0.10 : 0.07);
     final code = widget.code;
+    final softWrap = _softWrap(context);
 
     return Container(
       decoration: BoxDecoration(
@@ -1081,11 +1134,12 @@ class _CodeBlockCardState extends State<CodeBlockCard> {
             borderColor: borderColor,
             isDark: isDark,
             onPreview: widget.onPreview,
+            // The source as written, however it is laid out on screen.
             onCopy: () => Clipboard.setData(ClipboardData(text: code)),
-            softWrap: _softWrap,
-            onToggleSoftWrap: _softWrap || _overflows
-                ? () => setState(() => _softWrap = !_softWrap)
-                : null,
+            softWrap: softWrap,
+            // Only while a line is too long to show unwrapped; with every
+            // line fitting, the toggle would change nothing.
+            onToggleSoftWrap: _overflows ? _toggleSoftWrap : null,
           ),
           _CodeBlockBody(
             code: code,
@@ -1094,7 +1148,7 @@ class _CodeBlockCardState extends State<CodeBlockCard> {
             codeStyle: markdownStyle.codeBlock,
             isDark: isDark,
             dividerColor: borderColor,
-            softWrap: _softWrap,
+            softWrap: softWrap,
             scrollIndicatorColor: markdownStyle.scrollIndicatorColor,
             scrollIndicatorInset: markdownStyle.codeBlockRadius,
             onOverflowChanged: _handleOverflowChanged,
@@ -1284,6 +1338,7 @@ class _HighlightedCodeText extends StatefulWidget {
     required this.isDark,
     this.plainText = false,
     this.softWrap = false,
+    this.onWrapsChanged,
   });
 
   static const _rootKey = 'root';
@@ -1301,8 +1356,12 @@ class _HighlightedCodeText extends StatefulWidget {
   final bool isDark;
   final bool plainText;
 
-  /// Wraps long lines, each continuation keeping its line's indentation.
+  /// Wraps long lines, each continuation hanging under its line's
+  /// indentation.
   final bool softWrap;
+
+  /// With [softWrap], reports whether any line had to wrap.
+  final ValueChanged<bool>? onWrapsChanged;
 
   @override
   State<_HighlightedCodeText> createState() => _HighlightedCodeTextState();
@@ -1323,9 +1382,10 @@ class _HighlightedCodeTextState extends State<_HighlightedCodeText> {
   /// them to arrive.
   ///
   /// Large sources parse on a worker isolate; plain monospace paints in the
-  /// interim. Code lays out in a horizontal scroll view, so the plain and
-  /// highlighted trees (identical text) occupy the same extent and the swap
-  /// is paint-only — no timeline shift mid-scroll.
+  /// interim. The plain and highlighted trees hold identical text in one
+  /// monospaced face (bold and italic keep its advance), so scrolling or
+  /// wrapped, they occupy the same extent and the swap is paint-only — no
+  /// timeline shift mid-scroll.
   List<TextSpan>? _resolveSpans() {
     final key = _cacheKey;
     if (_spans != null && key == _spansKey) {
@@ -1392,6 +1452,7 @@ class _HighlightedCodeTextState extends State<_HighlightedCodeText> {
         spans: children,
         rootStyle: rootStyle,
         textScaler: MediaQuery.textScalerOf(context),
+        onWrapsChanged: widget.onWrapsChanged,
       );
     }
 
@@ -1411,22 +1472,35 @@ const _codeTextHeightBehavior = TextHeightBehavior(
   applyHeightToLastDescent: false,
 );
 
-/// Soft-wrapped code, one paragraph per source line, so a wrapped line's
-/// continuation starts under the line's first character instead of at the
-/// left edge, where it would read as a new statement.
+/// Soft-wrapped code, one source line at a time, so a wrapped line never
+/// runs back to the left edge, where it would read as a new statement: the
+/// line starts at its own indentation and its continuation hangs a little
+/// further in, under its first characters, as an editor indents wrapped
+/// lines.
+///
+/// Copy in the header copies the source as written, whatever the layout.
 class _WrappedCodeLines extends StatelessWidget {
   const _WrappedCodeLines({
     required this.spans,
     required this.rootStyle,
     required this.textScaler,
+    this.onWrapsChanged,
   });
 
   /// Columns a tab advances in leading indentation.
   static const int tabColumns = 4;
 
+  /// Columns a wrapped line's continuation hangs in from the line's start:
+  /// enough to tell it from the next line, little enough to keep a phone's
+  /// width for code.
+  static const int hangingIndentColumns = 2;
+
   final List<TextSpan> spans;
   final TextStyle rootStyle;
   final TextScaler textScaler;
+
+  /// Called after layout with whether any line wrapped.
+  final ValueChanged<bool>? onWrapsChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -1441,40 +1515,124 @@ class _WrappedCodeLines extends StatelessWidget {
 
     return LayoutBuilder(
       builder: (context, constraints) {
+        final maxWidth = constraints.maxWidth;
         // Deeply nested lines still keep half the width for their text.
-        final maxIndent = constraints.maxWidth.isFinite
-            ? constraints.maxWidth / 2
-            : double.infinity;
+        final maxIndent = maxWidth.isFinite ? maxWidth / 2 : double.infinity;
+        var wraps = false;
+        final children = <Widget>[];
+        for (final (index, line) in lines.indexed) {
+          final indent = math.min(line.indentColumns * columnWidth, maxIndent);
+          final textWidth = maxWidth - indent;
+          final split = maxWidth.isFinite
+              ? _splitAtFirstBreak(line.runs, textWidth, columnWidth)
+              : null;
+          wraps = wraps || split != null;
+          final child = _CodeLineText(
+            head: split?.head ?? line.runs,
+            tail: split?.tail,
+            // Never more than a quarter of the line's room.
+            hang: math.min(
+              hangingIndentColumns * columnWidth,
+              math.max(0, textWidth / 4),
+            ),
+            rootStyle: rootStyle,
+            textScaler: textScaler,
+            isFirst: index == 0,
+            isLast: index == lines.length - 1,
+          );
+          children.add(
+            Padding(
+              padding: EdgeInsets.only(left: indent),
+              child: child,
+            ),
+          );
+        }
+        final onWrapsChanged = this.onWrapsChanged;
+        if (onWrapsChanged != null) {
+          final wrapped = wraps;
+          WidgetsBinding.instance.addPostFrameCallback(
+            (_) => onWrapsChanged(wrapped),
+          );
+        }
         return Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            for (final (index, line) in lines.indexed)
-              Padding(
-                padding: EdgeInsets.only(
-                  left: math.min(line.indentColumns * columnWidth, maxIndent),
-                ),
-                child: RichText(
-                  text: TextSpan(
-                    style: rootStyle,
-                    // A blank line keeps its height.
-                    children: line.runs.isEmpty
-                        ? const [TextSpan(text: ' ')]
-                        : line.runs,
-                  ),
-                  textScaler: textScaler,
-                  // Only the block's outer edges drop their leading, as the
-                  // unwrapped paragraph does.
-                  textHeightBehavior: TextHeightBehavior(
-                    applyHeightToFirstAscent: index != 0,
-                    applyHeightToLastDescent: index != lines.length - 1,
-                  ),
-                ),
-              ),
-          ],
+          children: children,
         );
       },
     );
+  }
+
+  /// [runs] split where they first wrap at [width], or null when they fit
+  /// on one line.
+  ({List<TextSpan> head, List<TextSpan> tail})? _splitAtFirstBreak(
+    List<TextSpan> runs,
+    double width,
+    double columnWidth,
+  ) {
+    if (runs.isEmpty || width <= 0) return null;
+    // Plain ASCII advances exactly one column per character, so a line
+    // with a column to spare fits without laying it out.
+    var length = 0;
+    var ascii = true;
+    for (final run in runs) {
+      final text = run.text!;
+      length += text.length;
+      if (ascii) {
+        for (final unit in text.codeUnits) {
+          if (unit < 0x20 || unit > 0x7e) {
+            ascii = false;
+            break;
+          }
+        }
+      }
+    }
+    if (ascii && (length + 1) * columnWidth <= width) return null;
+
+    final painter = TextPainter(
+      text: TextSpan(style: rootStyle, children: runs),
+      textScaler: textScaler,
+      textDirection: TextDirection.ltr,
+    )..layout(maxWidth: width);
+    try {
+      final metrics = painter.computeLineMetrics();
+      if (metrics.length < 2) return null;
+      // The first character of the second line.
+      final breakAt = painter
+          .getPositionForOffset(Offset(0, metrics[1].baseline))
+          .offset;
+      if (breakAt <= 0 || breakAt >= length) return null;
+      return _splitRuns(runs, breakAt);
+    } finally {
+      painter.dispose();
+    }
+  }
+
+  static ({List<TextSpan> head, List<TextSpan> tail}) _splitRuns(
+    List<TextSpan> runs,
+    int offset,
+  ) {
+    final head = <TextSpan>[];
+    final tail = <TextSpan>[];
+    var start = 0;
+    for (final run in runs) {
+      final text = run.text!;
+      final end = start + text.length;
+      if (end <= offset) {
+        head.add(run);
+      } else if (start >= offset) {
+        tail.add(run);
+      } else {
+        head.add(
+          TextSpan(text: text.substring(0, offset - start), style: run.style),
+        );
+        tail.add(
+          TextSpan(text: text.substring(offset - start), style: run.style),
+        );
+      }
+      start = end;
+    }
+    return (head: head, tail: tail);
   }
 
   /// Splits highlighted [spans] into source lines of flat, fully styled
@@ -1534,6 +1692,66 @@ class _WrappedCodeLines extends StatelessWidget {
       }
     }
     return (indentColumns: leading ? 0 : columns, runs: stripped);
+  }
+}
+
+/// One source line of wrapped code: its first visual line, then the rest
+/// hanging [hang] further in.
+class _CodeLineText extends StatelessWidget {
+  const _CodeLineText({
+    required this.head,
+    required this.tail,
+    required this.hang,
+    required this.rootStyle,
+    required this.textScaler,
+    required this.isFirst,
+    required this.isLast,
+  });
+
+  final List<TextSpan> head;
+  final List<TextSpan>? tail;
+  final double hang;
+  final TextStyle rootStyle;
+  final TextScaler textScaler;
+  final bool isFirst;
+  final bool isLast;
+
+  Widget _paragraph(
+    List<TextSpan> runs, {
+    required bool first,
+    required bool last,
+  }) => RichText(
+    text: TextSpan(
+      style: rootStyle,
+      // A blank line keeps its height.
+      children: runs.isEmpty ? const [TextSpan(text: ' ')] : runs,
+    ),
+    textScaler: textScaler,
+    // Only the block's outer edges drop their leading, as the unwrapped
+    // paragraph does.
+    textHeightBehavior: TextHeightBehavior(
+      applyHeightToFirstAscent: !first,
+      applyHeightToLastDescent: !last,
+    ),
+  );
+
+  @override
+  Widget build(BuildContext context) {
+    final tail = this.tail;
+    if (tail == null) {
+      return _paragraph(head, first: isFirst, last: isLast);
+    }
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _paragraph(head, first: isFirst, last: false),
+        Padding(
+          padding: EdgeInsets.only(left: hang),
+          child: _paragraph(tail, first: false, last: isLast),
+        ),
+      ],
+    );
   }
 }
 
@@ -1623,7 +1841,8 @@ class _CodeBlockBody extends StatefulWidget {
   final Color scrollIndicatorColor;
   final double scrollIndicatorInset;
 
-  /// Reports whether unwrapped code is wider than the card.
+  /// Reports whether unwrapped code is wider than the card: while lines
+  /// scroll, from the scroll view; while they wrap, from whether any did.
   final ValueChanged<bool> onOverflowChanged;
 
   /// Inner padding before the code's leading edge, and on both sides of
@@ -1716,6 +1935,8 @@ class _CodeBlockBodyState extends State<_CodeBlockBody> {
       isDark: widget.isDark,
       plainText: renderPlainPreview,
       softWrap: widget.softWrap,
+      // A line that wraps is one that would run past the card unwrapped.
+      onWrapsChanged: widget.softWrap ? widget.onOverflowChanged : null,
     );
 
     return Column(

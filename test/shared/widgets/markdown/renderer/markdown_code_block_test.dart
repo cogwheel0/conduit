@@ -199,7 +199,59 @@ void main() {
           (paragraph) => paragraph.text.toPlainText().startsWith(prefix),
         );
 
+    // The code's paragraphs (not the header's), top to bottom.
+    List<RenderParagraph> codeParagraphs(WidgetTester tester) {
+      final header = tester
+          .renderObjectList<RenderParagraph>(
+            find.descendant(
+              of: find.byType(CodeBlockHeader),
+              matching: find.byType(RichText),
+            ),
+          )
+          .toSet();
+      return tester
+          .renderObjectList<RenderParagraph>(
+            find.descendant(
+              of: find.byType(CodeBlockCard),
+              matching: find.byType(RichText),
+            ),
+          )
+          .where((paragraph) => !header.contains(paragraph))
+          .toList()
+        ..sort(
+          (a, b) => a
+              .localToGlobal(Offset.zero)
+              .dy
+              .compareTo(b.localToGlobal(Offset.zero).dy),
+        );
+    }
+
+    // The paragraph right below [paragraph] in the code.
+    RenderParagraph nextParagraph(
+      WidgetTester tester,
+      RenderParagraph paragraph,
+    ) {
+      final paragraphs = codeParagraphs(tester);
+      return paragraphs[paragraphs.indexOf(paragraph) + 1];
+    }
+
+    double left(RenderParagraph p) => p.localToGlobal(Offset.zero).dx;
+    double top(RenderParagraph p) => p.localToGlobal(Offset.zero).dy;
+    double bottom(RenderParagraph p) =>
+        p.localToGlobal(Offset(0, p.size.height)).dy;
+
     Finder wrapToggle() => find.byIcon(Icons.wrap_text_rounded);
+    Finder codeScrollView() => find.descendant(
+      of: find.byType(CodeBlockCard),
+      matching: find.byType(SingleChildScrollView),
+    );
+
+    // An iPhone 17 Pro's window: compact.
+    void usePhoneWindow(WidgetTester tester) {
+      tester.view.physicalSize = const Size(1206, 2622);
+      tester.view.devicePixelRatio = 3;
+      addTearDown(tester.view.reset);
+    }
 
     testWidgets('the header names the language properly', (tester) async {
       for (final (fence, label) in [
@@ -335,15 +387,19 @@ void main() {
           }
           final header = tester.getRect(find.byType(CodeBlockHeader));
           final card = tester.getRect(find.byType(CodeBlockCard));
-          final first = codeParagraph(tester, 'print(');
-          // Unwrapped code is one paragraph; wrapped code one per line.
-          final last = wrap && lines > 1
-              ? codeParagraph(tester, 'x = ${lines - 1}')
-              : first;
-          final top = first.localToGlobal(Offset.zero).dy;
-          final bottom = last.localToGlobal(Offset(0, last.size.height)).dy;
-          gaps['$wrap/$lines'] = (top - header.bottom, card.bottom - bottom);
-          heights[lines] = wrap ? bottom - top : first.size.height;
+          // Unwrapped code is one paragraph; wrapped code one per line,
+          // and a wrapped line's continuation another.
+          final paragraphs = codeParagraphs(tester);
+          final first = paragraphs.first;
+          final last = paragraphs.last;
+          expect(first.text.toPlainText(), startsWith('print('));
+          final codeTop = top(first);
+          final codeBottom = bottom(last);
+          gaps['$wrap/$lines'] = (
+            codeTop - header.bottom,
+            card.bottom - codeBottom,
+          );
+          heights[lines] = wrap ? codeBottom - codeTop : first.size.height;
         }
         final style = codeParagraph(tester, 'print(').text.style!;
         final lineHeight = style.fontSize! * style.height!;
@@ -531,7 +587,8 @@ void main() {
       expect(flashed, isTrue);
     });
 
-    testWidgets('a long line can wrap', (tester) async {
+    testWidgets('a long line can wrap in a wide window', (tester) async {
+      // The test window is 800 pt wide: wide, so lines scroll by default.
       await tester.pumpWidget(buildHarness('```python\n$longLine\n```'));
       await tester.pumpAndSettle();
 
@@ -555,18 +612,35 @@ void main() {
       await tester.tap(wrapToggle());
       await tester.pumpAndSettle();
 
-      final wrapped = codeParagraph(tester, 'print(');
-      expect(wrapped.size.width, lessThan(card.width));
-      expect(wrapped.size.height, greaterThan(unwrapped.size.height * 2));
+      // The line's first row, then its continuation below it.
+      final head = codeParagraph(tester, 'print(');
+      final tail = nextParagraph(tester, head);
       expect(
-        find.descendant(
-          of: find.byType(CodeBlockCard),
-          matching: find.byType(SingleChildScrollView),
-        ),
-        findsNothing,
+        head.text.toPlainText() + tail.text.toPlainText(),
+        longLine,
+        reason: 'the line is split once, losing nothing',
       );
-      // The toggle stays so the lines can be unwrapped again.
+      expect(head.size.width, lessThan(card.width));
+      expect(tail.size.width, lessThan(card.width));
+      expect(
+        head.size.height + tail.size.height,
+        greaterThan(unwrapped.size.height * 2),
+      );
+      expect(codeScrollView(), findsNothing);
+      // The toggle stays, now on, so the lines can be unwrapped again.
       expect(wrapToggle(), findsOneWidget);
+      expect(
+        tester.getSemantics(wrapToggle()),
+        matchesSemantics(
+          label: 'Wrap Lines',
+          isButton: true,
+          hasEnabledState: true,
+          isEnabled: true,
+          hasToggledState: true,
+          isToggled: true,
+          hasTapAction: true,
+        ),
+      );
 
       await tester.tap(wrapToggle());
       await tester.pumpAndSettle();
@@ -576,7 +650,7 @@ void main() {
       );
     });
 
-    testWidgets('wrapped lines continue under their own indentation', (
+    testWidgets('wrapped lines hang under their own indentation', (
       tester,
     ) async {
       await tester.pumpWidget(
@@ -590,20 +664,140 @@ void main() {
 
       final header = codeParagraph(tester, 'def plan');
       final body = codeParagraph(tester, 'print(');
+      final continuation = nextParagraph(tester, body);
       final tail = codeParagraph(tester, 'return 1');
       final column = header.text.style!.fontSize!; // Ahem: 1em per glyph.
-      double left(RenderParagraph p) => p.localToGlobal(Offset.zero).dx;
-      // The indented line and every wrapped continuation of it start four
-      // columns in, not back at the left edge.
+      // The indented line starts four columns in, and its continuation two
+      // further, so it reads as the same statement rather than the next.
       expect(left(body) - left(header), closeTo(column * 4, 0.5));
-      expect(body.size.height, greaterThan(column * 2));
+      expect(left(continuation) - left(body), closeTo(column * 2, 0.5));
+      expect(top(continuation), closeTo(bottom(body), 0.5));
+      // The next line starts back at the indentation.
       expect(left(tail), closeTo(left(body), 0.5));
       // The blank line between them keeps a line of space.
-      expect(
-        tail.localToGlobal(Offset.zero).dy -
-            (body.localToGlobal(Offset.zero).dy + body.size.height),
-        greaterThan(column),
+      expect(top(tail) - bottom(continuation), greaterThan(column));
+    });
+
+    testWidgets('code wraps by default in a phone window', (tester) async {
+      usePhoneWindow(tester);
+      await tester.pumpWidget(
+        buildHarness('```python\ndef plan():\n    $longLine\n```'),
       );
+      await tester.pumpAndSettle();
+
+      final card = tester.getRect(find.byType(CodeBlockCard));
+      expect(codeScrollView(), findsNothing);
+      // No fade or indicator: nothing is hidden past an edge.
+      expect(
+        find.descendant(
+          of: find.byType(CodeBlockCard),
+          matching: find.byType(HorizontalOverflowFade),
+        ),
+        findsNothing,
+      );
+      for (final paragraph in codeParagraphs(tester)) {
+        expect(
+          paragraph.localToGlobal(Offset(paragraph.size.width, 0)).dx,
+          lessThanOrEqualTo(card.right),
+        );
+      }
+      // The toggle shows wrapping on, and turns it off for this block.
+      expect(
+        tester.getSemantics(wrapToggle()),
+        matchesSemantics(
+          label: 'Wrap Lines',
+          isButton: true,
+          hasEnabledState: true,
+          isEnabled: true,
+          hasToggledState: true,
+          isToggled: true,
+          hasTapAction: true,
+        ),
+      );
+      await tester.tap(wrapToggle());
+      await tester.pumpAndSettle();
+      expect(codeScrollView(), findsOneWidget);
+      expect(
+        codeParagraph(tester, 'def plan').size.width,
+        greaterThan(card.width),
+      );
+    });
+
+    testWidgets('a phone window shows no toggle when every line fits', (
+      tester,
+    ) async {
+      usePhoneWindow(tester);
+      await tester.pumpWidget(buildHarness('```python\nx = 1\n```'));
+      await tester.pumpAndSettle();
+      expect(codeScrollView(), findsNothing);
+      expect(wrapToggle(), findsNothing);
+    });
+
+    testWidgets('a block keeps its wrap choice when it scrolls back', (
+      tester,
+    ) async {
+      usePhoneWindow(tester);
+      final scroll = ScrollController();
+      addTearDown(scroll.dispose);
+      await tester.pumpWidget(
+        ProviderScope(
+          child: MaterialApp(
+            localizationsDelegates: conduitLocalizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            home: Scaffold(
+              body: ListView(
+                controller: scroll,
+                children: const [
+                  ConduitMarkdownWidget(
+                    data: '```python\n$longLine\n```',
+                    heavyBlockPolicy: MarkdownHeavyBlockPolicy.eager,
+                    stateScopeId: 'message-1',
+                  ),
+                  SizedBox(height: 5000),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(wrapToggle());
+      await tester.pumpAndSettle();
+      expect(codeScrollView(), findsOneWidget);
+
+      // Far enough that the list drops the block, then back.
+      scroll.jumpTo(4000);
+      await tester.pumpAndSettle();
+      expect(find.byType(CodeBlockCard), findsNothing);
+      scroll.jumpTo(0);
+      await tester.pumpAndSettle();
+      expect(codeScrollView(), findsOneWidget);
+    });
+
+    testWidgets('Copy copies the source as written while lines wrap', (
+      tester,
+    ) async {
+      usePhoneWindow(tester);
+      final copied = <String>[];
+      final messenger = tester.binding.defaultBinaryMessenger;
+      messenger.setMockMethodCallHandler(SystemChannels.platform, (call) async {
+        if (call.method == 'Clipboard.setData') {
+          copied.add((call.arguments as Map)['text'] as String);
+        }
+        return null;
+      });
+      addTearDown(
+        () => messenger.setMockMethodCallHandler(SystemChannels.platform, null),
+      );
+      const source = 'def plan():\n\t$longLine\n\n    return 1';
+      await tester.pumpWidget(buildHarness('```python\n$source\n```'));
+      await tester.pumpAndSettle();
+      expect(codeScrollView(), findsNothing);
+
+      await tester.tap(find.byIcon(Icons.content_copy_rounded));
+      await tester.pump();
+      expect(copied.single, source);
+      await tester.pumpAndSettle(CodeBlockHeader.copiedConfirmationDuration);
     });
   });
 }
