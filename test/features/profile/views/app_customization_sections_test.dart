@@ -176,6 +176,50 @@ void main() {
       expect(tester.takeException(), isNull);
     });
 
+    testWidgets('Chat saves Computer availability on ${platform.name}', (
+      tester,
+    ) async {
+      PlatformUiCapabilities.debugPlatformOverride = platform;
+      PlatformUiCapabilities.debugIOSMajorVersionOverride = 25;
+      addTearDown(PlatformUiCapabilities.resetDebugOverrides);
+      addTearDown(PreferencesStore.debugReset);
+      await tester.runAsync(() async {
+        SharedPreferences.setMockInitialValues(<String, Object>{});
+        PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
+      });
+      await tester.pumpWidget(
+        _sectionHarness(
+          AppCustomizationSection.chat,
+          persistSettings: true,
+          platform: platform,
+        ),
+      );
+      await tester.pumpAndSettle();
+      final toggle = find.byKey(const Key('chat-computer-enabled-toggle'));
+      final semantics = tester.ensureSemantics();
+      try {
+        await tester.ensureVisible(toggle);
+        expect(tester.getSemantics(toggle), isSemantics(isToggled: true));
+        await tester.tap(toggle);
+        await tester.pumpAndSettle();
+        expect(
+          PreferencesStore.get<bool>(PreferenceKeys.computerEnabled),
+          isFalse,
+        );
+        expect(tester.getSemantics(toggle), isSemantics(isToggled: false));
+        await tester.tap(toggle);
+        await tester.pumpAndSettle();
+        expect(
+          PreferencesStore.get<bool>(PreferenceKeys.computerEnabled),
+          isTrue,
+        );
+        expect(tester.getSemantics(toggle), isSemantics(isToggled: true));
+        expect(tester.takeException(), isNull);
+      } finally {
+        semantics.dispose();
+      }
+    });
+
     testWidgets(
       'Appearance saves Notes button visibility on ${platform.name}',
       (tester) async {

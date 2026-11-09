@@ -146,6 +146,28 @@ class AppCustomizationPage extends ConsumerWidget {
         ),
       ],
       AppCustomizationSection.chat => <Widget>[
+        CustomizationTile(
+          leading: _buildIconBadge(
+            context,
+            Icons.desktop_windows_outlined,
+            color: context.conduitTheme.buttonPrimary,
+          ),
+          title: l10n.computerTitle,
+          subtitle: l10n.computerEnabledDescription,
+          toggled: settings.computerEnabled,
+          trailing: AdaptiveSwitch(
+            key: const Key('chat-computer-enabled-toggle'),
+            value: settings.computerEnabled,
+            onChanged: (value) => ref
+                .read(appSettingsProvider.notifier)
+                .setComputerEnabled(value),
+          ),
+          showChevron: false,
+          onTap: () => ref
+              .read(appSettingsProvider.notifier)
+              .setComputerEnabled(!settings.computerEnabled),
+        ),
+        _sectionGap,
         if (hasOpenWebUiAccount) ...[
           _buildQuickPillsSection(context, ref, settings),
           _sectionGap,

@@ -470,6 +470,11 @@ class _SidebarProfileAppBarLeadingState
     Future<void> presentProfile() async {
       await Navigator.of(context).maybePop();
       if (!context.mounted) return;
+      FocusManager.instance.primaryFocus?.unfocus();
+      // Native sheets do not participate in Flutter's focus traversal.
+      // Let the chat input release its keyboard before presenting Settings.
+      await WidgetsBinding.instance.endOfFrame;
+      if (!context.mounted) return;
 
       if (nativeProfilePresenter != null) {
         // Pre-load the Hermes avatar bytes (the config builder is sync, and

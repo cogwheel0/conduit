@@ -8,6 +8,7 @@ final class PreferenceKeys {
   static const String citationShowTitles = 'citation_show_titles';
   static const String citationBackground = 'citation_background';
   static const String highContrast = 'high_contrast';
+  static const String computerEnabled = 'computer_enabled';
   static const String showComposerNotesButton = 'show_composer_notes_button';
   static const String darkMode = 'dark_mode';
   static const String slidingSidebarEnabled = 'sliding_sidebar_enabled';

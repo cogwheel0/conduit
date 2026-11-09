@@ -46,8 +46,10 @@ import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart
 import 'package:conduit_core/features/direct_connections/providers/direct_connection_providers.dart';
 import 'package:conduit_core/features/direct_connections/services/direct_chat_bridge.dart';
 import 'package:conduit_core/features/direct_connections/services/direct_model_registry.dart';
+import 'package:conduit_core/features/terminal/providers/computer_providers.dart';
 
 import '../../direct_connections/widgets/direct_mcp_message_interactions.dart';
+import '../../terminal/widgets/computer_page.dart';
 
 import 'package:conduit_core/features/chat/providers/chat_providers.dart';
 import 'package:conduit_core/features/chat/composer/openwebui_prompt_answers.dart';
@@ -4663,6 +4665,15 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       actions.add(temporaryAction);
     }
 
+    final computerAction = _buildComputerToolbarAction(
+      context: context,
+      isHermes: isHermes,
+      tintColor: defaultTint,
+    );
+    if (computerAction != null) {
+      actions.add(computerAction);
+    }
+
     if (showNewChatAction) {
       actions.add(
         _buildChatToolbarIconAction(
@@ -4694,24 +4705,60 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     required String accessibilityLabel,
     required Color tintColor,
     required VoidCallback? onPressed,
+    String? iosSymbol,
+    Key? key,
+    bool labelFlutterButton = false,
   }) {
-    final iosSymbol = conduitToolbarSfSymbolForIcon(icon);
-    assert(iosSymbol != null);
+    final symbol = conduitToolbarSfSymbolForIcon(icon, iosSymbol: iosSymbol);
+    assert(symbol != null);
     return _ChatToolbarActionDescriptor(
       icon: icon,
       widget: ConduitAdaptiveAppBarIconButton(
+        key: key,
         icon: icon,
-        iosSymbol: iosSymbol,
+        iosSymbol: symbol,
         iconColor: tintColor,
+        semanticLabel: labelFlutterButton ? accessibilityLabel : null,
         onPressed: onPressed,
       ),
       nativeAction: ConduitNativeToolbarAction(
-        iosSymbol: iosSymbol!,
+        iosSymbol: symbol!,
         accessibilityLabel: accessibilityLabel,
         tintColor: tintColor,
         enabled: onPressed != null,
         onPressed: onPressed,
       ),
+    );
+  }
+
+  /// Opens the live Desktop or Browser of the chat's terminal. Shown whenever
+  /// the selected terminal offers one; discovering that never starts it.
+  _ChatToolbarActionDescriptor? _buildComputerToolbarAction({
+    required BuildContext context,
+    required bool isHermes,
+    required Color tintColor,
+  }) {
+    final selectedModel = ref.watch(selectedModelProvider);
+    if (isHermes ||
+        (selectedModel != null &&
+            (isLibreChatModel(selectedModel) ||
+                hasReservedDirectIdentity(selectedModel))) ||
+        !ref.watch(computerAvailableProvider)) {
+      return null;
+    }
+    return _buildChatToolbarIconAction(
+      key: const ValueKey('chat-computer-button'),
+      icon: Platform.isIOS
+          ? CupertinoIcons.desktopcomputer
+          : Icons.desktop_windows_outlined,
+      iosSymbol: 'desktopcomputer',
+      accessibilityLabel: AppLocalizations.of(context)!.computerTitle,
+      labelFlutterButton: true,
+      tintColor: tintColor,
+      onPressed: () {
+        _dismissComposerFocus();
+        unawaited(openComputerWorkspace(context, ref));
+      },
     );
   }
 

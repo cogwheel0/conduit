@@ -342,6 +342,29 @@ void main() {
       PlatformNativeSheetApplyDetailPatchRequest patch,
     ) => [for (final section in patch.sections) ...section.items];
 
+    testWidgets('Chat reflects the saved Computer preference', (tester) async {
+      final native = await openNativeSettings(tester, models: _NoModels.new);
+      await native.container
+          .read(appSettingsProvider.notifier)
+          .setComputerEnabled(false);
+      final chats = await reopenChats(tester, native.service, native.patches);
+      final row = rows(chats)
+          .singleWhere((row) => row.id == 'computer-enabled');
+      check(row.value).equals(false);
+      check(row.title).equals('Computer');
+      await native.container
+          .read(appSettingsProvider.notifier)
+          .setComputerEnabled(true);
+      final reopened = await reopenChats(
+        tester,
+        native.service,
+        native.patches,
+      );
+      check(
+        rows(reopened).singleWhere((row) => row.id == 'computer-enabled').value,
+      ).equals(true);
+    });
+
     testWidgets('Appearance reflects the saved citation background', (
       tester,
     ) async {
@@ -425,6 +448,7 @@ void main() {
             .items
             .map((r) => r.id),
       ).deepEquals([
+        'computer-enabled',
         'message-actions',
         'send-on-enter',
         'temporary-chat-default',

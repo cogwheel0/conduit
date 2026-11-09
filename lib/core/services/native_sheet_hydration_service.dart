@@ -1660,6 +1660,14 @@ class NativeSheetHydrationService {
   ) {
     return [
       NativeSheetItemConfig(
+        id: 'computer-enabled',
+        title: l10n.computerTitle,
+        subtitle: l10n.computerEnabledDescription,
+        sfSymbol: 'desktopcomputer',
+        kind: NativeSheetItemKind.toggle,
+        value: appSettings.computerEnabled,
+      ),
+      NativeSheetItemConfig(
         id: 'message-actions',
         title: l10n.messageActionsTitle,
         subtitle: l10n.messageActionsDescription,
