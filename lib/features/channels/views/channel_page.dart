@@ -1,4 +1,5 @@
 import '../../chat/providers/composer_draft_provider.dart';
+
 import 'dart:async';
 import 'dart:developer' as developer;
 import 'dart:io' show Platform;
@@ -425,7 +426,8 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
   Widget _buildAttachmentButton(double size, {String? parentMessageId}) {
     final l10n = AppLocalizations.of(context);
 
-    return AdaptivePopupMenuButton.widget<String>(
+    // The trigger is only an icon, so VoiceOver needs its name here.
+    final menu = AdaptivePopupMenuButton.widget<String>(
       items: [
         AdaptivePopupMenuItem<String>(
           value: 'file',
@@ -457,6 +459,11 @@ class _ChannelPageState extends ConsumerState<ChannelPage> {
           ),
         ),
       ),
+    );
+    return Semantics(
+      button: true,
+      label: l10n?.attach ?? 'Attach',
+      child: menu,
     );
   }
 
@@ -2017,9 +2024,7 @@ class _MessageBubble extends StatelessWidget {
                           Text(
                             // A card-only app message has text only in its
                             // cards.
-                            stripMentions(
-                              message.replyToMessage!.previewText,
-                            ),
+                            stripMentions(message.replyToMessage!.previewText),
                             maxLines: 2,
                             overflow: TextOverflow.ellipsis,
                             style: AppTypography.bodySmallStyle.copyWith(

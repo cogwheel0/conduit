@@ -112,14 +112,9 @@ class _NativeToolbarActions extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // The native group reads brightness only when it is created, so rebuild
-    // it when the appearance or action tints change; otherwise a light/dark
-    // switch leaves a light glass pill behind dark-mode icons.
+    // The group updates its brightness and each changed button's tint in
+    // place, so a theme or palette switch keeps the same native view.
     return CNGlassButtonGroup.fromWidgets(
-      key: ValueKey<Object>((
-        CupertinoTheme.brightnessOf(context),
-        Object.hashAll(actions.map((action) => action.tintColor)),
-      )),
       spacing: 8,
       spacingForGlass: 36,
       buttonWidgets: [

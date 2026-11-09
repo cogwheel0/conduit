@@ -91,7 +91,10 @@ final class PreferenceKeys {
       'server_version_warning_dismissed_v1';
   static const String ttsVoice = 'tts_voice';
   static const String ttsVoiceName = 'tts_voice_name';
+  /// The device engine's rate saved before [ttsSpeed] replaced it; read once
+  /// to carry an older install's pace over.
   static const String ttsSpeechRate = 'tts_speech_rate';
+  static const String ttsSpeed = 'tts_speed';
   static const String ttsPitch = 'tts_pitch';
   static const String ttsVolume = 'tts_volume';
   static const String ttsEngine = 'tts_engine'; // 'device' | 'server'
@@ -158,6 +161,20 @@ final class PreferenceKeys {
   /// ('owui' | 'direct' | 'hermes' | unset).
   /// Read synchronously by the router for boot-deterministic routing.
   static const String preferredBackend = 'preferred_backend_v1';
+
+  /// Set while Open WebUI is parked: its accounts and their sessions kept,
+  /// none active, because another account backend owns the Chats tab. No
+  /// account is then active by storage's single-account fallback either.
+  static const String openWebUiParked = 'openwebui_parked_v1';
+
+  /// A change of the account that owns the Chats tab, between Open WebUI and
+  /// LibreChat, written before the old one is left and cleared once the new
+  /// one has settled. Found at start, the change is finished or undone.
+  static const String primarySwitchIntent = 'primary_switch_intent_v1';
+
+  /// Set when a full sign-out could not forget the LibreChat accounts and
+  /// their sessions. The next start forgets them before any can open.
+  static const String libreChatClearPending = 'librechat_clear_pending_v1';
 
   /// Non-secret boot hint only. Direct profile contents and credentials live
   /// exclusively in SecureCredentialStorage.

@@ -727,6 +727,16 @@ Future<void> regenerateMessage(
       'On-device direct chats can only continue with a direct connection model.',
     );
   }
+  // A LibreChat model answers only in a LibreChat chat (or starts one), as
+  // a send does; no other backend knows its id.
+  if (!reviewerMode &&
+      isLibreChatModel(selectedModel) &&
+      !usesLibreChatTransportForRegeneration(
+        activeConversation,
+        selectedModel,
+      )) {
+    throw StateError('A LibreChat model can only continue a LibreChat chat.');
+  }
   if (!reviewerMode &&
       usesHermesTransportForRegeneration(
         selectedModel: selectedModel,
@@ -740,6 +750,19 @@ Future<void> regenerateMessage(
       configAdmission: hermesConfigAdmission!,
       serviceGeneration: hermesServiceGeneration,
     );
+    return;
+  }
+  if (!reviewerMode &&
+      usesLibreChatTransportForRegeneration(
+        activeConversation,
+        selectedModel,
+      )) {
+    if (!isLibreChatModel(selectedModel)) {
+      throw StateError(
+        'A LibreChat chat continues only with a LibreChat model.',
+      );
+    }
+    await _regenerateLibreChatMessage(ref, model: selectedModel);
     return;
   }
   if (activeConversation == null) {

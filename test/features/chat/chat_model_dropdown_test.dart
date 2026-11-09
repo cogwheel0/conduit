@@ -67,6 +67,42 @@ void main() {
     ).isTrue();
   });
 
+  test('temporary chat action is hidden for LibreChat', () {
+    check(
+      shouldShowTemporaryChatAction(
+        isHermes: false,
+        activeConversation: null,
+        isLibreChat: true,
+      ),
+    ).isFalse();
+  });
+
+  test('a new LibreChat chat still set to temporary offers the switch to '
+      'turn it off', () {
+    check(
+      shouldShowTemporaryChatAction(
+        isHermes: false,
+        activeConversation: null,
+        isLibreChat: true,
+        isTemporary: true,
+      ),
+    ).isTrue();
+    final now = DateTime(2026);
+    check(
+      shouldShowTemporaryChatAction(
+        isHermes: false,
+        activeConversation: Conversation(
+          id: 'conv-saved',
+          title: 'Saved',
+          createdAt: now,
+          updatedAt: now,
+        ),
+        isLibreChat: true,
+        isTemporary: true,
+      ),
+    ).isFalse();
+  });
+
   test('temporary chat action is hidden while the server enforces it', () {
     check(
       shouldShowTemporaryChatAction(

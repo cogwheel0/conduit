@@ -199,10 +199,10 @@ Future<Model?> _resolveDefaultModel(Ref ref) async {
     }
 
     final currentSelected = ref.read(selectedModelProvider);
-    final configuredDefaultId =
-        currentSelected != null && ref.read(isManualModelSelectionProvider)
-        ? null
-        : ref.read(appSettingsProvider).defaultModel;
+    final configuredDefaultId = _accountlessDefaultModelId(
+      ref,
+      currentSelected,
+    );
     final Model? standalone;
     // Read again: the active connection may have changed during the auth wait,
     // and the synthetic model carries its name.
@@ -395,7 +395,8 @@ Future<Model?> _resolveDefaultModel(Ref ref) async {
       if (availableMatch != null && !ref.read(isManualModelSelectionProvider)) {
         ref.read(selectedModelProvider.notifier).set(availableMatch);
         if (!isLocallyMintedDirectModel(availableMatch) &&
-            !isHermesModel(availableMatch)) {
+            !isHermesModel(availableMatch) &&
+            !isLibreChatModel(availableMatch)) {
           unawaited(
             storage.saveLocalDefaultModel(availableMatch).onError((
               error,
@@ -546,7 +547,8 @@ Future<Model?> _resolveDefaultModel(Ref ref) async {
         if (resolved != null && !ref.read(isManualModelSelectionProvider)) {
           ref.read(selectedModelProvider.notifier).set(resolved);
           if (!isLocallyMintedDirectModel(resolved) &&
-              !isHermesModel(resolved)) {
+              !isHermesModel(resolved) &&
+              !isLibreChatModel(resolved)) {
             unawaited(
               storage.saveLocalDefaultModel(resolved).onError((error, stack) {
                 DebugLogger.error(
@@ -597,7 +599,9 @@ Future<Model?> _resolveDefaultModel(Ref ref) async {
         models
             .where(
               (model) =>
-                  !isLocallyMintedDirectModel(model) && !isHermesModel(model),
+                  !isLocallyMintedDirectModel(model) &&
+                  !isHermesModel(model) &&
+                  !isLibreChatModel(model),
             )
             .firstOrNull;
     if (selectedModel == null) {
@@ -607,7 +611,8 @@ Future<Model?> _resolveDefaultModel(Ref ref) async {
     if (!ref.read(isManualModelSelectionProvider)) {
       ref.read(selectedModelProvider.notifier).set(selectedModel);
       if (!isLocallyMintedDirectModel(selectedModel) &&
-          !isHermesModel(selectedModel)) {
+          !isHermesModel(selectedModel) &&
+          !isLibreChatModel(selectedModel)) {
         unawaited(
           storage.saveLocalDefaultModel(selectedModel).onError((error, stack) {
             DebugLogger.error(
@@ -648,8 +653,41 @@ Model? _modelForPreferredBackend(
     PreferredBackend.direct =>
       models.where(isLocallyMintedDirectModel).firstOrNull,
     PreferredBackend.hermes => models.where(isHermesModel).firstOrNull,
+    PreferredBackend.libreChat => models.where(isLibreChatModel).firstOrNull,
     PreferredBackend.owui || PreferredBackend.unset => null,
   };
+}
+
+/// The default model an accountless selection steers toward, or null to
+/// keep [current]: a model the user chose stays, and with LibreChat a chat
+/// open now steers toward its own model -- the default is for new chats.
+///
+/// An automatic choice made as LibreChat's models arrive or refresh changes
+/// the selection, which makes the open chat's own restore of its model stand
+/// down; steering toward that model here keeps the chat on it either way.
+String? _accountlessDefaultModelId(Ref ref, Model? current) {
+  if (current == null) {
+    return _openLibreChatChatModelId(ref) ??
+        ref.read(appSettingsProvider).defaultModel;
+  }
+  if (ref.read(isManualModelSelectionProvider)) return null;
+  if (ref.read(preferredBackendProvider) == PreferredBackend.libreChat &&
+      ref.read(activeConversationProvider) != null) {
+    return _openLibreChatChatModelId(ref);
+  }
+  return ref.read(appSettingsProvider).defaultModel;
+}
+
+/// The saved model of the LibreChat chat open now while LibreChat is the
+/// primary account, else null.
+String? _openLibreChatChatModelId(Ref ref) {
+  if (ref.read(preferredBackendProvider) != PreferredBackend.libreChat) {
+    return null;
+  }
+  final open = ref.read(activeConversationProvider);
+  if (!isLibreChatConversation(open)) return null;
+  final saved = open?.model?.trim();
+  return saved == null || saved.isEmpty ? null : saved;
 }
 
 Model? _accountlessSelection({
@@ -682,7 +720,9 @@ Model? _accountlessSelection({
       switch (preferredBackend) {
         PreferredBackend.owui ||
         PreferredBackend.unset => available.firstOrNull,
-        PreferredBackend.direct || PreferredBackend.hermes => null,
+        PreferredBackend.direct ||
+        PreferredBackend.hermes ||
+        PreferredBackend.libreChat => null,
       };
 }
 
@@ -690,6 +730,7 @@ bool _matchesPreferredBackend(Model model, PreferredBackend preferredBackend) =>
     switch (preferredBackend) {
       PreferredBackend.direct => isLocallyMintedDirectModel(model),
       PreferredBackend.hermes => isHermesModel(model),
+      PreferredBackend.libreChat => isLibreChatModel(model),
       PreferredBackend.owui || PreferredBackend.unset =>
         isLocallyMintedDirectModel(model) || isHermesModel(model),
     };
@@ -709,6 +750,7 @@ bool _shouldUseAccountlessModelSelection({
     AuthStatus.error || AuthStatus.initial || AuthStatus.loading =>
       preferredBackend == PreferredBackend.direct ||
           preferredBackend == PreferredBackend.hermes ||
+          preferredBackend == PreferredBackend.libreChat ||
           !hasApiService,
     AuthStatus.authenticated => false,
   };
@@ -721,8 +763,8 @@ Model? resolveSafeRemoteDefaultModel(
   List<Model> remoteModels,
   String? serverDefault,
 ) {
-  final models = sanitizeRemoteHermesModels(
-    sanitizeRemoteDirectModels(remoteModels),
+  final models = sanitizeRemoteLibreChatModels(
+    sanitizeRemoteHermesModels(sanitizeRemoteDirectModels(remoteModels)),
   );
   if (models.isEmpty) return null;
 

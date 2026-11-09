@@ -1,0 +1,58 @@
+# A local LibreChat server for developing and testing Conduit's LibreChat
+# backend. Pinned to the release `librechat-src` vendors, so the API the app
+# talks to is the one the submodule documents. See README.md.
+
+name: conduit-librechat-dev
+
+services:
+  api:
+    # v0.8.8, pinned by digest.
+    image: ghcr.io/librechat-ai/librechat:v0.8.8@sha256:5b706bcee1ca154a1e2987303aaeca0eb27f97919cccee4bb604226c2f8abf61
+    depends_on:
+      - mongodb
+      - meilisearch
+    ports:
+      # Loopback only unless LIBRECHAT_BIND says otherwise (see README.md).
+      - "${LIBRECHAT_BIND:-127.0.0.1}:3080:3080"
+    restart: unless-stopped
+    extra_hosts:
+      # Reaches Ollama (or any OpenAI-compatible server) running on the host.
+      - "host.docker.internal:host-gateway"
+    environment:
+      - HOST=0.0.0.0
+      - PORT=3080
+      - MONGO_URI=mongodb://mongodb:27017/LibreChat
+      - MEILI_HOST=http://meilisearch:7700
+    volumes:
+      - type: bind
+        source: ./.env
+        target: /app/.env
+      - type: bind
+        source: ./librechat.yaml
+        target: /app/librechat.yaml
+      - images:/app/client/public/images
+      - uploads:/app/uploads
+      - logs:/app/logs
+
+  mongodb:
+    image: mongo:8.0.20
+    restart: unless-stopped
+    command: mongod --noauth
+    volumes:
+      - mongo:/data/db
+
+  meilisearch:
+    image: getmeili/meilisearch:v1.35.1
+    restart: unless-stopped
+    environment:
+      - MEILI_NO_ANALYTICS=true
+      - MEILI_MASTER_KEY=${MEILI_MASTER_KEY}
+    volumes:
+      - meili:/meili_data
+
+volumes:
+  images:
+  uploads:
+  logs:
+  mongo:
+  meili:

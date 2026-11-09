@@ -1,3 +1,5 @@
+import '../../librechat/widgets/librechat_composer_support.dart'
+    show openLibreChatConnectionIfNeeded;
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:material_ui/material_ui.dart';
@@ -723,6 +725,10 @@ void setComposerOverflowSelection(
 
   final toolId = ComposerOverflowActionIds.toolIdFrom(actionId);
   if (toolId == null) {
+    return;
+  }
+
+  if (selected && openLibreChatConnectionIfNeeded(ref, toolId)) {
     return;
   }
 

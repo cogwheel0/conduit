@@ -264,6 +264,7 @@
   "folderName": "Nome cartella",
   "newChat": "Nuova chat",
   "more": "Altro",
+  "done": "Fatto",
   "clear": "Pulisci",
   "searchConversations": "Cerca conversazioni...",
   "create": "Crea",
@@ -525,7 +526,17 @@
     }
   },
   "ttsVoice": "Voce",
-  "ttsSpeechRate": "Velocità di sintesi vocale",
+  "ttsPlaybackSpeed": "Velocità di riproduzione",
+  "ttsSpeedValue": "{speed}×",
+  "@ttsSpeedValue": {
+    "placeholders": {
+      "speed": {
+        "type": "double",
+        "format": "decimalPattern",
+        "example": "1.25"
+      }
+    }
+  },
   "ttsPitch": "Tonalità",
   "ttsVolume": "Volume",
   "ttsPreview": "Anteprima voce",
@@ -1079,6 +1090,24 @@
   "usageQueueTime": "Tempo in coda",
   "usageReasoningTokens": "Token di ragionamento",
   "usageTotalTokens": "Token totali",
+  "usageContextWindow": "Finestra di contesto",
+  "usageContextWindowValue": "{percent} · {used} di {total}",
+  "@usageContextWindowValue": {
+    "placeholders": {
+      "percent": {
+        "type": "String",
+        "example": "62%"
+      },
+      "used": {
+        "type": "String",
+        "example": "79K"
+      },
+      "total": {
+        "type": "String",
+        "example": "128K"
+      }
+    }
+  },
   "proxyAuthentication": "Autenticazione Proxy",
   "proxyAuthPlatformNotSupported": "L'autenticazione proxy richiede un dispositivo mobile. Si prega di autenticarsi prima tramite un browser.",
   "proxyAuthLoading": "Caricamento della pagina di autenticazione...",
@@ -1119,6 +1148,7 @@
   "saveChat": "Salva chat",
   "temporaryChatByDefault": "Chat temporanea per impostazione predefinita",
   "temporaryChatByDefaultDescription": "Le nuove chat non verranno salvate nella cronologia a meno che tu non scelga di salvarle",
+  "libreChatTemporaryChatOff": "LibreChat salva ogni chat. Disattiva la chat temporanea per inviare.",
   "advancedFeatures": "Avanzate",
   "advancedFeaturesDescription": "Mostra strumenti e impostazioni per utenti esperti.",
   "chatSettingsTitle": "Impostazioni chat",
@@ -3430,6 +3460,7 @@
   "hermesTurnSendNext": "Invia successivo",
   "hermesTurnControlsUnsupported": "Aggiorna Hermes per abilitare i controlli di turno sicuri.",
   "sidebarHermesTab": "Hermes",
+  "sidebarBackendSwitcher": "Backend",
   "markdownShowMoreLines": "{count, plural, =1{Mostra 1 riga in più} other{Mostra {count} righe in più}}",
   "@markdownShowMoreLines": {"placeholders":{"count":{"type":"int"}}},
   "markdownShowLess": "Mostra meno",
@@ -4251,7 +4282,7 @@
   "calendarRemoveEnd": "Rimuovi l'ora di fine",
   "calendarEventReadOnlyNotInvited": "Non puoi modificare questo evento.",
   "calendarFieldOrganizer": "Organizzatore",
-  "calendarColorName": "{color, select, blue{Blu} green{Verde} amber{Ambra} red{Rosso} purple{Viola} teal{Verde acqua} other{Colore}}",
+  "calendarColorName": "{color, select, blue{Blu} green{Verde} amber{Ambra} red{Rosso} purple{Viola} teal{Verde acqua} custom{Colore personalizzato} other{Colore}}",
   "calendarVisibilityFooter": "Vengono mostrati gli eventi dei calendari selezionati. Tocca un calendario per mostrarne o nasconderne gli eventi.",
   "personalizationMemoryTypeUserDescription": "Una preferenza, un fatto o un'istruzione che ti riguarda.",
   "personalizationMemoryTypeContextDescription": "Contesto da tenere presente nelle chat future.",
@@ -4382,5 +4413,36 @@
   "mcpAppOpenLinkConfirm": "Apri",
   "terminalPortPreviewForward": "Avanti",
   "terminalPortPreviewReload": "Ricarica",
-  "terminalPortPreviewLoadFailed": "Impossibile caricare questa pagina."
+  "terminalPortPreviewLoadFailed": "Impossibile caricare questa pagina.",
+  "modelMenuAllModels": "Tutti i modelli…",
+  "citationPreviewOpen": "Apri",
+  "workspacePromptHistoryDiffTooLarge": "Queste versioni sono troppo lunghe per essere confrontate.",
+  "libreChatTitle": "LibreChat",
+  "libreChatBetaLabel": "Beta",
+  "libreChatChooserSubtitle": "Accedi al tuo server LibreChat per chat sincronizzate, agenti e altro.",
+  "libreChatAddAccount": "Aggiungi un account LibreChat",
+  "libreChatFileSearch": "Ricerca nei file",
+  "libreChatFileSearchDescription": "Cerca risposte nei file caricati.",
+  "libreChatMcpConnect": "Connetti in LibreChat",
+  "libreChatApprovalRun": "Consentire l’esecuzione di {tool}?",
+  "libreChatQuestionProgress": "Domanda {current} di {total}",
+  "libreChatAnswerFailed": "Impossibile inviare la risposta. Riprova.",
+  "libreChatApprovalRespond": "Rispondi",
+  "libreChatApprovalArguments": "Argomenti (JSON)",
+  "libreChatAddAccountMessage": "Inserisci l'indirizzo del tuo server LibreChat.",
+  "libreChatInvalidAddress": "Inserisci l'indirizzo di un server, ad esempio chat.example.com.",
+  "libreChatUnreachable": "Impossibile raggiungere il server. Controlla l'indirizzo e la connessione.",
+  "libreChatNotLibreChat": "Questo server non è LibreChat. Controlla l'indirizzo.",
+  "libreChatIsOpenWebUi": "Questo è un server Open WebUI. Aggiungilo dalla scheda Open WebUI.",
+  "libreChatPasswordSignInOff": "Questo server consente solo l'accesso Single Sign-On.",
+  "libreChatGoogleUnsupported": "Google non consente l'accesso all'interno delle app. Usa un altro metodo di accesso.",
+  "libreChatSsoUnfinished": "L'accesso non è stato completato. Riprova.",
+  "libreChatChangeServer": "Usa un altro server",
+  "libreChatSessionEnded": "La tua sessione su {server} è scaduta. Accedi di nuovo.",
+  "libreChatDuplicateChat": "Duplica chat",
+  "libreChatCopyFailed": "Impossibile copiare la chat. Controlla la connessione e riprova.",
+  "libreChatMemoryKeyLabel": "Chiave",
+  "libreChatMemoryKeyHint": "es. preferenze",
+  "libreChatMemoryKeyRequired": "Assegna una chiave al ricordo.",
+  "libreChatMemoryUsage": "{used} di {limit} token usati"
 }

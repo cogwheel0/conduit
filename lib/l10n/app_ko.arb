@@ -363,6 +363,7 @@
   "folderName": "폴더 이름",
   "newChat": "새 채팅",
   "more": "더보기",
+  "done": "완료",
   "clear": "지우기",
   "searchConversations": "대화 검색...",
   "create": "만들기",
@@ -645,7 +646,17 @@
   },
   "ttsSettings": "텍스트 음성 변환",
   "ttsVoice": "음성",
-  "ttsSpeechRate": "말하기 속도",
+  "ttsPlaybackSpeed": "재생 속도",
+  "ttsSpeedValue": "{speed}×",
+  "@ttsSpeedValue": {
+    "placeholders": {
+      "speed": {
+        "type": "double",
+        "format": "decimalPattern",
+        "example": "1.25"
+      }
+    }
+  },
   "ttsPitch": "음높이",
   "ttsVolume": "볼륨",
   "ttsPreview": "음성 미리보기",
@@ -857,6 +868,24 @@
   "usageQueueTime": "대기 시간",
   "usageReasoningTokens": "추론 토큰",
   "usageTotalTokens": "총 토큰",
+  "usageContextWindow": "컨텍스트 창",
+  "usageContextWindowValue": "{percent} · {total} 중 {used}",
+  "@usageContextWindowValue": {
+    "placeholders": {
+      "percent": {
+        "type": "String",
+        "example": "62%"
+      },
+      "used": {
+        "type": "String",
+        "example": "79K"
+      },
+      "total": {
+        "type": "String",
+        "example": "128K"
+      }
+    }
+  },
   "proxyAuthentication": "프록시 인증",
   "proxyAuthPlatformNotSupported": "프록시 인증은 모바일 장치가 필요합니다. 먼저 브라우저를 통해 인증해 주세요.",
   "proxyAuthLoading": "인증 페이지 로딩 중...",
@@ -897,6 +926,7 @@
   "saveChat": "채팅 저장",
   "temporaryChatByDefault": "기본적으로 임시 채팅",
   "temporaryChatByDefaultDescription": "새 채팅은 저장하지 않으면 기록에 남지 않습니다",
+  "libreChatTemporaryChatOff": "LibreChat는 모든 채팅을 저장합니다. 보내려면 임시 채팅을 끄세요.",
   "advancedFeatures": "고급",
   "advancedFeaturesDescription": "고급 사용자용 도구와 설정을 표시합니다.",
   "chatSettingsTitle": "채팅 설정",
@@ -3208,6 +3238,7 @@
   "hermesTurnSendNext": "다음 보내기",
   "hermesTurnControlsUnsupported": "안전한 턴 제어를 사용하려면 Hermes를 업그레이드하세요.",
   "sidebarHermesTab": "Hermes",
+  "sidebarBackendSwitcher": "백엔드",
   "markdownShowMoreLines": "{count}줄 더 보기",
   "@markdownShowMoreLines": {"placeholders":{"count":{"type":"int"}}},
   "markdownShowLess": "접기",
@@ -4023,7 +4054,7 @@
   "calendarRemoveEnd": "종료 시간 삭제",
   "calendarEventReadOnlyNotInvited": "이 일정은 변경할 수 없습니다.",
   "calendarFieldOrganizer": "주최자",
-  "calendarColorName": "{color, select, blue{파란색} green{초록색} amber{호박색} red{빨간색} purple{보라색} teal{청록색} other{색상}}",
+  "calendarColorName": "{color, select, blue{파란색} green{초록색} amber{호박색} red{빨간색} purple{보라색} teal{청록색} custom{사용자 지정 색상} other{색상}}",
   "calendarVisibilityFooter": "체크한 캘린더의 일정이 표시됩니다. 캘린더를 탭하면 해당 일정을 표시하거나 숨길 수 있습니다.",
   "personalizationMemoryTypeUserDescription": "나에 대한 선호, 사실 또는 지시입니다.",
   "personalizationMemoryTypeContextDescription": "이후 채팅에서 염두에 둘 배경 정보입니다.",
@@ -4154,5 +4185,36 @@
   "mcpAppOpenLinkConfirm": "열기",
   "terminalPortPreviewForward": "앞으로",
   "terminalPortPreviewReload": "새로고침",
-  "terminalPortPreviewLoadFailed": "이 페이지를 불러올 수 없습니다."
+  "terminalPortPreviewLoadFailed": "이 페이지를 불러올 수 없습니다.",
+  "modelMenuAllModels": "모든 모델…",
+  "citationPreviewOpen": "열기",
+  "workspacePromptHistoryDiffTooLarge": "이 버전들은 너무 길어서 비교할 수 없습니다.",
+  "libreChatTitle": "LibreChat",
+  "libreChatBetaLabel": "베타",
+  "libreChatChooserSubtitle": "LibreChat 서버에 로그인해 채팅, 에이전트 등을 동기화하세요.",
+  "libreChatAddAccount": "LibreChat 계정 추가",
+  "libreChatFileSearch": "파일 검색",
+  "libreChatFileSearchDescription": "업로드한 파일에서 답을 찾습니다.",
+  "libreChatMcpConnect": "LibreChat에서 연결",
+  "libreChatApprovalRun": "{tool} 실행을 허용할까요?",
+  "libreChatQuestionProgress": "질문 {current}/{total}",
+  "libreChatAnswerFailed": "답변을 보내지 못했습니다. 다시 시도하세요.",
+  "libreChatApprovalRespond": "응답하기",
+  "libreChatApprovalArguments": "인수(JSON)",
+  "libreChatAddAccountMessage": "LibreChat 서버 주소를 입력하세요.",
+  "libreChatInvalidAddress": "chat.example.com과 같은 서버 주소를 입력하세요.",
+  "libreChatUnreachable": "서버에 연결할 수 없습니다. 주소와 연결 상태를 확인하세요.",
+  "libreChatNotLibreChat": "이 서버는 LibreChat이 아닙니다. 주소를 확인하세요.",
+  "libreChatIsOpenWebUi": "이 서버는 Open WebUI 서버입니다. Open WebUI 탭에서 추가하세요.",
+  "libreChatPasswordSignInOff": "이 서버는 싱글 사인온(SSO)으로만 로그인할 수 있습니다.",
+  "libreChatGoogleUnsupported": "Google은 앱 안에서의 로그인을 허용하지 않습니다. 다른 방법으로 로그인하세요.",
+  "libreChatSsoUnfinished": "로그인이 완료되지 않았습니다. 다시 시도하세요.",
+  "libreChatChangeServer": "다른 서버 사용",
+  "libreChatSessionEnded": "{server}의 세션이 종료되었습니다. 다시 로그인하세요.",
+  "libreChatDuplicateChat": "채팅 복제",
+  "libreChatCopyFailed": "채팅을 복사하지 못했습니다. 연결을 확인하고 다시 시도하세요.",
+  "libreChatMemoryKeyLabel": "키",
+  "libreChatMemoryKeyHint": "예: preferences",
+  "libreChatMemoryKeyRequired": "메모리에 키를 지정하세요.",
+  "libreChatMemoryUsage": "{limit}개 토큰 중 {used}개 사용"
 }

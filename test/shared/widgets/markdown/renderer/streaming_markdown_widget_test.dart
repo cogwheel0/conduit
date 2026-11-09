@@ -2258,6 +2258,32 @@ After
     }
   });
 
+  testWidgets('tool headers show the model\'s labels only while running or '
+      'once the call succeeded', (tester) async {
+    _reduceMotion(tester);
+    for (final entry in const [
+      ('completed', true, '', 'Checked R&D flights'),
+      ('completed', false, '', 'Checking flights'),
+      ('in_progress', false, '', 'Checking flights'),
+      ('pending', false, '', 'Tool Approval Needed: search'),
+      ('rejected', false, '', 'Denied search'),
+      ('failed', true, '', 'View Result from search'),
+      ('completed', true, 'Error: offline', 'View Result from search'),
+    ]) {
+      final content =
+          '<details type="tool_calls" done="${entry.$2}" name="search" '
+          'status="${entry.$1}" result="${entry.$3}" '
+          'running_label="Checking flights" '
+          'display_label="Checked R&amp;D flights">'
+          '<summary>Executing...</summary></details>';
+      await tester.pumpWidget(
+        buildHarness(content, isStreaming: entry.$2 != true),
+      );
+      await tester.pump(const Duration(milliseconds: 120));
+      expect(find.text(entry.$4), findsOneWidget);
+    }
+  });
+
   testWidgets('unsuccessful tool detail sheets do not show a success icon', (
     tester,
   ) async {

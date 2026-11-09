@@ -20,6 +20,8 @@ import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit_core/services/settings_service.dart';
 import 'package:conduit_core/services/worker_manager.dart';
+import 'package:cupertino_native_better/cupertino_native_better.dart'
+    show CNSearchBar;
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -71,6 +73,25 @@ final _sheetSearchField = find.descendant(
   of: find.byType(ChannelMembersSheet),
   matching: find.byType(EditableText),
 );
+
+/// Enters [text] in the search box under [scope], as the person would.
+///
+/// On iOS 26 the box is the system search bar, which the package draws
+/// natively or as a Flutter fallback depending on the host, and a fallback
+/// cannot show text the app gives it, such as the query a new bar takes
+/// over. So there the test reports the text through the bar itself.
+Future<void> _search(WidgetTester tester, Finder scope, String text) async {
+  final bar = find.descendant(of: scope, matching: find.byType(CNSearchBar));
+  if (bar.evaluate().isEmpty) {
+    await tester.enterText(
+      find.descendant(of: scope, matching: find.byType(EditableText)),
+      text,
+    );
+    return;
+  }
+  tester.widget<CNSearchBar>(bar).onChanged!(text);
+  await tester.pump();
+}
 
 const _phoneStatusBar = 59.0;
 const _phoneKeyboard = 336.0;
@@ -281,7 +302,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('channel-add-members-pick')));
     await tester.pumpAndSettle();
-    await tester.enterText(_pickerSearchField, 'Person');
+    await _search(tester, find.byType(WorkspacePrincipalPicker), 'Person');
     await tester.pump(const Duration(milliseconds: 350));
     await tester.pumpAndSettle();
 
@@ -347,7 +368,7 @@ Future<void> _searchAndLoadMore(WidgetTester tester) async {
   );
   expect(find.byKey(const Key('channel-member-user-31')), findsWidgets);
 
-  await tester.enterText(_sheetSearchField, 'Person 004');
+  await _search(tester, find.byType(ChannelMembersSheet), 'Person 004');
   await tester.pump(const Duration(milliseconds: 350));
   await tester.pumpAndSettle();
 
@@ -384,14 +405,14 @@ Future<void> _addPeopleAndGroup(WidgetTester tester) async {
   // together.
   await tester.tap(find.byKey(const Key('channel-add-members-pick')));
   await tester.pumpAndSettle();
-  await tester.enterText(_pickerSearchField, 'Person 009');
+  await _search(tester, find.byType(WorkspacePrincipalPicker), 'Person 009');
   await tester.pump(const Duration(milliseconds: 350));
   await tester.pumpAndSettle();
   await tester.tap(find.byKey(const Key('workspace-principal-user-user-9')));
   await tester.pump();
   await tester.tap(_groupsTab);
   await tester.pumpAndSettle();
-  await tester.enterText(_pickerSearchField, '');
+  await _search(tester, find.byType(WorkspacePrincipalPicker), '');
   await tester.pumpAndSettle();
   await tester.tap(find.byKey(const Key('workspace-principal-group-group-1')));
   await tester.pump();
@@ -484,7 +505,7 @@ Future<void> _browseWithKeyboard(WidgetTester tester) async {
   check(tester.widget<EditableText>(_sheetSearchField).focusNode.hasFocus)
       .isTrue();
   final keyboardTop = await _raiseKeyboard(tester);
-  await tester.enterText(_sheetSearchField, 'Person');
+  await _search(tester, find.byType(ChannelMembersSheet), 'Person');
   await tester.pump(const Duration(milliseconds: 350));
   await tester.pumpAndSettle();
   check(harness.membersRequests.last.queryParameters['query']).equals('Person');
@@ -523,7 +544,7 @@ Future<void> _browseWithKeyboard(WidgetTester tester) async {
   // Narrowing to one person leaves a short sheet; that person must not end up
   // behind the keyboard.
   await tester.tap(_sheetSearchField);
-  await tester.enterText(_sheetSearchField, 'Person 033');
+  await _search(tester, find.byType(ChannelMembersSheet), 'Person 033');
   await tester.pump(const Duration(milliseconds: 350));
   await tester.pumpAndSettle();
   check(harness.membersRequests.last.queryParameters['query'])
@@ -564,14 +585,14 @@ Future<void> _addWithKeyboard(WidgetTester tester) async {
   await tester.pumpAndSettle();
   await tester.tap(_pickerSearchField);
   final keyboardTop = await _raiseKeyboard(tester);
-  await tester.enterText(_pickerSearchField, 'Person 009');
+  await _search(tester, find.byType(WorkspacePrincipalPicker), 'Person 009');
   await tester.pump(const Duration(milliseconds: 350));
   await tester.pumpAndSettle();
   await tester.tap(find.byKey(const Key('workspace-principal-user-user-9')));
   await tester.pump();
   await tester.tap(_groupsTab);
   await tester.pumpAndSettle();
-  await tester.enterText(_pickerSearchField, '');
+  await _search(tester, find.byType(WorkspacePrincipalPicker), '');
   await tester.pumpAndSettle();
   await tester.tap(find.byKey(const Key('workspace-principal-group-group-1')));
   await tester.pump();

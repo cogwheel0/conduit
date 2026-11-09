@@ -13,6 +13,7 @@ import 'package:conduit_core/features/hermes/models/hermes_config.dart';
 import 'package:conduit_core/features/hermes/models/hermes_connection_contract.dart';
 import 'package:conduit_core/features/hermes/models/hermes_connection_profile.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
+import 'package:conduit_core/features/librechat/providers/librechat_providers.dart';
 import 'package:conduit_core/features/hermes/services/hermes_connection_service.dart';
 import 'package:conduit_core/models/openwebui_registry.dart';
 import 'package:conduit_core/navigation/routes.dart';
@@ -203,6 +204,37 @@ void main() {
       );
     }
     expect(find.byKey(const Key('account-sheet-openwebui')), findsOne);
+  });
+
+  testWidgets('LibreChat has no tab while it is off', (
+    tester,
+  ) async {
+    await pumpSheet(
+      tester,
+      const AddAccountRequest(),
+      overrides: [libreChatBackendEnabledProvider.overrideWithValue(false)],
+    );
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('account-sheet-kind')),
+        matching: find.text('LibreChat'),
+      ),
+      findsNothing,
+    );
+  });
+
+  testWidgets('the LibreChat tab adds a LibreChat account', (tester) async {
+    await pumpSheet(
+      tester,
+      const AddAccountRequest(),
+      overrides: [libreChatBackendEnabledProvider.overrideWithValue(true)],
+    );
+    await chooseKind(tester, 'LibreChat');
+    expect(find.byKey(const Key('account-sheet-librechat')), findsOne);
+    expect(find.byKey(const Key('librechat-server-field')), findsOne);
+    // Choosing it leaves the other tabs where they were.
+    await chooseKind(tester, 'Direct');
+    expect(find.byKey(const Key('account-sheet-direct')), findsOne);
   });
 
   testWidgets('continuing on a saved server adds an account to it', (

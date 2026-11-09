@@ -171,6 +171,8 @@ class HermesSessionTile extends ConsumerWidget {
       message: AppLocalizations.of(context)!.hermesSessionDeleteMessage,
       confirmText: AppLocalizations.of(context)!.delete,
       isDestructive: true,
+      // The tile the menu came from.
+      anchorContext: context,
     );
     if (!confirmed || !context.mounted) return;
     await _runSessionAction(

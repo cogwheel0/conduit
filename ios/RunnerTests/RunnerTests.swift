@@ -8,6 +8,42 @@ import XCTest
 @testable import Runner
 
 class RunnerTests: XCTestCase {
+  @MainActor
+  func testNativeProfilePresentationIsSingleUntilDismissed() throws {
+    let presenter = ProfilePresentationTestController()
+    let host = SelectionMenuTestHost(
+      messenger: SelectionMenuTestMessenger(), controller: presenter)
+    let bridge = NativeSheetBridge.shared
+    bridge.attach(to: host)
+    defer { _ = try? bridge.dismiss() }
+    let config = PlatformNativeProfileSheetConfig(
+      profile: PlatformNativeProfileSheetUser(
+        displayName: "Test Account", email: "", initials: "TA",
+        avatarIsTemplate: false, avatarHeaders: [:]),
+      editProfileLabel: "Edit Profile", menuItems: [], supportItems: [],
+      sections: [], detailSheets: [])
+
+    let burst = expectation(description: "All presentation requests finish")
+    burst.expectedFulfillmentCount = 8
+    for _ in 0..<8 {
+      bridge.presentProfileMenu(config: config) { result in
+        XCTAssertEqual(try? result.get(), true)
+        burst.fulfill()
+      }
+    }
+    waitForExpectations(timeout: 2)
+    XCTAssertEqual(presenter.presentations.count, 1)
+
+    XCTAssertTrue(try bridge.dismiss())
+    let reopened = expectation(description: "Settings can reopen after dismissal")
+    bridge.presentProfileMenu(config: config) { result in
+      XCTAssertEqual(try? result.get(), true)
+      reopened.fulfill()
+    }
+    waitForExpectations(timeout: 2)
+    XCTAssertEqual(presenter.presentations.count, 2)
+  }
+
   /// Verifies coordinate scaling and rejects malformed channel payloads.
   func testTextMagnifierMapsFullViewCoordinates() throws {
     let payload: [String: Any] = [
@@ -884,6 +920,7 @@ class RunnerTests: XCTestCase {
     // opens under the sheet.
     for actionId in [
       "account-switch", "account-add", "account-sign-out", "account-direct-edit",
+      "account-librechat-use", "account-librechat-sign-out",
     ] {
       XCTAssertTrue(
         nativeSheetSelectionWaitsForDismiss(actionId: actionId),
@@ -4249,154 +4286,6 @@ class RunnerTests: XCTestCase {
       "scoped"
     )
   }
-
-  /// The floating tab bar sits at the gap it is given, and holds still while
-  /// UIKit swells the tabs under a finger.
-  @MainActor
-  func testFloatingTabBarHoldsStillWhileATabIsPressed() throws {
-    let scene = try XCTUnwrap(
-      UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
-    let previousKeyWindow = scene.windows.first(where: \.isKeyWindow)
-    let window = UIWindow(windowScene: scene)
-    window.frame = scene.coordinateSpace.bounds
-    let controller = UIViewController()
-    window.rootViewController = controller
-    window.makeKeyAndVisible()
-    defer {
-      window.isHidden = true
-      previousKeyWindow?.makeKey()
-    }
-
-    let icon = FlutterStandardTypedData(
-      bytes: try XCTUnwrap(UIImage(systemName: "circle")?.pngData()))
-    let bar = FloatingTabBarView(frame: .zero)
-    bar.apply([
-      "tabs": [["label": "First", "image": icon], ["label": "Second", "image": icon]],
-      "selectedIndex": 0,
-      "controlExtent": 44.0,
-      "edgeInset": 16.0,
-      "bottomInset": 30.0,
-      "actionSymbol": "square.and.pencil",
-    ])
-    controller.view.addSubview(bar)
-    bar.frame = CGRect(
-      x: 0, y: window.bounds.height - 120, width: window.bounds.width, height: 120)
-    window.layoutIfNeeded()
-
-    let tabBar = try XCTUnwrap(bar.subviews.lazy.compactMap { $0 as? UITabBar }.first)
-    let action = try XCTUnwrap(bar.subviews.lazy.compactMap { $0 as? UIButton }.first)
-    func platter() -> CGRect {
-      let tabs = tabBar.subviews.flatMap { floatingTabBarControls(in: $0) }
-      return tabs.reduce(CGRect.null) { $0.union(bar.convert($1.bounds, from: $1)) }
-        .insetBy(dx: -3 * tabBar.transform.a, dy: -3 * tabBar.transform.d)
-    }
-    let resting = platter()
-    XCTAssertFalse(resting.isNull)
-    XCTAssertEqual(resting.minX, 16, accuracy: 0.01)
-    XCTAssertEqual(resting.maxY, bar.bounds.maxY - 30, accuracy: 0.01)
-    XCTAssertEqual(resting.height, 44, accuracy: 0.01)
-    let restingAction = action.frame
-    XCTAssertEqual(
-      restingAction,
-      CGRect(x: bar.bounds.maxX - 16 - 44, y: bar.bounds.maxY - 30 - 44, width: 44, height: 44))
-
-    let swollen = CGAffineTransform(scaleX: 1.16, y: 1.16)
-    let tabs = tabBar.subviews.flatMap { floatingTabBarControls(in: $0) }
-    for tab in tabs { tab.transform = swollen }
-    tabBar.setNeedsLayout()
-    bar.layoutIfNeeded()
-    XCTAssertTrue(tabs.allSatisfy { $0.transform == swollen })
-    XCTAssertEqual(action.frame, restingAction)
-    for tab in tabs { tab.transform = .identity }
-    XCTAssertEqual(platter(), resting)
-  }
-
-  /// Tab icons keep the size they are given on screen, and stay as sharp as
-  /// the screen, after the bar shrinks to the window's other controls.
-  @MainActor
-  func testFloatingTabBarIconsKeepTheirSizeOnScreen() throws {
-    let scene = try XCTUnwrap(
-      UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
-    let previousKeyWindow = scene.windows.first(where: \.isKeyWindow)
-    let window = UIWindow(windowScene: scene)
-    window.frame = scene.coordinateSpace.bounds
-    let controller = UIViewController()
-    window.rootViewController = controller
-    window.makeKeyAndVisible()
-    defer {
-      window.isHidden = true
-      previousKeyWindow?.makeKey()
-    }
-
-    // Solid and taller than wide, so its drawn height is its longest side.
-    let icon = FlutterStandardTypedData(
-      bytes: UIGraphicsImageRenderer(size: CGSize(width: 10, height: 20)).pngData { context in
-        UIColor.black.setFill()
-        context.fill(CGRect(x: 0, y: 0, width: 10, height: 20))
-      })
-    let bar = FloatingTabBarView(frame: .zero)
-    bar.apply([
-      "tabs": [
-        ["label": "First", "image": icon, "iconSize": 22.0],
-        ["label": "Second", "image": icon, "iconSize": 26.0],
-      ],
-      "selectedIndex": 0,
-      "controlExtent": 44.0,
-      "edgeInset": 16.0,
-      "bottomInset": 30.0,
-      "actionSymbol": "square.and.pencil",
-    ])
-    controller.view.addSubview(bar)
-    bar.frame = CGRect(
-      x: 0, y: window.bounds.height - 120, width: window.bounds.width, height: 120)
-    window.layoutIfNeeded()
-
-    let tabBar = try XCTUnwrap(bar.subviews.lazy.compactMap { $0 as? UITabBar }.first)
-    let scale = tabBar.transform.d
-    XCTAssertNotEqual(scale, 1, accuracy: 0.01, "the bar should be scaled to 44 points")
-    let images = try (tabBar.items ?? []).map { try XCTUnwrap($0.image) }
-    XCTAssertEqual(images.count, 2)
-    for image in images {
-      // One box for both tabs, as large as the larger icon.
-      XCTAssertEqual(image.size.height * scale, 26, accuracy: 0.01)
-      // Pixels per point on screen, where the bar shrinks the image's points.
-      XCTAssertEqual(image.scale / scale, window.traitCollection.displayScale, accuracy: 0.01)
-    }
-    /// Height on screen of the opaque part of [image].
-    func drawnHeight(_ image: UIImage) throws -> CGFloat {
-      let pixels = try XCTUnwrap(image.cgImage)
-      let width = pixels.width
-      // Read through an 8-bit alpha copy, whatever depth the icon was drawn at.
-      var alpha = [UInt8](repeating: 0, count: width * pixels.height)
-      try alpha.withUnsafeMutableBytes { buffer in
-        let context = try XCTUnwrap(CGContext(
-          data: buffer.baseAddress,
-          width: width,
-          height: pixels.height,
-          bitsPerComponent: 8,
-          bytesPerRow: width,
-          space: CGColorSpaceCreateDeviceGray(),
-          bitmapInfo: CGImageAlphaInfo.alphaOnly.rawValue
-        ))
-        context.draw(pixels, in: CGRect(x: 0, y: 0, width: width, height: pixels.height))
-      }
-      let rows = (0..<pixels.height).filter { y in
-        alpha[(y * width)..<((y + 1) * width)].contains { $0 > 127 }
-      }.count
-      return CGFloat(rows) / image.scale * scale
-    }
-    // The icons themselves, inside the shared box, at their own sizes.
-    XCTAssertEqual(try drawnHeight(images[0]), 22, accuracy: 1)
-    XCTAssertEqual(try drawnHeight(images[1]), 26, accuracy: 1)
-  }
-
-}
-
-/// The tab buttons UIKit lays out in a tab bar.
-private func floatingTabBarControls(in view: UIView) -> [UIView] {
-  if view.isHidden { return [] }
-  if view is UIControl { return [view] }
-  return view.subviews.flatMap { floatingTabBarControls(in: $0) }
 }
 
 private func testCookie(
@@ -4638,6 +4527,18 @@ private final class LinkedImageStubProtocol: URLProtocol {
   }
 
   override func stopLoading() {}
+}
+
+private final class ProfilePresentationTestController: UIViewController {
+  var presentations: [UIViewController] = []
+
+  override func present(
+    _ viewControllerToPresent: UIViewController, animated: Bool,
+    completion: (() -> Void)? = nil
+  ) {
+    presentations.append(viewControllerToPresent)
+    completion?()
+  }
 }
 
 private final class SelectionMenuTestMessenger: NSObject, FlutterBinaryMessenger {

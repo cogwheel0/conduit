@@ -940,6 +940,7 @@
     "description": "Action to start a new chat."
   },
   "more": "その他",
+  "done": "完了",
   "@more": {
     "description": "Opens additional actions or content."
   },
@@ -1272,6 +1273,28 @@
   "usageTotalTokens": "合計トークン",
   "@usageTotalTokens": {
     "description": "Label for total token count"
+  },
+  "usageContextWindow": "コンテキストウィンドウ",
+  "@usageContextWindow": {
+    "description": "Label for how full the model's context window was at the end of a response: the tokens of its prompt and answer against the model's context length"
+  },
+  "usageContextWindowValue": "{percent} · {used} / {total}",
+  "@usageContextWindowValue": {
+    "description": "How full the model's context window was at the end of a response: the share used, then the tokens used and the context length as compact numbers",
+    "placeholders": {
+      "percent": {
+        "type": "String",
+        "example": "62%"
+      },
+      "used": {
+        "type": "String",
+        "example": "79K"
+      },
+      "total": {
+        "type": "String",
+        "example": "128K"
+      }
+    }
   },
   "edit": "編集",
   "@edit": {
@@ -1766,9 +1789,20 @@
   "@ttsVoice": {
     "description": "Title for voice selection tile."
   },
-  "ttsSpeechRate": "読み上げ速度",
-  "@ttsSpeechRate": {
-    "description": "Title for speech rate slider."
+  "ttsPlaybackSpeed": "再生速度",
+  "@ttsPlaybackSpeed": {
+    "description": "Title of the control that sets how fast read-aloud and spoken replies play, cloud and device voices alike."
+  },
+  "ttsSpeedValue": "{speed}×",
+  "@ttsSpeedValue": {
+    "description": "A playback speed as a multiple of the voice's own pace, such as 1.25×.",
+    "placeholders": {
+      "speed": {
+        "type": "double",
+        "format": "decimalPattern",
+        "example": "1.25"
+      }
+    }
   },
   "ttsPitch": "ピッチ",
   "@ttsPitch": {
@@ -2428,6 +2462,7 @@
   "@temporaryChatByDefaultDescription": {
     "description": "Description for the temporary chat by default setting."
   },
+  "libreChatTemporaryChatOff": "LibreChat はすべてのチャットを保存します。送信するには一時チャットをオフにしてください。",
   "advancedFeatures": "詳細設定",
   "@advancedFeatures": {
     "description": "Label for the setting that reveals additional chat tools and settings."
@@ -5042,6 +5077,7 @@
   "hermesTurnSendNext": "次を送信",
   "hermesTurnControlsUnsupported": "安全なターン制御を有効にするには Hermes をアップグレードしてください。",
   "sidebarHermesTab": "Hermes",
+  "sidebarBackendSwitcher": "バックエンド",
   "markdownShowMoreLines": "あと{count}行を表示",
   "@markdownShowMoreLines": {"placeholders":{"count":{"type":"int"}}},
   "markdownShowLess": "表示を減らす",
@@ -5863,7 +5899,7 @@
   "calendarRemoveEnd": "終了時刻を削除",
   "calendarEventReadOnlyNotInvited": "この予定は変更できません。",
   "calendarFieldOrganizer": "主催者",
-  "calendarColorName": "{color, select, blue{青} green{緑} amber{琥珀色} red{赤} purple{紫} teal{ティール} other{色}}",
+  "calendarColorName": "{color, select, blue{青} green{緑} amber{琥珀色} red{赤} purple{紫} teal{ティール} custom{カスタムカラー} other{色}}",
   "calendarVisibilityFooter": "チェックしたカレンダーの予定が表示されます。カレンダーをタップすると、その予定の表示/非表示を切り替えられます。",
   "personalizationMemoryTypeUserDescription": "あなたに関する好み、事実、または指示。",
   "personalizationMemoryTypeContextDescription": "今後のチャットで念頭に置く背景情報。",
@@ -5994,5 +6030,36 @@
   "mcpAppOpenLinkConfirm": "開く",
   "terminalPortPreviewForward": "進む",
   "terminalPortPreviewReload": "再読み込み",
-  "terminalPortPreviewLoadFailed": "このページを読み込めませんでした。"
+  "terminalPortPreviewLoadFailed": "このページを読み込めませんでした。",
+  "modelMenuAllModels": "すべてのモデル…",
+  "citationPreviewOpen": "開く",
+  "workspacePromptHistoryDiffTooLarge": "これらのバージョンは長すぎるため比較できません。",
+  "libreChatTitle": "LibreChat",
+  "libreChatBetaLabel": "ベータ",
+  "libreChatChooserSubtitle": "LibreChat サーバーにサインインして、チャットやエージェントなどを同期します。",
+  "libreChatAddAccount": "LibreChat アカウントを追加",
+  "libreChatFileSearch": "ファイル検索",
+  "libreChatFileSearchDescription": "アップロードしたファイルから答えを探します。",
+  "libreChatMcpConnect": "LibreChat で接続",
+  "libreChatApprovalRun": "{tool} の実行を許可しますか？",
+  "libreChatQuestionProgress": "質問 {current} / {total}",
+  "libreChatAnswerFailed": "回答を送信できませんでした。もう一度お試しください。",
+  "libreChatApprovalRespond": "応答する",
+  "libreChatApprovalArguments": "引数（JSON）",
+  "libreChatAddAccountMessage": "LibreChat サーバーのアドレスを入力してください。",
+  "libreChatInvalidAddress": "chat.example.com のようなサーバーアドレスを入力してください。",
+  "libreChatUnreachable": "サーバーに接続できませんでした。アドレスと接続を確認してください。",
+  "libreChatNotLibreChat": "このサーバーは LibreChat ではありません。アドレスを確認してください。",
+  "libreChatIsOpenWebUi": "これは Open WebUI サーバーです。Open WebUI タブから追加してください。",
+  "libreChatPasswordSignInOff": "このサーバーではシングルサインオンでのみサインインできます。",
+  "libreChatGoogleUnsupported": "Google はアプリ内でのサインインを許可していません。別の方法でサインインしてください。",
+  "libreChatSsoUnfinished": "サインインが完了しませんでした。もう一度お試しください。",
+  "libreChatChangeServer": "別のサーバーを使用",
+  "libreChatSessionEnded": "{server} のセッションが終了しました。もう一度サインインしてください。",
+  "libreChatDuplicateChat": "チャットを複製",
+  "libreChatCopyFailed": "チャットをコピーできませんでした。接続を確認してもう一度お試しください。",
+  "libreChatMemoryKeyLabel": "キー",
+  "libreChatMemoryKeyHint": "例: preferences",
+  "libreChatMemoryKeyRequired": "メモリにキーを付けてください。",
+  "libreChatMemoryUsage": "{limit} トークン中 {used} 使用"
 }

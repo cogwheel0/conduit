@@ -129,7 +129,9 @@ Future<bool> stopOpenWebUiMainResponse(Ref ref) {
               Future<bool>.value(true);
   }
   final transport = running.metadata?['transport'];
-  if (transport == kDirectTransport || transport == kHermesTransport) {
+  if (transport == kDirectTransport ||
+      transport == kHermesTransport ||
+      transport == kLibreChatTransport) {
     return Future<bool>.value(false);
   }
   return _stopGeneration(ref);
@@ -265,6 +267,26 @@ Future<bool> _stopGeneration(Ref ref) {
                     ? null
                     : chatMutationOwnerScopeForConversation(active),
                 requireConversationOwner: true,
+              );
+        }
+      } else if (last.metadata?['transport'] == kLibreChatTransport ||
+          isLibreChatConversation(ref.read(activeConversationProvider))) {
+        stoppedClientOwnedRun = true;
+        // The server keeps generating whether or not anyone listens; only
+        // its abort stops the reply, and its final frame settles it here.
+        final stop = _stopLibreChatTurn(ref, last);
+        _observeDetachedCancellation(stop, scope: 'librechat/cancel');
+        if (stop == null) {
+          final Conversation? active = ref.read(activeConversationProvider);
+          ref
+              .read(chatMessagesProvider.notifier)
+              .finishStreamingMessage(
+                last.id,
+                ownerConversationId: active == null
+                    ? null
+                    : chatMutationOwnerScopeForConversation(active),
+                requireConversationOwner: true,
+                persistTurn: false,
               );
         }
       } else {

@@ -3,9 +3,15 @@ import 'dart:collection';
 
 import 'dart:typed_data';
 
+import 'package:riverpod/misc.dart' show ProviderListenable;
 import 'package:riverpod/riverpod.dart';
 import 'package:meta/meta.dart';
 
+import 'package:conduit_core/features/librechat/providers/librechat_composer_providers.dart'
+    show libreChatImageFetcherProvider;
+import 'package:conduit_core/features/librechat/providers/librechat_providers.dart'
+    show libreChatSessionHandleProvider;
+import 'package:conduit_core/features/librechat/services/librechat_session_handle.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit_core/utils/image_attachment_sources.dart';
@@ -36,21 +42,65 @@ final class ImageAttachmentCacheScope {
   const ImageAttachmentCacheScope({
     required this.api,
     required this.authSessionEpoch,
-  });
+  }) : fetchPath = null;
+
+  /// A LibreChat account's server-relative images (`/images/...`), owned by
+  /// its [session] and fetched with [fetchPath].
+  ///
+  /// The session handle outlives token renewals, so a renewal keeps the
+  /// cached images; a sign-in or account switch makes a new one.
+  const ImageAttachmentCacheScope.libreChat({
+    required LibreChatSessionHandle session,
+    required Future<Uint8List> Function(String path) this.fetchPath,
+  }) : api = null,
+       authSessionEpoch = session;
 
   final ApiService? api;
   final Object authSessionEpoch;
+
+  /// Loads a server-relative path with the account's current credentials;
+  /// set for LibreChat scopes only.
+  final Future<Uint8List> Function(String path)? fetchPath;
 
   @override
   bool operator ==(Object other) =>
       other is ImageAttachmentCacheScope &&
       identical(other.api, api) &&
-      identical(other.authSessionEpoch, authSessionEpoch);
+      identical(other.authSessionEpoch, authSessionEpoch) &&
+      identical(other.fetchPath, fetchPath);
 
   @override
   int get hashCode => Object.hash(
     api == null ? null : identityHashCode(api!),
     identityHashCode(authSessionEpoch),
+    fetchPath == null ? null : identityHashCode(fetchPath),
+  );
+}
+
+/// The cache scope of [attachmentId], read with [read] (`ref.watch` in a
+/// build, `ref.read` or a container's `read` elsewhere); null for literal
+/// sources. Server-relative paths belong to LibreChat while it is the
+/// signed-in primary account, everything else to Open WebUI.
+ImageAttachmentCacheScope? imageAttachmentCacheScopeFor(
+  T Function<T>(ProviderListenable<T> provider) read,
+  String attachmentId,
+) {
+  if (!usesAccountScopedImageCache(attachmentId)) return null;
+  if (attachmentId.startsWith('/')) {
+    final fetchPath = read(libreChatImageFetcherProvider);
+    final session = fetchPath == null
+        ? null
+        : read(libreChatSessionHandleProvider);
+    if (fetchPath != null && session != null) {
+      return ImageAttachmentCacheScope.libreChat(
+        session: session,
+        fetchPath: fetchPath,
+      );
+    }
+  }
+  return ImageAttachmentCacheScope(
+    api: read(apiServiceProvider),
+    authSessionEpoch: read(openWebUiAuthSessionEpochProvider),
   );
 }
 
@@ -164,7 +214,11 @@ final class ImageAttachmentCacheStore {
   _inFlightLoads = <_ImageAttachmentCacheKey, _ImageAttachmentInFlightLoad>{};
   final Set<ImageAttachmentCacheScope> _seenAccountScopes =
       <ImageAttachmentCacheScope>{};
-  final Set<Object> _invalidatedAuthSessionEpochs = HashSet<Object>.identity();
+  // Weak, so a retired owner's session (its tokens and cookies) is not kept
+  // alive by the fence: whoever still holds it is still fenced out.
+  Expando<bool> _invalidatedAuthSessionEpochs = Expando<bool>(
+    'invalidated-image-auth-session-epoch',
+  );
   int _cacheGeneration = 0;
 
   _ImageAttachmentCacheKey _key(
@@ -175,7 +229,7 @@ final class ImageAttachmentCacheStore {
   bool _hasCacheOwner(String attachmentId, ImageAttachmentCacheScope? scope) {
     if (!usesAccountScopedImageCache(attachmentId)) return true;
     if (scope == null ||
-        _invalidatedAuthSessionEpochs.contains(scope.authSessionEpoch)) {
+        _invalidatedAuthSessionEpochs[scope.authSessionEpoch] == true) {
       return false;
     }
     _seenAccountScopes.add(scope);
@@ -321,8 +375,10 @@ final class ImageAttachmentCacheStore {
           // A clear() is an ownership boundary, not just a cache eviction.
           // Returning bytes resolved before that boundary could briefly paint
           // content owned by the previous authenticated account even though
-          // every attempted cache write was correctly rejected.
-          if (loadGeneration != _cacheGeneration) {
+          // every attempted cache write was correctly rejected. A session
+          // let go while it loaded is the same boundary for its own loads.
+          if (loadGeneration != _cacheGeneration ||
+              !_hasCacheOwner(attachmentId, scope)) {
             throw StateError('Image attachment load was invalidated.');
           }
           return result;
@@ -345,12 +401,34 @@ final class ImageAttachmentCacheStore {
     return future;
   }
 
+  /// Fences [epoch]'s loads still in flight out of the cache, leaving
+  /// other owners' images in place.
+  void invalidateAuthSessionEpoch(Object epoch) {
+    _invalidatedAuthSessionEpochs[epoch] = true;
+    // Its images can never be read again; dropping them and their keys
+    // leaves nothing here holding the retired session.
+    bool retired(_ImageAttachmentCacheKey key) =>
+        identical(key.scope?.authSessionEpoch, epoch);
+    _seenAccountScopes.removeWhere(
+      (scope) => identical(scope.authSessionEpoch, epoch),
+    );
+    _resolvedData.removeWhereKey(retired);
+    _decodedBytes.removeWhereKey(retired);
+    _svgFlags.removeWhereKey(retired);
+    _errors.removeWhereKey(retired);
+    _inFlightLoads.removeWhere((key, _) => retired(key));
+  }
+
   void clear({Object? invalidatedAuthSessionEpoch}) {
     if (invalidatedAuthSessionEpoch != null) {
-      _invalidatedAuthSessionEpochs.add(invalidatedAuthSessionEpoch);
+      _invalidatedAuthSessionEpochs[invalidatedAuthSessionEpoch] = true;
     }
+    // An Open WebUI boundary. A LibreChat scope's session is fenced when
+    // that session ends (see [imageAttachmentCacheLifecycleProvider]);
+    // fenced here as well, a session still in use could never cache again.
     for (final scope in _seenAccountScopes) {
-      _invalidatedAuthSessionEpochs.add(scope.authSessionEpoch);
+      if (scope.fetchPath != null) continue;
+      _invalidatedAuthSessionEpochs[scope.authSessionEpoch] = true;
     }
     _seenAccountScopes.clear();
     _cacheGeneration += 1;
@@ -365,7 +443,25 @@ final class ImageAttachmentCacheStore {
   void debugReset() {
     clear();
     _seenAccountScopes.clear();
-    _invalidatedAuthSessionEpochs.clear();
+    _invalidatedAuthSessionEpochs = Expando<bool>(
+      'invalidated-image-auth-session-epoch',
+    );
+  }
+
+  /// Whether anything here still refers to [epoch]: a scope seen, a cached
+  /// entry's key or a load in flight.
+  @visibleForTesting
+  bool debugRetainsAuthSessionEpoch(Object epoch) {
+    bool owned(_ImageAttachmentCacheKey key) =>
+        identical(key.scope?.authSessionEpoch, epoch);
+    return _seenAccountScopes.any(
+          (scope) => identical(scope.authSessionEpoch, epoch),
+        ) ||
+        _resolvedData.anyKey(owned) ||
+        _decodedBytes.anyKey(owned) ||
+        _svgFlags.anyKey(owned) ||
+        _errors.anyKey(owned) ||
+        _inFlightLoads.keys.any(owned);
   }
 
   @visibleForTesting
@@ -439,11 +535,25 @@ final imageAttachmentCacheLifecycleProvider = Provider<void>((ref) {
       _imageAttachmentCacheStore.clear(invalidatedAuthSessionEpoch: previous);
     }
   });
+  // A LibreChat sign-out or account switch ends its session handle; images
+  // keyed by a new handle never meet the old ones.
+  ref.listen<LibreChatSessionHandle?>(libreChatSessionHandleProvider, (
+    previous,
+    next,
+  ) {
+    if (previous != null && !identical(previous, next)) {
+      _imageAttachmentCacheStore.invalidateAuthSessionEpoch(previous);
+    }
+  });
 });
 
 @visibleForTesting
 void debugResetImageAttachmentCaches() =>
     _imageAttachmentCacheStore.debugReset();
+
+@visibleForTesting
+bool debugImageAttachmentCacheRetains(Object authSessionEpoch) =>
+    _imageAttachmentCacheStore.debugRetainsAuthSessionEpoch(authSessionEpoch);
 
 @visibleForTesting
 void debugSeedResolvedImageAttachment(
@@ -560,6 +670,14 @@ final class _LruCache<K, V> {
     final existing = _entries[key];
     if (identical(existing, value)) remove(key);
   }
+
+  void removeWhereKey(bool Function(K key) test) {
+    for (final key in _entries.keys.where(test).toList()) {
+      remove(key);
+    }
+  }
+
+  bool anyKey(bool Function(K key) test) => _entries.keys.any(test);
 
   void clear() {
     _entries.clear();

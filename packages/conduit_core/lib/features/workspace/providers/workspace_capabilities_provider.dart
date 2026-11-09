@@ -1,6 +1,7 @@
 import 'package:riverpod/riverpod.dart';
 
 import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/providers/backend_mode_providers.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit_core/features/workspace/models/workspace_capabilities.dart';
@@ -10,6 +11,11 @@ final workspaceCapabilitiesProvider = FutureProvider<WorkspaceCapabilities>((
   ref,
 ) async {
   if (ref.watch(reviewerModeProvider)) {
+    return WorkspaceCapabilities.none;
+  }
+  // The workspace is Open WebUI's. With another backend in charge, no Open
+  // WebUI role -- an admin's least of all -- opens it.
+  if (ref.watch(primaryAccountKindProvider) != PrimaryAccountKind.openWebUi) {
     return WorkspaceCapabilities.none;
   }
 

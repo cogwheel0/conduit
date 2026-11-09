@@ -940,6 +940,7 @@
     "description": "Action to start a new chat."
   },
   "more": "Viac",
+  "done": "Hotovo",
   "@more": {
     "description": "Opens additional actions or content."
   },
@@ -1272,6 +1273,28 @@
   "usageTotalTokens": "Celkovo tokenov",
   "@usageTotalTokens": {
     "description": "Label for total token count"
+  },
+  "usageContextWindow": "Kontextové okno",
+  "@usageContextWindow": {
+    "description": "Label for how full the model's context window was at the end of a response: the tokens of its prompt and answer against the model's context length"
+  },
+  "usageContextWindowValue": "{percent} · {used} z {total}",
+  "@usageContextWindowValue": {
+    "description": "How full the model's context window was at the end of a response: the share used, then the tokens used and the context length as compact numbers",
+    "placeholders": {
+      "percent": {
+        "type": "String",
+        "example": "62%"
+      },
+      "used": {
+        "type": "String",
+        "example": "79K"
+      },
+      "total": {
+        "type": "String",
+        "example": "128K"
+      }
+    }
   },
   "edit": "Upraviť",
   "@edit": {
@@ -1766,9 +1789,20 @@
   "@ttsVoice": {
     "description": "Title for voice selection tile."
   },
-  "ttsSpeechRate": "Rýchlosť reči",
-  "@ttsSpeechRate": {
-    "description": "Title for speech rate slider."
+  "ttsPlaybackSpeed": "Rýchlosť prehrávania",
+  "@ttsPlaybackSpeed": {
+    "description": "Title of the control that sets how fast read-aloud and spoken replies play, cloud and device voices alike."
+  },
+  "ttsSpeedValue": "{speed}×",
+  "@ttsSpeedValue": {
+    "description": "A playback speed as a multiple of the voice's own pace, such as 1.25×.",
+    "placeholders": {
+      "speed": {
+        "type": "double",
+        "format": "decimalPattern",
+        "example": "1.25"
+      }
+    }
   },
   "ttsPitch": "Výška hlasu",
   "@ttsPitch": {
@@ -2428,6 +2462,7 @@
   "@temporaryChatByDefaultDescription": {
     "description": "Description for the temporary chat by default setting."
   },
+  "libreChatTemporaryChatOff": "LibreChat ukladá každý chat. Na odoslanie vypnite dočasný chat.",
   "advancedFeatures": "Pokročilé",
   "@advancedFeatures": {
     "description": "Label for the setting that reveals additional chat tools and settings."
@@ -5348,6 +5383,7 @@
   "hermesTurnSendNext": "Odoslať ďalšie",
   "hermesTurnControlsUnsupported": "Aktualizujte Hermes, aby ste povolili bezpečné ovládanie ťahov.",
   "sidebarHermesTab": "Hermes",
+  "sidebarBackendSwitcher": "Backend",
   "markdownShowMoreLines": "{count, plural, one{Zobraziť 1 ďalší riadok} few{Zobraziť ďalšie {count} riadky} other{Zobraziť ďalších {count} riadkov}}",
   "@markdownShowMoreLines": {"placeholders":{"count":{"type":"int"}}},
   "markdownShowLess": "Zobraziť menej",
@@ -6169,7 +6205,7 @@
   "calendarRemoveEnd": "Odstrániť čas konca",
   "calendarEventReadOnlyNotInvited": "Túto udalosť nemôžete meniť.",
   "calendarFieldOrganizer": "Organizátor",
-  "calendarColorName": "{color, select, blue{Modrá} green{Zelená} amber{Jantárová} red{Červená} purple{Fialová} teal{Tyrkysová} other{Farba}}",
+  "calendarColorName": "{color, select, blue{Modrá} green{Zelená} amber{Jantárová} red{Červená} purple{Fialová} teal{Tyrkysová} custom{Vlastná farba} other{Farba}}",
   "calendarVisibilityFooter": "Zobrazujú sa udalosti zo začiarknutých kalendárov. Ťuknutím na kalendár jeho udalosti zobrazíte alebo skryjete.",
   "personalizationMemoryTypeUserDescription": "Preferencia, fakt alebo pokyn týkajúci sa vás.",
   "personalizationMemoryTypeContextDescription": "Súvislosti, na ktoré treba pamätať v ďalších chatoch.",
@@ -6300,5 +6336,36 @@
   "mcpAppOpenLinkConfirm": "Otvoriť",
   "terminalPortPreviewForward": "Dopredu",
   "terminalPortPreviewReload": "Znova načítať",
-  "terminalPortPreviewLoadFailed": "Túto stránku sa nepodarilo načítať."
+  "terminalPortPreviewLoadFailed": "Túto stránku sa nepodarilo načítať.",
+  "modelMenuAllModels": "Všetky modely…",
+  "citationPreviewOpen": "Otvoriť",
+  "workspacePromptHistoryDiffTooLarge": "Tieto verzie sú príliš dlhé na porovnanie.",
+  "libreChatTitle": "LibreChat",
+  "libreChatBetaLabel": "Beta",
+  "libreChatChooserSubtitle": "Prihláste sa na svoj server LibreChat a synchronizujte chaty, agentov a ďalšie.",
+  "libreChatAddAccount": "Pridať účet LibreChat",
+  "libreChatFileSearch": "Vyhľadávanie v súboroch",
+  "libreChatFileSearchDescription": "Hľadá odpovede v nahraných súboroch.",
+  "libreChatMcpConnect": "Pripojiť v LibreChate",
+  "libreChatApprovalRun": "Povoliť spustenie {tool}?",
+  "libreChatQuestionProgress": "Otázka {current} z {total}",
+  "libreChatAnswerFailed": "Odpoveď sa nepodarilo odoslať. Skúste to znova.",
+  "libreChatApprovalRespond": "Odpovedať",
+  "libreChatApprovalArguments": "Argumenty (JSON)",
+  "libreChatAddAccountMessage": "Zadajte adresu svojho servera LibreChat.",
+  "libreChatInvalidAddress": "Zadajte adresu servera, napríklad chat.example.com.",
+  "libreChatUnreachable": "Server sa nepodarilo kontaktovať. Skontrolujte adresu a pripojenie.",
+  "libreChatNotLibreChat": "Tento server nie je LibreChat. Skontrolujte adresu.",
+  "libreChatIsOpenWebUi": "Toto je server Open WebUI. Pridajte ho na karte Open WebUI.",
+  "libreChatPasswordSignInOff": "Tento server povoľuje iba jednotné prihlásenie (SSO).",
+  "libreChatGoogleUnsupported": "Google nepovoľuje prihlásenie v aplikáciách. Prihláste sa iným spôsobom.",
+  "libreChatSsoUnfinished": "Prihlásenie sa nedokončilo. Skúste to znova.",
+  "libreChatChangeServer": "Použiť iný server",
+  "libreChatSessionEnded": "Vaša relácia na {server} sa skončila. Prihláste sa znova.",
+  "libreChatDuplicateChat": "Duplikovať chat",
+  "libreChatCopyFailed": "Chat sa nepodarilo skopírovať. Skontrolujte pripojenie a skúste to znova.",
+  "libreChatMemoryKeyLabel": "Kľúč",
+  "libreChatMemoryKeyHint": "napr. preferencie",
+  "libreChatMemoryKeyRequired": "Zadajte kľúč spomienky.",
+  "libreChatMemoryUsage": "Využité {used} z {limit} tokenov"
 }

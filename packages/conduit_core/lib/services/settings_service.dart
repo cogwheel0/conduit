@@ -308,7 +308,7 @@ class SettingsService {
       _socketTransportModeKey: settings.socketTransportMode,
       _quickPillsKey: settings.quickPills.toList(),
       _sendOnEnterKey: settings.sendOnEnter,
-      PreferenceKeys.ttsSpeechRate: settings.ttsSpeechRate,
+      PreferenceKeys.ttsSpeed: settings.ttsSpeed,
       PreferenceKeys.ttsPitch: settings.ttsPitch,
       PreferenceKeys.ttsVolume: settings.ttsVolume,
       PreferenceKeys.ttsEngine: settings.ttsEngine.name,
@@ -786,9 +786,11 @@ class SettingsService {
       sendOnEnter: get<bool>(_sendOnEnterKey) ?? false,
       ttsVoice: get<String>(PreferenceKeys.ttsVoice),
       ttsVoiceName: get<String>(PreferenceKeys.ttsVoiceName),
-      ttsSpeechRate:
-          get<num>(PreferenceKeys.ttsSpeechRate)?.toDouble() ??
-          0.5,
+      ttsSpeed:
+          get<num>(PreferenceKeys.ttsSpeed)?.toDouble() ??
+          ttsSpeedFromLegacyRate(
+            get<num>(PreferenceKeys.ttsSpeechRate)?.toDouble(),
+          ),
       ttsPitch:
           get<num>(PreferenceKeys.ttsPitch)?.toDouble() ?? 1.0,
       ttsVolume:
@@ -873,6 +875,19 @@ class _DefaultValue {
 const defaultInlineMessageActions = ['copy', 'tts', 'regenerate'];
 
 /// Data class for app settings
+/// The speech speeds offered, as multiples of the voice's own pace.
+const List<double> ttsSpeedPresets = [0.75, 1.0, 1.25, 1.5, 2.0];
+
+/// The offered speed nearest [speed].
+double nearestTtsSpeed(double speed) => ttsSpeedPresets.reduce(
+  (best, next) => (next - speed).abs() < (best - speed).abs() ? next : best,
+);
+
+/// The speed for the device engine [rate] an older install saved, where 0.5
+/// was the voice's own pace; the voice's own pace when none was saved.
+double ttsSpeedFromLegacyRate(double? rate) =>
+    rate == null ? 1.0 : nearestTtsSpeed(rate * 2);
+
 class AppSettings {
   final bool reduceMotion;
   final double animationSpeed;
@@ -904,7 +919,9 @@ class AppSettings {
   final String? sttLanguageCode;
   final String? ttsVoice;
   final String? ttsVoiceName;
-  final double ttsSpeechRate;
+  /// How fast speech plays, as a multiple of the voice's own pace: cloud and
+  /// device voices alike, for read-aloud and calls.
+  final double ttsSpeed;
   final double ttsPitch;
   final double ttsVolume;
   final TtsEngine ttsEngine;
@@ -961,7 +978,7 @@ class AppSettings {
     this.sttLanguageCode,
     this.ttsVoice,
     this.ttsVoiceName,
-    this.ttsSpeechRate = 0.5,
+    this.ttsSpeed = 1.0,
     this.ttsPitch = 1.0,
     this.ttsVolume = 1.0,
     this.ttsEngine = TtsEngine.device,
@@ -1013,7 +1030,7 @@ class AppSettings {
     Object? sttLanguageCode = const _DefaultValue(),
     Object? ttsVoice = const _DefaultValue(),
     Object? ttsVoiceName = const _DefaultValue(),
-    double? ttsSpeechRate,
+    double? ttsSpeed,
     double? ttsPitch,
     double? ttsVolume,
     TtsEngine? ttsEngine,
@@ -1081,7 +1098,7 @@ class AppSettings {
       ttsVoiceName: ttsVoiceName is _DefaultValue
           ? this.ttsVoiceName
           : ttsVoiceName as String?,
-      ttsSpeechRate: ttsSpeechRate ?? this.ttsSpeechRate,
+      ttsSpeed: ttsSpeed ?? this.ttsSpeed,
       ttsPitch: ttsPitch ?? this.ttsPitch,
       ttsVolume: ttsVolume ?? this.ttsVolume,
       ttsEngine: ttsEngine ?? this.ttsEngine,
@@ -1151,7 +1168,7 @@ class AppSettings {
         other.sendOnEnter == sendOnEnter &&
         other.ttsVoice == ttsVoice &&
         other.ttsVoiceName == ttsVoiceName &&
-        other.ttsSpeechRate == ttsSpeechRate &&
+        other.ttsSpeed == ttsSpeed &&
         other.ttsPitch == ttsPitch &&
         other.ttsVolume == ttsVolume &&
         other.ttsEngine == ttsEngine &&
@@ -1204,7 +1221,7 @@ class AppSettings {
       sendOnEnter,
       ttsVoice,
       ttsVoiceName,
-      ttsSpeechRate,
+      ttsSpeed,
       ttsPitch,
       ttsVolume,
       ttsEngine,
@@ -1657,8 +1674,8 @@ class AppSettingsNotifier extends _$AppSettingsNotifier {
     await SettingsService.saveSettings(state);
   }
 
-  Future<void> setTtsSpeechRate(double rate) async {
-    state = state.copyWith(ttsSpeechRate: rate);
+  Future<void> setTtsSpeed(double speed) async {
+    state = state.copyWith(ttsSpeed: speed);
     await SettingsService.saveSettings(state);
   }
 

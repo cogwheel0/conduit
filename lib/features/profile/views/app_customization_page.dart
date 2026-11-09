@@ -1441,27 +1441,27 @@ class AppCustomizationPage extends ConsumerWidget {
                   subtitle: _ttsVoiceSubtitle(l10n, settings),
                   onTap: () => _showVoicePickerSheet(context, ref, settings),
                 ),
-              if (settings.ttsEngine == TtsEngine.device) ...[
-                const SizedBox(height: Spacing.md),
-                // Speech rate is device-only. Server TTS uses backend defaults.
-                _buildSliderTile(
-                  context,
-                  ref,
-                  icon: UiUtils.platformIcon(
-                    ios: CupertinoIcons.speedometer,
-                    android: Icons.speed,
-                  ),
-                  title: l10n.ttsSpeechRate,
-                  value: settings.ttsSpeechRate,
-                  min: 0.25,
-                  max: 2.0,
-                  divisions: 35,
-                  label: '${(settings.ttsSpeechRate * 100).round()}%',
-                  onChanged: (value) => ref
-                      .read(appSettingsProvider.notifier)
-                      .setTtsSpeechRate(value),
+              const SizedBox(height: Spacing.md),
+              // One speed for cloud and device voices, in read-aloud's steps.
+              _buildSliderTile(
+                context,
+                ref,
+                icon: UiUtils.platformIcon(
+                  ios: CupertinoIcons.speedometer,
+                  android: Icons.speed,
                 ),
-              ],
+                title: l10n.ttsPlaybackSpeed,
+                value: ttsSpeedPresets
+                    .indexOf(nearestTtsSpeed(settings.ttsSpeed))
+                    .toDouble(),
+                min: 0,
+                max: (ttsSpeedPresets.length - 1).toDouble(),
+                divisions: ttsSpeedPresets.length - 1,
+                label: l10n.ttsSpeedValue(settings.ttsSpeed),
+                onChanged: (value) => ref
+                    .read(appSettingsProvider.notifier)
+                    .setTtsSpeed(ttsSpeedPresets[value.round()]),
+              ),
               const SizedBox(height: Spacing.md),
               // Preview Button
               CustomizationTile(

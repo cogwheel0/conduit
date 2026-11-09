@@ -264,6 +264,7 @@
   "folderName": "文件夹名称",
   "newChat": "新对话",
   "more": "更多",
+  "done": "完成",
   "clear": "清除",
   "searchConversations": "搜索对话...",
   "create": "创建",
@@ -525,7 +526,17 @@
     }
   },
   "ttsVoice": "语音",
-  "ttsSpeechRate": "语速",
+  "ttsPlaybackSpeed": "播放速度",
+  "ttsSpeedValue": "{speed}×",
+  "@ttsSpeedValue": {
+    "placeholders": {
+      "speed": {
+        "type": "double",
+        "format": "decimalPattern",
+        "example": "1.25"
+      }
+    }
+  },
   "ttsPitch": "音调",
   "ttsVolume": "音量",
   "ttsPreview": "预览语音",
@@ -1079,6 +1090,24 @@
   "usageQueueTime": "排队时间",
   "usageReasoningTokens": "推理 token",
   "usageTotalTokens": "总 token",
+  "usageContextWindow": "上下文窗口",
+  "usageContextWindowValue": "{percent} · {used} / {total}",
+  "@usageContextWindowValue": {
+    "placeholders": {
+      "percent": {
+        "type": "String",
+        "example": "62%"
+      },
+      "used": {
+        "type": "String",
+        "example": "79K"
+      },
+      "total": {
+        "type": "String",
+        "example": "128K"
+      }
+    }
+  },
   "proxyAuthentication": "代理认证",
   "proxyAuthPlatformNotSupported": "代理认证需要移动设备。请先通过浏览器进行认证。",
   "proxyAuthLoading": "正在加载认证页面...",
@@ -1119,6 +1148,7 @@
   "saveChat": "保存聊天",
   "temporaryChatByDefault": "默认临时聊天",
   "temporaryChatByDefaultDescription": "新聊天不会保存到历史记录，除非您选择保存",
+  "libreChatTemporaryChatOff": "LibreChat 会保存所有聊天。请关闭临时聊天后再发送。",
   "advancedFeatures": "高级",
   "advancedFeaturesDescription": "显示面向高级用户的工具和设置。",
   "chatSettingsTitle": "聊天设置",
@@ -3430,6 +3460,7 @@
   "hermesTurnSendNext": "发送下一条",
   "hermesTurnControlsUnsupported": "请升级 Hermes 以启用安全的轮次控制。",
   "sidebarHermesTab": "Hermes",
+  "sidebarBackendSwitcher": "后端",
   "markdownShowMoreLines": "再显示 {count} 行",
   "@markdownShowMoreLines": {"placeholders":{"count":{"type":"int"}}},
   "markdownShowLess": "收起",
@@ -4251,7 +4282,7 @@
   "calendarRemoveEnd": "移除结束时间",
   "calendarEventReadOnlyNotInvited": "您无法更改此日程。",
   "calendarFieldOrganizer": "组织者",
-  "calendarColorName": "{color, select, blue{蓝色} green{绿色} amber{琥珀色} red{红色} purple{紫色} teal{青色} other{颜色}}",
+  "calendarColorName": "{color, select, blue{蓝色} green{绿色} amber{琥珀色} red{红色} purple{紫色} teal{青色} custom{自定义颜色} other{颜色}}",
   "calendarVisibilityFooter": "将显示已勾选日历中的日程。轻点日历可显示或隐藏其日程。",
   "personalizationMemoryTypeUserDescription": "关于你的偏好、事实或指示。",
   "personalizationMemoryTypeContextDescription": "在以后的聊天中需要记住的背景信息。",
@@ -4382,5 +4413,36 @@
   "mcpAppOpenLinkConfirm": "打开",
   "terminalPortPreviewForward": "前进",
   "terminalPortPreviewReload": "重新加载",
-  "terminalPortPreviewLoadFailed": "无法加载此页面。"
+  "terminalPortPreviewLoadFailed": "无法加载此页面。",
+  "modelMenuAllModels": "所有模型…",
+  "citationPreviewOpen": "打开",
+  "workspacePromptHistoryDiffTooLarge": "这些版本过长，无法比较。",
+  "libreChatTitle": "LibreChat",
+  "libreChatBetaLabel": "测试版",
+  "libreChatChooserSubtitle": "登录你的 LibreChat 服务器，同步聊天、智能体等。",
+  "libreChatAddAccount": "添加 LibreChat 账户",
+  "libreChatFileSearch": "文件搜索",
+  "libreChatFileSearchDescription": "在已上传的文件中查找答案。",
+  "libreChatMcpConnect": "在 LibreChat 中连接",
+  "libreChatApprovalRun": "允许运行 {tool} 吗？",
+  "libreChatQuestionProgress": "第 {current} 个问题，共 {total} 个",
+  "libreChatAnswerFailed": "无法发送你的回答，请重试。",
+  "libreChatApprovalRespond": "回应",
+  "libreChatApprovalArguments": "参数（JSON）",
+  "libreChatAddAccountMessage": "输入你的 LibreChat 服务器地址。",
+  "libreChatInvalidAddress": "输入服务器地址，例如 chat.example.com。",
+  "libreChatUnreachable": "无法连接到服务器。请检查地址和网络连接。",
+  "libreChatNotLibreChat": "此服务器不是 LibreChat。请检查地址。",
+  "libreChatIsOpenWebUi": "这是 Open WebUI 服务器。请在 Open WebUI 标签页中添加。",
+  "libreChatPasswordSignInOff": "此服务器仅允许单点登录。",
+  "libreChatGoogleUnsupported": "Google 不允许在应用内登录。请使用其他方式登录。",
+  "libreChatSsoUnfinished": "登录未完成。请重试。",
+  "libreChatChangeServer": "使用其他服务器",
+  "libreChatSessionEnded": "你在 {server} 上的会话已结束。请重新登录。",
+  "libreChatDuplicateChat": "复制对话",
+  "libreChatCopyFailed": "无法复制对话。请检查网络连接后重试。",
+  "libreChatMemoryKeyLabel": "键",
+  "libreChatMemoryKeyHint": "例如 preferences",
+  "libreChatMemoryKeyRequired": "请为记忆指定一个键。",
+  "libreChatMemoryUsage": "已使用 {used} / {limit} 个 token"
 }

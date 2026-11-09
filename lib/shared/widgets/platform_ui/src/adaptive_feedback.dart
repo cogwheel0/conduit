@@ -320,10 +320,9 @@ class AdaptiveAlertDialog {
     String? message,
     required List<AlertAction> actions,
   }) async {
-    // CNAlert inherits the native host appearance, not Flutter theme overrides.
+    // CNAlert opens in the app theme's brightness (read through
+    // LegacyDesignCompatibility), so a forced light or dark theme stays native.
     if (PlatformUiCapabilities.usesNativeIOS26 &&
-        CupertinoTheme.brightnessOf(context) ==
-            MediaQuery.platformBrightnessOf(context) &&
         actions.any(_isEnabled) &&
         actions.where((a) => a.style == AlertActionStyle.cancel).length <= 1 &&
         actions.where((a) => a.style == AlertActionStyle.primary).length <= 1) {

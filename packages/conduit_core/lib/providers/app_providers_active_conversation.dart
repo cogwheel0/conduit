@@ -5,7 +5,7 @@ final activeConversationProvider =
       ActiveConversationNotifier.new,
     );
 
-enum ActiveConversationRemapNamespace { openWebUi, direct, hermes }
+enum ActiveConversationRemapNamespace { openWebUi, direct, hermes, libreChat }
 
 @immutable
 class ActiveConversationInPlaceRemap {
@@ -176,6 +176,9 @@ ActiveConversationRemapNamespace _activeConversationRemapNamespaceFor(
   if (storage == ChatStorageKind.openWebUi) {
     return ActiveConversationRemapNamespace.openWebUi;
   }
+  if (storage == ChatStorageKind.libreChat) {
+    return ActiveConversationRemapNamespace.libreChat;
+  }
   if (isNativeHermesConversation(conversation)) {
     return ActiveConversationRemapNamespace.hermes;
   }
@@ -235,16 +238,30 @@ Future<Conversation> _loadConversation(Ref ref, String conversationId) async {
 
   final openWebUiOwnership = captureOpenWebUiConversationRead(ref);
   final repository = ref.read(chatDatabaseRepositoryProvider);
+  // The LibreChat account's database as the load starts. An account switch
+  // replaces it; a chat read from the old one must never be handed to the
+  // account that took over.
+  final libreChatDatabase = repository.libreChatLocation?.database;
+  bool libreChatReadIsCurrent(AppDatabase? database) =>
+      libreChatDatabase != null &&
+      identical(database, libreChatDatabase) &&
+      identical(
+        ref.read(chatDatabaseRepositoryProvider).libreChatLocation?.database,
+        libreChatDatabase,
+      );
   LocatedConversation? located;
   try {
     located = await repository.loadConversation(
       rawConversationId,
       preferred: preferredStorage,
-      locationIsCurrent: (location) =>
-          location.storage != ChatStorageKind.openWebUi ||
-          (openWebUiOwnership != null &&
+      locationIsCurrent: (location) => switch (location.storage) {
+        ChatStorageKind.openWebUi =>
+          openWebUiOwnership != null &&
               identical(location.database, openWebUiOwnership.database) &&
-              openWebUiConversationReadIsCurrent(ref, openWebUiOwnership)),
+              openWebUiConversationReadIsCurrent(ref, openWebUiOwnership),
+        ChatStorageKind.libreChat => libreChatReadIsCurrent(location.database),
+        ChatStorageKind.directLocal => true,
+      },
       offload: (envelope) => ref
           .read(workerManagerProvider)
           .schedule(
@@ -283,6 +300,10 @@ Future<Conversation> _loadConversation(Ref ref, String conversationId) async {
         OpenWebUiConversationOwnershipFailureReason.changedWhileLoading,
       );
     }
+    if (located.location.storage == ChatStorageKind.libreChat &&
+        !libreChatReadIsCurrent(located.location.database)) {
+      throw const LibreChatAccountChangedException();
+    }
     final local = withChatStorageProvenance(
       located.conversation,
       located.location.storage,
@@ -316,6 +337,46 @@ Future<Conversation> _loadConversation(Ref ref, String conversationId) async {
 
   if (preferredStorage == ChatStorageKind.directLocal) {
     throw StateError('On-device conversation is unavailable');
+  }
+  // A LibreChat chat is never fetched from Open WebUI, whatever its id: one
+  // not stored yet, or without its messages, comes from its own server. So
+  // does any chat of unknown provenance while a LibreChat account owns the
+  // Chats tab, since Open WebUI is parked.
+  if (preferredStorage == ChatStorageKind.libreChat ||
+      (preferredStorage == null &&
+          ref.read(primaryAccountKindProvider) ==
+              PrimaryAccountKind.libreChat)) {
+    // No LibreChat account owned the Chats tab as the load started (Open
+    // WebUI does, or LibreChat's store is not open yet): its server is not
+    // asked for a chat that tab could not show.
+    if (libreChatDatabase == null) {
+      throw StateError('LibreChat conversation is unavailable');
+    }
+    // A new chat whose first reply is still being written here is not
+    // pulled until it ends: it opens as the run named it, and the run puts
+    // its messages back.
+    final started = ref
+        .read(libreChatActiveGenerationsProvider.notifier)
+        .startedChat(rawConversationId);
+    if (started != null) {
+      return withChatStorageProvenance(started, ChatStorageKind.libreChat);
+    }
+    final pulled = await ref
+        .read(libreChatPrimarySyncProvider)
+        .pullChatNow(rawConversationId);
+    // The pull read the database of the account in use when it started.
+    if (!libreChatReadIsCurrent(libreChatDatabase)) {
+      throw const LibreChatAccountChangedException();
+    }
+    if (pulled == null) {
+      throw StateError('LibreChat conversation is unavailable');
+    }
+    DebugLogger.log(
+      'load-librechat-ok',
+      scope: 'conversation',
+      data: {'messages': pulled.messages.length},
+    );
+    return withChatStorageProvenance(pulled, ChatStorageKind.libreChat);
   }
 
   if (openWebUiOwnership == null ||

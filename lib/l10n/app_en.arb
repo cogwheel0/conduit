@@ -1241,6 +1241,10 @@
   "@more": {
     "description": "Opens additional actions or content."
   },
+  "done": "Done",
+  "@done": {
+    "description": "Ends editing, such as typing in a note, and hides the keyboard."
+  },
   "clear": "Clear",
   "@clear": {
     "description": "Action to clear input or selection."
@@ -1598,6 +1602,28 @@
   "usageTotalTokens": "Total Tokens",
   "@usageTotalTokens": {
     "description": "Label for total token count"
+  },
+  "usageContextWindow": "Context Window",
+  "@usageContextWindow": {
+    "description": "Label for how full the model's context window was at the end of a response: the tokens of its prompt and answer against the model's context length"
+  },
+  "usageContextWindowValue": "{percent} · {used} of {total}",
+  "@usageContextWindowValue": {
+    "description": "How full the model's context window was at the end of a response: the share used, then the tokens used and the context length as compact numbers",
+    "placeholders": {
+      "percent": {
+        "type": "String",
+        "example": "62%"
+      },
+      "used": {
+        "type": "String",
+        "example": "79K"
+      },
+      "total": {
+        "type": "String",
+        "example": "128K"
+      }
+    }
   },
   "edit": "Edit",
   "@edit": {
@@ -2204,9 +2230,20 @@
   "@ttsVoice": {
     "description": "Title for voice selection tile."
   },
-  "ttsSpeechRate": "Speech rate",
-  "@ttsSpeechRate": {
-    "description": "Title for speech rate slider."
+  "ttsPlaybackSpeed": "Playback speed",
+  "@ttsPlaybackSpeed": {
+    "description": "Title of the control that sets how fast read-aloud and spoken replies play, cloud and device voices alike."
+  },
+  "ttsSpeedValue": "{speed}×",
+  "@ttsSpeedValue": {
+    "description": "A playback speed as a multiple of the voice's own pace, such as 1.25×.",
+    "placeholders": {
+      "speed": {
+        "type": "double",
+        "format": "decimalPattern",
+        "example": "1.25"
+      }
+    }
   },
   "ttsPitch": "Pitch",
   "@ttsPitch": {
@@ -2891,6 +2928,10 @@
   "temporaryChatByDefaultDescription": "Do not save new chats unless you choose to keep them.",
   "@temporaryChatByDefaultDescription": {
     "description": "Description for the temporary chat by default setting."
+  },
+  "libreChatTemporaryChatOff": "LibreChat saves every chat. Turn off Temporary Chat to send.",
+  "@libreChatTemporaryChatOff": {
+    "description": "Shown when a new LibreChat chat is not sent because temporary chat is on: LibreChat saves every chat."
   },
   "advancedFeatures": "Advanced",
   "@advancedFeatures": {
@@ -6881,6 +6922,10 @@
   "@sidebarHermesTab": {
     "description": "Compact label for the Hermes sidebar tab."
   },
+  "sidebarBackendSwitcher": "Backend",
+  "@sidebarBackendSwitcher": {
+    "description": "Screen reader name of the sliding sidebar's switch between chat backends (Open WebUI, Hermes). Its value is the selected backend's name, so this names only the control."
+  },
   "markdownShowMoreLines": "{count, plural, =1{Show 1 more line} other{Show {count} more lines}}",
   "@markdownShowMoreLines": {"description":"Action that expands a collapsed Markdown code block.","placeholders":{"count":{"type":"int","example":"12"}}},
   "markdownShowLess": "Show less",
@@ -8556,9 +8601,9 @@
   "@calendarFieldOrganizer": {
     "description": "Event detail row label for the person who organized the event."
   },
-  "calendarColorName": "{color, select, blue{Blue} green{Green} amber{Amber} red{Red} purple{Purple} teal{Teal} other{Color}}",
+  "calendarColorName": "{color, select, blue{Blue} green{Green} amber{Amber} red{Red} purple{Purple} teal{Teal} custom{Custom color} other{Color}}",
   "@calendarColorName": {
-    "description": "Accessibility name of a colour a new calendar can take.",
+    "description": "Accessibility name of a colour a new calendar can take; custom names the colour well that opens the system colour picker.",
     "placeholders": {
       "color": {
         "type": "String",
@@ -9201,5 +9246,159 @@
   "terminalPortPreviewLoadFailed": "Could not load this page.",
   "@terminalPortPreviewLoadFailed": {
     "description": "Shown in a terminal port preview when the page could not be reached."
+  },
+  "modelMenuAllModels": "All models…",
+  "@modelMenuAllModels": {
+    "description": "Last item of the chat's model menu, under the pinned models; opens the complete, searchable model list."
+  },
+  "citationPreviewOpen": "Open",
+  "@citationPreviewOpen": {
+    "description": "Button in a citation's preview popover that opens the cited page in the browser."
+  },
+  "workspacePromptHistoryDiffTooLarge": "These versions are too long to compare.",
+  "@workspacePromptHistoryDiffTooLarge": {
+    "description": "Shown when the server refuses to compare two prompt versions because either is too long."
+  },
+  "libreChatTitle": "LibreChat",
+  "@libreChatTitle": {
+    "description": "Name of the LibreChat backend, shown as a tab, a card title and a page title. Product name; usually not translated."
+  },
+  "libreChatBetaLabel": "Beta",
+  "@libreChatBetaLabel": {
+    "description": "Badge next to LibreChat while its support is in beta."
+  },
+  "libreChatChooserSubtitle": "Sign in to your LibreChat server for synced chats, agents, and more.",
+  "@libreChatChooserSubtitle": {
+    "description": "Subtitle of the LibreChat option on the first-run backend chooser."
+  },
+  "libreChatAddAccount": "Add a LibreChat account",
+  "@libreChatAddAccount": {
+    "description": "Row that adds a LibreChat account on the Accounts page."
+  },
+  "libreChatFileSearch": "File search",
+  "@libreChatFileSearch": {
+    "description": "Composer toggle that lets a LibreChat turn search the user's uploaded files."
+  },
+  "libreChatFileSearchDescription": "Search the files you uploaded for answers.",
+  "@libreChatFileSearchDescription": {
+    "description": "Description under the LibreChat file search toggle in the composer's tools."
+  },
+  "libreChatMcpConnect": "Connect in LibreChat",
+  "@libreChatMcpConnect": {
+    "description": "Shown on a LibreChat MCP server that needs signing in, which only the LibreChat web app can do; opens it in the browser."
+  },
+  "libreChatApprovalRun": "Allow {tool} to run?",
+  "@libreChatApprovalRun": {
+    "description": "Approval card question when a LibreChat run waits to call a tool.",
+    "placeholders": {
+      "tool": {
+        "type": "String",
+        "example": "echo"
+      }
+    }
+  },
+  "libreChatQuestionProgress": "Question {current} of {total}",
+  "@libreChatQuestionProgress": {
+    "description": "Progress through a LibreChat agent's batch of questions.",
+    "placeholders": {
+      "current": {
+        "type": "int",
+        "example": "1"
+      },
+      "total": {
+        "type": "int",
+        "example": "3"
+      }
+    }
+  },
+  "libreChatAnswerFailed": "Couldn't send your answer. Try again.",
+  "@libreChatAnswerFailed": {
+    "description": "Shown when answering a LibreChat approval or question didn't reach the server."
+  },
+  "libreChatApprovalRespond": "Respond",
+  "@libreChatApprovalRespond": {
+    "description": "Button on a LibreChat tool approval: answer in the tool's place with text instead of running it."
+  },
+  "libreChatApprovalArguments": "Arguments (JSON)",
+  "@libreChatApprovalArguments": {
+    "description": "Label of the field where a LibreChat tool call's arguments are edited before it runs."
+  },
+  "libreChatAddAccountMessage": "Enter the address of your LibreChat server.",
+  "@libreChatAddAccountMessage": {
+    "description": "Intro text of the LibreChat sign-in form."
+  },
+  "libreChatInvalidAddress": "Enter a server address, like chat.example.com.",
+  "@libreChatInvalidAddress": {
+    "description": "Shown when the typed LibreChat server address is not a usable web address."
+  },
+  "libreChatUnreachable": "Couldn't reach the server. Check the address and your connection.",
+  "@libreChatUnreachable": {
+    "description": "Shown when the LibreChat server address could not be reached."
+  },
+  "libreChatNotLibreChat": "This server isn't LibreChat. Check the address.",
+  "@libreChatNotLibreChat": {
+    "description": "Shown when the address answered but is not a LibreChat server."
+  },
+  "libreChatIsOpenWebUi": "This is an Open WebUI server. Add it on the Open WebUI tab.",
+  "@libreChatIsOpenWebUi": {
+    "description": "Shown when the typed address is an Open WebUI server, pointing to the Open WebUI tab of the add-account sheet."
+  },
+  "libreChatPasswordSignInOff": "This server only allows single sign-on.",
+  "@libreChatPasswordSignInOff": {
+    "description": "Shown when the LibreChat server offers only single sign-on, no password sign-in."
+  },
+  "libreChatGoogleUnsupported": "Google doesn't allow signing in inside apps. Use another way to sign in.",
+  "@libreChatGoogleUnsupported": {
+    "description": "Shown instead of starting Google sign-in, which Google blocks inside apps."
+  },
+  "libreChatSsoUnfinished": "Sign-in didn't finish. Try again.",
+  "@libreChatSsoUnfinished": {
+    "description": "Shown when a single sign-on page closed or failed before signing in."
+  },
+  "libreChatChangeServer": "Use a different server",
+  "@libreChatChangeServer": {
+    "description": "Button that goes back to entering another LibreChat server address."
+  },
+  "libreChatSessionEnded": "Your session on {server} ended. Sign in again.",
+  "@libreChatSessionEnded": {
+    "description": "Shown on the LibreChat sign-in page when the saved session for a server ended.",
+    "placeholders": {
+      "server": {
+        "type": "String",
+        "example": "chat.example.com"
+      }
+    }
+  },
+  "libreChatDuplicateChat": "Duplicate chat",
+  "@libreChatDuplicateChat": {
+    "description": "Chat menu action that copies a LibreChat chat into a new chat on the server."
+  },
+  "libreChatCopyFailed": "Couldn't copy the chat. Check your connection and try again.",
+  "@libreChatCopyFailed": {
+    "description": "Shown when branching or duplicating a LibreChat chat fails."
+  },
+  "libreChatMemoryKeyLabel": "Key",
+  "@libreChatMemoryKeyLabel": {
+    "description": "Label of the field naming a LibreChat memory (its key)."
+  },
+  "libreChatMemoryKeyHint": "e.g. preferences",
+  "@libreChatMemoryKeyHint": {
+    "description": "Placeholder of the LibreChat memory key field."
+  },
+  "libreChatMemoryKeyRequired": "Give the memory a key.",
+  "@libreChatMemoryKeyRequired": {
+    "description": "Shown when a LibreChat memory is saved without a key."
+  },
+  "libreChatMemoryUsage": "{used} of {limit} tokens used",
+  "@libreChatMemoryUsage": {
+    "description": "How much of the server's memory token budget the saved LibreChat memories use.",
+    "placeholders": {
+      "used": {
+        "type": "int"
+      },
+      "limit": {
+        "type": "int"
+      }
+    }
   }
 }

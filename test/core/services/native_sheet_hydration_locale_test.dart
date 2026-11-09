@@ -32,7 +32,7 @@ class _QuietTextToSpeechService extends Fake implements TextToSpeechService {
   Future<void> updateSettings({
     Object? voice,
     Object? serverVoice,
-    double? speechRate,
+    double? speed,
     double? pitch,
     double? volume,
     TtsEngine? engine,

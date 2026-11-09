@@ -21,6 +21,8 @@ import '../../../core/network/image_header_utils.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 
 import 'package:conduit_core/providers/backend_mode_providers.dart';
+import 'package:conduit_core/providers/primary_account_providers.dart'
+    show primaryUserProvider;
 
 import 'package:conduit_core/services/api_service.dart';
 
@@ -352,11 +354,31 @@ Widget buildSidebarProfileButton({
 }
 
 /// Profile button used as the sidebar adaptive app bar leading widget.
-class SidebarProfileAppBarLeading extends ConsumerWidget {
+class SidebarProfileAppBarLeading extends ConsumerStatefulWidget {
   const SidebarProfileAppBarLeading({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<SidebarProfileAppBarLeading> createState() =>
+      _SidebarProfileAppBarLeadingState();
+}
+
+class _SidebarProfileAppBarLeadingState
+    extends ConsumerState<SidebarProfileAppBarLeading> {
+  bool _openingProfile = false;
+
+  Future<void> _openProfile(Future<void> Function() present) async {
+    // Claim the opening before navigation or account loading can yield.
+    if (_openingProfile) return;
+    _openingProfile = true;
+    try {
+      await present();
+    } finally {
+      _openingProfile = false;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final user = resolveSidebarUser(ref);
     final nativeProfilePresenter = ref.watch(
       sidebarNativeProfilePresenterProvider,
@@ -364,7 +386,16 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
     final hermesOnly = ref.watch(hermesOnlyModeProvider);
     final directPrimary =
         ref.watch(preferredBackendProvider) == PreferredBackend.direct;
-    if (user == null && !hermesOnly && !directPrimary) {
+    // With LibreChat in charge there is no Open WebUI user: the button
+    // stands for the LibreChat account.
+    final libreChatUser =
+        ref.watch(primaryAccountKindProvider) == PrimaryAccountKind.libreChat
+        ? ref.watch(primaryUserProvider)
+        : null;
+    if (user == null &&
+        !hermesOnly &&
+        !directPrimary &&
+        libreChatUser == null) {
       return const SizedBox.shrink();
     }
 
@@ -373,12 +404,19 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
     final canManageWorkspace = canManageAnyWorkspaceSection(ref);
     final directTitle = l10n.directConnectionsTitle;
     final hermesName = ref.watch(hermesActiveConnectionNameProvider);
-    final displayName = hermesOnly
+    final displayName = libreChatUser != null
+        ? (libreChatUser.displayName.isEmpty
+              ? l10n.libreChatTitle
+              : libreChatUser.displayName)
+        : hermesOnly
         ? hermesName ?? kHermesDefaultConnectionName
         : directPrimary && user == null
         ? directTitle
         : deriveUserDisplayName(user, fallback: l10n.userFallbackName);
-    final initial = hermesOnly
+    // The button's initials and avatar stand for the same account as its
+    // name: LibreChat's, when it is in charge, over a Hermes connection.
+    final hermesShown = hermesOnly && libreChatUser == null;
+    final initial = hermesShown
         ? hermesConnectionInitials(hermesName)
         : directPrimary && user == null
         ? directTitle.characters.first.toUpperCase()
@@ -397,7 +435,7 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
     final supportsNativeGlass = conduitSupportsNativeGlass();
     final rawNativeAvatarBytes = !supportsNativeGlass
         ? null
-        : hermesOnly
+        : hermesShown
         ? ref.watch(_sidebarHermesAvatarBytesProvider).asData?.value
         : inlineAvatarBytes ??
               (api == null || avatarUrl == null || avatarUrl.isEmpty
@@ -429,7 +467,7 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
               .asData
               ?.value;
 
-    Future<void> openProfile() async {
+    Future<void> presentProfile() async {
       await Navigator.of(context).maybePop();
       if (!context.mounted) return;
       FocusManager.instance.primaryFocus?.unfocus();
@@ -501,6 +539,9 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
               showChatDataControls: ref.read(
                 chatDataControlsEntryVisibleProvider,
               ),
+              showLibreChatPersonalization:
+                  ref.read(primaryAccountKindProvider) ==
+                  PrimaryAccountKind.libreChat,
             ),
             hermesAvatarBytes: hermesAvatarBytes,
           );
@@ -529,7 +570,7 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
       }
 
       if (context.mounted) {
-        context.pushNamed(
+        await context.pushNamed(
           sidebarProfileFallbackRouteName(
             directPrimary: directPrimary,
             hasOpenWebUiUser: user != null,
@@ -544,10 +585,10 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
       label: l10n.manage,
       button: true,
       excludeSemantics: true,
-      onTap: openProfile,
+      onTap: () => _openProfile(presentProfile),
       child: buildSidebarProfileButton(
         supportsNativeGlass: supportsNativeGlass,
-        onPressed: openProfile,
+        onPressed: () => _openProfile(presentProfile),
         fallbackStyle: style,
         fallbackColor: useOpaqueFallback ? iconColor : null,
         nativeSymbolColor: iconColor,
@@ -778,6 +819,16 @@ class SidebarProfileAppBarLeading extends ConsumerWidget {
           displayName: l10n.directConnectionsTitle,
           email: l10n.directConnectionsSubtitle,
           initials: l10n.directConnectionsTitle.characters.first.toUpperCase(),
+        ),
+        AccountCardKind.libreChat => NativeProfileSheetUser(
+          displayName: card.title,
+          email:
+              ref.read(primaryUserProvider)?.email ??
+              card.subtitle ??
+              l10n.libreChatTitle,
+          initials: card.title.characters.isEmpty
+              ? 'L'
+              : card.title.characters.first.toUpperCase(),
         ),
         AccountCardKind.openWebUi => _nativeAccountProfileUser(
           ref,

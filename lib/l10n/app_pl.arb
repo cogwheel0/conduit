@@ -1156,6 +1156,7 @@
     "description": "Action to start a new chat."
   },
   "more": "Więcej",
+  "done": "Gotowe",
   "@more": {
     "description": "Opens additional actions or content."
   },
@@ -1514,6 +1515,28 @@
   "usageTotalTokens": "Łączna liczba tokenów",
   "@usageTotalTokens": {
     "description": "Label for total token count"
+  },
+  "usageContextWindow": "Okno kontekstu",
+  "@usageContextWindow": {
+    "description": "Label for how full the model's context window was at the end of a response: the tokens of its prompt and answer against the model's context length"
+  },
+  "usageContextWindowValue": "{percent} · {used} z {total}",
+  "@usageContextWindowValue": {
+    "description": "How full the model's context window was at the end of a response: the share used, then the tokens used and the context length as compact numbers",
+    "placeholders": {
+      "percent": {
+        "type": "String",
+        "example": "62%"
+      },
+      "used": {
+        "type": "String",
+        "example": "79K"
+      },
+      "total": {
+        "type": "String",
+        "example": "128K"
+      }
+    }
   },
   "edit": "Edytuj",
   "@edit": {
@@ -2015,9 +2038,20 @@
   "@ttsVoice": {
     "description": "Title for voice selection tile."
   },
-  "ttsSpeechRate": "Tempo mowy",
-  "@ttsSpeechRate": {
-    "description": "Title for speech rate slider."
+  "ttsPlaybackSpeed": "Prędkość odtwarzania",
+  "@ttsPlaybackSpeed": {
+    "description": "Title of the control that sets how fast read-aloud and spoken replies play, cloud and device voices alike."
+  },
+  "ttsSpeedValue": "{speed}×",
+  "@ttsSpeedValue": {
+    "description": "A playback speed as a multiple of the voice's own pace, such as 1.25×.",
+    "placeholders": {
+      "speed": {
+        "type": "double",
+        "format": "decimalPattern",
+        "example": "1.25"
+      }
+    }
   },
   "ttsPitch": "Ton",
   "@ttsPitch": {
@@ -2697,6 +2731,7 @@
   "@temporaryChatByDefaultDescription": {
     "description": "Description for the temporary chat by default setting."
   },
+  "libreChatTemporaryChatOff": "LibreChat zapisuje każdy czat. Wyłącz czat tymczasowy, aby wysłać.",
   "advancedFeatures": "Zaawansowane",
   "@advancedFeatures": {
     "description": "Label for the setting that reveals additional chat tools and settings."
@@ -6950,6 +6985,7 @@
   "hermesTurnSendNext": "Wyślij następne",
   "hermesTurnControlsUnsupported": "Zaktualizuj Hermes, aby włączyć bezpieczne sterowanie turą.",
   "sidebarHermesTab": "Hermes",
+  "sidebarBackendSwitcher": "Backend",
   "@sidebarHermesTab": {
     "description": "Compact label for the Hermes sidebar tab."
   },
@@ -7782,7 +7818,7 @@
   "calendarRemoveEnd": "Usuń godzinę zakończenia",
   "calendarEventReadOnlyNotInvited": "Nie możesz zmienić tego wydarzenia.",
   "calendarFieldOrganizer": "Organizator",
-  "calendarColorName": "{color, select, blue{Niebieski} green{Zielony} amber{Bursztynowy} red{Czerwony} purple{Fioletowy} teal{Morski} other{Kolor}}",
+  "calendarColorName": "{color, select, blue{Niebieski} green{Zielony} amber{Bursztynowy} red{Czerwony} purple{Fioletowy} teal{Morski} custom{Własny kolor} other{Kolor}}",
   "@calendarColorName": {
     "placeholders": {
       "color": {
@@ -8179,5 +8215,84 @@
   "terminalPortPreviewLoadFailed": "Nie udało się wczytać tej strony.",
   "@terminalPortPreviewLoadFailed": {
     "description": "Shown in a terminal port preview when the page could not be reached."
+  },
+  "modelMenuAllModels": "Wszystkie modele…",
+  "@modelMenuAllModels": {
+    "description": "Last item of the chat's model menu, under the pinned models; opens the complete, searchable model list."
+  },
+  "citationPreviewOpen": "Otwórz",
+  "@citationPreviewOpen": {
+    "description": "Button in a citation's preview popover that opens the cited page in the browser."
+  },
+  "workspacePromptHistoryDiffTooLarge": "Te wersje są zbyt długie, aby je porównać.",
+  "@workspacePromptHistoryDiffTooLarge": {
+    "description": "Shown when the server refuses to compare two prompt versions because either is too long."
+  },
+  "libreChatTitle": "LibreChat",
+  "libreChatBetaLabel": "Beta",
+  "libreChatChooserSubtitle": "Zaloguj się na swój serwer LibreChat, aby synchronizować czaty, agentów i nie tylko.",
+  "libreChatAddAccount": "Dodaj konto LibreChat",
+  "libreChatFileSearch": "Wyszukiwanie w plikach",
+  "libreChatFileSearchDescription": "Szuka odpowiedzi w przesłanych plikach.",
+  "libreChatMcpConnect": "Połącz w LibreChat",
+  "libreChatApprovalRun": "Pozwolić na uruchomienie {tool}?",
+  "@libreChatApprovalRun": {
+    "placeholders": {
+      "tool": {
+        "type": "String",
+        "example": "echo"
+      }
+    }
+  },
+  "libreChatQuestionProgress": "Pytanie {current} z {total}",
+  "@libreChatQuestionProgress": {
+    "placeholders": {
+      "current": {
+        "type": "int",
+        "example": "1"
+      },
+      "total": {
+        "type": "int",
+        "example": "3"
+      }
+    }
+  },
+  "libreChatAnswerFailed": "Nie udało się wysłać odpowiedzi. Spróbuj ponownie.",
+  "libreChatApprovalRespond": "Odpowiedz",
+  "libreChatApprovalArguments": "Argumenty (JSON)",
+  "libreChatAddAccountMessage": "Wpisz adres swojego serwera LibreChat.",
+  "libreChatInvalidAddress": "Wpisz adres serwera, np. chat.example.com.",
+  "libreChatUnreachable": "Nie udało się połączyć z serwerem. Sprawdź adres i połączenie.",
+  "libreChatNotLibreChat": "Ten serwer to nie LibreChat. Sprawdź adres.",
+  "libreChatIsOpenWebUi": "To serwer Open WebUI. Dodaj go na karcie Open WebUI.",
+  "libreChatPasswordSignInOff": "Ten serwer pozwala logować się tylko przez jednokrotne logowanie (SSO).",
+  "libreChatGoogleUnsupported": "Google nie pozwala logować się wewnątrz aplikacji. Zaloguj się w inny sposób.",
+  "libreChatSsoUnfinished": "Logowanie nie zostało zakończone. Spróbuj ponownie.",
+  "libreChatChangeServer": "Użyj innego serwera",
+  "libreChatSessionEnded": "Twoja sesja na {server} wygasła. Zaloguj się ponownie.",
+  "@libreChatSessionEnded": {
+    "placeholders": {
+      "server": {
+        "type": "String",
+        "example": "chat.example.com"
+      }
+    }
+  },
+  "libreChatDuplicateChat": "Duplikuj czat",
+  "libreChatCopyFailed": "Nie udało się skopiować czatu. Sprawdź połączenie i spróbuj ponownie.",
+  "libreChatMemoryKeyLabel": "Klucz",
+  "libreChatMemoryKeyHint": "np. preferencje",
+  "libreChatMemoryKeyRequired": "Nadaj wspomnieniu klucz.",
+  "libreChatMemoryUsage": "Wykorzystano {used} z {limit} tokenów",
+  "@libreChatMemoryUsage": {
+    "description": "How much of the server's memory token budget the saved LibreChat memories use.",
+    "placeholders": {
+      "used": {
+        "type": "int"
+      },
+      "limit": {
+        "type": "int"
+      }
+    }
   }
 }

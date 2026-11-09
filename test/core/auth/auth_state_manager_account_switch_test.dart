@@ -5,6 +5,8 @@ import 'package:conduit/platform/flutter_key_value_store.dart';
 import 'package:conduit_core/auth/auth_state_manager.dart';
 import 'package:conduit_core/database/account_storage_isolation.dart';
 import 'package:conduit_core/auth/api_auth_interceptor.dart';
+import 'package:conduit_core/database/database_manager.dart';
+import 'package:conduit_core/database/database_provider.dart';
 import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/models/user.dart';
 import 'package:conduit_core/persistence/persistence_keys.dart';
@@ -128,6 +130,96 @@ void main() {
     final after = container.read(authStateManagerProvider).requireValue;
     check(after.token).equals(_tokenB);
     check(after.user?.id).equals(_userB.id);
+  });
+
+  test('parking Open WebUI files the session away and keeps every account',
+      () async {
+    final storage = _Storage();
+    final isolation = _RecordingIsolation();
+    final databases = _RecordingDatabaseManager();
+    String? storedToken = _tokenA;
+    when(() => storage.getAuthTokenStrict())
+        .thenAnswer((_) async => storedToken);
+    when(() => storage.getAuthToken()).thenAnswer((_) async => storedToken);
+    when(() => storage.getSavedCredentials()).thenAnswer((_) async => null);
+    when(() => storage.getSavedCredentialsStrict())
+        .thenAnswer((_) async => null);
+    when(() => storage.getLocalUserWithAvatar())
+        .thenAnswer((_) async => _userA);
+    when(() => storage.saveLocalUser(any())).thenAnswer((_) async {});
+    when(
+      () => storage.saveLocalUserWithAvatar(
+        any(),
+        avatarUrl: any(named: 'avatarUrl'),
+      ),
+    ).thenAnswer((_) async {});
+    String? activeId = 'account-a';
+    when(() => storage.getActiveServerId()).thenAnswer((_) async => activeId);
+    when(() => storage.getEffectiveActiveServerId())
+        .thenAnswer((_) async => activeId);
+
+    final container = ProviderContainer(
+      overrides: [
+        optimizedStorageServiceProvider.overrideWithValue(storage),
+        apiServiceProvider.overrideWithValue(null),
+        activeServerProvider.overrideWith((ref) async => null),
+        openWebUiAccountStorageIsolationProvider.overrideWith(() => isolation),
+        databaseManagerProvider.overrideWithValue(databases),
+      ],
+    );
+    addTearDown(container.dispose);
+    container.read(openWebUiAccountStorageIsolationProvider);
+    check((await _settledAuth(container)).token).equals(_tokenA);
+
+    String? authTokenAtPark = 'not-observed';
+    var barrierToldBeforePark = false;
+    when(() => storage.parkActiveServer(fromServerId: 'account-a'))
+        .thenAnswer((_) async {
+      authTokenAtPark = container
+          .read(authStateManagerProvider)
+          .asData
+          ?.value
+          .token;
+      barrierToldBeforePark = isolation.switches == 1;
+      // Storage files the token into A's vault and leaves nothing active.
+      storedToken = null;
+      activeId = null;
+      await PreferencesStore.put(PreferenceKeys.activeServerId, null);
+    });
+
+    await container.read(authStateManagerProvider.notifier).parkActiveAccount();
+
+    check(authTokenAtPark).isNull();
+    check(barrierToldBeforePark).isTrue();
+    final parked = container.read(authStateManagerProvider).requireValue;
+    check(parked.isAuthenticated).isFalse();
+    check(parked.status).equals(AuthStatus.unauthenticated);
+    check(databases.closes).equals(1);
+    // Kept, not signed out of: nothing is purged or revoked.
+    check(isolation.purged).isEmpty();
+    check(isolation.recorded).isEmpty();
+    verifyNever(
+      () => storage.removeAccount(
+        any(),
+        thenActivate: any(named: 'thenActivate'),
+      ),
+    );
+
+    // Coming back takes the account up signed in, without a sign-in form.
+    when(
+      () => storage.switchActiveServer(toServerId: 'account-a'),
+    ).thenAnswer((_) async {
+      storedToken = _tokenA;
+      activeId = 'account-a';
+      await PreferencesStore.put(PreferenceKeys.activeServerId, 'account-a');
+      return true;
+    });
+    final signedIn = await container
+        .read(authStateManagerProvider.notifier)
+        .switchToAccount('account-a');
+    check(signedIn).isTrue();
+    check(container.read(authStateManagerProvider).requireValue.token)
+        .equals(_tokenA);
   });
 
   test('choosing the account in use takes up a session left in its vault',
@@ -1272,6 +1364,14 @@ Future<AuthState> _settledAuth(ProviderContainer container) async {
 }
 
 final class _Storage extends Mock implements OptimizedStorageService {}
+
+/// Counts the closes of the account database a park asks for.
+final class _RecordingDatabaseManager extends DatabaseManager {
+  int closes = 0;
+
+  @override
+  Future<void> closeActive() async => closes++;
+}
 
 final class _RecordingIsolation extends OpenWebUiAccountStorageIsolation {
   int switches = 0;

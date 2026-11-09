@@ -301,6 +301,9 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
 
           // Update selected model if conversation has a different model
           _updateModelForConversation(next, generation: modelRebindGeneration);
+          if (isLibreChatConversation(next)) {
+            unawaited(_followLibreChatGenerationOnOpen(ref, next));
+          }
 
           if (_hasOpenWebUiTaskRecoverableTail(next, requireStreaming: false)) {
             if (_shouldProtectLocalStreamingState) {
@@ -396,6 +399,21 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
           return;
         }
         unawaited(_detectActiveOnOpen(activeConversation));
+      });
+    }
+    // A LibreChat chat already open when the messages are first read
+    // follows a reply its server is still writing, as opening it does.
+    if (activeConversation != null &&
+        isLibreChatConversation(activeConversation)) {
+      Future.microtask(() {
+        if (_disposed ||
+            !isSameStoredConversation(
+              ref.read(activeConversationProvider),
+              activeConversation,
+            )) {
+          return;
+        }
+        unawaited(_followLibreChatGenerationOnOpen(ref, activeConversation));
       });
     }
     return initialMessages;
@@ -644,7 +662,14 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
       )) {
         return;
       }
-      _adoptServerMessages(conversation.messages, source: 'database watch');
+      // Rows read from the LibreChat database carry its provenance, stamped
+      // here as on every LibreChat load: stored metadata is never trusted
+      // for it.
+      final adopted =
+          chatStorageKindOf(watchedConversation) == ChatStorageKind.libreChat
+          ? stampLibreChatProvenance(conversation)
+          : conversation;
+      _adoptServerMessages(adopted.messages, source: 'database watch');
     } catch (error, stackTrace) {
       DebugLogger.error(
         'db-adopt-failed',
@@ -664,16 +689,28 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
         return null;
       }
     }
+    if (storage == ChatStorageKind.libreChat) {
+      try {
+        return ref
+            .read(chatDatabaseRepositoryProvider)
+            .libreChatLocation
+            ?.database;
+      } catch (_) {
+        return null;
+      }
+    }
     // Database dependencies unavailable (e.g. teardown or test harness
     // without an active server) resolve to null.
     return _readAppDatabaseOrNull(ref);
   }
 
+  /// The database local turn echoes and pause checkpoints go to. Never
+  /// LibreChat's: its server keeps every turn, and its rows arrive by pull.
   AppDatabase? _maybeDatabase() {
     final active = ref.read(activeConversationProvider);
-    return _databaseForStorage(
-      chatStorageKindOf(active) ?? ChatStorageKind.openWebUi,
-    );
+    final storage = chatStorageKindOf(active) ?? ChatStorageKind.openWebUi;
+    if (storage == ChatStorageKind.libreChat) return null;
+    return _databaseForStorage(storage);
   }
 
   bool _shouldAdoptServerMessages(List<ChatMessage> serverMessages) {
@@ -1455,11 +1492,15 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     List<ChatMessage> messages,
     Conversation? conversation, {
     bool settleOrphanedDirect = false,
-  }) => _restoreLiveHermesRunState(
-    _restoreLiveDirectRunState(
-      messages,
+  }) => _restoreLiveLibreChatRunState(
+    ref,
+    _restoreLiveHermesRunState(
+      _restoreLiveDirectRunState(
+        messages,
+        conversation,
+        settleOrphaned: settleOrphanedDirect,
+      ),
       conversation,
-      settleOrphaned: settleOrphanedDirect,
     ),
     conversation,
   );
@@ -2781,7 +2822,9 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     // authoritative until dispatch finalizes them; a Drift echo emitted during
     // preflight must not roll an optimistic turn back to the previous tip.
     final transport = state.last.metadata?['transport'];
-    if (transport == kDirectTransport || transport == kHermesTransport) {
+    if (transport == kDirectTransport ||
+        transport == kHermesTransport ||
+        transport == kLibreChatTransport) {
       return true;
     }
     if (_activeStreamingTransportMessageId != lastMessageId) {
@@ -4781,6 +4824,69 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     state = next;
   }
 
+  /// Ids [renameMessage] replaced, old to new.
+  final Map<String, String> _renamedMessageIds = <String, String>{};
+
+  /// The id message [id] goes by now: the server's, once it renamed one
+  /// minted here, so a page holding the first id can still find it.
+  String currentMessageId(String id) {
+    var current = id;
+    for (var hops = 0; hops < 4; hops++) {
+      final next = _renamedMessageIds[current];
+      if (next == null) break;
+      current = next;
+    }
+    return current;
+  }
+
+  /// Gives message [fromId] the id [toId] its server assigned, and points
+  /// every parent and child reference at it. Does nothing when [fromId] is
+  /// not shown or [toId] already is.
+  void renameMessage(String fromId, String toId) {
+    if (fromId == toId ||
+        !state.any((message) => message.id == fromId) ||
+        state.any((message) => message.id == toId)) {
+      return;
+    }
+    _renamedMessageIds[fromId] = toId;
+    String swap(String id) => id == fromId ? toId : id;
+    state = [
+      for (final message in state)
+        _withRenamedReferences(
+          message.id == fromId ? message.copyWith(id: toId) : message,
+          swap,
+        ),
+    ];
+  }
+
+  static ChatMessage _withRenamedReferences(
+    ChatMessage message,
+    String Function(String id) swap,
+  ) {
+    final metadata = message.metadata;
+    if (metadata == null) return message;
+    final parent = metadata['parentId'];
+    final children = metadata['childrenIds'];
+    final nextParent = parent is String ? swap(parent) : parent;
+    final nextChildren = children is List
+        ? [
+            for (final child in children)
+              if (child is String) swap(child) else child,
+          ]
+        : children;
+    if (nextParent == parent &&
+        (children is! List || listEquals(children, nextChildren as List))) {
+      return message;
+    }
+    return message.copyWith(
+      metadata: <String, dynamic>{
+        ...metadata,
+        'parentId': ?nextParent,
+        'childrenIds': ?nextChildren,
+      },
+    );
+  }
+
   Future<void> resumeAfterOpenWebUiToolCall({
     required String messageId,
     required String callId,
@@ -4795,8 +4901,17 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
         state.indexWhere((message) => message.id == messageId) == -1) {
       return;
     }
+    // A coding agent (Open WebUI 0.13.1) waits on its request inside the
+    // turn that is still running: the server hands that turn the answer and
+    // starts nothing, so no task comes back, yet the reply goes on.
+    final agentRequest =
+        taskIds.isEmpty &&
+        isOpenWebUiAgentRequest(
+          state.firstWhere((message) => message.id == messageId).output,
+          callId,
+        );
     final resumeTailOwnsTask =
-        taskIds.isNotEmpty &&
+        (taskIds.isNotEmpty || agentRequest) &&
         state.isNotEmpty &&
         state.last.id == messageId &&
         state.last.role == 'assistant';
@@ -4837,7 +4952,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
       return;
     }
 
-    if (taskIds.isEmpty) {
+    if (taskIds.isEmpty && !resumeTailOwnsTask) {
       try {
         final pulled = await ref
             .read(syncEngineProvider.notifier)
@@ -4858,7 +4973,7 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     await _attachResumeSocketStream(
       conversation,
       state.last,
-      taskId: taskIds.first,
+      taskId: taskIds.firstOrNull,
     );
     if (!_disposed &&
         ref.read(activeConversationProvider)?.id == conversation.id &&

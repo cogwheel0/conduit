@@ -1183,6 +1183,8 @@ func nativeSheetSelectionWaitsForDismiss(actionId: String) -> Bool {
         // in a sheet of its own, which cannot present over this one.
         || actionId == "account-switch" || actionId == "account-add"
         || actionId == "account-sign-out" || actionId == "account-direct-edit"
+        || actionId == "account-librechat-use"
+        || actionId == "account-librechat-sign-out"
 }
 
 final class NativeSheetBridge: ConduitBridge, NativeSheetHostApi {
@@ -1303,12 +1305,18 @@ final class NativeSheetBridge: ConduitBridge, NativeSheetHostApi {
         }
     }
 
+    /// Presents Settings once; an already-open profile menu also counts as
+    /// success, without adding another navigation stack.
     func presentProfileMenu(
         config: PlatformNativeProfileSheetConfig,
         completion: @escaping (Result<Bool, Error>) -> Void
     ) {
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
+            if self.activeProfileMenuController != nil {
+                completion(.success(true))
+                return
+            }
             guard let configuration = NativeSheetConfiguration(config.asPayload())
             else {
                 completion(.failure(PigeonError(
@@ -4007,15 +4015,13 @@ private final class NativeSheetSliderTableViewCell: UITableViewCell {
         }
         slider.value = Float(current)
         refreshValueLabel(for: item, value: current)
-        valueLabel.textAlignment = item.id == "tts-speech-rate" ? .natural : .right
+        valueLabel.textAlignment = .right
     }
 
     private func refreshValueLabel(for item: NativeSheetItem, value: Double) {
         switch item.id {
         case "stt-silence-duration":
             valueLabel.text = String(format: "%.1fs", value / 1000)
-        case "tts-speech-rate":
-            valueLabel.text = "\(Int(round(value * 100)))%"
         default:
             valueLabel.text = String(format: "%.2f", value)
         }

@@ -1,7 +1,7 @@
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:flutter/foundation.dart'
-    show debugDefaultTargetPlatformOverride;
+    show Uint8List, debugDefaultTargetPlatformOverride;
 import 'package:flutter/rendering.dart' show RenderEditable, RenderObject;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
@@ -187,18 +187,13 @@ void main() {
     expect(await result, isNull);
   });
 
-  test('popup adapter preserves rich values by selecting Flutter fallback', () {
+  test('popup adapter keeps subtitles native and item images in Flutter', () {
     PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.iOS;
     PlatformUiCapabilities.debugIOSMajorVersionOverride = 26;
     PlatformUiCapabilities.debugNativeIOS26Override = true;
 
-    final native = AdaptivePopupMenuButton.text<int>(
-      label: 'Simple',
-      items: const [AdaptivePopupMenuItem<int>(label: 'One', value: 41)],
-      onSelected: (_, _) {},
-    );
-    final rich = AdaptivePopupMenuButton.text<int>(
-      label: 'Rich',
+    final subtitled = AdaptivePopupMenuButton.text<int>(
+      label: 'Subtitled',
       items: const [
         AdaptivePopupMenuItem<int>(
           label: 'One',
@@ -208,9 +203,24 @@ void main() {
       ],
       onSelected: (_, _) {},
     );
+    // UIMenu items can't show a round avatar from bytes.
+    final withImage = AdaptivePopupMenuButton.text<int>(
+      label: 'Avatar',
+      items: [
+        AdaptivePopupMenuItem<int>(
+          label: 'One',
+          imageBytes: Uint8List.fromList(const [0]),
+          value: 41,
+        ),
+      ],
+      onSelected: (_, _) {},
+    );
 
-    expect(native, isA<CNPopupMenuButton>());
-    expect(rich, isNot(isA<CNPopupMenuButton>()));
+    expect(subtitled, isA<CNPopupMenuButton>());
+    final item =
+        (subtitled as CNPopupMenuButton).items.single as CNPopupMenuItem;
+    expect(item.subtitle, 'Metadata that must not be dropped');
+    expect(withImage, isNot(isA<CNPopupMenuButton>()));
   });
 
   testWidgets('disabled Cupertino popup items are non-interactive', (

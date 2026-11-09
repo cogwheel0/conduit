@@ -976,6 +976,8 @@ class CompiledMarkdownToolCallData {
     required List<String> embedSources,
     required List<String> imageUrls,
     List<Map<String, Object?>> mcpApps = const [],
+    this.runningLabel = '',
+    this.completedLabel = '',
   }) : argumentEntries =
            List<CompiledMarkdownToolCallArgumentEntry>.unmodifiable(
              argumentEntries,
@@ -996,6 +998,11 @@ class CompiledMarkdownToolCallData {
 
   /// MCP Apps the tool call showed (Open WebUI 0.13), as their embed objects.
   final List<Map<String, Object?>> mcpApps;
+
+  /// The call's readable labels from Open WebUI 0.13.1's tool call labels:
+  /// what it is doing and what it did, or empty without one.
+  final String runningLabel;
+  final String completedLabel;
 
   /// [mcpApps] encoded once, for equality and weight: an app carries its whole
   /// tool result.
@@ -1021,7 +1028,9 @@ class CompiledMarkdownToolCallData {
       argumentEntries.fold<int>(0, (sum, entry) => sum + entry.weight) +
       embedSources.fold<int>(0, (sum, entry) => sum + entry.length) +
       imageUrls.fold<int>(0, (sum, entry) => sum + entry.length) +
-      _mcpAppsSignature.length;
+      _mcpAppsSignature.length +
+      runningLabel.length +
+      completedLabel.length;
 
   Map<String, Object?> toMap() => <String, Object?>{
     'argumentsText': argumentsText,
@@ -1036,6 +1045,8 @@ class CompiledMarkdownToolCallData {
     'embedSources': embedSources,
     'imageUrls': imageUrls,
     'mcpApps': mcpApps,
+    'runningLabel': runningLabel,
+    'completedLabel': completedLabel,
   };
 
   factory CompiledMarkdownToolCallData.fromMap(Map<String, Object?> map) {
@@ -1067,6 +1078,8 @@ class CompiledMarkdownToolCallData {
         for (final app in map['mcpApps'] as List<dynamic>? ?? const [])
           if (app is Map) app.cast<String, Object?>(),
       ],
+      runningLabel: (map['runningLabel'] ?? '') as String,
+      completedLabel: (map['completedLabel'] ?? '') as String,
     );
   }
 
@@ -1082,7 +1095,9 @@ class CompiledMarkdownToolCallData {
         other.isError == isError &&
         listEquals(other.embedSources, embedSources) &&
         listEquals(other.imageUrls, imageUrls) &&
-        other._mcpAppsSignature == _mcpAppsSignature;
+        other._mcpAppsSignature == _mcpAppsSignature &&
+        other.runningLabel == runningLabel &&
+        other.completedLabel == completedLabel;
   }
 
   @override
@@ -1097,6 +1112,8 @@ class CompiledMarkdownToolCallData {
     Object.hashAll(embedSources),
     Object.hashAll(imageUrls),
     _mcpAppsSignature,
+    runningLabel,
+    completedLabel,
   );
 }
 

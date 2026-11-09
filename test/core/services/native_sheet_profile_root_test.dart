@@ -245,6 +245,25 @@ void main() {
         nativeAccountAddActionId,
       ]);
     });
+
+    test('with LibreChat in charge, Personalization opens its Flutter page',
+        () {
+      const libreChat = NativeProfileRootVisibility(
+        showLibreChatPersonalization: true,
+      );
+      final item = _item(
+        _root(account: null, visibility: libreChat),
+        nativeLibreChatPersonalizationActionId,
+      );
+      expect(item.title, _l10n.personalization);
+      expect(item.dismissOnSelect, isTrue);
+      expect(item.actionId, nativeLibreChatPersonalizationActionId);
+      // An Open WebUI account signed in has its own AI & Memory instead.
+      expect(
+        _ids(_root(visibility: libreChat)).expand((ids) => ids),
+        isNot(contains(nativeLibreChatPersonalizationActionId)),
+      );
+    });
   });
 
   group('native Accounts page', () {

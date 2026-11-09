@@ -74,6 +74,10 @@ import 'core/services/native_symbol_image_service.dart';
 
 import 'package:conduit_core/services/readiness_gated_secure_storage.dart';
 import 'package:conduit_core/features/chat/server_speech/direct_voice_provider_settings.dart';
+import 'package:conduit_core/features/librechat/providers/librechat_providers.dart'
+    show libreChatRegistryProvider;
+import 'package:conduit_core/providers/backend_mode_providers.dart'
+    show PrimaryAccountKind, primaryAccountKindProvider;
 import 'package:conduit_core/features/chat/realtime_call/realtime_call_availability.dart';
 import 'package:conduit_core/services/settings_service.dart';
 import 'package:conduit_core/features/automations/providers/automation_providers.dart'
@@ -90,6 +94,7 @@ import 'core/utils/message_action_settings.dart';
 import 'core/utils/native_sheet_utils.dart'
     show
         nativeAccountAddActionId,
+        nativeLibreChatPersonalizationActionId,
         nativeNoVoiceProviderId,
         nativeVoiceProviderFieldIds,
         nativeAccountServerActionId,
@@ -97,6 +102,8 @@ import 'core/utils/native_sheet_utils.dart'
         nativeAccountSwitchActionId,
         nativeDirectEditActionId,
         nativeHermesUseActionId,
+        nativeLibreChatSignOutActionId,
+        nativeLibreChatUseActionId,
         nativeAdvancedFeaturesId,
         nativeSlidingSidebarId,
         nativeCitationShowTitlesId,
@@ -167,11 +174,15 @@ import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 
 import 'features/hermes/services/hermes_dashboard_rest_bridge.dart';
 import 'features/hermes/widgets/hermes_connection_switcher.dart';
+
 import 'package:conduit_core/features/chat/providers/chat_handoff_providers.dart';
+
 import 'features/chat/services/chat_handoff_host.dart';
+
 import 'package:conduit_core/providers/openwebui_accounts_controller.dart';
 import 'package:conduit_core/providers/openwebui_route_resolver.dart'
     show openWebUiRouteResolverProvider;
+
 import 'core/services/background_streaming_handler.dart';
 import 'features/profile/widgets/account_actions.dart';
 import 'features/profile/widgets/account_sheet.dart'
@@ -638,7 +649,10 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
 
   /// The native Settings rows for accounts and connections. Returns whether
   /// [actionId] was one of them.
-  Future<bool> _handleNativeAccountAction(String actionId, Object? value) async {
+  Future<bool> _handleNativeAccountAction(
+    String actionId,
+    Object? value,
+  ) async {
     final context = NavigationService.context;
     switch (actionId) {
       case nativeAccountSwitchActionId:
@@ -667,6 +681,17 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
       case nativeHermesUseActionId:
         if (context == null || value is! String) return true;
         await useHermesConnection(context, ref, value);
+        return true;
+      case nativeLibreChatUseActionId:
+        if (context == null || value is! String) return true;
+        await switchToLibreChatAccount(context, ref, value);
+        return true;
+      case nativeLibreChatSignOutActionId:
+        if (context == null || value is! String) return true;
+        final registry = await ref.read(libreChatRegistryProvider.future);
+        final account = registry.byId(value);
+        if (account == null || !context.mounted) return true;
+        await signOutOfLibreChatAccount(context, account);
         return true;
       case nativeDirectEditActionId:
         if (context == null || value is! String) return true;
@@ -824,6 +849,25 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
           return;
         }
         final request = scheduledTasksNativeSheetNavigationRequest;
+        unawaited(
+          NavigationService.router.pushNamed<void>(
+            request.routeName,
+            extra: request.extra,
+          ),
+        );
+        return;
+      }
+
+      if (event.id == nativeLibreChatPersonalizationActionId) {
+        // As for Scheduled tasks: a row from a sheet built while LibreChat
+        // was in charge must not navigate once it no longer is.
+        if (ref.read(primaryAccountKindProvider) !=
+            PrimaryAccountKind.libreChat) {
+          _showNativeOptionUnavailable();
+          return;
+        }
+        // As the other rows' pages: the sheet slides away, not the page in.
+        final request = libreChatPersonalizationNativeSheetNavigationRequest;
         unawaited(
           NavigationService.router.pushNamed<void>(
             request.routeName,
@@ -1078,14 +1122,10 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
                 .read(appSettingsProvider.notifier)
                 .setVoiceSilenceDuration(ms);
           }
-        case 'tts-speech-rate':
-          final rate = switch (value) {
-            final double d => d,
-            final int i => i.toDouble(),
-            _ => double.tryParse('$value'),
-          };
-          if (rate != null) {
-            await ref.read(appSettingsProvider.notifier).setTtsSpeechRate(rate);
+        case 'tts-speed':
+          final speed = double.tryParse('$value');
+          if (speed != null) {
+            await ref.read(appSettingsProvider.notifier).setTtsSpeed(speed);
           }
         case 'tts-preview':
           final text = value is String ? value : null;

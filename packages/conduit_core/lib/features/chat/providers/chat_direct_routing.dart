@@ -641,6 +641,11 @@ DatabaseManager _directDatabaseManager(
 ) => switch (location.storage) {
   ChatStorageKind.openWebUi => ref.read(databaseManagerProvider),
   ChatStorageKind.directLocal => ref.read(directLocalDatabaseManagerProvider),
+  // A LibreChat chat only ever talks to LibreChat, so no Direct turn holds
+  // its database.
+  ChatStorageKind.libreChat => throw StateError(
+    'Direct turns never write to a LibreChat chat.',
+  ),
 };
 
 DatabaseLifetimeLease? _tryAcquireDirectDatabaseLease(

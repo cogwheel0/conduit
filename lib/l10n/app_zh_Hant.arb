@@ -264,6 +264,7 @@
   "folderName": "文件夾名稱",
   "newChat": "新對話",
   "more": "更多",
+  "done": "完成",
   "clear": "清除",
   "searchConversations": "搜索對話...",
   "create": "創建",
@@ -525,7 +526,17 @@
     }
   },
   "ttsVoice": "語音",
-  "ttsSpeechRate": "語速",
+  "ttsPlaybackSpeed": "播放速度",
+  "ttsSpeedValue": "{speed}×",
+  "@ttsSpeedValue": {
+    "placeholders": {
+      "speed": {
+        "type": "double",
+        "format": "decimalPattern",
+        "example": "1.25"
+      }
+    }
+  },
   "ttsPitch": "音調",
   "ttsVolume": "音量",
   "ttsPreview": "預覽語音",
@@ -1079,6 +1090,24 @@
   "usageQueueTime": "排隊時間",
   "usageReasoningTokens": "推理 token",
   "usageTotalTokens": "總 token",
+  "usageContextWindow": "上下文視窗",
+  "usageContextWindowValue": "{percent} · {used} / {total}",
+  "@usageContextWindowValue": {
+    "placeholders": {
+      "percent": {
+        "type": "String",
+        "example": "62%"
+      },
+      "used": {
+        "type": "String",
+        "example": "79K"
+      },
+      "total": {
+        "type": "String",
+        "example": "128K"
+      }
+    }
+  },
   "proxyAuthentication": "代理認證",
   "proxyAuthPlatformNotSupported": "代理認證需要行動裝置。請先透過瀏覽器進行認證。",
   "proxyAuthLoading": "正在載入認證頁面...",
@@ -1119,6 +1148,7 @@
   "saveChat": "儲存聊天",
   "temporaryChatByDefault": "預設暫時聊天",
   "temporaryChatByDefaultDescription": "新聊天不會儲存到歷史記錄，除非您選擇儲存",
+  "libreChatTemporaryChatOff": "LibreChat 會儲存所有聊天。請關閉暫時聊天後再傳送。",
   "advancedFeatures": "進階",
   "advancedFeaturesDescription": "顯示進階使用者的工具與設定。",
   "chatSettingsTitle": "聊天設定",
@@ -3430,6 +3460,7 @@
   "hermesTurnSendNext": "傳送下一則",
   "hermesTurnControlsUnsupported": "請升級 Hermes 以啟用安全的回合控制。",
   "sidebarHermesTab": "Hermes",
+  "sidebarBackendSwitcher": "後端",
   "markdownShowMoreLines": "再顯示 {count} 行",
   "@markdownShowMoreLines": {"placeholders":{"count":{"type":"int"}}},
   "markdownShowLess": "收合",
@@ -4251,7 +4282,7 @@
   "calendarRemoveEnd": "移除結束時間",
   "calendarEventReadOnlyNotInvited": "您無法變更此活動。",
   "calendarFieldOrganizer": "主辦人",
-  "calendarColorName": "{color, select, blue{藍色} green{綠色} amber{琥珀色} red{紅色} purple{紫色} teal{青色} other{顏色}}",
+  "calendarColorName": "{color, select, blue{藍色} green{綠色} amber{琥珀色} red{紅色} purple{紫色} teal{青色} custom{自訂顏色} other{顏色}}",
   "calendarVisibilityFooter": "會顯示已勾選行事曆中的活動。輕點行事曆可顯示或隱藏其活動。",
   "personalizationMemoryTypeUserDescription": "關於你的偏好、事實或指示。",
   "personalizationMemoryTypeContextDescription": "在之後的聊天中需要記住的背景資訊。",
@@ -4382,5 +4413,36 @@
   "mcpAppOpenLinkConfirm": "開啟",
   "terminalPortPreviewForward": "前進",
   "terminalPortPreviewReload": "重新載入",
-  "terminalPortPreviewLoadFailed": "無法載入此頁面。"
+  "terminalPortPreviewLoadFailed": "無法載入此頁面。",
+  "modelMenuAllModels": "所有模型…",
+  "citationPreviewOpen": "開啟",
+  "workspacePromptHistoryDiffTooLarge": "這些版本過長，無法比較。",
+  "libreChatTitle": "LibreChat",
+  "libreChatBetaLabel": "測試版",
+  "libreChatChooserSubtitle": "登入你的 LibreChat 伺服器，同步聊天、代理程式等。",
+  "libreChatAddAccount": "新增 LibreChat 帳號",
+  "libreChatFileSearch": "檔案搜尋",
+  "libreChatFileSearchDescription": "在已上傳的檔案中尋找答案。",
+  "libreChatMcpConnect": "在 LibreChat 中連線",
+  "libreChatApprovalRun": "允許執行 {tool} 嗎？",
+  "libreChatQuestionProgress": "第 {current} 個問題，共 {total} 個",
+  "libreChatAnswerFailed": "無法傳送你的回答，請再試一次。",
+  "libreChatApprovalRespond": "回應",
+  "libreChatApprovalArguments": "引數（JSON）",
+  "libreChatAddAccountMessage": "輸入你的 LibreChat 伺服器位址。",
+  "libreChatInvalidAddress": "輸入伺服器位址，例如 chat.example.com。",
+  "libreChatUnreachable": "無法連線到伺服器。請檢查位址和網路連線。",
+  "libreChatNotLibreChat": "此伺服器不是 LibreChat。請檢查位址。",
+  "libreChatIsOpenWebUi": "這是 Open WebUI 伺服器。請在 Open WebUI 分頁中新增。",
+  "libreChatPasswordSignInOff": "此伺服器僅允許單一登入。",
+  "libreChatGoogleUnsupported": "Google 不允許在 App 內登入。請使用其他方式登入。",
+  "libreChatSsoUnfinished": "登入未完成。請再試一次。",
+  "libreChatChangeServer": "使用其他伺服器",
+  "libreChatSessionEnded": "你在 {server} 上的工作階段已結束。請重新登入。",
+  "libreChatDuplicateChat": "複製對話",
+  "libreChatCopyFailed": "無法複製對話。請檢查網路連線後再試一次。",
+  "libreChatMemoryKeyLabel": "鍵",
+  "libreChatMemoryKeyHint": "例如 preferences",
+  "libreChatMemoryKeyRequired": "請為記憶指定一個鍵。",
+  "libreChatMemoryUsage": "已使用 {used} / {limit} 個 token"
 }
