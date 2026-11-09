@@ -12,6 +12,7 @@ import 'package:conduit/shared/widgets/utility_components.dart';
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit_core/models/backend_config.dart';
 import 'package:conduit_core/models/server_config.dart';
+import 'package:cupertino_ui/cupertino_ui.dart' show CupertinoIcons;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
 
@@ -40,6 +41,14 @@ void main() {
 
   AuthPrimaryButton primaryButton(WidgetTester tester) =>
       tester.widget<AuthPrimaryButton>(find.byType(AuthPrimaryButton));
+
+  AdaptiveButton primaryButtonSurface(WidgetTester tester) =>
+      tester.widget<AdaptiveButton>(
+        find.descendant(
+          of: find.byType(AuthPrimaryButton),
+          matching: find.byType(AdaptiveButton),
+        ),
+      );
 
   AuthGroupedTextField labelledField(WidgetTester tester, String label) =>
       tester
@@ -96,6 +105,13 @@ void main() {
     await tester.pump();
     check(primaryButton(tester).onPressed).isNull();
     check(primaryButton(tester).label).equals('Connect');
+    // Waiting, its label drops to the secondary tone rather than fading
+    // out, so it still reads as the step's button.
+    final buttonTheme = tester
+        .element(find.byType(AuthPrimaryButton))
+        .conduitTheme;
+    check(primaryButtonSurface(tester).textColor)
+        .equals(buttonTheme.textSecondary);
     await tester.enterText(
       find.descendant(
         of: find.byKey(const ValueKey<String>('server-url-field')),
@@ -105,6 +121,9 @@ void main() {
     );
     await tester.pump();
     check(primaryButton(tester).onPressed).isNotNull();
+    check(primaryButtonSurface(tester).textColor)
+        .equals(buttonTheme.buttonPrimaryText);
+    check(primaryButtonSurface(tester).color).equals(buttonTheme.buttonPrimary);
 
     // Advanced Settings is a disclosure row in the address's own group,
     // under the field and above the footer; it opens grouped sections at
@@ -211,8 +230,9 @@ void main() {
     await tester.pump();
     check(password.focusNode!.hasFocus).isTrue();
 
-    // Change is a plain text button: no fill behind it to rival the
-    // step's primary action.
+    // Change is a plain button, as a bar button is: no fill or capsule
+    // behind it to rival the step's primary action, and a semibold label in
+    // the button colour so it still reads as tappable without colour.
     final change = find.byKey(
       const ValueKey<String>('authentication-change-server'),
     );
@@ -223,8 +243,21 @@ void main() {
     final changeLabel = tester.widget<Text>(
       find.descendant(of: change, matching: find.text('Change')),
     );
-    check((changeLabel.style?.fontWeight ?? FontWeight.w400).value)
-        .isLessThan(FontWeight.w500.value);
+    final theme = tester.element(change).conduitTheme;
+    check(changeLabel.style?.fontWeight).equals(FontWeight.w600);
+    check(changeLabel.style?.color).equals(theme.buttonPrimary);
+
+    // The password's show/hide eye is a secondary-tone accessory with a
+    // full touch target that names what it will do.
+    final eye = find.byKey(
+      const ValueKey<String>('authentication-password-visibility'),
+    );
+    check(tester.getSize(eye).height).isGreaterOrEqual(TouchTarget.minimum);
+    check(tester.getSize(eye).width).isGreaterOrEqual(TouchTarget.minimum);
+    final eyeIcon = tester.widget<Icon>(
+      find.descendant(of: eye, matching: find.byType(Icon)),
+    );
+    check(eyeIcon.color).equals(theme.textSecondary);
 
     // The row reads as one element and Change stays its own button.
     final semantics = tester.ensureSemantics();
@@ -233,7 +266,19 @@ void main() {
       findsOneWidget,
     );
     expect(find.bySemanticsLabel('Change'), findsOneWidget);
+    expect(find.bySemanticsLabel('Show Password'), findsOneWidget);
     semantics.dispose();
+
+    await tester.tap(eye);
+    await tester.pump();
+    check(labelledField(tester, 'Password').obscureText).isFalse();
+    expect(
+      find.descendant(of: eye, matching: find.byIcon(CupertinoIcons.eye)),
+      findsOneWidget,
+    );
+    await tester.tap(eye);
+    await tester.pump();
+    check(labelledField(tester, 'Password').obscureText).isTrue();
 
     await tester.tap(
       find.byKey(const ValueKey<String>('authentication-change-server')),

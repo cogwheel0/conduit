@@ -915,9 +915,9 @@ class AuthPrimaryButton extends StatelessWidget {
     // unavailable -- and only stops further taps.
     final filled = enabled || busy;
     final text = busy ? withEllipsis(busyLabel ?? label) : label;
-    final foreground = filled
-        ? theme.buttonPrimaryText
-        : theme.textPrimary.withValues(alpha: theme.isDark ? 0.4 : 0.32);
+    // Unavailable, the label drops to the secondary tone rather than fading
+    // out: the control still reads as the step's button, only not yet ready.
+    final foreground = filled ? theme.buttonPrimaryText : theme.textSecondary;
     final background = filled
         ? theme.buttonPrimary
         : theme.textPrimary.withValues(alpha: theme.isDark ? 0.14 : 0.08);
