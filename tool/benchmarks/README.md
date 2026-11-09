@@ -126,3 +126,41 @@ construction, Material and Cupertino thumb dragging across 10,000 messages,
 continuous dragging within one tall message, chat changes during a held drag,
 animated navigation to both ends, and the existing streaming/anchor/resize
 behavior.
+
+## Repeated Markdown prewarm lookup
+
+Run the production content cache against the previous eligibility check in one
+profile-mode process, using newly invented strings without a server connection:
+
+```sh
+flutter run --profile -t tool/benchmarks/markdown_prewarm.dart
+```
+
+For each payload size, the harness checks twelve immutable assistant messages in
+uncached/cached/cached/uncached order. Each run warms its lookup once, then times
+100 batches. The strings have no surrounding whitespace, so this comparison
+measures repeated image-marker scans without an additional trimming allocation.
+`MARKDOWN_PREWARM_RESULT` reports each run's summary;
+`MARKDOWN_PREWARM_SAMPLES` emits the raw batches in chunks indexed by run and
+offset. `MARKDOWN_PREWARM_DONE` marks completion.
+
+[All 1,200 raw batch samples and summaries](markdown_prewarm_results.json) were
+collected on an Android arm64 emulator with Flutter 3.47.9 / Dart 3.13.7, with no
+recording or concurrent builds. The ranges below span the two runs of each
+variant. All values are **microseconds per twelve-message batch**.
+
+| Payload per message | Uncached p50 | Cached p50 | Uncached p99 | Cached p99 |
+| --- | --- | --- | --- | --- |
+| 8 KiB | 140.125–154.000 | 0.708 | 203.334–565.375 | 0.958–1.084 |
+| 128 KiB | 2,383.500–2,393.875 | 0.459 | 2,913.084–2,972.917 | 0.709–1.083 |
+| 1 MiB | 19,159.917–19,261.833 | 0.459 | 19,930.250–40,619.875 | 1.000–1.125 |
+
+The final uncached 1 MiB run had a 54,216.584 µs maximum; the preceding uncached
+run's maximum was 20,728.917 µs. The raw values retain these outliers. Percentiles
+use sorted sample indices 49, 94 and 98 for p50, p95 and p99 respectively.
+
+This isolates eligibility and trimmed-content reuse, not Markdown compilation,
+first-use scans, frame timing, or presentation. Every new immutable message still
+pays its first scan; edits and streaming updates create new identities. Weak
+identity keys allow departed messages and their cached contents to be collected.
+These measurements do not establish a display frame-rate improvement.

@@ -3517,24 +3517,19 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       visibleMessageIds: _timelineViewportController.visibleMessageIds,
       maxCount: 12,
     );
-    final filteredCandidateIndices = <int>[];
+    final rawContents = <String>[];
     final signatureParts = <String>[];
 
     for (final index in candidateIndices) {
       final message = messages[index];
-      final content = message.content.trim();
-      if (message.isStreaming ||
-          content.isEmpty ||
-          content.contains('data:image/')) {
-        continue;
-      }
-      filteredCandidateIndices.add(index);
+      final content = _markdownPrewarmContentCache.contentFor(message);
+      rawContents.add(content);
       signatureParts.add(
         '$index:${message.id}:${_cheapMarkdownPrewarmContentSignature(content)}',
       );
     }
 
-    if (filteredCandidateIndices.isEmpty) {
+    if (rawContents.isEmpty) {
       _markdownPrewarmThrottle.cancel();
       _lastMarkdownPrewarmSignature = null;
       return;
@@ -3545,9 +3540,6 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       return;
     }
 
-    final rawContents = filteredCandidateIndices
-        .map((index) => messages[index].content.trim())
-        .toList(growable: false);
     _lastMarkdownPrewarmSignature = signature;
     _markdownPrewarmThrottle.schedule(rawContents, (pendingContents) {
       if (!mounted) return;
@@ -6025,6 +6017,24 @@ bool _visibleMessageIdsGained({
   return current.any((id) => !previousSet.contains(id));
 }
 
+final _markdownPrewarmContentCache = MarkdownPrewarmContentCache();
+
+class MarkdownPrewarmContentCache {
+  // Messages are immutable. Weak identity keys avoid rescanning long strings
+  // while scrolling, invalidate on edits, and do not retain departed chats.
+  final _contents = Expando<String>();
+
+  String contentFor(ChatMessage message) {
+    final cached = _contents[message];
+    if (cached != null) return cached;
+    if (message.role != 'assistant' || message.isStreaming) {
+      return _contents[message] = '';
+    }
+    final content = message.content.trim();
+    return _contents[message] = content.contains('data:image/') ? '' : content;
+  }
+}
+
 @visibleForTesting
 class MarkdownPrewarmThrottle {
   MarkdownPrewarmThrottle({this.delay = const Duration(milliseconds: 220)});
@@ -6090,15 +6100,7 @@ List<int> _selectMarkdownPrewarmCandidatesFromVisibleIds({
         layoutMetadata.rows[index].isArchivedVariant) {
       return;
     }
-    final message = messages[index];
-    if (message.role != 'assistant') {
-      return;
-    }
-    if (message.isStreaming) {
-      return;
-    }
-    final content = message.content.trim();
-    if (content.isEmpty || content.contains('data:image/')) {
+    if (_markdownPrewarmContentCache.contentFor(messages[index]).isEmpty) {
       return;
     }
     seen.add(index);
