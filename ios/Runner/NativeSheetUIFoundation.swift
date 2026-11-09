@@ -10,6 +10,29 @@ func nativeSheetColor(_ argb: Int64) -> UIColor {
     )
 }
 
+/// How much white dark mode washes over a presented surface: #000 becomes
+/// about #1C1C1E and #141414 about #2C2C2E, UIKit's elevated grouped
+/// background and its groups.
+let nativeSheetDarkElevation: CGFloat = 0.11
+
+/// [color] as a surface presented over the page shows it: lifted by
+/// [nativeSheetDarkElevation] in dark mode, unchanged in light mode, where
+/// iOS keeps a sheet's colours.
+func nativeSheetElevated(_ color: UIColor, isDark: Bool) -> UIColor {
+    guard isDark else { return color }
+    var red: CGFloat = 0, green: CGFloat = 0, blue: CGFloat = 0, alpha: CGFloat = 0
+    guard color.getRed(&red, green: &green, blue: &blue, alpha: &alpha) else {
+        return color
+    }
+    let wash = nativeSheetDarkElevation
+    return UIColor(
+        red: red + (1 - red) * wash,
+        green: green + (1 - green) * wash,
+        blue: blue + (1 - blue) * wash,
+        alpha: alpha
+    )
+}
+
 /// The palette shared by every UIKit surface that Conduit presents. It keeps
 /// native typography, layout, and materials while matching the Flutter theme.
 final class NativeSheetTheme {
@@ -36,10 +59,20 @@ final class NativeSheetTheme {
 
     func update(_ theme: PlatformNativeSheetTheme) {
         isDark = theme.isDark
-        background = nativeSheetColor(theme.backgroundArgb)
-        surface = nativeSheetColor(theme.surfaceArgb)
-        elevatedSurface = nativeSheetColor(theme.elevatedSurfaceArgb)
-        input = nativeSheetColor(theme.inputArgb)
+        // Everything drawn in these colours is presented over the page: a
+        // sheet, a menu. In dark mode iOS lifts such content onto its
+        // elevated colours (#1C1C1E over a #000 page, #2C2C2E groups), or a
+        // sheet in the page's own black would vanish into its dimmed page.
+        // The palette's surfaces take the same lift, as a white wash, so a
+        // tinted dark palette keeps its hue.
+        let dark = theme.isDark
+        func lift(_ argb: Int64) -> UIColor {
+            nativeSheetElevated(nativeSheetColor(argb), isDark: dark)
+        }
+        background = lift(theme.backgroundArgb)
+        surface = lift(theme.surfaceArgb)
+        elevatedSurface = lift(theme.elevatedSurfaceArgb)
+        input = lift(theme.inputArgb)
         foreground = nativeSheetColor(theme.foregroundArgb)
         secondaryForeground = nativeSheetColor(theme.secondaryForegroundArgb)
         icon = nativeSheetColor(theme.iconArgb)

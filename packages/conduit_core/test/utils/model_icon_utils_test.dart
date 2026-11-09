@@ -17,7 +17,7 @@ final _appleModels = <DirectRemoteModel>[
 
 void main() {
   group('Apple Foundation Models avatar', () {
-    test('both Apple models resolve to Apple\'s own mark', () {
+    test('each Apple model shows where it runs, as Welcome does', () {
       final registry = DirectModelRegistry();
       final pcc = registry.replaceProfileModels(
         DirectConnectionProfile.applePrivateCloudCompute(),
@@ -28,9 +28,13 @@ void main() {
         [_appleModels.last],
       );
 
-      for (final model in [...pcc, ...onDevice]) {
+      for (final model in pcc) {
         check(resolveModelIconUrlForModel(null, model))
-            .equals('$kNativeSymbolUrlScheme$kAppleIntelligenceSymbol');
+            .equals('$kNativeSymbolUrlScheme$kApplePrivateCloudModelSymbol');
+      }
+      for (final model in onDevice) {
+        check(resolveModelIconUrlForModel(null, model))
+            .equals('$kNativeSymbolUrlScheme$kAppleOnDeviceModelSymbol');
       }
     });
 
