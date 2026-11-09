@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:flutter/foundation.dart' show mapEquals, visibleForTesting;
 import 'package:material_ui/material_ui.dart';
@@ -166,6 +168,10 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
 
   /// Whether the system browser is open for a sign-in.
   bool _browserOpen = false;
+
+  /// The actions of the browser sign-in waiting on the browser, to cancel
+  /// it with.
+  AuthActions? _browserActions;
 
   ConnectionAttemptState get _attemptState {
     final l10n = AppLocalizations.of(context)!;
@@ -391,6 +397,8 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
     _ldapUsernameFocus.dispose();
     _ldapPasswordFocus.dispose();
     _tokenFocus.dispose();
+    // Left while the browser is open: nothing waits for its answer now.
+    if (_browserOpen) unawaited(_browserActions?.cancelBrowserSignIn());
     _usernameController.dispose();
     _passwordController.dispose();
     _apiKeyController.dispose();
@@ -1175,6 +1183,7 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
       }
       if (!mounted) return;
       final actions = ref.read(authActionsProvider);
+      _browserActions = actions;
       // Chosen for a server being added: saved on its server now that the
       // server is, before the browser opens, so a cancel keeps it.
       final accountId = _signInAccountId;
@@ -1215,6 +1224,7 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
       setState(() => _loginError = _formatLoginError(e.toString()));
       ConduitHaptics.error();
     } finally {
+      _browserActions = null;
       if (mounted) {
         setState(() {
           _isSigningIn = false;
@@ -1222,6 +1232,14 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
         });
       }
     }
+  }
+
+  /// Ends the browser sign-in waiting on the browser, as closing the browser
+  /// would. Some browsers can't be closed from the app (Android's default
+  /// browser), and the sign-in would wait for them until it timed out.
+  void _cancelBrowserSignIn() {
+    final actions = _browserActions;
+    if (actions != null) unawaited(actions.cancelBrowserSignIn());
   }
 
   /// Opens the server's own sign-in in the browser: a first sign-in there
@@ -1507,10 +1525,18 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
     // button sets it up.
     final setUpOnly = _authMode == AuthMode.sso && !browser && !_hasWebViewSso;
 
-    String buttonText;
     if (_browserOpen) {
-      buttonText = l10n.browserSignInWaiting;
-    } else if (_isSigningIn) {
+      return ConduitButton(
+        key: const ValueKey<String>('authentication-sign-in-button'),
+        text: l10n.cancel,
+        onPressed: _cancelBrowserSignIn,
+        isSecondary: true,
+        isFullWidth: true,
+      );
+    }
+
+    String buttonText;
+    if (_isSigningIn) {
       buttonText = l10n.signingIn;
     } else if (browser) {
       buttonText = l10n.browserSignInContinue;
