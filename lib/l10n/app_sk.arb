@@ -241,11 +241,11 @@
   "@apiKey": {
     "description": "Label for API key input field."
   },
-  "token": "Token relácie",
+  "token": "Token",
   "@token": {
     "description": "Label for JWT token input field."
   },
-  "jwt": "Token relácie",
+  "jwt": "Token",
   "usernameOrEmail": "Používateľské meno alebo e-mail",
   "@usernameOrEmail": {
     "description": "Label for username/email input field."
@@ -1260,11 +1260,11 @@
   "@enterToken": {
     "description": "Hint text for JWT token input."
   },
-  "tokenHint": "Token JWT získate v nastaveniach Open WebUI. Kľúče API (sk-...) nie sú pre streamovanie podporované.",
+  "tokenHint": "Vložte token JWT z webového Open WebUI, z Nastavenia › Účet › Kľúče API. Kľúče API (sk-…) tu použiť nemožno.",
   "@tokenHint": {
     "description": "Help text explaining what type of token to use."
   },
-  "apiKeyNotSupported": "Kľúče API (sk-...) nie sú podporované. Namiesto toho použite token JWT.",
+  "apiKeyNotSupported": "Kľúče API (sk-…) nemožno použiť na prihlásenie. Vložte namiesto toho token JWT.",
   "@apiKeyNotSupported": {
     "description": "Error message when user tries to use an API key instead of JWT token."
   },
