@@ -1485,12 +1485,19 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         );
       } else {
         var admissionConfirmed = false;
-        // A Hermes or Direct turn says when it goes to its run.
+        final directBinding = ref
+            .read(directModelRegistryProvider)
+            .resolve(selectedModel);
+        // A Hermes or device Direct turn says when it goes to its run; an
+        // Open WebUI Direct one, sent through the server, does not.
         final signalsTurnStart =
             isHermesModel(selectedModel) ||
-            ref.read(directModelRegistryProvider).resolve(selectedModel) !=
-                null;
-        final usesOutbox = hasDurableOutbox && !signalsTurnStart;
+            directBinding?.source == DirectModelSource.device;
+        // Every Direct binding is sent inline, with no outbox receipt.
+        final usesOutbox =
+            hasDurableOutbox &&
+            !isHermesModel(selectedModel) &&
+            directBinding == null;
         await durableSend(
           ref,
           text,
@@ -1523,8 +1530,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         );
         // Inline backends have no outbox receipt. Keep their draft until
         // the existing send path has accepted it successfully. A Hermes or
-        // Direct turn that never went to its run (a new session that could
-        // not be made) keeps it too.
+        // device Direct turn that never went to its run (a new session that
+        // could not be made) keeps it too.
         if (!admissionConfirmed && pendingSend != null && !signalsTurnStart) {
           onDraftCommitted?.call(pendingSend!);
         }

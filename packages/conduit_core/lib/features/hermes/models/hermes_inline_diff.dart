@@ -33,9 +33,18 @@ const int _kMaxRedactedSecretLength = 8192;
 /// ([boundedSensitiveValueVariants]).
 const int _kMaxRedactedSecretVariants = 32;
 
-/// The shortest part of a secret looked for on its own: shorter ones (a
-/// cookie's `theme=dark`) are words a diff holds anyway.
+/// The shortest part of a secret redacted wherever it shows. A shorter one
+/// (`abc` of `Token abc`, `dark` of `theme=dark`) is a word a diff holds
+/// anyway: one that shows on its own refuses the diff instead.
 const int _kMinRedactedSecretPartLength = 6;
+
+/// Whether [part] shows in [text] on its own, not inside a longer word or
+/// token (the characters a credential is made of).
+bool _showsAlone(String text, String part) => RegExp(
+  r'(?<![A-Za-z0-9._~+/=-])' +
+      RegExp.escape(part) +
+      r'(?![A-Za-z0-9._~+/=-])',
+).hasMatch(text);
 
 final RegExp _hunkHeader = RegExp(
   r'^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@',
@@ -46,14 +55,16 @@ final RegExp _hunkHeader = RegExp(
 /// Bearer tokens) redacted, line breaks kept, bounded. Each secret is looked
 /// for with its parts too: an access header's `Token abc123` can be shown as
 /// `abc123` alone, a cookie's as one of its pairs. Null when nothing is left,
-/// or when a connection secret is too long, or has too many parts, to look
-/// for: the diff could hold it, unredacted.
+/// when a connection secret is too long, or has too many parts, to look
+/// for, or when a part too short to tell from an ordinary word shows on its
+/// own: the diff could hold it, unredacted.
 String? sanitizeHermesInlineDiff(
   String raw, {
   Iterable<String> sensitiveValues = const <String>[],
   int maxCharacters = kMaxHermesInlineDiffCharacters,
 }) {
   final found = <String>{};
+  final short = <String>{};
   for (final secret in sensitiveValues) {
     if (secret.isEmpty) continue;
     final parts = boundedSensitiveValueVariants(
@@ -64,7 +75,7 @@ String? sanitizeHermesInlineDiff(
     if (parts == null) return null;
     found.add(secret);
     for (final part in parts) {
-      if (part.length >= _kMinRedactedSecretPartLength) found.add(part);
+      (part.length >= _kMinRedactedSecretPartLength ? found : short).add(part);
     }
   }
   final secrets = found.toList(growable: false)
@@ -85,6 +96,7 @@ String? sanitizeHermesInlineDiff(
     sensitiveValues: secrets,
     maxVisibleScalars: maxCharacters,
   );
+  if (short.any((part) => _showsAlone(safe, part))) return null;
   return safe.trim().isEmpty ? null : safe;
 }
 

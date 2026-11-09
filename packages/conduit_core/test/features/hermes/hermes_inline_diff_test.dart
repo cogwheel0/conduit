@@ -279,7 +279,6 @@ void main() {
         [
           '+key = synthetic-header-token-51',
           '+session = synthetic-cookie-52',
-          '+theme = dark',
         ].join('\n'),
         sensitiveValues: const [
           'Token synthetic-header-token-51',
@@ -287,12 +286,37 @@ void main() {
         ],
       )!;
 
-      check(safe.split('\n')).deepEquals([
-        '+key = [REDACTED]',
-        '+session = [REDACTED]',
-        // Too short to be a credential of its own.
-        '+theme = dark',
-      ]);
+      check(
+        safe.split('\n'),
+      ).deepEquals(['+key = [REDACTED]', '+session = [REDACTED]']);
+    });
+
+    // `abc` of `Token abc` was too short to look for, and showed alone.
+    test('a short part of a secret shown alone refuses the diff', () {
+      for (final line in ['+key = abc', '+theme = "dark"']) {
+        check(
+          sanitizeHermesInlineDiff(
+            line,
+            sensitiveValues: const ['Token abc', 'theme=dark'],
+          ),
+        ).isNull();
+      }
+    });
+
+    test('a short part inside a longer word keeps the diff', () {
+      check(
+        sanitizeHermesInlineDiff(
+          '+cabcd = darkness',
+          sensitiveValues: const ['Token abc', 'theme=dark'],
+        ),
+      ).equals('+cabcd = darkness');
+      // The whole value is redacted, so its short part shows nowhere.
+      check(
+        sanitizeHermesInlineDiff(
+          '+auth: Token abc',
+          sensitiveValues: const ['Token abc'],
+        ),
+      ).isNotNull().not((it) => it.contains('abc'));
     });
 
     test('a secret with too many parts to search for refuses the diff', () {
