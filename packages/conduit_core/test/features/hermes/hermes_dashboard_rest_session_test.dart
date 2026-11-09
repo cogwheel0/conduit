@@ -4,6 +4,7 @@ import 'package:checks/checks.dart';
 import 'package:conduit_core/features/hermes/services/hermes_dashboard_bridge.dart';
 import 'package:conduit_core/features/hermes/services/hermes_dashboard_rest_session.dart';
 import 'package:conduit_core/features/hermes/services/hermes_dashboard_webview_rules.dart';
+import 'package:fake_async/fake_async.dart';
 import 'package:test/test.dart';
 
 final class _FakePage implements HermesDashboardPage {
@@ -237,7 +238,7 @@ void main() {
   });
 
   test('an urgent request does not wait behind a long one', () async {
-    final bridge = session(requestTimeout: const Duration(milliseconds: 50));
+    final bridge = session();
     await bridge.request('GET', Uri.parse('https://hermes.example/warm'));
     final page = pages.single;
     final held = page.hold = Completer<void>();
@@ -294,33 +295,49 @@ void main() {
     );
   });
 
-  test('a timed-out trigger leaves Stop its page until it answers', () async {
-    final bridge = session(requestTimeout: const Duration(milliseconds: 800));
-    await bridge.request('GET', Uri.parse('https://hermes.example/warm'));
-    final page = pages.single;
-    final held = page.hold = Completer<void>();
-    // Run now holds the queue; Stop goes out beside it, just before Run
-    // now's deadline.
-    final trigger = bridge.request(
-      'POST',
-      Uri.parse('https://hermes.example/trigger'),
-    );
-    await Future<void>.delayed(const Duration(milliseconds: 300));
-    final stop = bridge.request(
-      'POST',
-      Uri.parse('https://hermes.example/cancel'),
-      urgent: true,
-    );
+  // In fake time: on a loaded runner, real delays could pass Stop's own
+  // deadline or land before the trigger's.
+  test('a timed-out trigger leaves Stop its page until it answers', () {
+    fakeAsync((async) {
+      final bridge = session(requestTimeout: const Duration(seconds: 1));
+      unawaited(bridge.request('GET', Uri.parse('https://hermes.example/w')));
+      async.elapse(Duration.zero);
+      final page = pages.single;
+      final held = page.hold = Completer<void>();
+      // Run now holds the queue; Stop goes out beside it, just before Run
+      // now's deadline.
+      Object? triggerError;
+      bridge
+          .request('POST', Uri.parse('https://hermes.example/trigger'))
+          .then(
+            (_) {},
+            onError: (Object error) {
+              triggerError = error;
+            },
+          );
+      async.elapse(const Duration(milliseconds: 900));
+      int? stopStatus;
+      bridge
+          .request(
+            'POST',
+            Uri.parse('https://hermes.example/cancel'),
+            urgent: true,
+          )
+          .then((answer) => stopStatus = answer.status);
+      async.elapse(Duration.zero);
 
-    // Past the trigger's deadline: its page is left, not yet closed.
-    final triggerFailed = check(trigger).throws<TimeoutException>();
-    await Future<void>.delayed(const Duration(milliseconds: 650));
-    check(page.disposed).isFalse();
+      // Past the trigger's deadline: its page is left, not yet closed, and
+      // the trigger fails once Stop has its answer.
+      async.elapse(const Duration(milliseconds: 200));
+      check(page.disposed).isFalse();
+      check(stopStatus).isNull();
 
-    held.complete();
-    check((await stop).status).equals(200);
-    await triggerFailed;
-    check(page.disposed).isTrue();
+      held.complete();
+      async.elapse(Duration.zero);
+      check(stopStatus).equals(200);
+      check(triggerError).isA<TimeoutException>();
+      check(page.disposed).isTrue();
+    });
   });
 
   test('close waits for an urgent request still answering', () async {

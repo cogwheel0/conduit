@@ -222,14 +222,17 @@ class AdaptiveDropdownField<T> extends StatelessWidget {
   ) async {
     final selection = await showAdaptiveNativeSingleChoice<T>(
       context: context,
-      value: value,
+      // What the field shows: a choice its parent has not rebuilt with yet.
+      value: state.value,
       options: options,
       title: nativeTitle ?? decoration.labelText,
       cancelLabel:
           cancelLabel ?? MaterialLocalizations.of(context).cancelButtonLabel,
     );
     if (!context.mounted || !state.mounted) return;
-    if (selection == null) return;
+    // As for the pop-up button: a field disabled while the sheet was open
+    // takes no choice.
+    if (selection == null || !state.widget.enabled) return;
     state.didChange(selection.value);
     onChanged?.call(selection.value);
   }
