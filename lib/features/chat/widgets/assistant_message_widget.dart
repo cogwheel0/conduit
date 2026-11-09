@@ -1661,14 +1661,10 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     if (_showActionRowNow) {
       final children = <Widget>[];
       if (footer != null) {
-        children.add(
-          Padding(
-            padding: EdgeInsets.only(
-              top: ConduitMarkdownStyle.fromTheme(context).paragraphSpacing,
-            ),
-            child: footer,
-          ),
-        );
+        // The actions belong to the reply above them: the row sits right
+        // under its last line (its 44 pt targets already leave about 13 pt
+        // of air over the glyphs), and the block's usual gap follows it.
+        children.add(footer);
       }
       // A send makes the suggestions obsolete; they dissolve under the rising
       // message instead of vanishing, and give up their room at once.
@@ -1680,9 +1676,9 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
                   crossAxisAlignment: CrossAxisAlignment.start,
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    // The action row's 44 pt targets and each suggestion's
-                    // own 44 pt row already leave air; a wider gap detached
-                    // the suggestions.
+                    // With the targets' air under the glyphs, about 24 pt
+                    // from the action glyphs to the heading: clearly apart
+                    // from the actions, closer to the suggestions it names.
                     const SizedBox(height: Spacing.xs),
                     _buildFollowUpSuggestions(activeFollowUps),
                   ],
@@ -1690,6 +1686,18 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
               : null,
         ),
       );
+      if (footer != null && !hasFollowUps) {
+        // The block's gap under the row, which suggestions replace with
+        // their own. After them, so suggestions leaving on a send stay
+        // where they were as they dissolve. With it, the row and the typing
+        // indicator it replaces (a gap, then a 44 pt row) take the same
+        // height.
+        children.add(
+          SizedBox(
+            height: ConduitMarkdownStyle.fromTheme(context).paragraphSpacing,
+          ),
+        );
+      }
       if (children.isNotEmpty) {
         return KeyedSubtree(
           key: const ValueKey('actions'),

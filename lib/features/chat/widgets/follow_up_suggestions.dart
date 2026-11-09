@@ -29,10 +29,11 @@ class FollowUpSuggestionBar extends StatelessWidget {
   final bool isBusy;
 
   /// Space between the action row above and the heading. The action row's
-  /// 44 pt targets already leave about 12 pt of air under its glyphs, so this
-  /// stays small: the heading should sit visibly closer to the suggestions it
-  /// names than to the actions above it.
-  static const double headingTopGap = Spacing.xxs;
+  /// 44 pt targets already leave about 13 pt of air under its glyphs; with
+  /// the reply's own small gap this puts the heading about 24 pt below the
+  /// glyphs: apart from the actions, which group with their reply, and
+  /// still closer to the suggestions it names.
+  static const double headingTopGap = Spacing.xs;
 
   /// Space between the heading and the first suggestion.
   static const double headingBottomGap = Spacing.sm;
