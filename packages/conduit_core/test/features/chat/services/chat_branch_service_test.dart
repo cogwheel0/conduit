@@ -217,6 +217,27 @@ void main() {
       check(previews['z']!).not((it) => it.contains('  '));
     });
 
+    test('previews preserve truncation and Unicode whitespace boundaries', () {
+      final cases = <String, String>{
+        'a' * 160: 'a' * 160,
+        'a' * 161: '${'a' * 160}…',
+        '${'a' * 159}🟦': '${'a' * 159}…',
+        '${'a' * 158}🟦x': '${'a' * 158}🟦…',
+        '${'a' * 159}\n\t b': '${'a' * 159}…',
+        '\u0085\tblue\u00a0square\n\u0085': 'blue square',
+        'blue\u0085square': 'blue\u0085square',
+        'x' * (1024 * 1024): '${'x' * 160}…',
+      };
+      for (final entry in cases.entries) {
+        final graph = ChatBranchGraph.fromEnvelope({
+          'chat': _blob({
+            'x': {..._message('x'), 'content': entry.key},
+          }),
+        });
+        check(graph.siblingsOf('x')!.previews['x']).equals(entry.value);
+      }
+    });
+
     test('a version without text has no preview', () {
       final blob = _blob({
         'r': _message('r', children: ['x', 'y']),
