@@ -13,7 +13,11 @@ bool assistantHasNormalizedImageFiles(ChatMessage message) {
 }
 
 // Regenerate last message
-final regenerateLastMessageProvider = Provider<Future<void> Function()>((ref) {
+final regenerateLastMessageProvider = Provider<Future<void> Function()>(
+  _regenerateLastMessage,
+);
+
+Future<void> Function() _regenerateLastMessage(Ref ref) {
   return () async {
     final messages = ref.read(chatMessagesProvider);
     if (messages.length < 2) return;
@@ -68,7 +72,7 @@ final regenerateLastMessageProvider = Provider<Future<void> Function()>((ref) {
       lastUserMessage.attachmentIds,
     );
   };
-});
+}
 
 /// The newest assistant still streaming among the answers that end [messages].
 /// A single-answer turn has just one candidate, the last message.
@@ -87,15 +91,19 @@ ChatMessage? _trailingStreamingAssistant(
 }
 
 // Stop generation provider
-final stopGenerationProvider = Provider<void Function()>((ref) {
-  return () => unawaited(_stopGeneration(ref));
-});
+final stopGenerationProvider = Provider<void Function()>(_stopGenerationAction);
+
+void Function() _stopGenerationAction(Ref ref) =>
+    () => unawaited(_stopGeneration(ref));
 
 /// Stops what the open chat is answering, as [stopGenerationProvider] does,
 /// and completes once the stop has settled, with whether it was accepted.
-final stopGenerationSettledProvider = Provider<Future<bool> Function()>((ref) {
-  return () => _stopGeneration(ref);
-});
+final stopGenerationSettledProvider = Provider<Future<bool> Function()>(
+  _stopGenerationSettledAction,
+);
+
+Future<bool> Function() _stopGenerationSettledAction(Ref ref) =>
+    () => _stopGeneration(ref);
 
 /// Stops the Open WebUI response the visible chat is streaming and completes
 /// once that is settled: the transport and the server's task for the chat are

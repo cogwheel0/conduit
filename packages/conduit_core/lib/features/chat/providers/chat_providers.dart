@@ -168,6 +168,7 @@ import 'package:conduit_core/features/direct_connections/services/direct_mcp_cli
 import 'package:conduit_core/features/chat/models/chat_context_attachment.dart';
 import 'package:conduit_core/features/chat/providers/context_attachments_provider.dart';
 import 'package:conduit_core/features/chat/providers/reasoning_effort_provider.dart';
+import 'package:conduit_core/features/chat/providers/openwebui_chat_prompt_provider.dart';
 
 import 'package:conduit_core/features/tools/providers/tools_providers.dart';
 import 'package:conduit_core/features/terminal/models/terminal_agent_model.dart';
@@ -228,6 +229,7 @@ part 'chat_openwebui_settings.dart';
 part 'chat_regeneration.dart';
 part 'chat_send_message.dart';
 part 'chat_send_placeholder.dart';
+part 'chat_session_scope.dart';
 part 'chat_session_lifecycle.dart';
 part 'chat_terminal_agents.dart';
 part 'chat_streaming_content.dart';

@@ -7,7 +7,9 @@ part of 'chat_providers.dart';
 /// true; it only decides what the user is offered to change. Hidden for Hermes,
 /// Direct and on-device chats and models, for a chat that exists only in
 /// memory, and for another user's chat.
-final chatBranchControlsProvider = Provider<bool>((ref) {
+final chatBranchControlsProvider = Provider<bool>(_chatBranchControls);
+
+bool _chatBranchControls(Ref ref) {
   if (ref.watch(reviewerModeProvider)) return false;
   if (ref.watch(apiServiceProvider) == null) return false;
   final conversation = ref.watch(activeConversationProvider);
@@ -16,7 +18,7 @@ final chatBranchControlsProvider = Provider<bool>((ref) {
     conversation,
     ref.watch(currentUserProvider2.select((user) => user?.id)),
   );
-});
+}
 
 bool _conversationIsBranchableByUser(
   Conversation conversation,
