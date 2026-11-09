@@ -12,6 +12,7 @@ void main() {
     'leading-whitespace': '   $text',
     'reasoning-prefix': '<think>Compare shapes.</think>$text',
     'reasoning-only': '<think>$text</think>',
+    'reference-prefix': '[shape]: https://example.com\n\n$text',
   };
   for (final variant in ['full', 'predicate', 'predicate', 'full']) {
     for (final fixture in fixtures.entries) {

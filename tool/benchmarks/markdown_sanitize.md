@@ -24,7 +24,9 @@ remain complete; output equality is checked outside the timer.
 
 These initial measurements cover the no-match guard alone, before the footer
 predicate was added; their source hash records that intermediate source.
-`sanitizeForClipboard` and the guard are unchanged in the final implementation.
+The measured no-reference clipboard paths and guard are unchanged in the final
+implementation. Redundant presence checks at already-guarded call sites were
+also removed; those call sites are not exercised by these initial fixtures.
 
 [All 3,000 raw samples](markdown_sanitize_results.json) were collected with
 Dart 3.13.7 native AOT on macOS arm64. Values below are milliseconds per call;
@@ -59,8 +61,9 @@ code examples, grouped answers, version selection and platform failures.
 
 The footer now caches a boolean instead of a sanitized copy of the response.
 Ordinary leading text survives clipboard cleanup, so it can establish eligibility
-without transforming the whole response. Markup, reference-definition and entity
-prefixes fall back to full sanitization. Copy and Share still generate their text
+without transforming the whole response. For markup-prefixed responses, a plain final line can also establish eligibility
+when no closing block delimiter follows its text. Ambiguous endings, reference
+definitions, entities and reasoning-only responses fall back to full sanitization. Copy and Share still generate their text
 through `sanitizeForClipboard` when invoked. Indented reference definitions are
 passed intact to the fallback.
 
@@ -70,22 +73,23 @@ dart compile exe tool/benchmarks/clipboard_eligibility.dart -o /path/to/eligibil
 ```
 
 This second benchmark uses the **final candidate sanitizer** for both paths; it
-measures the incremental eligibility improvement after the no-match guard. Four
+measures the incremental eligibility improvement after the no-match guard. Five
 1 MiB synthetic fixtures, five warmups and 100 calls per variant, in
-full/predicate/predicate/full order. [All 1,600 samples](clipboard_eligibility_results.json)
+full/predicate/predicate/full order. [All 2,000 samples](clipboard_eligibility_results.json)
 include source provenance and outliers. Times below are milliseconds per call;
 p50/p95/p99 are nearest-rank sorted indices 49/94/98.
 
 | Fixture | Full sanitize p50 | Predicate p50 | Full sanitize p99 | Predicate p99 |
 | --- | --- | --- | --- | --- |
-| ordinary-code | 65.551042–67.286792 | 0.000000–0.000000 | 69.519542–70.248875 | 0.000042–0.000042 |
-| leading-whitespace | 65.993209–67.411416 | 0.087709–0.088292 | 69.654458–69.764875 | 0.154375–0.177666 |
-| reasoning-prefix | 117.284458–120.179000 | 118.595959–119.160875 | 123.737083–130.099208 | 122.021167–122.873625 |
-| reasoning-only | 43.785708–44.408750 | 43.704417–44.133625 | 45.264625–45.555459 | 44.955750–45.714250 |
+| ordinary-code | 68.110458–69.044167 | 0.000000–0.000000 | 71.850000–73.385416 | 0.000042–0.000042 |
+| leading-whitespace | 68.299833–68.694291 | 0.083708–0.085250 | 70.742000–75.419250 | 0.132542–0.181208 |
+| reasoning-prefix | 121.160083–121.832542 | 0.084167–0.086959 | 124.556583–125.204584 | 0.137959–0.142917 |
+| reasoning-only | 44.764250–45.042750 | 44.764375–44.909416 | 47.757334–47.902750 | 46.680709–47.135833 |
+| reference-prefix | 161.511500–161.948541 | 0.085583–0.086542 | 164.612917–168.703500 | 0.133667–0.136916 |
 
 The ordinary-code predicate median is below the stopwatch tick resolution
 (about 0.000042 ms); recorded zero ticks do not mean zero execution time.
-The markup-prefixed controls intentionally retain full cleanup, with no promised
+The reasoning-only control intentionally retains full cleanup, with no promised
 gain and normal timing variation. These CPU benchmarks do not measure phone FPS.
 Focused tests cover empty/whitespace/entity/markup prefixes and existing grouped
 answers, version selection, Copy and Share behavior. A deterministic comparison

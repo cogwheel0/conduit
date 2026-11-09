@@ -222,13 +222,11 @@ class ConduitMarkdownPreprocessor {
     // Raw model output can attach Open WebUI's tool-call block directly to
     // answer text. Put it on a Markdown block boundary without rewriting
     // literal examples inside code spans or fences.
-    if (_attachedToolCallDetailsOpen.hasMatch(output)) {
-      output = _replaceMatchesOutsideCode(
-        output,
-        _attachedToolCallDetailsOpen,
-        (match) => '${match[1]}\n\n${match[2]}',
-      );
-    }
+    output = _replaceMatchesOutsideCode(
+      output,
+      _attachedToolCallDetailsOpen,
+      (match) => '${match[1]}\n\n${match[2]}',
+    );
 
     return output;
   }
@@ -266,12 +264,21 @@ class ConduitMarkdownPreprocessor {
   /// Whether clipboard sanitization leaves any text.
   ///
   /// Ordinary leading text survives every clipboard rule. Only markup,
-  /// reference definitions and entities can remove or decode that prefix, so
-  /// defer the full transformation for ordinary message action bars.
+  /// reference definitions and entities can remove or decode that prefix.
+  /// A plain final line also survives when no block can close after it.
   static bool hasClipboardText(String input) {
     final leadingText = input.trimLeft();
     if (leadingText.isEmpty) return false;
     if (!'<◁[&'.contains(leadingText[0])) return true;
+    final trailingText = leadingText.trimRight();
+    final lastLine = trailingText
+        .substring(trailingText.lastIndexOf('\n') + 1)
+        .trimLeft();
+    if (!'<◁[&'.contains(lastLine[0]) &&
+        !lastLine.contains('<') &&
+        !lastLine.contains('◁')) {
+      return true;
+    }
     return sanitizeForClipboard(input).isNotEmpty;
   }
 
@@ -426,10 +433,9 @@ class ConduitMarkdownPreprocessor {
   static String _stripLinkReferenceDefinitions(String input) {
     if (!hasLinkReferenceDefinitionLine(input)) return input;
 
-    final stripped = _replaceMatchesOutsideCode(
+    final stripped = _maskCodeAndTransform(
       input,
-      _linkReferenceDefinition,
-      (_) => '',
+      (content) => content.replaceAll(_linkReferenceDefinition, ''),
     );
     return stripped.replaceAll(_multipleNewlines, '\n\n').trim();
   }
