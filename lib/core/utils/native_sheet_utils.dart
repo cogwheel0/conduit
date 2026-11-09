@@ -235,10 +235,12 @@ List<NativeSheetSectionConfig> buildNativeProfileRootSections(
         sfSymbol: 'antenna.radiowaves.left.and.right',
       ),
     ] else if (visibility.showLibreChatPersonalization)
+      // LibreChat's memories, drawn with the head AI & Memory uses for Open
+      // WebUI's, in the root's one outline family.
       _nativeRootPageItem(
         nativeLibreChatPersonalizationActionId,
         title: l10n.personalization,
-        sfSymbol: 'person.crop.circle.badge.checkmark',
+        sfSymbol: 'brain.head.profile',
       ),
   ];
   // Single-line settings rows, so each title and its symbol carry the

@@ -21,6 +21,7 @@ import 'package:conduit_core/features/navigation/models/sidebar_navigation_model
 import 'package:conduit/features/navigation/widgets/conversation_tile.dart';
 import 'package:conduit/features/navigation/widgets/sidebar_page.dart';
 import 'package:conduit/features/navigation/widgets/sidebar_user_pill.dart';
+import 'package:conduit/features/navigation/widgets/sidebar_monogram_avatar.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 import 'package:conduit/core/services/native_sheet_bridge.dart';
 import 'package:conduit/l10n/app_localizations.dart';
@@ -477,9 +478,14 @@ void main() {
     );
     await tester.pumpAndSettle();
 
+    // No photo: its initials on a neutral disc, as an Open WebUI user
+    // without one gets.
+    expect(find.byType(UserAvatar), findsNothing);
     expect(
-      tester.widget<UserAvatar>(find.byType(UserAvatar)).fallbackText,
-      'D',
+      tester
+          .widget<SidebarMonogramAvatar>(find.byType(SidebarMonogramAvatar))
+          .initials,
+      'DE',
     );
   });
 

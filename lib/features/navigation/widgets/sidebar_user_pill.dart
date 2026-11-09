@@ -431,11 +431,14 @@ class _SidebarProfileAppBarLeadingState
         ? 'U'
         : displayName.characters.first.toUpperCase();
     // Open WebUI gives a user without a photo a grey silhouette; show their
-    // initials on a neutral disc instead, as iOS does for a contact.
+    // initials on a neutral disc instead, as iOS does for a contact. A
+    // LibreChat account in charge has no photo here, so it is drawn the same
+    // way, never with the parked Open WebUI user's photo.
     final showsMonogram =
-        !hermesOnly &&
-        user != null &&
-        isDefaultProfileImageUrl(deriveUserProfileImage(user));
+        libreChatUser != null ||
+        (!hermesOnly &&
+            user != null &&
+            isDefaultProfileImageUrl(deriveUserProfileImage(user)));
     final monogram = extractAvatarInitials(displayName);
     final avatarUrl = hermesOnly || user == null || showsMonogram
         ? null
