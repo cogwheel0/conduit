@@ -1241,7 +1241,7 @@ class _ComputerTitle extends StatelessWidget {
       mainAxisSize: MainAxisSize.min,
       children: [
         AdaptiveSymbolIcon(
-          symbol: desktop ? 'desktopcomputer' : 'globe',
+          symbol: desktop ? 'display' : 'globe',
           fallbackIcon: desktop
               ? Icons.desktop_windows_outlined
               : Icons.public_rounded,
@@ -1295,7 +1295,7 @@ class _ComputerTitle extends StatelessWidget {
         value: ComputerSurface.desktop,
         label: l10n.computerDesktop,
         icon: conduitAdaptivePopupMenuIcon(
-          iosSymbol: 'desktopcomputer',
+          iosSymbol: 'display',
           materialIcon: Icons.desktop_windows_outlined,
         ),
         checked: desktop,

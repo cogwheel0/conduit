@@ -1,11 +1,13 @@
 import 'dart:async';
 
+import 'package:checks/checks.dart';
 import 'package:conduit/features/chat/views/chat_page.dart';
 import 'package:conduit/features/terminal/widgets/computer_page.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/l10n/conduit_localizations.dart';
 import 'package:conduit/shared/theme/app_theme.dart';
 import 'package:conduit/shared/theme/tweakcn_themes.dart';
+import 'package:conduit/shared/widgets/adaptive_toolbar_components.dart';
 import 'package:conduit_core/database/chat_database_repository.dart';
 import 'package:conduit_core/database/database_provider.dart';
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
@@ -177,6 +179,11 @@ void main() {
           return;
         }
         expect(find.bySemanticsLabel('Computer'), findsOneWidget);
+        // The outline display, in the header glyphs' outline family; not the
+        // filled desktopcomputer screen.
+        check(
+          tester.widget<ConduitAdaptiveAppBarIconButton>(button).iosSymbol,
+        ).equals('display');
         await tester.tap(button);
         for (var i = 0; i < 4; i++) {
           await tester.pump(const Duration(milliseconds: 500));

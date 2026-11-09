@@ -14,7 +14,6 @@ import '../../../shared/services/input_validation_service.dart';
 import '../../../shared/services/navigation_service.dart';
 import '../../../core/services/haptic_service.dart';
 import '../../../shared/theme/theme_extensions.dart';
-import '../../../shared/widgets/chat_action_button.dart' show NativeSymbolGlyph;
 import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/platform_ui/platform_ui.dart';
 import '../../profile/widgets/account_actions.dart'
@@ -709,7 +708,8 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
           verticalPadding: Spacing.sm,
           trailing: changeServer == null
               ? null
-              : _ChangeServerButton(
+              : AuthRowTextButton(
+                  key: const ValueKey<String>('authentication-change-server'),
                   label: l10n.signInChangeServer,
                   onPressed: _isSigningIn ? null : changeServer,
                 ),
@@ -842,7 +842,8 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
   }
 
   Widget _buildVisibilityToggle(AppLocalizations l10n) {
-    return _PasswordVisibilityButton(
+    return AuthPasswordVisibilityButton(
+      key: const ValueKey<String>('authentication-password-visibility'),
       obscured: _obscurePassword,
       label: _obscurePassword ? l10n.showPassword : l10n.hidePassword,
       onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
@@ -1260,151 +1261,6 @@ class _AuthenticationPageState extends ConsumerState<AuthenticationPage> {
           : _signIn,
       isLoading: _isSigningIn,
       isFullWidth: true,
-    );
-  }
-}
-
-/// A plain button at the end of the server row, in the manner of a bar
-/// button: the label alone, semibold in the button colour, dimmed while
-/// pressed. The weight says it acts; without a fill or capsule it stays
-/// quieter than the step's primary action.
-class _ChangeServerButton extends StatelessWidget {
-  const _ChangeServerButton({required this.label, required this.onPressed});
-
-  final String label;
-  final VoidCallback? onPressed;
-
-  @override
-  Widget build(BuildContext context) {
-    return _PlainRowButton(
-      key: const ValueKey<String>('authentication-change-server'),
-      semanticLabel: label,
-      onPressed: onPressed,
-      // The target reaches past the label towards the row's text, so a tap
-      // just short of the word still lands; the label itself ends on the
-      // row's margin.
-      padding: const EdgeInsetsDirectional.only(start: Spacing.sm),
-      child: Text(
-        label,
-        style: authGroupedRowStyle(context).copyWith(
-          color: context.conduitTheme.buttonPrimary,
-          fontWeight: FontWeight.w600,
-        ),
-      ),
-    );
-  }
-}
-
-/// The show/hide control at the end of a password field: the SF Symbol eye
-/// at body size in the secondary tone, as iOS draws an accessory in a text
-/// field, slashed while the text is hidden. Where symbols cannot be drawn
-/// the Cupertino eye stands in.
-class _PasswordVisibilityButton extends StatelessWidget {
-  const _PasswordVisibilityButton({
-    required this.obscured,
-    required this.label,
-    required this.onPressed,
-  });
-
-  /// Whether the field hides its text, so the control offers to show it.
-  final bool obscured;
-  final String label;
-  final VoidCallback onPressed;
-
-  /// Body size, the size of the field's text.
-  static const double _symbolSize = 17;
-
-  @override
-  Widget build(BuildContext context) {
-    final color = context.conduitTheme.textSecondary;
-    final fallback = obscured ? CupertinoIcons.eye_slash : CupertinoIcons.eye;
-    final glyph = NativeSymbolGlyph.isAvailable
-        ? NativeSymbolGlyph(
-            symbol: obscured ? 'eye.slash' : 'eye',
-            fallbackIcon: fallback,
-            pointSize: _symbolSize,
-            color: color,
-          )
-        : Icon(fallback, size: IconSize.md, color: color);
-    return _PlainRowButton(
-      key: const ValueKey<String>('authentication-password-visibility'),
-      semanticLabel: label,
-      onPressed: onPressed,
-      child: SizedBox.square(
-        dimension: TouchTarget.minimum,
-        child: Center(child: glyph),
-      ),
-    );
-  }
-}
-
-/// A row accessory that acts on a tap: no fill, at least a touch target
-/// tall, dimmed at once under the finger and eased back on release.
-class _PlainRowButton extends StatefulWidget {
-  const _PlainRowButton({
-    super.key,
-    required this.semanticLabel,
-    required this.onPressed,
-    required this.child,
-    this.padding = EdgeInsetsDirectional.zero,
-  });
-
-  final String semanticLabel;
-  final VoidCallback? onPressed;
-  final Widget child;
-  final EdgeInsetsGeometry padding;
-
-  @override
-  State<_PlainRowButton> createState() => _PlainRowButtonState();
-}
-
-class _PlainRowButtonState extends State<_PlainRowButton> {
-  bool _pressed = false;
-
-  void _setPressed(bool value) {
-    if (_pressed == value) return;
-    setState(() => _pressed = value);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final onPressed = widget.onPressed;
-    final enabled = onPressed != null;
-    return Semantics(
-      button: true,
-      enabled: enabled,
-      label: widget.semanticLabel,
-      onTap: onPressed,
-      excludeSemantics: true,
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTapDown: enabled ? (_) => _setPressed(true) : null,
-        onTapUp: enabled ? (_) => _setPressed(false) : null,
-        onTapCancel: enabled ? () => _setPressed(false) : null,
-        onTap: onPressed == null
-            ? null
-            : () {
-                ConduitHaptics.selectionClick();
-                onPressed();
-              },
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(minHeight: TouchTarget.minimum),
-          child: Padding(
-            padding: widget.padding,
-            child: Center(
-              widthFactor: 1,
-              child: AnimatedOpacity(
-                opacity: !enabled || _pressed ? 0.35 : 1,
-                duration: _pressed
-                    ? Duration.zero
-                    : context.motionDuration(AnimationDuration.fast),
-                curve: Curves.easeOut,
-                child: widget.child,
-              ),
-            ),
-          ),
-        ),
-      ),
     );
   }
 }

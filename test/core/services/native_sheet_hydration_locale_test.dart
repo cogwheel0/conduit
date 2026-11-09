@@ -462,6 +462,8 @@ void main() {
           .singleWhere((row) => row.id == 'computer-enabled');
       check(row.value).equals(false);
       check(row.title).equals('Computer');
+      // The outline display, as the rows around it are outline glyphs.
+      check(row.sfSymbol).equals('display');
       await native.container
           .read(appSettingsProvider.notifier)
           .setComputerEnabled(true);

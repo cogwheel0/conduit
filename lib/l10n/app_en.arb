@@ -9376,7 +9376,7 @@
   "@libreChatChooserSubtitle": {
     "description": "Subtitle of the LibreChat option on the first-run backend chooser."
   },
-  "libreChatAddAccount": "Add a LibreChat Account",
+  "libreChatAddAccount": "Add LibreChat Account",
   "@libreChatAddAccount": {
     "description": "Row that adds a LibreChat account on the Accounts page."
   },
