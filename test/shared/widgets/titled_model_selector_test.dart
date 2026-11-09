@@ -3,6 +3,7 @@ import 'package:conduit/shared/theme/app_theme.dart';
 import 'package:conduit/shared/theme/tweakcn_themes.dart';
 import 'package:conduit/shared/widgets/adaptive_toolbar_components.dart';
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
 
@@ -50,11 +51,30 @@ void main() {
     return showsTitle;
   }
 
+  /// The opacity [text] is drawn at: every Opacity above it multiplied; 0
+  /// when it is not built.
   double opacityOf(WidgetTester tester, String text) {
-    final opacity = tester.widget<Opacity>(
-      find.ancestor(of: find.text(text), matching: find.byType(Opacity)).first,
-    );
-    return opacity.opacity;
+    final finder = find.text(text);
+    if (finder.evaluate().isEmpty) return 0;
+    return tester
+        .widgetList<Opacity>(
+          find.ancestor(of: finder, matching: find.byType(Opacity)),
+        )
+        .fold(1.0, (value, opacity) => value * opacity.opacity);
+  }
+
+  /// Steps the spring frame by frame until it settles, calling [check] at
+  /// each frame.
+  Future<void> eachFrame(
+    WidgetTester tester,
+    void Function(int frame) check,
+  ) async {
+    for (var frame = 0; frame < 60; frame++) {
+      await tester.pump(const Duration(milliseconds: 8));
+      check(frame);
+    }
+    await tester.pumpAndSettle();
+    check(60);
   }
 
   testWidgets('at rest the pill names only the model', (tester) async {
@@ -74,9 +94,11 @@ void main() {
 
     showsTitle.value = true;
     await tester.pump();
-    await tester.pump(const Duration(milliseconds: 90));
-    // Mid-way: both lines are on screen while the spring runs.
-    expect(find.text('Sourdough plan'), findsOneWidget);
+    await tester.pump(const Duration(milliseconds: 40));
+    // Early on the capsule is still growing: the model alone, already
+    // dropping toward the subtitle's place.
+    check(opacityOf(tester, 'Sourdough plan')).equals(0);
+    check(opacityOf(tester, 'GPT-5 Mini')).equals(1);
     await tester.pumpAndSettle();
 
     expect(find.text('Sourdough plan'), findsOneWidget);
@@ -110,6 +132,148 @@ void main() {
     check(opacityOf(tester, 'GPT-5 Mini')).isGreaterThan(0);
     await tester.pumpAndSettle();
     expect(find.text('Sourdough plan'), findsNothing);
+  });
+
+  group('no frame of the change', () {
+    /// The glyphs of [text] on screen: its laid-out line, through every
+    /// transform above it (the title's scale).
+    Rect glyphsOf(WidgetTester tester, String text) {
+      final paragraph = tester.renderObject<RenderParagraph>(find.text(text));
+      final boxes = paragraph.getBoxesForSelection(
+        TextSelection(baseOffset: 0, extentOffset: text.length),
+      );
+      var local = boxes.first.toRect();
+      for (final box in boxes.skip(1)) {
+        local = local.expandToInclude(box.toRect());
+      }
+      return MatrixUtils.transformRect(paragraph.getTransformTo(null), local);
+    }
+
+    void checkFrame(WidgetTester tester, String title, int frame) {
+      final pill = tester.getRect(
+        find.byType(ConduitAdaptiveAppBarModelSelector),
+      );
+      // Never empty: the model line is always fully drawn.
+      check(
+        because: 'frame $frame shows the model',
+        opacityOf(tester, 'GPT-5 Mini'),
+      ).equals(1);
+      final model = glyphsOf(tester, 'GPT-5 Mini');
+      check(because: 'frame $frame', model.left).isGreaterOrEqual(pill.left);
+      check(because: 'frame $frame', model.right).isLessOrEqual(pill.right);
+      if (opacityOf(tester, title) == 0) return;
+      final shown = glyphsOf(tester, title);
+      // Clear of the capsule's rounded ends at the title's line.
+      check(
+        because: 'frame $frame: title inside the capsule',
+        shown.left,
+      ).isGreaterOrEqual(pill.left + 8);
+      check(
+        because: 'frame $frame: title inside the capsule',
+        shown.right,
+      ).isLessOrEqual(pill.right - 8);
+      // Above the model line's cap height.
+      final modelSize = tester
+          .widget<Text>(find.text('GPT-5 Mini'))
+          .style!
+          .fontSize!;
+      check(
+        because: 'frame $frame: title clear of the model line',
+        shown.bottom,
+      ).isLessOrEqual(model.top + 0.22 * modelSize + 0.5);
+    }
+
+    for (final title in ['Weekend breads', 'Tea']) {
+      testWidgets('clips "$title" or lays it over the model, either way', (
+        tester,
+      ) async {
+        final showsTitle = await pumpPill(tester, title: title);
+
+        showsTitle.value = true;
+        await eachFrame(tester, (frame) => checkFrame(tester, title, frame));
+        check(opacityOf(tester, title)).equals(1);
+
+        showsTitle.value = false;
+        await eachFrame(tester, (frame) => checkFrame(tester, title, frame));
+        check(opacityOf(tester, title)).equals(0);
+      });
+    }
+
+    testWidgets('shows the title before the capsule has room for it', (
+      tester,
+    ) async {
+      final showsTitle = await pumpPill(tester, title: 'Weekend breads');
+      final pill = find.byType(ConduitAdaptiveAppBarModelSelector);
+
+      showsTitle.value = true;
+      var firstShownWidth = 0.0;
+      await eachFrame(tester, (_) {
+        if (firstShownWidth == 0 && opacityOf(tester, 'Weekend breads') > 0) {
+          firstShownWidth = tester.getSize(pill).width;
+        }
+      });
+      // The title starts to show only once the capsule has grown most of
+      // the way.
+      final settledWidth = tester.getSize(pill).width;
+      check(firstShownWidth).isGreaterThan(0.9 * settledWidth);
+    });
+  });
+
+  group('ConduitTitledPillMotion', () {
+    const motion = ConduitTitledPillMotion(
+      modelWidth: 120,
+      titledWidth: 220,
+      titleWidth: 190,
+      linesClearAt: 0.6,
+    );
+
+    test('the title shows only where it fits, at no less than 96%', () {
+      for (var step = 0; step <= 100; step++) {
+        final t = step / 100;
+        if (motion.titleOpacityAt(t) == 0) continue;
+        final drawn = motion.titleWidth * motion.titleScaleAt(t);
+        check(drawn + 2 * ConduitTitledPillMotion.roundedEndClearance)
+            .isLessOrEqual(motion.widthAt(t) + 1e-9);
+        check(motion.titleScaleAt(t)).isGreaterOrEqual(0.96);
+      }
+      check(motion.titleOpacityAt(1)).equals(1);
+      check(motion.titleScaleAt(1)).equals(1);
+    });
+
+    test('waits for the model line to clear the title line', () {
+      const late = ConduitTitledPillMotion(
+        modelWidth: 200,
+        titledWidth: 120,
+        titleWidth: 40,
+        linesClearAt: 0.7,
+      );
+      check(late.titleOpacityAt(0.7)).equals(0);
+      check(late.titleOpacityAt(0.75)).isGreaterThan(0);
+    });
+
+    test('a title as wide as its capsule still shows in full at rest', () {
+      const tight = ConduitTitledPillMotion(
+        modelWidth: 100,
+        titledWidth: 160,
+        titleWidth: 156,
+      );
+      check(tight.titleOpacityAt(1)).equals(1);
+      check(tight.titleScaleAt(1)).equals(1);
+    });
+
+    test('Reduce Motion resizes first, then dissolves to the title', () {
+      const reduced = ConduitTitledPillMotion(
+        modelWidth: 120,
+        titledWidth: 220,
+        titleWidth: 190,
+        reduceMotion: true,
+      );
+      check(reduced.widthAt(0.5)).equals(220);
+      check(reduced.modelOpacityAt(0.5)).equals(0);
+      check(reduced.titleOpacityAt(0.5)).equals(0);
+      check(reduced.titleScaleAt(0.8)).equals(1);
+      check(reduced.modelMorphAt(0.8)).equals(0);
+    });
   });
 
   testWidgets('Reduce Motion cross-fades without moving the lines', (

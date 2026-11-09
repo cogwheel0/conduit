@@ -1976,6 +1976,93 @@ void main() {
         .isCloseTo(viewportTop + _topContentInset, 0.5);
   });
 
+  group('a sent turn with a peek', () {
+    const peek = 56.0;
+    final ids = [
+      ...List<String>.generate(18, (index) => 'history-$index'),
+      'user',
+      'assistant',
+    ];
+
+    Future<({double endSpace, double viewportTop})> settle(
+      WidgetTester tester,
+      ChatTimelineViewportController controller, {
+      required double pinnedTurnPeek,
+      List<String>? rows,
+    }) async {
+      var endSpace = -1.0;
+      await tester.pumpWidget(
+        _viewportHost(
+          _viewport(
+            controller: controller,
+            ids: rows ?? ids,
+            pinnedUserMessageId: 'user',
+            pinnedTurnPeek: pinnedTurnPeek,
+            pinAutomatic: true,
+            followLatest: false,
+            onPinEndSpaceChanged: (value) => endSpace = value,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final arrival = controller.springMessageToTop(
+        'user',
+        spring: const CriticallyDampedSpring(0.35),
+      );
+      await tester.pumpAndSettle();
+      check(await arrival).isTrue();
+      return (
+        endSpace: endSpace,
+        viewportTop: tester.getTopLeft(find.byType(CustomScrollView)).dy,
+      );
+    }
+
+    _viewportTest('rests below the top inset, the turn before in view', (
+      tester,
+    ) async {
+      final controller = _controller(tester);
+      final settled = await settle(tester, controller, pinnedTurnPeek: peek);
+
+      final inset = settled.viewportTop + _topContentInset;
+      check(controller.rowRect('user')!.top).isCloseTo(inset + peek, 0.5);
+      check(controller.distanceFromMessageTop('user')!).isLessThan(1);
+      // The end of the row before it shows above it, under the inset.
+      final previous = controller.rowRect('history-17')!;
+      check(previous.bottom).isCloseTo(inset + peek, 0.5);
+      check(previous.bottom).isGreaterThan(inset);
+    });
+
+    _viewportTest(
+      'the end space shrinks by the peek, so nothing over-scrolls',
+      (tester) async {
+        final flush = await settle(
+          tester,
+          _controller(tester),
+          pinnedTurnPeek: 0,
+        );
+        await tester.pumpWidget(const SizedBox());
+        final peeking = await settle(
+          tester,
+          _controller(tester),
+          pinnedTurnPeek: peek,
+        );
+        check(peeking.endSpace).isCloseTo(flush.endSpace - peek, 1);
+      },
+    );
+
+    _viewportTest('a first message keeps its own place', (tester) async {
+      final controller = _controller(tester);
+      final settled = await settle(
+        tester,
+        controller,
+        pinnedTurnPeek: peek,
+        rows: const ['user', 'assistant'],
+      );
+      check(controller.rowRect('user')!.top)
+          .isCloseTo(settled.viewportTop + _topContentInset, 0.5);
+    });
+  });
+
   _viewportTest('pinned latest distance follows the prompt target', (
     tester,
   ) async {
@@ -3022,6 +3109,7 @@ Widget _viewport({
   int ownerGeneration = 1,
   ChatScrollAnchor? initialAnchor,
   String? pinnedUserMessageId,
+  double pinnedTurnPeek = 0,
   bool pinAutomatic = false,
   bool isLoadingOlder = false,
   bool maintainVisibleAnchor = false,
@@ -3055,6 +3143,7 @@ Widget _viewport({
     onRowExtentMeasured: onRowExtentMeasured,
     initialAnchor: initialAnchor,
     pinnedUserMessageId: pinnedUserMessageId,
+    pinnedTurnPeek: pinnedTurnPeek,
     liveFooter: liveFooter,
     trailingContent: trailingContent,
     topContentInset: _topContentInset,

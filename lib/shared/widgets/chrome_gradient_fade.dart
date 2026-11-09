@@ -117,10 +117,13 @@ class ConduitChromeGradientFade extends StatelessWidget {
 }
 
 /// How far past floating chrome the scroll edge reaches before the content
-/// under it is clear. A just-sent message pinned under the chat header rests
-/// about 22 pt below its buttons, where the fade has all but ended (about a
-/// tenth of the way to the background, at the very top of its bubble).
-const double kConduitScrollEdgeSoftExtent = 28.0;
+/// under it is clear: nearly two lines of body text, so a line caught
+/// across the cover's edge, its upper half covered, shows its lower half at
+/// under a tenth of its ink and dissolves rather than reading as sliced (a
+/// strip shorter than a line showed that lower half at about a third). A
+/// just-sent message rests below the strip (see the chat's pinned-turn
+/// peek), crisp from its first line.
+const double kConduitScrollEdgeSoftExtent = 44.0;
 
 /// iOS 26's scroll edge for custom chrome that floats over scrolling text:
 /// the content reaches the page background before it reaches the glass.
@@ -135,11 +138,10 @@ const double kConduitScrollEdgeSoftExtent = 28.0;
 ///   where it clears, so a line passing under the chrome dissolves rather
 ///   than being cut by it.
 ///
-/// The fade is an opacity ramp only, with no blur. The strip is shorter than
-/// a line of text, so a blur ramp across it would change strength from the
-/// top of a line's letters to their foot: smeared ascenders over sharp
-/// bodies, read as a line slicing the text. A smooth fade has no such step,
-/// and costs no backdrop pass.
+/// The fade is an opacity ramp only, with no blur: a blur ramp changes
+/// strength from the top of a line's letters to their foot, smearing
+/// ascenders over sharp bodies, which reads as a line slicing the text. A
+/// smooth fade has no such step, and costs no backdrop pass.
 ///
 /// [engagement] says how much content lies under the edge, from 0 (none: the
 /// list rests at that end) to 1. The strip grows with it, so content resting

@@ -272,7 +272,7 @@ void main() {
       final widths = <double>[];
       final outgoing = <double>[];
       final incoming = <double>[];
-      for (var i = 0; i < 30; i++) {
+      for (var i = 0; i < 40; i++) {
         await tester.pump(const Duration(milliseconds: 16));
         widths.add(tester.getSize(cluster).width);
         outgoing.add(_opacityOf(tester, 'temporary-chat'));
@@ -305,30 +305,41 @@ void main() {
     },
   );
 
-  testWidgets('the circle morphs into the capsule with one glyph set at a '
-      'time, never outside the glass', (tester) async {
+  testWidgets('the circle hands over to the capsule: never two glyphs in '
+      'one spot, never empty glass, never outside it', (tester) async {
     await tester.pumpWidget(_host([_item('temporary-chat')]));
     final cluster = find.byKey(const ValueKey('cluster'));
     await tester.pumpWidget(_host([_item('new-chat'), _menu('more')]));
 
     var oldGoneAt = -1;
-    var newShownAt = -1;
-    for (var frame = 1; frame <= 40; frame++) {
+    var moreShownAt = -1;
+    var overlapped = false;
+    for (var frame = 1; frame <= 50; frame++) {
       await tester.pump(const Duration(milliseconds: 16));
       final outgoing = _opacityOf(tester, 'temporary-chat');
-      final incoming = math.max(
-        _opacityOf(tester, 'new-chat'),
-        _opacityOf(tester, 'more'),
-      );
-      // No double exposure: the dashed circle and the capsule's glyphs
-      // (one of them on the circle's very spot) never show together.
+      final compose = _opacityOf(tester, 'new-chat');
+      final more = _opacityOf(tester, 'more');
+      // No double exposure: "more" rests on the dashed circle's very spot,
+      // so the two never show together.
       expect(
-        outgoing == 0 || incoming == 0,
+        outgoing == 0 || more == 0,
         isTrue,
-        reason: 'frame $frame: old $outgoing, new $incoming',
+        reason: 'frame $frame: circle $outgoing, more $more',
       );
+      // The compose glyph comes in beside the circle while it still shows,
+      // so the glass is never empty once the change is under way.
+      if (outgoing > 0 && compose > 0) overlapped = true;
+      if (frame > 4) {
+        expect(
+          [outgoing, compose, more].reduce(math.max),
+          greaterThanOrEqualTo(0.35),
+          reason:
+              'frame $frame: circle $outgoing, compose $compose, '
+              'more $more',
+        );
+      }
       if (outgoing == 0 && oldGoneAt < 0) oldGoneAt = frame;
-      if (incoming > 0 && newShownAt < 0) newShownAt = frame;
+      if (more > 0 && moreShownAt < 0) moreShownAt = frame;
 
       // An arriving glyph shows only once the growing glass has passed
       // all of it.
@@ -347,13 +358,32 @@ void main() {
         }
       }
     }
-    // The old glyph clears quickly (about 100 ms), the new ones follow at
-    // once (the one by the circle's spot first) rather than after the
-    // reshape.
-    expect(oldGoneAt * 16, lessThanOrEqualTo(150));
-    expect(newShownAt, oldGoneAt + 1);
+    expect(overlapped, isTrue);
+    // The circle clears once compose has taken over, within about a third
+    // of a second, and "more" follows on the next frame.
+    expect(oldGoneAt * 16, lessThanOrEqualTo(350));
+    expect(moreShownAt, oldGoneAt + 1);
     expect(_opacityOf(tester, 'new-chat'), 1);
     expect(_opacityOf(tester, 'more'), 1);
+  });
+
+  testWidgets('a swap in one spot still clears before it arrives', (
+    tester,
+  ) async {
+    await tester.pumpWidget(_host([_item('new-chat'), _menu('more')]));
+    await tester.pumpWidget(_host([_item('new-chat'), _menu('options')]));
+    var oldGoneAt = -1;
+    for (var frame = 1; frame <= 30; frame++) {
+      await tester.pump(const Duration(milliseconds: 16));
+      final outgoing = _opacityOf(tester, 'more');
+      final incoming = _opacityOf(tester, 'options');
+      expect(outgoing == 0 || incoming == 0, isTrue);
+      if (outgoing == 0 && oldGoneAt < 0) oldGoneAt = frame;
+    }
+    // Nothing takes over elsewhere, so it leaves at its quick pace.
+    expect(oldGoneAt * 16, lessThanOrEqualTo(150));
+    await tester.pumpAndSettle();
+    expect(_opacityOf(tester, 'options'), 1);
   });
 
   testWidgets('with nothing leaving, an added glyph fades in after a beat', (

@@ -288,6 +288,14 @@ const double _kChatComposerFadeHeight = 24.0;
 
 const double _kScrollToLatestButtonSize = 40.0;
 
+/// How far below the top of the transcript a just-sent message rests, so
+/// the end of the reply it follows up on (its action row) stays in view
+/// above it rather than the new turn starting over a blank screen. It also
+/// keeps the message itself below the header's scroll-edge fade
+/// ([kConduitScrollEdgeSoftExtent]), crisp from its first line.
+@visibleForTesting
+const double kChatPinnedTurnPeek = 56.0;
+
 @visibleForTesting
 bool shouldShowChatModelDropdown({
   required Model? selectedModel,
@@ -1358,7 +1366,7 @@ class _ChatPageState extends ConsumerState<ChatPage>
         Spacing.md;
     _pinToTopEndSpaceExtent = math.max(
       0,
-      MediaQuery.sizeOf(context).height - topInset,
+      MediaQuery.sizeOf(context).height - topInset - kChatPinnedTurnPeek,
     );
     _pinGeometryReady = false;
     _pinShouldSettleImmediately = settleImmediately;
@@ -2754,6 +2762,8 @@ class _ChatPageState extends ConsumerState<ChatPage>
         .cancelForConversation(outgoingId);
 
     _conversationOwnerGeneration += 1;
+    // Another chat: its own scroll decides whether the bar names it.
+    _headerShowsTitle.value = false;
     markConversationRead(ref, outgoingId);
     markConversationRead(ref, conversationId);
     _saveCurrentScrollAnchor(conversationId: outgoingId);
@@ -2800,6 +2810,7 @@ class _ChatPageState extends ConsumerState<ChatPage>
     _hasPrewarmedAttachedViewport = false;
     _lastVisibleMessageIds = const <String>{};
     _conversationOwnerGeneration += 1;
+    _headerShowsTitle.value = false;
     _cancelExplicitLatestNavigation();
     _cancelPendingViewportNavigation();
     setState(() {
@@ -3454,6 +3465,7 @@ class _ChatPageState extends ConsumerState<ChatPage>
               },
             ),
       topContentInset: topPadding,
+      pinnedTurnPeek: kChatPinnedTurnPeek,
       bottomPadding: bottomPadding,
       horizontalPadding: Spacing.inputPadding,
       cacheExtent: _chatMessageScrollCachePixels,
@@ -5514,9 +5526,15 @@ String? chatHeaderTitle(String? title) {
 /// slipped under the bar, or older messages wait above. Hysteresis keeps a
 /// resting scroll from flickering the title in and out.
 ///
-/// A transcript that fits on one screen never names the chat: nothing can
-/// be under the bar, and a first turn that is still settling into place
+/// A transcript that fits on one screen never brings the title in: nothing
+/// can be under the bar, and a first turn that is still settling into place
 /// (its pinned end space reports a scroll offset) must not flash the title.
+///
+/// Once shown, only a scroll back to the top takes it away. While a sent
+/// turn settles under the bar the transcript can read as fitting for a
+/// while (the viewport grows as the keyboard leaves, and its scroll extent
+/// catches up later), and the title must not blink out and back meanwhile.
+/// The page clears [currentlyShowing] whenever it changes chats.
 @visibleForTesting
 bool chatHeaderShowsTitle({
   required double scrolledFromTop,
@@ -5525,8 +5543,9 @@ bool chatHeaderShowsTitle({
   bool contentOverflowsViewport = true,
 }) {
   if (hasOlderMessages) return true;
+  if (currentlyShowing) return scrolledFromTop > 8.0;
   if (!contentOverflowsViewport) return false;
-  return scrolledFromTop > (currentlyShowing ? 8.0 : 20.0);
+  return scrolledFromTop > 20.0;
 }
 
 /// How much of the transcript lies under a scroll edge, from 0 (it rests at
