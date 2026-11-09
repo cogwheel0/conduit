@@ -246,6 +246,9 @@ void main() {
           (l10n.usageTotalDuration, null, l10n.usageSecondsFormat('5.00')),
         ],
       );
+      // The rows only show figures: a tap keeps the popover open, and
+      // VoiceOver reads them as text rather than as buttons.
+      expect(content['rows'], everyElement(containsPair('readOnly', true)));
       expect(sheets, isEmpty);
     }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
 

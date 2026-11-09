@@ -9,6 +9,7 @@ import 'package:conduit_core/persistence/preferences_store.dart';
 
 import 'package:conduit_core/features/direct_connections/services/apple_pcc_host.dart';
 
+import 'package:conduit_core/features/librechat/providers/librechat_providers.dart';
 import 'package:conduit_core/providers/backend_mode_providers.dart';
 
 import '../../../shared/services/navigation_service.dart';
@@ -53,6 +54,19 @@ class BackendChooserPage extends ConsumerWidget {
             subtitle: l10n.backendChooserOpenWebUISubtitle,
             onTap: () => context.go(Routes.serverConnection),
           ),
+          if (ref.watch(libreChatBackendEnabledProvider))
+            _BackendOption(
+              key: const Key('backend-chooser-librechat'),
+              tile: AuthIconTile(
+                icon: cupertino
+                    ? CupertinoIcons.chat_bubble_2
+                    : Icons.forum_outlined,
+              ),
+              title: l10n.libreChatTitle,
+              subtitle: l10n.libreChatChooserSubtitle,
+              badge: l10n.libreChatBetaLabel,
+              onTap: () => context.go(Routes.libreChatSignIn),
+            ),
           _BackendOption(
             tile: const AuthIconTile(
               assetName: 'assets/icons/hermes_agent.png',
@@ -144,9 +158,17 @@ class BackendChooserPage extends ConsumerWidget {
       children: [
         for (final option in section.options)
           AuthGroupedRow(
+            key: option.key,
             leading: option.tile,
             title: option.title,
             subtitle: option.subtitle,
+            // The badge is read with the title, not as a node of its own.
+            trailing: option.badge == null
+                ? null
+                : ExcludeSemantics(child: _BetaBadge(label: option.badge!)),
+            semanticLabel: option.badge == null
+                ? null
+                : '${option.title}, ${option.badge}. ${option.subtitle}',
             showChevron: true,
             onTap: option.onTap,
           ),
@@ -162,15 +184,25 @@ class BackendChooserPage extends ConsumerWidget {
       children: [
         for (final option in section.options)
           UtilitySelectionRow(
+            key: option.key,
             leading: option.tile,
             title: option.title,
             subtitle: option.subtitle,
             selected: false,
             showSelectionIndicator: false,
-            trailing: Icon(
-              Icons.chevron_right,
-              color: context.conduitTheme.textTertiary,
-              size: IconSize.small,
+            trailing: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (option.badge case final badge?) ...[
+                  _BetaBadge(label: badge),
+                  const SizedBox(width: Spacing.xs),
+                ],
+                Icon(
+                  Icons.chevron_right,
+                  color: context.conduitTheme.textTertiary,
+                  size: IconSize.small,
+                ),
+              ],
             ),
             onTap: option.onTap,
           ),
@@ -193,16 +225,50 @@ class _BackendSection {
 
 class _BackendOption {
   const _BackendOption({
+    this.key,
     required this.tile,
     required this.title,
     required this.subtitle,
     required this.onTap,
+    this.badge,
   });
 
+  final Key? key;
   final Widget tile;
   final String title;
   final String subtitle;
   final VoidCallback onTap;
+
+  /// A short tag after the title's row, such as "Beta".
+  final String? badge;
+}
+
+/// Marks an option that is still in beta: a small capsule in the row's
+/// secondary ink on a faint fill, like the tile beside it, so it reads as a
+/// label and not a button.
+class _BetaBadge extends StatelessWidget {
+  const _BetaBadge({required this.label});
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = context.conduitTheme;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: Spacing.sm, vertical: 2),
+      decoration: ShapeDecoration(
+        color: theme.textPrimary.withValues(alpha: theme.isDark ? 0.12 : 0.06),
+        shape: const StadiumBorder(),
+      ),
+      child: Text(
+        label,
+        style: AppTypography.labelSmallStyle.copyWith(
+          color: theme.textSecondary,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+    );
+  }
 }
 
 /// The app's icon, name and purpose, centred above the choices.

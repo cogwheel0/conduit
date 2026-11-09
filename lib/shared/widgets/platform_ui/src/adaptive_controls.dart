@@ -38,6 +38,10 @@ IconData? cupertinoIconForSFSymbol(String symbol) => switch (symbol) {
   'camera' => CupertinoIcons.camera,
   'photo.on.rectangle' => CupertinoIcons.photo_on_rectangle,
   'paperplane.fill' => CupertinoIcons.arrow_up_circle_fill,
+  'eye' => CupertinoIcons.eye,
+  'hand.tap' => Icons.touch_app_outlined,
+  'arrow.up.left.and.arrow.down.right' =>
+    CupertinoIcons.arrow_up_left_arrow_down_right,
   _ => null,
 };
 
@@ -282,6 +286,11 @@ class AdaptiveButton extends StatelessWidget {
           config: config,
         );
       }
+      // UIKit buttons otherwise remain above a Flutter dialog's barrier.
+      button = Offstage(
+        offstage: ModalRoute.of(context)?.isCurrent == false,
+        child: button,
+      );
       if (minSize case final minimum?) {
         return ConstrainedBox(
           constraints: BoxConstraints(
@@ -472,8 +481,8 @@ class AdaptiveButton extends StatelessWidget {
       AdaptiveButtonStyle.filled => ElevatedButton(
         onPressed: callback,
         style: ElevatedButton.styleFrom(
-          backgroundColor: color,
-          foregroundColor: textColor,
+          backgroundColor: color ?? colorScheme.primary,
+          foregroundColor: textColor ?? colorScheme.onPrimary,
           padding: padding,
           minimumSize: minSize,
           shape: shape,
@@ -970,6 +979,7 @@ class AdaptivePopupMenuButton<T> {
       itemBuilder: (context) => _materialMenuEntries<T>(flat),
       child: SizedBox(
         height: height,
+        width: icon == null ? null : height,
         child: icon == null
             ? Center(
                 child: Text(label ?? '', style: TextStyle(color: tint)),

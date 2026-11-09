@@ -31,6 +31,9 @@ import '../network/image_header_utils.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 import 'package:conduit_core/features/hermes/models/hermes_model.dart';
+import 'package:conduit_core/features/librechat/providers/librechat_providers.dart';
+import 'package:conduit_core/providers/backend_mode_providers.dart'
+    show PrimaryAccountKind, primaryAccountKindProvider;
 import 'package:conduit_core/features/automations/providers/automation_providers.dart'
     show scheduledTasksEntryVisibleProvider;
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart'
@@ -127,6 +130,8 @@ NativeProfileRootVisibility readNativeProfileRootVisibility(
   showScheduledTasks: read(scheduledTasksEntryVisibleProvider),
   showPersonalConnections: read(personalConnectionsEntryVisibleProvider),
   showChatDataControls: read(chatDataControlsEntryVisibleProvider),
+  showLibreChatPersonalization:
+      read(primaryAccountKindProvider) == PrimaryAccountKind.libreChat,
 );
 
 /// Whom the account card atop the native Settings root is for, and what it
@@ -147,6 +152,12 @@ NativeProfileRootVisibility readNativeProfileRootVisibility(
         ? read(hermesActiveConnectionIdProvider)
         : null,
     countsOthers: account == null,
+    libreChatPrimary:
+        read(primaryAccountKindProvider) == PrimaryAccountKind.libreChat
+        ? read(activeLibreChatAccountProvider)
+        : null,
+    libreChatAccounts:
+        read(libreChatRegistryProvider).value?.accounts ?? const [],
   );
 }
 
@@ -157,10 +168,18 @@ String readNativeAppLanguageTag(NativeSheetProviderReader read) =>
 
 /// The saved Open WebUI accounts besides the active one, read now; null
 /// when they could not be read.
-int? readNativeOtherAccountCount(NativeSheetProviderReader read) =>
-    read(openWebUiAccountsProvider).value
-        ?.where((entry) => !entry.isActive)
-        .length;
+int? readNativeOtherAccountCount(NativeSheetProviderReader read) {
+  final others = read(
+    openWebUiAccountsProvider,
+  ).value?.where((entry) => !entry.isActive).length;
+  if (others == null) return null;
+  // Saved LibreChat accounts are others too: signing out of every account
+  // would forget them, and their chats, with this one. Not read yet, there
+  // may be some.
+  final libreChatAccounts = read(libreChatRegistryProvider).value?.accounts;
+  if (libreChatAccounts == null) return null;
+  return others + libreChatAccounts.length;
+}
 
 /// The native Accounts page, read now.
 NativeSheetDetailConfig readNativeAccountsDetail(
@@ -170,8 +189,19 @@ NativeSheetDetailConfig readNativeAccountsDetail(
   // The Apple toggles default to on: only where Apple Intelligence can exist
   // are they rows.
   final apple = read(applePccPlatformSupportedProvider);
+  final libreChatSession = read(libreChatSessionProvider).value;
   return buildNativeAccountsDetail(
     l10n,
+    libreChatEnabled: read(libreChatBackendEnabledProvider),
+    libreChatAccounts:
+        read(libreChatRegistryProvider).value?.accounts ?? const [],
+    libreChatInChargeId:
+        read(primaryAccountKindProvider) == PrimaryAccountKind.libreChat
+        ? read(activeLibreChatAccountProvider)?.id
+        : null,
+    // Only a session known to be signed in is shown in use: one that could
+    // not be read keeps its sign-in a tap away.
+    libreChatInChargeSignedIn: libreChatSession is LibreChatSignedInState,
     accounts: read(openWebUiAccountsProvider).value,
     hermesConnections: read(hermesConnectionsProvider),
     hermesInUseId: read(hermesEnabledProvider)
@@ -181,6 +211,27 @@ NativeSheetDetailConfig readNativeAccountsDetail(
     appleOnDevice: apple && read(appleOnDeviceEnabledProvider),
     applePcc: apple && read(applePccEnabledProvider),
   );
+}
+
+/// Waits for what the native Accounts page shows from secure storage:
+/// LibreChat's saved accounts, rather than showing none, and the session of
+/// the one in charge, which while loading is neither signed in nor out.
+Future<void> settleNativeAccountsDetail(NativeSheetProviderReader read) async {
+  // Not for ever: storage that does not answer leaves the accounts as the
+  // providers have them.
+  const patience = Duration(seconds: 2);
+  try {
+    await read(libreChatRegistryProvider.future).timeout(patience);
+    if (read(primaryAccountKindProvider) == PrimaryAccountKind.libreChat) {
+      await read(libreChatSessionProvider.future).timeout(patience);
+    }
+  } catch (error) {
+    DebugLogger.warning(
+      'native-accounts-librechat-unreadable',
+      scope: 'native-sheet/hydration',
+      data: {'error': error.runtimeType.toString()},
+    );
+  }
 }
 
 /// The native Settings root on screen and the account it was built for.
@@ -690,6 +741,7 @@ class NativeSheetHydrationService {
       case nativeAccountsDetailId:
         // As they are now: the Direct providers may have been read since the
         // sheet opened, and a pushed page comes back to this one.
+        await settleNativeAccountsDetail(_ref.read);
         final accounts = readNativeAccountsDetail(_ref.read, l10n);
         await NativeSheetBridge.instance.applyDetailPatch(
           detailId: nativeAccountsDetailId,
@@ -1644,7 +1696,8 @@ class NativeSheetHydrationService {
       );
 
   /// The Chats page's toggles: how the message field behaves, then how
-  /// chats and replies behave. They read only local settings.
+  /// chats and replies behave (the Computer viewer leading). They read only
+  /// local settings.
   List<NativeSheetSectionConfig> _nativeChatBehaviorSections(
     AppLocalizations l10n,
     AppSettings appSettings,
@@ -1674,6 +1727,14 @@ class NativeSheetHydrationService {
       ),
       NativeSheetSectionConfig(
         items: [
+          NativeSheetItemConfig(
+            id: 'computer-enabled',
+            title: l10n.computerTitle,
+            subtitle: l10n.computerEnabledDescription,
+            sfSymbol: 'desktopcomputer',
+            kind: NativeSheetItemKind.toggle,
+            value: appSettings.computerEnabled,
+          ),
           NativeSheetItemConfig(
             id: 'temporary-chat-default',
             title: l10n.temporaryChatByDefault,

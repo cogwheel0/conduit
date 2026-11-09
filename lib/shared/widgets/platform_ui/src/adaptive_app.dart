@@ -194,13 +194,22 @@ class AdaptiveApp extends StatelessWidget {
           primaryColor: materialDarkTheme?.colorScheme.primary,
         );
     Widget effectiveBuilder(BuildContext context, Widget? child) {
+      final media = MediaQuery.of(context);
       final brightness = switch (themeMode) {
         ThemeMode.dark => Brightness.dark,
         ThemeMode.light => Brightness.light,
         _ => MediaQuery.platformBrightnessOf(context),
       };
       final themedChild = MediaQuery(
-        data: MediaQuery.of(context).copyWith(platformBrightness: brightness),
+        data: media.copyWith(
+          platformBrightness: brightness,
+          // iOS keyboard dismissal can briefly report a negative inset.
+          // Scaffolds and dialogs require nonnegative padding; a failed
+          // layout update can leave stale rendered copies of their content.
+          viewInsets: media.viewInsets.copyWith(
+            bottom: media.viewInsets.bottom < 0 ? 0 : media.viewInsets.bottom,
+          ),
+        ),
         child: AnnotatedRegion<SystemUiOverlayStyle>(
           value: brightness == Brightness.dark
               ? SystemUiOverlayStyle.light

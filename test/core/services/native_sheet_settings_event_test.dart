@@ -700,6 +700,31 @@ void main() {
     check(saved()).isTrue();
   });
 
+  testWidgets('the native Computer toggle saves only booleans', (tester) async {
+    final container = await pumpApp(tester);
+    bool saved() => container.read(appSettingsProvider).computerEnabled;
+    check(saved()).isTrue();
+
+    NativeSheetBridge.instance.onControlChanged(
+      PlatformNativeSheetControlChangedEvent(
+        id: 'computer-enabled',
+        value: 'false',
+      ),
+    );
+    await tester.pumpAndSettle();
+    check(saved()).isTrue();
+
+    NativeSheetBridge.instance.onControlChanged(
+      PlatformNativeSheetControlChangedEvent(
+        id: 'computer-enabled',
+        value: false,
+      ),
+    );
+    await tester.pumpAndSettle();
+    check(saved()).isFalse();
+    check((await SettingsService.loadSettings()).computerEnabled).isFalse();
+  });
+
   testWidgets('the native citation background toggle saves only booleans', (
     tester,
   ) async {

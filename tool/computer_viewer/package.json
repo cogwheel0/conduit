@@ -1,0 +1,15 @@
+{
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node build.js",
+    "test": "node --test protocol.test.js trackpad.test.js text.test.js"
+  },
+  "dependencies": {
+    "@novnc/novnc": "1.7.0"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2",
+    "playwright-core": "1.61.1"
+  }
+}

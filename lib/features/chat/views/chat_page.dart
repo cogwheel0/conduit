@@ -25,6 +25,7 @@ import 'dart:async';
 import 'package:conduit_core/features/chat/providers/chat_model_choice.dart';
 import 'package:conduit_core/features/chat/models/model_selector_layout.dart';
 import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/providers/primary_account_providers.dart';
 
 import 'package:conduit_core/services/interaction_activity.dart';
 
@@ -46,8 +47,10 @@ import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart
 import 'package:conduit_core/features/direct_connections/providers/direct_connection_providers.dart';
 import 'package:conduit_core/features/direct_connections/services/direct_chat_bridge.dart';
 import 'package:conduit_core/features/direct_connections/services/direct_model_registry.dart';
+import 'package:conduit_core/features/terminal/providers/computer_providers.dart';
 
 import '../../direct_connections/widgets/direct_mcp_message_interactions.dart';
+import '../../terminal/widgets/computer_page.dart';
 
 import 'package:conduit_core/features/chat/providers/chat_providers.dart';
 import 'package:conduit_core/features/chat/composer/openwebui_prompt_answers.dart';
@@ -65,10 +68,13 @@ import 'package:conduit_core/features/hermes/services/hermes_local_document_trus
 import 'package:conduit_core/features/hermes/services/hermes_message_mapper.dart';
 import 'package:conduit_core/features/hermes/services/hermes_pending_decision_store.dart';
 import 'package:conduit_core/features/hermes/services/hermes_session_provenance.dart';
+import 'package:conduit_core/features/librechat/models/librechat_model.dart'
+    show isLibreChatModel;
 
 import '../../hermes/widgets/hermes_bot_avatar.dart';
 import '../../hermes/widgets/hermes_message_interactions.dart';
 import '../widgets/live_connection_button.dart';
+import '../../librechat/widgets/librechat_prompt_overlay.dart';
 import '../../navigation/providers/chat_back_provider.dart';
 import '../../navigation/utils/chat_list_back.dart';
 
@@ -76,8 +82,9 @@ import 'package:conduit_core/utils/debug_logger.dart';
 import 'package:conduit_core/features/direct_connections/services/model_logo_catalog.dart'
     show installedModelLogoCatalog;
 import 'package:conduit_core/utils/model_display_name.dart';
+import 'package:conduit_core/utils/user_display_name.dart'
+    show deriveGreetingName;
 
-import 'package:conduit_core/utils/user_display_name.dart';
 
 import '../../../core/utils/model_icon_utils.dart';
 import '../../../shared/widgets/markdown/markdown_compile_service.dart';
@@ -314,11 +321,18 @@ bool shouldShowTemporaryChatAction({
   required bool isHermes,
   required Conversation? activeConversation,
   bool temporaryChatEnforced = false,
-}) =>
-    !isHermes &&
-    // The server keeps the chat temporary, and would refuse to save it.
-    !temporaryChatEnforced &&
-    (activeConversation == null || isTemporaryChat(activeConversation.id));
+  bool isLibreChat = false,
+  bool isTemporary = false,
+}) {
+  if (isHermes) return false;
+  // Temporary chats are Open WebUI's; a LibreChat chat is always saved. A
+  // new chat still set to temporary offers the switch only to turn it off,
+  // since LibreChat will not send it as it is.
+  if (isLibreChat) return isTemporary && activeConversation == null;
+  // The server keeps the chat temporary, and would refuse to save it.
+  return !temporaryChatEnforced &&
+      (activeConversation == null || isTemporaryChat(activeConversation.id));
+}
 
 @visibleForTesting
 String? chatHermesBotTitle(Conversation? conversation) {
@@ -644,6 +658,8 @@ class _ChatPageState extends ConsumerState<ChatPage>
   ChatTimelineRowBuilder? _rowBuilderMemo;
   List<Object?> _rowRebuildKeysMemo = const <Object?>[];
   String? _cachedGreetingName;
+  // Whose name [_cachedGreetingName] is: it never greets another account.
+  PrimaryAccountRef? _greetingAccount;
   bool _greetingReady = false;
 
   /// The greeting is fading out under a new chat's first message.
@@ -679,7 +695,17 @@ class _ChatPageState extends ConsumerState<ChatPage>
   bool get _wantsPinToTop => _pinToTopState.isActive;
   bool get _shouldAutoFollowPinnedTurn =>
       _pinToTopState.isActive && _pinToTopState.isAutoFollowing;
-  String? get _pinnedUserMessageId => _pinToTopState.userMessageId;
+  String? get _pinnedUserMessageId =>
+      _currentMessageId(_pinToTopState.userMessageId);
+
+  /// The pinned reply, by the id it has now: a LibreChat turn swaps the ids
+  /// minted here for the server's while it runs.
+  String? get _pinnedStreamingMessageId =>
+      _currentMessageId(_pinToTopState.streamingMessageId);
+
+  String? _currentMessageId(String? id) => id == null
+      ? null
+      : ref.read(chatMessagesProvider.notifier).currentMessageId(id);
 
   bool get _isUserInteractingWithScroll =>
       _bottomAnchorController.isUserInteractingWithScroll;
@@ -1538,24 +1564,28 @@ class _ChatPageState extends ConsumerState<ChatPage>
 
     // Resolve model on-demand if none selected yet
     if (selectedModel == null) {
+      Model? fallback;
+      var failed = false;
       try {
-        // Prefer already-loaded models
-        List<Model> models;
-        final modelsAsync = ref.read(modelsProvider);
-        if (modelsAsync.hasValue) {
-          models = modelsAsync.value!;
-        } else {
-          models = await ref.read(modelsProvider.future);
-        }
-        if (models.isNotEmpty) {
-          selectedModel = models.first;
-          ref.read(selectedModelProvider.notifier).set(selectedModel);
-        }
+        fallback = await modelForUnpickedSend(ref.read);
       } catch (_) {
-        // If models cannot be resolved, bail out without sending
+        failed = true;
+      }
+      if (!mounted) return false;
+      // A model picked while that waited is the user's choice; the fallback
+      // only stands in for none.
+      selectedModel = ref.read(selectedModelProvider) ?? fallback;
+      if (selectedModel == null) {
+        // The draft stays in the composer: say why it was not sent.
+        final l10n = AppLocalizations.of(context)!;
+        AdaptiveSnackBar.show(
+          context,
+          message: failed ? l10n.failedToLoadModels : l10n.noModelsAvailable,
+          type: AdaptiveSnackBarType.error,
+        );
         return false;
       }
-      if (selectedModel == null) return false;
+      ref.read(selectedModelProvider.notifier).set(selectedModel);
     }
 
     ChatSendPlaceholderHandle? pendingSend;
@@ -1684,6 +1714,30 @@ class _ChatPageState extends ConsumerState<ChatPage>
             error,
             models: ref.read(modelsProvider).asData?.value,
           ),
+          type: AdaptiveSnackBarType.error,
+        );
+      }
+      return false;
+    } on LibreChatTemporaryChatException {
+      // Refused before anything was sent; the draft stays for once temporary
+      // chat is off.
+      if (mounted) {
+        AdaptiveSnackBar.show(
+          context,
+          message: AppLocalizations.of(context)!.libreChatTemporaryChatOff,
+          type: AdaptiveSnackBarType.error,
+        );
+      }
+      return false;
+    } on LibreChatReplyRunningException {
+      // Refused before anything was written; the draft stays for once the
+      // reply is done or stopped.
+      if (mounted) {
+        AdaptiveSnackBar.show(
+          context,
+          message: AppLocalizations.of(
+            context,
+          )!.chatDataControlsResponseRunning,
           type: AdaptiveSnackBarType.error,
         );
       }
@@ -2884,7 +2938,7 @@ class _ChatPageState extends ConsumerState<ChatPage>
     ChatTurnPhase? assistantPhase,
   ) {
     if (!_shouldAutoFollowPinnedTurn) return;
-    final assistantMessageId = _pinToTopState.streamingMessageId;
+    final assistantMessageId = _pinnedStreamingMessageId;
     if (assistantMessageId == null) return;
     if (!debugShouldSettlePinnedTurnForLifecycleForTesting(
       pinActive: true,
@@ -2902,7 +2956,7 @@ class _ChatPageState extends ConsumerState<ChatPage>
       }
       if (!mounted ||
           scheduledGeneration != _pinPositionGeneration ||
-          _pinToTopState.streamingMessageId != assistantMessageId) {
+          _pinnedStreamingMessageId != assistantMessageId) {
         return;
       }
       ChatMessage? currentAssistant;
@@ -3191,7 +3245,7 @@ class _ChatPageState extends ConsumerState<ChatPage>
     final paging = watchRef.watch(chatTranscriptPagingProvider);
     final messages = _renderedTranscriptWindow(completeMessages, paging);
     final requestedCount = messages.length;
-    final pinnedAssistantId = _pinToTopState.streamingMessageId;
+    final pinnedAssistantId = _pinnedStreamingMessageId;
     final pinnedAssistantPhase = pinnedAssistantId == null
         ? null
         : watchRef.watch(
@@ -3809,7 +3863,12 @@ class _ChatPageState extends ConsumerState<ChatPage>
                 Clipboard.setData(ClipboardData(text: currentMessage.content));
               }
             },
-            onDelete: () => _deleteMessageGroup(<String>[messageId]),
+            // LibreChat keeps its messages on its server, which a delete
+            // here would not reach: the next sync would bring them back,
+            // and a reply still running would put its turn back at once.
+            onDelete: _messagesDeletable(rowRef)
+                ? () => _deleteMessageGroup(<String>[messageId])
+                : null,
             onRegenerate: () => _regenerateMessage(messageId),
           );
           // An edited message keeps each version as a sibling in the stored
@@ -3918,11 +3977,19 @@ class _ChatPageState extends ConsumerState<ChatPage>
       // replacement.
       onRegenerate: () =>
           _regenerateMessage(groupIds.isEmpty ? messageId : groupIds.first),
-      onDelete: () => _deleteMessageGroup(
-        groupIds.isEmpty ? <String>[messageId] : groupIds,
-      ),
+      onDelete: _messagesDeletable(rowRef)
+          ? () => _deleteMessageGroup(
+              groupIds.isEmpty ? <String>[messageId] : groupIds,
+            )
+          : null,
     );
   }
+
+  /// Whether the open chat's messages can be deleted here: not a LibreChat
+  /// chat's, which a delete here would not take off its server.
+  bool _messagesDeletable(WidgetRef rowRef) => !rowRef.watch(
+    activeConversationProvider.select(isLibreChatConversation),
+  );
 
   ChatMessage _messageWithGroupedHermesToolStatuses(
     WidgetRef rowRef,
@@ -4108,19 +4175,18 @@ class _ChatPageState extends ConsumerState<ChatPage>
 
   Widget _buildEmptyState(ThemeData theme) {
     final l10n = AppLocalizations.of(context)!;
-    final authUser = ref.watch(currentUserProvider2);
-    final asyncUser = ref.watch(currentUserProvider);
-    final user = asyncUser.maybeWhen(
-      data: (value) => value ?? authUser,
-      orElse: () => authUser,
-    );
+    // Whoever owns the Chats tab: an Open WebUI or a LibreChat user.
+    final account = ref.watch(primaryAccountProvider);
+    if (account != _greetingAccount) {
+      _greetingAccount = account;
+      _cachedGreetingName = null;
+    }
+    final user = ref.watch(primaryUserProvider);
     String? greetingName;
     if (user != null) {
       // "Hello, Robin", not a form letter's full name; the whole name when
       // it has no clear first name.
-      final derived = deriveGreetingName(
-        deriveUserDisplayName(user, fallback: ''),
-      );
+      final derived = deriveGreetingName(user.displayName);
       if (derived.isNotEmpty) {
         greetingName = derived;
         _cachedGreetingName = derived;
@@ -4384,6 +4450,18 @@ class _ChatPageState extends ConsumerState<ChatPage>
                               .read(directRunRegistryProvider)
                               .hasLiveMcpApproval,
                         );
+                  final pendingLibreChatPrompt = composerRef.watch(
+                    chatMessagesProvider.select(
+                      findPendingLibreChatComposerPrompt,
+                    ),
+                  );
+                  // Only a run live in this app can be answered.
+                  final pendingLibreChatAction = pendingLibreChatPrompt == null
+                      ? null
+                      : libreChatPendingActionFor(
+                          composerRef,
+                          pendingLibreChatPrompt.id,
+                        );
                   final Widget? attachedOverlay;
                   if (persistedPrompt != null) {
                     attachedOverlay = OpenWebUiPromptOverlay(
@@ -4445,6 +4523,21 @@ class _ChatPageState extends ConsumerState<ChatPage>
                     attachedOverlay = DirectMcpComposerPromptOverlay(
                       key: ValueKey(approval['id']),
                       message: pendingDirectMcpPrompt,
+                    );
+                  } else if (pendingLibreChatAction != null) {
+                    final messageId = pendingLibreChatPrompt!.id;
+                    attachedOverlay = LibreChatComposerPromptOverlay(
+                      key: ValueKey(
+                        '$messageId\u0000${pendingLibreChatAction.actionId}',
+                      ),
+                      action: pendingLibreChatAction,
+                      onResolve: ({decisions, answers}) =>
+                          resolveLibreChatPendingAction(
+                            composerRef,
+                            messageId,
+                            decisions: decisions,
+                            answers: answers,
+                          ),
                     );
                   } else {
                     attachedOverlay = null;
@@ -4762,10 +4855,29 @@ class _ChatPageState extends ConsumerState<ChatPage>
     }
     setState(() => _isOpeningModelSelector = true);
     try {
-      final models = await ref
+      final loaded = await ref
           .read(nativeSheetHydrationServiceProvider)
           .loadModels();
       if (!mounted || !context.mounted) return;
+      // A saved chat goes on only with its own backend: a LibreChat chat
+      // takes only LibreChat's models, and no other chat takes them.
+      final active = ref.read(activeConversationProvider);
+      final models = active == null
+          ? loaded
+          : [
+              for (final model in loaded)
+                if (isLibreChatModel(model) == isLibreChatConversation(active))
+                  model,
+            ];
+      if (models.isEmpty) {
+        // The native picker opens on nothing: say why there is no list.
+        AdaptiveSnackBar.show(
+          context,
+          message: AppLocalizations.of(context)!.noModelsAvailable,
+          type: AdaptiveSnackBarType.warning,
+        );
+        return;
+      }
       if (menuAnchor != null && menuAnchor.mounted) {
         final openFullList = await _showPinnedModelMenu(menuAnchor, models);
         if (!openFullList || !mounted || !context.mounted) return;
@@ -5104,6 +5216,15 @@ class _ChatPageState extends ConsumerState<ChatPage>
       actions.add(temporaryAction);
     }
 
+    final computerAction = _buildComputerToolbarAction(
+      context: context,
+      isHermes: isHermes,
+      tintColor: defaultTint,
+    );
+    if (computerAction != null) {
+      actions.add(computerAction);
+    }
+
     if (showNewChatAction) {
       actions.add(
         _buildChatToolbarIconAction(
@@ -5140,27 +5261,63 @@ class _ChatPageState extends ConsumerState<ChatPage>
     String? iosSymbol,
     VoidCallback? onLongPress,
     GlobalKey? anchorKey,
+    Key? key,
+    bool labelFlutterButton = false,
   }) {
-    iosSymbol = conduitToolbarSfSymbolForIcon(icon, iosSymbol: iosSymbol);
-    assert(iosSymbol != null);
+    final symbol = conduitToolbarSfSymbolForIcon(icon, iosSymbol: iosSymbol);
+    assert(symbol != null);
     return _ChatToolbarActionDescriptor(
       id: id,
       icon: icon,
       onLongPress: onLongPress,
       anchorKey: anchorKey,
       widget: ConduitAdaptiveAppBarIconButton(
+        key: key,
         icon: icon,
-        iosSymbol: iosSymbol,
+        iosSymbol: symbol,
         iconColor: tintColor,
+        semanticLabel: labelFlutterButton ? accessibilityLabel : null,
         onPressed: onPressed,
       ),
       nativeAction: ConduitNativeToolbarAction(
-        iosSymbol: iosSymbol!,
+        iosSymbol: symbol!,
         accessibilityLabel: accessibilityLabel,
         tintColor: tintColor,
         enabled: onPressed != null,
         onPressed: onPressed,
       ),
+    );
+  }
+
+  /// Opens the live Desktop or Browser of the chat's terminal. Shown whenever
+  /// the selected terminal offers one; discovering that never starts it.
+  _ChatToolbarActionDescriptor? _buildComputerToolbarAction({
+    required BuildContext context,
+    required bool isHermes,
+    required Color tintColor,
+  }) {
+    final selectedModel = ref.watch(selectedModelProvider);
+    if (isHermes ||
+        (selectedModel != null &&
+            (isLibreChatModel(selectedModel) ||
+                hasReservedDirectIdentity(selectedModel))) ||
+        !ref.watch(computerAvailableProvider)) {
+      return null;
+    }
+    return _buildChatToolbarIconAction(
+      id: 'computer',
+      key: const ValueKey('chat-computer-button'),
+      icon: Platform.isIOS
+          ? CupertinoIcons.desktopcomputer
+          : Icons.desktop_windows_outlined,
+      iosSymbol: 'desktopcomputer',
+      accessibilityLabel: AppLocalizations.of(context)!.computerTitle,
+      labelFlutterButton: true,
+      tintColor: tintColor,
+      onPressed: () {
+        _dismissComposerFocus();
+        unawaited(openComputerWorkspace(context, ref));
+      },
     );
   }
 
@@ -5173,10 +5330,15 @@ class _ChatPageState extends ConsumerState<ChatPage>
     required Color tintColor,
     bool held = false,
   }) {
+    final selectedModel = ref.watch(selectedModelProvider);
     final showTemporaryAction = shouldShowTemporaryChatAction(
       isHermes: isHermes,
       activeConversation: activeConversation,
       temporaryChatEnforced: ref.watch(temporaryChatEnforcedProvider),
+      isLibreChat:
+          (selectedModel != null && isLibreChatModel(selectedModel)) ||
+          isLibreChatConversation(activeConversation),
+      isTemporary: isTemporary,
     );
     if (!showTemporaryAction) {
       return null;

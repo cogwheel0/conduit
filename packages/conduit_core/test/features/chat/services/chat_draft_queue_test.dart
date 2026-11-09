@@ -11,6 +11,7 @@ import 'package:conduit_core/features/chat/providers/attached_files_provider.dar
 import 'package:conduit_core/features/chat/providers/chat_providers.dart';
 import 'package:conduit_core/features/chat/providers/context_attachments_provider.dart';
 import 'package:conduit_core/features/chat/services/chat_draft_queue.dart';
+import 'package:conduit_core/features/terminal/providers/computer_providers.dart';
 import 'package:conduit_core/features/direct_connections/services/direct_chat_bridge.dart'
     show kDirectTransport;
 import 'package:conduit_core/features/hermes/models/hermes_model.dart';
@@ -437,6 +438,35 @@ class _Session {
 }
 
 void main() {
+  group('Computer control handoff', () {
+    test('waits for server cancellation before accepting input', () async {
+      final s = await _Session.start();
+      s.api.stopGate = Completer<void>();
+      var completed = false;
+      final pending = s.container.read(computerTakeControlProvider)()
+          .then((value) { completed = true; return value; });
+      await s.until(() => s.api.stoppedChats.isNotEmpty);
+      check(completed).isFalse();
+      s.api.stopGate!.complete();
+      check(await pending).isTrue();
+    });
+
+    test('refused cancellation leaves the viewer read-only', () async {
+      final s = await _Session.start();
+      s.api.stopError = StateError('synthetic cancellation refusal');
+      check(await s.container.read(computerTakeControlProvider)()).isFalse();
+    });
+
+    test('cannot take control over another participant’s response', () async {
+      final s = await _Session.start();
+      final messages = _runningTurn();
+      messages[1] = messages[1].copyWith(metadata: {'authorUserId': 'another-participant'});
+      s.container.read(chatMessagesProvider.notifier).setMessages(messages);
+      check(await s.container.read(computerTakeControlProvider)()).isFalse();
+      check(s.api.stoppedChats).isEmpty();
+    });
+  });
+
   group('queueing a draft', () {
     test('captures the composer and leaves it empty, files still uploading',
         () async {

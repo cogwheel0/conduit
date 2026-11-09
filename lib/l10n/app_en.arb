@@ -9275,5 +9275,235 @@
   "accountsSavedServers": "Saved Servers",
   "@accountsSavedServers": {
     "description": "Header of the group in the Add Account sheet that lists the Open WebUI servers already saved on this device; tapping one signs in to another account on it. Title Case."
+  },
+  "computerEnabledDescription": "Watch and control Desktop and Browser sessions in chats.",
+  "@computerEnabledDescription": {"description": "Settings subtitle for enabling the Computer viewer on this device."},
+  "computerTrackpadHint": "Slide to move the cursor. Tap to click, hold to drag; two fingers scroll.",
+  "@computerTrackpadHint": {"description": "Gesture instructions for relative trackpad mode in the Computer viewer."},
+  "computerShortcut": "Keyboard Shortcut",
+  "@computerShortcut": {"description": "Label for entering a keyboard shortcut to send to the remote computer."},
+  "computerInputFailed": "Couldn’t send that to the computer. Try again.",
+  "@computerInputFailed": {"description": "Computer viewer: error shown when a key combination or a typed address cannot be sent to the remote computer."},
+  "computerQualityLow": "Lower Data Use",
+  "@computerQualityLow": {"description": "Stream quality option that reduces image quality to use less data."},
+  "computerDesktopSite": "Desktop Site",
+  "@computerDesktopSite": {"description": "Browser display option that requests a desktop-sized web page viewport."},
+  "computerAudioUnavailable": "Desktop audio is unavailable on this connection or device.",
+  "@computerAudioUnavailable": {"description": "Message when this device or connection cannot play remote desktop audio."},
+  "computerSound": "Sound",
+  "@computerSound": {"description": "Computer viewer menu: a checked toggle that plays or mutes the remote desktop's audio."},
+  "computerTabs": "Browser Tabs",
+  "@computerTabs": {"description": "Title of the remote browser tab picker."},
+  "computerNewTab": "New Tab",
+  "@computerNewTab": {"description": "Action that opens a new remote browser tab."},
+  "computerCloseTab": "Close Tab",
+  "@computerCloseTab": {"description": "Action that closes a remote browser tab."},
+  "computerRefreshTabs": "Refresh Tabs",
+  "@computerRefreshTabs": {"description": "Action that reloads the list of remote browser tabs."},
+  "computerNoTabs": "No browser tabs",
+  "@computerNoTabs": {"description": "Empty state when the remote browser has no open tabs."},
+  "computerTabsWatchHint": "Take Control to change tabs. This stops the response; send a new message to continue.",
+  "@computerTabsWatchHint": {"description": "Explains that browser tab changes require taking control from Watch mode."},
+  "computerTabsUnavailable": "Couldn’t load tabs. Try refreshing.",
+  "@computerTabsUnavailable": {"description": "Error shown when the remote browser tab list cannot be loaded."},
+  "computerTitle": "Computer",
+  "@computerTitle": {"description": "Computer viewer: Title."},
+  "computerConnecting": "Connecting to computer…",
+  "@computerConnecting": {"description": "Computer viewer: Connecting."},
+  "computerReconnecting": "Reconnecting…",
+  "@computerReconnecting": {"description": "Computer viewer: Reconnecting."},
+  "computerDisconnected": "Computer disconnected",
+  "@computerDisconnected": {"description": "Computer viewer: Disconnected."},
+  "computerBrowserStartHint": "Take Control to start this tab’s live view.",
+  "@computerBrowserStartHint": {"description": "Explains that activating a proxy browser tab for live viewing requires taking control."},
+  "computerBrowserUnavailable": "This terminal needs Chrome or Chromium for a live browser.",
+  "@computerBrowserUnavailable": {"description": "Computer viewer: BrowserUnavailable."},
+  "computerStopFailed": "Could not stop the current response. You can keep watching and try again.",
+  "@computerStopFailed": {"description": "Computer viewer: StopFailed."},
+  "computerStopping": "Stopping response…",
+  "@computerStopping": {"description": "Computer viewer: Stopping."},
+  "computerTakeControl": "Take Control",
+  "@computerTakeControl": {"description": "Computer viewer: TakeControl."},
+  "computerTrackpadMode": "Trackpad Mode",
+  "@computerTrackpadMode": {"description": "Computer viewer menu: a checked toggle that turns touch into a relative trackpad that moves the remote pointer."},
+  "computerRecenterPointer": "Recenter Pointer",
+  "@computerRecenterPointer": {"description": "Computer viewer menu, trackpad mode only: moves the remote pointer back to the middle of the screen."},
+  "computerClick": "Click",
+  "@computerClick": {"description": "Action that sends a single left mouse click at the remote cursor."},
+  "computerRightClick": "Right-Click",
+  "@computerRightClick": {"description": "Action that sends a right mouse click at the remote cursor."},
+  "computerDoubleClick": "Double-Click",
+  "@computerDoubleClick": {"description": "Action that sends two left mouse clicks at the remote cursor."},
+  "computerStartDrag": "Start Drag",
+  "@computerStartDrag": {"description": "Action that holds the remote left mouse button for dragging."},
+  "computerEndDrag": "End Drag",
+  "@computerEndDrag": {"description": "Action that releases the remote mouse button to finish dragging."},
+  "computerShowKeyboard": "Show Keyboard",
+  "@computerShowKeyboard": {"description": "Computer viewer toolbar button that opens the software keyboard; typed keys go to the remote computer."},
+  "computerHideKeyboard": "Hide Keyboard",
+  "@computerHideKeyboard": {"description": "Computer viewer toolbar button that closes the software keyboard."},
+  "computerAgentWorking": "Agent is working",
+  "@computerAgentWorking": {"description": "Computer viewer: shown at the bottom while the chat's AI response is using the computer. Next to a Take control button."},
+  "computerDesktop": "Desktop",
+  "@computerDesktop": {"description": "Computer viewer: Desktop."},
+  "computerBrowser": "Browser",
+  "@computerBrowser": {"description": "Computer viewer: Browser."},
+  "computerForward": "Forward",
+  "@computerForward": {"description": "Computer viewer: Forward."},
+  "computerReload": "Reload Page",
+  "@computerReload": {"description": "Computer viewer: Reload."},
+  "computerAddress": "Go to Address",
+  "@computerAddress": {"description": "Computer viewer: Address."},
+  "computerTypeText": "Type on Computer",
+  "@computerTypeText": {"description": "Computer viewer: TypeText."},
+  "computerSend": "Send",
+  "@computerSend": {"description": "Computer viewer: Send."},
+  "computerZoom": "Zoom In",
+  "@computerZoom": {"description": "Computer viewer: Zoom."},
+  "libreChatTemporaryChatOff": "LibreChat saves every chat. Turn off Temporary Chat to send.",
+  "@libreChatTemporaryChatOff": {
+    "description": "Shown when a new LibreChat chat is not sent because temporary chat is on: LibreChat saves every chat."
+  },
+  "libreChatTitle": "LibreChat",
+  "@libreChatTitle": {
+    "description": "Name of the LibreChat backend, shown as a tab, a card title and a page title. Product name; usually not translated."
+  },
+  "libreChatBetaLabel": "Beta",
+  "@libreChatBetaLabel": {
+    "description": "Badge next to LibreChat while its support is in beta."
+  },
+  "libreChatChooserSubtitle": "Sign in to your LibreChat server for synced chats, agents, and more.",
+  "@libreChatChooserSubtitle": {
+    "description": "Subtitle of the LibreChat option on the first-run backend chooser."
+  },
+  "libreChatAddAccount": "Add a LibreChat Account",
+  "@libreChatAddAccount": {
+    "description": "Row that adds a LibreChat account on the Accounts page."
+  },
+  "libreChatFileSearch": "File Search",
+  "@libreChatFileSearch": {
+    "description": "Composer toggle that lets a LibreChat turn search the user's uploaded files."
+  },
+  "libreChatFileSearchDescription": "Search the files you uploaded for answers.",
+  "@libreChatFileSearchDescription": {
+    "description": "Description under the LibreChat file search toggle in the composer's tools."
+  },
+  "libreChatMcpConnect": "Connect in LibreChat",
+  "@libreChatMcpConnect": {
+    "description": "Shown on a LibreChat MCP server that needs signing in, which only the LibreChat web app can do; opens it in the browser."
+  },
+  "libreChatApprovalRun": "Allow {tool} to run?",
+  "@libreChatApprovalRun": {
+    "description": "Approval card question when a LibreChat run waits to call a tool.",
+    "placeholders": {
+      "tool": {
+        "type": "String",
+        "example": "echo"
+      }
+    }
+  },
+  "libreChatQuestionProgress": "Question {current} of {total}",
+  "@libreChatQuestionProgress": {
+    "description": "Progress through a LibreChat agent's batch of questions.",
+    "placeholders": {
+      "current": {
+        "type": "int",
+        "example": "1"
+      },
+      "total": {
+        "type": "int",
+        "example": "3"
+      }
+    }
+  },
+  "libreChatAnswerFailed": "Couldn't send your answer. Try again.",
+  "@libreChatAnswerFailed": {
+    "description": "Shown when answering a LibreChat approval or question didn't reach the server."
+  },
+  "libreChatApprovalRespond": "Respond",
+  "@libreChatApprovalRespond": {
+    "description": "Button on a LibreChat tool approval: answer in the tool's place with text instead of running it."
+  },
+  "libreChatApprovalArguments": "Arguments (JSON)",
+  "@libreChatApprovalArguments": {
+    "description": "Label of the field where a LibreChat tool call's arguments are edited before it runs."
+  },
+  "libreChatAddAccountMessage": "Enter the address of your LibreChat server.",
+  "@libreChatAddAccountMessage": {
+    "description": "Intro text of the LibreChat sign-in form."
+  },
+  "libreChatInvalidAddress": "Enter a server address, like chat.example.com.",
+  "@libreChatInvalidAddress": {
+    "description": "Shown when the typed LibreChat server address is not a usable web address."
+  },
+  "libreChatUnreachable": "Couldn't reach the server. Check the address and your connection.",
+  "@libreChatUnreachable": {
+    "description": "Shown when the LibreChat server address could not be reached."
+  },
+  "libreChatNotLibreChat": "This server isn't LibreChat. Check the address.",
+  "@libreChatNotLibreChat": {
+    "description": "Shown when the address answered but is not a LibreChat server."
+  },
+  "libreChatIsOpenWebUi": "This is an Open WebUI server. Add it on the Open WebUI tab.",
+  "@libreChatIsOpenWebUi": {
+    "description": "Shown when the typed address is an Open WebUI server, pointing to the Open WebUI tab of the add-account sheet."
+  },
+  "libreChatPasswordSignInOff": "This server only allows single sign-on.",
+  "@libreChatPasswordSignInOff": {
+    "description": "Shown when the LibreChat server offers only single sign-on, no password sign-in."
+  },
+  "libreChatGoogleUnsupported": "Google doesn't allow signing in inside apps. Use another way to sign in.",
+  "@libreChatGoogleUnsupported": {
+    "description": "Shown instead of starting Google sign-in, which Google blocks inside apps."
+  },
+  "libreChatSsoUnfinished": "Sign-in didn't finish. Try again.",
+  "@libreChatSsoUnfinished": {
+    "description": "Shown when a single sign-on page closed or failed before signing in."
+  },
+  "libreChatChangeServer": "Use a Different Server",
+  "@libreChatChangeServer": {
+    "description": "Button that goes back to entering another LibreChat server address."
+  },
+  "libreChatSessionEnded": "Your session on {server} ended. Sign in again.",
+  "@libreChatSessionEnded": {
+    "description": "Shown on the LibreChat sign-in page when the saved session for a server ended.",
+    "placeholders": {
+      "server": {
+        "type": "String",
+        "example": "chat.example.com"
+      }
+    }
+  },
+  "libreChatDuplicateChat": "Duplicate Chat",
+  "@libreChatDuplicateChat": {
+    "description": "Chat menu action that copies a LibreChat chat into a new chat on the server."
+  },
+  "libreChatCopyFailed": "Couldn't copy the chat. Check your connection and try again.",
+  "@libreChatCopyFailed": {
+    "description": "Shown when branching or duplicating a LibreChat chat fails."
+  },
+  "libreChatMemoryKeyLabel": "Key",
+  "@libreChatMemoryKeyLabel": {
+    "description": "Label of the field naming a LibreChat memory (its key)."
+  },
+  "libreChatMemoryKeyHint": "e.g. preferences",
+  "@libreChatMemoryKeyHint": {
+    "description": "Placeholder of the LibreChat memory key field."
+  },
+  "libreChatMemoryKeyRequired": "Give the memory a key.",
+  "@libreChatMemoryKeyRequired": {
+    "description": "Shown when a LibreChat memory is saved without a key."
+  },
+  "libreChatMemoryUsage": "{used} of {limit} tokens used",
+  "@libreChatMemoryUsage": {
+    "description": "How much of the server's memory token budget the saved LibreChat memories use.",
+    "placeholders": {
+      "used": {
+        "type": "int"
+      },
+      "limit": {
+        "type": "int"
+      }
+    }
   }
 }

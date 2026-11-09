@@ -161,6 +161,7 @@ Widget _buildAssistantHarness(
   FutureOr<void> Function(String suggestion)? onFollowUpSelected,
   Locale? locale,
   List<Override> overrides = const [],
+  bool deletable = true,
 }) {
   return ProviderScope(
     overrides: [
@@ -195,7 +196,7 @@ Widget _buildAssistantHarness(
           modelName: message.model,
           onCopy: onCopy ?? () {},
           onRegenerate: onRegenerate ?? () {},
-          onDelete: () {},
+          onDelete: deletable ? () {} : null,
           onFollowUpSelected: onFollowUpSelected,
         ),
       ),
@@ -962,6 +963,92 @@ void main() {
     expect(find.byIcon(Icons.share_outlined), findsOneWidget);
     expect(find.byIcon(Icons.delete_outline), findsOneWidget);
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('a response that cannot be deleted offers no Delete', (
+    tester,
+  ) async {
+    final message = ChatMessage(
+      id: 'kept-on-server',
+      role: 'assistant',
+      content: 'Water the seedlings gently.',
+      timestamp: DateTime(2026, 1, 1),
+    );
+    await tester.pumpWidget(
+      _buildAssistantHarness(
+        message,
+        deletable: false,
+        settings: const AppSettings(inlineMessageActions: ['copy', 'delete']),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.byIcon(Icons.delete_outline), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('a LibreChat reply its server never took offers no Fork', (
+    tester,
+  ) async {
+    Future<void> pump(ChatMessage message) async {
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            textToSpeechControllerProvider.overrideWith(
+              _TestTextToSpeechController.new,
+            ),
+            streamingHapticsEnabledProvider.overrideWithValue(false),
+            appSettingsProvider.overrideWithValue(
+              const AppSettings(inlineMessageActions: ['copy', 'fork']),
+            ),
+            chatForkAvailabilityProvider.overrideWithValue(
+              ChatForkAvailability.available,
+            ),
+            activeConversationProvider.overrideWith(
+              () => _PinnedActive(
+                Conversation(
+                  id: 'chat-1',
+                  title: 'Chat',
+                  createdAt: DateTime(2024, 1, 1),
+                  updatedAt: DateTime(2024, 1, 1),
+                ),
+              ),
+            ),
+          ],
+          child: _buildHarness(
+            AssistantMessageWidget(
+              message: message,
+              isStreaming: false,
+              showFollowUps: false,
+              animateOnMount: false,
+              modelName: message.model,
+              onCopy: () {},
+              onRegenerate: () {},
+              onDelete: () {},
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+    }
+
+    final accepted = ChatMessage(
+      id: 'reply-1',
+      role: 'assistant',
+      content: 'Water the seedlings gently.',
+      timestamp: DateTime(2026, 1, 1),
+    );
+    await pump(accepted);
+    expect(find.byIcon(Icons.call_split), findsOneWidget);
+
+    // Its follow-up failed before the server took it: the id is this
+    // device's own.
+    await pump(
+      accepted.copyWith(
+        id: 'local-reply',
+        metadata: const <String, dynamic>{'libreChatPending': true},
+      ),
+    );
+    expect(find.byIcon(Icons.call_split), findsNothing);
   });
 
   testWidgets('assistant footer caps inline actions and overflows extras', (
@@ -2881,6 +2968,20 @@ final class _SelectedAs extends SelectedModel {
 
   @override
   Model? build() => model;
+}
+
+/// The open chat, kept open: nothing here loads it, so the app's own reset
+/// of a chat it cannot find is not under test.
+final class _PinnedActive extends ActiveConversationNotifier {
+  _PinnedActive(this.conversation);
+
+  final Conversation conversation;
+
+  @override
+  Conversation? build() => conversation;
+
+  @override
+  void set(Conversation? conversation) {}
 }
 
 final class _ActiveAs extends ActiveConversationNotifier {

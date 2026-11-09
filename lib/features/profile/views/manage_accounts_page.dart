@@ -2,8 +2,11 @@ import 'package:conduit_core/features/direct_connections/models/direct_connectio
 import 'package:conduit_core/features/direct_connections/providers/direct_connection_providers.dart';
 import 'package:conduit_core/features/hermes/models/hermes_config.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
+import 'package:conduit_core/features/librechat/models/librechat_account.dart';
+import 'package:conduit_core/features/librechat/providers/librechat_providers.dart';
 import 'package:conduit_core/navigation/routes.dart';
 import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/providers/backend_mode_providers.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:conduit/shared/widgets/platform_ui/vocabulary.dart';
 import 'package:flutter/semantics.dart' show CustomSemanticsAction;
@@ -14,6 +17,7 @@ import '../../../l10n/app_localizations.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/ui_utils.dart';
 import '../../../shared/widgets/conduit_components.dart';
+import '../../../shared/widgets/user_avatar.dart';
 import '../../../shared/widgets/utility_components.dart';
 import '../../hermes/widgets/hermes_connection_switcher.dart';
 import '../widgets/account_actions.dart';
@@ -21,8 +25,8 @@ import '../widgets/account_sheet.dart';
 import '../widgets/settings_page_scaffold.dart';
 
 /// Every account and connection, a card for each place they live: one per
-/// Open WebUI server with its accounts, then Hermes with its connections,
-/// then Direct with its providers.
+/// Open WebUI server with its accounts, then LibreChat with its accounts,
+/// then Hermes with its connections, then Direct with its providers.
 ///
 /// Tap an Open WebUI account or a Hermes connection to switch to it, or a
 /// Direct provider to edit it; a card's top row opens its page, and Add
@@ -51,6 +55,7 @@ class ManageAccountsPage extends ConsumerWidget {
             settingsSectionGap,
           ],
         ),
+        const _LibreChatCard(),
         const _HermesCard(),
         settingsSectionGap,
         const _DirectCard(),
@@ -64,8 +69,16 @@ class ManageAccountsPage extends ConsumerWidget {
             ),
           ],
         ),
-        // With one account, Settings' Sign out already signs out of it.
-        if ((accounts.value?.length ?? 0) > 1) ...[
+        // With one account, Settings' Sign out already signs out of it, a
+        // LibreChat account in charge as an Open WebUI one.
+        if ((accounts.value?.length ?? 0) +
+                (ref
+                        .watch(libreChatRegistryProvider)
+                        .value
+                        ?.accounts
+                        .length ??
+                    0) >
+            1) ...[
           settingsSectionGap,
           InsetGroupedList(
             children: [
@@ -145,6 +158,126 @@ class ManageAccountsPage extends ConsumerWidget {
         settingsSectionGap,
       ],
     ];
+  }
+}
+
+/// Whether LibreChat account [accountId] still has a session: the account
+/// in use reports its own, the others what is saved for them.
+final _libreChatHasSessionProvider = FutureProvider.autoDispose
+    .family<bool, String>((ref, accountId) async {
+      ref.watch(libreChatRegistryProvider);
+      final active = ref.watch(libreChatSessionProvider).value;
+      if (active is LibreChatSignedInState && active.account.id == accountId) {
+        return true;
+      }
+      if (active is LibreChatNeedsSignIn && active.account.id == accountId) {
+        return false;
+      }
+      final store = ref.read(libreChatRegistryStoreProvider);
+      return await store.sessionStore(accountId).read() != null;
+    });
+
+/// The saved LibreChat accounts, the one in charge of the Chats tab checked.
+/// Shown once LibreChat is on, or while any account is saved.
+class _LibreChatCard extends ConsumerWidget {
+  const _LibreChatCard();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final l10n = AppLocalizations.of(context)!;
+    final registry = ref.watch(libreChatRegistryProvider).value;
+    final accounts = registry?.accounts ?? const <LibreChatAccount>[];
+    if (!ref.watch(libreChatBackendEnabledProvider) && accounts.isEmpty) {
+      return const SizedBox.shrink();
+    }
+    final inChargeId =
+        ref.watch(primaryAccountKindProvider) == PrimaryAccountKind.libreChat
+        ? registry?.activeId
+        : null;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        InsetGroupedList(
+          key: const Key('accounts-librechat'),
+          children: [
+            UtilityRow(
+              title: l10n.libreChatTitle,
+              subtitle: l10n.libreChatBetaLabel,
+              leading: _RowGlyph(
+                UiUtils.platformIcon(
+                  ios: CupertinoIcons.chat_bubble_2,
+                  android: Icons.forum_outlined,
+                ),
+              ),
+            ),
+            for (final account in accounts)
+              _LibreChatAccountRow(
+                key: Key('accounts-librechat-${account.id}'),
+                account: account,
+                inCharge: account.id == inChargeId,
+              ),
+            _AddRow(
+              key: const Key('accounts-librechat-add'),
+              title: l10n.libreChatAddAccount,
+              onTap: () =>
+                  showAddAccountSheet(context, ref, kind: AccountKind.libreChat),
+            ),
+          ],
+        ),
+        settingsSectionGap,
+      ],
+    );
+  }
+}
+
+class _LibreChatAccountRow extends ConsumerWidget {
+  const _LibreChatAccountRow({
+    super.key,
+    required this.account,
+    required this.inCharge,
+  });
+
+  final LibreChatAccount account;
+  final bool inCharge;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final l10n = AppLocalizations.of(context)!;
+    final name = account.displayName;
+    final hasSession =
+        ref.watch(_libreChatHasSessionProvider(account.id)).value ?? true;
+    void signOut() =>
+        signOutOfLibreChatAccount(context, account, anchorContext: context);
+    final row = UtilityRow(
+      title: name,
+      subtitle: [
+        if (!hasSession) l10n.accountsSignedOut,
+        account.serverTitle ?? account.host,
+      ].join(' · '),
+      leading: UserAvatar(
+        size: IconSize.xl,
+        imageUrl: null,
+        fallbackText: name.characters.isEmpty
+            ? 'L'
+            : name.characters.first.toUpperCase(),
+      ),
+      selected: inCharge,
+      preserveTrailingSemantics: true,
+      // The account in charge, signed out, is switched to as any other,
+      // which opens its sign-in.
+      onTap: inCharge && hasSession
+          ? null
+          : () => switchToLibreChatAccount(context, ref, account.id),
+      trailing: inCharge
+          ? ActiveCheckmark(semanticLabel: l10n.accountsActive)
+          : null,
+    );
+    return Semantics(
+      customSemanticsActions: {
+        CustomSemanticsAction(label: l10n.accountsSignOutOf(name)): signOut,
+      },
+      child: GestureDetector(onLongPress: signOut, child: row),
+    );
   }
 }
 

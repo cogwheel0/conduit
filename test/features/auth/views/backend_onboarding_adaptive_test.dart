@@ -309,7 +309,8 @@ void main() {
       await tester.pumpAndSettle();
       expect(tester.takeException(), isNull);
 
-      // The welcome hero leaves the last row below the fold here.
+      // The welcome hero and the LibreChat row leave the last row below
+      // the fold here.
       await tester.ensureVisible(find.text('Model Provider'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Model Provider'));
@@ -383,7 +384,8 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      // The welcome hero leaves the last row below the fold here.
+      // The welcome hero and the LibreChat row leave the last row below
+      // the fold here.
       await tester.ensureVisible(find.text('Model Provider'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Model Provider'));

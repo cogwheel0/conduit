@@ -29,9 +29,11 @@ class AdaptiveInfoPopoverRow {
 /// pointing at the control that asked for them.
 ///
 /// The popover is native and drawn above the Flutter view. It follows its
-/// anchor while it is open and closes on a tap outside (or on a row), when
-/// the anchor's route stops being the current one, and when the anchor is
-/// removed. VoiceOver moves into it and reads the title as a header.
+/// anchor while it is open and closes on a tap outside, when the anchor's
+/// route stops being the current one, and when the anchor is removed. Its
+/// rows only show figures: a tap on one keeps the popover open, and
+/// VoiceOver reads each as text, its label then its value, after the title,
+/// which it reads as a header.
 abstract final class AdaptiveInfoPopover {
   /// Whether [show] can show anything here.
   static bool get isSupported => PlatformUiCapabilities.usesNativeIOS26;
@@ -60,6 +62,7 @@ abstract final class AdaptiveInfoPopover {
           for (final (index, row) in rows.indexed)
             CNPopoverRow(
               id: '$index',
+              readOnly: true,
               item: CNListItem(
                 title: row.label,
                 subtitle: row.detail,

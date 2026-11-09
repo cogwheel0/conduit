@@ -217,6 +217,11 @@ void main() {
           [for (final item in tabBar.items) item.imageAsset?.assetPath],
           ['assets/icons/open_webui_tab.png', 'assets/icons/hermes_agent.png'],
         );
+        // VoiceOver reads each icon by its backend's name, as a tab.
+        expect(
+          [for (final item in tabBar.items) item.semanticLabel],
+          ['Open WebUI', 'Hermes'],
+        );
         expect(tabBar.iconSize, 20);
         expect(tabBar.currentIndex, 1);
         expect(tabBar.tint, tint);
@@ -484,43 +489,23 @@ void main() {
     setUp(() => _simulateIOS(26));
     tearDown(PlatformUiCapabilities.resetDebugOverrides);
 
-    testWidgets('a phone keeps the 62 point platter UIKit gives the tab bar', (
+    testWidgets('a phone gets the 44 point platter as on iOS 27', (
       tester,
     ) async {
-      // The package keeps an iOS 26 tab bar at its own height.
+      // The package sizes a bar of icons only on iOS 26 too.
       _phoneWindow(tester);
       await tester.pumpWidget(_bar(const [_openWebUi, _hermes]));
       final window = tester.getSize(find.byType(Scaffold));
       final action = find.byType(NativeGlassIconButton);
-      expect(_tabBar(tester).height, isNull);
-      expect(_tabBar(tester).iconSize, 22);
-      expect(tester.getSize(action), const Size.square(62));
+      expect(_tabBar(tester).height, 14 + 44 + 21);
+      expect(_tabBar(tester).iconSize, 20);
+      expect(tester.getSize(action), const Size.square(44));
       expect(tester.getBottomRight(action).dy, window.height - 34);
-      expect(AdaptiveFloatingTabBar.extentOf(tester.element(action)), 34 + 62);
-      await _unmount(tester);
-    }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
-
-    testWidgets('resizing the window creates the tab bar again to measure', (
-      tester,
-    ) async {
-      // An iOS 26 tab bar is never given a height, so only a new one
-      // measures itself for a window that lays it out another way. What it
-      // then reports depends on the view the package draws, native on a Mac
-      // and Flutter on Linux, so this checks only that it is created again.
-      _phoneWindow(tester);
-      await tester.pumpWidget(_bar(const [_openWebUi, _hermes]));
-      final phoneTabBar = tester.state(find.byType(CNTabBar));
-
-      _tabletWindow(tester);
-      await tester.pump();
-      expect(_tabBar(tester).height, isNull);
-      expect(tester.state(find.byType(CNTabBar)), isNot(same(phoneTabBar)));
-      await tester.pump();
-      final tabletTabBar = tester.state(find.byType(CNTabBar));
-
-      _phoneWindow(tester);
-      await tester.pump();
-      expect(tester.state(find.byType(CNTabBar)), isNot(same(tabletTabBar)));
+      expect(
+        tester.getBottomLeft(find.byType(CNTabBar)).dy,
+        window.height - 34 + 21,
+      );
+      expect(AdaptiveFloatingTabBar.extentOf(tester.element(action)), 34 + 44);
       await _unmount(tester);
     }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
   });

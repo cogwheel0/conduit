@@ -8,6 +8,7 @@ final class PreferenceKeys {
   static const String citationShowTitles = 'citation_show_titles';
   static const String citationBackground = 'citation_background';
   static const String highContrast = 'high_contrast';
+  static const String computerEnabled = 'computer_enabled';
   static const String showComposerNotesButton = 'show_composer_notes_button';
   static const String darkMode = 'dark_mode';
   static const String slidingSidebarEnabled = 'sliding_sidebar_enabled';
@@ -160,6 +161,20 @@ final class PreferenceKeys {
   /// ('owui' | 'direct' | 'hermes' | unset).
   /// Read synchronously by the router for boot-deterministic routing.
   static const String preferredBackend = 'preferred_backend_v1';
+
+  /// Set while Open WebUI is parked: its accounts and their sessions kept,
+  /// none active, because another account backend owns the Chats tab. No
+  /// account is then active by storage's single-account fallback either.
+  static const String openWebUiParked = 'openwebui_parked_v1';
+
+  /// A change of the account that owns the Chats tab, between Open WebUI and
+  /// LibreChat, written before the old one is left and cleared once the new
+  /// one has settled. Found at start, the change is finished or undone.
+  static const String primarySwitchIntent = 'primary_switch_intent_v1';
+
+  /// Set when a full sign-out could not forget the LibreChat accounts and
+  /// their sessions. The next start forgets them before any can open.
+  static const String libreChatClearPending = 'librechat_clear_pending_v1';
 
   /// Non-secret boot hint only. Direct profile contents and credentials live
   /// exclusively in SecureCredentialStorage.

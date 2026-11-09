@@ -1850,9 +1850,6 @@ class _WorkspacePrincipalPickerState extends State<WorkspacePrincipalPicker> {
                 _controller.clear();
                 _onQueryChanged('');
               },
-              // The results hide the keyboard when dragged, which the system
-              // search bar's keyboard ignores, and the hint follows the tab.
-              nativeOnIOS26: false,
             ),
             const SizedBox(height: Spacing.sm),
           ],

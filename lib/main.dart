@@ -74,6 +74,10 @@ import 'core/services/native_symbol_image_service.dart';
 
 import 'package:conduit_core/services/readiness_gated_secure_storage.dart';
 import 'package:conduit_core/features/chat/server_speech/direct_voice_provider_settings.dart';
+import 'package:conduit_core/features/librechat/providers/librechat_providers.dart'
+    show libreChatRegistryProvider;
+import 'package:conduit_core/providers/backend_mode_providers.dart'
+    show PrimaryAccountKind, primaryAccountKindProvider;
 import 'package:conduit_core/features/chat/realtime_call/realtime_call_availability.dart';
 import 'package:conduit_core/services/settings_service.dart';
 import 'package:conduit_core/features/automations/providers/automation_providers.dart'
@@ -90,6 +94,7 @@ import 'core/utils/message_action_settings.dart';
 import 'core/utils/native_sheet_utils.dart'
     show
         nativeAccountAddActionId,
+        nativeLibreChatPersonalizationActionId,
         nativeNoVoiceProviderId,
         nativeVoiceProviderFieldIds,
         nativeAccountServerActionId,
@@ -97,6 +102,8 @@ import 'core/utils/native_sheet_utils.dart'
         nativeAccountSwitchActionId,
         nativeDirectEditActionId,
         nativeHermesUseActionId,
+        nativeLibreChatSignOutActionId,
+        nativeLibreChatUseActionId,
         nativeAdvancedFeaturesId,
         nativeSlidingSidebarId,
         nativeCitationShowTitlesId,
@@ -229,6 +236,12 @@ Future<void> _configureUserAgent() async {
 }
 
 void _registerBundledLicenses() {
+  LicenseRegistry.addLicense(() async* {
+    yield LicenseEntryWithLineBreaks(
+      const ['noVNC', 'pako'],
+      await rootBundle.loadString('assets/computer/novnc-LICENSE.txt'),
+    );
+  });
   LicenseRegistry.addLicense(() async* {
     final notice = await rootBundle.loadString('THIRD_PARTY_NOTICES.md');
     yield LicenseEntryWithLineBreaks(const [
@@ -669,6 +682,17 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
         if (context == null || value is! String) return true;
         await useHermesConnection(context, ref, value);
         return true;
+      case nativeLibreChatUseActionId:
+        if (context == null || value is! String) return true;
+        await switchToLibreChatAccount(context, ref, value);
+        return true;
+      case nativeLibreChatSignOutActionId:
+        if (context == null || value is! String) return true;
+        final registry = await ref.read(libreChatRegistryProvider.future);
+        final account = registry.byId(value);
+        if (account == null || !context.mounted) return true;
+        await signOutOfLibreChatAccount(context, account);
+        return true;
       case nativeDirectEditActionId:
         if (context == null || value is! String) return true;
         await showAccountSheet(context, EditDirectConnectionRequest(value));
@@ -825,6 +849,25 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
           return;
         }
         final request = scheduledTasksNativeSheetNavigationRequest;
+        unawaited(
+          NavigationService.router.pushNamed<void>(
+            request.routeName,
+            extra: request.extra,
+          ),
+        );
+        return;
+      }
+
+      if (event.id == nativeLibreChatPersonalizationActionId) {
+        // As for Scheduled tasks: a row from a sheet built while LibreChat
+        // was in charge must not navigate once it no longer is.
+        if (ref.read(primaryAccountKindProvider) !=
+            PrimaryAccountKind.libreChat) {
+          _showNativeOptionUnavailable();
+          return;
+        }
+        // As the other rows' pages: the sheet slides away, not the page in.
+        final request = libreChatPersonalizationNativeSheetNavigationRequest;
         unawaited(
           NavigationService.router.pushNamed<void>(
             request.routeName,
@@ -1209,6 +1252,12 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
           }
         case 'quick-pills-clear':
           await ref.read(appSettingsProvider.notifier).setQuickPills(const []);
+        case 'computer-enabled':
+          if (value is bool) {
+            await ref
+                .read(appSettingsProvider.notifier)
+                .setComputerEnabled(value);
+          }
         case 'composer-notes-button':
           if (value is bool) {
             await ref

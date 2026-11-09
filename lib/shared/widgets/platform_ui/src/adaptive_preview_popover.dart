@@ -28,14 +28,6 @@ class AdaptivePreviewPopoverAction {
 /// widget's own path elsewhere. The popover reports a failure to present the
 /// same way as a tap outside it, so [canShow] is the only fallback point.
 abstract final class AdaptivePreviewPopover {
-  /// How long to wait after a button closes the popover before anything else
-  /// is presented. The package answers as UIKit starts animating the popover
-  /// away, and UIKit refuses a new presentation (the in-app browser, a sheet)
-  /// until the popover's dismissal has finished, a little after it vanishes:
-  /// on an iOS 27.2 simulator 400 ms was too short and 700 ms was enough.
-  @visibleForTesting
-  static const dismissalDuration = Duration(milliseconds: 700);
-
   /// Whether [show] can point a popover at [anchorContext]'s widget: iOS 26
   /// or later, with that widget laid out.
   static bool canShow(BuildContext anchorContext) {
@@ -46,16 +38,17 @@ abstract final class AdaptivePreviewPopover {
 
   /// Shows [title] and [message] with [actions] and a [closeLabel] button,
   /// and returns the id of the pressed action, or null when the popover was
-  /// closed without one. An action's id comes back once the popover is gone,
-  /// so the caller can present what the action opens.
+  /// closed without one. An action's id comes back once the popover's
+  /// dismissal has finished, so the caller can present what the action opens
+  /// (the in-app browser, a sheet) straight away.
   static Future<String?> show({
     required BuildContext anchorContext,
     required String title,
     String? message,
     List<AdaptivePreviewPopoverAction> actions = const [],
     required String closeLabel,
-  }) async {
-    final chosen = await CNPopover.show(
+  }) {
+    return CNPopover.show(
       context: anchorContext,
       content: CNPopoverContent(
         title: title,
@@ -73,7 +66,5 @@ abstract final class AdaptivePreviewPopover {
         ],
       ),
     );
-    if (chosen != null) await Future<void>.delayed(dismissalDuration);
-    return chosen;
   }
 }

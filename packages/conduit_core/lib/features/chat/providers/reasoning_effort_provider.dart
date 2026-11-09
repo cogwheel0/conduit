@@ -14,6 +14,7 @@ import 'package:conduit_core/features/direct_connections/models/openrouter_reaso
 import 'package:conduit_core/features/direct_connections/providers/direct_connection_providers.dart';
 
 import 'package:conduit_core/features/hermes/models/hermes_model.dart';
+import 'package:conduit_core/features/librechat/models/librechat_model.dart';
 
 part 'reasoning_effort_provider.g.dart';
 
@@ -393,6 +394,9 @@ ReasoningEffortPolicy reasoningEffortPolicyForModel(
     );
   }
   if (isHermesModel(model)) return ReasoningEffortPolicy.generic;
+  // A LibreChat turn sends its spec's preset or the server's own settings,
+  // so a pick here would change nothing.
+  if (isLibreChatModel(model)) return ReasoningEffortPolicy.unsupported;
   final binding = read(directModelRegistryProvider).resolve(model);
   if (binding == null) {
     // Open WebUI server model: the picker is offered for every model that

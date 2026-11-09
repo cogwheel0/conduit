@@ -36,6 +36,28 @@ void main() {
     );
   });
 
+  test('LibreChat overflow follows its uploads and tools', () {
+    expect(
+      shouldShowComposerOverflowButton(
+        isHermesComposer: false,
+        isDirectComposer: false,
+        directSupportsImages: true,
+        isLibreChatComposer: true,
+      ),
+      isFalse,
+    );
+    expect(
+      shouldShowComposerOverflowButton(
+        isHermesComposer: false,
+        isDirectComposer: false,
+        directSupportsImages: false,
+        isLibreChatComposer: true,
+        libreChatHasOverflowActions: true,
+      ),
+      isTrue,
+    );
+  });
+
   testWidgets('Hermes image capability reveals only local attachment actions', (
     tester,
   ) async {

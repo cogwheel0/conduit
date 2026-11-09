@@ -56,6 +56,7 @@ import '../../../shared/widgets/web_content_embed.dart';
 import 'package:conduit_core/features/chat/providers/chat_providers.dart'
     show
         ChatForkAvailability,
+        isUnconfirmedLibreChatMessage,
         ComparisonAnswerStop,
         ComparisonMergeException,
         ComparisonMergeFailure,
@@ -154,7 +155,8 @@ class AssistantMessageWidget extends ConsumerStatefulWidget {
   final bool suppressStreamingHaptics;
   final VoidCallback? onCopy;
   final VoidCallback? onRegenerate;
-  final VoidCallback onDelete;
+  /// Deletes the response; null where messages cannot be deleted.
+  final VoidCallback? onDelete;
   final VoidCallback? onLike;
   final VoidCallback? onDislike;
   final FutureOr<void> Function(String suggestion)? onFollowUpSelected;
@@ -182,7 +184,7 @@ class AssistantMessageWidget extends ConsumerStatefulWidget {
     this.suppressStreamingHaptics = false,
     this.onCopy,
     this.onRegenerate,
-    required this.onDelete,
+    this.onDelete,
     this.onLike,
     this.onDislike,
     this.onFollowUpSelected,
@@ -2897,9 +2899,11 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     final branchControls = messageId.isNotEmpty && branchChatId != null;
     final previewingVersion = _activeVersionIndex >= 0;
     final continueFromId = _continueFromVersionId();
+    // A LibreChat reply the server never accepted has nothing there to copy.
     final bool canFork =
         branchControls &&
         (!previewingVersion || continueFromId != null) &&
+        !isUnconfirmedLibreChatMessage(widget.message) &&
         ref.watch(chatForkAvailabilityProvider) != ChatForkAvailability.hidden;
 
     VoidCallback? ttsOnTap;
@@ -3042,7 +3046,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
           onTap: _responseCompleted ? () => unawaited(_shareResponse()) : null,
           sfSymbol: 'square.and.arrow.up',
         ),
-      if (!widget.readOnly)
+      if (!widget.readOnly && widget.onDelete != null)
         _AssistantFooterAction(
           id: 'delete',
           icon: Platform.isIOS ? CupertinoIcons.delete : Icons.delete_outline,

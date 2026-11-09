@@ -1206,6 +1206,8 @@ func nativeSheetSelectionWaitsForDismiss(actionId: String) -> Bool {
         // in a sheet of its own, which cannot present over this one.
         || actionId == "account-switch" || actionId == "account-add"
         || actionId == "account-sign-out" || actionId == "account-direct-edit"
+        || actionId == "account-librechat-use"
+        || actionId == "account-librechat-sign-out"
 }
 
 final class NativeSheetBridge: ConduitBridge, NativeSheetHostApi {
@@ -1327,12 +1329,18 @@ final class NativeSheetBridge: ConduitBridge, NativeSheetHostApi {
         }
     }
 
+    /// Presents Settings once; an already-open profile menu also counts as
+    /// success, without adding another navigation stack.
     func presentProfileMenu(
         config: PlatformNativeProfileSheetConfig,
         completion: @escaping (Result<Bool, Error>) -> Void
     ) {
         whenModalChainIdle { [weak self] in
             guard let self else { return }
+            if self.activeProfileMenuController != nil {
+                completion(.success(true))
+                return
+            }
             guard let configuration = NativeSheetConfiguration(config.asPayload())
             else {
                 completion(.failure(PigeonError(

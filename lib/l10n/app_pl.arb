@@ -8209,5 +8209,115 @@
   "composerAttachPhotos": "Zdjęcia",
   "modelPickerAppleOnDeviceSubtitle": "Na tym urządzeniu, także offline",
   "modelPickerApplePccSubtitle": "Na prywatnych serwerach Apple",
-  "accountsSavedServers": "Zapisane serwery"
+  "accountsSavedServers": "Zapisane serwery",
+  "computerEnabledDescription": "Obserwuj i kontroluj sesje pulpitu i przeglądarki w czatach.",
+  "computerTrackpadHint": "Przesuń, aby poruszyć kursorem. Stuknij, aby kliknąć, przytrzymaj, aby przeciągnąć; przewijaj dwoma palcami.",
+  "computerShortcut": "Skrót klawiaturowy",
+  "computerInputFailed": "Nie udało się wysłać do komputera. Spróbuj ponownie.",
+  "computerQualityLow": "Mniejsze zużycie danych",
+  "computerDesktopSite": "Wersja na komputer",
+  "computerAudioUnavailable": "Dźwięk pulpitu jest niedostępny dla tego połączenia lub urządzenia.",
+  "computerSound": "Dźwięk",
+  "computerTabs": "Karty przeglądarki",
+  "computerNewTab": "Nowa karta",
+  "computerCloseTab": "Zamknij kartę",
+  "computerRefreshTabs": "Odśwież karty",
+  "computerNoTabs": "Brak kart przeglądarki",
+  "computerTabsWatchHint": "Przejmij sterowanie, aby zmieniać karty. Odpowiedź zostanie zatrzymana; wyślij nową wiadomość, aby kontynuować.",
+  "computerTabsUnavailable": "Nie udało się wczytać kart. Spróbuj je odświeżyć.",
+  "computerTitle": "Komputer",
+  "computerConnecting": "Łączenie z komputerem…",
+  "computerReconnecting": "Ponowne łączenie…",
+  "computerDisconnected": "Komputer rozłączony",
+  "computerBrowserStartHint": "Przejmij kontrolę, aby uruchomić podgląd tej karty na żywo.",
+  "computerBrowserUnavailable": "Ten terminal wymaga Chrome lub Chromium do przeglądarki na żywo.",
+  "computerStopFailed": "Nie udało się zatrzymać bieżącej odpowiedzi. Możesz nadal obserwować i spróbować ponownie.",
+  "computerStopping": "Zatrzymywanie odpowiedzi…",
+  "computerTakeControl": "Przejmij sterowanie",
+  "computerTrackpadMode": "Tryb gładzika",
+  "computerRecenterPointer": "Wyśrodkuj wskaźnik",
+  "computerClick": "Kliknij",
+  "computerRightClick": "Prawy przycisk",
+  "computerDoubleClick": "Dwukrotne kliknięcie",
+  "computerStartDrag": "Rozpocznij przeciąganie",
+  "computerEndDrag": "Zakończ przeciąganie",
+  "computerShowKeyboard": "Pokaż klawiaturę",
+  "computerHideKeyboard": "Ukryj klawiaturę",
+  "computerAgentWorking": "Agent pracuje",
+  "computerDesktop": "Pulpit",
+  "computerBrowser": "Przeglądarka",
+  "computerForward": "Dalej",
+  "computerReload": "Odśwież stronę",
+  "computerAddress": "Przejdź do adresu",
+  "computerTypeText": "Pisz na komputerze",
+  "computerSend": "Wyślij",
+  "computerZoom": "Powiększ",
+  "libreChatTemporaryChatOff": "LibreChat zapisuje każdy czat. Wyłącz czat tymczasowy, aby wysłać.",
+  "libreChatTitle": "LibreChat",
+  "libreChatBetaLabel": "Beta",
+  "libreChatChooserSubtitle": "Zaloguj się na swój serwer LibreChat, aby synchronizować czaty, agentów i nie tylko.",
+  "libreChatAddAccount": "Dodaj konto LibreChat",
+  "libreChatFileSearch": "Wyszukiwanie w plikach",
+  "libreChatFileSearchDescription": "Szuka odpowiedzi w przesłanych plikach.",
+  "libreChatMcpConnect": "Połącz w LibreChat",
+  "libreChatApprovalRun": "Pozwolić na uruchomienie {tool}?",
+  "@libreChatApprovalRun": {
+    "placeholders": {
+      "tool": {
+        "type": "String",
+        "example": "echo"
+      }
+    }
+  },
+  "libreChatQuestionProgress": "Pytanie {current} z {total}",
+  "@libreChatQuestionProgress": {
+    "placeholders": {
+      "current": {
+        "type": "int",
+        "example": "1"
+      },
+      "total": {
+        "type": "int",
+        "example": "3"
+      }
+    }
+  },
+  "libreChatAnswerFailed": "Nie udało się wysłać odpowiedzi. Spróbuj ponownie.",
+  "libreChatApprovalRespond": "Odpowiedz",
+  "libreChatApprovalArguments": "Argumenty (JSON)",
+  "libreChatAddAccountMessage": "Wpisz adres swojego serwera LibreChat.",
+  "libreChatInvalidAddress": "Wpisz adres serwera, np. chat.example.com.",
+  "libreChatUnreachable": "Nie udało się połączyć z serwerem. Sprawdź adres i połączenie.",
+  "libreChatNotLibreChat": "Ten serwer to nie LibreChat. Sprawdź adres.",
+  "libreChatIsOpenWebUi": "To serwer Open WebUI. Dodaj go na karcie Open WebUI.",
+  "libreChatPasswordSignInOff": "Ten serwer pozwala logować się tylko przez jednokrotne logowanie (SSO).",
+  "libreChatGoogleUnsupported": "Google nie pozwala logować się wewnątrz aplikacji. Zaloguj się w inny sposób.",
+  "libreChatSsoUnfinished": "Logowanie nie zostało zakończone. Spróbuj ponownie.",
+  "libreChatChangeServer": "Użyj innego serwera",
+  "libreChatSessionEnded": "Twoja sesja na {server} wygasła. Zaloguj się ponownie.",
+  "@libreChatSessionEnded": {
+    "placeholders": {
+      "server": {
+        "type": "String",
+        "example": "chat.example.com"
+      }
+    }
+  },
+  "libreChatDuplicateChat": "Duplikuj czat",
+  "libreChatCopyFailed": "Nie udało się skopiować czatu. Sprawdź połączenie i spróbuj ponownie.",
+  "libreChatMemoryKeyLabel": "Klucz",
+  "libreChatMemoryKeyHint": "np. preferencje",
+  "libreChatMemoryKeyRequired": "Nadaj wspomnieniu klucz.",
+  "libreChatMemoryUsage": "Wykorzystano {used} z {limit} tokenów",
+  "@libreChatMemoryUsage": {
+    "description": "How much of the server's memory token budget the saved LibreChat memories use.",
+    "placeholders": {
+      "used": {
+        "type": "int"
+      },
+      "limit": {
+        "type": "int"
+      }
+    }
+  }
 }

@@ -11,6 +11,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../shared/services/navigation_service.dart';
 
+import 'package:conduit_core/features/chat/providers/chat_providers.dart'
+    show LibreChatReplyRunningException;
 import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit_core/utils/debug_logger.dart';
 
@@ -58,7 +60,8 @@ class UserMessageBubble extends ConsumerStatefulWidget {
   final bool isStreaming;
   final String? modelName;
   final VoidCallback? onCopy;
-  final VoidCallback onDelete;
+  /// Deletes the message; null where messages cannot be deleted.
+  final VoidCallback? onDelete;
 
   /// Another user's chat (shared folder): only copy is offered.
   final bool readOnly;
@@ -74,7 +77,7 @@ class UserMessageBubble extends ConsumerStatefulWidget {
     this.isStreaming = false,
     this.modelName,
     this.onCopy,
-    required this.onDelete,
+    this.onDelete,
     this.onEdit,
     this.onRegenerate,
     this.onLike,
@@ -204,6 +207,12 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
       // before MIME/URL handling so even an image content type or malformed URL
       // can never reach a network-backed attachment widget.
       if (_isHermesLocalFileReference(file)) {
+        localReferenceFiles.add(file);
+        continue;
+      }
+      // A LibreChat document stays on its server, which the Open WebUI file
+      // card cannot ask about: it shows by its name and size.
+      if (file['libreChatFileId'] != null && !isImageFile(file)) {
         localReferenceFiles.add(file);
         continue;
       }
@@ -579,7 +588,9 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
         ? ''
         : LocaleDisplayFormatters.bytes(context, size);
     final extension = FileTypeUtils.extensionFromName(filename);
-    final id = file is Map ? file['id']?.toString() ?? '' : '';
+    final id = file is Map
+        ? (file['id'] ?? file['libreChatFileId'])?.toString() ?? ''
+        : '';
 
     return Semantics(
       container: true,
@@ -772,7 +783,7 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
           }
         },
       ),
-      if (!widget.readOnly)
+      if (!widget.readOnly && widget.onDelete != null)
         ConduitContextMenuAction(
           cupertinoIcon: CupertinoIcons.delete,
           sfSymbol: 'trash',
@@ -781,7 +792,7 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
           destructive: true,
           onBeforeClose: () => ConduitHaptics.mediumImpact(),
           onSelected: () async {
-            widget.onDelete();
+            widget.onDelete?.call();
           },
         ),
     ];
@@ -1049,6 +1060,9 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
     // send skipped its outbox drain and the reply waited for the next
     // five-minute sync. The scope's container outlives the bubble.
     final container = ProviderScope.containerOf(context, listen: false);
+    // A LibreChat reply still running refuses the edit before anything
+    // changes: the editor stays open with it, to send once the reply is done.
+    var keepEditing = false;
     try {
       final messageId = widget.message.id?.toString();
       if (messageId == null || messageId.isEmpty) {
@@ -1061,6 +1075,16 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
         messageId: messageId,
         newText: newText,
       );
+    } on LibreChatReplyRunningException {
+      keepEditing = true;
+      if (mounted) {
+        AdaptiveSnackBar.show(
+          context,
+          message: AppLocalizations.of(
+            context,
+          )!.chatDataControlsResponseRunning,
+        );
+      }
     } catch (error, stackTrace) {
       DebugLogger.error(
         'inline-edit-failed',
@@ -1076,7 +1100,7 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
         );
       }
     } finally {
-      if (mounted) {
+      if (mounted && !keepEditing) {
         setState(() {
           _isEditing = false;
         });

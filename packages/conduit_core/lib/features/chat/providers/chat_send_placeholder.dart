@@ -353,6 +353,14 @@ Future<void> durableSend(
     return;
   }
 
+  // LibreChat runs its turns on its server, which keeps them across a
+  // dropped connection; they never touch Open WebUI's outbox either.
+  if ((selectedModel != null && isLibreChatModel(selectedModel)) ||
+      isLibreChatConversation(activeAtSendStart)) {
+    await inlineSend();
+    return;
+  }
+
   if (hasTrustedDirectBinding) {
     await inlineSend();
     return;
