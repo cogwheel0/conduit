@@ -84,6 +84,7 @@ Future<void> main() async {
     final vm = await request('getVM');
     final isolate = (vm['isolates'] as List).firstWhere(
       (i) => i['name'] == 'main',
+      orElse: () => throw StateError('The VM service has no main isolate.'),
     );
     for (final retainStrings in [true, false]) {
       for (final padded in [false, true]) {

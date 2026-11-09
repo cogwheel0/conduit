@@ -47,6 +47,7 @@ Future<void> main() async {
           await Future<void>.delayed(Duration.zero);
         }
         final sorted = [...timings]..sort();
+        double percentile(double p) => sorted[(sorted.length * p).ceil() - 1];
         debugPrint(
           'MARKDOWN_PREWARM_RESULT ${jsonEncode({
             'run': run,
@@ -55,14 +56,15 @@ Future<void> main() async {
             'payloadCharactersPerMessage': size,
             'messages': messages.length,
             'samples': timings.length,
-            'batchMicroseconds': {'p50': sorted[49], 'p95': sorted[94], 'p99': sorted[98], 'max': sorted.last},
+            'batchMicroseconds': {'p50': percentile(.50), 'p95': percentile(.95), 'p99': percentile(.99), 'max': sorted.last},
             'processedCharacters': characters,
           })}',
         );
         // Keep each line below Android's log truncation limit.
         for (var offset = 0; offset < timings.length; offset += 20) {
+          final end = (offset + 20).clamp(0, timings.length);
           debugPrint(
-            'MARKDOWN_PREWARM_SAMPLES ${jsonEncode({'run': run, 'offset': offset, 'values': timings.sublist(offset, offset + 20)})}',
+            'MARKDOWN_PREWARM_SAMPLES ${jsonEncode({'run': run, 'offset': offset, 'values': timings.sublist(offset, end)})}',
           );
         }
         run++;
