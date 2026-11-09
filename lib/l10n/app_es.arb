@@ -351,7 +351,7 @@
     }
   },
   "themeDark": "Oscuro",
-  "themePalette": "Paleta de acentos",
+  "themePalette": "Paleta de colores",
   "@themePalette": {
     "description": "Título para seleccionar la paleta de colores de la aplicación."
   },
@@ -793,11 +793,11 @@
   "@nextLabel": {
     "description": "Label for navigating to the next item."
   },
-  "themePaletteConduitLabel": "Conduit",
+  "themePaletteConduitLabel": "Monocromo",
   "@themePaletteConduitLabel": {
     "description": "Palette name for the default Conduit theme."
   },
-  "themePaletteConduitDescription": "Tema neutro y limpio diseñado para Conduit.",
+  "themePaletteConduitDescription": "Blanco y negro, sin color de acento.",
   "@themePaletteConduitDescription": {
     "description": "Description of the Conduit palette."
   },
@@ -2076,8 +2076,8 @@
   "settingsCategoryServer": "Servidor",
   "settingsCategorySupport": "Soporte",
   "settingsDataAndConnection": "Datos y conexión",
-  "slidingSidebar": "Abrir paneles junto a los chats",
-  "slidingSidebarDescription": "Notas, Terminal y Canales se abren como paneles junto a tus chats en lugar de reemplazarlos.",
+  "slidingSidebar": "Mantener el chat a la vista",
+  "slidingSidebarDescription": "En un teléfono, la barra lateral deja ver el chat en su borde. Notas, Terminal y Canales se abren como páginas desde arriba de tus chats en lugar de como pestañas.",
   "settingsAppearance": "Apariencia",
   "settingsAppearanceSubtitle": "Tema, paleta de colores e idioma",
   "settingsChatSubtitle": "Comportamiento del chat, acciones rápidas y prompts avanzados",
@@ -3520,7 +3520,7 @@
   "backendChooserAppleSectionTitle": "Apple Intelligence",
   "backendChooserModelApisSectionTitle": "API de modelos",
   "backendChooserSelfHostedSectionTitle": "Servicios autoalojados",
-  "citationBackground": "Sombrear citas",
+  "citationBackground": "Resaltar citas",
   "citationBackgroundDescription": "Da a las citas de las respuestas un fondo sombreado para que destaquen del texto.",
   "citationShowTitles": "Mostrar títulos de página en las citas",
   "citationShowTitlesDescription": "Usar títulos de página en lugar de dominios en las insignias de cita",

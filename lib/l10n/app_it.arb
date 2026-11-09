@@ -793,11 +793,11 @@
   "@nextLabel": {
     "description": "Label for navigating to the next item."
   },
-  "themePaletteConduitLabel": "Conduit",
+  "themePaletteConduitLabel": "Monocromatica",
   "@themePaletteConduitLabel": {
     "description": "Palette name for the default Conduit theme."
   },
-  "themePaletteConduitDescription": "Tema neutro e pulito progettato per Conduit.",
+  "themePaletteConduitDescription": "Bianco e nero, senza colore di accento.",
   "@themePaletteConduitDescription": {
     "description": "Description of the Conduit palette."
   },
@@ -2076,8 +2076,8 @@
   "settingsCategoryServer": "Server",
   "settingsCategorySupport": "Supporto",
   "settingsDataAndConnection": "Dati e connessione",
-  "slidingSidebar": "Apri i pannelli accanto alle chat",
-  "slidingSidebarDescription": "Note, Terminale e Canali si aprono come pannelli accanto alle tue chat invece di sostituirle.",
+  "slidingSidebar": "Mantieni la chat visibile",
+  "slidingSidebarDescription": "Su un telefono, la barra laterale lascia vedere la chat sul bordo. Note, Terminale e Canali si aprono come pagine dall’alto delle tue chat invece che come schede.",
   "settingsAppearance": "Aspetto",
   "settingsAppearanceSubtitle": "Tema, tavolozza colori e lingua",
   "settingsChatSubtitle": "Comportamento chat, azioni rapide e prompt avanzati",
@@ -3520,7 +3520,7 @@
   "backendChooserAppleSectionTitle": "Apple Intelligence",
   "backendChooserModelApisSectionTitle": "API dei modelli",
   "backendChooserSelfHostedSectionTitle": "Servizi self-hosted",
-  "citationBackground": "Ombreggia le citazioni",
+  "citationBackground": "Evidenzia le citazioni",
   "citationBackgroundDescription": "Dà alle citazioni nelle risposte uno sfondo ombreggiato, così risaltano sul testo.",
   "citationShowTitles": "Mostra i titoli delle pagine citate",
   "citationShowTitlesDescription": "Usa i titoli delle pagine invece dei domini nei badge delle citazioni",

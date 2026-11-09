@@ -351,7 +351,7 @@
     }
   },
   "themeDark": "深色",
-  "themePalette": "强调色调色板",
+  "themePalette": "调色板",
   "@themePalette": {
     "description": "选择应用颜色调色板的标题。"
   },
@@ -793,11 +793,11 @@
   "@nextLabel": {
     "description": "Label for navigating to the next item."
   },
-  "themePaletteConduitLabel": "Conduit",
+  "themePaletteConduitLabel": "单色",
   "@themePaletteConduitLabel": {
     "description": "Palette name for the default Conduit theme."
   },
-  "themePaletteConduitDescription": "为 Conduit 设计的简洁中性色主题。",
+  "themePaletteConduitDescription": "黑白配色，没有强调色。",
   "@themePaletteConduitDescription": {
     "description": "Description of the Conduit palette."
   },
@@ -2076,8 +2076,8 @@
   "settingsCategoryServer": "服务器",
   "settingsCategorySupport": "支持",
   "settingsDataAndConnection": "数据与连接",
-  "slidingSidebar": "在聊天旁打开面板",
-  "slidingSidebarDescription": "笔记、终端和频道会以面板形式在您的聊天旁打开，而不是替换聊天。",
+  "slidingSidebar": "保持聊天可见",
+  "slidingSidebarDescription": "在手机上，侧边栏边缘会继续显示聊天。笔记、终端和频道会作为页面从您的聊天列表顶部打开，而不是作为标签页。",
   "settingsAppearance": "外观",
   "settingsAppearanceSubtitle": "主题、调色板和语言",
   "settingsChatSubtitle": "聊天行为、快捷操作和高级提示词",
@@ -3520,7 +3520,7 @@
   "backendChooserAppleSectionTitle": "Apple Intelligence",
   "backendChooserModelApisSectionTitle": "模型 API",
   "backendChooserSelfHostedSectionTitle": "自托管服务",
-  "citationBackground": "为引用添加底色",
+  "citationBackground": "突出显示引用",
   "citationBackgroundDescription": "为回复中的引用添加阴影背景，使其在正文中更醒目。",
   "citationShowTitles": "显示引用页面标题",
   "citationShowTitlesDescription": "在引用标记中使用页面标题而非网站域名",

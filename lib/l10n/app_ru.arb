@@ -799,11 +799,11 @@
   "@nextLabel": {
     "description": "Label for navigating to the next item."
   },
-  "themePaletteConduitLabel": "Conduit",
+  "themePaletteConduitLabel": "Монохромная",
   "@themePaletteConduitLabel": {
     "description": "Palette name for the default Conduit theme."
   },
-  "themePaletteConduitDescription": "Нейтральная чистая тема, созданная для Conduit.",
+  "themePaletteConduitDescription": "Чёрный и белый, без акцентного цвета.",
   "@themePaletteConduitDescription": {
     "description": "Description of the Conduit palette."
   },
@@ -2090,8 +2090,8 @@
   "settingsCategoryServer": "Сервер",
   "settingsCategorySupport": "Поддержка",
   "settingsDataAndConnection": "Данные и подключение",
-  "slidingSidebar": "Открывать панели рядом с чатами",
-  "slidingSidebarDescription": "Заметки, терминал и каналы открываются панелями рядом с вашими чатами, а не вместо них.",
+  "slidingSidebar": "Оставлять чат на виду",
+  "slidingSidebarDescription": "На телефоне боковая панель оставляет чат видимым у края. Заметки, терминал и каналы открываются страницами в верхней части списка чатов, а не вкладками.",
   "settingsAppearance": "Оформление",
   "settingsAppearanceSubtitle": "Тема, цветовая палитра и язык",
   "settingsChatSubtitle": "Поведение чата, быстрые действия и расширенные промпты",
@@ -3566,7 +3566,7 @@
   },
   "directBearerDescription": "Отправляет учётные данные в заголовке Authorization: Bearer. Большинство OpenAI-совместимых серверов (llama.cpp, vLLM, LM Studio, Ollama) ожидают именно это.",
   "directApiKeyHeaderAzureOnlyDescription": "Отправляет учётные данные в заголовке api-key. Используйте только для Azure OpenAI; другие OpenAI-совместимые серверы ожидают токен Bearer.",
-  "citationBackground": "Затенять ссылки на источники",
+  "citationBackground": "Выделять ссылки на источники",
   "citationBackgroundDescription": "Выделяет ссылки на источники в ответах затенённым фоном, чтобы они отличались от текста.",
   "citationShowTitles": "Показывать заголовки страниц в источниках",
   "citationShowTitlesDescription": "Использовать заголовки страниц вместо доменов сайтов в значках источников",

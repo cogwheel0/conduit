@@ -110,13 +110,13 @@
   "@settingsDataAndConnection": {
     "description": "Settings destination for transport, connectivity, and related server data options."
   },
-  "slidingSidebar": "Open Panels Beside Chats",
+  "slidingSidebar": "Keep Chat in View",
   "@slidingSidebar": {
-    "description": "Title Case label of the Appearance toggle that, when on, opens Notes, Terminal and Channels as panels beside the chat list instead of replacing the chat list inside the sidebar. Say what the switch does in plain words, not the layout's name."
+    "description": "Title Case label of the Appearance toggle that, when on, keeps the chat visible at the sidebar's edge on a phone (the sidebar covers about 84% of the width instead of all of it) and moves Notes, Terminal and Channels from sidebar tabs to rows above the chat list that open as pages. Named for what the user sees on a phone; the footer covers both effects."
   },
-  "slidingSidebarDescription": "Notes, Terminal, and Channels open as panels next to your chats instead of replacing them.",
+  "slidingSidebarDescription": "On a phone, the sidebar leaves the chat showing at its edge. Notes, Terminal, and Channels open as pages from the top of your chats instead of as tabs.",
   "@slidingSidebarDescription": {
-    "description": "One-sentence footer under the Open Panels Beside Chats toggle in Appearance (and subtitle on Android) that finishes the label's thought: with it on, Notes, Terminal and Channels open as panels beside the chat list instead of replacing it inside the sidebar. Keep the feature names as the sidebar tabs write them."
+    "description": "Footer under the Keep Chat in View toggle in Appearance (and subtitle on Android). Must be true on phones and tablets: on a phone the sidebar leaves the chat showing at its edge; on every device Notes, Terminal and Channels open as pages from the top of the chat list instead of as sidebar tabs. Keep the feature names as the sidebar tabs write them."
   },
   "settingsAppearance": "Appearance",
   "@settingsAppearance": {
@@ -1684,17 +1684,17 @@
   "@themeDark": {
     "description": "Theme label for dark appearance."
   },
-  "themePalette": "Accent Palette",
+  "themePalette": "Color Palette",
   "@themePalette": {
-    "description": "Title for selecting the app color palette."
+    "description": "Title Case label of the Appearance row that picks the app's color palette (its backgrounds, text and accent colors)."
   },
-  "themePaletteConduitLabel": "Conduit",
+  "themePaletteConduitLabel": "Monochrome",
   "@themePaletteConduitLabel": {
-    "description": "Palette name for the default Conduit theme."
+    "description": "Display name of the default palette, which is black and white with no accent color. Name it for how it looks (Monochrome), not after the app."
   },
-  "themePaletteConduitDescription": "Clean neutral theme designed for Conduit.",
+  "themePaletteConduitDescription": "Black and white, with no accent color.",
   "@themePaletteConduitDescription": {
-    "description": "Description of the Conduit palette."
+    "description": "Description of the default black-and-white palette."
   },
   "themePaletteClaudeLabel": "Claude",
   "@themePaletteClaudeLabel": {
@@ -1860,9 +1860,9 @@
   "@disableHapticsWhileStreamingDescription": {
     "description": "Subtitle for the setting that suppresses assistant response streaming haptics."
   },
-  "citationBackground": "Shade Citations",
+  "citationBackground": "Highlight Citations",
   "@citationBackground": {
-    "description": "Title Case label of the Appearance toggle that gives the citation badges in replies a shaded background. Plain words, no jargon."
+    "description": "Title Case label of the Appearance toggle that gives the citation badges in replies a shaded background so they stand out. Plain words, no jargon."
   },
   "citationBackgroundDescription": "Gives citations in replies a shaded background, so they stand out from the text.",
   "@citationBackgroundDescription": {
