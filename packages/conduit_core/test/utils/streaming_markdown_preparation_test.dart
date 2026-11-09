@@ -336,6 +336,10 @@ result
           '<summary>Tool</summary>\nbody\n</details>\n\nVisible.',
       'Emoji 😀 and CJK 物語.\n\nCombining é text.',
       'A [link](https://example.com)  \n\nNext paragraph.',
+      'Stable.\n\n[label]: https://example.com (a title\n\ncontinued)\n\nEnd.',
+      'Stable.\n\n[label]: https://example.com "a title"\n\nEnd.',
+      'Stable.\r\n\r\n[label]: <https://example.com>\r\n\r\nEnd.',
+      'Stable.\n\n```text\n[label]: https://example.com\n```\n\nEnd.',
     ];
 
     for (
@@ -360,6 +364,7 @@ result
             revision: revision,
             baseRevision: revision - 1,
             content: fixture.substring(0, end),
+            verifyParity: false,
           ),
         );
         prepared = prepared.applyPatch(patch);
@@ -372,6 +377,34 @@ result
           reason: 'fixture=$fixtureIndex end=$end mode=${patch.mode}',
         );
       }
+    }
+  });
+
+  test('detects a definition completed across a trimmed checkpoint', () {
+    final engine = StreamingMarkdownPreparationEngine();
+    var prepared = const PreparedMarkdownText.empty();
+    const snapshots = [
+      '[label\n\nDraft',
+      '[label\n\n<details type="tool_calls" name="search">',
+      '[label]: https://example.com\n\nEnd.',
+    ];
+    for (var i = 0; i < snapshots.length; i++) {
+      final content = snapshots[i];
+      prepared = prepared.applyPatch(
+        engine.prepare(
+          _request(
+            sessionId: 'trimmed-reference',
+            revision: i + 1,
+            baseRevision: i,
+            content: content,
+            verifyParity: false,
+          ),
+        ),
+      );
+      expect(
+        prepared.materialize(),
+        prepareMarkdownContentCanonical(content, streaming: true),
+      );
     }
   });
 }
