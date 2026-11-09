@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:collection';
 import 'dart:math' as math;
 
@@ -78,13 +79,21 @@ typedef ChatSendTextLine = ({double y, bool last});
 
 /// The words a message was typed as, wrapped the way their field showed
 /// them: one entry per line on screen, set in the field's own style. The
-/// flying message starts as exactly these lines and dissolves into its
-/// bubble's own wrap only once it is on its way, so the text never re-wraps
-/// while it is still where it was written.
+/// flying message starts as exactly these lines and flows into its bubble's
+/// own wrap only once it is on its way, so the text never re-wraps while it
+/// is still where it was written.
+///
+/// [left] is the field's text start on screen (global x), so the words can
+/// start there while the bubble around them keeps to its own column; [room]
+/// is where a fill around them may reach at first without crossing the
+/// composer's edge, relative to that start and the top of the first line of
+/// letters. Either is null when unknown.
 typedef ChatSendTypedText = ({
   List<String> lines,
   TextStyle style,
   TextScaler textScaler,
+  double? left,
+  Rect? room,
 });
 
 /// Where the text of the message being sent was on screen: the composer's
@@ -165,14 +174,17 @@ class ChatSendOrigin {
       return;
     }
     final rect = box.localToGlobal(Offset.zero) & box.size;
-    final typed = carryTypedLines ? chatSendTypedTextOf(box) : null;
-    final last = typed == null && alignLastLine;
-    final extent = chatTextLineExtent(box, last: last);
     final clearObject = clearOf?.findRenderObject();
     final clearBox =
         clearObject is RenderBox && clearObject.hasSize && clearObject.attached
         ? clearObject
         : null;
+    final carried = carryTypedLines ? chatSendTypedTextOf(box) : null;
+    final typed = carried == null
+        ? null
+        : _placeTypedText(carried, box, clearBox);
+    final last = typed == null && alignLastLine;
+    final extent = chatTextLineExtent(box, last: last);
     record(
       rect,
       line: extent == null
@@ -418,8 +430,49 @@ ChatSendTypedText? chatSendTypedTextOf(RenderObject root) {
     lines: List<String>.unmodifiable(lines),
     style: style,
     textScaler: field.textScaler,
+    left: null,
+    room: null,
   );
 }
+
+/// [typed] with where its words start on screen and the room a fill around
+/// them may take inside [shell] (the composer), from the field under [root].
+ChatSendTypedText _placeTypedText(
+  ChatSendTypedText typed,
+  RenderBox root,
+  RenderBox? shell,
+) {
+  final text = _firstTextBox(root);
+  final glyphs = chatTextLineExtent(root, last: false);
+  if (text == null || glyphs == null) return typed;
+  final start = text.localToGlobal(Offset.zero);
+  final glyphTop = root.localToGlobal(Offset(0, glyphs.top)).dy;
+  if (!start.isFinite || !glyphTop.isFinite) return typed;
+  Rect? room;
+  if (shell != null) {
+    // Inside the composer's edge, with a point to spare for its hairline;
+    // down to the bottom of the field, never over the buttons below it.
+    final edge = shell.localToGlobal(Offset.zero) & shell.size;
+    final fieldBottom = text.localToGlobal(Offset(0, text.size.height)).dy;
+    room = Rect.fromLTRB(
+      edge.left + _composerEdgeInset - start.dx,
+      edge.top + _composerEdgeInset - glyphTop,
+      edge.right - _composerEdgeInset - start.dx,
+      math.min(edge.bottom - _composerEdgeInset, fieldBottom + 4) - glyphTop,
+    );
+  }
+  return (
+    lines: typed.lines,
+    style: typed.style,
+    textScaler: typed.textScaler,
+    left: start.dx,
+    room: room,
+  );
+}
+
+/// How far inside the composer's edge a fill around the sent words keeps
+/// while it is still within the composer.
+const double _composerEdgeInset = 2;
 
 /// Messages whose entrance has been decided, so a remount (scrolling away
 /// and back, a rebuilt timeline) never replays it.
@@ -471,10 +524,30 @@ class ChatSendFlights {
 }
 
 /// How long a new reply's placeholder (model label, "Thinking…") waits
-/// before fading in, so the sent message rising above it lands first: by
-/// then the message's spring ([ChatSendEntrance.spring]) has under a tenth
-/// of its travel left, so it no longer crosses the label's line.
+/// before fading in, at the least (see [startChatReplyEntrance]).
 const Duration chatReplyEntranceDelay = Duration(milliseconds: 260);
+
+/// Calls [enter] once a new reply's placeholder may fade in: after
+/// [chatReplyEntranceDelay], and never while a sent message is still flying
+/// to its row ([ChatSendFlights.inAir]), since the words rise through the
+/// space where the reply starts. Returns the delay's timer for its owner to
+/// cancel; [enter] may still run after the owner has gone, so it checks.
+Timer startChatReplyEntrance(VoidCallback enter) {
+  return Timer(chatReplyEntranceDelay, () {
+    final inAir = ChatSendFlights._inAir;
+    if (!inAir.value) {
+      enter();
+      return;
+    }
+    void landed() {
+      if (inAir.value) return;
+      inAir.removeListener(landed);
+      enter();
+    }
+
+    inAir.addListener(landed);
+  });
+}
 
 /// Content created this long ago or less still animates in; anything older
 /// is history and appears in place.
@@ -569,8 +642,10 @@ class ChatGreetingExit extends StatefulWidget {
   final Widget child;
   final VoidCallback onDone;
 
-  /// About as long as the rising message takes to come to rest.
-  static const Duration duration = Duration(milliseconds: 350);
+  /// Quick: the greeting has cleared the stage before the rising message's
+  /// top can reach its line, whatever the wait between the tap and the
+  /// message leaving the composer.
+  static const Duration duration = Duration(milliseconds: 150);
 
   /// Front-loaded: a quarter of the way through, a third of the greeting is
   /// left; halfway, an eighth.
@@ -837,24 +912,27 @@ double chatRestingRise(ScrollPosition? position) {
 /// spring chases that place live, keeping its own position and velocity, so
 /// whatever the timeline does meanwhile (a new chat settling its first turn)
 /// folds into one continuous motion with no jump. While the transcript
-/// scrolls the turn up to the top on the same spring, the message aims at
-/// where its row will come to rest (see [chatRestingRise]), so message and
-/// row arrive together. It runs on a [ChatMotionClock], as the scroll and the
-/// composer closing behind it do, so a slow frame delays all three alike
-/// instead of spending the spring in one step.
+/// scrolls the turn up to the top, the message aims at where its row will
+/// come to rest (see [chatRestingRise]). It runs on a [ChatMotionClock], as
+/// the scroll and the composer closing behind it do, so a slow frame delays
+/// the motion instead of spending the spring in one step.
 ///
 /// With a [flightBuilder] (a plain text message), the message leaves from
 /// the words themselves, as one object: a stand-in drawn above everything,
 /// the composer and the transcript included, starts with its text exactly
-/// where the typed text was and its bubble's fill already around it, and
-/// sets off for its row's resting place in the frame it is handed over. Its
-/// shape (the fill's size, the words' wrap) changes with how far it has
-/// travelled, so it is never anything but a bubble. The row in the thread
-/// stays hidden until the stand-in lands on it, then takes its place in the
-/// same frame. Without one it rises from the origin and fades the rest of
-/// the way in. Without an origin (a message from elsewhere) it rises a short
-/// way instead. Only a message created in the last few seconds, mounting for
-/// the first time, animates; Reduce Motion fades it in where it lands.
+/// where the typed text was and its bubble's fill already around it. It is
+/// never drawn over the transcript: it waits in the composer until its row
+/// has come up level with it (a reply that ran on below the screen scrolls
+/// past first), then rises behind its row into the space the turn leaves,
+/// never above the row while the transcript brings the turn up, and never
+/// faster than [maxFlightSpeed]. Its shape (the fill, the words' wrap)
+/// changes as it sets off (see [reshapeSeconds]), so it is never anything
+/// but a bubble. The row in the thread stays hidden until the stand-in
+/// lands on it, then takes its place in the same frame. Without one it
+/// rises from the origin and fades the rest of the way in. Without an
+/// origin (a message from elsewhere) it rises a short way instead. Only a
+/// message created in the last few seconds, mounting for the first time,
+/// animates; Reduce Motion fades it in where it lands.
 class ChatSendEntrance extends StatefulWidget {
   const ChatSendEntrance({
     super.key,
@@ -909,6 +987,65 @@ class ChatSendEntrance extends StatefulWidget {
   static const double restDistance = 0.25;
   static const double restSpeed = 6;
 
+  /// The fastest a flying message moves, in points per second: at 30 frames
+  /// a second, no frame moves it more than about 38 pt, so a long way up
+  /// reads as travel rather than a jump. A long way is flown at this pace,
+  /// and [spring] brings it in to land (see [limitedStep]).
+  static const double maxFlightSpeed = 1150;
+
+  /// Advances a flying message [dt] seconds from [position] towards
+  /// [target] at [velocity] on [spring], never faster than [maxFlightSpeed]:
+  /// over a long way it accelerates as the spring does, travels at that
+  /// pace, and comes in to land on the spring, its velocity continuous
+  /// throughout.
+  static ({Offset position, Offset velocity}) limitedStep({
+    required Offset position,
+    required Offset velocity,
+    required Offset target,
+    required double dt,
+  }) {
+    final x = spring.step(
+      displacement: position.dx - target.dx,
+      velocity: velocity.dx,
+      dt: dt,
+    );
+    final y = spring.step(
+      displacement: position.dy - target.dy,
+      velocity: velocity.dy,
+      dt: dt,
+    );
+    final next = Offset(x.velocity, y.velocity);
+    final springPlace = target + Offset(x.displacement, y.displacement);
+    if (next.distance <= maxFlightSpeed) {
+      return (position: springPlace, velocity: next);
+    }
+    // Too fast: go the spring's way, but no further than the top speed
+    // allows, and carry on at that speed.
+    final way = target - position;
+    final distance = way.distance;
+    if (distance <= restDistance) return (position: target, velocity: next);
+    final direction = way / distance;
+    final travel = math.min(
+      math.min(distance, (springPlace - position).distance),
+      maxFlightSpeed * dt,
+    );
+    return (
+      position: position + direction * travel,
+      velocity: direction * maxFlightSpeed,
+    );
+  }
+
+  /// How long, at most, a flying message takes to become its bubble (the
+  /// typed lines flowing into its wrap) after it sets off, in the motion's
+  /// time.
+  static const double reshapeSeconds = 0.3;
+
+  /// The longest sent words wait at the composer for their row to come up
+  /// to them (the transcript bringing the turn up from below the screen).
+  /// A row that never comes (the user took the scroll over) ends the flight:
+  /// the row shows where it is, and nothing is drawn over the transcript.
+  static const double maxWaitSeconds = 0.8;
+
   /// Displacement left at [t] seconds for a critically damped spring with
   /// [springResponse] released at rest, as a fraction of the starting
   /// distance.
@@ -958,10 +1095,14 @@ class _ChatSendEntranceState extends State<ChatSendEntrance>
     if (_decided) return;
     _decided = true;
     final inAir = _flightsInAir[widget.messageId];
+    // A row built again mid-flight takes the flight over with the stand-in
+    // the flight set off with, even if this build of the row would not fly
+    // one (its message caught between two states), so the message never
+    // jumps to its place.
     final takesOver =
         inAir != null &&
         !inAir.ended &&
-        widget.flightBuilder != null &&
+        (widget.flightBuilder ?? inAir.builder) != null &&
         Overlay.maybeOf(context) != null;
     if (!takesOver &&
         (!isChatEntranceAvailable(widget.messageId) ||
@@ -984,7 +1125,9 @@ class _ChatSendEntranceState extends State<ChatSendEntrance>
         widget.flightBuilder != null &&
         ChatSendOrigin.hasFresh &&
         Overlay.maybeOf(context) != null) {
-      final flight = _flight = _SendFlight(onEnd: _endFlight)..owner = this;
+      final flight = _flight = _SendFlight(onEnd: _endFlight)
+        ..owner = this
+        ..builder = widget.flightBuilder;
       _morph = _FlightShape(controller, flight);
       // The words this send was typed as, if the field could say; the
       // origin itself is taken when the row is first laid out.
@@ -1127,7 +1270,7 @@ class _ChatSendEntranceState extends State<ChatSendEntrance>
       scroll: scroll,
       child: widget.child,
     );
-    final flightBuilder = widget.flightBuilder;
+    final flightBuilder = widget.flightBuilder ?? flight?.builder;
     final morph = _morph;
     if (flight == null || flightBuilder == null || morph == null) {
       return motion;
@@ -1175,8 +1318,10 @@ class _SendFlight {
   /// row built in its place taking over.
   Object? owner;
 
-  /// The words as typed, for a row that takes the flight over.
+  /// The words as typed, and the stand-in, for a row that takes the
+  /// flight over.
   ChatSendTypedText? typed;
+  ChatSendFlightBuilder? builder;
 
   /// Where the typed text was, in global coordinates; null until the row is
   /// first laid out (or for good, if this send had none).
@@ -1225,16 +1370,34 @@ class _SendFlight {
   Offset? position;
   Offset velocity = Offset.zero;
 
-  /// Where the stand-in started (the typed words' place when it was first
-  /// painted), and where it is painted.
+  /// Where the words were typed, in the layer, before the composer moved:
+  /// the stand-in waits there, carried by the composer, until it rises.
+  Offset? written;
+
+  /// Whether the words have set off for their row, and the motion's time
+  /// when the stand-in was first painted and when they set off.
+  bool rising = false;
+  double? waitedSince;
+  double? roseAt;
+
+  /// Whether the stand-in keeps to its row's column and lets the words move
+  /// across inside it (typed words that know where they started), rather
+  /// than moving sideways as a whole.
+  bool keepsColumn = false;
+
+  /// Where the stand-in set off from (the typed words' place when they
+  /// started to rise), and where it is painted.
   Offset? start;
   Offset? painted;
 
   /// The bottom of the stand-in's words inside it.
   double? textBottom;
 
-  /// The time the spring runs on.
-  final ChatMotionClock clock = ChatMotionClock();
+  /// The time the spring runs on: one display frame's worth at most per
+  /// frame drawn, so a frame that comes late (a busy first send) slows the
+  /// message for a moment rather than moving it two frames' way at once.
+  /// At the display's own pace it is the ticker's time exactly.
+  final ChatMotionClock clock = ChatMotionClock(maxStep: 1 / 60);
 
   /// How far the stand-in has taken its bubble's shape, 0 to 1: the share
   /// of its way it has come (see [ChatSendEntrance.shapeAt]). Never goes
@@ -1394,16 +1557,19 @@ class _RenderSendFlightLayer extends RenderProxyBox {
     }
     final live = globalToLocal(row.localToGlobal(Offset.zero));
     // Where the row will be once the transcript has scrolled the turn up:
-    // the stand-in heads straight there, on the scroll's own spring, so the
-    // two arrive together.
-    final target = live.translate(0, -chatRestingRise(flight.scroll));
+    // the stand-in heads straight there, so the two arrive together.
+    final rise = chatRestingRise(flight.scroll);
+    final bringingUp = rise.abs() >= ChatSendEntrance.restDistance;
+    final target = live.translate(0, -rise);
     final step = flight.clock.advanceTo(_clockSeconds);
-    var position = flight.position;
-    if (position == null) {
-      // The words leave from where they were typed, wherever the composer
-      // has carried that place since: the text's leading edge on the typed
-      // text's, and its first (or last) line of letters on the typed one.
-      // The bubble wraps narrower than the composer, so lining up the last
+    var written = flight.written;
+    if (written == null) {
+      // The words leave from where they were typed: their first (or last)
+      // line of letters on the typed one, and their leading edge on the
+      // typed text's. Typed words that know where they started keep the
+      // bubble in its own column and move across inside it as they flow
+      // into its wrap, so its trailing edge never leaves the margin. The
+      // bubble wraps narrower than the composer, so lining up the last
       // lines grows the extra line upwards, the way the words travel, never
       // down over the composer's buttons.
       final textRect = _textRectIn(child) ?? Rect.zero;
@@ -1419,34 +1585,75 @@ class _RenderSendFlightLayer extends RenderProxyBox {
       } else {
         startY = originTopLeft.dy - textRect.top;
       }
-      position =
-          Offset(originTopLeft.dx - textRect.left, startY) +
-          (flight.originDrift?.call() ?? Offset.zero);
-      flight.start = position;
+      flight.keepsColumn = flight.typed?.left != null;
+      written = flight.written = Offset(
+        flight.keepsColumn ? target.dx : originTopLeft.dx - textRect.left,
+        startY,
+      );
       flight.textBottom = textRect.bottom;
       flight.velocity = Offset.zero;
-      // Nothing holds the words back: the composer closes up behind them on
-      // the same spring, from the next frame, as they rise.
-      flight.departure?.liftOffAfterFrame();
-    } else if (step > 0) {
-      final x = ChatSendEntrance.step(
-        displacement: position.dx - target.dx,
-        velocity: flight.velocity.dx,
+      flight.waitedSince = flight.clock.seconds;
+    }
+    var position = flight.position;
+    if (!flight.rising) {
+      // The words wait where they were typed, carried by the composer, until
+      // their row has come up level with them: the transcript bringing the
+      // turn up from below the screen scrolls the reply above it past the
+      // composer first, so the words never cross it. A row already level
+      // with them or above (a new chat, a transcript at its end) lets them
+      // go at once.
+      final drift = flight.originDrift?.call() ?? Offset.zero;
+      position = flight.keepsColumn
+          ? Offset(target.dx, written.dy + drift.dy)
+          : written + drift;
+      if (live.dy <= position.dy + ChatSendEntrance.restDistance) {
+        flight
+          ..rising = true
+          ..roseAt = flight.clock.seconds
+          ..start = position
+          ..velocity = Offset.zero;
+        // The composer closes up behind them from the next frame, as they
+        // rise.
+        flight.departure?.liftOffAfterFrame();
+      } else if (flight.clock.seconds - (flight.waitedSince ?? 0) >
+          ChatSendEntrance.maxWaitSeconds) {
+        flight.scheduleEnd();
+      }
+    } else if (position != null && step > 0) {
+      final next = ChatSendEntrance.limitedStep(
+        position: flight.keepsColumn
+            ? Offset(target.dx, position.dy)
+            : position,
+        velocity: flight.velocity,
+        target: target,
         dt: step,
       );
-      final y = ChatSendEntrance.step(
-        displacement: position.dy - target.dy,
-        velocity: flight.velocity.dy,
-        dt: step,
-      );
-      position = target + Offset(x.displacement, y.displacement);
-      flight.velocity = Offset(x.velocity, y.velocity);
+      position = next.position;
+      flight.velocity = next.velocity;
+    }
+    position ??= written;
+    if (flight.rising && bringingUp && position.dy < live.dy) {
+      // Never above its row while the transcript brings the turn up: the
+      // reply above the row is the transcript's, and the words stay clear
+      // of it, coming up behind it into the space the turn leaves.
+      position = Offset(position.dx, live.dy);
+      flight.velocity = Offset(flight.velocity.dx, 0);
     }
     final start = flight.start ?? position;
-    final shape = ChatSendEntrance.shapeAt(
-      start: start,
-      position: position,
-      target: target,
+    // Its shape follows how far it has come, and is done within
+    // [ChatSendEntrance.reshapeSeconds] of setting off whatever the way
+    // left, so the bubble flies most of the way as itself.
+    final roseAt = flight.roseAt;
+    final shape = math.max(
+      ChatSendEntrance.shapeAt(
+        start: start,
+        position: position,
+        target: target,
+      ),
+      roseAt == null
+          ? 0.0
+          : ((flight.clock.seconds - roseAt) / ChatSendEntrance.reshapeSeconds)
+                .clamp(0.0, 1.0),
     );
     if (shape > flight.shape) flight.shape = shape;
     _reportDeparture(position);

@@ -405,6 +405,48 @@ void main() {
     expect(find.byKey(const ValueKey<Object>('temporary-chat')), findsNothing);
   });
 
+  testWidgets('as the circle opens into the capsule, no two glyphs that show '
+      'are ever nearer than in the finished capsule, and the glass opens '
+      'first', (tester) async {
+    await tester.pumpWidget(_host([_item('temporary-chat')]));
+    final cluster = find.byKey(const ValueKey('cluster'));
+    await tester.pumpWidget(_host([_item('new-chat'), _menu('more')]));
+    await tester.pumpAndSettle();
+    double centre(String id) =>
+        tester.getCenter(find.byKey(ValueKey<Object>(id))).dx;
+    final spacing = (centre('new-chat') - centre('more')).abs();
+    final restingCompose = tester.getRect(cluster).right - centre('new-chat');
+
+    await tester.pumpWidget(_host([_item('temporary-chat')]));
+    await tester.pumpAndSettle();
+    await tester.pumpWidget(_host([_item('new-chat'), _menu('more')]));
+    var firstCompose = -1;
+    for (var frame = 1; frame <= 30; frame++) {
+      await tester.pump(const Duration(milliseconds: 16));
+      final glass = tester.getRect(cluster);
+      final shown = [
+        for (final id in ['temporary-chat', 'new-chat', 'more'])
+          if (_opacityOf(tester, id) > 0.02) (id, centre(id)),
+      ];
+      for (var i = 0; i < shown.length; i++) {
+        for (var j = i + 1; j < shown.length; j++) {
+          expect(
+            (shown[i].$2 - shown[j].$2).abs(),
+            greaterThanOrEqualTo(spacing - 3),
+            reason: 'frame $frame: ${shown[i].$1} and ${shown[j].$1}',
+          );
+        }
+      }
+      // The compose glyph comes in where it will rest, once the glass
+      // already reaches past it.
+      if (_opacityOf(tester, 'new-chat') > 0) {
+        expect(glass.right - centre('new-chat'), closeTo(restingCompose, 0.5));
+        if (firstCompose < 0) firstCompose = frame;
+      }
+    }
+    expect(firstCompose, isPositive);
+  });
+
   testWidgets('a swap in one spot still clears before it arrives', (
     tester,
   ) async {

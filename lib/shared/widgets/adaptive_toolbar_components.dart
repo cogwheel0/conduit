@@ -1026,8 +1026,20 @@ final SpringDescription kConduitBarMorphSpring =
 /// a moment rather than skipping it.
 const double _kBarMaxStep = 1 / 30;
 
-/// Share of a change over which a leaving glyph fades out and shrinks.
-const double _kClusterDepartureEnd = 0.45;
+/// Share of a change over which a leaving glyph fades out and shrinks: it
+/// holds on while the glass opens, until a glyph arriving elsewhere is
+/// coming in, so the glass is never empty.
+const double _kClusterDepartureStart = 0.25;
+const double _kClusterDepartureEnd = 0.55;
+
+/// How much faster the glass reshapes than the glyphs change over: it opens
+/// first, so a glyph arriving at its far end has its place in the glass
+/// before it shows.
+const double _kClusterGlassLead = 2;
+
+/// Points of glass past a glyph's ink over which the glyph comes in (or
+/// goes, as the glass closes over it).
+const double _kClusterCoverRamp = 6;
 
 /// Share of a change over which an arriving glyph fades in and grows. It
 /// overlaps the departures, held back by any leaving glyph it overlaps (see
@@ -1081,9 +1093,8 @@ class _BarSpring {
 }
 
 /// Where a glyph rests in the glass: a fixed distance from the glass's
-/// trailing or leading end, or on its centre line. It is resolved against
-/// the glass's width of the moment, so while the glass reshapes each glyph
-/// rides the end it belongs to and never shows outside it.
+/// trailing or leading end, or on its centre line, resolved against a width
+/// of the glass (the finished one, for a glyph coming or going).
 @immutable
 class _ClusterAnchor {
   const _ClusterAnchor._(this.edge, this.inset);
@@ -1157,11 +1168,12 @@ class _ClusterEntry {
 /// which pinches into a "dumbbell" between buttons on device (#686).
 ///
 /// When the set of actions changes (a new chat becoming a real one), the
-/// glass reshapes and the glyphs change over in one step, on one critically
-/// damped spring ([kConduitBarMorphSpring]): the leaving glyphs fade and
-/// shrink away in the first part of it while the arriving ones grow in from
-/// where they will rest, each riding the end of the glass it belongs to, so
-/// no glyph ever shows outside the glass, the glass never shows empty, and
+/// glass reshapes and the glyphs change over in one step, on critically
+/// damped springs ([kConduitBarMorphSpring]): the glass opens (or closes)
+/// first, the leaving glyphs fade and shrink away where they stand, and the
+/// arriving ones grow in where they will rest, each only once the glass
+/// covers it. So no glyph ever shows outside the glass, no two that show are
+/// ever nearer than in the finished glass, the glass never shows empty, and
 /// an arriving glyph shows in a leaving one's spot only as that one clears.
 /// A change mid-way starts again from what is on screen. Reduce Motion
 /// reshapes at once and dissolves the glyphs, the old ones out before the
@@ -1315,9 +1327,14 @@ class _ConduitToolbarActionClusterState
   /// change's progress of this frame.
   void _layOut() {
     final width = math.max(0.0, _width.value);
+    final finalWidth = math.max(0.0, _width.target);
     final phase = _phase.value.clamp(0.0, 1.0).toDouble();
     final reduceMotion = _reduceMotion;
-    final departure = _clusterEase(0, _kClusterDepartureEnd, phase);
+    final departure = _clusterEase(
+      reduceMotion ? 0 : _kClusterDepartureStart,
+      _kClusterDepartureEnd,
+      phase,
+    );
     // Under Reduce Motion the new glyphs wait for the old ones to be gone.
     final arrivalStart = reduceMotion
         ? _kClusterDepartureEnd
@@ -1325,7 +1342,7 @@ class _ConduitToolbarActionClusterState
     final arrivalEnd = reduceMotion ? 1.0 : _kClusterArrivalEnd;
     double arrivalOf(_ClusterEntry entry) {
       final start = math.max(arrivalStart, entry.setsOutAt ?? 0);
-      return _clusterEase(start, math.max(arrivalEnd, start + 0.3), phase);
+      return _clusterEase(start, math.max(arrivalEnd, start + 0.25), phase);
     }
 
     final settle = _clusterEase(
@@ -1335,13 +1352,16 @@ class _ConduitToolbarActionClusterState
     );
 
     for (final entry in _entries.values) {
-      final resting = entry.anchor.resolve(width);
+      // Every glyph heads for (or keeps) its place in the finished glass,
+      // measured from the trailing end the glass grows from: arriving ones
+      // stand there from the start, leaving ones stay where they were, so no
+      // two ever draw nearer than the finished spacing, and the reshaping
+      // glass shows each one only where it covers it (see [cover] below).
+      final resting = entry.anchor.resolve(finalWidth);
       final from = entry.fromCentre;
       if (entry.leaving) {
         entry
-          ..centre = reduceMotion || from == null
-              ? from ?? resting
-              : lerpDouble(from, resting, phase)!
+          ..centre = from ?? entry.anchor.resolve(width)
           ..opacity = entry.fromOpacity * (1 - departure)
           ..scale = reduceMotion
               ? entry.fromScale
@@ -1388,6 +1408,14 @@ class _ConduitToolbarActionClusterState
             ? 1
             : lerpDouble(_kClusterGlyphMinScale, 1, arrival)!;
     }
+    // A glyph shows only where the glass covers all of its ink: the opening
+    // glass brings the far one in, a closing one takes it away.
+    final half = _kClusterGlyphExtent * controlScale / 2;
+    for (final entry in _entries.values) {
+      final inner = entry.centre + half;
+      final cover = _clusterEase(inner, inner + _kClusterCoverRamp, width);
+      if (cover < 1) entry.opacity *= cover;
+    }
   }
 
   bool get _isSettled => _width.isSettled && _phase.isSettled;
@@ -1411,7 +1439,7 @@ class _ConduitToolbarActionClusterState
       _kBarMaxStep,
     );
     final omega = ConduitToolbarActionCluster.springOmega;
-    _width.step(seconds, omega);
+    _width.step(seconds, omega * _kClusterGlassLead);
     _phase.step(seconds, omega);
     _layOut();
     _entries.removeWhere(

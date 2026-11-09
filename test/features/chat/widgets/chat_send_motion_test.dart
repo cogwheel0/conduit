@@ -394,6 +394,49 @@ void main() {
     }
   });
 
+  test('a long way is flown no faster than the top speed, then lands on '
+      'the spring, its velocity continuous', () {
+    var position = const Offset(0, 600);
+    var velocity = Offset.zero;
+    const target = Offset(0, 100);
+    const dt = 1 / 60;
+    var cruised = 0;
+    double? previousStep;
+    for (var frame = 0; frame < 120; frame++) {
+      final next = ChatSendEntrance.limitedStep(
+        position: position,
+        velocity: velocity,
+        target: target,
+        dt: dt,
+      );
+      final step = (position - next.position).distance;
+      // At 30 frames a second, never more than about 38 pt a frame.
+      expect(
+        step * 2,
+        lessThanOrEqualTo(ChatSendEntrance.maxFlightSpeed / 30 + 0.01),
+      );
+      // Never past its place, never back.
+      expect(next.position.dy, greaterThanOrEqualTo(target.dy - 0.01));
+      expect(next.position.dy, lessThanOrEqualTo(position.dy + 0.01));
+      final speed = next.velocity.distance;
+      if ((speed - ChatSendEntrance.maxFlightSpeed).abs() < 0.01) cruised++;
+      // No sudden change of pace once under way: speeding up or braking, a
+      // little a frame.
+      if (previousStep != null) {
+        expect(
+          (step - previousStep).abs(),
+          lessThan(8),
+          reason: 'frame $frame',
+        );
+      }
+      previousStep = step;
+      position = next.position;
+      velocity = next.velocity;
+    }
+    expect(cruised, greaterThan(3));
+    expect(position.dy, closeTo(target.dy, 0.5));
+  });
+
   testWidgets('a place that jumps mid-flight never makes the bubble jump', (
     tester,
   ) async {
@@ -599,6 +642,56 @@ void main() {
     expect(ChatSendFlights.inAir.value, isFalse);
   });
 
+  testWidgets('a row built again mid-flight that would not fly a stand-in '
+      'itself still carries the flight on with the one it set off with', (
+    tester,
+  ) async {
+    const flightText = ValueKey('flight-text');
+    final timestamp = DateTime.now();
+    var mount = 0;
+    late StateSetter rebuild;
+    ChatSendOrigin.record(const Rect.fromLTWH(20, 700, 360, 44));
+    await tester.pumpWidget(
+      _harness(
+        StatefulBuilder(
+          builder: (context, setState) {
+            rebuild = setState;
+            return ChatSendEntrance(
+              key: ValueKey('row-$mount'),
+              messageId: 'rebuilt-without-stand-in',
+              timestamp: timestamp,
+              // Built again, the row is caught between two states of its
+              // message and would not fly a stand-in of its own.
+              flightBuilder: mount == 0
+                  ? (context, morph, typed) => const Align(
+                      alignment: Alignment.topRight,
+                      child: Text('Picnic plans', key: flightText),
+                    )
+                  : null,
+              child: _bubble(),
+            );
+          },
+        ),
+      ),
+    );
+    await tester.pump();
+    for (var frame = 0; frame < 4; frame += 1) {
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+    final before = tester.getTopLeft(find.byKey(flightText)).dy;
+    expect(before, inExclusiveRange(1, 700));
+
+    rebuild(() => mount += 1);
+    await tester.pump(const Duration(milliseconds: 16));
+    // Still flying from where it was; the row stays hidden under it.
+    expect(find.byKey(flightText), findsOneWidget);
+    expect(tester.getTopLeft(find.byKey(flightText)).dy, lessThan(before));
+    expect(_bubblePaints, 0);
+    await tester.pumpAndSettle();
+    expect(find.byKey(flightText), findsNothing);
+    expect(_paintedTop(tester), closeTo(0, 0.01));
+  });
+
   testWidgets('a row gone mid-flight for good takes its stand-in with it', (
     tester,
   ) async {
@@ -660,16 +753,17 @@ void main() {
     await tester.pumpWidget(page('Hello again'));
     expect(find.text('Hello, Avery'), findsOneWidget);
     expect(find.text('Hello again'), findsNothing);
-    // On the beat of the rising message (about as long as it takes to come
-    // to rest), and front-loaded: under half left a quarter of the way in,
-    // an eighth by halfway, so it is all but gone before the message
-    // reaches its line.
+    // Quick and front-loaded, so it has gone before a message rising from
+    // the composer can reach its line: its top has some 100 pt to rise to
+    // the greeting, at no more than the flight's top speed, and it sets off
+    // a frame after the tap that starts the fade at the earliest.
+    final crossing = 1 / 60 + 100 / ChatSendEntrance.maxFlightSpeed;
+    final share = crossing * 1000 / ChatGreetingExit.duration.inMilliseconds;
     expect(
-      ChatGreetingExit.duration.inMilliseconds,
-      inInclusiveRange(300, 450),
+      1 - ChatGreetingExit.curve.transform(share.clamp(0, 1)),
+      lessThan(0.05),
     );
     expect(1 - ChatGreetingExit.curve.transform(0.25), lessThan(0.45));
-    expect(1 - ChatGreetingExit.curve.transform(0.5), lessThanOrEqualTo(0.125));
   });
 
   testWidgets('the greeting fades out as the first message arrives', (
@@ -745,8 +839,9 @@ void main() {
       previous = message;
       previousShape = _timelineMorph!.value;
     }
-    // About the spring's own time at 60 Hz: neither a blink nor a crawl.
-    expect(frames, inInclusiveRange(18, 50));
+    // About the spring's own time at 60 Hz, a long way flown at the top
+    // speed: neither a blink nor a crawl.
+    expect(frames, inInclusiveRange(18, 60));
     expect(await arrival, isTrue);
     await tester.pumpAndSettle();
     expect(find.byKey(_flightText), findsNothing);
@@ -754,8 +849,10 @@ void main() {
     await timeline.dispose();
   });
 
-  testWidgets('under a reply that runs on below the composer, the words '
-      'leave at once and do not wait for their row', (tester) async {
+  testWidgets('under a reply that runs on below the composer, the words wait '
+      'for their row, then rise behind it, never over the reply', (
+    tester,
+  ) async {
     // The reply's top is in view and its end is 430 pt below the screen:
     // the new row is laid out there, in the scroll cache, but not painted.
     final timeline = await _pumpTimeline(
@@ -775,37 +872,51 @@ void main() {
     // Its row is still below the screen, so the stand-in counts as off
     // stage for finders; it is painted all the same.
     final flight = find.byKey(_flightText, skipOffstage: false);
-    // The frame of the send shows the words where they were typed, and the
-    // composer is told to close up behind them from the next frame.
+    // The frame of the send shows the words where they were typed.
     expect(flight, findsOneWidget);
     final written = tester.getTopLeft(flight);
     expect(written.dy, closeTo(540, 0.5));
     expect(_timelineMorph!.value, 0);
     expect(timeline.rowTop('user'), greaterThan(600));
-    expect(liftedOff, isTrue);
 
     final arrival = timeline.controller.springMessageToTop(
       'user',
       spring: ChatSendEntrance.spring,
     );
     var previous = written;
-    var aheadOfRow = 0;
-    for (var frame = 0; frame < 60; frame += 1) {
+    var waited = 0;
+    var rose = 0;
+    for (var frame = 0; frame < 90; frame += 1) {
       await tester.pump(const Duration(milliseconds: 16));
       if (flight.evaluate().isEmpty) break;
       final message = tester.getTopLeft(flight);
-      if (frame >= 1) {
-        // It rises from the first frames on, without waiting at the
-        // composer for its row to come up.
-        expect(message.dy, lessThan(previous.dy));
-        expect(_timelineMorph!.value, greaterThan(0));
+      if (liftedOff) {
+        // Once on its way, never above its row: the reply the transcript
+        // scrolls up past the composer is never drawn over.
+        expect(
+          message.dy,
+          greaterThanOrEqualTo(timeline.rowTop('user') - 0.5),
+          reason: 'frame $frame',
+        );
       }
+      expect(message.dy, lessThanOrEqualTo(previous.dy + 0.01));
       expect(message.dy, greaterThanOrEqualTo(32 - 0.5));
-      if (message.dy < timeline.rowTop('user') - 1) aheadOfRow += 1;
+      if (!liftedOff) {
+        // Still where it was typed, its shape untouched, the composer
+        // holding round it.
+        expect(message.dy, closeTo(540, 0.5));
+        expect(_timelineMorph!.value, 0);
+        waited += 1;
+      } else if (message.dy < previous.dy - 0.01) {
+        rose += 1;
+      }
       previous = message;
     }
-    // It flew above the turn while the turn was still coming up.
-    expect(aheadOfRow, greaterThan(3));
+    // It waited at the composer while the reply went by, then rose behind
+    // its row to land with it.
+    expect(waited, greaterThan(2));
+    expect(liftedOff, isTrue);
+    expect(rose, greaterThan(5));
     expect(await arrival, isTrue);
     await tester.pumpAndSettle();
     expect(flight, findsNothing);
