@@ -1239,6 +1239,39 @@ void main() {
       await harness.unmount(tester);
     });
 
+    testWidgets('a browser left open is cancelled from the page, with no '
+        'error', (tester) async {
+      final actions = _BrowserAuthActions(held: Completer<void>());
+      final harness = await openSignIn(tester, saved: config, actions: actions);
+
+      await tester.tap(find.text('Continue in browser'));
+      await settle(tester);
+      expect(find.text('Waiting for the browser…'), findsWidgets);
+
+      await tester.tap(
+        find.byKey(const ValueKey('authentication-sign-in-button')),
+      );
+      await settle(tester);
+
+      check(actions.events).deepEquals(['login:oidc:conduit-app', 'cancel']);
+      check(actions.signedIn).equals(0);
+      expect(find.byType(ConnectionAttemptBanner), findsNothing);
+      expect(find.text('Continue in browser'), findsOneWidget);
+      await harness.unmount(tester);
+    });
+
+    testWidgets('leaving the page while the browser is open cancels the '
+        'sign-in', (tester) async {
+      final actions = _BrowserAuthActions(held: Completer<void>());
+      final harness = await openSignIn(tester, saved: config, actions: actions);
+
+      await tester.tap(find.text('Continue in browser'));
+      await settle(tester);
+      await harness.unmount(tester);
+
+      check(actions.events).deepEquals(['login:oidc:conduit-app', 'cancel']);
+    });
+
     testWidgets('set up for a server being added is saved once the server '
         'is, before the browser opens', (tester) async {
       final actions = _BrowserAuthActions();
@@ -1413,8 +1446,20 @@ class _BrowserAuthActions extends Fake implements AuthActions {
     canCommits.add(canCommit);
     final held = this.held;
     if (held != null) await held.future;
+    if (_cancelled) return false;
     if (canCommit != null && !canCommit()) return false;
     return _next();
+  }
+
+  bool _cancelled = false;
+
+  /// Ends the sign-in held open as cancelled, as the browser closing does.
+  @override
+  Future<void> cancelBrowserSignIn() async {
+    events.add('cancel');
+    _cancelled = true;
+    final held = this.held;
+    if (held != null && !held.isCompleted) held.complete();
   }
 
   @override
