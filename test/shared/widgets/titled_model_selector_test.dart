@@ -199,23 +199,34 @@ void main() {
       });
     }
 
-    testWidgets('shows the title before the capsule has room for it', (
+    testWidgets('the title grows in with the capsule, in one step', (
       tester,
     ) async {
       final showsTitle = await pumpPill(tester, title: 'Weekend breads');
       final pill = find.byType(ConduitAdaptiveAppBarModelSelector);
+      final restingWidth = tester.getSize(pill).width;
 
       showsTitle.value = true;
       var firstShownWidth = 0.0;
-      await eachFrame(tester, (_) {
-        if (firstShownWidth == 0 && opacityOf(tester, 'Weekend breads') > 0) {
+      var fullyShownAt = -1;
+      for (var frame = 1; frame <= 30; frame++) {
+        await tester.pump(const Duration(milliseconds: 16));
+        final opacity = opacityOf(tester, 'Weekend breads');
+        if (firstShownWidth == 0 && opacity > 0) {
           firstShownWidth = tester.getSize(pill).width;
         }
-      });
-      // The title starts to show only once the capsule has grown most of
-      // the way.
+        if (fullyShownAt < 0 && opacity == 1) fullyShownAt = frame;
+      }
       final settledWidth = tester.getSize(pill).width;
-      check(firstShownWidth).isGreaterThan(0.9 * settledWidth);
+      // It starts to show while the capsule is still on its way, not once
+      // a wide capsule has waited for it ...
+      check(firstShownWidth).isGreaterThan(0);
+      check(firstShownWidth - restingWidth)
+          .isLessThan(0.9 * (settledWidth - restingWidth));
+      // ... and is fully in well within a quarter of a second.
+      check(fullyShownAt).isGreaterThan(0);
+      check(fullyShownAt * 16).isLessOrEqual(160);
+      await tester.pumpAndSettle();
     });
   });
 
@@ -227,17 +238,26 @@ void main() {
       linesClearAt: 0.6,
     );
 
-    test('the title shows only where it fits, at no less than 96%', () {
+    test('the title shows only where it fits, never below the reveal '
+        'scale', () {
       for (var step = 0; step <= 100; step++) {
         final t = step / 100;
         if (motion.titleOpacityAt(t) == 0) continue;
         final drawn = motion.titleWidth * motion.titleScaleAt(t);
         check(drawn + 2 * ConduitTitledPillMotion.roundedEndClearance)
             .isLessOrEqual(motion.widthAt(t) + 1e-9);
-        check(motion.titleScaleAt(t)).isGreaterOrEqual(0.96);
+        check(motion.titleScaleAt(t))
+            .isGreaterOrEqual(ConduitTitledPillMotion.revealScale);
       }
       check(motion.titleOpacityAt(1)).equals(1);
       check(motion.titleScaleAt(1)).equals(1);
+    });
+
+    test('the model line turns into the subtitle ahead of the capsule', () {
+      check(motion.modelMorphAt(ConduitTitledPillMotion.modelMorphEnd))
+          .equals(1);
+      check(motion.modelMorphAt(0.3)).isGreaterThan(0.3);
+      check(motion.modelMorphAt(0)).equals(0);
     });
 
     test('waits for the model line to clear the title line', () {

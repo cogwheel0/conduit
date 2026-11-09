@@ -286,10 +286,12 @@ void main() {
         expect(outgoing[i], lessThanOrEqualTo(outgoing[i - 1]));
         expect(incoming[i], greaterThanOrEqualTo(incoming[i - 1]));
       }
-      // Settled within about a third of a second.
-      final settledAt = widths.indexWhere((width) => width == 80);
-      expect(settledAt, isNonNegative);
-      expect(settledAt * 16, lessThanOrEqualTo(400));
+      // Done within a quarter of a second, to the eye: the width within a
+      // point and a half of its target, settling on it soon after.
+      final nearlyAt = widths.indexWhere((width) => width >= 78.5);
+      expect(nearlyAt, isNonNegative);
+      expect((nearlyAt + 1) * 16, lessThanOrEqualTo(250));
+      expect(widths.last, 80);
       expect(
         find.byKey(const ValueKey<Object>('temporary-chat')),
         findsNothing,
@@ -305,66 +307,64 @@ void main() {
     },
   );
 
-  testWidgets('the circle hands over to the capsule: never two glyphs in '
-      'one spot, never empty glass, never outside it', (tester) async {
+  testWidgets('the circle becomes the capsule in one step: never two glyphs '
+      'over each other, never empty glass, never a glyph outside it', (
+    tester,
+  ) async {
     await tester.pumpWidget(_host([_item('temporary-chat')]));
     final cluster = find.byKey(const ValueKey('cluster'));
     await tester.pumpWidget(_host([_item('new-chat'), _menu('more')]));
 
-    var oldGoneAt = -1;
-    var moreShownAt = -1;
-    var overlapped = false;
-    for (var frame = 1; frame <= 50; frame++) {
+    double centreOf(String id) =>
+        tester.getRect(cluster).right -
+        tester.getCenter(find.byKey(ValueKey<Object>(id))).dx;
+
+    var allShownAt = -1;
+    for (var frame = 1; frame <= 30; frame++) {
       await tester.pump(const Duration(milliseconds: 16));
       final outgoing = _opacityOf(tester, 'temporary-chat');
       final compose = _opacityOf(tester, 'new-chat');
       final more = _opacityOf(tester, 'more');
-      // No double exposure: "more" rests on the dashed circle's very spot,
-      // so the two never show together.
-      expect(
-        outgoing == 0 || more == 0,
-        isTrue,
-        reason: 'frame $frame: circle $outgoing, more $more',
-      );
-      // The compose glyph comes in beside the circle while it still shows,
-      // so the glass is never empty once the change is under way.
-      if (outgoing > 0 && compose > 0) overlapped = true;
-      if (frame > 4) {
-        expect(
-          [outgoing, compose, more].reduce(math.max),
-          greaterThanOrEqualTo(0.35),
-          reason:
-              'frame $frame: circle $outgoing, compose $compose, '
-              'more $more',
-        );
-      }
-      if (outgoing == 0 && oldGoneAt < 0) oldGoneAt = frame;
-      if (more > 0 && moreShownAt < 0) moreShownAt = frame;
-
-      // An arriving glyph shows only once the growing glass has passed
-      // all of it.
-      final glass = tester.getRect(cluster);
-      for (final id in ['new-chat', 'more']) {
-        final slot = find.byKey(ValueKey<Object>(id));
-        if (_opacityOf(tester, id) > 0) {
-          final glyphLeft =
-              tester.getCenter(slot).dx -
-              kConduitNativeSingleActionSymbolExtent / 2;
-          expect(
-            glyphLeft,
-            greaterThanOrEqualTo(glass.left),
-            reason: 'frame $frame: $id outside the glass',
-          );
+      final reason =
+          'frame $frame: circle $outgoing, compose $compose, more $more';
+      // Where the leaving glyph and an arriving one overlap, together they
+      // never show more than one glyph's worth: no double exposure.
+      if (outgoing > 0) {
+        for (final (id, opacity) in [('new-chat', compose), ('more', more)]) {
+          final apart = (centreOf(id) - centreOf('temporary-chat')).abs();
+          if (apart < 22) {
+            expect(
+              outgoing + opacity,
+              lessThanOrEqualTo(1.0001),
+              reason: reason,
+            );
+          }
+          // In the very same spot the arrival waits for the circle to clear.
+          if (apart < 5) expect(opacity, 0, reason: reason);
         }
       }
+      // The glass is never empty once the change is under way.
+      expect(
+        [outgoing, compose, more].reduce(math.max),
+        greaterThanOrEqualTo(0.25),
+        reason: reason,
+      );
+      // Every glyph that shows is inside the glass, the growing end
+      // carrying the leading one with it.
+      final glass = tester.getRect(cluster);
+      for (final id in ['temporary-chat', 'new-chat', 'more']) {
+        if (_opacityOf(tester, id) <= 0) continue;
+        final centre = tester.getCenter(find.byKey(ValueKey<Object>(id))).dx;
+        expect(centre - 11, greaterThanOrEqualTo(glass.left), reason: reason);
+        expect(centre + 11, lessThanOrEqualTo(glass.right), reason: reason);
+      }
+      if (allShownAt < 0 && compose == 1 && more == 1) allShownAt = frame;
     }
-    expect(overlapped, isTrue);
-    // The circle clears once compose has taken over, within about a third
-    // of a second, and "more" follows on the next frame.
-    expect(oldGoneAt * 16, lessThanOrEqualTo(350));
-    expect(moreShownAt, oldGoneAt + 1);
-    expect(_opacityOf(tester, 'new-chat'), 1);
-    expect(_opacityOf(tester, 'more'), 1);
+    // One step: both new glyphs fully in within about 150 ms, while the
+    // glass is still finishing its reshape.
+    expect(allShownAt, isPositive);
+    expect(allShownAt * 16, lessThanOrEqualTo(150));
+    expect(find.byKey(const ValueKey<Object>('temporary-chat')), findsNothing);
   });
 
   testWidgets('a swap in one spot still clears before it arrives', (
