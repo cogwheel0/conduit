@@ -908,6 +908,26 @@ void main() {
       check(await storedSession('a')).equals(sessionA);
       check(await storedSession('b')).equals(sessionB);
     });
+
+    test('nor when Open WebUI is parked, and taken up again', () async {
+      await saveAccounts(['a']);
+      final session = await signInWithBrowser('a');
+
+      await storage.parkActiveServer(fromServerId: 'a');
+
+      // Parked, the browser sign-in waits in the account's vault.
+      check(await vaultedCredentials('a'))
+          .isNotNull()
+          .has((c) => c['authType'], 'authType')
+          .equals(AuthTypes.ssoBrowser);
+      check(await storedSession('a')).equals(session);
+      check(await storage.sweepOrphanBrowserSignInSessions()).isEmpty();
+
+      await storage.switchActiveServer(toServerId: 'a');
+
+      check(await storedSession('a')).equals(session);
+      check(await storage.sweepOrphanBrowserSignInSessions()).isEmpty();
+    });
   });
 
   group('folding a duplicate account into an existing one', () {
