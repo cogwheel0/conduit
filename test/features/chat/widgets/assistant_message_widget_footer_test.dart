@@ -1691,6 +1691,56 @@ void main() {
     expect(find.text('Try another angle'), findsOneWidget);
   });
 
+  testWidgets('the action row groups with its reply, the suggestions sit '
+      'apart, and on a send they leave from where they were', (tester) async {
+    final message = ChatMessage(
+      id: 'assistant-follow-up-spacing',
+      role: 'assistant',
+      content: 'Visible response body',
+      timestamp: DateTime(2024, 1, 1),
+      followUps: const ['Ask again'],
+    );
+    Finder actionRow() => find
+        .descendant(
+          of: find.byKey(const ValueKey('actions')),
+          matching: find.byType(Wrap),
+        )
+        .first;
+    Finder heading() => find.byKey(const ValueKey<String>('follow-up-heading'));
+
+    await tester.pumpWidget(
+      _buildAssistantHarness(message, showFollowUps: true),
+    );
+    await tester.pumpAndSettle();
+
+    // The heading is a short gap below the row's 44 pt targets: with the
+    // air those leave under the glyphs, about 24 pt from glyph to heading.
+    final rowRect = tester.getRect(actionRow());
+    final headingTop = tester.getTopLeft(heading()).dy;
+    expect(
+      headingTop - rowRect.bottom,
+      closeTo(Spacing.xs + FollowUpSuggestionBar.headingTopGap, 0.5),
+    );
+
+    // A send: the suggestions dissolve where they are, not pushed down by
+    // the gap that takes their place under the row.
+    await tester.pumpWidget(
+      _buildAssistantHarness(message, showFollowUps: false),
+    );
+    await tester.pump(const Duration(milliseconds: 16));
+    expect(heading(), findsOneWidget);
+    expect(tester.getTopLeft(heading()).dy, closeTo(headingTop, 0.5));
+    expect(tester.getRect(actionRow()), rowRect);
+    await tester.pumpAndSettle();
+    expect(heading(), findsNothing);
+
+    // Without suggestions the block's gap follows the row, so the row
+    // stays right under the reply.
+    final actions = tester.getRect(find.byKey(const ValueKey('actions')));
+    expect(actions.top, closeTo(rowRect.top, 0.5));
+    expect(actions.bottom - tester.getRect(actionRow()).bottom, Spacing.md);
+  });
+
   testWidgets('follow-up selection delegates to the page send path', (
     tester,
   ) async {

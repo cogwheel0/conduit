@@ -14,8 +14,11 @@ import 'chat_send_motion.dart';
 /// outline with no fill, so it reads as an option to tap rather than as a
 /// message already sent (sent messages sit on a fill); its text is in the
 /// label colour, at 15 pt under the 17 pt answer, and one shared width keeps
-/// the edges even. A suggestion shows in full, however many lines it takes,
-/// so what a tap sends is what the row says.
+/// the edges even. A suggestion shows up to [FollowUpSuggestionRow.maxLines]
+/// lines, which most server suggestions fit, and ends a longer one with an
+/// ellipsis, so three of them stay a short list under the reply rather
+/// than outweighing it; a tap still sends, and VoiceOver still reads, the
+/// whole prompt.
 class FollowUpSuggestionBar extends StatelessWidget {
   const FollowUpSuggestionBar({
     super.key,
@@ -29,10 +32,11 @@ class FollowUpSuggestionBar extends StatelessWidget {
   final bool isBusy;
 
   /// Space between the action row above and the heading. The action row's
-  /// 44 pt targets already leave about 12 pt of air under its glyphs, so this
-  /// stays small: the heading should sit visibly closer to the suggestions it
-  /// names than to the actions above it.
-  static const double headingTopGap = Spacing.xxs;
+  /// 44 pt targets already leave about 13 pt of air under its glyphs; with
+  /// the reply's own small gap this puts the heading about 24 pt below the
+  /// glyphs: apart from the actions, which group with their reply, and
+  /// still closer to the suggestions it names.
+  static const double headingTopGap = Spacing.xs;
 
   /// Space between the heading and the first suggestion.
   static const double headingBottomGap = Spacing.sm;
@@ -93,8 +97,9 @@ class FollowUpSuggestionBar extends StatelessWidget {
 }
 
 /// One suggestion: a full-width outlined row led by a follow-up arrow, that
-/// fills the moment a finger lands. It shows, reads to VoiceOver and sends
-/// the whole prompt.
+/// fills the moment a finger lands. It shows up to [maxLines] lines of the
+/// prompt, with an ellipsis after a longer one, and reads to VoiceOver and
+/// sends the whole prompt.
 @visibleForTesting
 class FollowUpSuggestionRow extends StatefulWidget {
   const FollowUpSuggestionRow({super.key, required this.label, this.onPressed});
@@ -103,6 +108,12 @@ class FollowUpSuggestionRow extends StatefulWidget {
   final VoidCallback? onPressed;
 
   static const double minHeight = 44;
+
+  /// Lines a suggestion shows before it ends in an ellipsis: enough for
+  /// most suggestions to read in full, few enough that three stay lighter
+  /// than the reply. Never cut mid-word: the ellipsis follows the last word
+  /// that fits.
+  static const int maxLines = 3;
 
   /// The outline's width: a full point, so the edge holds up against the
   /// page as clearly as a fill would, without being one.
@@ -257,12 +268,98 @@ class _FollowUpSuggestionRowState extends State<FollowUpSuggestionRow> {
               ),
               const SizedBox(width: FollowUpSuggestionRow.glyphGap),
               Expanded(
-                child: Text(widget.label, key: _textKey, style: textStyle),
+                child: LayoutBuilder(
+                  builder: (context, constraints) => Text(
+                    followUpSuggestionClampedText(
+                      widget.label,
+                      style: textStyle,
+                      maxWidth: constraints.maxWidth,
+                      maxLines: FollowUpSuggestionRow.maxLines,
+                      textScaler: textScaler,
+                      textDirection: Directionality.of(context),
+                      locale: Localizations.maybeLocaleOf(context),
+                    ),
+                    key: _textKey,
+                    style: textStyle,
+                    maxLines: FollowUpSuggestionRow.maxLines,
+                    // Only for a single word longer than the lines; any
+                    // other cut is made on a word boundary above.
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
               ),
             ],
           ),
         ),
       ),
     );
+  }
+}
+
+/// Characters a shortened suggestion should not end on before its ellipsis.
+final RegExp _danglingTail = RegExp(r'[\s,;:.\-–—/(\[{"“‘]+$');
+
+/// [text] as it fits in [maxLines] lines of [maxWidth]: whole, or cut after
+/// the last whole word that leaves room for an ellipsis (and without a
+/// dangling comma, dash or opening bracket before it). Words are found the
+/// way the text engine breaks them, so languages written without spaces cut
+/// cleanly too. A single word too long for the lines comes back whole, for
+/// the text's own ellipsis.
+@visibleForTesting
+String followUpSuggestionClampedText(
+  String text, {
+  required TextStyle style,
+  required double maxWidth,
+  required int maxLines,
+  TextScaler textScaler = TextScaler.noScaling,
+  TextDirection textDirection = TextDirection.ltr,
+  Locale? locale,
+}) {
+  if (!maxWidth.isFinite || maxWidth <= 0 || text.isEmpty) return text;
+  TextPainter painterFor(String value, {int? lines}) => TextPainter(
+    text: TextSpan(text: value, style: style),
+    textDirection: textDirection,
+    textScaler: textScaler,
+    locale: locale,
+    maxLines: lines,
+  )..layout(maxWidth: maxWidth);
+
+  bool fits(String value) {
+    final painter = painterFor(value, lines: maxLines);
+    final fits = !painter.didExceedMaxLines;
+    painter.dispose();
+    return fits;
+  }
+
+  if (fits(text)) return text;
+
+  final full = painterFor(text);
+  try {
+    final lines = full.computeLineMetrics();
+    if (lines.length <= maxLines) return text;
+    final lastShown = lines[maxLines - 1];
+    // Where the last shown line ends in the text.
+    final lineEnd = full
+        .getLineBoundary(
+          full.getPositionForOffset(
+            Offset(lastShown.left + lastShown.width / 2, lastShown.baseline),
+          ),
+        )
+        .end;
+    var cut = lineEnd;
+    while (cut > 0) {
+      // The word (or run of spaces) just before the cut.
+      final word = full.getWordBoundary(TextPosition(offset: cut - 1));
+      final wordStart = word.start < cut ? word.start : cut - 1;
+      if (word.end == cut) {
+        final kept = text.substring(0, cut).replaceFirst(_danglingTail, '');
+        if (kept.isNotEmpty && fits('$kept…')) return '$kept…';
+      }
+      // Mid-word, or no room for the ellipsis: drop that word and retry.
+      cut = wordStart;
+    }
+    return text;
+  } finally {
+    full.dispose();
   }
 }

@@ -189,7 +189,8 @@ void main() {
   });
 
   testWidgets('rows are at least 44 pt tall, secondary to the reply, and '
-      'show, read and send the whole prompt', (tester) async {
+      'show three lines ending on a whole word while VoiceOver and a tap get '
+      'the whole prompt', (tester) async {
     const long =
         'Give me a 30-minute wind-down routine I can follow nightly, with '
         'step-by-step timings, what to skip on busy evenings, and how to '
@@ -215,22 +216,28 @@ void main() {
     final longText = tester.widget<Text>(
       find.descendant(of: longRow, matching: find.byType(Text)),
     );
-    // The whole prompt, on as many lines as it takes: nothing is cut.
-    expect(longText.data, long);
-    expect(longText.maxLines, isNull);
+    final shown = longText.data!;
+    // Three lines at most, cut after a whole word of the prompt.
+    expect(longText.maxLines, FollowUpSuggestionRow.maxLines);
+    expect(FollowUpSuggestionRow.maxLines, 3);
+    expect(shown, endsWith('…'));
+    final kept = shown.substring(0, shown.length - 1);
+    expect(long.startsWith(kept), isTrue);
+    expect(long[kept.length], anyOf(' ', ','));
     final paragraph = tester.renderObject<RenderParagraph>(
       find.descendant(
         of: find.descendant(of: longRow, matching: find.byType(Text)),
         matching: find.byType(RichText),
       ),
     );
+    // The word-boundary cut fits by itself; the text's own ellipsis is
+    // never needed.
     expect(paragraph.didExceedMaxLines, isFalse);
     // Secondary to the 17 pt answer above it.
     expect(longText.style!.fontSize, lessThan(17));
     final lineHeight = longText.style!.fontSize! * (longText.style!.height!);
-    final lines = (paragraph.size.height / lineHeight).round();
-    expect(lines, greaterThan(2));
-    // The row grows with its text: padding and outline around it.
+    expect((paragraph.size.height / lineHeight).round(), 3);
+    // The row hugs its three lines: padding and outline around them.
     expect(
       tester.getSize(longRow).height,
       closeTo(
@@ -246,6 +253,36 @@ void main() {
     await tester.tap(longRow);
     await tester.pump();
     expect(selected, long);
+  });
+
+  test('a long suggestion is cut on a word boundary, never mid-word', () {
+    const style = TextStyle(fontSize: 15, height: 20 / 15);
+    const prompt =
+        'Compare the trail options by elevation gain, shade, and water stops '
+        'for a family hike with two small children in late summer';
+    final clamped = followUpSuggestionClampedText(
+      prompt,
+      style: style,
+      maxWidth: 200,
+      maxLines: 3,
+    );
+    expect(clamped, endsWith('…'));
+    final kept = clamped.substring(0, clamped.length - 1);
+    expect(prompt.startsWith(kept), isTrue);
+    // The next character in the prompt starts a new word.
+    expect(prompt[kept.length], anyOf(' ', ','));
+    // No dangling comma before the ellipsis.
+    expect(kept, isNot(endsWith(',')));
+    // What fits is left alone.
+    expect(
+      followUpSuggestionClampedText(
+        'Pack list?',
+        style: style,
+        maxWidth: 200,
+        maxLines: 3,
+      ),
+      'Pack list?',
+    );
   });
 
   testWidgets('suggestions are full-width rows led by a follow-up arrow, '
