@@ -20,11 +20,11 @@ const EdgeInsets kConversationTileMargin = EdgeInsets.only(
   bottom: 1,
 );
 
-/// The sidebar's leading content edge: where the toolbar's first button, the
-/// large title and every section header start, 16 pt in as UIKit lays out a
-/// list's margins. A row's leading column (its unread dot, folder symbol or
-/// avatar) starts here too, and its trailing items end the same distance
-/// from the other side.
+/// The sidebar's leading content edge: where the toolbar's first button and
+/// the large title start, 16 pt in as UIKit lays out a list's margins. A
+/// row's leading column (its unread dot, folder symbol or avatar) starts
+/// here too, as does the header of a section whose rows lead with a symbol,
+/// and trailing items end the same distance from the other side.
 const double kSidebarRowContentInset = Spacing.md;
 
 /// Padding inside a row's highlight on either side, so its content starts on
@@ -37,7 +37,8 @@ const double kSidebarRowHorizontalPadding =
 const double kSidebarRowStatusGutter = Spacing.md;
 
 /// Where the title of a row without a symbol or avatar starts: after the
-/// status column, one step in from the section headers.
+/// status column. Chat and note section headers start here too, so the
+/// unread dot hangs in the gutter before one text edge.
 const double kSidebarRowTitleInset =
     kSidebarRowContentInset + kSidebarRowStatusGutter;
 

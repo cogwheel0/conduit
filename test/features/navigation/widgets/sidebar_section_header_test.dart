@@ -14,6 +14,7 @@ Widget _header({
   required ThemeData theme,
   double textScale = 1,
   bool expanded = true,
+  double? leadingInset,
 }) {
   return MaterialApp(
     theme: theme,
@@ -27,12 +28,20 @@ Widget _header({
           alignment: Alignment.topLeft,
           child: SizedBox(
             width: _windowWidth,
-            child: SidebarSectionHeader(
-              title: 'Pinned',
-              isExpanded: expanded,
-              onToggle: () {},
-              chevronKey: _chevronKey,
-            ),
+            child: leadingInset == null
+                ? SidebarSectionHeader(
+                    title: 'Pinned',
+                    isExpanded: expanded,
+                    onToggle: () {},
+                    chevronKey: _chevronKey,
+                  )
+                : SidebarSectionHeader(
+                    title: 'Pinned',
+                    isExpanded: expanded,
+                    onToggle: () {},
+                    chevronKey: _chevronKey,
+                    leadingInset: leadingInset,
+                  ),
           ),
         ),
       ),
@@ -70,6 +79,40 @@ void main() {
     }
     // A symbol set in the title's font grows with Dynamic Type.
     expect(widths[1] / widths[0], moreOrLessEquals(1.5, epsilon: 0.01));
+  });
+
+  testWidgets('the title starts on the row titles\' edge at every text '
+      'size, or on the symbol edge when asked', (tester) async {
+    tester.view.physicalSize = const Size(_windowWidth, 874);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+
+    for (final scale in [1.0, 1.5, 2.0]) {
+      await tester.pumpWidget(
+        _header(theme: AppTheme.light(TweakcnThemes.conduit), textScale: scale),
+      );
+      // Chat and note titles start past the unread column; the header
+      // starts with them, so the list keeps one text edge under Dynamic
+      // Type too.
+      expect(
+        tester.getTopLeft(find.text('Pinned')).dx,
+        kSidebarRowTitleInset,
+        reason: 'scale $scale',
+      );
+      expect(
+        tester.getRect(find.byKey(_chevronKey)).right,
+        moreOrLessEquals(_windowWidth - kSidebarRowContentInset),
+        reason: 'scale $scale',
+      );
+    }
+
+    await tester.pumpWidget(
+      _header(
+        theme: AppTheme.light(TweakcnThemes.conduit),
+        leadingInset: kSidebarRowContentInset,
+      ),
+    );
+    expect(tester.getTopLeft(find.text('Pinned')).dx, kSidebarRowContentInset);
   });
 
   testWidgets('dark section headers sit quieter than secondary text', (
