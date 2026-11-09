@@ -225,9 +225,10 @@ List<ComposerOverflowItem> buildComposerOverflowAttachmentItems({
   return <ComposerOverflowItem>[
     // "Files" opens the system file picker, named and drawn like the Files
     // app it shows; "Server Files" lists files already on the server, drawn
-    // as the network drive Finder shows for a server; "Photos" is named like
-    // the Photos picker it opens. The tiles share one glyph family, all
-    // filled, so no one tile looks heavier.
+    // as a plain filled drive (the networked drive's stand and line read as
+    // a heavier, custom glyph beside the others); "Photos" is named like the
+    // Photos picker it opens. The tiles share one glyph family, all filled
+    // at one size and scale, so no one tile looks heavier.
     ComposerOverflowItem(
       id: ComposerOverflowActionIds.file,
       kind: ComposerOverflowItemKind.attachment,
@@ -245,7 +246,7 @@ List<ComposerOverflowItem> buildComposerOverflowAttachmentItems({
       label: l10n.composerAttachServerFiles,
       cupertinoIcon: CupertinoIcons.tray_full_fill,
       materialIcon: Icons.dns,
-      sfSymbol: 'externaldrive.connected.to.line.below.fill',
+      sfSymbol: 'externaldrive.fill',
       enabled: attachmentAvailability.serverFile,
     ),
     ComposerOverflowItem(

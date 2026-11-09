@@ -39,6 +39,31 @@ const _toggleFilter = ToggleFilter(
 void main() {
   final l10n = AppLocalizationsEn();
 
+  test('attach tiles draw one family of plain filled symbols', () {
+    final tiles = buildComposerOverflowAttachmentItems(
+      l10n: l10n,
+      attachmentAvailability: const ComposerOverflowAttachmentAvailability(
+        file: true,
+        serverFile: true,
+        photo: true,
+        camera: true,
+        web: true,
+      ),
+    );
+    // Every tile is filled at the panel's one size and scale; Server Files
+    // is a plain drive, not the networked one, whose stand and line read as
+    // a heavier, custom glyph beside the others.
+    expect(tiles.map((tile) => tile.sfSymbol), everyElement(endsWith('.fill')));
+    expect(
+      tiles
+          .singleWhere(
+            (tile) => tile.id == ComposerOverflowActionIds.serverFile,
+          )
+          .sfSymbol,
+      'externaldrive.fill',
+    );
+  });
+
   test('shared overflow items include selected model filters', () {
     final items = buildComposerOverflowItems(
       l10n: l10n,
