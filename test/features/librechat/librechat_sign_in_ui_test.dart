@@ -11,6 +11,9 @@ import 'package:conduit/features/profile/widgets/account_actions.dart'
         signOutOfLibreChatAccount,
         signOutOfLibreChatAndHandOver,
         switchToLibreChatAccount;
+import 'package:conduit/features/auth/widgets/auth_grouped_form.dart';
+import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
+import 'package:conduit/shared/widgets/utility_components.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/l10n/conduit_localizations.dart';
 import 'package:conduit_core/features/hermes/models/hermes_connection_profile.dart';
@@ -714,6 +717,105 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('saved accounts'), findsOneWidget);
+  });
+
+  group('on iOS the page', () {
+    final account = LibreChatAccount.forUser(
+      const LibreChatServer(baseUrl: 'https://chat.example.com'),
+      const LibreChatUser(id: 'u1', name: 'Dev'),
+    );
+
+    setUp(() {
+      // The Flutter fallbacks of the native iOS 26 controls render in tests.
+      PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.iOS;
+      PlatformUiCapabilities.debugIOSMajorVersionOverride = 18;
+    });
+    tearDown(PlatformUiCapabilities.resetDebugOverrides);
+
+    Future<void> pumpPage(
+      WidgetTester tester, {
+      required PrimaryAccountKind inCharge,
+    }) async {
+      tester.view.physicalSize = const Size(1206, 2622);
+      tester.view.devicePixelRatio = 3;
+      addTearDown(tester.view.reset);
+      final router = GoRouter(
+        initialLocation: Routes.libreChatSignIn,
+        routes: [
+          GoRoute(
+            path: Routes.libreChatSignIn,
+            builder: (context, state) => const LibreChatSignInPage(),
+          ),
+          GoRoute(
+            path: Routes.accounts,
+            builder: (context, state) => const Text('saved accounts'),
+          ),
+        ],
+      );
+      addTearDown(router.dispose);
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            primaryAccountKindProvider.overrideWithValue(inCharge),
+            libreChatSessionProvider.overrideWith(() => _Ended(account)),
+            libreChatHttpAdapterProvider.overrideWithValue(
+              FakeLibreChatServer(),
+            ),
+          ],
+          child: MaterialApp.router(
+            theme: ThemeData(platform: TargetPlatform.iOS),
+            localizationsDelegates: conduitLocalizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            routerConfig: router,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('has a large title, the address with the keyboard, and '
+        'Connect pinned under the form', (tester) async {
+      await pumpPage(tester, inCharge: PrimaryAccountKind.openWebUi);
+      final page = tester.widget<UtilityPageScaffold>(
+        find.byType(UtilityPageScaffold),
+      );
+      check(page.title).equals('LibreChat');
+      check(page.largeTitle).isTrue();
+      check(page.bottomAction).isA<AuthPrimaryButton>();
+      check(
+        tester
+            .widget<AuthGroupedTextField>(
+              find.byKey(const Key('librechat-server-field')),
+            )
+            .autofocus,
+      ).isTrue();
+    });
+
+    testWidgets('a session that ended starts at its server, says why under '
+        'it, and keeps the saved accounts a row away', (tester) async {
+      await pumpPage(tester, inCharge: PrimaryAccountKind.libreChat);
+      // Past the address the page says Sign In, as the Open WebUI sign-in
+      // does; the server's row names LibreChat.
+      check(
+        tester
+            .widget<UtilityPageScaffold>(find.byType(UtilityPageScaffold))
+            .title,
+      ).equals('Sign In');
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('librechat-server-row-section')),
+          matching: find.text(
+            'Your session on chat.example.com ended. Sign in again.',
+          ),
+        ),
+        findsOneWidget,
+      );
+      final accounts = find.byKey(const Key('librechat-sign-in-accounts'));
+      check(tester.widget<AuthGroupedRow>(accounts).showChevron).isTrue();
+      await tester.tap(accounts);
+      await tester.pumpAndSettle();
+      expect(find.text('saved accounts'), findsOneWidget);
+    });
   });
 
   testWidgets('switching to an account gone by then says so', (
