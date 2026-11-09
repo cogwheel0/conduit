@@ -289,12 +289,15 @@ const double _kChatComposerFadeHeight = 24.0;
 const double _kScrollToLatestButtonSize = 40.0;
 
 /// How far below the top of the transcript a just-sent message rests, so
-/// the end of the reply it follows up on (its action row) stays in view
-/// above it rather than the new turn starting over a blank screen. It also
-/// keeps the message itself below the header's scroll-edge fade
-/// ([kConduitScrollEdgeSoftExtent]), crisp from its first line.
+/// the end of the reply it follows up on stays in view above it rather than
+/// the new turn starting over a blank screen: the reply's action row, clear,
+/// and above it the reply's last line of text, dissolving into the header's
+/// scroll-edge fade ([kConduitScrollEdgeSoftExtent]) the way text passing
+/// under the header does. An action row alone, with none of its reply,
+/// would read as stray buttons. It also keeps the message itself below that
+/// fade, crisp from its first line.
 @visibleForTesting
-const double kChatPinnedTurnPeek = 56.0;
+const double kChatPinnedTurnPeek = 92.0;
 
 @visibleForTesting
 bool shouldShowChatModelDropdown({
