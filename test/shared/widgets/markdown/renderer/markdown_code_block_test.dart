@@ -587,6 +587,46 @@ void main() {
       expect(flashed, isTrue);
     });
 
+    testWidgets('a card showing another block takes that block\'s choice', (
+      tester,
+    ) async {
+      // The test window is wide, so lines scroll unless a reader wraps them.
+      final stateId = ValueNotifier<String>('block-a');
+      addTearDown(stateId.dispose);
+      await tester.pumpWidget(
+        ProviderScope(
+          child: MaterialApp(
+            localizationsDelegates: conduitLocalizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            home: Scaffold(
+              body: SingleChildScrollView(
+                child: ValueListenableBuilder<String>(
+                  valueListenable: stateId,
+                  builder: (context, id, _) => CodeBlockCard(
+                    code: longLine,
+                    language: 'python',
+                    stateId: id,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(wrapToggle());
+      await tester.pumpAndSettle();
+      expect(codeScrollView(), findsNothing, reason: 'block a wraps');
+
+      stateId.value = 'block-b';
+      await tester.pumpAndSettle();
+      expect(codeScrollView(), findsOneWidget, reason: 'block b scrolls');
+
+      stateId.value = 'block-a';
+      await tester.pumpAndSettle();
+      expect(codeScrollView(), findsNothing, reason: 'block a wraps again');
+    });
+
     testWidgets('a long line can wrap in a wide window', (tester) async {
       // The test window is 800 pt wide: wide, so lines scroll by default.
       await tester.pumpWidget(buildHarness('```python\n$longLine\n```'));

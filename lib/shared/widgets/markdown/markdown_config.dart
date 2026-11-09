@@ -1079,6 +1079,20 @@ class _CodeBlockCardState extends State<CodeBlockCard> {
     }
   }
 
+  /// Another block in this card's place takes that block's own choice, or
+  /// the window's default when it has none.
+  @override
+  void didUpdateWidget(covariant CodeBlockCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final stateId = widget.stateId;
+    if (stateId != null && stateId != oldWidget.stateId) {
+      _restoredStateId = stateId;
+      final restored = PageStorage.maybeOf(context)
+          ?.readState(context, identifier: stateId);
+      _chosenSoftWrap = restored is bool ? restored : null;
+    }
+  }
+
   bool _softWrap(BuildContext context) =>
       _chosenSoftWrap ?? CodeBlockCard.wrapsByDefault(context);
 
