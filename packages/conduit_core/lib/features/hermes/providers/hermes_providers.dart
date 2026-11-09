@@ -924,7 +924,9 @@ class HermesConfigController extends Notifier<HermesConfig> {
     );
 
     // Endpoint and identity changes rotate this connection's trust principal
-    // so earlier session bindings and document trust stop matching.
+    // so earlier session bindings and document trust stop matching. A new
+    // principal is minted every time, never an earlier one: the copied
+    // history store refuses saves for identities it has forgotten.
     final nextPrincipal =
         previousProfile == null || endpointChanged || identityChanged
         ? const Uuid().v4()
