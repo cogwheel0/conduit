@@ -2,6 +2,7 @@ package app.cogwheel.conduit
 
 import java.net.URI
 import java.net.URISyntaxException
+import java.net.URLDecoder
 
 /** Stable reasons a browser sign-in did not finish, shared with Dart. */
 internal object BrowserAuthErrorCodes {
@@ -87,6 +88,35 @@ internal data class BrowserAuthRedirect(
     }
 }
 
+/**
+ * The OAuth `state` of [uri]: the value of its one `state` query parameter,
+ * or null when it has none, more than one, or an empty one.
+ *
+ * A sign-in page carries the state the redirect must come back with, so it
+ * tells which sign-in a redirect belongs to. Percent-escapes are decoded; a
+ * `+` stays a `+`, as Dart's state never holds a space.
+ */
+internal fun oauthStateOf(uri: String): String? {
+    val query = try {
+        URI(uri).rawQuery
+    } catch (e: URISyntaxException) {
+        return null
+    } ?: return null
+    val values = query.split('&').mapNotNull { pair ->
+        val separator = pair.indexOf('=')
+        val name = if (separator < 0) pair else pair.substring(0, separator)
+        if (name != "state") return@mapNotNull null
+        if (separator < 0) "" else pair.substring(separator + 1)
+    }
+    val raw = values.singleOrNull() ?: return null
+    val state = try {
+        URLDecoder.decode(raw.replace("+", "%2B"), "UTF-8")
+    } catch (e: IllegalArgumentException) {
+        return null
+    }
+    return state.ifEmpty { null }
+}
+
 /** Where a sign-in can run, given what the device has. */
 internal sealed class BrowserAuthLaunch {
     /** Open the sign-in page in [channel], in [browserPackage] when set. */
@@ -153,36 +183,59 @@ internal enum class AuthTabReturn { OK, CANCELED, FAILED }
  *   ([onResumed]): the user closed the tab.
  * - External browser: the user may switch back and forth, so it ends only
  *   with a matching redirect, a cancel from Dart, or the timeout.
+ *
+ * A redirect belongs to the flow whose sign-in page carried its `state`.
+ * An Auth Tab's result names no flow, and nothing can close a tab whose
+ * flow ended first, superseded or cancelled from Dart: such a tab is kept
+ * as stale, so its late result is not taken for the current flow's.
  */
-internal class BrowserAuthFlowState {
+internal class BrowserAuthFlowState(
+    private val nowMillis: () -> Long = { System.nanoTime() / 1_000_000 },
+) {
     private class Flow(
         val id: Long,
         val channel: BrowserAuthChannel,
         val redirect: BrowserAuthRedirect,
+        val state: String,
         val onEnd: (BrowserAuthEnding) -> Unit,
     ) {
         var leftApp = false
     }
 
+    /** An Auth Tab still open, as far as anyone knows, for a flow that ended. */
+    private class StaleAuthTab(val state: String, val since: Long)
+
     private var flow: Flow? = null
     private var lastId = 0L
+    private val staleAuthTabs = ArrayDeque<StaleAuthTab>()
 
     /** The flow in progress, if any. */
     val pendingId: Long? get() = flow?.id
 
     val pendingChannel: BrowserAuthChannel? get() = flow?.channel
 
+    /** How many ended flows' Auth Tabs may still report back. */
+    val staleAuthTabCount: Int get() {
+        forgetExpiredStaleAuthTabs()
+        return staleAuthTabs.size
+    }
+
     /**
-     * Starts a flow, ending the one in progress as superseded. [onEnd] runs
-     * once, when the flow ends.
+     * Starts a flow for a sign-in page carrying [state], ending the one in
+     * progress as superseded. [onEnd] runs once, when the flow ends.
      */
     fun begin(
         channel: BrowserAuthChannel,
         redirect: BrowserAuthRedirect,
+        state: String,
         onEnd: (BrowserAuthEnding) -> Unit,
     ): Long {
-        flow?.let { end(it.id, BrowserAuthEnding.Failed(BrowserAuthErrorCodes.SUPERSEDED)) }
-        val started = Flow(++lastId, channel, redirect, onEnd)
+        require(state.isNotEmpty()) { "A sign-in needs a state" }
+        flow?.let {
+            keepAuthTabAsStale(it)
+            end(it.id, BrowserAuthEnding.Failed(BrowserAuthErrorCodes.SUPERSEDED))
+        }
+        val started = Flow(++lastId, channel, redirect, state, onEnd)
         flow = started
         return started.id
     }
@@ -205,29 +258,73 @@ internal class BrowserAuthFlowState {
     /** Ends flow [id] as cancelled, unless it already ended. */
     fun cancelIfPending(id: Long): Boolean = end(id, BrowserAuthEnding.Cancelled)
 
-    /** Ends the flow in progress as cancelled, as Dart asked. */
-    fun cancel(): Boolean = flow?.let { end(it.id, BrowserAuthEnding.Cancelled) } ?: false
+    /**
+     * Ends the flow in progress as cancelled, as Dart asked. Its Auth Tab,
+     * if it has one, stays open, and is kept as stale.
+     */
+    fun cancel(): Boolean {
+        val current = flow ?: return false
+        keepAuthTabAsStale(current)
+        return end(current.id, BrowserAuthEnding.Cancelled)
+    }
 
     /** Ends flow [id] because its browser could not start. */
     fun fail(id: Long, ending: BrowserAuthEnding): Boolean = end(id, ending)
 
     /**
      * A redirect the system routed to [BrowserAuthCallbackActivity]. Ends a
-     * Custom Tab or external browser flow when it matches exactly; an Auth Tab
-     * returns its own redirect, so one routed here is not its.
+     * Custom Tab or external browser flow when it matches exactly and carries
+     * the flow's state: one with another state is a superseded flow's, or
+     * forged. An Auth Tab returns its own redirect, so one routed here is not
+     * its.
      */
     fun deliver(uri: String): Boolean {
         val current = flow ?: return false
         if (current.channel == BrowserAuthChannel.AUTH_TAB) return false
         if (!current.redirect.matches(uri)) return false
+        if (oauthStateOf(uri) != current.state) return false
         return end(current.id, BrowserAuthEnding.Success(uri))
     }
 
-    /** The Auth Tab's result, with the redirect it ended on when [result] is OK. */
+    /**
+     * An Auth Tab's result, with the redirect it ended on when [result] is
+     * OK.
+     *
+     * A redirect with the current flow's state ends that flow. Any other
+     * result may be a stale tab's: one carrying a stale tab's state is that
+     * tab's, and one that names no flow (a cancel, or a redirect without a
+     * state anyone knows) is taken as the oldest stale tab's while any are
+     * open. Only with none open is it the current flow's.
+     */
     fun authTabReturned(result: AuthTabReturn, uri: String?): Boolean {
-        val current = flow ?: return false
-        if (current.channel != BrowserAuthChannel.AUTH_TAB) return false
-        val ending = when (result) {
+        forgetExpiredStaleAuthTabs()
+        val current = flow?.takeIf { it.channel == BrowserAuthChannel.AUTH_TAB }
+        val returnedState =
+            if (result == AuthTabReturn.OK && uri != null) oauthStateOf(uri) else null
+        if (current != null && returnedState != null && returnedState == current.state) {
+            return end(current.id, authTabEnding(current, result, uri))
+        }
+        val stale = returnedState?.let { state -> staleAuthTabs.firstOrNull { it.state == state } }
+            ?: staleAuthTabs.firstOrNull()
+        if (stale != null) {
+            staleAuthTabs.remove(stale)
+            return false
+        }
+        current ?: return false
+        return end(current.id, authTabEnding(current, result, uri))
+    }
+
+    /**
+     * Drops the flow without ending it: whoever was waiting is gone. Its Auth
+     * Tab, if it has one, may still report back to the next activity.
+     */
+    fun abandon() {
+        flow?.let(::keepAuthTabAsStale)
+        flow = null
+    }
+
+    private fun authTabEnding(current: Flow, result: AuthTabReturn, uri: String?) =
+        when (result) {
             AuthTabReturn.OK ->
                 if (uri != null && current.redirect.matches(uri)) {
                     BrowserAuthEnding.Success(uri)
@@ -237,12 +334,27 @@ internal class BrowserAuthFlowState {
             AuthTabReturn.CANCELED -> BrowserAuthEnding.Cancelled
             AuthTabReturn.FAILED -> BrowserAuthEnding.Failed(BrowserAuthErrorCodes.START_FAILED)
         }
-        return end(current.id, ending)
+
+    /** Remembers [ending]'s Auth Tab, which nothing can close, as stale. */
+    private fun keepAuthTabAsStale(ending: Flow) {
+        if (ending.channel != BrowserAuthChannel.AUTH_TAB) return
+        forgetExpiredStaleAuthTabs()
+        staleAuthTabs.addLast(StaleAuthTab(ending.state, nowMillis()))
     }
 
-    /** Drops the flow without ending it: whoever was waiting is gone. */
-    fun abandon() {
-        flow = null
+    /**
+     * Forgets stale tabs that have not reported back in time: their activity
+     * went for good, and their results with it. Kept forever, one would
+     * swallow a later flow's cancel.
+     */
+    private fun forgetExpiredStaleAuthTabs() {
+        val now = nowMillis()
+        staleAuthTabs.removeAll { now - it.since >= STALE_AUTH_TAB_MS }
+    }
+
+    private companion object {
+        /** As long as a sign-in in the default browser may take. */
+        const val STALE_AUTH_TAB_MS = 10 * 60 * 1000L
     }
 
     private fun end(id: Long, ending: BrowserAuthEnding): Boolean {
