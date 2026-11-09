@@ -104,8 +104,10 @@ class AdaptiveDropdownField<T> extends StatelessWidget {
           errorText: state.errorText,
         );
         // UIKit's pop-up button has no item subtitles; those lists keep the
-        // native single-choice sheet below.
+        // native single-choice sheet below. It cannot lay out inside a
+        // Material dialog either, which sizes itself to its content.
         if (PlatformUiCapabilities.usesNativeIOS26 &&
+            !isInsideMaterialAlertDialog(context) &&
             options.isNotEmpty &&
             options.every((option) => option.subtitle?.isNotEmpty != true)) {
           final fieldName =
@@ -172,6 +174,8 @@ class AdaptiveDropdownField<T> extends StatelessWidget {
           builder: (anchorContext) => Semantics(
             button: true,
             enabled: onChanged != null,
+            // The field's name, as the native control is given it.
+            label: semanticLabel,
             child: InkWell(
               borderRadius: BorderRadius.circular(AppBorderRadius.standard),
               onTap: onChanged == null
@@ -218,14 +222,17 @@ class AdaptiveDropdownField<T> extends StatelessWidget {
   ) async {
     final selection = await showAdaptiveNativeSingleChoice<T>(
       context: context,
-      value: value,
+      // What the field shows: a choice its parent has not rebuilt with yet.
+      value: state.value,
       options: options,
       title: nativeTitle ?? decoration.labelText,
       cancelLabel:
           cancelLabel ?? MaterialLocalizations.of(context).cancelButtonLabel,
     );
     if (!context.mounted || !state.mounted) return;
-    if (selection == null) return;
+    // As for the pop-up button: a field disabled while the sheet was open
+    // takes no choice.
+    if (selection == null || !state.widget.enabled) return;
     state.didChange(selection.value);
     onChanged?.call(selection.value);
   }

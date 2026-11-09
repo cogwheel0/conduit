@@ -20,6 +20,8 @@ final class _AudioBridge implements HermesDashboardBridge {
     String method,
     Uri url, {
     String? body,
+    bool urgent = false,
+    bool Function()? beforeSend,
   }) async {
     requests.add((
       method: method,
