@@ -11,6 +11,8 @@ import 'package:conduit_core/features/hermes/utils/hermes_time_parsing.dart';
 import 'package:conduit_core/features/hermes/services/hermes_identifier.dart';
 import 'package:conduit_core/features/hermes/services/hermes_local_document_service.dart';
 import 'package:conduit_core/features/hermes/services/hermes_local_document_trust_store.dart';
+import 'package:conduit_core/features/hermes/services/hermes_run_transport.dart'
+    show kHermesRunNoticeAction;
 import 'package:conduit_core/utils/sensitive_value_utils.dart';
 
 const int kHermesMaxHistoryMessageTextCharacters = 512 * 1024;
@@ -210,6 +212,20 @@ List<ChatMessage> hermesMessagesToChatMessages(
     final failure = acceptedRole == 'assistant'
         ? _storedTurnFailure(item, sensitiveValues)
         : null;
+    // The row closing a failed turn is Hermes' notice, not an answer. With
+    // its card, it is a note on the failure (it may warn that actions
+    // already ran), as a live turn's notice is, not the reply's text.
+    final notice = failure?.notice;
+    final shownStatuses = notice == null
+        ? statusHistory
+        : [
+            ...statusHistory,
+            ChatStatusUpdate(
+              action: kHermesRunNoticeAction,
+              description: notice,
+              done: true,
+            ),
+          ];
     final transportMetadata = <String, dynamic>{
       if (responseId != null) ...{
         'transport': 'hermesRun',
@@ -232,7 +248,7 @@ List<ChatMessage> hermesMessagesToChatMessages(
       ChatMessage(
         id: messageId,
         role: acceptedRole,
-        content: content,
+        content: failure == null ? content : '',
         timestamp:
             parseHermesTimestamp(item['created_at'] ?? item['timestamp']) ??
             DateTime.fromMillisecondsSinceEpoch(i * 1000),
@@ -240,7 +256,7 @@ List<ChatMessage> hermesMessagesToChatMessages(
         attachmentIds: extracted.images.isEmpty ? null : extracted.images,
         files: files.isEmpty ? null : List.unmodifiable(files),
         metadata: transportMetadata.isEmpty ? null : transportMetadata,
-        statusHistory: statusHistory,
+        statusHistory: shownStatuses,
         error: failure == null
             ? null
             : ChatMessageError(content: failure.error),
@@ -349,8 +365,10 @@ Map<Object?, Object?> _storedToolResultMetadata(Map<String, dynamic> item) {
 /// (`display_kind: failed_turn`), which keeps the live failure's
 /// `error_surface` and error in its `display_metadata` (Hermes v0.22+). A
 /// reloaded or reopened chat shows the card the live turn showed, its text
-/// the stored error, else Hermes' own notice.
-({String error, HermesErrorSurface surface})? _storedTurnFailure(
+/// the stored error, else Hermes' own notice. [notice] is that notice when
+/// the card does not already say it.
+({String error, HermesErrorSurface surface, String? notice})?
+_storedTurnFailure(
   Map<String, dynamic> item,
   Iterable<String> sensitiveValues,
 ) {
@@ -371,11 +389,13 @@ Map<Object?, Object?> _storedToolResultMetadata(Map<String, dynamic> item) {
     return safe.isEmpty ? null : safe;
   }
 
-  final error =
-      text(display['error']) ??
-      text(_extractContent(item['content'] ?? item['text']).text) ??
-      surface.code;
-  return (error: error, surface: surface);
+  final notice = text(_extractContent(item['content'] ?? item['text']).text);
+  final error = text(display['error']) ?? notice ?? surface.code;
+  return (
+    error: error,
+    surface: surface,
+    notice: notice == error ? null : notice,
+  );
 }
 
 /// The longest stored error a reloaded card shows, as a live one does.

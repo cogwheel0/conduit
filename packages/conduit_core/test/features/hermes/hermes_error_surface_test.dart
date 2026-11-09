@@ -502,8 +502,12 @@ void main() {
       final messages = hermesMessagesToChatMessages(rows(stored));
 
       final failed = messages.last;
+      // Hermes' notice is a note on the failure, not the reply's text.
+      check(failed.content).isEmpty();
+      final note = failed.statusHistory.single;
+      check(note.action).equals(kHermesRunNoticeAction);
       check(
-        failed.content,
+        note.description,
       ).equals('Synthetic notice: the request was not run.');
       check(failed.error?.content).equals('HTTP 429: synthetic limit reached');
       final surface = hermesErrorSurfaceOf(failed)!;
@@ -545,6 +549,34 @@ void main() {
       check(failed.error?.content)
           .equals('Synthetic notice: the request was not run.');
       check(hermesErrorSurfaceOf(failed)).isNotNull();
+      // The card already says it.
+      check(failed.content).isEmpty();
+      check(failed.statusHistory).isEmpty();
+    });
+
+    test('keeps the warning that actions ran, and the answers before it', () {
+      final messages = hermesMessagesToChatMessages([
+        {'id': 1, 'role': 'user', 'content': 'Synthetic prompt'},
+        {'id': 2, 'role': 'assistant', 'content': 'Synthetic first step.'},
+        {
+          'id': 3,
+          'role': 'assistant',
+          'content': 'Synthetic notice: some actions may already have run.',
+          'display_kind': 'failed_turn',
+          'display_metadata': stored,
+        },
+      ]);
+
+      check(messages.map((message) => message.content)).deepEquals([
+        'Synthetic prompt',
+        'Synthetic first step.',
+        '',
+      ]);
+      check(messages.last.statusHistory.single.description).equals(
+        'Synthetic notice: some actions may already have run.',
+      );
+      check(hermesErrorSurfaceOf(messages.last)?.kind)
+          .equals(HermesErrorKind.rateLimit);
     });
 
     test('keeps a boundary without a descriptor as plain text', () {
