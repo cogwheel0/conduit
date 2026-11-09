@@ -364,7 +364,8 @@ class ChatTimelineViewportController {
         false;
   }
 
-  /// Brings [messageId]'s row to the top content inset on [spring], aiming
+  /// Brings [messageId]'s row to its resting place under the top content
+  /// inset (with [ChatTimelineViewport.pinnedTurnPeek]) on [spring], aiming
   /// afresh every frame, so rows settling their heights or a turn's end
   /// space arriving bend the motion instead of making it jump. A row that is
   /// not built yet (a send from far up the history) is headed for by its
@@ -438,6 +439,7 @@ class ChatTimelineViewport extends StatefulWidget {
     required this.onNativeScrollToTop,
     this.initialAnchor,
     this.pinnedUserMessageId,
+    this.pinnedTurnPeek = 0,
     this.liveFooter,
     this.trailingContent,
     this.hideUntilSettled = false,
@@ -476,6 +478,12 @@ class ChatTimelineViewport extends StatefulWidget {
   final Widget? liveFooter;
   final Widget? trailingContent;
   final double topContentInset;
+
+  /// Room left above a message brought to the top (a sent turn) beyond
+  /// [topContentInset], so the end of the turn before it stays in view
+  /// above it. A turn that starts the transcript cannot rest lower than
+  /// its own place, so it ignores this.
+  final double pinnedTurnPeek;
   final double bottomPadding;
   final double horizontalPadding;
   final double cacheExtent;
@@ -1416,7 +1424,7 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
         .max(
           0,
           viewport.height -
-              widget.topContentInset -
+              _messageTopInset -
               activeTurnExtent -
               widget.bottomPadding,
         )
@@ -1831,7 +1839,7 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
             position.viewportDimension -
             widget.bottomPadding -
             tail -
-            widget.topContentInset)
+            _messageTopInset)
         .clamp(position.minScrollExtent, position.maxScrollExtent)
         .toDouble();
   }
@@ -1989,15 +1997,18 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
     return targetIndex < _centerIndex ? -1 : 1;
   }
 
+  /// Where a message brought to the top rests, below the viewport's top:
+  /// the content inset plus the peek at the turn before it.
+  double get _messageTopInset =>
+      widget.topContentInset + math.max(0.0, widget.pinnedTurnPeek);
+
   double? _targetOffsetForMessageTop(String messageId) {
     final position = _dimensionedPosition;
     if (position == null) return null;
     final rect = _rowRect(messageId);
     final viewport = _viewportRect;
     if (rect == null || viewport == null) return null;
-    return (position.pixels +
-            rect.top -
-            (viewport.top + widget.topContentInset))
+    return (position.pixels + rect.top - (viewport.top + _messageTopInset))
         .clamp(position.minScrollExtent, position.maxScrollExtent)
         .toDouble();
   }

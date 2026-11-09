@@ -288,6 +288,14 @@ const double _kChatComposerFadeHeight = 24.0;
 
 const double _kScrollToLatestButtonSize = 40.0;
 
+/// How far below the top of the transcript a just-sent message rests, so
+/// the end of the reply it follows up on (its action row) stays in view
+/// above it rather than the new turn starting over a blank screen. It also
+/// keeps the message itself below the header's scroll-edge fade
+/// ([kConduitScrollEdgeSoftExtent]), crisp from its first line.
+@visibleForTesting
+const double kChatPinnedTurnPeek = 56.0;
+
 @visibleForTesting
 bool shouldShowChatModelDropdown({
   required Model? selectedModel,
@@ -1340,7 +1348,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         Spacing.md;
     _pinToTopEndSpaceExtent = math.max(
       0,
-      MediaQuery.sizeOf(context).height - topInset,
+      MediaQuery.sizeOf(context).height - topInset - kChatPinnedTurnPeek,
     );
     _pinGeometryReady = false;
     _pinShouldSettleImmediately = settleImmediately;
@@ -3392,6 +3400,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
               },
             ),
       topContentInset: topPadding,
+      pinnedTurnPeek: kChatPinnedTurnPeek,
       bottomPadding: bottomPadding,
       horizontalPadding: Spacing.inputPadding,
       cacheExtent: _chatMessageScrollCachePixels,
