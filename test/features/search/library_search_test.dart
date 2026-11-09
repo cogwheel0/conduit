@@ -13,8 +13,10 @@ import 'package:conduit_core/database/app_database.dart';
 import 'package:conduit_core/database/chat_database_repository.dart';
 import 'package:conduit_core/database/database_provider.dart';
 import 'package:conduit_core/database/mappers/chat_blob_mapper.dart';
+import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit_core/models/folder.dart';
 import 'package:conduit_core/models/server_config.dart';
+import 'package:conduit_core/models/user.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit_core/services/connectivity_service.dart';
@@ -281,6 +283,102 @@ void main() {
     ));
     expect(page.items.single.id, 'note-1');
     expect(page.items.single.excerpt, contains('cobalt'));
+  });
+
+  group('offline note visibility', () {
+    Future<void> cacheNote(String id, {String? readerId}) =>
+        local.notesDao.mergeServerNote(
+          serverRaw: {
+            'id': id,
+            'user_id': 'creator',
+            'title': 'Sketchbook $id',
+            'data': {
+              'content': {'md': 'Mix cobalt with white.'},
+            },
+            'created_at': 1,
+            'updated_at': 1,
+          },
+          readerId: readerId,
+        );
+
+    ProviderContainer offline(String? userId) {
+      final scope = ProviderContainer(
+        overrides: [
+          openWebUiAuthSessionEpochProvider.overrideWithValue(Object()),
+          apiServiceProvider.overrideWithValue(null),
+          isOnlineProvider.overrideWithValue(false),
+          appDatabaseProvider.overrideWithValue(local),
+          directLocalDatabaseProvider.overrideWithValue(local),
+          currentUserProvider2.overrideWithValue(
+            userId == null
+                ? null
+                : User(
+                    id: userId,
+                    username: 'Reader',
+                    email: 'reader@example.com',
+                    role: 'user',
+                  ),
+          ),
+        ],
+      );
+      addTearDown(scope.dispose);
+      return scope;
+    }
+
+    Future<LibrarySearchBatch> page(ProviderContainer scope, int number) =>
+        scope.read(
+          librarySearchPageProvider((
+            source: LibrarySearchSource.notes,
+            query: 'cobalt',
+            page: number,
+          )).future,
+        );
+
+    test('filters revoked and foreign notes before pagination', () async {
+      await local.buildFtsIfNeeded();
+      await cacheNote('foreign');
+      await cacheNote('revoked', readerId: 'reader');
+      await local.notesDao.retireNoteReadEvidence(
+        'revoked',
+        accountId: 'reader',
+      );
+      for (var i = 0; i < 61; i++) {
+        await cacheNote('shared-$i', readerId: 'reader');
+      }
+
+      final reader = offline('reader');
+      final first = await page(reader, 1);
+      final second = await page(reader, 2);
+      expect(first.items, hasLength(60));
+      expect(first.hasMore, isTrue);
+      expect(second.items, hasLength(1));
+      expect(second.hasMore, isFalse);
+      expect(
+        [...first.items, ...second.items].map((hit) => hit.id),
+        unorderedEquals([for (var i = 0; i < 61; i++) 'shared-$i']),
+      );
+      expect(first.items.first.excerpt, contains('cobalt'));
+      expect((await page(offline('unrelated'), 1)).items, isEmpty);
+      expect(await local.notesDao.getNote('revoked'), isNotNull);
+
+      final creator = offline('creator');
+      final creatorHits = [
+        ...(await page(creator, 1)).items,
+        ...(await page(creator, 2)).items,
+      ];
+      expect(creatorHits, hasLength(63));
+      expect(creatorHits.map((hit) => hit.id), contains('revoked'));
+    });
+
+    for (final userId in [null, '']) {
+      test('returns no notes without an account identity ($userId)', () async {
+        await local.buildFtsIfNeeded();
+        await cacheNote('cached');
+        final result = await page(offline(userId), 1);
+        expect(result.items, isEmpty);
+        expect(result.hasMore, isFalse);
+      });
+    }
   });
 
   for (final status in [200, 404]) {

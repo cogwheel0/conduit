@@ -5,6 +5,7 @@ import '../fts/fts_ddl.dart';
 import '../fts/fts_query.dart';
 import '../tables/chats.dart';
 import '../tables/notes.dart';
+import 'notes_dao.dart';
 
 part 'search_dao.g.dart';
 
@@ -167,11 +168,18 @@ class SearchDao extends DatabaseAccessor<AppDatabase> with _$SearchDaoMixin {
   /// `kind` is [SearchHitKind.note]. Note table timestamps remain NANOSECONDS
   /// (R-09); [SearchHit] normalizes them to epoch seconds so mixed search
   /// consumers never compare or format mixed units.
+  /// Supply [userId] for user-visible results to apply the same visibility
+  /// rule as note lists before pagination.
   Future<List<SearchHit>> searchNotes(
     String raw, {
+    String? userId,
     int limit = _kDefaultLimit,
     int offset = 0,
   }) async {
+    if (userId != null && userId.isEmpty) return const [];
+    final visibility = userId == null
+        ? ''
+        : 'AND ${NotesDao.visibilityPredicate}';
     final match = toFtsMatchQuery(raw);
     if (match.isEmpty) return const [];
     if (!await _ftsReady()) return const [];
@@ -194,12 +202,13 @@ class SearchDao extends DatabaseAccessor<AppDatabase> with _$SearchDaoMixin {
       'SELECT n.id, n.title, n.created_at, n.updated_at, n.is_pinned, '
       '       r.score AS rank, r.snip AS snippet '
       'FROM ranked r JOIN notes n ON n.id = r.chat_id '
-      'WHERE r.rn = 1 AND n.deleted = 0 '
+      'WHERE r.rn = 1 AND n.deleted = 0 $visibility '
       'ORDER BY r.score ASC '
       'LIMIT ? OFFSET ?',
       variables: [
         Variable.withReal(_kTextWeight),
         Variable.withString(match),
+        if (userId != null) ...NotesDao.visibilityVariables(userId),
         Variable.withInt(limit),
         Variable.withInt(offset),
       ],

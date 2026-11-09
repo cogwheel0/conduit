@@ -65,10 +65,11 @@ class NotesDao extends DatabaseAccessor<AppDatabase> with _$NotesDaoMixin {
 
   static const Uuid _uuid = Uuid();
   static const int _listPreviewMaxChars = 1000;
-  // A note is visible to the account that created it and to an account the
-  // server has confirmed may read it ([kNoteReadAccountsKey]). Nothing else in
-  // the database is: a row cached for another account stays hidden.
-  static const String _ownerPredicate =
+
+  /// Shared visibility rule for note lists, detail reads, and full-text search.
+  /// A note is visible to its creator or a server-confirmed reader. Bind the
+  /// current account with [visibilityVariables].
+  static const String visibilityPredicate =
       '''
 json_valid(raw_extra)
 AND (
@@ -118,10 +119,10 @@ SELECT
   ) AS preview_markdown
 FROM notes
 WHERE deleted = 0
-  AND $_ownerPredicate
+  AND $visibilityPredicate
 ORDER BY updated_at DESC, id ASC
 ''',
-      variables: _ownerVariables(userId),
+      variables: visibilityVariables(userId),
       readsFrom: {notes},
     );
     return query.watch().map(
@@ -147,7 +148,7 @@ ORDER BY updated_at DESC, id ASC
 SELECT *
 FROM notes
 WHERE deleted = 0
-  AND $_ownerPredicate
+  AND $visibilityPredicate
   AND (
     LOWER(title) LIKE ? ESCAPE '\\'
     OR (
@@ -159,7 +160,7 @@ ORDER BY updated_at DESC, id ASC
 LIMIT ?
 ''',
       variables: [
-        ..._ownerVariables(userId),
+        ...visibilityVariables(userId),
         Variable.withString(pattern),
         Variable.withString(pattern),
         Variable.withInt(limit),
@@ -183,10 +184,10 @@ SELECT *
 FROM notes
 WHERE id = ?
   AND deleted = 0
-  AND $_ownerPredicate
+  AND $visibilityPredicate
 LIMIT 1
 ''',
-      variables: [Variable.withString(id), ..._ownerVariables(userId)],
+      variables: [Variable.withString(id), ...visibilityVariables(userId)],
       readsFrom: {notes},
     ).getSingleOrNull();
     return row == null ? null : notes.map(row.data);
@@ -724,7 +725,7 @@ LIMIT 1
         .replaceAll('_', r'\_');
   }
 
-  List<Variable<String>> _ownerVariables(String userId) {
+  static List<Variable<String>> visibilityVariables(String userId) {
     return [
       Variable.withString(userId),
       Variable.withString(userId),

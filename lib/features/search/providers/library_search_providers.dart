@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:conduit_core/database/chat_database_repository.dart';
 import 'package:conduit_core/database/database_provider.dart';
 import 'package:conduit_core/database/mappers/conversation_assembler.dart';
+import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/models/note.dart';
 import 'package:conduit_core/providers/app_providers.dart';
@@ -131,9 +132,14 @@ final librarySearchPageProvider = FutureProvider.autoDispose
               hasMore: rows.length == pageSize,
             );
           }
+          final userId = ref.watch(currentUserProvider2)?.id;
+          if (userId == null || userId.isEmpty) {
+            return (items: <LibrarySearchResult>[], hasMore: false);
+          }
           final hits =
               await database?.searchDao.searchNotes(
                 query,
+                userId: userId,
                 limit: pageSize,
                 offset: offset,
               ) ??
