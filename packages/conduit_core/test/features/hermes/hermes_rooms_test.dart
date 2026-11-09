@@ -42,6 +42,17 @@ final class _MockWebSocketChannel extends Mock implements WebSocketChannel {}
 
 final class _MockWebSocketSink extends Mock implements WebSocketSink {}
 
+/// [value] as Hermes's socket sends it: Python's `json.dumps` with its
+/// default separators, `", "` and `": "`.
+String _spacedJson(Object? value) => switch (value) {
+  final Map<String, Object?> map => '{${[
+    for (final MapEntry(:key, :value) in map.entries)
+      '${jsonEncode(key)}: ${_spacedJson(value)}',
+  ].join(', ')}}',
+  final List<Object?> list => '[${list.map(_spacedJson).join(', ')}]',
+  _ => jsonEncode(value),
+};
+
 /// A gateway socket that answers each request with [answer] (a result, or
 /// a `{'error': ...}` map, or a future of one), else an empty object.
 final class _Gateway {
@@ -951,20 +962,57 @@ void main() {
     });
   });
 
-  test('a log page of the longest replies fits one socket frame', () {
-    // The page size the service asks for (`limit`, checked above).
-    const pageSize = 15;
-    final reply = jsonEncode({
-      'seq': 1,
-      'kind': 'message.member',
-      'event_id': 'member:${'e' * 64}',
-      'actor': {'kind': 'member', 'id': 'research'},
-      // Every character needs an escape in JSON.
-      'payload': {'text': '\n' * kMaxHermesRoomTextCharacters},
+  // Hermes keeps each event's payload within 256 KiB and its actor within
+  // 4 KiB, measured as compact JSON, but its socket sends the page spaced
+  // and inside a JSON-RPC reply. A page of the largest events, at the limit
+  // the service asks for, must still fit one frame, or it is dropped.
+  test('a log page of the largest events fits one socket frame', () async {
+    final gateway = _Gateway(
+      (method, params) => method == 'groups.log'
+          ? {
+              'events': <Object>[],
+              'cursor': 0,
+              'latest_seq': 0,
+              'has_more': false,
+            }
+          : null,
+    );
+    await _service(
+      gateway,
+    ).roomEventsSince('standup', sinceSeq: 0, latestSeq: 1);
+    final limit = gateway.params('groups.log').first['limit'] as int;
+
+    // `{"<key>":"<text>"}` exactly [bound] bytes compact: ASCII text, one
+    // character per byte, is the most characters a bound allows.
+    Map<String, Object> filling(String key, int bound) => {
+      key: 'x' * (bound - key.length - 7),
+    };
+    const largest = 9007199254740991;
+    final event = {
+      'room_id': 'r' * 128,
+      'seq': largest,
+      'event_id': 'e' * 128,
+      'kind': 'k' * 64,
+      'actor': filling('label', 4 * 1024),
+      'authority_epoch': largest,
+      'payload': filling('text', 256 * 1024),
+      'created_at': 1767225600.123456,
+      'idempotent': false,
+    };
+    final reply = _spacedJson({
+      'jsonrpc': '2.0',
+      'id': 'q' * 64,
+      'result': {
+        'events': List.filled(limit, event),
+        'cursor': largest,
+        'latest_seq': largest,
+        'has_more': true,
+        'authority': {'gateway_id': 'g' * 128, 'epoch': largest},
+      },
     });
-    check(
-      pageSize * reply.length,
-    ).isLessThan(kMaxHermesDesktopFrameCharacters);
+
+    check(reply.length).isLessThan(kMaxHermesDesktopFrameCharacters);
+    check(utf8.encode(reply).length).isLessThan(kMaxHermesDesktopFrameBytes);
   });
 
   group('controller', () {
