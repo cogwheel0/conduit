@@ -286,10 +286,13 @@ void main() {
       find.descendant(of: row, matching: find.byType(SidebarListTileContent)),
     );
     final lastEditedFinder = find.descendant(
-      of: row,
-      matching: find.byKey(
-        const ValueKey<String>('note-sidebar-last-edited-hierarchy-note'),
+      of: find.descendant(
+        of: row,
+        matching: find.byKey(
+          const ValueKey<String>('note-sidebar-last-edited-hierarchy-note'),
+        ),
       ),
+      matching: find.byType(Text),
     );
     final lastEdited = tester.widget<Text>(lastEditedFinder);
     final theme = tester.element(row).conduitTheme;
@@ -297,8 +300,10 @@ void main() {
     expect(title.style?.fontWeight, FontWeight.w400);
     expect(tileContent.titleFontWeight, FontWeight.w400);
     expect(title.style?.color, theme.textPrimary);
-    expect(lastEdited.data, 'Jan 1');
-    expect(lastEdited.style?.fontSize, AppTypography.bodySmallStyle.fontSize);
+    // Dated as the chat rows are: an edit before last week shows its short
+    // date, in the subheadline size.
+    expect(lastEdited.data, matches(RegExp(r'^\d{1,2}/\d{1,2}/\d{2}$')));
+    expect(lastEdited.style?.fontSize, AppTypography.titleMediumStyle.fontSize);
     expect(lastEdited.style?.fontSize, lessThan(title.style!.fontSize!));
     expect(lastEdited.style?.color, theme.textSecondary);
     expect(

@@ -109,11 +109,7 @@ void main() {
       final sections = _root(visibility: _everything);
 
       expect(_ids(sections), [
-        [
-          NativeSheetRoutes.profile,
-          nativeAccountsDetailId,
-          nativeAccountAddActionId,
-        ],
+        [NativeSheetRoutes.profile, nativeAccountsDetailId],
         [
           NativeSheetRoutes.notificationSettings,
           NativeSheetRoutes.aiMemory,
@@ -185,13 +181,23 @@ void main() {
       expect(accounts.title, _l10n.accountsTitle);
       expect(accounts.usesProfileAvatar, isFalse);
       expect(accounts.dismissOnSelect, isFalse);
-      final add = _item(sections, nativeAccountAddActionId);
-      expect(add.title, _l10n.accountsAddAccount);
-      expect(add.accent, isTrue);
-      expect(add.dismissOnSelect, isTrue);
-      // An action, not a page: no chevron.
-      expect(add.showsDisclosure, isFalse);
-      expect(add.actionId, nativeAccountAddActionId);
+      // Adding an account ends the Accounts page, as in Mail, rather than
+      // sitting beside the row that leads there.
+      expect(ids, isNot(contains(nativeAccountAddActionId)));
+      expect(ids, isNot(contains(nativeAccountsAddItemId)));
+    });
+
+    test('every root symbol is an outline of one family', () {
+      final sections = _root(visibility: _everything);
+
+      // Sparkles are solid stars: the one glyph that read as filled.
+      expect(_item(sections, NativeSheetRoutes.aiMemory).sfSymbol, 'brain');
+      final symbols = [
+        for (final section in sections)
+          for (final item in section.items) item.sfSymbol,
+      ];
+      expect(symbols, isNot(contains('sparkles')));
+      expect(symbols.where((symbol) => symbol.endsWith('.fill')), isEmpty);
     });
 
     test('Advanced rows use their own symbols and close the sheet', () {
@@ -286,10 +292,7 @@ void main() {
       ]) {
         expect(ids, isNot(contains(id)), reason: id);
       }
-      expect(_ids(sections).first, [
-        nativeAccountsDetailId,
-        nativeAccountAddActionId,
-      ]);
+      expect(_ids(sections).first, [nativeAccountsDetailId]);
     });
   });
 
@@ -319,8 +322,9 @@ void main() {
 
       expect(page.id, nativeAccountsDetailId);
       expect(page.title, _l10n.accountsTitle);
-      expect(page.trailingActionId, nativeAccountAddActionId);
-      expect(page.trailingActionSfSymbol, 'plus');
+      // Add Account is the page's last row, so the bar has no second way.
+      expect(page.trailingActionId, isNull);
+      expect(page.trailingActionSfSymbol, isNull);
       expect(_ids(page.sections).take(2), [
         [
           '$nativeAccountServerActionId:home',
@@ -473,6 +477,34 @@ void main() {
         _ids(page.sections).expand((ids) => ids),
         isNot(contains('accounts-direct-add')),
       );
+    });
+
+    test('ends on Add Account, before Sign Out of All Accounts', () {
+      for (final accounts in [
+        <OpenWebUiAccountEntry>[],
+        [_entry('alex-home', _home, name: 'Alex', isActive: true)],
+        [
+          _entry('alex-home', _home, name: 'Alex', isActive: true),
+          _entry('alex-work', _work, name: 'Alex L.'),
+        ],
+      ]) {
+        final ids = _ids(accountsPage(accounts: accounts).sections);
+        final addAt = ids.indexWhere(
+          (section) => section.contains(nativeAccountsAddItemId),
+        );
+        expect(ids[addAt], [nativeAccountsAddItemId]);
+        expect(addAt, ids.length - (accounts.length > 1 ? 2 : 1));
+      }
+      final add = _item(accountsPage().sections, nativeAccountsAddItemId);
+      expect(add.title, _l10n.accountsAddAccount);
+      expect(add.sfSymbol, 'plus.circle');
+      expect(add.accent, isTrue);
+      expect(add.dismissOnSelect, isTrue);
+      // An action, not a page: no chevron.
+      expect(add.showsDisclosure, isFalse);
+      expect(add.actionId, nativeAccountAddActionId);
+      // Any kind: the sheet opens on Open WebUI.
+      expect(add.actionValue, isTrue);
     });
 
     test('an empty card offers to add its first, on its own tab', () {

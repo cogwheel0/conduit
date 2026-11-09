@@ -1412,15 +1412,15 @@
   "@themeDark": {
     "description": "Theme label for dark appearance."
   },
-  "themePalette": "Paleta akcentů",
+  "themePalette": "Barevná paleta",
   "@themePalette": {
     "description": "Title for selecting the app color palette."
   },
-  "themePaletteConduitLabel": "Conduit",
+  "themePaletteConduitLabel": "Monochromatická",
   "@themePaletteConduitLabel": {
     "description": "Palette name for the default Conduit theme."
   },
-  "themePaletteConduitDescription": "Čistý neutrální motiv navržený pro Conduit.",
+  "themePaletteConduitDescription": "Černá a bílá, bez barvy akcentu.",
   "@themePaletteConduitDescription": {
     "description": "Description of the Conduit palette."
   },
@@ -3999,8 +3999,8 @@
   "settingsCategoryServer": "Server",
   "settingsCategorySupport": "Podpora",
   "settingsDataAndConnection": "Data a připojení",
-  "slidingSidebar": "Otevírat panely vedle chatů",
-  "slidingSidebarDescription": "Poznámky, Terminál a Kanály se otevírají jako panely vedle chatů, místo aby je nahradily.",
+  "slidingSidebar": "Ponechat chat viditelný",
+  "slidingSidebarDescription": "Na telefonu nechává postranní panel chat vidět u okraje. Poznámky, Terminál a Kanály se otevírají jako stránky z horní části vašich chatů místo karet.",
   "settingsAppearance": "Vzhled",
   "settingsAppearanceSubtitle": "Motiv, paleta barev a jazyk",
   "settingsChatSubtitle": "Chování chatu, rychlé akce a pokročilé prompty",
@@ -5443,7 +5443,7 @@
   "backendChooserAppleSectionTitle": "Apple Intelligence",
   "backendChooserModelApisSectionTitle": "API modelů",
   "backendChooserSelfHostedSectionTitle": "Vlastní hostované služby",
-  "citationBackground": "Stínovat citace",
+  "citationBackground": "Zvýraznit citace",
   "citationBackgroundDescription": "Citace v odpovědích dostanou stínované pozadí, aby vynikly z textu.",
   "citationShowTitles": "Zobrazovat názvy stránek u citací",
   "citationShowTitlesDescription": "V odznacích citací používat názvy stránek místo domén webů",

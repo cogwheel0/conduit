@@ -1793,6 +1793,7 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
       badge: isDirectLocalConversation(conversation)
           ? AppLocalizations.of(context)!.onDevice
           : null,
+      timestamp: conversation.updatedAt,
       onTap: () => _selectConversation(conversation),
     );
 

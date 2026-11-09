@@ -1412,15 +1412,15 @@
   "@themeDark": {
     "description": "Theme label for dark appearance."
   },
-  "themePalette": "アクセントパレット",
+  "themePalette": "カラーパレット",
   "@themePalette": {
     "description": "Title for selecting the app color palette."
   },
-  "themePaletteConduitLabel": "Conduit",
+  "themePaletteConduitLabel": "モノクローム",
   "@themePaletteConduitLabel": {
     "description": "Palette name for the default Conduit theme."
   },
-  "themePaletteConduitDescription": "Conduit 向けに設計されたクリーンなニュートラルテーマ。",
+  "themePaletteConduitDescription": "白と黒だけで、アクセントカラーはありません。",
   "@themePaletteConduitDescription": {
     "description": "Description of the Conduit palette."
   },
@@ -3693,8 +3693,8 @@
   "settingsCategoryServer": "サーバー",
   "settingsCategorySupport": "サポート",
   "settingsDataAndConnection": "データと接続",
-  "slidingSidebar": "パネルをチャットの横に開く",
-  "slidingSidebarDescription": "ノート、ターミナル、チャンネルが、チャットを置き換えずにその横のパネルで開きます。",
+  "slidingSidebar": "チャットを表示したままにする",
+  "slidingSidebarDescription": "スマートフォンでは、サイドバーの端にチャットが見えたままになります。ノート、ターミナル、チャンネルはタブではなく、チャット一覧の上からページとして開きます。",
   "settingsAppearance": "外観",
   "settingsAppearanceSubtitle": "テーマ、カラーパレット、言語",
   "settingsChatSubtitle": "チャットの動作、クイックアクション、高度なプロンプト",
@@ -5137,7 +5137,7 @@
   "backendChooserAppleSectionTitle": "Apple Intelligence",
   "backendChooserModelApisSectionTitle": "モデル API",
   "backendChooserSelfHostedSectionTitle": "セルフホストのサービス",
-  "citationBackground": "引用に背景色を付ける",
+  "citationBackground": "引用を強調表示",
   "citationBackgroundDescription": "回答内の引用に背景色を付けて、本文から見分けやすくします。",
   "citationShowTitles": "引用にページタイトルを表示",
   "citationShowTitlesDescription": "引用バッジにサイトのドメインではなくページタイトルを使用します",

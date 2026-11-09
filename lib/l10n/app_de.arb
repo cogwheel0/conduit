@@ -795,11 +795,11 @@
   "@nextLabel": {
     "description": "Label for navigating to the next item."
   },
-  "themePaletteConduitLabel": "Conduit",
+  "themePaletteConduitLabel": "Monochrom",
   "@themePaletteConduitLabel": {
     "description": "Palette name for the default Conduit theme."
   },
-  "themePaletteConduitDescription": "Schlichtes neutrales Design für Conduit.",
+  "themePaletteConduitDescription": "Schwarz und Weiß, ohne Akzentfarbe.",
   "@themePaletteConduitDescription": {
     "description": "Description of the Conduit palette."
   },
@@ -2078,8 +2078,8 @@
   "settingsCategoryServer": "Server",
   "settingsCategorySupport": "Support",
   "settingsDataAndConnection": "Daten & Verbindung",
-  "slidingSidebar": "Bereiche neben Chats öffnen",
-  "slidingSidebarDescription": "Notizen, Terminal und Kanäle öffnen sich als Bereiche neben deinen Chats, statt sie zu ersetzen.",
+  "slidingSidebar": "Chat sichtbar lassen",
+  "slidingSidebarDescription": "Auf dem Handy lässt die Seitenleiste den Chat am Rand sichtbar. Notizen, Terminal und Kanäle öffnen sich als Seiten oben in deinen Chats statt als Tabs.",
   "settingsAppearance": "Erscheinungsbild",
   "settingsAppearanceSubtitle": "Design, Farbpalette und Sprache",
   "settingsChatSubtitle": "Chatverhalten, Schnellaktionen und erweiterte Prompts",
@@ -3520,7 +3520,7 @@
   "backendChooserAppleSectionTitle": "Apple Intelligence",
   "backendChooserModelApisSectionTitle": "Modell-APIs",
   "backendChooserSelfHostedSectionTitle": "Selbst gehostete Dienste",
-  "citationBackground": "Quellenangaben hinterlegen",
+  "citationBackground": "Quellenangaben hervorheben",
   "citationBackgroundDescription": "Gibt Quellenangaben in Antworten einen Hintergrund, damit sie sich vom Text abheben.",
   "citationShowTitles": "Seitentitel in Quellenangaben anzeigen",
   "citationShowTitlesDescription": "In Quellen-Badges Seitentitel statt Website-Domains verwenden",

@@ -793,11 +793,11 @@
   "@nextLabel": {
     "description": "Label for navigating to the next item."
   },
-  "themePaletteConduitLabel": "Conduit",
+  "themePaletteConduitLabel": "Monochrome",
   "@themePaletteConduitLabel": {
     "description": "Palette name for the default Conduit theme."
   },
-  "themePaletteConduitDescription": "Thème neutre et épuré conçu pour Conduit.",
+  "themePaletteConduitDescription": "Noir et blanc, sans couleur d’accent.",
   "@themePaletteConduitDescription": {
     "description": "Description of the Conduit palette."
   },
@@ -2076,8 +2076,8 @@
   "settingsCategoryServer": "Serveur",
   "settingsCategorySupport": "Assistance",
   "settingsDataAndConnection": "Données et connexion",
-  "slidingSidebar": "Ouvrir les panneaux à côté des discussions",
-  "slidingSidebarDescription": "Notes, Terminal et Canaux s’ouvrent dans des panneaux à côté de vos discussions au lieu de les remplacer.",
+  "slidingSidebar": "Garder la discussion visible",
+  "slidingSidebarDescription": "Sur un téléphone, la barre latérale laisse voir la discussion sur son bord. Notes, Terminal et Canaux s’ouvrent comme des pages depuis le haut de vos discussions plutôt que comme des onglets.",
   "settingsAppearance": "Apparence",
   "settingsAppearanceSubtitle": "Thème, palette de couleurs et langue",
   "settingsChatSubtitle": "Comportement du chat, actions rapides et prompts avancés",
@@ -3520,7 +3520,7 @@
   "backendChooserAppleSectionTitle": "Apple Intelligence",
   "backendChooserModelApisSectionTitle": "API de modèles",
   "backendChooserSelfHostedSectionTitle": "Services auto-hébergés",
-  "citationBackground": "Fond grisé pour les citations",
+  "citationBackground": "Mettre en évidence les citations",
   "citationBackgroundDescription": "Affiche les citations des réponses sur un fond grisé pour les distinguer du texte.",
   "citationShowTitles": "Afficher les titres des pages citées",
   "citationShowTitlesDescription": "Utiliser les titres de page plutôt que les domaines dans les badges de citation",

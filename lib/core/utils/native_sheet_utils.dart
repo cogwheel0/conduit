@@ -151,15 +151,16 @@ class NativeProfileRootAccount {
 
 /// The sections of the native Settings root, in the order the Flutter
 /// Settings page uses: the account card -- whom Settings is for -- with the
-/// way to every account and connection and to add another under it, then
-/// the signed-in account's own rows, the everyday settings, places, and an
-/// Advanced group that only exists while it has a row.
+/// way to every account and connection under it, then the signed-in
+/// account's own rows, the everyday settings, places, and an Advanced group
+/// that only exists while it has a row.
 ///
 /// With an Open WebUI account the card opens that account's profile, as the
 /// Settings app's card opens its account, and an Accounts row under it
 /// leads to every account and connection, so the two never read as two ways
 /// to one page. Without one there is no profile, and the card itself leads
-/// to the connections.
+/// to the connections. Adding an account is the last row of that page, as
+/// Mail's Accounts page ends on Add Account, not a second row here.
 ///
 /// Pure, so the open sheet can be rebuilt with the same rows when a setting
 /// it depends on (Advanced, the language) changes while it is up.
@@ -193,20 +194,16 @@ List<NativeSheetSectionConfig> buildNativeProfileRootSections(
         title: l10n.accountsTitle,
         sfSymbol: 'person.2',
       ),
-    _nativeAddItem(
-      nativeAccountAddActionId,
-      title: l10n.accountsAddAccount,
-      kind: null,
-    ),
   ];
   // What belongs to the Open WebUI account signed in; its profile is the
   // card above.
   //
   // Every root symbol is an outline drawn at one size and weight, chosen to
   // carry about the same ink: a single bubble rather than the wider pair,
-  // sparkles rather than the sparse wand, the voice waveform in a ring like
-  // About's rather than its thin bars alone. The native sheet draws
-  // `calendar` as an outline too, since the system symbol's header is solid.
+  // the brain rather than sparkles (solid stars, the one glyph that read as
+  // filled) or the sparse wand, the voice waveform in a ring like About's
+  // rather than its thin bars alone. The native sheet draws `calendar` as an
+  // outline too, since the system symbol's header is solid.
   final accountItems = <NativeSheetItemConfig>[
     if (hasAccount) ...[
       NativeSheetItemConfig(
@@ -217,7 +214,7 @@ List<NativeSheetSectionConfig> buildNativeProfileRootSections(
       NativeSheetItemConfig(
         id: NativeSheetRoutes.aiMemory,
         title: nativeAiMemoryTitle(l10n),
-        sfSymbol: 'sparkles',
+        sfSymbol: 'brain',
       ),
       NativeSheetItemConfig(
         id: NativeSheetRoutes.dataConnection,
@@ -345,7 +342,8 @@ const nativeAccountsDetailId = 'accounts';
 /// row opening its page, its accounts under it, the active one checked --
 /// then Hermes with its connections, the one in use checked, and Direct
 /// with its providers, each opening its editor. A card's empty list offers
-/// to add its first; + in the bar adds any.
+/// to add its first; Add Account, the page's last row as on Mail's Accounts
+/// page, adds any.
 ///
 /// [accounts] and [directProfiles] are null when they could not be read in
 /// time; [hermesInUseId] is null while Hermes is off.
@@ -366,8 +364,6 @@ NativeSheetDetailConfig buildNativeAccountsDetail(
   return NativeSheetDetailConfig(
     id: nativeAccountsDetailId,
     title: l10n.accountsTitle,
-    trailingActionId: nativeAccountAddActionId,
-    trailingActionSfSymbol: 'plus',
     sections: [
       if (accounts == null)
         NativeSheetSectionConfig(
@@ -502,6 +498,15 @@ NativeSheetDetailConfig buildNativeAccountsDetail(
             ),
         ],
       ),
+      NativeSheetSectionConfig(
+        items: [
+          _nativeAddItem(
+            nativeAccountsAddItemId,
+            title: l10n.accountsAddAccount,
+            kind: null,
+          ),
+        ],
+      ),
       // With one account, Settings' Sign out already signs out of it.
       if ((accounts?.length ?? 0) > 1)
         NativeSheetSectionConfig(
@@ -510,6 +515,9 @@ NativeSheetDetailConfig buildNativeAccountsDetail(
     ],
   );
 }
+
+/// Id of the Add Account row that ends the native Accounts page.
+const nativeAccountsAddItemId = 'accounts-add';
 
 /// A saved Open WebUI account under its server: switched to on a tap, but
 /// the one in use, signed in, stays put.
@@ -560,7 +568,9 @@ NativeSheetItemConfig _nativeSwitchItem({
 );
 
 /// A row, in the accent color, that closes the sheet to add an account or
-/// connection -- on the account sheet's tab for [kind], when given.
+/// connection -- on the account sheet's tab for [kind], when given. Its
+/// label has the weight of every other row; the plus in a ring, an outline
+/// with the ink of the symbols around it, says it adds.
 NativeSheetItemConfig _nativeAddItem(
   String id, {
   required String title,
@@ -568,7 +578,7 @@ NativeSheetItemConfig _nativeAddItem(
 }) => NativeSheetItemConfig(
   id: id,
   title: title,
-  sfSymbol: 'plus',
+  sfSymbol: 'plus.circle',
   accent: true,
   dismissOnSelect: true,
   showsDisclosure: false,

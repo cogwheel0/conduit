@@ -10,6 +10,7 @@ import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 
 import '../../../shared/theme/theme_extensions.dart';
+import '../utils/recency_stamp_label.dart';
 
 const double kConversationTileHorizontalGutter = Spacing.sm;
 const EdgeInsets kConversationTileMargin = EdgeInsets.only(
@@ -45,6 +46,75 @@ const double kSidebarUnreadDotDiameter = 8;
 
 /// Least height of a single-line chat row, inside [kConversationTileMargin].
 const double kConversationTileMinHeight = TouchTarget.minimum;
+
+/// The text scale from which a row's date drops under its title instead of
+/// sharing its line, as list rows reflow at the accessibility text sizes
+/// (the first is about 1.65 times the default body size).
+const double kSidebarRowStampStackScale = 1.5;
+
+/// A sidebar row title's line: the body style on a 1.4 line, which its
+/// trailing date shares.
+TextStyle sidebarRowTitleLineStyle() =>
+    AppTypography.sidebarTitleStyle.copyWith(height: 1.4);
+
+/// Whether a row's date sits under its title at the current text size.
+bool sidebarRowStampStacks(BuildContext context) =>
+    MediaQuery.textScalerOf(context).scale(AppTypography.bodyLarge) >=
+    AppTypography.bodyLarge * kSidebarRowStampStackScale;
+
+/// When a chat or note was last changed, after its title, as Mail dates a
+/// message: the time for today, "Yesterday", the weekday within the week,
+/// else the short date ([recencyStampLabel]). The subheadline size in the
+/// secondary tone, with digits of one width so the times down a list line
+/// up at their trailing edge.
+///
+/// Beside a title it takes the title's line ([sidebarRowTitleLineStyle]) as
+/// its strut, so in a centred row the two share one baseline.
+class SidebarRowStamp extends StatelessWidget {
+  const SidebarRowStamp({
+    super.key,
+    required this.timestamp,
+    this.now,
+    this.onTitleLine = true,
+  });
+
+  final DateTime timestamp;
+
+  /// The moment the stamp is relative to; the current time when null.
+  final DateTime? now;
+
+  /// Whether the stamp shares its title's line rather than sitting under it.
+  final bool onTitleLine;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
+    if (l10n == null) return const SizedBox.shrink();
+    final stamp = recencyStampLabel(
+      timestamp,
+      l10n,
+      locale: Localizations.localeOf(context).toString(),
+      now: now ?? DateTime.now(),
+      use24HourTime: MediaQuery.alwaysUse24HourFormatOf(context),
+    );
+    return Text(
+      stamp.text,
+      semanticsLabel: stamp.spoken,
+      maxLines: 1,
+      softWrap: false,
+      style: AppTypography.titleMediumStyle.copyWith(
+        color: context.conduitTheme.textSecondary,
+        fontFeatures: const [FontFeature.tabularFigures()],
+      ),
+      strutStyle: onTitleLine
+          ? StrutStyle.fromTextStyle(
+              sidebarRowTitleLineStyle(),
+              forceStrutHeight: true,
+            )
+          : null,
+    );
+  }
+}
 
 /// How long a finger rests on a sidebar row before it highlights. Like a
 /// UIKit list in a scroll view, a row the finger starts scrolling from never
@@ -505,6 +575,11 @@ class ConversationTileContent extends StatelessWidget {
   /// row being dragged, has no column to line up with.
   final bool reserveStatusColumn;
 
+  /// When the chat last changed, shown after the title ([SidebarRowStamp]);
+  /// none when null. A spinner or a raised hand takes its place while the
+  /// chat is working or waiting.
+  final DateTime? timestamp;
+
   /// Creates the content layout for a conversation tile.
   const ConversationTileContent({
     super.key,
@@ -518,6 +593,7 @@ class ConversationTileContent extends StatelessWidget {
     this.badge,
     this.shrinkWrap = false,
     this.reserveStatusColumn = true,
+    this.timestamp,
   });
 
   @override
@@ -528,11 +604,14 @@ class ConversationTileContent extends StatelessWidget {
     // titles are semibold beside their dot: in one ink, without an accent
     // dot, weight is what lets an unread chat stand out at a glance. Read
     // titles stay regular.
-    final textStyle = AppTypography.sidebarTitleStyle.copyWith(
+    final textStyle = sidebarRowTitleLineStyle().copyWith(
       color: theme.textPrimary,
       fontWeight: unread ? FontWeight.w600 : FontWeight.w400,
-      height: 1.4,
     );
+    // At the accessibility text sizes the date drops under the title rather
+    // than squeezing it to a few letters.
+    final stampStacks =
+        timestamp != null && !shrinkWrap && sidebarRowStampStacks(context);
 
     final trailingWidgets = <Widget>[];
 
@@ -615,6 +694,16 @@ class ConversationTileContent extends StatelessWidget {
           ),
         ),
       ]);
+    } else if (timestamp != null && !stampStacks) {
+      // The date ends the row, as in Mail, so dates down the list share a
+      // trailing edge.
+      trailingWidgets.addAll([
+        const SizedBox(width: Spacing.sm),
+        SidebarRowStamp(
+          key: const ValueKey<String>('conversation-updated-stamp'),
+          timestamp: timestamp!,
+        ),
+      ]);
     }
 
     // VoiceOver reads the unread state after the title, as it announces
@@ -633,8 +722,16 @@ class ConversationTileContent extends StatelessWidget {
     // The unread dot sits in a column of its own before the title, as Mail
     // marks unread mail, so every title keeps one leading edge whether or
     // not its chat is read.
+    final showsStackedStamp =
+        stampStacks && !isLoading && !isGenerating && !isAwaitingApproval;
+    // With the date under the title, the dot stays on the title's line
+    // rather than centring on the pair.
     final statusColumn = SizedBox(
       width: kSidebarRowStatusGutter,
+      height: showsStackedStamp
+          ? MediaQuery.textScalerOf(context).scale(textStyle.fontSize!) *
+                textStyle.height!
+          : null,
       child: unread
           ? Align(
               alignment: AlignmentDirectional.centerStart,
@@ -651,14 +748,32 @@ class ConversationTileContent extends StatelessWidget {
           : null,
     );
 
+    final titleBlock = showsStackedStamp
+        ? Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              titleWidget,
+              SidebarRowStamp(
+                key: const ValueKey<String>('conversation-updated-stamp'),
+                timestamp: timestamp!,
+                onTitleLine: false,
+              ),
+            ],
+          )
+        : titleWidget;
+
     return Row(
       mainAxisSize: shrinkWrap ? MainAxisSize.min : MainAxisSize.max,
+      crossAxisAlignment: showsStackedStamp
+          ? CrossAxisAlignment.start
+          : CrossAxisAlignment.center,
       children: [
         if (reserveStatusColumn) statusColumn,
         if (shrinkWrap)
-          Flexible(fit: FlexFit.loose, child: titleWidget)
+          Flexible(fit: FlexFit.loose, child: titleBlock)
         else
-          Expanded(child: titleWidget),
+          Expanded(child: titleBlock),
         ...trailingWidgets,
       ],
     );
@@ -698,6 +813,9 @@ class ConversationTile extends StatelessWidget {
   /// [ConversationTileContent.reserveStatusColumn].
   final bool reserveStatusColumn;
 
+  /// When the chat last changed; see [ConversationTileContent.timestamp].
+  final DateTime? timestamp;
+
   /// Creates a conversation tile widget.
   const ConversationTile({
     super.key,
@@ -711,6 +829,7 @@ class ConversationTile extends StatelessWidget {
     this.badge,
     required this.onTap,
     this.reserveStatusColumn = true,
+    this.timestamp,
   });
 
   @override
@@ -740,6 +859,7 @@ class ConversationTile extends StatelessWidget {
             isAwaitingApproval: isAwaitingApproval,
             badge: badge,
             reserveStatusColumn: reserveStatusColumn,
+            timestamp: timestamp,
           ),
         ),
       ),

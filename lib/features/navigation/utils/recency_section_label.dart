@@ -33,13 +33,14 @@ String recencySectionLabel(
           // Russian and Polish use for a month on its own.
           ? DateFormat('LLLL', verified)
           : DateFormat.yMMMM(verified);
-      return _capitalizeFirst(format.format(month));
+      return capitalizeFirstLetter(format.format(month));
   }
 }
 
-/// Month names are lowercase in many languages ("septiembre"), but a header
-/// starts with a capital, as iOS writes them.
-String _capitalizeFirst(String text) {
+/// Month and weekday names are lowercase in many languages ("septiembre",
+/// "mardi"), but a header or a list item starts with a capital, as iOS
+/// writes them.
+String capitalizeFirstLetter(String text) {
   if (text.isEmpty) return text;
   final first = text.runes.first;
   final head = String.fromCharCode(first);

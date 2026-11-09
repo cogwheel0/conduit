@@ -1412,15 +1412,15 @@
   "@themeDark": {
     "description": "Theme label for dark appearance."
   },
-  "themePalette": "Paleta akcentov",
+  "themePalette": "Farebná paleta",
   "@themePalette": {
     "description": "Title for selecting the app color palette."
   },
-  "themePaletteConduitLabel": "Conduit",
+  "themePaletteConduitLabel": "Monochromatická",
   "@themePaletteConduitLabel": {
     "description": "Palette name for the default Conduit theme."
   },
-  "themePaletteConduitDescription": "Čistý neutrálny motív navrhnutý pre Conduit.",
+  "themePaletteConduitDescription": "Čierna a biela, bez farby akcentu.",
   "@themePaletteConduitDescription": {
     "description": "Description of the Conduit palette."
   },
@@ -3999,8 +3999,8 @@
   "settingsCategoryServer": "Server",
   "settingsCategorySupport": "Podpora",
   "settingsDataAndConnection": "Dáta a pripojenie",
-  "slidingSidebar": "Otvárať panely vedľa chatov",
-  "slidingSidebarDescription": "Poznámky, Terminál a Kanály sa otvárajú ako panely vedľa vašich chatov namiesto toho, aby ich nahradili.",
+  "slidingSidebar": "Ponechať chat viditeľný",
+  "slidingSidebarDescription": "Na telefóne bočný panel necháva chat viditeľný pri okraji. Poznámky, Terminál a Kanály sa otvárajú ako stránky z hornej časti vašich chatov namiesto kariet.",
   "settingsAppearance": "Vzhľad",
   "settingsAppearanceSubtitle": "Motív, paleta farieb a jazyk",
   "settingsChatSubtitle": "Správanie chatu, rýchle akcie a pokročilé prompty",
@@ -5443,7 +5443,7 @@
   "backendChooserAppleSectionTitle": "Apple Intelligence",
   "backendChooserModelApisSectionTitle": "API modelov",
   "backendChooserSelfHostedSectionTitle": "Vlastné hostované služby",
-  "citationBackground": "Tieňovať citácie",
+  "citationBackground": "Zvýrazniť citácie",
   "citationBackgroundDescription": "Citácie v odpovediach dostanú tieňované pozadie, aby vynikli z textu.",
   "citationShowTitles": "Zobrazovať názvy stránok pri citáciách",
   "citationShowTitlesDescription": "V odznakoch citácií používať názvy stránok namiesto domén webov",

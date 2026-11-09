@@ -2036,8 +2036,9 @@ final class NativeSheetBridge: ConduitBridge, NativeSheetHostApi {
         activeModelSelectorController = controller
         activeModelSelectorPresentationId = configuration.presentationId
         let navigation = NativeSheetNavigationController(rootViewController: controller)
-        // A short list opens in a sheet sized to it, still expandable; a
-        // long one opens tall, with search.
+        // A short list opens in a sheet that ends just under its last row,
+        // with no taller size to drag it to: a larger one would only add
+        // empty space. A long one opens tall, with search.
         let fittedDetent = UISheetPresentationController.Detent.Identifier(
             "conduit.modelSelectorFitted"
         )
@@ -2046,13 +2047,15 @@ final class NativeSheetBridge: ConduitBridge, NativeSheetHostApi {
             ? { [weak controller] sheet in
                 sheet.detents = [
                     .custom(identifier: fittedDetent) { context in
-                        let fitted = controller?.fittedSheetHeight
+                        let fitted = controller?.fittedDetentHeight
                             ?? context.maximumDetentValue * 0.5
-                        return min(fitted, context.maximumDetentValue)
+                        let value = min(fitted, context.maximumDetentValue)
+                        controller?.resolvedDetentHeight = value
+                        return value
                     },
-                    .large(),
                 ]
                 sheet.selectedDetentIdentifier = fittedDetent
+                sheet.prefersScrollingExpandsWhenScrolledToEdge = false
             }
             : nil
 
@@ -5569,17 +5572,35 @@ private final class NativeModelSelectorTableViewController: UITableViewControlle
         isSearching ? searchResults : featuredModels
     }
 
-    /// Height that shows the whole short list: the navigation bar plus the
-    /// table's content. Before the first layout, an estimate from the rows.
-    var fittedSheetHeight: CGFloat {
+    /// Space the sheet keeps under the short list's last group: the inset
+    /// the groups keep from the sheet's sides, so the list sits evenly in
+    /// its sheet rather than over an empty band.
+    static let fittedBottomInset: CGFloat = 20
+
+    /// The fitted detent's height: measured from the laid-out sheet once
+    /// there is one ([viewDidLayoutSubviews]), else an estimate from the rows.
+    var fittedDetentHeight: CGFloat {
+        if let measuredDetentHeight { return measuredDetentHeight }
         let barHeight = navigationController?.navigationBar.frame.height ?? 0
         let chrome = max(barHeight, 56)
-        guard isViewLoaded, tableView.contentSize.height > 0 else {
-            let rows = CGFloat(featuredModels.count + (effortSelectionEnabled ? 1 : 0))
-            let groups = CGFloat(sections.count)
-            return chrome + rows * 64 + groups * 36
-        }
-        return chrome + tableView.contentSize.height
+        let rows = CGFloat(featuredModels.count + (effortSelectionEnabled ? 1 : 0))
+        let groups = CGFloat(sections.count)
+        return chrome + rows * 64 + groups * 36
+    }
+
+    /// The value the detent resolver last returned, which UIKit turned into
+    /// the sheet height the view now has.
+    var resolvedDetentHeight: CGFloat?
+
+    /// The detent that ends the sheet [fittedBottomInset] under the last row,
+    /// found by measuring rather than by assuming how UIKit pads a detent.
+    private var measuredDetentHeight: CGFloat?
+
+    private var lastRowIndexPath: IndexPath? {
+        guard let section = sections.indices.last else { return nil }
+        let rows = tableView.numberOfRows(inSection: section)
+        guard rows > 0 else { return nil }
+        return IndexPath(row: rows - 1, section: section)
     }
 
     init(
@@ -5631,13 +5652,28 @@ private final class NativeModelSelectorTableViewController: UITableViewControlle
 
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
-        // The fitted detent was estimated before the rows were measured.
+        // The fitted detent was estimated before the rows were measured. Now
+        // that they are, see where the last row ends in the sheet -- with the
+        // list resting at its top -- and move the detent by however far the
+        // sheet's bottom is from [fittedBottomInset] under it. Whatever UIKit
+        // adds to a detent (the bottom safe area) carries through unchanged,
+        // so the next pass measures no difference and stops.
         guard listsAllModelsInline,
-              let sheet = navigationController?.sheetPresentationController
+              let sheet = navigationController?.sheetPresentationController,
+              let container = navigationController?.view,
+              let resolved = resolvedDetentHeight,
+              tableView.contentSize.height > 0,
+              let last = lastRowIndexPath
         else { return }
-        let height = fittedSheetHeight
-        guard abs(height - lastFittedHeight) > 1 else { return }
-        lastFittedHeight = height
+        let tableTop = tableView.convert(tableView.bounds, to: container).minY
+        let restingOffset = -tableView.adjustedContentInset.top
+        let rowBottom = tableTop
+            + tableView.rectForRow(at: last).maxY - restingOffset
+        let target = resolved
+            + (rowBottom + Self.fittedBottomInset - container.bounds.height)
+        guard abs(target - lastFittedHeight) > 1 else { return }
+        lastFittedHeight = target
+        measuredDetentHeight = target
         if #available(iOS 16.0, *) {
             sheet.animateChanges { sheet.invalidateDetents() }
         }
@@ -7476,9 +7512,10 @@ private final class NativeModelAvatarView: UIView {
         addSubview(initialsLabel)
 
         symbolView.translatesAutoresizingMaskIntoConstraints = false
-        // A system mark (Apple Intelligence) at the optical size and weight
-        // of the solid brand logos beside it -- about 19 pt across -- drawn
-        // unscaled, so a line glyph is not thinned into a smaller box.
+        // A system symbol (Apple's models: a phone, a cloud) at the optical
+        // size and weight of the solid brand logos beside it -- about 19 pt
+        // across -- drawn unscaled, so a line glyph is not thinned into a
+        // smaller box.
         symbolView.contentMode = .center
         symbolView.preferredSymbolConfiguration = UIImage.SymbolConfiguration(
             pointSize: 18,
@@ -7859,10 +7896,10 @@ private func configureNavigationCell(
         content.textProperties.color = NativeSheetTheme.shared.destructive
         content.imageProperties.tintColor = NativeSheetTheme.shared.destructive
     } else if item.accent {
-        // An action row (Add Account) reads as one by its label's weight;
-        // its symbol keeps the tint and size every row's symbol has.
+        // An action row (Add Account) takes the accent but every row's
+        // weight, as Settings sets its Add rows; its plus symbol and the
+        // missing chevron say it acts rather than opens a page.
         content.textProperties.color = NativeSheetTheme.shared.accent
-        content.textProperties.font = NativeSheetSettingsStyle.actionTitleFont
     }
     if showsValue {
         content.secondaryTextProperties.font = .preferredFont(forTextStyle: .body)

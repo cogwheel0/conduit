@@ -3,15 +3,23 @@ import '../features/direct_connections/services/model_logo_catalog.dart';
 import '../features/hermes/models/hermes_model.dart';
 import '../models/model.dart';
 import '../services/api_service.dart';
+import 'model_display_name.dart' show isApplePrivateCloudComputeModel;
 
 /// Prefix marking an avatar URL that resolves to a system symbol rather than
 /// an image. Mirrors the `asset:` scheme handled alongside it.
 const String kNativeSymbolUrlScheme = 'symbol:';
 
-/// Apple's own mark for Apple Intelligence, used to attribute the Foundation
-/// Models running on device and on Private Cloud Compute. Available since
-/// iOS 18, well below the iOS 26 those models require.
+/// Apple's own mark for Apple Intelligence. Available since iOS 18, well
+/// below the iOS 26 Apple's Foundation Models require.
 const String kAppleIntelligenceSymbol = 'apple.intelligence';
+
+/// The symbol for Apple's on-device model: a phone, as the welcome screen
+/// draws it, so it never shares a mark with the Private Cloud Compute one.
+const String kAppleOnDeviceModelSymbol = 'iphone';
+
+/// The symbol for Apple's Private Cloud Compute model: a cloud, as the
+/// welcome screen draws it.
+const String kApplePrivateCloudModelSymbol = 'cloud';
 
 /// Returns the symbol name in [url] when it uses [kNativeSymbolUrlScheme].
 String? nativeSymbolNameFromUrl(String? url) {
@@ -176,10 +184,15 @@ String? resolveModelIconUrl(ApiService? api, String? rawUrl) {
 String? resolveModelIconUrlForModel(ApiService? api, Model? model) {
   if (model == null) return null;
   if (isHermesModel(model)) return 'asset:$kHermesModelAvatarAsset';
-  // Apple's Foundation Models carry Apple's own mark. Provenance comes from the
-  // local binding, never from a server-supplied id or metadata field.
+  // Apple's Foundation Models show where they run -- a phone, a cloud -- as
+  // the welcome screen offers them, so the two never share one mark.
+  // Provenance comes from the local binding, never from a server-supplied id
+  // or metadata field.
   if (isAppleFoundationModel(model)) {
-    return '$kNativeSymbolUrlScheme$kAppleIntelligenceSymbol';
+    final symbol = isApplePrivateCloudComputeModel(model)
+        ? kApplePrivateCloudModelSymbol
+        : kAppleOnDeviceModelSymbol;
+    return '$kNativeSymbolUrlScheme$symbol';
   }
   // Direct models get their maker's bundled models.dev logo. They have no
   // Open WebUI avatar, so never ask the server for one.

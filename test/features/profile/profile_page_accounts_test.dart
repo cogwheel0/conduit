@@ -170,7 +170,8 @@ void main() {
     check(inCard(find.text('Alex')).evaluate()).isNotEmpty();
     // Named by its email, not the server, then how many others there are.
     check(inCard(find.text('alex@home.example +2')).evaluate()).isNotEmpty();
-    check(inCard(find.text('Add Account')).evaluate()).isNotEmpty();
+    // Adding one ends the Accounts page, not a second row here.
+    check(find.text('Add Account').evaluate()).isEmpty();
     // The other accounts are on the Accounts page, not listed here.
     check(find.text('Alex (work)').evaluate()).isEmpty();
     check(find.text('Manage accounts').evaluate()).isEmpty();

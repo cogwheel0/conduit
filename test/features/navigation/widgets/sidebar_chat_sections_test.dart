@@ -59,8 +59,22 @@ void main() {
       monthLabel,
       'Old chat',
     ];
+    final headers = {
+      l10n.today,
+      l10n.yesterday,
+      l10n.previous7Days,
+      monthLabel,
+    };
+    // A header's label can also be a row's date ("Yesterday"), so headers
+    // are looked up inside the headers.
+    Finder labelled(String text) => headers.contains(text)
+        ? find.descendant(
+            of: find.byType(SidebarSectionHeader),
+            matching: find.text(text),
+          )
+        : find.text(text);
     final tops = [
-      for (final text in expectedOrder) tester.getTopLeft(find.text(text)).dy,
+      for (final text in expectedOrder) tester.getTopLeft(labelled(text)).dy,
     ];
     for (var i = 1; i < tops.length; i++) {
       expect(
@@ -72,6 +86,35 @@ void main() {
     // No chat falls 8-30 days back, so that section is left out.
     expect(find.text(l10n.previous30Days), findsNothing);
     expect(find.text(l10n.recent), findsNothing);
+
+    // Each row ends with when its chat last changed, as Mail dates mail.
+    String stampOf(String title) {
+      final row = find.ancestor(
+        of: find.text(title),
+        matching: find.byType(ConversationTile),
+      );
+      return tester
+          .widget<Text>(
+            find.descendant(
+              of: find.descendant(
+                of: row,
+                matching: find.byKey(
+                  const ValueKey<String>('conversation-updated-stamp'),
+                ),
+              ),
+              matching: find.byType(Text),
+            ),
+          )
+          .data!;
+    }
+
+    expect(stampOf('Fresh chat'), DateFormat.jm('en').format(today));
+    expect(stampOf('Last night chat'), l10n.yesterday);
+    expect(
+      stampOf('Last week chat'),
+      DateFormat('cccc', 'en').format(today.subtract(const Duration(days: 4))),
+    );
+    expect(stampOf('Old chat'), DateFormat('M/d/yy', 'en').format(old));
   });
 
   testWidgets('section headers start on the toolbar\'s leading edge and '

@@ -20,7 +20,6 @@ import 'package:conduit_core/utils/debug_logger.dart';
 
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/platform_scroll_physics.dart';
-import '../../../shared/utils/locale_display_formatters.dart';
 import '../../../shared/utils/conversation_context_menu.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/sidebar_layout_contract.dart';
@@ -32,6 +31,7 @@ import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 
 import '../../navigation/providers/sidebar_providers.dart';
 import '../../navigation/utils/recency_section_label.dart';
+import '../../navigation/utils/recency_stamp_label.dart';
 import '../../navigation/widgets/conversation_tile.dart';
 import '../../navigation/widgets/sidebar_section_header.dart';
 import '../../navigation/utils/sidebar_create_action.dart';
@@ -409,10 +409,17 @@ class _NoteListTile extends StatelessWidget {
     final theme = context.conduitTheme;
     final l10n = AppLocalizations.of(context)!;
     final title = note.title.isEmpty ? l10n.untitled : note.title;
-    final timeAgo = LocaleDisplayFormatters.compactRelativeTime(
-      context,
+    // Dated as the chat rows are, so a stamp never goes stale the way
+    // "13h ago" does in a list that is not redrawn.
+    final now = DateTime.now();
+    final edited = recencyStampLabel(
       note.updatedDateTime,
+      l10n,
+      locale: Localizations.localeOf(context).toString(),
+      now: now,
+      use24HourTime: MediaQuery.alwaysUse24HourFormatOf(context),
     );
+    final stampStacks = sidebarRowStampStacks(context);
 
     return ConduitContextMenu(
       actions: actions,
@@ -426,15 +433,19 @@ class _NoteListTile extends StatelessWidget {
           if (ownerName case final owner?) l10n.sharedFolderOwner(owner),
           if (readOnly) l10n.readOnly,
           if (note.isPinned) l10n.pinned,
-          timeAgo,
+          edited.spoken,
         ].join('. '),
         tintKey: ValueKey<String>('note-sidebar-selected-${note.id}'),
         pressedKey: ValueKey<String>('note-sidebar-pressed-${note.id}'),
         child: SidebarListTileContent(
           title: title,
-          subtitle: ownerName == null
-              ? null
-              : l10n.sharedFolderOwner(ownerName!),
+          // At the accessibility text sizes the date joins the lines under
+          // the title, as on chat rows, rather than squeezing the title.
+          subtitle: [
+            if (ownerName case final owner?) l10n.sharedFolderOwner(owner),
+            if (stampStacks) edited.text,
+          ].join('\n'),
+          subtitleMaxLines: 2,
           selected: selected,
           titleFontWeight: FontWeight.w400,
           trailing: Row(
@@ -447,16 +458,17 @@ class _NoteListTile extends StatelessWidget {
                   size: IconSize.xs,
                   color: theme.textSecondary,
                 ),
-                const SizedBox(width: Spacing.xs),
+                if (!stampStacks) const SizedBox(width: Spacing.xs),
               ],
-              Text(
-                timeAgo,
-                key: ValueKey<String>('note-sidebar-last-edited-${note.id}'),
-                maxLines: 1,
-                style: AppTypography.bodySmallStyle.copyWith(
-                  color: theme.textSecondary,
+              if (!stampStacks)
+                SidebarRowStamp(
+                  key: ValueKey<String>('note-sidebar-last-edited-${note.id}'),
+                  timestamp: note.updatedDateTime,
+                  now: now,
+                  // A shared note's owner line sits under the title; the
+                  // date stays centred on the pair then.
+                  onTitleLine: ownerName == null,
                 ),
-              ),
             ],
           ),
         ),

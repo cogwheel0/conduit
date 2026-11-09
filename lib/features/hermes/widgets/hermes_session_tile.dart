@@ -68,6 +68,7 @@ class HermesSessionTile extends ConsumerWidget {
         selected: selected,
         isLoading: false,
         isGenerating: isGenerating,
+        timestamp: session.updatedAt,
         onTap: () => openHermesSession(context, ref, session),
       ),
     );
