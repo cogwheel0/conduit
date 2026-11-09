@@ -377,7 +377,7 @@ void main() {
     test('does not wait when nothing was left unsettled', () {
       check(container.read(primaryBootRecoveryPendingProvider)).isFalse();
       // Nothing to finish, so nothing runs.
-      check(container.exists(primaryBootRecoveryProvider)).isFalse();
+      check(container.read(primaryBootRecoveryProvider.exists)).isFalse();
     });
 
     test('goes on when the recovery fails', () async {
