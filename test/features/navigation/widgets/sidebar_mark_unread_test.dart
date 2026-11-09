@@ -3,7 +3,6 @@ import 'package:conduit/shared/utils/conversation_context_menu.dart';
 import 'package:conduit_core/database/chat_database_repository.dart';
 import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/providers/app_providers.dart';
-import 'package:conduit_core/services/connectivity_service.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -80,9 +79,6 @@ void main() {
       sidebarTestBuildHarness(
         controllers: SidebarTestSidebarHarnessControllers(),
         conversations: [read, libreChat],
-        // Its menu asks whether the app is online, which the rig's API
-        // cannot answer.
-        extraOverrides: [isOnlineProvider.overrideWithValue(true)],
       ),
     );
     await tester.pumpAndSettle();
