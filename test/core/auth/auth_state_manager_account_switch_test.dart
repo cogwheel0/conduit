@@ -1056,6 +1056,7 @@ void main() {
     when(
       () => storage.clearActiveAccountAuthDataIf(
         canClear: any(named: 'canClear'),
+        tellDroppedBrowserSession: any(named: 'tellDroppedBrowserSession'),
       ),
     ).thenAnswer(
       (invocation) async =>
@@ -1112,6 +1113,7 @@ void main() {
     when(
       () => storage.clearActiveAccountAuthDataIf(
         canClear: any(named: 'canClear'),
+        tellDroppedBrowserSession: any(named: 'tellDroppedBrowserSession'),
       ),
     ).thenAnswer(
       (invocation) async =>
@@ -1163,6 +1165,7 @@ void main() {
     when(
       () => storage.clearActiveAccountAuthDataIf(
         canClear: any(named: 'canClear'),
+        tellDroppedBrowserSession: any(named: 'tellDroppedBrowserSession'),
       ),
     ).thenAnswer(
       (invocation) async =>

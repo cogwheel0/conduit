@@ -898,6 +898,8 @@ class AuthStateManager extends _$AuthStateManager {
           );
           final cleared = await storage.clearActiveAccountAuthDataIf(
             canClear: () => !_authAttemptSuperseded(attemptRevision),
+            // Not a sign-out, which revokes its own: told, to be revoked.
+            tellDroppedBrowserSession: true,
           );
           if (!cleared || _authAttemptSuperseded(attemptRevision)) return;
           return;

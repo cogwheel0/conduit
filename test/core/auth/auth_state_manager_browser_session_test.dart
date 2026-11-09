@@ -989,6 +989,7 @@ void main() {
       when(
         () => rig.storage.clearActiveAccountAuthDataIf(
           canClear: any(named: 'canClear'),
+          tellDroppedBrowserSession: any(named: 'tellDroppedBrowserSession'),
         ),
       ).thenAnswer((invocation) async {
         heldDuringClear =
@@ -1146,6 +1147,7 @@ final class _Rig {
     when(
       () => storage.clearActiveAccountAuthDataIf(
         canClear: any(named: 'canClear'),
+        tellDroppedBrowserSession: any(named: 'tellDroppedBrowserSession'),
       ),
     ).thenAnswer(
       (invocation) async =>
