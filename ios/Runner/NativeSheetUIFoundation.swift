@@ -369,17 +369,6 @@ enum NativeSheetSettingsStyle {
         }
     }
 
-    /// The body font at a medium weight, scaled with Dynamic Type: the label
-    /// of an action row (Add Account), which reads as an action by weight
-    /// while its symbol keeps every row's tint.
-    static var actionTitleFont: UIFont {
-        // 17 pt is the body size at the default text size; the metrics
-        // scale it with Dynamic Type as the body style scales.
-        UIFontMetrics(forTextStyle: .body).scaledFont(
-            for: .systemFont(ofSize: 17, weight: .medium)
-        )
-    }
-
     static func applyHeaderFooterStyle(_ view: UIView) {
         guard let headerFooter = view as? UITableViewHeaderFooterView else { return }
         headerFooter.textLabel?.font = .preferredFont(forTextStyle: .footnote)

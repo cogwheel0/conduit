@@ -7859,10 +7859,10 @@ private func configureNavigationCell(
         content.textProperties.color = NativeSheetTheme.shared.destructive
         content.imageProperties.tintColor = NativeSheetTheme.shared.destructive
     } else if item.accent {
-        // An action row (Add Account) reads as one by its label's weight;
-        // its symbol keeps the tint and size every row's symbol has.
+        // An action row (Add Account) takes the accent but every row's
+        // weight, as Settings sets its Add rows; its plus symbol and the
+        // missing chevron say it acts rather than opens a page.
         content.textProperties.color = NativeSheetTheme.shared.accent
-        content.textProperties.font = NativeSheetSettingsStyle.actionTitleFont
     }
     if showsValue {
         content.secondaryTextProperties.font = .preferredFont(forTextStyle: .body)
