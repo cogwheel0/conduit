@@ -4876,6 +4876,12 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
               );
               // Sent words are drawn by their flying bubble, not here.
               final bool hideWords = _draftHandedOff || _sentWordsLeaving;
+              // The + panel stands in for the keyboard: no caret blinks in
+              // a field nothing can be typed into.
+              final bool hideCaret =
+                  hideWords ||
+                  _isNativeAttachmentPanelVisible ||
+                  _isFallbackAttachmentPanelVisible;
               final textLabel = context.conduitTheme.inputText;
               final Color animatedTextColor = hideWords
                   ? textLabel.withValues(alpha: 0)
@@ -4923,7 +4929,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                   cursorOpacityAnimates: composerCursorOpacityAnimates(
                     usesNativePlatformView: usesNativePlatformView,
                   ),
-                  cursorColor: hideWords
+                  cursorColor: hideCaret
                       ? const Color(0x00000000)
                       : Theme.of(context).textSelectionTheme.cursorColor,
                   magnifierConfiguration: usesNativePlatformView
@@ -4970,6 +4976,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
                 textInputAction: TextInputAction.newline,
                 autofillHints: const <String>[],
                 showCursor: true,
+                cursorColor: hideCaret ? const Color(0x00000000) : null,
                 scrollPadding: const EdgeInsets.only(bottom: 80),
                 keyboardAppearance: brightness,
                 magnifierConfiguration: nativeIosTextMagnifierConfiguration,

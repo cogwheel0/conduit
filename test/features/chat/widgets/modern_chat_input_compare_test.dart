@@ -555,6 +555,27 @@ void main() {
     expect(hintAlpha(), greaterThan(0.3));
   });
 
+  composerTest('no caret blinks in the field while the + panel stands in '
+      'for the keyboard', (tester) async {
+    await pump(tester);
+    await tester.tap(find.byType(TextField));
+    await tester.pump();
+    Color? caret() =>
+        tester.widget<TextField>(find.byType(TextField)).cursorColor;
+    expect(caret(), isNull);
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('composer-overflow-button')),
+    );
+    await settle(tester);
+    expect(caret()?.a, 0);
+
+    // Back to the keyboard: the caret returns.
+    await tester.tap(find.byType(TextField));
+    await settle(tester);
+    expect(caret(), isNull);
+  });
+
   composerTest('a screen that cannot admit a comparison offers no Compare '
       'models command', (tester) async {
     await pump(tester, hostsComparison: false);
