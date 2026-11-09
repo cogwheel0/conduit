@@ -76,6 +76,7 @@ class MessagesDao extends DatabaseAccessor<AppDatabase>
         Variable.withString(chatId),
         const Variable<String>(null),
         Variable.withString(chatId),
+        Variable.withInt(safeLimit),
         Variable.withString(chatId),
         Variable.withInt(safeLimit + 1),
       ],
@@ -359,6 +360,8 @@ class MessagesDao extends DatabaseAccessor<AppDatabase>
         .getSingleOrNull();
   }
 
+  // Bound recursion as well as the final result: ORDER BY otherwise walks the
+  // entire history before LIMIT, including its growing cycle-detection path.
   static const String _activeBranchSql = '''
 WITH RECURSIVE branch(id, parent_id, depth, path) AS (
   SELECT
@@ -405,7 +408,7 @@ WITH RECURSIVE branch(id, parent_id, depth, path) AS (
   JOIN messages AS parent
     ON parent.chat_id = ?
    AND parent.id = branch.parent_id
-  WHERE branch.depth < 9999
+  WHERE branch.depth < ?
     AND instr(branch.path, ',' || parent.id || ',') = 0
 )
 SELECT message.*
@@ -434,6 +437,7 @@ LIMIT ?
             ? const Variable<String>(null)
             : Variable.withString(before.messageId),
         Variable.withString(chatId),
+        Variable.withInt(limit - 1),
         Variable.withString(chatId),
         Variable.withInt(limit),
       ],
@@ -471,27 +475,29 @@ LIMIT ?
             .clamp(0, siblingGroups.length)
             .toInt(),
       );
-      final clauses = <String>[];
-      final variables = <Variable>[Variable.withString(chatId)];
-      for (final group in chunk) {
-        final (parentId, role) = group;
-        if (parentId == null) {
-          clauses.add('(parent_id IS NULL AND role = ?)');
-        } else {
-          clauses.add('(parent_id = ? AND role = ?)');
-          variables.add(Variable.withString(parentId));
-        }
-        variables.add(Variable.withString(role));
-      }
+      // Drive the existing parent/role index from the small group list; the
+      // previous OR predicate let ORDER BY scan every message in the chat.
+      final groups = List.filled(chunk.length, '(?, ?)').join(', ');
+      final variables = <Variable>[
+        for (final (parentId, role) in chunk) ...[
+          Variable<String>(parentId),
+          Variable.withString(role),
+        ],
+        Variable.withString(chatId),
+      ];
       final remaining = maxSiblingRows == null
           ? null
           : maxSiblingRows + 1 - siblingRows.length;
       final siblingLimitClause = remaining == null ? '' : ' LIMIT $remaining';
       siblingRows.addAll(
         await customSelect(
-          'SELECT * FROM messages '
-          'WHERE chat_id = ? AND (${clauses.join(' OR ')}) '
-          'ORDER BY created_at ASC, order_index ASC, id ASC'
+          'WITH sibling_groups(parent_id, role) AS (VALUES $groups) '
+          'SELECT message.* FROM sibling_groups AS sibling '
+          'CROSS JOIN messages AS message '
+          'WHERE message.chat_id = ? '
+          'AND message.parent_id IS sibling.parent_id '
+          'AND message.role = sibling.role '
+          'ORDER BY message.created_at ASC, message.order_index ASC, message.id ASC'
           '$siblingLimitClause',
           variables: variables,
           readsFrom: {messages},
