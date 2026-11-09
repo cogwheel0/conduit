@@ -31,8 +31,10 @@ token against the provider's user info, the same way its own sign-in does.
 The provider's refresh token stays on the device, in secure storage, one per
 account. When the Open WebUI session expires, Conduit renews it silently, with
 no browser. Signing out deletes the refresh token, and revokes it if the
-provider has a revocation endpoint. Conduit doesn't end the provider's browser
-session.
+provider has a revocation endpoint. A refresh token is not revoked while
+another account on the device still signs in as the same provider user with
+the same client, since some providers end the whole grant on revocation.
+Conduit doesn't end the provider's browser session.
 
 ## Set up Open WebUI
 
