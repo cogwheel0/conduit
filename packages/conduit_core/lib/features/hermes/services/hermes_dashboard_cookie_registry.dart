@@ -52,6 +52,28 @@ Set<String> hermesDashboardCookieIdentityDelta({
   };
 }
 
+/// Whether [current], the WebView's cookies for a dashboard origin's host,
+/// holds a session cookie that [recorded], the origin's record, lacks. The
+/// WebView can hold the gateway's session without a record of it: a
+/// sign-in that reused it creates no cookie, and a record can be lost. As
+/// cookies ignore ports, only the gateway can tell such a session from
+/// another gateway's on the host, so deleting the record alone may leave it.
+bool hermesDashboardHasUnrecordedSession({
+  required Set<String> current,
+  required Set<String> recorded,
+}) => current.any(
+  (identity) =>
+      !recorded.contains(identity) &&
+      _kSessionCookieNames.contains(_cookieBaseName(identity)),
+);
+
+/// The cookies that hold a dashboard session (its access and refresh
+/// token), without a gateway's suffix.
+const Set<String> _kSessionCookieNames = {
+  'hermes_session_at',
+  'hermes_session_rt',
+};
+
 final RegExp _cookieGatewaySuffix = RegExp(r'_([0-9a-f]{16})$');
 
 /// The name in a cookie [identity], without a `__Host-` or `__Secure-`

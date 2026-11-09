@@ -11,6 +11,8 @@ import 'package:conduit_core/features/hermes/models/hermes_model.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 import 'package:conduit_core/features/hermes/services/hermes_connection_service.dart';
 import 'package:conduit_core/features/hermes/services/hermes_connection_store.dart';
+import 'package:conduit_core/features/hermes/services/hermes_dashboard_bridge.dart';
+import 'package:conduit_core/features/hermes/services/hermes_dashboard_cookie_registry.dart';
 import 'package:conduit_core/features/hermes/services/hermes_desktop_api_service.dart';
 import 'package:conduit_core/features/hermes/services/hermes_local_document_trust_store.dart';
 import 'package:conduit_core/features/hermes/services/hermes_pending_decision_store.dart';
@@ -707,6 +709,121 @@ void main() {
             .equals('alpha-key');
       },
     );
+  });
+
+  // The WebView held this gateway's dashboard session with no record of it
+  // (a sign-in that reused it), so clearing the record left it signed in.
+  group('a dashboard session the record lacks', () {
+    const headers = {'CF-Access-Client-Id': 'synthetic-id'};
+    final session = _cookie('hermes_session_at_aaaaaaaaaaaaaaaa');
+
+    Map<String, String> secretsWithHeaders() => {
+      'hermes_api_key_v1:$_a': 'alpha-key',
+      'hermes_api_key_v1:$_b': 'beta-key',
+      'hermes_desktop_credentials_v1:$_a': jsonEncode({
+        'legacy_token': 'synthetic-token',
+        'access_headers': headers,
+      }),
+    };
+
+    test('a delete asks Hermes to sign it out before the record is cleared',
+        () async {
+      _seedConnections([
+        _profile(_a, 'Alpha', 'https://alpha.example/v1'),
+        _profile(_b, 'Beta', 'https://beta.example'),
+      ], active: _b);
+      final log = <String>[];
+      final container = await _ready(
+        _Secrets(secretsWithHeaders()),
+        cookies: _HeldCookieJar(log, held: {session}),
+        signOut: ({required root, required accessHeaders}) async {
+          log.add('sign out $root ${jsonEncode(accessHeaders)}');
+          return true;
+        },
+      );
+      addTearDown(container.dispose);
+
+      await container.read(hermesConfigProvider.notifier).deleteConnection(_a);
+
+      check(log).deepEquals([
+        'sign out https://alpha.example ${jsonEncode(headers)}',
+        'clear https://alpha.example/v1',
+      ]);
+      check(container.read(hermesConnectionsProvider)).length.equals(1);
+    });
+
+    test('a session on record is cleared from the record alone', () async {
+      _seedConnections([
+        _profile(_a, 'Alpha', 'https://alpha.example'),
+        _profile(_b, 'Beta', 'https://beta.example'),
+      ], active: _b);
+      await HermesDashboardCookieRegistry.record(
+        'https://alpha.example',
+        identities: {session},
+      );
+      final log = <String>[];
+      final container = await _ready(
+        _Secrets(secretsWithHeaders()),
+        cookies: _HeldCookieJar(log, held: {session, _cookie('token')}),
+        signOut: ({required root, required accessHeaders}) async {
+          log.add('sign out $root');
+          return true;
+        },
+      );
+      addTearDown(container.dispose);
+
+      await container.read(hermesConfigProvider.notifier).deleteConnection(_a);
+
+      check(log).deepEquals(['clear https://alpha.example']);
+    });
+
+    test('a sign-out Hermes cannot answer still clears the record', () async {
+      _seedConnections([
+        _profile(_a, 'Alpha', 'https://alpha.example'),
+        _profile(_b, 'Beta', 'https://beta.example'),
+      ], active: _b);
+      final log = <String>[];
+      final container = await _ready(
+        _Secrets(secretsWithHeaders()),
+        cookies: _HeldCookieJar(log, held: {session}),
+        signOut: ({required root, required accessHeaders}) async {
+          log.add('sign out $root');
+          throw StateError('Hermes dashboard page left the dashboard.');
+        },
+      );
+      addTearDown(container.dispose);
+
+      await container.read(hermesConfigProvider.notifier).deleteConnection(_a);
+
+      check(log).deepEquals([
+        'sign out https://alpha.example',
+        'clear https://alpha.example',
+      ]);
+      check(container.read(hermesConnectionsProvider)).length.equals(1);
+    });
+
+    test('Sign Out sends the connection\'s gateway headers', () async {
+      _seedConnections([
+        _profile(_a, 'Alpha', 'https://alpha.example'),
+      ], active: _a);
+      final log = <String>[];
+      final container = await _ready(
+        _Secrets(secretsWithHeaders()),
+        cookies: _HeldCookieJar(log, held: {session}),
+        signOut: ({required root, required accessHeaders}) async {
+          log.add('sign out $root ${jsonEncode(accessHeaders)}');
+          return true;
+        },
+      );
+      addTearDown(container.dispose);
+
+      await container.read(hermesConfigProvider.notifier).signOutDesktop();
+
+      check(log).deepEquals([
+        'sign out https://alpha.example ${jsonEncode(headers)}',
+        'clear https://alpha.example',
+      ]);
+    });
   });
 
   group('inactive connections', () {
@@ -1480,11 +1597,14 @@ bool _sessionBindingTrusted(String connectionIdentity) =>
 Future<ProviderContainer> _ready(
   SecureKeyValueStore secrets, {
   CookieJarPort cookies = const NullCookieJarPort(),
+  HermesDashboardSignOut? signOut,
 }) async {
   final container = ProviderContainer(
     overrides: [
       secureStorageProvider.overrideWithValue(secrets),
       cookieJarProvider.overrideWithValue(cookies),
+      if (signOut != null)
+        hostHermesDashboardSignOutProvider.overrideWithValue(signOut),
     ],
   );
   container.read(hermesConfigProvider);
@@ -1561,3 +1681,27 @@ final class _GatedCookieJar extends NullCookieJarPort {
     return release.future;
   }
 }
+
+/// A WebView cookie store holding [held] for every origin, which logs its
+/// clears into [log].
+final class _HeldCookieJar extends NullCookieJarPort {
+  _HeldCookieJar(this.log, {required this.held});
+
+  final List<String> log;
+  final Set<String> held;
+
+  @override
+  bool get isSupported => true;
+
+  @override
+  Future<Set<String>> identitiesFor(String origin) async => held;
+
+  @override
+  Future<bool> clearForOrigin(String origin) async {
+    log.add('clear $origin');
+    return true;
+  }
+}
+
+/// A cookie identity, as the app's WebView cookie helper writes it.
+String _cookie(String name) => '$name\u0000alpha.example\u0000/';

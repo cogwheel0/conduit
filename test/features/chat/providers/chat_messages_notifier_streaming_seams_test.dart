@@ -32,6 +32,7 @@ import 'package:conduit_core/features/hermes/models/hermes_model.dart';
 import 'package:conduit_core/features/hermes/models/hermes_run_event.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 import 'package:conduit_core/features/hermes/services/hermes_api_service.dart';
+import 'package:conduit_core/features/hermes/services/hermes_backend_service.dart';
 import 'package:conduit_core/features/hermes/services/hermes_local_document_service.dart';
 import 'package:conduit_core/features/hermes/services/hermes_local_document_trust_store.dart';
 import 'package:conduit_core/features/hermes/services/hermes_message_mapper.dart';
@@ -598,6 +599,24 @@ class _RevocationHermesApi extends HermesApiService {
   Future<void> stopRun(String runId, {CancelToken? cancelToken}) async {
     stoppedRuns.add(runId);
   }
+}
+
+/// A gateway still starting after the not-ready retries: a new session
+/// cannot be created yet.
+class _StartingHermesApi extends HermesApiService {
+  _StartingHermesApi()
+    : super(
+        config: const HermesConfig(
+          enabled: true,
+          baseUrl: 'https://hermes.example',
+          apiKey: 'key',
+        ),
+        dio: Dio(),
+      );
+
+  @override
+  Future<String> createSession({String? title, CancelToken? cancelToken}) =>
+      Future.error(const HermesDesktopGatewayStartingException());
 }
 
 class _PreflightHermesApi extends HermesApiService {
@@ -5257,6 +5276,48 @@ void main() {
         container.read(chatMessagesProvider.notifier).clearMessages();
       },
     );
+
+    // Preflight showed the generic error for a gateway still starting,
+    // though Hermes' run reports say to try again in a moment.
+    test('a new session on a gateway still starting says so', () async {
+      final service = _StartingHermesApi();
+      final container = _testContainer(
+        overrides: [
+          activeConversationProvider.overrideWith(
+            () => _TestActiveConversationNotifier(),
+          ),
+          apiServiceProvider.overrideWithValue(null),
+          socketServiceProvider.overrideWithValue(null),
+          hermesConfigProvider.overrideWith(
+            () => _FixedHermesConfigController(),
+          ),
+          hermesApiServiceProvider.overrideWithValue(service),
+        ],
+      );
+      addTearDown(container.dispose);
+      container.read(chatMessagesProvider.notifier).setMessages([
+        _assistantMessage(
+          id: 'starting',
+          content: '',
+          isStreaming: true,
+          metadata: const {'transport': 'hermesRun'},
+        ),
+      ]);
+
+      await dispatchHermesRunFromChatForTest(
+        container,
+        assistantMessageId: 'starting',
+        input: 'hello',
+        existingMessages: const [],
+        forceNewSession: true,
+      ).timeout(const Duration(seconds: 1));
+
+      final reply = container.read(chatMessagesProvider).single;
+      check(
+        reply.error?.content,
+      ).equals(const HermesDesktopGatewayStartingException().message);
+      check(reply.isStreaming).isFalse();
+    });
 
     test(
       'preflight cancellation detaches and bounds stalled session cleanup',

@@ -151,6 +151,55 @@ void main() {
     ).deepEquals({dashboard});
   });
 
+  // A sign-in that reused the WebView's session for this gateway created no
+  // cookie, so none was recorded, and Sign Out left it signed in.
+  test('a session the record lacks is one only the gateway can end', () {
+    final mine = identity('hermes_session_at_aaaaaaaaaaaaaaaa');
+    final myRefresh = identity('hermes_session_rt_aaaaaaaaaaaaaaaa');
+    final theirs = identity('hermes_session_rt_bbbbbbbbbbbbbbbb');
+    final dashboard = identity('__Host-hermes_session_at');
+
+    // The reused session was never recorded.
+    check(
+      hermesDashboardHasUnrecordedSession(
+        current: {mine, myRefresh},
+        recorded: const {},
+      ),
+    ).isTrue();
+    // Recorded, the record's deletion ends it.
+    check(
+      hermesDashboardHasUnrecordedSession(
+        current: {mine, myRefresh, identity('token')},
+        recorded: {mine, myRefresh},
+      ),
+    ).isFalse();
+    // Another gateway's session, or the standalone dashboard's, cannot be
+    // told from this gateway's without asking it.
+    check(
+      hermesDashboardHasUnrecordedSession(
+        current: {mine, theirs},
+        recorded: {mine},
+      ),
+    ).isTrue();
+    check(
+      hermesDashboardHasUnrecordedSession(
+        current: {dashboard},
+        recorded: const {},
+      ),
+    ).isTrue();
+    // Cookies that hold no session ask nothing.
+    check(
+      hermesDashboardHasUnrecordedSession(
+        current: {
+          identity('token'),
+          identity('hermes_webapp_signin_aaaaaaaaaaaaaaaa'),
+          identity('hermes_session_at_x'),
+        },
+        recorded: const {},
+      ),
+    ).isFalse();
+  });
+
   test('a refreshed session cookie moves to the end of the record', () {
     final merged = mergeHermesDashboardCookieIdentities(
       existing: [identity('hermes_session_at'), identity('a'), identity('b')],

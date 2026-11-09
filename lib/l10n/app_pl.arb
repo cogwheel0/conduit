@@ -6965,7 +6965,7 @@
   "hermesFastTierOff": "Wył.",
   "hermesTurnSteer": "Skieruj",
   "hermesTurnSendNext": "Wyślij następne",
-  "hermesSteerUncertain": "Hermes nie potwierdził skierowania. Sprawdź odpowiedź, zanim wyślesz skierowanie ponownie.",
+  "hermesSteerUncertain": "Hermes nie potwierdził instrukcji. Sprawdź odpowiedź, zanim wyślesz ją ponownie.",
   "hermesTurnControlsUnsupported": "Zaktualizuj Hermes, aby włączyć bezpieczne sterowanie turą.",
   "sidebarHermesTab": "Hermes",
   "sidebarBackendSwitcher": "Backend",

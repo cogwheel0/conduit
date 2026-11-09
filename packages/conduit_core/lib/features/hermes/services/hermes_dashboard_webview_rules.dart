@@ -40,6 +40,11 @@ Uri hermesDashboardLoginUrl(Uri root) => hermesDashboardUrl(root, '/login');
 Uri hermesDashboardAuthCheckUrl(Uri root) =>
     hermesDashboardUrl(root, '/api/auth/me');
 
+/// The dashboard's sign-out: it ends the session on the server and deletes
+/// the session cookies it set, and only those.
+Uri hermesDashboardLogoutUrl(Uri root) =>
+    hermesDashboardUrl(root, '/auth/logout');
+
 /// Whether [target] has the dashboard's exact scheme, host and port.
 bool hermesDashboardIsExactOrigin(Uri target, Uri root) =>
     webViewUrlHasExactServerOrigin(target.toString(), root.toString());
@@ -143,6 +148,22 @@ const String kHermesDashboardSignInCheckScript = '''
     redirect: 'error'
   });
   return response.ok;
+''';
+
+/// Body of an async JavaScript function (argument `url`, the dashboard's
+/// [hermesDashboardLogoutUrl]) that signs the page's session out and answers
+/// whether Hermes did. It answers a sign-out with a redirect to its sign-in
+/// page that carries the deletions of its own cookies, which the WebView
+/// applies; a refused one (another page's write) is an ordinary response.
+/// The redirect is not followed. The access headers are never arguments:
+/// the page's header script adds them to this POST.
+const String kHermesDashboardSignOutScript = '''
+  const response = await fetch(url, {
+    method: 'POST',
+    credentials: 'include',
+    redirect: 'manual'
+  });
+  return response.type === 'opaqueredirect';
 ''';
 
 /// Body of an async JavaScript function (arguments `url`, `method`, `headers`,
