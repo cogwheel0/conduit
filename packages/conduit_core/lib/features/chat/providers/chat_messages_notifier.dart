@@ -658,6 +658,12 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
       )) {
         return;
       }
+      // A send's answer placeholder is local until its transport attaches,
+      // and only then is it protected. A new chat is pulled into the
+      // database before that, so its first emission holds the question and
+      // not the placeholder: adopting it dropped the placeholder, and the
+      // stream that attached a moment later had no answer to write into.
+      if (_awaitsUnstoredPlaceholder(conversation.messages)) return;
       // Rows read from the LibreChat database carry its provenance, stamped
       // here as on every LibreChat load: stored metadata is never trusted
       // for it.
@@ -708,6 +714,42 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
     if (storage == ChatStorageKind.libreChat) return null;
     return _databaseForStorage(storage);
   }
+
+  /// Whether the transcript ends in turn state that is still only local, and
+  /// that a stored copy would wrongly replace:
+  ///
+  /// * an answer marked `archivedVariant` that the stored rows do not mark:
+  ///   a regeneration is preparing to replace it, and holds its claim on the
+  ///   transcript only while that marker stands. Any emission for the chat
+  ///   meanwhile -- a sync cycle, a post-turn pull -- would otherwise end the
+  ///   regeneration without a word;
+  /// * an empty, streaming answer placeholder the stored rows do not have
+  ///   yet, for the question (or the archived answer) before it: a send or a
+  ///   regeneration whose transport has not attached. Once any text arrives
+  ///   the stream protects or settles it.
+  ///
+  /// A model comparison's answers are bound and settled through their own
+  /// transports, and their stored copies are what settles them.
+  bool _awaitsUnstoredPlaceholder(List<ChatMessage> stored) {
+    if (state.length < 2 || _slotTransports.isNotEmpty) return false;
+    final tail = state.last;
+    if (tail.role != 'assistant') return false;
+    if (tail.metadata?['archivedVariant'] == true) {
+      final storedTail = stored.where((m) => m.id == tail.id).firstOrNull;
+      return storedTail?.metadata?['archivedVariant'] != true;
+    }
+    if (!tail.isStreaming || tail.content.isNotEmpty) return false;
+    final previous = state[state.length - 2];
+    if (previous.role != 'user' &&
+        previous.metadata?['archivedVariant'] != true) {
+      return false;
+    }
+    return !stored.any((message) => message.id == tail.id);
+  }
+
+  @visibleForTesting
+  bool debugAwaitsUnstoredPlaceholder(List<ChatMessage> stored) =>
+      _awaitsUnstoredPlaceholder(stored);
 
   bool _shouldAdoptServerMessages(List<ChatMessage> serverMessages) {
     if (serverMessages.isEmpty && state.isNotEmpty) {
