@@ -125,8 +125,19 @@ ProviderContainer _container(HermesBackendService service) {
   return container;
 }
 
+/// Preferences whose writes fail while [refuseWrites] is set.
+final class _RefusingStore extends InMemoryKeyValueStore {
+  bool refuseWrites = false;
+
+  @override
+  Future<bool> setStringList(String key, List<String> value) async =>
+      !refuseWrites && await super.setStringList(key, value);
+}
+
+late _RefusingStore _store;
+
 void main() {
-  setUp(() => PreferencesStore.debugOverride(InMemoryKeyValueStore()));
+  setUp(() => PreferencesStore.debugOverride(_store = _RefusingStore()));
   tearDown(PreferencesStore.debugReset);
 
   group('a session summary', () {
@@ -743,6 +754,58 @@ void main() {
           ),
         ),
       ).throws<ArgumentError>();
+    });
+
+    // A record write that failed made the whole list fail to load, and the
+    // other hidden chats, listed nowhere else, could not be brought back.
+    test('a record that cannot be updated leaves the list loading', () async {
+      final routes = _Routes({
+        'GET /api/sessions': (_) => (200, {'data': <Object>[]}),
+        // Brought back from another app: its record is to be dropped.
+        'GET /api/sessions/api_1': (_) => (
+          200,
+          {
+            'session': {'id': 'api_1', 'title': 'Synthetic plan'},
+          },
+        ),
+        'GET /api/sessions/api_2': (_) => (
+          200,
+          {
+            'session': {
+              'id': 'api_2',
+              'title': 'Synthetic list',
+              'hidden': true,
+            },
+          },
+        ),
+      });
+      final service = _rest(routes);
+      final scope = hermesSetAsideScope(service.config);
+      for (final (id, title) in [
+        ('api_1', 'Synthetic plan'),
+        ('api_2', 'Synthetic list'),
+      ]) {
+        await HermesSetAsideSessionStore.remember(
+          HermesSetAsideSession(
+            scope: scope,
+            sessionId: id,
+            title: title,
+            kind: HermesSetAsideKind.hidden,
+          ),
+        );
+      }
+      _store.refuseWrites = true;
+      final container = _container(service);
+
+      check(
+        (await container.read(
+          hermesHiddenSessionsProvider.future,
+        )).map((session) => session.id),
+      ).deepEquals(['api_2']);
+      // Kept for a later lookup to drop.
+      check(
+        HermesSetAsideSessionStore.find(scope: scope, sessionId: 'api_1'),
+      ).isNotNull();
     });
 
     test('a full store refuses before the server changes', () async {

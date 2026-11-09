@@ -2955,7 +2955,34 @@ class HermesSessionsController
         count: cut.visibleCount,
         throughRowId: cut.throughRowId,
       );
-      if (!current()) return null;
+      // Made under a connection the user has left: the branch, and what
+      // this device kept for it, go, as a stale copy's do. Opened through
+      // the other connection, its id would name nothing, or another chat.
+      Future<void> discardStaleBranch() async {
+        if (connectionIdentity != null) {
+          try {
+            await HermesLocalDocumentTrustStore.forgetSession(
+              connectionIdentity: connectionIdentity,
+              sessionId: branchId,
+            );
+          } catch (_) {
+            DebugLogger.warning(
+              'local-document-trust-stale-branch-purge-failed',
+              scope: 'hermes/sessions',
+            );
+          }
+        }
+        try {
+          await service.deleteSession(branchId);
+        } catch (_) {
+          // Best effort: the branch stays on the server it was made on.
+        }
+      }
+
+      if (!current()) {
+        await discardStaleBranch();
+        return null;
+      }
       if (connectionIdentity != null) {
         await _carryBranchDocumentTrust(
           service,
@@ -2964,7 +2991,10 @@ class HermesSessionsController
           branchId: branchId,
           kept: transcript.sublist(0, cut.end),
         );
-        if (!current()) return null;
+        if (!current()) {
+          await discardStaleBranch();
+          return null;
+        }
       }
       Map<String, dynamic>? row;
       try {
@@ -2972,9 +3002,10 @@ class HermesSessionsController
       } catch (_) {
         // The branch is made; Hermes names it after its parent.
       }
-      // Opened through another connection, the id would name nothing, or
-      // another chat.
-      if (!current()) return null;
+      if (!current()) {
+        await discardStaleBranch();
+        return null;
+      }
       ref.invalidateSelf();
       return (
         session:
@@ -3328,19 +3359,28 @@ Future<List<HermesSessionSummary>> _hermesSetAsideSessions(
       );
     }
     // Changed only while still the record read here: a newer one (the chat
-    // hidden while this lookup ran) stays.
-    if (actual == null) {
-      await HermesSetAsideSessionStore.forgetRecord(record);
-    } else {
-      await HermesSetAsideSessionStore.replaceRecord(
-        record,
-        HermesSetAsideSession(
-          scope: record.scope,
-          sessionId: record.sessionId,
-          title: session!.title,
-          kind: actual,
-          archived: actual == HermesSetAsideKind.hidden && session.archived,
-        ),
+    // hidden while this lookup ran) stays. Best effort: a write that fails
+    // leaves the record for a later lookup, and the list still loads.
+    try {
+      if (actual == null) {
+        await HermesSetAsideSessionStore.forgetRecord(record);
+      } else {
+        await HermesSetAsideSessionStore.replaceRecord(
+          record,
+          HermesSetAsideSession(
+            scope: record.scope,
+            sessionId: record.sessionId,
+            title: session!.title,
+            kind: actual,
+            archived: actual == HermesSetAsideKind.hidden && session.archived,
+          ),
+        );
+      }
+    } catch (error) {
+      DebugLogger.warning(
+        'set-aside-record-update-failed',
+        scope: 'hermes/sessions',
+        data: {'errorType': error.runtimeType.toString()},
       );
     }
     return null;

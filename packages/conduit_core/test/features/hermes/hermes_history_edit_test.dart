@@ -215,6 +215,9 @@ final class _Rest implements HttpClientAdapter {
   /// Called with each request's path before it is answered.
   void Function(String path)? onRequest;
 
+  /// Each request as `METHOD /path`, in order.
+  final requests = <String>[];
+
   @override
   void close({bool force = false}) {}
 
@@ -225,6 +228,7 @@ final class _Rest implements HttpClientAdapter {
     Future<void>? cancelFuture,
   ) async {
     final path = options.uri.path;
+    requests.add('${options.method} $path');
     onRequest?.call(path);
     final other = RegExp(r'^/api/sessions/([^/]+)/messages$').firstMatch(path);
     final Object body;
@@ -478,6 +482,29 @@ void main() {
         () async {
       final container = _chatContainer(
         _service(_Gateway(), _Rest(_transcript)),
+        edited(),
+      );
+
+      await forgetReplacedHermesStoredContent(container, messageId: 'u2');
+
+      check(storedText(container)).equals('And drinks?');
+    });
+
+    // The edit's replacement failed before its cut, and another app sent
+    // the edited text as a later turn: that turn matched out of place, the
+    // text before the edit was dropped, and the next regenerate cut the
+    // other app's turn instead.
+    test('the text before it stays when only a later turn has the new one',
+        () async {
+      final container = _chatContainer(
+        _service(
+          _Gateway(),
+          _Rest([
+            ..._transcript,
+            {'id': 17, 'role': 'user', 'content': 'Snacks?'},
+            {'id': 18, 'role': 'assistant', 'content': 'Crisps.'},
+          ]),
+        ),
         edited(),
       );
 
@@ -1411,6 +1438,47 @@ void main() {
 
       check(gateway.calls('session.branch')).length.equals(1);
       check(branch).isNull();
+      // It stayed on the server the user left, in that connection's list.
+      check(rest.requests).contains('DELETE /api/sessions/stored-2');
+    });
+
+    test('a branch whose connection changed as it was made is removed',
+        () async {
+      final gateway = _Gateway();
+      final rest = _Rest(_transcript);
+      final service = _service(gateway, rest);
+      final connection = NotifierProvider<_Connection, HermesBackendService?>(
+        () => _Connection(service),
+      );
+      final container = _chatContainer(
+        service,
+        _chat,
+        connection: connection,
+      );
+      gateway.handler = (method, params) {
+        if (method == 'session.branch') {
+          container
+              .read(connection.notifier)
+              .use(_service(_Gateway(), _Rest(_transcript)));
+        }
+        return null;
+      };
+
+      final branch = await container
+          .read(hermesSessionsProvider.notifier)
+          .branchFromMessage(
+            sessionId: 'stored-1',
+            title: 'Synthetic picnic',
+            messages: _chat,
+            index: 1,
+          );
+
+      check(branch).isNull();
+      check(rest.requests).contains('DELETE /api/sessions/stored-2');
+      // Never read: the branch is not opened.
+      check(
+        rest.requests,
+      ).not((it) => it.contains('GET /api/sessions/stored-2'));
     });
 
     test('a Desktop branch keeps the document cards of the rows it '

@@ -747,7 +747,8 @@ Future<void> regenerateEditedHermesUserMessage(
 /// ([kHermesStoredUserContentKey]) once the session stores the edited text:
 /// from then on it names nothing of this turn, and another app may send the
 /// same text as a later one, which an edit would then cut instead. Kept when
-/// the session still holds the old text or cannot be read.
+/// the session still holds the old text at the turn's place (even if a later
+/// turn holds the edited one) or cannot be read.
 @visibleForTesting
 Future<void> forgetReplacedHermesStoredContent(
   dynamic ref, {
@@ -781,6 +782,9 @@ Future<void> forgetReplacedHermesStoredContent(
             transcript: transcript,
             messages: messages,
             index: index,
+            // The edited text is stored at the turn's own place. Out of
+            // place, the same text is a turn another app sent.
+            inPlaceOnly: true,
           ) ==
           null) {
     return;
