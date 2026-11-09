@@ -1,2 +1,10 @@
 /* Localized versions of Info.plist keys */
 CFBundleDisplayName = "Conduit";
+NSCameraUsageDescription = "O Conduit usa a câmera para tirar fotos e gravar vídeos que você escolhe compartilhar nas conversas. Por exemplo, você pode fotografar um documento e anexar em uma mensagem.";
+NSLocalNetworkUsageDescription = "O Conduit usa a sua rede local para conectar aos provedores de modelo e aos servidores de ferramentas MCP configurados.";
+NSLocationAlwaysAndWhenInUseUsageDescription = "O Conduit usa a sua localização para manter conversas e comandos com contexto de local atualizados. Quando ativado, a sua localização atual pode ser enviada e guardada na sua conta no servidor conectado.";
+NSLocationWhenInUseUsageDescription = "O Conduit usa a sua localização para manter conversas e comandos com contexto de local atualizados. Quando ativado, a sua localização atual pode ser enviada e guardada na sua conta no servidor conectado.";
+NSMicrophoneUsageDescription = "O Conduit usa o microfone para mensagens de voz, transcrição e chamadas de voz. Durante uma chamada, o microfone pode ficar ativo enquanto o Conduit espera ou fala uma resposta; o áudio é descartado quando o Conduit não está ouvindo a sua fala.";
+NSPersonalVoiceUsageDescription = "O Conduit pode usar a sua Voz Pessoal para converter texto em fala no próprio aparelho, quando você escolher essa opção nos ajustes de áudio.";
+NSPhotoLibraryUsageDescription = "O Conduit precisa de acesso à sua biblioteca de fotos para você escolher imagens ou vídeos e compartilhar nas conversas. Por exemplo, você pode escolher uma captura de tela para incluir em uma conversa.";
+NSSpeechRecognitionUsageDescription = "O Conduit usa reconhecimento de fala no próprio aparelho para você ditar mensagens sem usar as mãos. A sua fala é convertida em texto no aparelho, quando disponível.";
