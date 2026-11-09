@@ -11,6 +11,7 @@ import 'package:conduit_core/features/hermes/models/hermes_run_event.dart';
 import 'package:conduit_core/features/hermes/models/hermes_config.dart';
 import 'package:conduit_core/features/hermes/services/hermes_desktop_api_service.dart';
 import 'package:conduit_core/features/hermes/services/hermes_desktop_transport.dart';
+import 'package:conduit_core/ports/external_url_port.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
@@ -160,6 +161,62 @@ final class _StubAdapter implements HttpClientAdapter {
       },
     );
   }
+}
+
+/// Answers dashboard REST requests from a `METHOD /path` table (status and
+/// JSON body), serving `/api/status` with auth off, and records each request.
+final class _RoutesAdapter implements HttpClientAdapter {
+  _RoutesAdapter(this.routes);
+
+  final Map<String, (int, Object?)> routes;
+  final requests = <String>[];
+
+  /// Each request's headers, by `METHOD /path`.
+  final headers = <String, Map<String, dynamic>>{};
+
+  @override
+  void close({bool force = false}) {}
+
+  @override
+  Future<ResponseBody> fetch(
+    RequestOptions options,
+    Stream<Uint8List>? requestStream,
+    Future<void>? cancelFuture,
+  ) async {
+    final key = '${options.method} ${options.uri.path}';
+    headers[key] = options.headers;
+    if (options.uri.path != '/api/status') {
+      requests.add('$key?${options.uri.query}');
+    }
+    final (status, body) =
+        routes[key] ??
+        (options.uri.path == '/api/status'
+            ? (200, {'auth_required': false, 'gateway_running': true})
+            : (404, {'detail': 'Not Found'}));
+    return ResponseBody.fromString(
+      jsonEncode(body),
+      status,
+      headers: {
+        Headers.contentTypeHeader: [Headers.jsonContentType],
+      },
+    );
+  }
+}
+
+HermesDesktopApiService _restService(_RoutesAdapter adapter) {
+  final service = HermesDesktopApiService(
+    config: HermesConfig(
+      enabled: true,
+      baseUrl: 'https://hermes.example',
+      mode: HermesBackendMode.desktopGateway,
+      desktopCredentials: HermesDesktopCredentials(
+        legacyToken: 'session-token',
+      ),
+    ),
+    dio: Dio()..httpClientAdapter = adapter,
+  );
+  addTearDown(service.close);
+  return service;
 }
 
 /// Serves `/api/status` like [_StubAdapter] but fails the transcript request.
@@ -611,29 +668,47 @@ void main() {
       await service.respondToDecision(
         storedSessionId: 'stored-bot',
         runtimeId: 'runtime-bot',
-        requestId: 'req-2',
+        requestId: 'srq-2/q0',
         kind: HermesDecisionKind.clarification,
         value: 'answer',
       );
       await service.reloadMcp(runtimeId: 'runtime-bot');
-      // A DENIED MCP setup skips install/enable/authorize and goes straight
-      // to mcp.setup.respond, which must also name the bot profile.
+      // A skipped connection target goes straight to connection.respond,
+      // which must also name the bot profile.
       await service.respondToDecision(
         storedSessionId: 'stored-bot',
         runtimeId: 'runtime-bot',
-        requestId: 'req-3',
+        requestId: 'op-3/docs',
         kind: HermesDecisionKind.mcpSetup,
         value: 'deny',
         mcpServer: 'docs',
         mcpAction: 'enable',
       );
 
+      // reload.mcp takes no profile (Hermes refuses one); its session id
+      // scopes it to the bot's profile.
+      final reload = harness.sent.singleWhere(
+        (frame) => frame['method'] == 'reload.mcp',
+      );
+      check(
+        reload['params'] as Map<String, dynamic>,
+      ).deepEquals({'confirm': true, 'session_id': 'runtime-bot'});
+
       // The transport injects the CONNECTION profile as a default, so any bot
       // frame that fails to name its own profile silently travels as 'default'.
+      // Answers carry no session id but act on the bot's session too.
+      const answers = {'request.answer', 'clarify.lock', 'connection.respond'};
       final botFrames = harness.sent
-          .where((frame) => (frame['params'] as Map)['session_id'] != null)
+          .where(
+            (frame) =>
+                frame['method'] != 'reload.mcp' &&
+                ((frame['params'] as Map)['session_id'] != null ||
+                    answers.contains(frame['method'])),
+          )
           .toList();
-      check(botFrames).isNotEmpty();
+      check(
+        botFrames.map((frame) => frame['method']).toSet().containsAll(answers),
+      ).isTrue();
       for (final frame in botFrames) {
         final params = frame['params'] as Map;
         check(
@@ -740,6 +815,635 @@ void main() {
       });
       check(deltas).equals('Hello there.');
     },
+  );
+
+  test('a re-sent reply segment is shown once', () async {
+    final turn = await _streamTurn((harness) {
+      harness.event('runtime-race', 'message.start', {'turn_id': 't1'});
+      for (final (offset, text) in [
+        (0, 'Hello '),
+        (6, 'there.'),
+        // A replay re-sends the segment from its start.
+        (0, 'Hello there.'),
+      ]) {
+        harness.event('runtime-race', 'message.delta', {
+          'text': text,
+          'turn_id': 't1',
+          'segment': 0,
+          'offset': offset,
+        });
+      }
+      harness.event('runtime-race', 'message.complete', {
+        'text': 'Hello there.',
+      });
+      harness.sessionInfo('runtime-race', running: false);
+    });
+    check(
+      turn.events.whereType<HermesTokenDelta>().map((e) => e.content).join(),
+    ).equals('Hello there.');
+  });
+
+  test('a forwarded prompt ends at message.complete', () async {
+    final turn = await _streamTurn(
+      submitResult: {
+        'status': 'queued',
+        'forwarded': true,
+        'admission_id': 'adm-1',
+      },
+      (harness) {
+        harness.event('runtime-race', 'message.start');
+        harness.event('runtime-race', 'message.complete', {
+          'text': 'Answered by the owner.',
+        });
+      },
+    );
+    check(
+      turn.events.whereType<HermesFinalOutput>().single.text,
+    ).equals('Answered by the owner.');
+    check(turn.events.last).isA<HermesRunDone>();
+    check(turn.events.whereType<HermesRunError>()).isEmpty();
+  });
+
+  group('session delete', () {
+    const path = '/api/sessions/stored-1';
+
+    setUp(() async {
+      SharedPreferences.setMockInitialValues({});
+      PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
+    });
+
+    test('names the revision its snapshot reports', () async {
+      final adapter = _RoutesAdapter({
+        'GET $path/mutation-snapshot': (
+          200,
+          {
+            'session_id': 'stored-1',
+            'exists': true,
+            'runtime_revision': 2,
+            'runtime_generation': 1,
+          },
+        ),
+        'DELETE $path': (200, {'ok': true}),
+      });
+      await _restService(adapter).deleteSession('stored-1');
+
+      final delete = Uri.parse(
+        'https://hermes.example/${adapter.requests.last.split(' ').last}',
+      );
+      check(adapter.requests.last).startsWith('DELETE $path?');
+      check(delete.queryParameters['expected_revision']).equals('2');
+      check(delete.queryParameters['expected_generation']).equals('1');
+      check(delete.queryParameters['request_id']).isNotNull().isNotEmpty();
+      check(delete.queryParameters['profile']).isNotNull();
+    });
+
+    test('takes the plain delete on a dashboard without snapshots', () async {
+      final adapter = _RoutesAdapter({'DELETE $path': (200, {'ok': true})});
+      await _restService(adapter).deleteSession('stored-1');
+
+      check(adapter.requests.last).startsWith('DELETE $path?');
+      check(adapter.requests.last).not((it) => it.contains('request_id'));
+    });
+
+    test('skips a session that is already gone', () async {
+      final adapter = _RoutesAdapter({
+        'GET $path/mutation-snapshot': (
+          200,
+          {'session_id': 'stored-1', 'exists': false, 'runtime_revision': 0},
+        ),
+      });
+      await _restService(adapter).deleteSession('stored-1');
+
+      check(adapter.requests.where((r) => r.startsWith('DELETE'))).isEmpty();
+    });
+  });
+
+  test('a profile without a session store lists no sessions', () async {
+    final missing = _RoutesAdapter({
+      'GET /api/sessions': (
+        503,
+        {
+          'detail':
+              "Session store is not initialized. Start this profile's "
+              'gateway to initialize it.',
+        },
+      ),
+    });
+    check(await _restService(missing).listSessions()).isEmpty();
+
+    final broken = _RoutesAdapter({
+      'GET /api/sessions': (503, {'detail': 'storage_unavailable'}),
+    });
+    await check(_restService(broken).listSessions()).throws<Exception>();
+  });
+
+  test('a token-gated dashboard gets the session token as a bearer', () async {
+    final adapter = _RoutesAdapter({
+      'GET /api/status': (
+        200,
+        {
+          'auth_required': true,
+          'auth_providers': ['session-token'],
+          'auth_flows': ['cookie'],
+        },
+      ),
+      'GET /api/sessions': (200, {'sessions': <Object?>[]}),
+    });
+    check(await _restService(adapter).listSessions()).isEmpty();
+    check(
+      adapter.headers['GET /api/sessions']?['Authorization'],
+    ).equals('Bearer session-token');
+  });
+
+  test('a partial session.info does not block the next send', () async {
+    final turn = await _streamTurn((harness) {
+      harness.event('runtime-race', 'message.start');
+      // An owner relay's info: pending submissions, no `running`.
+      harness.event('runtime-race', 'session.info', {
+        'stored_session_id': 'stored-race',
+        'pending_submissions': <Object?>[],
+      });
+      harness.event('runtime-race', 'message.delta', {'text': 'Done.'});
+      harness.event('runtime-race', 'message.complete', {'text': 'Done.'});
+      harness.sessionInfo('runtime-race', running: false);
+    });
+    check(turn.events.whereType<HermesRunError>()).isEmpty();
+    check(
+      turn.service.turnStateFor('stored-race'),
+    ).equals(HermesDesktopTurnState.idle);
+  });
+
+  group('decisions in a restored chat', () {
+    test('the next question skips ones answered elsewhere', () async {
+      final chat = await _restoredChat({
+        'open_requests': [
+          {
+            'id': 'srq-c1',
+            'method': 'clarify',
+            'params': {
+              'session_id': 'runtime-1',
+              'questions': [
+                for (final qid in ['q0', 'q1', 'q2'])
+                  {'qid': qid, 'question': 'Pick $qid?'},
+              ],
+            },
+          },
+        ],
+      }, lock: {'status': 'ok', 'remaining': ['q2']});
+
+      await chat.service.respondToDecision(
+        storedSessionId: 'stored-1',
+        runtimeId: 'runtime-1',
+        requestId: 'srq-c1/q0',
+        kind: HermesDecisionKind.clarification,
+        value: 'Teal',
+      );
+      await pumpEventQueue();
+
+      check(
+        chat.events
+            .where((event) => event.type == 'clarify.request')
+            .map((event) => event.payload['request_id']),
+      ).deepEquals(['srq-c1/q0', 'srq-c1/q2']);
+    });
+
+    test('approving a started sign-in opens its link', () async {
+      const link = 'https://auth.example/authorize?state=abc';
+      final chat = await _restoredChat({
+        'pending_connection': {
+          'op_id': 'op-1',
+          'owner': {'type': 'session', 'session_id': 'runtime-1'},
+          'targets': [
+            {
+              'name': 'docs',
+              'kind': 'mcp',
+              'action': 'authorize',
+              'state': 'initiated',
+              'resolved': false,
+              'connect_url': link,
+            },
+          ],
+        },
+      });
+      check(
+        (await chat.service.pendingDecisionsForSession(
+          'stored-1',
+        )).map((decision) => decision.requestId),
+      ).deepEquals(['op-1/docs']);
+
+      await chat.service.respondToDecision(
+        storedSessionId: 'stored-1',
+        runtimeId: 'runtime-1',
+        requestId: 'op-1/docs',
+        kind: HermesDecisionKind.mcpSetup,
+        value: 'approve',
+      );
+
+      check(chat.opened).deepEquals([Uri.parse(link)]);
+      check(
+        chat.harness.sent.where(
+          (frame) => frame['method'] == 'connection.respond',
+        ),
+      ).isEmpty();
+    });
+
+    // The approval was used up before the link opened, so a device that
+    // refused the link left the target with no way to try again.
+    test('an approved link the device refuses is offered again', () async {
+      final chat = await _restoredChat(const {}, opens: false);
+      Map<String, Object?> docs(String state, {String? url}) => {
+        'name': 'docs',
+        'kind': 'mcp',
+        'action': 'install',
+        'state': state,
+        'connect_url': ?url,
+      };
+      chat.harness.event('runtime-1', 'connection.request', {
+        'op_id': 'op-5',
+        'targets': [docs('pending')],
+      });
+      await pumpEventQueue();
+      await chat.service.respondToDecision(
+        storedSessionId: 'stored-1',
+        runtimeId: 'runtime-1',
+        requestId: 'op-5/docs',
+        kind: HermesDecisionKind.mcpSetup,
+        value: 'approve',
+      );
+      chat.harness.event('runtime-1', 'connection.update', {
+        'op_id': 'op-5',
+        'targets': [docs('initiated', url: 'https://auth.example/docs')],
+      });
+      await pumpEventQueue();
+
+      check(chat.opened).deepEquals([Uri.parse('https://auth.example/docs')]);
+      check(
+        chat.events
+            .where((event) => event.type == 'mcp.setup.request')
+            .map((event) => event.payload['request_id']),
+      ).deepEquals(['op-5/docs', 'op-5/docs']);
+    });
+
+    // Approving an install whose credentials Hermes lacks leaves it waiting
+    // (`required_env`); its card had been answered, so nothing could set it
+    // up or skip it any more.
+    test('an approved install Hermes holds for credentials comes back',
+        () async {
+      final chat = await _restoredChat(const {});
+      Map<String, Object?> target(String name, {bool held = false}) => {
+        'name': name,
+        'kind': 'mcp',
+        'action': 'install',
+        'state': 'pending',
+        if (held) 'detail': 'waiting for DOCS_TOKEN',
+        'required_env': [
+          {
+            'name': 'DOCS_TOKEN',
+            'required': true,
+            'secret': true,
+            'default': '',
+          },
+        ],
+      };
+      chat.harness.event('runtime-1', 'connection.request', {
+        'op_id': 'op-6',
+        'targets': [target('docs'), target('notes')],
+      });
+      await pumpEventQueue();
+      await chat.service.respondToDecision(
+        storedSessionId: 'stored-1',
+        runtimeId: 'runtime-1',
+        requestId: 'op-6/docs',
+        kind: HermesDecisionKind.mcpSetup,
+        value: 'approve',
+      );
+      // Another target's frame says nothing about this one.
+      chat.harness.event('runtime-1', 'connection.update', {
+        'op_id': 'op-6',
+        'target': 'notes',
+        'from': 'pending',
+        'to': 'pending',
+        'targets': [target('docs'), target('notes')],
+      });
+      await pumpEventQueue();
+      check(
+        chat.events.where((event) => event.type == 'mcp.setup.request'),
+      ).length.equals(1);
+
+      chat.harness.event('runtime-1', 'connection.update', {
+        'op_id': 'op-6',
+        'target': 'docs',
+        'from': 'pending',
+        'to': 'pending',
+        'targets': [target('docs', held: true), target('notes')],
+      });
+      await pumpEventQueue();
+
+      final cards = chat.events
+          .where((event) => event.type == 'mcp.setup.request')
+          .toList();
+      check(
+        cards.map((event) => event.payload['request_id']),
+      ).deepEquals(['op-6/docs', 'op-6/docs']);
+      check(cards.last.payload['offer']).equals(1);
+      check(cards.last.payload['reason']).equals('waiting for DOCS_TOKEN');
+      check(
+        (await chat.service.pendingDecisionsForSession(
+          'stored-1',
+        )).map((decision) => decision.requestId),
+      ).contains('op-6/docs');
+    });
+
+    // A turn drops an event it has seen, and the card offered again has the
+    // same id: the user could not retry while the reply was running.
+    test('a card offered again reaches the running turn', () async {
+      SharedPreferences.setMockInitialValues({});
+      PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
+      final harness = _GatewayHarness();
+      final rpc = HermesDesktopRpcClient(
+        channelFactory: (_, _, {httpClient}) => harness.channel,
+      );
+      final service = HermesDesktopApiService(
+        config: HermesConfig(
+          enabled: true,
+          baseUrl: 'https://hermes.example',
+          mode: HermesBackendMode.desktopGateway,
+          desktopCredentials: HermesDesktopCredentials(
+            legacyToken: 'session-token',
+          ),
+        ),
+        dio: _statusDio(),
+        rpc: rpc,
+        openExternalUrl: _RecordingUrlOpener(opens: false),
+      );
+      addTearDown(() async {
+        service.close();
+        await harness.dispose();
+      });
+      harness.responder = (method) => switch (method) {
+        'prompt.submit' => const {'status': 'streaming'},
+        'session.resume' => {
+          'session_id': 'runtime-race',
+          'stored_session_id': 'stored-race',
+          'running': false,
+        },
+        'config.get' => {'value': 'medium'},
+        _ => const {},
+      };
+      final response = await service.streamDesktopResponse(
+        HermesChatInput.text('hello'),
+        sessionId: 'stored-race',
+        options: const HermesDesktopSessionOptions(),
+      );
+      final events = response.events.toList();
+      await pumpEventQueue();
+      Map<String, Object?> docs(String state, {String? url}) => {
+        'name': 'docs',
+        'kind': 'mcp',
+        'action': 'install',
+        'state': state,
+        'connect_url': ?url,
+      };
+      harness.event('runtime-race', 'message.start');
+      harness.event('runtime-race', 'connection.request', {
+        'op_id': 'op-7',
+        'targets': [docs('pending')],
+      });
+      await pumpEventQueue();
+      await service.respondToDecision(
+        runtimeId: 'runtime-race',
+        requestId: 'op-7/docs',
+        kind: HermesDecisionKind.mcpSetup,
+        value: 'approve',
+      );
+      harness.event('runtime-race', 'connection.update', {
+        'op_id': 'op-7',
+        'targets': [docs('initiated', url: 'https://auth.example/docs')],
+      });
+      await pumpEventQueue();
+      harness.event('runtime-race', 'message.complete', {'text': 'Done.'});
+      harness.sessionInfo('runtime-race', running: false);
+
+      check(
+        (await events.timeout(const Duration(seconds: 5)))
+            .whereType<HermesDecisionRequested>()
+            .map((event) => event.requestId),
+      ).deepEquals(['op-7/docs', 'op-7/docs']);
+    });
+
+    // Reading a restored chat resumes it, which replays its open requests;
+    // each replay re-saved the request and asked for another read.
+    test(
+      'a replayed request that changed nothing reads the chat once',
+      () async {
+        final chat = await _restoredChat({
+          'open_requests': [
+            {
+              'id': 'srq-s7',
+              'method': 'sudo',
+              'params': {'session_id': 'runtime-1', 'command': 'apt update'},
+            },
+          ],
+        });
+        final changes = <String>[];
+        final sub = chat.service.transcriptChanges.listen(changes.add);
+        addTearDown(sub.cancel);
+
+        await chat.service.getSessionMessages('stored-1');
+        await pumpEventQueue();
+        await chat.service.getSessionMessages('stored-1');
+        await pumpEventQueue();
+
+        check(changes).isEmpty();
+      },
+    );
+
+    test('a request closed while no turn listens stays closed', () async {
+      final chat = await _restoredChat(const {});
+      // Asked and withdrawn while no turn of this chat was open: both wait
+      // in the buffer a resume reads.
+      chat.harness.event('runtime-1', 'sudo.request', {
+        'request_id': 'srq-s9',
+        'command': 'apt update',
+      });
+      await pumpEventQueue();
+      chat.harness.event('runtime-1', 'sudo.expire', {'request_id': 'srq-s9'});
+      await pumpEventQueue();
+
+      // Reading the chat resumes it, which saves what the buffer holds.
+      await chat.service.getSessionMessages('stored-1');
+      await pumpEventQueue();
+      final pending = await chat.service.pendingDecisionsForSession(
+        'stored-1',
+      );
+
+      check(pending.map((decision) => decision.requestId)).isEmpty();
+    });
+
+    test('the next target re-reads the chat once it is saved', () async {
+      final chat = await _restoredChat(const {});
+      Map<String, Object?> target(String name, String state) => {
+        'name': name,
+        'kind': 'mcp',
+        'action': 'enable',
+        'state': state,
+      };
+      chat.harness.event('runtime-1', 'connection.request', {
+        'op_id': 'op-2',
+        'targets': [target('docs', 'pending'), target('notes', 'pending')],
+      });
+      await pumpEventQueue();
+      final reads = <Future<List<String>>>[];
+      final changes = chat.service.transcriptChanges.listen((storedId) {
+        reads.add(
+          chat.service
+              .pendingDecisionsForSession(storedId)
+              .then((all) => [for (final d in all) d.requestId]),
+        );
+      });
+      addTearDown(changes.cancel);
+
+      // The first card's buffered event keeps the queue non-empty.
+      chat.harness.event('runtime-1', 'connection.update', {
+        'op_id': 'op-2',
+        'targets': [target('docs', 'connected'), target('notes', 'pending')],
+      });
+      await pumpEventQueue();
+
+      check(reads).isNotEmpty();
+      check(await reads.last).deepEquals(['op-2/notes']);
+    });
+  });
+}
+
+/// A Desktop chat restored with no turn running: `session.resume` returns
+/// [snapshot]'s extras, `clarify.lock` returns [lock]. Collects the RPC
+/// events and the links opened.
+Future<
+  ({
+    HermesDesktopApiService service,
+    _GatewayHarness harness,
+    List<HermesDesktopEvent> events,
+    List<Uri> opened,
+  })
+>
+_restoredChat(
+  Map<String, Object?> snapshot, {
+  Map<String, Object?> lock = const {'status': 'ok', 'remaining': <String>[]},
+  bool opens = true,
+}) async {
+  SharedPreferences.setMockInitialValues({});
+  PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
+  final harness = _GatewayHarness();
+  final rpc = HermesDesktopRpcClient(
+    channelFactory: (_, _, {httpClient}) => harness.channel,
+  );
+  final events = <HermesDesktopEvent>[];
+  rpc.events.listen(events.add);
+  final opener = _RecordingUrlOpener(opens: opens);
+  final service = HermesDesktopApiService(
+    config: HermesConfig(
+      enabled: true,
+      baseUrl: 'https://hermes.example',
+      mode: HermesBackendMode.desktopGateway,
+      desktopCredentials: HermesDesktopCredentials(
+        legacyToken: 'session-token',
+      ),
+    ),
+    dio: _statusDio(),
+    rpc: rpc,
+    openExternalUrl: opener,
+  );
+  addTearDown(() async {
+    service.close();
+    await harness.dispose();
+  });
+  harness.responder = (method) => switch (method) {
+    'session.resume' => {
+      'session_id': 'runtime-1',
+      'stored_session_id': 'stored-1',
+      'running': false,
+      ...snapshot,
+    },
+    'clarify.lock' => lock,
+    _ => const {},
+  };
+  await service.pendingDecisionsForSession('stored-1');
+  await pumpEventQueue();
+  return (
+    service: service,
+    harness: harness,
+    events: events,
+    opened: opener.opened,
+  );
+}
+
+final class _RecordingUrlOpener implements OpenExternalUrlPort {
+  _RecordingUrlOpener({this.opens = true});
+
+  /// What [open] answers: false is a device that refuses the link.
+  final bool opens;
+  final opened = <Uri>[];
+
+  @override
+  Future<bool> open(Uri url) async {
+    opened.add(url);
+    return opens;
+  }
+}
+
+/// Streams one turn on a resumed session: Hermes acknowledges
+/// `prompt.submit` with [submitResult], then [frames] arrive. Returns the
+/// events that reached the caller, and the service.
+Future<({List<HermesRunEvent> events, HermesDesktopApiService service})>
+_streamTurn(
+  void Function(_GatewayHarness harness) frames, {
+  Map<String, dynamic> submitResult = const {'status': 'streaming'},
+}) async {
+  SharedPreferences.setMockInitialValues({});
+  PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
+  final harness = _GatewayHarness();
+  final rpc = HermesDesktopRpcClient(
+    channelFactory: (_, _, {httpClient}) => harness.channel,
+  );
+  final service = HermesDesktopApiService(
+    config: HermesConfig(
+      enabled: true,
+      baseUrl: 'https://hermes.example',
+      mode: HermesBackendMode.desktopGateway,
+      desktopCredentials: HermesDesktopCredentials(
+        legacyToken: 'session-token',
+      ),
+    ),
+    dio: _statusDio(),
+    rpc: rpc,
+  );
+  addTearDown(() async {
+    service.close();
+    await harness.dispose();
+  });
+  harness.responder = (method) => switch (method) {
+    'prompt.submit' => submitResult,
+    'session.resume' => {
+      'session_id': 'runtime-race',
+      'stored_session_id': 'stored-race',
+      'running': false,
+    },
+    'config.get' => {'value': 'medium'},
+    _ => const {},
+  };
+
+  final response = await service.streamDesktopResponse(
+    HermesChatInput.text('hello'),
+    sessionId: 'stored-race',
+    options: const HermesDesktopSessionOptions(),
+  );
+  final events = response.events.toList();
+  await Future<void>.delayed(Duration.zero);
+  frames(harness);
+  return (
+    events: await events.timeout(const Duration(seconds: 5)),
+    service: service,
   );
 }
 

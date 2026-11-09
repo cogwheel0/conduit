@@ -50,7 +50,7 @@ void main() {
       ).isTrue();
       check(gateway.ticketAuthorizations).deepEquals(['Bearer access']);
       check(gateway.socketTickets).deepEquals(['native-ticket']);
-      check(gateway.rpcMethods).deepEquals(['model.options']);
+      check(gateway.rpcMethods).deepEquals(['client.capabilities', 'model.options']);
     },
   );
 
@@ -94,7 +94,7 @@ void main() {
     check(bridges.expand((bridge) => bridge.requests).toList())
         .deepEquals(['GET /api/profiles', 'POST /api/auth/ws-ticket']);
     check(gateway.socketTickets).deepEquals(['dashboard-ticket']);
-    check(gateway.rpcMethods).deepEquals(['model.options']);
+    check(gateway.rpcMethods).deepEquals(['client.capabilities', 'model.options']);
   });
 
   group('connection name suggestion', () {

@@ -67,6 +67,11 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
     // `session.info` is left over from before the prompt (session setup, a
     // late MCP refresh) and must not end the turn before it starts.
     var turnStarted = false;
+    // Set when Hermes admitted the prompt into the session owner's queue
+    // instead of running it here: only the owner's message.start and
+    // message.complete are relayed, so message.complete ends the turn.
+    var forwarded = false;
+    final segments = HermesDeltaSegments();
     var disconnectReconciliationRunning = false;
     final eventsBeforePromptAcknowledgement = Queue<HermesDesktopEvent>();
     late final StreamSubscription<HermesDesktopEvent> subscription;
@@ -129,6 +134,20 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
           (event.type == 'session.info' && payload['running'] == true)) {
         turnStarted = true;
       }
+      if (event.type == 'message.delta') {
+        final text = value('delta').isNotEmpty ? value('delta') : value('text');
+        final fresh = segments.unseen(
+          turnId: payload['turn_id'],
+          segment: payload['segment'],
+          offset: payload['offset'],
+          text: text,
+        );
+        if (fresh == null) return;
+        if (fresh.length != text.length) {
+          controller.add(HermesTokenDelta(fresh));
+          return;
+        }
+      }
       if (_projectHermesTurnEvent(
         event,
         add: controller.add,
@@ -150,6 +169,10 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
                   ? 'Hermes failed to complete the response.'
                   : value('error'),
             );
+          } else if (forwarded) {
+            // The owner wrote the reply to the stored transcript; read it.
+            finish(authoritativeIdle: true);
+            _emitTranscriptChange(storedId);
           }
         case 'approval.request':
           final requestId = validateHermesOpaqueIdentifier(
@@ -257,14 +280,10 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
             );
           }
         case 'session.info':
-          final running = payload['running'];
-          if (running is! bool) {
-            _applyAuthoritativeRunning(
-              running,
-              storedId: binding.storedId,
-              runtimeId: binding.runtimeId,
-            );
-          } else if (!running && promptAcknowledged && turnStarted) {
+          // A partial info without `running` says nothing about the turn.
+          if (payload['running'] == false &&
+              promptAcknowledged &&
+              turnStarted) {
             finish(authoritativeIdle: true);
           }
         case 'error':
@@ -359,7 +378,7 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
       }
       eventsBeforePromptAcknowledgement.clear();
       if (freshSession) _freshSessionIds.remove(storedId);
-      await _rpc.request<Object?>(
+      final submitted = await _rpc.request<Object?>(
         'prompt.submit',
         params: {
           ...hermesPromptSubmitParams(
@@ -370,6 +389,7 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
           ..._sessionScope(binding.storedId),
         },
       );
+      forwarded = submitted is Map && submitted['forwarded'] == true;
       if (cancelToken?.isCancelled == true) {
         promptAcknowledged = true;
         try {
@@ -486,7 +506,11 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
     if (explicit != null) return '${event.type}:$explicit';
     if (event.type.endsWith('.request')) {
       final request = payload['request_id'] ?? payload['id'];
-      if (request != null) return '${event.type}:$request';
+      // A connection card offered again is a new offer of the same card.
+      final offer = payload['offer'];
+      if (request != null) {
+        return '${event.type}:$request${offer is int ? '#$offer' : ''}';
+      }
     }
     if (event.type == 'message.complete') {
       final message = payload['message_id'] ?? payload['id'];
@@ -503,14 +527,16 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
     return null;
   }
 
-  Future<void> _persistPendingDecisionEvent(HermesDesktopEvent event) async {
+  /// Saves the decision [event] asks for; resolves to whether that changed
+  /// what is saved (a replay of one already saved changes nothing).
+  Future<bool> _persistPendingDecisionEvent(HermesDesktopEvent event) async {
     final storedId = _storedIdForRuntime(event.sessionId);
     final runtimeId = validateHermesOpaqueIdentifier(event.sessionId);
     final requestId = validateHermesOpaqueIdentifier(
       event.payload['request_id'] ?? event.payload['id'],
       sensitiveValues: config.sensitiveValues,
     );
-    if (storedId == null || runtimeId == null || requestId == null) return;
+    if (storedId == null || runtimeId == null || requestId == null) return false;
     final kind = switch (event.type) {
       'approval.request' => HermesPendingDesktopDecisionKind.approval,
       'clarify.request' => HermesPendingDesktopDecisionKind.clarification,
@@ -519,7 +545,7 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
       'mcp.setup.request' => HermesPendingDesktopDecisionKind.mcpSetup,
       _ => null,
     };
-    if (kind == null) return;
+    if (kind == null) return false;
     final prompt = switch (event.type) {
       'approval.request' =>
         event.payload['command'] ?? event.payload['description'],
@@ -528,7 +554,7 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
       'mcp.setup.request' => event.payload['reason'] ?? event.payload['server'],
       _ => event.payload['prompt'],
     };
-    await HermesPendingDecisionStore.upsert(
+    return HermesPendingDecisionStore.upsert(
       origin: _origin,
       connectionId: config.connectionId,
       storedSessionId: storedId,
@@ -971,15 +997,9 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
       throw ArgumentError.value(choice, 'choice');
     }
     await _ensureConnected();
-    await _rpc.request<Object?>(
-      'approval.respond',
-      params: {
-        'session_id': runId,
-        'request_id': approvalId,
-        'choice': choice,
-        ..._runtimeScope(runId),
-      },
-    );
+    // [approvalId] is the server request's id; `expired` means another
+    // surface or the deadline settled it first, which closes the card too.
+    await _answerServerRequest(runId, approvalId, {'choice': choice});
     await HermesPendingDecisionStore.resolve(
       origin: _origin,
       connectionId: config.connectionId,
@@ -1015,41 +1035,75 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
     }
     await _ensureConnected();
     if (kind == HermesDecisionKind.mcpSetup) {
-      await _administration.respondToMcpSetup(
+      await _administration.respondToConnection(
         runtimeId: runtimeId,
-        requestId: requestId,
+        cardId: requestId,
         approved: value == 'approve',
-        server: mcpServer,
-        action: mcpAction,
       );
-      return;
+    } else if (kind == HermesDecisionKind.clarification) {
+      await _lockClarifyAnswer(
+        runtimeId,
+        cardId: requestId,
+        answer: value,
+        storedSessionId: storedSessionId,
+      );
+    } else {
+      await _answerServerRequest(runtimeId, requestId, {'value': value});
     }
-    final method = switch (kind) {
-      HermesDecisionKind.clarification => 'clarify.respond',
-      HermesDecisionKind.sudo => 'sudo.respond',
-      HermesDecisionKind.secret => 'secret.respond',
-      HermesDecisionKind.mcpSetup => throw StateError('unreachable'),
-    };
-    final valueKey = switch (kind) {
-      HermesDecisionKind.clarification => 'answer',
-      HermesDecisionKind.sudo => 'password',
-      HermesDecisionKind.secret => 'value',
-      HermesDecisionKind.mcpSetup => throw StateError('unreachable'),
-    };
-    await _rpc.request<Object?>(
-      method,
-      params: {
-        'session_id': runtimeId,
-        'request_id': requestId,
-        valueKey: value,
-        ..._runtimeScope(runtimeId),
-      },
-    );
     await HermesPendingDecisionStore.resolve(
       origin: _origin,
       connectionId: config.connectionId,
       runtimeId: runtimeId,
       requestId: requestId,
     );
+  }
+
+  /// Answers the open server request [requestId] by RPC. It works from any
+  /// socket, including one opened after the request was sent.
+  Future<void> _answerServerRequest(
+    String runtimeId,
+    String requestId,
+    Map<String, Object?> result,
+  ) => _rpc.request<Object?>(
+    'request.answer',
+    params: {'id': requestId, 'result': result, ..._runtimeScope(runtimeId)},
+  );
+
+  /// Locks one clarify question's [answer]; the last question's lock answers
+  /// the whole request. Then shows the next question the lock's `remaining`
+  /// names (another surface may have answered some), which after a restart
+  /// only a fresh resume snapshot still lists.
+  Future<void> _lockClarifyAnswer(
+    String runtimeId, {
+    required String cardId,
+    required String answer,
+    String? storedSessionId,
+  }) async {
+    final card = parseHermesClarifyCardId(cardId);
+    if (card == null) {
+      throw StateError('Hermes returned an invalid question.');
+    }
+    final result = _object(
+      await _rpc.request<Object?>(
+        'clarify.lock',
+        params: {
+          'request_id': card.requestId,
+          'question_id': card.questionId,
+          'answer': answer,
+          ..._runtimeScope(runtimeId),
+        },
+      ),
+    );
+    final remaining = result['remaining'];
+    if (result['status'] != 'ok' || remaining is! List || remaining.isEmpty) {
+      return;
+    }
+    if (!_rpc.showNextClarifyQuestion(
+      cardId,
+      remaining: remaining.map((questionId) => '$questionId'),
+    )) {
+      final storedId = storedSessionId ?? _storedIdForRuntime(runtimeId);
+      if (storedId != null) await _resume(storedId, refresh: true);
+    }
   }
 }

@@ -9,6 +9,7 @@ import 'package:conduit_core/conduit_core.dart';
 import 'package:meta/meta.dart';
 import 'package:crypto/crypto.dart';
 import 'package:dio/dio.dart';
+import 'package:uuid/uuid.dart';
 
 import 'package:conduit_core/utils/debug_logger.dart';
 
@@ -260,6 +261,10 @@ final class HermesDesktopApiService
   final Set<String> _freshSessionIds = {};
   final Map<String, List<Map<String, dynamic>>> _lastTranscripts = {};
   final Map<String, String> _appliedSessionOptions = {};
+
+  /// Connection targets (operation/target card ids) the user approved on
+  /// this device, whose authorization link this device then opens.
+  final Set<String> _approvedConnectionTargets = {};
 
   /// Sessions owned by another profile (Bot Mode chats), keyed by stored id.
   /// Absent means the connection's configured profile owns the session.

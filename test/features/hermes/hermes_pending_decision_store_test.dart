@@ -40,6 +40,66 @@ void main() {
     check(stored).not((it) => it.contains('answer'));
   });
 
+  test('a whole Authorization value is redacted, scheme and all', () async {
+    await HermesPendingDecisionStore.upsert(
+      origin: 'https://hermes.example:443',
+      storedSessionId: 'stored-1',
+      runtimeId: 'runtime-1',
+      requestId: 'request-2',
+      kind: HermesPendingDesktopDecisionKind.secret,
+      prompt: 'Send this header? Authorization: Bearer service-token',
+      sensitiveValues: const <String>[],
+    );
+
+    final records = await HermesPendingDecisionStore.forSession(
+      origin: 'https://hermes.example:443',
+      storedSessionId: 'stored-1',
+    );
+    check(records.single.prompt!).not((it) => it.contains('service-token'));
+  });
+
+  test('a long prompt reads back as saved, so a replay changes nothing',
+      () async {
+    // 400 scalars of two UTF-16 units each.
+    final prompt = 'Pick one ${'🌊' * 400}';
+    Future<bool> save() => HermesPendingDecisionStore.upsert(
+      origin: 'https://hermes.example:443',
+      storedSessionId: 'stored-1',
+      runtimeId: 'runtime-1',
+      requestId: 'request-4',
+      kind: HermesPendingDesktopDecisionKind.secret,
+      prompt: prompt,
+      sensitiveValues: const <String>[],
+    );
+
+    check(await save()).isTrue();
+    check(await save()).isFalse();
+    final records = await HermesPendingDecisionStore.forSession(
+      origin: 'https://hermes.example:443',
+      storedSessionId: 'stored-1',
+    );
+    check(records.single.prompt).isNotNull();
+  });
+
+  // Redaction lengthens this choice past the saved bound: it was saved, then
+  // dropped on read, so every replay counted as a change.
+  test('a choice redaction lengthens reads back as saved', () async {
+    final choice = 'password=x ${'w' * 60}';
+    Future<bool> save() => HermesPendingDecisionStore.upsert(
+      origin: 'https://hermes.example:443',
+      storedSessionId: 'stored-1',
+      runtimeId: 'runtime-1',
+      requestId: 'request-5',
+      kind: HermesPendingDesktopDecisionKind.clarification,
+      prompt: 'Which one?',
+      choices: [choice, 'Teal'],
+      sensitiveValues: const <String>[],
+    );
+
+    check(await save()).isTrue();
+    check(await save()).isFalse();
+  });
+
   test('resolution and origin cleanup remove only matching records', () async {
     for (final request in const <String>['request-1', 'request-2']) {
       await HermesPendingDecisionStore.upsert(

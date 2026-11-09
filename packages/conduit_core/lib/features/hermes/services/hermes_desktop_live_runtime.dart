@@ -44,7 +44,22 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
     }
     _stateSubscription ??= _rpc.events.listen((event) {
       final startedBuffering = _eventBuffer.add(event);
-      if (event.type == 'session.info') {
+      // Buffered: no turn shows this session's events, so a restored chat
+      // re-reads its cards once the saved decisions changed. Only a change
+      // counts: reading the chat resumes it, which replays its open requests,
+      // and a replay that changed nothing must not read it again.
+      final sessionId = event.sessionId;
+      final buffered = sessionId != null && _eventBuffer.hasPending(sessionId);
+      void refreshRestoredCards(bool changed) {
+        final storedId = _storedIdForRuntime(sessionId);
+        if (changed && buffered && storedId != null) {
+          _emitTranscriptChange(storedId);
+        }
+      }
+
+      // Partial infos (a forwarded owner's relay, a service-tier change)
+      // carry no `running` and say nothing about the turn.
+      if (event.type == 'session.info' && event.payload['running'] is bool) {
         // Update BOTH keys. `session.create` can omit `running`, which parks
         // the stored id at unsupportedGateway; a runtime-only update never
         // clears that, so the second turn onward fails the safety gate with
@@ -60,7 +75,14 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
           event.type == 'sudo.request' ||
           event.type == 'secret.request' ||
           event.type == 'mcp.setup.request') {
-        unawaited(_persistPendingDecisionEvent(event));
+        unawaited(
+          _persistPendingDecisionEvent(
+            event,
+          ).then(refreshRestoredCards, onError: (Object _) {}),
+        );
+      }
+      if (event.type == 'connection.update') {
+        _administration.openApprovedConnectionLink(event.payload);
       }
       if (event.type == 'approval.responded' ||
           event.type == 'approval.expire' ||
@@ -68,11 +90,14 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
           event.type == 'sudo.expire' ||
           event.type == 'secret.expire' ||
           event.type == 'mcp.setup.expire') {
-        unawaited(_resolvePendingDecisionEvent(event));
+        unawaited(
+          _resolvePendingDecisionEvent(
+            event,
+          ).then(refreshRestoredCards, onError: (Object _) {}),
+        );
       }
       if (startedBuffering &&
           (event.type == 'message.complete' ||
-              event.type.endsWith('.request') ||
               (event.type == 'session.info' &&
                   event.payload['running'] == false))) {
         final storedId = _storedIdForRuntime(event.sessionId);
@@ -82,14 +107,18 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
     _emitTurnState(HermesDesktopTurnState.idle);
   }
 
-  Future<void> _resolvePendingDecisionEvent(HermesDesktopEvent event) async {
+  /// Removes the saved decision [event] closes; resolves to whether one
+  /// was saved.
+  Future<bool> _resolvePendingDecisionEvent(HermesDesktopEvent event) async {
     final runtimeId = validateHermesOpaqueIdentifier(event.sessionId);
     final requestId = validateHermesOpaqueIdentifier(
       event.payload['request_id'] ?? event.payload['id'],
       sensitiveValues: config.sensitiveValues,
     );
-    if (runtimeId == null || requestId == null) return;
-    await HermesPendingDecisionStore.resolve(
+    if (runtimeId == null || requestId == null) return false;
+    // A resume saves what the buffer holds: a closed request leaves it too.
+    _eventBuffer.dropRequest(runtimeId, requestId);
+    return HermesPendingDecisionStore.resolve(
       origin: _origin,
       connectionId: config.connectionId,
       runtimeId: runtimeId,
@@ -261,55 +290,12 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
     for (final event in _eventBuffer.pending(runtime)) {
       await _persistPendingDecisionEvent(event);
     }
-    await _restorePendingFromResume(result, binding);
+    // Questions asked while no socket of ours was attached. Replayed as
+    // events: the events listener persists them, and an open turn shows
+    // them once it adopts this runtime id.
+    _rpc.replayOpenRequests(result['open_requests']);
+    _rpc.replayPendingConnection(result['pending_connection'], runtime);
     return (binding: binding, running: running is bool ? running : null);
-  }
-
-  Future<void> _restorePendingFromResume(
-    Map<String, dynamic> result,
-    HermesSessionBinding binding,
-  ) async {
-    final approval = _object(result['pending_approval']);
-    final approvalId = validateHermesOpaqueIdentifier(
-      approval['request_id'],
-      sensitiveValues: config.sensitiveValues,
-    );
-    if (approvalId != null) {
-      final command = approval['command']?.toString() ?? '';
-      final description = approval['description']?.toString() ?? '';
-      await HermesPendingDecisionStore.upsert(
-        origin: _origin,
-        connectionId: config.connectionId,
-        storedSessionId: binding.storedId,
-        runtimeId: binding.runtimeId,
-        requestId: approvalId,
-        kind: HermesPendingDesktopDecisionKind.approval,
-        prompt: command.isNotEmpty ? command : description,
-        choices: _desktopDecisionChoices(approval['choices']),
-        sensitiveValues: config.sensitiveValues,
-        profile: _sessionProfiles[binding.storedId],
-      );
-    }
-    final clarify = _object(result['pending_clarify']);
-    final clarifyId = validateHermesOpaqueIdentifier(
-      clarify['request_id'],
-      sensitiveValues: config.sensitiveValues,
-    );
-    if (clarifyId != null) {
-      await HermesPendingDecisionStore.upsert(
-        origin: _origin,
-        connectionId: config.connectionId,
-        storedSessionId: binding.storedId,
-        runtimeId: binding.runtimeId,
-        requestId: clarifyId,
-        kind: HermesPendingDesktopDecisionKind.clarification,
-        prompt: clarify['question']?.toString(),
-        choices: _desktopDecisionChoices(clarify['choices']),
-        multiSelect: clarify['multi_select'] == true,
-        sensitiveValues: config.sensitiveValues,
-        profile: _sessionProfiles[binding.storedId],
-      );
-    }
   }
 
   Future<String> _runtimeCreateSession({
@@ -381,14 +367,28 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
     return stored;
   }
 
-  Future<List<Map<String, dynamic>>> _runtimeListSessions() async => _objects(
-    await _requestJson(
-      'GET',
-      '/api/sessions',
-      query: {'limit': 100, 'offset': 0, 'order': 'recent'},
-    ),
-    'sessions',
-  );
+  Future<List<Map<String, dynamic>>> _runtimeListSessions() async {
+    try {
+      return _objects(
+        await _requestJson(
+          'GET',
+          '/api/sessions',
+          query: {'limit': 100, 'offset': 0, 'order': 'recent'},
+          readErrorDetail: true,
+        ),
+        'sessions',
+      );
+    } on HermesDesktopHttpException catch (error) {
+      // Hermes 0.22+ browses read-only: a profile whose gateway never ran
+      // has no session store yet, which is an empty list, not a failure.
+      if (_hermesSessionStoreNotInitialized(error)) return const [];
+      rethrow;
+    }
+  }
+
+  bool _hermesSessionStoreNotInitialized(HermesDesktopHttpException error) =>
+      error.status == 503 &&
+      (error.detail?.startsWith('Session store is not initialized') ?? false);
 
   Future<List<Map<String, dynamic>>> _runtimeGetSessionMessages(
     String id, {
@@ -553,10 +553,8 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
         );
       }
     }
-    await _requestJson(
-      'DELETE',
-      '/api/sessions/${Uri.encodeComponent(binding?.storedId ?? id)}',
-      query: _sessionScope(binding?.storedId ?? id),
+    await _deleteStoredSession(
+      binding?.storedId ?? id,
       cancelToken: cancelToken,
     );
     if (binding != null) {
@@ -574,6 +572,48 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
       origin: _origin,
       connectionId: config.connectionId,
       storedSessionId: binding?.storedId ?? id,
+    );
+  }
+
+  /// Deletes a stored session over REST. Hermes 0.22.3+ fences session
+  /// edits: the delete must name the revision and generation its
+  /// `mutation-snapshot` reports, under a request id a retry can repeat, or
+  /// it is refused with 409 `client_upgrade_required`. An older dashboard
+  /// has no snapshot route (404) and takes the plain delete.
+  Future<void> _deleteStoredSession(
+    String storedId, {
+    CancelToken? cancelToken,
+  }) async {
+    final path = '/api/sessions/${Uri.encodeComponent(storedId)}';
+    final scope = _sessionScope(storedId);
+    Map<String, dynamic>? snapshot;
+    try {
+      snapshot = _object(
+        await _requestJson(
+          'GET',
+          '$path/mutation-snapshot',
+          query: scope,
+          cancelToken: cancelToken,
+        ),
+      );
+    } catch (error) {
+      if (_hermesDesktopHttpStatus(error) != 404) rethrow;
+    }
+    if (snapshot != null && snapshot['exists'] == false) return;
+    final revision = snapshot?['runtime_revision'];
+    final generation = snapshot?['runtime_generation'];
+    await _requestJson(
+      'DELETE',
+      path,
+      query: {
+        ...scope,
+        if (snapshot != null) ...{
+          'request_id': const Uuid().v4(),
+          if (revision is int) 'expected_revision': revision,
+          if (generation is int) 'expected_generation': generation,
+        },
+      },
+      cancelToken: cancelToken,
     );
   }
 
