@@ -16,26 +16,25 @@ actual shared desktop pointer in Watch as well as Control. The build fails if
 the expected upstream negotiation changes. Native desktop frames show whatever
 cursor the server captures. Browser frames do not publish an agent cursor
 position; the blue pointer marks only the user's input during Control and is
-hidden on Watch, blur, disconnect and mode changes.
-
-Desktop is the default when advertised. Both preview and live view explicitly
-select Desktop or Browser. Only Browser has navigation controls. Landscape uses
-a side panel, preserving the live surface across rotation. Larger accessibility
-text uses a scrollable layout so every control remains reachable. After taking
-control, Watch explains that a new chat message continues the task.
+hidden on Watch, disconnect and mode changes.
 
 In a saved Open WebUI chat, select a Computer-enabled terminal with the existing
-composer Terminal picker or the sidebar's Terminal tab. With a supported terminal,
-Computer in the composer's menu opens the viewer explicitly. The card above the
-composer appears only after a Computer tool call in the latest assistant turn or
-an explicit open during this chat session; selecting a terminal alone leaves it
-hidden. Explicit activity resets on chat, account, or terminal changes.
+composer Terminal picker or the sidebar's Terminal tab. The chat header then
+shows a Computer button. Finding out whether the terminal offers Desktop or
+Browser reads only `/api/config`; nothing starts until the button is pressed.
 
-Settings > Chat > Computer disables the feature on this device, removes both
-entry points, releases any open viewer, and prevents Computer discovery and
+The viewer is a full-screen page: the remote screen, letterboxed on the page
+background, under a toolbar with Back, the Desktop/Browser title (a menu when
+the terminal offers both; Desktop is the default), a keyboard button and More.
+More holds Trackpad mode, Paste and Recenter pointer (trackpad only), Zoom,
+desktop Sound, and for Browser a row of Back, Forward, Reload and Go to
+address, Browser tabs, Desktop site and Lower data use.
+
+Settings > Chat > Computer disables the feature on this device, removes the
+header button, releases any open viewer, and prevents Computer discovery and
 connection requests. The preference survives restarts. It does not change the
-server's tools or stop other clients' sessions. No preview or stream
-is opened until requested.
+server's tools or stop other clients' sessions. No stream is opened until
+requested.
 
 Protocol references:
 - https://github.com/open-webui/open-terminal/tree/v0.17.2/open_terminal
@@ -52,11 +51,15 @@ cookies are excluded, direct terminals receive no proxy credentials, and remote
 HTML navigation stays blocked. Closing the viewer closes the relay and sockets.
 
 Credentials exist only in a mounted viewer's in-memory configuration. Never log
-WebSocket URLs: browser viewer URLs contain a scoped access token. Previews are
-explicit, in-memory snapshots and are discarded on collapse or backgrounding.
-Take control waits for the chat's response cancellation; this is not an exclusive
-lock on the server or on other clients. Returning to Watch does not resume a model
-response. A new chat message continues work.
+WebSocket URLs: browser viewer URLs contain a scoped access token.
+
+The user controls the screen whenever the chat's response is idle. While a
+response runs, the agent drives and the screen is watch-only, with an "Agent is
+working" bar whose Take control waits for the response's cancellation before
+granting input; this is not an exclusive lock on the server or on other
+clients. A new response returns the screen to Watch, closing the keyboard and
+any tab sheet. Stopping does not resume later; a new chat message continues
+work. Backgrounding returns to Watch until the stream is live again.
 
 ## API coverage
 
@@ -69,34 +72,39 @@ and [desktop](https://github.com/open-webui/open-terminal/blob/v0.17.2/open_term
 | `/api/config`, `/desktop` | Advertised Desktop/Browser capabilities, desktop transport and optional audio |
 | `/desktop/stream` | Authenticated VNC or native frames; shared cursor where captured, pointer/keyboard/paste, release on handoff |
 | `/desktop/audio` | Explicit, initially muted WebM/Opus playback when both server and device support it; stops on background/disconnect |
-| `/desktop/screenshot`, `/browser/screenshot` | On-demand preview, discarded on collapse/background |
 | `/browser/tabs` | Refreshable list limited to the current user and chat |
 | `/browser/sessions`, `/browser/sessions/{id}` | Create, select, keep alive and explicitly close tabs; clean up failed new sessions |
 | `/browser/view/{id}/{token}/stream`, `/vnc` | Both browser transports; navigation, input, frame acknowledgments, visibility, viewport and quality |
-| `/desktop/action`, `/browser/action` | Named keyboard combinations from the mobile toolbar, targeting the displayed browser session explicitly |
-| `/browser/snapshot` and batched action tools | Remain server-side agent capabilities; Conduit does not replace or restrict the model's tools |
+| `/desktop/action`, `/browser/action` | Named keyboard combinations from the keyboard row's ⌘ key, targeting the displayed browser session explicitly |
+| `/desktop/screenshot`, `/browser/screenshot`, `/browser/snapshot` and batched action tools | Remain server-side agent capabilities; Conduit does not replace or restrict the model's tools |
 
-Tab mutations require Take control. A newly selected tab opens in Watch, and
-closing the last tab leaves an empty state rather than silently creating another.
-While empty, Watch rechecks every three seconds and on resume for the agent's
-next tab; it pauses these checks in the background or during tab management.
-Existing proxy-mode tabs show a start-live-view hint without fetching pixels or
-changing server mode. Take control first stops the response, then activates
-Chrome and grants input when the stream is live. Watch can also attach if the
-agent activates the tab itself. Backgrounding cancels any pending input grant.
-Leaving the viewer does not close the user's tabs. Display options include three
-quality levels and a desktop website viewport. Mouse input includes right-click,
-double-click and modifiers; the keyboard dialog also supports named combinations
-such as `Ctrl+A`, `Alt+Tab` and `Cmd+C` through the server's action API.
+Tab changes require control, so they wait for an idle chat or Take control.
+Closing the last tab leaves an empty state with a New tab button rather than
+silently creating another. While empty, the viewer rechecks every three seconds
+and on resume for the agent's next tab; it pauses these checks in the
+background or during tab management. An existing proxy-mode tab starts its live
+view (activating Chrome) only while the chat is idle; while a response runs it
+shows a start-live-view hint without fetching pixels or changing server mode,
+until Take control. The viewer also attaches if the agent activates the tab
+itself. Leaving the viewer does not close the user's tabs. Mouse input includes
+right-click, double-click and modifiers.
 
-On phones and tablets, Pointer controls switches between direct touch and a
-relative trackpad. In trackpad mode, slide to move without clicking, tap to click,
-hold to drag, and use two fingers to scroll or tap for a right-click. Explicit
-click, right-click, double-click and Start/End drag controls support precise work
-without covering the pointer. A locked drag survives finger lifts and ends on a
-tap, explicit End drag, Watch, blur, disconnect or backgrounding. The pointer
-state is independent of the connection status. Input mode resets when switching
-Desktop/Browser or browser tabs.
+The keyboard button opens the system keyboard. What is typed goes to the remote
+screen as it is typed: text, Backspace and Return, with input-method text sent
+once committed. A row above the keyboard adds Esc, Tab and the arrow keys, and
+⌘ opens a dialog for named combinations such as `Ctrl+A`, `Alt+Tab` and `Cmd+C`
+through the server's action API. The screen moves up above the keyboard; a
+remote browser keeps its viewport and scales, instead of reflowing, while any
+keyboard is up. A blur of the viewer releases held keys and buttons without
+leaving control.
+
+Touch drives the remote pointer directly by default. Trackpad mode in More
+turns touch into a relative trackpad: slide to move without clicking, tap to
+click, hold to drag, and use two fingers to scroll or tap for a right-click.
+Recenter pointer moves the pointer back to the middle of the screen. A held
+drag ends on lifting, Watch, disconnect or backgrounding. Trackpad mode and the
+browser display options carry across reconnects and a switch of
+Desktop/Browser.
 
 This feature is the remote Computer viewer. Upstream's separate HTML Proxy
 preview is not embedded: arbitrary remote HTML never runs in the viewer's
@@ -107,7 +115,7 @@ user input only. VNC uses the actual server-rendered pointer.
 
 `computer_tabs_integration_test.dart` exercises the production Dart service
 against both isolated browser backends, including creation, selection, shortcuts,
-screenshots, last-tab closure, and rejection of access from another chat scope.
+last-tab closure, and rejection of access from another chat scope.
 Run it from `packages/conduit_core` with `COMPUTER_REVIEW=true flutter test
 test/features/terminal/computer_tabs_integration_test.dart` after the setup below.
 
@@ -150,9 +158,9 @@ profile. Never attach this fixture to a personal browser or production terminal.
    computer-review`, then select its Chrome mode. Run Flutter with
    `--target tool/computer_review.dart --dart-define=COMPUTER_REVIEW_URL=http://127.0.0.1:8766`
    on a fresh simulator for the browser-only setup.
-5. Use the play button to run the timed task. Open the preview, watch live, take
-   control, tap or scroll, then return to Watch. Record only the simulator's
-   framebuffer. Review the entire recording before sharing.
+5. Use the play button to run the timed task. Open Computer from the header
+   button, watch live, tap or scroll, and type with the keyboard. Record only
+   the simulator's framebuffer. Review the entire recording before sharing.
 
 The browser integration test creates and removes its own separate session:
 

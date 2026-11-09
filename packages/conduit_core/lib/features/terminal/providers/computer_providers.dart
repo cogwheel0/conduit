@@ -6,7 +6,6 @@ import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart
 import 'package:conduit_core/models/chat_comparison.dart';
 import 'package:conduit_core/features/tools/providers/tools_providers.dart';
 
-import '../models/computer_activity.dart';
 import '../models/computer_models.dart';
 import '../models/terminal_models.dart';
 import '../services/computer_service.dart';
@@ -73,37 +72,4 @@ final computerAvailableProvider = Provider<bool>((ref) {
       !capabilities.isLoading &&
       !capabilities.hasError &&
       capabilities.value?.available == true;
-});
-
-/// An explicit open remains active only in this account/chat/terminal session.
-final computerOpenedProvider = NotifierProvider<ComputerOpenedNotifier, bool>(
-  ComputerOpenedNotifier.new,
-);
-
-class ComputerOpenedNotifier extends Notifier<bool> {
-  @override
-  bool build() {
-    ref.watch(computerEnabledProvider);
-    ref.watch(terminalServiceProvider);
-    ref.watch(terminalSessionScopeIdProvider);
-    ref.watch(selectedTerminalIdProvider);
-    return false;
-  }
-
-  void open() => state = true;
-}
-
-/// No desktop discovery here: GET /desktop starts a VM on Open Terminal.
-/// The latest assistant turn or an explicit open establishes chat activity.
-final computerActiveProvider = Provider<bool>((ref) {
-  if (!ref.watch(computerEnabledProvider) ||
-      ref.watch(selectedTerminalIdProvider) == null) {
-    return false;
-  }
-  if (ref.watch(computerOpenedProvider)) return true;
-  final messages = ref.watch(chatMessagesProvider);
-  for (final message in messages.reversed) {
-    if (message.role == 'assistant') return usesComputer(message);
-  }
-  return false;
 });

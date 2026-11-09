@@ -186,6 +186,65 @@ void main() {
     await tester.runAsync(() => Future<void>.delayed(Duration.zero));
   });
 
+  testWidgets('a held viewport keeps the browser size under the keyboard', (
+    tester,
+  ) async {
+    final controller = ComputerSurfaceController();
+    Widget harness({required double height, required bool hold}) =>
+        Directionality(
+          textDirection: TextDirection.ltr,
+          child: Align(
+            alignment: Alignment.topLeft,
+            child: SizedBox(
+              width: 400,
+              height: height,
+              child: ComputerSurfaceView(
+                connection: ComputerConnection(
+                  surface: ComputerSurface.browser,
+                  streamUri: Uri.parse('ws://computer.example/browser/stream'),
+                ),
+                controller: controller,
+                holdViewport: hold,
+                onState: (_) {},
+              ),
+            ),
+          ),
+        );
+    await tester.pumpWidget(harness(height: 560, hold: false));
+    await tester.pumpAndSettle();
+    final params = tester
+        .widget<InAppWebView>(find.byType(InAppWebView))
+        .platform
+        .params;
+    final web = ComputerTestWebController();
+    params.onWebViewCreated!(web);
+    params.onLoadStop!(web, null);
+    for (var i = 0; i < 50 && web.scripts.isEmpty; i++) {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 10)),
+      );
+      await tester.pump();
+    }
+    expect(web.scripts.single, contains('"height":560'));
+    Iterable<String> viewports() =>
+        web.scripts.where((s) => s.startsWith('window.computer?.viewport'));
+
+    // The keyboard shrinks the view; the remote page keeps its size.
+    await tester.pumpWidget(harness(height: 300, hold: true));
+    await tester.pump();
+    expect(viewports(), isEmpty);
+    // Back to the size the page already has: nothing to resend.
+    await tester.pumpWidget(harness(height: 560, hold: false));
+    await tester.pump();
+    expect(viewports(), isEmpty);
+    // A real change, such as rotation, still resizes it.
+    await tester.pumpWidget(harness(height: 480, hold: false));
+    await tester.pump();
+    expect(viewports().single, contains('"height":480'));
+    await tester.pumpWidget(const SizedBox());
+    await tester.runAsync(() => Future<void>.delayed(Duration.zero));
+  });
+
   testWidgets('retiring viewer cannot dispose or detach its replacement', (
     tester,
   ) async {

@@ -53,11 +53,16 @@ class ComputerSurfaceView extends StatefulWidget {
     required this.connection,
     required this.controller,
     required this.onState,
+    this.holdViewport = false,
   });
 
   final ComputerConnection connection;
   final ComputerSurfaceController controller;
   final ValueChanged<Map<String, dynamic>> onState;
+
+  /// Keeps the remote browser's viewport while the view is briefly smaller,
+  /// as under the keyboard. The page scales down instead of reflowing.
+  final bool holdViewport;
 
   @override
   State<ComputerSurfaceView> createState() => _ComputerSurfaceViewState();
@@ -68,7 +73,7 @@ class _ComputerSurfaceViewState extends State<ComputerSurfaceView> {
   ComputerSocketRelay? _relay;
   late final Future<String> _document = _load();
   bool _started = false;
-  Size? _lastSize;
+  Size? _sentSize;
   InAppWebViewController? _web;
 
   Map<String, Object> _viewport(Size size) => {
@@ -83,7 +88,7 @@ class _ComputerSurfaceViewState extends State<ComputerSurfaceView> {
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=3">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src blob: data:; media-src blob:; connect-src ws://127.0.0.1:* data:; base-uri 'none'; form-action 'none'">
 <style>
-html,body{margin:0;width:100%;height:100%;background:#111318;overflow:auto;overscroll-behavior:none;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
+html,body{margin:0;width:100%;height:100%;background:transparent;overflow:auto;overscroll-behavior:none;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
 #surface{width:100%;height:100%;display:flex;align-items:center;justify-content:center;overflow:auto}
 #surface.zoomed{align-items:flex-start;justify-content:flex-start}
 #frame{display:block;max-width:100%;max-height:100%;object-fit:contain;flex-shrink:0}
@@ -109,16 +114,19 @@ html,body{margin:0;width:100%;height:100%;background:#111318;overflow:auto;overs
     super.dispose();
   }
 
+  void _sendViewport(Size size) {
+    if (_sentSize == size) return;
+    _sentSize = size;
+    unawaited(widget.controller._call('viewport', _viewport(size)));
+  }
+
   @override
   Widget build(BuildContext context) => LayoutBuilder(
     builder: (context, constraints) {
       final size = constraints.biggest;
-      if (_lastSize != size) {
-        _lastSize = size;
+      if (!widget.holdViewport && _sentSize != size) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (mounted && _started) {
-            unawaited(widget.controller._call('viewport', _viewport(size)));
-          }
+          if (mounted && _started && !widget.holdViewport) _sendViewport(size);
         });
       }
       return FutureBuilder<String>(
@@ -195,7 +203,10 @@ html,body{margin:0;width:100%;height:100%;background:#111318;overflow:auto;overs
                 final config = widget.connection.toViewerConfig()
                   ..['url'] = relay.streamUri.toString()
                   ..['visible'] = widget.controller._visible;
-                if (size != null) config['viewport'] = _viewport(size);
+                if (size != null) {
+                  _sentSize = size;
+                  config['viewport'] = _viewport(size);
+                }
                 await web.evaluateJavascript(
                   source:
                       '(() => { const start = () => window.computer.start(${jsonEncode(config)}); if (window.computer) start(); else window.addEventListener("computerReady", start, {once:true}); })()',

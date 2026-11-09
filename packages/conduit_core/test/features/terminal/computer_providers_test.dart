@@ -2,8 +2,6 @@ import 'dart:async';
 
 import 'package:conduit_core/features/terminal/models/computer_models.dart';
 import 'package:conduit_core/features/terminal/services/computer_service.dart';
-import 'package:conduit_core/features/chat/providers/chat_providers.dart';
-import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit_core/features/terminal/models/terminal_models.dart';
 import 'package:conduit_core/features/terminal/providers/computer_providers.dart';
 import 'package:conduit_core/features/terminal/providers/terminal_providers.dart';
@@ -17,27 +15,9 @@ class _Terminal extends Mock implements TerminalService {}
 
 class _Computer extends Mock implements ComputerService {}
 
-class _Messages extends ChatMessagesNotifier {
-  @override
-  List<ChatMessage> build() => [];
-  void replace(List<ChatMessage> messages) => state = messages;
-}
-
 void main() {
-  test('without a selected terminal activity leaves chat state alone', () {
-    final container = ProviderContainer.test(
-      overrides: [
-        computerEnabledProvider.overrideWithValue(true),
-        chatMessagesProvider.overrideWith(() {
-          fail('Idle Computer must not initialize chat state');
-        }),
-      ],
-    );
-    expect(container.read(computerActiveProvider), isFalse);
-  });
-
   test(
-    'manual entry disappears while its connection scope refreshes',
+    'the chat header entry disappears while its connection scope refreshes',
     () async {
       Completer<ComputerService?>? pending;
       final service = _Computer();
@@ -65,63 +45,6 @@ void main() {
       expect(container.read(computerAvailableProvider), isFalse);
     },
   );
-
-  test('activity follows this chat and disabling clears an explicit open', () {
-    var enabled = true;
-    var scope = 'chat-one';
-    final container = ProviderContainer.test(
-      overrides: [
-        computerEnabledProvider.overrideWith((ref) => enabled),
-        terminalSessionScopeIdProvider.overrideWith((ref) => scope),
-        terminalServiceProvider.overrideWith((ref) => _Terminal()),
-        chatMessagesProvider.overrideWith(_Messages.new),
-      ],
-    );
-    container.read(selectedTerminalIdProvider.notifier).set('terminal');
-    container.listen(computerActiveProvider, (_, _) {});
-    final messages = container.read(chatMessagesProvider.notifier) as _Messages;
-    final computerTurn = ChatMessage(
-      id: 'tool-turn',
-      role: 'assistant',
-      content: '',
-      timestamp: DateTime.utc(2026),
-      output: [
-        {'type': 'function_call', 'name': 'desktop_action'},
-      ],
-    );
-    expect(container.read(computerActiveProvider), isFalse);
-    messages.replace([computerTurn]);
-    expect(container.read(computerActiveProvider), isTrue);
-    messages.replace([
-      computerTurn,
-      ChatMessage(
-        id: 'next-turn',
-        role: 'assistant',
-        content: 'A fresh reply.',
-        timestamp: DateTime.utc(2026),
-      ),
-    ]);
-    expect(container.read(computerActiveProvider), isFalse);
-    container.read(computerOpenedProvider.notifier).open();
-    expect(container.read(computerActiveProvider), isTrue);
-    scope = 'chat-two';
-    container.invalidate(terminalSessionScopeIdProvider);
-    expect(container.read(computerActiveProvider), isFalse);
-    container.read(computerOpenedProvider.notifier).open();
-    container.read(selectedTerminalIdProvider.notifier).set('another-terminal');
-    expect(container.read(computerActiveProvider), isFalse);
-    container.read(computerOpenedProvider.notifier).open();
-    container.invalidate(terminalServiceProvider);
-    expect(container.read(computerActiveProvider), isFalse);
-    container.read(computerOpenedProvider.notifier).open();
-    enabled = false;
-    container.invalidate(computerEnabledProvider);
-    expect(container.read(computerActiveProvider), isFalse);
-    expect(container.read(computerAvailableProvider), isFalse);
-    enabled = true;
-    container.invalidate(computerEnabledProvider);
-    expect(container.read(computerActiveProvider), isFalse);
-  });
 
   test('disabled Computer never discovers a terminal', () async {
     var probes = 0;

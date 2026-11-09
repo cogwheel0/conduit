@@ -1,5 +1,5 @@
 // Synthetic local review harness. Production Computer widgets, real terminal.
-import 'package:conduit/features/terminal/widgets/computer_launcher.dart';
+import 'package:conduit/features/terminal/widgets/computer_page.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/l10n/conduit_localizations.dart';
 import 'package:conduit/shared/theme/app_theme.dart';
@@ -71,6 +71,27 @@ class _ReviewChat extends StatelessWidget {
       leading: const Icon(Icons.menu_rounded),
       title: const Text('Weekend workshop'),
       actions: [
+        // The chat header's Computer button, without the chat around it.
+        Consumer(
+          builder: (context, ref, _) => IconButton(
+            tooltip: 'Computer',
+            onPressed: () async {
+              final service = await ref.read(computerServiceProvider.future);
+              if (service == null) return;
+              final capabilities = await service.capabilities();
+              if (!context.mounted) return;
+              await Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => ComputerPage(
+                    service: service,
+                    capabilities: capabilities,
+                  ),
+                ),
+              );
+            },
+            icon: const Icon(Icons.desktop_windows_outlined),
+          ),
+        ),
         IconButton(onPressed: () {}, icon: const Icon(Icons.edit_square)),
       ],
     ),
@@ -134,7 +155,6 @@ class _ReviewChat extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 12),
-            const ComputerLauncher(),
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
               decoration: BoxDecoration(

@@ -1,5 +1,4 @@
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:dio/dio.dart';
 import 'package:conduit_core/services/server_tls_http_client_factory.dart';
@@ -226,22 +225,6 @@ class ComputerService {
         ],
       },
     );
-  }
-
-  Future<Uint8List> screenshot(ComputerConnection connection) async {
-    final response = await terminal.requestComputer(
-      server,
-      connection.surface == ComputerSurface.desktop
-          ? 'desktop/screenshot'
-          : 'browser/screenshot',
-      sessionScopeId: scope,
-      responseType: ResponseType.bytes,
-      queryParameters: {
-        if (connection.browserSession != null)
-          'session_id': connection.browserSession!.id,
-      },
-    );
-    return Uint8List.fromList((response.data as List).cast<int>());
   }
 }
 

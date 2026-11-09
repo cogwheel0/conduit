@@ -53,7 +53,6 @@ void main() {
         final desktop = (await service.open(ComputerSurface.desktop))!;
         expect(desktop.streamUri.query, isEmpty);
         expect(desktop.chatId, chatId);
-        expect(await service.screenshot(desktop), isNotEmpty);
         final desktopRelay = await ComputerSocketRelay.start(desktop);
         relays.add(desktopRelay);
         final socket = await WebSocket.connect(
@@ -144,7 +143,6 @@ void main() {
         expect(await service.browserTabs(), hasLength(2));
         final browser = await service.selectBrowserTab(ownedTabs.first);
         await service.sendShortcut(browser, 'Ctrl+A');
-        expect((await service.screenshot(browser)).take(4), [137, 80, 78, 71]);
         final browserRelay = await ComputerSocketRelay.start(browser);
         relays.add(browserRelay);
         final stream = await WebSocket.connect(

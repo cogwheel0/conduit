@@ -1,31 +1,46 @@
 import 'dart:async';
+import 'dart:convert';
 
+import 'package:conduit/features/terminal/widgets/computer_browser_tabs.dart';
 import 'package:conduit/features/terminal/widgets/computer_page.dart';
-import 'package:conduit/l10n/conduit_localizations.dart';
+import 'package:conduit/features/terminal/widgets/computer_surface.dart';
 import 'package:conduit/l10n/app_localizations.dart';
+import 'package:conduit/l10n/conduit_localizations.dart';
 import 'package:conduit_core/features/chat/providers/chat_providers.dart';
 import 'package:conduit_core/features/terminal/models/computer_models.dart';
 import 'package:conduit_core/features/terminal/providers/computer_providers.dart';
 import 'package:conduit_core/features/terminal/services/computer_service.dart';
 import 'package:conduit_core/models/chat_message.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
-import 'package:conduit/features/terminal/widgets/computer_surface.dart';
-import 'package:conduit/features/terminal/widgets/computer_browser_tabs.dart';
-
-import 'computer_test_platform.dart';
-
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:mocktail/mocktail.dart';
+
+import 'computer_test_platform.dart';
 
 class _Service extends Mock implements ComputerService {}
 
 class _Messages extends ChatMessagesNotifier {
+  _Messages(this.initial);
+
+  final List<ChatMessage> initial;
+
   @override
-  List<ChatMessage> build() => [];
+  List<ChatMessage> build() => initial;
 }
+
+const _both = ComputerCapabilities(desktop: true, browser: true);
+const _browserOnly = ComputerCapabilities(browser: true);
+
+ChatMessage _response() => ChatMessage(
+  id: 'running-response',
+  role: 'assistant',
+  content: '',
+  timestamp: DateTime.utc(2026),
+  isStreaming: true,
+);
 
 Widget _harness(
   ComputerService service, {
@@ -33,6 +48,8 @@ Widget _harness(
   double textScale = 1,
   Future<ComputerService?> Function()? loadService,
   bool Function()? enabled,
+  ComputerCapabilities capabilities = _both,
+  bool responding = false,
 }) => ProviderScope(
   overrides: [
     computerEnabledProvider.overrideWith((ref) => enabled?.call() ?? true),
@@ -43,7 +60,9 @@ Widget _harness(
           ? service
           : await loadService(),
     ),
-    chatMessagesProvider.overrideWith(_Messages.new),
+    chatMessagesProvider.overrideWith(
+      () => _Messages(responding ? [_response()] : []),
+    ),
     if (takeControl != null)
       computerTakeControlProvider.overrideWithValue(takeControl),
   ],
@@ -56,10 +75,7 @@ Widget _harness(
           .copyWith(textScaler: TextScaler.linear(textScale)),
       child: child!,
     ),
-    home: ComputerPage(
-      service: service,
-      capabilities: const ComputerCapabilities(desktop: true, browser: true),
-    ),
+    home: ComputerPage(service: service, capabilities: capabilities),
   ),
 );
 
@@ -68,9 +84,76 @@ ComputerConnection _connection(ComputerSurface surface) => ComputerConnection(
   streamUri: Uri.parse('ws://computer.example/${surface.name}/stream'),
 );
 
+ComputerConnection _tab(String id, {String mode = 'chrome'}) =>
+    ComputerConnection(
+      surface: ComputerSurface.browser,
+      streamUri: Uri.parse('ws://computer.example/browser/stream'),
+      browserSession: ComputerBrowserSession(
+        id: id,
+        token: 'synthetic',
+        chromeAvailable: true,
+        mode: mode,
+      ),
+    );
+
+/// Frames without settling: spinners animate forever.
+Future<void> _frames(WidgetTester tester) async {
+  await tester.pump();
+  await tester.pump(const Duration(milliseconds: 400));
+}
+
+ComputerSurfaceView _view(WidgetTester tester) =>
+    tester.widget<ComputerSurfaceView>(find.byType(ComputerSurfaceView));
+
+/// Mounts the viewer's WebView controller and reports the stream live.
+Future<ComputerTestWebController> _live(WidgetTester tester) async {
+  final web = ComputerTestWebController();
+  tester
+      .widget<InAppWebView>(find.byType(InAppWebView))
+      .platform
+      .params
+      .onWebViewCreated!(web);
+  _view(tester).onState({'status': 'live'});
+  await _frames(tester);
+  return web;
+}
+
+/// The commands the viewer received, decoded.
+List<Map<String, dynamic>> _commands(ComputerTestWebController web) => [
+  for (final script in web.scripts)
+    if (script.startsWith('window.computer?.command('))
+      jsonDecode(
+        script.substring('window.computer?.command('.length, script.length - 1),
+      ) as Map<String, dynamic>,
+];
+
+void _respond(WidgetTester tester, {required bool running}) =>
+    ProviderScope.containerOf(tester.element(find.byType(ComputerPage)))
+        .read(chatMessagesProvider.notifier)
+        .setMessages(running ? [_response()] : []);
+
+Future<void> _openMenu(WidgetTester tester) async {
+  await tester.tap(find.byKey(const ValueKey('computer-more-button')));
+  await _frames(tester);
+}
+
+Future<void> _menu(WidgetTester tester, String item) async {
+  await _openMenu(tester);
+  await tester.tap(find.text(item).last);
+  await _frames(tester);
+}
+
+Future<void> _switchTo(WidgetTester tester, String surface) async {
+  await tester.tap(find.byKey(const ValueKey('computer-surface-menu')));
+  await _frames(tester);
+  await tester.tap(find.text(surface).last);
+  await _frames(tester);
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   registerFallbackValue(ComputerSurface.desktop);
+  registerFallbackValue(_connection(ComputerSurface.desktop));
   late InAppWebViewPlatform? previous;
   setUp(() {
     rootBundle.evict('assets/computer/viewer.js');
@@ -88,222 +171,68 @@ void main() {
         .setMockMessageHandler('flutter/assets', null);
   });
 
-  testWidgets(
-    'tabs require takeover, close to empty, and dismiss on background',
-    (tester) async {
-      final service = _Service();
-      var tabs = [const ComputerBrowserTab(id: 'one', title: 'Workshop')];
-      var gates = 0;
-      final browser = ComputerConnection(
-        surface: ComputerSurface.browser,
-        streamUri: Uri.parse('ws://computer.example/browser/stream'),
-        browserSession: const ComputerBrowserSession(
-          id: 'one',
-          token: 'synthetic',
-          chromeAvailable: true,
-          mode: 'chrome',
-        ),
-      );
-      when(() => service.open(any())).thenAnswer(
-        (call) async =>
-            call.positionalArguments.first == ComputerSurface.browser
-            ? (tabs.isEmpty ? null : browser)
-            : _connection(ComputerSurface.desktop),
-      );
-      when(service.browserTabs).thenAnswer((_) async => tabs);
-      when(() => service.closeBrowserTab('one')).thenAnswer((_) async {
-        tabs = [];
-      });
-      when(service.createBrowserTab).thenAnswer((_) async => browser);
-      await tester.pumpWidget(
-        _harness(
-          service,
-          takeControl: () async {
-            gates++;
-            return true;
-          },
-        ),
-      );
-      await tester.pump();
-      await tester.pump();
-      await tester.tap(find.text('Browser'));
-      await tester.pump();
-      await tester.pump();
-      tester
-          .widget<ComputerSurfaceView>(find.byType(ComputerSurfaceView))
-          .onState({'status': 'live'});
-      await tester.pumpAndSettle();
-      await tester.tap(find.bySemanticsLabel('Browser tabs'));
-      await tester.pumpAndSettle();
-      expect(find.byType(ComputerBrowserTabs), findsOneWidget);
-      await tester.tap(find.text('Take control').last);
-      await tester.pumpAndSettle();
-      expect(gates, 1);
-      expect(find.text('Return to Watch'), findsNothing);
-      expect(find.bySemanticsLabel('Type on computer'), findsNothing);
-      await tester.tap(find.bySemanticsLabel('Close tab: Workshop'));
-      await tester.pumpAndSettle();
-      verify(() => service.closeBrowserTab('one')).called(1);
-      expect(find.byType(ComputerSurfaceView), findsNothing);
-      verifyNever(service.createBrowserTab);
-      verify(() => service.open(ComputerSurface.browser)).called(1);
-      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
-      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
-      await tester.pump();
-      await tester.pump();
-      expect(find.byType(ComputerSurfaceView), findsNothing);
-      expect(find.text('No browser tabs'), findsWidgets);
-      verify(() => service.open(ComputerSurface.browser)).called(1);
-      verifyNever(service.createBrowserTab);
-      await tester.tap(find.text('Browser tabs'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Take control').last);
-      await tester.pumpAndSettle();
-      await tester.tap(find.bySemanticsLabel('New tab'));
-      await tester.pump();
-      await tester.pump(const Duration(seconds: 1));
-      verify(service.createBrowserTab).called(1);
-      tester
-          .widget<ComputerSurfaceView>(find.byType(ComputerSurfaceView))
-          .onState({'status': 'live'});
-      await tester.pumpAndSettle();
-      expect(find.text('Watching live'), findsOneWidget);
-      await tester.tap(find.bySemanticsLabel('Browser tabs'));
-      await tester.pumpAndSettle();
-      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
-      await tester.pump();
-      await tester.pump(const Duration(seconds: 1));
-      expect(find.byType(ComputerBrowserTabs), findsNothing);
-      expect(find.byType(ComputerPage), findsOneWidget);
-      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
-      await tester.pumpWidget(const SizedBox());
-      expect(tester.takeException(), isNull);
-    },
-  );
+  test('a typed address without a scheme opens over https', () {
+    expect(
+      computerAddressUrl(' example.com/path '),
+      'https://example.com/path',
+    );
+    expect(
+      computerAddressUrl('http://192.168.1.4:8080'),
+      'http://192.168.1.4:8080',
+    );
+    expect(computerAddressUrl('about:blank'), 'about:blank');
+  });
 
-  for (final background in [false, true]) {
-    testWidgets('empty Watch discovers an agent tab (background=$background)', (
-      tester,
-    ) async {
+  for (final accepted in [true, false]) {
+    testWidgets('the user drives while idle and watches a running response '
+        'until Take control stops it (accepted: $accepted)', (tester) async {
       final service = _Service();
-      ComputerConnection? browser;
-      when(() => service.open(any())).thenAnswer(
-        (call) async =>
-            call.positionalArguments.first == ComputerSurface.browser
-            ? browser
-            : _connection(ComputerSurface.desktop),
-      );
+      when(() => service.open(any()))
+          .thenAnswer((_) async => _connection(ComputerSurface.desktop));
       var gates = 0;
       await tester.pumpWidget(
         _harness(
           service,
           takeControl: () async {
             gates++;
-            return true;
+            // The real gate returns once the response has ended.
+            if (accepted) _respond(tester, running: false);
+            return accepted;
           },
         ),
       );
-      await tester.pump();
-      await tester.pump();
-      await tester.tap(find.text('Browser'));
-      await tester.pump();
-      await tester.pump();
-      expect(find.text('No browser tabs'), findsWidgets);
-      verify(() => service.open(ComputerSurface.browser)).called(1);
-      await tester.pump(const Duration(seconds: 3));
-      verify(() => service.open(ComputerSurface.browser)).called(1);
-      expect(find.text('No browser tabs'), findsWidgets);
-      if (background) {
-        tester.binding.handleAppLifecycleStateChanged(
-          AppLifecycleState.inactive,
-        );
-      }
-      browser = _connection(ComputerSurface.browser);
-      await tester.pump(const Duration(seconds: 3));
-      if (background) {
-        verifyNever(() => service.open(ComputerSurface.browser));
-        tester.binding.handleAppLifecycleStateChanged(
-          AppLifecycleState.resumed,
-        );
-      }
-      await tester.pump();
-      await tester.pump();
-      expect(
-        tester
-            .widget<ComputerSurfaceView>(find.byType(ComputerSurfaceView))
-            .connection,
-        same(browser),
-      );
-      expect(find.text('Return to Watch'), findsNothing);
-      expect(gates, 0);
-      verifyNever(service.createBrowserTab);
-      await tester.pumpWidget(const SizedBox());
-    });
-  }
+      await _frames(tester);
+      final web = await _live(tester);
+      expect(web.scripts.last, 'window.computer?.control(true)');
+      expect(find.text('Agent is working'), findsNothing);
+      // Pointer and audio reports never read as a change of connection.
+      _view(tester).onState({'status': 'pointer', 'dragging': false});
+      _view(tester).onState({'status': 'audio', 'available': false});
+      await _frames(tester);
+      expect(find.text('Connecting to computer…'), findsNothing);
 
-  for (final outcome in ['accepted', 'denied', 'background']) {
-    testWidgets('proxy browser activation is gated: $outcome', (tester) async {
-      final service = _Service();
-      final gate = Completer<bool>();
-      ComputerConnection browser(String mode) => ComputerConnection(
-        surface: ComputerSurface.browser,
-        streamUri: Uri.parse('ws://computer.example/browser/stream'),
-        browserSession: ComputerBrowserSession(
-          id: 'proxy-tab',
-          token: 'synthetic',
-          chromeAvailable: true,
-          mode: mode,
-        ),
-      );
-      when(() => service.open(any())).thenAnswer(
-        (call) async =>
-            call.positionalArguments.first == ComputerSurface.browser
-            ? browser('proxy')
-            : _connection(ComputerSurface.desktop),
-      );
-      when(() => service.selectBrowserTab('proxy-tab'))
-          .thenAnswer((_) async => browser('chrome'));
-      await tester.pumpWidget(
-        _harness(service, takeControl: () => gate.future),
-      );
-      await tester.pump();
-      await tester.pump();
-      await tester.tap(find.text('Browser'));
-      await tester.pumpAndSettle();
-      expect(find.byType(ComputerSurfaceView), findsNothing);
-      expect(
-        find.text('Take control to start this tab’s live view.'),
-        findsWidgets,
-      );
-      await tester.pump(const Duration(seconds: 3));
-      verifyNever(() => service.selectBrowserTab('proxy-tab'));
+      _respond(tester, running: true);
+      await _frames(tester);
+      expect(web.scripts.last, 'window.computer?.control(false)');
+      expect(find.text('Agent is working'), findsOneWidget);
+      // Nothing types on the agent's screen meanwhile.
+      await tester.tap(find.byKey(const ValueKey('computer-keyboard-button')));
+      await _frames(tester);
+      expect(find.byKey(const ValueKey('computer-key-row')), findsNothing);
+
       await tester.tap(find.text('Take control'));
-      await tester.pump();
-      verifyNever(() => service.selectBrowserTab('proxy-tab'));
-      gate.complete(outcome != 'denied');
-      await tester.pump();
-      await tester.pump();
-      if (outcome == 'denied') {
-        verifyNever(() => service.selectBrowserTab('proxy-tab'));
-        expect(find.byType(ComputerSurfaceView), findsNothing);
+      await _frames(tester);
+      expect(gates, 1);
+      if (accepted) {
+        expect(web.scripts.last, 'window.computer?.control(true)');
+        expect(find.text('Agent is working'), findsNothing);
       } else {
-        verify(() => service.selectBrowserTab('proxy-tab')).called(1);
-        final view = tester.widget<ComputerSurfaceView>(
-          find.byType(ComputerSurfaceView),
-        );
-        if (outcome == 'background') {
-          tester.binding.handleAppLifecycleStateChanged(
-            AppLifecycleState.inactive,
-          );
-          tester.binding.handleAppLifecycleStateChanged(
-            AppLifecycleState.resumed,
-          );
-        }
-        view.onState({'status': 'live'});
-        await tester.pumpAndSettle();
+        expect(web.scripts.last, 'window.computer?.control(false)');
+        expect(find.text('Agent is working'), findsOneWidget);
         expect(
           find.text(
-            outcome == 'accepted' ? 'You’re in control' : 'Watching live',
+            'Could not stop the current response. You can keep watching '
+            'and try again.',
           ),
           findsOneWidget,
         );
@@ -312,104 +241,321 @@ void main() {
     });
   }
 
-  for (final discoveredMode in ['proxy', 'chrome']) {
-    testWidgets(
-      'new response during activation recovers from $discoveredMode',
-      (tester) async {
-        final service = _Service();
-        final activation = Completer<ComputerConnection>();
-        var mode = 'proxy';
-        ComputerConnection browser() => ComputerConnection(
-          surface: ComputerSurface.browser,
-          streamUri: Uri.parse('ws://computer.example/browser/stream'),
-          browserSession: ComputerBrowserSession(
-            id: 'proxy-tab',
-            token: 'synthetic',
-            chromeAvailable: true,
-            mode: mode,
+  testWidgets(
+    'the keyboard types on the remote screen and keeps the browser viewport',
+    (tester) async {
+      final service = _Service();
+      when(() => service.open(any()))
+          .thenAnswer((_) async => _connection(ComputerSurface.browser));
+      await tester.pumpWidget(_harness(service, capabilities: _browserOnly));
+      await _frames(tester);
+      final web = await _live(tester);
+      await tester.tap(find.byKey(const ValueKey('computer-keyboard-button')));
+      await _frames(tester);
+      expect(find.byKey(const ValueKey('computer-key-row')), findsOneWidget);
+      expect(_view(tester).holdViewport, isTrue);
+
+      final field = find.byKey(const ValueKey('computer-keyboard-field'));
+      String text() => tester.widget<EditableText>(field).controller.text;
+      Future<void> edit(String value, {TextRange? composing}) async {
+        tester.testTextInput.updateEditingValue(
+          TextEditingValue(
+            text: value,
+            selection: TextSelection.collapsed(offset: value.length),
+            composing: composing ?? TextRange.empty,
           ),
         );
-        when(() => service.open(any())).thenAnswer(
-          (call) async =>
-              call.positionalArguments.first == ComputerSurface.browser
-              ? browser()
-              : _connection(ComputerSurface.desktop),
-        );
-        when(() => service.selectBrowserTab('proxy-tab'))
-            .thenAnswer((_) => activation.future);
-        await tester.pumpWidget(
-          _harness(service, takeControl: () async => true),
-        );
         await tester.pump();
-        await tester.pump();
-        await tester.tap(find.text('Browser'));
-        await tester.pumpAndSettle();
-        await tester.tap(find.text('Take control'));
-        await tester.pump();
-        mode = discoveredMode;
-        ProviderScope.containerOf(tester.element(find.byType(ComputerPage)))
-            .read(chatMessagesProvider.notifier)
-            .setMessages([
-              ChatMessage(
-                id: 'new-response',
-                role: 'assistant',
-                content: '',
-                timestamp: DateTime.utc(2026),
-                isStreaming: true,
-              ),
-            ]);
-        await tester.pump();
-        await tester.pump();
-        mode = 'chrome';
-        activation.complete(browser());
-        await tester.pump(const Duration(seconds: 3));
-        await tester.pump();
-        expect(find.byType(ComputerSurfaceView), findsOneWidget);
-        tester
-            .widget<ComputerSurfaceView>(find.byType(ComputerSurfaceView))
-            .onState({'status': 'live'});
-        await tester.pumpAndSettle();
-        expect(find.text('Watching live'), findsOneWidget);
-        expect(find.text('You’re in control'), findsNothing);
-        verify(() => service.selectBrowserTab('proxy-tab')).called(1);
-        await tester.pumpWidget(const SizedBox());
-      },
-    );
-  }
+      }
 
-  testWidgets('Watch follows a proxy tab activated by the agent', (
+      await edit('${text()}Hé 👋');
+      // An input method sends its text once it is committed.
+      final base = text();
+      await edit(
+        '$baseに',
+        composing: TextRange(start: base.length, end: base.length + 1),
+      );
+      expect(_commands(web), hasLength(1));
+      await edit('$base日');
+      await edit(text().characters.skipLast(1).string);
+      await edit('${text()}\n');
+      await tester.tap(find.text('esc'));
+      await tester.pump();
+      expect(_commands(web), [
+        {'type': 'paste', 'text': 'Hé 👋'},
+        {'type': 'paste', 'text': '日'},
+        {'type': 'shortcut', 'key': 'Backspace'},
+        {'type': 'shortcut', 'key': 'Enter'},
+        {'type': 'shortcut', 'key': 'Escape'},
+      ]);
+
+      // A response takes the screen back and closes the keyboard.
+      _respond(tester, running: true);
+      await _frames(tester);
+      expect(find.byKey(const ValueKey('computer-key-row')), findsNothing);
+      expect(_view(tester).holdViewport, isFalse);
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
+
+  testWidgets('keyboard shortcuts preserve literal input', (tester) async {
+    final service = _Service();
+    final connection = _connection(ComputerSurface.desktop);
+    when(() => service.open(any())).thenAnswer((_) async => connection);
+    when(() => service.sendShortcut(connection, 'Ctrl+S'))
+        .thenAnswer((_) async {});
+    await tester.pumpWidget(_harness(service));
+    await _frames(tester);
+    await _live(tester);
+    await tester.tap(find.byKey(const ValueKey('computer-keyboard-button')));
+    await _frames(tester);
+    await tester.tap(find.bySemanticsLabel('Keyboard shortcut'));
+    await _frames(tester);
+    final input = tester.widget<EditableText>(
+      find.descendant(
+        of: find.byType(TextField),
+        matching: find.byType(EditableText),
+      ),
+    );
+    expect(input.autocorrect, isFalse);
+    expect(input.smartQuotesType, SmartQuotesType.disabled);
+    await tester.enterText(find.byType(TextField), 'Ctrl+S');
+    await tester.tap(find.text('Send'));
+    await _frames(tester);
+    verify(() => service.sendShortcut(connection, 'Ctrl+S')).called(1);
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets(
+    'the More menu turns on a trackpad that survives a switch of surface, '
+    'recenters its pointer and pastes only while in control',
+    (tester) async {
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        (call) async => call.method == 'Clipboard.getData'
+            ? {'text': 'Workshop plan'}
+            : null,
+      );
+      addTearDown(
+        () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+          SystemChannels.platform,
+          null,
+        ),
+      );
+      final service = _Service();
+      when(() => service.open(any())).thenAnswer(
+        (call) async =>
+            _connection(call.positionalArguments.first as ComputerSurface),
+      );
+      await tester.pumpWidget(_harness(service));
+      await _frames(tester);
+      var web = await _live(tester);
+      await _openMenu(tester);
+      expect(find.text('Recenter pointer'), findsNothing);
+      await tester.tap(find.text('Trackpad mode'));
+      await _frames(tester);
+      expect(web.scripts, contains('window.computer?.trackpad(true)'));
+      await _menu(tester, 'Recenter pointer');
+      await _menu(tester, 'Paste');
+      await _menu(tester, 'Right-click');
+      await _menu(tester, 'Start drag');
+      // The viewer reports the held drag; the same row now ends it.
+      _view(tester).onState({'status': 'pointer', 'dragging': true});
+      await _frames(tester);
+      await _menu(tester, 'End drag');
+      expect(_commands(web), [
+        {'type': 'recenter'},
+        {'type': 'paste', 'text': 'Workshop plan'},
+        {'type': 'rightClick'},
+        {'type': 'startDrag'},
+        {'type': 'endDrag'},
+      ]);
+
+      _respond(tester, running: true);
+      await _frames(tester);
+      await _menu(tester, 'Paste');
+      expect(_commands(web), hasLength(5));
+      await tester.tapAt(const Offset(4, 400));
+      await _frames(tester);
+
+      _respond(tester, running: false);
+      await _switchTo(tester, 'Browser');
+      web = await _live(tester);
+      expect(web.scripts, contains('window.computer?.trackpad(true)'));
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
+
+  testWidgets('closing the last tab leaves an empty browser to start again', (
     tester,
   ) async {
     final service = _Service();
+    var tabs = [const ComputerBrowserTab(id: 'one', title: 'Workshop')];
+    when(() => service.open(ComputerSurface.browser))
+        .thenAnswer((_) async => tabs.isEmpty ? null : _tab('one'));
+    when(service.browserTabs).thenAnswer((_) async => tabs);
+    when(() => service.closeBrowserTab('one')).thenAnswer((_) async {
+      tabs = [];
+    });
+    when(service.createBrowserTab).thenAnswer((_) async => _tab('two'));
+    await tester.pumpWidget(_harness(service, capabilities: _browserOnly));
+    await _frames(tester);
+    await _live(tester);
+    await _menu(tester, 'Browser tabs');
+    await _frames(tester);
+    expect(find.byType(ComputerBrowserTabs), findsOneWidget);
+    await tester.tap(find.bySemanticsLabel('Close tab: Workshop'));
+    await _frames(tester);
+    verify(() => service.closeBrowserTab('one')).called(1);
+    expect(find.byType(ComputerSurfaceView), findsNothing);
+    expect(find.text('No browser tabs'), findsOneWidget);
+    verifyNever(service.createBrowserTab);
+
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await _frames(tester);
+    expect(find.text('No browser tabs'), findsOneWidget);
+    verifyNever(service.createBrowserTab);
+
+    await tester.tap(find.text('New tab'));
+    await _frames(tester);
+    verify(service.createBrowserTab).called(1);
+    await _live(tester);
+    await _menu(tester, 'Browser tabs');
+    expect(find.byType(ComputerBrowserTabs), findsOneWidget);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    await _frames(tester);
+    expect(find.byType(ComputerBrowserTabs), findsNothing);
+    expect(find.byType(ComputerPage), findsOneWidget);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  for (final background in [false, true]) {
+    testWidgets('an empty browser finds the agent’s next tab '
+        '(background: $background)', (tester) async {
+      final service = _Service();
+      ComputerConnection? browser;
+      when(() => service.open(ComputerSurface.browser))
+          .thenAnswer((_) async => browser);
+      await tester.pumpWidget(_harness(service, capabilities: _browserOnly));
+      await _frames(tester);
+      expect(find.text('No browser tabs'), findsOneWidget);
+      verify(() => service.open(ComputerSurface.browser)).called(1);
+      if (background) {
+        tester.binding.handleAppLifecycleStateChanged(
+          AppLifecycleState.inactive,
+        );
+      }
+      browser = _tab('agent-tab');
+      await tester.pump(const Duration(seconds: 3));
+      if (background) {
+        verifyNever(() => service.open(ComputerSurface.browser));
+        tester.binding.handleAppLifecycleStateChanged(
+          AppLifecycleState.resumed,
+        );
+      }
+      await _frames(tester);
+      expect(_view(tester).connection, same(browser));
+      verifyNever(service.createBrowserTab);
+      await tester.pumpWidget(const SizedBox());
+    });
+  }
+
+  for (final outcome in ['idle', 'accepted', 'denied']) {
+    testWidgets('a waiting browser tab starts its live view only while the '
+        'chat is idle: $outcome', (tester) async {
+      final service = _Service();
+      final gate = Completer<bool>();
+      when(() => service.open(ComputerSurface.browser))
+          .thenAnswer((_) async => _tab('proxy-tab', mode: 'proxy'));
+      when(() => service.selectBrowserTab('proxy-tab'))
+          .thenAnswer((_) async => _tab('proxy-tab'));
+      await tester.pumpWidget(
+        _harness(
+          service,
+          capabilities: _browserOnly,
+          responding: outcome != 'idle',
+          takeControl: () async {
+            final accepted = await gate.future;
+            if (accepted) _respond(tester, running: false);
+            return accepted;
+          },
+        ),
+      );
+      await _frames(tester);
+      if (outcome == 'idle') {
+        verify(() => service.selectBrowserTab('proxy-tab')).called(1);
+        expect(find.byType(ComputerSurfaceView), findsOneWidget);
+        await tester.pumpWidget(const SizedBox());
+        return;
+      }
+      expect(find.byType(ComputerSurfaceView), findsNothing);
+      expect(
+        find.text('Take control to start this tab’s live view.'),
+        findsOneWidget,
+      );
+      await tester.pump(const Duration(seconds: 3));
+      await tester.tap(find.text('Take control'));
+      await tester.pump();
+      verifyNever(() => service.selectBrowserTab('proxy-tab'));
+      gate.complete(outcome == 'accepted');
+      await _frames(tester);
+      if (outcome == 'denied') {
+        verifyNever(() => service.selectBrowserTab('proxy-tab'));
+        expect(find.byType(ComputerSurfaceView), findsNothing);
+      } else {
+        verify(() => service.selectBrowserTab('proxy-tab')).called(1);
+        final web = await _live(tester);
+        expect(web.scripts.last, 'window.computer?.control(true)');
+      }
+      await tester.pumpWidget(const SizedBox());
+    });
+  }
+
+  for (final discoveredMode in ['proxy', 'chrome']) {
+    testWidgets('a response during activation watches the $discoveredMode tab '
+        'it finds', (tester) async {
+      final service = _Service();
+      final activation = Completer<ComputerConnection>();
+      var mode = 'proxy';
+      when(() => service.open(ComputerSurface.browser))
+          .thenAnswer((_) async => _tab('proxy-tab', mode: mode));
+      when(() => service.selectBrowserTab('proxy-tab'))
+          .thenAnswer((_) => activation.future);
+      await tester.pumpWidget(_harness(service, capabilities: _browserOnly));
+      await _frames(tester);
+      verify(() => service.selectBrowserTab('proxy-tab')).called(1);
+      mode = discoveredMode;
+      _respond(tester, running: true);
+      await _frames(tester);
+      mode = 'chrome';
+      activation.complete(_tab('proxy-tab'));
+      await tester.pump(const Duration(seconds: 3));
+      await _frames(tester);
+      final web = await _live(tester);
+      expect(web.scripts, isNot(contains('window.computer?.control(true)')));
+      expect(find.text('Agent is working'), findsOneWidget);
+      verifyNever(() => service.selectBrowserTab('proxy-tab'));
+      await tester.pumpWidget(const SizedBox());
+    });
+  }
+
+  testWidgets('Watch follows a tab the agent activates itself', (tester) async {
+    final service = _Service();
     var mode = 'proxy';
-    when(() => service.open(any())).thenAnswer(
-      (call) async => call.positionalArguments.first == ComputerSurface.desktop
-          ? _connection(ComputerSurface.desktop)
-          : ComputerConnection(
-              surface: ComputerSurface.browser,
-              streamUri: Uri.parse('ws://computer.example/browser/stream'),
-              browserSession: ComputerBrowserSession(
-                id: 'agent-tab',
-                token: 'synthetic',
-                chromeAvailable: true,
-                mode: mode,
-              ),
-            ),
+    when(() => service.open(ComputerSurface.browser))
+        .thenAnswer((_) async => _tab('agent-tab', mode: mode));
+    await tester.pumpWidget(
+      _harness(service, capabilities: _browserOnly, responding: true),
     );
-    await tester.pumpWidget(_harness(service));
-    await tester.pump();
-    await tester.pump();
-    await tester.tap(find.text('Browser'));
-    await tester.pumpAndSettle();
+    await _frames(tester);
     expect(find.byType(ComputerSurfaceView), findsNothing);
     mode = 'chrome';
     await tester.pump(const Duration(seconds: 3));
-    await tester.pump();
-    tester
-        .widget<ComputerSurfaceView>(find.byType(ComputerSurfaceView))
-        .onState({'status': 'live'});
-    await tester.pumpAndSettle();
-    expect(find.text('Watching live'), findsOneWidget);
+    await _frames(tester);
+    final web = await _live(tester);
+    expect(web.scripts, isNot(contains('window.computer?.control(true)')));
     verifyNever(() => service.selectBrowserTab('agent-tab'));
     await tester.pumpWidget(const SizedBox());
   });
@@ -420,16 +566,14 @@ void main() {
         .thenAnswer((_) async => _connection(ComputerSurface.desktop));
     var enabled = true;
     await tester.pumpWidget(_harness(service, enabled: () => enabled));
-    await tester.pump();
-    await tester.pump();
+    await _frames(tester);
     expect(find.byType(ComputerSurfaceView), findsOneWidget);
     final container = ProviderScope.containerOf(
       tester.element(find.byType(ComputerPage)),
     );
     enabled = false;
     container.invalidate(computerEnabledProvider);
-    await tester.pump();
-    await tester.pump();
+    await _frames(tester);
     expect(find.byType(ComputerSurfaceView), findsNothing);
     await tester.pumpWidget(const SizedBox());
   });
@@ -448,15 +592,13 @@ void main() {
         loadService: () async => refreshing ? await pending.future : service,
       ),
     );
-    await tester.pump();
-    await tester.pump();
+    await _frames(tester);
     final container = ProviderScope.containerOf(
       tester.element(find.byType(ComputerPage)),
     );
     refreshing = true;
     container.invalidate(computerServiceProvider);
-    await tester.pump();
-    await tester.pump();
+    await _frames(tester);
     expect(find.byType(ComputerSurfaceView), findsNothing);
     pending.complete(null);
     await tester.pumpWidget(const SizedBox());
@@ -472,230 +614,68 @@ void main() {
     when(() => service.open(ComputerSurface.browser))
         .thenAnswer((_) => browser.future);
     await tester.pumpWidget(_harness(service));
-    await tester.pump();
-    await tester.pump();
-    final old = tester.widget<ComputerSurfaceView>(
-      find.byType(ComputerSurfaceView),
-    );
+    await _frames(tester);
+    final old = _view(tester);
     old.onState({'status': 'live'});
     await tester.pump();
-    await tester.tap(find.text('Browser'));
+    await _switchTo(tester, 'Browser');
     // A queued native callback can arrive before the old WebView is disposed.
     old.onState({'status': 'live'});
     old.onState({'status': 'state', 'url': 'https://old.example'});
     await tester.pump();
-    expect(find.text('Watching live'), findsNothing);
     expect(find.text('old.example'), findsNothing);
-    old.onState({'status': 'connecting'});
+    expect(find.text('Connecting to computer…'), findsOneWidget);
     browser.complete(_connection(ComputerSurface.browser));
-    await tester.pump();
-    await tester.pump();
-    final current = tester.widget<ComputerSurfaceView>(
-      find.byType(ComputerSurfaceView),
-    );
-    expect(current.connection.surface, ComputerSurface.browser);
-    current.onState({'status': 'live'});
-    await tester.pump();
-    expect(find.text('Watching live'), findsOneWidget);
-    await tester.pumpWidget(const SizedBox());
-  });
-
-  testWidgets('Computer shortcuts preserve literal keyboard input', (
-    tester,
-  ) async {
-    final service = _Service();
-    final connection = _connection(ComputerSurface.desktop);
-    when(() => service.open(any())).thenAnswer((_) async => connection);
-    when(() => service.sendShortcut(connection, 'Ctrl+S'))
-        .thenAnswer((_) async {});
-    await tester.pumpWidget(_harness(service, takeControl: () async => true));
-    await tester.pump();
-    await tester.pump();
-    tester
-        .widget<ComputerSurfaceView>(find.byType(ComputerSurfaceView))
-        .onState({'status': 'live'});
-    await tester.pump();
-    await tester.tap(find.text('Take control'));
-    await tester.pumpAndSettle();
-    final shortcut = find.bySemanticsLabel('Keyboard shortcut');
-    await tester.ensureVisible(shortcut);
-    await tester.tap(shortcut);
-    await tester.pumpAndSettle();
-    final field = tester.widget<EditableText>(find.byType(EditableText));
-    expect(field.autocorrect, isFalse);
-    expect(field.smartQuotesType, SmartQuotesType.disabled);
-    await tester.enterText(find.byType(EditableText), 'Ctrl+S');
-    await tester.tap(find.text('Send'));
-    await tester.pumpAndSettle();
-    verify(() => service.sendShortcut(connection, 'Ctrl+S')).called(1);
-    await tester.pumpWidget(const SizedBox());
-  });
-
-  testWidgets(
-    'mode changes cancel pending control and rotation keeps the viewer',
-    (tester) async {
-      final service = _Service();
-      final permission = Completer<bool>();
-      when(() => service.open(any())).thenAnswer(
-        (call) async =>
-            _connection(call.positionalArguments[0] as ComputerSurface),
-      );
-      await tester.pumpWidget(
-        _harness(service, takeControl: () => permission.future),
-      );
-      await tester.pump();
-      await tester.pump();
-      var view = tester.widget<ComputerSurfaceView>(
-        find.byType(ComputerSurfaceView),
-      );
-      view.onState({'status': 'live'});
-      await tester.pump();
-      await tester.tap(find.text('Take control'));
-      await tester.tap(find.text('Browser'));
-      permission.complete(true);
-      await tester.pump();
-      await tester.pump();
-      view = tester.widget<ComputerSurfaceView>(
-        find.byType(ComputerSurfaceView),
-      );
-      view.onState({'status': 'state', 'transport': 'vnc'});
-      view.onState({'status': 'live'});
-      await tester.pumpAndSettle();
-      expect(find.text('You’re in control'), findsNothing);
-      final web = ComputerTestWebController();
-      tester
-          .widget<InAppWebView>(find.byType(InAppWebView))
-          .platform
-          .params
-          .onWebViewCreated!(web);
-      await tester.tap(find.text('Take control'));
-      await tester.pumpAndSettle();
-      expect(
-        find.text('Tap to click, drag to move items, two fingers to scroll.'),
-        findsOneWidget,
-      );
-      expect(web.scripts, contains('window.computer?.control(true)'));
-      final state = tester.state(find.byType(ComputerSurfaceView));
-      tester.view.physicalSize = const Size(844, 390);
-      tester.view.devicePixelRatio = 1;
-      addTearDown(tester.view.resetPhysicalSize);
-      addTearDown(tester.view.resetDevicePixelRatio);
-      await tester.pumpAndSettle();
-      expect(tester.state(find.byType(ComputerSurfaceView)), same(state));
-      await tester.tap(find.text('Return to Watch'));
-      await tester.pumpAndSettle();
-      expect(find.text('Watching live'), findsOneWidget);
-      expect(
-        find.text('Send a new chat message to continue the task.'),
-        findsOneWidget,
-      );
-      expect(web.scripts, contains('window.computer?.control(false)'));
-      expect(tester.takeException(), isNull);
-      await tester.pumpWidget(const SizedBox());
-    },
-  );
-
-  testWidgets('dialog keyboard does not resize the remote workspace', (
-    tester,
-  ) async {
-    tester.view.physicalSize = const Size(1280, 800);
-    tester.view.devicePixelRatio = 1;
-    addTearDown(tester.view.reset);
-    final service = _Service();
-    when(() => service.open(any()))
-        .thenAnswer((_) async => _connection(ComputerSurface.desktop));
-    await tester.pumpWidget(_harness(service, takeControl: () async => true));
-    await tester.pump();
-    await tester.pump();
-    tester
-        .widget<ComputerSurfaceView>(find.byType(ComputerSurfaceView))
-        .onState({'status': 'live'});
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Take control'));
-    await tester.pumpAndSettle();
-    final before = tester.getRect(find.byType(ComputerSurfaceView));
-    await tester.tap(find.bySemanticsLabel('Type on computer'));
-    tester.view.viewInsets = const FakeViewPadding(bottom: 300);
-    await tester.pumpAndSettle();
-    expect(tester.getRect(find.byType(ComputerSurfaceView)), before);
-    await tester.tap(find.text('Cancel'));
-    tester.view.viewInsets = FakeViewPadding.zero;
-    await tester.pumpAndSettle();
-    expect(tester.getRect(find.byType(ComputerSurfaceView)), before);
+    await _frames(tester);
+    expect(_view(tester).connection.surface, ComputerSurface.browser);
+    _view(tester).onState({'status': 'state', 'url': 'https://example.com'});
+    final web = await _live(tester);
+    expect(find.text('example.com'), findsOneWidget);
+    expect(web.scripts.last, 'window.computer?.control(true)');
     await tester.pumpWidget(const SizedBox());
   });
 
   for (final overlay in [
     'Browser tabs',
-    'Type on computer',
+    'Go to address',
     'Keyboard shortcut',
-    'example.com',
   ]) {
-    testWidgets(
-      'a new response invalidates $overlay without retaking control',
-      (tester) async {
-        tester.view.physicalSize = const Size(1280, 800);
-        tester.view.devicePixelRatio = 1;
-        addTearDown(tester.view.reset);
-        final service = _Service();
-        var gates = 0;
-        when(() => service.open(any())).thenAnswer(
-          (call) async => _connection(call.positionalArguments.first),
+    testWidgets('a response invalidates $overlay without acting for the user', (
+      tester,
+    ) async {
+      final service = _Service();
+      final connection = _connection(ComputerSurface.browser);
+      when(() => service.open(any())).thenAnswer((_) async => connection);
+      when(service.browserTabs).thenAnswer((_) async => []);
+      await tester.pumpWidget(_harness(service, capabilities: _browserOnly));
+      await _frames(tester);
+      final web = await _live(tester);
+      if (overlay == 'Keyboard shortcut') {
+        await tester.tap(
+          find.byKey(const ValueKey('computer-keyboard-button')),
         );
-        when(service.browserTabs).thenAnswer((_) async => []);
-        await tester.pumpWidget(
-          _harness(
-            service,
-            takeControl: () async {
-              gates++;
-              return true;
-            },
-          ),
-        );
-        await tester.pump();
-        await tester.pump();
-        await tester.tap(find.text('Browser'));
-        await tester.pump();
-        await tester.pump();
-        final view = tester.widget<ComputerSurfaceView>(
-          find.byType(ComputerSurfaceView),
-        );
-        view.onState({'status': 'state', 'url': 'https://example.com'});
-        view.onState({'status': 'live'});
-        await tester.pumpAndSettle();
-        await tester.tap(find.text('Take control'));
-        await tester.pumpAndSettle();
-        await tester.ensureVisible(find.bySemanticsLabel(overlay));
+        await _frames(tester);
         await tester.tap(find.bySemanticsLabel(overlay));
-        await tester.pumpAndSettle();
-        if (overlay != 'Browser tabs') {
-          await tester.enterText(find.byType(TextField), 'synthetic');
-        }
-        // Native sheets can blur the viewer before the response arrives.
-        view.onState({'status': 'watching'});
-        ProviderScope.containerOf(tester.element(find.byType(ComputerPage)))
-            .read(chatMessagesProvider.notifier)
-            .setMessages([
-              ChatMessage(
-                id: 'new-response',
-                role: 'assistant',
-                content: '',
-                timestamp: DateTime.utc(2026),
-                isStreaming: true,
-              ),
-            ]);
-        await tester.pumpAndSettle();
-        if (overlay == 'Browser tabs') {
-          expect(find.byType(ComputerBrowserTabs), findsNothing);
-        } else {
-          await tester.tap(find.text('Send'));
-          await tester.pumpAndSettle();
-        }
-        expect(gates, 1);
-        expect(find.text('You’re in control'), findsNothing);
-        await tester.pumpWidget(const SizedBox());
-      },
-    );
+        await _frames(tester);
+      } else {
+        await _menu(tester, overlay);
+      }
+      if (overlay != 'Browser tabs') {
+        await tester.enterText(find.byType(TextField), 'synthetic');
+      }
+      _respond(tester, running: true);
+      await _frames(tester);
+      if (overlay == 'Browser tabs') {
+        expect(find.byType(ComputerBrowserTabs), findsNothing);
+      } else {
+        await tester.tap(find.text('Send'));
+        await _frames(tester);
+      }
+      verifyNever(() => service.sendShortcut(any(), any()));
+      expect(_commands(web), isEmpty);
+      expect(find.text('Agent is working'), findsOneWidget);
+      await tester.pumpWidget(const SizedBox());
+    });
   }
 
   for (final timing in ['pending', 'pushed', 'covered']) {
@@ -703,57 +683,41 @@ void main() {
       tester,
     ) async {
       final service = _Service();
-      when(
-        () => service.open(any()),
-      ).thenAnswer((call) async => _connection(call.positionalArguments.first));
+      when(() => service.open(any()))
+          .thenAnswer((_) async => _connection(ComputerSurface.browser));
       when(service.browserTabs).thenAnswer((_) async => []);
-      await tester.pumpWidget(_harness(service, takeControl: () async => true));
-      await tester.pump();
-      await tester.pump();
+      await tester.pumpWidget(_harness(service, capabilities: _browserOnly));
+      await _frames(tester);
       final context = tester.element(find.byType(ComputerPage));
       unawaited(
         Navigator.of(context).push(
           MaterialPageRoute<void>(
-            builder: (_) => ComputerPage(
-              service: service,
-              capabilities: const ComputerCapabilities(browser: true),
-            ),
+            builder: (_) =>
+                ComputerPage(service: service, capabilities: _browserOnly),
           ),
         ),
       );
       await tester.pump();
       await tester.pump(const Duration(seconds: 1));
-      final view = tester.widget<ComputerSurfaceView>(
-        find.byType(ComputerSurfaceView),
-      );
-      view.onState({'status': 'live'});
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Take control'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.bySemanticsLabel('Browser tabs'));
+      await _frames(tester);
+      await _live(tester);
+      await _openMenu(tester);
+      await tester.tap(find.text('Browser tabs').last);
       if (timing == 'pushed') await tester.pump();
       if (timing == 'covered') {
-        await tester.pumpAndSettle();
+        await _frames(tester);
         unawaited(
           showDialog<void>(
             context: context,
             builder: (_) => const AlertDialog(title: Text('Another dialog')),
           ),
         );
-        await tester.pumpAndSettle();
+        await _frames(tester);
       }
       // Without pumping, interruption lands before the native-chrome handoff.
       ProviderScope.containerOf(context)
           .read(chatMessagesProvider.notifier)
-          .setMessages([
-            ChatMessage(
-              id: 'new-response',
-              role: 'assistant',
-              content: '',
-              timestamp: DateTime.utc(2026),
-              isStreaming: true,
-            ),
-          ]);
+          .setMessages([_response()]);
       await tester.pump();
       await tester.pump(const Duration(seconds: 1));
       expect(
@@ -764,7 +728,6 @@ void main() {
         expect(find.text('Another dialog'), findsOneWidget);
       }
       expect(find.byType(ComputerPage, skipOffstage: false), findsNWidgets(2));
-      expect(find.text('Watching live'), findsOneWidget);
       await tester.pumpWidget(const SizedBox());
     });
   }
@@ -787,142 +750,4 @@ void main() {
       await tester.pumpWidget(const SizedBox());
     });
   }
-
-  for (final size in [
-    const Size(320, 568),
-    const Size(820, 1180),
-    const Size(1280, 800),
-  ]) {
-    testWidgets('trackpad actions and drag state remain usable at $size', (
-      tester,
-    ) async {
-      tester.view.physicalSize = size;
-      tester.view.devicePixelRatio = 1;
-      addTearDown(tester.view.resetPhysicalSize);
-      addTearDown(tester.view.resetDevicePixelRatio);
-      final service = _Service();
-      when(() => service.open(any()))
-          .thenAnswer((_) async => _connection(ComputerSurface.desktop));
-      await tester.pumpWidget(_harness(service, takeControl: () async => true));
-      await tester.pump();
-      await tester.pump();
-      final view = tester.widget<ComputerSurfaceView>(
-        find.byType(ComputerSurfaceView),
-      );
-      view.onState({'status': 'live'});
-      final web = ComputerTestWebController();
-      tester
-          .widget<InAppWebView>(find.byType(InAppWebView))
-          .platform
-          .params
-          .onWebViewCreated!(web);
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Take control'));
-      await tester.pumpAndSettle();
-      if (size.width > size.height) {
-        expect(
-          tester.getRect(find.byType(ComputerSurfaceView)).left,
-          greaterThan(
-            tester.getRect(find.text('Full desktop · apps and windows')).right,
-          ),
-        );
-        expect(
-          tester.getSize(find.byType(ComputerSurfaceView)).height,
-          greaterThan(size.height * .8),
-        );
-      }
-      expect(
-        tester.getSize(find.byTooltip('Pointer controls')).width,
-        greaterThanOrEqualTo(44),
-      );
-      await tester.tap(find.byTooltip('Pointer controls'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Trackpad'));
-      await tester.pumpAndSettle();
-      expect(web.scripts, contains('window.computer?.trackpad(true)'));
-      expect(
-        find.text(
-          'Slide to move the cursor. Tap to click, hold to drag; two fingers scroll.',
-        ),
-        findsOneWidget,
-      );
-      await tester.tap(find.byTooltip('Pointer controls'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Start drag'));
-      await tester.pumpAndSettle();
-      expect(web.scripts.any((s) => s.contains('startDrag')), isTrue);
-      view.onState({'status': 'pointer', 'dragging': true});
-      await tester.pumpAndSettle();
-      expect(find.text('You’re in control'), findsOneWidget);
-      expect(
-        find.text(
-          'Lift to end a held drag. After Start drag, tap or choose End drag.',
-        ),
-        findsOneWidget,
-      );
-      await tester.tap(find.byTooltip('Pointer controls'));
-      await tester.pumpAndSettle();
-      // A native menu can release the pointer on blur. Its selected End action
-      // must still release, never toggle a fresh drag on after reacquiring control.
-      view.onState({'status': 'pointer', 'dragging': false});
-      await tester.tap(find.text('End drag'));
-      await tester.pumpAndSettle();
-      expect(web.scripts.any((s) => s.contains('endDrag')), isTrue);
-      expect(tester.takeException(), isNull);
-      await tester.pumpWidget(const SizedBox());
-    });
-  }
-
-  testWidgets('Desktop and Browser have distinct descriptions and navigation', (
-    tester,
-  ) async {
-    final service = _Service();
-    when(() => service.open(any()))
-        .thenThrow(const ComputerBrowserUnavailable());
-    await tester.pumpWidget(
-      ProviderScope(
-        overrides: [
-          computerServiceProvider.overrideWith((ref) async => service),
-          chatMessagesProvider.overrideWith(_Messages.new),
-        ],
-        child: MaterialApp(
-          theme: ThemeData(platform: TargetPlatform.android),
-          localizationsDelegates: conduitLocalizationsDelegates,
-          supportedLocales: AppLocalizations.supportedLocales,
-          home: ComputerPage(
-            service: service,
-            capabilities: const ComputerCapabilities(
-              desktop: true,
-              browser: true,
-            ),
-          ),
-        ),
-      ),
-    );
-    await tester.pumpAndSettle();
-    expect(find.text('Full desktop · apps and windows'), findsOneWidget);
-    expect(find.byIcon(Icons.refresh_rounded), findsNothing);
-    verify(() => service.open(ComputerSurface.desktop)).called(1);
-    await tester.tap(find.text('Browser'));
-    await tester.pumpAndSettle();
-    expect(find.text('Browser tab · web pages'), findsOneWidget);
-    expect(find.byIcon(Icons.refresh_rounded), findsOneWidget);
-    verify(() => service.open(ComputerSurface.browser)).called(1);
-    await tester.tap(find.text('Desktop'));
-    await tester.pumpAndSettle();
-    expect(find.byIcon(Icons.refresh_rounded), findsNothing);
-    expect(tester.takeException(), isNull);
-    tester.view.physicalSize = const Size(844, 390);
-    tester.view.devicePixelRatio = 1;
-    addTearDown(tester.view.resetPhysicalSize);
-    addTearDown(tester.view.resetDevicePixelRatio);
-    await tester.pumpAndSettle();
-    expect(find.text('Full desktop · apps and windows'), findsOneWidget);
-    expect(tester.takeException(), isNull);
-    await tester.tap(find.text('Browser'));
-    await tester.pumpAndSettle();
-    expect(find.byIcon(Icons.refresh_rounded), findsOneWidget);
-    expect(tester.takeException(), isNull);
-    await tester.pumpWidget(const SizedBox());
-  });
 }

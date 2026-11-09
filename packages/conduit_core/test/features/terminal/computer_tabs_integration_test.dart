@@ -52,12 +52,6 @@ void main() {
             owned.first,
           );
           await service.sendShortcut(selected, 'Ctrl+A');
-          expect((await service.screenshot(selected)).take(4), [
-            137,
-            80,
-            78,
-            71,
-          ]);
           final unrelated = ComputerService(
             terminal,
             server,
