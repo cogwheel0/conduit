@@ -85,3 +85,19 @@ test('double click separates presses and cancels pending input on takeover loss 
   await new Promise(resolve => setTimeout(resolve, 100));
   assert.equal(presses(), 4);
 });
+
+test('recenter releases a held drag and moves the pointer to the middle', () => {
+  const {pad, touch, events, disable} = fixture();
+  touch('down', 1, 100, 100); touch('move', 1, 150, 130); touch('up', 1, 150, 130);
+  pad.drag(true);
+  pad.recenter();
+  assert.deepEqual(events.slice(-3), [
+    {type: 'up', x: 600, y: 360, button: 0},
+    {type: 'dragging', value: false},
+    {type: 'move', x: 500, y: 300, button: 0},
+  ]);
+  disable();
+  const before = events.length;
+  pad.recenter();
+  assert.equal(events.length, before);
+});

@@ -106,6 +106,8 @@ function attachVnc(ws, epoch) {
     if (epoch === generation) lost(event.code);
   });
   rfb = new RFB(surface, ws, {shared: true});
+  // Letterboxing shows the app's page behind the desktop, not noVNC's grey.
+  rfb.background = 'transparent';
   rfb.scaleViewport = true;
   rfb.resizeSession = false;
   rfb.viewOnly = !controlling;
@@ -367,14 +369,10 @@ function keyEvent(event, down) {
   if (down) heldKeys.set(event.code, key); else heldKeys.delete(event.code);
   input(key);
 }
-window.addEventListener('blur', () => {
-  release();
-  controlling = false;
-  document.documentElement.style.touchAction = 'auto';
-  pointer.hide();
-  if (rfb) rfb.viewOnly = true;
-  report('watching');
-});
+// The app's own keyboard and menus take focus from this document while the
+// user keeps control, so a blur only releases held keys and buttons. The app
+// returns to Watch itself when a response starts or it leaves the foreground.
+window.addEventListener('blur', () => release());
 function sendViewport() {
   const viewport = config.viewport ?? {width: 1024, height: 768, mobile: false};
   send({type: 'viewport', ...(config.desktopSite ? {
@@ -396,8 +394,9 @@ window.computer = {
   },
   command(value) {
     if (!canSendInput(controlling, connected, visible)) return;
-    if (trackpadMode && ['click', 'rightClick', 'doubleClick', 'startDrag', 'endDrag'].includes(value.type)) {
-      if (value.type === 'startDrag' || value.type === 'endDrag') trackpad.drag(value.type === 'startDrag');
+    if (trackpadMode && ['click', 'rightClick', 'doubleClick', 'startDrag', 'endDrag', 'recenter'].includes(value.type)) {
+      if (value.type === 'recenter') trackpad.recenter();
+      else if (value.type === 'startDrag' || value.type === 'endDrag') trackpad.drag(value.type === 'startDrag');
       else trackpad.click(value.type === 'rightClick' ? 2 : 0, value.type === 'doubleClick' ? 2 : 1);
     } else if (value.type === 'paste') {
       if (rfb) {

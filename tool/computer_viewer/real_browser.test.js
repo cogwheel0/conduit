@@ -126,16 +126,21 @@ test('real Open Terminal: pixels, Watch, typing, resize, blur and reconnect',
     await touch.detach();
     await viewer.evaluate(() => window.computer.viewport({width: 1024, height: 768, mobile: false}));
     await viewer.waitForFunction(() => document.querySelector('#frame').width === 1024 && document.querySelector('#frame').height === 768);
+    // The app's keyboard and menus take focus while the user keeps control.
     await viewer.evaluate(() => window.dispatchEvent(new Event('blur')));
+    await viewer.mouse.click(point.x, point.y);
+    await new Promise(resolve => setTimeout(resolve, 300));
+    assert.equal((await (await fetch('http://127.0.0.1:8767/state')).json()).clicks, before + 2);
+    await viewer.evaluate(() => window.computer.control(false));
     assert.equal(await viewer.locator('#computer-pointer').isVisible(), false);
     await viewer.mouse.click(point.x, point.y);
     await new Promise(resolve => setTimeout(resolve, 300));
-    assert.equal((await (await fetch('http://127.0.0.1:8767/state')).json()).clicks, before + 1);
+    assert.equal((await (await fetch('http://127.0.0.1:8767/state')).json()).clicks, before + 2);
     await viewer.evaluate(() => { window.computer.visibility(false); window.states = []; window.computer.visibility(true); });
     await viewer.waitForFunction(() => window.states.some(s => s.status === 'live'));
     await viewer.mouse.click(point.x, point.y);
     await new Promise(resolve => setTimeout(resolve, 300));
-    assert.equal((await (await fetch('http://127.0.0.1:8767/state')).json()).clicks, before + 1);
+    assert.equal((await (await fetch('http://127.0.0.1:8767/state')).json()).clicks, before + 2);
   } finally {
     await viewer.close();
     await fetch(`http://127.0.0.1:8766/browser/sessions/${session.id}`, {method: 'DELETE', headers});

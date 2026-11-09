@@ -45,6 +45,16 @@ export function createTrackpad({enabled, bounds, mouse, wheel, dragging}) {
     if (!value) release();
     else if (!down) { down = locked = true; mouse('down', center(), 0); dragging(true); }
   }
+  // Moves the pointer back to the middle of the remote screen, for when it
+  // was pushed against an edge or lost on a large desktop.
+  function recenter() {
+    if (!enabled()) return;
+    clearTimeout(hold);
+    fingers.clear();
+    release();
+    point = null;
+    mouse('move', center(), 0);
+  }
   function handle(event) {
     if (event.pointerType !== 'touch' || !enabled()) return false;
     event.preventDefault();
@@ -90,5 +100,5 @@ export function createTrackpad({enabled, bounds, mouse, wheel, dragging}) {
     }
     return true;
   }
-  return {handle, click, drag, cancel, reset() { cancel(); point = null; }};
+  return {handle, click, drag, recenter, cancel, reset() { cancel(); point = null; }};
 }
