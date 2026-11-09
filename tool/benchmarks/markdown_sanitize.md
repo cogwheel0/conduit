@@ -16,7 +16,8 @@ an extra presence check.
 ## Provenance and method
 
 Candidate source and harnesses: `1ffc2b1e07cb5c710b2802d9b694dfcf1d36a9aa`. Baseline sanitizer:
-`6e51451ef4f4c2d34e8fedb85cb6b16384bb9980`. Both use the same harness and dependencies. The production
+`6e51451ef4f4c2d34e8fedb85cb6b16384bb9980`. Both use the same benchmark logic and dependencies; the baseline import
+redirection is documented below. The production
 baseline file is unchanged between that baseline and PR base `ceda30ae`.
 Each result file records the source commit/hash, harness hash, dependency-lock
 hash, runtime, commands and explicit run indices. Build metadata is recorded
@@ -50,7 +51,7 @@ nearest-rank sorted indices are 49/94/98.
 | reasoning-only | 44.201167–44.213542 | 44.323083–44.353750 | 45.277750–45.476667 | 45.760042–45.771375 |
 | reference-prefix | 160.052166–160.079917 | 0.084500–0.088041 | 162.427125–173.696667 | 0.133292–0.137500 |
 
-The ordinary-code predicate median is below the stopwatch tick resolution
+The ordinary-code predicate median is at or below one stopwatch tick
 (about 0.000042 ms); zero recorded ticks do not mean zero execution time.
 Reasoning-only responses deliberately retain full cleanup, with no promised gain.
 
@@ -61,11 +62,19 @@ dart compile exe tool/benchmarks/markdown_sanitize.dart -o /path/to/sanitize
 /path/to/sanitize candidate
 ```
 
-Build both executables from the candidate harness. For the baseline, restore
-only `packages/conduit_markdown/lib/src/markdown_preprocessor.dart` from the
-baseline commit in an isolated checkout, compile, then restore the candidate
-source and compile its executable. Preserve the same dependency lock and SDK.
-The recorded run order and arguments were:
+The recorded baseline used a copy of the candidate harness with its package
+import changed to `import 'sanitizer-baseline/markdown_preprocessor.dart';`.
+That directory, beside the copied harness, contained `markdown_preprocessor.dart`
+and `semantic_details.dart` from the baseline commit. It was compiled with the
+candidate workspace package configuration; the result JSON records both harness
+hashes and the import recipe. For example, with those copies in `/path/to/build`:
+
+```sh
+dart compile exe --packages=/path/to/checkout/.dart_tool/package_config.json /path/to/build/sanitize-marker-baseline-harness.dart -o /path/to/build/sanitize-marker-baseline
+```
+
+The candidate uses the original committed harness. Preserve the dependency lock
+and SDK for both builds. The recorded run order and arguments were:
 
 ```sh
 ./sanitize-marker-baseline a1

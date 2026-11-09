@@ -4593,5 +4593,8 @@
         "a2"
       ]
     }
-  ]
+  ],
+  "baselineHarnessSha256": "3afcab70a0ddcf655cfedc47f72166e47e73459a17b351a802b0ec98f24703cc",
+  "baselineHarnessImport": "import 'sanitizer-baseline/markdown_preprocessor.dart';",
+  "baselineHarnessRecipe": "Copy the committed harness and replace its conduit_markdown package import with baselineHarnessImport. Copy markdown_preprocessor.dart and semantic_details.dart from baselineCommit into sanitizer-baseline beside that harness; compile using the candidate workspace package configuration."
 }
