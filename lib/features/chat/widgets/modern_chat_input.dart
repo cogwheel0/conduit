@@ -739,6 +739,8 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     final animate = !context.reduceMotion;
     final wordsLeaving = animate && departure != null && !departure.departed;
     final hold = wordsLeaving && !departure.liftedOff;
+    _keyboardHiddenForSend = false;
+    _keyboardWaitsForWords = hold;
     setState(() {
       _draftHandedOff = true;
       _sentWordsLeaving = wordsLeaving;
@@ -760,13 +762,34 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       }
     });
     if (wordsLeaving) _watchSentWordsHold(departure);
-    // The keyboard starts down once the frame that hands the message over
-    // is on screen: a slow first frame (a new chat's transcript mounting)
-    // must not leave it sliding away under a composer that still shows the
-    // draft. A built frame reaches the screen a little later than the
-    // keyboard starts moving, so give it a few more milliseconds.
-    void hideKeyboard() {
-      if (!mounted || _isDeactivated || !_draftHandedOff) return;
+    // Words that wait at the composer for their row (the transcript first
+    // scrolls the reply above it past) take the keyboard down as they rise,
+    // so the composer moves once, with them, instead of carrying them down
+    // and back up.
+    if (hold) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || _isDeactivated) return;
+      _hideKeyboardForSend();
+    });
+  }
+
+  /// The keyboard starts down once the frame that hands the message over
+  /// (or lets its words rise) is on screen: a slow first frame (a new chat's
+  /// transcript mounting) must not leave it sliding away under a composer
+  /// that still shows the draft. A built frame reaches the screen a little
+  /// later than the keyboard starts moving, so give it a few more
+  /// milliseconds. Once per send.
+  void _hideKeyboardForSend() {
+    if (_keyboardHiddenForSend) return;
+    _keyboardHiddenForSend = true;
+    // Words that waited have kept the keyboard up past the moment the turn
+    // was stored and the field cleared; only a refused send or typing again
+    // (which cancel the wait) may keep it up now.
+    final waited = _keyboardWaitsForWords;
+    _keyboardWaitsForWords = false;
+    _startHandOffTimer(_keyboardHandOffLag, () {
+      if (!mounted || _isDeactivated) return;
+      if (!waited && !_draftHandedOff) return;
       _focusNode.unfocus();
       unawaited(_hideAttachmentPanels());
       try {
@@ -774,12 +797,22 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       } catch (_) {
         // Silently handle if keyboard dismissal fails
       }
-    }
-
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted || _isDeactivated) return;
-      _startHandOffTimer(_keyboardHandOffLag, hideKeyboard);
     });
+  }
+
+  /// Whether this send has started the keyboard down.
+  bool _keyboardHiddenForSend = false;
+
+  /// The sent words wait at the composer for their row: the keyboard stays
+  /// up until they rise (or the send is refused, or the user types again).
+  bool _keyboardWaitsForWords = false;
+
+  /// Keeps the keyboard up after all: the user is writing again, or the
+  /// send did not go through.
+  void _cancelKeyboardWait() {
+    if (!_keyboardWaitsForWords) return;
+    _keyboardWaitsForWords = false;
+    _keyboardHiddenForSend = true;
   }
 
   /// Timers a send hand-off started that have not fired yet; [dispose]
@@ -815,7 +848,9 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
   /// them on the spring.
   void _handleSentWordsLiftOff(ChatSendDeparture departure) {
     if (!identical(departure, _sendDeparture)) return;
-    if (!mounted || _isDeactivated || !_holdingSentWords) return;
+    if (!mounted || _isDeactivated) return;
+    if (_keyboardWaitsForWords) _hideKeyboardForSend();
+    if (!_holdingSentWords) return;
     setState(() {
       _holdingSentWords = false;
       _collapseAfterSend(multiline: _heldMultiline, expanded: _heldExpanded);
@@ -869,6 +904,7 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     if (!identical(departure, _sendDeparture)) return;
     _sendDeparture = null;
     if (!mounted || _isDeactivated) return;
+    if (_keyboardWaitsForWords) _hideKeyboardForSend();
     if (_holdingSentWords) {
       // Never lifted off (they could not fly): close up now.
       setState(() {
@@ -1796,11 +1832,13 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     } finally {
       _sendingDraft = false;
       _draftSendOwner = null;
-      // A refused send keeps its words here: stop holding for them. A sent
-      // one's flying words report their own departure.
+      // A refused send keeps its words here: stop holding for them, and
+      // keep the keyboard up for them. A sent one's flying words report
+      // their own departure.
       final departure = _sendDeparture;
       if (departure != null &&
           (!_sentWordsLeaving || _controller.text.trim().isNotEmpty)) {
+        _cancelKeyboardWait();
         if (ChatSendOrigin.isWaiting(departure)) {
           ChatSendOrigin.takeFollowing();
         }
@@ -1881,6 +1919,9 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
     }
     _controller.clearMentions();
     _controller.clear();
+    // Words still waiting at the composer for their row take the keyboard
+    // down as they rise.
+    if (_keyboardWaitsForWords) return;
     _focusNode.unfocus();
     unawaited(_hideAttachmentPanels());
     try {
@@ -2059,8 +2100,9 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
         setState(() => _draftHandedOff = false);
       }
       // Typing again while the sent words are still leaving shows what is
-      // typed at once.
+      // typed at once, and keeps the keyboard up for it.
       if (_sentWordsLeaving && _controller.text.trim().isNotEmpty) {
+        _cancelKeyboardWait();
         _sendDeparture?.depart();
       }
     }

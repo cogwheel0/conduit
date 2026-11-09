@@ -71,10 +71,20 @@ class _ComposerSendCollapseState extends State<ComposerSendCollapse>
   /// Whether this collapse has reported [ComposerSendCollapse.onNearlyClosed].
   bool _nearlyClosedReported = true;
 
+  /// The share of the motion the frame that starts a collapse already shows:
+  /// one frame's, as the rising words' first step up does, so the composer
+  /// starts to close in the very frame they start to rise.
+  static const double _leadSeconds = 1 / 60;
+
   void _startCollapse() {
     _ticker.stop();
-    _clock.reset();
-    _seconds.value = 0;
+    _clock
+      ..reset()
+      ..advanceTo(_leadSeconds)
+      // Started during this frame, the ticker counts from it: its first
+      // reading, next frame, is that frame's interval.
+      ..restartTicker();
+    _seconds.value = _clock.seconds;
     _ticker.start();
   }
 

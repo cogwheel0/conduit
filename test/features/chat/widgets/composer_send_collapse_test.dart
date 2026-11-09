@@ -46,9 +46,13 @@ void main() {
     await tester.pumpWidget(
       _harness(token: 1, contentHeight: 44, onDone: () => done++),
     );
-    // The frame of the send keeps the old height; the one-line content
-    // already sits at the bottom, where the buttons were.
-    expect(tester.getSize(find.byKey(_box)).height, 96);
+    // The frame the words start to rise already closes by one frame of the
+    // spring, as their first step up does (no frame holds the empty
+    // height); the one-line content already sits at the bottom, where the
+    // buttons were.
+    final firstStep = 44 + 52 * ChatSendEntrance.remainingAt(1 / 60);
+    expect(tester.getSize(find.byKey(_box)).height, closeTo(firstStep, 0.01));
+    expect(firstStep, lessThan(96));
     expect(
       tester.getBottomLeft(find.byKey(_content)).dy,
       tester.getBottomLeft(find.byKey(_box)).dy,
@@ -72,17 +76,35 @@ void main() {
     expect(done, 1);
   });
 
+  testWidgets('at the display\'s pace it closes one frame of the spring '
+      'per frame, from the frame of the send on', (tester) async {
+    await tester.pumpWidget(_harness(token: 0, contentHeight: 96));
+    await tester.pumpWidget(_harness(token: 1, contentHeight: 44));
+    const frame = Duration(microseconds: 16667);
+    for (var k = 1; k <= 6; k++) {
+      expect(
+        tester.getSize(find.byKey(_box)).height,
+        closeTo(44 + 52 * ChatSendEntrance.remainingAt(k / 60), 0.05),
+        reason: 'frame $k',
+      );
+      await tester.pump(frame);
+    }
+  });
+
   testWidgets('a slow frame holds the collapse back with the rising '
       'message instead of skipping it', (tester) async {
     await tester.pumpWidget(_harness(token: 0, contentHeight: 96));
     await tester.pumpWidget(_harness(token: 1, contentHeight: 44));
     // A 300 ms frame right after the send (a new chat's transcript
-    // mounting): the composer closes by two frames' worth of its spring,
-    // as the message does, not most of the way in one step.
+    // mounting): the composer closes by two frames' worth of its spring
+    // beyond its first step, as the message does, not most of the way in
+    // one step.
     await tester.pump(const Duration(milliseconds: 300));
     final afterStall = tester.getSize(find.byKey(_box)).height;
     final twoFrames =
-        44 + 52 * ChatSendEntrance.remainingAt(ChatMotionClock.maxFrameStep);
+        44 +
+        52 *
+            ChatSendEntrance.remainingAt(1 / 60 + ChatMotionClock.maxFrameStep);
     expect(afterStall, closeTo(twoFrames, 0.5));
     // Then it plays on at the display's pace.
     await tester.pump(const Duration(milliseconds: 16));
@@ -112,9 +134,13 @@ void main() {
     );
     expect(nearly, 0);
 
-    // The words rise: it closes on the spring from the held height.
+    // The words rise: it closes on the spring from the held height, from
+    // that very frame.
     await tester.pumpWidget(page(1, 44));
-    expect(tester.getSize(find.byKey(_box)).height, 96);
+    expect(
+      tester.getSize(find.byKey(_box)).height,
+      closeTo(44 + 52 * ChatSendEntrance.remainingAt(1 / 60), 0.01),
+    );
     await tester.pump(const Duration(milliseconds: 80));
     expect(tester.getSize(find.byKey(_box)).height, inExclusiveRange(44, 96));
     await tester.pumpAndSettle();
