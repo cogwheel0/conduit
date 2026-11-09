@@ -3665,70 +3665,119 @@ private final class NativeProfileMenuTableViewController: UITableViewController 
 /// The Settings card's picture.
 private let profileAvatarDiameter: CGFloat = 56
 
-/// A row whose choice is a segmented control: its symbol and title on one
-/// line, as every other settings row has them, and the control under the
-/// title, so the title and the control share the titles' leading edge.
-private final class NativeSheetSegmentTableViewCell: UITableViewCell {
-    static let reuseId = "NativeSheetSegmentTableViewCell"
+/// A row that picks one of a few values, as a Settings form's menu picker
+/// does: its symbol and title on one line with the value at the trailing
+/// edge, in the secondary tone of every value cell, over the up-and-down
+/// chevrons that say it opens a menu. A description, when there is one, runs
+/// under the title across the row, so it never squeezes into the space left
+/// by the value.
+///
+/// The value is a pop-up button: its menu ticks the current choice and the
+/// button takes the new one's name as it is picked. VoiceOver reads the row
+/// as that button, named by the title, with the value and the description.
+private final class NativeSheetChoiceMenuTableViewCell: UITableViewCell {
+    static let reuseId = "NativeSheetChoiceMenuTableViewCell"
 
     override func layoutSubviews() {
         super.layoutSubviews()
         NativeSheetSettingsStyle.alignSeparator(of: self, toLeadingOf: textStack)
     }
 
-    private let headerStack = UIStackView()
     private let iconView = UIImageView()
     private let textStack = UIStackView()
+    /// Holds the title in the stack, so the title can stop short of the
+    /// value while the description under it runs the row's full width.
+    private let titleRow = UIView()
     private let titleLabel = UILabel()
     private let subtitleLabel = UILabel()
-    private let segmentedControl = UISegmentedControl()
-    private var boundOptions: [NativeSheetOption] = []
+    private let valueButton = UIButton(type: .system)
     private var valueChanged: ((String) -> Void)?
 
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
         super.init(style: style, reuseIdentifier: reuseIdentifier)
         selectionStyle = .none
         NativeSheetSettingsStyle.applyCellStyle(self)
-        headerStack.axis = .horizontal
-        headerStack.alignment = .center
-        headerStack.spacing = NativeSheetSettingsStyle.iconSpacing
-        headerStack.translatesAutoresizingMaskIntoConstraints = false
+
+        iconView.contentMode = .center
+        iconView.translatesAutoresizingMaskIntoConstraints = false
+        iconView.isAccessibilityElement = false
+
         textStack.axis = .vertical
         textStack.spacing = 2
-        iconView.contentMode = .center
-        iconView.setContentHuggingPriority(.required, for: .horizontal)
+        textStack.translatesAutoresizingMaskIntoConstraints = false
+
+        titleLabel.translatesAutoresizingMaskIntoConstraints = false
         titleLabel.font = .preferredFont(forTextStyle: .body)
         titleLabel.adjustsFontForContentSizeCategory = true
         titleLabel.numberOfLines = 0
+        titleLabel.isAccessibilityElement = false
+        titleLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        titleLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+
         subtitleLabel.font = .preferredFont(forTextStyle: .footnote)
-        subtitleLabel.textColor = NativeSheetTheme.shared.secondaryForeground
         subtitleLabel.adjustsFontForContentSizeCategory = true
         subtitleLabel.numberOfLines = 0
-        applyNativeSheetSegmentedControlTheme(segmentedControl)
-        segmentedControl.translatesAutoresizingMaskIntoConstraints = false
-        contentView.addSubview(headerStack)
-        contentView.addSubview(segmentedControl)
-        headerStack.addArrangedSubview(iconView)
-        headerStack.addArrangedSubview(textStack)
-        textStack.addArrangedSubview(titleLabel)
+        subtitleLabel.isAccessibilityElement = false
+
+        // A pop-up button: UIKit draws its up-and-down chevrons and names it
+        // after the ticked choice.
+        valueButton.showsMenuAsPrimaryAction = true
+        valueButton.changesSelectionAsPrimaryAction = true
+        valueButton.translatesAutoresizingMaskIntoConstraints = false
+        valueButton.setContentHuggingPriority(.required, for: .horizontal)
+        valueButton.setContentCompressionResistancePriority(.required, for: .horizontal)
+
+        contentView.addSubview(iconView)
+        contentView.addSubview(textStack)
+        // Beside the title, outside the stack: its tap padding reaches above
+        // and below the title's line without pushing the description down.
+        contentView.addSubview(valueButton)
+        textStack.addArrangedSubview(titleRow)
         textStack.addArrangedSubview(subtitleLabel)
+        titleRow.addSubview(titleLabel)
+        // VoiceOver stops on the row once, on its button: the title names
+        // it, the value is its value and the description its hint.
+        isAccessibilityElement = false
+        accessibilityElements = [valueButton]
+
+        let minimumHeight = contentView.heightAnchor.constraint(
+            greaterThanOrEqualToConstant: NativeSheetChoiceMenuTableViewCell.minimumRowHeight
+        )
+        minimumHeight.priority = .defaultHigh
+        let centered = textStack.centerYAnchor.constraint(equalTo: contentView.centerYAnchor)
+        centered.priority = .defaultHigh
         NSLayoutConstraint.activate([
-            headerStack.leadingAnchor.constraint(equalTo: contentView.layoutMarginsGuide.leadingAnchor),
-            headerStack.trailingAnchor.constraint(equalTo: contentView.layoutMarginsGuide.trailingAnchor),
-            headerStack.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 11),
+            iconView.leadingAnchor.constraint(equalTo: contentView.layoutMarginsGuide.leadingAnchor),
             iconView.widthAnchor.constraint(equalToConstant: NativeSheetSettingsStyle.iconColumnWidth),
-            segmentedControl.leadingAnchor.constraint(equalTo: textStack.leadingAnchor),
-            segmentedControl.trailingAnchor.constraint(equalTo: contentView.layoutMarginsGuide.trailingAnchor),
-            segmentedControl.topAnchor.constraint(equalTo: headerStack.bottomAnchor, constant: 10),
-            segmentedControl.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -12),
+            // The symbol sits on the title's line, not the middle of a row
+            // that a description makes taller.
+            iconView.centerYAnchor.constraint(equalTo: titleRow.centerYAnchor),
+            textStack.leadingAnchor.constraint(
+                equalTo: iconView.trailingAnchor,
+                constant: NativeSheetSettingsStyle.iconSpacing
+            ),
+            textStack.trailingAnchor.constraint(equalTo: contentView.layoutMarginsGuide.trailingAnchor),
+            textStack.topAnchor.constraint(greaterThanOrEqualTo: contentView.topAnchor, constant: 11),
+            textStack.bottomAnchor.constraint(lessThanOrEqualTo: contentView.bottomAnchor, constant: -11),
+            centered,
+            minimumHeight,
+            titleLabel.leadingAnchor.constraint(equalTo: titleRow.leadingAnchor),
+            titleLabel.topAnchor.constraint(equalTo: titleRow.topAnchor),
+            titleLabel.bottomAnchor.constraint(equalTo: titleRow.bottomAnchor),
+            titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: titleRow.trailingAnchor),
+            titleLabel.trailingAnchor.constraint(
+                lessThanOrEqualTo: valueButton.leadingAnchor,
+                constant: -8
+            ),
+            valueButton.trailingAnchor.constraint(equalTo: contentView.layoutMarginsGuide.trailingAnchor),
+            valueButton.centerYAnchor.constraint(equalTo: titleLabel.centerYAnchor),
+            valueButton.topAnchor.constraint(greaterThanOrEqualTo: contentView.topAnchor),
+            valueButton.bottomAnchor.constraint(lessThanOrEqualTo: contentView.bottomAnchor),
         ])
-        segmentedControl.addAction(UIAction { [weak self] _ in
-            guard let self else { return }
-            let idx = self.segmentedControl.selectedSegmentIndex
-            guard idx >= 0, idx < self.boundOptions.count else { return }
-            self.valueChanged?(self.boundOptions[idx].id)
-        }, for: .valueChanged)
     }
+
+    /// The height of a one-line value row in the inset-grouped lists.
+    static let minimumRowHeight: CGFloat = 52
 
     required init?(coder: NSCoder) {
         nil
@@ -3737,16 +3786,20 @@ private final class NativeSheetSegmentTableViewCell: UITableViewCell {
     override func prepareForReuse() {
         super.prepareForReuse()
         valueChanged = nil
-        boundOptions = []
+        valueButton.menu = nil
     }
 
-    func configure(item: NativeSheetItem, onValueChanged: @escaping (String) -> Void) {
+    func configure(
+        item: NativeSheetItem,
+        selectedId chosenId: String?,
+        onValueChanged: @escaping (String) -> Void
+    ) {
         // Re-read the theme on every bind: reused cells otherwise keep the
         // palette that was active when they were first created.
         NativeSheetSettingsStyle.applyCellStyle(self)
-        applyNativeSheetSegmentedControlTheme(segmentedControl)
-        titleLabel.textColor = NativeSheetTheme.shared.foreground
-        subtitleLabel.textColor = NativeSheetTheme.shared.secondaryForeground
+        let theme = NativeSheetTheme.shared
+        titleLabel.textColor = theme.foreground
+        subtitleLabel.textColor = theme.secondaryForeground
         // The symbol at the size, weight and tint of every row's.
         iconView.tintColor = NativeSheetSettingsStyle.iconForeground
         iconView.image = nativeSettingsSymbolImage(item.sfSymbol)?.withConfiguration(
@@ -3757,26 +3810,53 @@ private final class NativeSheetSegmentTableViewCell: UITableViewCell {
             )
         )
         titleLabel.text = item.title
-        if let subtitle = item.subtitle, !subtitle.isEmpty {
-            subtitleLabel.text = subtitle
-            subtitleLabel.isHidden = false
-        } else {
-            subtitleLabel.isHidden = true
-        }
-        boundOptions = item.options
-        while segmentedControl.numberOfSegments > 0 {
-            segmentedControl.removeSegment(at: 0, animated: false)
-        }
-        for (idx, opt) in item.options.enumerated() {
-            segmentedControl.insertSegment(withTitle: opt.label, at: idx, animated: false)
-        }
-        let selectedId = item.value as? String
-        if let ix = item.options.firstIndex(where: { $0.id == selectedId }) {
-            segmentedControl.selectedSegmentIndex = ix
-        } else if !item.options.isEmpty {
-            segmentedControl.selectedSegmentIndex = 0
-        }
+        let subtitle = item.subtitle ?? ""
+        subtitleLabel.text = subtitle
+        subtitleLabel.isHidden = subtitle.isEmpty
+
         valueChanged = onValueChanged
+        let options = item.options
+        let selectedId = chosenId
+            ?? (item.value as? String).flatMap { id in options.contains { $0.id == id } ? id : nil }
+            ?? options.first?.id
+        valueButton.configuration = Self.buttonConfiguration(theme: theme)
+        valueButton.menu = UIMenu(children: options.map { option in
+            UIAction(
+                title: option.label,
+                state: option.id == selectedId ? .on : .off
+            ) { [weak self] _ in
+                guard let self else { return }
+                NativeSheetHaptics.selection()
+                self.updateAccessibility(title: item.title, subtitle: subtitle, value: option.label)
+                self.valueChanged?(option.id)
+            }
+        })
+        let selectedLabel = options.first { $0.id == selectedId }?.label ?? ""
+        updateAccessibility(title: item.title, subtitle: subtitle, value: selectedLabel)
+    }
+
+    private func updateAccessibility(title: String, subtitle: String, value: String) {
+        valueButton.accessibilityLabel = title
+        valueButton.accessibilityValue = value
+        valueButton.accessibilityHint = subtitle.isEmpty ? nil : subtitle
+    }
+
+    /// The value in the body size and secondary tone of a value cell, with
+    /// the pop-up chevrons UIKit adds after it, and no padding at the
+    /// trailing edge, so the value ends on the row's margin as other values
+    /// do. The padding above and below makes the target as tall as the row.
+    private static func buttonConfiguration(theme: NativeSheetTheme) -> UIButton.Configuration {
+        var configuration = UIButton.Configuration.plain()
+        configuration.baseForegroundColor = theme.secondaryForeground
+        configuration.titleLineBreakMode = .byTruncatingTail
+        configuration.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { incoming in
+            var outgoing = incoming
+            outgoing.font = .preferredFont(forTextStyle: .body)
+            return outgoing
+        }
+        configuration.indicator = .popup
+        configuration.contentInsets = NSDirectionalEdgeInsets(top: 10, leading: 8, bottom: 10, trailing: 0)
+        return configuration
     }
 }
 
@@ -4990,10 +5070,11 @@ private final class NativeDetailTableViewController: UITableViewController {
     private let onClose: () -> Void
     private var pendingTextValues: [String: String] = [:]
     private var committedTextValues: [String: String] = [:]
-    /// Choices made in tiles since Dart last sent the page. A choice such as
-    /// Dark re-themes the sheet, which reloads its rows before any new rows
-    /// arrive, so the rows draw this rather than the value they came with.
-    private var chosenTileValues: [String: String] = [:]
+    /// Choices made in tiles and menu rows since Dart last sent the page. A
+    /// choice such as Dark re-themes the sheet, which reloads its rows before
+    /// any new rows arrive, and a speed is not sent back at all, so the rows
+    /// draw this rather than the value they came with.
+    private var chosenOptionValues: [String: String] = [:]
 
     var detailId: String { detail.id }
 
@@ -5048,7 +5129,7 @@ private final class NativeDetailTableViewController: UITableViewController {
         detail = newDetail
         pendingTextValues.removeAll()
         committedTextValues.removeAll()
-        chosenTileValues.removeAll()
+        chosenOptionValues.removeAll()
         title = newDetail.title
         navigationItem.title = newDetail.title
         refreshNavigationAction()
@@ -5084,8 +5165,8 @@ private final class NativeDetailTableViewController: UITableViewController {
         refreshNavigationAction()
         tableView.register(UITableViewCell.self, forCellReuseIdentifier: "cell")
         tableView.register(
-            NativeSheetSegmentTableViewCell.self,
-            forCellReuseIdentifier: NativeSheetSegmentTableViewCell.reuseId
+            NativeSheetChoiceMenuTableViewCell.self,
+            forCellReuseIdentifier: NativeSheetChoiceMenuTableViewCell.reuseId
         )
         tableView.register(
             NativeSheetAppearanceTilesTableViewCell.self,
@@ -5217,10 +5298,14 @@ private final class NativeDetailTableViewController: UITableViewController {
         switch item.kind {
         case "segment":
             let cell = tableView.dequeueReusableCell(
-                withIdentifier: NativeSheetSegmentTableViewCell.reuseId,
+                withIdentifier: NativeSheetChoiceMenuTableViewCell.reuseId,
                 for: indexPath
-            ) as! NativeSheetSegmentTableViewCell
-            cell.configure(item: item) { [weak self] newValue in
+            ) as! NativeSheetChoiceMenuTableViewCell
+            cell.configure(
+                item: item,
+                selectedId: chosenOptionValues[item.id]
+            ) { [weak self] newValue in
+                self?.chosenOptionValues[item.id] = newValue
                 self?.onControlChanged(item, newValue)
             }
             return cell
@@ -5231,9 +5316,9 @@ private final class NativeDetailTableViewController: UITableViewController {
             ) as! NativeSheetAppearanceTilesTableViewCell
             cell.configure(
                 item: item,
-                selectedId: chosenTileValues[item.id] ?? item.selectedOptionId
+                selectedId: chosenOptionValues[item.id] ?? item.selectedOptionId
             ) { [weak self] newValue in
-                self?.chosenTileValues[item.id] = newValue
+                self?.chosenOptionValues[item.id] = newValue
                 self?.onControlChanged(item, newValue)
             }
             return cell

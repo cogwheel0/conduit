@@ -1540,10 +1540,11 @@ class NativeSheetHydrationService {
           items: [
             if (transportAvail.allowPolling &&
                 transportAvail.allowWebsocketOnly)
+              // The row's menu shows the mode in use; a subtitle would
+              // only repeat it.
               NativeSheetItemConfig(
                 id: 'transport-mode',
                 title: l10n.transportMode,
-                subtitle: transportLabel,
                 sfSymbol: 'network',
                 kind: NativeSheetItemKind.segment,
                 value: effectiveTransport == 'ws' ? 'ws' : 'polling',

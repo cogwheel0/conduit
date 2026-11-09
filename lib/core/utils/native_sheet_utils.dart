@@ -849,7 +849,10 @@ NativeAudioSheetParts buildNativeAudioSheetParts(
   final sttSegment = NativeSheetItemConfig(
     id: 'stt-engine',
     title: l10n.sttSettings,
-    subtitle: l10n.sttEngineDeviceDescription,
+    // Says what the chosen engine does, as Text to Speech's row does.
+    subtitle: appSettings.sttPreference == SttPreference.serverOnly
+        ? l10n.sttEngineServerDescription
+        : l10n.sttEngineDeviceDescription,
     sfSymbol: 'mic',
     kind: NativeSheetItemKind.segment,
     value: appSettings.sttPreference.name,
@@ -1097,14 +1100,16 @@ NativeAudioSheetParts buildNativeAudioSheetParts(
 
   return NativeAudioSheetParts(
     mainSections: [
+      // The call mode's row shows its value on one line; what the mode does
+      // is the group's footer, as Settings explains a choice.
       NativeSheetSectionConfig(
+        footer: appSettings.voiceCallMode == VoiceCallMode.auto
+            ? l10n.voiceCallModeRealtimeDescription
+            : l10n.voiceCallModeStandardDescription,
         items: [
           NativeSheetItemConfig(
             id: 'voice-call-mode',
             title: l10n.voiceCallModeTitle,
-            subtitle: appSettings.voiceCallMode == VoiceCallMode.auto
-                ? l10n.voiceCallModeRealtimeDescription
-                : l10n.voiceCallModeStandardDescription,
             sfSymbol: 'phone.badge.waveform',
             kind: NativeSheetItemKind.segment,
             value: appSettings.voiceCallMode.name,
