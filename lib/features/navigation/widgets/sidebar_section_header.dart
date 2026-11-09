@@ -16,8 +16,15 @@ const double kSidebarSectionTopSpacing = 20;
 const double kSidebarSectionHeaderBottomSpacing = Spacing.xs;
 
 /// Section header of a sidebar list, as UIKit plain lists label sections:
-/// the title starts where row text starts, and a collapsible section ends in
-/// a disclosure chevron that turns down while the section is open.
+/// the title starts where its rows' content starts, and a collapsible
+/// section ends in a disclosure chevron, on the list's trailing margin, that
+/// turns down while the section is open.
+///
+/// Chat and note titles start past their unread column, so by default the
+/// header starts there too and the unread dot hangs in the gutter before
+/// both, as Mail and Notes keep one text edge. A section whose rows lead
+/// with a symbol (Folders) passes [kSidebarRowContentInset] instead, where
+/// those symbols start.
 class SidebarSectionHeader extends StatelessWidget {
   const SidebarSectionHeader({
     super.key,
@@ -27,6 +34,7 @@ class SidebarSectionHeader extends StatelessWidget {
     this.onToggle,
     this.trailing,
     this.chevronKey,
+    this.leadingInset = kSidebarRowTitleInset,
   }) : assert(
          (isExpanded == null) == (onToggle == null),
          'A collapsible header needs both isExpanded and onToggle.',
@@ -48,6 +56,9 @@ class SidebarSectionHeader extends StatelessWidget {
   final Widget? trailing;
 
   final Key? chevronKey;
+
+  /// Where the title starts: on the section's row text by default.
+  final double leadingInset;
 
   @override
   Widget build(BuildContext context) {
@@ -79,7 +90,7 @@ class SidebarSectionHeader extends StatelessWidget {
 
     final row = Padding(
       padding: EdgeInsetsDirectional.only(
-        start: kSidebarRowContentInset,
+        start: leadingInset,
         end: kSidebarRowContentInset,
         top: isFirst
             ? kSidebarFirstSectionTopSpacing

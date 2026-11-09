@@ -117,8 +117,10 @@ void main() {
     expect(stampOf('Old chat'), DateFormat('M/d/yy', 'en').format(old));
   });
 
-  testWidgets('section headers start on the toolbar\'s leading edge and '
-      'chat titles after their unread column', (tester) async {
+  testWidgets('the large title starts on the toolbar\'s leading edge, and '
+      'section headers with the chat titles after their unread column', (
+    tester,
+  ) async {
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
     await tester.pumpWidget(
@@ -138,10 +140,11 @@ void main() {
       matching: find.text(l10n.sidebarChatsTab),
     );
     expect(tester.getTopLeft(largeTitle).dx, kSidebarRowContentInset);
+    // One text edge for headers and titles; the unread dot hangs before it.
     for (final text in [l10n.pinned, l10n.today]) {
       expect(
         tester.getTopLeft(find.text(text)).dx,
-        kSidebarRowContentInset,
+        kSidebarRowTitleInset,
         reason: text,
       );
     }

@@ -1201,6 +1201,9 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
       key: const ValueKey<String>('chats-section-folders'),
       title: l10n.folders,
       isFirst: isFirst,
+      // Folder rows lead with their symbol on the list's leading edge, so
+      // the header starts there with them.
+      leadingInset: kSidebarRowContentInset,
       isExpanded: ref.watch(showFoldersProvider),
       onToggle: () => ref.read(showFoldersProvider.notifier).toggle(),
       chevronKey: const ValueKey<String>('folders-section-leading'),
