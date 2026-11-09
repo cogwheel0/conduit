@@ -3294,7 +3294,9 @@ class HermesSessionsController
     }
     if (configController.sessionActionAdmissionIsCurrent(admission) &&
         identical(ref.read(hermesApiServiceProvider), service)) {
+      // The chat may have been set aside: neither list may keep it.
       ref.invalidate(hermesArchivedSessionsProvider);
+      ref.invalidate(hermesHiddenSessionsProvider);
       ref.invalidateSelf();
     }
     return true;

@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:checks/checks.dart';
+import 'package:conduit_core/database/app_database.dart';
+import 'package:conduit_core/database/database_provider.dart';
 import 'package:conduit_core/features/hermes/models/hermes_config.dart';
 import 'package:conduit_core/features/hermes/models/hermes_session.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
@@ -14,6 +16,7 @@ import 'package:conduit_core/features/hermes/services/hermes_set_aside_session_s
 import 'package:conduit_core/persistence/preferences_store.dart';
 import 'package:conduit_core/ports/key_value_store.dart';
 import 'package:dio/dio.dart';
+import 'package:drift/native.dart';
 import 'package:riverpod/riverpod.dart';
 import 'package:test/test.dart';
 
@@ -426,6 +429,60 @@ void main() {
         await container.read(hermesHiddenSessionsProvider.future),
       ).isEmpty();
       check(HermesSetAsideSessionStore.forScope(scope)).isEmpty();
+    });
+
+    // A delete refreshed the archived list but not the hidden one, which
+    // kept the deleted chat while it was open.
+    test('a deleted hidden chat leaves the hidden list', () async {
+      var deleted = false;
+      final routes = _Routes({
+        'GET /api/sessions': (_) => (200, {'data': <Object>[]}),
+        'PATCH /api/sessions/api_h': (_) => (200, {'session': {}}),
+        'GET /api/sessions/api_h': (_) => deleted
+            ? (404, {'detail': 'Not Found'})
+            : (
+                200,
+                {
+                  'session': {
+                    'id': 'api_h',
+                    'title': 'Synthetic hidden',
+                    'hidden': true,
+                  },
+                },
+              ),
+        'DELETE /api/sessions/api_h': (_) {
+          deleted = true;
+          return (200, {'ok': true});
+        },
+      });
+      final database = AppDatabase(NativeDatabase.memory());
+      addTearDown(database.close);
+      final container = ProviderContainer(
+        overrides: [
+          hermesApiServiceProvider.overrideWithValue(_rest(routes)),
+          directLocalDatabaseProvider.overrideWithValue(database),
+        ],
+      );
+      addTearDown(container.dispose);
+      final sessions = container.read(hermesSessionsProvider.notifier);
+      await sessions.setHidden(
+        const HermesSessionSummary(id: 'api_h', title: 'Synthetic hidden'),
+        true,
+      );
+      // The hidden chats are on screen.
+      final shown = container.listen(hermesHiddenSessionsProvider, (_, _) {});
+      addTearDown(shown.close);
+      check(
+        (await container.read(
+          hermesHiddenSessionsProvider.future,
+        )).map((session) => session.id),
+      ).deepEquals(['api_h']);
+
+      check(await sessions.delete('api_h')).isTrue();
+
+      check(
+        await container.read(hermesHiddenSessionsProvider.future),
+      ).isEmpty();
     });
 
     test('an archived chat brought out of hiding is archived again', () async {
