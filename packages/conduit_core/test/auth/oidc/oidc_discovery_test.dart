@@ -240,6 +240,130 @@ void main() {
       check(provider.requests).length.equals(1);
     });
 
+    group('finds a Microsoft tenant whose document names it by ID', () {
+      const tenantId = '72f988bf-86f1-41af-91ab-2d7cd011db47';
+      const consumersId = '9188040d-6c67-4c5b-b112-36a304b66dad';
+      const host = 'https://login.microsoftonline.com';
+
+      Map<String, dynamic> tenantDocument(String issuerTenant, String named) =>
+          {
+            'issuer': '$host/$issuerTenant/v2.0',
+            'authorization_endpoint': '$host/$named/oauth2/v2.0/authorize',
+            'token_endpoint': '$host/$named/oauth2/v2.0/token',
+          };
+
+      test('a tenant named by its domain', () async {
+        const authorize =
+            '$host/contoso.onmicrosoft.com/oauth2/v2.0/authorize';
+        final provider = _Provider({
+          _document('$host/contoso.onmicrosoft.com/v2.0'): tenantDocument(
+            tenantId,
+            tenantId,
+          ),
+        });
+        final metadata = await provider.client.discover(
+          provider: 'microsoft',
+          authorizationEndpoint: Uri.parse(authorize),
+          clientId: 'conduit',
+        );
+        check(metadata.issuer).equals('$host/$tenantId/v2.0');
+        check(
+          metadata.authorizationEndpoint.toString(),
+        ).equals('$host/$tenantId/oauth2/v2.0/authorize');
+        check(metadata.isIssuer('$host/$tenantId/v2.0')).isTrue();
+      });
+
+      test('consumers', () async {
+        const authorize = '$host/consumers/oauth2/v2.0/authorize';
+        final provider = _Provider({
+          _document('$host/consumers/v2.0'): tenantDocument(
+            consumersId,
+            'consumers',
+          ),
+        });
+        final metadata = await provider.client.discover(
+          provider: 'microsoft',
+          authorizationEndpoint: Uri.parse(authorize),
+          clientId: 'conduit',
+        );
+        check(metadata.issuer).equals('$host/$consumersId/v2.0');
+        check(provider.requests).length.equals(1);
+      });
+
+      test('also when its issuer is entered by hand', () async {
+        const authorize = '$host/consumers/oauth2/v2.0/authorize';
+        final provider = _Provider({
+          _document('$host/consumers/v2.0'): tenantDocument(
+            consumersId,
+            'consumers',
+          ),
+        });
+        final metadata = await provider.client.discover(
+          provider: 'microsoft',
+          authorizationEndpoint: Uri.parse(authorize),
+          clientId: 'conduit',
+          issuer: '$host/consumers/v2.0',
+        );
+        check(metadata.issuer).equals('$host/$consumersId/v2.0');
+      });
+
+      test('but not one naming a third tenant', () async {
+        const authorize = '$host/consumers/oauth2/v2.0/authorize';
+        final provider = _Provider({
+          _document('$host/consumers/v2.0'): tenantDocument(
+            consumersId,
+            tenantId,
+          ),
+        });
+        check(
+          await _failureOf(
+            provider.client.discover(
+              provider: 'microsoft',
+              authorizationEndpoint: Uri.parse(authorize),
+              clientId: 'conduit',
+            ),
+          ),
+        ).equals(OidcFailureKind.discoveryNotFound);
+      });
+
+      test('nor for another provider, or off Microsoft\'s host', () async {
+        const authorize = '$host/consumers/oauth2/v2.0/authorize';
+        final provider = _Provider({
+          _document('$host/consumers/v2.0'): tenantDocument(
+            consumersId,
+            'consumers',
+          ),
+          _document('https://id.example.com/consumers/v2.0'): {
+            'issuer': 'https://id.example.com/$consumersId/v2.0',
+            'authorization_endpoint':
+                'https://id.example.com/consumers/oauth2/v2.0/authorize',
+            'token_endpoint':
+                'https://id.example.com/consumers/oauth2/v2.0/token',
+          },
+        });
+        check(
+          await _failureOf(
+            provider.client.discover(
+              provider: 'oidc',
+              authorizationEndpoint: Uri.parse(authorize),
+              clientId: 'conduit',
+            ),
+          ),
+        ).equals(OidcFailureKind.discoveryNotFound);
+        check(
+          await _failureOf(
+            provider.client.discover(
+              provider: 'microsoft',
+              authorizationEndpoint: Uri.parse(
+                'https://id.example.com/consumers/oauth2/v2.0/authorize',
+              ),
+              clientId: 'conduit',
+            ),
+          ),
+        ).equals(OidcFailureKind.discoveryNotFound);
+      });
+    });
+
     test('of Authentik needs its issuer entered by hand', () async {
       const authorize = 'https://auth.example.com/application/o/authorize/';
       const issuer = 'https://auth.example.com/application/o/conduit/';
@@ -325,10 +449,12 @@ void main() {
       ).equals(OidcFailureKind.insecureEndpoint);
     });
 
-    test('reports an unreachable provider as such', () async {
+    test('reports an unreachable provider as such, asking it once', () async {
+      var asked = 0;
       final client = OidcDiscoveryClient(
         OidcHttp(
           client: MockClient((_) async {
+            asked++;
             throw http.ClientException('connection refused');
           }),
         ),
@@ -342,6 +468,65 @@ void main() {
           ),
         ),
       ).equals(OidcFailureKind.network);
+      // Every candidate is on the same host: the others would only take as
+      // long to fail.
+      check(asked).equals(1);
+    });
+
+    test('stops at a provider that does not answer in time', () async {
+      var asked = 0;
+      final client = OidcDiscoveryClient(
+        OidcHttp(
+          timeout: const Duration(milliseconds: 10),
+          client: MockClient((_) async {
+            asked++;
+            await Future<void>.delayed(const Duration(seconds: 1));
+            return http.Response('{}', 200);
+          }),
+        ),
+      );
+      check(
+        await _failureOf(
+          client.discover(
+            provider: 'oidc',
+            authorizationEndpoint: Uri.parse(keycloakAuth),
+            clientId: 'conduit',
+          ),
+        ),
+      ).equals(OidcFailureKind.timeout);
+      check(asked).equals(1);
+    });
+
+    test('goes on past a candidate that fails on the server', () async {
+      final requests = <Uri>[];
+      final client = OidcDiscoveryClient(
+        OidcHttp(
+          client: MockClient((request) async {
+            requests.add(request.url);
+            if (request.url.toString() ==
+                _document('https://kc.example.com/realms/acme')) {
+              return http.Response(
+                jsonEncode(
+                  _metadata(
+                    issuer: 'https://kc.example.com/realms/acme',
+                    authorization: keycloakAuth,
+                  ),
+                ),
+                200,
+                headers: {'content-type': 'application/json'},
+              );
+            }
+            return http.Response('busy', 503);
+          }),
+        ),
+      );
+      final metadata = await client.discover(
+        provider: 'oidc',
+        authorizationEndpoint: Uri.parse(keycloakAuth),
+        clientId: 'conduit',
+      );
+      check(metadata.issuer).equals('https://kc.example.com/realms/acme');
+      check(requests.length).isGreaterThan(1);
     });
 
     test('reports a matching provider with an http endpoint', () async {
