@@ -653,6 +653,7 @@ void main() {
                 title: 'Large type',
                 pinned: false,
                 selected: false,
+                unread: true,
                 isLoading: false,
                 timestamp: earlyToday,
                 onTap: null,
@@ -666,6 +667,11 @@ void main() {
       final stampRect = tester.getRect(find.byKey(stampKey));
       expect(stampRect.top, greaterThanOrEqualTo(titleRect.bottom - 0.01));
       expect(stampRect.left, closeTo(titleRect.left, 0.01));
+      // The unread dot stays on the title's line, not between the two.
+      final dot = tester.getRect(
+        find.byKey(const ValueKey<String>('conversation-unread-indicator')),
+      );
+      expect(dot.center.dy, closeTo(titleRect.center.dy, 0.5));
       expect(tester.takeException(), isNull);
     });
   });

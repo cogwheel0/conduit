@@ -419,6 +419,7 @@ class _NoteListTile extends StatelessWidget {
       now: now,
       use24HourTime: MediaQuery.alwaysUse24HourFormatOf(context),
     );
+    final stampStacks = sidebarRowStampStacks(context);
 
     return ConduitContextMenu(
       actions: actions,
@@ -438,9 +439,13 @@ class _NoteListTile extends StatelessWidget {
         pressedKey: ValueKey<String>('note-sidebar-pressed-${note.id}'),
         child: SidebarListTileContent(
           title: title,
-          subtitle: ownerName == null
-              ? null
-              : l10n.sharedFolderOwner(ownerName!),
+          // At the accessibility text sizes the date joins the lines under
+          // the title, as on chat rows, rather than squeezing the title.
+          subtitle: [
+            if (ownerName case final owner?) l10n.sharedFolderOwner(owner),
+            if (stampStacks) edited.text,
+          ].join('\n'),
+          subtitleMaxLines: 2,
           selected: selected,
           titleFontWeight: FontWeight.w400,
           trailing: Row(
@@ -453,16 +458,17 @@ class _NoteListTile extends StatelessWidget {
                   size: IconSize.xs,
                   color: theme.textSecondary,
                 ),
-                const SizedBox(width: Spacing.xs),
+                if (!stampStacks) const SizedBox(width: Spacing.xs),
               ],
-              SidebarRowStamp(
-                key: ValueKey<String>('note-sidebar-last-edited-${note.id}'),
-                timestamp: note.updatedDateTime,
-                now: now,
-                // A shared note's owner line sits under the title; the date
-                // stays centred on the pair then.
-                onTitleLine: ownerName == null,
-              ),
+              if (!stampStacks)
+                SidebarRowStamp(
+                  key: ValueKey<String>('note-sidebar-last-edited-${note.id}'),
+                  timestamp: note.updatedDateTime,
+                  now: now,
+                  // A shared note's owner line sits under the title; the
+                  // date stays centred on the pair then.
+                  onTitleLine: ownerName == null,
+                ),
             ],
           ),
         ),

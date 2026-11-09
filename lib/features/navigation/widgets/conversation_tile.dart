@@ -722,8 +722,16 @@ class ConversationTileContent extends StatelessWidget {
     // The unread dot sits in a column of its own before the title, as Mail
     // marks unread mail, so every title keeps one leading edge whether or
     // not its chat is read.
+    final showsStackedStamp =
+        stampStacks && !isLoading && !isGenerating && !isAwaitingApproval;
+    // With the date under the title, the dot stays on the title's line
+    // rather than centring on the pair.
     final statusColumn = SizedBox(
       width: kSidebarRowStatusGutter,
+      height: showsStackedStamp
+          ? MediaQuery.textScalerOf(context).scale(textStyle.fontSize!) *
+                textStyle.height!
+          : null,
       child: unread
           ? Align(
               alignment: AlignmentDirectional.centerStart,
@@ -740,8 +748,6 @@ class ConversationTileContent extends StatelessWidget {
           : null,
     );
 
-    final showsStackedStamp =
-        stampStacks && !isLoading && !isGenerating && !isAwaitingApproval;
     final titleBlock = showsStackedStamp
         ? Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -759,6 +765,9 @@ class ConversationTileContent extends StatelessWidget {
 
     return Row(
       mainAxisSize: shrinkWrap ? MainAxisSize.min : MainAxisSize.max,
+      crossAxisAlignment: showsStackedStamp
+          ? CrossAxisAlignment.start
+          : CrossAxisAlignment.center,
       children: [
         if (reserveStatusColumn) statusColumn,
         if (shrinkWrap)
