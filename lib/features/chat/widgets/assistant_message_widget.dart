@@ -149,6 +149,7 @@ class AssistantMessageWidget extends ConsumerStatefulWidget {
   final bool suppressStreamingHaptics;
   final VoidCallback? onCopy;
   final VoidCallback? onRegenerate;
+
   /// Deletes the response; null where messages cannot be deleted.
   final VoidCallback? onDelete;
   final VoidCallback? onLike;
@@ -2861,7 +2862,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
           ),
           sfSymbol: 'arrow.triangle.branch',
         ),
-      if (_shareableResponseText().isNotEmpty)
+      if (_hasShareableResponseText())
         _AssistantFooterAction(
           id: 'share',
           icon: Platform.isIOS ? CupertinoIcons.share : Icons.share_outlined,
@@ -2882,27 +2883,29 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     return actions;
   }
 
-  // Share is offered only when the text it would send is not empty: a reply
-  // stopped mid-thought holds nothing but its reasoning block. The clipboard
-  // rules are several full-content passes and the footer rebuilds far more
-  // often than the content changes, so memoize by content.
+  // Footer rebuilds reuse eligibility without retaining a cleaned copy of the
+  // answer. Full clipboard text is prepared only when Copy or Share is used.
   String? _shareTextSource;
-  String _shareTextResult = '';
+  bool _hasShareText = false;
 
-  /// The version on screen, or the whole grouped answer, cleaned the way Copy
-  /// cleans it.
-  String _shareableResponseText() {
-    final rawText = _activeVersionIndex >= 0
-        ? _displayedContent
-        : widget.resolveGroupedResponseText?.call() ?? _displayedContent;
+  String get _rawResponseTextForShare => _activeVersionIndex >= 0
+      ? _displayedContent
+      : widget.resolveGroupedResponseText?.call() ?? _displayedContent;
+
+  bool _hasShareableResponseText() {
+    final rawText = _rawResponseTextForShare;
     if (rawText != _shareTextSource) {
       _shareTextSource = rawText;
-      _shareTextResult = ConduitMarkdownPreprocessor.sanitizeForClipboard(
-        rawText,
-      );
+      _hasShareText = ConduitMarkdownPreprocessor.hasClipboardText(rawText);
     }
-    return _shareTextResult;
+    return _hasShareText;
   }
+
+  /// The version on screen, or the whole grouped answer, cleaned like Copy.
+  String _shareableResponseText() =>
+      ConduitMarkdownPreprocessor.sanitizeForClipboard(
+        _rawResponseTextForShare,
+      );
 
   /// The parent copies the stored answer. A version being previewed exists
   /// only on screen, so copy it here, as the text Share would send.

@@ -263,6 +263,18 @@ class ConduitMarkdownPreprocessor {
         .trim();
   }
 
+  /// Whether clipboard sanitization leaves any text.
+  ///
+  /// Ordinary leading text survives every clipboard rule. Only markup,
+  /// reference definitions and entities can remove or decode that prefix, so
+  /// defer the full transformation for ordinary message action bars.
+  static bool hasClipboardText(String input) {
+    final leadingText = input.trimLeft();
+    if (leadingText.isEmpty) return false;
+    if (!'<◁[&'.contains(leadingText[0])) return true;
+    return sanitizeForClipboard(input).isNotEmpty;
+  }
+
   /// Sanitizes message content for copying while omitting internal tool calls.
   ///
   /// Tool-call markup inside code spans is preserved so documentation and
@@ -430,10 +442,15 @@ class ConduitMarkdownPreprocessor {
     String input,
     RegExp pattern,
     String Function(Match) replace,
-  ) => _maskCodeAndTransform(
-    input,
-    (content) => content.replaceAllMapped(pattern, replace),
-  );
+  ) {
+    // No removal candidates means code spans need neither masking nor copying.
+    // Matches inside code still take the protected path below.
+    if (!pattern.hasMatch(input)) return input;
+    return _maskCodeAndTransform(
+      input,
+      (content) => content.replaceAllMapped(pattern, replace),
+    );
+  }
 
   /// Case-insensitive `String.indexOf` for `<details` starting at [start].
   /// Returns -1 when not found.
