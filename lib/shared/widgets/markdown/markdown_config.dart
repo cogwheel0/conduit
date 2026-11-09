@@ -1476,7 +1476,8 @@ const _codeTextHeightBehavior = TextHeightBehavior(
 /// runs back to the left edge, where it would read as a new statement: the
 /// line starts at its own indentation and its continuation hangs a little
 /// further in, under its first characters, as an editor indents wrapped
-/// lines.
+/// lines, behind a dim ↳ at the line's own indentation. A hang alone read as
+/// one more level of nesting (in Python, as code inside the line above).
 ///
 /// Copy in the header copies the source as written, whatever the layout.
 class _WrappedCodeLines extends StatelessWidget {
@@ -1491,7 +1492,7 @@ class _WrappedCodeLines extends StatelessWidget {
   static const int tabColumns = 4;
 
   /// Columns a wrapped line's continuation hangs in from the line's start:
-  /// enough to tell it from the next line, little enough to keep a phone's
+  /// the continuation mark and a space, little enough to keep a phone's
   /// width for code.
   static const int hangingIndentColumns = 2;
 
@@ -1535,6 +1536,7 @@ class _WrappedCodeLines extends StatelessWidget {
               hangingIndentColumns * columnWidth,
               math.max(0, textWidth / 4),
             ),
+            columnWidth: columnWidth,
             rootStyle: rootStyle,
             textScaler: textScaler,
             isFirst: index == 0,
@@ -1696,12 +1698,14 @@ class _WrappedCodeLines extends StatelessWidget {
 }
 
 /// One source line of wrapped code: its first visual line, then the rest
-/// hanging [hang] further in.
+/// hanging [hang] further in, each of its lines led by a dim continuation
+/// mark in the hang.
 class _CodeLineText extends StatelessWidget {
   const _CodeLineText({
     required this.head,
     required this.tail,
     required this.hang,
+    required this.columnWidth,
     required this.rootStyle,
     required this.textScaler,
     required this.isFirst,
@@ -1711,6 +1715,9 @@ class _CodeLineText extends StatelessWidget {
   final List<TextSpan> head;
   final List<TextSpan>? tail;
   final double hang;
+
+  /// One character's advance: the hang needs room for the mark and a space.
+  final double columnWidth;
   final TextStyle rootStyle;
   final TextScaler textScaler;
   final bool isFirst;
@@ -1746,13 +1753,83 @@ class _CodeLineText extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         _paragraph(head, first: isFirst, last: false),
-        Padding(
-          padding: EdgeInsets.only(left: hang),
-          child: _paragraph(tail, first: false, last: isLast),
+        Stack(
+          children: [
+            Padding(
+              padding: EdgeInsets.only(left: hang),
+              child: _paragraph(tail, first: false, last: isLast),
+            ),
+            // A dim return arrow leads each continuation in the hang, so a
+            // wrapped line never reads as a nested one. Painted rather than
+            // set as text: it is not part of the code, to read or to copy.
+            if (hang >= columnWidth * 1.5)
+              Positioned(
+                left: 0,
+                top: 0,
+                bottom: 0,
+                width: hang,
+                child: CustomPaint(
+                  key: const ValueKey<String>('code-continuation-mark'),
+                  painter: _ContinuationMarkPainter(
+                    style: rootStyle.copyWith(
+                      color: (rootStyle.color ?? const Color(0xFF000000))
+                          .withValues(
+                            alpha:
+                                (rootStyle.color?.a ?? 1) *
+                                _ContinuationMarkPainter.opacity,
+                          ),
+                      fontWeight: FontWeight.w400,
+                    ),
+                    textScaler: textScaler,
+                  ),
+                ),
+              ),
+          ],
         ),
       ],
     );
   }
+}
+
+/// Paints [mark] at the start of every visual line of a wrapped line's
+/// continuation, on the code's own baseline.
+class _ContinuationMarkPainter extends CustomPainter {
+  _ContinuationMarkPainter({required this.style, required this.textScaler});
+
+  /// Down-then-right: this line goes on from the one above.
+  static const String mark = '↳';
+
+  /// Share of the code's colour the mark is drawn in: present, but quieter
+  /// than any code.
+  static const double opacity = 0.4;
+
+  final TextStyle style;
+  final TextScaler textScaler;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final fontSize = style.fontSize ?? 13;
+    final lineHeight = textScaler.scale(fontSize) * (style.height ?? 1);
+    if (lineHeight <= 0) return;
+    final painter = TextPainter(
+      text: TextSpan(text: mark, style: style),
+      textDirection: TextDirection.ltr,
+      textScaler: textScaler,
+      // The code's own line box, whatever font the arrow falls back to, so
+      // it sits on the code's baseline.
+      strutStyle: StrutStyle.fromTextStyle(style, forceStrutHeight: true),
+      textHeightBehavior: const TextHeightBehavior(),
+    )..layout();
+    final lines = math.max(1, (size.height / lineHeight).round());
+    for (var line = 0; line < lines; line++) {
+      painter.paint(canvas, Offset(0, line * lineHeight));
+    }
+    painter.dispose();
+  }
+
+  @override
+  bool shouldRepaint(_ContinuationMarkPainter oldDelegate) =>
+      oldDelegate.style != style || oldDelegate.textScaler != textScaler;
 }
 
 List<TextSpan> _buildHighlightedSpans({

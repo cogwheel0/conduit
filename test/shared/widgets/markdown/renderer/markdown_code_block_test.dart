@@ -678,6 +678,41 @@ void main() {
       expect(top(tail) - bottom(continuation), greaterThan(column));
     });
 
+    testWidgets('a continuation is marked, so it never reads as nested code', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        buildHarness('```python\ndef plan():\n    $longLine\n    x = 1\n```'),
+      );
+      await tester.pumpAndSettle();
+      final marks = find.byKey(
+        const ValueKey<String>('code-continuation-mark'),
+      );
+      // Lines that fit carry no mark.
+      expect(marks, findsNothing);
+      await tester.tap(wrapToggle());
+      await tester.pumpAndSettle();
+
+      // Only the wrapped line's continuation is marked, in the hang between
+      // the line's indentation and its continued text.
+      expect(marks, findsOneWidget);
+      final body = codeParagraph(tester, 'print(');
+      final continuation = nextParagraph(tester, body);
+      final mark = tester.getRect(marks);
+      expect(mark.left, closeTo(left(body), 0.5));
+      expect(mark.right, closeTo(left(continuation), 0.5));
+      expect(mark.top, closeTo(top(continuation), 0.5));
+      expect(mark.bottom, closeTo(bottom(continuation), 0.5));
+      // It is not code: no text to read out or copy.
+      for (final paragraph in codeParagraphs(tester)) {
+        expect(paragraph.text.toPlainText(), isNot(contains('\u21B3')));
+      }
+      expect(
+        find.descendant(of: marks, matching: find.byType(RichText)),
+        findsNothing,
+      );
+    });
+
     testWidgets('code wraps by default in a phone window', (tester) async {
       usePhoneWindow(tester);
       await tester.pumpWidget(
