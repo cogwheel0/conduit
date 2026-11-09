@@ -84,10 +84,15 @@ final class _HermesDesktopAdministration {
     return _owner._object(await _owner._rpc.request<Object?>('skills.reload'));
   }
 
+  /// `tools.list` takes no `profile` (Hermes 0.23 refuses one with 4000);
+  /// it lists the gateway's own profile's toolsets.
   Future<List<Map<String, dynamic>>> listToolsets() async {
     await _owner._ensureConnected();
     final result = _owner._object(
-      await _owner._rpc.request<Object?>('tools.list'),
+      await _owner._rpc.request<Object?>(
+        'tools.list',
+        includeDefaultParams: false,
+      ),
     );
     return _owner._objects(result['sections'] ?? result['toolsets']);
   }
@@ -319,14 +324,12 @@ final class _HermesDesktopAdministration {
       }
     }
     for (final id in runtimeIds) {
+      // Takes no `profile` (Hermes 0.23 refuses one with 4000): the session
+      // id scopes it, bot chats in another profile included.
       await _owner._rpc.request<Object?>(
         'reload.mcp',
-        // Bound sessions can include bot chats, which live in another profile.
-        params: {
-          'confirm': true,
-          'session_id': id,
-          ..._owner._runtimeScope(id),
-        },
+        params: {'confirm': true, 'session_id': id},
+        includeDefaultParams: false,
       );
     }
   }
@@ -355,7 +358,12 @@ final class _HermesDesktopAdministration {
           params: const {'action': 'list'},
         ),
       ),
-      supported(() => _owner._rpc.request<Object?>('tools.list')),
+      supported(
+        () => _owner._rpc.request<Object?>(
+          'tools.list',
+          includeDefaultParams: false,
+        ),
+      ),
       supported(
         () => _owner._requestJson('GET', '/api/cron/jobs', query: {'limit': 1}),
       ),
@@ -431,76 +439,98 @@ final class _HermesDesktopAdministration {
         ),
         'runs',
       );
-  Future<void> respondToMcpSetup({
+  /// Approves or skips one target of a connection operation (the
+  /// `manage_connections` card). Hermes does the work itself once a target
+  /// is approved: it installs, enables, or starts the authorization, whose
+  /// browser link arrives in a later `connection.update`.
+  ///
+  /// A target whose sign-in Hermes started before sending the card (an MCP
+  /// authorization, a hosted connector) waits on its link alone: approving
+  /// it opens the link.
+  Future<void> respondToConnection({
     required String runtimeId,
-    required String requestId,
+    required String cardId,
     required bool approved,
-    required String? server,
-    required String? action,
   }) async {
-    final safeServer = validateHermesBoundedString(server, maxCharacters: 128);
-    final safeAction = const {'authorize', 'enable', 'install'}.contains(action)
-        ? action
-        : null;
-    if (safeServer == null || safeAction == null) {
-      throw StateError('Hermes returned an invalid MCP setup request.');
+    final card = parseHermesConnectionCardId(cardId);
+    final target = _owner._rpc.connectionCardTarget(cardId);
+    if (card == null || target == null) {
+      throw StateError('Hermes returned an invalid connection request.');
     }
-    Map<String, dynamic> outcome = {'server': safeServer, 'status': 'declined'};
-    if (approved) {
-      try {
-        switch (safeAction) {
-          case 'install':
-            await mcpRequest(
-              'mcp.servers.add',
-              params: {'name': safeServer, 'preset': safeServer},
-            );
-            outcome = {'server': safeServer, 'status': 'installed'};
-          case 'enable':
-            await setMcpServerEnabled(safeServer, true);
-            outcome = {'server': safeServer, 'status': 'enabled'};
-          case 'authorize':
-            final approvedResult = await _completeMcpOAuth(safeServer);
-            if (approvedResult == null) {
-              throw TimeoutException('MCP authorization timed out.');
-            }
-            outcome = {
-              'server': safeServer,
-              'status': 'authorized',
-              if (approvedResult['tools'] is List)
-                'tools': (approvedResult['tools'] as List)
-                    .take(1000)
-                    .map((tool) => tool.toString())
-                    .toList(growable: false),
-            };
-        }
-        await reloadMcp(runtimeId: runtimeId);
-      } catch (error) {
-        DebugLogger.warning(
-          'mcp-setup-failed',
-          scope: 'hermes/mcp',
-          data: {'errorType': error.runtimeType.toString()},
-        );
-        outcome = {
-          'server': safeServer,
-          'status': 'error',
-          'detail': 'MCP setup failed. Open Hermes MCP settings to retry.',
-        };
+    final link = approved ? _owner._rpc.connectionLink(cardId) : null;
+    if (link != null) {
+      if (!await _owner._openExternalUrl.open(link)) {
+        throw StateError('Could not open the sign-in link.');
       }
+      return;
     }
+    if (approved) _owner._approvedConnectionTargets.add(cardId);
     await _owner._rpc.request<Object?>(
-      'mcp.setup.respond',
+      'connection.respond',
       params: {
-        'session_id': runtimeId,
-        'request_id': requestId,
-        'result': jsonEncode(outcome),
+        'owner': {'type': 'session', 'session_id': runtimeId},
+        'op_id': card.operationId,
+        'result': {
+          'targets': [
+            {'name': target, 'status': approved ? 'approved' : 'skipped'},
+          ],
+        },
         ..._owner._runtimeScope(runtimeId),
       },
     );
-    await HermesPendingDecisionStore.resolve(
-      origin: _owner._origin,
-      connectionId: _owner.config.connectionId,
-      runtimeId: runtimeId,
-      requestId: requestId,
-    );
+  }
+
+  /// Opens the authorization link of a target the user approved here, once:
+  /// a connection update carries it when the target's sign-in starts.
+  ///
+  /// An approved install Hermes keeps waiting instead names the credentials
+  /// it still lacks (`required_env`), which only the Hermes host can supply:
+  /// its card comes back, so the user can set them there and approve again,
+  /// or skip it. That update is the target's own refresh, still `pending`.
+  void openApprovedConnectionLink(Map<String, dynamic> update) {
+    final operationId = update['op_id']?.toString();
+    final targets = update['targets'];
+    if (operationId == null || targets is! List) return;
+    for (final target in targets.whereType<Map>()) {
+      final cardId = hermesConnectionCardId(operationId, '${target['name']}');
+      if (target['state'] == 'pending' &&
+          update['target'] == target['name'] &&
+          update['from'] == 'pending' &&
+          update['to'] == 'pending' &&
+          _needsCredentials(target['required_env']) &&
+          _owner._approvedConnectionTargets.remove(cardId)) {
+        _owner._rpc.offerConnectionTargetAgain(cardId, update);
+        continue;
+      }
+      final link = parseHermesOAuthUrl(target['connect_url']);
+      if (link == null ||
+          target['state'] != 'initiated' ||
+          !_owner._approvedConnectionTargets.remove(cardId)) {
+        continue;
+      }
+      unawaited(_openApprovedLink(cardId, link, update));
+    }
+  }
+
+  /// Whether a target's `required_env` names a credential the install
+  /// cannot run without.
+  bool _needsCredentials(Object? fields) =>
+      fields is List &&
+      fields.whereType<Map>().any((field) => field['required'] != false);
+
+  /// Opens [link]; when the device refuses it, [cardId]'s card comes back,
+  /// and approving it again opens the link from there.
+  Future<void> _openApprovedLink(
+    String cardId,
+    Uri link,
+    Map<String, dynamic> update,
+  ) async {
+    var opened = false;
+    try {
+      opened = await _owner._openExternalUrl.open(link);
+    } catch (_) {
+      opened = false;
+    }
+    if (!opened) _owner._rpc.offerConnectionTargetAgain(cardId, update);
   }
 }

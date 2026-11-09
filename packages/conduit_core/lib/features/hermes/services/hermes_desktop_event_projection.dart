@@ -8,6 +8,36 @@ List<String> _desktopDecisionChoices(Object? value) {
   ];
 }
 
+/// Drops the text a re-sent `message.delta` repeats. Hermes 0.23 numbers
+/// each reply segment's text by `turn_id`, `segment` and `offset` (UTF-16
+/// code units, as Dart counts them), and sends a segment again on a replay,
+/// a superseded attempt or a second socket.
+final class HermesDeltaSegments {
+  final Map<String, int> _received = {};
+
+  /// The part of [text] not received yet: all of it for a delta without
+  /// positions, null when it repeats text already received.
+  String? unseen({
+    required Object? turnId,
+    required Object? segment,
+    required Object? offset,
+    required String text,
+  }) {
+    if (turnId == null || segment is! int || offset is! int || offset < 0) {
+      return text;
+    }
+    final key = '$turnId\u0000$segment';
+    final received = _received[key] ?? 0;
+    final end = offset + text.length;
+    if (end <= received) return null;
+    if (!_received.containsKey(key) && _received.length >= 256) {
+      _received.remove(_received.keys.first);
+    }
+    _received[key] = end;
+    return offset >= received ? text : text.substring(received - offset);
+  }
+}
+
 bool _projectHermesTurnEvent(
   HermesDesktopEvent event, {
   required void Function(HermesRunEvent) add,

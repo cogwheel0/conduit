@@ -122,7 +122,11 @@ final class HermesPendingDesktopDecision {
         maxCharacters: 128,
       );
       final mcpAction = switch (value['mcp_action']) {
-        'authorize' || 'enable' || 'install' => value['mcp_action']!.toString(),
+        'authorize' ||
+        'connect' ||
+        'enable' ||
+        'install' ||
+        'reconnect' => value['mcp_action']!.toString(),
         _ => null,
       };
       final choices = _sanitizeChoices(value['choices']);
@@ -133,7 +137,14 @@ final class HermesPendingDesktopDecision {
         requestId: requestId,
         kind: kind,
         expiresAt: expiresAt,
-        prompt: prompt is String && prompt.length <= 512 ? prompt : null,
+        // The bound the sanitizer keeps (512 scalars, so up to 1024 UTF-16
+        // units): a prompt read back is the prompt saved.
+        prompt:
+            prompt is String &&
+                prompt.length <= 1024 &&
+                prompt.runes.length <= 512
+            ? prompt
+            : null,
         mcpServer: mcpServer,
         mcpAction: mcpAction,
         choices: choices,
@@ -170,7 +181,10 @@ final class HermesPendingDecisionStore {
   // zone alive (see SecureCredentialStorage).
   static Future<void>? _writes;
 
-  static Future<void> upsert({
+  /// Saves a decision shown in a chat. Resolves to whether that changed a
+  /// saved decision: a new one, or one whose content differs. A replay that
+  /// only renews the expiry changes nothing.
+  static Future<bool> upsert({
     required String origin,
     required String storedSessionId,
     required String runtimeId,
@@ -195,7 +209,7 @@ final class HermesPendingDecisionStore {
         stored == null ||
         runtime == null ||
         request == null) {
-      return;
+      return false;
     }
     final records = _read();
     final identity =
@@ -213,10 +227,12 @@ final class HermesPendingDecisionStore {
       if (candidate.identity == legacyIdentity) legacy = candidate;
     }
     previous ??= legacy;
-    final sanitizedChoices = _sanitizeChoices(choices)
-        .map((choice) => _sanitizePrompt(choice, sensitiveValues))
-        .whereType<String>()
-        .toList(growable: false);
+    // Bounded again after redaction, which can lengthen a choice: what is
+    // saved is what reads back, so a replay compares equal.
+    final sanitizedChoices = _sanitizeChoices([
+      for (final choice in _sanitizeChoices(choices))
+        ?_sanitizePrompt(choice, sensitiveValues),
+    ]);
     final record = HermesPendingDesktopDecision(
       origin: origin,
       storedSessionId: stored,
@@ -234,7 +250,13 @@ final class HermesPendingDecisionStore {
           : null,
       mcpAction:
           kind == HermesPendingDesktopDecisionKind.mcpSetup &&
-              const {'authorize', 'enable', 'install'}.contains(mcpAction)
+              const {
+                'authorize',
+                'connect',
+                'enable',
+                'install',
+                'reconnect',
+              }.contains(mcpAction)
           ? mcpAction
           : null,
       choices: sanitizedChoices.isEmpty
@@ -246,6 +268,10 @@ final class HermesPendingDecisionStore {
               ? previous?.multiSelect ?? multiSelect
               : multiSelect),
     );
+    final changed =
+        previous == null ||
+        previous.identity != record.identity ||
+        !_sameContent(previous, record);
     records
       ..removeWhere(
         (candidate) =>
@@ -254,9 +280,25 @@ final class HermesPendingDecisionStore {
       )
       ..add(record);
     await _write(records);
+    return changed;
   });
 
-  static Future<void> resolve({
+  /// Whether [a] and [b] save the same decision, whatever their expiry.
+  static bool _sameContent(
+    HermesPendingDesktopDecision a,
+    HermesPendingDesktopDecision b,
+  ) {
+    // toStorage writes its keys in one order, so equal content encodes alike.
+    String content(HermesPendingDesktopDecision record) => jsonEncode(
+      Map<String, Object?>.from(jsonDecode(record.toStorage()) as Map)
+        ..remove('expires_at'),
+    );
+    return content(a) == content(b);
+  }
+
+
+  /// Removes a saved decision; resolves to whether one was saved.
+  static Future<bool> resolve({
     required String origin,
     required String runtimeId,
     required String requestId,
@@ -356,11 +398,15 @@ final class HermesPendingDecisionStore {
     );
   }
 
-  static Future<void> _remove(
+  static Future<bool> _remove(
     bool Function(HermesPendingDesktopDecision record) predicate,
   ) => _serialize(() async {
-    final records = _read()..removeWhere(predicate);
+    final records = _read();
+    final before = records.length;
+    records.removeWhere(predicate);
+    if (records.length == before) return false;
     await _write(records);
+    return true;
   });
 
   static List<HermesPendingDesktopDecision> _read() {
@@ -388,10 +434,10 @@ final class HermesPendingDecisionStore {
     );
   }
 
-  static Future<void> _serialize(Future<void> Function() operation) {
+  static Future<T> _serialize<T>(Future<T> Function() operation) {
     final result = (_writes ?? Future<void>.value()).then((_) => operation());
     late final Future<void> tail;
-    tail = result.catchError((_) {}).whenComplete(() {
+    tail = result.then<void>((_) {}, onError: (Object _) {}).whenComplete(() {
       if (identical(_writes, tail)) _writes = null;
     });
     _writes = tail;
@@ -425,16 +471,36 @@ String? _sanitizePrompt(String? value, Iterable<String> sensitiveValues) {
     sensitiveValues: secrets,
     maxVisibleScalars: 512,
   );
+  // A whole Authorization or Cookie value goes, scheme and all, as do
+  // labelled and Bearer credentials.
   safe = safe
       .replaceAllMapped(
         RegExp(
-          r'\b(authorization|cookie|api[-_ ]?key|access[-_ ]?token|password|secret)\b\s*[:=]\s*[^\s,;]+',
+          r'\b(authorization|proxy-authorization|cookie)\b\s*[:=][^\r\n]*',
           caseSensitive: false,
         ),
         (match) => '${match.group(1)}: [REDACTED]',
       )
+      .replaceAllMapped(
+        RegExp(
+          r'\b(api[-_ ]?key|access[-_ ]?token|password|secret)\b'
+          r'\s*[:=]\s*[^\s,;]+',
+          caseSensitive: false,
+        ),
+        (match) => '${match.group(1)}: [REDACTED]',
+      )
+      .replaceAll(
+        RegExp(r'\bbearer\s+[A-Za-z0-9._~+/=-]+', caseSensitive: false),
+        'Bearer [REDACTED]',
+      )
       .replaceAll(RegExp(r'[\u0000-\u001F\u007F-\u009F]'), ' ')
       .replaceAll(RegExp(r'\s+'), ' ')
       .trim();
+  // A marker can outgrow what it replaced: the field keeps its budget, so a
+  // record stays within what is read back.
+  final scalars = safe.runes;
+  if (scalars.length > 512) {
+    safe = String.fromCharCodes(scalars.take(512)).trim();
+  }
   return safe.isEmpty ? null : safe;
 }
