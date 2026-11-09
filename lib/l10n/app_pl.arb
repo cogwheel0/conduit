@@ -110,8 +110,8 @@
   "@settingsDataAndConnection": {
     "description": "Settings destination for transport, connectivity, and related server data options."
   },
-  "slidingSidebar": "Wysuwany panel boczny",
-  "slidingSidebarDescription": "Po włączeniu Notatki, Terminal i Kanały otwierają się obok czatów, zamiast je zastępować.",
+  "slidingSidebar": "Otwieraj panele obok czatów",
+  "slidingSidebarDescription": "Notatki, Terminal i Kanały otwierają się jako panele obok czatów, zamiast je zastępować.",
   "settingsAppearance": "Wygląd",
   "@settingsAppearance": {
     "description": "Settings destination for app appearance options."
@@ -1824,8 +1824,8 @@
   "@disableHapticsWhileStreamingDescription": {
     "description": "Subtitle for the setting that suppresses assistant response streaming haptics."
   },
-  "citationBackground": "Tło cytowań",
-  "citationBackgroundDescription": "Wyświetla cytowania w odpowiedziach na cieniowanym tle.",
+  "citationBackground": "Cieniuj cytowania",
+  "citationBackgroundDescription": "Dodaje do cytowań w odpowiedziach cieniowane tło, aby wyróżniały się w tekście.",
   "citationShowTitles": "Pokazuj tytuły stron w cytowaniach",
   "@citationShowTitles": {
     "description": "Toggle title for labeling inline citation badges with page titles instead of domains."
@@ -8160,7 +8160,7 @@
   "onboardingWelcomeTitle": "Witamy w Conduit",
   "onboardingWelcomeSubtitle": "Rozmawiaj z AI na własnym serwerze, na tym urządzeniu lub przez API.",
   "backendChooserFooter": "Więcej połączeń możesz dodać później w Ustawieniach.",
-  "serverAddressFooter": "Użyj adresu, który otwierasz w przeglądarce. Następnie się zalogujesz.",
+  "serverAddressFooter": "Użyj adresu, który otwierasz w przeglądarce.",
   "signInChangeServer": "Zmień",
   "signInContinueWithSso": "Kontynuuj przez SSO",
   "mutualTlsChooseFile": "Wybierz…",
@@ -8205,5 +8205,8 @@
   "authFieldRequired": "Wymagane",
   "authFieldOptional": "Opcjonalne",
   "authEmailPlaceholder": "name@example.com",
-  "authTokenFieldLabel": "Token"
+  "authTokenFieldLabel": "Token",
+  "composerAttachPhotos": "Zdjęcia",
+  "modelPickerAppleOnDeviceSubtitle": "Na tym urządzeniu, także offline",
+  "modelPickerApplePccSubtitle": "Na prywatnych serwerach Apple"
 }

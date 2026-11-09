@@ -1,3 +1,5 @@
+import '../features/direct_connections/models/direct_connection_profile.dart';
+import '../features/direct_connections/services/direct_model_registry.dart';
 import '../features/direct_connections/services/model_logo_catalog.dart';
 import '../models/model.dart';
 
@@ -76,13 +78,36 @@ String displayNameForModel(Model model, {ModelLogoCatalog? catalog}) {
   );
 }
 
+/// What a model picker says under Apple's two Foundation Models, in the
+/// app's language: where each one runs, in a few words.
+typedef AppleModelPickerSubtitles = ({String onDevice, String privateCloud});
+
+/// Whether [model] is Apple's Private Cloud Compute model rather than the
+/// on-device one. False for any model not trusted as Apple's
+/// ([isAppleFoundationModel]), whatever its id says.
+bool isApplePrivateCloudComputeModel(Model model) =>
+    isAppleFoundationModel(model) &&
+    model.metadata?['remoteModelId'] == kApplePccRemoteModelId;
+
 /// The secondary line under [model] in a model picker.
 ///
 /// A model named after its id shows that full id (`openai/gpt-5-mini` under
 /// `GPT-5 Mini`), so the friendly name never hides which model it is. A model
 /// someone named shows its description, else its id. Returns `null` when the
 /// line would only repeat the name.
-String? modelPickerSubtitle(Model model, {ModelLogoCatalog? catalog}) {
+///
+/// Given [apple], Apple's Foundation Models show those words instead of the
+/// framework's description, so they take one line like every other row.
+String? modelPickerSubtitle(
+  Model model, {
+  ModelLogoCatalog? catalog,
+  AppleModelPickerSubtitles? apple,
+}) {
+  if (apple != null && isAppleFoundationModel(model)) {
+    return isApplePrivateCloudComputeModel(model)
+        ? apple.privateCloud
+        : apple.onDevice;
+  }
   final remoteId = model.metadata?['remoteModelId'];
   final fullId =
       (remoteId is String && remoteId.trim().isNotEmpty ? remoteId : model.id)

@@ -64,15 +64,13 @@ void main() {
     await tester.pumpAndSettle();
 
     // A large title, the field named by a leading label in its row, and a
-    // footer saying what comes next; no web-form label above the field and
-    // no required-field asterisk.
+    // one-line footer saying which address to use; no web-form label above
+    // the field and no required-field asterisk.
     expect(find.text('Open WebUI'), findsWidgets);
     expect(find.text('Server Address'), findsNothing);
     expect(fieldLabel('Server'), findsOneWidget);
     expect(
-      find.text(
-        "Use the address you open in a web browser. You'll sign in next.",
-      ),
+      find.text('Use the address you open in a web browser.'),
       findsOneWidget,
     );
     expect(find.text('*'), findsNothing);

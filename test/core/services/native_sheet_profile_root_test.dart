@@ -149,7 +149,18 @@ void main() {
         for (final section in sections)
           for (final item in section.items) item.sfSymbol,
       ];
-      expect(symbols.where((symbol) => symbol.endsWith('.fill')), isEmpty);
+      expect(
+        symbols.where(
+          (symbol) => symbol.endsWith('.fill') || symbol.contains('filled'),
+        ),
+        isEmpty,
+      );
+      // Voice's waveform sits in a ring, as About's info mark does: its thin
+      // bars alone drew lighter than the bell and the globe.
+      final voice = sections
+          .expand((section) => section.items)
+          .singleWhere((item) => item.id == NativeSheetRoutes.voice);
+      expect(voice.sfSymbol, 'waveform.circle');
       // One symbol per row, so no two rows read as the same place.
       expect(symbols.toSet(), hasLength(symbols.length));
     });

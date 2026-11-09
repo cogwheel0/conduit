@@ -1144,6 +1144,10 @@ enum NativeSheetItemKind {
   readOnlyText,
   source,
   statusUpdate,
+
+  /// Preview tiles for a few looks (System, Light, Dark), each painted from
+  /// its option's swatches, with a label and a selection mark under it.
+  appearanceTiles,
 }
 
 class NativeSheetOptionConfig {
@@ -1491,6 +1495,8 @@ extension on NativeSheetItemKind {
       NativeSheetItemKind.source => PlatformNativeSheetItemKind.source,
       NativeSheetItemKind.statusUpdate =>
         PlatformNativeSheetItemKind.statusUpdate,
+      NativeSheetItemKind.appearanceTiles =>
+        PlatformNativeSheetItemKind.appearanceTiles,
     };
   }
 }

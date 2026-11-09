@@ -1,6 +1,9 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:conduit_core/features/direct_connections/models/direct_connection_profile.dart';
+import 'package:conduit_core/features/direct_connections/models/direct_remote_model.dart';
+import 'package:conduit_core/features/direct_connections/services/direct_model_registry.dart';
 import 'package:conduit_core/features/direct_connections/services/model_logo_catalog.dart';
 import 'package:conduit_core/models/model.dart';
 import 'package:conduit_core/utils/model_display_name.dart';
@@ -220,6 +223,50 @@ void main() {
         ),
         null,
       );
+    });
+
+    group('Apple Foundation Models', () {
+      const apple = (
+        onDevice: 'On this device, works offline',
+        privateCloud: "On Apple's private servers",
+      );
+
+      List<Model> mint(DirectConnectionProfile profile, String remoteId) =>
+          DirectModelRegistry().replaceProfileModels(profile, [
+            DirectRemoteModel(
+              id: remoteId,
+              name: 'Apple',
+              description: 'Apple Foundation Models running on this device',
+            ),
+          ]);
+
+      test('say in one line where each model runs', () {
+        final onDevice = mint(
+          DirectConnectionProfile.appleOnDevice(),
+          kAppleOnDeviceRemoteModelId,
+        ).single;
+        final pcc = mint(
+          DirectConnectionProfile.applePrivateCloudCompute(),
+          kApplePccRemoteModelId,
+        ).single;
+
+        expect(modelPickerSubtitle(onDevice, apple: apple), apple.onDevice);
+        expect(modelPickerSubtitle(pcc, apple: apple), apple.privateCloud);
+        expect(isApplePrivateCloudComputeModel(pcc), isTrue);
+        expect(isApplePrivateCloudComputeModel(onDevice), isFalse);
+      });
+
+      test('a server model with an Apple-looking id keeps its own line', () {
+        const spoofed = Model(
+          id: kApplePccRemoteModelId,
+          name: 'Apple Private Cloud Compute',
+          description: 'From the server',
+          metadata: {'remoteModelId': kApplePccRemoteModelId},
+        );
+
+        expect(modelPickerSubtitle(spoofed, apple: apple), 'From the server');
+        expect(isApplePrivateCloudComputeModel(spoofed), isFalse);
+      });
     });
   });
 

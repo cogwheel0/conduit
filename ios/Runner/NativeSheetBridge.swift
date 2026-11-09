@@ -695,7 +695,7 @@ private struct NativeResultSheetConfiguration {
         switch item.kind {
         case "textField", "secureTextField", "multilineTextField":
             return (item.value as? String) ?? ""
-        case "dropdown", "searchablePicker", "segment":
+        case "dropdown", "searchablePicker", "segment", "appearanceTiles":
             return item.selectedOptionId ?? item.options.first?.id
         case "toggle":
             return item.value as? Bool ?? false
@@ -1017,6 +1017,7 @@ private extension PlatformNativeSheetItemKind {
         case .readOnlyText: "readOnlyText"
         case .source: "source"
         case .statusUpdate: "statusUpdate"
+        case .appearanceTiles: "appearanceTiles"
         }
     }
 }
@@ -1752,11 +1753,13 @@ final class NativeSheetBridge: ConduitBridge, NativeSheetHostApi {
 
     private func presentInlineOptionsSelector(for item: NativeSheetItem) {
         guard let navigation = activeNavigationController else { return }
+        // A short list (five palettes) is read at a glance, so only a long
+        // one (languages, voices) gets a search field.
         let configuration = NativeOptionsSelectorConfiguration(
             title: item.title,
             subtitle: item.subtitle,
             selectedOptionId: item.selectedOptionId,
-            searchable: true,
+            searchable: item.options.count > nativeInlinePickerSearchThreshold,
             options: item.options,
             filterAllLabel: item.filterAllLabel
         )
@@ -3746,7 +3749,7 @@ private final class NativeSheetSegmentTableViewCell: UITableViewCell {
         subtitleLabel.textColor = NativeSheetTheme.shared.secondaryForeground
         // The symbol at the size, weight and tint of every row's.
         iconView.tintColor = NativeSheetSettingsStyle.iconForeground
-        iconView.image = UIImage(systemName: item.sfSymbol)?.withConfiguration(
+        iconView.image = nativeSettingsSymbolImage(item.sfSymbol)?.withConfiguration(
             UIImage.SymbolConfiguration(
                 pointSize: NativeSheetSettingsStyle.symbolPointSize,
                 weight: .regular,
@@ -3774,6 +3777,316 @@ private final class NativeSheetSegmentTableViewCell: UITableViewCell {
             segmentedControl.selectedSegmentIndex = 0
         }
         valueChanged = onValueChanged
+    }
+}
+
+/// A choice among a few looks, drawn as Display & Brightness draws Light and
+/// Dark: a small preview of each, its name under it and a round selection
+/// mark under the name, so the row shows what each choice looks like rather
+/// than naming it in a segmented control under a separate title.
+///
+/// Each tile is one button for VoiceOver ("Dark, selected, button"), and the
+/// row is a group named by the item's title, so the choice keeps its name
+/// although no title is drawn.
+private final class NativeSheetAppearanceTilesTableViewCell: UITableViewCell {
+    static let reuseId = "NativeSheetAppearanceTilesTableViewCell"
+
+    private let tilesStack = UIStackView()
+    private var tiles: [NativeSheetAppearanceTile] = []
+    private var valueChanged: ((String) -> Void)?
+
+    override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
+        super.init(style: style, reuseIdentifier: reuseIdentifier)
+        selectionStyle = .none
+        NativeSheetSettingsStyle.applyCellStyle(self)
+        tilesStack.axis = .horizontal
+        tilesStack.alignment = .top
+        tilesStack.distribution = .fillEqually
+        tilesStack.spacing = 8
+        tilesStack.translatesAutoresizingMaskIntoConstraints = false
+        contentView.addSubview(tilesStack)
+        NSLayoutConstraint.activate([
+            tilesStack.leadingAnchor.constraint(equalTo: contentView.layoutMarginsGuide.leadingAnchor),
+            tilesStack.trailingAnchor.constraint(equalTo: contentView.layoutMarginsGuide.trailingAnchor),
+            tilesStack.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 18),
+            tilesStack.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -14),
+        ])
+        // The tiles' row is a group VoiceOver names on entering it, and the
+        // tiles inside read in their visual order.
+        tilesStack.accessibilityContainerType = .semanticGroup
+    }
+
+    required init?(coder: NSCoder) {
+        nil
+    }
+
+    override func prepareForReuse() {
+        super.prepareForReuse()
+        valueChanged = nil
+    }
+
+    func configure(
+        item: NativeSheetItem,
+        selectedId: String?,
+        onValueChanged: @escaping (String) -> Void
+    ) {
+        // Re-read the theme on every bind: reused cells otherwise keep the
+        // palette that was active when they were first created.
+        NativeSheetSettingsStyle.applyCellStyle(self)
+        valueChanged = onValueChanged
+        if tiles.map(\.optionId) != item.options.map(\.id) {
+            tiles.forEach { $0.removeFromSuperview() }
+            tiles = item.options.map { option in
+                let tile = NativeSheetAppearanceTile(optionId: option.id)
+                tile.addAction(UIAction { [weak self, weak tile] _ in
+                    guard let self, let tile else { return }
+                    self.choose(tile)
+                }, for: .touchUpInside)
+                tilesStack.addArrangedSubview(tile)
+                return tile
+            }
+        }
+        let selectedId = selectedId ?? item.options.first?.id
+        for (tile, option) in zip(tiles, item.options) {
+            tile.configure(option: option, isSelected: option.id == selectedId)
+        }
+        tilesStack.accessibilityLabel = item.title
+    }
+
+    private func choose(_ tile: NativeSheetAppearanceTile) {
+        guard !tile.isChosen else { return }
+        NativeSheetHaptics.selection()
+        for other in tiles {
+            other.setChosen(other === tile, animated: true)
+        }
+        valueChanged?(tile.optionId)
+    }
+}
+
+/// One choice of [NativeSheetAppearanceTilesTableViewCell]: its preview,
+/// name and selection mark.
+private final class NativeSheetAppearanceTile: UIControl {
+    let optionId: String
+    private(set) var isChosen = false
+    private let preview = NativeSheetAppearancePreviewView()
+    private let titleLabel = UILabel()
+    private let markView = UIImageView()
+    private let stack = UIStackView()
+
+    /// The size of the preview: a phone screen's proportions, small enough
+    /// that three sit side by side on the narrowest phone.
+    static let previewSize = CGSize(width: 62, height: 118)
+
+    init(optionId: String) {
+        self.optionId = optionId
+        super.init(frame: .zero)
+        stack.axis = .vertical
+        stack.alignment = .center
+        stack.spacing = 8
+        stack.isUserInteractionEnabled = false
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(stack)
+        stack.addArrangedSubview(preview)
+        stack.addArrangedSubview(titleLabel)
+        stack.addArrangedSubview(markView)
+        stack.setCustomSpacing(10, after: preview)
+        titleLabel.font = .preferredFont(forTextStyle: .subheadline)
+        titleLabel.adjustsFontForContentSizeCategory = true
+        titleLabel.textAlignment = .center
+        titleLabel.numberOfLines = 2
+        markView.contentMode = .center
+        markView.preferredSymbolConfiguration = UIImage.SymbolConfiguration(
+            pointSize: 22,
+            weight: .regular,
+            scale: .medium
+        )
+        markView.setContentHuggingPriority(.required, for: .vertical)
+        NSLayoutConstraint.activate([
+            stack.topAnchor.constraint(equalTo: topAnchor),
+            stack.bottomAnchor.constraint(equalTo: bottomAnchor),
+            stack.leadingAnchor.constraint(equalTo: leadingAnchor),
+            stack.trailingAnchor.constraint(equalTo: trailingAnchor),
+            preview.widthAnchor.constraint(equalToConstant: Self.previewSize.width),
+            preview.heightAnchor.constraint(equalToConstant: Self.previewSize.height),
+            titleLabel.widthAnchor.constraint(lessThanOrEqualTo: stack.widthAnchor),
+        ])
+        isAccessibilityElement = true
+    }
+
+    required init?(coder: NSCoder) {
+        nil
+    }
+
+    func configure(option: NativeSheetOption, isSelected: Bool) {
+        titleLabel.text = option.label
+        titleLabel.textColor = NativeSheetTheme.shared.foreground
+        preview.configure(swatches: option.swatches, darkSwatches: option.darkSwatches)
+        isEnabled = option.enabled
+        alpha = option.enabled ? 1 : 0.45
+        accessibilityLabel = option.label
+        setChosen(isSelected, animated: false)
+    }
+
+    func setChosen(_ chosen: Bool, animated: Bool) {
+        let changed = chosen != isChosen || markView.image == nil
+        isChosen = chosen
+        accessibilityTraits = chosen ? [.button, .selected] : .button
+        guard changed else {
+            applyMarkTint()
+            return
+        }
+        let update = {
+            // A filled check in the ink for the choice in use, an empty ring
+            // for the others, as Display & Brightness marks Light and Dark.
+            self.markView.image = UIImage(
+                systemName: chosen ? "checkmark.circle.fill" : "circle"
+            )
+            self.applyMarkTint()
+        }
+        if animated {
+            UIView.transition(
+                with: markView,
+                duration: 0.2,
+                options: [.transitionCrossDissolve, .allowUserInteraction],
+                animations: update
+            )
+        } else {
+            update()
+        }
+    }
+
+    private func applyMarkTint() {
+        let theme = NativeSheetTheme.shared
+        markView.tintColor = isChosen
+            ? theme.foreground
+            : theme.secondaryForeground.withAlphaComponent(0.55)
+        preview.setNeedsDisplay()
+    }
+
+    override var isHighlighted: Bool {
+        didSet {
+            guard isHighlighted != oldValue else { return }
+            UIView.animate(
+                withDuration: isHighlighted ? 0.08 : 0.2,
+                delay: 0,
+                options: [.beginFromCurrentState, .allowUserInteraction]
+            ) {
+                self.stack.alpha = self.isHighlighted ? 0.55 : 1
+            }
+        }
+    }
+}
+
+/// A miniature Conduit screen in one appearance -- header pill, a sent
+/// message, reply lines and the composer -- painted from a palette's
+/// background, ink, fill and border. Given dark swatches too, the trailing
+/// half shows the dark screen, for a look that follows the system.
+private final class NativeSheetAppearancePreviewView: UIView {
+    private var swatches: [UIColor] = []
+    private var darkSwatches: [UIColor] = []
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        isOpaque = false
+        backgroundColor = .clear
+        contentMode = .redraw
+        isUserInteractionEnabled = false
+    }
+
+    required init?(coder: NSCoder) {
+        nil
+    }
+
+    func configure(swatches: [UIColor], darkSwatches: [UIColor]) {
+        self.swatches = swatches
+        self.darkSwatches = darkSwatches
+        setNeedsDisplay()
+    }
+
+    override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
+        super.traitCollectionDidChange(previousTraitCollection)
+        setNeedsDisplay()
+    }
+
+    override func draw(_ rect: CGRect) {
+        guard let context = UIGraphicsGetCurrentContext() else { return }
+        let bounds = self.bounds
+        let radius: CGFloat = 11
+        let screen = UIBezierPath(roundedRect: bounds, cornerRadius: radius)
+        context.saveGState()
+        screen.addClip()
+        drawScreen(in: bounds, swatches: swatches)
+        if !darkSwatches.isEmpty {
+            // The trailing half, as the half-filled circle of a look that
+            // follows the system.
+            let isRTL = effectiveUserInterfaceLayoutDirection == .rightToLeft
+            UIRectClip(CGRect(
+                x: isRTL ? bounds.minX : bounds.midX,
+                y: bounds.minY,
+                width: bounds.width / 2,
+                height: bounds.height
+            ))
+            drawScreen(in: bounds, swatches: darkSwatches)
+        }
+        context.restoreGState()
+        // An edge a little stronger than a separator, so a screen the
+        // colour of the card keeps its outline.
+        let theme = NativeSheetTheme.shared
+        let lineWidth: CGFloat = 0.75
+        let edge = UIBezierPath(
+            roundedRect: bounds.insetBy(dx: lineWidth / 2, dy: lineWidth / 2),
+            cornerRadius: radius
+        )
+        edge.lineWidth = lineWidth
+        theme.foreground.withAlphaComponent(theme.isDark ? 0.28 : 0.16).setStroke()
+        edge.stroke()
+    }
+
+    /// [swatches]: background, ink, fill, border.
+    private func drawScreen(in bounds: CGRect, swatches: [UIColor]) {
+        func color(_ index: Int, _ fallback: UIColor) -> UIColor {
+            index < swatches.count ? swatches[index] : fallback
+        }
+        let background = color(0, .systemBackground)
+        let ink = color(1, .label)
+        let fill = color(2, .secondarySystemBackground)
+        let border = color(3, .separator)
+        background.setFill()
+        UIRectFill(bounds)
+
+        let inset: CGFloat = 7
+        func capsule(_ frame: CGRect) -> UIBezierPath {
+            UIBezierPath(roundedRect: frame, cornerRadius: frame.height / 2)
+        }
+        // The header's model pill.
+        fill.setFill()
+        capsule(CGRect(x: bounds.midX - 12, y: bounds.minY + 9, width: 24, height: 7)).fill()
+        // A sent message.
+        UIBezierPath(
+            roundedRect: CGRect(x: bounds.maxX - inset - 30, y: bounds.minY + 25, width: 30, height: 12),
+            cornerRadius: 6
+        ).fill()
+        // The reply's lines, in the ink at reading strength.
+        ink.withAlphaComponent(0.72).setFill()
+        let widths: [CGFloat] = [0.92, 0.84, 0.66, 0.88, 0.48]
+        let available = bounds.width - inset * 2
+        var y = bounds.minY + 46
+        for fraction in widths {
+            capsule(CGRect(x: bounds.minX + inset, y: y, width: available * fraction, height: 3.5)).fill()
+            y += 7.5
+        }
+        // The composer.
+        let composer = capsule(CGRect(
+            x: bounds.minX + 5,
+            y: bounds.maxY - 5 - 14,
+            width: bounds.width - 10,
+            height: 14
+        ))
+        fill.setFill()
+        composer.fill()
+        composer.lineWidth = 0.75
+        border.setStroke()
+        composer.stroke()
     }
 }
 
@@ -3869,7 +4182,7 @@ private final class NativeSheetDropdownTableViewCell: UITableViewCell {
         subtitleLabel.text = item.subtitle
         subtitleLabel.isHidden = item.subtitle?.isEmpty ?? true
         iconView.contentMode = .center
-        iconView.image = UIImage(systemName: item.sfSymbol)?.withConfiguration(
+        iconView.image = nativeSettingsSymbolImage(item.sfSymbol)?.withConfiguration(
             UIImage.SymbolConfiguration(
                 pointSize: NativeSheetSettingsStyle.symbolPointSize,
                 weight: .regular,
@@ -4677,6 +4990,10 @@ private final class NativeDetailTableViewController: UITableViewController {
     private let onClose: () -> Void
     private var pendingTextValues: [String: String] = [:]
     private var committedTextValues: [String: String] = [:]
+    /// Choices made in tiles since Dart last sent the page. A choice such as
+    /// Dark re-themes the sheet, which reloads its rows before any new rows
+    /// arrive, so the rows draw this rather than the value they came with.
+    private var chosenTileValues: [String: String] = [:]
 
     var detailId: String { detail.id }
 
@@ -4731,6 +5048,7 @@ private final class NativeDetailTableViewController: UITableViewController {
         detail = newDetail
         pendingTextValues.removeAll()
         committedTextValues.removeAll()
+        chosenTileValues.removeAll()
         title = newDetail.title
         navigationItem.title = newDetail.title
         refreshNavigationAction()
@@ -4768,6 +5086,10 @@ private final class NativeDetailTableViewController: UITableViewController {
         tableView.register(
             NativeSheetSegmentTableViewCell.self,
             forCellReuseIdentifier: NativeSheetSegmentTableViewCell.reuseId
+        )
+        tableView.register(
+            NativeSheetAppearanceTilesTableViewCell.self,
+            forCellReuseIdentifier: NativeSheetAppearanceTilesTableViewCell.reuseId
         )
         tableView.register(
             NativeSheetDropdownTableViewCell.self,
@@ -4902,6 +5224,19 @@ private final class NativeDetailTableViewController: UITableViewController {
                 self?.onControlChanged(item, newValue)
             }
             return cell
+        case "appearanceTiles":
+            let cell = tableView.dequeueReusableCell(
+                withIdentifier: NativeSheetAppearanceTilesTableViewCell.reuseId,
+                for: indexPath
+            ) as! NativeSheetAppearanceTilesTableViewCell
+            cell.configure(
+                item: item,
+                selectedId: chosenTileValues[item.id] ?? item.selectedOptionId
+            ) { [weak self] newValue in
+                self?.chosenTileValues[item.id] = newValue
+                self?.onControlChanged(item, newValue)
+            }
+            return cell
         case "dropdown":
             let cell = tableView.dequeueReusableCell(
                 withIdentifier: NativeSheetDropdownTableViewCell.reuseId,
@@ -4989,7 +5324,8 @@ private final class NativeDetailTableViewController: UITableViewController {
                 onControlChanged(item, !(item.value as? Bool ?? false))
             }
         case "info", "textField", "secureTextField", "dropdown", "segment",
-             "multilineTextField", "slider", "readOnlyText", "statusUpdate":
+             "appearanceTiles", "multilineTextField", "slider", "readOnlyText",
+             "statusUpdate":
             break
         case "source":
             guard item.url != nil || canNavigate(item) else { break }
@@ -6186,7 +6522,8 @@ private final class NativeSheetOptionTableViewCell: UITableViewCell {
         subtitleLabel.numberOfLines = 2
         subtitleLabel.isHidden = option.subtitle == nil || option.subtitle?.isEmpty == true
 
-        let swatch = nativePaletteSwatchImage(option.currentSwatches)
+        // A palette's disc fills about as much of the column as a symbol.
+        let swatch = nativePaletteSwatchImage(option.currentSwatches, discDiameter: 20)
         if let swatch {
             iconView.image = swatch
         } else if let sfSymbol = option.sfSymbol, !sfSymbol.isEmpty {
@@ -6194,7 +6531,8 @@ private final class NativeSheetOptionTableViewCell: UITableViewCell {
         } else {
             iconView.image = nil
         }
-        // Swatches take their own width; a symbol keeps the symbol column.
+        // A swatch wider than the column takes its own width; a symbol keeps
+        // the symbol column.
         iconWidthConstraint?.constant = swatch.map { max($0.size.width, NativeSheetSettingsStyle.iconSize) }
             ?? NativeSheetSettingsStyle.iconSize
         iconView.contentMode = swatch == nil ? .scaleAspectFit : .center
@@ -7138,10 +7476,13 @@ private final class NativeModelAvatarView: UIView {
         addSubview(initialsLabel)
 
         symbolView.translatesAutoresizingMaskIntoConstraints = false
-        symbolView.contentMode = .scaleAspectFit
+        // A system mark (Apple Intelligence) at the optical size and weight
+        // of the solid brand logos beside it -- about 19 pt across -- drawn
+        // unscaled, so a line glyph is not thinned into a smaller box.
+        symbolView.contentMode = .center
         symbolView.preferredSymbolConfiguration = UIImage.SymbolConfiguration(
-            pointSize: 16,
-            weight: .medium
+            pointSize: 18,
+            weight: .semibold
         )
         symbolView.isHidden = true
         addSubview(symbolView)
@@ -7159,8 +7500,8 @@ private final class NativeModelAvatarView: UIView {
 
             symbolView.centerXAnchor.constraint(equalTo: centerXAnchor),
             symbolView.centerYAnchor.constraint(equalTo: centerYAnchor),
-            symbolView.widthAnchor.constraint(equalToConstant: 18),
-            symbolView.heightAnchor.constraint(equalToConstant: 18),
+            symbolView.widthAnchor.constraint(equalToConstant: 26),
+            symbolView.heightAnchor.constraint(equalToConstant: 26),
         ])
     }
 
@@ -7209,7 +7550,8 @@ private final class NativeModelAvatarView: UIView {
 
         if let sfSymbol, !sfSymbol.isEmpty {
             symbolView.image = UIImage(systemName: sfSymbol)
-            symbolView.tintColor = ink
+            // The full ink the logos are rendered in, not the initials' grey.
+            symbolView.tintColor = NativeSheetTheme.shared.foreground
             symbolView.isHidden = false
             initialsLabel.isHidden = true
         } else {
@@ -7489,9 +7831,9 @@ private func configureNavigationCell(
     } else if let iconAsset = item.iconAsset {
         content.image = loadFlutterAssetImage(iconAsset)?
             .withRenderingMode(.alwaysTemplate)
-            ?? UIImage(systemName: item.sfSymbol)
+            ?? nativeSettingsSymbolImage(item.sfSymbol)
     } else {
-        content.image = UIImage(systemName: item.sfSymbol)
+        content.image = nativeSettingsSymbolImage(item.sfSymbol)
     }
     NativeSheetSettingsStyle.applyContentStyle(&content)
     if avatar != nil {
@@ -7537,8 +7879,9 @@ private func configureNavigationCell(
         content.secondaryTextProperties.numberOfLines = 0
         content.secondaryTextProperties.lineBreakMode = .byWordWrapping
     }
-    // A palette shows its colours beside its name, so the row says what the
-    // palette looks like, not only what it is called.
+    // A palette shows its colour beside its name, as Calendar shows a
+    // calendar's, so the row says what the palette looks like, not only what
+    // it is called.
     var swatchedValue: String?
     if showsValue,
        let selected = item.selectedOption,
@@ -7566,6 +7909,9 @@ private func configureNavigationCell(
     }
     NativeSheetSettingsStyle.applyCellStyle(cell)
 }
+
+/// The most options an inline picker lists without a search field.
+private let nativeInlinePickerSearchThreshold = 8
 
 /// Whether [value] is short enough to sit on the right of its row, as a
 /// value does in Settings, rather than under the title.
