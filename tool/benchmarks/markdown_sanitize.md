@@ -15,7 +15,9 @@ an extra presence check.
 
 ## Provenance and method
 
-Candidate source and harnesses: `1ffc2b1e07cb5c710b2802d9b694dfcf1d36a9aa`. Baseline sanitizer:
+Production source and full-cleanup harness: `1ffc2b1e07cb5c710b2802d9b694dfcf1d36a9aa`.
+Footer harness: `eb126fa5ac89c9eefabf5dc5f0e0a9560a0ec12f` (same production source).
+Baseline sanitizer:
 `6e51451ef4f4c2d34e8fedb85cb6b16384bb9980`. Both use the same benchmark logic and dependencies; the baseline import
 redirection is documented below. The production
 baseline file is unchanged between that baseline and PR base `ceda30ae`.
@@ -39,20 +41,24 @@ dart compile exe tool/benchmarks/clipboard_eligibility.dart -o /path/to/eligibil
 
 The harness executes full/predicate/predicate/full in one binary. Both paths use
 the final candidate sanitizer, isolating the incremental eligibility improvement.
-Five 1 MiB fixtures have five warmups and 100 calls per pass.
-[All 2,000 samples](clipboard_eligibility_results.json) include p50/p95/p99;
-nearest-rank sorted indices are 49/94/98.
+Five 1 MiB fixtures have five warmup calls and 100 timed samples per pass.
+The ordinary-code predicate uses 1,024 calls per timed batch; every other case
+times one call. [All 2,000 samples](clipboard_eligibility_results.json) record
+`runIndex`, `callsPerSample`, `sampleKind` and p50/p95/p99. Percentiles use
+nearest rank based on the actual sample count (indices 49/94/98 for 100 samples).
 
 | Fixture | Full sanitize p50 | Predicate p50 | Full sanitize p99 | Predicate p99 |
 | --- | --- | --- | --- | --- |
-| ordinary-code | 66.393458–66.810208 | 0.000000–0.000041 | 68.806792–77.386708 | 0.000042–0.000042 |
-| leading-whitespace | 66.369167–66.751000 | 0.080375–0.086000 | 68.144708–68.355500 | 0.158417–0.160917 |
-| reasoning-prefix | 121.937333–122.371500 | 0.084042–0.084458 | 124.214208–124.259750 | 0.131333–0.144417 |
-| reasoning-only | 44.201167–44.213542 | 44.323083–44.353750 | 45.277750–45.476667 | 45.760042–45.771375 |
-| reference-prefix | 160.052166–160.079917 | 0.084500–0.088041 | 162.427125–173.696667 | 0.133292–0.137500 |
+| ordinary-code (batched predicate) | 63.654583–64.745916 | 0.000008545–0.000008667 | 65.639750–66.623584 | 0.000008627–0.000008749 |
+| leading-whitespace | 63.998792–64.794458 | 0.084250–0.084667 | 69.486584–69.875542 | 0.163291–0.169917 |
+| reasoning-prefix | 116.925791–118.858125 | 0.083792–0.087125 | 121.446958–127.198334 | 0.135500–0.139666 |
+| reasoning-only | 42.735416–43.281542 | 42.823667–42.883084 | 44.097958–48.673542 | 44.282125–50.830458 |
+| reference-prefix | 154.133708–156.197375 | 0.080625–0.085125 | 157.343250–163.607791 | 0.140208–0.141334 |
 
-The ordinary-code predicate median is at or below one stopwatch tick
-(about 0.000042 ms); zero recorded ticks do not mean zero execution time.
+Ordinary-code predicate percentiles describe per-call **batch averages**, including
+loop and result-counting overhead; they do not estimate individual-call tails.
+Batching provides resolution below one stopwatch tick (about 0.042 µs, or
+0.000042 ms per unbatched timing). All other percentiles describe single calls.
 Reasoning-only responses deliberately retain full cleanup, with no promised gain.
 
 ## Full clipboard cleanup
