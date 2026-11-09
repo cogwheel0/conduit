@@ -817,7 +817,7 @@ List<NativeSheetSectionConfig> buildNativeProfileDetailSections(
 }
 
 /// What the Profile details row holds now -- the gender and birthday set,
-/// "Female · Mar 12, 1990" -- or null when neither is.
+/// "Female · Feb 3, 2001" -- or null when neither is.
 String? nativeProfileDetailsSummary(
   AppLocalizations l10n,
   AccountMetadata? profile,

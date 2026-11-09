@@ -660,11 +660,11 @@ void main() {
     ).subtitle;
 
     expect(
-      details(profile(gender: 'female', dateOfBirth: '1990-03-12')),
-      '${_l10n.genderFemale} · Mar 12, 1990',
+      details(profile(gender: 'female', dateOfBirth: '2001-02-03')),
+      '${_l10n.genderFemale} · Feb 3, 2001',
     );
     expect(details(profile(gender: 'Nonbinary')), 'Nonbinary');
-    expect(details(profile(dateOfBirth: '1990-03-12')), 'Mar 12, 1990');
+    expect(details(profile(dateOfBirth: '2001-02-03')), 'Feb 3, 2001');
     expect(details(profile()), _l10n.profileDetailsSummary);
     expect(details(null), _l10n.profileDetailsSummary);
   });
