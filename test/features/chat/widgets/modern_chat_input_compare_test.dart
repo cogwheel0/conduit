@@ -480,7 +480,15 @@ void main() {
     expect(closing, lessThanOrEqualTo(draftHeight));
     await tester.pump(const Duration(milliseconds: 100));
     expect(tester.getSize(shell).height, lessThan(closing));
-    await tester.pump(ComposerSendCollapse.duration);
+    // Frames at the display's pace: the collapse runs on a clock that one
+    // long frame only advances by a couple of frames' worth.
+    for (
+      var elapsed = Duration.zero;
+      elapsed < ComposerSendCollapse.duration;
+      elapsed += const Duration(milliseconds: 16)
+    ) {
+      await tester.pump(const Duration(milliseconds: 16));
+    }
     expect(hintAlpha(), 0);
 
     // They have left: the placeholder fades in.

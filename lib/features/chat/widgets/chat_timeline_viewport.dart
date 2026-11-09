@@ -148,7 +148,9 @@ class _ChatTimelineScrollPosition extends ScrollPositionWithSingleContext
 /// may move while it runs (rows settling their heights, the keyboard going
 /// down, the pinned turn's end space arriving). Each frame aims at the
 /// latest target from where the spring is and how fast it is going, so a
-/// retarget bends the motion instead of restarting it.
+/// retarget bends the motion instead of restarting it. It runs on a
+/// [ChatMotionClock], as the sent message flying into the turn does, so a
+/// slow frame holds both back alike.
 class _SpringScrollActivity extends ScrollActivity {
   _SpringScrollActivity(
     super.delegate, {
@@ -172,7 +174,7 @@ class _SpringScrollActivity extends ScrollActivity {
   final Completer<bool> _completer = Completer<bool>();
   double _target;
   double _velocity = 0;
-  Duration _lastElapsed = Duration.zero;
+  final ChatMotionClock _clock = ChatMotionClock();
   bool _arrived = false;
 
   /// Where the spring is heading now.
@@ -181,10 +183,9 @@ class _SpringScrollActivity extends ScrollActivity {
   Future<bool> get done => _completer.future;
 
   void _tick(Duration elapsed) {
-    final dt =
-        (elapsed - _lastElapsed).inMicroseconds /
-        Duration.microsecondsPerSecond;
-    _lastElapsed = elapsed;
+    final dt = _clock.advanceTo(
+      elapsed.inMicroseconds / Duration.microsecondsPerSecond,
+    );
     _target = resolveTarget() ?? _target;
     final next = spring.step(
       displacement: position.pixels - _target,
