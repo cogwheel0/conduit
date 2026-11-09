@@ -772,6 +772,7 @@ class BlockRenderer {
                 language: language,
               )
             : null,
+        stateId: _scopedCodeBlockStateId(element.nodeId),
       ),
     );
 
@@ -1703,6 +1704,15 @@ class BlockRenderer {
       stableId,
       'body',
     ].join('|');
+  }
+
+  /// Where a code block keeps its wrap choice on the page, or null when the
+  /// block has no stable identity there.
+  String? _scopedCodeBlockStateId(String stableId) {
+    if (stateScopeId == null || stateScopeId!.isEmpty || stableId.isEmpty) {
+      return null;
+    }
+    return [stateScopeId!, stableId, 'code-wrap'].join('|');
   }
 
   String _scopedDetailsGroupStateId(String stableId) {
