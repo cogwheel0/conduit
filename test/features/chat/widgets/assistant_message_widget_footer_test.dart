@@ -536,26 +536,23 @@ void main() {
       expect(size.height, greaterThanOrEqualTo(44));
     }
 
-    // One point size and weight for every glyph; Copy's squares, which fill
-    // more of their box, draw at SF Symbols' small scale to match the
-    // others' ink without a thinner stroke.
+    // One weight and scale for every glyph, at 17 pt except where a shape
+    // reads larger or smaller than its neighbours: Copy's dense double
+    // outline a little smaller, Speaker's wide waves a touch smaller.
     final actions = tester
         .widgetList<ChatActionButton>(buttons)
         .toList(growable: false);
-    expect(actions.map((button) => button.iconSize).toSet(), {17.0});
-    for (final button in actions) {
-      expect(
-        button.symbolScale,
-        button.sfSymbol == 'square.on.square'
-            ? NativeSymbolScale.small
-            : NativeSymbolScale.medium,
-        reason: button.label,
-      );
+    expect(actions.map((button) => button.symbolScale).toSet(), {
+      NativeSymbolScale.medium,
+    });
+    final sizes = {
+      for (final button in actions) button.sfSymbol: button.iconSize,
+    };
+    expect(sizes['square.on.square'], 15.5);
+    expect(sizes['arrow.clockwise'], 17);
+    for (final size in sizes.values) {
+      expect(size, inInclusiveRange(15, 17), reason: '$sizes');
     }
-    expect(
-      actions.where((button) => button.sfSymbol == 'square.on.square'),
-      hasLength(1),
-    );
   });
 
   group('copying a previewed version', () {

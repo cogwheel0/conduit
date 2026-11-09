@@ -15,8 +15,6 @@ import '../../../shared/widgets/markdown/renderer/markdown_style.dart';
 
 import 'package:conduit_core/services/structured_output.dart'
     show displayedChatFiles;
-import 'package:conduit_core/services/native_symbol_image_service.dart'
-    show NativeSymbolScale;
 import 'package:conduit_core/utils/usage_summary.dart';
 import 'package:conduit_core/utils/model_display_name.dart';
 import 'package:conduit_core/features/direct_connections/services/model_logo_catalog.dart'
@@ -215,22 +213,34 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
   /// rather than as a transition.
   static const Duration _contentFadeDuration = Duration(milliseconds: 200);
 
-  /// Reply actions: one SF Symbol point size, weight and colour for every
-  /// glyph, inline or in More, inside a 44 pt target.
+  /// Reply actions: one SF Symbol weight, scale and colour for every glyph,
+  /// inline or in More, inside a 44 pt target, at 17 pt unless a glyph's
+  /// shape needs a nudge to look the same size as the rest.
   static const double _footerActionTarget = 44;
   static const double _footerActionGlyph = 17;
 
-  /// Copy's two overlapping squares fill more of their box than a speaker or
-  /// an arrow. At the row's 17 pt in SF Symbols' small scale they match the
-  /// others' ink and keep the same stroke, where a smaller point size thinned
-  /// the stroke and still left the squares the largest glyph in the row.
+  /// Point sizes that even out the row, measured as ink at 3x. At one 17 pt
+  /// size Copy's two squares (18 × 16.7 pt, the densest outline) outweighed
+  /// the rest; at the small scale (14 × 14 pt) they fell short of Speaker's
+  /// wide 18.7 × 13.7 pt. Copy at 15.5 pt (16 × 15 pt) and Speaker at 16.5 pt
+  /// (17 × 14.3 pt) now sit with Regenerate's 14 × 17.3 pt: every glyph's box
+  /// is about 15.5 pt on its geometric mean, and the strokes stay within a
+  /// tenth of each other, Copy's a touch lighter for its double outline.
   static const String _copySymbol = 'square.on.square';
-  static const Map<String, NativeSymbolScale> _footerGlyphScales = {
-    _copySymbol: NativeSymbolScale.small,
+  static const Map<String, double> _footerGlyphSizes = {
+    _copySymbol: 15.5,
+    'speaker.wave.2': 16.5,
+    'stop.fill': 16.5,
   };
 
-  static NativeSymbolScale _footerGlyphScaleFor(String? sfSymbol) =>
-      _footerGlyphScales[sfSymbol] ?? NativeSymbolScale.medium;
+  static double _footerGlyphSizeFor(String? sfSymbol) =>
+      _footerGlyphSizes[sfSymbol] ?? _footerActionGlyph;
+
+  /// More's ellipsis, drawn by the native menu button, which renders its
+  /// symbol at UIKit's large scale: at 17 pt that made 4 pt dots spanning
+  /// 19.3 pt, the heaviest glyph in the row. At this size it draws as the
+  /// 17 pt medium ellipsis does (about 14.7 pt across, 2.7 pt dots).
+  static const double _footerMoreGlyph = 13;
   final _inlineUsageButtonKey = GlobalKey();
   late AnimationController _fadeController;
   late AnimationController _streamingContentFadeController;
@@ -2513,10 +2523,10 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     );
   }
 
-  /// Half of a target's spare width around its glyph's ink: Copy, Regenerate
-  /// and More each draw about 14 pt wide at the row's size, so the leading
-  /// glyph starts on the reply's text margin.
-  static const double _footerLeadingGlyphInk = 14;
+  /// Half of a target's spare width around its glyph's ink: Copy, which
+  /// leads the row, draws 16 pt wide (Regenerate and More about 14 to 15),
+  /// so the leading glyph starts on the reply's text margin.
+  static const double _footerLeadingGlyphInk = 16;
   static const double _footerLeadingGlyphInset =
       (_footerActionTarget - _footerLeadingGlyphInk) / 2;
 
@@ -3135,8 +3145,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
       onTap: onTap,
       sfSymbol: sfSymbol,
       size: _footerActionTarget,
-      iconSize: _footerActionGlyph,
-      symbolScale: _footerGlyphScaleFor(sfSymbol),
+      iconSize: _footerGlyphSizeFor(sfSymbol),
       color: _footerActionColor,
       hapticFeedback: !playsOwnFeedback,
     );
@@ -3288,7 +3297,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
           },
           tint: _footerActionColor,
           size: _footerActionTarget,
-          iconSize: _footerActionGlyph,
+          iconSize: _footerMoreGlyph,
           buttonStyle: PopupButtonStyle.plain,
         ),
       ),
