@@ -306,7 +306,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
   void _startMountFadeOnScreen() {
     if (_mountFadeTimer != null || _fadeController.value >= 1) return;
     markChatEntranceShown(_rowEntranceKey);
-    _mountFadeTimer = Timer(chatReplyEntranceDelay, () {
+    _mountFadeTimer = startChatReplyEntrance(() {
       if (mounted) _fadeController.forward();
     });
   }

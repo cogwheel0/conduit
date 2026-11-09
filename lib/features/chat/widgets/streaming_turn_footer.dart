@@ -74,7 +74,7 @@ class _StreamingTurnFooterState extends ConsumerState<StreamingTurnFooter>
   void _startEntranceOnScreen() {
     if (_entranceTimer != null || _entrance.value >= 1) return;
     markChatEntranceShown(_entranceKey);
-    _entranceTimer = Timer(chatReplyEntranceDelay, () {
+    _entranceTimer = startChatReplyEntrance(() {
       if (mounted) _entrance.forward();
     });
   }
