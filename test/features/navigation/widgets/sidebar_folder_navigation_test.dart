@@ -12,6 +12,7 @@ import 'package:conduit_core/services/settings_service.dart';
 import 'package:conduit/features/navigation/providers/conversation_selection_provider.dart';
 import 'package:conduit/features/navigation/widgets/chats_drawer.dart';
 import 'package:conduit/features/navigation/widgets/conversation_tile.dart';
+import 'package:conduit/features/navigation/widgets/sidebar_section_header.dart';
 import 'package:conduit/features/navigation/widgets/folder_tree_guides.dart';
 import 'package:conduit/features/navigation/widgets/sidebar_page.dart';
 import 'package:conduit_core/features/tools/providers/tools_providers.dart';
@@ -114,10 +115,9 @@ void main() {
       childIconLeft - parentIconLeft,
       2 * FolderTreeHierarchyNode.segmentWidth,
     );
-    // A nested chat's leading column -- its unread dot -- steps in as a
-    // folder symbol does; its title follows that column.
+    // A nested chat's title steps in as a folder symbol does.
     expect(
-      nestedChatTitleLeft - kSidebarRowStatusGutter - parentIconLeft,
+      nestedChatTitleLeft - parentIconLeft,
       3 * FolderTreeHierarchyNode.segmentWidth,
     );
   });
@@ -381,13 +381,21 @@ void main() {
     expect(chatRect.left, 0);
     expect(chatRect.left, folderRect.left);
     expect(chatRect.right, folderRect.right);
-    // Section titles and folder symbols share the leading edge; chat titles
-    // start after the unread column that edge also begins.
-    expect(sectionTitleLeft, kSidebarRowContentInset);
-    expect(folderIconLeft, sectionTitleLeft);
+    // Folder symbols start where chat titles do; the section title follows
+    // its chevron on the list's margin.
+    expect(folderIconLeft, kSidebarRowContentInset);
     expect(
       tester.getTopLeft(find.text('Active Chat')).dx,
-      kSidebarRowTitleInset,
+      kSidebarRowContentInset,
+    );
+    final chevron = tester.getRect(
+      find.byKey(const ValueKey<String>('folders-section-leading')),
+    );
+    expect(chevron.left, greaterThanOrEqualTo(kSidebarSectionHeaderInset));
+    expect(chevron.right, lessThan(sectionTitleLeft));
+    expect(
+      sectionTitleLeft,
+      kSidebarSectionHeaderInset + IconSize.listItem + Spacing.xxs,
     );
 
     NavigationService.router.go('/folder/parent-folder');
@@ -403,7 +411,7 @@ void main() {
     final leftTintInset = chatTintRect.left - drawerRect.left;
     final rightTintInset = drawerRect.right - chatTintRect.right;
     final titleLeft = tester.getTopLeft(find.text('Active Chat')).dx;
-    expect(titleLeft, kSidebarRowTitleInset);
+    expect(titleLeft, kSidebarRowContentInset);
     expect(chatTintRect.left, Spacing.sm);
     expect(rightTintInset, leftTintInset);
     expect(chatTintRect.left, folderTintRect.left);

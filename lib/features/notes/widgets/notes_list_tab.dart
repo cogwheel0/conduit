@@ -12,7 +12,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart';
 import 'package:conduit_core/features/notes/utils/note_access.dart';
 import 'package:conduit_core/models/note.dart';
-import 'package:conduit_core/utils/recency_sections.dart';
 
 import '../../../shared/services/navigation_service.dart';
 
@@ -30,7 +29,6 @@ import 'package:conduit_core/features/navigation/providers/drawer_section_notifi
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 
 import '../../navigation/providers/sidebar_providers.dart';
-import '../../navigation/utils/recency_section_label.dart';
 import '../../navigation/widgets/conversation_tile.dart';
 import '../../navigation/widgets/sidebar_section_header.dart';
 import '../../navigation/utils/sidebar_create_action.dart';
@@ -198,9 +196,9 @@ class _NotesListTabState extends ConsumerState<NotesListTab>
     );
   }
 
-  /// The rows the list shows, in order: Pinned, then the notes under date
-  /// sections (Today … then each earlier month), as the Chats tab lists
-  /// chats. Builders keep row construction lazy.
+  /// The rows the list shows, in order: Pinned, then Recent, each under a
+  /// header that collapses it, as the Chats tab lists chats. Builders keep
+  /// row construction lazy.
   List<Widget Function()> _listEntries({
     required AppLocalizations l10n,
     required List<Note> pinnedNotes,
@@ -234,29 +232,19 @@ class _NotesListTabState extends ConsumerState<NotesListTab>
     }
 
     if (otherNotes.isNotEmpty) {
-      final locale = Localizations.localeOf(context).toString();
-      final now = DateTime.now();
-      final groups = groupByRecency(
-        otherNotes,
-        timestampOf: (note) => note.updatedDateTime,
-        now: now,
+      final showRecent = ref.watch(notesShowRecentProvider);
+      final first = nextIsFirst();
+      entries.add(
+        () => SidebarSectionHeader(
+          key: const ValueKey<String>('notes-section-recent'),
+          title: l10n.recent,
+          isFirst: first,
+          isExpanded: showRecent,
+          onToggle: () => ref.read(notesShowRecentProvider.notifier).toggle(),
+        ),
       );
-      for (final group in groups) {
-        final first = nextIsFirst();
-        final title = recencySectionLabel(
-          group.section,
-          l10n,
-          locale: locale,
-          now: now,
-        );
-        entries.add(
-          () => SidebarSectionHeader(
-            key: ValueKey<String>('notes-section-${group.section}'),
-            title: title,
-            isFirst: first,
-          ),
-        );
-        for (final note in group.items) {
+      if (showRecent) {
+        for (final note in otherNotes) {
           entries.add(() => _buildNoteTile(note));
         }
       }

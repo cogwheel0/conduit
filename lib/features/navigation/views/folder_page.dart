@@ -1739,9 +1739,6 @@ class _FolderPageState extends ConsumerState<FolderPage> {
                   selected: false,
                   isLoading: isLoadingSelected,
                   onTap: () => _selectConversation(conversation),
-                  // This page marks no chat unread, so its titles keep the
-                  // page's own edge instead of an empty status column.
-                  reserveStatusColumn: false,
                   timestamp: conversation.updatedAt,
                 ),
               );

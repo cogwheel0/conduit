@@ -254,8 +254,8 @@ void main() {
     }
   });
 
-  testWidgets('the unread dot has a column of its own inside the content '
-      'inset, before the shared title edge', (tester) async {
+  testWidgets('the unread dot leads its title on the content edge and '
+      'pushes the title in', (tester) async {
     await tester.pumpWidget(
       _harness(
         const Column(
@@ -280,15 +280,18 @@ void main() {
       ),
     );
 
-    final unreadLeft = tester.getTopLeft(find.text('Unread chat')).dx;
-    expect(unreadLeft, tester.getTopLeft(find.text('Read chat')).dx);
-    expect(unreadLeft, kSidebarRowTitleInset);
+    expect(
+      tester.getTopLeft(find.text('Read chat')).dx,
+      kSidebarRowContentInset,
+    );
     final dot = tester.getRect(
       find.byKey(const ValueKey<String>('conversation-unread-indicator')),
     );
-    // On the leading content edge, not squeezed into the row's margin.
     expect(dot.left, kSidebarRowContentInset);
-    expect(dot.right, lessThan(unreadLeft));
+    expect(
+      tester.getTopLeft(find.text('Unread chat')).dx,
+      dot.right + Spacing.sm,
+    );
     final titleCenter = tester.getCenter(find.text('Unread chat')).dy;
     expect(dot.center.dy, closeTo(titleCenter, 0.5));
   });

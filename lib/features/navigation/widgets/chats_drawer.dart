@@ -34,9 +34,6 @@ import 'conversation_tile.dart';
 import 'create_folder_dialog.dart';
 import 'folder_tree_guides.dart';
 import 'sidebar_section_header.dart';
-import '../utils/recency_section_label.dart';
-
-import 'package:conduit_core/utils/recency_sections.dart';
 
 import 'package:conduit_core/features/navigation/providers/drawer_section_notifiers.dart';
 
@@ -828,6 +825,7 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
 
           final showPinned = ref.watch(showPinnedProvider);
           final showFolders = ref.watch(showFoldersProvider);
+          final showRecent = ref.watch(showRecentProvider);
           final showArchived = ref.watch(showArchivedProvider);
           if (showArchived != conversationsNotifier.archivedChatsVisible()) {
             _queueArchivedVisibilitySync(showArchived);
@@ -843,7 +841,7 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
               ? ref.watch(expandedFoldersProvider)
               : const <String, bool>{};
           _hasVisiblePaginatedRows =
-              regular.isNotEmpty ||
+              (showRecent && regular.isNotEmpty) ||
               (showFolders &&
                   foldersEnabled &&
                   _hasVisibleFolderConversationRows(
@@ -865,13 +863,16 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
               foldersEnabled: foldersEnabled,
               folders: folders,
             ),
-            // An empty Folders group is left out; New Folder stays in each
-            // chat's Move sheet.
-            if (hasVisibleFolders) ...[
+            // The Folders header stays while there are none, so New Folder
+            // is always at hand; it collapses only once it has folders.
+            if (foldersEnabled) ...[
               SliverToBoxAdapter(
-                child: _buildFoldersSectionHeader(isFirst: sections.next()),
+                child: _buildFoldersSectionHeader(
+                  isFirst: sections.next(),
+                  collapsible: hasVisibleFolders,
+                ),
               ),
-              if (showFolders)
+              if (showFolders && hasVisibleFolders)
                 ...foldersState.when(
                   data: (folders) => _buildFolderSectionSlivers(
                     folders: folders,
@@ -885,7 +886,7 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
                   ],
                 ),
             ],
-            ..._recencySectionSlivers(
+            ..._recentSectionSlivers(
               regular,
               sections: sections,
               foldersEnabled: foldersEnabled,
@@ -1010,11 +1011,14 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
             foldersEnabled: foldersEnabled,
             folders: folders,
           ),
-          if (hasVisibleFolders) ...[
+          if (foldersEnabled) ...[
             SliverToBoxAdapter(
-              child: _buildFoldersSectionHeader(isFirst: sections.next()),
+              child: _buildFoldersSectionHeader(
+                isFirst: sections.next(),
+                collapsible: hasVisibleFolders,
+              ),
             ),
-            if (showFolders)
+            if (showFolders && hasVisibleFolders)
               ...foldersState.when(
                 data: (folders) => _buildFolderSectionSlivers(
                   folders: folders,
@@ -1029,7 +1033,7 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
                 ],
               ),
           ],
-          ..._recencySectionSlivers(
+          ..._recentSectionSlivers(
             regular,
             sections: sections,
             foldersEnabled: foldersEnabled,
@@ -1118,60 +1122,51 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
     ];
   }
 
-  /// Chats outside Pinned and Folders under date headers: Today, Yesterday,
-  /// Previous 7 Days, Previous 30 Days, then each earlier month. Sections
-  /// without chats are left out.
-  List<Widget> _recencySectionSlivers(
+  /// Chats outside Pinned and Folders, under one Recent header that
+  /// collapses them.
+  List<Widget> _recentSectionSlivers(
     List<Conversation> conversations, {
     required _SectionSequence sections,
     required bool foldersEnabled,
     required List<Folder> folders,
   }) {
     if (conversations.isEmpty) return const <Widget>[];
-    final l10n = AppLocalizations.of(context)!;
-    final locale = Localizations.localeOf(context).toString();
-    final now = DateTime.now();
-    final groups = groupByRecency(
-      conversations,
-      timestampOf: (conversation) => conversation.updatedAt,
-      now: now,
-    );
+    final showRecent = ref.watch(showRecentProvider);
     return [
-      for (final group in groups) ...[
-        SliverToBoxAdapter(
-          child: SidebarSectionHeader(
-            key: ValueKey<String>('chats-section-${group.section}'),
-            title: recencySectionLabel(
-              group.section,
-              l10n,
-              locale: locale,
-              now: now,
-            ),
-            isFirst: sections.next(),
-          ),
+      SliverToBoxAdapter(
+        child: SidebarSectionHeader(
+          key: const ValueKey<String>('chats-section-recent'),
+          title: AppLocalizations.of(context)!.recent,
+          isFirst: sections.next(),
+          isExpanded: showRecent,
+          onToggle: () => ref.read(showRecentProvider.notifier).toggle(),
         ),
+      ),
+      if (showRecent)
         _conversationsSliver(
-          group.items,
+          conversations,
           foldersEnabled: foldersEnabled,
           folders: folders,
         ),
-      ],
     ];
   }
 
-  /// Header of the Folders section, with New Folder before its chevron.
-  Widget _buildFoldersSectionHeader({required bool isFirst}) {
+  /// Header of the Folders section, with New Folder at its trailing end.
+  /// With no folders yet it has nothing to collapse, so it shows no chevron.
+  Widget _buildFoldersSectionHeader({
+    required bool isFirst,
+    required bool collapsible,
+  }) {
     final theme = context.conduitTheme;
     final l10n = AppLocalizations.of(context)!;
     return SidebarSectionHeader(
       key: const ValueKey<String>('chats-section-folders'),
       title: l10n.folders,
       isFirst: isFirst,
-      // Folder rows lead with their symbol on the list's leading edge, so
-      // the header starts there with them.
-      leadingInset: kSidebarRowContentInset,
-      isExpanded: ref.watch(showFoldersProvider),
-      onToggle: () => ref.read(showFoldersProvider.notifier).toggle(),
+      isExpanded: collapsible ? ref.watch(showFoldersProvider) : null,
+      onToggle: collapsible
+          ? () => ref.read(showFoldersProvider.notifier).toggle()
+          : null,
       chevronKey: const ValueKey<String>('folders-section-leading'),
       trailing: ConduitIconButton(
         tooltip: l10n.newFolder,
@@ -1215,8 +1210,7 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
           child: ConstrainedBox(
             constraints: const BoxConstraints(minHeight: TouchTarget.listItem),
             child: Padding(
-              // The folder symbol takes the row's leading column, where a
-              // chat row keeps its unread dot.
+              // The folder symbol starts where chat titles do.
               padding: const EdgeInsets.symmetric(
                 horizontal: kSidebarRowHorizontalPadding,
                 vertical: Spacing.xxs,

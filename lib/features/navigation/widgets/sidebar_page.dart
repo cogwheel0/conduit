@@ -33,7 +33,6 @@ import 'conversation_tile.dart'
         ChatStyleSidebarTile,
         kConversationTileMinHeight,
         kSidebarRowHorizontalPadding,
-        kSidebarRowStatusGutter,
         sidebarRowTitleLineStyle;
 import '../../../shared/widgets/chat_action_button.dart' show NativeSymbolGlyph;
 import '../../hermes/widgets/hermes_sessions_tab.dart';
@@ -936,10 +935,8 @@ class _SlidingSidebarDestinations extends ConsumerWidget {
                 ),
                 child: Row(
                   children: [
-                    // The symbol starts where chat titles and section
-                    // headers do, past the column chat rows keep for their
-                    // unread dot, and the name follows it.
-                    const SizedBox(width: kSidebarRowStatusGutter),
+                    // The symbol starts where chat titles do, and the name
+                    // follows it.
                     _SidebarDestinationGlyph(
                       destination: destination,
                       color: theme.textPrimary,

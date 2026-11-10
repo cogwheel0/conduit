@@ -16,16 +16,16 @@ const double kSidebarSectionTopSpacing = 20;
 /// Space between a section header and its first row.
 const double kSidebarSectionHeaderBottomSpacing = Spacing.xs;
 
-/// Section header of a sidebar list, as UIKit plain lists label sections:
-/// the title starts where its rows' content starts, and a collapsible
-/// section ends in a disclosure chevron, on the list's trailing margin, that
-/// turns down while the section is open.
+/// Where a section header starts and ends: on the list's 16 pt margin,
+/// outside its rows' content edge ([kSidebarRowContentInset]).
+const double kSidebarSectionHeaderInset = Spacing.md;
+
+/// Section header of a sidebar list: a disclosure chevron on the list's
+/// margin, pointing down while the section is open, then the title, with
+/// any control (New Folder) at the trailing end.
 ///
-/// Chat and note titles start past their unread column, so by default the
-/// header starts there too and the unread dot hangs in the gutter before
-/// both, as Mail and Notes keep one text edge. A section whose rows lead
-/// with a symbol (Folders) passes [kSidebarRowContentInset] instead, where
-/// those symbols start.
+/// A section that cannot collapse keeps the chevron's column empty, so every
+/// section title starts on one edge.
 class SidebarSectionHeader extends StatelessWidget {
   const SidebarSectionHeader({
     super.key,
@@ -35,7 +35,6 @@ class SidebarSectionHeader extends StatelessWidget {
     this.onToggle,
     this.trailing,
     this.chevronKey,
-    this.leadingInset = kSidebarRowTitleInset,
   }) : assert(
          (isExpanded == null) == (onToggle == null),
          'A collapsible header needs both isExpanded and onToggle.',
@@ -53,13 +52,10 @@ class SidebarSectionHeader extends StatelessWidget {
   /// Opens or closes the section.
   final VoidCallback? onToggle;
 
-  /// A compact control before the chevron, such as New Folder.
+  /// A compact control at the trailing end, such as New Folder.
   final Widget? trailing;
 
   final Key? chevronKey;
-
-  /// Where the title starts: on the section's row text by default.
-  final double leadingInset;
 
   @override
   Widget build(BuildContext context) {
@@ -91,8 +87,8 @@ class SidebarSectionHeader extends StatelessWidget {
 
     final row = Padding(
       padding: EdgeInsetsDirectional.only(
-        start: leadingInset,
-        end: kSidebarRowContentInset,
+        start: kSidebarSectionHeaderInset,
+        end: kSidebarSectionHeaderInset,
         top: isFirst
             ? kSidebarFirstSectionTopSpacing
             : kSidebarSectionTopSpacing,
@@ -100,16 +96,24 @@ class SidebarSectionHeader extends StatelessWidget {
       ),
       child: Row(
         children: [
+          SizedBox(
+            width: MediaQuery.textScalerOf(context).scale(IconSize.listItem),
+            child: expanded == null
+                ? null
+                : Center(
+                    child: ExcludeSemantics(
+                      child: _SectionChevron(
+                        key: chevronKey,
+                        expanded: expanded,
+                      ),
+                    ),
+                  ),
+          ),
+          const SizedBox(width: Spacing.xxs),
           Expanded(child: titleText),
           if (trailing case final trailing?) ...[
             const SizedBox(width: Spacing.sm),
             trailing,
-          ],
-          if (expanded != null) ...[
-            const SizedBox(width: Spacing.sm),
-            ExcludeSemantics(
-              child: _SectionChevron(key: chevronKey, expanded: expanded),
-            ),
           ],
         ],
       ),
@@ -168,9 +172,9 @@ Color sidebarSectionHeaderColor(ConduitThemeExtension theme) {
 /// Symbol chevron set in the header's font would be: as tall and heavy as
 /// its semibold title (SF chevron.down at 16 pt semibold is 14.7 by 8.7 pt,
 /// with the 2 pt stroke of the title's stems), in the title's tone, centred
-/// on the title's line and ending on the list's trailing margin. It points
-/// down while the section is open and toward the trailing edge while it is
-/// closed, turning between the two as UIKit's outline disclosure does.
+/// on the title's line before it. It points down while the section is open
+/// and toward the trailing edge while it is closed, turning between the two
+/// as UIKit's outline disclosure does.
 class _SectionChevron extends StatelessWidget {
   const _SectionChevron({super.key, required this.expanded});
 

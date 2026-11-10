@@ -1,4 +1,3 @@
-import 'package:conduit/features/navigation/widgets/conversation_tile.dart';
 import 'package:conduit/features/navigation/widgets/sidebar_section_header.dart';
 import 'package:conduit/shared/theme/app_theme.dart';
 import 'package:conduit/shared/theme/color_tokens.dart';
@@ -14,7 +13,7 @@ Widget _header({
   required ThemeData theme,
   double textScale = 1,
   bool expanded = true,
-  double? leadingInset,
+  bool collapsible = true,
 }) {
   return MaterialApp(
     theme: theme,
@@ -28,20 +27,14 @@ Widget _header({
           alignment: Alignment.topLeft,
           child: SizedBox(
             width: _windowWidth,
-            child: leadingInset == null
+            child: collapsible
                 ? SidebarSectionHeader(
                     title: 'Pinned',
                     isExpanded: expanded,
                     onToggle: () {},
                     chevronKey: _chevronKey,
                   )
-                : SidebarSectionHeader(
-                    title: 'Pinned',
-                    isExpanded: expanded,
-                    onToggle: () {},
-                    chevronKey: _chevronKey,
-                    leadingInset: leadingInset,
-                  ),
+                : const SidebarSectionHeader(title: 'Pinned'),
           ),
         ),
       ),
@@ -50,8 +43,8 @@ Widget _header({
 }
 
 void main() {
-  testWidgets('the chevron ends on the trailing margin, centred on its '
-      'title, and scales with it', (tester) async {
+  testWidgets('the chevron leads its title on the list margin, centred on '
+      'the title\'s line, and scales with it', (tester) async {
     tester.view.physicalSize = const Size(_windowWidth, 874);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
@@ -63,13 +56,13 @@ void main() {
       );
       final chevron = tester.getRect(find.byKey(_chevronKey));
       final title = tester.getRect(find.text('Pinned'));
-      // It ends where row text and trailing glyphs end, not inside a
-      // padded icon box, so it doesn't float apart from the list.
+      final column = IconSize.listItem * scale;
       expect(
-        chevron.right,
-        moreOrLessEquals(_windowWidth - kSidebarRowContentInset),
+        chevron.center.dx,
+        moreOrLessEquals(kSidebarSectionHeaderInset + column / 2),
         reason: 'scale $scale',
       );
+      expect(chevron.right, lessThan(title.left), reason: 'scale $scale');
       expect(
         chevron.center.dy,
         moreOrLessEquals(title.center.dy, epsilon: 0.5),
@@ -81,38 +74,31 @@ void main() {
     expect(widths[1] / widths[0], moreOrLessEquals(1.5, epsilon: 0.01));
   });
 
-  testWidgets('the title starts on the row titles\' edge at every text '
-      'size, or on the symbol edge when asked', (tester) async {
+  testWidgets('the title follows the chevron column at every text size, '
+      'whether or not the section collapses', (tester) async {
     tester.view.physicalSize = const Size(_windowWidth, 874);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
 
     for (final scale in [1.0, 1.5, 2.0]) {
-      await tester.pumpWidget(
-        _header(theme: AppTheme.light(TweakcnThemes.conduit), textScale: scale),
-      );
-      // Chat and note titles start past the unread column; the header
-      // starts with them, so the list keeps one text edge under Dynamic
-      // Type too.
-      expect(
-        tester.getTopLeft(find.text('Pinned')).dx,
-        kSidebarRowTitleInset,
-        reason: 'scale $scale',
-      );
-      expect(
-        tester.getRect(find.byKey(_chevronKey)).right,
-        moreOrLessEquals(_windowWidth - kSidebarRowContentInset),
-        reason: 'scale $scale',
-      );
+      final expected =
+          kSidebarSectionHeaderInset + IconSize.listItem * scale + Spacing.xxs;
+      for (final collapsible in [true, false]) {
+        await tester.pumpWidget(
+          _header(
+            theme: AppTheme.light(TweakcnThemes.conduit),
+            textScale: scale,
+            collapsible: collapsible,
+          ),
+        );
+        expect(
+          tester.getTopLeft(find.text('Pinned')).dx,
+          moreOrLessEquals(expected),
+          reason: 'scale $scale, collapsible $collapsible',
+        );
+      }
+      expect(find.byKey(_chevronKey), findsNothing);
     }
-
-    await tester.pumpWidget(
-      _header(
-        theme: AppTheme.light(TweakcnThemes.conduit),
-        leadingInset: kSidebarRowContentInset,
-      ),
-    );
-    expect(tester.getTopLeft(find.text('Pinned')).dx, kSidebarRowContentInset);
   });
 
   testWidgets('dark section headers sit quieter than secondary text', (

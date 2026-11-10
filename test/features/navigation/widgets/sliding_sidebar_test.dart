@@ -1,5 +1,7 @@
 import 'dart:async';
 
+import 'package:conduit/features/navigation/widgets/conversation_tile.dart'
+    show kSidebarRowContentInset;
 import 'package:conduit/shared/services/navigation_service.dart';
 import 'package:conduit/features/hermes/widgets/hermes_sessions_tab.dart';
 import 'package:conduit/features/navigation/widgets/drawer_shell_page.dart';
@@ -456,7 +458,8 @@ void main() {
     final destinations = find.byKey(
       const ValueKey<String>('sidebar-destinations'),
     );
-    // Their symbols start where the chat titles do, the names after them.
+    // Their symbols start on the rows' content edge, where a read chat's
+    // title starts, the names after them.
     final notesRow = find.byKey(
       const ValueKey<String>('sidebar-destination-notes'),
     );
@@ -464,8 +467,7 @@ void main() {
       of: notesRow,
       matching: find.byType(Icon),
     );
-    final chatTitleEdge = tester.getTopLeft(find.text('Example 0')).dx;
-    expect(tester.getTopLeft(notesSymbol).dx, chatTitleEdge);
+    expect(tester.getTopLeft(notesSymbol).dx, kSidebarRowContentInset);
     expect(
       tester.getTopLeft(find.text('Notes')).dx,
       greaterThan(tester.getTopRight(notesSymbol).dx),

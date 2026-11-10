@@ -7,7 +7,6 @@ import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/models/folder.dart';
 import 'package:conduit/features/navigation/widgets/sidebar_page.dart';
 import 'package:conduit/l10n/app_localizations.dart';
-import 'package:conduit/l10n/app_localizations_en.dart';
 import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -150,7 +149,7 @@ void main() {
     );
   });
 
-  testWidgets('a collapsed archive does not consume hidden pages', (
+  testWidgets('collapsed paginated chat sections do not consume hidden pages', (
     tester,
   ) async {
     final controllers = SidebarTestSidebarHarnessControllers();
@@ -162,6 +161,12 @@ void main() {
         controllers: controllers,
         conversations: [
           Conversation(
+            id: 'recent-1',
+            title: 'Hidden recent',
+            createdAt: timestamp,
+            updatedAt: timestamp,
+          ),
+          Conversation(
             id: 'archived-1',
             title: 'Hidden archived',
             createdAt: timestamp,
@@ -170,43 +175,15 @@ void main() {
           ),
         ],
         pagination: pagination,
+        showRecent: false,
         showArchived: false,
       ),
     );
     await tester.pumpAndSettle();
 
     check(pagination.loadMoreCalls).equals(0);
+    expect(find.text('Hidden recent'), findsNothing);
     expect(find.text('Hidden archived'), findsNothing);
-  });
-
-  testWidgets('dated chats stay listed whatever the old Recent toggle says', (
-    tester,
-  ) async {
-    final controllers = SidebarTestSidebarHarnessControllers();
-    // The start of today: dated Today at any time of day, even just after
-    // midnight, when "five minutes ago" would be yesterday.
-    final now = DateTime.now();
-    final timestamp = DateTime(now.year, now.month, now.day);
-
-    await tester.pumpWidget(
-      sidebarTestBuildHarness(
-        controllers: controllers,
-        conversations: [
-          Conversation(
-            id: 'recent-1',
-            title: 'Fresh chat',
-            createdAt: timestamp,
-            updatedAt: timestamp,
-          ),
-        ],
-        showRecent: false,
-      ),
-    );
-    await tester.pumpAndSettle();
-
-    expect(find.text('Fresh chat'), findsOneWidget);
-    expect(find.text(AppLocalizationsEn().today), findsOneWidget);
-    expect(find.text(AppLocalizationsEn().recent), findsNothing);
   });
 
   testWidgets(

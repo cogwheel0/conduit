@@ -20,27 +20,15 @@ const EdgeInsets kConversationTileMargin = EdgeInsets.only(
   bottom: 1,
 );
 
-/// The sidebar's leading content edge: where the toolbar's first button and
-/// the large title start, 16 pt in as UIKit lays out a list's margins. A
-/// row's leading column (its unread dot, folder symbol or avatar) starts
-/// here too, as does the header of a section whose rows lead with a symbol,
-/// and trailing items end the same distance from the other side.
-const double kSidebarRowContentInset = Spacing.md;
-
 /// Padding inside a row's highlight on either side, so its content starts on
 /// [kSidebarRowContentInset].
-const double kSidebarRowHorizontalPadding =
-    kSidebarRowContentInset - kConversationTileHorizontalGutter;
+const double kSidebarRowHorizontalPadding = Spacing.md;
 
-/// The column a chat row keeps before its title for the unread dot, as Mail
-/// keeps one for unread mail, so read and unread titles share one edge.
-const double kSidebarRowStatusGutter = Spacing.md;
-
-/// Where the title of a row without a symbol or avatar starts: after the
-/// status column. Chat and note section headers start here too, so the
-/// unread dot hangs in the gutter before one text edge.
-const double kSidebarRowTitleInset =
-    kSidebarRowContentInset + kSidebarRowStatusGutter;
+/// Where a sidebar row's content starts, 24 pt in: a chat or note title, a
+/// folder or destination symbol. Trailing glyphs end the same distance from
+/// the other side.
+const double kSidebarRowContentInset =
+    kConversationTileHorizontalGutter + kSidebarRowHorizontalPadding;
 
 /// Diameter of a chat row's unread dot.
 const double kSidebarUnreadDotDiameter = 8;
@@ -434,13 +422,10 @@ class SidebarListTileContent extends StatelessWidget {
         ),
         child: Row(
           children: [
-            // A symbol or avatar takes the leading column; without one the
-            // title starts where chat titles do, past their status column.
             if (leading != null) ...[
               leading!,
               const SizedBox(width: Spacing.md),
-            ] else
-              const SizedBox(width: kSidebarRowStatusGutter),
+            ],
             Expanded(
               child: Column(
                 mainAxisSize: MainAxisSize.min,
@@ -535,7 +520,6 @@ class ConversationDragFeedback extends StatelessWidget {
         unread: false,
         isLoading: false,
         shrinkWrap: true,
-        reserveStatusColumn: false,
       ),
     );
   }
@@ -571,11 +555,6 @@ class ConversationTileContent extends StatelessWidget {
   /// Whether the row should size itself to its contents instead of filling width.
   final bool shrinkWrap;
 
-  /// Whether the title starts past the unread column. A list keeps it on
-  /// every row so read and unread titles line up; a lone title, such as a
-  /// row being dragged, has no column to line up with.
-  final bool reserveStatusColumn;
-
   /// When the chat last changed, shown after the title ([SidebarRowStamp]);
   /// none when null. A spinner or a raised hand takes its place while the
   /// chat is working or waiting.
@@ -593,7 +572,6 @@ class ConversationTileContent extends StatelessWidget {
     this.isAwaitingApproval = false,
     this.badge,
     this.shrinkWrap = false,
-    this.reserveStatusColumn = true,
     this.timestamp,
   });
 
@@ -720,33 +698,27 @@ class ConversationTileContent extends StatelessWidget {
       semanticsLabel: unreadLabel == null ? title : '$title\n$unreadLabel',
     );
 
-    // The unread dot sits in a column of its own before the title, as Mail
-    // marks unread mail, so every title keeps one leading edge whether or
-    // not its chat is read.
     final showsStackedStamp =
         stampStacks && !isLoading && !isGenerating && !isAwaitingApproval;
-    // With the date under the title, the dot stays on the title's line
-    // rather than centring on the pair.
-    final statusColumn = SizedBox(
-      width: kSidebarRowStatusGutter,
+    // The unread dot leads the title on its line, pushing it in; with the
+    // date under the title, the dot stays on the title's line rather than
+    // centring on the pair.
+    final unreadDot = SizedBox(
       height: showsStackedStamp
           ? MediaQuery.textScalerOf(context).scale(textStyle.fontSize!) *
                 textStyle.height!
           : null,
-      child: unread
-          ? Align(
-              alignment: AlignmentDirectional.centerStart,
-              child: Container(
-                key: const ValueKey<String>('conversation-unread-indicator'),
-                width: kSidebarUnreadDotDiameter,
-                height: kSidebarUnreadDotDiameter,
-                decoration: BoxDecoration(
-                  color: theme.textPrimary,
-                  shape: BoxShape.circle,
-                ),
-              ),
-            )
-          : null,
+      child: Center(
+        child: Container(
+          key: const ValueKey<String>('conversation-unread-indicator'),
+          width: kSidebarUnreadDotDiameter,
+          height: kSidebarUnreadDotDiameter,
+          decoration: BoxDecoration(
+            color: theme.textPrimary,
+            shape: BoxShape.circle,
+          ),
+        ),
+      ),
     );
 
     final titleBlock = showsStackedStamp
@@ -770,7 +742,7 @@ class ConversationTileContent extends StatelessWidget {
           ? CrossAxisAlignment.start
           : CrossAxisAlignment.center,
       children: [
-        if (reserveStatusColumn) statusColumn,
+        if (unread) ...[unreadDot, const SizedBox(width: Spacing.sm)],
         if (shrinkWrap)
           Flexible(fit: FlexFit.loose, child: titleBlock)
         else
@@ -810,10 +782,6 @@ class ConversationTile extends StatelessWidget {
   /// Callback when the tile is tapped.
   final VoidCallback? onTap;
 
-  /// Whether the title starts past the unread column; see
-  /// [ConversationTileContent.reserveStatusColumn].
-  final bool reserveStatusColumn;
-
   /// When the chat last changed; see [ConversationTileContent.timestamp].
   final DateTime? timestamp;
 
@@ -829,7 +797,6 @@ class ConversationTile extends StatelessWidget {
     this.isAwaitingApproval = false,
     this.badge,
     required this.onTap,
-    this.reserveStatusColumn = true,
     this.timestamp,
   });
 
@@ -859,7 +826,6 @@ class ConversationTile extends StatelessWidget {
             isGenerating: isGenerating,
             isAwaitingApproval: isAwaitingApproval,
             badge: badge,
-            reserveStatusColumn: reserveStatusColumn,
             timestamp: timestamp,
           ),
         ),
