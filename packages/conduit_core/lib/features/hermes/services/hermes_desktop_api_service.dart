@@ -680,7 +680,10 @@ final class HermesDesktopApiService
     toolFilter: toolFilter,
   );
 
-  Future<void> addMcpPreset(String name) => _administration.addMcpPreset(name);
+  Future<bool> addMcpCatalogEntry(
+    HermesMcpCatalogEntry entry, {
+    Map<String, String> credentials = const {},
+  }) => _administration.addMcpCatalogEntry(entry, credentials: credentials);
 
   Future<HermesMcpTestResult> testMcpServer(String name) =>
       _administration.testMcpServer(name);
