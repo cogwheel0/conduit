@@ -344,9 +344,10 @@ void main() {
 
     await durableSend(container, 'Remove the scratch folder', null);
 
-    check(
-      container.read(composerTextInsertionProvider)?.text,
-    ).equals('Remove the scratch folder');
+    final givenBack = container.read(composerTextInsertionProvider);
+    check(givenBack?.text).equals('Remove the scratch folder');
+    // Never into a draft begun since.
+    check(givenBack?.onlyIntoEmpty).equals(true);
     check(container.read(selectedModelProvider)).identicalTo(_otherModel);
   });
 }

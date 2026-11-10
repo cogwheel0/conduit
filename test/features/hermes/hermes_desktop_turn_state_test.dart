@@ -877,8 +877,9 @@ void main() {
 
   group('a held model switch, asked,', () {
     Future<(_GatewayHarness, HermesDesktopApiService)> start(
-      HermesModelSwitchPrompt prompt,
-    ) async {
+      HermesModelSwitchPrompt prompt, {
+      bool failFast = false,
+    }) async {
       SharedPreferences.setMockInitialValues({});
       PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
       final harness = _GatewayHarness();
@@ -908,27 +909,40 @@ void main() {
           'running': false,
         },
         'config.get' => {'value': 'medium'},
-        // Held until the switch comes back confirmed.
-        'config.set' =>
-          (harness.sent.last['params'] as Map)['confirm_expensive_model'] ==
-                  true
-              ? {'value': 'pricier-model'}
-              : {
+        // A switch to `pricier-model` is held until it comes back
+        // confirmed; any other applies.
+        'config.set' => () {
+          final params = harness.sent.last['params'] as Map;
+          return '${params['value']}'.startsWith('pricier-model') &&
+                  params['confirm_expensive_model'] != true
+              ? {
                   'confirm_required': true,
                   'confirm_message': 'This model costs more per message.',
-                },
+                }
+              : {'value': params['value']};
+        }(),
         'prompt.submit' => const {'status': 'streaming'},
         _ => const {},
       };
+      if (failFast) {
+        harness.errorResponder = (method) =>
+            method == 'config.set' &&
+                (harness.sent.last['params'] as Map)['key'] == 'fast'
+            ? {'code': -32000, 'message': 'storage_unavailable'}
+            : null;
+      }
       return (harness, service);
     }
 
-    Future<HermesResponseStream> send(HermesDesktopApiService service) =>
-        service.streamDesktopResponse(
-          HermesChatInput.text('hello'),
-          sessionId: 'stored-held',
-          options: const HermesDesktopSessionOptions(model: 'pricier-model'),
-        );
+    Future<HermesResponseStream> send(
+      HermesDesktopApiService service, {
+      String model = 'pricier-model',
+      bool? fast,
+    }) => service.streamDesktopResponse(
+      HermesChatInput.text('hello'),
+      sessionId: 'stored-held',
+      options: HermesDesktopSessionOptions(model: model, fast: fast),
+    );
 
     test('switches once confirmed, then sends', () async {
       final asked = <HermesHeldModelSwitch>[];
@@ -956,6 +970,21 @@ void main() {
       check(
         harness.sent.where((frame) => frame['method'] == 'prompt.submit'),
       ).length.equals(1);
+    });
+
+    // Kept once the switch applied: a later option that failed left the
+    // record on the model before.
+    test('returns to a model set before a later option failed', () async {
+      final (_, service) = await start((_) async => false, failFast: true);
+      await check(
+        send(service, model: 'other-model', fast: true),
+      ).throws<Object>();
+
+      await check(send(service)).throws<HermesModelSwitchDeclined>(
+        (it) => it
+            .has((error) => error.previousModel, 'previousModel')
+            .equals('other-model'),
+      );
     });
 
     test('keeps the current model when declined, and sends nothing', () async {

@@ -1104,9 +1104,13 @@ void main() {
   group('a model switch held for a confirmation, asked', () {
     /// Holds a switch to `pricier-model` until it carries the token, unless
     /// [holdAgain] (the session changed before the confirmation landed).
-    _Authority holding({bool holdAgain = false}) {
+    /// With [failFast], setting the fast tier fails.
+    _Authority holding({bool holdAgain = false, bool failFast = false}) {
       final gateway = _Authority();
       gateway.handler = (method, params) {
+        if (failFast && method == 'config.set' && params['key'] == 'fast') {
+          throw const _Refusal(-32000, 'storage_unavailable');
+        }
         final payload = params['payload'];
         if (method == 'session.mutate' &&
             params['operation'] == 'model' &&
@@ -1118,7 +1122,9 @@ void main() {
             'operation': 'model',
             'status': 'confirmation_required',
             'confirm': 'confirm-token-1',
-            'target_model': 'pricier-model',
+            // Hermes' resolved name for it, which the question must not
+            // show: the confirmed resend names the chat's own choice.
+            'target_model': 'pricier-model-resolved',
             'target_provider': 'synthetic-provider',
             'confirm_message': 'This model costs more per message.',
             'revision': gateway.revision,
@@ -1132,14 +1138,18 @@ void main() {
 
     Future<HermesResponseStream> send(
       HermesDesktopApiService service,
-      String model,
-    ) => service.streamDesktopResponse(
+      String model, {
+      bool? fast,
+      CancelToken? cancelToken,
+    }) => service.streamDesktopResponse(
       HermesChatInput.text('hello'),
       sessionId: 'local-1',
       options: HermesDesktopSessionOptions(
         model: model,
         provider: 'synthetic-provider',
+        fast: fast,
       ),
+      cancelToken: cancelToken,
     );
 
     test('switches once confirmed, then sends', () async {
@@ -1181,9 +1191,13 @@ void main() {
         gateway,
         confirmModelSwitch: (_) async => false,
       );
-      await service.createDesktopSession();
-      // A model this app applied before: the chat returns to it.
-      await send(service, 'other-model');
+      // The model the chat was made with: the chat returns to it.
+      await service.createDesktopSession(
+        options: const HermesDesktopSessionOptions(
+          model: 'other-model',
+          provider: 'synthetic-provider',
+        ),
+      );
       final submitted = gateway.calls('prompt.submit').length;
 
       await check(send(service, 'pricier-model')).throws<
@@ -1207,6 +1221,61 @@ void main() {
             .calls('session.mutate')
             .where((params) => (params['payload'] as Map?)?['confirm'] != null),
       ).isEmpty();
+    });
+
+    // Kept once the switch applied: a later option that failed left the
+    // record on the model before.
+    test('returns to a model set before a later option failed', () async {
+      final gateway = holding(failFast: true);
+      final service = _service(
+        gateway,
+        confirmModelSwitch: (_) async => false,
+      );
+      await service.createDesktopSession();
+      await check(send(service, 'other-model', fast: true)).throws<Object>();
+
+      await check(send(service, 'pricier-model')).throws<
+        HermesModelSwitchDeclined
+      >(
+        (it) => it
+            .has((error) => error.previousModel, 'previousModel')
+            .equals('other-model'),
+      );
+    });
+
+    test('refuses as before when nobody could be asked', () async {
+      final gateway = holding();
+      final service = _service(gateway, confirmModelSwitch: (_) async => null);
+      await service.createDesktopSession();
+
+      await check(
+        send(service, 'pricier-model'),
+      ).throws<HermesModelSwitchHeld>();
+    });
+
+    // Stopped while the question was open, a send must not switch the chat
+    // to the held model when the answer comes.
+    test('switches nothing for a send stopped while asking', () async {
+      final gateway = holding();
+      final cancelToken = CancelToken();
+      final service = _service(
+        gateway,
+        confirmModelSwitch: (_) async {
+          cancelToken.cancel('stopped');
+          return true;
+        },
+      );
+      await service.createDesktopSession();
+
+      await check(
+        send(service, 'pricier-model', cancelToken: cancelToken),
+      ).throws<DioException>();
+      check(
+        gateway
+            .calls('session.mutate')
+            .where((params) => (params['payload'] as Map?)?['confirm'] != null),
+      ).isEmpty();
+      check(gateway.calls('prompt.submit')).isEmpty();
     });
 
     test('refuses as before when held again once confirmed', () async {

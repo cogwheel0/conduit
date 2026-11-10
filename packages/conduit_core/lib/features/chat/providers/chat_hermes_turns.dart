@@ -2205,9 +2205,15 @@ Future<void> _dispatchRegisteredHermesRunFromChat(
       // and its picker back to that model.
       onModelSwitchDeclined: (declined) {
         if (!owner.isActive(ref)) return;
+        // Given back only to an empty composer: a draft begun meanwhile is
+        // left as it is, and the words stay in the chat to copy.
         ref
             .read(composerTextInsertionProvider.notifier)
-            .insert(targetId: chatComposerTextInsertionTargetId, text: input);
+            .insert(
+              targetId: chatComposerTextInsertionTargetId,
+              text: input,
+              onlyIntoEmpty: true,
+            );
         final kept = hermesModelKeptOverSwitch(
           ref.read(modelsProvider).value ?? const <Model>[],
           previousModel: declined.previousModel,

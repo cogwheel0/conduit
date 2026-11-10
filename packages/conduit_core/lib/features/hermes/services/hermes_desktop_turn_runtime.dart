@@ -78,7 +78,7 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
       );
     }
     if (!_sessionProfiles.containsKey(binding.storedId)) {
-      await _applySessionOptions(binding, options);
+      await _applySessionOptions(binding, options, cancelToken: cancelToken);
     }
     final attached = await _attachInput(binding.runtimeId, input);
     var text = attached.text;
@@ -987,8 +987,9 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
 
   Future<void> _applySessionOptions(
     HermesSessionBinding binding,
-    HermesDesktopSessionOptions options,
-  ) async {
+    HermesDesktopSessionOptions options, {
+    CancelToken? cancelToken,
+  }) async {
     final selection = hermesDesktopSessionModelSelection(
       options.model,
       options.provider,
@@ -1033,7 +1034,12 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
         'provider': ?selection.provider,
       };
       final result = await _canonicalMutate(binding, 'model', payload);
-      if (await _confirmHeldModelSwitch(binding, result, selection.model!)) {
+      if (await _confirmHeldModelSwitch(
+        binding,
+        result,
+        selection,
+        cancelToken: cancelToken,
+      )) {
         // The owner wrote nothing: the same edit again, with its token.
         _refuseHeldModelSwitch(
           await _canonicalMutate(binding, 'model', {
@@ -1043,6 +1049,7 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
           selection.model!,
         );
       }
+      _recordAppliedModel(binding.storedId, selection);
     }
     for (final option in <(String, Object?)>[
       if (!_canonical) ('model', modelSwitch),
@@ -1062,12 +1069,13 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
           ...scope,
         },
       );
-      if (option.$1 == 'model' &&
-          await _confirmHeldModelSwitch(
-            binding,
-            _object(set),
-            selection.model ?? '',
-          )) {
+      if (option.$1 != 'model') continue;
+      if (await _confirmHeldModelSwitch(
+        binding,
+        _object(set),
+        selection,
+        cancelToken: cancelToken,
+      )) {
         _refuseHeldModelSwitch(
           _object(
             await _rpc.request<Object?>(
@@ -1084,46 +1092,60 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
           selection.model ?? '',
         );
       }
+      // Kept as soon as it applies: a later option that fails does not
+      // leave the chat's record on the model before.
+      _recordAppliedModel(binding.storedId, selection);
     }
     _appliedSessionOptions[binding.storedId] = fingerprint;
-    final model = selection.model;
-    if (model != null) {
-      _appliedSessionModels[binding.storedId] = (
-        model: model,
-        provider: selection.provider,
-      );
-    }
   }
 
-  /// Whether Hermes held the switch to [model] that [result] answers, and
-  /// the user, asked, confirmed it: the caller sends it again, confirmed.
-  /// Not held, it resolves false. Kept, it throws [HermesModelSwitchDeclined];
-  /// with nobody to ask, the held switch is refused as before.
+  /// Notes [selection]'s model as the one session [storedId] is now on: as
+  /// it is created with it, or switched to it.
+  void _recordAppliedModel(
+    String storedId,
+    ({String? model, String? provider}) selection,
+  ) {
+    final model = selection.model;
+    if (model == null) return;
+    _appliedSessionModels[storedId] = (
+      model: model,
+      provider: selection.provider,
+    );
+  }
+
+  /// Whether Hermes held the switch to [selection] that [result] answers,
+  /// and the user, asked, confirmed it: the caller sends it again,
+  /// confirmed. Not held, it resolves false. Kept, it throws
+  /// [HermesModelSwitchDeclined]; with nobody to ask, the held switch is
+  /// refused as before. A send stopped meanwhile switches nothing.
   Future<bool> _confirmHeldModelSwitch(
     HermesSessionBinding binding,
     Map<String, dynamic> result,
-    String model,
-  ) async {
+    ({String? model, String? provider}) selection, {
+    CancelToken? cancelToken,
+  }) async {
     if (!_isHeldModelSwitch(result)) return false;
+    final model = selection.model ?? '';
     final prompt = _confirmModelSwitch;
     if (prompt == null) _refuseHeldModelSwitch(result, model);
-    String? text(Object? value, int maxCharacters) {
-      final bounded = validateHermesBoundedString(
-        value,
-        maxCharacters: maxCharacters,
-      )?.trim();
-      return bounded == null || bounded.isEmpty ? null : bounded;
-    }
-
+    final reason = validateHermesBoundedString(
+      result['confirm_message'],
+      maxCharacters: 400,
+    )?.trim();
+    // The model asked about is the one that is sent again: the chat's own
+    // choice, not a name the gateway put in its answer.
     final held = HermesHeldModelSwitch(
-      model: text(result['target_model'], 200) ?? model,
-      provider: text(result['target_provider'], 200),
-      reason: text(result['confirm_message'], 400),
+      model: model,
+      provider: selection.provider,
+      reason: reason == null || reason.isEmpty ? null : reason,
     );
-    if (await prompt!(held)) return true;
+    final confirmed = await prompt!(held);
+    if (cancelToken?.isCancelled == true) throw cancelToken!.cancelError!;
+    if (confirmed == null) _refuseHeldModelSwitch(result, model);
+    if (confirmed!) return true;
     final previous = _appliedSessionModels[binding.storedId];
     throw HermesModelSwitchDeclined(
-      model: held.model,
+      model: model,
       previousModel: previous?.model,
       previousProvider: previous?.provider,
     );

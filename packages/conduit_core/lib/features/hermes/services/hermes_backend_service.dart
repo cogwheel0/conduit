@@ -172,10 +172,11 @@ final class HermesHeldModelSwitch {
 }
 
 /// Asks the user whether to switch the chat to a model Hermes holds for
-/// confirmation and send the waiting message. Resolves false to keep the
-/// chat's current model.
+/// confirmation and send the waiting message. Resolves true to switch,
+/// false to keep the chat's current model, and null when nobody could be
+/// asked: the held switch is then refused, as without a prompt.
 typedef HermesModelSwitchPrompt =
-    Future<bool> Function(HermesHeldModelSwitch held);
+    Future<bool?> Function(HermesHeldModelSwitch held);
 
 /// The user kept the chat's current model when Hermes held a switch for
 /// their confirmation: nothing was sent. [previousModel] and
