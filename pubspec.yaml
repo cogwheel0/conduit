@@ -127,7 +127,7 @@ dependencies:
   home_widget: ^0.10.0
   flutter_highlight: ^0.7.0
   just_audio: ^0.10.5
-  cupertino_native_better: ^2.4.0
+  cupertino_native_better: ^2.5.1
   flutter_tex: ^5.2.6
   xterm: ^4.0.0
   web_socket: ^1.0.1

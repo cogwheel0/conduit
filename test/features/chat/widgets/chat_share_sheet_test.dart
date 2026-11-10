@@ -291,10 +291,10 @@ void main() {
       ),
     );
 
-    await tester.tap(find.text('Update and copy link'));
+    await tester.tap(find.text('Update and Copy Link'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 100));
-    await tester.tap(find.text('Update and copy link'));
+    await tester.tap(find.text('Update and Copy Link'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 100));
 
@@ -388,7 +388,7 @@ void main() {
     );
     container.read(activeConversationProvider.notifier).set(native);
 
-    await tester.tap(find.text('Update and copy link'));
+    await tester.tap(find.text('Update and Copy Link'));
     await tester.pump(const Duration(milliseconds: 100));
 
     check(api.sharedConversationIds).deepEquals(<String>[rawId]);
@@ -501,7 +501,7 @@ void main() {
       final deleteRow = tester.widget<UtilityRow>(delete);
       check(deleteRow.title).equals(l10n.shareChatDeleteLink);
       check(deleteRow.subtitle).equals(l10n.shareChatDeleteAndCreate);
-      check(l10n.chatShareAudience).equals('Who has access');
+      check(l10n.chatShareAudience).equals('Who Has Access');
       check(l10n.chatShareAudienceDescription)
           .equals('Choose who can open this chat');
 

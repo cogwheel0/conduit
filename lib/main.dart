@@ -174,6 +174,7 @@ import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 
 import 'features/hermes/services/hermes_dashboard_rest_bridge.dart';
 import 'features/hermes/widgets/hermes_connection_switcher.dart';
+import 'features/hermes/widgets/hermes_model_switch_prompt.dart';
 
 import 'package:conduit_core/features/chat/providers/chat_handoff_providers.dart';
 
@@ -504,6 +505,13 @@ void main() {
                 (name) => confirmHermesConnectionSwitch(
                   ref.read(uiRequestPortProvider),
                   name,
+                ),
+          ),
+          hermesModelSwitchPromptProvider.overrideWith(
+            (ref) =>
+                (held) => confirmHermesModelSwitch(
+                  ref.read(uiRequestPortProvider),
+                  held,
                 ),
           ),
           chatHandoffPromptProvider.overrideWith(
@@ -1238,6 +1246,7 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
             case 'dark':
               ref.read(appThemeModeProvider.notifier).setTheme(ThemeMode.dark);
           }
+          await _refreshNativeAppearanceDetail();
         case 'language':
           if (value == 'system') {
             await ref.read(appLocaleProvider.notifier).setLocale(null);
@@ -1250,6 +1259,7 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
         case 'theme-palette':
           if (value is String && value.isNotEmpty) {
             await ref.read(appThemePaletteProvider.notifier).setPalette(value);
+            await _refreshNativeAppearanceDetail();
           }
         case 'quick-pills-clear':
           await ref.read(appSettingsProvider.notifier).setQuickPills(const []);
@@ -1316,6 +1326,12 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
                 .read(appSettingsProvider.notifier)
                 .setNotificationsEnabled(value);
             _syncNotificationPrefsToServer(enabled: value);
+            // The options under the switch come and go with it.
+            unawaited(
+              ref
+                  .read(nativeSheetHydrationServiceProvider)
+                  .hydrateDetail(NativeSheetRoutes.notificationSettings),
+            );
             if (value) {
               // Best-effort OS permission on opt-in; OS governs delivery.
               await ref
@@ -1341,6 +1357,12 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
                 .read(appSettingsProvider.notifier)
                 .setNotificationSound(value);
             _syncNotificationPrefsToServer(sound: value);
+            // Always play sound can be changed only while Sound is on.
+            unawaited(
+              ref
+                  .read(nativeSheetHydrationServiceProvider)
+                  .hydrateDetail(NativeSheetRoutes.notificationSettings),
+            );
           }
         case 'notification-sound-always':
           if (value is bool) {
@@ -1421,6 +1443,15 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
               current: ref.read(appSettingsProvider).directVoiceProvider,
             ),
     );
+  }
+
+  /// Redraws Appearance after its scheme or palette changed, so its rows show
+  /// the choice -- the palette's name and swatch, the scheme tiles painted in
+  /// the new palette -- rather than the rows the sheet was opened with.
+  Future<void> _refreshNativeAppearanceDetail() {
+    return ref
+        .read(nativeSheetHydrationServiceProvider)
+        .hydrateDetail(NativeSheetRoutes.appearance);
   }
 
   /// Redraws the Voice pages from [detailId], the one the change came from.

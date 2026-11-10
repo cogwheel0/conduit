@@ -33,6 +33,7 @@ import 'package:conduit_core/models/folder.dart';
 import 'conversation_tile.dart';
 import 'create_folder_dialog.dart';
 import 'folder_tree_guides.dart';
+import 'sidebar_section_header.dart';
 
 import 'package:conduit_core/features/navigation/providers/drawer_section_notifiers.dart';
 
@@ -52,9 +53,6 @@ IconData sidebarSectionDisclosureIcon(bool isExpanded) {
   }
   return isExpanded ? Icons.expand_more : Icons.chevron_right_rounded;
 }
-
-/// Defines the section types that can be collapsed in the chats drawer
-enum _SectionType { pinned, recent }
 
 class ChatsDrawer extends ConsumerStatefulWidget {
   const ChatsDrawer({super.key});
@@ -203,6 +201,7 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
     List<bool> ancestorHasMoreSiblings = const <bool>[],
     bool foldersEnabled = false,
     List<Folder> folders = const <Folder>[],
+    bool showPinnedIndicator = true,
   }) {
     return SliverList(
       delegate: SliverChildBuilderDelegate(
@@ -213,6 +212,7 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
           hasMoreSiblings: index < items.length - 1,
           foldersEnabled: foldersEnabled,
           folders: folders,
+          showPinnedIndicator: showPinnedIndicator,
         ),
         childCount: items.length,
       ),
@@ -854,77 +854,54 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
                     expandedFolders: expandedFolders,
                   ));
 
+          final sections = _SectionSequence(context);
           final slivers = <Widget>[
-            if (pinned.isNotEmpty) ...[
-              SliverPadding(
-                padding: const EdgeInsets.symmetric(horizontal: Spacing.md),
-                sliver: SliverToBoxAdapter(
-                  child: _buildSectionHeader(
-                    AppLocalizations.of(context)!.pinned,
-                    sectionType: _SectionType.pinned,
-                  ),
-                ),
-              ),
-              if (showPinned) ...[
-                const SliverToBoxAdapter(child: SizedBox(height: Spacing.xs)),
-                _conversationsSliver(
-                  pinned,
-                  foldersEnabled: foldersEnabled,
-                  folders: folders,
-                ),
-              ],
-              const SliverToBoxAdapter(child: SizedBox(height: Spacing.md)),
-            ],
-
-            // Folders section (hidden when feature is disabled server-side)
+            ..._pinnedSectionSlivers(
+              pinned,
+              sections: sections,
+              showPinned: showPinned,
+              foldersEnabled: foldersEnabled,
+              folders: folders,
+            ),
+            // The Folders header stays while there are none, so New Folder
+            // is always at hand; it collapses only once it has folders.
             if (foldersEnabled) ...[
-              SliverPadding(
-                padding: const EdgeInsets.symmetric(horizontal: Spacing.md),
-                sliver: SliverToBoxAdapter(child: _buildFoldersSectionHeader()),
-              ),
-            ],
-            if (showFolders && foldersEnabled) ...[
-              const SliverToBoxAdapter(child: SizedBox(height: Spacing.xs)),
-              ...foldersState.when(
-                data: (folders) => _buildFolderSectionSlivers(
-                  folders: folders,
-                  folderConversationFallbacks: folderConversationFallbacks,
+              SliverToBoxAdapter(
+                child: _buildFoldersSectionHeader(
+                  isFirst: sections.next(),
+                  collapsible: hasVisibleFolders,
                 ),
-                loading: () => [
-                  const SliverToBoxAdapter(child: SizedBox.shrink()),
-                ],
-                error: (e, st) => [
-                  const SliverToBoxAdapter(child: SizedBox.shrink()),
-                ],
               ),
-            ],
-            if (foldersEnabled)
-              const SliverToBoxAdapter(child: SizedBox(height: Spacing.md)),
-
-            if (regular.isNotEmpty) ...[
-              SliverPadding(
-                padding: const EdgeInsets.symmetric(horizontal: Spacing.md),
-                sliver: SliverToBoxAdapter(
-                  child: _buildSectionHeader(
-                    AppLocalizations.of(context)!.recent,
-                    sectionType: _SectionType.recent,
+              if (showFolders && hasVisibleFolders)
+                ...foldersState.when(
+                  data: (folders) => _buildFolderSectionSlivers(
+                    folders: folders,
+                    folderConversationFallbacks: folderConversationFallbacks,
                   ),
+                  loading: () => [
+                    const SliverToBoxAdapter(child: SizedBox.shrink()),
+                  ],
+                  error: (e, st) => [
+                    const SliverToBoxAdapter(child: SizedBox.shrink()),
+                  ],
                 ),
-              ),
-              if (showRecent) ...[
-                const SliverToBoxAdapter(child: SizedBox(height: Spacing.xs)),
-                _conversationsSliver(
-                  regular,
-                  foldersEnabled: foldersEnabled,
-                  folders: folders,
-                ),
-              ],
             ],
+            ..._recentSectionSlivers(
+              regular,
+              sections: sections,
+              showRecent: showRecent,
+              foldersEnabled: foldersEnabled,
+              folders: folders,
+            ),
 
             if (archivedCount > 0) ...[
-              const SliverToBoxAdapter(child: SizedBox(height: Spacing.md)),
+              const SliverToBoxAdapter(
+                child: SizedBox(height: kSidebarSectionTopSpacing),
+              ),
               SliverPadding(
-                padding: const EdgeInsets.symmetric(horizontal: Spacing.md),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: kConversationTileHorizontalGutter,
+                ),
                 sliver: SliverToBoxAdapter(
                   child: _buildArchivedHeader(archivedCount),
                 ),
@@ -1025,110 +1002,57 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
         final showPinned = ref.watch(showPinnedProvider);
         final showFolders = ref.watch(showFoldersProvider);
         final showRecent = ref.watch(showRecentProvider);
+        final hasVisibleFolders = foldersEnabled && folders.isNotEmpty;
 
+        final sections = _SectionSequence(context);
         final slivers = <Widget>[
-          SliverPadding(
-            padding: const EdgeInsets.symmetric(horizontal: Spacing.md),
-            sliver: SliverToBoxAdapter(
-              child: _buildSectionHeader('Results', count: list.length),
-            ),
+          ..._pinnedSectionSlivers(
+            pinned,
+            sections: sections,
+            showPinned: showPinned,
+            foldersEnabled: foldersEnabled,
+            folders: folders,
           ),
-          const SliverToBoxAdapter(child: SizedBox(height: Spacing.xs)),
+          if (foldersEnabled) ...[
+            SliverToBoxAdapter(
+              child: _buildFoldersSectionHeader(
+                isFirst: sections.next(),
+                collapsible: hasVisibleFolders,
+              ),
+            ),
+            if (showFolders && hasVisibleFolders)
+              ...foldersState.when(
+                data: (folders) => _buildFolderSectionSlivers(
+                  folders: folders,
+                  folderConversationFallbacks: folderSearchResults,
+                  fetchFromServerForFolders: false,
+                ),
+                loading: () => <Widget>[
+                  const SliverToBoxAdapter(child: SizedBox.shrink()),
+                ],
+                error: (e, st) => <Widget>[
+                  const SliverToBoxAdapter(child: SizedBox.shrink()),
+                ],
+              ),
+          ],
+          ..._recentSectionSlivers(
+            regular,
+            sections: sections,
+            showRecent: showRecent,
+            foldersEnabled: foldersEnabled,
+            folders: folders,
+          ),
         ];
-
-        if (pinned.isNotEmpty) {
-          slivers.addAll([
-            SliverPadding(
-              padding: const EdgeInsets.symmetric(horizontal: Spacing.md),
-              sliver: SliverToBoxAdapter(
-                child: _buildSectionHeader(
-                  AppLocalizations.of(context)!.pinned,
-                  sectionType: _SectionType.pinned,
-                ),
-              ),
-            ),
-          ]);
-          if (showPinned) {
-            slivers.addAll([
-              const SliverToBoxAdapter(child: SizedBox(height: Spacing.xs)),
-              _conversationsSliver(
-                pinned,
-                foldersEnabled: foldersEnabled,
-                folders: folders,
-              ),
-            ]);
-          }
-          slivers.add(
-            const SliverToBoxAdapter(child: SizedBox(height: Spacing.md)),
-          );
-        }
-
-        // Folders section (hidden when feature is disabled server-side)
-        if (foldersEnabled) {
-          slivers.add(
-            SliverPadding(
-              padding: const EdgeInsets.symmetric(horizontal: Spacing.md),
-              sliver: SliverToBoxAdapter(child: _buildFoldersSectionHeader()),
-            ),
-          );
-        }
-
-        if (showFolders && foldersEnabled) {
-          slivers.add(
-            const SliverToBoxAdapter(child: SizedBox(height: Spacing.xs)),
-          );
-
-          final folderSlivers = foldersState.when(
-            data: (folders) => _buildFolderSectionSlivers(
-              folders: folders,
-              folderConversationFallbacks: folderSearchResults,
-              fetchFromServerForFolders: false,
-            ),
-            loading: () => <Widget>[
-              const SliverToBoxAdapter(child: SizedBox.shrink()),
-            ],
-            error: (e, st) => <Widget>[
-              const SliverToBoxAdapter(child: SizedBox.shrink()),
-            ],
-          );
-          slivers.addAll(folderSlivers);
-        }
-
-        if (foldersEnabled) {
-          slivers.add(
-            const SliverToBoxAdapter(child: SizedBox(height: Spacing.md)),
-          );
-        }
-
-        if (regular.isNotEmpty) {
-          slivers.add(
-            SliverPadding(
-              padding: const EdgeInsets.symmetric(horizontal: Spacing.md),
-              sliver: SliverToBoxAdapter(
-                child: _buildSectionHeader(
-                  AppLocalizations.of(context)!.recent,
-                  sectionType: _SectionType.recent,
-                ),
-              ),
-            ),
-          );
-          if (showRecent) {
-            slivers.addAll([
-              const SliverToBoxAdapter(child: SizedBox(height: Spacing.xs)),
-              _conversationsSliver(
-                regular,
-                foldersEnabled: foldersEnabled,
-                folders: folders,
-              ),
-            ]);
-          }
-        }
 
         if (archived.isNotEmpty) {
           slivers.addAll([
-            const SliverToBoxAdapter(child: SizedBox(height: Spacing.md)),
+            const SliverToBoxAdapter(
+              child: SizedBox(height: kSidebarSectionTopSpacing),
+            ),
             SliverPadding(
-              padding: const EdgeInsets.symmetric(horizontal: Spacing.md),
+              padding: const EdgeInsets.symmetric(
+                horizontal: kConversationTileHorizontalGutter,
+              ),
               sliver: SliverToBoxAdapter(
                 child: _buildArchivedHeader(archived.length),
               ),
@@ -1171,130 +1095,92 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
     );
   }
 
-  Widget _buildSectionHeader(
-    String title, {
-    _SectionType? sectionType,
-    int? count,
+  /// The Pinned section: its header and, while open, its chats. Rows leave
+  /// out the pin glyph, which the header already says.
+  List<Widget> _pinnedSectionSlivers(
+    List<Conversation> pinned, {
+    required _SectionSequence sections,
+    required bool showPinned,
+    required bool foldersEnabled,
+    required List<Folder> folders,
   }) {
-    // Get the collapsed state for the section type
-    bool isExpanded = true;
-    VoidCallback? onToggle;
-
-    if (sectionType == _SectionType.pinned) {
-      isExpanded = ref.watch(showPinnedProvider);
-      onToggle = () {
-        ConduitHaptics.selectionClick();
-        ref.read(showPinnedProvider.notifier).toggle();
-      };
-    } else if (sectionType == _SectionType.recent) {
-      isExpanded = ref.watch(showRecentProvider);
-      onToggle = () {
-        ConduitHaptics.selectionClick();
-        ref.read(showRecentProvider.notifier).toggle();
-      };
-    }
-
-    final theme = context.conduitTheme;
-    final titleStyle = AppTypography.labelStyle.copyWith(
-      color: theme.textSecondary,
-      fontWeight: FontWeight.w700,
-      decoration: TextDecoration.none,
-    );
-    final headerContent = Row(
-      children: [
-        if (onToggle != null) ...[
-          Icon(
-            sidebarSectionDisclosureIcon(isExpanded),
-            color: theme.iconSecondary,
-            size: IconSize.listItem,
-          ),
-          const SizedBox(width: Spacing.xxs),
-        ],
-        Text(title, style: titleStyle),
-        if (count != null) ...[
-          const SizedBox(width: Spacing.sm),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-            decoration: BoxDecoration(
-              color: theme.surfaceContainer,
-              borderRadius: BorderRadius.circular(AppBorderRadius.pill),
-            ),
-            child: Text(
-              '$count',
-              style: AppTypography.labelMediumStyle.copyWith(
-                color: theme.textSecondary,
-                fontWeight: FontWeight.w600,
-                decoration: TextDecoration.none,
-              ),
-            ),
-          ),
-        ],
-      ],
-    );
-
-    if (onToggle == null) {
-      return headerContent;
-    }
-
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onTap: onToggle,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: Spacing.xxs),
-        child: headerContent,
+    if (pinned.isEmpty) return const <Widget>[];
+    return [
+      SliverToBoxAdapter(
+        child: SidebarSectionHeader(
+          key: const ValueKey<String>('chats-section-pinned'),
+          title: AppLocalizations.of(context)!.pinned,
+          isFirst: sections.next(),
+          isExpanded: showPinned,
+          onToggle: () => ref.read(showPinnedProvider.notifier).toggle(),
+        ),
       ),
-    );
+      if (showPinned)
+        _conversationsSliver(
+          pinned,
+          foldersEnabled: foldersEnabled,
+          folders: folders,
+          showPinnedIndicator: false,
+        ),
+    ];
   }
 
-  /// Header for the Folders section with a create button on the right
-  Widget _buildFoldersSectionHeader() {
-    final theme = context.conduitTheme;
-    final isExpanded = ref.watch(showFoldersProvider);
+  /// Chats outside Pinned and Folders, under one Recent header that
+  /// collapses them.
+  List<Widget> _recentSectionSlivers(
+    List<Conversation> conversations, {
+    required _SectionSequence sections,
+    required bool showRecent,
+    required bool foldersEnabled,
+    required List<Folder> folders,
+  }) {
+    if (conversations.isEmpty) return const <Widget>[];
+    return [
+      SliverToBoxAdapter(
+        child: SidebarSectionHeader(
+          key: const ValueKey<String>('chats-section-recent'),
+          title: AppLocalizations.of(context)!.recent,
+          isFirst: sections.next(),
+          isExpanded: showRecent,
+          onToggle: () => ref.read(showRecentProvider.notifier).toggle(),
+        ),
+      ),
+      if (showRecent)
+        _conversationsSliver(
+          conversations,
+          foldersEnabled: foldersEnabled,
+          folders: folders,
+        ),
+    ];
+  }
 
-    return Row(
-      children: [
-        GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onTap: () {
-            ConduitHaptics.selectionClick();
-            ref.read(showFoldersProvider.notifier).toggle();
-          },
-          child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: Spacing.xxs),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(
-                  key: const ValueKey<String>('folders-section-leading'),
-                  sidebarSectionDisclosureIcon(isExpanded),
-                  color: theme.iconSecondary,
-                  size: IconSize.listItem,
-                ),
-                const SizedBox(width: Spacing.xxs),
-                Text(
-                  AppLocalizations.of(context)!.folders,
-                  style: AppTypography.labelStyle.copyWith(
-                    color: theme.textSecondary,
-                    fontWeight: FontWeight.w700,
-                    decoration: TextDecoration.none,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-        const Spacer(),
-        ConduitIconButton(
-          tooltip: AppLocalizations.of(context)!.newFolder,
-          icon: Platform.isIOS
-              ? CupertinoIcons.folder_badge_plus
-              : Icons.create_new_folder_outlined,
-          iconColor: theme.iconPrimary,
-          isCompact: true,
-          onPressed: () =>
-              CreateFolderDialog.show(context, ref, onError: _showDrawerError),
-        ),
-      ],
+  /// Header of the Folders section, with New Folder at its trailing end.
+  /// With no folders yet it has nothing to collapse, so it shows no chevron.
+  Widget _buildFoldersSectionHeader({
+    required bool isFirst,
+    required bool collapsible,
+  }) {
+    final theme = context.conduitTheme;
+    final l10n = AppLocalizations.of(context)!;
+    return SidebarSectionHeader(
+      key: const ValueKey<String>('chats-section-folders'),
+      title: l10n.folders,
+      isFirst: isFirst,
+      isExpanded: collapsible ? ref.watch(showFoldersProvider) : null,
+      onToggle: collapsible
+          ? () => ref.read(showFoldersProvider.notifier).toggle()
+          : null,
+      chevronKey: const ValueKey<String>('folders-section-leading'),
+      trailing: ConduitIconButton(
+        tooltip: l10n.newFolder,
+        icon: Platform.isIOS
+            ? CupertinoIcons.folder_badge_plus
+            : Icons.create_new_folder_outlined,
+        iconColor: theme.iconSecondary,
+        isCompact: true,
+        onPressed: () =>
+            CreateFolderDialog.show(context, ref, onError: _showDrawerError),
+      ),
     );
   }
 
@@ -1327,8 +1213,9 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
           child: ConstrainedBox(
             constraints: const BoxConstraints(minHeight: TouchTarget.listItem),
             child: Padding(
+              // The folder symbol starts where chat titles do.
               padding: const EdgeInsets.symmetric(
-                horizontal: Spacing.md,
+                horizontal: kSidebarRowHorizontalPadding,
                 vertical: Spacing.xxs,
               ),
               child: Row(
@@ -1823,6 +1710,7 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
     bool hasMoreSiblings = false,
     bool foldersEnabled = false,
     List<Folder> folders = const <Folder>[],
+    bool showPinnedIndicator = true,
   }) {
     final conversation = conv as Conversation;
     final scopedId = conversationScopedId(conversation);
@@ -1839,7 +1727,7 @@ class _ChatsDrawerState extends ConsumerState<ChatsDrawer>
             selection.isLoading && selection.pendingConversationId == scopedId,
       ),
     );
-    final bool isPinned = conversation.pinned;
+    final bool isPinned = conversation.pinned && showPinnedIndicator;
     // Select this conversation's own membership rather than watching the
     // whole set: any chat going active/inactive anywhere used to rebuild
     // every mounted tile in the drawer.
@@ -2122,3 +2010,18 @@ class _FolderMoveTargetTile extends StatelessWidget {
 // Create folder dialog extracted to create_folder_dialog.dart
 
 // (classes removed - see drawer_section_notifiers.dart)
+
+/// Hands out "is this the first section" once per list build, so only the
+/// header right below the toolbar gets the tighter top spacing.
+class _SectionSequence {
+  _SectionSequence(BuildContext context)
+    : _first = SidebarHistoryHeaderScope.maybeOf(context) == null;
+
+  bool _first;
+
+  bool next() {
+    final first = _first;
+    _first = false;
+    return first;
+  }
+}

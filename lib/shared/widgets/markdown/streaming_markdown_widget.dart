@@ -864,6 +864,7 @@ class _StreamingMarkdownWidgetState
         enableStreamingTextFade:
             widget.isStreaming && widget.enableStreamingTextFade,
         trimLastBlockBottomPadding: true,
+        trimFirstBlockTopPadding: true,
       );
     }
 
@@ -881,6 +882,7 @@ class _StreamingMarkdownWidgetState
                 widget.enableStreamingTextFade &&
                 stableParts[index].isMutableTail,
             trimLastBlockBottomPadding: index == stableParts.length - 1,
+            trimFirstBlockTopPadding: index == 0,
           ),
         ),
     ];
@@ -936,6 +938,7 @@ class _StreamingMarkdownWidgetState
     required String? stateScopeId,
     required bool enableStreamingTextFade,
     required bool trimLastBlockBottomPadding,
+    required bool trimFirstBlockTopPadding,
   }) {
     return ConduitMarkdownWidget(
       compiledDocument: document,
@@ -949,6 +952,7 @@ class _StreamingMarkdownWidgetState
           ? MarkdownHeavyBlockPolicy.defer
           : MarkdownHeavyBlockPolicy.eager,
       trimLastBlockBottomPadding: trimLastBlockBottomPadding,
+      trimFirstBlockTopPadding: trimFirstBlockTopPadding,
       debugOnCompiledViewMounted: widget.debugOnCompiledViewMounted,
       debugOnCompiledViewDisposed: widget.debugOnCompiledViewDisposed,
       debugOnBaseRender: widget.debugOnBaseRender,

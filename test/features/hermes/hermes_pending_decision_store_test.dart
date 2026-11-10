@@ -56,6 +56,32 @@ void main() {
       storedSessionId: 'stored-1',
     );
     check(records.single.prompt!).not((it) => it.contains('service-token'));
+    check(
+      PreferencesStore.getStringList(
+        PreferenceKeys.hermesPendingDesktopDecisions,
+      )!.single,
+    ).not((it) => it.contains('service-token'));
+  });
+
+  test('redaction markers do not push a prompt past its budget', () async {
+    // Short secrets, each replaced by a longer marker.
+    final prompt = List.filled(120, 'password=x').join(' ');
+    await HermesPendingDecisionStore.upsert(
+      origin: 'https://hermes.example:443',
+      storedSessionId: 'stored-1',
+      runtimeId: 'runtime-1',
+      requestId: 'request-3',
+      kind: HermesPendingDesktopDecisionKind.secret,
+      prompt: prompt,
+      sensitiveValues: const <String>[],
+    );
+
+    final records = await HermesPendingDecisionStore.forSession(
+      origin: 'https://hermes.example:443',
+      storedSessionId: 'stored-1',
+    );
+    check(records).length.equals(1);
+    check(records.single.prompt!.runes.length).isLessOrEqual(512);
   });
 
   test('a long prompt reads back as saved, so a replay changes nothing',

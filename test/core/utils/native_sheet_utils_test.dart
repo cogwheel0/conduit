@@ -36,7 +36,7 @@ void main() {
     final rows = parts.mainSections.expand((section) => section.items);
     expect(rows.where((item) => item.id == 'tts-voice-language'), isEmpty);
     final picker = rows.singleWhere((item) => item.id == 'tts-voice-picker');
-    expect(picker.filterAllLabel, 'All languages');
+    expect(picker.filterAllLabel, 'All Languages');
     expect(picker.options.map((option) => option.label), [
       l10n.ttsSystemDefault,
       'Maple',
@@ -61,7 +61,7 @@ void main() {
     final licenses = items.singleWhere(
       (item) => item.id == NativeSheetRoutes.openSourceLicenses,
     );
-    check(licenses.title).equals('Open source licenses');
+    check(licenses.title).equals('Open Source Licenses');
     check(items.map((item) => item.id)).contains('server-version');
   });
 
@@ -250,6 +250,44 @@ void main() {
       check(speed.options.map((option) => option.label))
           .deepEquals(['0.75×', '1×', '1.25×', '1.5×', '2×']);
       check(speed.subtitle).isNull();
+    }
+  });
+
+  test('speech to text says what the chosen engine does', () {
+    for (final (preference, description) in [
+      (SttPreference.deviceOnly, l10n.sttEngineDeviceDescription),
+      (SttPreference.serverOnly, l10n.sttEngineServerDescription),
+    ]) {
+      final row = buildNativeAudioSheetParts(
+        l10n,
+        AppSettings(sttPreference: preference),
+      ).mainSections.expand((section) => section.items).singleWhere(
+        (item) => item.id == 'stt-engine',
+      );
+      check(row.value).equals(preference.name);
+      check(row.subtitle).equals(description);
+    }
+  });
+
+  test('the call mode is a one-line choice; its group\'s footer says what '
+      'the chosen mode does', () {
+    for (final (mode, description) in [
+      (VoiceCallMode.auto, l10n.voiceCallModeRealtimeDescription),
+      (VoiceCallMode.standard, l10n.voiceCallModeStandardDescription),
+    ]) {
+      final parts = buildNativeAudioSheetParts(
+        l10n,
+        AppSettings(voiceCallMode: mode),
+      );
+      final section = parts.mainSections.singleWhere(
+        (section) => section.items.any((item) => item.id == 'voice-call-mode'),
+      );
+      final row = section.items.single;
+
+      check(row.kind).equals(NativeSheetItemKind.segment);
+      check(row.value).equals(mode.name);
+      check(row.subtitle).isNull();
+      check(section.footer).equals(description);
     }
   });
 }

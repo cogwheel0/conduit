@@ -100,6 +100,8 @@ final class HermesConnectionStore {
             PreferenceKeys.hermesAllowSelfSignedCertificates,
           ) ??
           false,
+      // In use over this URL before connections asked: it keeps working.
+      plainHttpConsentOrigin: HermesConfig.plainHttpOrigin(baseUrl),
       documentTrustPrincipalId:
           principal != null &&
               HermesConnectionProfile.isValidPrincipalId(principal)

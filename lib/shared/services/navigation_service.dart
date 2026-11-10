@@ -127,7 +127,8 @@ class NavigationService {
         path == Routes.hermesSessions ||
         path.startsWith('/folder/') ||
         path.startsWith('/notes/') ||
-        path.startsWith('/channel/');
+        path.startsWith('/channel/') ||
+        path.startsWith('/hermes-room/');
   }
 
   /// Goes back to the main-pane page shown before the current one, or to

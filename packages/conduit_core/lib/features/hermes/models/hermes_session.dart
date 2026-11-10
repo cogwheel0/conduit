@@ -26,6 +26,9 @@ class HermesSessionSummary {
     this.preview,
     this.source,
     this.updatedAt,
+    this.pinned = false,
+    this.archived = false,
+    this.hidden = false,
   });
 
   final String id;
@@ -40,6 +43,31 @@ class HermesSessionSummary {
   final String? source;
 
   final DateTime? updatedAt;
+
+  /// Kept at the top of the list. Hermes lists pinned sessions however old.
+  final bool pinned;
+
+  /// Moved out of the list into the collapsed "Archived" row.
+  final bool archived;
+
+  /// Left out of every list; reachable only from Hermes settings.
+  final bool hidden;
+
+  HermesSessionSummary copyWith({
+    String? title,
+    bool? pinned,
+    bool? archived,
+    bool? hidden,
+  }) => HermesSessionSummary(
+    id: id,
+    title: title ?? this.title,
+    preview: preview,
+    source: source,
+    updatedAt: updatedAt,
+    pinned: pinned ?? this.pinned,
+    archived: archived ?? this.archived,
+    hidden: hidden ?? this.hidden,
+  );
 
   /// Parses one session object from `GET /api/sessions`, or null when it has no
   /// usable id. Tolerant of the field-name variations across Hermes versions.
@@ -77,6 +105,13 @@ class HermesSessionSummary {
             json['updatedAt'] ??
             json['started_at'],
       ),
+      pinned: _hermesSessionFlag(json['pinned']),
+      archived: _hermesSessionFlag(json['archived']),
+      hidden: _hermesSessionFlag(json['hidden']),
     );
   }
 }
+
+/// A sidebar flag: a JSON boolean, or the 0/1 SQLite keeps (the dashboard
+/// sends `hidden` that way).
+bool _hermesSessionFlag(Object? value) => value == true || value == 1;

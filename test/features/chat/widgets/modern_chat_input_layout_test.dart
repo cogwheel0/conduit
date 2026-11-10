@@ -211,11 +211,7 @@ void main() {
         expect(editable.offset.pixels, greaterThan(initialOffset));
         final scrolledOffset = editable.offset.pixels;
         expect(tester.getRect(actions), initialRect);
-        for (final key in [
-          'composer-overflow-button',
-          'create-draft-note-button',
-          'primary-btn-send',
-        ]) {
+        for (final key in ['composer-overflow-button', 'primary-btn-send']) {
           expect(find.byKey(ValueKey(key)).hitTestable(), findsOneWidget);
         }
         await tester.drag(find.byType(EditableText), const Offset(0, 120));

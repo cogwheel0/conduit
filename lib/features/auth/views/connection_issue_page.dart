@@ -81,6 +81,7 @@ class _ConnectionIssuePageState extends ConsumerState<ConnectionIssuePage> {
 
     return UtilityPageScaffold.auth(
       title: l10n.connectionIssueTitle,
+      largeTitle: true,
       bottomAction: _buildActions(context, l10n, activeServer),
       body: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -122,7 +123,6 @@ class _ConnectionIssuePageState extends ConsumerState<ConnectionIssuePage> {
           UtilityValueRow(
             label: AppLocalizations.of(context)!.serverUrl,
             value: server.url,
-            monospace: true,
           ),
         ],
       ),

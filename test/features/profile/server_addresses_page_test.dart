@@ -141,7 +141,7 @@ void main() {
   Future<void> remove(WidgetTester tester, String endpointId) async {
     await tester.tap(find.byKey(Key('server-address-remove-$endpointId')));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Remove address').last);
+    await tester.tap(find.text('Remove Address').last);
     await tester.pumpAndSettle();
   }
 
@@ -250,7 +250,7 @@ void main() {
     expect(stops, 0);
 
     await remove(tester, 'public');
-    await tester.tap(find.text('Change anyway').last);
+    await tester.tap(find.text('Change Anyway').last);
     await tester.pumpAndSettle();
     expect(saved, [
       ['lan'],

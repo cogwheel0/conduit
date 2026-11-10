@@ -284,8 +284,9 @@ class _AdaptiveNativeSearchBarState extends State<AdaptiveNativeSearchBar> {
             // The magnifying glass keeps this colour after a theme switch, so
             // it is the grey both appearances share.
             tint: CupertinoColors.systemGrey,
-            // Hiding the field under a modal would recreate it without its
-            // text.
+            // Hiding the field under a modal would recreate it afterwards
+            // with the text it had, and text the app set meanwhile, which
+            // waits only so long for the field, would not reach it.
             autoHideOnModal: false,
           ),
         ),

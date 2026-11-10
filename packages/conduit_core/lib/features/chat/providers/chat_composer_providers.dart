@@ -18,11 +18,16 @@ class ComposerTextInsertion {
     required this.id,
     required this.targetId,
     required this.text,
+    this.onlyIntoEmpty = false,
   });
 
   final int id;
   final String targetId;
   final String text;
+
+  /// Given back rather than added: the composer takes [text] only while it
+  /// holds nothing, so a newer draft is never changed by it.
+  final bool onlyIntoEmpty;
 }
 
 final composerTextInsertionProvider =
@@ -36,7 +41,11 @@ class ComposerTextInsertionNotifier extends Notifier<ComposerTextInsertion?> {
   @override
   ComposerTextInsertion? build() => null;
 
-  void insert({required String targetId, required String text}) {
+  void insert({
+    required String targetId,
+    required String text,
+    bool onlyIntoEmpty = false,
+  }) {
     if (text.trim().isEmpty) {
       return;
     }
@@ -44,6 +53,7 @@ class ComposerTextInsertionNotifier extends Notifier<ComposerTextInsertion?> {
       id: ++_nextId,
       targetId: targetId,
       text: text,
+      onlyIntoEmpty: onlyIntoEmpty,
     );
   }
 

@@ -417,6 +417,7 @@ class _AudioPlayerDialogState extends State<AudioPlayerDialog> {
                 child: AdaptiveSlider(
                   value: progress,
                   onChanged: _seekTo,
+                  seekOnTap: true,
                   thumbless: true,
                   activeColor: Colors.orange,
                   thumbColor: Colors.orange,

@@ -446,10 +446,13 @@ class InlineRenderer {
   }
 
   WidgetSpan _buildInlineCode(String code) {
+    // Sit the code on the sentence's baseline, like a run of text, rather
+    // than centring the chip in the line box.
     return _buildFadableWidgetSpan(
       textLength: code.length,
-      alignment: PlaceholderAlignment.middle,
-      child: _InlineCodeWidget(code: code, style: style),
+      alignment: PlaceholderAlignment.baseline,
+      baseline: TextBaseline.alphabetic,
+      child: InlineCodeChip(code: code, style: style),
     );
   }
 
@@ -587,7 +590,9 @@ class InlineRenderer {
     final startOffset = _visibleTextOffset;
     final endOffset = startOffset + text.length;
     _visibleTextOffset = endOffset;
-    final span = TextSpan(text: text, style: currentStyle);
+    // Offsets stay in source coordinates; only the painted text gains the
+    // joiners that keep a range like "4–6" on one line.
+    final span = TextSpan(text: joinNumberRanges(text), style: currentStyle);
     _recordedRanges?[span] = FadableSpanRange(
       start: startOffset,
       end: endOffset,
@@ -600,8 +605,13 @@ class InlineRenderer {
     required Widget child,
     required int textLength,
     PlaceholderAlignment alignment = PlaceholderAlignment.middle,
+    TextBaseline? baseline,
   }) {
-    final span = WidgetSpan(alignment: alignment, child: child);
+    final span = WidgetSpan(
+      alignment: alignment,
+      baseline: baseline,
+      child: child,
+    );
     _recordFadableWidgetRange(span, textLength);
     return span;
   }
@@ -708,13 +718,17 @@ class InlineRenderer {
     }
 
     // Straddling leaf: split at the fade boundary using the same offset math as
-    // the original walk. [fade.startOffset] is already surrogate-snapped.
+    // the original walk. [fade.startOffset] is already surrogate-snapped; the
+    // index moves past any word joiners added before it.
     //
     // Mirror the original walk, which emitted two sibling spans and attached the
     // link recognizer to EACH of them: a TextSpan's recognizer only applies to
     // its own `text`, so the recognizer is carried onto both child halves (and
     // their per-span metadata) rather than a text-less parent wrapper.
-    final splitIndex = fade.startOffset - range.start;
+    final sourceIndex = fade.startOffset - range.start;
+    final splitIndex = text.length == range.end - range.start
+        ? sourceIndex
+        : joinedTextIndex(text, sourceIndex);
     return TextSpan(
       children: [
         TextSpan(
@@ -838,11 +852,17 @@ class FadableRichText extends StatelessWidget {
 
 /// Inline code chip with tap-to-copy behavior.
 ///
-/// Displays code in a monospace font with a colored
-/// background, styled to match common chat-UI conventions
-/// (e.g., OpenWebUI's red-on-gray inline code).
-class _InlineCodeWidget extends StatelessWidget {
-  const _InlineCodeWidget({required this.code, required this.style});
+/// Monospace text in the label colour on a quiet rounded chip. The chip's
+/// padding is part of its place in the line and the fill never reaches past
+/// it, so a chip that starts or ends a line keeps the text margins like a
+/// code block does, and the gap between the fill and the next word is a
+/// single space.
+@visibleForTesting
+class InlineCodeChip extends StatelessWidget {
+  const InlineCodeChip({super.key, required this.code, required this.style});
+
+  /// Fill on each side of the code, inside the chip's place in the line.
+  static const double horizontalPadding = 4;
 
   final String code;
   final ConduitMarkdownStyle style;
@@ -851,15 +871,17 @@ class _InlineCodeWidget extends StatelessWidget {
   Widget build(BuildContext context) {
     return GestureDetector(
       onTap: () => _copyToClipboard(context),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
-        decoration: BoxDecoration(
+      child: CustomPaint(
+        painter: _InlineCodeChipPainter(
           color: style.codeSpanBackgroundColor,
-          borderRadius: BorderRadius.circular(style.codeSpanRadius),
+          radius: style.codeSpanRadius,
         ),
-        child: Text(
-          code,
-          style: style.codeSpan.copyWith(color: style.codeSpanTextColor),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: horizontalPadding),
+          child: Text(
+            code,
+            style: style.codeSpan.copyWith(color: style.codeSpanTextColor),
+          ),
         ),
       ),
     );
@@ -875,4 +897,26 @@ class _InlineCodeWidget extends StatelessWidget {
       duration: const Duration(seconds: 2),
     );
   }
+}
+
+/// Paints the inline-code chip's rounded fill across its layout box, and 1pt
+/// above and below the text.
+class _InlineCodeChipPainter extends CustomPainter {
+  const _InlineCodeChipPainter({required this.color, required this.radius});
+
+  final Color color;
+  final double radius;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final rect = Rect.fromLTRB(0, -1, size.width, size.height + 1);
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(rect, Radius.circular(radius)),
+      Paint()..color = color,
+    );
+  }
+
+  @override
+  bool shouldRepaint(_InlineCodeChipPainter oldDelegate) =>
+      oldDelegate.color != color || oldDelegate.radius != radius;
 }

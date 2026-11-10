@@ -104,8 +104,9 @@ void main() {
 
   for (final nativeIOS26 in [false, true]) {
     testWidgets(
-      'a timed reading scrubs: its progress drives the scrubber and a drag '
-      'that rests seeks there${nativeIOS26 ? ' on the iOS 26 island' : ''}',
+      'a timed reading scrubs: its progress drives the scrubber, a drag '
+      'seeks once it lifts and a change without a touch once it rests'
+      '${nativeIOS26 ? ' on the iOS 26 island' : ''}',
       (tester) async {
         if (nativeIOS26) useNativeIOS26();
         final actions = <String>[];
@@ -124,29 +125,33 @@ void main() {
           of: find.byKey(const ValueKey('speech-playback-scrubber')),
           matching: find.byType(AdaptiveSlider),
         );
+        AdaptiveSlider slider() => tester.widget<AdaptiveSlider>(scrubber);
         expect(find.byType(LinearProgressIndicator), findsNothing);
-        expect(tester.widget<AdaptiveSlider>(scrubber).value, .25);
+        expect(slider().value, .25);
+        // A tap seeks too, which UIKit's slider would otherwise ignore.
+        expect(slider().seekOnTap, isTrue);
 
-        // The drag holds its place under the finger and seeks once it rests.
-        tester.widget<AdaptiveSlider>(scrubber).onChanged!(.6);
-        await tester.pump(const Duration(milliseconds: 100));
-        tester.widget<AdaptiveSlider>(scrubber).onChanged!(.5);
-        await tester.pump(const Duration(milliseconds: 100));
+        // The drag holds its place under the finger, however long it takes,
+        // and seeks once the finger lifts.
+        slider().onChangeStart!(.25);
+        slider().onChanged!(.6);
+        await tester.pump(const Duration(milliseconds: 300));
+        slider().onChanged!(.5);
+        await tester.pump(const Duration(milliseconds: 300));
         expect(actions, isEmpty);
-        expect(tester.widget<AdaptiveSlider>(scrubber).value, .5);
-        await tester.pump(const Duration(milliseconds: 150));
+        expect(slider().value, .5);
+        slider().onChangeEnd!(.5);
+        await tester.pump();
         expect(actions, ['seek:30']);
         await tester.pumpAndSettle();
 
-        // A tap seeks to its point, which UIKit's slider would ignore; the
-        // slider then reports the position it was showing, unmoved.
-        final track = tester.getRect(scrubber);
-        final shown = tester.widget<AdaptiveSlider>(scrubber).value;
-        await tester.tapAt(
-          Offset(track.left + track.width * .75, track.center.dy),
-        );
-        tester.widget<AdaptiveSlider>(scrubber).onChanged!(shown);
-        await tester.pump(const Duration(milliseconds: 250));
+        // VoiceOver adjusts the slider without a touch: the reading seeks
+        // once the value rests.
+        slider().onChanged!(.75);
+        await tester.pump(const Duration(milliseconds: 100));
+        expect(actions, ['seek:30']);
+        expect(slider().value, .75);
+        await tester.pump(const Duration(milliseconds: 150));
         expect(actions, ['seek:30', 'seek:45']);
         await tester.pumpAndSettle();
       },
@@ -183,12 +188,58 @@ void main() {
       );
       expect(find.byType(CupertinoSlider), findsOneWidget);
 
-      // Well away from the thumb, which sits halfway along.
+      // Well away from the thumb, which sits halfway along. The thumb's
+      // centre travels between 22 points in from either end.
       await tester.tapAt(
-        Offset(track.left + track.width * .75, track.center.dy),
+        Offset(track.left + 22 + (track.width - 44) * .75, track.center.dy),
       );
       await tester.pump(const Duration(milliseconds: 250));
       expect(actions, ['seek:45']);
+      await tester.pumpAndSettle();
+    },
+    variant: TargetPlatformVariant.only(TargetPlatform.iOS),
+  );
+
+  testWidgets(
+    'a drag along the track before iOS 26 seeks once, where the finger lifts',
+    (tester) async {
+      PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.iOS;
+      PlatformUiCapabilities.debugIOSMajorVersionOverride = 18;
+      PlatformUiCapabilities.debugNativeIOS26Override = false;
+      addTearDown(PlatformUiCapabilities.resetDebugOverrides);
+      final actions = <String>[];
+      await tester.pumpWidget(
+        _harness(
+          _Playback(
+            actions.add,
+            elapsed: const Duration(seconds: 30),
+            duration: const Duration(minutes: 1),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final slider = find.byType(CupertinoSlider);
+      final track = tester.getRect(slider);
+
+      // From the thumb, halfway along, a quarter of the track to the right.
+      final finger = await tester.startGesture(track.center);
+      await finger.moveBy(Offset(track.width / 8, 0));
+      await tester.pump();
+      await finger.moveBy(Offset(track.width / 8, 0));
+      await tester.pump(const Duration(milliseconds: 300));
+      final dragged = tester.widget<CupertinoSlider>(slider).value;
+      expect(dragged, greaterThan(.6));
+      // Nothing while the finger is down, however long it rests.
+      expect(actions, isEmpty);
+
+      await finger.up();
+      await tester.pump();
+      expect(actions, [
+        'seek:${(const Duration(minutes: 1) * dragged).inSeconds}',
+      ]);
+      // And no second seek once the drag has rested.
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(actions, hasLength(1));
       await tester.pumpAndSettle();
     },
     variant: TargetPlatformVariant.only(TargetPlatform.iOS),

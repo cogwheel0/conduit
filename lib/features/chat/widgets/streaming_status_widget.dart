@@ -4,6 +4,7 @@ import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 
+import 'package:conduit_core/features/hermes/models/hermes_inline_diff.dart';
 import 'package:conduit_core/models/chat_message.dart';
 import '../../../core/services/native_sheet_bridge.dart';
 import '../../../shared/services/raster_media_policy.dart';
@@ -689,6 +690,8 @@ List<ChatStatusItem> _collectDetailItems(ChatStatusUpdate update) => update
     .items
     .where((item) => item.presentation == ChatStatusItemPresentation.detail)
     .where((item) => item.title?.isNotEmpty == true && item.snippet != null)
+    // An edit's diff shows as the reply's changed-files card instead.
+    .where((item) => !isHermesInlineDiffItem(item))
     .take(4)
     .toList(growable: false);
 

@@ -198,6 +198,33 @@ void main() {
     check(await database.appCacheDao.getValue('direct.models')).equals('[]');
   });
 
+  test('a save in flight for a forgotten connection keeps nothing', () async {
+    final opening = store.save(
+      connectionIdentity: _alpha,
+      sessionId: 'copy-1',
+      messages: transcript,
+    );
+    await store.forgetConnection(_alpha);
+    await opening;
+    // One that began before but reaches the store only now.
+    await store.save(
+      connectionIdentity: _alpha,
+      sessionId: 'copy-2',
+      messages: transcript,
+    );
+    await store.save(
+      connectionIdentity: _beta,
+      sessionId: 'copy-1',
+      messages: transcript,
+    );
+
+    final keys = await database.appCacheDao.keysWithPrefix('hermes.');
+    check(keys).length.equals(1);
+    check(
+      await store.load(connectionIdentity: _beta, sessionId: 'copy-1'),
+    ).isNotNull();
+  });
+
   test('an unreadable record is dropped', () async {
     await store.save(
       connectionIdentity: _alpha,

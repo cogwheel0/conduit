@@ -532,16 +532,24 @@ void main() {
     check(tester.takeException()).isNull();
 
     final reaction = find.widgetWithText(ActionChip, '🎉 1');
+    final threadScrollable = find
+        .descendant(
+          of: find.byType(ThreadPanel),
+          matching: find.byType(Scrollable),
+        )
+        .first;
     await tester.scrollUntilVisible(
       reaction,
       400,
-      scrollable: find
-          .descendant(
-            of: find.byType(ThreadPanel),
-            matching: find.byType(Scrollable),
-          )
-          .first,
+      scrollable: threadScrollable,
     );
+    // Reaching the reply can leave it under the floating composer, wherever
+    // the last step landed; the end of the thread clears it.
+    final position = tester
+        .state<ScrollableState>(threadScrollable)
+        .position;
+    position.jumpTo(position.maxScrollExtent);
+    await tester.pump();
 
     check(tester.takeException()).isNull();
     expect(reaction.hitTestable(), findsOneWidget);
@@ -991,9 +999,12 @@ void main() {
 
     tester.semantics.tap(find.semantics.byLabel(l10n.attach));
     await tester.pumpAndSettle();
-    for (final item in [l10n.file, l10n.photo, l10n.camera]) {
+    // Named as the chat's attach panel names them: Files and Photos, as the
+    // pickers they open are named.
+    for (final item in [l10n.files, l10n.composerAttachPhotos, l10n.camera]) {
       expect(find.text(item), findsOneWidget);
     }
+    expect(find.text(l10n.photo), findsNothing);
     semantics.dispose();
   });
 

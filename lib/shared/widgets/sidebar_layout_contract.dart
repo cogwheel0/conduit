@@ -1,6 +1,7 @@
 import 'package:material_ui/material_ui.dart';
 
 import '../theme/theme_extensions.dart';
+import 'adaptive_toolbar_components.dart' show kConduitCupertinoToolbarHeight;
 import 'sidebar_layout_constants.dart';
 
 /// Commands exposed by the active sidebar drawer without leaking its concrete
@@ -238,7 +239,9 @@ double sidebarTabContentTopPadding(BuildContext context) {
   }
   if (layout?.parentOwnsHeaderInset ?? false) return Spacing.sm;
   if (!_usesNativeSidebarChrome(context)) return Spacing.sm;
-  return MediaQuery.viewPaddingOf(context).top + kTextTabBarHeight + Spacing.sm;
+  return MediaQuery.viewPaddingOf(context).top +
+      kConduitCupertinoToolbarHeight +
+      Spacing.sm;
 }
 
 /// Edge offset so pull-to-refresh indicators appear below sidebar chrome.
@@ -247,7 +250,7 @@ double sidebarRefreshIndicatorEdgeOffset(BuildContext context) {
   if (layout?.floatingChromeInsets case final insets?) return insets.top;
   if (layout?.parentOwnsHeaderInset ?? false) return 0.0;
   if (!_usesNativeSidebarChrome(context)) return 0.0;
-  return MediaQuery.viewPaddingOf(context).top + kTextTabBarHeight;
+  return MediaQuery.viewPaddingOf(context).top + kConduitCupertinoToolbarHeight;
 }
 
 /// Bottom inset so sidebar tab content clears native sidebar chrome.

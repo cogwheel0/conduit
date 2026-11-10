@@ -446,6 +446,40 @@ void main() {
       expect(_collectLatexSegments(document.nodes), isEmpty);
     });
 
+    test('renders math against emphasis, apostrophes, hyphens, quotes and '
+        'CJK', () {
+      final document = compilePreparedMarkdownSync(
+        "**\$E=mc^2\$** for the \$n\$-th \$x\$'s \"\$y\$\" "
+        '\$a\$-\$b\$ 数学\$z\$是',
+      );
+
+      expect(_collectLatexSegments(document.nodes).map((s) => s.tex), [
+        'E=mc^2',
+        'n',
+        'x',
+        'y',
+        'a',
+        'b',
+        'z',
+      ]);
+    });
+
+    test('keeps shell parameters and prices before those characters prose', () {
+      for (final text in [
+        r'Use "$@" instead of "$*" to keep arguments apart.',
+        r"Set IFS=$'\n' or IFS=$'\t'.",
+        r'between $5-$10 each',
+        r'5$和10$之间',
+        r'echo $PREFIX$(date +%s)',
+      ]) {
+        expect(
+          compilePreparedMarkdownSync(text).hasLatex,
+          isFalse,
+          reason: text,
+        );
+      }
+    });
+
     test(
       'assigns stable node ids and precompiles grouped tool call blocks',
       () {
@@ -511,9 +545,8 @@ void main() {
         'arguments': {'city': 'Oslo'},
         'result': {'content': <Object>[]},
       };
-      final embeds = const HtmlEscape(
-        HtmlEscapeMode.attribute,
-      ).convert(jsonEncode([app]));
+      final embeds = const HtmlEscape(HtmlEscapeMode.attribute)
+          .convert(jsonEncode([app]));
       final document = compilePreparedMarkdownSync(
         [
           '<details type="tool_calls" done="true" name="show_map" '
@@ -522,10 +555,9 @@ void main() {
         ].join('\n'),
       );
 
-      final toolCallData =
-          (document.nodes.first as CompiledMarkdownElement)
-              .detailsData!
-              .toolCallData!;
+      final toolCallData = (document.nodes.first as CompiledMarkdownElement)
+          .detailsData!
+          .toolCallData!;
       expect(toolCallData.embedSources, isEmpty);
       expect(toolCallData.mcpApps, [app]);
       expect(toolCallData.hasEmbeds, isTrue);

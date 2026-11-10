@@ -8,7 +8,6 @@ import 'package:conduit_core/navigation/routes.dart';
 import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/providers/backend_mode_providers.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:conduit/shared/widgets/platform_ui/vocabulary.dart';
 import 'package:flutter/semantics.dart' show CustomSemanticsAction;
 import 'package:flutter/widgets.dart';
@@ -17,7 +16,6 @@ import 'package:go_router/go_router.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../shared/theme/theme_extensions.dart';
 import '../../../shared/utils/ui_utils.dart';
-import '../../../shared/widgets/adaptive_toolbar_components.dart';
 import '../../../shared/widgets/conduit_components.dart';
 import '../../../shared/widgets/user_avatar.dart';
 import '../../../shared/widgets/utility_components.dart';
@@ -31,8 +29,8 @@ import '../widgets/settings_page_scaffold.dart';
 /// then Hermes with its connections, then Direct with its providers.
 ///
 /// Tap an Open WebUI account or a Hermes connection to switch to it, or a
-/// Direct provider to edit it; a card's top row opens its page, and + adds
-/// another.
+/// Direct provider to edit it; a card's top row opens its page, and Add
+/// Account, the page's last row as on Mail's Accounts page, adds another.
 class ManageAccountsPage extends ConsumerWidget {
   const ManageAccountsPage({super.key});
 
@@ -43,15 +41,6 @@ class ManageAccountsPage extends ConsumerWidget {
 
     return UtilityPageScaffold.settings(
       title: l10n.accountsTitle,
-      trailing: AdaptiveTooltip(
-        message: l10n.accountsAddAccount,
-        child: ConduitAdaptiveAppBarIconButton(
-          key: const Key('accounts-add'),
-          icon: context.usesCupertinoChrome ? CupertinoIcons.add : Icons.add,
-          semanticLabel: l10n.accountsAddAccount,
-          onPressed: () => showAddAccountSheet(context, ref),
-        ),
-      ),
       children: [
         ...accounts.when(
           data: (entries) => _openWebUiCards(context, ref, entries),
@@ -70,6 +59,16 @@ class ManageAccountsPage extends ConsumerWidget {
         const _HermesCard(),
         settingsSectionGap,
         const _DirectCard(),
+        settingsSectionGap,
+        InsetGroupedList(
+          children: [
+            _AddRow(
+              key: const Key('accounts-add'),
+              title: l10n.accountsAddAccount,
+              onTap: () => showAddAccountSheet(context, ref),
+            ),
+          ],
+        ),
         // With one account, Settings' Sign out already signs out of it, a
         // LibreChat account in charge as an Open WebUI one.
         if ((accounts.value?.length ?? 0) +
@@ -306,7 +305,7 @@ class _HermesCard extends ConsumerWidget {
           _HermesConnectionRow(
             key: Key('accounts-hermes-${connection.id}'),
             name: connection.name,
-            summary: hermesConnectionSummary(connection),
+            summary: hermesConnectionSummary(connection, l10n),
             desktop: connection.mode == HermesBackendMode.desktopGateway,
             inUse: enabled && connection.id == activeId,
             onTap: () => useHermesConnection(context, ref, connection.id),
@@ -474,7 +473,8 @@ class _DirectCard extends ConsumerWidget {
   }
 }
 
-/// The row an empty card offers to add its first entry with.
+/// The row an empty card offers to add its first entry with, and the one
+/// that ends the page to add any account.
 class _AddRow extends StatelessWidget {
   const _AddRow({super.key, required this.title, required this.onTap});
 

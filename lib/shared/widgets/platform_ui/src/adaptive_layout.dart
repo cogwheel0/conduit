@@ -195,6 +195,7 @@ class AdaptiveScaffold extends StatelessWidget {
     this.endDrawerEnableOpenDragGesture = true,
     this.scaffoldKey,
     this.tabBarHidden = false,
+    this.backgroundColor,
   });
 
   final AdaptiveAppBar? appBar;
@@ -212,6 +213,11 @@ class AdaptiveScaffold extends StatelessWidget {
   final bool endDrawerEnableOpenDragGesture;
   final GlobalKey<ScaffoldState>? scaffoldKey;
   final bool tabBarHidden;
+
+  /// The page colour behind everything, including the strip the keyboard
+  /// covers. Without it the iOS keyboard's rounded corners show the default
+  /// scaffold colour around a differently coloured page.
+  final Color? backgroundColor;
 
   @override
   Widget build(BuildContext context) {
@@ -281,6 +287,7 @@ class AdaptiveScaffold extends StatelessWidget {
     content = Material(type: MaterialType.transparency, child: content);
 
     Widget page = CupertinoPageScaffold(
+      backgroundColor: backgroundColor,
       resizeToAvoidBottomInset: resizeToAvoidBottomInset ?? !useNativeTabBar,
       navigationBar: navigationBar,
       child: content,
@@ -424,6 +431,7 @@ class AdaptiveScaffold extends StatelessWidget {
               ));
     return Scaffold(
       key: scaffoldKey,
+      backgroundColor: backgroundColor,
       appBar: materialAppBar,
       body: body,
       resizeToAvoidBottomInset: resizeToAvoidBottomInset,
@@ -1029,4 +1037,17 @@ class _AdaptiveExpansionTileState extends State<AdaptiveExpansionTile> {
       ],
     );
   }
+}
+
+/// A layer that paints nothing, for a surface that draws its own background:
+/// text fields and switch ink inside it then draw on that surface instead of
+/// on the page beneath it.
+class AdaptiveTransparentLayer extends StatelessWidget {
+  const AdaptiveTransparentLayer({super.key, required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) =>
+      Material(type: MaterialType.transparency, child: child);
 }

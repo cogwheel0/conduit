@@ -61,6 +61,13 @@ String serverDisplayName(OpenWebUiServer server) {
 
 String _hostOf(String url) => Uri.tryParse(url)?.host ?? '';
 
+/// Whether [server] goes by nothing friendlier than an address (an IP or a
+/// host name), so a list draws a server symbol for it rather than initials
+/// made of digits or letters of a domain.
+bool serverIsKnownOnlyByAddress(OpenWebUiServer server) =>
+    _isHost(serverDisplayName(server)) ||
+    serverDisplayName(server) == server.endpoints.first.url;
+
 /// Whether [name] is a host, as a URL's is written: lower case, an IPv6
 /// address without its brackets.
 bool _isHost(String name) =>
@@ -106,16 +113,25 @@ enum AccountCardKind { openWebUi, hermes, direct, libreChat }
 /// What Settings' account card says: whom it is for -- the LibreChat
 /// account in charge of the Chats tab ([libreChatPrimary]), else the Open
 /// WebUI account signed in, named [signedInName], else the Hermes
-/// connection in use, else Direct -- then where that is, and how many other
-/// accounts and connections there are to switch to.
+/// connection in use, else Direct -- then who or where that is, and how many
+/// other accounts and connections there are to switch to.
+///
+/// An account is told by its email ([signedInEmail] for Open WebUI), as a
+/// mail or cloud account is in Settings; the server it is on, which may be
+/// no more than an address, stands in only when there is no email.
+///
+/// A card that opens its own profile rather than the list of accounts leaves
+/// the others out ([countsOthers] false): a row of its own leads to them.
 ///
 /// [hermesInUseId] is null while Hermes is off.
 ({AccountCardKind kind, String title, String? subtitle}) accountCardSummary(
   AppLocalizations l10n, {
   required String? signedInName,
+  String? signedInEmail,
   required List<OpenWebUiAccountEntry> accounts,
   required List<HermesConnectionProfile> hermesConnections,
   required String? hermesInUseId,
+  bool countsOthers = true,
   LibreChatAccount? libreChatPrimary,
   List<LibreChatAccount> libreChatAccounts = const [],
 }) {
@@ -128,12 +144,20 @@ enum AccountCardKind { openWebUi, hermes, direct, libreChat }
   if (libreChatPrimary != null) {
     kind = AccountCardKind.libreChat;
     title = libreChatPrimary.displayName;
-    place = libreChatPrimary.serverTitle ?? libreChatPrimary.host;
+    final email = libreChatPrimary.email?.trim();
+    place = email != null && email.isNotEmpty && email != title
+        ? email
+        : libreChatPrimary.serverTitle ?? libreChatPrimary.host;
   } else if (signedInName != null) {
     kind = AccountCardKind.openWebUi;
     title = signedInName;
     final active = accounts.where((entry) => entry.isActive).firstOrNull;
-    place = active == null ? null : serverDisplayName(active.server);
+    final email = (signedInEmail ?? active?.summary.email)?.trim();
+    place = email != null && email.isNotEmpty && email != signedInName
+        ? email
+        : active == null
+        ? null
+        : serverDisplayName(active.server);
   } else if (hermes != null) {
     kind = AccountCardKind.hermes;
     title = hermes.name;
@@ -158,7 +182,10 @@ enum AccountCardKind { openWebUi, hermes, direct, libreChat }
       libreChatAccounts
           .where((account) => account.id != libreChatPrimary?.id)
           .length;
-  final subtitle = [?place, if (others > 0) '+$others'].join(' ');
+  final subtitle = [
+    ?place,
+    if (countsOthers && others > 0) '+$others',
+  ].join(' ');
   return (
     kind: kind,
     title: title,
