@@ -237,6 +237,12 @@ Future<void> _configureUserAgent() async {
 
 void _registerBundledLicenses() {
   LicenseRegistry.addLicense(() async* {
+    yield LicenseEntryWithLineBreaks(
+      const ['noVNC', 'pako'],
+      await rootBundle.loadString('assets/computer/novnc-LICENSE.txt'),
+    );
+  });
+  LicenseRegistry.addLicense(() async* {
     final notice = await rootBundle.loadString('THIRD_PARTY_NOTICES.md');
     yield LicenseEntryWithLineBreaks(const [
       'Open WebUI icon',
@@ -487,6 +493,9 @@ void main() {
                       root: root,
                       accessHeaders: accessHeaders,
                     ),
+          ),
+          hostHermesDashboardSignOutProvider.overrideWithValue(
+            HermesDashboardRestBridge.signOutOf,
           ),
           clipboardPortProvider.overrideWithValue(const FlutterClipboardPort()),
           uiRequestPortProvider.overrideWithValue(const FlutterUiRequests()),
@@ -1229,6 +1238,7 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
             case 'dark':
               ref.read(appThemeModeProvider.notifier).setTheme(ThemeMode.dark);
           }
+          await _refreshNativeAppearanceDetail();
         case 'language':
           if (value == 'system') {
             await ref.read(appLocaleProvider.notifier).setLocale(null);
@@ -1241,9 +1251,16 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
         case 'theme-palette':
           if (value is String && value.isNotEmpty) {
             await ref.read(appThemePaletteProvider.notifier).setPalette(value);
+            await _refreshNativeAppearanceDetail();
           }
         case 'quick-pills-clear':
           await ref.read(appSettingsProvider.notifier).setQuickPills(const []);
+        case 'computer-enabled':
+          if (value is bool) {
+            await ref
+                .read(appSettingsProvider.notifier)
+                .setComputerEnabled(value);
+          }
         case 'composer-notes-button':
           if (value is bool) {
             await ref
@@ -1301,6 +1318,12 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
                 .read(appSettingsProvider.notifier)
                 .setNotificationsEnabled(value);
             _syncNotificationPrefsToServer(enabled: value);
+            // The options under the switch come and go with it.
+            unawaited(
+              ref
+                  .read(nativeSheetHydrationServiceProvider)
+                  .hydrateDetail(NativeSheetRoutes.notificationSettings),
+            );
             if (value) {
               // Best-effort OS permission on opt-in; OS governs delivery.
               await ref
@@ -1326,6 +1349,12 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
                 .read(appSettingsProvider.notifier)
                 .setNotificationSound(value);
             _syncNotificationPrefsToServer(sound: value);
+            // Always play sound can be changed only while Sound is on.
+            unawaited(
+              ref
+                  .read(nativeSheetHydrationServiceProvider)
+                  .hydrateDetail(NativeSheetRoutes.notificationSettings),
+            );
           }
         case 'notification-sound-always':
           if (value is bool) {
@@ -1406,6 +1435,15 @@ class _ConduitAppState extends ConsumerState<ConduitApp> {
               current: ref.read(appSettingsProvider).directVoiceProvider,
             ),
     );
+  }
+
+  /// Redraws Appearance after its scheme or palette changed, so its rows show
+  /// the choice -- the palette's name and swatch, the scheme tiles painted in
+  /// the new palette -- rather than the rows the sheet was opened with.
+  Future<void> _refreshNativeAppearanceDetail() {
+    return ref
+        .read(nativeSheetHydrationServiceProvider)
+        .hydrateDetail(NativeSheetRoutes.appearance);
   }
 
   /// Redraws the Voice pages from [detailId], the one the change came from.

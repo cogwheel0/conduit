@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io' show Directory, File;
 
 import 'package:conduit/core/services/media_upload_controller.dart';
+import 'package:conduit/features/chat/widgets/expanded_text_editor.dart';
 import 'package:conduit/features/chat/widgets/modern_chat_input.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/l10n/conduit_localizations.dart';
@@ -14,6 +15,9 @@ import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart
 import 'package:conduit_core/features/chat/providers/attached_files_provider.dart';
 import 'package:conduit_core/features/chat/providers/chat_providers.dart';
 import 'package:conduit_core/features/chat/services/chat_draft_queue.dart';
+import 'package:conduit_core/features/hermes/models/hermes_config.dart';
+import 'package:conduit_core/features/hermes/models/hermes_model.dart';
+import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 import 'package:conduit_core/features/tools/providers/tools_providers.dart';
 import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit_core/models/conversation.dart';
@@ -245,6 +249,7 @@ Future<_Rig> _pump(
   List<ChatMessage>? turn,
   List<Override> overrides = const [],
   VoidCallback? onVoiceCall,
+  Model model = const Model(id: 'model-1', name: 'Model 1'),
 }) async {
   final db = AppDatabase(NativeDatabase.memory());
   _openDatabases.add(db);
@@ -287,9 +292,7 @@ Future<_Rig> _pump(
           ),
         ),
         chatMessagesProvider.overrideWith(_Messages.new),
-        selectedModelProvider.overrideWithValue(
-          const Model(id: 'model-1', name: 'Model 1'),
-        ),
+        selectedModelProvider.overrideWithValue(model),
         reviewerModeProvider.overrideWithValue(false),
         isOnlineProvider.overrideWithValue(true),
         currentUserProvider2.overrideWithValue(
@@ -458,6 +461,106 @@ void main() {
     expect(rig.sent, isEmpty);
     expect(rig.drafts.map((d) => d.text), ['by keyboard']);
     expect(rig.typed, isEmpty);
+  });
+
+  // Hermes and Direct chats take no queued turns, and give up the sent text
+  // as soon as the turn is handed to its run: Enter must not start a second
+  // turn over the one still running.
+  for (final (label, model) in [
+    ('Hermes', hermesSyntheticModel(name: 'Hermes')),
+    ('Direct', const Model(id: 'direct-local', name: 'Direct')),
+  ]) {
+    testQueue('Enter starts no second $label turn while one runs', (
+      tester,
+    ) async {
+      final rig = await _pump(
+        tester,
+        model: model,
+        overrides: [chatDraftQueueOfferProvider.overrideWithValue(false)],
+      );
+
+      await rig.type('follow-up');
+      await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+      await tester.pump();
+
+      expect(rig.sent, isEmpty);
+      expect(rig.typed, 'follow-up');
+    });
+
+    testQueue('Enter sends the next $label turn once one ends', (
+      tester,
+    ) async {
+      final rig = await _pump(
+        tester,
+        streaming: false,
+        model: model,
+        overrides: [chatDraftQueueOfferProvider.overrideWithValue(false)],
+      );
+
+      await rig.type('follow-up');
+      await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+      await tester.pump();
+
+      expect(rig.sent, ['follow-up']);
+    });
+  }
+
+  // A Desktop Gateway chat's reply runs: the expanded editor's Send (and
+  // Enter, before the turn reports running) started an ordinary second turn
+  // instead of handing the message to the running turn.
+  testQueue('a Desktop chat sends nothing the ordinary way while one runs', (
+    tester,
+  ) async {
+    final rig = await _pump(
+      tester,
+      model: hermesSyntheticModel(name: 'Hermes'),
+      overrides: [
+        chatDraftQueueOfferProvider.overrideWithValue(false),
+        hermesConfigProvider.overrideWith(_DesktopHermesConfig.new),
+      ],
+    );
+
+    await rig.type('follow-up');
+    await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+    await tester.pump();
+
+    expect(rig.sent, isEmpty);
+    expect(rig.typed, 'follow-up');
+  });
+
+  // The expanded editor's Send, while a Desktop Gateway turn runs that
+  // this chat does not stream (Enter already hands it to the turn).
+  testQueue('the expanded editor hands a running Desktop turn its message', (
+    tester,
+  ) async {
+    final rig = await _pump(
+      tester,
+      streaming: false,
+      model: hermesSyntheticModel(name: 'Hermes'),
+      overrides: [
+        chatDraftQueueOfferProvider.overrideWithValue(false),
+        hermesConfigProvider.overrideWith(_DesktopHermesConfig.new),
+        hermesDesktopTurnStateProvider.overrideWith(
+          (ref) => Stream.value(HermesDesktopTurnState.running),
+        ),
+      ],
+    );
+
+    await rig.type('follow-up\nwith a second line\nand a third\nand more');
+    await tester.pump(const Duration(milliseconds: 500));
+    await tester.tap(
+      find.byKey(const ValueKey<String>('composer-expand-button')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.descendant(
+        of: find.byType(ExpandedTextEditorSheet),
+        matching: find.byIcon(Icons.arrow_upward),
+      ),
+    );
+    await tester.pump();
+
+    expect(rig.sent, isEmpty);
   });
 
   testQueue(
@@ -825,4 +928,14 @@ void main() {
     expect(find.text(en.queuedDraftStopFailed), findsOneWidget);
     expect(rig.drafts.map((d) => d.id), [draft.id]);
   });
+}
+
+/// A Hermes Desktop Gateway connection.
+final class _DesktopHermesConfig extends HermesConfigController {
+  @override
+  HermesConfig build() => const HermesConfig(
+    enabled: true,
+    baseUrl: 'https://hermes.example',
+    mode: HermesBackendMode.desktopGateway,
+  );
 }

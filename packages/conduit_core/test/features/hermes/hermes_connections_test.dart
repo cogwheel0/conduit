@@ -4,6 +4,8 @@ import 'dart:io';
 
 import 'package:checks/checks.dart';
 import 'package:conduit_core/conduit_core.dart';
+import 'package:conduit_core/database/app_database.dart';
+import 'package:conduit_core/database/database_provider.dart';
 import 'package:conduit_core/features/hermes/models/hermes_config.dart';
 import 'package:conduit_core/features/hermes/models/hermes_connection_contract.dart';
 import 'package:conduit_core/features/hermes/models/hermes_connection_profile.dart';
@@ -11,6 +13,8 @@ import 'package:conduit_core/features/hermes/models/hermes_model.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 import 'package:conduit_core/features/hermes/services/hermes_connection_service.dart';
 import 'package:conduit_core/features/hermes/services/hermes_connection_store.dart';
+import 'package:conduit_core/features/hermes/services/hermes_dashboard_bridge.dart';
+import 'package:conduit_core/features/hermes/services/hermes_dashboard_cookie_registry.dart';
 import 'package:conduit_core/features/hermes/services/hermes_desktop_api_service.dart';
 import 'package:conduit_core/features/hermes/services/hermes_local_document_trust_store.dart';
 import 'package:conduit_core/features/hermes/services/hermes_pending_decision_store.dart';
@@ -21,6 +25,7 @@ import 'package:conduit_core/providers/app_providers.dart'
     show selectedModelProvider;
 import 'package:conduit_core/providers/host_ports.dart';
 import 'package:conduit_core/providers/storage_providers.dart';
+import 'package:drift/native.dart';
 import 'package:riverpod/riverpod.dart';
 import 'package:test/test.dart';
 
@@ -369,13 +374,25 @@ void main() {
           'hermes_api_key_v1:$_b': 'beta-key',
           'hermes_api_key_v1:$_c': 'gamma-key',
         });
-        final container = await _ready(secrets);
+        final database = AppDatabase(NativeDatabase.memory());
+        addTearDown(database.close);
+        final container = await _ready(secrets, database: database);
         addTearDown(container.dispose);
         final alphaIdentity = _identityFor(_a, 'https://alpha.example');
         final betaIdentity = _identityFor(_b, 'https://beta.example');
         await _rememberDocumentTrust(alphaIdentity);
         await _rememberDocumentTrust(betaIdentity);
         await _rememberSessionBinding(alphaIdentity);
+        final copiedHistory = container.read(hermesCopiedHistoryStoreProvider);
+        for (final identity in [alphaIdentity, betaIdentity]) {
+          await copiedHistory.save(
+            connectionIdentity: identity,
+            sessionId: 'copy',
+            messages: const [
+              <String, dynamic>{'role': 'user', 'content': 'Tide tables'},
+            ],
+          );
+        }
         final run = container
             .read(hermesRunRegistryProvider)
             .registerPending(
@@ -414,6 +431,18 @@ void main() {
           ),
         ).isNotEmpty();
         check(_sessionBindingTrusted(alphaIdentity)).isFalse();
+        check(
+          await copiedHistory.load(
+            connectionIdentity: alphaIdentity,
+            sessionId: 'copy',
+          ),
+        ).isNull();
+        check(
+          await copiedHistory.load(
+            connectionIdentity: betaIdentity,
+            sessionId: 'copy',
+          ),
+        ).isNotNull();
 
         await controller.deleteConnection(_c);
         check(container.read(hermesConfigProvider).connectionId).equals(_b);
@@ -709,6 +738,223 @@ void main() {
     );
   });
 
+  // The WebView held this gateway's dashboard session with no record of it
+  // (a sign-in that reused it), so clearing the record left it signed in.
+  group('a dashboard session the record lacks', () {
+    const headers = {'CF-Access-Client-Id': 'synthetic-id'};
+    final session = _cookie('hermes_session_at_aaaaaaaaaaaaaaaa');
+
+    Map<String, String> secretsWithHeaders() => {
+      'hermes_api_key_v1:$_a': 'alpha-key',
+      'hermes_api_key_v1:$_b': 'beta-key',
+      'hermes_desktop_credentials_v1:$_a': jsonEncode({
+        'legacy_token': 'synthetic-token',
+        'access_headers': headers,
+      }),
+    };
+
+    test('a delete asks Hermes to sign it out before the record is cleared',
+        () async {
+      _seedConnections([
+        _profile(_a, 'Alpha', 'https://alpha.example/v1'),
+        _profile(_b, 'Beta', 'https://beta.example'),
+      ], active: _b);
+      final log = <String>[];
+      final container = await _ready(
+        _Secrets(secretsWithHeaders()),
+        cookies: _HeldCookieJar(log, held: {session}),
+        signOut: ({required root, required accessHeaders}) async {
+          log.add('sign out $root ${jsonEncode(accessHeaders)}');
+          return true;
+        },
+      );
+      addTearDown(container.dispose);
+
+      await container.read(hermesConfigProvider.notifier).deleteConnection(_a);
+
+      check(log).deepEquals([
+        'sign out https://alpha.example ${jsonEncode(headers)}',
+        'clear https://alpha.example/v1',
+      ]);
+      check(container.read(hermesConnectionsProvider)).length.equals(1);
+    });
+
+    test('a session on record is cleared from the record alone', () async {
+      _seedConnections([
+        _profile(_a, 'Alpha', 'https://alpha.example'),
+        _profile(_b, 'Beta', 'https://beta.example'),
+      ], active: _b);
+      await HermesDashboardCookieRegistry.record(
+        'https://alpha.example',
+        identities: {session},
+      );
+      final log = <String>[];
+      final container = await _ready(
+        _Secrets(secretsWithHeaders()),
+        cookies: _HeldCookieJar(log, held: {session, _cookie('token')}),
+        signOut: ({required root, required accessHeaders}) async {
+          log.add('sign out $root');
+          return true;
+        },
+      );
+      addTearDown(container.dispose);
+
+      await container.read(hermesConfigProvider.notifier).deleteConnection(_a);
+
+      check(log).deepEquals(['clear https://alpha.example']);
+    });
+
+    test('a sign-out Hermes cannot answer still clears the record', () async {
+      _seedConnections([
+        _profile(_a, 'Alpha', 'https://alpha.example'),
+        _profile(_b, 'Beta', 'https://beta.example'),
+      ], active: _b);
+      final log = <String>[];
+      final container = await _ready(
+        _Secrets(secretsWithHeaders()),
+        cookies: _HeldCookieJar(log, held: {session}),
+        signOut: ({required root, required accessHeaders}) async {
+          log.add('sign out $root');
+          throw StateError('Hermes dashboard page left the dashboard.');
+        },
+      );
+      addTearDown(container.dispose);
+
+      await container.read(hermesConfigProvider.notifier).deleteConnection(_a);
+
+      check(log).deepEquals([
+        'sign out https://alpha.example',
+        'clear https://alpha.example',
+      ]);
+      check(container.read(hermesConnectionsProvider)).length.equals(1);
+    });
+
+    // Sign Out logged the failure and reported success, so the credentials
+    // went while the session could still open the dashboard.
+    for (final (name, ends) in [
+      ('refuses', () async => false),
+      ('cannot be reached', () async => throw StateError('unreachable')),
+    ]) {
+      test('Sign Out that Hermes $name fails and keeps the credentials',
+          () async {
+        _seedConnections([
+          _profile(_a, 'Alpha', 'https://alpha.example'),
+        ], active: _a);
+        final secrets = _Secrets(secretsWithHeaders());
+        final log = <String>[];
+        final container = await _ready(
+          secrets,
+          cookies: _HeldCookieJar(log, held: {session}),
+          signOut: ({required root, required accessHeaders}) async {
+            log.add('sign out $root');
+            return ends();
+          },
+        );
+        addTearDown(container.dispose);
+
+        await check(
+          container.read(hermesConfigProvider.notifier).signOutDesktop(),
+        ).throws<StateError>();
+
+        // The record's cookies still go; the rest waits for a retry.
+        check(log).deepEquals([
+          'sign out https://alpha.example',
+          'clear https://alpha.example',
+        ]);
+        check(container.read(hermesConfigProvider).desktopCredentials)
+            .isNotNull();
+        check(await secrets.read(key: 'hermes_desktop_credentials_v1:$_a'))
+            .isNotNull();
+      });
+    }
+
+    test('an address change goes through when Hermes cannot sign out',
+        () async {
+      _seedConnections([
+        _profile(_a, 'Alpha', 'https://alpha.example'),
+        _profile(_b, 'Beta', 'https://beta.example'),
+      ], active: _b);
+      final log = <String>[];
+      final container = await _ready(
+        _Secrets(secretsWithHeaders()),
+        cookies: _HeldCookieJar(log, held: {session}),
+        signOut: ({required root, required accessHeaders}) async {
+          log.add('sign out $root');
+          return false;
+        },
+      );
+      addTearDown(container.dispose);
+
+      await container.read(hermesConfigProvider.notifier).saveConnection(
+        connectionId: _a,
+        baseUrl: 'https://alpha-two.example',
+      );
+
+      check(log).deepEquals([
+        'sign out https://alpha.example',
+        'clear https://alpha.example',
+      ]);
+      check(
+        container
+            .read(hermesConnectionsProvider)
+            .singleWhere((profile) => profile.id == _a)
+            .baseUrl,
+      ).equals('https://alpha-two.example');
+    });
+
+    test('another gateway\'s session leaves a recorded Sign Out alone',
+        () async {
+      _seedConnections([
+        _profile(_a, 'Alpha', 'https://alpha.example'),
+      ], active: _a);
+      await HermesDashboardCookieRegistry.record(
+        'https://alpha.example',
+        identities: {session},
+      );
+      final log = <String>[];
+      final container = await _ready(
+        _Secrets(secretsWithHeaders()),
+        cookies: _HeldCookieJar(
+          log,
+          held: {session, _cookie('hermes_session_rt_bbbbbbbbbbbbbbbb')},
+        ),
+        signOut: ({required root, required accessHeaders}) async {
+          log.add('sign out $root');
+          return false;
+        },
+      );
+      addTearDown(container.dispose);
+
+      await container.read(hermesConfigProvider.notifier).signOutDesktop();
+
+      check(log).deepEquals(['clear https://alpha.example']);
+      check(container.read(hermesConfigProvider).desktopCredentials).isNull();
+    });
+
+    test('Sign Out sends the connection\'s gateway headers', () async {
+      _seedConnections([
+        _profile(_a, 'Alpha', 'https://alpha.example'),
+      ], active: _a);
+      final log = <String>[];
+      final container = await _ready(
+        _Secrets(secretsWithHeaders()),
+        cookies: _HeldCookieJar(log, held: {session}),
+        signOut: ({required root, required accessHeaders}) async {
+          log.add('sign out $root ${jsonEncode(accessHeaders)}');
+          return true;
+        },
+      );
+      addTearDown(container.dispose);
+
+      await container.read(hermesConfigProvider.notifier).signOutDesktop();
+
+      check(log).deepEquals([
+        'sign out https://alpha.example ${jsonEncode(headers)}',
+        'clear https://alpha.example',
+      ]);
+    });
+  });
+
   group('inactive connections', () {
     test('are created and edited without touching the runtime', () async {
       _seedConnections([
@@ -765,6 +1011,92 @@ void main() {
       check(container.read(hermesConnectionGenerationProvider))
           .equals(generation);
       check(HermesConnectionStore.readActiveId()).equals(_a);
+    });
+
+    // Copies saved under an edited connection's old address were left
+    // behind, unreachable, and still pushed live copies out of the store.
+    test('an address change drops copies saved under the old one', () async {
+      _seedConnections([
+        _profile(_a, 'Alpha', 'https://alpha.example'),
+        _profile(_b, 'Beta', 'https://beta.example'),
+      ], active: _a);
+      final database = AppDatabase(NativeDatabase.memory());
+      addTearDown(database.close);
+      final container = await _ready(
+        _Secrets({
+          'hermes_api_key_v1:$_a': 'alpha-key',
+          'hermes_api_key_v1:$_b': 'beta-key',
+        }),
+        database: database,
+      );
+      addTearDown(container.dispose);
+      final controller = container.read(hermesConfigProvider.notifier);
+      final alphaIdentity = _identityFor(_a, 'https://alpha.example');
+      final betaIdentity = _identityFor(_b, 'https://beta.example');
+      for (final identity in [alphaIdentity, betaIdentity]) {
+        await _saveCopy(container, identity);
+      }
+
+      // A rename keeps the address and principal, and with them the copy.
+      await controller.saveConnection(
+        connectionId: _b,
+        baseUrl: 'https://beta.example',
+        name: 'Renamed',
+      );
+      check(await _hasCopy(container, betaIdentity)).isTrue();
+
+      await controller.saveConnection(
+        connectionId: _b,
+        baseUrl: 'https://gamma.example',
+        apiKeyChanged: true,
+        apiKey: 'gamma-key',
+      );
+
+      check(await _hasCopy(container, betaIdentity)).isFalse();
+      check(await _hasCopy(container, alphaIdentity)).isTrue();
+      // An open that began before the edit saves nothing back.
+      await _saveCopy(container, betaIdentity);
+      check(await _hasCopy(container, betaIdentity)).isFalse();
+    });
+
+    test('an address change that is undone keeps its copies', () async {
+      _seedConnections([
+        _profile(_a, 'Alpha', 'https://alpha.example'),
+        _profile(_b, 'Beta', 'https://beta.example'),
+      ], active: _a);
+      final database = AppDatabase(NativeDatabase.memory());
+      addTearDown(database.close);
+      final container = await _ready(
+        _Secrets({
+          'hermes_api_key_v1:$_a': 'alpha-key',
+          'hermes_api_key_v1:$_b': 'beta-key',
+        }),
+        // The old address's dashboard sign-in stays, so the edit is undone.
+        cookies: _RecordingCookieJar(clears: false),
+        database: database,
+      );
+      addTearDown(container.dispose);
+      final betaIdentity = _identityFor(_b, 'https://beta.example');
+      await _saveCopy(container, betaIdentity);
+
+      await check(
+        container
+            .read(hermesConfigProvider.notifier)
+            .saveConnection(
+              connectionId: _b,
+              baseUrl: 'https://gamma.example',
+              apiKeyChanged: true,
+              apiKey: 'gamma-key',
+            ),
+      ).throws<StateError>();
+
+      check(
+        container
+            .read(hermesConnectionsProvider)
+            .singleWhere((profile) => profile.id == _b)
+            .baseUrl,
+      ).equals('https://beta.example');
+      check(await _hasCopy(container, betaIdentity)).isTrue();
     });
 
     test('a stale client cannot undo a token rotation', () async {
@@ -1441,6 +1773,23 @@ String _identityFor(String id, String baseUrl) =>
       principalId: _principalFor(id),
     );
 
+Future<void> _saveCopy(ProviderContainer container, String identity) =>
+    container
+        .read(hermesCopiedHistoryStoreProvider)
+        .save(
+          connectionIdentity: identity,
+          sessionId: 'copy',
+          messages: const [
+            <String, dynamic>{'role': 'user', 'content': 'Tide tables'},
+          ],
+        );
+
+Future<bool> _hasCopy(ProviderContainer container, String identity) async =>
+    await container
+        .read(hermesCopiedHistoryStoreProvider)
+        .load(connectionIdentity: identity, sessionId: 'copy') !=
+    null;
+
 const _envelope = '<<<BEGIN_HERMES_UNTRUSTED_REFERENCE_1>>>notes';
 
 Future<void> _rememberDocumentTrust(String connectionIdentity) =>
@@ -1480,11 +1829,17 @@ bool _sessionBindingTrusted(String connectionIdentity) =>
 Future<ProviderContainer> _ready(
   SecureKeyValueStore secrets, {
   CookieJarPort cookies = const NullCookieJarPort(),
+  HermesDashboardSignOut? signOut,
+  AppDatabase? database,
 }) async {
   final container = ProviderContainer(
     overrides: [
       secureStorageProvider.overrideWithValue(secrets),
       cookieJarProvider.overrideWithValue(cookies),
+      if (signOut != null)
+        hostHermesDashboardSignOutProvider.overrideWithValue(signOut),
+      if (database != null)
+        directLocalDatabaseProvider.overrideWithValue(database),
     ],
   );
   container.read(hermesConfigProvider);
@@ -1561,3 +1916,27 @@ final class _GatedCookieJar extends NullCookieJarPort {
     return release.future;
   }
 }
+
+/// A WebView cookie store holding [held] for every origin, which logs its
+/// clears into [log].
+final class _HeldCookieJar extends NullCookieJarPort {
+  _HeldCookieJar(this.log, {required this.held});
+
+  final List<String> log;
+  final Set<String> held;
+
+  @override
+  bool get isSupported => true;
+
+  @override
+  Future<Set<String>> identitiesFor(String origin) async => held;
+
+  @override
+  Future<bool> clearForOrigin(String origin) async {
+    log.add('clear $origin');
+    return true;
+  }
+}
+
+/// A cookie identity, as the app's WebView cookie helper writes it.
+String _cookie(String name) => '$name\u0000alpha.example\u0000/';

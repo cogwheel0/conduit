@@ -514,7 +514,14 @@ class ConduitButton extends StatelessWidget {
         : styles.primary();
     final isEnabled = !isLoading && onPressed != null;
     final backgroundColor = variant.background;
-    final textColor = variant.foreground;
+    final nativeGlass =
+        useNative && PlatformUiCapabilities.usesNativeIOS26 && isSecondary;
+    // A glass button is not filled with the variant's color, so a
+    // destructive one shows its label in that color instead of the light
+    // text meant for a filled background.
+    final textColor = nativeGlass && isDestructive
+        ? backgroundColor
+        : variant.foreground;
     final displayedBackgroundColor = isEnabled
         ? backgroundColor
         : context.conduitTheme.buttonDisabled;
@@ -571,7 +578,11 @@ class ConduitButton extends StatelessWidget {
                           nativeSymbol != null)
                   ? AdaptiveButton(
                       onPressed: isEnabled ? onPressed : null,
-                      label: isLoading ? '$text…' : text,
+                      // A label that already reads as in progress
+                      // ("Stopping…") keeps its one ellipsis.
+                      label: isLoading && !text.endsWith('…')
+                          ? '$text…'
+                          : text,
                       sfSymbol: nativeSymbol == null
                           ? null
                           : SFSymbol(

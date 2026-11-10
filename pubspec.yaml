@@ -185,6 +185,7 @@ flutter:
   # ARB files live in lib/l10n (configured via l10n.yaml)
   
   assets:
+    - assets/computer/
     - THIRD_PARTY_NOTICES.md
     - assets/icons/
     - assets/model_logos/

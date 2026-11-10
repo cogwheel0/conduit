@@ -139,7 +139,7 @@ void main() {
       Future<void> retry() async {
         await tester.tap(find.byIcon(Icons.more_horiz));
         await tester.pumpAndSettle();
-        await tester.tap(find.text('Transcribe on device').last);
+        await tester.tap(find.text('Transcribe on Device').last);
         await settle();
       }
 
@@ -270,7 +270,7 @@ void main() {
         await settle();
         await tester.tap(find.byIcon(Icons.more_horiz));
         await tester.pumpAndSettle();
-        await tester.tap(find.text('Transcribe on device').last);
+        await tester.tap(find.text('Transcribe on Device').last);
         await pumpDatabaseOperation(
           tester,
           () => store.recordings.readEntered.future,

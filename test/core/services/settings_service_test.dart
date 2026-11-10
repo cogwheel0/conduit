@@ -631,6 +631,45 @@ void main() {
     });
   });
 
+  group('Computer preference', () {
+    setUp(() {
+      PreferencesStore.debugReset();
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+    });
+    tearDown(PreferencesStore.debugReset);
+
+    test(
+      'disable survives restart and bulk save; reset restores default',
+      () async {
+        const defaults = AppSettings();
+        check(defaults.computerEnabled).isTrue();
+        check(defaults.copyWith(computerEnabled: false))
+            .not((it) => it.equals(defaults));
+        final container = ProviderContainer();
+        addTearDown(container.dispose);
+        await container
+            .read(appSettingsProvider.notifier)
+            .setComputerEnabled(false);
+        check(container.read(appSettingsProvider).computerEnabled).isFalse();
+        final preferences = await SharedPreferences.getInstance();
+        await preferences.reload();
+        final saved = <String, Object>{
+          for (final key in preferences.getKeys()) key: preferences.get(key)!,
+        };
+        SharedPreferences.setMockInitialValues(saved);
+        PreferencesStore.debugReset();
+        PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
+        final restarted = ProviderContainer();
+        addTearDown(restarted.dispose);
+        check(restarted.read(appSettingsProvider).computerEnabled).isFalse();
+        await SettingsService.saveSettings(const AppSettings());
+        check((await SettingsService.loadSettings()).computerEnabled).isFalse();
+        await restarted.read(appSettingsProvider.notifier).resetToDefaults();
+        check((await SettingsService.loadSettings()).computerEnabled).isTrue();
+      },
+    );
+  });
+
   group('Citation background preference', () {
     setUp(() {
       PreferencesStore.debugReset();

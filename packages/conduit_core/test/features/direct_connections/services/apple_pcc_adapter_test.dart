@@ -368,66 +368,92 @@ void main() {
     },
   );
 
-  test('PCC bounds native MCP callbacks', () async {
-    final host = _FakePccHost();
-    final adapter = ApplePccAdapter(host: host);
-    final run = adapter.startCompletion(
-      DirectConnectionProfile.applePrivateCloudCompute(),
-      DirectCompletionRequest(
-        remoteModelId: kApplePccRemoteModelId,
-        messages: <DirectChatMessage>[
-          DirectChatMessage.text(role: 'user', text: 'Hello'),
-        ],
-        tools: DirectToolRuntime(
-          definitions: [_toolDefinition],
-          requestApproval: (callId, definition, arguments) =>
-              DirectToolApprovalHandle(
-                request: DirectToolApprovalRequest(
-                  id: 'approval-$callId',
-                  serverName: definition.serverName,
-                  toolName: definition.displayName,
-                  callId: callId,
-                  argumentsJson: '{}',
+  test(
+    'PCC asks for an answer after repeated tool failures, then stops',
+    () async {
+      final host = _FakePccHost();
+      final adapter = ApplePccAdapter(host: host);
+      var executions = 0;
+      var failing = false;
+      final run = adapter.startCompletion(
+        DirectConnectionProfile.applePrivateCloudCompute(),
+        DirectCompletionRequest(
+          remoteModelId: kApplePccRemoteModelId,
+          messages: <DirectChatMessage>[
+            DirectChatMessage.text(role: 'user', text: 'Hello'),
+          ],
+          tools: DirectToolRuntime(
+            definitions: [_toolDefinition],
+            requestApproval: (callId, definition, arguments) =>
+                DirectToolApprovalHandle(
+                  request: DirectToolApprovalRequest(
+                    id: 'approval-$callId',
+                    serverName: definition.serverName,
+                    toolName: definition.displayName,
+                    callId: callId,
+                    argumentsJson: '{}',
+                  ),
+                  decision: Future.value(DirectToolApprovalDecision.allowOnce),
+                  requiresUserDecision: false,
                 ),
-                decision: Future.value(DirectToolApprovalDecision.allowOnce),
-                requiresUserDecision: false,
-              ),
-          execute: (_, _) async => const DirectToolResult(text: 'ok'),
+            execute: (_, _) async {
+              executions++;
+              return DirectToolResult(text: 'result', isError: failing);
+            },
+          ),
         ),
-      ),
-    );
-    final events = run.events.toList();
-    await host.started.future;
-
-    for (var index = 0; index < kDirectMaxToolRounds; index++) {
-      final result = await adapter.onToolCall(
+      );
+      final events = run.events.toList();
+      await host.started.future;
+      var callIndex = 0;
+      Future<PlatformPccToolResult> call() => adapter.onToolCall(
         PlatformPccToolCall(
           runId: run.id,
-          callId: 'call-$index',
+          callId: 'call-${callIndex++}',
           name: _toolDefinition.name,
           argumentsJson: '{}',
         ),
       );
-      expect(result.cancelled, isFalse);
-    }
-    final overflow = await adapter.onToolCall(
-      PlatformPccToolCall(
-        runId: run.id,
-        callId: 'overflow',
-        name: _toolDefinition.name,
-        argumentsJson: '{}',
-      ),
-    );
 
-    expect(overflow.cancelled, isTrue);
-    final received = await events;
-    expect(
-      (received.last as DirectStreamError).message,
-      contains('tool-call limit'),
-    );
-    await pumpEventQueue();
-    expect(host.cancelledRunId, run.id);
-  });
+      // Successful calls have no round limit of their own.
+      for (var index = 0; index < 20; index++) {
+        final result = await call();
+        expect(result.cancelled, isFalse);
+        expect(result.content, 'result');
+      }
+      expect(executions, 20);
+
+      failing = true;
+      for (var index = 1; index <= kDirectMaxConsecutiveToolFailures; index++) {
+        final result = await call();
+        expect(result.cancelled, isFalse);
+        expect(
+          result.content.endsWith(kDirectFinalAnswerToolNote),
+          index == kDirectMaxConsecutiveToolFailures,
+        );
+      }
+      expect(executions, 20 + kDirectMaxConsecutiveToolFailures);
+
+      // Foundation Models has no tool_choice. Further calls get the
+      // instruction instead of running the tool.
+      for (var index = 0; index < kDirectMaxConsecutiveToolFailures; index++) {
+        final result = await call();
+        expect(result.cancelled, isFalse);
+        expect(result.content, kDirectFinalAnswerToolNote);
+      }
+      expect(executions, 20 + kDirectMaxConsecutiveToolFailures);
+
+      final overflow = await call();
+      expect(overflow.cancelled, isTrue);
+      final received = await events;
+      expect(
+        (received.last as DirectStreamError).message,
+        kDirectToolLoopNoAnswerMessage,
+      );
+      await pumpEventQueue();
+      expect(host.cancelledRunId, run.id);
+    },
+  );
 
   test('PCC rejects invalid native MCP arguments', () async {
     final cases = <({String arguments, String message})>[

@@ -60,7 +60,7 @@ void main() {
     final opened = await pumpProfile(tester, visible: true);
     await tester.scrollUntilVisible(entry, 300);
 
-    expect(find.text('Scheduled tasks'), findsOneWidget);
+    expect(find.text('Scheduled Tasks'), findsOneWidget);
     await tester.tap(entry);
     await tester.pumpAndSettle();
 

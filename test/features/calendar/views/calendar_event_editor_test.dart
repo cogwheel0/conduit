@@ -228,7 +228,7 @@ void main() {
 
       await openAdd(tester);
       await typeInto(tester, 'calendar-editor-title', 'Weekly sync');
-      expect(repeatValue(tester), 'Does not repeat');
+      expect(repeatValue(tester), 'Does Not Repeat');
       await chooseRepeat(tester, 'weekly');
       expect(repeatValue(tester), 'Weekly');
       expect(
@@ -581,7 +581,7 @@ void main() {
         findsOneWidget,
       );
       // A rule the editor cannot write is named, not shown raw.
-      expect(repeatValue(tester), 'Custom repeat');
+      expect(repeatValue(tester), 'Custom Repeat');
       expect(find.textContaining('INTERVAL'), findsNothing);
       expect(
         find.byKey(const Key('calendar-editor-recurrence-note')),
@@ -752,7 +752,7 @@ void main() {
 
     Future<void> keepEditing(WidgetTester tester) async {
       expect(find.text(_discardTitle), findsOneWidget);
-      await tester.tap(find.text('Keep editing'));
+      await tester.tap(find.text('Keep Editing'));
       await tester.pumpAndSettle();
     }
 
@@ -827,13 +827,13 @@ void main() {
       await openAdd(tester);
       await typeInto(tester, 'calendar-editor-title', 'Standup');
 
-      await tester.drag(find.text('New event').last, const Offset(0, 400));
+      await tester.drag(find.text('New Event').last, const Offset(0, 400));
       await tester.pumpAndSettle();
       await keepEditing(tester);
       expect(find.byKey(_save), findsOneWidget);
       expect(find.text('Standup'), findsOneWidget);
 
-      await tester.drag(find.text('New event').last, const Offset(0, 400));
+      await tester.drag(find.text('New Event').last, const Offset(0, 400));
       await tester.pumpAndSettle();
       await confirmDiscard(tester);
       expect(find.byKey(_save), findsNothing);
@@ -854,7 +854,7 @@ void main() {
       await tester.tap(find.byTooltip('Close').last);
       await tester.pumpAndSettle();
       expect(find.text(_discardTitle), findsNothing);
-      await tester.drag(find.text('Edit event').last, const Offset(0, 400));
+      await tester.drag(find.text('Edit Event').last, const Offset(0, 400));
       await tester.pumpAndSettle();
       expect(find.text(_discardTitle), findsNothing);
       await tester.binding.handlePopRoute();
@@ -873,7 +873,7 @@ void main() {
       await pumpCalendar(tester);
       await openAdd(tester);
 
-      await tester.drag(find.text('New event').last, const Offset(0, 600));
+      await tester.drag(find.text('New Event').last, const Offset(0, 600));
       await tester.pumpAndSettle();
 
       expect(find.text(_discardTitle), findsNothing);
@@ -950,7 +950,7 @@ void main() {
         ),
         findsOneWidget,
       );
-      expect(find.text('Remove end time'), findsOneWidget);
+      expect(find.text('Remove End Time'), findsOneWidget);
       // The day and time are buttons a finger can hit.
       expect(
         tester
@@ -962,7 +962,7 @@ void main() {
         tester.getSemantics(
           find.byKey(const Key('calendar-editor-start-time')),
         ),
-        isSemantics(label: 'Start time, 7:00 AM', isButton: true),
+        isSemantics(label: 'Start Time, 7:00 AM', isButton: true),
       );
     });
 

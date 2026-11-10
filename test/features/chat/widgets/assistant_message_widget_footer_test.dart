@@ -34,6 +34,9 @@ import 'package:conduit/features/chat/widgets/sources/openwebui_sources.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/l10n/conduit_localizations.dart';
 import 'package:conduit/shared/theme/app_theme.dart';
+import 'package:conduit/shared/theme/theme_extensions.dart';
+import 'package:conduit_core/services/native_symbol_image_service.dart'
+    show NativeSymbolScale;
 import 'package:conduit/shared/theme/tweakcn_themes.dart';
 import 'package:conduit/shared/widgets/chat_action_button.dart';
 import 'package:conduit/shared/widgets/markdown/streaming_markdown_widget.dart';
@@ -462,6 +465,95 @@ void main() {
           .isNotEmpty();
       check(tester.takeException()).isNull();
     });
+  });
+
+  testWidgets(
+    'Copy confirms with a checkmark read as Copied, then restores itself',
+    (tester) async {
+      final haptics = <Object?>[];
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      messenger.setMockMethodCallHandler(SystemChannels.platform, (call) async {
+        if (call.method == 'HapticFeedback.vibrate') {
+          haptics.add(call.arguments);
+        }
+        return null;
+      });
+      addTearDown(
+        () => messenger.setMockMethodCallHandler(SystemChannels.platform, null),
+      );
+      final handle = tester.ensureSemantics();
+      var copies = 0;
+      await tester.pumpWidget(
+        _buildAssistantHarness(
+          ChatMessage(
+            id: 'copy-confirm',
+            role: 'assistant',
+            content: 'Water the beds early in the morning.',
+            timestamp: DateTime.utc(2026, 1, 1),
+          ),
+          onCopy: () => copies++,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byIcon(Icons.content_copy_outlined));
+      await tester.pump();
+      check(copies).equals(1);
+      expect(find.byIcon(Icons.check), findsOneWidget);
+      expect(find.bySemanticsLabel('Copied'), findsOneWidget);
+      // One light tap for the copy, not the generic selection click as well.
+      check(haptics).deepEquals(['HapticFeedbackType.lightImpact']);
+
+      await tester.pump(const Duration(milliseconds: 1250));
+      await tester.pumpAndSettle();
+      expect(find.byIcon(Icons.check), findsNothing);
+      expect(find.byIcon(Icons.content_copy_outlined), findsOneWidget);
+      expect(find.bySemanticsLabel('Copy'), findsOneWidget);
+      handle.dispose();
+    },
+  );
+
+  testWidgets('reply actions offer 44 pt targets', (tester) async {
+    await tester.pumpWidget(
+      _buildAssistantHarness(
+        ChatMessage(
+          id: 'targets',
+          role: 'assistant',
+          content: 'Mulch keeps the soil moist.',
+          timestamp: DateTime.utc(2026, 1, 1),
+        ),
+        onCopy: () {},
+        onRegenerate: () {},
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final buttons = find.byType(ChatActionButton);
+    expect(buttons, findsWidgets);
+    for (final element in buttons.evaluate()) {
+      final size = tester.getSize(find.byWidget(element.widget));
+      expect(size.width, greaterThanOrEqualTo(44));
+      expect(size.height, greaterThanOrEqualTo(44));
+    }
+
+    // One weight and scale for every glyph, at 17 pt except where a shape
+    // reads larger or smaller than its neighbours: Copy's dense double
+    // outline a little smaller, Speaker's wide waves a touch smaller.
+    final actions = tester
+        .widgetList<ChatActionButton>(buttons)
+        .toList(growable: false);
+    expect(actions.map((button) => button.symbolScale).toSet(), {
+      NativeSymbolScale.medium,
+    });
+    final sizes = {
+      for (final button in actions) button.sfSymbol: button.iconSize,
+    };
+    expect(sizes['square.on.square'], 15.5);
+    expect(sizes['arrow.clockwise'], 17);
+    for (final size in sizes.values) {
+      expect(size, inInclusiveRange(15, 17), reason: '$sizes');
+    }
   });
 
   group('copying a previewed version', () {
@@ -1276,7 +1368,8 @@ void main() {
           find.byType(CNPopupMenuButton),
         );
         expect(menu.buttonStyle, CNButtonStyle.plain);
-        expect(menu.width, 32);
+        // A full 44 pt target, like the inline actions beside it.
+        expect(menu.width, 44);
         expect(_menuLayout(menu), layout.sections);
         final delete = (menu.items.last as CNPopupMenuSubmenu).items.single;
         expect((delete as CNPopupMenuItem).isDestructive, isTrue);
@@ -1528,6 +1621,36 @@ void main() {
     expect(find.text('Model A'), findsNothing);
   });
 
+  testWidgets('the speaker label reads in the secondary tone and the reply '
+      'runs to the trailing edge', (tester) async {
+    final message = ChatMessage(
+      id: 'label-tone',
+      role: 'assistant',
+      content: 'Rinse the lentils before simmering them.',
+      timestamp: DateTime(2026, 1, 1),
+      model: 'Model B',
+    );
+    // A phone-width column, narrower than the reply's reading-width cap.
+    tester.view
+      ..physicalSize = const Size(1206, 2622)
+      ..devicePixelRatio = 3;
+    addTearDown(tester.view.reset);
+
+    await tester.pumpWidget(_buildAssistantHarness(message));
+    await tester.pumpAndSettle();
+
+    final label = find.text('Model B');
+    final theme = tester.element(label).conduitTheme;
+    // Tertiary measured about 3:1 at 13 pt; a label needs 4.5:1.
+    expect(tester.widget<Text>(label).style!.color, theme.textSecondary);
+
+    // No trailing inset of its own: tables and code cards end on the same
+    // margin as the bubbles and the composer.
+    final reply = tester.getRect(find.byType(AssistantMessageWidget));
+    final body = tester.getRect(find.byType(StreamingMarkdownWidget));
+    expect(body.right, closeTo(reply.right, 0.5));
+  });
+
   testWidgets('archived version stays settled when the live version resumes', (
     tester,
   ) async {
@@ -1653,6 +1776,53 @@ void main() {
     expect(find.byType(FollowUpSuggestionBar), findsOneWidget);
     expect(find.text('Ask again'), findsNothing);
     expect(find.text('Try another angle'), findsOneWidget);
+  });
+
+  testWidgets('the action row groups with its reply, the suggestions sit '
+      'apart, and on a send they go and the row stays', (tester) async {
+    final message = ChatMessage(
+      id: 'assistant-follow-up-spacing',
+      role: 'assistant',
+      content: 'Visible response body',
+      timestamp: DateTime(2024, 1, 1),
+      followUps: const ['Ask again'],
+    );
+    Finder actionRow() => find
+        .descendant(
+          of: find.byKey(const ValueKey('actions')),
+          matching: find.byType(Wrap),
+        )
+        .first;
+    Finder heading() =>
+        find.byKey(const ValueKey<String>('follow-up-row:Ask again'));
+
+    await tester.pumpWidget(
+      _buildAssistantHarness(message, showFollowUps: true),
+    );
+    await tester.pumpAndSettle();
+
+    // The first suggestion is a short gap below the row's 44 pt targets:
+    // with the air those leave under the glyphs and its own centred line,
+    // about 28 pt from glyph to suggestion text.
+    final rowRect = tester.getRect(actionRow());
+    final headingTop = tester.getTopLeft(heading()).dy;
+    expect(headingTop - rowRect.bottom, closeTo(Spacing.xs, 0.5));
+
+    // A send: the suggestions go, and the action row stays where it was.
+    await tester.pumpWidget(
+      _buildAssistantHarness(message, showFollowUps: false),
+    );
+    await tester.pump();
+    expect(heading(), findsNothing);
+    expect(tester.getRect(actionRow()), rowRect);
+    await tester.pumpAndSettle();
+    expect(heading(), findsNothing);
+
+    // Without suggestions the block's gap follows the row, so the row
+    // stays right under the reply.
+    final actions = tester.getRect(find.byKey(const ValueKey('actions')));
+    expect(actions.top, closeTo(rowRect.top, 0.5));
+    expect(actions.bottom - tester.getRect(actionRow()).bottom, Spacing.md);
   });
 
   testWidgets('follow-up selection delegates to the page send path', (
@@ -2330,7 +2500,7 @@ void main() {
     );
     await tester.pump();
 
-    expect(find.text('Queued offline'), findsOneWidget);
+    expect(find.text('Queued Offline'), findsOneWidget);
     expect(
       find.text('This response will start when the server is reachable.'),
       findsOneWidget,
@@ -2395,7 +2565,7 @@ void main() {
     await tester.pump();
 
     expect(find.text('Partial answer'), findsOneWidget);
-    expect(find.text('Send failed'), findsOneWidget);
+    expect(find.text('Send Failed'), findsOneWidget);
     expect(find.text('Retry'), findsOneWidget);
     expect(find.text('Cancel'), findsOneWidget);
     expect(find.byIcon(Icons.content_copy_outlined), findsNothing);
@@ -2456,7 +2626,7 @@ void main() {
     await tester.pump();
 
     expect(find.text('Partial pending answer'), findsOneWidget);
-    expect(find.text('Queued offline'), findsOneWidget);
+    expect(find.text('Queued Offline'), findsOneWidget);
     expect(find.text('Retry'), findsOneWidget);
     expect(find.text('Cancel'), findsOneWidget);
     expect(find.byIcon(Icons.content_copy_outlined), findsNothing);
@@ -2530,7 +2700,7 @@ void main() {
       lastError: 'Upstream rejected reasoning_effort',
       frozenReasoningEffort: 'high',
     );
-    expect(find.text('Retry without reasoning effort'), findsOneWidget);
+    expect(find.text('Retry Without Reasoning Effort'), findsOneWidget);
   });
 
   testWidgets('an error merely naming the parameter does not offer recovery', (
@@ -2540,7 +2710,7 @@ void main() {
       tester,
       lastError: 'Upstream rejected reasoning_effort',
     );
-    expect(find.text('Retry without reasoning effort'), findsNothing);
+    expect(find.text('Retry Without Reasoning Effort'), findsNothing);
   });
 
   testWidgets('an explicitly refusing model hides queued recovery even with '
@@ -2553,7 +2723,7 @@ void main() {
         selectedModelProvider.overrideWith(_RefusingSelectedModel.new),
       ],
     );
-    expect(find.text('Retry without reasoning effort'), findsNothing);
+    expect(find.text('Retry Without Reasoning Effort'), findsNothing);
   });
 
   testWidgets('a non-refusing selected model still offers recovery from the '
@@ -2566,7 +2736,7 @@ void main() {
         selectedModelProvider.overrideWith(_AdvertisingSelectedModel.new),
       ],
     );
-    expect(find.text('Retry without reasoning effort'), findsOneWidget);
+    expect(find.text('Retry Without Reasoning Effort'), findsOneWidget);
   });
 
   // A model that does not advertise reasoning effort was sent only the
@@ -2589,7 +2759,7 @@ void main() {
         ],
       );
       expect(
-        find.text('Retry without reasoning effort'),
+        find.text('Retry Without Reasoning Effort'),
         offered ? findsOneWidget : findsNothing,
       );
     });

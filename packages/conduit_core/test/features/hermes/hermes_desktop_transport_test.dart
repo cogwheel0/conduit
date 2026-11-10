@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:checks/checks.dart';
 import 'package:conduit_core/features/hermes/services/hermes_desktop_api_service.dart';
 import 'package:conduit_core/features/hermes/services/hermes_desktop_transport.dart';
+import 'package:conduit_core/features/hermes/services/hermes_identifier.dart';
 import 'package:conduit_core/features/hermes/services/hermes_json_guard.dart';
 import 'package:conduit_core/features/hermes/models/hermes_config.dart';
 import 'package:conduit_core/features/hermes/models/hermes_mcp.dart';
@@ -32,16 +33,64 @@ final class _SocketHarness {
   final incoming = StreamController<dynamic>();
   final sent = <String>[];
 
-  void ready() => incoming.add(
+  void ready([Map<String, Object?> payload = const {}]) => incoming.add(
     jsonEncode({
       'jsonrpc': '2.0',
       'method': 'event',
-      'params': {'type': 'gateway.ready', 'payload': {}},
+      'params': {'type': 'gateway.ready', 'payload': payload},
     }),
   );
 
-  Map<String, dynamic> sentFrame(int index) =>
-      Map<String, dynamic>.from(jsonDecode(sent[index]) as Map);
+  List<Map<String, dynamic>> get frames => [
+    for (final raw in sent) Map<String, dynamic>.from(jsonDecode(raw) as Map),
+  ];
+
+  /// The [index]th frame after the connection's capability handshake.
+  Map<String, dynamic> sentFrame(int index) => frames
+      .where((frame) => frame['method'] != 'client.capabilities')
+      .elementAt(index);
+
+  /// Answers the capability handshake the way Hermes 0.22+ does.
+  Future<void> answerCapabilities({
+    bool declinesNotShown = true,
+    bool clarifyBatch = false,
+  }) async {
+    await Future<void>.delayed(Duration.zero);
+    final handshake = frames.singleWhere(
+      (frame) => frame['method'] == 'client.capabilities',
+    );
+    incoming.add(
+      jsonEncode({
+        'jsonrpc': '2.0',
+        'id': handshake['id'],
+        'result': {
+          'server_requests': ['approval', 'clarify', 'secret', 'sudo', 'tour'],
+          'declines_not_shown': declinesNotShown,
+          if (clarifyBatch) 'canonical_clarify_batch': true,
+        },
+      }),
+    );
+    await Future<void>.delayed(Duration.zero);
+  }
+
+  void serverRequest(String id, String method, Map<String, Object?> params) =>
+      incoming.add(
+        jsonEncode({
+          'jsonrpc': '2.0',
+          'id': id,
+          'method': method,
+          'params': params,
+        }),
+      );
+
+  void event(String type, Map<String, Object?> payload, {String? session}) =>
+      incoming.add(
+        jsonEncode({
+          'jsonrpc': '2.0',
+          'method': 'event',
+          'params': {'type': type, 'session_id': ?session, 'payload': payload},
+        }),
+      );
 
   Future<void> dispose() => incoming.close();
 }
@@ -218,6 +267,44 @@ void main() {
         'capabilities': {'fast': true, 'reasoning': true},
       },
     ]);
+  });
+
+  test('a read for changing history refuses one past its bound', () async {
+    Future<List<Map<String, dynamic>>> rows(
+      int total,
+      int offset,
+      int limit,
+    ) async => [
+      for (var index = offset; index < offset + limit && index < total; index++)
+        {'id': index + 1},
+    ];
+
+    // Exactly at the bound: complete.
+    check(
+      await loadHermesDesktopTranscriptPages(
+        (offset, limit) => rows(40, offset, limit),
+        maximum: 40,
+        pageSize: 20,
+        complete: true,
+      ),
+    ).length.equals(40);
+    // Past it: a display read keeps the first rows ...
+    check(
+      await loadHermesDesktopTranscriptPages(
+        (offset, limit) => rows(41, offset, limit),
+        maximum: 40,
+        pageSize: 20,
+      ),
+    ).length.equals(40);
+    // ... and a read for an edit, an undo or a branch refuses.
+    await check(
+      loadHermesDesktopTranscriptPages(
+        (offset, limit) => rows(41, offset, limit),
+        maximum: 40,
+        pageSize: 20,
+        complete: true,
+      ),
+    ).throws<StateError>();
   });
 
   test('loads the complete compacted Desktop transcript in pages', () async {
@@ -483,6 +570,31 @@ void main() {
     check(buffer.hasPending('runtime-1')).isFalse();
   });
 
+  test('a closed request leaves the buffer', () {
+    final buffer = HermesDesktopEventBuffer();
+    HermesDesktopEvent request(String id) => HermesDesktopEvent(
+      type: 'clarify.request',
+      sessionId: 'rt-1',
+      payload: {'request_id': id},
+    );
+    buffer
+      ..add(request('srq-1'))
+      ..add(request('srq-2'))
+      ..add(
+        const HermesDesktopEvent(
+          type: 'message.delta',
+          sessionId: 'rt-1',
+          payload: {'request_id': 'srq-1'},
+        ),
+      );
+
+    buffer.dropRequest('rt-1', 'srq-1');
+
+    check(
+      buffer.pending('rt-1').map((e) => '${e.type} ${e.payload['request_id']}'),
+    ).deepEquals(['clarify.request srq-2', 'message.delta srq-1']);
+  });
+
   test('bounds buffered events across unknown sessions', () {
     final buffer = HermesDesktopEventBuffer(
       maximumPerSession: 4,
@@ -504,36 +616,637 @@ void main() {
     check(buffer.take('three')).length.equals(1);
   });
 
-  test(
-    'rejects unsupported host requests without invoking mobile features',
-    () async {
-      final socket = _SocketHarness();
-      final client = HermesDesktopRpcClient(
+  group('server requests', () {
+    late _SocketHarness socket;
+    late HermesDesktopRpcClient client;
+    late List<HermesDesktopEvent> events;
+
+    setUp(() async {
+      socket = _SocketHarness();
+      client = HermesDesktopRpcClient(
         channelFactory: (_, _, {httpClient}) => socket.channel,
-      );
-      addTearDown(() async {
-        await client.close();
-        await socket.dispose();
-      });
+      )..setDefaultParams({'profile': 'work'});
+      events = [];
+      client.events.listen(events.add);
       final connecting = client.connect(Uri.parse('ws://localhost/api/ws'));
       socket.ready();
       await connecting;
+    });
 
-      socket.incoming.add(
-        jsonEncode({
-          'jsonrpc': '2.0',
-          'id': 'host-1',
-          'method': 'terminal.open',
-          'params': {},
-        }),
-      );
+    tearDown(() async {
+      await client.close();
+      await socket.dispose();
+    });
+
+    test('advertises answering them, without the default profile', () async {
+      await Future<void>.delayed(Duration.zero);
+      final handshake = socket.frames.single;
+      check(handshake['method']).equals('client.capabilities');
+      check(
+        handshake['params'] as Map<String, dynamic>,
+      ).deepEquals({'server_requests': true});
+    });
+
+    test('shows an approval as a decision and writes nothing back', () async {
+      await socket.answerCapabilities();
+      socket.serverRequest('srq-a1', 'approval', {
+        'session_id': 'runtime-1',
+        'request_id': 'queue-7',
+        'command': 'rm -rf build',
+        'description': 'delete in root path',
+        'choices': ['once', 'session', 'always', 'deny'],
+      });
       await Future<void>.delayed(Duration.zero);
 
-      final response = socket.sentFrame(0);
-      check(response['id']).equals('host-1');
-      check((response['error'] as Map)['code']).equals(-32601);
-    },
-  );
+      final approval = events.singleWhere(
+        (event) => event.type == 'approval.request',
+      );
+      check(approval.sessionId).equals('runtime-1');
+      check(approval.payload['request_id']).equals('srq-a1');
+      check(approval.payload['approval_request_id']).equals('queue-7');
+      check(approval.payload['command']).equals('rm -rf build');
+      check(socket.frames.length).equals(1);
+    });
+
+    test('shows a clarify request as one form of every question', () async {
+      await socket.answerCapabilities();
+      socket.serverRequest('srq-c1', 'clarify', {
+        'session_id': 'runtime-1',
+        'questions': [
+          {
+            'qid': 'q0',
+            'question': 'Which colour?',
+            'choices': ['Teal (Recommended)', 'Amber'],
+            'multi_select': false,
+          },
+          {
+            'qid': 'q1',
+            'question': 'Which sizes?',
+            'choices': ['Small', 'Large'],
+            'multi_select': true,
+          },
+          {'qid': 'q2', 'question': 'Anything else?', 'choices': null},
+        ],
+      });
+      await Future<void>.delayed(Duration.zero);
+
+      final form = events.singleWhere(
+        (event) => event.type == 'clarify.request',
+      );
+      check(form.sessionId).equals('runtime-1');
+      check(form.payload['request_id']).equals('srq-c1');
+      check(form.payload['server_request']).equals('srq-c1');
+      check(form.payload['question']).equals('Which colour?');
+      check(form.payload['questions'] as List).deepEquals([
+        {
+          'qid': 'q0',
+          'question': 'Which colour?',
+          'choices': ['Teal (Recommended)', 'Amber'],
+        },
+        {
+          'qid': 'q1',
+          'question': 'Which sizes?',
+          'choices': ['Small', 'Large'],
+          'multi_select': true,
+        },
+        {'qid': 'q2', 'question': 'Anything else?'},
+      ]);
+      // Nothing is answered on the socket the request came in on.
+      check(socket.frames.length).equals(1);
+    });
+
+    test('a withdrawal closes the whole form', () async {
+      await socket.answerCapabilities();
+      socket.serverRequest('srq-c2', 'clarify', {
+        'session_id': 'runtime-1',
+        'questions': [
+          {'qid': 'q0', 'question': 'First?'},
+          {'qid': 'q1', 'question': 'Second?'},
+        ],
+      });
+      await Future<void>.delayed(Duration.zero);
+      socket.event('request.cancel', {
+        'id': 'srq-c2',
+        'method': 'clarify',
+        'reason': 'timeout',
+      }, session: 'runtime-1');
+      await Future<void>.delayed(Duration.zero);
+
+      final expired = events.singleWhere(
+        (event) => event.type == 'clarify.expire',
+      );
+      check(expired.sessionId).equals('runtime-1');
+      check(expired.payload['request_id']).equals('srq-c2');
+      check(expired.payload['reason']).equals('timeout');
+    });
+
+    test('replays open requests with the answers already locked', () async {
+      client.replayOpenRequests([
+        {
+          'id': 'srq-r1',
+          'method': 'clarify',
+          'params': {
+            'session_id': 'runtime-2',
+            'questions': [
+              {'qid': 'q0', 'question': 'First?'},
+              {'qid': 'q1', 'question': 'Second?'},
+              {'qid': 'q2', 'question': 'Third?'},
+            ],
+            'answers': {'q0': 'yes', 'q2': null},
+          },
+        },
+        {
+          'id': 'srq-r2',
+          'method': 'sudo',
+          'params': {'session_id': 'runtime-2', 'command': 'apt update'},
+        },
+      ]);
+      await Future<void>.delayed(Duration.zero);
+
+      final shown = events
+          .where((event) => event.type != 'gateway.ready')
+          .toList();
+      check(
+        shown.map((event) => '${event.type} ${event.payload['request_id']}'),
+      ).deepEquals(['clarify.request srq-r1', 'sudo.request srq-r2']);
+      check(shown.first.payload['questions'] as List).deepEquals([
+        {'qid': 'q0', 'question': 'First?', 'locked': true, 'answer': 'yes'},
+        {'qid': 'q1', 'question': 'Second?'},
+        {'qid': 'q2', 'question': 'Third?', 'locked': true},
+      ]);
+      check(shown.last.payload['prompt']).equals('apt update');
+    });
+
+    // A request withdrawn after the snapshot was asked for is still listed
+    // in it; its replay reopened a form Hermes no longer takes answers for.
+    test('a request withdrawn since the snapshot was asked stays closed',
+        () async {
+      await socket.answerCapabilities();
+      final mark = client.canonicalSettleMark;
+      socket.event('request.cancel', {
+        'id': 'srq-w1',
+        'method': 'clarify',
+        'reason': 'timeout',
+      }, session: 'runtime-3');
+      await Future<void>.delayed(Duration.zero);
+
+      client.replayOpenRequests([
+        {
+          'id': 'srq-w1',
+          'method': 'clarify',
+          'params': {
+            'session_id': 'runtime-3',
+            'questions': [
+              {'qid': 'q0', 'question': 'Keep the drafts?'},
+            ],
+          },
+        },
+        {
+          'id': 'srq-w2',
+          'method': 'sudo',
+          'params': {'session_id': 'runtime-3', 'command': 'apt update'},
+        },
+      ], settledSince: mark);
+      await Future<void>.delayed(Duration.zero);
+
+      check(
+        events
+            .where((event) => event.type.endsWith('.request'))
+            .map((event) => '${event.type} ${event.payload['request_id']}'),
+      ).deepEquals(['sudo.request srq-w2']);
+    });
+
+    test('a clarify request without usable questions is not shown', () async {
+      await socket.answerCapabilities();
+      socket.serverRequest('srq-c3', 'clarify', {
+        'session_id': 'runtime-1',
+        'questions': [
+          {'qid': '', 'question': 'No id?'},
+          {'qid': 'q1', 'question': '   '},
+        ],
+      });
+      await Future<void>.delayed(Duration.zero);
+
+      check(events.where((event) => event.type == 'clarify.request')).isEmpty();
+    });
+
+    test('a legacy gateway is never asked for one-form questions', () async {
+      check(client.canonicalClarifyBatch).isFalse();
+      await socket.answerCapabilities(clarifyBatch: true);
+      // The dashboard always asks a form at once and refuses the key.
+      check(client.canonicalClarifyBatch).isFalse();
+    });
+
+    test('shows a connection operation one waiting target at a time', () async {
+      Map<String, Object?> target(String name, String state) => {
+        'name': name,
+        'kind': 'mcp',
+        'action': 'install',
+        'state': state,
+        'launch': {'kind': 'stdio', 'target': 'npx demo-$name'},
+      };
+      socket.event('connection.request', {
+        'op_id': 'op-1',
+        'seq': 1,
+        'deadline_at': 0,
+        'timeout_seconds': 300,
+        'targets': [target('docs', 'pending'), target('notes', 'pending')],
+      }, session: 'runtime-1');
+      await Future<void>.delayed(Duration.zero);
+      final first = events.singleWhere(
+        (event) => event.type == 'mcp.setup.request',
+      );
+      check(first.sessionId).equals('runtime-1');
+      check(first.payload['request_id']).equals('op-1/docs');
+      check(first.payload['action']).equals('install');
+      check(first.payload['reason']).equals('npx demo-docs');
+
+      socket.event('connection.update', {
+        'op_id': 'op-1',
+        'seq': 2,
+        'settled': false,
+        'owner': {'type': 'session', 'session_id': 'runtime-1'},
+        'targets': [target('docs', 'connected'), target('notes', 'pending')],
+      }, session: 'runtime-1');
+      await Future<void>.delayed(Duration.zero);
+      check(
+        events
+            .where((event) => event.type.startsWith('mcp.setup.'))
+            .map((event) => '${event.type} ${event.payload['request_id']}'),
+      ).deepEquals([
+        'mcp.setup.request op-1/docs',
+        'mcp.setup.expire op-1/docs',
+        'mcp.setup.request op-1/notes',
+      ]);
+
+      socket.event('connection.update', {
+        'op_id': 'op-1',
+        'seq': 3,
+        'settled': true,
+        'owner': {'type': 'session', 'session_id': 'runtime-1'},
+        'targets': [target('docs', 'connected'), target('notes', 'skipped')],
+      }, session: 'runtime-1');
+      await Future<void>.delayed(Duration.zero);
+      check(events.last.type).equals('mcp.setup.expire');
+      check(events.last.payload['request_id']).equals('op-1/notes');
+    });
+
+    test('a target name too long for a card id still gets its card', () async {
+      // 510 scalars: valid as a name, too long once the operation joins it.
+      final name = 'server-${'x' * 503}';
+      socket.event('connection.request', {
+        'op_id': 'op-9',
+        'seq': 1,
+        'deadline_at': 0,
+        'timeout_seconds': 300,
+        'targets': [
+          {
+            'name': name,
+            'kind': 'mcp',
+            'action': 'install',
+            'state': 'pending',
+          },
+        ],
+      }, session: 'runtime-1');
+      await Future<void>.delayed(Duration.zero);
+
+      final card = events.singleWhere((e) => e.type == 'mcp.setup.request');
+      final cardId = card.payload['request_id'] as String;
+      check(validateHermesOpaqueIdentifier(cardId)).isNotNull();
+      check(client.connectionCardTarget(cardId)).equals(name);
+      // A short name's card id still names it.
+      check(client.connectionCardTarget('op-9/docs')).equals('docs');
+    });
+
+    test('card ids keep a slash in either part', () {
+      final id = hermesConnectionCardId('op-1', 'owner/skill~beta');
+      check(id).equals('op-1/owner~1skill~0beta');
+      final card = parseHermesConnectionCardId(id);
+      check(card?.operationId).equals('op-1');
+      check(card?.target).equals('owner/skill~beta');
+      check(parseHermesConnectionCardId('op-1/a/b')).isNull();
+      check(parseHermesConnectionCardId('op-1/')).isNull();
+    });
+
+    test('shows a target whose sign-in already started', () async {
+      const link = 'https://auth.example/authorize?state=abc';
+      Map<String, Object?> target(String state) => {
+        'name': 'docs',
+        'kind': 'mcp',
+        'action': 'authorize',
+        'state': state,
+        if (state == 'initiated') 'connect_url': link,
+      };
+      socket.event('connection.request', {
+        'op_id': 'op-2',
+        'targets': [target('initiated')],
+      }, session: 'runtime-1');
+      await Future<void>.delayed(Duration.zero);
+
+      final card = events.singleWhere((e) => e.type == 'mcp.setup.request');
+      check(card.payload['request_id']).equals('op-2/docs');
+      check(card.payload['action']).equals('authorize');
+      check(client.connectionLink('op-2/docs')).equals(Uri.parse(link));
+
+      socket.event('connection.update', {
+        'op_id': 'op-2',
+        'settled': true,
+        'targets': [target('connected')],
+      }, session: 'runtime-1');
+      await Future<void>.delayed(Duration.zero);
+      check(events.last.type).equals('mcp.setup.expire');
+      check(client.connectionLink('op-2/docs')).isNull();
+    });
+
+    test('a target answered once is not asked about again', () async {
+      Map<String, Object?> target(String name, String state, {String? url}) =>
+          {
+            'name': name,
+            'kind': 'mcp',
+            'action': 'install',
+            'state': state,
+            'connect_url': ?url,
+          };
+      void update(List<Map<String, Object?>> targets) => socket.event(
+        'connection.update',
+        {'op_id': 'op-3', 'targets': targets},
+        session: 'runtime-1',
+      );
+      update([target('docs', 'pending'), target('notes', 'pending')]);
+      // Approved: the install starts, then its sign-in link arrives.
+      update([target('docs', 'initiated'), target('notes', 'pending')]);
+      update([
+        target('docs', 'initiated', url: 'https://auth.example/docs'),
+        target('notes', 'pending'),
+      ]);
+      await Future<void>.delayed(Duration.zero);
+
+      check(
+        events
+            .where((event) => event.type.startsWith('mcp.setup.'))
+            .map((event) => '${event.type} ${event.payload['request_id']}'),
+      ).deepEquals([
+        'mcp.setup.request op-3/docs',
+        'mcp.setup.expire op-3/docs',
+        'mcp.setup.request op-3/notes',
+      ]);
+    });
+
+    // With no target left waiting the operation was forgotten, so the link
+    // arriving later opened a fresh one and asked about the target again.
+    test('a lone target answered is not asked about again', () async {
+      Map<String, Object?> target(String state, {String? url}) => {
+        'name': 'docs',
+        'kind': 'mcp',
+        'action': 'install',
+        'state': state,
+        'connect_url': ?url,
+      };
+      void update(Map<String, Object?> docs) => socket.event(
+        'connection.update',
+        {
+          'op_id': 'op-4',
+          'targets': [docs],
+        },
+        session: 'runtime-1',
+      );
+      update(target('pending'));
+      update(target('initiated'));
+      update(target('initiated', url: 'https://auth.example/docs'));
+      await Future<void>.delayed(Duration.zero);
+
+      check(
+        events
+            .where((event) => event.type.startsWith('mcp.setup.'))
+            .map((event) => '${event.type} ${event.payload['request_id']}'),
+      ).deepEquals([
+        'mcp.setup.request op-4/docs',
+        'mcp.setup.expire op-4/docs',
+      ]);
+    });
+
+    test('declines Desktop-only requests with 4404 once allowed', () async {
+      socket.serverRequest('srq-t0', 'tour', {'session_id': 'runtime-1'});
+      await Future<void>.delayed(Duration.zero);
+      check(socket.frames.length).equals(1);
+
+      await socket.answerCapabilities();
+      socket.serverRequest('srq-t1', 'tour', {'session_id': 'runtime-1'});
+      await Future<void>.delayed(Duration.zero);
+      final decline = socket.frames.last;
+      check(decline['id']).equals('srq-t1');
+      check((decline['error'] as Map)['code']).equals(4404);
+      check(events.where((event) => event.type != 'gateway.ready')).isEmpty();
+    });
+  });
+
+  group('session authority', () {
+    late _SocketHarness socket;
+    late HermesDesktopRpcClient client;
+    late List<HermesDesktopEvent> events;
+
+    setUp(() async {
+      socket = _SocketHarness();
+      client = HermesDesktopRpcClient(
+        channelFactory: (_, _, {httpClient}) => socket.channel,
+      )..setDefaultParams({'profile': 'work'});
+      events = [];
+      client.events.listen(events.add);
+      final connecting = client.connect(Uri.parse('ws://localhost/api/ws'));
+      socket.ready({'session_authority': true});
+      await connecting;
+      await socket.answerCapabilities(clarifyBatch: true);
+    });
+
+    test('remembers that the authority asks a form at once', () {
+      check(client.canonicalClarifyBatch).isTrue();
+    });
+
+    tearDown(() async {
+      await client.close();
+      await socket.dispose();
+    });
+
+    void stamped(String type, Map<String, Object?> payload, int seq) =>
+        socket.incoming.add(
+          jsonEncode({
+            'jsonrpc': '2.0',
+            'method': 'event',
+            'params': {
+              'type': type,
+              'session_id': 'local-1',
+              'payload': payload,
+              'replay_epoch': 'epoch-1',
+              'seq': seq,
+              'execution_generation': 4,
+              'admission_id': 'adm-1',
+            },
+          }),
+        );
+
+    test('keeps the stream position its events are stamped with', () async {
+      stamped('message.delta', {'text': 'Hi'}, 12);
+      await Future<void>.delayed(Duration.zero);
+
+      final delta = events.last;
+      check(client.sessionAuthority).isTrue();
+      check(delta.seq).equals(12);
+      check(delta.replayEpoch).equals('epoch-1');
+      check(delta.executionGeneration).equals(4);
+      check(delta.admissionId).equals('adm-1');
+    });
+
+    test('shows an approval event by its prompt id until settled', () async {
+      stamped('approval.request', {
+        'kind': 'approval',
+        'prompt_id': 'prompt-a',
+        'execution_generation': 4,
+        'command': 'rm -rf build',
+        'choices': ['once', 'deny'],
+      }, 13);
+      await Future<void>.delayed(Duration.zero);
+
+      check(events.last.payload['request_id']).equals('prompt-a');
+      check(client.canonicalPrompt('prompt-a')).equals((
+        sessionId: 'local-1',
+        generation: 4,
+        kind: 'approval',
+      ));
+
+      stamped('approval.settled', {
+        'prompt_id': 'prompt-a',
+        'execution_generation': 4,
+      }, 14);
+      await Future<void>.delayed(Duration.zero);
+
+      final expired = events.last;
+      check(expired.type).equals('approval.expire');
+      check(expired.sessionId).equals('local-1');
+      check(expired.payload['request_id']).equals('prompt-a');
+      check(client.canonicalPrompt('prompt-a')).isNull();
+    });
+
+    test('a snapshot re-shows open questions and closes settled ones',
+        () async {
+      client.replayCanonicalPrompts('local-1', [
+        {
+          'kind': 'clarify',
+          'prompt_id': 'prompt-q',
+          'execution_generation': 4,
+          'question': 'Which colour?',
+          'choices': ['Teal'],
+          'multi_select': false,
+        },
+      ]);
+      await Future<void>.delayed(Duration.zero);
+      check(events.last.type).equals('clarify.request');
+      check(events.last.payload['request_id']).equals('prompt-q');
+
+      client.replayCanonicalPrompts('local-1', const []);
+      await Future<void>.delayed(Duration.zero);
+      check(events.last.type).equals('clarify.expire');
+      check(events.last.payload['request_id']).equals('prompt-q');
+      check(client.canonicalPrompt('prompt-q')).isNull();
+    });
+
+    test('never answers a request it does not show', () async {
+      socket.serverRequest('srq-t1', 'tour', {'session_id': 'local-1'});
+      await Future<void>.delayed(Duration.zero);
+
+      // Any error, a decline included, settles it for every viewer.
+      check(socket.frames.where((frame) => frame['id'] == 'srq-t1')).isEmpty();
+    });
+
+    test('answers a request with its response frame', () async {
+      check(client.answerServerRequest('srq-s1', {'value': 'pw'})).isTrue();
+
+      check(socket.frames.last).deepEquals({
+        'jsonrpc': '2.0',
+        'id': 'srq-s1',
+        'result': {'value': 'pw'},
+      });
+    });
+  });
+
+  group('reply segments', () {
+    test('drop a re-sent segment and keep only new text', () {
+      final segments = HermesDeltaSegments();
+      String? seen(int offset, String text, {int segment = 0}) =>
+          segments.unseen(
+            turnId: 'turn-1',
+            segment: segment,
+            offset: offset,
+            text: text,
+          );
+
+      check(seen(0, 'Hello ')).equals('Hello ');
+      check(seen(6, 'there')).equals('there');
+      // A replay re-sends the segment from its start.
+      check(seen(0, 'Hello ')).isNull();
+      check(seen(0, 'Hello there, friend')).equals(', friend');
+      // Another segment of the same turn counts from zero.
+      check(seen(0, 'Next', segment: 1)).equals('Next');
+    });
+
+    test('pass through deltas without positions', () {
+      final segments = HermesDeltaSegments();
+      check(
+        segments.unseen(turnId: null, segment: null, offset: null, text: 'a'),
+      ).equals('a');
+      check(
+        segments.unseen(turnId: null, segment: null, offset: null, text: 'a'),
+      ).equals('a');
+    });
+
+    test('count offsets in UTF-16 code units', () {
+      final segments = HermesDeltaSegments();
+      String? seen(int offset, String text) => segments.unseen(
+        turnId: 't',
+        segment: 0,
+        offset: offset,
+        text: text,
+      );
+      check(seen(0, '🙂 ok')).equals('🙂 ok');
+      check(seen(0, '🙂 ok!')).equals('!');
+    });
+  });
+
+  test('error data reaches the caller', () async {
+    final socket = _SocketHarness();
+    final client = HermesDesktopRpcClient(
+      channelFactory: (_, _, {httpClient}) => socket.channel,
+    );
+    addTearDown(() async {
+      await client.close();
+      await socket.dispose();
+    });
+    final connecting = client.connect(Uri.parse('ws://localhost/api/ws'));
+    socket.ready({'heartbeat': false, 'session_authority': true});
+    await connecting;
+    check(client.sessionAuthority).isTrue();
+
+    final submit = client.request<Object?>(
+      'prompt.submit',
+      includeDefaultParams: false,
+    );
+    await Future<void>.delayed(Duration.zero);
+    socket.incoming.add(
+      jsonEncode({
+        'jsonrpc': '2.0',
+        'id': socket.sentFrame(0)['id'],
+        'error': {
+          'code': 4090,
+          'message': 'busy',
+          'data': {'reason': 'SESSION_OWNER_BUSY'},
+        },
+      }),
+    );
+    await check(submit).throws<HermesDesktopRpcException>(
+      (error) => error
+        ..has((error) => error.code, 'code').equals(4090)
+        ..has((error) => error.reason, 'reason').equals('SESSION_OWNER_BUSY'),
+    );
+  });
 
   test('times out requests and rejects pending work on disconnect', () async {
     final socket = _SocketHarness();
@@ -637,5 +1350,21 @@ void main() {
 
     await client.connect(Uri.parse('ws://127.0.0.1:${server.port}/api/ws'));
     check(client.isReady).isTrue();
+  });
+
+  test('a gateway closing with 1013 before ready is not ready yet', () async {
+    final socket = _SocketHarness();
+    when(() => socket.channel.closeCode).thenReturn(1013);
+    final client = HermesDesktopRpcClient(
+      channelFactory: (_, _, {httpClient}) => socket.channel,
+    );
+    addTearDown(client.close);
+
+    final connecting = client.connect(Uri.parse('ws://localhost/api/ws'));
+    await socket.dispose();
+
+    await check(connecting).throws<HermesDesktopRpcException>(
+      (error) => error.has((e) => e.notReady, 'notReady').isTrue(),
+    );
   });
 }

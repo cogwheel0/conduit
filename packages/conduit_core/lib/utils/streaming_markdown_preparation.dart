@@ -17,6 +17,12 @@ final _detailsOpenPattern = RegExp(r'<details\b', caseSensitive: false);
 // let the checkpoint think it left a details block the parser is still
 // inside, splitting prepared content mid-block.
 final _detailsClosePattern = RegExp(r'</details>', caseSensitive: false);
+// A parenthesized reference title can span blank lines. Keep its opening line
+// mutable even before the complete definition is recognized by normalization.
+final _referenceDefinitionStartPattern = RegExp(
+  r'^[ ]{0,3}\[[^\]\r\n]+\]:',
+  multiLine: true,
+);
 
 /// See `stripTrailingIncompleteToolCallDetails` in `conduit_markdown`.
 String stripTrailingIncompleteToolCallDetailsCanonical(String input) =>
@@ -518,15 +524,21 @@ class StreamingMarkdownPreparationEngine {
     final checkpoint = state.checkpoint;
     if (commonRawPrefix < checkpoint.rawOffset ||
         checkpoint.rawOffset == 0 ||
-        state.hasReferenceDefinitions ||
-        ConduitMarkdownPreprocessor.hasLinkReferenceDefinitionLine(
-          request.content,
-        )) {
+        state.hasReferenceDefinitions) {
       return null;
     }
 
     var rawRetainLength = checkpoint.rawOffset;
     var rawTail = request.content.substring(rawRetainLength);
+    // Whitespace trimming can move a checkpoint into its preceding line.
+    // Include that entire line when checking for a newly completed definition.
+    final referenceStart =
+        request.content.lastIndexOf('\n', rawRetainLength - 1) + 1;
+    if (ConduitMarkdownPreprocessor.hasLinkReferenceDefinitionLine(
+      request.content.substring(referenceStart),
+    )) {
+      return null;
+    }
     var replacementTail = prepareMarkdownContentCanonical(
       rawTail,
       streaming: request.streaming,
@@ -831,6 +843,8 @@ int _lastSafeRawBoundary(String input) {
     final lineEnd = newline == -1 ? input.length : newline;
     final line = input.substring(lineStart, lineEnd);
     final lower = line.toLowerCase();
+
+    if (_referenceDefinitionStartPattern.hasMatch(line)) break;
 
     // Counting the partial `<details\b` (vs the parser's complete-tag
     // count) can only overcount, which keeps content mutable longer —

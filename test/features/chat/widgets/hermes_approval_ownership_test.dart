@@ -45,6 +45,7 @@ class _GatedApprovalService extends HermesApiService {
 
   final Completer<void> gate;
   final List<(String, String, bool)> decisions = [];
+  final List<String?> choices = [];
   final StreamController<HermesRunEvent> events =
       StreamController<HermesRunEvent>(sync: true);
   final Completer<void> runEventsStarted = Completer<void>();
@@ -70,6 +71,8 @@ class _GatedApprovalService extends HermesApiService {
     String runId, {
     String? sessionId,
     CancelToken? cancelToken,
+    int? lastEventId,
+    void Function(int seq)? onSequence,
   }) {
     if (!runEventsStarted.isCompleted) runEventsStarted.complete();
     return events.stream;
@@ -80,8 +83,11 @@ class _GatedApprovalService extends HermesApiService {
     String runId, {
     required String approvalId,
     required bool approved,
+    int? executionGeneration,
+    String? choice,
   }) async {
     decisions.add((runId, approvalId, approved));
+    choices.add(choice);
     await gate.future;
   }
 
@@ -145,6 +151,7 @@ Map<String, dynamic> _boundHermesSessionMetadata(
 ChatMessage _approvalMessage({
   required String runId,
   required String approvalId,
+  List<String>? choices,
 }) => ChatMessage(
   id: 'assistant',
   role: 'assistant',
@@ -160,6 +167,7 @@ ChatMessage _approvalMessage({
       'runId': runId,
       'approvalId': approvalId,
       'summary': 'Continue?',
+      'choices': ?choices,
     },
   },
 );
@@ -410,6 +418,92 @@ void main() {
     container.dispose();
     containerDisposed = true;
     // Flush Riverpod's zero-duration scheduler task after explicit disposal.
+    await tester.pump();
+  });
+
+  testWidgets('an approval scope reaches the API server', (tester) async {
+    final gate = Completer<void>()..complete();
+    final service = _GatedApprovalService(gate);
+    final container = ProviderContainer(
+      overrides: [
+        hermesApiServiceProvider.overrideWithValue(service),
+        hermesCapabilitiesProvider.overrideWith(
+          (ref) async => HermesCapabilities.enabledByDefault,
+        ),
+        textToSpeechControllerProvider.overrideWith(
+          _TestTextToSpeechController.new,
+        ),
+        streamingHapticsEnabledProvider.overrideWithValue(false),
+      ],
+    );
+    var containerDisposed = false;
+    addTearDown(() {
+      if (!containerDisposed) container.dispose();
+    });
+    addTearDown(service.close);
+
+    final message = _approvalMessage(
+      runId: 'run-scope',
+      approvalId: 'approval-scope',
+      choices: const ['once', 'session', 'deny'],
+    );
+    final conversation = markNativeHermesConversation(
+      Conversation(
+        id: 'hermes-chat',
+        title: 'Hermes chat',
+        createdAt: DateTime(2026),
+        updatedAt: DateTime(2026),
+        messages: [message],
+        metadata: const {'backend': 'hermes'},
+      ),
+    );
+    container.read(activeConversationProvider.notifier).set(conversation);
+    container.read(chatMessagesProvider.notifier).setMessages([message]);
+    final registry = container.read(hermesRunRegistryProvider);
+    final key = hermesRunKeyForConversation(
+      container,
+      conversation: conversation,
+      assistantMessageId: message.id,
+    );
+    final token = CancelToken();
+    registry.registerPending(key, cancelToken: token, onCancelled: () {});
+    registry.attachRun(
+      key,
+      cancelToken: token,
+      runId: 'run-scope',
+      subscription: const Stream<void>.empty().listen((_) {}),
+      stopRemote: (_) async {},
+    );
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: MaterialApp(
+          theme: AppTheme.light(TweakcnThemes.t3Chat),
+          localizationsDelegates: conduitLocalizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: Scaffold(body: HermesComposerPromptOverlay(message: message)),
+        ),
+      ),
+    );
+    await tester.pump();
+    check(find.text('Always allow').evaluate()).isEmpty();
+    await tester.tap(find.text('Allow for Session'));
+    await tester.pump();
+    await tester.pump();
+
+    check(
+      service.decisions,
+    ).deepEquals([('run-scope', 'approval-scope', true)]);
+    check(service.choices).deepEquals(['session']);
+    final current = container.read(chatMessagesProvider).single;
+    check((current.metadata!['hermesApproval'] as Map)['state'])
+        .equals('approved');
+
+    await registry.cancel(key);
+    await tester.pumpWidget(const SizedBox.shrink());
+    container.dispose();
+    containerDisposed = true;
     await tester.pump();
   });
 

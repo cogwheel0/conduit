@@ -144,6 +144,32 @@ class HermesConnectionsPage extends ConsumerWidget {
             ],
           ),
         ],
+        if (config.enabled && config.isUsable) ...[
+          gap,
+          InsetGroupedList(
+            title: l10n.hermesConversationsTitle,
+            children: [
+              UtilityRow(
+                key: const ValueKey<String>('hermes-hidden-chats-row'),
+                leading: SizedBox(
+                  width: IconSize.xl,
+                  height: IconSize.xl,
+                  child: Icon(
+                    context.usesCupertinoChrome
+                        ? CupertinoIcons.eye_slash
+                        : Icons.visibility_off_outlined,
+                    size: IconSize.medium,
+                    color: context.conduitTheme.buttonPrimary,
+                  ),
+                ),
+                title: l10n.hermesHiddenChatsTitle,
+                showChevron: true,
+                onTap: () =>
+                    context.pushNamed(RouteNames.hermesHiddenSessions),
+              ),
+            ],
+          ),
+        ],
       ],
     );
   }

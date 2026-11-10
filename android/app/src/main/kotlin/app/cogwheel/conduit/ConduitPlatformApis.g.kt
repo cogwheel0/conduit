@@ -281,7 +281,14 @@ enum class PlatformNativeSheetItemKind(val raw: Int) {
   INFO(9),
   READ_ONLY_TEXT(10),
   SOURCE(11),
-  STATUS_UPDATE(12);
+  STATUS_UPDATE(12),
+  /**
+   * A choice among a few looks, drawn as preview tiles with a label and a
+   * selection mark under each, as Display & Brightness draws Light and Dark.
+   * Each option's swatches paint its preview; one with dark swatches too
+   * previews both halves.
+   */
+  APPEARANCE_TILES(13);
 
   companion object {
     fun ofRaw(raw: Int): PlatformNativeSheetItemKind? {
@@ -1305,7 +1312,13 @@ data class PlatformNativeSheetOption (
   val ancestorHasMoreSiblings: List<Boolean>,
   val showBranch: Boolean,
   val hasMoreSiblings: Boolean,
-  val filterGroup: String? = null
+  val filterGroup: String? = null,
+  /**
+   * Colours (ARGB) that preview the option, such as a palette's, in light
+   * and dark appearance. Null for an ordinary option.
+   */
+  val swatchesArgb: List<Long>? = null,
+  val darkSwatchesArgb: List<Long>? = null
 )
  {
   companion object {
@@ -1320,7 +1333,9 @@ data class PlatformNativeSheetOption (
       val showBranch = pigeonVar_list[7] as Boolean
       val hasMoreSiblings = pigeonVar_list[8] as Boolean
       val filterGroup = pigeonVar_list[9] as String?
-      return PlatformNativeSheetOption(id, label, subtitle, sfSymbol, enabled, destructive, ancestorHasMoreSiblings, showBranch, hasMoreSiblings, filterGroup)
+      val swatchesArgb = pigeonVar_list[10] as List<Long>?
+      val darkSwatchesArgb = pigeonVar_list[11] as List<Long>?
+      return PlatformNativeSheetOption(id, label, subtitle, sfSymbol, enabled, destructive, ancestorHasMoreSiblings, showBranch, hasMoreSiblings, filterGroup, swatchesArgb, darkSwatchesArgb)
     }
   }
   fun toList(): List<Any?> {
@@ -1335,6 +1350,8 @@ data class PlatformNativeSheetOption (
       showBranch,
       hasMoreSiblings,
       filterGroup,
+      swatchesArgb,
+      darkSwatchesArgb,
     )
   }
   override fun equals(other: Any?): Boolean {
@@ -1345,7 +1362,7 @@ data class PlatformNativeSheetOption (
       return true
     }
     val other = other as PlatformNativeSheetOption
-    return ConduitPlatformApisPigeonUtils.deepEquals(this.id, other.id) && ConduitPlatformApisPigeonUtils.deepEquals(this.label, other.label) && ConduitPlatformApisPigeonUtils.deepEquals(this.subtitle, other.subtitle) && ConduitPlatformApisPigeonUtils.deepEquals(this.sfSymbol, other.sfSymbol) && ConduitPlatformApisPigeonUtils.deepEquals(this.enabled, other.enabled) && ConduitPlatformApisPigeonUtils.deepEquals(this.destructive, other.destructive) && ConduitPlatformApisPigeonUtils.deepEquals(this.ancestorHasMoreSiblings, other.ancestorHasMoreSiblings) && ConduitPlatformApisPigeonUtils.deepEquals(this.showBranch, other.showBranch) && ConduitPlatformApisPigeonUtils.deepEquals(this.hasMoreSiblings, other.hasMoreSiblings) && ConduitPlatformApisPigeonUtils.deepEquals(this.filterGroup, other.filterGroup)
+    return ConduitPlatformApisPigeonUtils.deepEquals(this.id, other.id) && ConduitPlatformApisPigeonUtils.deepEquals(this.label, other.label) && ConduitPlatformApisPigeonUtils.deepEquals(this.subtitle, other.subtitle) && ConduitPlatformApisPigeonUtils.deepEquals(this.sfSymbol, other.sfSymbol) && ConduitPlatformApisPigeonUtils.deepEquals(this.enabled, other.enabled) && ConduitPlatformApisPigeonUtils.deepEquals(this.destructive, other.destructive) && ConduitPlatformApisPigeonUtils.deepEquals(this.ancestorHasMoreSiblings, other.ancestorHasMoreSiblings) && ConduitPlatformApisPigeonUtils.deepEquals(this.showBranch, other.showBranch) && ConduitPlatformApisPigeonUtils.deepEquals(this.hasMoreSiblings, other.hasMoreSiblings) && ConduitPlatformApisPigeonUtils.deepEquals(this.filterGroup, other.filterGroup) && ConduitPlatformApisPigeonUtils.deepEquals(this.swatchesArgb, other.swatchesArgb) && ConduitPlatformApisPigeonUtils.deepEquals(this.darkSwatchesArgb, other.darkSwatchesArgb)
   }
 
   override fun hashCode(): Int {
@@ -1360,10 +1377,12 @@ data class PlatformNativeSheetOption (
     result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.showBranch)
     result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.hasMoreSiblings)
     result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.filterGroup)
+    result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.swatchesArgb)
+    result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.darkSwatchesArgb)
     return result
   }
   override fun toString(): String {
-    return "PlatformNativeSheetOption(id=$id, label=$label, subtitle=$subtitle, sfSymbol=$sfSymbol, enabled=$enabled, destructive=$destructive, ancestorHasMoreSiblings=$ancestorHasMoreSiblings, showBranch=$showBranch, hasMoreSiblings=$hasMoreSiblings, filterGroup=$filterGroup)"
+    return "PlatformNativeSheetOption(id=$id, label=$label, subtitle=$subtitle, sfSymbol=$sfSymbol, enabled=$enabled, destructive=$destructive, ancestorHasMoreSiblings=$ancestorHasMoreSiblings, showBranch=$showBranch, hasMoreSiblings=$hasMoreSiblings, filterGroup=$filterGroup, swatchesArgb=$swatchesArgb, darkSwatchesArgb=$darkSwatchesArgb)"
   }
 }
 

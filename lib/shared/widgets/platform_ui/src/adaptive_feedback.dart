@@ -8,6 +8,7 @@ import '../../../theme/color_tokens.dart';
 import '../../../theme/theme_extensions.dart';
 import 'adaptive_glass_controls.dart';
 import 'platform_ui_capabilities.dart';
+import 'placeholder_caret_gap.dart';
 import 'ios_text_magnifier.dart';
 
 enum AdaptiveSnackBarType { info, success, warning, error }
@@ -297,6 +298,8 @@ class AdaptiveAlertDialogInput {
     this.initialValue,
     this.keyboardType,
     this.obscureText = false,
+    this.autocorrect = true,
+    this.maxLines = 1,
     this.maxLength,
   });
 
@@ -304,6 +307,8 @@ class AdaptiveAlertDialogInput {
   final String? initialValue;
   final TextInputType? keyboardType;
   final bool obscureText;
+  final bool autocorrect;
+  final int maxLines;
   final int? maxLength;
 }
 
@@ -415,91 +420,119 @@ class AdaptiveAlertDialog {
     required AdaptiveAlertDialogInput input,
   }) async {
     final controller = TextEditingController(text: input.initialValue);
+    ModalRoute<dynamic>? dialogRoute;
     try {
       if (PlatformUiCapabilities.isIOS) {
         return await showCupertinoDialog<String?>(
           context: context,
-          builder: (dialogContext) => CupertinoAlertDialog(
-            title: Text(title),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                if (message != null) Text(message),
-                const SizedBox(height: 10),
-                CupertinoTextField(
-                  magnifierConfiguration: nativeIosTextMagnifierConfiguration,
-                  controller: controller,
-                  placeholder: input.placeholder,
-                  keyboardType: input.keyboardType,
-                  obscureText: input.obscureText,
-                  maxLength: input.maxLength,
-                  autofocus: true,
-                ),
+          builder: (dialogContext) {
+            dialogRoute = ModalRoute.of(dialogContext);
+            return CupertinoAlertDialog(
+              title: Text(title),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (message != null) Text(message),
+                  const SizedBox(height: 10),
+                  CupertinoTextField(
+                    magnifierConfiguration: nativeIosTextMagnifierConfiguration,
+                    controller: controller,
+                    placeholder: placeholderClearOfCaret(input.placeholder),
+                    keyboardType: input.keyboardType,
+                    obscureText: input.obscureText,
+                    autocorrect: input.autocorrect,
+                    enableSuggestions: input.autocorrect,
+                    smartDashesType: input.autocorrect
+                        ? null
+                        : SmartDashesType.disabled,
+                    smartQuotesType: input.autocorrect
+                        ? null
+                        : SmartQuotesType.disabled,
+                    maxLength: input.maxLength,
+                    maxLines: input.maxLines,
+                    autofocus: true,
+                  ),
+                ],
+              ),
+              actions: [
+                for (final action in actions)
+                  CupertinoDialogAction(
+                    onPressed:
+                        !action.enabled ||
+                            action.style == AlertActionStyle.disabled
+                        ? null
+                        : () {
+                            final isCancel =
+                                action.style == AlertActionStyle.cancel;
+                            Navigator.of(dialogContext)
+                                .pop(isCancel ? null : controller.text);
+                            action.onPressed();
+                          },
+                    isDefaultAction: action.style == AlertActionStyle.primary,
+                    isDestructiveAction:
+                        action.style == AlertActionStyle.destructive,
+                    child: Text(action.title),
+                  ),
               ],
+            );
+          },
+        );
+      }
+      return await showDialog<String?>(
+        context: context,
+        builder: (dialogContext) {
+          dialogRoute = ModalRoute.of(dialogContext);
+          return AlertDialog(
+            title: Text(title),
+            content: TextField(
+              magnifierConfiguration: nativeIosTextMagnifierConfiguration,
+              controller: controller,
+              keyboardType: input.keyboardType,
+              obscureText: input.obscureText,
+              autocorrect: input.autocorrect,
+              enableSuggestions: input.autocorrect,
+              smartDashesType: input.autocorrect
+                  ? null
+                  : SmartDashesType.disabled,
+              smartQuotesType: input.autocorrect
+                  ? null
+                  : SmartQuotesType.disabled,
+              maxLength: input.maxLength,
+              maxLines: input.maxLines,
+              autofocus: true,
+              decoration: InputDecoration(hintText: input.placeholder),
             ),
             actions: [
               for (final action in actions)
-                CupertinoDialogAction(
+                TextButton(
+                  style: action.style == AlertActionStyle.destructive
+                      ? TextButton.styleFrom(
+                          foregroundColor: Theme.of(dialogContext)
+                              .colorScheme
+                              .error,
+                        )
+                      : null,
                   onPressed:
                       !action.enabled ||
                           action.style == AlertActionStyle.disabled
                       ? null
                       : () {
-                          final isCancel =
-                              action.style == AlertActionStyle.cancel;
-                          Navigator.of(dialogContext)
-                              .pop(isCancel ? null : controller.text);
+                          Navigator.of(dialogContext).pop(
+                            action.style == AlertActionStyle.cancel
+                                ? null
+                                : controller.text,
+                          );
                           action.onPressed();
                         },
-                  isDefaultAction: action.style == AlertActionStyle.primary,
-                  isDestructiveAction:
-                      action.style == AlertActionStyle.destructive,
                   child: Text(action.title),
                 ),
             ],
-          ),
-        );
-      }
-      return await showDialog<String?>(
-        context: context,
-        builder: (dialogContext) => AlertDialog(
-          title: Text(title),
-          content: TextField(
-            magnifierConfiguration: nativeIosTextMagnifierConfiguration,
-            controller: controller,
-            keyboardType: input.keyboardType,
-            obscureText: input.obscureText,
-            maxLength: input.maxLength,
-            autofocus: true,
-            decoration: InputDecoration(hintText: input.placeholder),
-          ),
-          actions: [
-            for (final action in actions)
-              TextButton(
-                style: action.style == AlertActionStyle.destructive
-                    ? TextButton.styleFrom(
-                        foregroundColor: Theme.of(dialogContext)
-                            .colorScheme
-                            .error,
-                      )
-                    : null,
-                onPressed:
-                    !action.enabled || action.style == AlertActionStyle.disabled
-                    ? null
-                    : () {
-                        Navigator.of(dialogContext).pop(
-                          action.style == AlertActionStyle.cancel
-                              ? null
-                              : controller.text,
-                        );
-                        action.onPressed();
-                      },
-                child: Text(action.title),
-              ),
-          ],
-        ),
+          );
+        },
       );
     } finally {
+      // Pop completes before the closing animation unmounts the text field.
+      await dialogRoute?.completed;
       controller.dispose();
     }
   }

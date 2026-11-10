@@ -42,6 +42,21 @@ abstract interface class HermesBackendService {
     CancelToken? cancelToken,
   });
   Future<void> renameSession(String id, String title);
+
+  /// Sets a session's sidebar flags; a null flag is left as it is.
+  Future<void> setSessionFlags(
+    String id, {
+    bool? pinned,
+    bool? archived,
+    bool? hidden,
+  });
+
+  /// Archived sessions, newest first, or null when the server cannot list
+  /// them (the API server lists only sessions that are not archived).
+  Future<List<Map<String, dynamic>>?> listArchivedSessions();
+
+  /// One session's row, or null when the server no longer has it.
+  Future<Map<String, dynamic>?> getSession(String id);
   Future<void> deleteSession(String id, {CancelToken? cancelToken});
   Future<String> forkSession(String id);
   Future<Map<String, dynamic>> getCapabilities();
@@ -92,6 +107,12 @@ abstract interface class HermesTurnService
 
 abstract interface class HermesDesktopTurnService
     implements HermesBackendService {
+  /// Session [id]'s transcript as Hermes stores it now. Unlike
+  /// [getSessionMessages], a shorter read never gives way to a longer one
+  /// read earlier: an edit, undo, or branch must match what is there, even
+  /// after another app shortened it.
+  Future<List<Map<String, dynamic>>> getCurrentSessionMessages(String id);
+
   Future<String> createDesktopSession({
     String? title,
     required HermesDesktopSessionOptions options,
@@ -101,15 +122,66 @@ abstract interface class HermesDesktopTurnService
   /// [voiceContext] marks the turn as one a realtime call handed over: the
   /// recent spoken conversation, which the model reads and the session's
   /// transcript does not keep.
+  ///
+  /// [truncateBeforeRowId] makes the turn an edit or a regenerate: the
+  /// session's transcript is cut before that user row first, so every
+  /// Hermes surface sees the same history. [truncateSeenThroughRowId] is the
+  /// last row the session held when the cut was chosen: a turn stored after
+  /// it refuses the cut rather than being cut too.
   Future<HermesResponseStream> streamDesktopResponse(
     HermesChatInput input, {
     String? sessionId,
     required HermesDesktopSessionOptions options,
     CancelToken? cancelToken,
     String? voiceContext,
+    int? truncateBeforeRowId,
+    int? truncateSeenThroughRowId,
   });
 }
 
 typedef HermesTurnStarter = Future<HermesResponseStream> Function(
   CancelToken cancelToken,
 );
+
+/// A model switch Hermes held for the user's confirmation (a pricier,
+/// data-sharing or smaller-context model): the chat is still on its old
+/// model, so the message was not sent. [message] says why, for the chat.
+final class HermesModelSwitchHeld implements Exception {
+  const HermesModelSwitchHeld(this.message);
+
+  final String message;
+
+  @override
+  String toString() => message;
+}
+
+/// Hermes rejected a steer without saying whether the running turn already
+/// saw it (an acknowledgement that timed out after delivery). It is not
+/// sent again, since the agent may have it: the user decides.
+final class HermesSteerUncertain implements Exception {
+  const HermesSteerUncertain();
+
+  @override
+  String toString() => 'Hermes did not confirm the steer.';
+}
+
+/// Hermes kept answering that its gateway is not ready (it is starting,
+/// restarting or draining), which is not a sign-in problem.
+/// Hermes no longer lists the request an answer was for: it was answered on
+/// another surface, or it expired. The answer was not sent.
+final class HermesDecisionAlreadySettled implements Exception {
+  const HermesDecisionAlreadySettled();
+
+  @override
+  String toString() => 'Hermes already settled this request.';
+}
+
+final class HermesDesktopGatewayStartingException implements Exception {
+  const HermesDesktopGatewayStartingException();
+
+  String get message =>
+      'Hermes is starting or restarting. Try again in a moment.';
+
+  @override
+  String toString() => message;
+}

@@ -283,6 +283,50 @@ void main() {
     );
   });
 
+  testWidgets('files sent to Hermes show by name, not as server files', (
+    WidgetTester tester,
+  ) async {
+    final api = _FakeAttachmentInfoApiService(
+      onGetFileInfo: (_) => throw StateError('must not fetch Hermes files'),
+    );
+    final message = ChatMessage(
+      id: 'hermes-desktop-file-message',
+      role: 'user',
+      content: 'Summarize these.',
+      timestamp: DateTime.utc(2026, 7, 13, 10),
+      // The ids of files staged on the device, which no server knows.
+      attachmentIds: const ['local-opaque-1', 'local-opaque-2'],
+      files: const [
+        <String, dynamic>{
+          'type': 'file',
+          'source': 'hermes_desktop_file',
+          'name': 'field-report.pdf',
+          'content_type': 'application/pdf',
+        },
+        <String, dynamic>{
+          'type': 'file',
+          'source': 'hermes_responses_file',
+          'name': 'field-notes.pdf',
+          'content_type': 'application/pdf',
+        },
+      ],
+    );
+
+    await tester.pumpWidget(
+      buildHarness(
+        message,
+        overrides: [apiServiceProvider.overrideWithValue(api)],
+      ),
+    );
+    await tester.pump();
+
+    expect(find.text('field-report.pdf'), findsOneWidget);
+    expect(find.text('field-notes.pdf'), findsOneWidget);
+    expect(find.byType(EnhancedAttachment), findsNothing);
+    expect(api.fileInfoCalls, 0);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('legacy non-image attachment ids stay on generic file cards', (
     WidgetTester tester,
   ) async {

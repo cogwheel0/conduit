@@ -1,6 +1,10 @@
+import 'dart:async';
+
+import 'package:conduit/platform/conduit_platform_apis.g.dart';
 import 'package:conduit/shared/widgets/adaptive_dropdown_field.dart';
 import 'package:conduit/shared/widgets/legacy_design_compatibility.dart';
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
 
@@ -198,6 +202,30 @@ void main() {
     await tester.pump(const Duration(seconds: 1));
   }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
 
+  // In a Material dialog the field falls back to its own button, which
+  // dropped the name a field gives only through `semanticLabel`.
+  testWidgets('a field in a dialog keeps its accessible name', (tester) async {
+    await tester.pumpWidget(
+      host(
+        AlertDialog(
+          content: AdaptiveDropdownField<String>(
+            value: 'kite',
+            options: const [
+              AdaptiveDropdownOption(value: 'kite', label: 'Kite'),
+            ],
+            onChanged: (_) {},
+            decoration: const InputDecoration(),
+            semanticLabel: 'Request shape',
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byType(CNPopUpButton<int>), findsNothing);
+    expect(find.bySemanticsLabel(RegExp('Request shape')), findsOneWidget);
+  }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
+
   testWidgets('choices with descriptions retain the existing presentation', (
     tester,
   ) async {
@@ -220,4 +248,109 @@ void main() {
     expect(find.byType(CNPopUpButton<int>), findsNothing);
     expect(find.text('Kite'), findsOneWidget);
   }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
+
+  const sheetOptions = [
+    AdaptiveDropdownOption(value: 'kite', label: 'Kite', subtitle: 'Paper'),
+    AdaptiveDropdownOption(value: 'box', label: 'Box', subtitle: 'Wood'),
+  ];
+
+  // The sheet marked the value the field was built with, not the one it
+  // shows after a choice its parent did not rebuild with.
+  testWidgets('the sheet marks the choice the field shows', (tester) async {
+    final sheet = _Sheet();
+    addTearDown(sheet.dispose);
+    await tester.pumpWidget(
+      host(
+        AdaptiveDropdownField<String>(
+          value: 'kite',
+          options: sheetOptions,
+          onChanged: (_) {},
+          decoration: const InputDecoration(labelText: 'Shape'),
+        ),
+      ),
+    );
+    sheet.answers.add('1');
+    await tester.tap(find.text('Kite'));
+    await tester.pumpAndSettle();
+    expect(find.text('Box'), findsOneWidget);
+
+    sheet.answers.add(null);
+    await tester.tap(find.text('Box'));
+    await tester.pumpAndSettle();
+    expect(sheet.marked.last, ['box']);
+  }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
+
+  // A choice made in a sheet that stayed open while its field was disabled
+  // still changed the field and called its old callback.
+  testWidgets('a field disabled while its sheet is open takes no choice', (
+    tester,
+  ) async {
+    final sheet = _Sheet();
+    addTearDown(sheet.dispose);
+    var enabled = true;
+    var calls = 0;
+    late StateSetter update;
+    await tester.pumpWidget(
+      host(
+        StatefulBuilder(
+          builder: (context, setState) {
+            update = setState;
+            return AdaptiveDropdownField<String>(
+              value: 'kite',
+              options: sheetOptions,
+              onChanged: enabled ? (_) => calls++ : null,
+              decoration: const InputDecoration(labelText: 'Shape'),
+            );
+          },
+        ),
+      ),
+    );
+    final answer = Completer<String?>();
+    sheet.pending = answer;
+    await tester.tap(find.text('Kite'));
+    await tester.pump();
+    update(() => enabled = false);
+    await tester.pump();
+    answer.complete('1');
+    await tester.pumpAndSettle();
+
+    expect(calls, 0);
+    expect(find.text('Kite'), findsOneWidget);
+    expect(find.text('Box'), findsNothing);
+  }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
+}
+
+/// The native single-choice sheet: records which options it marked, and
+/// answers each presentation from [answers] (or [pending]).
+final class _Sheet {
+  _Sheet() {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockDecodedMessageHandler<Object?>(_channel, (message) async {
+          final request = (message! as List<Object?>).single!
+              as PlatformDropdownRequest;
+          marked.add([
+            for (final option in request.options)
+              if (option.sfSymbol == 'checkmark') sheetValue(option.id),
+          ]);
+          final waiting = pending;
+          pending = null;
+          return [waiting != null ? await waiting.future : answers.removeAt(0)];
+        });
+  }
+
+  static final _channel = BasicMessageChannel<Object?>(
+    'dev.flutter.pigeon.conduit.NativeDropdownHostApi.show',
+    NativeDropdownHostApi.pigeonChannelCodec,
+  );
+
+  final List<List<String>> marked = [];
+  final List<String?> answers = [];
+  Completer<String?>? pending;
+
+  static String sheetValue(String id) => const ['kite', 'box'][int.parse(id)];
+
+  void dispose() => TestDefaultBinaryMessengerBinding
+      .instance
+      .defaultBinaryMessenger
+      .setMockDecodedMessageHandler<Object?>(_channel, null);
 }

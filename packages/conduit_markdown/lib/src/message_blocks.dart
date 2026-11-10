@@ -64,13 +64,13 @@ enum ReasoningTitleKind {
   /// "Thinking…": the block is not done.
   thinking,
 
-  /// "Thought for N seconds": done, with a duration.
+  /// "Thought for N seconds": done, with a duration of at least a second.
   thoughtFor,
 
   /// The block's own summary text.
   summary,
 
-  /// "Thoughts": done, with no timing at all.
+  /// "Thoughts": done, with no timing at all or one under a second.
   thoughts,
 }
 
@@ -139,7 +139,9 @@ final class ReasoningMessageBlock extends MessageBlock {
   /// carries a duration; a pending block reads "Thinking…"; a finished block
   /// with no timing reads "Thoughts" rather than inventing one. Legacy
   /// content that kept its timing only in the summary text still reads
-  /// "Thought for…".
+  /// "Thought for…". A timing under a second reads "Thoughts" too: the
+  /// server times the block from its first chunk to its last, so a block
+  /// that arrives in one burst after a long wait reads 0.
   ReasoningTitle get title {
     final trimmed = summary.trim();
     final lower = trimmed.toLowerCase();
@@ -153,16 +155,21 @@ final class ReasoningMessageBlock extends MessageBlock {
           : const ReasoningTitle._(ReasoningTitleKind.thinking);
     }
     final duration = durationSeconds;
-    if (duration != null) {
+    if (duration != null && duration >= 1) {
       return ReasoningTitle._(ReasoningTitleKind.thoughtFor, seconds: duration);
     }
     final legacy = _summaryDuration.firstMatch(trimmed);
     if (legacy != null) {
       final seconds = int.tryParse(legacy.group(1) ?? legacy.group(2) ?? '');
-      return ReasoningTitle._(
-        ReasoningTitleKind.thoughtFor,
-        seconds: seconds ?? 0,
-      );
+      if (seconds != null && seconds >= 1) {
+        return ReasoningTitle._(
+          ReasoningTitleKind.thoughtFor,
+          seconds: seconds,
+        );
+      }
+    }
+    if (legacy != null || duration != null) {
+      return const ReasoningTitle._(ReasoningTitleKind.thoughts);
     }
     if (trimmed.isNotEmpty && !isThinkingSummary) {
       return ReasoningTitle._(ReasoningTitleKind.summary, summary: trimmed);

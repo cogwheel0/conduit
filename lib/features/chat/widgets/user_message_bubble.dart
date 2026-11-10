@@ -169,8 +169,15 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
     return file['type'] == 'note';
   }
 
+  /// Hermes file descriptors carry metadata only: the file itself went to
+  /// Hermes (or stayed on the device) and has no server URL to load.
   bool _isHermesLocalFileReference(dynamic file) {
-    return file is Map && file['source'] == 'hermes_local';
+    return file is Map &&
+        const {
+          'hermes_local',
+          'hermes_desktop_file',
+          'hermes_responses_file',
+        }.contains(file['source']);
   }
 
   _UserFilePartitions? _currentFilePartitions() {
@@ -594,7 +601,9 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
       label: sizeLabel.isEmpty ? filename : '$filename, $sizeLabel',
       child: ExcludeSemantics(
         child: Container(
-          key: ValueKey('hermes-local-file-$id'),
+          key: id.isEmpty
+              ? ObjectKey(file)
+              : ValueKey('hermes-local-file-$id'),
           constraints: const BoxConstraints(maxWidth: 280),
           padding: const EdgeInsets.symmetric(
             horizontal: Spacing.sm,
@@ -769,8 +778,8 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
           onSelected: () async => _startInlineEdit(),
         ),
       ConduitContextMenuAction(
-        cupertinoIcon: CupertinoIcons.doc_on_clipboard,
-        sfSymbol: 'doc.on.doc',
+        cupertinoIcon: CupertinoIcons.square_on_square,
+        sfSymbol: 'square.on.square',
         materialIcon: Icons.content_copy,
         label: l10n.copy,
         onBeforeClose: () => ConduitHaptics.selectionClick(),

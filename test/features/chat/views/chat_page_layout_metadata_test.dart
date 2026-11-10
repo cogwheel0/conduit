@@ -7,7 +7,8 @@ import 'package:conduit_core/models/chat_message.dart';
 import 'package:conduit_core/models/model.dart';
 import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/providers/app_providers.dart';
-import 'package:conduit_core/auth/api_auth_interceptor.dart' show ApiAuthSnapshot;
+import 'package:conduit_core/auth/api_auth_interceptor.dart'
+    show ApiAuthSnapshot;
 import 'package:conduit_core/services/api_service.dart';
 import 'package:conduit_core/services/worker_manager.dart';
 import 'package:conduit_core/features/chat/views/chat_bottom_anchor_controller.dart';
@@ -364,6 +365,77 @@ void main() {
         .equals(const Duration(seconds: 1));
     check(debugScreenContextRetryDelayForTesting(completedRetries: 3)).isNull();
   });
+
+  test(
+    'a pinned reply that runs on under the composer offers the way down',
+    () {
+      // Placed at the top and auto-following a streaming reply: as soon as its
+      // text passes the composer by more than the show threshold.
+      check(
+        debugShouldExposeScrollToLatestForTesting(
+          hasScrollableContent: false,
+          pinAutoFollowing: true,
+          freeScrolling: false,
+          bottomAnchorDetached: false,
+          currentlyShowing: false,
+          distanceFromLatest: 0,
+          pinnedTurnPlaced: true,
+          contentBelowPinnedTurn: 49,
+        ),
+      ).isTrue();
+      check(
+        debugShouldExposeScrollToLatestForTesting(
+          hasScrollableContent: true,
+          pinAutoFollowing: true,
+          freeScrolling: false,
+          bottomAnchorDetached: false,
+          currentlyShowing: false,
+          distanceFromLatest: 0,
+          pinnedTurnPlaced: true,
+          contentBelowPinnedTurn: 48,
+        ),
+      ).isFalse();
+      // Finished (no longer following) and still running on below: it stays,
+      // with the same hysteresis as anywhere else.
+      check(
+        debugShouldExposeScrollToLatestForTesting(
+          hasScrollableContent: true,
+          pinAutoFollowing: false,
+          freeScrolling: true,
+          bottomAnchorDetached: true,
+          currentlyShowing: true,
+          distanceFromLatest: 0,
+          pinnedTurnPlaced: true,
+          contentBelowPinnedTurn: 13,
+        ),
+      ).isTrue();
+      check(
+        debugShouldExposeScrollToLatestForTesting(
+          hasScrollableContent: true,
+          pinAutoFollowing: false,
+          freeScrolling: true,
+          bottomAnchorDetached: true,
+          currentlyShowing: true,
+          distanceFromLatest: 0,
+          pinnedTurnPlaced: true,
+          contentBelowPinnedTurn: 12,
+        ),
+      ).isFalse();
+      // While the pin is still moving into place, what lies below means
+      // nothing yet, so the button never flashes during the move.
+      check(
+        debugShouldExposeScrollToLatestForTesting(
+          hasScrollableContent: true,
+          pinAutoFollowing: true,
+          freeScrolling: false,
+          bottomAnchorDetached: false,
+          currentlyShowing: false,
+          distanceFromLatest: 0,
+          contentBelowPinnedTurn: 400,
+        ),
+      ).isFalse();
+    },
+  );
 
   test('latest button follows free-scroll ownership, not stale metrics', () {
     check(
@@ -1836,7 +1908,10 @@ final class _GatedConversationRefreshApi extends ApiService {
   int fetches = 0;
 
   @override
-  Future<Conversation> getConversation(String id, {ApiAuthSnapshot? authSnapshot}) {
+  Future<Conversation> getConversation(
+    String id, {
+    ApiAuthSnapshot? authSnapshot,
+  }) {
     fetches++;
     if (!started.isCompleted) started.complete();
     return response.future;

@@ -71,8 +71,14 @@ bool _isAccountlessBackendLocation(String location) {
       isHermesSettingsLocation(location) ||
       location == Routes.hermesSessions ||
       location == Routes.hermesJobs ||
+      location == Routes.hermesHiddenSessions ||
+      isHermesRoomLocation(location) ||
       location == Routes.about;
 }
+
+/// An open Hermes Group Chat.
+bool isHermesRoomLocation(String location) =>
+    location.startsWith('/hermes-room/');
 
 /// The saved Hermes connection list and its connection editors.
 bool isHermesSettingsLocation(String location) =>
@@ -485,11 +491,11 @@ String? _accountlessOrAuthRedirect(String location, ProviderRead read) {
 /// Whether one of the Hermes pages that need more than a Hermes setting can
 /// open, beside any primary backend; null for every other location.
 bool? _hermesPageAllowed(String location, ProviderRead read) {
-  if (location == Routes.hermesMcp) {
-    // The MCP page talks to the Hermes Desktop Gateway. In any other backend
-    // mode, or with an incomplete gateway configuration, it can only fail to
-    // load while still offering to add servers, so the destination exists
-    // only where that gateway is usable.
+  if (location == Routes.hermesMcp || isHermesRoomLocation(location)) {
+    // The MCP page and Group Chats talk to the Hermes Desktop Gateway. In
+    // any other backend mode, or with an incomplete gateway configuration,
+    // they can only fail to load, so they exist only where that gateway is
+    // usable.
     final hermes = read(hermesConfigProvider);
     return hermes.isUsable && hermes.mode == HermesBackendMode.desktopGateway;
   }
