@@ -72,6 +72,7 @@ import 'package:conduit_core/features/librechat/models/librechat_model.dart'
     show isLibreChatModel;
 
 import '../../hermes/widgets/hermes_bot_avatar.dart';
+import '../../hermes/widgets/hermes_context_usage_sheet.dart';
 import '../../hermes/widgets/hermes_message_interactions.dart';
 import '../../hermes/widgets/hermes_read_only_session_notice.dart';
 import '../../hermes/widgets/hermes_todo_card.dart';
@@ -589,7 +590,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
   ProviderSubscription<Object>? _authEpochSub;
   ProviderSubscription<ApiService?>? _apiOwnerSub;
   ProviderSubscription<AppDatabase?>? _databaseOwnerSub;
-  ProviderSubscription<AsyncValue<String>>? _hermesTranscriptSub;
+  ProviderSubscription<AsyncValue<HermesTranscriptChange>>?
+  _hermesTranscriptSub;
   ProviderSubscription<bool>? _hermesStreamingSub;
   late final OpenWebUiLivePromptNotifier _livePromptNotifier;
   String? _pendingHermesTranscriptRefresh;
@@ -954,7 +956,8 @@ class _ChatPageState extends ConsumerState<ChatPage> {
     _hermesTranscriptSub = ref.listenManual(
       hermesDesktopTranscriptChangesProvider,
       (_, next) => next.whenData(
-        (storedId) => unawaited(_refreshDesktopHermesTranscript(storedId)),
+        (change) =>
+            unawaited(_refreshDesktopHermesTranscript(change.storedId)),
       ),
     );
     _hermesStreamingSub = ref.listenManual(isChatStreamingProvider, (
@@ -1191,9 +1194,15 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         retried: retried,
         shownCount: currentAuthoritativeCount,
         readCount: candidateAuthoritativeCount,
-        // Used up by the read that is compared, longer or not: left for a
-        // later incomplete read, it would let that one shorten the chat.
-        shortened: () => service.takeShortenedTranscript(storedId),
+        // A change the user made may have shortened the chat: a compaction
+        // (a Bot Chat's history leaves compacted rows out), or an undo it
+        // did not see. Both marks are used up by the read that is compared,
+        // longer or not: left for a later incomplete read, they would let
+        // that one shorten the chat.
+        shortened: () => [
+          service.takeShortenedTranscript(storedId),
+          service.takeCompactedTranscript(storedId),
+        ].any((taken) => taken),
       );
       switch (step) {
         case HermesTranscriptRefreshStep.keep:
@@ -5040,6 +5049,31 @@ class _ChatPageState extends ConsumerState<ChatPage> {
         onSelected: () async {
           if (!mounted) return;
           await showOpenWebUiChatSettings(context, ref);
+        },
+      );
+    }
+
+    // A Hermes chat's context window, token totals and plan usage, with
+    // Compact now.
+    final hermesSessionId = isNativeHermesConversation(activeConversation)
+        ? activeConversation?.metadata['hermesSessionId']?.toString()
+        : null;
+    if (hermesSessionId != null &&
+        hermesSessionId.isNotEmpty &&
+        ref.watch(hermesApiServiceProvider) != null) {
+      addItem(
+        label: AppLocalizations.of(context)!.hermesContextUsage,
+        icon: conduitAdaptivePopupMenuIcon(
+          iosSymbol: 'gauge.with.dots.needle.33percent',
+          materialIcon: Icons.data_usage_rounded,
+        ),
+        iosSymbol: 'gauge.with.dots.needle.33percent',
+        onSelected: () async {
+          if (!mounted) return;
+          await showHermesContextUsageSheet(
+            context,
+            sessionId: hermesSessionId,
+          );
         },
       );
     }

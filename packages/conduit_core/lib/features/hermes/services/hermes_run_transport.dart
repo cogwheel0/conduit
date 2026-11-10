@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
 
+import 'package:clock/clock.dart';
 import 'package:crypto/crypto.dart';
 import 'package:dio/dio.dart';
 import 'package:meta/meta.dart';
@@ -14,6 +15,7 @@ import 'package:conduit_core/utils/sensitive_value_utils.dart';
 
 import 'package:conduit_core/features/hermes/models/hermes_approval_cost.dart';
 import 'package:conduit_core/features/hermes/models/hermes_clarify_form.dart';
+import 'package:conduit_core/features/hermes/models/hermes_error_surface.dart';
 import 'package:conduit_core/features/hermes/models/hermes_inline_diff.dart';
 import 'package:conduit_core/features/hermes/models/hermes_run_event.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
@@ -367,8 +369,16 @@ Future<bool> dispatchHermesTurn({
           sawTerminal = true;
           completedSuccessfully = true;
           if (!completer.isCompleted) completer.complete();
-        case HermesRunError():
+        case HermesRunError(:final surface):
           sawTerminal = true;
+          // A classified failure that is not a partial answer: what streamed
+          // before it was its error copy, which its card shows, not a reply.
+          // A partial answer, or a failure without a card, keeps its text.
+          if (gotContent && surface != null && !surface.partial) {
+            gotContent = false;
+            streamedText.clear();
+            replaceContent?.call('');
+          }
           if (!completer.isCompleted) completer.complete();
         default:
           break;
@@ -501,11 +511,7 @@ Future<bool> dispatchHermesTurn({
           return false;
         }
         DebugLogger.error('response-stream-error', scope: 'hermes/transport');
-        updateMessage(
-          (message) => message.copyWith(
-            error: ChatMessageError(content: _friendlyError(failure)),
-          ),
-        );
+        updateMessage((message) => _hermesFailure(message, failure));
       }
     }
     if (completedSuccessfully && !responseCancelToken.isCancelled) {
@@ -958,11 +964,7 @@ Future<void> dispatchHermesRun({
           return;
         }
         DebugLogger.error('run-stream-error', scope: 'hermes/transport');
-        updateMessage(
-          (m) => m.copyWith(
-            error: ChatMessageError(content: _friendlyError(error)),
-          ),
-        );
+        updateMessage((m) => _hermesFailure(m, error));
       }
     }
   } finally {
@@ -1000,9 +1002,7 @@ void _reportHermesStartFailure(
     );
     return;
   }
-  updateMessage(
-    (m) => m.copyWith(error: ChatMessageError(content: _friendlyError(error))),
-  );
+  updateMessage((m) => _hermesFailure(m, error));
   final code = error is HermesApiException ? error.code : null;
   if (code == HermesApiErrorCode.permissionDenied ||
       code == HermesApiErrorCode.notFound) {
@@ -2130,15 +2130,15 @@ void _handleEvent(
       // Lifecycle transitions are advisory; terminal ones also emit RunDone.
       break;
 
-    case HermesRunError(:final message):
+    case HermesRunError(:final message, :final surface):
       updateMessage(
-        (m) => m.copyWith(
-          error: ChatMessageError(
-            content: sanitizeHermesProviderErrorMessage(
-              message,
-              sensitiveValues: sensitiveValues,
-            ),
+        (m) => hermesFailedMessage(
+          m,
+          sanitizeHermesProviderErrorMessage(
+            message,
+            sensitiveValues: sensitiveValues,
           ),
+          surface: surface,
         ),
       );
 
@@ -2340,6 +2340,83 @@ String sanitizeHermesProviderErrorMessage(
   maxCharacters: maxCharacters,
 );
 
+/// [message] failed with [error], shown as a card when Conduit can
+/// classify the refusal.
+ChatMessage _hermesFailure(ChatMessage message, Object error) =>
+    hermesFailedMessage(
+      message,
+      _friendlyError(error),
+      surface: hermesApiErrorSurface(error),
+    );
+
+/// [message] with its error set to [text], and [surface] kept as the card
+/// for that error. A failure without one drops any earlier card.
+ChatMessage hermesFailedMessage(
+  ChatMessage message,
+  String text, {
+  HermesErrorSurface? surface,
+}) {
+  final metadata = Map<String, dynamic>.from(message.metadata ?? const {});
+  if (surface == null) {
+    metadata.remove(kHermesErrorSurfaceMeta);
+  } else {
+    // Bound to the error it explains: a later error without a card on the
+    // same message must not show this one.
+    metadata[kHermesErrorSurfaceMeta] = {...surface.toJson(), 'error': text};
+  }
+  return message.copyWith(
+    error: ChatMessageError(content: text),
+    metadata: metadata,
+  );
+}
+
+/// The card for [message]'s current error, or null when it has none.
+HermesErrorSurface? hermesErrorSurfaceOf(ChatMessage message) {
+  final error = message.error?.content;
+  final stored = message.metadata?[kHermesErrorSurfaceMeta];
+  if (error == null || stored is! Map || stored['error'] != error) {
+    return null;
+  }
+  return HermesErrorSurface.fromJson(stored);
+}
+
+/// The card for an API server refusal Conduit can classify, or null when
+/// the plain explanation is all there is to say.
+HermesErrorSurface? hermesApiErrorSurface(Object error) {
+  if (error is! HermesApiException) return null;
+  switch (error.code) {
+    case HermesApiErrorCode.notFound:
+      return const HermesErrorSurface(
+        layer: HermesErrorLayer.gateway,
+        code: 'session_not_found',
+        retryable: false,
+      );
+    case HermesApiErrorCode.admissionConflict:
+    case HermesApiErrorCode.idempotencyKeyConflict:
+      return const HermesErrorSurface(
+        layer: HermesErrorLayer.gateway,
+        code: 'SESSION_OWNER_BUSY',
+      );
+    case HermesApiErrorCode.runtimeDraining:
+    case HermesApiErrorCode.gatewayDraining:
+    case HermesApiErrorCode.storageUnavailable:
+    case HermesApiErrorCode.chainMoved:
+      return const HermesErrorSurface(
+        layer: HermesErrorLayer.gateway,
+        code: 'gateway_draining',
+      );
+  }
+  if (error.statusCode != 429) return null;
+  final retryAfter = error.retryAfter;
+  return HermesErrorSurface(
+    layer: HermesErrorLayer.gateway,
+    code: 'rate_limit',
+    resetsAt: retryAfter == null || retryAfter <= Duration.zero
+        ? null
+        : clock.now().toUtc().add(retryAfter),
+  );
+}
+
 String _friendlyError(Object e) {
   if (e is HermesStreamGuardException) return e.message;
   if (e is HermesModelSwitchHeld) return e.message;
@@ -2378,10 +2455,10 @@ String? hermesApiRefusalMessage(HermesApiException error) {
     case HermesApiErrorCode.admissionQueued:
       return 'Hermes saved your message and will run it when it is back. '
           'Don\'t send it again.';
-    case 'runtime_draining':
-    case 'gateway_draining':
-    case 'storage_unavailable':
-    case 'chain_moved':
+    case HermesApiErrorCode.runtimeDraining:
+    case HermesApiErrorCode.gatewayDraining:
+    case HermesApiErrorCode.storageUnavailable:
+    case HermesApiErrorCode.chainMoved:
       return 'Hermes is restarting or busy. Try again in a moment.';
   }
   if (error.statusCode == 429) {

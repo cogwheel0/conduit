@@ -20,6 +20,8 @@ import 'package:conduit_core/features/hermes/models/hermes_bot.dart';
 import 'package:conduit_core/features/hermes/models/hermes_chat_input.dart';
 import 'package:conduit_core/features/hermes/models/hermes_clarify_form.dart';
 import 'package:conduit_core/features/hermes/models/hermes_config.dart';
+import 'package:conduit_core/features/hermes/models/hermes_context_usage.dart';
+import 'package:conduit_core/features/hermes/models/hermes_error_surface.dart';
 import 'package:conduit_core/features/hermes/models/hermes_job.dart';
 import 'package:conduit_core/features/hermes/models/hermes_job_delivery.dart';
 import 'package:conduit_core/features/hermes/models/hermes_mcp.dart';
@@ -44,6 +46,7 @@ part 'hermes_desktop_audio.dart';
 part 'hermes_desktop_auth_rest.dart';
 part 'hermes_desktop_bots.dart';
 part 'hermes_desktop_canonical.dart';
+part 'hermes_desktop_context.dart';
 part 'hermes_desktop_event_projection.dart';
 part 'hermes_desktop_live_runtime.dart';
 part 'hermes_desktop_rooms.dart';
@@ -242,6 +245,8 @@ final class HermesDesktopApiService
       Duration(seconds: 1),
       Duration(seconds: 3),
     ],
+    @visibleForTesting
+    this.pendingCompactionDeadline = const Duration(minutes: 15),
   }) : _openExternalUrl = openExternalUrl ?? const NullOpenExternalUrlPort(),
        _dashboardBridgeFactory = dashboardBridgeFactory,
        _nativeTokens = config.desktopCredentials?.nativeTokens,
@@ -281,6 +286,11 @@ final class HermesDesktopApiService
   /// prompt, after a reconnect, when Hermes could not give it.
   final List<Duration> receiptRetryDelays;
 
+  /// How long a compaction Hermes finishes in the background is waited for:
+  /// past Hermes' own wait (about ten minutes) its end may never be seen (a
+  /// socket down at the time, a runtime id that changed).
+  final Duration pendingCompactionDeadline;
+
   /// Supplies the WebView-backed dashboard bridge, when the host has one.
   final HermesDashboardBridgeFactory? _dashboardBridgeFactory;
 
@@ -308,6 +318,19 @@ final class HermesDesktopApiService
   /// Chats whose next transcript may be shorter than the one shown.
   final Set<String> _shortenedTranscripts = {};
   final Map<String, String> _appliedSessionOptions = {};
+
+  /// The `usage` of each session's last finished turn, by stored id.
+  final Map<String, Map<String, dynamic>> _lastTurnUsage = {};
+
+  /// Stored ids an explicit compaction rewrote since their chat last read
+  /// them: that read may hold fewer messages (a Bot Chat's history leaves
+  /// compacted rows out) and still replaces what the chat shows.
+  final Set<String> _compactedTranscripts = {};
+
+  /// Compactions still running on the server, by stored session id (a
+  /// reconnect can change the runtime id), until the session reports in or
+  /// [pendingCompactionDeadline] passes.
+  final Map<String, _PendingCompaction> _pendingCompactions = {};
 
   /// Connection targets (operation/target card ids) the user approved on
   /// this device, whose authorization link this device then opens.
@@ -536,6 +559,27 @@ final class HermesDesktopApiService
   /// last, and refuses while a turn runs.
   Future<bool> undoLastTurn(String id, {int? rowId}) =>
       _runtimeUndoLastTurn(id, rowId: rowId);
+
+  /// Session [id]'s context window, token totals and plan allowances.
+  Future<HermesContextReport> contextReport(String id) => _contextReport(id);
+
+  /// Summarizes session [id]'s older messages on the server, optionally
+  /// keeping [focus] in view.
+  Future<HermesCompactResult> compactSession(String id, {String? focus}) =>
+      _compactSession(id, focus: focus);
+
+  /// Whether a compaction of [storedId] is still running on the server.
+  bool compactionPending(String storedId) => _pendingCompactions.containsKey(
+    _bindings[storedId]?.storedId ?? storedId,
+  );
+
+  /// Whether a compaction rewrote session [id]'s transcript since the chat
+  /// last took it; true once, so that read may replace a longer one.
+  bool takeCompactedTranscript(String id) => _compactedTranscripts.remove(id);
+
+  /// Lets a window plan keep going on credits past its limit. False when
+  /// Hermes could not turn it on.
+  Future<bool> keepGoingOnCredits() => _keepGoingOnCredits();
 
   /// The text the gateway's speech-to-text heard in [audio]; empty when it
   /// heard none.
@@ -860,6 +904,12 @@ final class HermesDesktopApiService
     _freshSessionIds.clear();
     _lastTranscripts.clear();
     _appliedSessionOptions.clear();
+    _lastTurnUsage.clear();
+    _compactedTranscripts.clear();
+    for (final watch in _pendingCompactions.values) {
+      unawaited(watch.cancel());
+    }
+    _pendingCompactions.clear();
     _sessionTurnStates.clear();
     _canonicalSessions.clear();
     _canonicalCreateIds.clear();

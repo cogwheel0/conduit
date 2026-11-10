@@ -8698,5 +8698,218 @@
   "hermesPlanHide": "Ukryj plan",
   "@hermesPlanHide": {
     "description": "Screen reader label of the open task list header: folds the agent's plan to one line."
-  }
+  },
+  "hermesContextUsage": "Kontekst i użycie",
+  "hermesContextWindow": "Okno kontekstu",
+  "hermesContextUsed": "{used} z {max} tokenów",
+  "@hermesContextUsed": {
+    "placeholders": {
+      "used": {
+        "type": "String",
+        "example": "32,768"
+      },
+      "max": {
+        "type": "String",
+        "example": "131,072"
+      }
+    }
+  },
+  "hermesContextPercentFull": "zapełnione w {percent}%",
+  "@hermesContextPercentFull": {
+    "placeholders": {
+      "percent": {
+        "type": "int",
+        "example": "25"
+      }
+    }
+  },
+  "hermesContextEstimatedNote": "Szacunkowo",
+  "hermesContextRequestEstimate": "Około {tokens} tokenów na żądanie",
+  "@hermesContextRequestEstimate": {
+    "placeholders": {
+      "tokens": {
+        "type": "String",
+        "example": "13,036"
+      }
+    }
+  },
+  "hermesContextNoWindow": "To połączenie nie podaje okna kontekstu.",
+  "hermesContextBreakdown": "Co je wypełnia",
+  "hermesContextSystemPrompt": "Prompt systemowy",
+  "hermesContextToolDefinitions": "Definicje narzędzi",
+  "hermesContextSubagentDefinitions": "Definicje podagentów",
+  "hermesContextConversation": "Rozmowa",
+  "hermesContextTotals": "Ten czat do tej pory",
+  "hermesContextInput": "Tokeny wejściowe",
+  "hermesContextOutput": "Tokeny wyjściowe",
+  "hermesContextReasoning": "Tokeny rozumowania",
+  "hermesContextCacheRead": "Odczytane z pamięci podręcznej",
+  "hermesContextCacheWrite": "Zapisane w pamięci podręcznej",
+  "hermesContextCacheHits": "Trafienia w pamięci podręcznej",
+  "hermesContextCalls": "Wywołania modelu",
+  "hermesContextCompactions": "Kompaktowania",
+  "hermesContextCost": "Koszt",
+  "hermesContextCostEstimated": "Koszt (szacunkowy)",
+  "hermesContextPlan": "Wykorzystanie planu",
+  "hermesContextGaugeDay": "Dzisiaj",
+  "hermesContextGaugeWeek": "W tym tygodniu",
+  "hermesContextGaugeMonth": "W tym miesiącu",
+  "hermesContextGaugeTopTier": "Modele najwyższej klasy",
+  "hermesContextUsedPercent": "wykorzystano {percent}%",
+  "@hermesContextUsedPercent": {
+    "placeholders": {
+      "percent": {
+        "type": "int",
+        "example": "63"
+      }
+    }
+  },
+  "hermesContextResets": "Odnowienie: {time}",
+  "@hermesContextResets": {
+    "placeholders": {
+      "time": {
+        "type": "String",
+        "example": "3:00 PM"
+      }
+    }
+  },
+  "hermesContextLeftOf": "Pozostało {remaining} z {total}",
+  "@hermesContextLeftOf": {
+    "placeholders": {
+      "remaining": {
+        "type": "String",
+        "example": "$12.00"
+      },
+      "total": {
+        "type": "String",
+        "example": "$20.00"
+      }
+    }
+  },
+  "hermesContextRenews": "Przedłużenie: {date}",
+  "@hermesContextRenews": {
+    "placeholders": {
+      "date": {
+        "type": "String",
+        "example": "Dec 1"
+      }
+    }
+  },
+  "hermesContextTopUp": "Doładowane środki",
+  "hermesContextRateLimited": "Osiągnięto limit zapytań",
+  "hermesContextRateLimitedUntil": "Limit zapytań do {time}",
+  "@hermesContextRateLimitedUntil": {
+    "placeholders": {
+      "time": {
+        "type": "String",
+        "example": "3:00 PM"
+      }
+    }
+  },
+  "hermesContextUsageLevel": "Zużycie tego modelu: {level}",
+  "@hermesContextUsageLevel": {
+    "placeholders": {
+      "level": {
+        "type": "String",
+        "example": "medium"
+      }
+    }
+  },
+  "hermesContextLevelFree": "bezpłatne",
+  "hermesContextLevelLow": "niskie",
+  "hermesContextLevelMedium": "średnie",
+  "hermesContextLevelTopTier": "najwyższe",
+  "hermesContextCompactSection": "Kompaktowanie",
+  "hermesContextCompactHint": "Hermes streszcza starsze wiadomości, aby zwolnić kontekst. Najnowsze wiadomości pozostają bez zmian.",
+  "hermesContextCompactFocus": "Skup się na (opcjonalnie)",
+  "hermesContextCompactNow": "Kompaktuj teraz",
+  "hermesContextCompacted": "Czat został skompaktowany.",
+  "hermesContextCompactedTokens": "Tokeny: ~{before} → ~{after}",
+  "@hermesContextCompactedTokens": {
+    "placeholders": {
+      "before": {
+        "type": "String",
+        "example": "12,351"
+      },
+      "after": {
+        "type": "String",
+        "example": "4,020"
+      }
+    }
+  },
+  "hermesContextCompactedMessages": "Wiadomości: {before} → {after}",
+  "@hermesContextCompactedMessages": {
+    "placeholders": {
+      "before": {
+        "type": "int",
+        "example": "24"
+      },
+      "after": {
+        "type": "int",
+        "example": "8"
+      }
+    }
+  },
+  "hermesContextCompactUnchanged": "Na razie nie ma czego kompaktować.",
+  "hermesContextCompactRefused": "Pozostawiono bez zmian: streszczenie byłoby dłuższe niż zastępowane wiadomości.",
+  "hermesContextCompactAborted": "Kompaktowanie nie powiodło się. Nie usunięto żadnych wiadomości.",
+  "hermesContextCompactPending": "Kompaktowanie trwa. Czat odświeży się po zakończeniu.",
+  "hermesContextCompactBusy": "Trwa inne kompaktowanie. Spróbuj ponownie za chwilę.",
+  "hermesContextCompactWait": "Poczekaj na zakończenie odpowiedzi, a potem kompaktuj.",
+  "hermesContextCompactFailed": "Nie udało się skompaktować tego czatu. Spróbuj ponownie.",
+  "hermesContextLoadFailed": "Nie udało się wczytać kontekstu i użycia.",
+  "hermesErrorProvider": "Dostawca modelu nie mógł odpowiedzieć",
+  "hermesErrorEndpoint": "Nie można połączyć się z serwerem modelu",
+  "hermesErrorConnection": "Strumień odpowiedzi został przerwany",
+  "hermesErrorAuth": "Dostawca odrzucił dane uwierzytelniające Hermesa",
+  "hermesErrorBilling": "Brak środków",
+  "hermesErrorUsageLimit": "Osiągnięto limit planu",
+  "hermesErrorFreeTier": "Plan bezpłatny nie może tego uruchomić",
+  "hermesErrorRateLimit": "Osiągnięto limit zapytań",
+  "hermesErrorContextOverflow": "Ten czat jest za długi dla modelu",
+  "hermesErrorModel": "Model jest niedostępny",
+  "hermesErrorPolicy": "Zablokowane przez zasady",
+  "hermesErrorTruncated": "Odpowiedź została ucięta",
+  "hermesErrorBadReply": "Model wysłał nieprzydatną odpowiedź",
+  "hermesErrorWorkspace": "Brakuje folderu roboczego czatu",
+  "hermesErrorSession": "Ten czat nie może być tutaj kontynuowany",
+  "hermesErrorBusy": "Hermes jest zajęty tym czatem",
+  "hermesErrorGateway": "Hermes napotkał problem",
+  "hermesErrorDisk": "Hermesowi skończyło się miejsce na dysku",
+  "hermesErrorUnknown": "Hermes nie mógł dokończyć tej odpowiedzi",
+  "hermesErrorBlocking": "Zablokowane do czasu rozwiązania problemu",
+  "hermesErrorDegraded": "Możesz kontynuować czat",
+  "hermesErrorResetsAt": "Odnowi się o {time}",
+  "@hermesErrorResetsAt": {
+    "placeholders": {
+      "time": {
+        "type": "String",
+        "example": "3:00 PM"
+      }
+    }
+  },
+  "hermesErrorPartialKept": "Dotychczasowa odpowiedź pozostaje powyżej.",
+  "hermesErrorContinue": "Kontynuuj",
+  "hermesErrorCompact": "Kompaktuj czat",
+  "hermesErrorSwitchModel": "Przełącz na {model}",
+  "@hermesErrorSwitchModel": {
+    "placeholders": {
+      "model": {
+        "type": "String",
+        "example": "Hermes 4 70B"
+      }
+    }
+  },
+  "hermesErrorOpenProviderSettings": "Otwórz ustawienia {provider}",
+  "@hermesErrorOpenProviderSettings": {
+    "placeholders": {
+      "provider": {
+        "type": "String",
+        "example": "OpenRouter"
+      }
+    }
+  },
+  "hermesErrorOpenBilling": "Otwórz rozliczenia",
+  "hermesErrorUseCredits": "Użyj środków",
+  "hermesErrorActionFailed": "Nie udało się. Spróbuj ponownie."
 }

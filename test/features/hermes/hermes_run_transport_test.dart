@@ -9,6 +9,7 @@ import 'package:conduit_core/providers/app_providers.dart';
 import 'package:conduit_core/features/chat/providers/chat_providers.dart';
 import 'package:conduit_core/features/hermes/models/hermes_chat_input.dart';
 import 'package:conduit_core/features/hermes/models/hermes_config.dart';
+import 'package:conduit_core/features/hermes/models/hermes_error_surface.dart';
 import 'package:conduit_core/features/hermes/models/hermes_run_event.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 import 'package:conduit_core/features/hermes/services/hermes_api_service.dart';
@@ -496,6 +497,66 @@ void main() {
       check(fake.lastResponseInstructions).equals('Be concise');
       check(establishedSession).equals('session-from-header');
       check(completed).isTrue();
+    });
+
+    // A Desktop turn that streamed its error copy before failing showed the
+    // copy as a reply above the card that explains it.
+    test('a classified failure clears the copy streamed before it', () async {
+      Future<ChatMessage> run(HermesErrorSurface? surface) async {
+        final fake = _FakeHermesApiService(
+          const [],
+          responseEvents: [
+            const HermesTokenDelta('Synthetic copy'),
+            HermesRunError('Synthetic failure', surface: surface),
+            const HermesRunDone(),
+          ],
+        );
+        var message = ChatMessage(
+          id: 'm',
+          role: 'assistant',
+          content: '',
+          timestamp: DateTime.fromMillisecondsSinceEpoch(0),
+        );
+        await _dispatchFakeHermesResponse(
+          service: fake,
+          registry: HermesRunRegistry(),
+          assistantMessageId: message.id,
+          input: HermesChatInput.text('hi'),
+          appendContent: (text) =>
+              message = message.copyWith(content: message.content + text),
+          replaceContent: (text) => message = message.copyWith(content: text),
+          appendStatus: (_) {},
+          updateMessage: (updater) => message = updater(message),
+          finishStreaming: () {},
+          completeStreamingUi: () {},
+        );
+        return message;
+      }
+
+      final failed = await run(
+        const HermesErrorSurface(
+          layer: HermesErrorLayer.provider,
+          code: 'context_overflow',
+          retryable: false,
+        ),
+      );
+      check(failed.content).isEmpty();
+      check(failed.error?.content).equals('Synthetic failure');
+      check(
+        hermesErrorSurfaceOf(failed)?.kind,
+      ).equals(HermesErrorKind.contextOverflow);
+
+      // A partial answer, and a failure without a card, keep their text.
+      final partial = await run(
+        const HermesErrorSurface(
+          layer: HermesErrorLayer.provider,
+          code: 'truncated',
+          retryable: true,
+          partial: true,
+        ),
+      );
+      check(partial.content).equals('Synthetic copy');
+      check((await run(null)).content).equals('Synthetic copy');
     });
 
     test('pre-cancelled response reports no successful dispatch', () async {
@@ -2183,6 +2244,42 @@ void main() {
     check(error).not((value) => value.contains('\u0000'));
     check(error).not((value) => value.contains('\n'));
     check(error.runes.length).isLessOrEqual(kMaxHermesProviderErrorCharacters);
+  });
+
+  test('a classified run error leaves its card on the message', () async {
+    final fake = _FakeHermesApiService(const [
+      HermesRunError(
+        'Synthetic overflow',
+        surface: HermesErrorSurface(
+          layer: HermesErrorLayer.provider,
+          code: 'context_overflow',
+          retryable: false,
+        ),
+      ),
+    ]);
+    var message = ChatMessage(
+      id: 'm',
+      role: 'assistant',
+      content: '',
+      timestamp: DateTime.fromMillisecondsSinceEpoch(0),
+    );
+
+    await dispatchHermesRun(
+      service: fake,
+      registry: HermesRunRegistry(),
+      assistantMessageId: message.id,
+      input: 'hi',
+      appendContent: (_) {},
+      appendStatus: (_) {},
+      updateMessage: (updater) => message = updater(message),
+      finishStreaming: () {},
+      completeStreamingUi: () {},
+    );
+
+    check(message.error?.content).equals('Synthetic overflow');
+    check(
+      hermesErrorSurfaceOf(message)?.kind,
+    ).equals(HermesErrorKind.contextOverflow);
   });
 
   test('appends final output when no deltas streamed', () async {
