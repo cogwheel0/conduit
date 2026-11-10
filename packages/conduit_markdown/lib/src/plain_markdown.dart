@@ -12,6 +12,20 @@ final _citationPattern = RegExp(
 );
 final _citationGroup = RegExp(r'\[([^\]]+)\]');
 final _citationId = RegExp(r'^(\d+)(?:#.+)?$');
+// An inline link's or image's `(destination "title")` after its `]`: a
+// destination without spaces whose parentheses balance (one level deep), an
+// optional one-line title, then `)`.
+final _linkDestination = RegExp(
+  r'''\]\([ \t]*(?:[^\s()\\]|\\.|\((?:[^\s()\\]|\\.)*\))*'''
+  r'''(?:[ \t]+(?:"(?:[^"\\\n]|\\.)*"|'(?:[^'\\\n]|\\.)*'|'''
+  r'''\((?:[^()\\\n]|\\.)*\)))?[ \t]*\)''',
+);
+// A one-line link reference definition, as the preprocessor strips them.
+final _referenceDefinition = RegExp(
+  r'''^ {0,3}\[[^\]\n]+\]:[ \t]*\S+'''
+  r'''(?:[ \t]+(?:"[^"\n]*"|'[^'\n]*'|\([^()\n]*\)))?[ \t]*$''',
+  multiLine: true,
+);
 final _newlineRun = RegExp(r'[ \t]*\n[ \t]*');
 
 /// Rewrites one text block's markdown for a renderer that understands only
@@ -36,7 +50,8 @@ final _newlineRun = RegExp(r'[ \t]*\n[ \t]*');
 /// * **Citations.** With [hasSources], `[1]`, `[1,2]` and adjacent `[1][2]`
 ///   become links such as `[1,2](conduit-cite:1,2)`, following
 ///   [CitationParser]: not footnotes (`[^1]`, `^[1]`), not a link's own text
-///   (`[1](…)`), not a reference definition (`[1]: …`). With [sourceCount],
+///   (`[1](…)`), not inside a link's or image's destination or title, not in
+///   a reference definition (`[1]: …`). With [sourceCount],
 ///   a marker naming a source past it stays text, as the mobile renderer
 ///   draws a chip only when every number it names has a source.
 ///
@@ -150,11 +165,22 @@ String _escapeProse(String prose) {
 
 String _linkCitations(String prose, int? sourceCount) {
   if (!prose.contains('[')) return prose;
+  // A link's destination and title and a reference definition are never
+  // shown as text, so the mobile renderer finds no citations in them.
+  final hidden = <SourceRange>[
+    for (final match in _linkDestination.allMatches(prose))
+      SourceRange(match.start + 1, match.end),
+    for (final match in _referenceDefinition.allMatches(prose))
+      SourceRange(match.start, match.end),
+  ];
   final out = StringBuffer();
   var cursor = 0;
   for (final match in _citationPattern.allMatches(prose)) {
     final raw = match[0]!;
     var start = match.start;
+    if (hidden.any((range) => start >= range.start && start < range.end)) {
+      continue;
+    }
     final after = match.end < prose.length ? prose[match.end] : '';
     if (start > 0 && prose[start - 1] == '^') continue;
     if (after == ':' && _startsLine(prose, start)) continue; // A definition.

@@ -197,6 +197,25 @@ void main() {
       }
     });
 
+    test('skip link and image destinations and reference definitions', () {
+      for (final text in [
+        '[download](https://example.invalid/files/[1].pdf)',
+        '![chart](https://example.invalid/plots/[2].png "Figure [2]")',
+        '[guide]: https://example.invalid/pages/[3].html',
+      ]) {
+        expect(plain(text, hasSources: true), text, reason: text);
+      }
+      expect(
+        plain('[a](https://example.invalid/[1]) per [1].', hasSources: true),
+        '[a](https://example.invalid/[1]) per [1](conduit-cite:1).',
+      );
+      // Not a link (a space ends the destination), so the brackets show.
+      expect(
+        plain('[a](b [1] c)', hasSources: true),
+        '[a](b [1](conduit-cite:1) c)',
+      );
+    });
+
     test("a link's text is not a citation, the brackets before it are", () {
       expect(
         plain('[1][2](https://example.invalid)', hasSources: true),
@@ -212,11 +231,8 @@ void main() {
     });
 
     test('with a source count, a number past it stays text, as on mobile', () {
-      String counted(String text) => normalizeTextForPlainMarkdown(
-        text,
-        hasSources: true,
-        sourceCount: 2,
-      );
+      String counted(String text) =>
+          normalizeTextForPlainMarkdown(text, hasSources: true, sourceCount: 2);
       expect(counted('In range [2].'), 'In range [2](conduit-cite:2).');
       expect(counted('Past it [3].'), 'Past it [3].');
       // The chip needs every number it names.
