@@ -563,6 +563,22 @@ class ChatsDao extends DatabaseAccessor<AppDatabase> with _$ChatsDaoMixin {
           if (m.dirty) m.id,
       };
 
+      // A copy older than the base: read before a push of this chat landed,
+      // which moved the base on. Nothing in it is news, and taking any of it
+      // (a pull asked for by name refreshes a clean chat) would put the chat
+      // back to before the push -- a message just sent, and its answer's
+      // placeholder, gone until the next pull, and a queued answer's request
+      // dropped for want of its placeholder.
+      if (serverChat.updatedAt < base) {
+        return _mergeResultWithUpdateOpIfMissing(
+          serverChat.id,
+          ChatMergeWriteResult(
+            outcome: MergeOutcome.noRemoteChange,
+            mustPush: existing.dirty || dirtyMessageIds.isNotEmpty,
+          ),
+        );
+      }
+
       final result = mergeChat(
         server: server,
         local: local,
