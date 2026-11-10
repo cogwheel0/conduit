@@ -15,6 +15,9 @@ import 'package:conduit_core/features/automations/automation_draft.dart';
 import 'package:conduit_core/features/automations/automation_schedule.dart';
 import 'package:conduit_core/features/automations/models/automation.dart';
 import 'package:conduit_core/features/automations/providers/automation_providers.dart';
+import 'package:conduit_core/features/automations/providers/automation_terminal_providers.dart';
+import 'package:conduit_core/features/terminal/models/terminal_agent_model.dart';
+import 'package:conduit_core/features/terminal/models/terminal_models.dart';
 import 'package:conduit_core/features/channels/providers/channel_providers.dart';
 import 'package:conduit_core/models/channel.dart';
 import 'package:conduit_core/models/model.dart';
@@ -39,6 +42,17 @@ const _rruleExample = 'RRULE:FREQ=WEEKLY;BYDAY=MO,WE,FR;BYHOUR=9;BYMINUTE=0';
 
 typedef _Options = ({
   List<Model>? models,
+
+  /// The server terminals a task may run with, or null while loading.
+  List<TerminalServerInfo>? terminals,
+
+  /// Whether the chosen terminal's coding agents are still loading.
+  bool agentsLoading,
+
+  /// Whether the task's agent cannot be told available or gone yet: its
+  /// terminal or their list is loading, or could not be read. The server then
+  /// decides, rather than a guess here.
+  bool agentsUnknown,
   List<Channel>? channels,
   Map<String, AutomationChannelAccess> access,
   List<({String id, String name})>? folders,
@@ -82,6 +96,12 @@ class _EditorState extends ConsumerState<_Editor> {
   final _name = TextEditingController();
   final _prompt = TextEditingController();
   final _rrule = TextEditingController();
+  final _cwd = TextEditingController();
+
+  /// The working folder the terminal is asked for agents with: [_cwd] once
+  /// typing has paused, so each keystroke does not ask the terminal again.
+  String? _agentCwd;
+  Timer? _cwdDebounce;
   bool _advancedOpen = false;
   bool _saving = false;
 
@@ -117,6 +137,8 @@ class _EditorState extends ConsumerState<_Editor> {
     _name.dispose();
     _prompt.dispose();
     _rrule.dispose();
+    _cwd.dispose();
+    _cwdDebounce?.cancel();
     super.dispose();
   }
 
@@ -125,6 +147,9 @@ class _EditorState extends ConsumerState<_Editor> {
     _name.text = draft.name;
     _prompt.text = draft.prompt;
     _rrule.text = draft.schedule.toRrule();
+    _cwd.text = draft.terminalCwd ?? '';
+    _cwdDebounce?.cancel();
+    _agentCwd = draft.terminalCwd;
   }
 
   Future<void> _load() async {
@@ -167,7 +192,9 @@ class _EditorState extends ConsumerState<_Editor> {
         draft.schedule != start.schedule ||
         draft.target != start.target ||
         draft.isActive != start.isActive ||
-        draft.folderId != start.folderId;
+        draft.folderId != start.folderId ||
+        draft.terminalId != start.terminalId ||
+        (draft.terminalCwd ?? '').trim() != (start.terminalCwd ?? '').trim();
   }
 
   void _update(AutomationDraft draft) => setState(() {
@@ -194,15 +221,85 @@ class _EditorState extends ConsumerState<_Editor> {
     );
   }
 
+  /// Moves the task to terminal [id], or to none. A coding agent belongs to
+  /// its terminal, so one chosen from another terminal is cleared.
+  void _setTerminal(String? id) {
+    final draft = _draft;
+    if (draft == null || draft.terminalId == id) return;
+    final agentTerminal = parseTerminalAgentModelId(draft.modelId.trim())
+        ?.terminalId;
+    if (id == null) {
+      // The folder belonged to the terminal: a terminal chosen later starts
+      // from its own default, in the field and in what it is asked.
+      _cwdDebounce?.cancel();
+      _cwd.clear();
+      _agentCwd = null;
+    }
+    final next = id == null
+        ? draft.copyWith(clearTerminal: true)
+        : draft.copyWith(terminalId: id);
+    _update(
+      agentTerminal != null && agentTerminal != id
+          ? next.copyWith(modelId: '')
+          : next,
+    );
+  }
+
+  void _setCwd(String value) {
+    final draft = _draft;
+    if (draft == null) return;
+    _update(draft.copyWith(terminalCwd: value));
+    _cwdDebounce?.cancel();
+    _cwdDebounce = Timer(const Duration(milliseconds: 400), () {
+      if (mounted) setState(() => _agentCwd = value.trim());
+    });
+  }
+
   // The values the account can pick now, or null while a list has not loaded,
   // in which case the server decides instead of a guess here.
   _Options _options() {
-    final models = ref
+    final draft = _draft;
+    final terminalsAsync = ref.watch(automationTerminalsProvider);
+    // Null while loading, or when the list cannot be read.
+    final terminals = terminalsAsync.asData?.value;
+    final terminalId = draft?.terminalId;
+    final terminal = terminals
+        ?.where((server) => server.selectionId == terminalId)
+        .firstOrNull;
+    // A coding agent posts only to a chat, so its terminal is asked for them
+    // only then.
+    final channel = draft?.target.isChannel ?? false;
+    final agentsAsync = terminal == null || channel
+        ? null
+        : ref.watch(
+            automationAgentModelsProvider((
+              terminalId: terminal.selectionId,
+              terminalName: terminal.displayName,
+              cwd: _agentCwd,
+              automationId: draft?.original?.id,
+            )),
+          );
+    // The task terminal's agents, or null while they cannot be known.
+    final List<Model>? agents;
+    if (terminalId == null) {
+      agents = const <Model>[];
+    } else if (channel || terminals == null) {
+      agents = null;
+    } else if (terminal == null) {
+      // The server lists its terminals and this one is not among them.
+      agents = const <Model>[];
+    } else {
+      // Null while loading, and when the terminal could not be asked.
+      agents = agentsAsync!.asData?.value;
+    }
+    final runsAgent = draft?.runsAgent ?? false;
+    final serverModels = ref
         .watch(modelsProvider)
         .asData
         ?.value
         .where(automationModelSelectable)
         .toList();
+    final models = serverModels == null ? null : [...serverModels, ...?agents];
     final channelList = ref.watch(channelsListProvider).asData?.value;
     final user = ref.watch(currentUserProvider2);
     final permissions =
@@ -221,6 +318,11 @@ class _EditorState extends ConsumerState<_Editor> {
     final folders = ref.watch(foldersProvider).asData?.value;
     return (
       models: models,
+      terminals: terminals,
+      agentsLoading:
+          runsAgent &&
+          (terminalsAsync.isLoading || (agentsAsync?.isLoading ?? false)),
+      agentsUnknown: runsAgent && agents == null,
       channels: channelList
           ?.where((c) => access[c.id] != AutomationChannelAccess.unavailable)
           .toList(),
@@ -236,7 +338,7 @@ class _EditorState extends ConsumerState<_Editor> {
 
   List<AutomationDraftIssue> _issues(AutomationDraft draft, _Options options) =>
       draft.issues(
-        modelIds: options.models == null
+        modelIds: options.models == null || options.agentsUnknown
             ? null
             : {for (final m in options.models!) m.id},
         folderIds: options.folders == null
@@ -251,6 +353,11 @@ class _EditorState extends ConsumerState<_Editor> {
     final draft = _draft;
     if (draft == null || _saving) return;
     FocusManager.instance.primaryFocus?.unfocus();
+    // A folder typed just now is the one its agents are checked against.
+    if (_cwdDebounce?.isActive ?? false) {
+      _cwdDebounce!.cancel();
+      _agentCwd = _cwd.text.trim();
+    }
     final l10n = AppLocalizations.of(context)!;
     final issues = _issues(draft, _options());
     if (issues.isNotEmpty) {
@@ -358,7 +465,12 @@ class _EditorState extends ConsumerState<_Editor> {
       searchHint: l10n.searchModels,
       selectedId: current.modelId.trim(),
       options: [
-        for (final m in models) (id: m.id, label: m.name, subtitle: m.id),
+        for (final m in models)
+          (
+            id: m.id,
+            label: m.name,
+            subtitle: terminalAgentPickerSubtitle(m) ?? m.id,
+          ),
       ],
     );
     final draft = _draft;
@@ -387,6 +499,24 @@ class _EditorState extends ConsumerState<_Editor> {
           ? draft.copyWith(clearFolder: true)
           : draft.copyWith(folderId: picked),
     );
+  }
+
+  Future<void> _pickTerminal(List<TerminalServerInfo> terminals) async {
+    final current = _draft;
+    if (current == null) return;
+    final l10n = AppLocalizations.of(context)!;
+    final picked = await _pick(
+      title: l10n.terminal,
+      searchHint: l10n.scheduledTaskTerminalSearchHint,
+      selectedId: current.terminalId ?? '',
+      options: [
+        (id: '', label: l10n.scheduledTaskFolderNone, subtitle: null),
+        for (final t in terminals)
+          (id: t.selectionId, label: t.displayName, subtitle: null),
+      ],
+    );
+    if (picked == null || !mounted) return;
+    _setTerminal(picked.isEmpty ? null : picked);
   }
 
   Future<void> _pickChannel(
@@ -637,6 +767,10 @@ class _EditorState extends ConsumerState<_Editor> {
       AutomationDraftIssue.modelRequired,
       AutomationDraftIssue.modelUnavailable,
     });
+    final terminalIssue = issue(const {AutomationDraftIssue.terminalRequired});
+    // Offered when the server has a terminal for tasks, or the task has one.
+    final showTerminal =
+        (options.terminals?.isNotEmpty ?? false) || draft.terminalId != null;
     final canSave = !_saving && draft.isChanged;
     return DiscardChangesScope(
       dirty: _dirty,
@@ -710,12 +844,46 @@ class _EditorState extends ConsumerState<_Editor> {
           InsetGroupedList(
             useNativeSurface: PlatformInfo.isIOS,
             children: [
+              if (showTerminal)
+                UtilityRow(
+                  key: const Key('scheduled-task-terminal'),
+                  title: l10n.terminal,
+                  titleFontWeight: PlatformInfo.isIOS ? FontWeight.w400 : null,
+                  subtitle:
+                      terminalIssue ??
+                      _terminalLabel(l10n, draft, options.terminals),
+                  foregroundColor: terminalIssue == null ? null : theme.error,
+                  showChevron: true,
+                  onTap: _saving || options.terminals == null
+                      ? null
+                      : () => _pickTerminal(options.terminals!),
+                ),
+              if (showTerminal && draft.terminalId != null)
+                editorGroupField(
+                  AccessibleFormField(
+                    key: const Key('scheduled-task-working-folder'),
+                    controller: _cwd,
+                    label: l10n.scheduledTaskWorkingFolderLabel,
+                    hint: l10n.scheduledTaskWorkingFolderHint,
+                    enabled: !_saving,
+                    iosSettingsRow: PlatformInfo.isIOS,
+                    textInputAction: TextInputAction.done,
+                    onChanged: _setCwd,
+                  ),
+                ),
               UtilityRow(
                 key: const Key('scheduled-task-model'),
                 title: l10n.scheduledTaskModelLabel,
                 titleFontWeight: PlatformInfo.isIOS ? FontWeight.w400 : null,
                 subtitle:
-                    modelIssue ?? _modelLabel(l10n, draft, options.models),
+                    modelIssue ??
+                    (options.agentsLoading
+                        ? l10n.scheduledTaskAgentsLoading
+                        : _modelLabel(
+                            l10n,
+                            draft,
+                            options.agentsUnknown ? null : options.models,
+                          )),
                 foregroundColor: modelIssue == null ? null : theme.error,
                 showChevron: true,
                 onTap: _saving || options.models == null
@@ -733,13 +901,6 @@ class _EditorState extends ConsumerState<_Editor> {
           ),
           const SizedBox(height: Spacing.lg),
           ..._destination(context, l10n, draft, options, issue),
-          if (draft.original?.terminal != null) ...[
-            const SizedBox(height: Spacing.md),
-            Text(
-              l10n.scheduledTaskTerminalKept,
-              style: theme.bodySmall?.copyWith(color: theme.textSecondary),
-            ),
-          ],
           if (!PlatformInfo.isIOS) ...[
             const SizedBox(height: Spacing.lg),
             Row(
@@ -778,9 +939,28 @@ class _EditorState extends ConsumerState<_Editor> {
     if (id.isEmpty) return l10n.scheduledTaskModelChoose;
     final match = models?.where((m) => m.id == id).firstOrNull;
     if (match != null) return match.name;
+    // An agent's id is an address; name it as the picker does.
+    final agentName = terminalAgentDisplayName(id);
+    if (agentName != null) {
+      return models == null
+          ? agentName
+          : l10n.scheduledTaskModelUnavailable(agentName);
+    }
     // A saved id the account cannot pick now stays visible and is not saved
     // again until a compatible model is chosen.
     return models == null ? id : l10n.scheduledTaskModelUnavailable(id);
+  }
+
+  String _terminalLabel(
+    AppLocalizations l10n,
+    AutomationDraft draft,
+    List<TerminalServerInfo>? terminals,
+  ) {
+    final id = draft.terminalId;
+    if (id == null) return l10n.scheduledTaskFolderNone;
+    final match = terminals?.where((t) => t.selectionId == id).firstOrNull;
+    if (match != null) return match.displayName;
+    return terminals == null ? id : l10n.scheduledTaskModelUnavailable(id);
   }
 
   List<Widget> _schedule(
@@ -943,6 +1123,7 @@ class _EditorState extends ConsumerState<_Editor> {
     final channelIssue = issue(const {
       AutomationDraftIssue.channelRequired,
       AutomationDraftIssue.channelUnavailable,
+      AutomationDraftIssue.agentNeedsChat,
     });
     final folderIssue = issue(const {AutomationDraftIssue.folderUnavailable});
     return [

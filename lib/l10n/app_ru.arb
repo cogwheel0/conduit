@@ -4813,5 +4813,13 @@
   "hermesProcessKilled": "Процесс завершён.",
   "hermesProcessAlreadyStopped": "Он уже был остановлен.",
   "hermesProcessKillFailed": "Не удалось завершить: {error}",
-  "@hermesProcessKillFailed": {"placeholders": {"error": {"type": "String"}}}
+  "@hermesProcessKillFailed": {"placeholders": {"error": {"type": "String"}}},
+  "modelPickerCodingAgents": "Агенты для программирования",
+  "modelControlServiceTier": "Уровень обслуживания",
+  "scheduledTaskTerminalSearchHint": "Поиск терминалов",
+  "scheduledTaskWorkingFolderLabel": "Рабочая папка",
+  "scheduledTaskWorkingFolderHint": "Папка терминала по умолчанию",
+  "scheduledTaskTerminalRequired": "Выберите терминал, на котором работает этот агент.",
+  "scheduledTaskAgentNeedsChat": "Результаты агента отправляются в новый чат.",
+  "scheduledTaskAgentsLoading": "Загрузка агентов этого терминала…"
 }

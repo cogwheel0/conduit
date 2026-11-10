@@ -89,6 +89,8 @@ final comparisonCommandAvailableProvider = Provider<bool>((ref) {
   )) {
     return false;
   }
+  // Open WebUI answers a coding agent only in a chat it has to itself.
+  if (ref.watch(activeChatUsesTerminalAgentProvider)) return false;
   return ref.watch(comparisonRuntimeAvailableProvider);
 });
 

@@ -13,6 +13,7 @@ import 'package:conduit_core/features/automations/providers/automation_providers
 import 'package:conduit_core/features/channels/providers/channel_providers.dart';
 import 'package:conduit_core/models/conversation.dart';
 import 'package:conduit_core/providers/app_providers.dart';
+import 'package:conduit_core/features/terminal/models/terminal_agent_model.dart';
 
 import '../../../core/services/haptic_service.dart';
 import '../../../l10n/app_localizations.dart';
@@ -581,6 +582,7 @@ class _TaskDetailState extends ConsumerState<_TaskDetail> {
           ].join(' · ');
     final modelName =
         models?.where((m) => m.id == task.modelId).firstOrNull?.name ??
+        terminalAgentDisplayName(task.modelId) ??
         task.modelId;
     final lastRunTitle = lastRunAt != null
         ? l10n.scheduledTaskLastRun(lastRunAt)

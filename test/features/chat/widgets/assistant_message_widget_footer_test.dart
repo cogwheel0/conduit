@@ -162,6 +162,7 @@ Widget _buildAssistantHarness(
   Locale? locale,
   List<Override> overrides = const [],
   bool deletable = true,
+  bool allowsRegenerate = true,
 }) {
   return ProviderScope(
     overrides: [
@@ -196,6 +197,7 @@ Widget _buildAssistantHarness(
           modelName: message.model,
           onCopy: onCopy ?? () {},
           onRegenerate: onRegenerate ?? () {},
+          allowsRegenerate: allowsRegenerate,
           onDelete: deletable ? () {} : null,
           onFollowUpSelected: onFollowUpSelected,
         ),
@@ -962,6 +964,34 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byIcon(Icons.share_outlined), findsOneWidget);
     expect(find.byIcon(Icons.delete_outline), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('a coding agent\'s reply offers no Regenerate', (tester) async {
+    // Open WebUI continues an agent's chat only with a new message.
+    final message = ChatMessage(
+      id: 'agent-reply',
+      role: 'assistant',
+      content: 'Renamed the folder.',
+      timestamp: DateTime(2026, 1, 1),
+    );
+    const settings = AppSettings(inlineMessageActions: ['copy', 'regenerate']);
+    await tester.pumpWidget(
+      _buildAssistantHarness(message, settings: settings),
+    );
+    await tester.pumpAndSettle();
+    expect(find.byIcon(Icons.refresh), findsOneWidget);
+
+    await tester.pumpWidget(
+      _buildAssistantHarness(
+        message,
+        settings: settings,
+        allowsRegenerate: false,
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.byIcon(Icons.refresh), findsNothing);
+    expect(find.text('Regenerate'), findsNothing);
     expect(tester.takeException(), isNull);
   });
 

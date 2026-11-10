@@ -1272,6 +1272,10 @@ class AppStartupFlow extends _$AppStartupFlow {
     // pending-folder id in place when a local id is remapped to a server id.
     _keepAlive(remapRouteSyncProvider);
 
+    // A coding agent runs only on its own terminal: switching that terminal
+    // off puts the default model back.
+    _keepAlive(terminalAgentSelectionGuardProvider);
+
     // Retry authenticated startup work if the API becomes available after the
     // initial startup/auth transition request.
     ref.listen<ApiService?>(apiServiceProvider, (previous, next) {

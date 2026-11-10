@@ -229,6 +229,32 @@ mixin _UserSettingsApi on _ApiServiceBase {
     });
   }
 
+  /// Saves the user's pick for [modelId]'s [controlKey] (null to clear it)
+  /// where the web client keeps it, `ui.params.model_controls`, and returns
+  /// every pick as stored.
+  Future<ModelControlChoices> updateUserModelControlChoice({
+    required String modelId,
+    required String controlKey,
+    required String? value,
+  }) {
+    final authSnapshot = captureAuthSnapshot();
+    return serializeUserSettingsMutation(() async {
+      final settings = settingsWithModelControlChoice(
+        _deepCloneJsonMap(await getUserSettings(authSnapshot: authSnapshot)),
+        modelId: modelId,
+        controlKey: controlKey,
+        value: value,
+      );
+      final response = await _postUserSettings(
+        settings,
+        authSnapshot: authSnapshot,
+      );
+      return modelControlChoicesFromSettings(
+        _coerceResponseMap(response.data) ?? settings,
+      );
+    });
+  }
+
   // Memory & Notes
   Future<List<ServerMemory>> getMemories({
     ApiAuthSnapshot? authSnapshot,

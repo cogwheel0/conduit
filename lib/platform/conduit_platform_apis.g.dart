@@ -2549,6 +2549,8 @@ class PlatformNativeSheetModelSelectorRequest {
     required this.allowsCustomReasoningEffort,
     required this.customReasoningEffortTitle,
     required this.customReasoningEffortHint,
+    required this.modelControls,
+    required this.modelControlDefaultTitle,
   });
 
   String presentationId;
@@ -2587,6 +2589,13 @@ class PlatformNativeSheetModelSelectorRequest {
 
   String customReasoningEffortHint;
 
+  /// The selected model's own settings (a coding agent's effort or service
+  /// tier), one row each.
+  List<PlatformNativeSheetModelControl> modelControls;
+
+  /// What a control's row says while nothing is picked and it has no default.
+  String modelControlDefaultTitle;
+
   List<Object?> _toList() {
     return <Object?>[
       presentationId,
@@ -2607,6 +2616,8 @@ class PlatformNativeSheetModelSelectorRequest {
       allowsCustomReasoningEffort,
       customReasoningEffortTitle,
       customReasoningEffortHint,
+      modelControls,
+      modelControlDefaultTitle,
     ];
   }
 
@@ -2637,6 +2648,9 @@ class PlatformNativeSheetModelSelectorRequest {
       allowsCustomReasoningEffort: result[15]! as bool,
       customReasoningEffortTitle: result[16]! as String,
       customReasoningEffortHint: result[17]! as String,
+      modelControls: (result[18]! as List<Object?>)
+          .cast<PlatformNativeSheetModelControl>(),
+      modelControlDefaultTitle: result[19]! as String,
     );
   }
 
@@ -2673,7 +2687,12 @@ class PlatformNativeSheetModelSelectorRequest {
           customReasoningEffortTitle,
           other.customReasoningEffortTitle,
         ) &&
-        _deepEquals(customReasoningEffortHint, other.customReasoningEffortHint);
+        _deepEquals(
+          customReasoningEffortHint,
+          other.customReasoningEffortHint,
+        ) &&
+        _deepEquals(modelControls, other.modelControls) &&
+        _deepEquals(modelControlDefaultTitle, other.modelControlDefaultTitle);
   }
 
   @override
@@ -2682,7 +2701,74 @@ class PlatformNativeSheetModelSelectorRequest {
 
   @override
   String toString() {
-    return 'PlatformNativeSheetModelSelectorRequest(presentationId: $presentationId, title: $title, selectedModelId: $selectedModelId, models: $models, pinnedModelIds: $pinnedModelIds, featuredModelIds: $featuredModelIds, allowsPinning: $allowsPinning, pinTitle: $pinTitle, unpinTitle: $unpinTitle, moreModelsTitle: $moreModelsTitle, searchModelsTitle: $searchModelsTitle, reasoningEffortTitle: $reasoningEffortTitle, reasoningEffortValue: $reasoningEffortValue, reasoningEffortOptions: $reasoningEffortOptions, reasoningEffortLabels: $reasoningEffortLabels, allowsCustomReasoningEffort: $allowsCustomReasoningEffort, customReasoningEffortTitle: $customReasoningEffortTitle, customReasoningEffortHint: $customReasoningEffortHint)';
+    return 'PlatformNativeSheetModelSelectorRequest(presentationId: $presentationId, title: $title, selectedModelId: $selectedModelId, models: $models, pinnedModelIds: $pinnedModelIds, featuredModelIds: $featuredModelIds, allowsPinning: $allowsPinning, pinTitle: $pinTitle, unpinTitle: $unpinTitle, moreModelsTitle: $moreModelsTitle, searchModelsTitle: $searchModelsTitle, reasoningEffortTitle: $reasoningEffortTitle, reasoningEffortValue: $reasoningEffortValue, reasoningEffortOptions: $reasoningEffortOptions, reasoningEffortLabels: $reasoningEffortLabels, allowsCustomReasoningEffort: $allowsCustomReasoningEffort, customReasoningEffortTitle: $customReasoningEffortTitle, customReasoningEffortHint: $customReasoningEffortHint, modelControls: $modelControls, modelControlDefaultTitle: $modelControlDefaultTitle)';
+  }
+}
+
+/// One of a model's own settings, as the model selector offers it.
+class PlatformNativeSheetModelControl {
+  PlatformNativeSheetModelControl({
+    required this.key,
+    required this.title,
+    this.value,
+    required this.options,
+    required this.labels,
+  });
+
+  String key;
+
+  String title;
+
+  /// The option that applies now, or null when none does.
+  String? value;
+
+  List<String> options;
+
+  Map<String, String> labels;
+
+  List<Object?> _toList() {
+    return <Object?>[key, title, value, options, labels];
+  }
+
+  Object encode() {
+    return _toList();
+  }
+
+  static PlatformNativeSheetModelControl decode(Object result) {
+    result as List<Object?>;
+    return PlatformNativeSheetModelControl(
+      key: result[0]! as String,
+      title: result[1]! as String,
+      value: result[2] as String?,
+      options: (result[3]! as List<Object?>).cast<String>(),
+      labels: (result[4]! as Map<Object?, Object?>).cast<String, String>(),
+    );
+  }
+
+  @override
+  // ignore: avoid_equals_and_hash_code_on_mutable_classes
+  bool operator ==(Object other) {
+    if (other is! PlatformNativeSheetModelControl ||
+        other.runtimeType != runtimeType) {
+      return false;
+    }
+    if (identical(this, other)) {
+      return true;
+    }
+    return _deepEquals(key, other.key) &&
+        _deepEquals(title, other.title) &&
+        _deepEquals(value, other.value) &&
+        _deepEquals(options, other.options) &&
+        _deepEquals(labels, other.labels);
+  }
+
+  @override
+  // ignore: avoid_equals_and_hash_code_on_mutable_classes
+  int get hashCode => _deepHash(<Object?>[runtimeType, ..._toList()]);
+
+  @override
+  String toString() {
+    return 'PlatformNativeSheetModelControl(key: $key, title: $title, value: $value, options: $options, labels: $labels)';
   }
 }
 
@@ -3237,6 +3323,55 @@ class PlatformNativeSheetReasoningEffortChangedEvent {
   @override
   String toString() {
     return 'PlatformNativeSheetReasoningEffortChangedEvent(value: $value)';
+  }
+}
+
+class PlatformNativeSheetModelControlChangedEvent {
+  PlatformNativeSheetModelControlChangedEvent({
+    required this.key,
+    required this.value,
+  });
+
+  String key;
+
+  String value;
+
+  List<Object?> _toList() {
+    return <Object?>[key, value];
+  }
+
+  Object encode() {
+    return _toList();
+  }
+
+  static PlatformNativeSheetModelControlChangedEvent decode(Object result) {
+    result as List<Object?>;
+    return PlatformNativeSheetModelControlChangedEvent(
+      key: result[0]! as String,
+      value: result[1]! as String,
+    );
+  }
+
+  @override
+  // ignore: avoid_equals_and_hash_code_on_mutable_classes
+  bool operator ==(Object other) {
+    if (other is! PlatformNativeSheetModelControlChangedEvent ||
+        other.runtimeType != runtimeType) {
+      return false;
+    }
+    if (identical(this, other)) {
+      return true;
+    }
+    return _deepEquals(key, other.key) && _deepEquals(value, other.value);
+  }
+
+  @override
+  // ignore: avoid_equals_and_hash_code_on_mutable_classes
+  int get hashCode => _deepHash(<Object?>[runtimeType, ..._toList()]);
+
+  @override
+  String toString() {
+    return 'PlatformNativeSheetModelControlChangedEvent(key: $key, value: $value)';
   }
 }
 
@@ -4040,62 +4175,68 @@ class _PigeonCodec extends StandardMessageCodec {
     } else if (value is PlatformNativeSheetModelSelectorRequest) {
       buffer.putUint8(169);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformNativeSheetOptionsSelectorRequest) {
+    } else if (value is PlatformNativeSheetModelControl) {
       buffer.putUint8(170);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformNativeSheetDatePickerRequest) {
+    } else if (value is PlatformNativeSheetOptionsSelectorRequest) {
       buffer.putUint8(171);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformNativeSheetTextEditorRequest) {
+    } else if (value is PlatformNativeSheetDatePickerRequest) {
       buffer.putUint8(172);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformNativeSheetResultRequest) {
+    } else if (value is PlatformNativeSheetTextEditorRequest) {
       buffer.putUint8(173);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformNativeSheetApplyDetailPatchRequest) {
+    } else if (value is PlatformNativeSheetResultRequest) {
       buffer.putUint8(174);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformNativeSheetControlChangedEvent) {
+    } else if (value is PlatformNativeSheetApplyDetailPatchRequest) {
       buffer.putUint8(175);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformNativeSheetDetailAppearedEvent) {
+    } else if (value is PlatformNativeSheetControlChangedEvent) {
       buffer.putUint8(176);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformNativeSheetModelPinToggledEvent) {
+    } else if (value is PlatformNativeSheetDetailAppearedEvent) {
       buffer.putUint8(177);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformNativeSheetReasoningEffortChangedEvent) {
+    } else if (value is PlatformNativeSheetModelPinToggledEvent) {
       buffer.putUint8(178);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformNativeEditProfileCommittedEvent) {
+    } else if (value is PlatformNativeSheetReasoningEffortChangedEvent) {
       buffer.putUint8(179);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformNativeSheetActionResult) {
+    } else if (value is PlatformNativeSheetModelControlChangedEvent) {
       buffer.putUint8(180);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformPccStatus) {
+    } else if (value is PlatformNativeEditProfileCommittedEvent) {
       buffer.putUint8(181);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformPccImage) {
+    } else if (value is PlatformNativeSheetActionResult) {
       buffer.putUint8(182);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformPccMessage) {
+    } else if (value is PlatformPccStatus) {
       buffer.putUint8(183);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformPccToolDefinition) {
+    } else if (value is PlatformPccImage) {
       buffer.putUint8(184);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformPccToolCall) {
+    } else if (value is PlatformPccMessage) {
       buffer.putUint8(185);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformPccToolResult) {
+    } else if (value is PlatformPccToolDefinition) {
       buffer.putUint8(186);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformPccCompletionRequest) {
+    } else if (value is PlatformPccToolCall) {
       buffer.putUint8(187);
       writeValue(buffer, value.encode());
-    } else if (value is PlatformPccStreamEvent) {
+    } else if (value is PlatformPccToolResult) {
       buffer.putUint8(188);
+      writeValue(buffer, value.encode());
+    } else if (value is PlatformPccCompletionRequest) {
+      buffer.putUint8(189);
+      writeValue(buffer, value.encode());
+    } else if (value is PlatformPccStreamEvent) {
+      buffer.putUint8(190);
       writeValue(buffer, value.encode());
     } else {
       super.writeValue(buffer, value);
@@ -4208,56 +4349,62 @@ class _PigeonCodec extends StandardMessageCodec {
           readValue(buffer)!,
         );
       case 170:
+        return PlatformNativeSheetModelControl.decode(readValue(buffer)!);
+      case 171:
         return PlatformNativeSheetOptionsSelectorRequest.decode(
           readValue(buffer)!,
         );
-      case 171:
-        return PlatformNativeSheetDatePickerRequest.decode(readValue(buffer)!);
       case 172:
-        return PlatformNativeSheetTextEditorRequest.decode(readValue(buffer)!);
+        return PlatformNativeSheetDatePickerRequest.decode(readValue(buffer)!);
       case 173:
-        return PlatformNativeSheetResultRequest.decode(readValue(buffer)!);
+        return PlatformNativeSheetTextEditorRequest.decode(readValue(buffer)!);
       case 174:
+        return PlatformNativeSheetResultRequest.decode(readValue(buffer)!);
+      case 175:
         return PlatformNativeSheetApplyDetailPatchRequest.decode(
           readValue(buffer)!,
         );
-      case 175:
+      case 176:
         return PlatformNativeSheetControlChangedEvent.decode(
           readValue(buffer)!,
         );
-      case 176:
+      case 177:
         return PlatformNativeSheetDetailAppearedEvent.decode(
           readValue(buffer)!,
         );
-      case 177:
+      case 178:
         return PlatformNativeSheetModelPinToggledEvent.decode(
           readValue(buffer)!,
         );
-      case 178:
+      case 179:
         return PlatformNativeSheetReasoningEffortChangedEvent.decode(
           readValue(buffer)!,
         );
-      case 179:
+      case 180:
+        return PlatformNativeSheetModelControlChangedEvent.decode(
+          readValue(buffer)!,
+        );
+      case 181:
         return PlatformNativeEditProfileCommittedEvent.decode(
           readValue(buffer)!,
         );
-      case 180:
-        return PlatformNativeSheetActionResult.decode(readValue(buffer)!);
-      case 181:
-        return PlatformPccStatus.decode(readValue(buffer)!);
       case 182:
-        return PlatformPccImage.decode(readValue(buffer)!);
+        return PlatformNativeSheetActionResult.decode(readValue(buffer)!);
       case 183:
-        return PlatformPccMessage.decode(readValue(buffer)!);
+        return PlatformPccStatus.decode(readValue(buffer)!);
       case 184:
-        return PlatformPccToolDefinition.decode(readValue(buffer)!);
+        return PlatformPccImage.decode(readValue(buffer)!);
       case 185:
-        return PlatformPccToolCall.decode(readValue(buffer)!);
+        return PlatformPccMessage.decode(readValue(buffer)!);
       case 186:
-        return PlatformPccToolResult.decode(readValue(buffer)!);
+        return PlatformPccToolDefinition.decode(readValue(buffer)!);
       case 187:
-        return PlatformPccCompletionRequest.decode(readValue(buffer)!);
+        return PlatformPccToolCall.decode(readValue(buffer)!);
       case 188:
+        return PlatformPccToolResult.decode(readValue(buffer)!);
+      case 189:
+        return PlatformPccCompletionRequest.decode(readValue(buffer)!);
+      case 190:
         return PlatformPccStreamEvent.decode(readValue(buffer)!);
       default:
         return super.readValueOfType(type, buffer);
@@ -5503,6 +5650,31 @@ class NativeSheetHostApi {
     );
   }
 
+  /// Shows [controls] as the open selector's control rows again, as the
+  /// account holds them (after a pick that could not be saved).
+  Future<void> updateModelSelectorModelControls(
+    String presentationId,
+    List<PlatformNativeSheetModelControl> controls,
+  ) async {
+    final pigeonVar_channelName =
+        'dev.flutter.pigeon.conduit.NativeSheetHostApi.updateModelSelectorModelControls$pigeonVar_messageChannelSuffix';
+    final pigeonVar_channel = BasicMessageChannel<Object?>(
+      pigeonVar_channelName,
+      pigeonChannelCodec,
+      binaryMessenger: pigeonVar_binaryMessenger,
+    );
+    final Future<Object?> pigeonVar_sendFuture = pigeonVar_channel.send(
+      <Object?>[presentationId, controls],
+    );
+    final pigeonVar_replyList = await pigeonVar_sendFuture as List<Object?>?;
+
+    _extractReplyValueOrThrow(
+      pigeonVar_replyList,
+      pigeonVar_channelName,
+      isNullValid: true,
+    );
+  }
+
   Future<String?> presentOptionsSelector(
     PlatformNativeSheetOptionsSelectorRequest request,
   ) async {
@@ -5635,6 +5807,8 @@ abstract class NativeSheetFlutterApi {
   void onReasoningEffortChanged(
     PlatformNativeSheetReasoningEffortChangedEvent event,
   );
+
+  void onModelControlChanged(PlatformNativeSheetModelControlChangedEvent event);
 
   void commitEditProfile(PlatformNativeEditProfileCommittedEvent event);
 
@@ -5785,6 +5959,32 @@ abstract class NativeSheetFlutterApi {
               args[0]! as PlatformNativeSheetReasoningEffortChangedEvent;
           try {
             api.onReasoningEffortChanged(arg_event);
+            return wrapResponse(empty: true);
+          } on PlatformException catch (e) {
+            return wrapResponse(error: e);
+          } catch (e) {
+            return wrapResponse(
+              error: PlatformException(code: 'error', message: e.toString()),
+            );
+          }
+        });
+      }
+    }
+    {
+      final pigeonVar_channel = BasicMessageChannel<Object?>(
+        'dev.flutter.pigeon.conduit.NativeSheetFlutterApi.onModelControlChanged$messageChannelSuffix',
+        pigeonChannelCodec,
+        binaryMessenger: binaryMessenger,
+      );
+      if (api == null) {
+        pigeonVar_channel.setMessageHandler(null);
+      } else {
+        pigeonVar_channel.setMessageHandler((Object? message) async {
+          final List<Object?> args = message! as List<Object?>;
+          final PlatformNativeSheetModelControlChangedEvent arg_event =
+              args[0]! as PlatformNativeSheetModelControlChangedEvent;
+          try {
+            api.onModelControlChanged(arg_event);
             return wrapResponse(empty: true);
           } on PlatformException catch (e) {
             return wrapResponse(error: e);

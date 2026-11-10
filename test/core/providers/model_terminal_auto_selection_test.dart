@@ -92,6 +92,24 @@ void main() {
 
       expect(container.read(selectedTerminalIdProvider), isNull);
     });
+
+    test('a coding agent selects its own terminal, which then stays like the '
+        'user\'s pick', () async {
+      final container = ProviderContainer();
+      addTearDown(container.dispose);
+
+      container.read(modelTerminalAutoSelectionProvider);
+      container.read(selectedTerminalIdProvider.notifier).set('other');
+      container
+          .read(selectedModelProvider.notifier)
+          .set(_model('agent:build%20box:codex:gpt-5.1'));
+      await _flushMicrotasks();
+      expect(container.read(selectedTerminalIdProvider), 'build box');
+
+      container.read(selectedModelProvider.notifier).set(_model('chat-model'));
+      await _flushMicrotasks();
+      expect(container.read(selectedTerminalIdProvider), 'build box');
+    });
   });
 }
 

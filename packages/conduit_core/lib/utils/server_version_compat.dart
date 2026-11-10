@@ -17,10 +17,10 @@ class ServerVersionCompat {
   /// Servers reporting a `/api/config` `version` strictly greater than this are
   /// shown a compatibility warning. Bump this (and re-verify against
   /// `openwebui-src/`) whenever a newer server release is validated.
-  static const String maxSupportedVersion = '0.13.2';
+  static const String maxSupportedVersion = '0.13.3';
 
   /// Parsed [maxSupportedVersion] components: `[major, minor, patch]`.
-  static const List<int> _maxSupported = [0, 13, 2];
+  static const List<int> _maxSupported = [0, 13, 3];
 
   /// Whether [rawVersion] is within the supported range (<= [maxSupportedVersion]).
   ///
@@ -56,6 +56,14 @@ class ServerVersionCompat {
   /// and browser sessions, and that makes port previews report where a link
   /// leads instead of following it.
   static const String terminalLiveFeaturesVersion = '0.13.0';
+
+  /// The first Open WebUI release that offers the coding agents on its
+  /// terminals (Claude Code, Codex, Pi and others) as models.
+  static const String terminalAgentsVersion = '0.13.1';
+
+  /// The first Open WebUI release that runs a coding agent as a scheduled
+  /// task, and lists the agents a task's terminal offers.
+  static const String automationAgentsVersion = '0.13.3';
 
   /// Whether [rawVersion] is [minimum] or newer, or null when [rawVersion]
   /// cannot be read. For a choice that must not guess either way.

@@ -4775,5 +4775,13 @@
   "hermesProcessKilled": "Prozess beendet.",
   "hermesProcessAlreadyStopped": "Er war bereits beendet.",
   "hermesProcessKillFailed": "Beenden fehlgeschlagen: {error}",
-  "@hermesProcessKillFailed": {"placeholders": {"error": {"type": "String"}}}
+  "@hermesProcessKillFailed": {"placeholders": {"error": {"type": "String"}}},
+  "modelPickerCodingAgents": "Coding-Agenten",
+  "modelControlServiceTier": "Service-Stufe",
+  "scheduledTaskTerminalSearchHint": "Terminals suchen",
+  "scheduledTaskWorkingFolderLabel": "Arbeitsordner",
+  "scheduledTaskWorkingFolderHint": "Standard des Terminals",
+  "scheduledTaskTerminalRequired": "Wähle das Terminal, auf dem dieser Agent läuft.",
+  "scheduledTaskAgentNeedsChat": "Die Ergebnisse eines Agenten landen in einem neuen Chat.",
+  "scheduledTaskAgentsLoading": "Agenten dieses Terminals werden geladen…"
 }

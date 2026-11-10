@@ -120,4 +120,38 @@ void main() {
     check(layout.sections).isEmpty();
     check(layout.more).length.equals(6);
   });
+
+  test('a model kept out of the fallback leads only when pinned or '
+      'selected', () {
+    // A short account list with two coding agents after it: the agents stay
+    // under their heading unless the user picked or pinned one.
+    final listed = [
+      const Model(id: 'model-0', name: 'Model 0'),
+      const Model(id: 'agent:t:codex:a', name: 'Codex · a'),
+      const Model(id: 'agent:t:pi:b', name: 'Pi · b'),
+    ];
+    ({String label, int order})? agents(Model model) =>
+        model.id.startsWith('agent:') ? (label: 'Agents', order: 9) : null;
+    bool notAgent(Model model) => !model.id.startsWith('agent:');
+
+    final plain = buildModelSelectorLayout(
+      models: listed,
+      pinnedModelIds: const [],
+      sectionOf: agents,
+      fillsFallback: notAgent,
+    );
+    check(plain.featured.map((m) => m.id).toList()).deepEquals(['model-0']);
+    check(plain.sections.single.models.map((m) => m.id).toList())
+        .deepEquals(['agent:t:codex:a', 'agent:t:pi:b']);
+
+    final picked = buildModelSelectorLayout(
+      models: listed,
+      pinnedModelIds: const [],
+      selectedModelId: 'agent:t:pi:b',
+      sectionOf: agents,
+      fillsFallback: notAgent,
+    );
+    check(picked.featured.map((m) => m.id).toList())
+        .deepEquals(['model-0', 'agent:t:pi:b']);
+  });
 }

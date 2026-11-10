@@ -151,6 +151,8 @@ class NativeSheetBridge implements NativeSheetFlutterApi {
   Object? _modelPinToggleHandlerOwner;
   Future<void> Function(String value)? _reasoningEffortChangedHandler;
   Object? _reasoningEffortChangedHandlerOwner;
+  Future<void> Function(String key, String value)? _modelControlChangedHandler;
+  Object? _modelControlChangedHandlerOwner;
   Object? _reasoningEffortUpdateOwner;
   Future<void> _reasoningEffortUpdateQueue = Future<void>.value();
   NativeSheetThemeConfig? _lastTheme;
@@ -242,14 +244,34 @@ class NativeSheetBridge implements NativeSheetFlutterApi {
     bool allowsCustomReasoningEffort = true,
     String customReasoningEffortTitle = 'Custom effort',
     String customReasoningEffortHint = 'Enter effort',
+    List<PlatformNativeSheetModelControl> modelControls =
+        const <PlatformNativeSheetModelControl>[],
+    String modelControlDefaultTitle = 'Default',
     Future<void> Function(String modelId)? onTogglePinned,
     Future<void> Function(String value)? onReasoningEffortChanged,
+    Future<void> Function(String key, String value)? onModelControlChanged,
     bool rethrowErrors = false,
   }) async {
     final normalizedPresentationId = presentationId.trim();
     if (!_isIOS || models.isEmpty || normalizedPresentationId.isEmpty) {
       return null;
     }
+    // One selector is up at a time: its control picks go to its handler
+    // until it closes. A second one the platform refuses leaves the open
+    // one's handler in place.
+    final previousControlHandler = _modelControlChangedHandler;
+    final previousControlHandlerOwner = _modelControlChangedHandlerOwner;
+    final controlHandlerOwner = Object();
+    _modelControlChangedHandler = onModelControlChanged;
+    _modelControlChangedHandlerOwner = controlHandlerOwner;
+    void restorePreviousControlHandler() {
+      if (!identical(_modelControlChangedHandlerOwner, controlHandlerOwner)) {
+        return;
+      }
+      _modelControlChangedHandler = previousControlHandler;
+      _modelControlChangedHandlerOwner = previousControlHandlerOwner;
+    }
+
     final previousPinToggleHandler = _modelPinToggleHandler;
     final previousPinToggleHandlerOwner = _modelPinToggleHandlerOwner;
     final previousEffortHandler = _reasoningEffortChangedHandler;
@@ -283,6 +305,8 @@ class NativeSheetBridge implements NativeSheetFlutterApi {
           allowsCustomReasoningEffort: allowsCustomReasoningEffort,
           customReasoningEffortTitle: customReasoningEffortTitle,
           customReasoningEffortHint: customReasoningEffortHint,
+          modelControls: modelControls,
+          modelControlDefaultTitle: modelControlDefaultTitle,
         ),
       );
       shouldClearPinToggleHandler = true;
@@ -292,6 +316,7 @@ class NativeSheetBridge implements NativeSheetFlutterApi {
       return null;
     } on PlatformException catch (error, stackTrace) {
       if (!shouldClearPinToggleHandler) {
+        restorePreviousControlHandler();
         _restorePreviousModelPinToggleHandler(
           owner: pinToggleHandlerOwner,
           previousHandler: previousPinToggleHandler,
@@ -314,6 +339,7 @@ class NativeSheetBridge implements NativeSheetFlutterApi {
       return null;
     } catch (error, stackTrace) {
       if (!shouldClearPinToggleHandler) {
+        restorePreviousControlHandler();
         _restorePreviousModelPinToggleHandler(
           owner: pinToggleHandlerOwner,
           previousHandler: previousPinToggleHandler,
@@ -335,6 +361,11 @@ class NativeSheetBridge implements NativeSheetFlutterApi {
       if (rethrowErrors) rethrow;
       return null;
     } finally {
+      if (shouldClearPinToggleHandler &&
+          identical(_modelControlChangedHandlerOwner, controlHandlerOwner)) {
+        _modelControlChangedHandler = null;
+        _modelControlChangedHandlerOwner = null;
+      }
       if (shouldClearPinToggleHandler &&
           identical(_modelPinToggleHandlerOwner, pinToggleHandlerOwner)) {
         _modelPinToggleHandler = null;
@@ -412,6 +443,29 @@ class NativeSheetBridge implements NativeSheetFlutterApi {
       }
     } finally {
       updateComplete.complete();
+    }
+  }
+
+  /// Shows [controls] as the selector [presentationId]'s control rows again,
+  /// as the account holds them.
+  Future<void> updateModelSelectorModelControls({
+    required String presentationId,
+    required List<PlatformNativeSheetModelControl> controls,
+  }) async {
+    final normalizedPresentationId = presentationId.trim();
+    if (!_isIOS || normalizedPresentationId.isEmpty) return;
+    try {
+      await _api.updateModelSelectorModelControls(
+        normalizedPresentationId,
+        controls,
+      );
+    } catch (error, stackTrace) {
+      _logNativeSheetBridgeError(
+        'updateModelSelectorModelControls',
+        error,
+        stackTrace,
+        data: {'controlCount': controls.length},
+      );
     }
   }
 
@@ -695,6 +749,27 @@ class NativeSheetBridge implements NativeSheetFlutterApi {
   ) {
     if (event.value.isEmpty) return;
     unawaited(_handleReasoningEffortChanged(event.value));
+  }
+
+  @override
+  void onModelControlChanged(
+    PlatformNativeSheetModelControlChangedEvent event,
+  ) {
+    if (event.key.isEmpty || event.value.isEmpty) return;
+    unawaited(_handleModelControlChanged(event.key, event.value));
+  }
+
+  Future<void> _handleModelControlChanged(String key, String value) async {
+    try {
+      await _modelControlChangedHandler?.call(key, value);
+    } catch (error, stackTrace) {
+      _logNativeSheetBridgeError(
+        'onModelControlChanged',
+        error,
+        stackTrace,
+        data: {'key': key},
+      );
+    }
   }
 
   Future<void> _handleReasoningEffortChanged(String value) async {

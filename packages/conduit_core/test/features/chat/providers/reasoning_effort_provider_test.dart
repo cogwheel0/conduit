@@ -542,6 +542,36 @@ void main() {
         .isTrue();
   });
 
+  test('a model with an effort control of its own has no second picker', () {
+    // A coding agent's id ends in its model's, which can read as a GPT-5.
+    const agent = Model(id: 'agent:t1:codex:gpt-5.1', name: 'Codex · gpt-5.1');
+    const controlled = Model(
+      id: 'custom',
+      name: 'Custom',
+      metadata: <String, dynamic>{
+        'info': {
+          'params': {
+            'model_controls': {
+              'reasoning_effort': {
+                'label': 'Effort',
+                'options': {
+                  'low': {'label': 'Low'},
+                },
+              },
+            },
+          },
+        },
+      },
+    );
+    final container = ProviderContainer();
+    addTearDown(container.dispose);
+
+    check(reasoningEffortPolicyForModel(container.read, agent).visible)
+        .isFalse();
+    check(reasoningEffortPolicyForModel(container.read, controlled).visible)
+        .isFalse();
+  });
+
   test(
     'chat payload omits the implicit effort for undeclared server models',
     () {

@@ -27,6 +27,8 @@ import 'package:conduit_core/models/file_info.dart';
 import 'package:conduit_core/models/knowledge_base.dart';
 import 'package:conduit_core/models/knowledge_base_file.dart';
 import 'package:conduit_core/models/model.dart';
+import 'package:conduit_core/models/model_controls.dart';
+import 'package:conduit_core/features/terminal/models/terminal_agent_model.dart';
 import 'package:conduit_core/models/openwebui_chat_prompt.dart';
 import 'package:conduit_core/models/openwebui_chat_settings.dart';
 import 'package:conduit_core/models/prompt.dart';

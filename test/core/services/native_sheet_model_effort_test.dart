@@ -16,7 +16,10 @@ import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart
 import 'package:conduit_core/features/chat/providers/chat_providers.dart';
 import 'package:conduit_core/features/chat/providers/reasoning_effort_provider.dart'
     show serverModelReasoningEffortProvider;
+import 'package:conduit_core/auth/api_auth_interceptor.dart'
+    show ApiAuthSnapshot;
 import 'package:conduit_core/models/model.dart';
+import 'package:conduit_core/models/model_controls.dart';
 import 'package:conduit_core/models/openwebui_chat_settings.dart';
 import 'package:conduit_core/models/server_config.dart';
 import 'package:conduit_core/models/server_user_settings.dart';
@@ -54,6 +57,34 @@ class _WorkspaceApi extends ApiService {
       details.future;
 }
 
+/// An account whose settings cannot be saved.
+class _UnsavableApi extends ApiService {
+  _UnsavableApi()
+    : super(
+        serverConfig: const ServerConfig(
+          id: 'controls-test',
+          name: 'Controls test',
+          url: 'https://example.test',
+        ),
+        workerManager: WorkerManager(),
+      );
+
+  @override
+  Future<Map<String, dynamic>?> getModelDetails(String modelId) async => null;
+
+  @override
+  Future<Map<String, dynamic>> getUserSettings({
+    ApiAuthSnapshot? authSnapshot,
+  }) async => <String, dynamic>{};
+
+  @override
+  Future<ModelControlChoices> updateUserModelControlChoice({
+    required String modelId,
+    required String controlKey,
+    required String? value,
+  }) => Future.error(StateError('offline'));
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -63,6 +94,10 @@ void main() {
   );
   final effortChannel = BasicMessageChannel<Object?>(
     'dev.flutter.pigeon.conduit.NativeSheetHostApi.updateModelSelectorReasoningEffort',
+    NativeSheetHostApi.pigeonChannelCodec,
+  );
+  final controlsChannel = BasicMessageChannel<Object?>(
+    'dev.flutter.pigeon.conduit.NativeSheetHostApi.updateModelSelectorModelControls',
     NativeSheetHostApi.pigeonChannelCodec,
   );
   final messenger =
@@ -76,6 +111,7 @@ void main() {
   tearDown(() {
     messenger.setMockDecodedMessageHandler<Object?>(presentChannel, null);
     messenger.setMockDecodedMessageHandler<Object?>(effortChannel, null);
+    messenger.setMockDecodedMessageHandler<Object?>(controlsChannel, null);
     NativeSheetBridge.instance.debugIsIOSOverride = null;
     PreferencesStore.debugReset();
   });
@@ -214,5 +250,122 @@ void main() {
     dismissed.complete(<Object?>[null]);
     await tester.pump();
     await reopened;
+  });
+
+  testWidgets('a control pick that cannot be saved is taken back on the '
+      'native sheet', (tester) async {
+    final model = Model.fromJson({
+      'id': 'agent:t1:codex:gpt-5.1',
+      'name': 'Codex · gpt-5.1',
+      'info': {
+        'params': {
+          'model_controls': {
+            'service_tier': {
+              'label': 'Service tier',
+              'options': {
+                'flex': {'label': 'Flex'},
+              },
+            },
+          },
+        },
+      },
+    });
+    final api = _UnsavableApi();
+    addTearDown(api.dispose);
+    final container = ProviderContainer(
+      overrides: [
+        apiServiceProvider.overrideWithValue(api),
+        authTokenProvider3.overrideWithValue(null),
+        openWebUiAuthSessionEpochProvider.overrideWithValue(Object()),
+        personalizationSettingsProvider.overrideWith(_NoPersonalization.new),
+        appLocaleProvider.overrideWithValue(null),
+        appSettingsProvider.overrideWithValue(const AppSettings()),
+        openWebUiAccountAvailableProvider.overrideWithValue(true),
+        appDatabaseProvider.overrideWith((ref) => throw StateError('unused')),
+        openWebUiChatSettingsAccessProvider.overrideWith(
+          (ref) async => OpenWebUiChatSettingsAccess.denied,
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    late BuildContext context;
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: MaterialApp(
+          theme: AppTheme.light(TweakcnThemes.t3Chat),
+          localizationsDelegates: conduitLocalizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: Builder(
+            builder: (value) {
+              context = value;
+              return const SizedBox.shrink();
+            },
+          ),
+        ),
+      ),
+    );
+    final requests = <PlatformNativeSheetModelSelectorRequest>[];
+    final dismissed = Completer<Object?>();
+    addTearDown(() {
+      if (!dismissed.isCompleted) dismissed.complete(<Object?>[null]);
+    });
+    messenger.setMockDecodedMessageHandler<Object?>(presentChannel, (
+      message,
+    ) async {
+      requests.add(
+        (message! as List<Object?>).single!
+            as PlatformNativeSheetModelSelectorRequest,
+      );
+      return dismissed.future;
+    });
+    final restored = <List<PlatformNativeSheetModelControl>>[];
+    messenger.setMockDecodedMessageHandler<Object?>(controlsChannel, (
+      message,
+    ) async {
+      final args = message! as List<Object?>;
+      check(args.first).equals(requests.single.presentationId);
+      restored.add(
+        (args[1]! as List<Object?>).cast<PlatformNativeSheetModelControl>(),
+      );
+      return <Object?>[null];
+    });
+
+    final opened = container
+        .read(nativeSheetHydrationServiceProvider)
+        .presentModelSelector(
+          context,
+          title: 'Models',
+          models: [model],
+          selectedModelId: model.id,
+          includeModelControls: true,
+        );
+    for (var i = 0; i < 5 && requests.isEmpty; i++) {
+      await tester.runAsync(() => Future<void>.delayed(Duration.zero));
+      await tester.pump();
+    }
+    check(requests.single.modelControls.single)
+      ..has((c) => c.key, 'key').equals('service_tier')
+      ..has((c) => c.value, 'value').isNull();
+
+    // The sheet already shows Flex when it reports the pick.
+    NativeSheetBridge.instance.onModelControlChanged(
+      PlatformNativeSheetModelControlChangedEvent(
+        key: 'service_tier',
+        value: 'flex',
+      ),
+    );
+    for (var i = 0; i < 5 && restored.isEmpty; i++) {
+      await tester.runAsync(() => Future<void>.delayed(Duration.zero));
+      await tester.pump();
+    }
+    check(restored.single.single)
+      ..has((c) => c.key, 'key').equals('service_tier')
+      ..has((c) => c.value, 'value').isNull();
+
+    dismissed.complete(<Object?>[null]);
+    await tester.pump();
+    await opened;
   });
 }

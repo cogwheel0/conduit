@@ -15,6 +15,8 @@ import 'package:conduit_core/features/direct_connections/providers/direct_connec
 
 import 'package:conduit_core/features/hermes/models/hermes_model.dart';
 import 'package:conduit_core/features/librechat/models/librechat_model.dart';
+import 'package:conduit_core/features/terminal/models/terminal_agent_model.dart';
+import 'package:conduit_core/models/model_controls.dart';
 
 part 'reasoning_effort_provider.g.dart';
 
@@ -392,6 +394,11 @@ ReasoningEffortPolicy reasoningEffortPolicyForModel(
       options: <String>[],
       allowsCustom: false,
     );
+  }
+  // A coding agent, or a model with an effort control of its own, takes its
+  // effort from that control; a second picker would only contradict it.
+  if (isTerminalAgentModel(model) || modelHasReasoningEffortControl(model)) {
+    return ReasoningEffortPolicy.unsupported;
   }
   if (isHermesModel(model)) return ReasoningEffortPolicy.generic;
   // A LibreChat turn sends its spec's preset or the server's own settings,

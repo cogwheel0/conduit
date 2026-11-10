@@ -149,4 +149,37 @@ void main() {
       (it) => it.contains('Delete'),
     );
   });
+
+  testWidgets('a message to a coding agent offers no Edit', (tester) async {
+    // Open WebUI continues an agent's chat only with a new message.
+    await tester.pumpWidget(
+      ProviderScope(
+        child: MaterialApp(
+          theme: AppTheme.light(TweakcnThemes.t3Chat),
+          localizationsDelegates: conduitLocalizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: Scaffold(
+            body: UserMessageBubble(
+              message: ChatMessage(
+                id: 'to-agent',
+                role: 'user',
+                content: 'Rename the folder.',
+                timestamp: DateTime.utc(2026, 1, 1),
+              ),
+              isUser: true,
+              allowsEdit: false,
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    final menu = tester.widget<ConduitContextMenu>(
+      find.byType(ConduitContextMenu),
+    );
+    check([for (final action in menu.actions) action.label])
+      ..contains('Copy')
+      ..not((it) => it.contains('Edit'));
+  });
 }

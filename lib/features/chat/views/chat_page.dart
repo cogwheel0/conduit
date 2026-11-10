@@ -47,6 +47,8 @@ import 'package:conduit_core/features/auth/providers/unified_auth_providers.dart
 import 'package:conduit_core/features/direct_connections/providers/direct_connection_providers.dart';
 import 'package:conduit_core/features/direct_connections/services/direct_chat_bridge.dart';
 import 'package:conduit_core/features/direct_connections/services/direct_model_registry.dart';
+import 'package:conduit_core/features/terminal/models/terminal_agent_model.dart'
+    show isTerminalAgentModelId, terminalAgentDisplayName;
 import 'package:conduit_core/features/terminal/providers/computer_providers.dart';
 
 import '../../direct_connections/widgets/direct_mcp_message_interactions.dart';
@@ -3715,6 +3717,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
                 ? () => _deleteMessageGroup(<String>[messageId])
                 : null,
             onRegenerate: () => _regenerateMessage(messageId),
+            allowsEdit: !rowRef.watch(activeChatUsesTerminalAgentProvider),
           );
           // An edited message keeps each version as a sibling in the stored
           // graph. The branch controls offer a way to continue from another
@@ -3826,6 +3829,9 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       // replacement.
       onRegenerate: () =>
           _regenerateMessage(groupIds.isEmpty ? messageId : groupIds.first),
+      allowsRegenerate:
+          !rowRef.watch(activeChatUsesTerminalAgentProvider) &&
+          !isTerminalAgentModelId(latestMessage.model),
       onDelete: _messagesDeletable(rowRef)
           ? () => _deleteMessageGroup(
               groupIds.isEmpty ? <String>[messageId] : groupIds,
@@ -4731,13 +4737,21 @@ class _ChatPageState extends ConsumerState<ChatPage> {
       // A saved chat goes on only with its own backend: a LibreChat chat
       // takes only LibreChat's models, and no other chat takes them.
       final active = ref.read(activeConversationProvider);
-      final models = active == null
-          ? loaded
-          : [
-              for (final model in loaded)
-                if (isLibreChatModel(model) == isLibreChatConversation(active))
-                  model,
-            ];
+      // The selected terminal's coding agents follow the account's models;
+      // none are offered where an agent cannot answer.
+      final agents = await readTerminalAgentModelsForPicker(ref);
+      if (!mounted || !context.mounted) return;
+      final models = [
+        ...active == null
+            ? loaded
+            : [
+                for (final model in loaded)
+                  if (isLibreChatModel(model) ==
+                      isLibreChatConversation(active))
+                    model,
+              ],
+        ...agents,
+      ];
       if (models.isEmpty) {
         // The native picker opens on nothing: say why there is no list.
         AdaptiveSnackBar.show(
@@ -5511,6 +5525,7 @@ class _ChatPageState extends ConsumerState<ChatPage> {
               selectedModelId: ref.read(selectedModelProvider)?.id,
               models: models,
               allowsPinning: true,
+              includeModelControls: true,
               rethrowErrors: true,
             );
         if (!mounted) return;
@@ -5631,7 +5646,10 @@ bool chatHeaderShowsTitle({
   }
 
   return (
-    displayName: _formatChatModelDisplayName(fallback ?? trimmedModel),
+    // A coding agent's reply names the agent, as the picker does.
+    displayName:
+        terminalAgentDisplayName(trimmedModel) ??
+        _formatChatModelDisplayName(fallback ?? trimmedModel),
     matchedModel: null,
   );
 }

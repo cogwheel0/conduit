@@ -4268,6 +4268,30 @@ class ChatMessagesNotifier extends Notifier<List<ChatMessage>> {
       return;
     }
 
+    // A chat started with a coding agent reopens with it once its terminal
+    // offers it again; until then the current model stays, as before.
+    if (isTerminalAgentModelId(conversationModelId)) {
+      try {
+        final agent = await resolveTerminalAgentModel(
+          ref,
+          conversationModelId,
+          chatId: conversation.id,
+        );
+        if (agent == null || !stillOwnsSelection()) return;
+        ref
+            .read(selectedTerminalIdProvider.notifier)
+            .set(terminalAgentTerminalId(agent));
+        ref.read(selectedModelProvider.notifier).set(agent, allowHidden: true);
+      } catch (error) {
+        DebugLogger.warning(
+          'agent-model-restore-failed',
+          scope: 'chat/agents',
+          data: {'error': error.runtimeType.toString()},
+        );
+      }
+      return;
+    }
+
     // Open WebUI persists the provider-facing id for direct models. Prefer the
     // current trusted synthetic model that owns that wire id before considering
     // a same-id server model, matching Open WebUI's direct-model last-wins rule.

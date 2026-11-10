@@ -203,6 +203,7 @@ final class OpenWebUiRealtimeBridge extends _SocketBridge {
     required this.token,
     required this.modelId,
     this.chatId,
+    this.terminalId,
     HttpClient? httpClient,
     RealtimeSocketConnector connect = connectNoRedirectWebSocket,
   }) : _httpClient = httpClient,
@@ -214,6 +215,10 @@ final class OpenWebUiRealtimeBridge extends _SocketBridge {
 
   /// The server's id of the chat, or null for a chat it does not have yet.
   final String? chatId;
+
+  /// The terminal a coding agent runs on, which the server needs to call
+  /// one (Open WebUI 0.13.1 and later); null for any other model.
+  final String? terminalId;
   final HttpClient? _httpClient;
 
   @override
@@ -235,6 +240,7 @@ final class OpenWebUiRealtimeBridge extends _SocketBridge {
     'token': token,
     'model_id': modelId,
     'chat_id': ?chatId,
+    'terminal_id': ?terminalId,
   });
 
   @override
