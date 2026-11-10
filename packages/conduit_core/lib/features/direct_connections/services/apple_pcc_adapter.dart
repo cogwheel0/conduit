@@ -10,6 +10,7 @@ import 'package:conduit_core/features/direct_connections/models/direct_remote_mo
 import 'package:conduit_core/features/direct_connections/services/apple_pcc_host.dart';
 import 'package:conduit_core/features/direct_connections/services/direct_adapter_helpers.dart';
 import 'package:conduit_core/features/direct_connections/services/direct_provider_adapter.dart';
+import 'package:conduit_core/features/direct_connections/services/direct_reasoning_tags.dart';
 
 export 'package:conduit_core/features/direct_connections/services/apple_pcc_host.dart';
 
@@ -221,7 +222,7 @@ final class ApplePccAdapter
       id: runId,
       profileId: profile.id,
       remoteModelId: request.remoteModelId,
-      events: controller.stream,
+      events: splitInlineReasoningTags(controller.stream),
       cancelToken: cancelToken,
       done: controller.done,
     );

@@ -1216,9 +1216,17 @@ _resolveDirectReplayForMessage(
       (metadata?[kConduitDirectRawAssistantContentMetadataKey] as String)
           .trim()
           .isEmpty;
+  final presentation =
+      _restoreStrippedDirectPresentation(
+        content,
+        replay: replay,
+        outputItems: outputItems,
+        metadata: metadata,
+      ) ??
+      content;
   return (
     content: _reconcileDirectReplayContent(
-      content,
+      presentation,
       metadata: metadata,
       replayText: replay.text,
       preserveIncompletePresentation: preserveIncompletePresentation,
@@ -1227,6 +1235,54 @@ _resolveDirectReplayForMessage(
     replay: replay,
     preserveIncompletePresentation: preserveIncompletePresentation,
   );
+}
+
+/// Rebuilds the reasoning and tool sections of a direct answer that was
+/// stored with only its mirror text, or returns null when [content] is not
+/// that stripped form.
+///
+/// Until the mirror recognised tool calls from every direct adapter, a turn
+/// whose tools came from the OpenAI-compatible or Apple adapter was persisted
+/// with `content` set to the mirror text alone (`persistedMessageContent`).
+/// Its raw reasoning is still in the metadata and its tool calls in the
+/// output, so both sections come back here, laid out as
+/// `DirectStreamingAccumulator.render` lays them out. The reasoning's
+/// duration was never stored, so the section has none.
+String? _restoreStrippedDirectPresentation(
+  String content, {
+  required ConduitDirectReplayOutputMirror replay,
+  required List<Map<String, dynamic>> outputItems,
+  required Map<String, dynamic>? metadata,
+}) {
+  if (content != replay.text) return null;
+  final rawReasoning =
+      metadata?[kConduitDirectRawAssistantReasoningMetadataKey];
+  final reasoning = rawReasoning is String ? rawReasoning.trim() : '';
+  final results = <String, Map<String, dynamic>>{
+    for (final item in outputItems)
+      if (item['type'] == 'function_call_output')
+        item['call_id'] as String: item,
+  };
+  final blocks = <SemanticMessageBlock>[
+    if (reasoning.isNotEmpty)
+      SemanticDetailsBlock.reasoning(text: reasoning, done: true),
+    for (final item in outputItems)
+      if (item['type'] == 'function_call')
+        SemanticDetailsBlock.toolCall(
+          id: item['id'] as String,
+          name: item['name'] as String,
+          arguments: item['arguments'],
+          done: results.containsKey(item['id']),
+          result: results[item['id']]?['output'],
+          isError: results[item['id']]?['error'] == true,
+        ),
+  ];
+  if (blocks.isEmpty) return null;
+  return <String>[
+    for (final block in blocks) renderSemanticMessageBlocks([block]),
+    if (!replay.isIncompleteAnswerSentinel)
+      renderSemanticMessageBlocks([SemanticTextBlock(replay.text)]),
+  ].where((part) => part.isNotEmpty).join('\n');
 }
 
 /// Direct connections talk to the provider without Open WebUI, so their model

@@ -168,6 +168,51 @@ void main() {
     expect(host.request?.responseSchemaJson, contains('"answer"'));
   });
 
+  test('PCC splits inline reasoning tags cut across content events', () async {
+    final host = _FakePccHost();
+    final adapter = ApplePccAdapter(host: host);
+    final run = adapter.startCompletion(
+      DirectConnectionProfile.applePrivateCloudCompute(),
+      DirectCompletionRequest(
+        remoteModelId: kApplePccRemoteModelId,
+        messages: <DirectChatMessage>[
+          DirectChatMessage.text(role: 'user', text: 'When is high tide?'),
+        ],
+      ),
+    );
+    final events = run.events.toList();
+    await host.started.future;
+
+    for (final content in <String>[
+      '<thi',
+      'nk>Check the almanac.</th',
+      'ink>\n',
+      'High tide is at 14:05.',
+    ]) {
+      adapter.onEvent(
+        PlatformPccStreamEvent(
+          runId: run.id,
+          kind: PlatformPccEventKind.content,
+          content: content,
+        ),
+      );
+    }
+    adapter.onEvent(
+      PlatformPccStreamEvent(runId: run.id, kind: PlatformPccEventKind.done),
+    );
+
+    final received = await events;
+    expect(
+      received.whereType<DirectReasoningDelta>().map((e) => e.content).join(),
+      'Check the almanac.',
+    );
+    expect(
+      received.whereType<DirectContentDelta>().map((e) => e.content).join(),
+      'High tide is at 14:05.',
+    );
+    expect(received.last, isA<DirectStreamDone>());
+  });
+
   test('PCC rejects conflicting sampling controls', () {
     final adapter = ApplePccAdapter(host: _FakePccHost());
     expect(
