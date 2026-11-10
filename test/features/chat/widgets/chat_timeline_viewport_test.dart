@@ -251,6 +251,55 @@ void main() {
     },
   );
 
+  for (final animated in [false, true]) {
+    _viewportTest(
+      'returning to the latest from far away rests a short reply on the '
+      'composer (animated: $animated)',
+      (tester) async {
+        final controller = _controller(tester);
+        final ids = List.generate(2000, (i) => 'synthetic-$i');
+        await tester.pumpWidget(
+          _viewportHost(
+            _viewport(
+              controller: controller,
+              ids: ids,
+              followLatest: false,
+              estimateRowExtent: (_) => 100,
+              rowBuilder: (_, i) => SizedBox(height: i % 10 == 5 ? 300 : 60),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        final oldest = controller.jumpToOldest();
+        await tester.pumpAndSettle();
+        expect(await oldest, isTrue);
+        expect(controller.visibleMessageIds.first, ids.first);
+
+        if (animated) {
+          final latest = controller.animateToLatest(
+            duration: const Duration(milliseconds: 300),
+            curve: Curves.linear,
+          );
+          await tester.pumpAndSettle();
+          await latest;
+        } else {
+          controller.jumpToLatest();
+          await tester.pumpAndSettle();
+        }
+
+        // The newest row ends where the transcript's bottom padding begins,
+        // not at the toolbar with empty space beneath it.
+        final viewport = tester.getRect(find.byType(CustomScrollView));
+        final last = controller.rowRect(ids.last);
+        expect(last, isNotNull);
+        expect(last!.bottom, closeTo(viewport.bottom - 80, 1));
+        expect(controller.distanceFromLatest, closeTo(0, 1));
+        // Earlier messages fill the screen above it.
+        expect(controller.visibleMessageIds.length, greaterThan(3));
+      },
+    );
+  }
+
   _viewportTest('Android track taps page the mapped scrollbar', (tester) async {
     PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.android;
     addTearDown(PlatformUiCapabilities.resetDebugOverrides);

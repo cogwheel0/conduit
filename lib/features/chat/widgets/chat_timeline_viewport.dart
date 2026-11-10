@@ -1456,7 +1456,18 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
       );
     }
 
-    applyBoundedPosition();
+    if (_messageIds.isNotEmpty && _rowRect(_messageIds.last) == null) {
+      // From deep history a direct jump would lay out every row in between
+      // in one frame. Recenter near the end instead.
+      _recenterForSeek(
+        _messageIds.last,
+        0,
+        alignToLatest: true,
+        viewportOffset: -1,
+      );
+    } else {
+      applyBoundedPosition();
+    }
     // A lazy sliver can refine maxScrollExtent after the jump builds its next
     // viewport of children. Re-apply once after layout so the visible staging
     // point never ends farther than one viewport from the real target.
@@ -2051,7 +2062,17 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
     _cancelProgrammaticNavigation();
     _freeAnchor = null;
     _centerRecoveryPending = false;
-    _recenterForSeek(id, coordinate - index);
+    final fraction = coordinate - index;
+    final below =
+        _extentBetween(index, _messageIds.length) -
+        fraction * _extentBetween(index, index + 1);
+    final viewportDimension = _scrollController.position.viewportDimension;
+    if (below < viewportDimension) {
+      // Less than a screen follows: this position is the end of the chat.
+      _recenterForSeek(_messageIds.last, 0, alignToLatest: true);
+      return;
+    }
+    _recenterForSeek(id, fraction);
   }
 
   void _recenterForSeek(
@@ -2061,9 +2082,12 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
     double viewportOffset = 0,
   }) {
     final position = _scrollController.position as _ChatTimelineScrollPosition;
+    final centerId = alignToLatest
+        ? _latestRecenterCenterId(position.viewportDimension)
+        : id;
     position.prepareForRecenter();
     setState(() {
-      _setCenterMessageId(id);
+      _setCenterMessageId(centerId);
       _pendingRecenter = (
         id: id,
         fraction: fraction,
@@ -2071,6 +2095,20 @@ class _ChatTimelineViewportState extends State<ChatTimelineViewport>
         viewportOffset: viewportOffset,
       );
     });
+  }
+
+  /// The row a jump to the latest centers on. The viewport cannot scroll
+  /// before its center row, so centering the newest row would leave a short
+  /// final reply under the toolbar with empty space below it. Center far
+  /// enough back that the estimated content below fills two screens.
+  String _latestRecenterCenterId(double viewportDimension) {
+    final count = _messageIds.length;
+    var index = count - 1;
+    while (index > 0 &&
+        _extentBetween(index, count) < 2 * viewportDimension) {
+      index -= 1;
+    }
+    return _messageIds[index];
   }
 
   double? _resolveRecenterOffset(ScrollMetrics metrics) {
