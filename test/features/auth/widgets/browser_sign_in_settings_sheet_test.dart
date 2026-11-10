@@ -204,6 +204,53 @@ void main() {
     expect(find.byKey(const ValueKey('browser-sign-in-settings')), findsNothing);
   });
 
+  group('the checklist', () {
+    Finder inChecklist(String text) => find.descendant(
+      of: find.byKey(const ValueKey('browser-sign-in-checklist')),
+      matching: find.textContaining(text),
+    );
+
+    testWidgets('asks to limit token exchange to this client', (tester) async {
+      await openSheet(tester, initial: saved);
+
+      expect(inChecklist('OAUTH_TOKEN_EXCHANGE_TRUSTED_CLIENT_IDS'), findsOne);
+      expect(inChecklist('has no token introspection'), findsNothing);
+    });
+
+    for (final provider in ['google', 'microsoft']) {
+      testWidgets('says why $provider tokens from any app are accepted', (
+        tester,
+      ) async {
+        await openSheet(
+          tester,
+          providers: [provider],
+          initial: BrowserSignInConfig(provider: provider, clientId: 'app'),
+        );
+
+        expect(inChecklist('has no token introspection'), findsOne);
+        expect(
+          inChecklist('OAUTH_TOKEN_EXCHANGE_TRUSTED_CLIENT_IDS'),
+          findsNothing,
+        );
+      });
+    }
+
+    testWidgets('warns that merging by email covers every provider', (
+      tester,
+    ) async {
+      await openSheet(
+        tester,
+        providers: const ['microsoft'],
+        initial: const BrowserSignInConfig(
+          provider: 'microsoft',
+          clientId: 'app',
+        ),
+      );
+
+      expect(inChecklist('verifies email addresses'), findsOne);
+    });
+  });
+
   test('every failure the user should hear about has a message', () async {
     final l10n = await AppLocalizations.delegate.load(const Locale('en'));
     for (final failure in BrowserSignInFailure.values) {
