@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
 import 'package:conduit_core/features/direct_connections/services/apple_pcc_host.dart';
 import 'package:conduit_core/models/model.dart';
@@ -324,6 +326,93 @@ void main() {
     expect(changedContextLength, 8192);
   });
 
+  testWidgets('the context limit list explains Ollama memory use', (
+    tester,
+  ) async {
+    Widget content(Map<String, dynamic> metadata) => ProviderScope(
+      child: MaterialApp(
+        localizationsDelegates: conduitLocalizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: DirectConnectionsContent(
+          profiles: const [],
+          modelsWithoutContextLimit: [
+            Model(
+              id: DirectModelId.encode('local', 'model'),
+              name: 'Local model',
+              metadata: metadata,
+            ),
+          ],
+          syncWithOpenWebUi: false,
+          isOnboarding: false,
+          onContextLengthChanged: (_, _) {},
+          onSyncChanged: (_) {},
+          onAdd: () {},
+          onEdit: (_) {},
+        ),
+      ),
+    );
+    final note = find.textContaining('context window Ollama loads the model');
+
+    await tester.pumpWidget(content(const {'adapterKey': kOllamaAdapterKey}));
+    await tester.pumpAndSettle();
+    expect(note, findsOneWidget);
+
+    await tester.pumpWidget(
+      content(const {'adapterKey': kOpenAiCompatibleAdapterKey}),
+    );
+    await tester.pumpAndSettle();
+    expect(note, findsNothing);
+  });
+
+  testWidgets('images per request opens a picker outside onboarding', (
+    tester,
+  ) async {
+    int? changed;
+    Widget content({required bool isOnboarding}) => ProviderScope(
+      child: MaterialApp(
+        localizationsDelegates: conduitLocalizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: DirectConnectionsContent(
+          profiles: const [],
+          syncWithOpenWebUi: false,
+          isOnboarding: isOnboarding,
+          maxImagesPerRequest: kDefaultDirectMaxImagesPerRequest,
+          onMaxImagesPerRequestChanged: (count) => changed = count,
+          onSyncChanged: (_) {},
+          onAdd: () {},
+          onEdit: (_) {},
+        ),
+      ),
+    );
+
+    await tester.pumpWidget(content(isOnboarding: true));
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('direct-images-per-request')),
+      findsNothing,
+    );
+
+    await tester.pumpWidget(content(isOnboarding: false));
+    await tester.pumpAndSettle();
+    final row = find.byKey(const ValueKey('direct-images-per-request'));
+    await tester.ensureVisible(row);
+    await tester.pumpAndSettle();
+    expect(
+      find.descendant(of: row, matching: find.text('Images per request')),
+      findsOneWidget,
+    );
+    expect(find.descendant(of: row, matching: find.text('10')), findsOneWidget);
+
+    await tester.tap(row);
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('4'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('4'));
+    await tester.pumpAndSettle();
+
+    expect(changed, 4);
+  });
+
   testWidgets('a long context fallback list moves to its own page', (
     tester,
   ) async {
@@ -482,6 +571,45 @@ void main() {
     );
   });
 
+  testWidgets('a failed Images per request save says so', (tester) async {
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          directConnectionProfilesProvider.overrideWith(
+            () => DirectTestStaticDirectProfiles(const []),
+          ),
+          directHistoryPolicyProvider.overrideWith(
+            DirectTestStaticHistoryPolicy.new,
+          ),
+          directMaxImagesPerRequestProvider.overrideWith(
+            _FailingMaxImagesPerRequest.new,
+          ),
+        ],
+        child: MaterialApp(
+          localizationsDelegates: conduitLocalizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          home: const DirectConnectionsPage(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final row = find.byKey(const ValueKey('direct-images-per-request'));
+    await tester.ensureVisible(row);
+    await tester.pumpAndSettle();
+    await tester.tap(row);
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('4'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('4'));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text('Images per request could not be saved. Try again.'),
+      findsOneWidget,
+    );
+    expect(find.descendant(of: row, matching: find.text('10')), findsOneWidget);
+  });
+
   testWidgets('management refreshes server connections on entry and resume', (
     tester,
   ) async {
@@ -530,6 +658,16 @@ void main() {
     await tester.pumpAndSettle();
     expect(remoteController.reloadCount, 2);
   });
+}
+
+final class _FailingMaxImagesPerRequest
+    extends DirectMaxImagesPerRequestController {
+  @override
+  int build() => kDefaultDirectMaxImagesPerRequest;
+
+  @override
+  Future<void> set(int count) =>
+      Future<void>.error(const FileSystemException('disk full'));
 }
 
 final class _FixedDiscovery extends DirectModelDiscoveryController {

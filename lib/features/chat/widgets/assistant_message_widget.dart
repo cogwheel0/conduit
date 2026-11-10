@@ -22,8 +22,10 @@ import 'package:conduit_core/features/hermes/services/hermes_run_transport.dart'
 import 'package:conduit_core/models/message_voice.dart';
 import 'package:conduit_core/features/direct_connections/providers/direct_connection_providers.dart'
     show directContextLengthOverridesProvider;
+import 'package:conduit_core/features/direct_connections/services/direct_adapter_helpers.dart'
+    show isDirectToolLoopNoAnswerError;
 import 'package:conduit_core/features/direct_connections/services/direct_chat_bridge.dart'
-    show directModelAdvertisedContextLength;
+    show directModelAdvertisedContextLength, isDirectTooManyImagesError;
 import 'package:conduit_core/features/web_search/services/direct_web_search_mode.dart';
 import 'package:conduit_markdown/conduit_markdown.dart';
 
@@ -1799,10 +1801,17 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     final errorColor = theme.colorScheme.error;
     final errorContent = error.content;
 
-    // A model that can't call tools rejects web search's tool definitions;
-    // say what to do instead of echoing the provider's wording.
+    // Known Direct failures say what to do instead of echoing the provider's
+    // wording: a model that can't call tools rejects web search's tool
+    // definitions, a provider can refuse a request for too many images, and
+    // a model can keep asking for tools after Conduit stopped offering them.
+    final l10n = AppLocalizations.of(context)!;
     final displayText = isDirectToolsUnsupportedError(errorContent)
-        ? AppLocalizations.of(context)!.directModelToolsUnsupported
+        ? l10n.directModelToolsUnsupported
+        : isDirectTooManyImagesError(errorContent)
+        ? l10n.directModelTooManyImages
+        : isDirectToolLoopNoAnswerError(errorContent)
+        ? l10n.directToolLoopNoAnswer
         : (errorContent != null && errorContent.isNotEmpty)
         ? errorContent
         // If no content, show a generic error message

@@ -1090,14 +1090,15 @@ void main() {
       expect(_textParts(result.single), ['Visible text']);
     });
 
-    test('enforces the local-document count across the request', () async {
-      final descriptors = [
-        for (var index = 0; index < kDirectMaxLocalDocuments + 1; index++)
-          _directDocumentDescriptor(index, 'document $index'),
-      ];
+    test(
+      'leaves out the oldest local documents a request cannot carry',
+      () async {
+        final descriptors = [
+          for (var index = 0; index < kDirectMaxLocalDocuments + 1; index++)
+            _directDocumentDescriptor(index, 'document $index'),
+        ];
 
-      await expectLater(
-        buildDirectChatMessages(
+        final result = await buildDirectChatMessages(
           messages: [
             _message(
               id: 'first-document-turn',
@@ -1113,23 +1114,62 @@ void main() {
             ),
           ],
           directDocumentVerificationKey: _directDocumentTestKey,
-        ),
-        throwsA(
-          isA<DirectChatInputException>().having(
-            (error) => error.message,
-            'message',
-            contains('per request'),
+        );
+
+        // The prompt keeps both of its documents; the older turn keeps what
+        // is left of the budget and says the rest was left out.
+        final latest = _textParts(result.last).single;
+        expect(latest, contains('document 3'));
+        expect(latest, contains('document 4'));
+        expect(latest, isNot(contains(kDirectOmittedAttachmentsReplayText)));
+        final earlier = _textParts(result.first).single;
+        expect(earlier, contains('document 0'));
+        expect(earlier, contains('document 1'));
+        expect(earlier, isNot(contains('document 2')));
+        expect(earlier, endsWith(kDirectOmittedAttachmentsReplayText));
+      },
+    );
+
+    test(
+      'rejects a prompt with more local documents than a request carries',
+      () async {
+        await expectLater(
+          buildDirectChatMessages(
+            messages: [
+              _message(
+                id: 'too-many-documents',
+                role: 'user',
+                content: 'Read these',
+                files: [
+                  for (
+                    var index = 0;
+                    index < kDirectMaxLocalDocuments + 1;
+                    index++
+                  )
+                    _directDocumentDescriptor(index, 'document $index'),
+                ],
+              ),
+            ],
+            directDocumentVerificationKey: _directDocumentTestKey,
           ),
-        ),
-      );
-    });
+          throwsA(
+            isA<DirectChatInputException>().having(
+              (error) => error.message,
+              'message',
+              contains('per request'),
+            ),
+          ),
+        );
+      },
+    );
 
-    test('enforces the local-document text limit across the request', () async {
-      final halfLimit = (kDirectMaxLocalDocumentCharacters ~/ 2) + 1;
-      final text = List<String>.filled(halfLimit, 'x').join();
+    test(
+      'leaves out older local document text over the prompt limit',
+      () async {
+        final halfLimit = (kDirectMaxLocalDocumentCharacters ~/ 2) + 1;
+        final text = List<String>.filled(halfLimit, 'x').join();
 
-      await expectLater(
-        buildDirectChatMessages(
+        final result = await buildDirectChatMessages(
           messages: [
             _message(
               id: 'first-large-document-turn',
@@ -1142,6 +1182,33 @@ void main() {
               role: 'user',
               content: 'Second',
               files: [_directDocumentDescriptor(2, text)],
+            ),
+          ],
+          directDocumentVerificationKey: _directDocumentTestKey,
+        );
+
+        expect(_textParts(result.first), [
+          'First\n\n$kDirectOmittedAttachmentsReplayText',
+        ]);
+        expect(_textParts(result.last).single, contains(text));
+      },
+    );
+
+    test('rejects prompt document text over the prompt limit', () async {
+      final halfLimit = (kDirectMaxLocalDocumentCharacters ~/ 2) + 1;
+      final text = List<String>.filled(halfLimit, 'x').join();
+
+      await expectLater(
+        buildDirectChatMessages(
+          messages: [
+            _message(
+              id: 'large-document-turn',
+              role: 'user',
+              content: 'Both',
+              files: [
+                _directDocumentDescriptor(1, text),
+                _directDocumentDescriptor(2, text),
+              ],
             ),
           ],
           directDocumentVerificationKey: _directDocumentTestKey,
@@ -1273,9 +1340,113 @@ void main() {
       expect(_imageParts(result[1]), [image]);
     });
 
-    test('rejects more than four images', () async {
+    test('replays the newest images when history holds more', () async {
+      // Six earlier image turns plus a prompt with one image: more than one
+      // request carries, which used to fail every later turn.
+      final resolved = <String>[];
+      final result = await buildDirectChatMessages(
+        messages: [
+          for (var index = 0; index < 6; index++) ...[
+            _message(
+              id: 'image-turn-$index',
+              role: 'user',
+              content: 'Picture $index',
+              attachmentIds: ['image-$index'],
+            ),
+            _message(
+              id: 'reply-$index',
+              role: 'assistant',
+              content: 'Seen $index',
+            ),
+          ],
+          _message(
+            id: 'prompt',
+            role: 'user',
+            content: 'Compare them',
+            attachmentIds: const ['image-6'],
+          ),
+        ],
+        resolveImage: (id, _) async {
+          resolved.add(id);
+          return _imageDataUrl([int.parse(id.split('-').last)]);
+        },
+        maxImages: 4,
+      );
+
+      final users = result.where((message) => message.role == 'user').toList();
+      expect(users, hasLength(7));
+      expect(
+        [for (final user in users) _imageParts(user).length],
+        [0, 0, 0, 1, 1, 1, 1],
+      );
+      expect(_imageParts(users.last), [
+        _imageDataUrl([6]),
+      ]);
+      // Images that cannot be sent are never fetched.
+      expect(resolved, ['image-6', 'image-5', 'image-4', 'image-3']);
+      for (final user in users.take(3)) {
+        expect(
+          _textParts(user).single,
+          endsWith(kDirectOmittedAttachmentsReplayText),
+        );
+      }
+      for (final user in users.skip(3)) {
+        expect(
+          _textParts(user).single,
+          isNot(contains(kDirectOmittedAttachmentsReplayText)),
+        );
+      }
+    });
+
+    test('keeps an image-only turn whose images were left out', () async {
+      final result = await buildDirectChatMessages(
+        messages: [
+          _message(
+            id: 'old-image-only',
+            role: 'user',
+            content: '',
+            files: [
+              {
+                'type': 'image',
+                'url': _imageDataUrl([1]),
+              },
+            ],
+          ),
+          _message(id: 'reply', role: 'assistant', content: 'A cat.'),
+          _message(
+            id: 'prompt',
+            role: 'user',
+            content: 'And this one?',
+            files: [
+              {
+                'type': 'image',
+                'url': _imageDataUrl([2]),
+              },
+            ],
+          ),
+        ],
+        maxImages: 1,
+      );
+
+      expect(result.map((message) => message.role), [
+        'user',
+        'assistant',
+        'user',
+      ]);
+      expect(_textParts(result.first), [kDirectOmittedAttachmentsReplayText]);
+      expect(_imageParts(result.first), isEmpty);
+      expect(_imageParts(result.last), [
+        _imageDataUrl([2]),
+      ]);
+    });
+
+    test('rejects a prompt with more images than a request carries', () async {
       final files = <Map<String, dynamic>>[
-        for (var index = 0; index < 5; index++)
+        for (
+          var index = 0;
+          index < kDefaultDirectMaxImagesPerRequest + 1;
+          index++
+        )
           {
             'type': 'image',
             'url': _imageDataUrl([index]),
@@ -1297,10 +1468,48 @@ void main() {
           isA<DirectChatInputException>().having(
             (error) => error.message,
             'message',
-            contains('up to 4 images'),
+            contains('up to $kDefaultDirectMaxImagesPerRequest images'),
           ),
         ),
       );
+    });
+
+    test('leaves out older images over the request byte budget', () async {
+      final result = await buildDirectChatMessages(
+        messages: [
+          _message(
+            id: 'older',
+            role: 'user',
+            content: 'First',
+            files: [
+              {
+                'type': 'image',
+                'url': _imageDataUrl([1, 2]),
+              },
+            ],
+          ),
+          _message(
+            id: 'prompt',
+            role: 'user',
+            content: 'Second',
+            files: [
+              {
+                'type': 'image',
+                'url': _imageDataUrl([3, 4]),
+              },
+            ],
+          ),
+        ],
+        maxDecodedImageBytes: 3,
+      );
+
+      expect(_imageParts(result.first), isEmpty);
+      expect(_textParts(result.first), [
+        'First\n\n$kDirectOmittedAttachmentsReplayText',
+      ]);
+      expect(_imageParts(result.last), [
+        _imageDataUrl([3, 4]),
+      ]);
     });
 
     test('enforces the aggregate decoded image byte limit', () async {
