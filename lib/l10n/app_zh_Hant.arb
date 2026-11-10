@@ -4391,6 +4391,17 @@
   "hermesSwitchConnectionPromptMessage": "此聊天的 Hermes 工作階段屬於 {name}。切換即可繼續該工作階段，或保留目前連線以開始新的工作階段。",
   "hermesSwitchConnectionConfirm": "切換",
   "hermesKeepCurrentConnection": "保留目前連線",
+  "hermesModelSwitchConfirmTitle": "切換到 {model}？",
+  "@hermesModelSwitchConfirmTitle": {
+    "placeholders": {
+      "model": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesModelSwitchConfirmMessage": "Hermes 要求你在將此聊天切換到該模型前進行確認。",
+  "hermesModelSwitchConfirmAction": "切換並傳送",
+  "hermesModelSwitchKeepCurrent": "保留目前模型",
   "accountsTitle": "帳戶",
   "accountsAddAccount": "新增帳戶",
   "accountsManage": "管理帳戶",

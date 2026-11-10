@@ -174,6 +174,7 @@ import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 
 import 'features/hermes/services/hermes_dashboard_rest_bridge.dart';
 import 'features/hermes/widgets/hermes_connection_switcher.dart';
+import 'features/hermes/widgets/hermes_model_switch_prompt.dart';
 
 import 'package:conduit_core/features/chat/providers/chat_handoff_providers.dart';
 
@@ -504,6 +505,13 @@ void main() {
                 (name) => confirmHermesConnectionSwitch(
                   ref.read(uiRequestPortProvider),
                   name,
+                ),
+          ),
+          hermesModelSwitchPromptProvider.overrideWith(
+            (ref) =>
+                (held) => confirmHermesModelSwitch(
+                  ref.read(uiRequestPortProvider),
+                  held,
                 ),
           ),
           chatHandoffPromptProvider.overrideWith(

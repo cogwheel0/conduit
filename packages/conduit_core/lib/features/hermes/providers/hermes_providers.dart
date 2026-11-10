@@ -2109,6 +2109,14 @@ typedef HermesConnectionSwitchPrompt =
 final hermesConnectionSwitchPromptProvider =
     Provider<HermesConnectionSwitchPrompt>((ref) => (_) async => false);
 
+/// Asked when Hermes holds a model switch for the user's confirmation (a
+/// pricier, data-sharing or smaller-context model). The core cannot
+/// localize the question, so the host binds it; without one, the held
+/// switch is refused and nothing is sent, as before.
+final hermesModelSwitchPromptProvider = Provider<HermesModelSwitchPrompt?>(
+  (ref) => null,
+);
+
 final hermesConfigProvider =
     NotifierProvider<HermesConfigController, HermesConfig>(
       HermesConfigController.new,
@@ -2247,6 +2255,7 @@ final hermesApiServiceProvider = Provider<HermesBackendService?>((ref) {
       dashboardBridgeFactory: ref.read(
         hostHermesDashboardBridgeFactoryProvider,
       ),
+      confirmModelSwitch: ref.read(hermesModelSwitchPromptProvider),
       onCredentialsChanged: (credentials) async {
         try {
           await writeCredentials(credentials);

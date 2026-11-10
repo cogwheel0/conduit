@@ -454,6 +454,7 @@ extension _HermesDesktopLiveRuntime on HermesDesktopApiService {
     );
     _bindingSocketGenerations[stored] = _rpc.socketGeneration;
     _appliedSessionOptions[stored] = normalized.fingerprint;
+    _recordAppliedModel(stored, selection);
     final info = _object(result['info']);
     _recordDesktopContract(info);
     _adoptWorkingDirectory(stored, info['cwd']);

@@ -3625,7 +3625,9 @@ class _ModernChatInputState extends ConsumerState<ModernChatInput>
       }
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted || _isDeactivated) return;
-        _insertTextAtCurrentSelection(next.text);
+        if (!next.onlyIntoEmpty || _controller.text.trim().isEmpty) {
+          _insertTextAtCurrentSelection(next.text);
+        }
         try {
           ref.read(composerTextInsertionProvider.notifier).clear(next.id);
         } catch (_) {}

@@ -4163,6 +4163,17 @@
   "hermesSwitchConnectionPromptMessage": "이 채팅의 Hermes 세션은 {name}에 속해 있습니다. 전환하여 계속하거나, 현재 연결을 유지해 새 세션을 시작하세요.",
   "hermesSwitchConnectionConfirm": "전환",
   "hermesKeepCurrentConnection": "현재 연결 유지",
+  "hermesModelSwitchConfirmTitle": "{model}(으)로 전환할까요?",
+  "@hermesModelSwitchConfirmTitle": {
+    "placeholders": {
+      "model": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesModelSwitchConfirmMessage": "Hermes가 이 채팅을 해당 모델로 전환하기 전에 확인을 요청합니다.",
+  "hermesModelSwitchConfirmAction": "전환 후 보내기",
+  "hermesModelSwitchKeepCurrent": "현재 모델 유지",
   "accountsTitle": "계정",
   "accountsAddAccount": "계정 추가",
   "accountsManage": "계정 관리",

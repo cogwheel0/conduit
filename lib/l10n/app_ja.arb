@@ -6008,6 +6008,17 @@
   "hermesSwitchConnectionPromptMessage": "このチャットの Hermes セッションは {name} のものです。切り替えて続けるか、現在の接続のまま新しいセッションを始めてください。",
   "hermesSwitchConnectionConfirm": "切り替える",
   "hermesKeepCurrentConnection": "現在の接続のまま",
+  "hermesModelSwitchConfirmTitle": "{model} に切り替えますか？",
+  "@hermesModelSwitchConfirmTitle": {
+    "placeholders": {
+      "model": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesModelSwitchConfirmMessage": "Hermes は、このチャットをそのモデルに切り替える前に確認を求めています。",
+  "hermesModelSwitchConfirmAction": "切り替えて送信",
+  "hermesModelSwitchKeepCurrent": "現在のモデルのまま",
   "accountsTitle": "アカウント",
   "accountsAddAccount": "アカウントを追加",
   "accountsManage": "アカウントを管理",

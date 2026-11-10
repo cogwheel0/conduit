@@ -8108,6 +8108,28 @@
   },
   "hermesSwitchConnectionConfirm": "Przełącz",
   "hermesKeepCurrentConnection": "Zostań przy obecnym",
+  "hermesModelSwitchConfirmTitle": "Przełączyć na „{model}”?",
+  "@hermesModelSwitchConfirmTitle": {
+    "description": "Title of the dialog asking whether to switch a Hermes chat to a model Hermes holds for confirmation (a pricier, data-sharing or smaller-context model) and send the waiting message.",
+    "placeholders": {
+      "model": {
+        "type": "String",
+        "example": "pricier-model"
+      }
+    }
+  },
+  "hermesModelSwitchConfirmMessage": "Hermes prosi o potwierdzenie przed przełączeniem tego czatu na ten model.",
+  "@hermesModelSwitchConfirmMessage": {
+    "description": "Message of that dialog when Hermes gave no reason of its own."
+  },
+  "hermesModelSwitchConfirmAction": "Przełącz i wyślij",
+  "@hermesModelSwitchConfirmAction": {
+    "description": "Button that confirms the model switch and sends the waiting message."
+  },
+  "hermesModelSwitchKeepCurrent": "Zostań przy obecnym modelu",
+  "@hermesModelSwitchKeepCurrent": {
+    "description": "Button that keeps the chat's current model; the message goes back to the composer unsent."
+  },
   "accountsTitle": "Konta",
   "accountsAddAccount": "Dodaj konto",
   "accountsManage": "Zarządzaj kontami",

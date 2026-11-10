@@ -80,7 +80,13 @@ void main() {
         child: MaterialApp(
           localizationsDelegates: conduitLocalizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,
-          home: Scaffold(body: ModernChatInput(onSendMessage: sends.add)),
+          home: Scaffold(
+            body: ModernChatInput(
+              onSendMessage: sends.add,
+              // As the chat page names it, so text given back reaches it.
+              composerTextInsertionTargetId: chatComposerTextInsertionTargetId,
+            ),
+          ),
         ),
       ),
     );
@@ -95,6 +101,31 @@ void main() {
     await tester.pumpAndSettle();
     expect(voice.listening, isTrue);
   }
+
+  // A message given back to the composer (a send Hermes did not take) went
+  // in at the caret, into whatever the user had begun since.
+  testWidgets('a message given back goes only into an empty composer', (
+    tester,
+  ) async {
+    await pump(tester);
+    void giveBack(String text) => container
+        .read(composerTextInsertionProvider.notifier)
+        .insert(
+          targetId: chatComposerTextInsertionTargetId,
+          text: text,
+          onlyIntoEmpty: true,
+        );
+
+    await tester.enterText(find.byType(TextField), 'A newer draft');
+    giveBack('The kept message');
+    await tester.pumpAndSettle();
+    expect(composerText(tester), 'A newer draft');
+
+    await tester.enterText(find.byType(TextField), '');
+    giveBack('The kept message');
+    await tester.pumpAndSettle();
+    expect(composerText(tester), 'The kept message');
+  });
 
   testWidgets('dictation preserves typed text and requires an explicit send', (
     tester,

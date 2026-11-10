@@ -4391,6 +4391,17 @@
   "hermesSwitchConnectionPromptMessage": "Die Hermes-Sitzung dieses Chats gehört zu {name}. Wechsle, um sie fortzusetzen, oder behalte die aktuelle Verbindung, um eine neue Sitzung zu beginnen.",
   "hermesSwitchConnectionConfirm": "Wechseln",
   "hermesKeepCurrentConnection": "Aktuelle behalten",
+  "hermesModelSwitchConfirmTitle": "Zu {model} wechseln?",
+  "@hermesModelSwitchConfirmTitle": {
+    "placeholders": {
+      "model": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesModelSwitchConfirmMessage": "Hermes bittet um eine Bestätigung, bevor dieser Chat zu diesem Modell wechselt.",
+  "hermesModelSwitchConfirmAction": "Wechseln und senden",
+  "hermesModelSwitchKeepCurrent": "Aktuelles Modell behalten",
   "accountsTitle": "Konten",
   "accountsAddAccount": "Konto hinzufügen",
   "accountsManage": "Konten verwalten",

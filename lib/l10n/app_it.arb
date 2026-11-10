@@ -4391,6 +4391,17 @@
   "hermesSwitchConnectionPromptMessage": "La sessione Hermes di questa chat appartiene a {name}. Passa a quella connessione per continuarla, oppure mantieni quella attuale per iniziare una nuova sessione.",
   "hermesSwitchConnectionConfirm": "Passa",
   "hermesKeepCurrentConnection": "Mantieni quella attuale",
+  "hermesModelSwitchConfirmTitle": "Passare a {model}?",
+  "@hermesModelSwitchConfirmTitle": {
+    "placeholders": {
+      "model": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesModelSwitchConfirmMessage": "Hermes chiede una conferma prima di passare questa chat a quel modello.",
+  "hermesModelSwitchConfirmAction": "Passa e invia",
+  "hermesModelSwitchKeepCurrent": "Mantieni il modello attuale",
   "accountsTitle": "Account",
   "accountsAddAccount": "Aggiungi account",
   "accountsManage": "Gestisci account",

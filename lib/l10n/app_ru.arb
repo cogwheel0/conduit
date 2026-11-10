@@ -4429,6 +4429,17 @@
   "hermesSwitchConnectionPromptMessage": "Сеанс Hermes этого чата принадлежит подключению {name}. Переключитесь, чтобы продолжить его, или оставьте текущее подключение, чтобы начать новый сеанс.",
   "hermesSwitchConnectionConfirm": "Переключить",
   "hermesKeepCurrentConnection": "Оставить текущее",
+  "hermesModelSwitchConfirmTitle": "Переключиться на {model}?",
+  "@hermesModelSwitchConfirmTitle": {
+    "placeholders": {
+      "model": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesModelSwitchConfirmMessage": "Hermes просит подтверждения перед переключением этого чата на эту модель.",
+  "hermesModelSwitchConfirmAction": "Переключить и отправить",
+  "hermesModelSwitchKeepCurrent": "Оставить текущую модель",
   "accountsTitle": "Аккаунты",
   "accountsAddAccount": "Добавить аккаунт",
   "accountsManage": "Управление аккаунтами",

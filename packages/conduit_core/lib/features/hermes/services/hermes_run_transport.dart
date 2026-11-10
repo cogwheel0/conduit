@@ -181,6 +181,7 @@ Future<bool> dispatchHermesTurn({
   FutureOr<void> Function(String? sessionId)? onSessionEstablished,
   FutureOr<void> Function()? onCompletedSuccessfully,
   void Function(String code)? onSessionRefused,
+  void Function(HermesModelSwitchDeclined declined)? onModelSwitchDeclined,
   required void Function(String content) appendContent,
   void Function(String content)? replaceContent,
   required void Function(ChatStatusUpdate update) appendStatus,
@@ -242,6 +243,7 @@ Future<bool> dispatchHermesTurn({
         appendStatus: appendStatus,
         updateMessage: updateMessage,
         onSessionRefused: onSessionRefused,
+        onModelSwitchDeclined: onModelSwitchDeclined,
       );
     }
     finishStreaming();
@@ -990,7 +992,28 @@ void _reportHermesStartFailure(
   required void Function(ChatMessage Function(ChatMessage) updater)
   updateMessage,
   void Function(String code)? onSessionRefused,
+  void Function(HermesModelSwitchDeclined declined)? onModelSwitchDeclined,
 }) {
+  // The user's own choice, not a failure: a note on the turn, and the chat
+  // gets its message and its model back.
+  if (error is HermesModelSwitchDeclined) {
+    appendStatus(
+      ChatStatusUpdate(
+        action: kHermesRunNoticeAction,
+        description: error.message,
+        done: true,
+      ),
+    );
+    try {
+      onModelSwitchDeclined?.call(error);
+    } catch (_) {
+      DebugLogger.error(
+        'model-switch-declined-callback-failed',
+        scope: 'hermes/transport',
+      );
+    }
+    return;
+  }
   if (error is HermesApiException &&
       error.code == HermesApiErrorCode.admissionQueued) {
     appendStatus(
@@ -2420,6 +2443,7 @@ HermesErrorSurface? hermesApiErrorSurface(Object error) {
 String _friendlyError(Object e) {
   if (e is HermesStreamGuardException) return e.message;
   if (e is HermesModelSwitchHeld) return e.message;
+  if (e is HermesModelSwitchDeclined) return e.message;
   if (e is HermesDesktopGatewayStartingException) return e.message;
   if (e is FormatException) return 'Hermes returned an invalid response.';
   if (e is HermesApiException) {

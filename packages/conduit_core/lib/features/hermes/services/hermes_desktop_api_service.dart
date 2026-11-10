@@ -237,6 +237,7 @@ final class HermesDesktopApiService
     OpenExternalUrlPort? openExternalUrl,
     HermesDashboardBridgeFactory? dashboardBridgeFactory,
     this.onCredentialsChanged,
+    HermesModelSwitchPrompt? confirmModelSwitch,
     @visibleForTesting
     this.gatewayStartRetryDelays = const [
       Duration(seconds: 1),
@@ -252,6 +253,7 @@ final class HermesDesktopApiService
     this.pendingCompactionDeadline = const Duration(minutes: 15),
   }) : _openExternalUrl = openExternalUrl ?? const NullOpenExternalUrlPort(),
        _dashboardBridgeFactory = dashboardBridgeFactory,
+       _confirmModelSwitch = confirmModelSwitch,
        _nativeTokens = config.desktopCredentials?.nativeTokens,
        _origin =
            HermesConfig.connectionOrigin(config.baseUrl) ??
@@ -311,6 +313,10 @@ final class HermesDesktopApiService
   /// job has several when Run now was chosen again, as from another card.
   final Map<String, Set<_QueuedJobTrigger>> _jobTriggers = {};
   final HermesDesktopCredentialsWriter? onCredentialsChanged;
+
+  /// Asks the user about a model switch Hermes holds for confirmation;
+  /// without one, a held switch is refused as before.
+  final HermesModelSwitchPrompt? _confirmModelSwitch;
   HermesDesktopTokenSet? _nativeTokens;
   bool _closed = false;
   final Map<String, HermesSessionBinding> _bindings = {};
@@ -321,6 +327,11 @@ final class HermesDesktopApiService
   /// Chats whose next transcript may be shorter than the one shown.
   final Set<String> _shortenedTranscripts = {};
   final Map<String, String> _appliedSessionOptions = {};
+
+  /// The model selection last applied to each session (stored id), which a
+  /// chat returns to when the user keeps it over a held switch.
+  final Map<String, ({String model, String? provider})> _appliedSessionModels =
+      {};
 
   /// The `usage` of each session's last finished turn, by stored id.
   final Map<String, Map<String, dynamic>> _lastTurnUsage = {};
@@ -923,6 +934,7 @@ final class HermesDesktopApiService
     _freshSessionIds.clear();
     _lastTranscripts.clear();
     _appliedSessionOptions.clear();
+    _appliedSessionModels.clear();
     _lastTurnUsage.clear();
     _compactedTranscripts.clear();
     for (final watch in _pendingCompactions.values) {
