@@ -15,9 +15,11 @@ import 'package:conduit_markdown/conduit_markdown.dart';
 /// - A tag split across deltas (`<thi` + `nk>`) is held back until it can
 ///   be read, as is a partial closing tag inside a block.
 /// - A tag inside Markdown code in the answer stays answer text.
-/// - Held answer text is released before any other event, so stream order
-///   holds. Inside an open block it stays held, since it may be the start of
-///   the closing tag.
+/// - Held answer text is released before any other event that renders (a
+///   tool call, provider reasoning, an image), so stream order holds. Inside
+///   an open block it stays held, since it may be the start of the closing
+///   tag. Usage, provider metadata, file annotations and sources are not
+///   placed in the answer, so they pass a held fragment without releasing it.
 /// - When the run ends (done, error, or the stream closing) everything held
 ///   is released; a block that never closed keeps the rest as reasoning.
 /// - Whitespace right after a closing tag is dropped, as Open WebUI's server
@@ -88,6 +90,13 @@ Stream<DirectStreamEvent> splitInlineReasoningTags(
             addReasoning(sink, content);
           case DirectStreamDone() || DirectStreamError():
             releaseEverything(sink);
+            sink.add(event);
+          case DirectUsageUpdate() ||
+              DirectProviderMetadataUpdate() ||
+              DirectFileAnnotationsUpdate() ||
+              DirectSourceFound():
+            // Not placed in the answer, so a held tag fragment stays held
+            // for the delta that completes it.
             sink.add(event);
           default:
             releaseHeldAnswerText(sink);

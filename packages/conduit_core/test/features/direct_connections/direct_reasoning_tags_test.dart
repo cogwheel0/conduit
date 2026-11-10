@@ -50,6 +50,34 @@ void main() {
     ]);
   });
 
+  test('keeps a split opening tag held across usage and metadata', () async {
+    final events = await splitInlineReasoningTags(
+      Stream<DirectStreamEvent>.fromIterable(<DirectStreamEvent>[
+        const DirectContentDelta('Weighing <thi'),
+        DirectUsageUpdate(const <String, dynamic>{'completion_tokens': 3}),
+        const DirectContentDelta('nk a="1"'),
+        DirectProviderMetadataUpdate(const <String, dynamic>{
+          'provider': 'Lantern',
+        }),
+        DirectFileAnnotationsUpdate(const <Map<String, dynamic>>[]),
+        const DirectSourceFound(url: 'https://ferries.example/timetable'),
+        const DirectContentDelta('>the ferry times</think>It leaves at noon.'),
+        const DirectStreamDone(),
+      ]),
+    ).toList();
+
+    expect(events.map(_describe), <String>[
+      'content:Weighing ',
+      'DirectUsageUpdate',
+      'DirectProviderMetadataUpdate',
+      'DirectFileAnnotationsUpdate',
+      'DirectSourceFound',
+      'reasoning:the ferry times',
+      'content:It leaves at noon.',
+      'done',
+    ]);
+  });
+
   test(
     'releases held text before an error and when the stream closes',
     () async {
