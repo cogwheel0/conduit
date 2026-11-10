@@ -167,6 +167,15 @@ final class HermesSteerUncertain implements Exception {
 
 /// Hermes kept answering that its gateway is not ready (it is starting,
 /// restarting or draining), which is not a sign-in problem.
+/// Hermes no longer lists the request an answer was for: it was answered on
+/// another surface, or it expired. The answer was not sent.
+final class HermesDecisionAlreadySettled implements Exception {
+  const HermesDecisionAlreadySettled();
+
+  @override
+  String toString() => 'Hermes already settled this request.';
+}
+
 final class HermesDesktopGatewayStartingException implements Exception {
   const HermesDesktopGatewayStartingException();
 

@@ -18,13 +18,16 @@ import 'package:conduit_core/network/upload_timeout.dart';
 
 import 'package:conduit_core/features/hermes/models/hermes_bot.dart';
 import 'package:conduit_core/features/hermes/models/hermes_chat_input.dart';
+import 'package:conduit_core/features/hermes/models/hermes_clarify_form.dart';
 import 'package:conduit_core/features/hermes/models/hermes_config.dart';
 import 'package:conduit_core/features/hermes/models/hermes_job.dart';
 import 'package:conduit_core/features/hermes/models/hermes_job_delivery.dart';
 import 'package:conduit_core/features/hermes/models/hermes_mcp.dart';
 import 'package:conduit_core/features/hermes/models/hermes_model.dart';
 import 'package:conduit_core/features/hermes/models/hermes_room.dart';
+import 'package:conduit_core/features/hermes/models/hermes_room_log.dart';
 import 'package:conduit_core/features/hermes/models/hermes_run_event.dart';
+import 'package:conduit_core/features/hermes/models/hermes_todo.dart';
 import 'package:conduit_core/features/hermes/services/hermes_backend_service.dart';
 import 'package:conduit_core/features/hermes/services/hermes_http_transport.dart';
 import 'package:conduit_core/features/hermes/services/hermes_dashboard_bridge.dart';
@@ -43,6 +46,8 @@ part 'hermes_desktop_bots.dart';
 part 'hermes_desktop_canonical.dart';
 part 'hermes_desktop_event_projection.dart';
 part 'hermes_desktop_live_runtime.dart';
+part 'hermes_desktop_rooms.dart';
+part 'hermes_desktop_todos.dart';
 part 'hermes_desktop_turn_runtime.dart';
 
 typedef HermesDesktopCredentialsWriter = Future<void> Function(
@@ -329,6 +334,10 @@ final class HermesDesktopApiService
   final _sessionTurnStateChanges = StreamController<String>.broadcast();
   final Map<String, HermesDesktopTurnState> _sessionTurnStates = {};
   final _transcriptChanges = StreamController<String>.broadcast();
+
+  /// The agent's task list per chat (stored id), and which chat's changed.
+  final Map<String, HermesTodoState> _todoStates = {};
+  final _todoChanges = StreamController<String>.broadcast();
   final _desktopContractChanges = StreamController<int>.broadcast();
 
   Map<String, dynamic>? _status;
@@ -404,6 +413,14 @@ final class HermesDesktopApiService
   /// ([refreshShortenedTranscript]); asking consumes it.
   bool takeShortenedTranscript(String storedId) =>
       _shortenedTranscripts.remove(storedId);
+
+  /// The agent's task list for the chat [storedId], then every change to it
+  /// (`todo.updated`, the todo tool's results, a resume's `todo_state`).
+  Stream<HermesTodoState?> todoStatesFor(String storedId) =>
+      _todoStatesFor(storedId);
+
+  /// The agent's task list for the chat [storedId], when one was reported.
+  HermesTodoState? todoStateFor(String storedId) => _todoStateFor(storedId);
   Stream<int> get desktopContractChanges => _desktopContractChanges.stream;
   Stream<int> desktopContracts() => Stream<int>.multi((controller) {
     final subscription = _desktopContractChanges.stream.listen(
@@ -669,6 +686,61 @@ final class HermesDesktopApiService
   Future<List<HermesRoom>> listRooms({bool includeDisbanded = false}) =>
       _administration.listRooms(includeDisbanded: includeDisbanded);
 
+  /// What this gateway can do with Group Chats (`groups.capabilities`).
+  Future<HermesRoomCapabilities> roomCapabilities() => _roomCapabilities();
+
+  /// A room's roster, settings and live work (`groups.state`).
+  Future<HermesRoomState> roomState(String roomId) => _roomState(roomId);
+
+  /// A room's log after [sinceSeq] (0: its newest events), every page.
+  Future<List<HermesRoomEvent>> roomEventsSince(
+    String roomId, {
+    required int sinceSeq,
+    int? latestSeq,
+  }) => _roomEventsSince(roomId, sinceSeq: sinceSeq, latestSeq: latestSeq);
+
+  /// Seats [members] in a new room named [name].
+  Future<HermesRoom> createRoom({
+    required String name,
+    required List<HermesRoomMember> members,
+  }) => _createRoom(name: name, members: members);
+
+  /// Posts [send] to the room; sending the same [HermesRoomSend] again
+  /// never posts it twice.
+  Future<void> sendRoomMessage(String roomId, HermesRoomSend send) =>
+      _sendRoomMessage(roomId, send);
+
+  Future<void> renameRoom(String roomId, String name) =>
+      _renameRoom(roomId, name);
+
+  /// Saves the room's purpose, notes and who answers.
+  Future<HermesRoomContext?> setRoomContext(
+    String roomId,
+    HermesRoomContext context,
+  ) => _setRoomContext(roomId, context);
+
+  /// Stops the room's work and ends it for good.
+  Future<void> disbandRoom(String roomId) => _disbandRoom(roomId);
+
+  /// Stops the room's queued and running work; how many tasks it stopped.
+  /// Repeating [cancelId] repeats the same stop.
+  Future<int> stopRoom(String roomId, {required String cancelId}) =>
+      _stopRoom(roomId, cancelId);
+
+  /// Gives a discussion paused at its limit one more round.
+  Future<void> continueRoomDiscussion(
+    String roomId,
+    String discussionEventId,
+  ) => _continueRoomDiscussion(roomId, discussionEventId);
+
+  /// Answers [action]: an approval with [choice] (`once` or `deny`), or
+  /// a retry.
+  Future<void> answerRoomAction(
+    String roomId,
+    HermesRoomPendingAction action, {
+    String? choice,
+  }) => _answerRoomAction(roomId, action, choice: choice);
+
   @override
   Future<void> deleteJob(String id) =>
       _administration.mutateJob(id, "DELETE", "");
@@ -754,6 +826,20 @@ final class HermesDesktopApiService
     mcpServer: mcpServer,
     mcpAction: mcpAction,
   );
+
+  /// Answers a whole clarify form [requestId] at once: [answers] holds the
+  /// questions still open, by id, with null for a skipped one.
+  Future<void> respondToClarifyForm({
+    required String runtimeId,
+    String? storedSessionId,
+    required String requestId,
+    required Map<String, String?> answers,
+  }) => _runtimeRespondToClarifyForm(
+    runtimeId: runtimeId,
+    storedSessionId: storedSessionId,
+    requestId: requestId,
+    answers: answers,
+  );
   @override
   void close() {
     if (_closed) return;
@@ -766,6 +852,7 @@ final class HermesDesktopApiService
     unawaited(_turnStates.close());
     unawaited(_sessionTurnStateChanges.close());
     unawaited(_transcriptChanges.close());
+    unawaited(_todoChanges.close());
     unawaited(_desktopContractChanges.close());
     _eventBuffer.clear();
     _bindings.clear();

@@ -471,6 +471,41 @@ void main() {
       }
     });
 
+    test('an open Hermes room is a Hermes page', () {
+      check(isHermesOnlyAppLocation(Routes.hermesRoomPath('standup')))
+          .isTrue();
+      check(Routes.hermesRoomPath('a b')).equals('/hermes-room/a%20b');
+      check(isHermesOnlyAppLocation('/hermes-roomless')).isFalse();
+    });
+
+    test('an open Hermes room needs a usable Desktop Gateway', () {
+      final room = Routes.hermesRoomPath('standup');
+      const gateway = HermesConfig(
+        enabled: true,
+        baseUrl: 'https://hermes.example',
+        mode: HermesBackendMode.desktopGateway,
+      );
+      const responses = HermesConfig(
+        enabled: true,
+        baseUrl: 'https://hermes.example',
+        apiKey: 'key',
+      );
+
+      check(
+        resolveRouteRedirect(
+          room,
+          _accountless(PreferredBackend.hermes, gateway),
+        ),
+      ).isNull();
+      // Switching to the Responses API leaves no room to show.
+      check(
+        resolveRouteRedirect(
+          room,
+          _accountless(PreferredBackend.hermes, responses),
+        ),
+      ).equals(Routes.chat);
+    });
+
     test('a usable accountless backend never needs an account', () {
       final read = _reader(
         activeServer: const AsyncData(null),

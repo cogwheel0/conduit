@@ -12,6 +12,9 @@ import 'package:conduit_core/utils/debug_logger.dart';
 import 'package:conduit_markdown/conduit_markdown.dart';
 import 'package:conduit_core/utils/sensitive_value_utils.dart';
 
+import 'package:conduit_core/features/hermes/models/hermes_approval_cost.dart';
+import 'package:conduit_core/features/hermes/models/hermes_clarify_form.dart';
+import 'package:conduit_core/features/hermes/models/hermes_inline_diff.dart';
 import 'package:conduit_core/features/hermes/models/hermes_run_event.dart';
 import 'package:conduit_core/features/hermes/providers/hermes_providers.dart';
 import 'package:conduit_core/features/hermes/services/hermes_api_service.dart';
@@ -806,13 +809,15 @@ Future<void> dispatchHermesRun({
           );
         }
 
-        // A run saved during a restart cannot resume its stream: the
-        // approval it asks once Hermes is back is listed by the poll. One
-        // card at a time; a shown one that is no longer listed (answered
-        // here or elsewhere, timed out, or the run ended) is closed, which
-        // makes room for the next. None is shown twice.
-        String? shownApproval;
-        final closedApprovals = <String>{};
+        // A run saved during a restart cannot resume its stream, and a
+        // stream can drop for good: the poll lists what is still open. A
+        // reply holds one approval card and one question card; the first of
+        // each kind is shown, and a shown one that is no longer listed
+        // (answered here or elsewhere, timed out, withdrawn, or the run
+        // ended) is closed, which makes room for the next. None is shown
+        // twice.
+        final shownControls = <String, String>{};
+        final closedControls = <String>{};
         void handle(HermesRunEvent event) => _handleEvent(
           event,
           runId: runId,
@@ -823,26 +828,38 @@ Future<void> dispatchHermesRun({
           appendReasoning: statusAccumulator.appendReasoning,
           updateMessage: updateMessage,
         );
+        ({String kind, String id})? control(HermesRunEvent event) =>
+            switch (event) {
+              HermesApprovalRequested(:final approvalId) => (
+                kind: 'approval',
+                id: approvalId,
+              ),
+              HermesDecisionRequested(:final requestId) => (
+                kind: 'clarify',
+                id: requestId,
+              ),
+              _ => null,
+            };
         void showPendingControls(List<HermesRunEvent> events) {
           if (runCancelToken.isCancelled) return;
-          final listed = {
-            for (final event in events)
-              if (event case HermesApprovalRequested(:final approvalId))
-                approvalId,
-          };
-          final shown = shownApproval;
-          if (shown != null && !listed.contains(shown)) {
-            shownApproval = null;
-            closedApprovals.add(shown);
-            handle(HermesPromptSettled(promptId: shown, kind: 'approval'));
+          final listed = {for (final event in events) ?control(event)?.id};
+          for (final MapEntry(key: kind, value: id) in [
+            ...shownControls.entries,
+          ]) {
+            if (listed.contains(id)) continue;
+            shownControls.remove(kind);
+            closedControls.add(id);
+            handle(HermesPromptSettled(promptId: id, kind: kind));
           }
           for (final event in events) {
-            if (shownApproval != null) break;
-            if (event case HermesApprovalRequested(:final approvalId)
-                when !closedApprovals.contains(approvalId)) {
-              shownApproval = approvalId;
-              handle(event);
+            final open = control(event);
+            if (open == null ||
+                closedControls.contains(open.id) ||
+                shownControls.containsKey(open.kind)) {
+              continue;
             }
+            shownControls[open.kind] = open.id;
+            handle(event);
           }
         }
 
@@ -881,6 +898,7 @@ Future<void> dispatchHermesRun({
                 ? 0
                 : maxExtendedRecoveryPolls,
             extendedPollInterval: extendedRecoveryPollInterval,
+            onPendingControls: showPendingControls,
           );
         }
         if (recovered == null) {
@@ -1216,7 +1234,7 @@ Future<({String text, String status})?> _recoverRunOutput(
         status == 'incomplete' ||
         status == 'interrupted';
     if (terminal) {
-      // A finished run asks nothing more: a card still open closes.
+      // A finished run asks nothing more: the cards still open close.
       onPendingControls?.call(const <HermesRunEvent>[]);
       // A turn that ran out of steps is `failed` with its wrap-up answer and
       // no error, as its stream's `run.failed` is: a note, not a failure.
@@ -1225,7 +1243,7 @@ Future<({String text, String status})?> _recoverRunOutput(
       }
       return (text: text, status: status!);
     }
-    // Approvals asked while no stream was attached.
+    // Approvals and questions asked while no stream was attached.
     onPendingControls?.call(
       hermesPendingControlEvents(run['pending_controls']),
     );
@@ -1605,6 +1623,31 @@ String? _hermesRecoveryStatus(Object? value) {
 String? hermesRecoveryStatusForTest(Object? value) =>
     _hermesRecoveryStatus(value);
 
+/// Applies [event] to [message] the way a live run does.
+@visibleForTesting
+ChatMessage applyHermesRunEventForTest(
+  ChatMessage message,
+  HermesRunEvent event, {
+  String? runId,
+  Iterable<String> sensitiveValues = const <String>[],
+}) {
+  var current = message;
+  _handleEvent(
+    event,
+    runId: runId,
+    storedSessionId: null,
+    sensitiveValues: sensitiveValues,
+    appendContent: (text) =>
+        current = current.copyWith(content: current.content + text),
+    appendStatus: (status) => current = current.copyWith(
+      statusHistory: [...current.statusHistory, status],
+    ),
+    appendReasoning: (_) {},
+    updateMessage: (update) => current = update(current),
+  );
+  return current;
+}
+
 String _extractBoundedHermesRecoveryOutput(
   Object? output, {
   required int maxCharacters,
@@ -1881,15 +1924,15 @@ void _handleEvent(
             maxCharacters: 2048,
           ),
         ),
-        ?hermesToolDetailItem(
-          'Inline diff',
-          inlineDiff,
-          sanitize: (raw) => sanitizeHermesProviderErrorMessage(
-            raw,
-            sensitiveValues: sensitiveValues,
-            maxCharacters: 2048,
-          ),
-        ),
+        // Kept line by line, so the reply can show it as a diff card.
+        if (inlineDiff == null
+            ? null
+            : sanitizeHermesInlineDiff(
+                inlineDiff,
+                sensitiveValues: sensitiveValues,
+              )
+            case final String diff)
+          hermesInlineDiffItem(diff),
       ];
       appendStatus(
         ChatStatusUpdate(
@@ -1945,6 +1988,17 @@ void _handleEvent(
       final safeChoices = _boundedHermesDecisionChoices(
         choices.isEmpty ? raw['choices'] : choices,
       );
+      // A paid MCP tool states its price in the approval's command; a REST
+      // card shows the description instead, so the price is kept apart.
+      final command = raw['command'];
+      final cost = parseHermesApprovalCost([
+        safeSummary,
+        if (command is String)
+          _sanitizeHermesApprovalSummary(
+            command,
+            sensitiveValues: sensitiveValues,
+          ),
+      ]);
       updateMessage((m) {
         final meta = Map<String, dynamic>.from(m.metadata ?? const {});
         meta[kHermesApprovalMeta] = {
@@ -1955,6 +2009,7 @@ void _handleEvent(
           'summary': ?safeSummary,
           if (safeChoices.isNotEmpty) 'choices': safeChoices,
           'executionGeneration': ?executionGeneration,
+          if (cost != null) 'cost': cost.toJson(),
         };
         return m.copyWith(metadata: meta);
       });
@@ -2038,6 +2093,13 @@ void _handleEvent(
             if (raw['choices'] is List)
               'choices': _boundedHermesDecisionChoices(raw['choices']),
             if (raw['multi_select'] == true) 'multiSelect': true,
+            'questions': _safeHermesClarifyQuestions(
+              raw,
+              sensitiveValues: sensitiveValues,
+            ),
+            // A REST run's question names the generation its answer echoes.
+            if (raw['execution_generation'] case final int generation)
+              'executionGeneration': generation,
           },
           if (kind == HermesDecisionKind.mcpSetup) ...{
             'mcpServer': validateHermesBoundedString(
@@ -2137,13 +2199,81 @@ String? _sanitizeHermesApprovalSummary(
   String raw, {
   required Iterable<String> sensitiveValues,
 }) {
-  final safe = sanitizeHermesProviderErrorMessage(
-    raw,
-    sensitiveValues: sensitiveValues,
-    maxCharacters: kMaxHermesApprovalSummaryCharacters,
-  );
-  if (safe == 'Hermes run failed.' || safe == '[REDACTED]') return null;
-  return safe;
+  String? sanitize(String text, int maxCharacters) {
+    final safe = sanitizeHermesProviderErrorMessage(
+      text,
+      sensitiveValues: sensitiveValues,
+      maxCharacters: maxCharacters,
+    );
+    return safe == 'Hermes run failed.' || safe == '[REDACTED]' ? null : safe;
+  }
+
+  // Credentials go first, across the whole text: a label and its value
+  // can sit on either side of the blank line split below, which stays.
+  raw = redactCredentialLabels(raw, keepParagraphs: true);
+  // Sanitizing folds whitespace: the opening paragraph (where Hermes states
+  // a price) stays apart from the tool's input after it, which must never
+  // read as a price.
+  final split = raw.indexOf('\n\n');
+  if (split < 0) return sanitize(raw, kMaxHermesApprovalSummaryCharacters);
+  final head =
+      sanitize(raw.substring(0, split), kMaxHermesApprovalSummaryCharacters) ??
+      '[REDACTED]';
+  final room = kMaxHermesApprovalSummaryCharacters - head.runes.length - 2;
+  final tail = room <= 0 ? null : sanitize(raw.substring(split + 2), room);
+  return tail == null ? head : '$head\n\n$tail';
+}
+
+/// A clarify payload's questions, stored as [HermesClarifyQuestion.toJson]
+/// with sensitive values redacted from what the card shows.
+List<Map<String, Object?>> _safeHermesClarifyQuestions(
+  Map<String, dynamic> raw, {
+  required Iterable<String> sensitiveValues,
+}) {
+  String? safe(String? text) => text == null
+      ? null
+      : _sanitizeHermesApprovalSummary(text, sensitiveValues: sensitiveValues);
+  // Redacted whole before the form is parsed: the parser shortens long
+  // text, and a secret cut in two could no longer be matched.
+  Object? whole(Object? text) => text is String ? safe(text) : text;
+  final questions = raw['questions'];
+  final answers = raw['answers'];
+  final redacted = <Object?, Object?>{
+    ...raw,
+    'question': whole(raw['question']),
+    'prompt': whole(raw['prompt']),
+    if (questions is List)
+      'questions': [
+        for (final question in questions.take(kMaxHermesClarifyQuestions))
+          question is Map
+              ? {...question, 'question': whole(question['question'])}
+              : question,
+      ],
+    if (answers is Map)
+      'answers': {
+        for (final MapEntry(:key, :value) in answers.entries.take(
+          kMaxHermesClarifyQuestions * 4,
+        ))
+          key: whole(value),
+      },
+  };
+  return [
+    for (final question in hermesClarifyQuestionsFromPayload(redacted))
+      if (safe(question.text) case final String text)
+        HermesClarifyQuestion(
+          id: question.id,
+          text: text,
+          // An answer is sent as the choice reads: one the card would cut,
+          // fold or redact is left out rather than sent altered.
+          choices: [
+            for (final choice in question.choices)
+              if (safe(choice) == choice) choice,
+          ],
+          multiSelect: question.multiSelect,
+          locked: question.locked,
+          lockedAnswer: safe(question.lockedAnswer),
+        ).toJson(),
+  ];
 }
 
 List<String> _boundedHermesDecisionChoices(Object? value) {
