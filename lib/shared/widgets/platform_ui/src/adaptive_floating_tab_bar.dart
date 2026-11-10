@@ -84,8 +84,8 @@ class AdaptiveFloatingTab {
     required this.nativeAsset,
   });
 
-  /// Read by screen readers, as the value of the iOS 26 tab bar, whose tabs
-  /// show only their icons, and shown as the Material tooltip.
+  /// The tab's name: what screen readers read for it, on the iOS 26 tab bar
+  /// too, whose tabs show only their icons, and the Material tooltip.
   final String label;
 
   /// Drawn by Flutter, tinted through the ambient [IconTheme].
