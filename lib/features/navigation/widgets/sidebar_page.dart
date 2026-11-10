@@ -1035,7 +1035,6 @@ class _SlidingSidebarBottomBar extends ConsumerWidget {
       key: const ValueKey<String>('sidebar-backend-selector'),
       tabsKey: const ValueKey<String>('sidebar-backend-tabs'),
       actionKey: const ValueKey<String>('sidebar-create-button'),
-      tabsSemanticLabel: l10n.sidebarBackendSwitcher,
       tabs: [
         if (tabs.length > 1)
           for (final tab in tabs)

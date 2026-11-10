@@ -5419,7 +5419,6 @@
   "hermesSteerUncertain": "Hermes nepotvrdil vaše nasměrování. Než nasměrování odešlete znovu, zkontrolujte odpověď.",
   "hermesTurnControlsUnsupported": "Aktualizujte Hermes, abyste povolili bezpečné ovládání tahů.",
   "sidebarHermesTab": "Hermes",
-  "sidebarBackendSwitcher": "Backend",
   "markdownShowMoreLines": "{count, plural, one{Zobrazit další řádek} few{Zobrazit další {count} řádky} other{Zobrazit dalších {count} řádků}}",
   "@markdownShowMoreLines": {"placeholders":{"count":{"type":"int"}}},
   "markdownShowLess": "Zobrazit méně",

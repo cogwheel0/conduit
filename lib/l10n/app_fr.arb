@@ -3496,7 +3496,6 @@
   "hermesSteerUncertain": "Hermes n'a pas confirmé votre orientation. Vérifiez la réponse avant de renvoyer votre instruction.",
   "hermesTurnControlsUnsupported": "Mettez Hermes à jour pour activer les contrôles de tour sécurisés.",
   "sidebarHermesTab": "Hermes",
-  "sidebarBackendSwitcher": "Back-end",
   "markdownShowMoreLines": "{count, plural, =1{Afficher 1 ligne de plus} other{Afficher {count} lignes de plus}}",
   "@markdownShowMoreLines": {"placeholders":{"count":{"type":"int"}}},
   "markdownShowLess": "Afficher moins",

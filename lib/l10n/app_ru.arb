@@ -3531,7 +3531,6 @@
   "hermesSteerUncertain": "Hermes не подтвердил ваше указание. Проверьте ответ, прежде чем отправлять указание снова.",
   "hermesTurnControlsUnsupported": "Обновите Hermes, чтобы включить безопасное управление ходами.",
   "sidebarHermesTab": "Hermes",
-  "sidebarBackendSwitcher": "Бэкенд",
   "markdownShowMoreLines": "Показать ещё {count, plural, one{{count} строку} few{{count} строки} many{{count} строк} other{{count} строк}}",
   "@markdownShowMoreLines": {
     "placeholders": {

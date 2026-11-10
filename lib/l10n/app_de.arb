@@ -3496,7 +3496,6 @@
   "hermesSteerUncertain": "Hermes hat deine Steuerung nicht bestätigt. Prüfe die Antwort, bevor du die Steuerung erneut sendest.",
   "hermesTurnControlsUnsupported": "Aktualisiere Hermes, um sichere Zugsteuerung zu aktivieren.",
   "sidebarHermesTab": "Hermes",
-  "sidebarBackendSwitcher": "Backend",
   "markdownShowMoreLines": "{count, plural, =1{1 weitere Zeile anzeigen} other{{count} weitere Zeilen anzeigen}}",
   "@markdownShowMoreLines": {"placeholders":{"count":{"type":"int"}}},
   "markdownShowLess": "Weniger anzeigen",

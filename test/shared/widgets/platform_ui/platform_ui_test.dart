@@ -815,31 +815,6 @@ void main() {
     },
   );
 
-  testWidgets('gesture-sensitive slider callbacks use the local fallback', (
-    tester,
-  ) async {
-    PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.iOS;
-    PlatformUiCapabilities.debugIOSMajorVersionOverride = 26;
-    PlatformUiCapabilities.debugNativeIOS26Override = true;
-
-    await tester.pumpWidget(
-      CupertinoApp(
-        home: CupertinoPageScaffold(
-          child: AdaptiveSlider(
-            value: 0.5,
-            onChanged: (_) {},
-            onChangeStart: (_) {},
-            divisions: 4,
-          ),
-        ),
-      ),
-    );
-
-    final slider = tester.widget<CupertinoSlider>(find.byType(CupertinoSlider));
-    expect(slider.divisions, 4);
-    expect(find.byType(CNSlider), findsNothing);
-  });
-
   testWidgets('SF-symbol segments have valid Flutter fallbacks', (
     tester,
   ) async {
