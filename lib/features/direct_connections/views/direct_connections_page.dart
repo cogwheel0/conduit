@@ -838,9 +838,16 @@ class _DirectContextCompactionSection extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
+    // A limit picked for a local Ollama model is also sent as its num_ctx.
+    final listsOllamaModel = models.any(
+      (model) => model.metadata?['adapterKey'] == kOllamaAdapterKey,
+    );
     return InsetGroupedList(
       title: showTitle ? l10n.directContextCompactionTitle : null,
-      footer: l10n.directContextCompactionDescription,
+      footer: listsOllamaModel
+          ? '${l10n.directContextCompactionDescription}\n\n'
+                '${l10n.directContextLimitOllamaNote}'
+          : l10n.directContextCompactionDescription,
       useNativeSurface: PlatformInfo.isIOS,
       children: [
         for (final model in models)

@@ -470,7 +470,13 @@ final directProviderAdapterRegistryProvider =
       final pool = ref.watch(directHttpClientPoolProvider);
       return DirectProviderAdapterRegistry([
         OpenAiCompatibleAdapter(clientPool: pool),
-        OllamaAdapter(clientPool: pool),
+        OllamaAdapter(
+          clientPool: pool,
+          // Read per request so a changed limit applies to the next one
+          // without rebuilding the adapters.
+          contextWindowFor: (directModelId) =>
+              ref.read(directContextLengthOverridesProvider)[directModelId],
+        ),
         ...ref.watch(hostDirectProviderAdaptersProvider),
       ]);
     });

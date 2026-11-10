@@ -10,6 +10,7 @@ import 'package:conduit_core/features/direct_connections/models/direct_remote_mo
 import 'package:conduit_core/features/direct_connections/models/ollama_keep_alive.dart';
 import 'package:conduit_core/features/direct_connections/services/direct_adapter_helpers.dart';
 import 'package:conduit_core/features/direct_connections/services/direct_http_client.dart';
+import 'package:conduit_core/features/direct_connections/services/direct_model_registry.dart';
 import 'package:conduit_core/features/direct_connections/services/ollama_adapter.dart';
 import 'package:conduit_core/features/direct_connections/services/ollama_cloud_tools.dart';
 import 'package:conduit_core/features/direct_connections/services/openai_compatible_adapter.dart';
@@ -5552,6 +5553,121 @@ void main() {
       expect(events.whereType<DirectStreamDone>(), isEmpty);
     },
   );
+
+  group('Ollama context window', () {
+    final modelKey = DirectModelId.encode('ollama-one', 'model');
+    int? chosenLimit(String directModelId) =>
+        directModelId == modelKey ? 32768 : null;
+    Map<String, dynamic> body(RequestOptions request) =>
+        request.data as Map<String, dynamic>;
+
+    test('every request for the model sends the chosen limit', () async {
+      final http = _QueuedAdapter([
+        _ollamaToolCallReply(),
+        _ollamaAnswerReply('Sunny.'),
+        _ollamaAnswerReply('A short summary.'),
+        _Reply.json({'model': 'model', 'done': true}),
+        _Reply.json({'model': 'model', 'done': true}),
+      ]);
+      final adapter = OllamaAdapter(
+        dioFactory: (_) => _dio(http),
+        closeClients: false,
+        contextWindowFor: chosenLimit,
+      );
+      final profile = _ollamaProfile();
+
+      // A tool loop: both rounds must ask for the same window, or Ollama
+      // reloads the model between them.
+      await adapter
+          .startCompletion(
+            profile,
+            DirectCompletionRequest(
+              remoteModelId: 'model',
+              messages: [DirectChatMessage.text(role: 'user', text: 'weather')],
+              tools: _localToolRuntime(),
+            ),
+          )
+          .events
+          .toList();
+      // The history summary keeps its own options.
+      await adapter
+          .startCompletion(
+            profile,
+            DirectCompletionRequest(
+              remoteModelId: 'model',
+              messages: [DirectChatMessage.text(role: 'user', text: 'sum up')],
+              parameters: const {
+                'options': {'num_predict': 64},
+              },
+            ),
+          )
+          .events
+          .toList();
+      await adapter.loadModel(profile, 'model');
+      await adapter.unloadModel(profile, 'model');
+
+      expect(
+        [for (final request in http.requests) body(request)['options']],
+        [
+          {'num_ctx': 32768},
+          {'num_ctx': 32768},
+          {'num_predict': 64, 'num_ctx': 32768},
+          {'num_ctx': 32768},
+          {'num_ctx': 32768},
+        ],
+      );
+    });
+
+    test('without a chosen limit the server keeps its own window', () async {
+      final http = _QueuedAdapter([
+        _ollamaAnswerReply('Hi.'),
+        _Reply.json({'model': 'other', 'done': true}),
+      ]);
+      final adapter = OllamaAdapter(
+        dioFactory: (_) => _dio(http),
+        closeClients: false,
+        contextWindowFor: chosenLimit,
+      );
+
+      await adapter
+          .startCompletion(
+            _ollamaProfile(),
+            DirectCompletionRequest(
+              remoteModelId: 'other',
+              messages: [DirectChatMessage.text(role: 'user', text: 'hello')],
+            ),
+          )
+          .events
+          .toList();
+      await adapter.loadModel(_ollamaProfile(), 'other');
+
+      for (final request in http.requests) {
+        expect(body(request).containsKey('options'), isFalse);
+      }
+    });
+
+    test('Ollama Cloud never gets num_ctx', () async {
+      final http = _QueuedAdapter([_ollamaAnswerReply('Hi.')]);
+      final adapter = OllamaAdapter(
+        dioFactory: (_) => _dio(http),
+        closeClients: false,
+        contextWindowFor: (_) => 32768,
+      );
+
+      await adapter
+          .startCompletion(
+            _ollamaProfile(baseUrl: 'https://ollama.com'),
+            DirectCompletionRequest(
+              remoteModelId: 'model',
+              messages: [DirectChatMessage.text(role: 'user', text: 'hello')],
+            ),
+          )
+          .events
+          .toList();
+
+      expect(body(http.requests.single).containsKey('options'), isFalse);
+    });
+  });
 
   test('Ollama rejects a response with too many tool calls', () async {
     final http = _QueuedAdapter([

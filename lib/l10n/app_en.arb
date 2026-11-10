@@ -7543,6 +7543,8 @@
   "@directModelTooManyImages": {"description": "Error shown when a Direct model rejects a request for having too many images."},
   "directToolLoopNoAnswer": "The model kept using tools without giving an answer. Try again, or turn off web search and tools.",
   "@directToolLoopNoAnswer": {"description": "Error shown when a Direct model kept asking for tools instead of answering after Conduit stopped offering them."},
+  "directContextLimitOllamaNote": "For Ollama models on your own server, a limit you choose here is also the context window Ollama loads the model with. A larger window uses more memory.",
+  "@directContextLimitOllamaNote": {"description": "Note under the Direct context limit list: for local Ollama models the chosen limit is also sent as the context window, which costs memory."},
   "directContextCompactionModelCount": "{count, plural, =1{1 model} other{{count} models}}",
   "@directContextCompactionModelCount": {"description": "Row value on Direct Connections that opens the list of models needing a context limit.", "placeholders": {"count": {"type": "int", "example": "42"}}},
   "imageViewerPosition": "{current} of {total}",

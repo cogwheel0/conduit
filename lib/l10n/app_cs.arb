@@ -5673,6 +5673,7 @@
   "directImagesPerRequestFooter": "Každá zpráva odešle nejnovější obrázky z tohoto chatu, nejvýše tento počet. Starší obrázky se vynechají. Snižte počet, pokud model odmítá požadavky s příliš mnoha obrázky.",
   "directModelTooManyImages": "Tento model přijímá v jednom požadavku méně obrázků, než tento chat odeslal. Snižte Obrázky na požadavek v nastavení Přímá připojení a zkuste to znovu. Pokud samotná tato zpráva obsahuje více obrázků, než model přijímá, odešlete ji znovu s menším počtem obrázků.",
   "directToolLoopNoAnswer": "Model stále používal nástroje, aniž by odpověděl. Zkuste to znovu, nebo vypněte vyhledávání na webu a nástroje.",
+  "directContextLimitOllamaNote": "U modelů Ollama na vašem vlastním serveru je zde zvolený limit zároveň velikostí kontextového okna, se kterou Ollama model načte. Větší okno spotřebuje více paměti.",
   "directContextCompactionModelCount": "{count, plural, one{{count} model} few{{count} modely} many{{count} modelu} other{{count} modelů}}",
   "@directContextCompactionModelCount": {"placeholders": {"count": {"type": "int", "example": "42"}}},
   "imageViewerPosition": "{current} z {total}",

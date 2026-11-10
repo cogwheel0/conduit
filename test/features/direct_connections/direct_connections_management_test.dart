@@ -324,6 +324,44 @@ void main() {
     expect(changedContextLength, 8192);
   });
 
+  testWidgets('the context limit list explains Ollama memory use', (
+    tester,
+  ) async {
+    Widget content(Map<String, dynamic> metadata) => ProviderScope(
+      child: MaterialApp(
+        localizationsDelegates: conduitLocalizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: DirectConnectionsContent(
+          profiles: const [],
+          modelsWithoutContextLimit: [
+            Model(
+              id: DirectModelId.encode('local', 'model'),
+              name: 'Local model',
+              metadata: metadata,
+            ),
+          ],
+          syncWithOpenWebUi: false,
+          isOnboarding: false,
+          onContextLengthChanged: (_, _) {},
+          onSyncChanged: (_) {},
+          onAdd: () {},
+          onEdit: (_) {},
+        ),
+      ),
+    );
+    final note = find.textContaining('context window Ollama loads the model');
+
+    await tester.pumpWidget(content(const {'adapterKey': kOllamaAdapterKey}));
+    await tester.pumpAndSettle();
+    expect(note, findsOneWidget);
+
+    await tester.pumpWidget(
+      content(const {'adapterKey': kOpenAiCompatibleAdapterKey}),
+    );
+    await tester.pumpAndSettle();
+    expect(note, findsNothing);
+  });
+
   testWidgets('images per request opens a picker outside onboarding', (
     tester,
   ) async {
