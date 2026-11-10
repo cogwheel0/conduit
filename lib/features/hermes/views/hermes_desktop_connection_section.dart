@@ -146,9 +146,14 @@ class _HermesDesktopConnectionSectionState
     if (_profilesLoading && !force) return;
     final saved = widget.savedConfig();
     final draft = _controller.buildDraft(saved);
+    // A load this draft cut short has no say any more (its epoch moved on),
+    // so the button it spun is freed here.
     if (HermesConfig.connectionOrigin(draft.config.baseUrl) == null) {
       if (!mounted) return;
-      setState(() => _profilesError = 'Enter the Hermes server URL first.');
+      setState(() {
+        _profilesLoading = false;
+        _profilesError = 'Enter the Hermes server URL first.';
+      });
       return;
     }
     // Listing profiles sends the draft's credentials, which go unencrypted
@@ -157,6 +162,7 @@ class _HermesDesktopConnectionSectionState
       if (!mounted) return;
       setState(() {
         _profiles = const [];
+        _profilesLoading = false;
         _profilesError = 'Test the connection, then refresh the profile list.';
       });
       return;
