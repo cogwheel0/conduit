@@ -2440,7 +2440,7 @@ String? hermesApiRefusalMessage(HermesApiException error) {
   switch (error.code) {
     case HermesApiErrorCode.permissionDenied:
       return 'This chat belongs to another Hermes app, so Conduit can only '
-          'read it. Continue in a copy to keep chatting.';
+          'read it. Choose Continue in a Copy to keep chatting.';
     case HermesApiErrorCode.notFound:
       return 'This Hermes session was deleted. Start a new chat to continue.';
     case HermesApiErrorCode.admissionConflict:

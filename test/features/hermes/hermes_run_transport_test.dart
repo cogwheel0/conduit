@@ -1597,7 +1597,7 @@ void main() {
       final (message, _, refusals) = await dispatch(
         refusal(409, HermesApiErrorCode.permissionDenied),
       );
-      check(message.error?.content).isNotNull().contains('Continue in a copy');
+      check(message.error?.content).isNotNull().contains('Continue in a Copy');
       check(refusals).deepEquals(['permission_denied']);
     });
 

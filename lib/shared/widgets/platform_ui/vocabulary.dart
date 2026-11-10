@@ -3,5 +3,11 @@ library;
 
 export 'package:flutter/foundation.dart' show TargetPlatform;
 export 'package:material_ui/material_ui.dart'
-    show Theme, ThemeMode, Icons, VisualDensity, MaterialTapTargetSize;
+    show
+        Theme,
+        ThemeMode,
+        Icons,
+        VisualDensity,
+        MaterialTapTargetSize,
+        MaterialLocalizations;
 export 'package:cupertino_ui/cupertino_ui.dart' show CupertinoIcons;

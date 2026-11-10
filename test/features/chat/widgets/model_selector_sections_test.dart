@@ -106,7 +106,7 @@ void main() {
       ),
     );
     await tester.pump(const Duration(milliseconds: 400));
-    await tester.tap(find.text('More models'));
+    await tester.tap(find.text('More Models'));
     await tester.pump(const Duration(milliseconds: 400));
     expect(find.text('bravo-two'), findsOneWidget);
     return container;

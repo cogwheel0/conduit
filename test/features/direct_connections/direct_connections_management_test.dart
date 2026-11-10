@@ -60,7 +60,7 @@ void main() {
         .where((section) => section.useNativeSurface);
     expect(nativeSections.length, greaterThanOrEqualTo(2));
     final syncRow = tester.widget<UtilityRow>(
-      find.widgetWithText(UtilityRow, 'Open WebUI history'),
+      find.widgetWithText(UtilityRow, 'Open WebUI History'),
     );
     final profileRow = tester.widget<UtilityRow>(
       find.widgetWithText(UtilityRow, 'Native provider'),
@@ -105,10 +105,10 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Direct Connections'), findsAtLeastNWidgets(1));
-    expect(find.text('Open WebUI history'), findsAtLeastNWidgets(1));
+    expect(find.text('Open WebUI History'), findsAtLeastNWidgets(1));
     expect(find.text('Home Ollama'), findsOneWidget);
     expect(find.textContaining('http://192.168.1.5:11434'), findsOneWidget);
-    expect(find.text('Add connection'), findsOneWidget);
+    expect(find.text('Add Connection'), findsOneWidget);
 
     await tester.tap(find.byType(AdaptiveSwitch));
     await tester.pump();
@@ -164,8 +164,8 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('Open WebUI server'), findsOneWidget);
-    expect(find.text('On this device'), findsOneWidget);
+    expect(find.text('Open WebUI Server'), findsOneWidget);
+    expect(find.text('On This Device'), findsOneWidget);
     expect(find.text('server.example · 1'), findsOneWidget);
     expect(find.text('Device provider'), findsOneWidget);
     expect(find.text('Open WebUI'), findsOneWidget);
@@ -200,7 +200,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('Open WebUI history'), findsNothing);
+    expect(find.text('Open WebUI History'), findsNothing);
   });
 
   testWidgets('PCC settings show quota and fallback controls', (tester) async {
@@ -310,7 +310,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('Context compaction'), findsOneWidget);
+    expect(find.text('Context Compaction'), findsOneWidget);
     expect(find.text('Unknown context model'), findsOneWidget);
     expect(find.text('Known context model'), findsNothing);
     expect(find.textContaining('Context limit: 4K'), findsOneWidget);
@@ -512,14 +512,14 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(tester.takeException(), isNull);
-    expect(find.text('Open WebUI server'), findsOneWidget);
+    expect(find.text('Open WebUI Server'), findsOneWidget);
     await tester.scrollUntilVisible(
-      find.text('On this device'),
+      find.text('On This Device'),
       300,
       scrollable: find.byType(Scrollable).first,
     );
     expect(tester.takeException(), isNull);
-    expect(find.text('On this device'), findsOneWidget);
+    expect(find.text('On This Device'), findsOneWidget);
   });
 
   testWidgets('server reload failure is visible after an empty snapshot', (
@@ -564,7 +564,7 @@ void main() {
     controller.failRefresh();
     await tester.pump();
 
-    expect(find.text('No server connections yet'), findsOneWidget);
+    expect(find.text('No Server Connections Yet'), findsOneWidget);
     expect(
       find.text('Could not sync connections from Open WebUI.'),
       findsOneWidget,

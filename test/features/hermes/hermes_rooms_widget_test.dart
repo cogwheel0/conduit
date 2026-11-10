@@ -574,7 +574,7 @@ void main() {
       await tester.pump();
       check(room.continued).deepEquals(['m1']);
 
-      await tester.tap(find.text('Allow once'));
+      await tester.tap(find.text('Allow Once'));
       await tester.pump();
       check(room.answers).deepEquals([('task-9', 'once')]);
 
@@ -817,7 +817,7 @@ void main() {
         find.byKey(const ValueKey('hermes-room-notes')),
         'Keep it short',
       );
-      await tester.tap(find.text('Lead bot'));
+      await tester.tap(find.text('Lead Bot'));
       await tester.pump();
       await _scrollTo(tester, 'hermes-room-member-scout');
       await tester.tap(find.byKey(const ValueKey('hermes-room-member-scout')));
@@ -846,7 +846,7 @@ void main() {
       check(room.disbanded).equals(0);
       expect(find.text('Disband “Daily standup”?'), findsOneWidget);
 
-      await tester.tap(find.text('Disband room').last);
+      await tester.tap(find.text('Disband Room').last);
       await tester.pumpAndSettle();
       check(room.disbanded).equals(1);
 

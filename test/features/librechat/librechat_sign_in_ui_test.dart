@@ -11,6 +11,9 @@ import 'package:conduit/features/profile/widgets/account_actions.dart'
         signOutOfLibreChatAccount,
         signOutOfLibreChatAndHandOver,
         switchToLibreChatAccount;
+import 'package:conduit/features/auth/widgets/auth_grouped_form.dart';
+import 'package:conduit/shared/widgets/platform_ui/platform_ui.dart';
+import 'package:conduit/shared/widgets/utility_components.dart';
 import 'package:conduit/l10n/app_localizations.dart';
 import 'package:conduit/l10n/conduit_localizations.dart';
 import 'package:conduit_core/features/hermes/models/hermes_connection_profile.dart';
@@ -238,6 +241,27 @@ void main() {
       check(card.subtitle).equals('Team Chat +2');
     });
 
+    test('tells a LibreChat account by its email, as Open WebUI\'s is', () {
+      final withEmail = LibreChatAccount.forUser(
+        const LibreChatServer(baseUrl: 'https://chat.example.com'),
+        const LibreChatUser(id: 'u3', name: 'Dev', email: 'dev@example.com'),
+        serverTitle: 'Team Chat',
+      );
+      final card = accountCardSummary(
+        l10n,
+        signedInName: null,
+        accounts: const [],
+        hermesConnections: const [],
+        hermesInUseId: null,
+        libreChatPrimary: withEmail,
+        libreChatAccounts: [withEmail],
+        countsOthers: false,
+      );
+      check(card.kind).equals(AccountCardKind.libreChat);
+      check(card.title).equals('Dev');
+      check(card.subtitle).equals('dev@example.com');
+    });
+
     test('LibreChat accounts count as others behind another backend', () {
       final card = accountCardSummary(
         l10n,
@@ -291,6 +315,22 @@ void main() {
             '$nativeLibreChatUseActionId|false',
         'accounts-librechat-add|$nativeAccountAddActionId|false',
       ]);
+      // Named as Add Account and Add Connection are.
+      final add = [
+        for (final section in buildNativeAccountsDetail(
+          l10n,
+          accounts: const [],
+          hermesConnections: const [],
+          hermesInUseId: null,
+          directProfiles: const [],
+          libreChatEnabled: true,
+          libreChatAccounts: const [],
+          libreChatInChargeId: null,
+          libreChatInChargeSignedIn: true,
+        ).sections)
+          ...section.items,
+      ].singleWhere((item) => item.id == 'accounts-librechat-add');
+      check(add.title).equals('Add LibreChat Account');
     });
 
     test('the account in charge can be signed out of, and LibreChat\'s '
@@ -624,7 +664,7 @@ void main() {
       Future<void> signOut({required String thenAnswer}) async {
         await tester.tap(find.text('leave'));
         await tester.pumpAndSettle();
-        await tester.tap(find.text('Sign out'));
+        await tester.tap(find.text('Sign Out'));
         await tester.pumpAndSettle();
         expect(find.text('Signing out stops it.'), findsOneWidget);
         await tester.tap(find.text(thenAnswer));
@@ -642,7 +682,7 @@ void main() {
         PrimaryAccountRef(PrimaryAccountKind.libreChat, leaving.id),
       );
 
-      await signOut(thenAnswer: 'Sign out anyway');
+      await signOut(thenAnswer: 'Sign Out Anyway');
       check(stops).isGreaterThan(0);
       check(container.read(primaryAccountProvider)).equals(
         PrimaryAccountRef(PrimaryAccountKind.libreChat, staying.id),
@@ -693,6 +733,105 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('saved accounts'), findsOneWidget);
+  });
+
+  group('on iOS the page', () {
+    final account = LibreChatAccount.forUser(
+      const LibreChatServer(baseUrl: 'https://chat.example.com'),
+      const LibreChatUser(id: 'u1', name: 'Dev'),
+    );
+
+    setUp(() {
+      // The Flutter fallbacks of the native iOS 26 controls render in tests.
+      PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.iOS;
+      PlatformUiCapabilities.debugIOSMajorVersionOverride = 18;
+    });
+    tearDown(PlatformUiCapabilities.resetDebugOverrides);
+
+    Future<void> pumpPage(
+      WidgetTester tester, {
+      required PrimaryAccountKind inCharge,
+    }) async {
+      tester.view.physicalSize = const Size(1206, 2622);
+      tester.view.devicePixelRatio = 3;
+      addTearDown(tester.view.reset);
+      final router = GoRouter(
+        initialLocation: Routes.libreChatSignIn,
+        routes: [
+          GoRoute(
+            path: Routes.libreChatSignIn,
+            builder: (context, state) => const LibreChatSignInPage(),
+          ),
+          GoRoute(
+            path: Routes.accounts,
+            builder: (context, state) => const Text('saved accounts'),
+          ),
+        ],
+      );
+      addTearDown(router.dispose);
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            primaryAccountKindProvider.overrideWithValue(inCharge),
+            libreChatSessionProvider.overrideWith(() => _Ended(account)),
+            libreChatHttpAdapterProvider.overrideWithValue(
+              FakeLibreChatServer(),
+            ),
+          ],
+          child: MaterialApp.router(
+            theme: ThemeData(platform: TargetPlatform.iOS),
+            localizationsDelegates: conduitLocalizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            routerConfig: router,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('has a large title, the address with the keyboard, and '
+        'Connect pinned under the form', (tester) async {
+      await pumpPage(tester, inCharge: PrimaryAccountKind.openWebUi);
+      final page = tester.widget<UtilityPageScaffold>(
+        find.byType(UtilityPageScaffold),
+      );
+      check(page.title).equals('LibreChat');
+      check(page.largeTitle).isTrue();
+      check(page.bottomAction).isA<AuthPrimaryButton>();
+      check(
+        tester
+            .widget<AuthGroupedTextField>(
+              find.byKey(const Key('librechat-server-field')),
+            )
+            .autofocus,
+      ).isTrue();
+    });
+
+    testWidgets('a session that ended starts at its server, says why under '
+        'it, and keeps the saved accounts a row away', (tester) async {
+      await pumpPage(tester, inCharge: PrimaryAccountKind.libreChat);
+      // Past the address the page says Sign In, as the Open WebUI sign-in
+      // does; the server's row names LibreChat.
+      check(
+        tester
+            .widget<UtilityPageScaffold>(find.byType(UtilityPageScaffold))
+            .title,
+      ).equals('Sign In');
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('librechat-server-row-section')),
+          matching: find.text(
+            'Your session on chat.example.com ended. Sign in again.',
+          ),
+        ),
+        findsOneWidget,
+      );
+      final accounts = find.byKey(const Key('librechat-sign-in-accounts'));
+      check(tester.widget<AuthGroupedRow>(accounts).showChevron).isTrue();
+      await tester.tap(accounts);
+      await tester.pumpAndSettle();
+      expect(find.text('saved accounts'), findsOneWidget);
+    });
   });
 
   testWidgets('switching to an account gone by then says so', (
@@ -821,7 +960,7 @@ void main() {
     // The row goes while the question is up.
     showRow.value = false;
     await tester.pump();
-    await tester.tap(find.text('Switch anyway'));
+    await tester.tap(find.text('Switch Anyway'));
     await tester.pumpAndSettle();
 
     expect(tester.takeException(), isNull);

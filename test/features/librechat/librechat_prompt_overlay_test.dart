@@ -148,7 +148,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField), '  Sample result  ');
     await tester.pump();
-    await tester.tap(find.text('Send response'));
+    await tester.tap(find.text('Send Response'));
     await tester.pumpAndSettle();
 
     final decision = resolved.single.decisions!['call-r']!;
@@ -212,7 +212,7 @@ void main() {
     expect(find.text('Question 1 of 2'), findsOneWidget);
     expect(find.text('Which city?'), findsOneWidget);
     await tester.enterText(find.byType(TextField), 'Paris');
-    await tester.tap(find.text('Send response'));
+    await tester.tap(find.text('Send Response'));
     await tester.pumpAndSettle();
     expect(resolved, isEmpty);
 
@@ -220,7 +220,7 @@ void main() {
     await tester.tap(find.text('Mon'));
     await tester.tap(find.text('Tue'));
     await tester.pump();
-    await tester.tap(find.text('Send response'));
+    await tester.tap(find.text('Send Response'));
     await tester.pumpAndSettle();
 
     // Each choice is answered with its value, as LibreChat's client does.
@@ -255,7 +255,7 @@ void main() {
           .first,
     );
     expect(card.height, lessThanOrEqualTo(screen.height / 2));
-    expect(find.text('Send response'), findsOneWidget);
+    expect(find.text('Send Response'), findsOneWidget);
   });
 
   testWidgets('a failed answer can be sent again', (tester) async {
@@ -275,7 +275,7 @@ void main() {
     // A single question is its own title.
     expect(find.text('Proceed?'), findsOneWidget);
     await tester.enterText(find.byType(TextField), 'yes');
-    await tester.tap(find.text('Send response'));
+    await tester.tap(find.text('Send Response'));
     await tester.pumpAndSettle();
 
     expect(resolved.single.answers, {'call-q': 'yes'});
@@ -283,11 +283,11 @@ void main() {
       find.text("Couldn't send your answer. Try again."),
       findsOneWidget,
     );
-    expect(find.text('Send response'), findsOneWidget);
+    expect(find.text('Send Response'), findsOneWidget);
 
     // Sent again, the answer goes out again.
     await tester.enterText(find.byType(TextField), 'yes');
-    await tester.tap(find.text('Send response'));
+    await tester.tap(find.text('Send Response'));
     await tester.pumpAndSettle();
     expect(resolved, hasLength(2));
     expect(resolved.last.answers, {'call-q': 'yes'});

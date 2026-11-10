@@ -1,46 +1,4 @@
 {
-  "computerEnabledDescription": "Sledujte a ovládejte plochu a prohlížeč v chatech.",
-  "computerTrackpadHint": "Posunutím pohybujte kurzorem. Klepnutím klikněte, podržením táhněte; dvěma prsty posouvejte.",
-  "computerShortcut": "Klávesová zkratka",
-  "computerInputFailed": "Nepodařilo se to odeslat do počítače. Zkuste to znovu.",
-  "computerQualityLow": "Nižší spotřeba dat",
-  "computerDesktopSite": "Web pro počítače",
-  "computerAudioUnavailable": "Zvuk plochy není v tomto připojení nebo zařízení dostupný.",
-  "computerSound": "Zvuk",
-  "computerTabs": "Karty prohlížeče",
-  "computerNewTab": "Nová karta",
-  "computerCloseTab": "Zavřít kartu",
-  "computerRefreshTabs": "Obnovit karty",
-  "computerNoTabs": "Žádné karty prohlížeče",
-  "computerTabsWatchHint": "Pro změnu karet převezměte ovládání. Odpověď se zastaví; pokračujte novou zprávou.",
-  "computerTabsUnavailable": "Karty se nepodařilo načíst. Zkuste je obnovit.",
-  "computerTitle": "Počítač",
-  "computerConnecting": "Připojování k počítači…",
-  "computerReconnecting": "Obnovování připojení…",
-  "computerDisconnected": "Počítač odpojen",
-  "computerBrowserStartHint": "Převezměte ovládání a spusťte živý náhled této karty.",
-  "computerBrowserUnavailable": "Tento terminál potřebuje Chrome nebo Chromium pro živý prohlížeč.",
-  "computerStopFailed": "Aktuální odpověď se nepodařilo zastavit. Můžete dále sledovat a zkusit to znovu.",
-  "computerStopping": "Zastavování odpovědi…",
-  "computerTakeControl": "Převzít ovládání",
-  "computerTrackpadMode": "Režim trackpadu",
-  "computerRecenterPointer": "Vystředit ukazatel",
-  "computerClick": "Kliknout",
-  "computerRightClick": "Pravé kliknutí",
-  "computerDoubleClick": "Dvojité kliknutí",
-  "computerStartDrag": "Začít tažení",
-  "computerEndDrag": "Ukončit tažení",
-  "computerShowKeyboard": "Zobrazit klávesnici",
-  "computerHideKeyboard": "Skrýt klávesnici",
-  "computerAgentWorking": "Agent pracuje",
-  "computerDesktop": "Plocha",
-  "computerBrowser": "Prohlížeč",
-  "computerForward": "Vpřed",
-  "computerReload": "Obnovit stránku",
-  "computerAddress": "Přejít na adresu",
-  "computerTypeText": "Psát na počítači",
-  "computerSend": "Odeslat",
-  "computerZoom": "Přiblížit",
   "@@locale": "cs",
   "appTitle": "Conduit",
   "serverIncompatibleTitle": "Server není podporován",
@@ -287,7 +245,7 @@
   "@token": {
     "description": "Label for JWT token input field."
   },
-  "jwt": "JWT",
+  "jwt": "Token",
   "usernameOrEmail": "Uživatelské jméno nebo e-mail",
   "@usernameOrEmail": {
     "description": "Label for username/email input field."
@@ -1302,11 +1260,11 @@
   "@enterToken": {
     "description": "Hint text for JWT token input."
   },
-  "tokenHint": "Token JWT získáte v nastavení Open WebUI. Klíče API (sk-...) nejsou pro streamování podporovány.",
+  "tokenHint": "Zkopírujte token relace JWT z webového Open WebUI a vložte ho sem. Správci ho najdou v Nastavení › Účet › API klíče. Klíče API (sk-…) fungovat nebudou.",
   "@tokenHint": {
     "description": "Help text explaining what type of token to use."
   },
-  "apiKeyNotSupported": "Klíče API (sk-...) nejsou podporovány. Použijte místo toho token JWT.",
+  "apiKeyNotSupported": "Klíče API (sk-…) nelze k přihlášení použít. Vložte místo toho token JWT.",
   "@apiKeyNotSupported": {
     "description": "Error message when user tries to use an API key instead of JWT token."
   },
@@ -1454,15 +1412,15 @@
   "@themeDark": {
     "description": "Theme label for dark appearance."
   },
-  "themePalette": "Paleta akcentů",
+  "themePalette": "Barevná paleta",
   "@themePalette": {
     "description": "Title for selecting the app color palette."
   },
-  "themePaletteConduitLabel": "Conduit",
+  "themePaletteConduitLabel": "Monochromatická",
   "@themePaletteConduitLabel": {
     "description": "Palette name for the default Conduit theme."
   },
-  "themePaletteConduitDescription": "Čistý neutrální motiv navržený pro Conduit.",
+  "themePaletteConduitDescription": "Černá a bílá, bez barvy akcentu.",
   "@themePaletteConduitDescription": {
     "description": "Description of the Conduit palette."
   },
@@ -1560,8 +1518,8 @@
   "@analyzed": {
     "description": "Label shown after code interpreter has finished."
   },
-  "showComposerNotesButton": "Show Notes button",
-  "showComposerNotesButtonDescription": "Show Create note in the chat composer.",
+  "showComposerNotesButton": "Ukládat koncepty jako poznámky",
+  "showComposerNotesButtonDescription": "Při psaní nabídne nabídka + volbu Uložit jako poznámku, která zprávu místo odeslání ponechá jako poznámku.",
   "appCustomization": "Přizpůsobení",
   "@appCustomization": {
     "description": "Title of the customization settings page."
@@ -2290,7 +2248,7 @@
   "@signInWithSso": {
     "description": "Button text for SSO sign-in."
   },
-  "ssoAuthenticating": "Ověřování...",
+  "ssoAuthenticating": "Přihlašování…",
   "@ssoAuthenticating": {
     "description": "Loading message during SSO authentication."
   },
@@ -2298,7 +2256,7 @@
   "@ssoAuthFailed": {
     "description": "Error message when SSO authentication fails."
   },
-  "ssoLoadingLogin": "Načítání přihlašovací stránky...",
+  "ssoLoadingLogin": "Načítání přihlašovací stránky…",
   "@ssoLoadingLogin": {
     "description": "Loading message while SSO login page loads."
   },
@@ -2342,7 +2300,7 @@
   "@proxyAuthPlatformNotSupported": {
     "description": "Error message when proxy auth is attempted on an unsupported platform."
   },
-  "proxyAuthLoading": "Načítání ověřovací stránky...",
+  "proxyAuthLoading": "Načítání přihlašovací stránky…",
   "@proxyAuthLoading": {
     "description": "Loading message while the proxy login page loads."
   },
@@ -2354,7 +2312,7 @@
   "@proxyAuthHelpText": {
     "description": "Help text explaining how to complete proxy authentication."
   },
-  "proxyAuthHelpTextSimple": "Přihlaste se přes proxy. Po ověření pokračujte klepnutím na Pokračovat.",
+  "proxyAuthHelpTextSimple": "Na této stránce se přihlaste ke své proxy a pak se klepnutím na Pokračovat přihlaste k Open WebUI.",
   "@proxyAuthHelpTextSimple": {
     "description": "Simplified help text for proxy-only authentication flow."
   },
@@ -2444,7 +2402,6 @@
   "@temporaryChatByDefaultDescription": {
     "description": "Description for the temporary chat by default setting."
   },
-  "libreChatTemporaryChatOff": "LibreChat ukládá každý chat. Pro odeslání vypněte dočasný chat.",
   "advancedFeatures": "Pokročilé",
   "@advancedFeatures": {
     "description": "Label for the setting that reveals additional chat tools and settings."
@@ -4042,8 +3999,8 @@
   "settingsCategoryServer": "Server",
   "settingsCategorySupport": "Podpora",
   "settingsDataAndConnection": "Data a připojení",
-  "slidingSidebar": "Vysouvací postranní panel",
-  "slidingSidebarDescription": "Otevírat Poznámky, Terminál a Kanály vedle historie chatů.",
+  "slidingSidebar": "Sloučit karty postranního panelu",
+  "slidingSidebarDescription": "Zobrazuje Poznámky, Terminál a Kanály nad vašimi chaty místo karet a na telefonu nechává část chatu viditelnou.",
   "settingsAppearance": "Vzhled",
   "settingsAppearanceSubtitle": "Motiv, paleta barev a jazyk",
   "settingsChatSubtitle": "Chování chatu, rychlé akce a pokročilé prompty",
@@ -5099,11 +5056,9 @@
   "hermesAgentSettingsSubtitle": "Connect a self-hosted Hermes agent",
   "connectOpenWebUITitle": "Connect to Open WebUI",
   "connectOpenWebUISubtitle": "Add a self-hosted Open WebUI server",
-  "backendChooserWelcome": "Welcome to Conduit",
-  "backendChooserPrompt": "Choose how you want to connect.",
-  "backendChooserOpenWebUISubtitle": "Use your self-hosted Open WebUI server with full chat, notes, and more.",
-  "backendChooserHermesTitle": "Use a Hermes Agent",
-  "backendChooserHermesSubtitle": "Connect directly to a self-hosted Hermes agent — no Open WebUI server needed.",
+  "backendChooserOpenWebUISubtitle": "Přihlaste se ke svému serveru a mějte synchronizované chaty, poznámky a další.",
+  "backendChooserHermesTitle": "Hermes Agent",
+  "backendChooserHermesSubtitle": "Chatujte s vlastním agentem, který používá nástroje a pamatuje si dřívější relace.",
   "hermesApprovalRequired": "Approval required",
   "hermesApprovalFallback": "The agent is requesting permission to continue.",
   "openWebUiPromptOther": "Jiné",
@@ -5228,8 +5183,8 @@
   "syncDirectHistory": "Open WebUI history",
   "syncDirectHistorySubtitle": "New direct chats sync when signed in. Existing chats keep their current location.",
   "directHistoryLocalOnlySubtitle": "New direct chats stay on this device. Existing chats keep their current location.",
-  "backendChooserDirectTitle": "Connect directly",
-  "backendChooserDirectSubtitle": "Use an OpenAI-compatible API or Ollama without Open WebUI.",
+  "backendChooserDirectTitle": "Poskytovatel modelů",
+  "backendChooserDirectSubtitle": "Chatujte přes OpenAI, OpenRouter nebo Ollama. Váš klíč zůstane v tomto zařízení.",
   "testDirectConnection": "Test connection",
   "directConnectionTestUnavailable": "Connection testing is not available yet.",
   "finishDirectSetup": "Start chatting",
@@ -5475,7 +5430,7 @@
   "colorScheme": "Barevné schéma",
   "channelEmptyHint": "Vytvořte kanál a zahajte skupinovou konverzaci.",
   "passwordChangeDescription": "Aktualizovat heslo k účtu",
-  "profileDetailsSummary": "Profil, pohlaví a datum narození",
+  "profileDetailsSummary": "Pohlaví a datum narození",
   "notificationRequiresMaster": "Chcete-li změnit toto nastavení, zapněte oznámení.",
   "notificationRequiresSound": "Chcete-li změnit toto nastavení, zapněte zvuk.",
   "enabled": "Zapnuto",
@@ -5587,8 +5542,8 @@
   "backendChooserAppleSectionTitle": "Apple Intelligence",
   "backendChooserModelApisSectionTitle": "API modelů",
   "backendChooserSelfHostedSectionTitle": "Vlastní hostované služby",
-  "citationBackground": "Pozadí citací",
-  "citationBackgroundDescription": "Vypněte pro průhledné citace v textu",
+  "citationBackground": "Zvýraznit citace",
+  "citationBackgroundDescription": "Citace v odpovědích dostanou stínované pozadí, aby vynikly z textu.",
   "citationShowTitles": "Zobrazovat názvy stránek u citací",
   "citationShowTitlesDescription": "V odznacích citací používat názvy stránek místo domén webů",
   "directContextCompactionDescription": "Tyto modely neuvádějí velikost kontextového okna. Conduit použije zvolený limit ke zhuštění starších zpráv dříve, než budou požadavky příliš velké.",
@@ -6243,7 +6198,7 @@
   "chatMergeChooseDescription": "Zvolte odpovědi ke sloučení. Vyberte alespoň dvě; původní odpovědi zůstanou beze změny.",
   "folderProjectComparisonFallbackNotice": "Uložené modely tohoto projektu nelze použít všechny, proto chat začíná s menším počtem. Porovnání používá právě dva.",
   "advancedFeaturesFooter": "Přidá porovnání modelů, nastavení jednotlivých chatů, nastavení nástrojů, naplánované úlohy, osobní připojení, webhooky a správu dat. Vypnutím je pouze skryjete; vše, co už je nastavené, dál funguje.",
-  "profileAdvancedFooter": "Zobrazeno, protože je v Nastavení > Chat zapnuto Pokročilé.",
+  "profileAdvancedFooter": "Zobrazeno, protože je v sekci Chaty zapnuto Pokročilé.",
   "advancedRequiredTitle": "Součást Pokročilého",
   "advancedRequiredMessage": "{feature} je funkce režimu Pokročilé. Zapněte Pokročilé, chcete-li ji použít. Vše, co už je nastavené, dál funguje.",
   "advancedTurnOn": "Zapnout Pokročilé",
@@ -6426,7 +6381,100 @@
   "terminalPortPreviewLoadFailed": "Tuto stránku se nepodařilo načíst.",
   "modelMenuAllModels": "Všechny modely…",
   "citationPreviewOpen": "Otevřít",
+  "chatUnreadState": "Nepřečtené",
+  "codeCopied": "Zkopírováno",
+  "onboardingWelcomeTitle": "Vítejte v aplikaci Conduit",
+  "onboardingWelcomeSubtitle": "Chatujte s AI na vlastním serveru, v tomto zařízení nebo přes API.",
+  "backendChooserFooter": "Další připojení můžete přidat později v Nastavení.",
+  "serverAddressFooter": "Použijte adresu, kterou otevíráte ve webovém prohlížeči.",
+  "signInChangeServer": "Změnit",
+  "signInContinueWithSso": "Pokračovat přes SSO",
+  "mutualTlsChooseFile": "Vybrat…",
+  "thinkingElapsedSeconds": "{seconds} s",
+  "@thinkingElapsedSeconds": {
+    "placeholders": {
+      "seconds": {
+        "type": "int"
+      }
+    }
+  },
+  "thinkingElapsedMinutes": "{minutes} min {seconds} s",
+  "@thinkingElapsedMinutes": {
+    "placeholders": {
+      "minutes": {
+        "type": "int"
+      },
+      "seconds": {
+        "type": "String"
+      }
+    }
+  },
+  "copied": "Zkopírováno",
+  "composerAddAttachment": "Přidat přílohu",
+  "composerShowKeyboard": "Zobrazit klávesnici",
+  "composerAttachUploads": "Nahrané",
+  "supportConduitFooter": "Conduit je zdarma a open source. Vaše podpora pomáhá, aby to tak zůstalo.",
+  "aiMemoryFooter": "Váš systémový prompt řídí každý chat. Paměť umožňuje asistentovi pamatovat si, co jste mu sdělili.",
+  "composerAttachServerFiles": "Soubory na serveru",
+  "codeBlockPlainText": "Prostý text",
+  "codeBlockWrapLines": "Zalamovat řádky",
   "workspacePromptHistoryDiffTooLarge": "Tyto verze jsou příliš dlouhé na porovnání.",
+  "composerSaveDraftAsNote": "Uložit jako poznámku",
+  "composerSaveDraftAsNoteDescription": "Ponechat tuto zprávu jako novou poznámku místo odeslání.",
+  "authFieldServer": "Server",
+  "authFieldEmail": "E-mail",
+  "authFieldName": "Název",
+  "authFieldRequired": "Povinné",
+  "authFieldOptional": "Volitelné",
+  "authEmailPlaceholder": "name@example.com",
+  "authTokenFieldLabel": "Token",
+  "composerAttachPhotos": "Fotky",
+  "modelPickerAppleOnDeviceSubtitle": "Na tomto zařízení, funguje offline",
+  "modelPickerApplePccSubtitle": "Na soukromých serverech Apple",
+  "accountsSavedServers": "Uložené servery",
+  "computerEnabledDescription": "Sledujte a ovládejte plochu a prohlížeč v chatech.",
+  "computerTrackpadHint": "Posunutím pohybujte kurzorem. Klepnutím klikněte, podržením táhněte; dvěma prsty posouvejte.",
+  "computerShortcut": "Klávesová zkratka",
+  "computerInputFailed": "Nepodařilo se to odeslat do počítače. Zkuste to znovu.",
+  "computerQualityLow": "Nižší spotřeba dat",
+  "computerDesktopSite": "Web pro počítače",
+  "computerAudioUnavailable": "Zvuk plochy není v tomto připojení nebo zařízení dostupný.",
+  "computerSound": "Zvuk",
+  "computerTabs": "Karty prohlížeče",
+  "computerNewTab": "Nová karta",
+  "computerCloseTab": "Zavřít kartu",
+  "computerRefreshTabs": "Obnovit karty",
+  "computerNoTabs": "Žádné karty prohlížeče",
+  "computerTabsWatchHint": "Pro změnu karet převezměte ovládání. Odpověď se zastaví; pokračujte novou zprávou.",
+  "computerTabsUnavailable": "Karty se nepodařilo načíst. Zkuste je obnovit.",
+  "computerTitle": "Počítač",
+  "computerConnecting": "Připojování k počítači…",
+  "computerReconnecting": "Obnovování připojení…",
+  "computerDisconnected": "Počítač odpojen",
+  "computerBrowserStartHint": "Převezměte ovládání a spusťte živý náhled této karty.",
+  "computerBrowserUnavailable": "Tento terminál potřebuje Chrome nebo Chromium pro živý prohlížeč.",
+  "computerStopFailed": "Aktuální odpověď se nepodařilo zastavit. Můžete dále sledovat a zkusit to znovu.",
+  "computerStopping": "Zastavování odpovědi…",
+  "computerTakeControl": "Převzít ovládání",
+  "computerTrackpadMode": "Režim trackpadu",
+  "computerRecenterPointer": "Vystředit ukazatel",
+  "computerClick": "Kliknout",
+  "computerRightClick": "Pravé kliknutí",
+  "computerDoubleClick": "Dvojité kliknutí",
+  "computerStartDrag": "Začít tažení",
+  "computerEndDrag": "Ukončit tažení",
+  "computerShowKeyboard": "Zobrazit klávesnici",
+  "computerHideKeyboard": "Skrýt klávesnici",
+  "computerAgentWorking": "Agent pracuje",
+  "computerDesktop": "Plocha",
+  "computerBrowser": "Prohlížeč",
+  "computerForward": "Vpřed",
+  "computerReload": "Obnovit stránku",
+  "computerAddress": "Přejít na adresu",
+  "computerTypeText": "Psát na počítači",
+  "computerSend": "Odeslat",
+  "computerZoom": "Přiblížit",
+  "libreChatTemporaryChatOff": "LibreChat ukládá každý chat. Pro odeslání vypněte dočasný chat.",
   "libreChatTitle": "LibreChat",
   "libreChatBetaLabel": "Beta",
   "libreChatChooserSubtitle": "Přihlaste se ke svému serveru LibreChat a synchronizujte chaty, agenty a další.",

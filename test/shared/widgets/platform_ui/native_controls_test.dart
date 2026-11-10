@@ -66,7 +66,7 @@ void main() {
         await tester.pump(const Duration(milliseconds: 500));
         final tooltip = find.byWidgetPredicate(
           (widget) =>
-              widget is AdaptiveTooltip && widget.message == 'Add from catalog',
+              widget is AdaptiveTooltip && widget.message == 'Add from Catalog',
         );
         expect(tooltip, findsOneWidget);
         expect(
@@ -80,7 +80,7 @@ void main() {
             final node = tester.getSemantics(
               find.byType(ConduitAdaptiveAppBarIconButton),
             );
-            expect(node.label, 'Add from catalog');
+            expect(node.label, 'Add from Catalog');
             expect(node.tooltip, isEmpty);
           } finally {
             semantics.dispose();
@@ -90,7 +90,7 @@ void main() {
         await mouse.addPointer();
         await mouse.moveTo(tester.getCenter(tooltip));
         await tester.pump(const Duration(milliseconds: 600));
-        expect(find.text('Add from catalog'), findsOneWidget);
+        expect(find.text('Add from Catalog'), findsOneWidget);
         await mouse.removePointer();
         await tester.pumpAndSettle();
       },
@@ -106,13 +106,13 @@ void main() {
           ConduitAdaptiveAppBarIconButton(
             icon: Icons.auto_awesome_outlined,
             iosSymbol: 'sparkles',
-            semanticLabel: 'Add from catalog',
+            semanticLabel: 'Add from Catalog',
             onPressed: enabled ? () {} : null,
           ),
         ),
       );
       final button = tester.widget<CNButton>(find.byType(CNButton));
-      expect(button.semanticLabel, 'Add from catalog');
+      expect(button.semanticLabel, 'Add from Catalog');
       expect(button.enabled, enabled);
       expect(
         find.ancestor(
@@ -120,7 +120,7 @@ void main() {
           matching: find.byWidgetPredicate(
             (widget) =>
                 widget is Semantics &&
-                widget.properties.label == 'Add from catalog',
+                widget.properties.label == 'Add from Catalog',
           ),
         ),
         findsNothing,
@@ -334,7 +334,7 @@ void main() {
         .widget<InteractiveViewer>(find.byType(InteractiveViewer))
         .transformationController!;
     final initial = Matrix4.copy(controller.value);
-    expect(action('Zoom in').style, AdaptiveButtonStyle.glass);
+    expect(action('Zoom In').style, AdaptiveButtonStyle.glass);
     expect(
       tester
           .widget<AdaptiveTooltip>(
@@ -342,7 +342,7 @@ void main() {
               of: find.byWidgetPredicate(
                 (widget) =>
                     widget is AdaptiveButton &&
-                    widget.semanticLabel == 'Zoom in',
+                    widget.semanticLabel == 'Zoom In',
               ),
               matching: find.byType(AdaptiveTooltip),
             ),
@@ -350,13 +350,13 @@ void main() {
           .excludeFromSemantics,
       isTrue,
     );
-    action('Zoom in').onPressed!();
+    action('Zoom In').onPressed!();
     await tester.pump();
     expect(
       controller.value.getMaxScaleOnAxis(),
       greaterThan(initial.getMaxScaleOnAxis()),
     );
-    action('Reset diagram position').onPressed!();
+    action('Reset Diagram Position').onPressed!();
     await tester.pump();
     expect(controller.value.storage, orderedEquals(initial.storage));
     expect(

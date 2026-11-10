@@ -247,7 +247,7 @@ void main() {
 
       final menu = menus.single;
       final entries = menu['menu']! as Map<Object?, Object?>;
-      expect(entries['labels'], ['Lantern', 'Kite Small', '', 'All models…']);
+      expect(entries['labels'], ['Lantern', 'Kite Small', '', 'All Models…']);
       expect(entries['checked'], [false, true, false, false]);
       expect(entries['isDivider'], [false, false, true, false]);
       expect((menu['x']! as num).toDouble(), anchor.dx);
@@ -328,7 +328,7 @@ void main() {
       await tapPill(tester);
 
       final entries = menus.single['menu']! as Map<Object?, Object?>;
-      expect(entries['labels'], ['otter-mini', '', 'All models…']);
+      expect(entries['labels'], ['otter-mini', '', 'All Models…']);
       await closeChat(tester);
     },
     variant: TargetPlatformVariant.only(TargetPlatform.iOS),

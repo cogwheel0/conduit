@@ -778,8 +778,8 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
           onSelected: () async => _startInlineEdit(),
         ),
       ConduitContextMenuAction(
-        cupertinoIcon: CupertinoIcons.doc_on_clipboard,
-        sfSymbol: 'doc.on.doc',
+        cupertinoIcon: CupertinoIcons.square_on_square,
+        sfSymbol: 'square.on.square',
         materialIcon: Icons.content_copy,
         label: l10n.copy,
         onBeforeClose: () => ConduitHaptics.selectionClick(),

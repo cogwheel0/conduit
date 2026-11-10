@@ -1,46 +1,4 @@
 {
-  "computerEnabledDescription": "チャットでデスクトップとブラウザのセッションを表示・操作します。",
-  "computerTrackpadHint": "スライドでカーソル移動。タップでクリック、長押しでドラッグ、2本指でスクロール。",
-  "computerShortcut": "キーボードショートカット",
-  "computerInputFailed": "コンピュータに送信できませんでした。もう一度お試しください。",
-  "computerQualityLow": "データ使用量を抑える",
-  "computerDesktopSite": "デスクトップ用サイト",
-  "computerAudioUnavailable": "この接続またはデバイスではデスクトップ音声を利用できません。",
-  "computerSound": "サウンド",
-  "computerTabs": "ブラウザーのタブ",
-  "computerNewTab": "新しいタブ",
-  "computerCloseTab": "タブを閉じる",
-  "computerRefreshTabs": "タブを更新",
-  "computerNoTabs": "タブがありません",
-  "computerTabsWatchHint": "タブを変更するには操作を引き継いでください。応答が停止するため、続けるには新しいメッセージを送信してください。",
-  "computerTabsUnavailable": "タブを読み込めませんでした。更新してください。",
-  "computerTitle": "コンピューター",
-  "computerConnecting": "コンピューターに接続中…",
-  "computerReconnecting": "再接続中…",
-  "computerDisconnected": "コンピューターとの接続が切れました",
-  "computerBrowserStartHint": "このタブのライブ表示を開始するには、操作を引き継いでください。",
-  "computerBrowserUnavailable": "ライブブラウザーには、このターミナルに Chrome または Chromium が必要です。",
-  "computerStopFailed": "現在の応答を停止できませんでした。閲覧を続けながら再試行できます。",
-  "computerStopping": "応答を停止中…",
-  "computerTakeControl": "操作を引き継ぐ",
-  "computerTrackpadMode": "トラックパッドモード",
-  "computerRecenterPointer": "ポインタを中央に戻す",
-  "computerClick": "クリック",
-  "computerRightClick": "右クリック",
-  "computerDoubleClick": "ダブルクリック",
-  "computerStartDrag": "ドラッグ開始",
-  "computerEndDrag": "ドラッグ終了",
-  "computerShowKeyboard": "キーボードを表示",
-  "computerHideKeyboard": "キーボードを隠す",
-  "computerAgentWorking": "エージェントが作業中",
-  "computerDesktop": "デスクトップ",
-  "computerBrowser": "ブラウザー",
-  "computerForward": "進む",
-  "computerReload": "ページを再読み込み",
-  "computerAddress": "アドレスに移動",
-  "computerTypeText": "コンピューターに入力",
-  "computerSend": "送信",
-  "computerZoom": "拡大",
   "@@locale": "ja",
   "appTitle": "Conduit",
   "serverIncompatibleTitle": "サーバーは未対応です",
@@ -287,7 +245,7 @@
   "@token": {
     "description": "Label for JWT token input field."
   },
-  "jwt": "JWT",
+  "jwt": "トークン",
   "usernameOrEmail": "ユーザー名またはメール",
   "@usernameOrEmail": {
     "description": "Label for username/email input field."
@@ -1302,11 +1260,11 @@
   "@enterToken": {
     "description": "Hint text for JWT token input."
   },
-  "tokenHint": "Open WebUI の設定から JWT トークンを取得してください。API キー (sk-...) はストリーミングに対応していません。",
+  "tokenHint": "Web 版 Open WebUI から JWT セッショントークンをコピーして、ここに貼り付けてください。管理者は「設定 › アカウント › API キー」で確認できます。API キー (sk-…) は使用できません。",
   "@tokenHint": {
     "description": "Help text explaining what type of token to use."
   },
-  "apiKeyNotSupported": "API キー (sk-...) はサポートされていません。代わりに JWT トークンを使用してください。",
+  "apiKeyNotSupported": "API キー (sk-…) ではサインインできません。代わりに JWT トークンを貼り付けてください。",
   "@apiKeyNotSupported": {
     "description": "Error message when user tries to use an API key instead of JWT token."
   },
@@ -1454,15 +1412,15 @@
   "@themeDark": {
     "description": "Theme label for dark appearance."
   },
-  "themePalette": "アクセントパレット",
+  "themePalette": "カラーパレット",
   "@themePalette": {
     "description": "Title for selecting the app color palette."
   },
-  "themePaletteConduitLabel": "Conduit",
+  "themePaletteConduitLabel": "モノクローム",
   "@themePaletteConduitLabel": {
     "description": "Palette name for the default Conduit theme."
   },
-  "themePaletteConduitDescription": "Conduit 向けに設計されたクリーンなニュートラルテーマ。",
+  "themePaletteConduitDescription": "白と黒だけで、アクセントカラーはありません。",
   "@themePaletteConduitDescription": {
     "description": "Description of the Conduit palette."
   },
@@ -1560,8 +1518,8 @@
   "@analyzed": {
     "description": "Label shown after code interpreter has finished."
   },
-  "showComposerNotesButton": "Show Notes button",
-  "showComposerNotesButtonDescription": "Show Create note in the chat composer.",
+  "showComposerNotesButton": "下書きをメモとして保存",
+  "showComposerNotesButtonDescription": "入力中は＋メニューに「メモとして保存」が表示され、メッセージを送信せずにメモとして残せます。",
   "appCustomization": "カスタマイズ",
   "@appCustomization": {
     "description": "Title of the customization settings page."
@@ -2290,7 +2248,7 @@
   "@signInWithSso": {
     "description": "Button text for SSO sign-in."
   },
-  "ssoAuthenticating": "認証中...",
+  "ssoAuthenticating": "サインイン中…",
   "@ssoAuthenticating": {
     "description": "Loading message during SSO authentication."
   },
@@ -2298,7 +2256,7 @@
   "@ssoAuthFailed": {
     "description": "Error message when SSO authentication fails."
   },
-  "ssoLoadingLogin": "ログインページを読み込み中...",
+  "ssoLoadingLogin": "サインインページを読み込み中…",
   "@ssoLoadingLogin": {
     "description": "Loading message while SSO login page loads."
   },
@@ -2342,7 +2300,7 @@
   "@proxyAuthPlatformNotSupported": {
     "description": "Error message when proxy auth is attempted on an unsupported platform."
   },
-  "proxyAuthLoading": "認証ページを読み込み中...",
+  "proxyAuthLoading": "サインインページを読み込み中…",
   "@proxyAuthLoading": {
     "description": "Loading message while the proxy login page loads."
   },
@@ -2354,7 +2312,7 @@
   "@proxyAuthHelpText": {
     "description": "Help text explaining how to complete proxy authentication."
   },
-  "proxyAuthHelpTextSimple": "プロキシでサインインしてください。認証が完了したら、続行をタップしてサインインに進みます。",
+  "proxyAuthHelpTextSimple": "このページでプロキシにサインインしてから、「続行」をタップしてOpen WebUIにサインインします。",
   "@proxyAuthHelpTextSimple": {
     "description": "Simplified help text for proxy-only authentication flow."
   },
@@ -2444,7 +2402,6 @@
   "@temporaryChatByDefaultDescription": {
     "description": "Description for the temporary chat by default setting."
   },
-  "libreChatTemporaryChatOff": "LibreChat はすべてのチャットを保存します。送信するには一時チャットをオフにしてください。",
   "advancedFeatures": "詳細設定",
   "@advancedFeatures": {
     "description": "Label for the setting that reveals additional chat tools and settings."
@@ -3736,8 +3693,8 @@
   "settingsCategoryServer": "サーバー",
   "settingsCategorySupport": "サポート",
   "settingsDataAndConnection": "データと接続",
-  "slidingSidebar": "スライド式サイドバー",
-  "slidingSidebarDescription": "チャット履歴の横でノート、ターミナル、チャンネルを開きます。",
+  "slidingSidebar": "サイドバーのタブをまとめる",
+  "slidingSidebarDescription": "ノート、ターミナル、チャンネルをタブではなくチャット一覧の上に表示し、スマートフォンではチャットの一部が見えたままになります。",
   "settingsAppearance": "外観",
   "settingsAppearanceSubtitle": "テーマ、カラーパレット、言語",
   "settingsChatSubtitle": "チャットの動作、クイックアクション、高度なプロンプト",
@@ -4793,11 +4750,9 @@
   "hermesAgentSettingsSubtitle": "Connect a self-hosted Hermes agent",
   "connectOpenWebUITitle": "Connect to Open WebUI",
   "connectOpenWebUISubtitle": "Add a self-hosted Open WebUI server",
-  "backendChooserWelcome": "Welcome to Conduit",
-  "backendChooserPrompt": "Choose how you want to connect.",
-  "backendChooserOpenWebUISubtitle": "Use your self-hosted Open WebUI server with full chat, notes, and more.",
-  "backendChooserHermesTitle": "Use a Hermes Agent",
-  "backendChooserHermesSubtitle": "Connect directly to a self-hosted Hermes agent — no Open WebUI server needed.",
+  "backendChooserOpenWebUISubtitle": "サーバーにサインインして、チャットやノートなどを同期できます。",
+  "backendChooserHermesTitle": "Hermes Agent",
+  "backendChooserHermesSubtitle": "ツールを使い、過去のセッションを覚えている自分専用のエージェントとチャットできます。",
   "hermesApprovalRequired": "Approval required",
   "hermesApprovalFallback": "The agent is requesting permission to continue.",
   "openWebUiPromptOther": "その他",
@@ -4922,8 +4877,8 @@
   "syncDirectHistory": "Open WebUI history",
   "syncDirectHistorySubtitle": "New direct chats sync when signed in. Existing chats keep their current location.",
   "directHistoryLocalOnlySubtitle": "New direct chats stay on this device. Existing chats keep their current location.",
-  "backendChooserDirectTitle": "Connect directly",
-  "backendChooserDirectSubtitle": "Use an OpenAI-compatible API or Ollama without Open WebUI.",
+  "backendChooserDirectTitle": "モデルプロバイダ",
+  "backendChooserDirectSubtitle": "OpenAI、OpenRouter、Ollama を通じてチャットできます。キーはこのデバイスに保存されます。",
   "testDirectConnection": "Test connection",
   "directConnectionTestUnavailable": "Connection testing is not available yet.",
   "finishDirectSetup": "Start chatting",
@@ -5169,7 +5124,7 @@
   "colorScheme": "カラースキーム",
   "channelEmptyHint": "チャンネルを作成してグループ会話を始めましょう。",
   "passwordChangeDescription": "アカウントのパスワードを更新",
-  "profileDetailsSummary": "自己紹介、性別、生年月日",
+  "profileDetailsSummary": "性別、生年月日",
   "notificationRequiresMaster": "この設定を変更するには通知をオンにしてください。",
   "notificationRequiresSound": "この設定を変更するにはサウンドをオンにしてください。",
   "enabled": "オン",
@@ -5281,8 +5236,8 @@
   "backendChooserAppleSectionTitle": "Apple Intelligence",
   "backendChooserModelApisSectionTitle": "モデル API",
   "backendChooserSelfHostedSectionTitle": "セルフホストのサービス",
-  "citationBackground": "引用の背景",
-  "citationBackgroundDescription": "オフにすると文中の引用の背景が透明になります",
+  "citationBackground": "引用を強調表示",
+  "citationBackgroundDescription": "回答内の引用に背景色を付けて、本文から見分けやすくします。",
   "citationShowTitles": "引用にページタイトルを表示",
   "citationShowTitlesDescription": "引用バッジにサイトのドメインではなくページタイトルを使用します",
   "directContextCompactionDescription": "これらのモデルはコンテキストウィンドウを報告しません。Conduit はリクエストが大きくなりすぎる前に、選択した上限を使って古いメッセージを圧縮します。",
@@ -5937,7 +5892,7 @@
   "chatMergeChooseDescription": "統合する応答を選択してください。2 つ以上選択する必要があります。元の応答はそのまま残ります。",
   "folderProjectComparisonFallbackNotice": "このプロジェクトに保存されているモデルをすべて使用することはできないため、チャットはそれより少ないモデルで開始されます。比較で使用するモデルは、ちょうど 2 つです。",
   "advancedFeaturesFooter": "モデル比較、チャットごとの設定、ツール設定、スケジュールタスク、個人用接続、Webhook、データ管理を追加します。オフにしても非表示になるだけで、設定済みのものは引き続き動作します。",
-  "profileAdvancedFooter": "「設定 > チャット」で詳細設定がオンになっているため表示されています。",
+  "profileAdvancedFooter": "「チャット」で詳細設定がオンになっているため表示されています。",
   "advancedRequiredTitle": "詳細設定の機能です",
   "advancedRequiredMessage": "{feature} は詳細設定の機能です。使用するには詳細設定をオンにしてください。設定済みのものは引き続き動作します。",
   "advancedTurnOn": "詳細設定をオンにする",
@@ -6120,7 +6075,100 @@
   "terminalPortPreviewLoadFailed": "このページを読み込めませんでした。",
   "modelMenuAllModels": "すべてのモデル…",
   "citationPreviewOpen": "開く",
+  "chatUnreadState": "未読",
+  "codeCopied": "コピーしました",
+  "onboardingWelcomeTitle": "Conduitへようこそ",
+  "onboardingWelcomeSubtitle": "自分のサーバー、このデバイス、またはAPI経由でAIとチャットできます。",
+  "backendChooserFooter": "接続はあとから設定で追加できます。",
+  "serverAddressFooter": "Webブラウザで開いているアドレスを入力してください。",
+  "signInChangeServer": "変更",
+  "signInContinueWithSso": "SSOで続ける",
+  "mutualTlsChooseFile": "選択…",
+  "thinkingElapsedSeconds": "{seconds}秒",
+  "@thinkingElapsedSeconds": {
+    "placeholders": {
+      "seconds": {
+        "type": "int"
+      }
+    }
+  },
+  "thinkingElapsedMinutes": "{minutes}分{seconds}秒",
+  "@thinkingElapsedMinutes": {
+    "placeholders": {
+      "minutes": {
+        "type": "int"
+      },
+      "seconds": {
+        "type": "String"
+      }
+    }
+  },
+  "copied": "コピーしました",
+  "composerAddAttachment": "添付ファイルを追加",
+  "composerShowKeyboard": "キーボードを表示",
+  "composerAttachUploads": "アップロード済み",
+  "supportConduitFooter": "Conduit は無料のオープンソースです。ご支援がその継続を支えます。",
+  "aiMemoryFooter": "システムプロンプトはすべてのチャットに適用されます。メモリを使うと、あなたが伝えた内容をアシスタントが覚えておけます。",
+  "composerAttachServerFiles": "サーバーのファイル",
+  "codeBlockPlainText": "プレーンテキスト",
+  "codeBlockWrapLines": "行を折り返す",
   "workspacePromptHistoryDiffTooLarge": "これらのバージョンは長すぎるため比較できません。",
+  "composerSaveDraftAsNote": "メモとして保存",
+  "composerSaveDraftAsNoteDescription": "このメッセージを送信せずに、新しいメモとして残します。",
+  "authFieldServer": "サーバ",
+  "authFieldEmail": "メール",
+  "authFieldName": "名前",
+  "authFieldRequired": "必須",
+  "authFieldOptional": "任意",
+  "authEmailPlaceholder": "name@example.com",
+  "authTokenFieldLabel": "トークン",
+  "composerAttachPhotos": "写真",
+  "modelPickerAppleOnDeviceSubtitle": "このデバイス上で動作、オフライン可",
+  "modelPickerApplePccSubtitle": "Appleのプライベートサーバ上で動作",
+  "accountsSavedServers": "保存済みのサーバー",
+  "computerEnabledDescription": "チャットでデスクトップとブラウザのセッションを表示・操作します。",
+  "computerTrackpadHint": "スライドでカーソル移動。タップでクリック、長押しでドラッグ、2本指でスクロール。",
+  "computerShortcut": "キーボードショートカット",
+  "computerInputFailed": "コンピュータに送信できませんでした。もう一度お試しください。",
+  "computerQualityLow": "データ使用量を抑える",
+  "computerDesktopSite": "デスクトップ用サイト",
+  "computerAudioUnavailable": "この接続またはデバイスではデスクトップ音声を利用できません。",
+  "computerSound": "サウンド",
+  "computerTabs": "ブラウザーのタブ",
+  "computerNewTab": "新しいタブ",
+  "computerCloseTab": "タブを閉じる",
+  "computerRefreshTabs": "タブを更新",
+  "computerNoTabs": "タブがありません",
+  "computerTabsWatchHint": "タブを変更するには操作を引き継いでください。応答が停止するため、続けるには新しいメッセージを送信してください。",
+  "computerTabsUnavailable": "タブを読み込めませんでした。更新してください。",
+  "computerTitle": "コンピューター",
+  "computerConnecting": "コンピューターに接続中…",
+  "computerReconnecting": "再接続中…",
+  "computerDisconnected": "コンピューターとの接続が切れました",
+  "computerBrowserStartHint": "このタブのライブ表示を開始するには、操作を引き継いでください。",
+  "computerBrowserUnavailable": "ライブブラウザーには、このターミナルに Chrome または Chromium が必要です。",
+  "computerStopFailed": "現在の応答を停止できませんでした。閲覧を続けながら再試行できます。",
+  "computerStopping": "応答を停止中…",
+  "computerTakeControl": "操作を引き継ぐ",
+  "computerTrackpadMode": "トラックパッドモード",
+  "computerRecenterPointer": "ポインタを中央に戻す",
+  "computerClick": "クリック",
+  "computerRightClick": "右クリック",
+  "computerDoubleClick": "ダブルクリック",
+  "computerStartDrag": "ドラッグ開始",
+  "computerEndDrag": "ドラッグ終了",
+  "computerShowKeyboard": "キーボードを表示",
+  "computerHideKeyboard": "キーボードを隠す",
+  "computerAgentWorking": "エージェントが作業中",
+  "computerDesktop": "デスクトップ",
+  "computerBrowser": "ブラウザー",
+  "computerForward": "進む",
+  "computerReload": "ページを再読み込み",
+  "computerAddress": "アドレスに移動",
+  "computerTypeText": "コンピューターに入力",
+  "computerSend": "送信",
+  "computerZoom": "拡大",
+  "libreChatTemporaryChatOff": "LibreChat はすべてのチャットを保存します。送信するには一時チャットをオフにしてください。",
   "libreChatTitle": "LibreChat",
   "libreChatBetaLabel": "ベータ",
   "libreChatChooserSubtitle": "LibreChat サーバーにサインインして、チャットやエージェントなどを同期します。",

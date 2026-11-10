@@ -1,46 +1,4 @@
 {
-  "computerEnabledDescription": "Obserwuj i kontroluj sesje pulpitu i przeglądarki w czatach.",
-  "computerTrackpadHint": "Przesuń, aby poruszyć kursorem. Stuknij, aby kliknąć, przytrzymaj, aby przeciągnąć; przewijaj dwoma palcami.",
-  "computerShortcut": "Skrót klawiaturowy",
-  "computerInputFailed": "Nie udało się wysłać do komputera. Spróbuj ponownie.",
-  "computerQualityLow": "Mniejsze zużycie danych",
-  "computerDesktopSite": "Wersja na komputer",
-  "computerAudioUnavailable": "Dźwięk pulpitu jest niedostępny dla tego połączenia lub urządzenia.",
-  "computerSound": "Dźwięk",
-  "computerTabs": "Karty przeglądarki",
-  "computerNewTab": "Nowa karta",
-  "computerCloseTab": "Zamknij kartę",
-  "computerRefreshTabs": "Odśwież karty",
-  "computerNoTabs": "Brak kart przeglądarki",
-  "computerTabsWatchHint": "Przejmij sterowanie, aby zmieniać karty. Odpowiedź zostanie zatrzymana; wyślij nową wiadomość, aby kontynuować.",
-  "computerTabsUnavailable": "Nie udało się wczytać kart. Spróbuj je odświeżyć.",
-  "computerTitle": "Komputer",
-  "computerConnecting": "Łączenie z komputerem…",
-  "computerReconnecting": "Ponowne łączenie…",
-  "computerDisconnected": "Komputer rozłączony",
-  "computerBrowserStartHint": "Przejmij kontrolę, aby uruchomić podgląd tej karty na żywo.",
-  "computerBrowserUnavailable": "Ten terminal wymaga Chrome lub Chromium do przeglądarki na żywo.",
-  "computerStopFailed": "Nie udało się zatrzymać bieżącej odpowiedzi. Możesz nadal obserwować i spróbować ponownie.",
-  "computerStopping": "Zatrzymywanie odpowiedzi…",
-  "computerTakeControl": "Przejmij sterowanie",
-  "computerTrackpadMode": "Tryb gładzika",
-  "computerRecenterPointer": "Wyśrodkuj wskaźnik",
-  "computerClick": "Kliknij",
-  "computerRightClick": "Prawy przycisk",
-  "computerDoubleClick": "Dwukrotne kliknięcie",
-  "computerStartDrag": "Rozpocznij przeciąganie",
-  "computerEndDrag": "Zakończ przeciąganie",
-  "computerShowKeyboard": "Pokaż klawiaturę",
-  "computerHideKeyboard": "Ukryj klawiaturę",
-  "computerAgentWorking": "Agent pracuje",
-  "computerDesktop": "Pulpit",
-  "computerBrowser": "Przeglądarka",
-  "computerForward": "Dalej",
-  "computerReload": "Odśwież stronę",
-  "computerAddress": "Przejdź do adresu",
-  "computerTypeText": "Pisz na komputerze",
-  "computerSend": "Wyślij",
-  "computerZoom": "Powiększ",
   "@@locale": "pl",
   "appTitle": "Conduit",
   "@appTitle": {
@@ -152,8 +110,8 @@
   "@settingsDataAndConnection": {
     "description": "Settings destination for transport, connectivity, and related server data options."
   },
-  "slidingSidebar": "Wysuwany panel boczny",
-  "slidingSidebarDescription": "Otwieraj Notatki, Terminal i Kanały obok historii czatów.",
+  "slidingSidebar": "Połącz karty panelu bocznego",
+  "slidingSidebarDescription": "Pokazuje Notatki, Terminal i Kanały nad listą czatów zamiast jako karty, a na telefonie zostawia część czatu na widoku.",
   "settingsAppearance": "Wygląd",
   "@settingsAppearance": {
     "description": "Settings destination for app appearance options."
@@ -1544,11 +1502,11 @@
   "@enterToken": {
     "description": "Hint text for JWT token input."
   },
-  "tokenHint": "Wklej token sesji Open WebUI z zalogowanej przeglądarki. Klucze API nie są obsługiwane.",
+  "tokenHint": "Skopiuj token sesji JWT z Open WebUI w przeglądarce i wklej go tutaj. Administratorzy znajdą go w Ustawienia › Konto › Klucze API. Klucze API (sk-…) nie zadziałają.",
   "@tokenHint": {
     "description": "Help text explaining what type of token to use."
   },
-  "apiKeyNotSupported": "Klucze API nie są tu obsługiwane. Użyj tokena sesji Open WebUI.",
+  "apiKeyNotSupported": "Kluczami API (sk-…) nie można się zalogować. Wklej zamiast tego token JWT.",
   "@apiKeyNotSupported": {
     "description": "Error message when user tries to use an API key instead of JWT token."
   },
@@ -1696,15 +1654,15 @@
   "@themeDark": {
     "description": "Theme label for dark appearance."
   },
-  "themePalette": "Paleta akcentów",
+  "themePalette": "Paleta kolorów",
   "@themePalette": {
     "description": "Title for selecting the app color palette."
   },
-  "themePaletteConduitLabel": "Conduit",
+  "themePaletteConduitLabel": "Monochromatyczna",
   "@themePaletteConduitLabel": {
     "description": "Palette name for the default Conduit theme."
   },
-  "themePaletteConduitDescription": "Czysty, neutralny motyw zaprojektowany dla Conduit.",
+  "themePaletteConduitDescription": "Czerń i biel, bez koloru akcentu.",
   "@themePaletteConduitDescription": {
     "description": "Description of the Conduit palette."
   },
@@ -1806,8 +1764,8 @@
   "@analyzed": {
     "description": "Label shown after code interpreter has finished."
   },
-  "showComposerNotesButton": "Pokaż przycisk notatek",
-  "showComposerNotesButtonDescription": "Pokaż przycisk tworzenia notatki w polu wiadomości.",
+  "showComposerNotesButton": "Zapisuj szkice jako notatki",
+  "showComposerNotesButtonDescription": "Podczas pisania menu + oferuje opcję Zapisz jako notatkę, która zachowuje wiadomość jako notatkę zamiast ją wysyłać.",
   "appCustomization": "Personalizacja",
   "@appCustomization": {
     "description": "Title of the customization settings page."
@@ -1866,8 +1824,8 @@
   "@disableHapticsWhileStreamingDescription": {
     "description": "Subtitle for the setting that suppresses assistant response streaming haptics."
   },
-  "citationBackground": "Tło cytowań",
-  "citationBackgroundDescription": "Wyłącz, aby cytowania w tekście miały przezroczyste tło",
+  "citationBackground": "Wyróżniaj cytowania",
+  "citationBackgroundDescription": "Dodaje do cytowań w odpowiedziach cieniowane tło, aby wyróżniały się w tekście.",
   "citationShowTitles": "Pokazuj tytuły stron w cytowaniach",
   "@citationShowTitles": {
     "description": "Toggle title for labeling inline citation badges with page titles instead of domains."
@@ -2550,7 +2508,7 @@
   "@signInWithSso": {
     "description": "Button text for SSO sign-in."
   },
-  "ssoAuthenticating": "Uwierzytelnianie…",
+  "ssoAuthenticating": "Logowanie…",
   "@ssoAuthenticating": {
     "description": "Loading message during SSO authentication."
   },
@@ -2602,7 +2560,7 @@
   "@proxyAuthPlatformNotSupported": {
     "description": "Error message when proxy auth is attempted on an unsupported platform."
   },
-  "proxyAuthLoading": "Wczytywanie strony uwierzytelniania…",
+  "proxyAuthLoading": "Wczytywanie strony logowania…",
   "@proxyAuthLoading": {
     "description": "Loading message while the proxy login page loads."
   },
@@ -2623,7 +2581,7 @@
   "@proxyAuthHelpText": {
     "description": "Help text explaining how to complete proxy authentication."
   },
-  "proxyAuthHelpTextSimple": "Zaloguj się przez swoje proxy. Po uwierzytelnieniu dotknij Kontynuuj, aby przejść do logowania.",
+  "proxyAuthHelpTextSimple": "Zaloguj się na tej stronie do swojego proxy, a potem dotknij Kontynuuj, aby zalogować się do Open WebUI.",
   "@proxyAuthHelpTextSimple": {
     "description": "Simplified help text for proxy-only authentication flow."
   },
@@ -2713,7 +2671,6 @@
   "@temporaryChatByDefaultDescription": {
     "description": "Description for the temporary chat by default setting."
   },
-  "libreChatTemporaryChatOff": "LibreChat zapisuje każdy czat. Wyłącz czat tymczasowy, aby wysłać.",
   "advancedFeatures": "Zaawansowane",
   "@advancedFeatures": {
     "description": "Label for the setting that reveals additional chat tools and settings."
@@ -3864,7 +3821,7 @@
   "@passwordChangeDescription": {
     "description": "Subtitle for the action that updates the account password."
   },
-  "profileDetailsSummary": "Bio, płeć i data urodzenia",
+  "profileDetailsSummary": "Płeć i data urodzenia",
   "@profileDetailsSummary": {
     "description": "Subtitle for the profile details editor."
   },
@@ -6429,11 +6386,11 @@
   "@backendChooserModelApisSectionTitle": {
     "description": "Section title for direct model API choices on the first-run backend chooser."
   },
-  "backendChooserDirectTitle": "Połącz bezpośrednio",
+  "backendChooserDirectTitle": "Dostawca modeli",
   "@backendChooserDirectTitle": {
     "description": "Title of the direct provider option on the first-run backend chooser."
   },
-  "backendChooserDirectSubtitle": "Połącz interfejs API zgodny z OpenAI lub Ollama. Dane logowania pozostaną na tym urządzeniu.",
+  "backendChooserDirectSubtitle": "Rozmawiaj przez OpenAI, OpenRouter lub Ollama. Twój klucz pozostaje na tym urządzeniu.",
   "@backendChooserDirectSubtitle": {
     "description": "Description of the direct provider option on the first-run backend chooser."
   },
@@ -6566,14 +6523,6 @@
   "@directAttachmentUnsupported": {
     "description": "Error shown when a direct model cannot accept an attached file."
   },
-  "backendChooserWelcome": "Wybierz sposób połączenia",
-  "@backendChooserWelcome": {
-    "description": "Welcome heading on the first-run backend chooser."
-  },
-  "backendChooserPrompt": "Wybierz jedną opcję na początek. Kolejne możesz dodać później.",
-  "@backendChooserPrompt": {
-    "description": "Prompt on the first-run backend chooser."
-  },
   "backendChooserOpenWebUITitle": "Open WebUI",
   "@backendChooserOpenWebUITitle": {
     "description": "Short Open WebUI title used on the backend chooser and server setup page."
@@ -6586,7 +6535,7 @@
   "@backendChooserHermesTitle": {
     "description": "Title of the Hermes Agent option on the backend chooser."
   },
-  "backendChooserHermesSubtitle": "Połącz samodzielnie hostowanego agenta Hermes.",
+  "backendChooserHermesSubtitle": "Rozmawiaj z własnym agentem, który korzysta z narzędzi i pamięta wcześniejsze sesje.",
   "@backendChooserHermesSubtitle": {
     "description": "Description of the Hermes Agent option on the backend chooser."
   },
@@ -7159,7 +7108,7 @@
   "hermesFastTierOff": "Wył.",
   "hermesTurnSteer": "Skieruj",
   "hermesTurnSendNext": "Wyślij następne",
-  "hermesSteerUncertain": "Hermes nie potwierdził instrukcji. Sprawdź odpowiedź, zanim wyślesz ją ponownie.",
+  "hermesSteerUncertain": "Hermes nie potwierdził instrukcji. Sprawdź odpowiedź, zanim ponownie wyślesz instrukcję.",
   "hermesTurnControlsUnsupported": "Zaktualizuj Hermes, aby włączyć bezpieczne sterowanie turą.",
   "sidebarHermesTab": "Hermes",
   "sidebarBackendSwitcher": "Backend",
@@ -7858,7 +7807,7 @@
   "chatMergeChooseDescription": "Wybierz odpowiedzi do scalenia. Wybierz co najmniej dwie; oryginały pozostają bez zmian.",
   "folderProjectComparisonFallbackNotice": "Nie wszystkie zapisane modele tego projektu mogą być użyte, więc czat rozpoczyna się z mniejszą ich liczbą. Porównanie używa dokładnie dwóch.",
   "advancedFeaturesFooter": "Dodaje porównywanie modeli, ustawienia czatu, ustawienia narzędzi, zaplanowane zadania, połączenia osobiste, webhooki i zarządzanie danymi. Wyłączenie tylko je ukrywa; to, co już skonfigurowano, nadal działa.",
-  "profileAdvancedFooter": "Widoczne, ponieważ opcja Zaawansowane jest włączona w Ustawienia > Czat.",
+  "profileAdvancedFooter": "Widoczne, ponieważ opcja Zaawansowane jest włączona w sekcji Czaty.",
   "advancedRequiredTitle": "Część trybu Zaawansowane",
   "advancedRequiredMessage": "{feature} to funkcja trybu Zaawansowane. Włącz go, aby z niej korzystać. To, co już skonfigurowano, nadal działa.",
   "@advancedRequiredMessage": {
@@ -8407,10 +8356,103 @@
   "@citationPreviewOpen": {
     "description": "Button in a citation's preview popover that opens the cited page in the browser."
   },
+  "chatUnreadState": "Nieprzeczytany",
+  "codeCopied": "Skopiowano",
+  "onboardingWelcomeTitle": "Witamy w Conduit",
+  "onboardingWelcomeSubtitle": "Rozmawiaj z AI na własnym serwerze, na tym urządzeniu lub przez API.",
+  "backendChooserFooter": "Więcej połączeń możesz dodać później w Ustawieniach.",
+  "serverAddressFooter": "Użyj adresu, który otwierasz w przeglądarce.",
+  "signInChangeServer": "Zmień",
+  "signInContinueWithSso": "Kontynuuj przez SSO",
+  "mutualTlsChooseFile": "Wybierz…",
+  "thinkingElapsedSeconds": "{seconds} s",
+  "@thinkingElapsedSeconds": {
+    "placeholders": {
+      "seconds": {
+        "type": "int"
+      }
+    }
+  },
+  "thinkingElapsedMinutes": "{minutes} min {seconds} s",
+  "@thinkingElapsedMinutes": {
+    "placeholders": {
+      "minutes": {
+        "type": "int"
+      },
+      "seconds": {
+        "type": "String"
+      }
+    }
+  },
+  "copied": "Skopiowano",
+  "composerAddAttachment": "Dodaj załącznik",
+  "composerShowKeyboard": "Pokaż klawiaturę",
+  "composerAttachUploads": "Przesłane",
+  "supportConduitFooter": "Conduit jest darmowy i open source. Twoje wsparcie pomaga, by tak zostało.",
+  "aiMemoryFooter": "Twój prompt systemowy kieruje każdym czatem. Pamięć pozwala asystentowi zapamiętywać informacje z rozmów.",
+  "composerAttachServerFiles": "Pliki na serwerze",
+  "codeBlockPlainText": "Zwykły tekst",
+  "codeBlockWrapLines": "Zawijaj wiersze",
   "workspacePromptHistoryDiffTooLarge": "Te wersje są zbyt długie, aby je porównać.",
   "@workspacePromptHistoryDiffTooLarge": {
     "description": "Shown when the server refuses to compare two prompt versions because either is too long."
   },
+  "composerSaveDraftAsNote": "Zapisz jako notatkę",
+  "composerSaveDraftAsNoteDescription": "Zachowaj tę wiadomość jako nową notatkę zamiast ją wysyłać.",
+  "authFieldServer": "Serwer",
+  "authFieldEmail": "E-mail",
+  "authFieldName": "Nazwa",
+  "authFieldRequired": "Wymagane",
+  "authFieldOptional": "Opcjonalne",
+  "authEmailPlaceholder": "name@example.com",
+  "authTokenFieldLabel": "Token",
+  "composerAttachPhotos": "Zdjęcia",
+  "modelPickerAppleOnDeviceSubtitle": "Na tym urządzeniu, także offline",
+  "modelPickerApplePccSubtitle": "Na prywatnych serwerach Apple",
+  "accountsSavedServers": "Zapisane serwery",
+  "computerEnabledDescription": "Obserwuj i kontroluj sesje pulpitu i przeglądarki w czatach.",
+  "computerTrackpadHint": "Przesuń, aby poruszyć kursorem. Stuknij, aby kliknąć, przytrzymaj, aby przeciągnąć; przewijaj dwoma palcami.",
+  "computerShortcut": "Skrót klawiaturowy",
+  "computerInputFailed": "Nie udało się wysłać do komputera. Spróbuj ponownie.",
+  "computerQualityLow": "Mniejsze zużycie danych",
+  "computerDesktopSite": "Wersja na komputer",
+  "computerAudioUnavailable": "Dźwięk pulpitu jest niedostępny dla tego połączenia lub urządzenia.",
+  "computerSound": "Dźwięk",
+  "computerTabs": "Karty przeglądarki",
+  "computerNewTab": "Nowa karta",
+  "computerCloseTab": "Zamknij kartę",
+  "computerRefreshTabs": "Odśwież karty",
+  "computerNoTabs": "Brak kart przeglądarki",
+  "computerTabsWatchHint": "Przejmij sterowanie, aby zmieniać karty. Odpowiedź zostanie zatrzymana; wyślij nową wiadomość, aby kontynuować.",
+  "computerTabsUnavailable": "Nie udało się wczytać kart. Spróbuj je odświeżyć.",
+  "computerTitle": "Komputer",
+  "computerConnecting": "Łączenie z komputerem…",
+  "computerReconnecting": "Ponowne łączenie…",
+  "computerDisconnected": "Komputer rozłączony",
+  "computerBrowserStartHint": "Przejmij kontrolę, aby uruchomić podgląd tej karty na żywo.",
+  "computerBrowserUnavailable": "Ten terminal wymaga Chrome lub Chromium do przeglądarki na żywo.",
+  "computerStopFailed": "Nie udało się zatrzymać bieżącej odpowiedzi. Możesz nadal obserwować i spróbować ponownie.",
+  "computerStopping": "Zatrzymywanie odpowiedzi…",
+  "computerTakeControl": "Przejmij sterowanie",
+  "computerTrackpadMode": "Tryb gładzika",
+  "computerRecenterPointer": "Wyśrodkuj wskaźnik",
+  "computerClick": "Kliknij",
+  "computerRightClick": "Prawy przycisk",
+  "computerDoubleClick": "Dwukrotne kliknięcie",
+  "computerStartDrag": "Rozpocznij przeciąganie",
+  "computerEndDrag": "Zakończ przeciąganie",
+  "computerShowKeyboard": "Pokaż klawiaturę",
+  "computerHideKeyboard": "Ukryj klawiaturę",
+  "computerAgentWorking": "Agent pracuje",
+  "computerDesktop": "Pulpit",
+  "computerBrowser": "Przeglądarka",
+  "computerForward": "Dalej",
+  "computerReload": "Odśwież stronę",
+  "computerAddress": "Przejdź do adresu",
+  "computerTypeText": "Pisz na komputerze",
+  "computerSend": "Wyślij",
+  "computerZoom": "Powiększ",
+  "libreChatTemporaryChatOff": "LibreChat zapisuje każdy czat. Wyłącz czat tymczasowy, aby wysłać.",
   "libreChatTitle": "LibreChat",
   "libreChatBetaLabel": "Beta",
   "libreChatChooserSubtitle": "Zaloguj się na swój serwer LibreChat, aby synchronizować czaty, agentów i nie tylko.",

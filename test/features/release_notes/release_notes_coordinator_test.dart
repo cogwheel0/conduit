@@ -43,7 +43,7 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 100));
 
-    expect(find.text("What's new"), findsNothing);
+    expect(find.text("What's New"), findsNothing);
     expect(
       PreferencesStore.getString(PreferenceKeys.lastSeenReleaseVersion),
       '3.3.2',
@@ -76,7 +76,7 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 100));
 
-    expect(find.text("What's new"), findsNothing);
+    expect(find.text("What's New"), findsNothing);
     expect(
       PreferencesStore.getString(PreferenceKeys.lastSeenReleaseVersion),
       '4.0.1',
@@ -108,8 +108,8 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 100));
 
-    expect(find.text("What's new in 4.0.1"), findsOneWidget);
-    expect(find.text("What's new"), findsNothing);
+    expect(find.text("What's New in 4.0.1"), findsOneWidget);
+    expect(find.text("What's New"), findsNothing);
     expect(find.text('Welcome to Conduit 4.0.'), findsNothing);
   });
 
@@ -132,7 +132,7 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 100));
 
-    expect(find.text("What's new in 4.0.1"), findsOneWidget);
+    expect(find.text("What's New in 4.0.1"), findsOneWidget);
     expect(
       PreferencesStore.getString(PreferenceKeys.lastSeenReleaseVersion),
       '4.0.1',
@@ -159,8 +159,8 @@ void main() {
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 100));
 
-      expect(find.text("What's new in 3.3.2"), findsOneWidget);
-      expect(find.text("What's new"), findsNothing);
+      expect(find.text("What's New in 3.3.2"), findsOneWidget);
+      expect(find.text("What's New"), findsNothing);
     });
   }
 
@@ -174,7 +174,7 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 100));
 
-    expect(find.text("What's new"), findsNothing);
+    expect(find.text("What's New"), findsNothing);
     expect(
       PreferencesStore.getString(PreferenceKeys.lastSeenReleaseVersion),
       '3.3.1',
@@ -195,8 +195,8 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 100));
 
-    expect(find.text("What's new in 3.3.2"), findsOneWidget);
-    expect(find.text("What's new"), findsNothing);
+    expect(find.text("What's New in 3.3.2"), findsOneWidget);
+    expect(find.text("What's New"), findsNothing);
     expect(find.text('Hi, this update is bundled with the app.'), findsNothing);
     expect(find.text('Done'), findsNothing);
 
@@ -222,8 +222,8 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byKey(releaseNotesBannerKey), findsOneWidget);
-    expect(find.text("What's new in 3.3.2"), findsOneWidget);
-    expect(find.text("What's new"), findsNothing);
+    expect(find.text("What's New in 3.3.2"), findsOneWidget);
+    expect(find.text("What's New"), findsNothing);
     expect(find.text('Done'), findsNothing);
     expect(
       PreferencesStore.getString(
@@ -269,7 +269,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byKey(releaseNotesBannerKey), findsOneWidget);
-    expect(find.text("What's new in 3.3.2"), findsOneWidget);
+    expect(find.text("What's New in 3.3.2"), findsOneWidget);
     expect(find.text('Hi, this update is bundled with the app.'), findsNothing);
   });
 
@@ -362,15 +362,15 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 100));
 
-    expect(find.text("What's new in 3.3.2"), findsOneWidget);
-    expect(find.text("What's new"), findsNothing);
+    expect(find.text("What's New in 3.3.2"), findsOneWidget);
+    expect(find.text("What's New"), findsNothing);
     expect(find.text('Buy Me a Coffee'), findsNothing);
 
     await tester.tap(find.byKey(releaseNotesBannerKey));
     await tester.pumpAndSettle();
 
-    expect(find.text("What's new in 3.3.2"), findsOneWidget);
-    expect(find.text("What's new"), findsOneWidget);
+    expect(find.text("What's New in 3.3.2"), findsOneWidget);
+    expect(find.text("What's New"), findsOneWidget);
     expect(find.text('Buy Me a Coffee'), findsOneWidget);
     expect(find.text('GitHub Sponsors'), findsNothing);
 

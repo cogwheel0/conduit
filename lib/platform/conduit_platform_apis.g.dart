@@ -142,6 +142,12 @@ enum PlatformNativeSheetItemKind {
   readOnlyText,
   source,
   statusUpdate,
+
+  /// A choice among a few looks, drawn as preview tiles with a label and a
+  /// selection mark under each, as Display & Brightness draws Light and Dark.
+  /// Each option's swatches paint its preview; one with dark swatches too
+  /// previews both halves.
+  appearanceTiles,
 }
 
 /// Whether a keyboard attachment row turns an option on and off, or runs a
@@ -1360,6 +1366,8 @@ class PlatformNativeSheetOption {
     required this.showBranch,
     required this.hasMoreSiblings,
     this.filterGroup,
+    this.swatchesArgb,
+    this.darkSwatchesArgb,
   });
 
   String id;
@@ -1382,6 +1390,12 @@ class PlatformNativeSheetOption {
 
   String? filterGroup;
 
+  /// Colours (ARGB) that preview the option, such as a palette's, in light
+  /// and dark appearance. Null for an ordinary option.
+  List<int>? swatchesArgb;
+
+  List<int>? darkSwatchesArgb;
+
   List<Object?> _toList() {
     return <Object?>[
       id,
@@ -1394,6 +1408,8 @@ class PlatformNativeSheetOption {
       showBranch,
       hasMoreSiblings,
       filterGroup,
+      swatchesArgb,
+      darkSwatchesArgb,
     ];
   }
 
@@ -1414,6 +1430,8 @@ class PlatformNativeSheetOption {
       showBranch: result[7]! as bool,
       hasMoreSiblings: result[8]! as bool,
       filterGroup: result[9] as String?,
+      swatchesArgb: (result[10] as List<Object?>?)?.cast<int>(),
+      darkSwatchesArgb: (result[11] as List<Object?>?)?.cast<int>(),
     );
   }
 
@@ -1436,7 +1454,9 @@ class PlatformNativeSheetOption {
         _deepEquals(ancestorHasMoreSiblings, other.ancestorHasMoreSiblings) &&
         _deepEquals(showBranch, other.showBranch) &&
         _deepEquals(hasMoreSiblings, other.hasMoreSiblings) &&
-        _deepEquals(filterGroup, other.filterGroup);
+        _deepEquals(filterGroup, other.filterGroup) &&
+        _deepEquals(swatchesArgb, other.swatchesArgb) &&
+        _deepEquals(darkSwatchesArgb, other.darkSwatchesArgb);
   }
 
   @override
@@ -1445,7 +1465,7 @@ class PlatformNativeSheetOption {
 
   @override
   String toString() {
-    return 'PlatformNativeSheetOption(id: $id, label: $label, subtitle: $subtitle, sfSymbol: $sfSymbol, enabled: $enabled, destructive: $destructive, ancestorHasMoreSiblings: $ancestorHasMoreSiblings, showBranch: $showBranch, hasMoreSiblings: $hasMoreSiblings, filterGroup: $filterGroup)';
+    return 'PlatformNativeSheetOption(id: $id, label: $label, subtitle: $subtitle, sfSymbol: $sfSymbol, enabled: $enabled, destructive: $destructive, ancestorHasMoreSiblings: $ancestorHasMoreSiblings, showBranch: $showBranch, hasMoreSiblings: $hasMoreSiblings, filterGroup: $filterGroup, swatchesArgb: $swatchesArgb, darkSwatchesArgb: $darkSwatchesArgb)';
   }
 }
 

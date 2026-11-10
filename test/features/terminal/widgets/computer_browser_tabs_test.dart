@@ -117,7 +117,7 @@ void main() {
           expect(choice, (action: ComputerTabAction.select, id: 'one'));
         } else {
           expect(choice, isNull);
-          await tester.tap(find.text('Take control'));
+          await tester.tap(find.text('Take Control'));
           await tester.pumpAndSettle();
           expect(choice, (action: ComputerTabAction.control, id: null));
         }
@@ -153,7 +153,7 @@ void main() {
       findsNothing,
     );
     when(service.browserTabs).thenAnswer((_) async => []);
-    await tester.tap(find.bySemanticsLabel('Refresh tabs'));
+    await tester.tap(find.bySemanticsLabel('Refresh Tabs'));
     await tester.pumpAndSettle();
     expect(find.text('No browser tabs'), findsOneWidget);
   });

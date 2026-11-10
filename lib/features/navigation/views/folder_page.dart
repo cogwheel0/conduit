@@ -1739,6 +1739,7 @@ class _FolderPageState extends ConsumerState<FolderPage> {
                   selected: false,
                   isLoading: isLoadingSelected,
                   onTap: () => _selectConversation(conversation),
+                  timestamp: conversation.updatedAt,
                 ),
               );
             }, childCount: sortedConversations.length),

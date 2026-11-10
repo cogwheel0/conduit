@@ -11,6 +11,7 @@ import 'package:conduit_core/features/chat/providers/chat_providers.dart';
 import 'package:conduit/features/chat/services/voice_input_service.dart';
 import 'package:conduit/features/chat/widgets/composer_overflow_menu.dart';
 import 'package:conduit/features/chat/widgets/composer_overflow_items.dart';
+import 'package:conduit/features/chat/widgets/composer_prominent_button.dart';
 import 'package:conduit/features/chat/widgets/modern_chat_input.dart';
 import 'package:conduit_core/features/direct_connections/direct_connections.dart';
 import 'package:conduit_core/features/direct_connections/providers/direct_mcp_providers.dart';
@@ -706,10 +707,10 @@ void main() {
       expect(sheet.onWebAttachment, isNull);
       expect(sheet.onImageAttachment, isNotNull);
       expect(sheet.onCameraCapture, isNotNull);
-      expect(find.text('File'), findsOneWidget);
-      expect(find.text('Photo'), findsOneWidget);
+      expect(find.text('Files'), findsOneWidget);
+      expect(find.text('Photos'), findsOneWidget);
       expect(find.text('Camera'), findsOneWidget);
-      expect(find.text('Files'), findsNothing);
+      expect(find.text('Server Files'), findsNothing);
       expect(find.text('Web Page'), findsNothing);
       await tester.pumpWidget(const SizedBox.shrink());
       await tester.pump(const Duration(milliseconds: 1));
@@ -768,12 +769,95 @@ void main() {
 
       expect(tester.takeException(), isNull);
       expect(
-        find.byKey(const ValueKey('composer-attachment-action-strip')),
+        find.byKey(const ValueKey('composer-attachment-action-grid')),
         findsOneWidget,
       );
       expect(find.byType(BottomSheet), findsNothing);
     },
   );
+
+  testWidgets('the + button is named for attaching, then for the keyboard', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(320, 700);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    const serverModel = Model(id: 'server-model', name: 'Server model');
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          directModelRegistryProvider.overrideWithValue(DirectModelRegistry()),
+          directModelDiscoveryProvider.overrideWith(
+            _FixedDiscoveryController.new,
+          ),
+          selectedModelProvider.overrideWithValue(serverModel),
+          apiServiceProvider.overrideWithValue(null),
+          webSearchAvailableProvider.overrideWithValue(false),
+          imageGenerationAvailableProvider.overrideWithValue(false),
+        ],
+        child: MaterialApp(
+          localizationsDelegates: conduitLocalizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          builder: (context, child) => MediaQuery(
+            data: MediaQuery.of(context)
+                .copyWith(textScaler: const TextScaler.linear(1.4)),
+            child: child!,
+          ),
+          home: Scaffold(
+            body: ModernChatInput(
+              onSendMessage: (_) {},
+              onFileAttachment: () {},
+              onServerFileAttachment: () {},
+              onImageAttachment: () {},
+              onCameraCapture: () {},
+              onWebAttachment: () {},
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    final handle = tester.ensureSemantics();
+    expect(find.bySemanticsLabel('Add Attachment'), findsOneWidget);
+    expect(find.bySemanticsLabel('More'), findsNothing);
+
+    await tester.tap(find.byIcon(Icons.add));
+    await tester.pumpAndSettle();
+
+    // Every tile fits the 320 pt width at large text: none is cut off.
+    final grid = find.byKey(const ValueKey('composer-attachment-action-grid'));
+    expect(grid, findsOneWidget);
+    for (final label in [
+      'Files',
+      'Server Files',
+      'Photos',
+      'Camera',
+      'Web Page',
+    ]) {
+      final tile = find.descendant(of: grid, matching: find.text(label));
+      expect(tile, findsOneWidget, reason: label);
+      expect(tester.getRect(tile).right, lessThanOrEqualTo(320), reason: label);
+    }
+    // Opened without the keyboard, the panel's button just closes it.
+    expect(find.bySemanticsLabel('Close'), findsOneWidget);
+    expect(find.bySemanticsLabel('Show Keyboard'), findsNothing);
+
+    await tester.tap(find.byIcon(Icons.close));
+    await tester.pumpAndSettle();
+    expect(find.bySemanticsLabel('Add Attachment'), findsOneWidget);
+
+    // Opened from the keyboard, it brings the keyboard back.
+    await tester.tap(find.byType(TextField));
+    await tester.pump();
+    await tester.tap(find.byIcon(Icons.add));
+    await tester.pumpAndSettle();
+    expect(find.bySemanticsLabel('Show Keyboard'), findsOneWidget);
+    handle.dispose();
+  });
 
   testWidgets('text-only direct models expose files but hide image actions', (
     tester,
@@ -843,8 +927,8 @@ void main() {
     expect(sheet.onServerFileAttachment, isNull);
     expect(sheet.onImageAttachment, isNull);
     expect(sheet.onCameraCapture, isNull);
-    expect(find.text('File'), findsOneWidget);
-    expect(find.text('Photo'), findsNothing);
+    expect(find.text('Files'), findsOneWidget);
+    expect(find.text('Photos'), findsNothing);
     expect(find.text('Camera'), findsNothing);
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pump(const Duration(milliseconds: 1));
@@ -908,12 +992,20 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.byType(ComposerAttachmentKeyboard), findsOneWidget);
-      expect(find.text('File'), findsOneWidget);
-      expect(find.text('Photo'), findsNothing);
+      expect(find.text('Files'), findsOneWidget);
+      expect(find.text('Photos'), findsNothing);
       expect(find.text('Camera'), findsNothing);
       expect(find.text('Web Search'), findsOneWidget);
-      // Toggle rows mark the enabled state with a trailing checkmark.
-      expect(find.byIcon(Icons.check_rounded), findsNothing);
+      // Toggle rows show their state with a trailing switch.
+      bool webSearchSwitchOn() => tester
+          .widget<AdaptiveSwitch>(
+            find.descendant(
+              of: find.widgetWithText(ToggleTile, 'Web Search'),
+              matching: find.byType(AdaptiveSwitch),
+            ),
+          )
+          .value;
+      expect(webSearchSwitchOn(), isFalse);
       expect(
         tester.widget<TextField>(find.byType(TextField)).focusNode?.hasFocus,
         isTrue,
@@ -921,7 +1013,7 @@ void main() {
 
       await tester.tap(find.text('Web Search'));
       await tester.pump();
-      expect(find.byIcon(Icons.check_rounded), findsOneWidget);
+      expect(webSearchSwitchOn(), isTrue);
 
       await tester.tap(find.byIcon(Icons.close));
       await tester.pumpAndSettle();
@@ -1262,13 +1354,14 @@ void main() {
     );
   });
 
-  testWidgets('iOS 26 native primary control ignores unrelated rebuilds', (
+  testWidgets('iOS 26 Send is a monochrome Flutter disc, not tinted glass', (
     tester,
   ) async {
     PlatformUiCapabilities.debugPlatformOverride = TargetPlatform.iOS;
     PlatformUiCapabilities.debugIOSMajorVersionOverride = 26;
     PlatformUiCapabilities.debugNativeIOS26Override = true;
     addTearDown(PlatformUiCapabilities.resetDebugOverrides);
+    final sent = <String>[];
 
     await tester.pumpWidget(
       ProviderScope(
@@ -1276,7 +1369,7 @@ void main() {
         child: MaterialApp(
           localizationsDelegates: conduitLocalizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,
-          home: Scaffold(body: ModernChatInput(onSendMessage: (_) {})),
+          home: Scaffold(body: ModernChatInput(onSendMessage: sent.add)),
         ),
       ),
     );
@@ -1284,16 +1377,28 @@ void main() {
     await tester.enterText(find.byType(TextField), '/');
     await tester.pump();
 
-    Finder nativePrimary() => find.descendant(
-      of: find.byKey(const ValueKey<String>('primary-btn-send')),
-      matching: find.byType(AdaptiveButton),
+    final send = find.byKey(const ValueKey<String>('primary-btn-send'));
+    Finder disc() => find.descendant(
+      of: send,
+      matching: find.byType(ComposerProminentButton),
     );
+    // UIKit's prominent glass highlight took the system accent; the disc is
+    // drawn in Flutter, in the theme's monochrome primary.
+    expect(
+      find.descendant(of: send, matching: find.byType(AdaptiveButton)),
+      findsNothing,
+    );
+    final state = tester.state(disc());
+    check(tester.getSize(send)).equals(const Size.square(TouchTarget.minimum));
 
-    final nativeButton = tester.widget<AdaptiveButton>(nativePrimary());
-    await tester.enterText(find.byType(TextField), '/a');
+    // Unrelated rebuilds keep the same control.
+    await tester.enterText(find.byType(TextField), 'Hello there');
     await tester.pump();
+    expect(tester.state(disc()), same(state));
 
-    expect(tester.widget<AdaptiveButton>(nativePrimary()), same(nativeButton));
+    await tester.tap(send);
+    await tester.pump();
+    check(sent).deepEquals(['Hello there']);
   });
 
   testWidgets('pre-iOS 26 composer uses 24pt Cupertino add and close glyphs', (
@@ -1630,9 +1735,8 @@ void main() {
     );
   });
 
-  testWidgets('hiding the Notes shortcut preserves the composer draft', (
-    tester,
-  ) async {
+  testWidgets('Save as Note lives in the + panel while there is a draft, '
+      'as the Chats setting allows', (tester) async {
     Widget input(bool showNotes) => ProviderScope(
       overrides: [
         apiServiceProvider.overrideWithValue(null),
@@ -1651,18 +1755,77 @@ void main() {
         ),
       ),
     );
+    final row = find.byKey(const ValueKey('composer-save-draft-as-note'));
+
     await tester.pumpWidget(input(true));
     await tester.enterText(find.byType(TextField), 'Paper\nlantern');
     await tester.pump();
     await tester.pump();
-    final note = find.byKey(const ValueKey('create-draft-note-button'));
-    expect(note, findsOneWidget);
+    // Send keeps the trailing slot to itself: no glyph beside it.
+    expect(find.byKey(const ValueKey('create-draft-note-button')), findsNothing);
+    expect(find.byIcon(Icons.note_add_outlined), findsNothing);
+
+    await tester.tap(find.byIcon(Icons.add));
+    await tester.pumpAndSettle();
+    expect(row, findsOneWidget);
+    expect(
+      find.descendant(of: row, matching: find.text('Save as Note')),
+      findsOneWidget,
+    );
+
+    // The setting turns the command off and leaves the draft alone.
     await tester.pumpWidget(input(false));
-    expect(note, findsNothing);
+    await tester.pump();
+    expect(row, findsNothing);
     expect(find.text('Paper\nlantern'), findsOneWidget);
     expect(find.byKey(const ValueKey('primary-btn-send')), findsOneWidget);
+
     await tester.pumpWidget(input(true));
-    expect(note, findsOneWidget);
+    await tester.pump();
+    expect(row, findsOneWidget);
+  });
+
+  test('the native panel offers Save as Note on every backend, only with a '
+      'draft', () {
+    final l10n = AppLocalizationsEn();
+    List<String> ids({
+      required bool hermes,
+      required bool direct,
+      required bool draftNote,
+    }) => buildIosKeyboardAttachmentActions(
+      l10n: l10n,
+      attachmentAvailability: const ComposerOverflowAttachmentAvailability(
+        file: true,
+        photo: true,
+        camera: true,
+      ),
+      hermesMode: hermes,
+      directMode: direct,
+      webSearchAvailable: false,
+      webSearchEnabled: false,
+      imageGenerationAvailable: false,
+      imageGenerationEnabled: false,
+      availableTools: const [],
+      selectedToolIds: const [],
+      availableFilters: const [],
+      selectedFilterIds: const [],
+      draftNoteAvailable: draftNote,
+    ).map((action) => action.id).toList();
+
+    for (final (hermes, direct) in [
+      (false, false),
+      (true, false),
+      (false, true),
+    ]) {
+      expect(
+        ids(hermes: hermes, direct: direct, draftNote: true),
+        contains(ComposerOverflowActionIds.saveDraftAsNote),
+      );
+      expect(
+        ids(hermes: hermes, direct: direct, draftNote: false),
+        isNot(contains(ComposerOverflowActionIds.saveDraftAsNote)),
+      );
+    }
   });
 
   testWidgets('secondary composer actions use plain icon buttons', (
@@ -1705,26 +1868,17 @@ void main() {
     await tester.pump();
     await tester.pump();
 
+    // While drafting, Send stands alone at the trailing edge; Save as Note
+    // is in the + panel.
     expect(
-      actionButton(find.byKey(const ValueKey('create-draft-note-button')))
+      find.byKey(const ValueKey('create-draft-note-button')),
+      findsNothing,
+    );
+    expect(
+      actionButton(find.byKey(const ValueKey('composer-overflow-button')))
           .style,
       AdaptiveButtonStyle.plain,
     );
-    final noteVisualRect = tester.getRect(
-      find.descendant(
-        of: find.byKey(const ValueKey('create-draft-note-button')),
-        matching: find.byType(AdaptiveButton),
-      ),
-    );
-    final noteGlyphRect = tester.getRect(find.byIcon(Icons.note_add_outlined));
-    final sendVisualRect = tester.getRect(
-      find.descendant(
-        of: find.byKey(const ValueKey('primary-btn-send')),
-        matching: find.byType(AdaptiveButton),
-      ),
-    );
-    expect(noteVisualRect.size, const Size.square(32));
-    expect(sendVisualRect.left - noteGlyphRect.right, 12);
   });
 
   testWidgets('composer controls use the standard icon extent', (tester) async {

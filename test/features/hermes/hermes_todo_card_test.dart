@@ -50,7 +50,7 @@ void main() {
     expect(find.text('Step 1'), findsOneWidget);
     expect(find.text('Step 0'), findsNothing);
     expect(find.text('Step 2'), findsNothing);
-    expect(find.bySemanticsLabel(RegExp('^Show plan')), findsOneWidget);
+    expect(find.bySemanticsLabel(RegExp('^Show Plan')), findsOneWidget);
   });
 
   testWidgets('a finished plan starts folded; the choice is per chat', (

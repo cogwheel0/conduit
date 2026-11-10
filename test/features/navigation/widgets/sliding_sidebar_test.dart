@@ -1,5 +1,7 @@
 import 'dart:async';
 
+import 'package:conduit/features/navigation/widgets/conversation_tile.dart'
+    show kSidebarRowContentInset;
 import 'package:conduit/shared/services/navigation_service.dart';
 import 'package:conduit/features/hermes/widgets/hermes_sessions_tab.dart';
 import 'package:conduit/features/navigation/widgets/drawer_shell_page.dart';
@@ -417,6 +419,78 @@ void main() {
     expect(tester.getTopLeft(search), searchBefore);
     expect(tester.getTopLeft(create), createBefore);
     expect(tester.getTopLeft(destinations).dy, lessThan(destinationsBefore));
+  });
+
+  testWidgets('the sliding layout keeps its narrow rows to titles: no dates, '
+      'no Chats title, and New Chat below', (tester) async {
+    final date = DateTime(2026, 1, 1);
+    await tester.pumpWidget(
+      sidebarTestBuildHarness(
+        controllers: SidebarTestSidebarHarnessControllers(),
+        currentUser: _user,
+        conversations: [
+          for (var i = 0; i < 3; i++)
+            Conversation(
+              id: 'demo-$i',
+              title: 'Example $i',
+              createdAt: date,
+              updatedAt: date,
+            ),
+        ],
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Example 0'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey<String>('conversation-updated-stamp')),
+      findsNothing,
+    );
+    expect(
+      find.byKey(const ValueKey<String>('chats-large-title')),
+      findsNothing,
+    );
+    expect(
+      find.byKey(const ValueKey<String>('sidebar-collapsed-title')),
+      findsNothing,
+    );
+    // The destinations are the sidebar's own rows, with no rule under them.
+    final destinations = find.byKey(
+      const ValueKey<String>('sidebar-destinations'),
+    );
+    // Their symbols start on the rows' content edge, where a read chat's
+    // title starts, the names after them.
+    final notesRow = find.byKey(
+      const ValueKey<String>('sidebar-destination-notes'),
+    );
+    final notesSymbol = find.descendant(
+      of: notesRow,
+      matching: find.byType(Icon),
+    );
+    expect(tester.getTopLeft(notesSymbol).dx, kSidebarRowContentInset);
+    expect(
+      tester.getTopLeft(find.text('Notes')).dx,
+      greaterThan(tester.getTopRight(notesSymbol).dx),
+    );
+    expect(
+      find.descendant(of: destinations, matching: find.byType(ListTile)),
+      findsNothing,
+    );
+    expect(
+      find.descendant(of: destinations, matching: find.byType(Divider)),
+      findsNothing,
+    );
+    // New Chat is below, in the bottom bar; the header keeps only Search.
+    final search = find.byKey(const ValueKey<String>('sidebar-search-button'));
+    final create = find.byKey(const ValueKey<String>('sidebar-create-button'));
+    expect(
+      tester.getTopLeft(create).dy,
+      greaterThan(tester.getBottomLeft(find.text('Example 2')).dy),
+    );
+    expect(
+      tester.getCenter(create).dy,
+      greaterThan(tester.getCenter(search).dy),
+    );
   });
 
   testWidgets('the sliding layout takes the tabbed sidebar surface', (

@@ -499,11 +499,11 @@ void main() {
         initialCatchUp: HermesJobCatchUp.skip,
       );
 
-      expect(find.text('Skip missed runs'), findsOneWidget);
+      expect(find.text('Skip Missed Runs'), findsOneWidget);
       await scrollTo(tester, target('bot-chat:research'));
       // A saved target Hermes does not list stays shown as stored.
       expect(find.text('origin'), findsOneWidget);
-      expect(find.text('Messaging apps'), findsOneWidget);
+      expect(find.text('Messaging Apps'), findsOneWidget);
       expect(find.text('Bot Chats'), findsOneWidget);
       expect(find.text('Research'), findsNothing);
       expect(find.text('research'), findsOneWidget);
@@ -525,9 +525,9 @@ void main() {
         initialDeliver: 'local',
       );
 
-      await tester.tap(find.text('Hermes default'));
+      await tester.tap(find.text('Hermes Default'));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Run once after missed runs').last);
+      await tester.tap(find.text('Run Once After Missed Runs').last);
       await tester.pumpAndSettle();
 
       await scrollTo(tester, target('discord'));
@@ -621,7 +621,7 @@ void main() {
 
       check(tester.takeException()).isNull();
       expect(find.byType(CNPopupMenuButton), findsNothing);
-      expect(find.text('Skip missed runs'), findsOneWidget);
+      expect(find.text('Skip Missed Runs'), findsOneWidget);
       await scrollTo(tester, target('telegram'));
       await save(tester);
 

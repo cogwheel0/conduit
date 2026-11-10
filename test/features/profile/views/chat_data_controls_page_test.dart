@@ -559,7 +559,7 @@ void main() {
         // The page was opened for the first account; it does not retarget.
         expect(row('chat-data-controls-account-changed'), findsOneWidget);
         expect(
-          find.text('The account changed. Go back and open Data controls again.'),
+          find.text('The account changed. Go back and open Data Controls again.'),
           findsOneWidget,
         );
         expect(row('chat-data-export'), findsNothing);
@@ -1194,7 +1194,7 @@ void main() {
         status(tester),
         'A reply is still running. Stop it, then try again.',
       );
-      expect(find.text('Delete all chats'), findsOneWidget);
+      expect(find.text('Delete All Chats'), findsOneWidget);
       expect(session.wire.requests, isEmpty);
       expect(await session.db.chatsDao.getChat('s1'), isNotNull);
     });

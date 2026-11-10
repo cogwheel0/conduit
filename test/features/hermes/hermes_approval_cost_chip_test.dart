@@ -55,12 +55,12 @@ void main() {
     // The sentences shown as chips leave the text; the rest stays.
     expect(find.textContaining('Costs about'), findsNothing);
     expect(find.textContaining('wants to run.'), findsOneWidget);
-    expect(find.text('Allow once'), findsOneWidget);
+    expect(find.text('Allow Once'), findsOneWidget);
     expect(find.text('Deny'), findsOneWidget);
-    expect(find.text('Allow for session'), findsNothing);
-    expect(find.text('Always allow'), findsNothing);
+    expect(find.text('Allow for Session'), findsNothing);
+    expect(find.text('Always Allow'), findsNothing);
 
-    await tester.tap(find.text('Allow once'));
+    await tester.tap(find.text('Allow Once'));
     expect(picked, ['once']);
   });
 

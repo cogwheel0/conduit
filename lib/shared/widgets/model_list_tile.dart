@@ -6,11 +6,13 @@ import 'package:material_ui/material_ui.dart';
 import 'package:conduit/core/services/haptic_service.dart';
 
 import 'package:conduit_core/models/model.dart';
+import 'package:conduit_core/utils/model_display_name.dart';
 
 import '../theme/theme_extensions.dart';
 import 'model_avatar.dart';
 import 'horizontal_gesture_ownership.dart';
 import 'horizontal_overflow_fade.dart';
+import '../utils/model_picker_subtitles.dart';
 
 /// Whether a [Model] supports reasoning based on its parameters.
 bool modelSupportsReasoning(Model model) {
@@ -185,6 +187,10 @@ class ModelListTile extends StatelessWidget {
     final theme = context.conduitTheme;
     final l10n = AppLocalizations.of(context)!;
     final borderRadius = BorderRadius.circular(AppBorderRadius.card);
+    final displayName = displayNameForModel(model);
+    final subtitle = isAutoSelect
+        ? null
+        : modelPickerSubtitle(model, apple: appleModelPickerSubtitles(l10n));
 
     // Selection is carried by the trailing checkmark, as in the native iOS
     // picker; rows themselves stay unfilled.
@@ -202,7 +208,7 @@ class ModelListTile extends StatelessWidget {
         ),
       );
     } else {
-      leading = ModelAvatar(size: 32, imageUrl: iconUrl, label: model.name);
+      leading = ModelAvatar(size: 32, imageUrl: iconUrl, label: displayName);
     }
 
     final hasCapabilities =
@@ -252,7 +258,7 @@ class ModelListTile extends StatelessWidget {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Text(
-                      isAutoSelect ? l10n.autoSelect : model.name,
+                      isAutoSelect ? l10n.autoSelect : displayName,
                       style: AppTypography.bodyLargeStyle.copyWith(
                         fontSize: 16,
                         height: 1.35,
@@ -262,6 +268,16 @@ class ModelListTile extends StatelessWidget {
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
+                    if (!isAutoSelect && subtitle != null) ...[
+                      Text(
+                        subtitle,
+                        style: AppTypography.labelSmallStyle.copyWith(
+                          color: theme.textSecondary,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
                     if (isAutoSelect) ...[
                       const SizedBox(height: 2),
                       Text(

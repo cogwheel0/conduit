@@ -155,6 +155,15 @@ void main() {
     return container;
   }
 
+  testWidgets('greets in a bold Title 1 line, as the large titles are', (
+    tester,
+  ) async {
+    await mountPage(tester);
+    final greeting = tester.widget<Text>(find.text(_en.greetingTitle('Root')));
+    expect(greeting.style?.fontSize, 28);
+    expect(greeting.style?.fontWeight, FontWeight.w700);
+  });
+
   testWidgets('keeps the name while the same account reloads its user', (
     tester,
   ) async {

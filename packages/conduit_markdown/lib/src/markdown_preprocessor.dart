@@ -192,6 +192,9 @@ class ConduitMarkdownPreprocessor {
     // Separate consecutive links
     output = _separateConsecutiveLinks(output);
 
+    // Nest `1) Step` + unindented `- detail` runs the way the model meant.
+    output = _nestBulletsUnderOrderedItems(output);
+
     // An opening `<details ...>` tag whose quoted attribute values contain
     // real newlines (legal in HTML) has no `>` on its first line, so the
     // per-line block parser never matches it and the whole block renders as
@@ -382,6 +385,154 @@ class ConduitMarkdownPreprocessor {
 
     return output;
   }
+
+  /// Models often write a numbered step followed directly by its details as
+  /// unindented bullets:
+  ///
+  /// ```text
+  /// 1) Prepare the soil
+  /// - Loosen the top layer.
+  /// - Mix in compost.
+  /// ```
+  ///
+  /// CommonMark reads the bullets as a separate top-level list (the marker is
+  /// not indented past `1) `), which renders them flat beside the step with a
+  /// list gap in between. Indent such a bullet run to the step's content
+  /// column so it nests under the step, as the author intended.
+  ///
+  /// The rewrite only touches a bullet run that starts on the line right
+  /// after a numbered item (or its wrapped continuation) at the same marker
+  /// indent, and stops at the first blank line, so it never crosses a
+  /// paragraph break (which keeps it stable under incremental streaming
+  /// preparation, whose checkpoints sit on blank lines). Fenced code is left
+  /// alone.
+  static String _nestBulletsUnderOrderedItems(String input) {
+    if (!_orderedItemGate.hasMatch(input) || !_bulletItemGate.hasMatch(input)) {
+      return input;
+    }
+
+    final lines = input.split('\n');
+    String? openFence;
+    // Marker indent and content column of the numbered item that owns the
+    // current run of lines, if any.
+    int? orderedMarkerIndent;
+    int? orderedContentColumn;
+    // Indent of the first nested bullet and the spaces added to the run.
+    int? nestBulletIndent;
+    String? nestPrefix;
+    var changed = false;
+
+    void reset() {
+      orderedMarkerIndent = null;
+      orderedContentColumn = null;
+      nestBulletIndent = null;
+      nestPrefix = null;
+    }
+
+    for (var index = 0; index < lines.length; index += 1) {
+      final line = lines[index];
+      final fence = _fenceLinePattern.firstMatch(line);
+      if (openFence != null) {
+        if (fence != null &&
+            fence[1]![0] == openFence[0] &&
+            fence[1]!.length >= openFence.length &&
+            line.trim() == fence[1]) {
+          openFence = null;
+        }
+        continue;
+      }
+      if (fence != null) {
+        // Fences sit at column 0 after [_normalizeFences], so they always
+        // close any list they follow.
+        openFence = fence[1];
+        reset();
+        continue;
+      }
+      if (line.trim().isEmpty) {
+        reset();
+        continue;
+      }
+
+      final indent = _leadingIndent(line);
+      final ordered = _orderedItemLine.firstMatch(line);
+      if (ordered != null &&
+          (nestBulletIndent == null || indent <= nestBulletIndent!) &&
+          !ordered[3]!.contains('\t')) {
+        orderedMarkerIndent = ordered[1]!.length;
+        orderedContentColumn =
+            orderedMarkerIndent! + ordered[2]!.length + ordered[3]!.length;
+        nestBulletIndent = null;
+        nestPrefix = null;
+        continue;
+      }
+
+      final prefix = nestPrefix;
+      if (prefix != null) {
+        if (indent > nestBulletIndent! ||
+            (indent == nestBulletIndent && _isBulletLine(line))) {
+          // A sibling bullet, or content nested deeper inside one.
+          lines[index] = '$prefix$line';
+          changed = true;
+        } else if (_blockStartLine.hasMatch(line)) {
+          reset();
+        }
+        // Anything else is lazy paragraph continuation, which joins the
+        // nested item's paragraph without indentation.
+        continue;
+      }
+
+      final bullet = _isBulletLine(line)
+          ? _bulletItemLine.firstMatch(line)
+          : null;
+      if (bullet != null &&
+          orderedMarkerIndent != null &&
+          bullet[1]!.length == orderedMarkerIndent) {
+        nestBulletIndent = bullet[1]!.length;
+        final added = ' ' * (orderedContentColumn! - orderedMarkerIndent!);
+        nestPrefix = added;
+        lines[index] = '$added$line';
+        changed = true;
+        continue;
+      }
+      if (_blockStartLine.hasMatch(line)) {
+        reset();
+      }
+    }
+
+    return changed ? lines.join('\n') : input;
+  }
+
+  static bool _isBulletLine(String line) =>
+      _bulletItemLine.hasMatch(line) && !_blockStartLine.hasMatch(line);
+
+  static int _leadingIndent(String line) {
+    var width = 0;
+    for (var index = 0; index < line.length; index += 1) {
+      final char = line.codeUnitAt(index);
+      if (char == 0x20) {
+        width += 1;
+      } else if (char == 0x09) {
+        width += 4 - (width % 4);
+      } else {
+        break;
+      }
+    }
+    return width;
+  }
+
+  static final _orderedItemGate = RegExp(
+    r'^ {0,3}\d{1,9}[.)][ \t]',
+    multiLine: true,
+  );
+  static final _bulletItemGate = RegExp(r'^ {0,3}[-*+][ \t]', multiLine: true);
+  static final _orderedItemLine = RegExp(r'^( {0,3})(\d{1,9}[.)])([ \t]+)\S');
+  static final _bulletItemLine = RegExp(r'^( {0,3})[-*+][ \t]+\S');
+  static final _fenceLinePattern = RegExp(r'^ {0,3}(`{3,}|~{3,})');
+
+  /// Lines that start a new block instead of continuing a paragraph.
+  static final _blockStartLine = RegExp(
+    r'^ {0,3}(?:#{1,6}(?:[ \t]|$)|>|\||<[A-Za-z/!]|([-*_])(?:[ \t]*\1){2,}[ \t]*$)',
+  );
 
   static String _separateConsecutiveLinks(String input) {
     final lines = input.split('\n');
