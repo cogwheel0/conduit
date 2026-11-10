@@ -83,6 +83,9 @@ final class _Hermes implements HttpClientAdapter {
   /// Names the dashboard installs in the background, listed only later.
   final background = <String>{};
 
+  /// Names the dashboard installs, then answers with an error.
+  final failAfterInstall = <String>{};
+
   Map<String, Object?> _added(String name) {
     servers.add({
       'name': name,
@@ -135,6 +138,9 @@ final class _Hermes implements HttpClientAdapter {
         final name = (options.data as Map)['name'] as String;
         final later = background.contains(name);
         if (!later) _added(name);
+        if (failAfterInstall.contains(name)) {
+          return (500, {'detail': 'Install failed'});
+        }
         return (200, {'ok': true, 'name': name, 'background': later});
       }(),
       _ => (404, {'detail': 'Not Found'}),
@@ -311,6 +317,24 @@ void main() {
       {'name': 'tide-notes', 'enable': true, 'env': <String, String>{}},
     ]);
     check(hermes.calls('mcp.servers.add')).isEmpty();
+    await hermes.dispose();
+  });
+
+  // A failure after the install left the list without the server, so a
+  // retry asked for every value again.
+  testWidgets('the list shows a server added before a failure', (tester) async {
+    final hermes = _Hermes(
+      dashboardCatalog: [
+        {'name': 'tide-notes', 'installed': false, 'required_env': <Object?>[]},
+      ],
+    )..failAfterInstall.add('tide-notes');
+    await openCatalog(tester, hermes);
+    await tester.tap(find.text('tide-notes'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Hermes MCP action failed.'), findsOneWidget);
+    expect(find.text('tide-notes'), findsOneWidget);
+    expect(find.text('No MCP servers configured.'), findsNothing);
     await hermes.dispose();
   });
 

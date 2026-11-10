@@ -199,11 +199,17 @@ final class _HermesMcpPageState extends ConsumerState<HermesMcpPage> {
     if (name.isEmpty) return;
     final credentials = await _askCatalogCredentials(selected);
     if (credentials == null) return;
-    final stillInstalling = await _service.addMcpCatalogEntry(
-      selected,
-      credentials: credentials,
-    );
-    _refresh();
+    final bool stillInstalling;
+    try {
+      stillInstalling = await _service.addMcpCatalogEntry(
+        selected,
+        credentials: credentials,
+      );
+    } finally {
+      // Shows what Hermes has even when a step after the install failed,
+      // so the entry is not asked for again.
+      _refresh();
+    }
     if (stillInstalling) {
       // Listed, and ready to sign in to, only once Hermes has built it.
       if (!mounted) return;
