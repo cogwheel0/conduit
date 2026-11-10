@@ -157,6 +157,7 @@ import 'package:conduit_core/features/hermes/services/hermes_history_edit.dart';
 import 'package:conduit_core/features/hermes/services/hermes_local_document_service.dart';
 import 'package:conduit_core/features/hermes/services/hermes_local_document_trust_store.dart';
 import 'package:conduit_core/features/hermes/services/hermes_message_mapper.dart';
+import 'package:conduit_core/features/hermes/services/hermes_queued_answer.dart';
 import 'package:conduit_core/features/hermes/services/hermes_run_transport.dart';
 import 'package:conduit_core/features/hermes/services/hermes_session_provenance.dart';
 import 'package:conduit_core/features/direct_connections/direct_connections.dart';
