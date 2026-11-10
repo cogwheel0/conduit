@@ -138,9 +138,30 @@ List<SourceRange> findVerbatimMarkdownRanges(String markdown) {
 
 void _addInline(String markdown, int start, int end, List<SourceRange> ranges) {
   final segment = markdown.substring(start, end);
-  for (final match in _verbatimInline.allMatches(segment)) {
+  var from = 0;
+  while (from < segment.length) {
+    final match = _verbatimInline.allMatches(segment, from).firstOrNull;
+    if (match == null) return;
+    if (segment.startsWith('`', match.start) &&
+        _escapedAt(segment, match.start)) {
+      // `\`` is a literal backtick; as in the parser, a code span can still
+      // open after it.
+      from = match.start + 1;
+      continue;
+    }
     ranges.add(SourceRange(start + match.start, start + match.end));
+    from = match.end;
   }
+}
+
+/// Whether the character at [index] is escaped by an odd run of
+/// backslashes.
+bool _escapedAt(String text, int index) {
+  var count = 0;
+  for (var cursor = index - 1; cursor >= 0 && text[cursor] == r'\'; cursor--) {
+    count++;
+  }
+  return count.isOdd;
 }
 
 List<SourceRange> _merge(List<SourceRange> ranges) {

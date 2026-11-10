@@ -131,6 +131,12 @@ void main() {
       expect(plain(text, hasSources: true), text);
     });
 
+    test('an escaped backtick opens no code span; the next one can', () {
+      expect(plain(r'\`cost $5 <i>`'), r'\`cost \$5 &lt;i>`');
+      expect(plain(r'\`a `b $5` c $6'), r'\`a `b $5` c \$6');
+      expect(plain(r'\\`b $5`'), r'\\`b $5`');
+    });
+
     test('fences keep everything, unclosed ones to the end', () {
       const closed = '~~~\n\$x\$ <i> [1] \\(y\\)\n~~~\n\nafter \$5';
       expect(
