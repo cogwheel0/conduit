@@ -653,7 +653,7 @@ void main() {
 
     await tester.tap(submit);
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Send without encryption'));
+    await tester.tap(find.text('Send Without Encryption'));
     await tester.pumpAndSettle();
 
     check(gateway.probes).equals(1);
@@ -708,7 +708,7 @@ void main() {
     // Found by its label, which a loading button does not show.
     ConduitButton refresh() => tester.widget<ConduitButton>(
       find.byWidgetPredicate(
-        (widget) => widget is ConduitButton && widget.text == 'Refresh profiles',
+        (widget) => widget is ConduitButton && widget.text == 'Refresh Profiles',
       ),
     );
 
