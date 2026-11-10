@@ -4775,5 +4775,13 @@
   "hermesProcessKilled": "Processus terminé.",
   "hermesProcessAlreadyStopped": "Il était déjà arrêté.",
   "hermesProcessKillFailed": "Impossible de le terminer : {error}",
-  "@hermesProcessKillFailed": {"placeholders": {"error": {"type": "String"}}}
+  "@hermesProcessKillFailed": {"placeholders": {"error": {"type": "String"}}},
+  "modelPickerCodingAgents": "Agents de programmation",
+  "modelControlServiceTier": "Niveau de service",
+  "scheduledTaskTerminalSearchHint": "Rechercher des terminaux",
+  "scheduledTaskWorkingFolderLabel": "Dossier de travail",
+  "scheduledTaskWorkingFolderHint": "Dossier par défaut du terminal",
+  "scheduledTaskTerminalRequired": "Choisissez le terminal sur lequel cet agent s’exécute.",
+  "scheduledTaskAgentNeedsChat": "Les résultats d’un agent vont dans un nouveau chat.",
+  "scheduledTaskAgentsLoading": "Chargement des agents de ce terminal…"
 }

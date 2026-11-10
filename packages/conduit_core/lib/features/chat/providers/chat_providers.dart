@@ -170,6 +170,9 @@ import 'package:conduit_core/features/chat/providers/context_attachments_provide
 import 'package:conduit_core/features/chat/providers/reasoning_effort_provider.dart';
 
 import 'package:conduit_core/features/tools/providers/tools_providers.dart';
+import 'package:conduit_core/features/terminal/models/terminal_agent_model.dart';
+import 'package:conduit_core/models/model_controls.dart';
+import 'package:conduit_core/features/terminal/providers/terminal_providers.dart';
 import 'package:conduit_core/features/integrations/personal_tool_execution.dart';
 import 'package:conduit_core/features/integrations/personal_connection_client.dart';
 import 'package:conduit_core/features/integrations/personal_connection_settings.dart';
@@ -214,6 +217,7 @@ part 'chat_hermes_replay.dart';
 part 'chat_hermes_turns.dart';
 part 'chat_librechat_turns.dart';
 part 'chat_message_structure.dart';
+part 'chat_model_controls.dart';
 part 'chat_messages_notifier.dart';
 part 'chat_mutation_ownership.dart';
 part 'chat_openapi_tools.dart';
@@ -223,6 +227,7 @@ part 'chat_regeneration.dart';
 part 'chat_send_message.dart';
 part 'chat_send_placeholder.dart';
 part 'chat_session_lifecycle.dart';
+part 'chat_terminal_agents.dart';
 part 'chat_streaming_content.dart';
 part 'chat_transcript_paging.dart';
 part 'chat_voice_chat_metadata.dart';

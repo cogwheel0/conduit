@@ -321,6 +321,18 @@ final modelTerminalAutoSelectionProvider = Provider<void>((ref) {
       chosen = true;
       choice = current;
     }
+    // A coding agent runs only on its own terminal, which counts as the
+    // user's pick: a later switch of model keeps it, as on Open WebUI.
+    final agentTerminal = terminalAgentTerminalId(model);
+    if (agentTerminal != null) {
+      chosen = true;
+      choice = agentTerminal;
+      lastApplied = agentTerminal;
+      if (current != agentTerminal) {
+        ref.read(selectedTerminalIdProvider.notifier).set(agentTerminal);
+      }
+      return;
+    }
     final next = chosen ? choice : terminalId;
     lastApplied = next;
     if (current == next) {

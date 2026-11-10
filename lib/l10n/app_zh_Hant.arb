@@ -4775,5 +4775,13 @@
   "hermesProcessKilled": "程序已終止。",
   "hermesProcessAlreadyStopped": "它已經停止了。",
   "hermesProcessKillFailed": "無法終止：{error}",
-  "@hermesProcessKillFailed": {"placeholders": {"error": {"type": "String"}}}
+  "@hermesProcessKillFailed": {"placeholders": {"error": {"type": "String"}}},
+  "modelPickerCodingAgents": "程式設計代理",
+  "modelControlServiceTier": "服務等級",
+  "scheduledTaskTerminalSearchHint": "搜尋終端機",
+  "scheduledTaskWorkingFolderLabel": "工作資料夾",
+  "scheduledTaskWorkingFolderHint": "終端機的預設資料夾",
+  "scheduledTaskTerminalRequired": "請選擇執行此代理的終端機。",
+  "scheduledTaskAgentNeedsChat": "代理的結果會傳送到新聊天。",
+  "scheduledTaskAgentsLoading": "正在載入此終端機的代理…"
 }

@@ -6698,5 +6698,13 @@
   "hermesProcessKilled": "Proces bol ukončený.",
   "hermesProcessAlreadyStopped": "Už bol zastavený.",
   "hermesProcessKillFailed": "Nepodarilo sa ho ukončiť: {error}",
-  "@hermesProcessKillFailed": {"placeholders": {"error": {"type": "String"}}}
+  "@hermesProcessKillFailed": {"placeholders": {"error": {"type": "String"}}},
+  "modelPickerCodingAgents": "Programovací agenti",
+  "modelControlServiceTier": "Úroveň služby",
+  "scheduledTaskTerminalSearchHint": "Hľadať terminály",
+  "scheduledTaskWorkingFolderLabel": "Pracovný priečinok",
+  "scheduledTaskWorkingFolderHint": "Predvolený priečinok terminálu",
+  "scheduledTaskTerminalRequired": "Vyberte terminál, na ktorom tento agent beží.",
+  "scheduledTaskAgentNeedsChat": "Výsledky agenta sa ukladajú do nového chatu.",
+  "scheduledTaskAgentsLoading": "Načítavajú sa agenti tohto terminálu…"
 }

@@ -246,6 +246,37 @@ final systemTerminalLiveFeaturesProvider = Provider<bool>((ref) {
       true;
 });
 
+/// Whether the active Open WebUI server offers the coding agents on its
+/// terminals as models (0.13.1 and later). False until a config confirmed to
+/// belong to the active server reports such a version: an older server lists
+/// no agents, so asking it would only fetch the model list twice.
+final terminalAgentsSupportedProvider = Provider<bool>((ref) {
+  final activeId = ref.watch(activeServerProvider).asData?.value?.id;
+  final config = ref.watch(backendConfigProvider).asData?.value;
+  if (activeId == null || config == null) return false;
+  if (config.serverId != activeId) return false;
+  return ServerVersionCompat.knownAtLeast(
+        config.version,
+        ServerVersionCompat.terminalAgentsVersion,
+      ) ==
+      true;
+});
+
+/// Whether the active Open WebUI server runs a coding agent as a scheduled
+/// task (0.13.3 and later). False until a config confirmed to belong to the
+/// active server reports such a version.
+final automationAgentsSupportedProvider = Provider<bool>((ref) {
+  final activeId = ref.watch(activeServerProvider).asData?.value?.id;
+  final config = ref.watch(backendConfigProvider).asData?.value;
+  if (activeId == null || config == null) return false;
+  if (config.serverId != activeId) return false;
+  return ServerVersionCompat.knownAtLeast(
+        config.version,
+        ServerVersionCompat.automationAgentsVersion,
+      ) ==
+      true;
+});
+
 @Riverpod(keepAlive: true)
 class BackendConfigNotifier extends _$BackendConfigNotifier {
   // AsyncNotifier instances survive dependency-triggered rebuilds. This must

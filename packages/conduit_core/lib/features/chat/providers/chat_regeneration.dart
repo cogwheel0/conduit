@@ -1309,9 +1309,10 @@ Future<void> regenerateMessage(
       );
       return;
     }
-    final terminalIdForApi = modelSupportsTerminal(selectedModel)
-        ? _resolveTerminalIdForRequest(selectedTerminalId: selectedTerminalId)
-        : null;
+    final terminalIdForApi = terminalIdForModelRequest(
+      selectedModel,
+      selectedTerminalId: selectedTerminalId,
+    );
     final codeInterpreterEnabled =
         codeInterpreterAtRegenerationStart && terminalIdForApi == null;
 

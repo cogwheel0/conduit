@@ -386,9 +386,10 @@ Future<void> durableSend(
   final filterIds = selectedFilterIdsForModel(ref, selectedModel);
   final now = ref.read(syncClockProvider).nowEpochSeconds();
   final selectedTerminalId = ref.read(selectedTerminalIdProvider);
-  final terminalIdForCompletion = modelSupportsTerminal(selectedModel)
-      ? _resolveTerminalIdForRequest(selectedTerminalId: selectedTerminalId)
-      : null;
+  final terminalIdForCompletion = terminalIdForModelRequest(
+    selectedModel,
+    selectedTerminalId: selectedTerminalId,
+  );
   final webSearchEnabled =
       ref.read(webSearchEnabledProvider) &&
       ref.read(webSearchAvailableProvider);

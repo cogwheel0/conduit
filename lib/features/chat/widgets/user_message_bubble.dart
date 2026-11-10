@@ -62,6 +62,10 @@ class UserMessageBubble extends ConsumerStatefulWidget {
 
   /// Another user's chat (shared folder): only copy is offered.
   final bool readOnly;
+
+  /// Whether the message may be edited and sent again. False in a coding
+  /// agent's chat, which only a new message continues.
+  final bool allowsEdit;
   final VoidCallback? onEdit;
   final VoidCallback? onRegenerate;
   final VoidCallback? onLike;
@@ -80,6 +84,7 @@ class UserMessageBubble extends ConsumerStatefulWidget {
     this.onLike,
     this.onDislike,
     this.readOnly = false,
+    this.allowsEdit = true,
   });
 
   @override
@@ -768,7 +773,7 @@ class _UserMessageBubbleState extends ConsumerState<UserMessageBubble> {
     final l10n = AppLocalizations.of(context)!;
 
     return [
-      if (!widget.readOnly)
+      if (!widget.readOnly && widget.allowsEdit)
         ConduitContextMenuAction(
           cupertinoIcon: CupertinoIcons.pencil,
           sfSymbol: 'pencil',

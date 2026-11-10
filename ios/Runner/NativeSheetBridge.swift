@@ -480,6 +480,8 @@ private struct NativeModelSelectorConfiguration {
     let allowsCustomReasoningEffort: Bool
     let customReasoningEffortTitle: String
     let customReasoningEffortHint: String
+    let modelControls: [NativeModelControlOption]
+    let modelControlDefaultTitle: String
 
     init?(_ arguments: Any?) {
         guard let payload = arguments as? [String: Any] else {
@@ -522,9 +524,38 @@ private struct NativeModelSelectorConfiguration {
             ?? "Custom effort"
         customReasoningEffortHint = (payload["customReasoningEffortHint"] as? String)
             ?? "Enter effort"
+        modelControls = (payload["modelControls"] as? [[String: Any]] ?? [])
+            .compactMap(NativeModelControlOption.init)
+        modelControlDefaultTitle = (payload["modelControlDefaultTitle"] as? String)
+            ?? "Default"
         if models.isEmpty {
             return nil
         }
+    }
+}
+
+/// One of the selected model's own settings (a coding agent's effort or
+/// service tier): a row in the selector that offers its options.
+private struct NativeModelControlOption {
+    let key: String
+    let title: String
+    var value: String?
+    let options: [String]
+    let labels: [String: String]
+
+    init?(_ payload: [String: Any]) {
+        guard let key = payload["key"] as? String, !key.isEmpty,
+              let options = payload["options"] as? [String], !options.isEmpty
+        else { return nil }
+        self.key = key
+        title = (payload["title"] as? String) ?? key
+        value = payload["value"] as? String
+        self.options = options
+        labels = payload["labels"] as? [String: String] ?? [:]
+    }
+
+    func label(for option: String) -> String {
+        labels[option] ?? option
     }
 }
 
@@ -1067,6 +1098,19 @@ private extension PlatformNativeSheetModelOption {
     }
 }
 
+private extension PlatformNativeSheetModelControl {
+    func asPayload() -> [String: Any] {
+        var payload: [String: Any] = [
+            "key": key,
+            "title": title,
+            "options": options,
+            "labels": labels,
+        ]
+        payload["value"] = value
+        return payload
+    }
+}
+
 private extension PlatformNativeSheetModelSelectorRequest {
     func asPayload() -> [String: Any] {
         var payload: [String: Any] = [
@@ -1085,6 +1129,8 @@ private extension PlatformNativeSheetModelSelectorRequest {
             "allowsCustomReasoningEffort": allowsCustomReasoningEffort,
             "customReasoningEffortTitle": customReasoningEffortTitle,
             "customReasoningEffortHint": customReasoningEffortHint,
+            "modelControls": modelControls.map { $0.asPayload() },
+            "modelControlDefaultTitle": modelControlDefaultTitle,
         ]
         payload["selectedModelId"] = selectedModelId
         payload["pinTitle"] = pinTitle
@@ -2034,6 +2080,11 @@ final class NativeSheetBridge: ConduitBridge, NativeSheetHostApi {
             onEffortChanged: { [weak self] value in
                 self?.flutterApi?.onReasoningEffortChanged(
                     event: PlatformNativeSheetReasoningEffortChangedEvent(value: value)
+                ) { _ in }
+            },
+            onModelControlChanged: { [weak self] key, value in
+                self?.flutterApi?.onModelControlChanged(
+                    event: PlatformNativeSheetModelControlChangedEvent(key: key, value: value)
                 ) { _ in }
             },
             onClose: { [weak self] in
@@ -5631,6 +5682,7 @@ private final class NativeModelSelectorTableViewController: UITableViewControlle
     private enum Section {
         case models
         case effort
+        case controls
         case more
     }
 
@@ -5638,7 +5690,9 @@ private final class NativeModelSelectorTableViewController: UITableViewControlle
     private let onSelect: (String) -> Void
     private let onTogglePin: (String) -> Void
     private let onEffortChanged: (String) -> Void
+    private let onModelControlChanged: (String, String) -> Void
     private let onClose: () -> Void
+    private var modelControls: [NativeModelControlOption]
     private var pinnedModelIds: [String]
     private var pinnedModelIdSet: Set<String>
     private var models: [NativeModelSelectorOption]
@@ -5676,7 +5730,10 @@ private final class NativeModelSelectorTableViewController: UITableViewControlle
         if let measuredDetentHeight { return measuredDetentHeight }
         let barHeight = navigationController?.navigationBar.frame.height ?? 0
         let chrome = max(barHeight, 56)
-        let rows = CGFloat(featuredModels.count + (effortSelectionEnabled ? 1 : 0))
+        let rows = CGFloat(
+            featuredModels.count + (effortSelectionEnabled ? 1 : 0)
+                + modelControls.count
+        )
         let groups = CGFloat(sections.count)
         return chrome + rows * 64 + groups * 36
     }
@@ -5701,13 +5758,16 @@ private final class NativeModelSelectorTableViewController: UITableViewControlle
         onSelect: @escaping (String) -> Void,
         onTogglePin: @escaping (String) -> Void,
         onEffortChanged: @escaping (String) -> Void,
+        onModelControlChanged: @escaping (String, String) -> Void,
         onClose: @escaping () -> Void
     ) {
         self.configuration = configuration
         self.onSelect = onSelect
         self.onTogglePin = onTogglePin
         self.onEffortChanged = onEffortChanged
+        self.onModelControlChanged = onModelControlChanged
         self.onClose = onClose
+        modelControls = configuration.modelControls
         pinnedModelIds = configuration.pinnedModelIds
         pinnedModelIdSet = Set(configuration.pinnedModelIds)
         models = configuration.models
@@ -5777,6 +5837,7 @@ private final class NativeModelSelectorTableViewController: UITableViewControlle
     override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
         switch sections[section] {
         case .models: visibleModels.count
+        case .controls: modelControls.count
         case .effort, .more: 1
         }
     }
@@ -5808,6 +5869,13 @@ private final class NativeModelSelectorTableViewController: UITableViewControlle
             content.text = configuration.reasoningEffortTitle
             content.secondaryText = effortLabel(reasoningEffortValue)
             cell.accessoryType = .disclosureIndicator
+        } else if section == .controls {
+            let control = modelControls[indexPath.row]
+            content.image = UIImage(systemName: "slider.horizontal.3")
+            content.text = control.title
+            content.secondaryText = control.value.map(control.label(for:))
+                ?? configuration.modelControlDefaultTitle
+            cell.accessoryType = .disclosureIndicator
         } else {
             content.image = UIImage(systemName: "ellipsis")
             content.text = configuration.moreModelsTitle
@@ -5828,6 +5896,11 @@ private final class NativeModelSelectorTableViewController: UITableViewControlle
         case .effort:
             guard effortSelectionEnabled else { return }
             presentEffortSelector(sourceView: tableView.cellForRow(at: indexPath))
+        case .controls:
+            presentModelControlSelector(
+                at: indexPath.row,
+                sourceView: tableView.cellForRow(at: indexPath)
+            )
         case .more:
             let controller = NativeMoreModelsTableViewController(
                 title: configuration.moreModelsTitle,
@@ -5954,6 +6027,7 @@ private final class NativeModelSelectorTableViewController: UITableViewControlle
         // has an effort to choose; a disabled row looks tappable but does
         // nothing.
         if effortSelectionEnabled { next.append(.effort) }
+        if !modelControls.isEmpty { next.append(.controls) }
         if !moreModels.isEmpty { next.append(.more) }
         sections = next
     }
@@ -5988,6 +6062,47 @@ private final class NativeModelSelectorTableViewController: UITableViewControlle
 
     private var effortSelectionEnabled: Bool {
         !reasoningEffortOptions.isEmpty || allowsCustomReasoningEffort
+    }
+
+    /// Offers the options of the control in row [index], as the effort row
+    /// does, and reports a new pick to Flutter, which saves it.
+    private func presentModelControlSelector(at index: Int, sourceView: UIView?) {
+        guard modelControls.indices.contains(index) else { return }
+        let control = modelControls[index]
+        let alert = UIAlertController(
+            title: control.title,
+            message: nil,
+            preferredStyle: .actionSheet
+        )
+        for option in control.options {
+            let label = control.label(for: option)
+            let action = UIAlertAction(
+                title: option == control.value ? "✓ \(label)" : label,
+                style: .default
+            ) { [weak self] _ in self?.commitModelControl(key: control.key, value: option) }
+            alert.addAction(action)
+        }
+        alert.addAction(UIAlertAction(title: nativeLocalized("native.cancel", "Cancel"), style: .cancel))
+        if let popover = alert.popoverPresentationController {
+            popover.sourceView = sourceView ?? view
+            popover.sourceRect = sourceView?.bounds ?? view.bounds
+        }
+        present(alert, animated: true)
+    }
+
+    private func commitModelControl(key: String, value: String) {
+        guard let index = modelControls.firstIndex(where: { $0.key == key }),
+              modelControls[index].value != value
+        else { return }
+        NativeSheetHaptics.selection()
+        modelControls[index].value = value
+        if let section = sections.firstIndex(of: .controls) {
+            tableView.reloadRows(
+                at: [IndexPath(row: index, section: section)],
+                with: .none
+            )
+        }
+        onModelControlChanged(key, value)
     }
 
     private func presentEffortSelector(sourceView: UIView?) {

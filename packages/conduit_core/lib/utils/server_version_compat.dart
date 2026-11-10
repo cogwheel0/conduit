@@ -57,6 +57,14 @@ class ServerVersionCompat {
   /// leads instead of following it.
   static const String terminalLiveFeaturesVersion = '0.13.0';
 
+  /// The first Open WebUI release that offers the coding agents on its
+  /// terminals (Claude Code, Codex, Pi and others) as models.
+  static const String terminalAgentsVersion = '0.13.1';
+
+  /// The first Open WebUI release that runs a coding agent as a scheduled
+  /// task, and lists the agents a task's terminal offers.
+  static const String automationAgentsVersion = '0.13.3';
+
   /// Whether [rawVersion] is [minimum] or newer, or null when [rawVersion]
   /// cannot be read. For a choice that must not guess either way.
   static bool? knownAtLeast(String? rawVersion, String minimum) {

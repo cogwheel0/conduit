@@ -654,6 +654,8 @@ class PlatformNativeSheetModelSelectorRequest {
     required this.allowsCustomReasoningEffort,
     required this.customReasoningEffortTitle,
     required this.customReasoningEffortHint,
+    required this.modelControls,
+    required this.modelControlDefaultTitle,
   });
 
   String presentationId;
@@ -674,6 +676,32 @@ class PlatformNativeSheetModelSelectorRequest {
   bool allowsCustomReasoningEffort;
   String customReasoningEffortTitle;
   String customReasoningEffortHint;
+
+  /// The selected model's own settings (a coding agent's effort or service
+  /// tier), one row each.
+  List<PlatformNativeSheetModelControl> modelControls;
+
+  /// What a control's row says while nothing is picked and it has no default.
+  String modelControlDefaultTitle;
+}
+
+/// One of a model's own settings, as the model selector offers it.
+class PlatformNativeSheetModelControl {
+  PlatformNativeSheetModelControl({
+    required this.key,
+    required this.title,
+    this.value,
+    required this.options,
+    required this.labels,
+  });
+
+  String key;
+  String title;
+
+  /// The option that applies now, or null when none does.
+  String? value;
+  List<String> options;
+  Map<String, String> labels;
 }
 
 class PlatformNativeSheetOptionsSelectorRequest {
@@ -787,6 +815,16 @@ class PlatformNativeSheetModelPinToggledEvent {
 class PlatformNativeSheetReasoningEffortChangedEvent {
   PlatformNativeSheetReasoningEffortChangedEvent({required this.value});
 
+  String value;
+}
+
+class PlatformNativeSheetModelControlChangedEvent {
+  PlatformNativeSheetModelControlChangedEvent({
+    required this.key,
+    required this.value,
+  });
+
+  String key;
   String value;
 }
 
@@ -1114,6 +1152,7 @@ abstract class NativeSheetFlutterApi {
   void onReasoningEffortChanged(
     PlatformNativeSheetReasoningEffortChangedEvent event,
   );
+  void onModelControlChanged(PlatformNativeSheetModelControlChangedEvent event);
   void commitEditProfile(PlatformNativeEditProfileCommittedEvent event);
 }
 

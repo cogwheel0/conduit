@@ -9121,5 +9121,21 @@
         "type": "String"
       }
     }
-  }
+  },
+  "modelPickerCodingAgents": "Agenci programistyczni",
+  "@modelPickerCodingAgents": {"description": "Heading in the model picker over the coding agents (such as Codex or Claude Code) that the selected Open WebUI terminal offers as models."},
+  "modelControlServiceTier": "Poziom usługi",
+  "@modelControlServiceTier": {"description": "Row title in the model picker for a coding agent's service tier setting (which processing tier, such as faster or cheaper, the agent's model uses)."},
+  "scheduledTaskTerminalSearchHint": "Szukaj terminali",
+  "@scheduledTaskTerminalSearchHint": {"description": "Search field hint in the list of terminals a scheduled task can run with."},
+  "scheduledTaskWorkingFolderLabel": "Folder roboczy",
+  "@scheduledTaskWorkingFolderLabel": {"description": "Label of the field for the folder on the terminal where a scheduled task starts. Optional."},
+  "scheduledTaskWorkingFolderHint": "Domyślny folder terminala",
+  "@scheduledTaskWorkingFolderHint": {"description": "Placeholder of the working folder field of a scheduled task, shown while it is empty: the terminal's own default folder is used."},
+  "scheduledTaskTerminalRequired": "Wybierz terminal, na którym działa ten agent.",
+  "@scheduledTaskTerminalRequired": {"description": "Shown on the terminal row of a scheduled task whose model is a coding agent (such as Codex) but which has no terminal."},
+  "scheduledTaskAgentNeedsChat": "Wyniki agenta trafiają do nowego czatu.",
+  "@scheduledTaskAgentNeedsChat": {"description": "Shown on the destination of a scheduled task whose model is a coding agent (such as Codex) when a channel is chosen: Open WebUI posts an agent's results only to a new chat."},
+  "scheduledTaskAgentsLoading": "Wczytywanie agentów tego terminala…",
+  "@scheduledTaskAgentsLoading": {"description": "Shown on the model row of a scheduled task while the coding agents its terminal offers are loading."}
 }

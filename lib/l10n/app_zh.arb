@@ -4775,5 +4775,13 @@
   "hermesProcessKilled": "进程已终止。",
   "hermesProcessAlreadyStopped": "它已经停止了。",
   "hermesProcessKillFailed": "无法终止：{error}",
-  "@hermesProcessKillFailed": {"placeholders": {"error": {"type": "String"}}}
+  "@hermesProcessKillFailed": {"placeholders": {"error": {"type": "String"}}},
+  "modelPickerCodingAgents": "编程智能体",
+  "modelControlServiceTier": "服务等级",
+  "scheduledTaskTerminalSearchHint": "搜索终端",
+  "scheduledTaskWorkingFolderLabel": "工作文件夹",
+  "scheduledTaskWorkingFolderHint": "终端的默认文件夹",
+  "scheduledTaskTerminalRequired": "请选择运行此智能体的终端。",
+  "scheduledTaskAgentNeedsChat": "智能体的结果会发送到新聊天。",
+  "scheduledTaskAgentsLoading": "正在加载此终端的智能体…"
 }

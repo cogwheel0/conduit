@@ -163,6 +163,11 @@ class AssistantMessageWidget extends ConsumerStatefulWidget {
   final VoidCallback? onCopy;
   final VoidCallback? onRegenerate;
 
+  /// Whether the reply may be regenerated (or retried) at all. False in a
+  /// coding agent's chat, where only a new message continues it: the action
+  /// is then not offered, rather than offered and refused.
+  final bool allowsRegenerate;
+
   /// Deletes the response; null where messages cannot be deleted.
   final VoidCallback? onDelete;
   final VoidCallback? onLike;
@@ -192,6 +197,7 @@ class AssistantMessageWidget extends ConsumerStatefulWidget {
     this.suppressStreamingHaptics = false,
     this.onCopy,
     this.onRegenerate,
+    this.allowsRegenerate = true,
     this.onDelete,
     this.onLike,
     this.onDislike,
@@ -2857,6 +2863,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
     final bool currentStreamingMessageCompleted =
         widget.isStreaming && _responseCompleted;
     final bool canRegenerate =
+        widget.allowsRegenerate &&
         widget.onRegenerate != null &&
         (!isChatStreaming || currentStreamingMessageCompleted);
     final bool canRetryWithoutEffort =
@@ -2957,7 +2964,7 @@ class _AssistantMessageWidgetState extends ConsumerState<AssistantMessageWidget>
               ? 'stop.fill'
               : 'speaker.wave.2',
         ),
-      if (!widget.readOnly && !_isVoiceReply)
+      if (!widget.readOnly && !_isVoiceReply && widget.allowsRegenerate)
         _AssistantFooterAction(
           id: isErrorMessage ? 'retry' : 'regenerate',
           icon: Platform.isIOS ? CupertinoIcons.refresh : Icons.refresh,

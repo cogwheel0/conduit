@@ -15,6 +15,8 @@ import 'package:conduit_core/features/chat/providers/chat_providers.dart'
     show
         captureOpenWebUiReasoningPickTarget,
         chatDataControlsEntryVisibleProvider,
+        modelControlChoicesProvider,
+        modelControlStates,
         selectReasoningEffortForModel;
 import 'package:conduit_core/features/chat/providers/reasoning_effort_provider.dart';
 
@@ -23,6 +25,7 @@ import '../../shared/theme/theme_extensions.dart';
 import '../../shared/theme/tweakcn_themes.dart';
 
 import 'package:conduit_core/models/model.dart';
+import 'package:conduit_core/models/model_controls.dart';
 import 'package:conduit_core/utils/model_display_name.dart';
 import 'package:conduit_core/models/tool.dart';
 
@@ -65,6 +68,9 @@ import 'package:conduit_core/features/direct_connections/providers/direct_connec
 import '../utils/native_sheet_utils.dart';
 import 'native_sheet_avatar_bytes_hydrator.dart';
 import 'native_sheet_bridge.dart';
+import '../../features/chat/widgets/model_control_labels.dart';
+import '../../platform/conduit_platform_apis.g.dart'
+    show PlatformNativeSheetModelControl;
 import '../../shared/services/navigation_service.dart';
 
 import 'package:conduit_core/features/chat/server_speech/direct_voice_provider_settings.dart';
@@ -378,6 +384,43 @@ class NativeSheetHydrationService {
     return _ref.read(modelsProvider.future);
   }
 
+  /// [model]'s own settings for the native selector's rows, with the
+  /// account's picks as stored on the server (waited for briefly: a slow
+  /// read shows each control's default instead).
+  Future<List<PlatformNativeSheetModelControl>> _modelControlsForSelector(
+    Model? model,
+    AppLocalizations? l10n,
+  ) async {
+    if (model == null || l10n == null || modelControlsOf(model).isEmpty) {
+      return const <PlatformNativeSheetModelControl>[];
+    }
+    var choices = const <String, Map<String, String>>{};
+    try {
+      choices = await _ref
+          .read(modelControlChoicesProvider.future)
+          .timeout(const Duration(seconds: 1));
+    } catch (_) {
+      choices = _ref.read(modelControlChoicesProvider).asData?.value ?? choices;
+    }
+    return [
+      for (final state in modelControlStates(model, choices))
+        PlatformNativeSheetModelControl(
+          key: state.control.key,
+          title: modelControlTitle(l10n, state.control),
+          value: state.value,
+          options: [for (final option in state.control.options) option.value],
+          labels: {
+            for (final option in state.control.options)
+              option.value: modelControlOptionLabel(
+                l10n,
+                state.control,
+                option.value,
+              ),
+          },
+        ),
+    ];
+  }
+
   Future<String?> presentModelSelector(
     BuildContext context, {
     required String title,
@@ -386,6 +429,7 @@ class NativeSheetHydrationService {
     List<NativeSheetModelOption> leadingOptions =
         const <NativeSheetModelOption>[],
     bool allowsPinning = false,
+    bool includeModelControls = false,
     bool rethrowErrors = true,
   }) async {
     // Native permits only one selector at a time. Reject overlap before a
@@ -453,6 +497,9 @@ class NativeSheetHydrationService {
       );
       final allowsCustomEffort = effortPolicy.allowsCustom;
       final effortOptions = effortPolicy.options;
+      final controlModel = includeModelControls ? effortModel : null;
+      final modelControls = await _modelControlsForSelector(controlModel, l10n);
+      if (!context.mounted) return null;
 
       Uint8List? hermesAvatarBytes;
       if (orderedModels.any(isHermesModel)) {
@@ -593,6 +640,13 @@ class NativeSheetHydrationService {
             l10n?.customReasoningEffort ?? 'Custom effort',
         customReasoningEffortHint:
             l10n?.customReasoningEffortHint ?? 'Enter effort',
+        modelControls: modelControls,
+        modelControlDefaultTitle: l10n?.defaultLabel ?? 'Default',
+        onModelControlChanged: controlModel == null || modelControls.isEmpty
+            ? null
+            : (key, value) => _ref
+                  .read(modelControlChoicesProvider.notifier)
+                  .choose(controlModel, key, value),
         onTogglePinned: canTogglePinnedModels
             ? (modelId) => _ref
                   .read(personalizationSettingsProvider.notifier)

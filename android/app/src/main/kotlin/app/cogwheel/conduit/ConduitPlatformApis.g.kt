@@ -2173,7 +2173,14 @@ data class PlatformNativeSheetModelSelectorRequest (
   val reasoningEffortLabels: Map<String, String>,
   val allowsCustomReasoningEffort: Boolean,
   val customReasoningEffortTitle: String,
-  val customReasoningEffortHint: String
+  val customReasoningEffortHint: String,
+  /**
+   * The selected model's own settings (a coding agent's effort or service
+   * tier), one row each.
+   */
+  val modelControls: List<PlatformNativeSheetModelControl>,
+  /** What a control's row says while nothing is picked and it has no default. */
+  val modelControlDefaultTitle: String
 )
  {
   companion object {
@@ -2196,7 +2203,9 @@ data class PlatformNativeSheetModelSelectorRequest (
       val allowsCustomReasoningEffort = pigeonVar_list[15] as Boolean
       val customReasoningEffortTitle = pigeonVar_list[16] as String
       val customReasoningEffortHint = pigeonVar_list[17] as String
-      return PlatformNativeSheetModelSelectorRequest(presentationId, title, selectedModelId, models, pinnedModelIds, featuredModelIds, allowsPinning, pinTitle, unpinTitle, moreModelsTitle, searchModelsTitle, reasoningEffortTitle, reasoningEffortValue, reasoningEffortOptions, reasoningEffortLabels, allowsCustomReasoningEffort, customReasoningEffortTitle, customReasoningEffortHint)
+      val modelControls = pigeonVar_list[18] as List<PlatformNativeSheetModelControl>
+      val modelControlDefaultTitle = pigeonVar_list[19] as String
+      return PlatformNativeSheetModelSelectorRequest(presentationId, title, selectedModelId, models, pinnedModelIds, featuredModelIds, allowsPinning, pinTitle, unpinTitle, moreModelsTitle, searchModelsTitle, reasoningEffortTitle, reasoningEffortValue, reasoningEffortOptions, reasoningEffortLabels, allowsCustomReasoningEffort, customReasoningEffortTitle, customReasoningEffortHint, modelControls, modelControlDefaultTitle)
     }
   }
   fun toList(): List<Any?> {
@@ -2219,6 +2228,8 @@ data class PlatformNativeSheetModelSelectorRequest (
       allowsCustomReasoningEffort,
       customReasoningEffortTitle,
       customReasoningEffortHint,
+      modelControls,
+      modelControlDefaultTitle,
     )
   }
   override fun equals(other: Any?): Boolean {
@@ -2229,7 +2240,7 @@ data class PlatformNativeSheetModelSelectorRequest (
       return true
     }
     val other = other as PlatformNativeSheetModelSelectorRequest
-    return ConduitPlatformApisPigeonUtils.deepEquals(this.presentationId, other.presentationId) && ConduitPlatformApisPigeonUtils.deepEquals(this.title, other.title) && ConduitPlatformApisPigeonUtils.deepEquals(this.selectedModelId, other.selectedModelId) && ConduitPlatformApisPigeonUtils.deepEquals(this.models, other.models) && ConduitPlatformApisPigeonUtils.deepEquals(this.pinnedModelIds, other.pinnedModelIds) && ConduitPlatformApisPigeonUtils.deepEquals(this.featuredModelIds, other.featuredModelIds) && ConduitPlatformApisPigeonUtils.deepEquals(this.allowsPinning, other.allowsPinning) && ConduitPlatformApisPigeonUtils.deepEquals(this.pinTitle, other.pinTitle) && ConduitPlatformApisPigeonUtils.deepEquals(this.unpinTitle, other.unpinTitle) && ConduitPlatformApisPigeonUtils.deepEquals(this.moreModelsTitle, other.moreModelsTitle) && ConduitPlatformApisPigeonUtils.deepEquals(this.searchModelsTitle, other.searchModelsTitle) && ConduitPlatformApisPigeonUtils.deepEquals(this.reasoningEffortTitle, other.reasoningEffortTitle) && ConduitPlatformApisPigeonUtils.deepEquals(this.reasoningEffortValue, other.reasoningEffortValue) && ConduitPlatformApisPigeonUtils.deepEquals(this.reasoningEffortOptions, other.reasoningEffortOptions) && ConduitPlatformApisPigeonUtils.deepEquals(this.reasoningEffortLabels, other.reasoningEffortLabels) && ConduitPlatformApisPigeonUtils.deepEquals(this.allowsCustomReasoningEffort, other.allowsCustomReasoningEffort) && ConduitPlatformApisPigeonUtils.deepEquals(this.customReasoningEffortTitle, other.customReasoningEffortTitle) && ConduitPlatformApisPigeonUtils.deepEquals(this.customReasoningEffortHint, other.customReasoningEffortHint)
+    return ConduitPlatformApisPigeonUtils.deepEquals(this.presentationId, other.presentationId) && ConduitPlatformApisPigeonUtils.deepEquals(this.title, other.title) && ConduitPlatformApisPigeonUtils.deepEquals(this.selectedModelId, other.selectedModelId) && ConduitPlatformApisPigeonUtils.deepEquals(this.models, other.models) && ConduitPlatformApisPigeonUtils.deepEquals(this.pinnedModelIds, other.pinnedModelIds) && ConduitPlatformApisPigeonUtils.deepEquals(this.featuredModelIds, other.featuredModelIds) && ConduitPlatformApisPigeonUtils.deepEquals(this.allowsPinning, other.allowsPinning) && ConduitPlatformApisPigeonUtils.deepEquals(this.pinTitle, other.pinTitle) && ConduitPlatformApisPigeonUtils.deepEquals(this.unpinTitle, other.unpinTitle) && ConduitPlatformApisPigeonUtils.deepEquals(this.moreModelsTitle, other.moreModelsTitle) && ConduitPlatformApisPigeonUtils.deepEquals(this.searchModelsTitle, other.searchModelsTitle) && ConduitPlatformApisPigeonUtils.deepEquals(this.reasoningEffortTitle, other.reasoningEffortTitle) && ConduitPlatformApisPigeonUtils.deepEquals(this.reasoningEffortValue, other.reasoningEffortValue) && ConduitPlatformApisPigeonUtils.deepEquals(this.reasoningEffortOptions, other.reasoningEffortOptions) && ConduitPlatformApisPigeonUtils.deepEquals(this.reasoningEffortLabels, other.reasoningEffortLabels) && ConduitPlatformApisPigeonUtils.deepEquals(this.allowsCustomReasoningEffort, other.allowsCustomReasoningEffort) && ConduitPlatformApisPigeonUtils.deepEquals(this.customReasoningEffortTitle, other.customReasoningEffortTitle) && ConduitPlatformApisPigeonUtils.deepEquals(this.customReasoningEffortHint, other.customReasoningEffortHint) && ConduitPlatformApisPigeonUtils.deepEquals(this.modelControls, other.modelControls) && ConduitPlatformApisPigeonUtils.deepEquals(this.modelControlDefaultTitle, other.modelControlDefaultTitle)
   }
 
   override fun hashCode(): Int {
@@ -2252,10 +2263,70 @@ data class PlatformNativeSheetModelSelectorRequest (
     result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.allowsCustomReasoningEffort)
     result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.customReasoningEffortTitle)
     result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.customReasoningEffortHint)
+    result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.modelControls)
+    result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.modelControlDefaultTitle)
     return result
   }
   override fun toString(): String {
-    return "PlatformNativeSheetModelSelectorRequest(presentationId=$presentationId, title=$title, selectedModelId=$selectedModelId, models=$models, pinnedModelIds=$pinnedModelIds, featuredModelIds=$featuredModelIds, allowsPinning=$allowsPinning, pinTitle=$pinTitle, unpinTitle=$unpinTitle, moreModelsTitle=$moreModelsTitle, searchModelsTitle=$searchModelsTitle, reasoningEffortTitle=$reasoningEffortTitle, reasoningEffortValue=$reasoningEffortValue, reasoningEffortOptions=$reasoningEffortOptions, reasoningEffortLabels=$reasoningEffortLabels, allowsCustomReasoningEffort=$allowsCustomReasoningEffort, customReasoningEffortTitle=$customReasoningEffortTitle, customReasoningEffortHint=$customReasoningEffortHint)"
+    return "PlatformNativeSheetModelSelectorRequest(presentationId=$presentationId, title=$title, selectedModelId=$selectedModelId, models=$models, pinnedModelIds=$pinnedModelIds, featuredModelIds=$featuredModelIds, allowsPinning=$allowsPinning, pinTitle=$pinTitle, unpinTitle=$unpinTitle, moreModelsTitle=$moreModelsTitle, searchModelsTitle=$searchModelsTitle, reasoningEffortTitle=$reasoningEffortTitle, reasoningEffortValue=$reasoningEffortValue, reasoningEffortOptions=$reasoningEffortOptions, reasoningEffortLabels=$reasoningEffortLabels, allowsCustomReasoningEffort=$allowsCustomReasoningEffort, customReasoningEffortTitle=$customReasoningEffortTitle, customReasoningEffortHint=$customReasoningEffortHint, modelControls=$modelControls, modelControlDefaultTitle=$modelControlDefaultTitle)"
+  }
+}
+
+/**
+ * One of a model's own settings, as the model selector offers it.
+ *
+ * Generated class from Pigeon that represents data sent in messages.
+ */
+data class PlatformNativeSheetModelControl (
+  val key: String,
+  val title: String,
+  /** The option that applies now, or null when none does. */
+  val value: String? = null,
+  val options: List<String>,
+  val labels: Map<String, String>
+)
+ {
+  companion object {
+    fun fromList(pigeonVar_list: List<Any?>): PlatformNativeSheetModelControl {
+      val key = pigeonVar_list[0] as String
+      val title = pigeonVar_list[1] as String
+      val value = pigeonVar_list[2] as String?
+      val options = pigeonVar_list[3] as List<String>
+      val labels = pigeonVar_list[4] as Map<String, String>
+      return PlatformNativeSheetModelControl(key, title, value, options, labels)
+    }
+  }
+  fun toList(): List<Any?> {
+    return listOf(
+      key,
+      title,
+      value,
+      options,
+      labels,
+    )
+  }
+  override fun equals(other: Any?): Boolean {
+    if (other == null || other.javaClass != javaClass) {
+      return false
+    }
+    if (this === other) {
+      return true
+    }
+    val other = other as PlatformNativeSheetModelControl
+    return ConduitPlatformApisPigeonUtils.deepEquals(this.key, other.key) && ConduitPlatformApisPigeonUtils.deepEquals(this.title, other.title) && ConduitPlatformApisPigeonUtils.deepEquals(this.value, other.value) && ConduitPlatformApisPigeonUtils.deepEquals(this.options, other.options) && ConduitPlatformApisPigeonUtils.deepEquals(this.labels, other.labels)
+  }
+
+  override fun hashCode(): Int {
+    var result = javaClass.hashCode()
+    result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.key)
+    result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.title)
+    result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.value)
+    result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.options)
+    result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.labels)
+    return result
+  }
+  override fun toString(): String {
+    return "PlatformNativeSheetModelControl(key=$key, title=$title, value=$value, options=$options, labels=$labels)"
   }
 }
 
@@ -2689,6 +2760,47 @@ data class PlatformNativeSheetReasoningEffortChangedEvent (
   }
   override fun toString(): String {
     return "PlatformNativeSheetReasoningEffortChangedEvent(value=$value)"
+  }
+}
+
+/** Generated class from Pigeon that represents data sent in messages. */
+data class PlatformNativeSheetModelControlChangedEvent (
+  val key: String,
+  val value: String
+)
+ {
+  companion object {
+    fun fromList(pigeonVar_list: List<Any?>): PlatformNativeSheetModelControlChangedEvent {
+      val key = pigeonVar_list[0] as String
+      val value = pigeonVar_list[1] as String
+      return PlatformNativeSheetModelControlChangedEvent(key, value)
+    }
+  }
+  fun toList(): List<Any?> {
+    return listOf(
+      key,
+      value,
+    )
+  }
+  override fun equals(other: Any?): Boolean {
+    if (other == null || other.javaClass != javaClass) {
+      return false
+    }
+    if (this === other) {
+      return true
+    }
+    val other = other as PlatformNativeSheetModelControlChangedEvent
+    return ConduitPlatformApisPigeonUtils.deepEquals(this.key, other.key) && ConduitPlatformApisPigeonUtils.deepEquals(this.value, other.value)
+  }
+
+  override fun hashCode(): Int {
+    var result = javaClass.hashCode()
+    result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.key)
+    result = 31 * result + ConduitPlatformApisPigeonUtils.deepHash(this.value)
+    return result
+  }
+  override fun toString(): String {
+    return "PlatformNativeSheetModelControlChangedEvent(key=$key, value=$value)"
   }
 }
 
@@ -3431,95 +3543,105 @@ private open class ConduitPlatformApisPigeonCodec : StandardMessageCodec() {
       }
       170.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          PlatformNativeSheetOptionsSelectorRequest.fromList(it)
+          PlatformNativeSheetModelControl.fromList(it)
         }
       }
       171.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          PlatformNativeSheetDatePickerRequest.fromList(it)
+          PlatformNativeSheetOptionsSelectorRequest.fromList(it)
         }
       }
       172.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          PlatformNativeSheetTextEditorRequest.fromList(it)
+          PlatformNativeSheetDatePickerRequest.fromList(it)
         }
       }
       173.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          PlatformNativeSheetResultRequest.fromList(it)
+          PlatformNativeSheetTextEditorRequest.fromList(it)
         }
       }
       174.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          PlatformNativeSheetApplyDetailPatchRequest.fromList(it)
+          PlatformNativeSheetResultRequest.fromList(it)
         }
       }
       175.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          PlatformNativeSheetControlChangedEvent.fromList(it)
+          PlatformNativeSheetApplyDetailPatchRequest.fromList(it)
         }
       }
       176.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          PlatformNativeSheetDetailAppearedEvent.fromList(it)
+          PlatformNativeSheetControlChangedEvent.fromList(it)
         }
       }
       177.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          PlatformNativeSheetModelPinToggledEvent.fromList(it)
+          PlatformNativeSheetDetailAppearedEvent.fromList(it)
         }
       }
       178.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          PlatformNativeSheetReasoningEffortChangedEvent.fromList(it)
+          PlatformNativeSheetModelPinToggledEvent.fromList(it)
         }
       }
       179.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          PlatformNativeEditProfileCommittedEvent.fromList(it)
+          PlatformNativeSheetReasoningEffortChangedEvent.fromList(it)
         }
       }
       180.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          PlatformNativeSheetActionResult.fromList(it)
+          PlatformNativeSheetModelControlChangedEvent.fromList(it)
         }
       }
       181.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          PlatformPccStatus.fromList(it)
+          PlatformNativeEditProfileCommittedEvent.fromList(it)
         }
       }
       182.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          PlatformPccImage.fromList(it)
+          PlatformNativeSheetActionResult.fromList(it)
         }
       }
       183.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          PlatformPccMessage.fromList(it)
+          PlatformPccStatus.fromList(it)
         }
       }
       184.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          PlatformPccToolDefinition.fromList(it)
+          PlatformPccImage.fromList(it)
         }
       }
       185.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          PlatformPccToolCall.fromList(it)
+          PlatformPccMessage.fromList(it)
         }
       }
       186.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          PlatformPccToolResult.fromList(it)
+          PlatformPccToolDefinition.fromList(it)
         }
       }
       187.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          PlatformPccCompletionRequest.fromList(it)
+          PlatformPccToolCall.fromList(it)
         }
       }
       188.toByte() -> {
+        return (readValue(buffer) as? List<Any?>)?.let {
+          PlatformPccToolResult.fromList(it)
+        }
+      }
+      189.toByte() -> {
+        return (readValue(buffer) as? List<Any?>)?.let {
+          PlatformPccCompletionRequest.fromList(it)
+        }
+      }
+      190.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
           PlatformPccStreamEvent.fromList(it)
         }
@@ -3693,80 +3815,88 @@ private open class ConduitPlatformApisPigeonCodec : StandardMessageCodec() {
         stream.write(169)
         writeValue(stream, value.toList())
       }
-      is PlatformNativeSheetOptionsSelectorRequest -> {
+      is PlatformNativeSheetModelControl -> {
         stream.write(170)
         writeValue(stream, value.toList())
       }
-      is PlatformNativeSheetDatePickerRequest -> {
+      is PlatformNativeSheetOptionsSelectorRequest -> {
         stream.write(171)
         writeValue(stream, value.toList())
       }
-      is PlatformNativeSheetTextEditorRequest -> {
+      is PlatformNativeSheetDatePickerRequest -> {
         stream.write(172)
         writeValue(stream, value.toList())
       }
-      is PlatformNativeSheetResultRequest -> {
+      is PlatformNativeSheetTextEditorRequest -> {
         stream.write(173)
         writeValue(stream, value.toList())
       }
-      is PlatformNativeSheetApplyDetailPatchRequest -> {
+      is PlatformNativeSheetResultRequest -> {
         stream.write(174)
         writeValue(stream, value.toList())
       }
-      is PlatformNativeSheetControlChangedEvent -> {
+      is PlatformNativeSheetApplyDetailPatchRequest -> {
         stream.write(175)
         writeValue(stream, value.toList())
       }
-      is PlatformNativeSheetDetailAppearedEvent -> {
+      is PlatformNativeSheetControlChangedEvent -> {
         stream.write(176)
         writeValue(stream, value.toList())
       }
-      is PlatformNativeSheetModelPinToggledEvent -> {
+      is PlatformNativeSheetDetailAppearedEvent -> {
         stream.write(177)
         writeValue(stream, value.toList())
       }
-      is PlatformNativeSheetReasoningEffortChangedEvent -> {
+      is PlatformNativeSheetModelPinToggledEvent -> {
         stream.write(178)
         writeValue(stream, value.toList())
       }
-      is PlatformNativeEditProfileCommittedEvent -> {
+      is PlatformNativeSheetReasoningEffortChangedEvent -> {
         stream.write(179)
         writeValue(stream, value.toList())
       }
-      is PlatformNativeSheetActionResult -> {
+      is PlatformNativeSheetModelControlChangedEvent -> {
         stream.write(180)
         writeValue(stream, value.toList())
       }
-      is PlatformPccStatus -> {
+      is PlatformNativeEditProfileCommittedEvent -> {
         stream.write(181)
         writeValue(stream, value.toList())
       }
-      is PlatformPccImage -> {
+      is PlatformNativeSheetActionResult -> {
         stream.write(182)
         writeValue(stream, value.toList())
       }
-      is PlatformPccMessage -> {
+      is PlatformPccStatus -> {
         stream.write(183)
         writeValue(stream, value.toList())
       }
-      is PlatformPccToolDefinition -> {
+      is PlatformPccImage -> {
         stream.write(184)
         writeValue(stream, value.toList())
       }
-      is PlatformPccToolCall -> {
+      is PlatformPccMessage -> {
         stream.write(185)
         writeValue(stream, value.toList())
       }
-      is PlatformPccToolResult -> {
+      is PlatformPccToolDefinition -> {
         stream.write(186)
         writeValue(stream, value.toList())
       }
-      is PlatformPccCompletionRequest -> {
+      is PlatformPccToolCall -> {
         stream.write(187)
         writeValue(stream, value.toList())
       }
-      is PlatformPccStreamEvent -> {
+      is PlatformPccToolResult -> {
         stream.write(188)
+        writeValue(stream, value.toList())
+      }
+      is PlatformPccCompletionRequest -> {
+        stream.write(189)
+        writeValue(stream, value.toList())
+      }
+      is PlatformPccStreamEvent -> {
+        stream.write(190)
         writeValue(stream, value.toList())
       }
       else -> super.writeValue(stream, value)
@@ -4954,6 +5084,23 @@ class NativeSheetFlutterApi(private val binaryMessenger: BinaryMessenger, privat
 {
     val separatedMessageChannelSuffix = if (messageChannelSuffix.isNotEmpty()) ".$messageChannelSuffix" else ""
     val channelName = "dev.flutter.pigeon.conduit.NativeSheetFlutterApi.onReasoningEffortChanged$separatedMessageChannelSuffix"
+    val channel = BasicMessageChannel<Any?>(binaryMessenger, channelName, codec)
+    channel.send(listOf(eventArg)) {
+      if (it is List<*>) {
+        if (it.size > 1) {
+          callback(Result.failure(FlutterError(it[0] as String, it[1] as? String, it[2])))
+        } else {
+          callback(Result.success(Unit))
+        }
+      } else {
+        callback(Result.failure(ConduitPlatformApisPigeonUtils.createConnectionError(channelName)))
+      }
+    }
+  }
+  fun onModelControlChanged(eventArg: PlatformNativeSheetModelControlChangedEvent, callback: (Result<Unit>) -> Unit)
+{
+    val separatedMessageChannelSuffix = if (messageChannelSuffix.isNotEmpty()) ".$messageChannelSuffix" else ""
+    val channelName = "dev.flutter.pigeon.conduit.NativeSheetFlutterApi.onModelControlChanged$separatedMessageChannelSuffix"
     val channel = BasicMessageChannel<Any?>(binaryMessenger, channelName, codec)
     channel.send(listOf(eventArg)) {
       if (it is List<*>) {
