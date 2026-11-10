@@ -342,6 +342,88 @@ void main() {
     }
   }
 
+  testWidgets('before iOS 26 a tap on the thumb at the maximum stays there', (
+    tester,
+  ) async {
+    PlatformUiCapabilities.debugIOSMajorVersionOverride = 18;
+    PlatformUiCapabilities.debugNativeIOS26Override = false;
+    final reports = <String>[];
+    await tester.pumpWidget(
+      host(
+        SizedBox(
+          width: 300,
+          child: AdaptiveSlider(
+            value: 1,
+            seekOnTap: true,
+            onChanged: (value) => reports.add('change:$value'),
+          ),
+        ),
+      ),
+    );
+    // The thumb's centre stays 22 points in from the end of the slider.
+    final track = tester.getRect(find.byType(AdaptiveSlider));
+    await tester.tapAt(Offset(track.right - 22, track.center.dy));
+    expect(reports, ['change:1.0']);
+  }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
+
+  testWidgets('a short drag the iOS 26 slider follows ends once, not also as '
+      'a tap', (tester) async {
+    final reports = <String>[];
+    await tester.pumpWidget(
+      host(
+        SizedBox(
+          width: 300,
+          child: AdaptiveSlider(
+            value: 0.3,
+            seekOnTap: true,
+            onChangeStart: (value) => reports.add('start:$value'),
+            onChanged: (value) => reports.add('change:$value'),
+            onChangeEnd: (value) => reports.add('end:$value'),
+          ),
+        ),
+      ),
+    );
+    CNSlider slider() => tester.widget<CNSlider>(find.byType(CNSlider));
+    final track = tester.getRect(find.byType(AdaptiveSlider));
+    // UIKit moves the value while the finger moves less than a tap's slop.
+    final finger = await tester.startGesture(track.center);
+    slider().onChangeStart!(0.3);
+    await finger.moveBy(const Offset(4, 0));
+    slider().onChanged(0.32);
+    await finger.up();
+    slider().onChangeEnd!(0.32);
+    expect(reports, ['start:0.3', 'change:0.32', 'end:0.32']);
+  }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
+
+  testWidgets('before iOS 26 a drag that comes back near its start is not '
+      'also a tap', (tester) async {
+    PlatformUiCapabilities.debugIOSMajorVersionOverride = 18;
+    PlatformUiCapabilities.debugNativeIOS26Override = false;
+    final ends = <double>[];
+    await tester.pumpWidget(
+      host(
+        SizedBox(
+          width: 300,
+          child: AdaptiveSlider(
+            value: 0.5,
+            seekOnTap: true,
+            onChanged: (_) {},
+            onChangeEnd: ends.add,
+          ),
+        ),
+      ),
+    );
+    // From the thumb, halfway along, out and nearly back.
+    final track = tester.getRect(find.byType(AdaptiveSlider));
+    final finger = await tester.startGesture(track.center);
+    await finger.moveBy(const Offset(60, 0));
+    await tester.pump();
+    await finger.moveBy(const Offset(-55, 0));
+    await tester.pump();
+    await finger.up();
+    expect(ends, hasLength(1));
+  }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
+
   for (final native in [true, false]) {
     testWidgets('segmented controls carry their field name (native: $native)', (
       tester,

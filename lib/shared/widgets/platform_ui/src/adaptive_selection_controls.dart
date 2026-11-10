@@ -98,6 +98,10 @@ class AdaptiveSwitch extends StatelessWidget {
 /// draws a tick mark at each step. Sliders with more steps still snap to them.
 const int kAdaptiveSliderMaxTickedDivisions = 12;
 
+/// How far the Cupertino slider's thumb centre stays from either end of the
+/// slider: its padding (cupertino_ui's `_kPadding`) and the thumb's radius.
+const double _kCupertinoThumbTravelInset = 8 + CupertinoThumbPainter.radius;
+
 class AdaptiveSlider extends StatefulWidget {
   const AdaptiveSlider({
     super.key,
@@ -134,11 +138,10 @@ class AdaptiveSlider extends StatefulWidget {
   /// Music. Other platforms keep their slider.
   final bool thumbless;
 
-  /// Whether a tap on the track moves the value to the tapped point along
-  /// the slider's width, as a media scrubber does, reported as a change from
-  /// start to end. The iOS sliders otherwise only follow a drag (and the
-  /// Cupertino one only from near its thumb); the Material slider always
-  /// does this.
+  /// Whether a tap on the track moves the value to the tapped point, as a
+  /// media scrubber does, reported as a change from start to end. The iOS
+  /// sliders otherwise only follow a drag (and the Cupertino one only from
+  /// near its thumb); the Material slider always does this.
   final bool seekOnTap;
 
   @override
@@ -148,7 +151,8 @@ class AdaptiveSlider extends StatefulWidget {
 class _AdaptiveSliderState extends State<AdaptiveSlider> {
   int? _lastHapticStep;
 
-  /// Where a press on an iOS slider began, to tell a tap from a drag.
+  /// Where a press on an iOS slider began, until it moves far enough to be
+  /// a drag.
   Offset? _pressedAt;
 
   /// The value a touch on the iOS 26 slider started from, until the touch
@@ -226,30 +230,44 @@ class _AdaptiveSliderState extends State<AdaptiveSlider> {
     if (changed) widget.onChangeEnd?.call(value);
   }
 
-  /// A tap on an iOS slider moves the value to the tapped point. UIKit's
-  /// slider follows only a drag, and the Cupertino one only a drag that
-  /// starts near its thumb.
-  Widget _seekingOnTap(Widget slider) {
+  /// A tap on an iOS slider moves the value to the tapped point, the point
+  /// [inset] from either end standing for the minimum and the maximum.
+  /// UIKit's slider follows only a drag, and the Cupertino one only a drag
+  /// that starts near its thumb.
+  Widget _seekingOnTap(Widget slider, {double inset = 0}) {
     return Listener(
       // Raw pointer events reach this listener whether or not the slider
       // takes the gesture, across the whole track.
       behavior: HitTestBehavior.translucent,
       onPointerDown: (event) => _pressedAt = event.localPosition,
+      onPointerMove: (event) {
+        final pressedAt = _pressedAt;
+        if (pressedAt != null &&
+            (event.localPosition - pressedAt).distance > kTouchSlop) {
+          // A drag, even one that comes back, is the slider's own.
+          _pressedAt = null;
+        }
+      },
       onPointerCancel: (_) => _pressedAt = null,
       onPointerUp: (event) {
         final pressedAt = _pressedAt;
         _pressedAt = null;
         // The slider's own width, which can be less than the room it is
         // offered.
-        final width = context.size?.width ?? 0;
+        final travel = (context.size?.width ?? 0) - 2 * inset;
         if (widget.onChanged == null ||
             pressedAt == null ||
-            (event.localPosition - pressedAt).distance > kTouchSlop ||
-            width <= 0 ||
+            // The native slider followed this touch and moved the value: it
+            // reports the touch's end itself.
+            _touchChanged ||
+            travel <= 0 ||
             widget.max <= widget.min) {
           return;
         }
-        var along = (event.localPosition.dx / width).clamp(0.0, 1.0);
+        var along = ((event.localPosition.dx - inset) / travel).clamp(
+          0.0,
+          1.0,
+        );
         if (Directionality.of(context) == TextDirection.rtl) along = 1 - along;
         final divisions = widget.divisions;
         if (divisions != null && divisions > 0) {
@@ -310,7 +328,9 @@ class _AdaptiveSliderState extends State<AdaptiveSlider> {
         thumbColor: widget.thumbColor ?? CupertinoColors.white,
         divisions: widget.divisions,
       );
-      return widget.seekOnTap ? _seekingOnTap(slider) : slider;
+      return widget.seekOnTap
+          ? _seekingOnTap(slider, inset: _kCupertinoThumbTravelInset)
+          : slider;
     }
     return Slider(
       value: widget.value.clamp(widget.min, widget.max),

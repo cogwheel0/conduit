@@ -245,12 +245,30 @@ void main() {
     ) async {
       _phoneWindow(tester);
       final semantics = tester.ensureSemantics();
-      await tester.pumpWidget(_bar(const [_openWebUi, _hermes]));
+      final taps = <int>[];
+      await tester.pumpWidget(
+        _bar(const [_openWebUi, _hermes], onTap: taps.add),
+      );
       // The tab bar's own tabs, not a stand-in over them that would hide
       // the native ones from VoiceOver.
       expect(find.bySemanticsLabel('Open WebUI'), findsOneWidget);
       expect(find.bySemanticsLabel('Hermes'), findsOneWidget);
       expect(find.bySemanticsLabel('Backend'), findsNothing);
+      // Activating a tab chooses it, as a tap does. These are the package's
+      // Flutter tabs: the native ones are checked on a device.
+      tester.semantics.tap(find.semantics.byLabel('Hermes'));
+      expect(taps, [1]);
+      await tester.pumpWidget(
+        _bar(const [_openWebUi, _hermes], selectedIndex: 1, onTap: taps.add),
+      );
+      expect(
+        tester.getSemantics(find.bySemanticsLabel('Hermes')),
+        isSemantics(isSelected: true),
+      );
+      expect(
+        tester.getSemantics(find.bySemanticsLabel('Open WebUI')),
+        isSemantics(isSelected: false),
+      );
       semantics.dispose();
       await _unmount(tester);
     }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));

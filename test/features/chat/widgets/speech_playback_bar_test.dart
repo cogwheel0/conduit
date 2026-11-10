@@ -188,9 +188,10 @@ void main() {
       );
       expect(find.byType(CupertinoSlider), findsOneWidget);
 
-      // Well away from the thumb, which sits halfway along.
+      // Well away from the thumb, which sits halfway along. The thumb's
+      // centre travels between 22 points in from either end.
       await tester.tapAt(
-        Offset(track.left + track.width * .75, track.center.dy),
+        Offset(track.left + 22 + (track.width - 44) * .75, track.center.dy),
       );
       await tester.pump(const Duration(milliseconds: 250));
       expect(actions, ['seek:45']);
