@@ -24,6 +24,7 @@ import 'package:conduit_core/features/hermes/models/hermes_job_delivery.dart';
 import 'package:conduit_core/features/hermes/models/hermes_mcp.dart';
 import 'package:conduit_core/features/hermes/models/hermes_model.dart';
 import 'package:conduit_core/features/hermes/models/hermes_room.dart';
+import 'package:conduit_core/features/hermes/models/hermes_room_log.dart';
 import 'package:conduit_core/features/hermes/models/hermes_run_event.dart';
 import 'package:conduit_core/features/hermes/services/hermes_backend_service.dart';
 import 'package:conduit_core/features/hermes/services/hermes_http_transport.dart';
@@ -43,6 +44,7 @@ part 'hermes_desktop_bots.dart';
 part 'hermes_desktop_canonical.dart';
 part 'hermes_desktop_event_projection.dart';
 part 'hermes_desktop_live_runtime.dart';
+part 'hermes_desktop_rooms.dart';
 part 'hermes_desktop_turn_runtime.dart';
 
 typedef HermesDesktopCredentialsWriter = Future<void> Function(
@@ -668,6 +670,61 @@ final class HermesDesktopApiService
   /// Group Chats hosted by this gateway (`groups.list`); empty without rooms.
   Future<List<HermesRoom>> listRooms({bool includeDisbanded = false}) =>
       _administration.listRooms(includeDisbanded: includeDisbanded);
+
+  /// What this gateway can do with Group Chats (`groups.capabilities`).
+  Future<HermesRoomCapabilities> roomCapabilities() => _roomCapabilities();
+
+  /// A room's roster, settings and live work (`groups.state`).
+  Future<HermesRoomState> roomState(String roomId) => _roomState(roomId);
+
+  /// A room's log after [sinceSeq] (0: its newest events), every page.
+  Future<List<HermesRoomEvent>> roomEventsSince(
+    String roomId, {
+    required int sinceSeq,
+    int? latestSeq,
+  }) => _roomEventsSince(roomId, sinceSeq: sinceSeq, latestSeq: latestSeq);
+
+  /// Seats [members] in a new room named [name].
+  Future<HermesRoom> createRoom({
+    required String name,
+    required List<HermesRoomMember> members,
+  }) => _createRoom(name: name, members: members);
+
+  /// Posts [send] to the room; sending the same [HermesRoomSend] again
+  /// never posts it twice.
+  Future<void> sendRoomMessage(String roomId, HermesRoomSend send) =>
+      _sendRoomMessage(roomId, send);
+
+  Future<void> renameRoom(String roomId, String name) =>
+      _renameRoom(roomId, name);
+
+  /// Saves the room's purpose, notes and who answers.
+  Future<HermesRoomContext?> setRoomContext(
+    String roomId,
+    HermesRoomContext context,
+  ) => _setRoomContext(roomId, context);
+
+  /// Stops the room's work and ends it for good.
+  Future<void> disbandRoom(String roomId) => _disbandRoom(roomId);
+
+  /// Stops the room's queued and running work; how many tasks it stopped.
+  /// Repeating [cancelId] repeats the same stop.
+  Future<int> stopRoom(String roomId, {required String cancelId}) =>
+      _stopRoom(roomId, cancelId);
+
+  /// Gives a discussion paused at its limit one more round.
+  Future<void> continueRoomDiscussion(
+    String roomId,
+    String discussionEventId,
+  ) => _continueRoomDiscussion(roomId, discussionEventId);
+
+  /// Answers [action]: an approval with [choice] (`once` or `deny`), or
+  /// a retry.
+  Future<void> answerRoomAction(
+    String roomId,
+    HermesRoomPendingAction action, {
+    String? choice,
+  }) => _answerRoomAction(roomId, action, choice: choice);
 
   @override
   Future<void> deleteJob(String id) =>
