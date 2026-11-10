@@ -2398,13 +2398,21 @@
   "@browserSignInChecklistUsers": {
     "description": "Checklist item: users must already exist in Open WebUI."
   },
-  "browserSignInChecklistMicrosoft": "Microsoft: nastavte OAUTH_MERGE_ACCOUNTS_BY_EMAIL=true.",
+  "browserSignInChecklistMicrosoft": "Microsoft: nastavte OAUTH_MERGE_ACCOUNTS_BY_EMAIL=true. Páruje používateľov podľa e-mailu pri všetkých poskytovateľoch, preto ju použite, len ak každý z nich overuje e-mailové adresy.",
   "@browserSignInChecklistMicrosoft": {
     "description": "Checklist item for Microsoft sign-in. Keep the variable name untranslated."
   },
   "browserSignInChecklistGoogle": "Google: použite klienta typu iOS. Jeho URI presmerovania vyplýva z jeho ID klienta.",
   "@browserSignInChecklistGoogle": {
     "description": "Checklist item for Google sign-in."
+  },
+  "browserSignInChecklistTrustedClients": "Ak poskytovateľ podporuje introspekciu tokenov, nastavte OAUTH_TOKEN_EXCHANGE_TRUSTED_CLIENT_IDS tak, aby obsahovala ID tohto klienta (Open WebUI 0.11 alebo novšie). Bez nej môže ktorákoľvek aplikácia, ktorá má token používateľa od tohto poskytovateľa, vymeniť ho za reláciu tohto používateľa v Open WebUI.",
+  "@browserSignInChecklistTrustedClients": {
+    "description": "Checklist item for providers that may support token introspection: limit token exchange to listed clients, and the risk without it. Keep the variable name untranslated."
+  },
+  "browserSignInChecklistNoClientCheck": "Tento poskytovateľ nepodporuje introspekciu tokenov, takže Open WebUI nedokáže overiť, ktorej aplikácii bol token vydaný: ktorákoľvek aplikácia, ktorá má token používateľa, ho môže vymeniť za reláciu tohto používateľa v Open WebUI. Výmenu tokenov zapnite, len ak toto riziko akceptujete.",
+  "@browserSignInChecklistNoClientCheck": {
+    "description": "Checklist item for Google and Microsoft: token exchange can't be limited to listed clients, and the risk that comes with it."
   },
   "browserSignInChecklistClaims": "Ak Open WebUI preberá roly alebo skupiny z deklarácií (claims), nastavte pre tohto klienta rovnaké deklarácie.",
   "@browserSignInChecklistClaims": {
@@ -2498,9 +2506,9 @@
   "@browserSignInErrorServerTooOld": {
     "description": "Browser sign-in error when the server has no token exchange."
   },
-  "browserSignInErrorCannotDetermineClient": "Open WebUI prijíma tokeny len od uvedených klientov a nevie určiť, ktorý klient vydal tento token. Správca môže zrušiť nastavenie OAUTH_TOKEN_EXCHANGE_TRUSTED_CLIENT_IDS.",
+  "browserSignInErrorCannotDetermineClient": "Open WebUI prijíma tokeny len od uvedených klientov a od poskytovateľa identity sa nepodarilo zistiť, ktorý klient tento token vydal. Prihláste sa v aplikácii alebo požiadajte správcu, aby skontroloval introspekciu tokenov u poskytovateľa.",
   "@browserSignInErrorCannotDetermineClient": {
-    "description": "Browser sign-in error when Open WebUI only trusts listed clients and cannot identify this token's client. Keep the variable name untranslated."
+    "description": "Browser sign-in error when Open WebUI only trusts listed clients and cannot identify this token's client."
   },
   "browserSignInErrorAccessProhibited": "Open WebUI tento účet odmietol. Jeho e-mailová doména, rola alebo tento klient nemusia byť povolené.",
   "@browserSignInErrorAccessProhibited": {

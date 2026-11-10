@@ -2793,13 +2793,21 @@
   "@browserSignInChecklistUsers": {
     "description": "Checklist item: users must already exist in Open WebUI."
   },
-  "browserSignInChecklistMicrosoft": "Microsoft: set OAUTH_MERGE_ACCOUNTS_BY_EMAIL=true.",
+  "browserSignInChecklistMicrosoft": "Microsoft: set OAUTH_MERGE_ACCOUNTS_BY_EMAIL=true. It matches users by email for every provider, so use it only if each one verifies email addresses.",
   "@browserSignInChecklistMicrosoft": {
     "description": "Checklist item for Microsoft sign-in. Keep the variable name untranslated."
   },
   "browserSignInChecklistGoogle": "Google: use an iOS-type client. Its redirect URI comes from its client ID.",
   "@browserSignInChecklistGoogle": {
     "description": "Checklist item for Google sign-in."
+  },
+  "browserSignInChecklistTrustedClients": "If the provider supports token introspection, set OAUTH_TOKEN_EXCHANGE_TRUSTED_CLIENT_IDS to include this client ID (Open WebUI 0.11 or later). Without it, any app holding a user's token from this provider can exchange it for that user's Open WebUI session.",
+  "@browserSignInChecklistTrustedClients": {
+    "description": "Checklist item for providers that may support token introspection: limit token exchange to listed clients, and the risk without it. Keep the variable name untranslated."
+  },
+  "browserSignInChecklistNoClientCheck": "This provider has no token introspection, so Open WebUI can't check which app a token was issued to: any app holding a user's token can exchange it for that user's Open WebUI session. Turn on token exchange only if you accept this.",
+  "@browserSignInChecklistNoClientCheck": {
+    "description": "Checklist item for Google and Microsoft: token exchange can't be limited to listed clients, and the risk that comes with it."
   },
   "browserSignInChecklistClaims": "If Open WebUI takes roles or groups from claims, give this client the same claims.",
   "@browserSignInChecklistClaims": {
@@ -2893,9 +2901,9 @@
   "@browserSignInErrorServerTooOld": {
     "description": "Browser sign-in error when the server has no token exchange."
   },
-  "browserSignInErrorCannotDetermineClient": "Open WebUI only accepts tokens from listed clients, and can't tell which client issued this one. An administrator can unset OAUTH_TOKEN_EXCHANGE_TRUSTED_CLIENT_IDS.",
+  "browserSignInErrorCannotDetermineClient": "Open WebUI only accepts tokens from listed clients, and couldn't ask the identity provider which client issued this one. Use in-app sign-in, or ask an administrator to check the provider's token introspection.",
   "@browserSignInErrorCannotDetermineClient": {
-    "description": "Browser sign-in error when Open WebUI only trusts listed clients and cannot identify this token's client. Keep the variable name untranslated."
+    "description": "Browser sign-in error when Open WebUI only trusts listed clients and cannot identify this token's client."
   },
   "browserSignInErrorAccessProhibited": "Open WebUI refused this account. Its email domain, role, or this client may not be allowed.",
   "@browserSignInErrorAccessProhibited": {

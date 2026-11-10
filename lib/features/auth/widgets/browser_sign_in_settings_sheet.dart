@@ -578,6 +578,13 @@ class _BrowserSignInSettingsSheetState
   ) {
     final items = [
       l10n.browserSignInChecklistExchange,
+      // Open WebUI can limit token exchange to listed clients only by asking
+      // the provider's introspection endpoint, which Google and Microsoft
+      // don't have.
+      if (_provider == 'google' || _provider == 'microsoft')
+        l10n.browserSignInChecklistNoClientCheck
+      else
+        l10n.browserSignInChecklistTrustedClients,
       l10n.browserSignInChecklistClient,
       l10n.browserSignInChecklistUsers,
       if (_provider == 'microsoft') l10n.browserSignInChecklistMicrosoft,

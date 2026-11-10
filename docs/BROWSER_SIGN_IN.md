@@ -13,7 +13,7 @@ ID, once per server.
 
 | | |
 | --- | --- |
-| Open WebUI | `0.8.0` or newer, with `ENABLE_OAUTH_TOKEN_EXCHANGE=true` |
+| Open WebUI | `0.8.0` or newer, with `ENABLE_OAUTH_TOKEN_EXCHANGE=true`. `0.11.0` or newer to limit which apps' tokens it accepts |
 | SSO provider | `oidc`, `microsoft`, or `google`, already working for Open WebUI on the web. GitHub and Feishu use the in-app sign-in only |
 | Identity provider | Serves HTTPS, and lets you register a public client (no secret) with PKCE |
 | Users | Already exist in Open WebUI. Token exchange never creates accounts, so a new user signs in once on the web first |
@@ -41,8 +41,8 @@ Conduit doesn't end the provider's browser session.
 | Variable | Needed for |
 | --- | --- |
 | `ENABLE_OAUTH_TOKEN_EXCHANGE=true` | Always. It is read only at startup, so restart Open WebUI after setting it |
-| `OAUTH_MERGE_ACCOUNTS_BY_EMAIL=true` | Microsoft, and any provider whose `sub` differs per client (see below) |
-| `OAUTH_TOKEN_EXCHANGE_TRUSTED_CLIENT_IDS` | Optional. If you set it, include Conduit's client ID |
+| `OAUTH_MERGE_ACCOUNTS_BY_EMAIL=true` | Microsoft, and any provider whose `sub` differs per client. It covers every provider, so read [Merging by email](#merging-by-email) first |
+| `OAUTH_TOKEN_EXCHANGE_TRUSTED_CLIENT_IDS` | Recommended when the provider has token introspection (Open WebUI 0.11 and later). List Conduit's client ID, and any other app that uses token exchange. See [Which apps' tokens are accepted](#which-apps-tokens-are-accepted) |
 | `OAUTH_TOKEN_EXCHANGE_RATE_LIMIT`, `OAUTH_TOKEN_EXCHANGE_RATE_LIMIT_WINDOW` | Optional throttle per client address. Off unless set; the window defaults to 180 seconds |
 | `MFA_ALLOW_OAUTH_BYPASS=true` | Optional, with `ENABLE_MFA` (0.12 and later). See [Two-step verification](#two-step-verification) |
 
@@ -52,13 +52,35 @@ user up by email instead. Most providers send the same `sub` to every client,
 so no merging is needed. Microsoft Entra ID sends a different `sub` to each
 application, so Conduit's client can only find the user by email.
 
-**Trusted client IDs.** With `OAUTH_TOKEN_EXCHANGE_TRUSTED_CLIENT_IDS` set,
-Open WebUI asks the provider's token introspection endpoint which client a
-token was issued to. Google and Microsoft have no introspection endpoint, so
-every exchange with them fails while the list is set. Use it only with
-providers that have one, such as Keycloak.
+### Merging by email
 
-**Other checks still apply.**
+`OAUTH_MERGE_ACCOUNTS_BY_EMAIL` applies to every provider Open WebUI has, and
+to its own web sign-in too. Whoever signs in with a matching email address
+takes over the existing account. Turn it on only if every configured provider
+verifies the email addresses it sends. With Microsoft Entra ID, prefer a
+single-tenant app: in a multi-tenant app, a user's email comes from their own
+tenant, whose administrator controls it.
+
+### Which apps' tokens are accepted
+
+Token exchange accepts any access token the provider's user info endpoint
+accepts. That includes tokens the provider issued to other apps. So without a
+client check, any app that holds a user's token from your provider, such as
+another app they signed in to with it, can exchange it for that user's Open
+WebUI session. Open WebUI before 0.11 has no client check at all.
+
+- **Providers with token introspection,** such as Keycloak: set
+  `OAUTH_TOKEN_EXCHANGE_TRUSTED_CLIENT_IDS` to Conduit's client ID, plus any
+  other app that uses token exchange. Open WebUI then asks the introspection
+  endpoint, with its own client's credentials, which client each token was
+  issued to. The provider must let Open WebUI's client introspect tokens
+  issued to Conduit's client.
+- **Google and Microsoft** have no introspection endpoint, so every exchange
+  fails while the list is set. Leave it unset only if you accept the risk
+  above. Otherwise keep token exchange off, and users sign in in-app.
+
+### Other checks on exchanged tokens
+
 - `OAUTH_ALLOWED_DOMAINS` restricts which email domains can sign in.
 - With `ENABLE_OAUTH_ROLE_MANAGEMENT` or `ENABLE_OAUTH_GROUP_MANAGEMENT` on,
   Open WebUI reads roles and groups from Conduit's token. It reads the user
@@ -68,7 +90,9 @@ providers that have one, such as Keycloak.
 - A token with no roles claim is refused while `OAUTH_ALLOWED_ROLES` doesn't
   contain `*`.
 
-**Session length.** `JWT_EXPIRES_IN` (default `4w`) sets how often Conduit
+### Session length
+
+`JWT_EXPIRES_IN` (default `4w`) sets how often Conduit
 renews. How long a device stays signed in without opening the browser again
 depends on the provider's refresh-token lifetime and idle timeout.
 
@@ -171,7 +195,8 @@ identity_providers:
    for a client secret or assertion.
 4. **API permissions:** Microsoft Graph delegated `openid`, `email`, `profile`
    and `offline_access`.
-5. On Open WebUI, set `OAUTH_MERGE_ACCOUNTS_BY_EMAIL=true` (see above).
+5. On Open WebUI, set `OAUTH_MERGE_ACCOUNTS_BY_EMAIL=true` (read [Merging by
+   email](#merging-by-email) first).
 6. **In Conduit:** enter the **Application (client) ID**.
 
 ### Google
@@ -241,7 +266,7 @@ the authenticator code. That covers browser sign-ins, unless
 | The provider isn't set up on the server | Open WebUI doesn't have this provider enabled |
 | The identity provider rejected the client | Check the client ID, that the client is public, the redirect URI, and PKCE `S256` |
 | Access prohibited | The client ID is missing from `OAUTH_TOKEN_EXCHANGE_TRUSTED_CLIENT_IDS`, or the email domain isn't in `OAUTH_ALLOWED_DOMAINS`, or role management found no allowed role in Conduit's token |
-| The server can't tell which client the token is from | `OAUTH_TOKEN_EXCHANGE_TRUSTED_CLIENT_IDS` is set, but the provider has no introspection endpoint. Unset it |
+| The server can't tell which client the token is from | `OAUTH_TOKEN_EXCHANGE_TRUSTED_CLIENT_IDS` is set, but Open WebUI couldn't introspect the token: the provider has no introspection endpoint, or doesn't let Open WebUI's client use it. Allow it, or use the in-app sign-in. Unsetting the list accepts tokens from any app (see [Which apps' tokens are accepted](#which-apps-tokens-are-accepted)) |
 | The token is missing required claims | Release `email` (and `sub`) to Conduit's client |
 | Couldn't find the identity provider | Enter the issuer, or the full discovery URL |
 | The issuer belongs to a different provider | Register Conduit's client on the identity provider Open WebUI uses |
