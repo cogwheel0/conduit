@@ -2496,8 +2496,48 @@ void main() {
     await tester.pump();
     await tester.pump();
 
+    // A recenter reports its metrics a frame after it moves; the live
+    // distance is current immediately.
     final metrics = controller.metrics!;
-    check(metrics.distanceFromLatest).isCloseTo(metrics.viewportDimension, 1);
+    check(
+      controller.liveDistanceFromLatest,
+    ).isCloseTo(metrics.viewportDimension, 1);
+  });
+
+  _viewportTest('pin staging from the oldest message builds a bounded set', (
+    tester,
+  ) async {
+    final controller = _controller(tester);
+    final ids = List<String>.generate(10000, (index) => 'synthetic-$index');
+    var builds = 0;
+
+    await tester.pumpWidget(
+      _viewportHost(
+        _viewport(
+          controller: controller,
+          ids: ids,
+          followLatest: false,
+          estimateRowExtent: (_) => 100,
+          rowBuilder: (_, index) {
+            builds++;
+            return SizedBox(height: index % 10 == 5 ? 300 : 60);
+          },
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final oldest = controller.jumpToOldest();
+    await tester.pumpAndSettle();
+    check(await oldest).isTrue();
+
+    builds = 0;
+    controller.prepositionOneViewportFromLatest();
+    await tester.pumpAndSettle();
+
+    check(builds).isLessThan(200);
+    check(
+      controller.liveDistanceFromLatest,
+    ).isCloseTo(controller.metrics!.viewportDimension, 1);
   });
 
   _viewportTest('saved intra-row pixel anchor restores exactly', (
