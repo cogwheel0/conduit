@@ -1,6 +1,7 @@
 part of 'hermes_desktop_api_service.dart';
 
-/// The most chats whose working directory is kept in memory.
+/// The most chats whose working directory is kept in memory. The one used
+/// longest ago goes first: reported again or read, a chat's is kept anew.
 const int _kMaxHermesWorkingDirectorySessions = 64;
 
 extension _HermesDesktopWorkingDirectories on HermesDesktopApiService {
@@ -12,14 +13,15 @@ extension _HermesDesktopWorkingDirectories on HermesDesktopApiService {
     if (sessionId == null || sessionId.isEmpty) return;
     if (cwd is! String || cwd.trim().isEmpty) return;
     final key = _storedIdForRuntime(sessionId) ?? sessionId;
-    if (_workingDirectories[key] == cwd) return;
-    if (!_workingDirectories.containsKey(key) &&
+    // Taken out and put back, it is the newest whether or not it changed.
+    final previous = _workingDirectories.remove(key);
+    if (previous == null &&
         _workingDirectories.length >= _kMaxHermesWorkingDirectorySessions) {
       // The chat that loses its directory hears so, not only the new one.
       _forgetWorkingDirectory([_workingDirectories.keys.first]);
     }
     _workingDirectories[key] = cwd;
-    if (!_closed) _workingDirectoryChanges.add(key);
+    if (previous != cwd && !_closed) _workingDirectoryChanges.add(key);
   }
 
   /// Drops the working directory kept under any of [ids], as for a deleted
@@ -32,12 +34,18 @@ extension _HermesDesktopWorkingDirectories on HermesDesktopApiService {
   }
 
   /// The working directory of [storedId], under its stored or its runtime
-  /// id; the one a resume's new stored id has comes first.
+  /// id; the one a resume's new stored id has comes first. Read, it is kept
+  /// the longest: a chat in use does not lose it to others opened since.
   String? _workingDirectoryFor(String storedId) {
     final binding = _bindings[storedId];
-    return _workingDirectories[binding?.storedId] ??
-        _workingDirectories[binding?.runtimeId] ??
-        _workingDirectories[storedId];
+    for (final key in [binding?.storedId, binding?.runtimeId, storedId]) {
+      if (key == null) continue;
+      final cwd = _workingDirectories.remove(key);
+      if (cwd == null) continue;
+      _workingDirectories[key] = cwd;
+      return cwd;
+    }
+    return null;
   }
 
   Stream<String?> _workingDirectoriesFor(String storedId) =>

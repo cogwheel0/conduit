@@ -2016,20 +2016,48 @@ void main() {
       await _settle();
       check(seen).deepEquals(['/home/dev/sample-app', null]);
 
-      final kept = <String?>[];
-      final keptSub = service
-          .workingDirectoriesFor('chat-0')
-          .listen(kept.add);
-      addTearDown(keptSub.cancel);
-      for (var chat = 0; chat <= 64; chat++) {
-        gateway.event(
-          'session.info',
-          {'cwd': '/srv/chat-$chat'},
-          session: 'chat-$chat',
-        );
+      // Of 65 chats, the one used longest ago makes room, and is told. A
+      // chat whose directory was read since (reopened) keeps it.
+      void report(int chat, [String? cwd]) => gateway.event(
+        'session.info',
+        {'cwd': cwd ?? '/srv/chat-$chat'},
+        session: 'chat-$chat',
+      );
+      final pushedOut = <String?>[];
+      final pushedOutSub = service
+          .workingDirectoriesFor('chat-1')
+          .listen(pushedOut.add);
+      addTearDown(pushedOutSub.cancel);
+      for (var chat = 0; chat < 64; chat++) {
+        report(chat);
       }
       await _settle();
-      check(kept).deepEquals([null, '/srv/chat-0', null]);
+      check(
+        await service.workingDirectoriesFor('chat-0').first,
+      ).equals('/srv/chat-0');
+      report(64);
+      await _settle();
+      check(pushedOut).deepEquals([null, '/srv/chat-1', null]);
+      check(
+        await service.workingDirectoriesFor('chat-0').first,
+      ).equals('/srv/chat-0');
+
+      // Reported again, even unchanged, a directory is kept anew, and its
+      // chat hears nothing new.
+      final again = <String?>[];
+      final againSub = service
+          .workingDirectoriesFor('chat-2')
+          .listen(again.add);
+      addTearDown(againSub.cancel);
+      report(2);
+      report(3);
+      report(65);
+      await _settle();
+      check(again).deepEquals(['/srv/chat-2']);
+      check(
+        await service.workingDirectoriesFor('chat-3').first,
+      ).equals('/srv/chat-3');
+      check(await service.workingDirectoriesFor('chat-4').first).isNull();
     });
 
     test('is given only to the replies of the open chat\'s session', () async {
