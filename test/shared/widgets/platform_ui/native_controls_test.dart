@@ -366,34 +366,40 @@ void main() {
     expect(reports, ['change:1.0']);
   }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
 
-  testWidgets('a short drag the iOS 26 slider follows ends once, not also as '
-      'a tap', (tester) async {
-    final reports = <String>[];
-    await tester.pumpWidget(
-      host(
-        SizedBox(
-          width: 300,
-          child: AdaptiveSlider(
-            value: 0.3,
-            seekOnTap: true,
-            onChangeStart: (value) => reports.add('start:$value'),
-            onChanged: (value) => reports.add('change:$value'),
-            onChangeEnd: (value) => reports.add('end:$value'),
+  for (final endsFirst in [false, true]) {
+    testWidgets('a short drag the iOS 26 slider follows ends once, not also '
+        'as a tap (its end ${endsFirst ? 'before' : 'after'} the lift)', (
+      tester,
+    ) async {
+      final reports = <String>[];
+      await tester.pumpWidget(
+        host(
+          SizedBox(
+            width: 300,
+            child: AdaptiveSlider(
+              value: 0.3,
+              seekOnTap: true,
+              onChangeStart: (value) => reports.add('start:$value'),
+              onChanged: (value) => reports.add('change:$value'),
+              onChangeEnd: (value) => reports.add('end:$value'),
+            ),
           ),
         ),
-      ),
-    );
-    CNSlider slider() => tester.widget<CNSlider>(find.byType(CNSlider));
-    final track = tester.getRect(find.byType(AdaptiveSlider));
-    // UIKit moves the value while the finger moves less than a tap's slop.
-    final finger = await tester.startGesture(track.center);
-    slider().onChangeStart!(0.3);
-    await finger.moveBy(const Offset(4, 0));
-    slider().onChanged(0.32);
-    await finger.up();
-    slider().onChangeEnd!(0.32);
-    expect(reports, ['start:0.3', 'change:0.32', 'end:0.32']);
-  }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
+      );
+      CNSlider slider() => tester.widget<CNSlider>(find.byType(CNSlider));
+      final track = tester.getRect(find.byType(AdaptiveSlider));
+      // UIKit moves the value while the finger moves less than a tap's
+      // slop, and reports the touch's end on its own channel.
+      final finger = await tester.startGesture(track.center);
+      slider().onChangeStart!(0.3);
+      await finger.moveBy(const Offset(4, 0));
+      slider().onChanged(0.32);
+      if (endsFirst) slider().onChangeEnd!(0.32);
+      await finger.up();
+      if (!endsFirst) slider().onChangeEnd!(0.32);
+      expect(reports, ['start:0.3', 'change:0.32', 'end:0.32']);
+    }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
+  }
 
   testWidgets('before iOS 26 a drag that comes back near its start is not '
       'also a tap', (tester) async {

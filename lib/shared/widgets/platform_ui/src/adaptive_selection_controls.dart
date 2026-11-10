@@ -215,6 +215,9 @@ class _AdaptiveSliderState extends State<AdaptiveSlider> {
   }
 
   void _onNativeChanged(double value) {
+    // A press the native slider moves the value for is its drag, never a
+    // tap, whether its end arrives before or after the pointer lifts.
+    _pressedAt = null;
     final start = _touchStartValue;
     if (start != null && !_touchChanged) {
       _touchChanged = true;
@@ -257,9 +260,6 @@ class _AdaptiveSliderState extends State<AdaptiveSlider> {
         final travel = (context.size?.width ?? 0) - 2 * inset;
         if (widget.onChanged == null ||
             pressedAt == null ||
-            // The native slider followed this touch and moved the value: it
-            // reports the touch's end itself.
-            _touchChanged ||
             travel <= 0 ||
             widget.max <= widget.min) {
           return;

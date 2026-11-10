@@ -445,6 +445,7 @@ void main() {
       await tester.pump();
       expect(_tabBar(tester).height, 14 + 44 + 21);
       expect(_action(tester).dimension, 44);
+      final phoneTabBar = tester.state(find.byType(CNTabBar));
 
       // An iPad window, where UIKit lays the tab bar out inline. The size
       // the phone's tab bar reported was only the height it was given, so
@@ -461,12 +462,17 @@ void main() {
         ),
         44 + 20,
       );
+      // The same tab bar, which measures itself again rather than being
+      // created anew and flashing.
+      expect(tester.state(find.byType(CNTabBar)), same(phoneTabBar));
+
       // And back.
       _phoneWindow(tester);
       await tester.pump();
       await tester.pump();
       expect(_tabBar(tester).height, 14 + 44 + 21);
       expect(_action(tester).dimension, 44);
+      expect(tester.state(find.byType(CNTabBar)), same(phoneTabBar));
       await _unmount(tester);
     }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
   });
