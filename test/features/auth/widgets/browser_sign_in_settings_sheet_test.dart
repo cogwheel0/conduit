@@ -230,9 +230,10 @@ void main() {
         expect(inChecklist('has no token introspection'), findsOne);
         // The list is server-wide, and breaks this provider's exchanges.
         expect(
-          inChecklist('Leave OAUTH_TOKEN_EXCHANGE_TRUSTED_CLIENT_IDS unset'),
+          inChecklist('works only with OAUTH_TOKEN_EXCHANGE_TRUSTED_CLIENT_IDS'),
           findsOne,
         );
+        expect(inChecklist('covers every provider on the server'), findsOne);
         expect(inChecklist('to include this client ID'), findsNothing);
       });
     }

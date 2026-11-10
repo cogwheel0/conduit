@@ -2410,9 +2410,9 @@
   "@browserSignInChecklistTrustedClients": {
     "description": "Checklist item for providers that may support token introspection: limit token exchange to listed clients, and the risk without it. Keep the variable name untranslated."
   },
-  "browserSignInChecklistNoClientCheck": "OAUTH_TOKEN_EXCHANGE_TRUSTED_CLIENT_IDS は設定しないでください。この ID プロバイダーはトークンイントロスペクションに対応していないため、設定されている間は交換が失敗します。設定しない場合、Open WebUI はトークンがどのアプリに発行されたかを確認できないため、ユーザーのトークンを持つアプリはどれでも、それをそのユーザーの Open WebUI セッションに交換できます。このリスクを受け入れる場合にのみトークン交換を有効にしてください。",
+  "browserSignInChecklistNoClientCheck": "この ID プロバイダーはトークンイントロスペクションに対応していないため、OAUTH_TOKEN_EXCHANGE_TRUSTED_CLIENT_IDS が設定されていない場合にのみ動作します。このリストはサーバー上のすべてのプロバイダーに適用されるため、設定しないと、いずれかのプロバイダーが発行したユーザーのトークンを持つアプリはどれでも、それをそのユーザーの Open WebUI セッションに交換できます。このリスクを受け入れる場合にのみトークン交換を有効にしてください。",
   "@browserSignInChecklistNoClientCheck": {
-    "description": "Checklist item for Google and Microsoft: leave the trusted-client list unset, since it can't be used with them, and the risk that comes with it. Keep the variable name untranslated."
+    "description": "Checklist item for Google and Microsoft: they work only with the server-wide trusted-client list unset, and the risk that comes with it. Keep the variable name untranslated."
   },
   "browserSignInChecklistClaims": "Open WebUI がロールやグループをクレームから取得している場合は、このクライアントにも同じクレームを含めてください。",
   "@browserSignInChecklistClaims": {
@@ -2506,9 +2506,9 @@
   "@browserSignInErrorServerTooOld": {
     "description": "Browser sign-in error when the server has no token exchange."
   },
-  "browserSignInErrorCannotDetermineClient": "Open WebUI は許可リストにあるクライアントに発行されたトークンのみを受け付けますが、このトークンがどのクライアントに発行されたかを ID プロバイダーに問い合わせられませんでした。アプリ内サインインを使用するか、ID プロバイダーのトークンイントロスペクションを確認するよう管理者に依頼してください。",
+  "browserSignInErrorCannotDetermineClient": "Open WebUI は許可リストにあるクライアントに発行されたトークンのみを受け付けますが、このトークンがどのクライアントに発行されたかを ID プロバイダーに問い合わせられませんでした。アプリ内サインインを使用するか、OAUTH_TOKEN_EXCHANGE_TRUSTED_CLIENT_IDS を確認するよう管理者に依頼してください。この設定にはトークンイントロスペクションが必要ですが、Google と Microsoft は対応していません。",
   "@browserSignInErrorCannotDetermineClient": {
-    "description": "Browser sign-in error when Open WebUI only trusts listed clients and cannot identify this token's client."
+    "description": "Browser sign-in error when Open WebUI only trusts listed clients and cannot identify this token's client. Keep the variable name untranslated."
   },
   "browserSignInErrorAccessProhibited": "Open WebUI がこのアカウントを拒否しました。メールドメイン、ロール、またはこのクライアントが許可されていない可能性があります。",
   "@browserSignInErrorAccessProhibited": {
