@@ -10,6 +10,57 @@ import 'package:conduit/shared/widgets/horizontal_gesture_ownership.dart';
 import 'responsive_drawer_layout_test_support.dart';
 
 void main() {
+  for (final platform in [TargetPlatform.iOS, TargetPlatform.android]) {
+    for (final startX in [10.0, 190.0]) {
+      for (final verticalDelta in [-80.0, 80.0]) {
+        testWidgets(
+          'opening drag locks chat scrolling at x=$startX, dy=$verticalDelta on ${platform.name}',
+          (tester) async {
+            await drawerTestWithTargetPlatform(platform, () async {
+              final layoutKey = GlobalKey<ResponsiveDrawerLayoutState>();
+              final scroll = ScrollController(initialScrollOffset: 300);
+              addTearDown(scroll.dispose);
+              await tester.pumpWidget(
+                drawerTestBuildHarness(
+                  size: drawerTestMobileSize,
+                  layoutKey: layoutKey,
+                  edgeFraction: 1,
+                  child: ListView.builder(
+                    controller: scroll,
+                    itemExtent: 60,
+                    itemCount: 100,
+                    itemBuilder: (_, index) => Text('Synthetic message $index'),
+                  ),
+                ),
+              );
+              final gesture = await tester.startGesture(Offset(startX, 400));
+              for (final delta in [
+                const Offset(28, 3),
+                Offset(50, verticalDelta),
+                Offset(50, verticalDelta / 2),
+              ]) {
+                await gesture.moveBy(delta);
+                await tester.pump(const Duration(milliseconds: 16));
+                expect(scroll.offset, 300);
+              }
+              await gesture.up();
+              await tester.pumpAndSettle();
+              expect(layoutKey.currentState!.isOpen, isTrue);
+              expect(scroll.offset, 300);
+
+              layoutKey.currentState!.close();
+              await tester.pumpAndSettle();
+              await tester.dragFrom(Offset(startX, 400), const Offset(0, -160));
+              await tester.pumpAndSettle();
+              expect(scroll.offset, greaterThan(300));
+              expect(layoutKey.currentState!.isOpen, isFalse);
+            });
+          },
+        );
+      }
+    }
+  }
+
   testWidgets('drag settle open emits no sidebar haptic', (tester) async {
     final layoutKey = GlobalKey<ResponsiveDrawerLayoutState>();
 
