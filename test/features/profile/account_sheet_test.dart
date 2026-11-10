@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:checks/checks.dart';
 import 'package:conduit/features/auth/views/server_connection_page.dart';
 import 'package:conduit/features/profile/widgets/account_sheet.dart';
@@ -503,6 +505,54 @@ void main() {
 
       check(sheetHeight(tester)).isLessOrEqual(opened);
     });
+  });
+
+  // The sheet lifts itself above the keyboard, and a page opened inside it
+  // took the keyboard's height off a second time: a web sign-in page there
+  // had no room left and showed nothing while the keyboard was up.
+  testWidgets('a page opened in the sheet keeps its room over the keyboard', (
+    tester,
+  ) async {
+    await pumpSheet(tester, const AddAccountRequest(AccountKind.hermes));
+    var body = 0.0;
+    unawaited(
+      Navigator.of(
+        tester.element(find.byKey(const Key('account-sheet-hermes'))),
+      ).push(
+        PageRouteBuilder<void>(
+          pageBuilder: (_, _, _) => ConnectionWebAuthScaffold(
+            title: 'Sign in',
+            body: LayoutBuilder(
+              builder: (_, constraints) {
+                body = constraints.maxHeight;
+                return const SizedBox.expand();
+              },
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    double sheet() => tester
+        .getSize(
+          find
+              .descendant(
+                of: find.byType(DraggableScrollableSheet),
+                matching: find.byType(ClipRRect),
+              )
+              .first,
+        )
+        .height;
+    // The page's bar and edges.
+    final chrome = sheet() - body;
+
+    tester.view.viewInsets = const FakeViewPadding(bottom: 1000);
+    addTearDown(tester.view.resetViewInsets);
+    await tester.pumpAndSettle();
+
+    // The sheet stands on the keyboard: 95% of the 1,400 pixels above it.
+    check(sheet()).equals(1330);
+    check(body).equals(sheet() - chrome);
   });
 
   testWidgets('a Direct provider is edited in the sheet, without tabs', (
