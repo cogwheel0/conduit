@@ -100,6 +100,10 @@ void main() {
       );
     });
 
+    test('leaves a < already escaped by a backslash alone', () {
+      expect(plain(r'\<tag> but \\<b>'), r'\<tag> but \\&lt;b>');
+    });
+
     test('keeps blockquotes', () {
       expect(plain('> quoted <i>'), '> quoted &lt;i>');
     });

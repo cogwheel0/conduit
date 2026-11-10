@@ -43,7 +43,8 @@ final _newlineRun = RegExp(r'[ \t]*\n[ \t]*');
 /// * **Dollars.** Every other `$` is escaped as `\$` (one already escaped by
 ///   an odd run of backslashes is left alone): a plain renderer treats any
 ///   `$…$` as math, while the shared rule keeps prices as prose.
-/// * **Raw HTML.** Every `<` becomes `&lt;`, so tags show as text, as they do
+/// * **Raw HTML.** Every `<` becomes `&lt;` (one already escaped by an odd
+///   run of backslashes is left alone), so tags show as text, as they do
 ///   on mobile, instead of being interpreted. `&` is left alone: stored text
 ///   is already escaped once and both renderers decode entities once, so
 ///   escaping it again would show `&lt;` (issue #728).
@@ -136,7 +137,7 @@ List<MessageBlock> normalizeBlocksForPlainMarkdown(
   ]);
 }
 
-/// Escapes unclaimed `$` and every `<` in masked, math-tokenized prose.
+/// Escapes unclaimed `$` and unescaped `<` in masked, math-tokenized prose.
 String _escapeProse(String prose) {
   if (!prose.contains(r'$') && !prose.contains('<') && !prose.contains(r'\')) {
     return prose;
@@ -153,7 +154,9 @@ String _escapeProse(String prose) {
     }
     if (char == r'$' && backslashes.isEven) {
       out.write(r'\$');
-    } else if (char == '<') {
+    } else if (char == '<' && backslashes.isEven) {
+      // `\<` already shows as text; an entity after the backslash would
+      // show as `&lt;`.
       out.write('&lt;');
     } else {
       out.write(char);
