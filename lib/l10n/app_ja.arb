@@ -5201,9 +5201,9 @@
   ,"directMcpContentTooLarge": "This content is too large to insert."
   ,"directMcpContentComposerTooLarge": "The draft and this content exceed the 256 KiB message limit. Shorten the draft or content and try again."
   ,"directMcpContentLoading": "Loading MCP content…"
-  ,"directMcpInsecureCredentialsTitle": "Send credentials without encryption?"
-  ,"directMcpInsecureCredentialsMessage": "This server uses unencrypted HTTP. Your bearer token, OAuth token, and custom headers could be read or changed on the network."
-  ,"directMcpInsecureCredentialsConfirm": "Send without encryption"
+  ,"directMcpInsecureCredentialsTitle": "暗号化せずに認証情報を送信しますか？"
+  ,"directMcpInsecureCredentialsMessage": "このサーバーは暗号化されていない HTTP を使用しています。ベアラートークン、OAuth トークン、カスタムヘッダーがネットワーク上で読み取られたり変更されたりするおそれがあります。"
+  ,"directMcpInsecureCredentialsConfirm": "暗号化せずに送信"
   ,"hermesSessionTooLarge": "この会話は大きすぎるため、このデバイスでは読み込めません。"
   ,"hermesSessionNotFound": "この会話は Hermes サーバー上で利用できなくなりました。"
   ,"hermesSessionLoadFailedDetail": "この会話を読み込めませんでした: {detail}"
@@ -6001,6 +6001,8 @@
   "hermesDeleteConnectionTitle": "接続を削除しますか？",
   "hermesDeleteConnectionMessage": "この端末から {name} とその認証情報が削除されます。",
   "hermesDeleteConnectionFailed": "この接続を削除できませんでした。",
+  "hermesInsecureCredentialsMessage": "このサーバーは暗号化されていない HTTP を使用しています。API キー、サインイン用トークン、アクセスヘッダーがネットワーク上で読み取られたり変更されたりするおそれがあります。",
+  "hermesNotEncrypted": "暗号化なし",
   "hermesSwitchConnectionFailed": "この接続に切り替えられませんでした。",
   "hermesSwitchConnectionTitle": "接続を切り替え",
   "hermesSwitchConnectionPromptTitle": "{name} に切り替えますか？",

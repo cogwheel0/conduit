@@ -955,6 +955,141 @@ void main() {
     });
   });
 
+  group('plain HTTP', () {
+    const lan = 'http://192.168.1.20:8642/v1';
+    const origin = 'http://192.168.1.20:8642';
+
+    test('only plain HTTP to another device needs consent', () {
+      check(HermesConfig.plainHttpOrigin(lan)).equals(origin);
+      check(
+        HermesConfig.plainHttpOrigin('http://hermes.lan/v1'),
+      ).equals('http://hermes.lan:80');
+      for (final unasked in [
+        'http://localhost:8642',
+        'http://127.0.0.1:8642',
+        'http://127.1.2.3',
+        'http://[::1]:8642',
+        'https://192.168.1.20:8642',
+        'not a url',
+      ]) {
+        check(because: unasked, HermesConfig.plainHttpOrigin(unasked)).isNull();
+      }
+      check(
+        const HermesConfig(baseUrl: lan, plainHttpConsentOrigin: origin),
+      ).has((config) => config.mayUsePlainHttp, 'mayUsePlainHttp').isTrue();
+      check(
+        const HermesConfig(baseUrl: 'http://192.168.1.21:8642/v1').copyWith(
+          plainHttpConsentOrigin: origin,
+        ),
+      ).has((config) => config.mayUsePlainHttp, 'mayUsePlainHttp').isFalse();
+    });
+
+    // Connections were in use over plain HTTP before any asked: stopping
+    // them now would break what the user set up.
+    test('a connection saved before connections asked keeps working', () {
+      final legacy = HermesConnectionProfile.fromJson({
+        'id': _a,
+        'name': 'Home',
+        'base_url': lan,
+        'document_trust_principal_id': _legacyPrincipal,
+      })!;
+      check(legacy.plainHttpConsentOrigin).equals(origin);
+      check(
+        HermesConnectionProfile.fromJson(
+          legacy.toJson(),
+        )!.plainHttpConsentOrigin,
+      ).equals(origin);
+      // Saved since, a row says whether it has consent.
+      check(
+        HermesConnectionProfile.fromJson({
+          ...legacy.toJson(),
+          'plain_http_consent_origin': null,
+        })!.plainHttpConsentOrigin,
+      ).isNull();
+    });
+
+    test('an unencrypted server is saved only with consent for it', () async {
+      _seedConnections([
+        _profile(_a, 'Alpha', 'https://alpha.example'),
+      ], active: _a);
+      final container = await _ready(
+        _Secrets({'hermes_api_key_v1:$_a': 'alpha-key'}),
+      );
+      addTearDown(container.dispose);
+      final controller = container.read(hermesConfigProvider.notifier);
+
+      await check(
+        controller.createConnection(baseUrl: lan, apiKey: 'lan-key'),
+      ).throws<HermesPlainHttpConsentRequired>();
+      check(container.read(hermesConnectionsProvider)).length.equals(1);
+
+      final id = await controller.createConnection(
+        baseUrl: lan,
+        apiKey: 'lan-key',
+        plainHttpConsentOrigin: origin,
+      );
+      HermesConnectionProfile saved() => container
+          .read(hermesConnectionsProvider)
+          .singleWhere((profile) => profile.id == id);
+      check(saved().plainHttpConsentOrigin).equals(origin);
+      check(
+        (await controller.savedConnectionConfig(id)).plainHttpConsentOrigin,
+      ).equals(origin);
+
+      // Another path on that server keeps it; another host asks again.
+      await controller.saveConnection(
+        connectionId: id,
+        baseUrl: '$origin/custom/v1',
+      );
+      check(saved().plainHttpConsentOrigin).equals(origin);
+      await check(
+        controller.saveConnection(
+          connectionId: id,
+          baseUrl: 'http://192.168.1.21:8642/v1',
+          apiKeyChanged: true,
+          apiKey: 'lan-key',
+        ),
+      ).throws<HermesPlainHttpConsentRequired>();
+      check(saved().baseUrl).equals('$origin/custom/v1');
+
+      // Encrypted, or on this device, a connection needs none.
+      await controller.saveConnection(
+        connectionId: id,
+        baseUrl: 'https://alpha-two.example',
+        apiKeyChanged: true,
+        apiKey: 'lan-key',
+      );
+      check(saved().plainHttpConsentOrigin).isNull();
+      await controller.saveConnection(
+        connectionId: id,
+        baseUrl: 'http://127.0.0.1:8642/v1',
+        apiKeyChanged: true,
+        apiKey: 'lan-key',
+      );
+      check(saved().plainHttpConsentOrigin).isNull();
+    });
+
+    test('a draft is not probed unencrypted without consent', () async {
+      _seedConnections([
+        _profile(_a, 'Alpha', 'https://alpha.example'),
+      ], active: _a);
+      final container = await _ready(
+        _Secrets({'hermes_api_key_v1:$_a': 'alpha-key'}),
+      );
+      addTearDown(container.dispose);
+      final gateway = container.read(hermesConnectionGatewayProvider);
+
+      await check(
+        gateway.probe(const HermesConfig(baseUrl: lan, apiKey: 'lan-key')),
+      ).throws<HermesPlainHttpConsentRequired>();
+      check(
+        await gateway.suggestDisplayName(
+          const HermesConfig(baseUrl: lan, apiKey: 'lan-key'),
+        ),
+      ).isNull();
+    });
+  });
+
   group('inactive connections', () {
     test('are created and edited without touching the runtime', () async {
       _seedConnections([

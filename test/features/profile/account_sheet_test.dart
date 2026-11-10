@@ -66,6 +66,7 @@ final class _ReachableGateway implements HermesConnectionGateway {
           name: config.name,
           nameSource: draft.nameSource,
           mode: config.mode,
+          plainHttpConsentOrigin: config.plainHttpConsentOrigin,
           apiKey: config.apiKey,
         );
   }
@@ -604,6 +605,50 @@ void main() {
     final added = connections.singleWhere((c) => c.id != _home);
     check(container.read(hermesActiveConnectionIdProvider)).equals(added.id);
     check(container.read(hermesEnabledProvider)).isTrue();
+    expect(find.byType(AccountSheet), findsNothing);
+  });
+
+  // Plain HTTP to another machine carries the key unencrypted: Connect
+  // asks first, and nothing is sent or saved until the user agrees.
+  testWidgets('Hermes asks before sending credentials over plain HTTP', (
+    tester,
+  ) async {
+    final gateway = _ReachableGateway();
+    final container = await pumpSheet(
+      tester,
+      const AddAccountRequest(AccountKind.hermes),
+      overrides: [hermesConnectionGatewayProvider.overrideWithValue(gateway)],
+    );
+    gateway.container = container;
+    await tester.enterText(
+      find.byKey(const ValueKey<String>('hermes-server-url-field')),
+      'http://192.0.2.10:8642/v1',
+    );
+    await tester.enterText(
+      find.byKey(const ValueKey<String>('hermes-api-key-field')),
+      'lab-key',
+    );
+    await tester.pump();
+    final submit = find.byKey(const ValueKey<String>('hermes-sheet-submit'));
+
+    await tester.tap(submit);
+    await tester.pumpAndSettle();
+    expect(find.text('Send credentials without encryption?'), findsOne);
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
+    check(gateway.probes).equals(0);
+    check(container.read(hermesConnectionsProvider)).length.equals(1);
+
+    await tester.tap(submit);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Send without encryption'));
+    await tester.pumpAndSettle();
+
+    check(gateway.probes).equals(1);
+    final added = container
+        .read(hermesConnectionsProvider)
+        .singleWhere((connection) => connection.id != _home);
+    check(added.plainHttpConsentOrigin).equals('http://192.0.2.10:8642');
     expect(find.byType(AccountSheet), findsNothing);
   });
 

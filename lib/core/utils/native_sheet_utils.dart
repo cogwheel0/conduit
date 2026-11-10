@@ -509,7 +509,7 @@ NativeSheetDetailConfig buildNativeAccountsDetail(
             _nativeSwitchItem(
               id: '$nativeHermesUseActionId:${connection.id}',
               title: connection.name,
-              subtitle: hermesConnectionSummary(connection),
+              subtitle: hermesConnectionSummary(connection, l10n),
               sfSymbol: connection.mode == HermesBackendMode.desktopGateway
                   ? 'desktopcomputer'
                   : 'cloud',

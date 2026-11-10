@@ -469,7 +469,8 @@ void main() {
         '$nativeHermesUseActionId:hermes-laptop',
       );
       expect(laptop.checked, isFalse);
-      expect(laptop.subtitle, 'Desktop Gateway · 10.0.0.6');
+      // Plain HTTP to another machine: its credentials travel unencrypted.
+      expect(laptop.subtitle, 'Desktop Gateway · 10.0.0.6 · Not encrypted');
       expect(laptop.sfSymbol, 'desktopcomputer');
       expect(laptop.actionId, nativeHermesUseActionId);
       expect(laptop.actionValue, 'hermes-laptop');

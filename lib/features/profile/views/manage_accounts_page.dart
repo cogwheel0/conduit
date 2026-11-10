@@ -305,7 +305,7 @@ class _HermesCard extends ConsumerWidget {
           _HermesConnectionRow(
             key: Key('accounts-hermes-${connection.id}'),
             name: connection.name,
-            summary: hermesConnectionSummary(connection),
+            summary: hermesConnectionSummary(connection, l10n),
             desktop: connection.mode == HermesBackendMode.desktopGateway,
             inUse: enabled && connection.id == activeId,
             onTap: () => useHermesConnection(context, ref, connection.id),

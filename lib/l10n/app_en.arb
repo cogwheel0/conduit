@@ -9192,6 +9192,14 @@
   "@hermesDeleteConnectionFailed": {
     "description": "Error shown when a saved Hermes connection cannot be deleted."
   },
+  "hermesInsecureCredentialsMessage": "This server uses unencrypted HTTP. Your API key, sign-in tokens, and access headers could be read or changed on the network.",
+  "@hermesInsecureCredentialsMessage": {
+    "description": "Message of the dialog asking before a Hermes connection sends its credentials over plain HTTP to another device. Shown under directMcpInsecureCredentialsTitle."
+  },
+  "hermesNotEncrypted": "Not encrypted",
+  "@hermesNotEncrypted": {
+    "description": "Marker added to a Hermes connection's summary line when it sends credentials over plain HTTP to another device."
+  },
   "hermesSwitchConnectionFailed": "Could not switch to this connection.",
   "@hermesSwitchConnectionFailed": {
     "description": "Error shown when switching to another saved Hermes connection fails."

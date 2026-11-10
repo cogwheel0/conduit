@@ -304,8 +304,12 @@ void main() {
 
     expect(inCard('accounts-hermes', find.text('Hermes Agent')), findsOne);
     expect(inCard('accounts-hermes', find.text('Home agent')), findsOne);
+    // Plain HTTP to another machine: its credentials travel unencrypted.
     expect(
-      inCard('accounts-hermes', find.text('Desktop Gateway · 10.0.0.6')),
+      inCard(
+        'accounts-hermes',
+        find.text('Desktop Gateway · 10.0.0.6 · Not encrypted'),
+      ),
       findsOne,
     );
     expect(
