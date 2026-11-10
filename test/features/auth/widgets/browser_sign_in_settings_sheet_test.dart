@@ -213,7 +213,7 @@ void main() {
     testWidgets('asks to limit token exchange to this client', (tester) async {
       await openSheet(tester, initial: saved);
 
-      expect(inChecklist('OAUTH_TOKEN_EXCHANGE_TRUSTED_CLIENT_IDS'), findsOne);
+      expect(inChecklist('to include this client ID'), findsOne);
       expect(inChecklist('has no token introspection'), findsNothing);
     });
 
@@ -228,10 +228,12 @@ void main() {
         );
 
         expect(inChecklist('has no token introspection'), findsOne);
+        // The list is server-wide, and breaks this provider's exchanges.
         expect(
-          inChecklist('OAUTH_TOKEN_EXCHANGE_TRUSTED_CLIENT_IDS'),
-          findsNothing,
+          inChecklist('Leave OAUTH_TOKEN_EXCHANGE_TRUSTED_CLIENT_IDS unset'),
+          findsOne,
         );
+        expect(inChecklist('to include this client ID'), findsNothing);
       });
     }
 

@@ -2805,9 +2805,9 @@
   "@browserSignInChecklistTrustedClients": {
     "description": "Checklist item for providers that may support token introspection: limit token exchange to listed clients, and the risk without it. Keep the variable name untranslated."
   },
-  "browserSignInChecklistNoClientCheck": "This provider has no token introspection, so Open WebUI can't check which app a token was issued to: any app holding a user's token can exchange it for that user's Open WebUI session. Turn on token exchange only if you accept this.",
+  "browserSignInChecklistNoClientCheck": "Leave OAUTH_TOKEN_EXCHANGE_TRUSTED_CLIENT_IDS unset: this provider has no token introspection, so exchanges fail while it is set. Without it, Open WebUI can't check which app a token was issued to, so any app holding a user's token can exchange it for that user's Open WebUI session. Turn on token exchange only if you accept this.",
   "@browserSignInChecklistNoClientCheck": {
-    "description": "Checklist item for Google and Microsoft: token exchange can't be limited to listed clients, and the risk that comes with it."
+    "description": "Checklist item for Google and Microsoft: leave the trusted-client list unset, since it can't be used with them, and the risk that comes with it. Keep the variable name untranslated."
   },
   "browserSignInChecklistClaims": "If Open WebUI takes roles or groups from claims, give this client the same claims.",
   "@browserSignInChecklistClaims": {
@@ -2901,7 +2901,7 @@
   "@browserSignInErrorServerTooOld": {
     "description": "Browser sign-in error when the server has no token exchange."
   },
-  "browserSignInErrorCannotDetermineClient": "Open WebUI only accepts tokens from listed clients, and couldn't ask the identity provider which client issued this one. Use in-app sign-in, or ask an administrator to check the provider's token introspection.",
+  "browserSignInErrorCannotDetermineClient": "Open WebUI only accepts tokens issued to listed clients, and couldn't ask the identity provider which client this one was issued to. Use in-app sign-in, or ask an administrator to check the provider's token introspection.",
   "@browserSignInErrorCannotDetermineClient": {
     "description": "Browser sign-in error when Open WebUI only trusts listed clients and cannot identify this token's client."
   },

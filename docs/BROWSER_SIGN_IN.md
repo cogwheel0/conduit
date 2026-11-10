@@ -76,8 +76,15 @@ WebUI session. Open WebUI before 0.11 has no client check at all.
   issued to. The provider must let Open WebUI's client introspect tokens
   issued to Conduit's client.
 - **Google and Microsoft** have no introspection endpoint, so every exchange
-  fails while the list is set. Leave it unset only if you accept the risk
-  above. Otherwise keep token exchange off, and users sign in in-app.
+  with them fails while the list is set. Turn on token exchange for them only
+  if you accept the risk above. Otherwise users sign in in-app.
+- **The list covers every provider on the server.** A server that also signs
+  in with Google or Microsoft can't set it without breaking their exchanges.
+
+The list checks a client ID, not the app that holds the token. Conduit's
+client is public, so its ID is no secret: another app can run its own sign-in
+with it, and use the token it gets if the user signs in there. The list
+narrows which apps' tokens are accepted, but doesn't rule this out.
 
 ### Other checks on exchanged tokens
 
