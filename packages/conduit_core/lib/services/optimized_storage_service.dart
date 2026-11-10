@@ -309,7 +309,8 @@ class OptimizedStorageService {
   /// it could still be rolled back.
   ///
   /// Also told: sessions of accounts whose server moved, as a save of the
-  /// server configs drops them.
+  /// server configs drops them, and the live session a rollback that cannot
+  /// finish ends.
   ///
   /// Not told: a sign-out, the sweep, and [setServerBrowserSignIn], which
   /// return the sessions they end to their callers instead.
@@ -2755,14 +2756,15 @@ class OptimizedStorageService {
     } catch (_) {}
     await attempt(_deleteSavedCredentialsUnlocked);
     // The browser sign-in session that renewed the saved sign-in renews
-    // nothing now.
+    // nothing now. Nothing puts it back, so it is told as dropped.
     final browserSessionOwner = liveSignInOwner ?? activeServerId;
+    StoredBrowserSignInSession? droppedBrowserSession;
     if (browserSessionOwner != null) {
-      await attempt(
-        () => _secureCredentialStorage.deleteBrowserSignInSession(
+      await attempt(() async {
+        droppedBrowserSession = await _takeBrowserSessionUnlocked(
           browserSessionOwner,
-        ),
-      );
+        );
+      });
     }
     final sanitized = (
       registry: registry.registry.withoutCapturedHeaders(),
@@ -2782,6 +2784,7 @@ class OptimizedStorageService {
     // If that restore failed, whatever the commit wrote is still there.
     if (restoreConfigs) await attempt(_scrubServerConfigAuthArtifactsUnlocked);
     _sessionRevocationRevision++;
+    _notifyBrowserSessionsDropped([?droppedBrowserSession]);
     if (firstError != null) {
       Error.throwWithStackTrace(firstError!, firstStackTrace!);
     }
@@ -3937,11 +3940,12 @@ class OptimizedStorageService {
             }
             await _restoreVaultUnlocked(vaultUndo);
             // The source's browser sign-in session renewed the live session
-            // just ended; restored, it would renew nothing.
+            // just ended; restored, it would renew nothing. Nothing puts it
+            // back, so it is told as dropped.
             try {
-              await _secureCredentialStorage.deleteBrowserSignInSession(
-                source.id,
-              );
+              _notifyBrowserSessionsDropped([
+                ?await _takeBrowserSessionUnlocked(source.id),
+              ]);
             } catch (_) {}
             Error.throwWithStackTrace(
               ServerConfigSessionRollbackException(
