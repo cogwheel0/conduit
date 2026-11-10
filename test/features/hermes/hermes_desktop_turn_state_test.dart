@@ -874,6 +874,106 @@ void main() {
       ),
     ).length.equals(2);
   });
+
+  group('a held model switch, asked,', () {
+    Future<(_GatewayHarness, HermesDesktopApiService)> start(
+      HermesModelSwitchPrompt prompt,
+    ) async {
+      SharedPreferences.setMockInitialValues({});
+      PreferencesStore.debugOverride(await FlutterKeyValueStore.load());
+      final harness = _GatewayHarness();
+      final service = HermesDesktopApiService(
+        config: HermesConfig(
+          enabled: true,
+          baseUrl: 'https://hermes.example',
+          mode: HermesBackendMode.desktopGateway,
+          desktopCredentials: HermesDesktopCredentials(
+            legacyToken: 'session-token',
+          ),
+        ),
+        dio: _statusDio(),
+        rpc: HermesDesktopRpcClient(
+          channelFactory: (_, _, {httpClient}) => harness.channel,
+        ),
+        confirmModelSwitch: prompt,
+      );
+      addTearDown(() async {
+        service.close();
+        await harness.dispose();
+      });
+      harness.responder = (method) => switch (method) {
+        'session.resume' => {
+          'session_id': 'runtime-held',
+          'stored_session_id': 'stored-held',
+          'running': false,
+        },
+        'config.get' => {'value': 'medium'},
+        // Held until the switch comes back confirmed.
+        'config.set' =>
+          (harness.sent.last['params'] as Map)['confirm_expensive_model'] ==
+                  true
+              ? {'value': 'pricier-model'}
+              : {
+                  'confirm_required': true,
+                  'confirm_message': 'This model costs more per message.',
+                },
+        'prompt.submit' => const {'status': 'streaming'},
+        _ => const {},
+      };
+      return (harness, service);
+    }
+
+    Future<HermesResponseStream> send(HermesDesktopApiService service) =>
+        service.streamDesktopResponse(
+          HermesChatInput.text('hello'),
+          sessionId: 'stored-held',
+          options: const HermesDesktopSessionOptions(model: 'pricier-model'),
+        );
+
+    test('switches once confirmed, then sends', () async {
+      final asked = <HermesHeldModelSwitch>[];
+      final (harness, service) = await start((held) async {
+        asked.add(held);
+        return true;
+      });
+
+      await send(service);
+
+      check(asked.single.model).equals('pricier-model');
+      check(
+        asked.single.reason,
+      ).equals('This model costs more per message.');
+      final switches = harness.sent
+          .where(
+            (frame) =>
+                frame['method'] == 'config.set' &&
+                (frame['params'] as Map)['key'] == 'model',
+          )
+          .map((frame) => frame['params'] as Map)
+          .toList();
+      check(switches).length.equals(2);
+      check(switches.last['confirm_expensive_model']).equals(true);
+      check(
+        harness.sent.where((frame) => frame['method'] == 'prompt.submit'),
+      ).length.equals(1);
+    });
+
+    test('keeps the current model when declined, and sends nothing', () async {
+      final (harness, service) = await start((_) async => false);
+
+      await check(send(service)).throws<HermesModelSwitchDeclined>(
+        (it) => it.has((error) => error.model, 'model').equals('pricier-model'),
+      );
+
+      check(
+        harness.sent.where(
+          (frame) =>
+              (frame['params'] as Map?)?['confirm_expensive_model'] == true ||
+              frame['method'] == 'prompt.submit',
+        ),
+      ).isEmpty();
+    });
+  });
   // the gateway reports `session.info` asynchronously after a session is
   // created or resumed. An idle one that lands while `prompt.submit` is in
   // flight was replayed after the acknowledgement and ended the turn before

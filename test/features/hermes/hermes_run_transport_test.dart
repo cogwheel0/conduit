@@ -2992,6 +2992,41 @@ void main() {
     check(message.error?.content).equals('Synthetic held switch.');
   });
 
+  // The user's own choice: a note on the turn, not a failure, and the chat
+  // hears so it can give the message and the model back.
+  test('a model switch the user declined is a note, not an error', () async {
+    var message = ChatMessage(
+      id: 'm',
+      role: 'assistant',
+      content: '',
+      timestamp: DateTime.fromMillisecondsSinceEpoch(0),
+    );
+    final statuses = <ChatStatusUpdate>[];
+    final declined = <HermesModelSwitchDeclined>[];
+    const kept = HermesModelSwitchDeclined(
+      model: 'pricier-model',
+      previousModel: 'other-model',
+    );
+
+    await dispatchHermesTurn(
+      startTurn: (_) async => throw kept,
+      sensitiveValues: const [],
+      registry: HermesRunRegistry(),
+      assistantMessageId: message.id,
+      appendContent: (_) {},
+      appendStatus: statuses.add,
+      onModelSwitchDeclined: declined.add,
+      updateMessage: (updater) => message = updater(message),
+      finishStreaming: () {},
+      completeStreamingUi: () {},
+    );
+
+    check(message.error).isNull();
+    check(statuses.single.action).equals(kHermesRunNoticeAction);
+    check(statuses.single.description).equals(kept.message);
+    check(declined).deepEquals([kept]);
+  });
+
   test('a gateway that keeps restarting says so', () async {
     var message = ChatMessage(
       id: 'm',

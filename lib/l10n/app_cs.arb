@@ -6314,6 +6314,17 @@
   "hermesSwitchConnectionPromptMessage": "Relace Hermes tohoto chatu patří k připojení {name}. Přepněte, abyste v ní mohli pokračovat, nebo ponechte současné připojení a začněte novou relaci.",
   "hermesSwitchConnectionConfirm": "Přepnout",
   "hermesKeepCurrentConnection": "Ponechat současné",
+  "hermesModelSwitchConfirmTitle": "Přepnout na {model}?",
+  "@hermesModelSwitchConfirmTitle": {
+    "placeholders": {
+      "model": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesModelSwitchConfirmMessage": "Hermes před přepnutím tohoto chatu na tento model žádá o potvrzení.",
+  "hermesModelSwitchConfirmAction": "Přepnout a odeslat",
+  "hermesModelSwitchKeepCurrent": "Ponechat současný model",
   "accountsTitle": "Účty",
   "accountsAddAccount": "Přidat účet",
   "accountsManage": "Spravovat účty",

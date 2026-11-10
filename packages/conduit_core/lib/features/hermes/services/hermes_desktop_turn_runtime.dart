@@ -1028,13 +1028,21 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
     if (_canonical && selection.model != null) {
       // A session authority switches a session's model as a fenced edit;
       // it refuses `config.set model`.
-      _refuseHeldModelSwitch(
-        await _canonicalMutate(binding, 'model', {
-          'model': selection.model,
-          'provider': ?selection.provider,
-        }),
-        selection.model!,
-      );
+      final payload = <String, Object?>{
+        'model': selection.model,
+        'provider': ?selection.provider,
+      };
+      final result = await _canonicalMutate(binding, 'model', payload);
+      if (await _confirmHeldModelSwitch(binding, result, selection.model!)) {
+        // The owner wrote nothing: the same edit again, with its token.
+        _refuseHeldModelSwitch(
+          await _canonicalMutate(binding, 'model', {
+            ...payload,
+            'confirm': result['confirm'],
+          }),
+          selection.model!,
+        );
+      }
     }
     for (final option in <(String, Object?)>[
       if (!_canonical) ('model', modelSwitch),
@@ -1054,22 +1062,83 @@ extension _HermesDesktopTurnRuntime on HermesDesktopApiService {
           ...scope,
         },
       );
-      if (option.$1 == 'model') {
-        _refuseHeldModelSwitch(_object(set), selection.model ?? '');
+      if (option.$1 == 'model' &&
+          await _confirmHeldModelSwitch(
+            binding,
+            _object(set),
+            selection.model ?? '',
+          )) {
+        _refuseHeldModelSwitch(
+          _object(
+            await _rpc.request<Object?>(
+              'config.set',
+              params: {
+                'session_id': binding.runtimeId,
+                'key': option.$1,
+                'value': option.$2,
+                'confirm_expensive_model': true,
+                ...scope,
+              },
+            ),
+          ),
+          selection.model ?? '',
+        );
       }
     }
     _appliedSessionOptions[binding.storedId] = fingerprint;
+    final model = selection.model;
+    if (model != null) {
+      _appliedSessionModels[binding.storedId] = (
+        model: model,
+        provider: selection.provider,
+      );
+    }
   }
+
+  /// Whether Hermes held the switch to [model] that [result] answers, and
+  /// the user, asked, confirmed it: the caller sends it again, confirmed.
+  /// Not held, it resolves false. Kept, it throws [HermesModelSwitchDeclined];
+  /// with nobody to ask, the held switch is refused as before.
+  Future<bool> _confirmHeldModelSwitch(
+    HermesSessionBinding binding,
+    Map<String, dynamic> result,
+    String model,
+  ) async {
+    if (!_isHeldModelSwitch(result)) return false;
+    final prompt = _confirmModelSwitch;
+    if (prompt == null) _refuseHeldModelSwitch(result, model);
+    String? text(Object? value, int maxCharacters) {
+      final bounded = validateHermesBoundedString(
+        value,
+        maxCharacters: maxCharacters,
+      )?.trim();
+      return bounded == null || bounded.isEmpty ? null : bounded;
+    }
+
+    final held = HermesHeldModelSwitch(
+      model: text(result['target_model'], 200) ?? model,
+      provider: text(result['target_provider'], 200),
+      reason: text(result['confirm_message'], 400),
+    );
+    if (await prompt!(held)) return true;
+    final previous = _appliedSessionModels[binding.storedId];
+    throw HermesModelSwitchDeclined(
+      model: held.model,
+      previousModel: previous?.model,
+      previousProvider: previous?.provider,
+    );
+  }
+
+  static bool _isHeldModelSwitch(Map<String, dynamic> result) =>
+      result['confirm_required'] == true ||
+      result['status'] == 'confirmation_required';
 
   /// Throws when Hermes held the switch to [model] for the user's
   /// confirmation (`confirm_required`, or a session authority's
   /// `confirmation_required`): the chat is still on its old model, so the
   /// options stay unapplied and nothing is sent on the wrong model.
   void _refuseHeldModelSwitch(Map<String, dynamic> result, String model) {
-    if (result['confirm_required'] != true &&
-        result['status'] != 'confirmation_required') {
-      return;
-    }
+    if (!_isHeldModelSwitch(result)) return;
     final reason = validateHermesBoundedString(
       result['confirm_message'],
       maxCharacters: 400,

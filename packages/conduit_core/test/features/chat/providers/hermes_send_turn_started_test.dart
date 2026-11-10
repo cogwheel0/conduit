@@ -125,6 +125,68 @@ final class _NoNewSessionDesktopApi extends HermesApiService
   }
 }
 
+/// A Desktop Gateway whose turn the user kept off a held model switch.
+final class _DeclinedSwitchDesktopApi extends HermesApiService
+    implements HermesDesktopTurnService {
+  _DeclinedSwitchDesktopApi()
+    : super(
+        config: const HermesConfig(
+          enabled: true,
+          baseUrl: 'https://hermes.example',
+          apiKey: 'key',
+        ),
+        dio: Dio(),
+      );
+
+  @override
+  Future<List<Map<String, dynamic>>> getCurrentSessionMessages(
+    String id,
+  ) async => const [];
+
+  @override
+  Future<String> createDesktopSession({
+    String? title,
+    required HermesDesktopSessionOptions options,
+    CancelToken? cancelToken,
+  }) async => 'session-1';
+
+  @override
+  Future<HermesResponseStream> streamDesktopResponse(
+    HermesChatInput input, {
+    String? sessionId,
+    required HermesDesktopSessionOptions options,
+    CancelToken? cancelToken,
+    String? voiceContext,
+    int? truncateBeforeRowId,
+    int? truncateSeenThroughRowId,
+  }) async => throw const HermesModelSwitchDeclined(
+    model: 'pricier-model',
+    previousModel: 'other-model',
+    previousProvider: 'synthetic-provider',
+  );
+}
+
+final _pricierModel = hermesDesktopModel(
+  modelId: 'pricier-model',
+  name: 'Pricier',
+  provider: 'synthetic-provider',
+);
+final _otherModel = hermesDesktopModel(
+  modelId: 'other-model',
+  name: 'Other',
+  provider: 'synthetic-provider',
+);
+
+final class _HermesModels extends Models {
+  @override
+  Future<List<Model>> build() async => [_pricierModel, _otherModel];
+}
+
+final class _SelectedPricierModel extends SelectedModel {
+  @override
+  Model build() => _pricierModel;
+}
+
 final class _SelectedHermesModel extends SelectedModel {
   @override
   Model build() => hermesSyntheticModel();
@@ -247,5 +309,44 @@ void main() {
 
     check(service.turns).equals(0);
     check(steps).deepEquals(['placeholder']);
+  });
+
+  // Kept on its model over a switch Hermes held, the chat had sent nothing:
+  // its words go back to the composer, and its picker to the model the
+  // session is on, so sending again stays there.
+  test('a Hermes send kept off a held switch gives its words and model back',
+      () async {
+    final container = ProviderContainer(
+      overrides: [
+        openWebUiDatabaseAccessProvider.overrideWith(_OpenDatabaseAccess.new),
+        appDatabaseProvider.overrideWith((ref) {
+          final database = AppDatabase(NativeDatabase.memory());
+          ref.onDispose(() => unawaited(database.close()));
+          return database;
+        }),
+        apiServiceProvider.overrideWithValue(null),
+        socketServiceProvider.overrideWithValue(null),
+        hermesConfigProvider.overrideWith(_FixedHermesConfig.new),
+        hermesApiServiceProvider.overrideWithValue(
+          _DeclinedSwitchDesktopApi(),
+        ),
+        modelsProvider.overrideWith(_HermesModels.new),
+        selectedModelProvider.overrideWith(_SelectedPricierModel.new),
+        reviewerModeProvider.overrideWithValue(false),
+        webSearchEnabledProvider.overrideWith(_NoWebSearch.new),
+        imageGenerationEnabledProvider.overrideWith(_NoImageGeneration.new),
+        codeInterpreterEnabledProvider.overrideWith(_NoCodeInterpreter.new),
+      ],
+    );
+    addTearDown(container.dispose);
+    container.read(hermesConfigProvider);
+    await container.read(modelsProvider.future);
+
+    await durableSend(container, 'Remove the scratch folder', null);
+
+    check(
+      container.read(composerTextInsertionProvider)?.text,
+    ).equals('Remove the scratch folder');
+    check(container.read(selectedModelProvider)).identicalTo(_otherModel);
   });
 }

@@ -155,6 +155,52 @@ final class HermesModelSwitchHeld implements Exception {
   String toString() => message;
 }
 
+/// A model switch Hermes holds for the user's confirmation, as the chat asks
+/// about it: the target, and Hermes' own reason (the guard's warning).
+final class HermesHeldModelSwitch {
+  const HermesHeldModelSwitch({
+    required this.model,
+    this.provider,
+    this.reason,
+  });
+
+  final String model;
+  final String? provider;
+
+  /// Hermes' explanation, bounded; null when it gave none.
+  final String? reason;
+}
+
+/// Asks the user whether to switch the chat to a model Hermes holds for
+/// confirmation and send the waiting message. Resolves false to keep the
+/// chat's current model.
+typedef HermesModelSwitchPrompt =
+    Future<bool> Function(HermesHeldModelSwitch held);
+
+/// The user kept the chat's current model when Hermes held a switch for
+/// their confirmation: nothing was sent. [previousModel] and
+/// [previousProvider] are the selection this app last applied to the
+/// session, when it applied one, so the chat's picker can return to it.
+final class HermesModelSwitchDeclined implements Exception {
+  const HermesModelSwitchDeclined({
+    required this.model,
+    this.previousModel,
+    this.previousProvider,
+  });
+
+  /// The model the user kept the chat from switching to.
+  final String model;
+  final String? previousModel;
+  final String? previousProvider;
+
+  String get message =>
+      'Kept the current model instead of switching to $model. Nothing was '
+      'sent; your message is back in the composer.';
+
+  @override
+  String toString() => message;
+}
+
 /// Hermes rejected a steer without saying whether the running turn already
 /// saw it (an acknowledgement that timed out after delivery). It is not
 /// sent again, since the agent may have it: the user decides.

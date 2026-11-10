@@ -2201,6 +2201,20 @@ Future<void> _dispatchRegisteredHermesRunFromChat(
             .read(composerTextInsertionProvider.notifier)
             .insert(targetId: chatComposerTextInsertionTargetId, text: text);
       },
+      // Kept on its model, the chat gets its message back to send there,
+      // and its picker back to that model.
+      onModelSwitchDeclined: (declined) {
+        if (!owner.isActive(ref)) return;
+        ref
+            .read(composerTextInsertionProvider.notifier)
+            .insert(targetId: chatComposerTextInsertionTargetId, text: input);
+        final kept = hermesModelKeptOverSwitch(
+          ref.read(modelsProvider).value ?? const <Model>[],
+          previousModel: declined.previousModel,
+          previousProvider: declined.previousProvider,
+        );
+        if (kept != null) ref.read(selectedModelProvider.notifier).set(kept);
+      },
       updateMessage: updateProjectedMessage,
       finishStreaming: finishOwned,
       completeStreamingUi: completeStreamingUiOwned,

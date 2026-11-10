@@ -9232,6 +9232,28 @@
   "@hermesKeepCurrentConnection": {
     "description": "Button that keeps the current Hermes connection instead of switching."
   },
+  "hermesModelSwitchConfirmTitle": "Switch to {model}?",
+  "@hermesModelSwitchConfirmTitle": {
+    "description": "Title of the dialog asking whether to switch a Hermes chat to a model Hermes holds for confirmation (a pricier, data-sharing or smaller-context model) and send the waiting message.",
+    "placeholders": {
+      "model": {
+        "type": "String",
+        "example": "pricier-model"
+      }
+    }
+  },
+  "hermesModelSwitchConfirmMessage": "Hermes asks for a confirmation before switching this chat to that model.",
+  "@hermesModelSwitchConfirmMessage": {
+    "description": "Message of that dialog when Hermes gave no reason of its own."
+  },
+  "hermesModelSwitchConfirmAction": "Switch and Send",
+  "@hermesModelSwitchConfirmAction": {
+    "description": "Button that confirms the model switch and sends the waiting message."
+  },
+  "hermesModelSwitchKeepCurrent": "Keep Current Model",
+  "@hermesModelSwitchKeepCurrent": {
+    "description": "Button that keeps the chat's current model; the message goes back to the composer unsent."
+  },
   "accountsTitle": "Accounts",
   "@accountsTitle": {
     "description": "Heading of the list of saved Open WebUI accounts on the profile page and of the page that manages them."

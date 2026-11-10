@@ -312,6 +312,7 @@ HermesDesktopApiService _service(
   HermesDesktopAuthKind authKind = HermesDesktopAuthKind.legacyToken,
   List<Duration> retryDelays = const [Duration.zero],
   String legacyToken = 'session-token',
+  HermesModelSwitchPrompt? confirmModelSwitch,
 }) {
   final service = HermesDesktopApiService(
     config: HermesConfig(
@@ -329,6 +330,7 @@ HermesDesktopApiService _service(
     ),
     gatewayStartRetryDelays: retryDelays,
     receiptRetryDelays: const [Duration.zero, Duration.zero],
+    confirmModelSwitch: confirmModelSwitch,
   );
   addTearDown(() async {
     service.close();
@@ -1097,6 +1099,129 @@ void main() {
         (params) => params['operation'] == 'model',
       ),
     ).length.equals(2);
+  });
+
+  group('a model switch held for a confirmation, asked', () {
+    /// Holds a switch to `pricier-model` until it carries the token, unless
+    /// [holdAgain] (the session changed before the confirmation landed).
+    _Authority holding({bool holdAgain = false}) {
+      final gateway = _Authority();
+      gateway.handler = (method, params) {
+        final payload = params['payload'];
+        if (method == 'session.mutate' &&
+            params['operation'] == 'model' &&
+            payload is Map &&
+            payload['model'] == 'pricier-model' &&
+            (holdAgain || payload['confirm'] != 'confirm-token-1')) {
+          return {
+            'session_id': params['session_id'],
+            'operation': 'model',
+            'status': 'confirmation_required',
+            'confirm': 'confirm-token-1',
+            'target_model': 'pricier-model',
+            'target_provider': 'synthetic-provider',
+            'confirm_message': 'This model costs more per message.',
+            'revision': gateway.revision,
+            'execution_generation': gateway.generation,
+          };
+        }
+        return gateway.defaults(method, params);
+      };
+      return gateway;
+    }
+
+    Future<HermesResponseStream> send(
+      HermesDesktopApiService service,
+      String model,
+    ) => service.streamDesktopResponse(
+      HermesChatInput.text('hello'),
+      sessionId: 'local-1',
+      options: HermesDesktopSessionOptions(
+        model: model,
+        provider: 'synthetic-provider',
+      ),
+    );
+
+    test('switches once confirmed, then sends', () async {
+      final gateway = holding();
+      final asked = <HermesHeldModelSwitch>[];
+      final service = _service(
+        gateway,
+        confirmModelSwitch: (held) async {
+          asked.add(held);
+          return true;
+        },
+      );
+      await service.createDesktopSession();
+
+      await send(service, 'pricier-model');
+
+      check(asked).length.equals(1);
+      check(asked.single.model).equals('pricier-model');
+      check(asked.single.provider).equals('synthetic-provider');
+      check(
+        asked.single.reason,
+      ).equals('This model costs more per message.');
+      final switches = gateway
+          .calls('session.mutate')
+          .where((params) => params['operation'] == 'model')
+          .map((params) => params['payload'] as Map)
+          .toList();
+      check(switches.last).deepEquals({
+        'model': 'pricier-model',
+        'provider': 'synthetic-provider',
+        'confirm': 'confirm-token-1',
+      });
+      check(gateway.calls('prompt.submit')).length.equals(1);
+    });
+
+    test('keeps the current model when declined, and sends nothing', () async {
+      final gateway = holding();
+      final service = _service(
+        gateway,
+        confirmModelSwitch: (_) async => false,
+      );
+      await service.createDesktopSession();
+      // A model this app applied before: the chat returns to it.
+      await send(service, 'other-model');
+      final submitted = gateway.calls('prompt.submit').length;
+
+      await check(send(service, 'pricier-model')).throws<
+        HermesModelSwitchDeclined
+      >(
+        (it) => it
+          ..has((error) => error.model, 'model').equals('pricier-model')
+          ..has(
+            (error) => error.previousModel,
+            'previousModel',
+          ).equals('other-model')
+          ..has(
+            (error) => error.previousProvider,
+            'previousProvider',
+          ).equals('synthetic-provider'),
+      );
+
+      check(gateway.calls('prompt.submit')).length.equals(submitted);
+      check(
+        gateway
+            .calls('session.mutate')
+            .where((params) => (params['payload'] as Map?)?['confirm'] != null),
+      ).isEmpty();
+    });
+
+    test('refuses as before when held again once confirmed', () async {
+      final gateway = holding(holdAgain: true);
+      final service = _service(
+        gateway,
+        confirmModelSwitch: (_) async => true,
+      );
+      await service.createDesktopSession();
+
+      await check(
+        send(service, 'pricier-model'),
+      ).throws<HermesModelSwitchHeld>();
+      check(gateway.calls('prompt.submit')).isEmpty();
+    });
   });
 
   test('a create that retries a lost one is that create alone', () async {

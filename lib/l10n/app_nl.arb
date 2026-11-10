@@ -4391,6 +4391,17 @@
   "hermesSwitchConnectionPromptMessage": "De Hermes-sessie van deze chat hoort bij {name}. Schakel over om verder te gaan, of houd de huidige verbinding om een nieuwe sessie te starten.",
   "hermesSwitchConnectionConfirm": "Overschakelen",
   "hermesKeepCurrentConnection": "Huidige houden",
+  "hermesModelSwitchConfirmTitle": "Overschakelen naar {model}?",
+  "@hermesModelSwitchConfirmTitle": {
+    "placeholders": {
+      "model": {
+        "type": "String"
+      }
+    }
+  },
+  "hermesModelSwitchConfirmMessage": "Hermes vraagt om een bevestiging voordat deze chat naar dat model overschakelt.",
+  "hermesModelSwitchConfirmAction": "Overschakelen en verzenden",
+  "hermesModelSwitchKeepCurrent": "Huidig model houden",
   "accountsTitle": "Accounts",
   "accountsAddAccount": "Account toevoegen",
   "accountsManage": "Accounts beheren",
