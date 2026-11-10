@@ -7209,10 +7209,6 @@
   "@sidebarHermesTab": {
     "description": "Compact label for the Hermes sidebar tab."
   },
-  "sidebarBackendSwitcher": "Backend",
-  "@sidebarBackendSwitcher": {
-    "description": "Screen reader name of the sliding sidebar's switch between chat backends (Open WebUI, Hermes). Its value is the selected backend's name, so this names only the control."
-  },
   "markdownShowMoreLines": "{count, plural, =1{Show 1 More Line} other{Show {count} More Lines}}",
   "@markdownShowMoreLines": {"description":"Action that expands a collapsed Markdown code block.","placeholders":{"count":{"type":"int","example":"12"}}},
   "markdownShowLess": "Show Less",

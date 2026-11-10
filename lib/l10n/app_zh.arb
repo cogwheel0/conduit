@@ -3496,7 +3496,6 @@
   "hermesSteerUncertain": "Hermes 未确认你的引导。再次发送引导前请先查看回复。",
   "hermesTurnControlsUnsupported": "请升级 Hermes 以启用安全的轮次控制。",
   "sidebarHermesTab": "Hermes",
-  "sidebarBackendSwitcher": "后端",
   "markdownShowMoreLines": "再显示 {count} 行",
   "@markdownShowMoreLines": {"placeholders":{"count":{"type":"int"}}},
   "markdownShowLess": "收起",

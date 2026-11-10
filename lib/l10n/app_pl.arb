@@ -7111,7 +7111,6 @@
   "hermesSteerUncertain": "Hermes nie potwierdził instrukcji. Sprawdź odpowiedź, zanim ponownie wyślesz instrukcję.",
   "hermesTurnControlsUnsupported": "Zaktualizuj Hermes, aby włączyć bezpieczne sterowanie turą.",
   "sidebarHermesTab": "Hermes",
-  "sidebarBackendSwitcher": "Backend",
   "@sidebarHermesTab": {
     "description": "Compact label for the Hermes sidebar tab."
   },

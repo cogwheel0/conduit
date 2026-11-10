@@ -116,6 +116,8 @@ void main() {
         'message': 'Its entries go with it.',
         'cancelLabel': 'Keep',
         'isDark': true,
+        // The sheet follows the app's text direction, not the system's.
+        'rtl': false,
         'actions': [
           {'label': 'Remove', 'destructive': true, 'enabled': true},
         ],

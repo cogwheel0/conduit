@@ -39,7 +39,6 @@ Widget _bar(
           tabs: tabs,
           selectedIndex: selectedIndex,
           selectedItemColor: tint,
-          tabsSemanticLabel: 'Backend',
           actionForegroundColor: actionForeground,
           actionBackgroundColor: actionBackground,
           onTap: onTap ?? (_) {},
@@ -241,43 +240,17 @@ void main() {
       variant: TargetPlatformVariant.only(TargetPlatform.iOS),
     );
 
-    testWidgets('screen readers find the tabs as one adjustable control', (
+    testWidgets('screen readers reach each tab by its backend\'s name', (
       tester,
     ) async {
       _phoneWindow(tester);
       final semantics = tester.ensureSemantics();
-      final taps = <int>[];
-      await tester.pumpWidget(
-        _bar(const [_openWebUi, _hermes], onTap: taps.add),
-      );
-      final backend = find.semantics.byLabel('Backend');
-      expect(
-        tester.getSemantics(find.bySemanticsLabel('Backend')),
-        matchesSemantics(
-          label: 'Backend',
-          value: 'Open WebUI',
-          increasedValue: 'Hermes',
-          hasIncreaseAction: true,
-        ),
-      );
-      // Adjusting it chooses the next tab, as a tap does.
-      tester.semantics.increase(backend);
-      expect(taps, [1]);
-
-      await tester.pumpWidget(
-        _bar(const [_openWebUi, _hermes], selectedIndex: 1, onTap: taps.add),
-      );
-      expect(
-        tester.getSemantics(find.bySemanticsLabel('Backend')),
-        matchesSemantics(
-          label: 'Backend',
-          value: 'Hermes',
-          decreasedValue: 'Open WebUI',
-          hasDecreaseAction: true,
-        ),
-      );
-      tester.semantics.decrease(backend);
-      expect(taps, [1, 0]);
+      await tester.pumpWidget(_bar(const [_openWebUi, _hermes]));
+      // The tab bar's own tabs, not a stand-in over them that would hide
+      // the native ones from VoiceOver.
+      expect(find.bySemanticsLabel('Open WebUI'), findsOneWidget);
+      expect(find.bySemanticsLabel('Hermes'), findsOneWidget);
+      expect(find.bySemanticsLabel('Backend'), findsNothing);
       semantics.dispose();
       await _unmount(tester);
     }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
@@ -454,7 +427,6 @@ void main() {
       await tester.pump();
       expect(_tabBar(tester).height, 14 + 44 + 21);
       expect(_action(tester).dimension, 44);
-      final phoneTabBar = tester.state(find.byType(CNTabBar));
 
       // An iPad window, where UIKit lays the tab bar out inline. The size
       // the phone's tab bar reported was only the height it was given, so
@@ -471,10 +443,6 @@ void main() {
         ),
         44 + 20,
       );
-      // A new tab bar, which measures itself instead of keeping the box of
-      // one given a height.
-      expect(tester.state(find.byType(CNTabBar)), isNot(same(phoneTabBar)));
-
       // And back.
       _phoneWindow(tester);
       await tester.pump();

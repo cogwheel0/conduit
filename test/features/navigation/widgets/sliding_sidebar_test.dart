@@ -704,8 +704,12 @@ void main() {
     );
     final theme = tester.element(bar).conduitTheme;
 
-    // Icons only; screen readers get the names from one adjustable control.
+    // Icons only; screen readers read each tab by its backend's name.
     expect([for (final item in tabBar().items) item.label], [null, null]);
+    expect(
+      [for (final item in tabBar().items) item.semanticLabel],
+      ['Open WebUI', 'Hermes'],
+    );
     expect(
       [for (final item in tabBar().items) item.imageAsset?.assetPath],
       ['assets/icons/open_webui_tab.png', 'assets/icons/hermes_agent.png'],
@@ -752,21 +756,6 @@ void main() {
     await tester.pump();
     expect(container.read(sidebarHistoryTabProvider), SidebarTabId.hermes);
     expect(haptics, hasLength(1));
-    // Screen readers adjust the backend, which switches as a tap does.
-    expect(
-      tester.getSemantics(find.bySemanticsLabel('Backend')),
-      matchesSemantics(
-        label: 'Backend',
-        value: 'Hermes',
-        decreasedValue: 'Open WebUI',
-        hasDecreaseAction: true,
-      ),
-    );
-    tester.semantics.decrease(find.semantics.byLabel('Backend'));
-    await tester.pump();
-    expect(container.read(sidebarHistoryTabProvider), SidebarTabId.chats);
-    expect(tabBar().currentIndex, 0);
-    expect(haptics, hasLength(2));
     // New Chat stays the action of the Hermes history, outside the tabs.
     expect(tabBar().items, hasLength(2));
     expect(

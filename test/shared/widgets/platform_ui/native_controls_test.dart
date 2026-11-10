@@ -267,6 +267,81 @@ void main() {
     }
   }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
 
+  testWidgets('an iOS 26 slider reports only a touch that changes its value', (
+    tester,
+  ) async {
+    final reports = <String>[];
+    await tester.pumpWidget(
+      host(
+        SizedBox(
+          width: 300,
+          child: AdaptiveSlider(
+            value: 0.3,
+            onChangeStart: (value) => reports.add('start:$value'),
+            onChanged: (value) => reports.add('change:$value'),
+            onChangeEnd: (value) => reports.add('end:$value'),
+          ),
+        ),
+      ),
+    );
+    CNSlider slider() => tester.widget<CNSlider>(find.byType(CNSlider));
+    // UIKit reports the start and end of a touch that moved nothing.
+    slider().onChangeStart!(0.3);
+    slider().onChangeEnd!(0.3);
+    expect(reports, isEmpty);
+
+    slider().onChangeStart!(0.3);
+    slider().onChanged(0.6);
+    slider().onChanged(0.7);
+    slider().onChangeEnd!(0.7);
+    expect(reports, ['start:0.3', 'change:0.6', 'change:0.7', 'end:0.7']);
+
+    // VoiceOver adjusts it without a touch.
+    reports.clear();
+    slider().onChanged(0.8);
+    expect(reports, ['change:0.8']);
+  }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
+
+  for (final native in [true, false]) {
+    for (final direction in TextDirection.values) {
+      testWidgets('a tap anywhere on an iOS slider that seeks on tap moves it '
+          'there, onto a step (native: $native, ${direction.name})', (
+        tester,
+      ) async {
+        PlatformUiCapabilities.debugIOSMajorVersionOverride = native ? 27 : 18;
+        PlatformUiCapabilities.debugNativeIOS26Override = native;
+        final reports = <String>[];
+        await tester.pumpWidget(
+          host(
+            Directionality(
+              textDirection: direction,
+              child: SizedBox(
+                width: 300,
+                child: AdaptiveSlider(
+                  value: 0,
+                  max: 10,
+                  divisions: 10,
+                  seekOnTap: true,
+                  onChangeStart: (value) => reports.add('start:$value'),
+                  onChanged: (value) => reports.add('change:$value'),
+                  onChangeEnd: (value) => reports.add('end:$value'),
+                ),
+              ),
+            ),
+          ),
+        );
+        // Far from the thumb, at the start, where a Cupertino slider would
+        // not answer and UIKit's would only follow a drag.
+        final track = tester.getRect(find.byType(AdaptiveSlider));
+        final along = direction == TextDirection.ltr ? .68 : .32;
+        await tester.tapAt(
+          Offset(track.left + track.width * along, track.center.dy),
+        );
+        expect(reports, ['start:0.0', 'change:7.0', 'end:7.0']);
+      }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
+    }
+  }
+
   for (final native in [true, false]) {
     testWidgets('segmented controls carry their field name (native: $native)', (
       tester,
